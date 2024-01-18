@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -457,7 +458,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
-	done := make(chan struct{})
+	wg := sync.WaitGroup{}
+	wg.Add(1)
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		/* transaction updating no rows */
@@ -469,10 +471,11 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
 		`, srcTableName, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Executed a transaction touching toast columns")
-		done <- struct{}{}
+		wg.Done()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	wg.Wait()
 
 	// Verify workflow completes without error
 	require.True(s.t, env.IsWorkflowCompleted())
@@ -482,7 +485,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	e2e.RequireEqualTables(s, dstTableName, "id,t1,t2,k")
-	<-done
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
@@ -706,7 +708,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		c14 INET,c15 INTEGER,c16 INTERVAL,c17 JSON,c18 JSONB,c21 MACADDR,c22 MONEY,
 		c23 NUMERIC,c24 OID,c28 REAL,c29 SMALLINT,c30 SMALLSERIAL,c31 SERIAL,c32 TEXT,
 		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ,c37 TSQUERY,c38 TSVECTOR,
-		c39 TXID_SNAPSHOT,c40 UUID,c41 XML, c42 INT[], c43 FLOAT[], c44 TEXT[], c45 mood, c46 HSTORE);
+		c39 TXID_SNAPSHOT,c40 UUID,c41 XML, c42 INT[], c43 FLOAT[], c44 TEXT[], c45 mood, c46 HSTORE,
+		c47 DATE[], c48 TIMESTAMPTZ[], c49 TIMESTAMP[], c50 BOOLEAN[], c51 SMALLINT[]);
 	`, srcTableName))
 	require.NoError(s.t, err)
 
@@ -743,7 +746,12 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		ARRAY[10299301,2579827],
 		ARRAY[0.0003, 8902.0092],
 		ARRAY['hello','bye'],'happy',
-		'key1=>value1, key2=>NULL'::hstore
+		'key1=>value1, key2=>NULL'::hstore,
+		'{2020-01-01, 2020-01-02}'::date[],
+		'{"2020-01-01 01:01:01+00", "2020-01-02 01:01:01+00"}'::timestamptz[],
+		'{"2020-01-01 01:01:01", "2020-01-02 01:01:01"}'::timestamp[],
+		'{true, false}'::boolean[],
+		'{1, 2}'::smallint[];
 		`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 	}()
@@ -761,7 +769,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		"c41", "c1", "c2", "c3", "c4",
 		"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
 		"c21", "c22", "c23", "c24", "c28", "c29", "c30", "c31", "c33", "c34", "c35", "c36",
-		"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46",
+		"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46", "c47", "c48",
+		"c49", "c50", "c51",
 	})
 	if err != nil {
 		s.t.Log(err)

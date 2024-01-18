@@ -14,7 +14,7 @@ chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"
 peer-cursor = { path = "../peer-cursor" }
 peer-connections = { path = "../peer-connections" }
-pgwire = "0.18"
+pgwire.workspace = true
 postgres-connection = { path = "../postgres-connection" }
 pt = { path = "../pt" }
 serde = { version = "1.0", features = ["derive"] }

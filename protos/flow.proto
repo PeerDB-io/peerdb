@@ -35,51 +35,38 @@ message SetupInput {
 }
 
 message FlowConnectionConfigs {
-  peerdb_peers.Peer source = 1;
-  peerdb_peers.Peer destination = 2;
-  string flow_job_name = 3;
-  TableSchema table_schema = 4;
-  repeated TableMapping table_mappings = 5;
-  map<uint32, string> src_table_id_name_mapping = 6;
-  map<string, TableSchema> table_name_schema_mapping = 7;
+  string flow_job_name = 1;
 
-  // This is an optional peer that will be used to hold metadata in cases where
-  // the destination isn't ideal for holding metadata.
-  peerdb_peers.Peer metadata_peer = 8;
-  uint32 max_batch_size = 9;
-  bool do_initial_copy = 10;
+  // source and destination peer
+  peerdb_peers.Peer source = 2;
+  peerdb_peers.Peer destination = 3;
 
-  string publication_name = 11;
-  uint32 snapshot_num_rows_per_partition = 12;
+  // config for the CDC flow itself
+  // currently, MaxBatchSize and IdleTimeoutSeconds are dynamic via Temporal signals
+  repeated TableMapping table_mappings = 4;
+  uint32 max_batch_size = 5;
+  uint64 idle_timeout_seconds = 6;
+  string cdc_staging_path = 7;
+  string publication_name = 8;
+  string replication_slot_name = 9;
 
+  // config for the initial load feature, along with interactions like resync and initial_snapshot_only
+  bool do_initial_snapshot = 10;
+  uint32 snapshot_num_rows_per_partition = 11;
+  string snapshot_staging_path = 12;
   // max parallel workers is per table
   uint32 snapshot_max_parallel_workers = 13;
   uint32 snapshot_num_tables_in_parallel = 14;
-  QRepSyncMode snapshot_sync_mode = 15;
-  QRepSyncMode cdc_sync_mode = 16;
-  string snapshot_staging_path = 17;
-  string cdc_staging_path = 18;
-
-  // currently only works for snowflake
-  bool soft_delete = 19;
-
-  string replication_slot_name = 20;
-
-  // the below two are for eventhub only
-  int64 push_batch_size = 21;
-  int64 push_parallelism = 22;
-
   // if true, then the flow will be resynced
   // create new tables with "_resync" suffix, perform initial load and then swap the new tables with the old ones
-  // to be used after the old mirror is dropped
-  bool resync = 23;
+  // to only be used after the old mirror is dropped
+  bool resync = 15;
+  bool initial_snapshot_only = 16;
 
-  string soft_delete_col_name = 24;
-  string synced_at_col_name = 25;
-
-  bool initial_copy_only = 26;
-
-  int64 idle_timeout_seconds = 27;
+  // configurations for soft delete and synced at columns, affects both initial snapshot and CDC
+  bool soft_delete = 17;
+  string soft_delete_col_name = 18;
+  string synced_at_col_name = 19;
 }
 
 message RenameTableOption {
@@ -111,18 +98,19 @@ message CreateTablesFromExistingOutput {
 }
 
 message SyncFlowOptions {
-  int32 batch_size = 1;
+  uint32 batch_size = 1;
   map<uint32, RelationMessage> relation_message_mapping = 2;
-  int64 idle_timeout_seconds = 3;
+  uint64 idle_timeout_seconds = 3;
+  map<uint32, string> src_table_id_name_mapping = 4;
+  map<string, TableSchema> table_name_schema_mapping = 5;
 }
 
 message NormalizeFlowOptions {
-  int32 batch_size = 1;
+  map<string, TableSchema> table_name_schema_mapping = 1;
 }
 
 message LastSyncState {
   int64 checkpoint = 1;
-  google.protobuf.Timestamp last_synced_at = 2;
 }
 
 message StartFlowInput {
@@ -130,21 +118,18 @@ message StartFlowInput {
   FlowConnectionConfigs flow_connection_configs = 2;
   SyncFlowOptions sync_flow_options = 3;
   map<uint32, RelationMessage> relation_message_mapping = 4;
+  map<uint32, string> src_table_id_name_mapping = 5;
+  map<string, TableSchema> table_name_schema_mapping = 6;
 }
 
 message StartNormalizeInput {
   FlowConnectionConfigs flow_connection_configs = 1;
+  map<string, TableSchema> table_name_schema_mapping = 2;
 }
 
 message GetLastSyncedIDInput {
   peerdb_peers.Peer peer_connection_config = 1;
   string flow_job_name = 2;
-}
-
-message EnsurePullabilityInput {
-  peerdb_peers.Peer peer_connection_config = 1;
-  string flow_job_name = 2;
-  string source_table_identifier = 3;
 }
 
 message EnsurePullabilityBatchInput {
@@ -157,18 +142,8 @@ message PostgresTableIdentifier {
   uint32 rel_id = 1;
 }
 
-message TableIdentifier {
-  oneof table_identifier {
-    PostgresTableIdentifier postgres_table_identifier = 1;
-  }
-}
-
-message EnsurePullabilityOutput {
-  TableIdentifier table_identifier = 1;
-}
-
 message EnsurePullabilityBatchOutput {
-  map<string, TableIdentifier> table_identifier_mapping = 1;
+  map<string, PostgresTableIdentifier> table_identifier_mapping = 1;
 }
 
 message SetupReplicationInput {
@@ -177,7 +152,7 @@ message SetupReplicationInput {
   map<string, string> table_name_mapping = 3;
   // replicate to destination using ctid
   peerdb_peers.Peer destination_peer = 4;
-  bool do_initial_copy = 5;
+  bool do_initial_snapshot = 5;
   string existing_publication_name = 6;
   string existing_replication_slot_name = 7;
 }
@@ -191,19 +166,16 @@ message CreateRawTableInput {
   peerdb_peers.Peer peer_connection_config = 1;
   string flow_job_name = 2;
   map<string, string> table_name_mapping = 3;
-  QRepSyncMode cdc_sync_mode = 4;
 }
 
 message CreateRawTableOutput { string table_identifier = 1; }
 
 message TableSchema {
   string table_identifier = 1;
-  // DEPRECATED: eliminate when breaking changes are allowed.
-  map<string, string> columns = 2;
-  repeated string primary_key_columns = 3;
-  bool is_replica_identity_full = 4;
-  repeated string column_names = 5;
-  repeated string column_types = 6;
+  repeated string primary_key_columns = 2;
+  bool is_replica_identity_full = 3;
+  repeated string column_names = 4;
+  repeated string column_types = 5;
 }
 
 message GetTableSchemaBatchInput {
@@ -372,11 +344,6 @@ message TableSchemaDelta {
   repeated DeltaAddedColumn added_columns = 3;
 }
 
-message ReplayTableSchemaDeltaInput {
-  FlowConnectionConfigs flow_connection_configs = 1;
-  repeated TableSchemaDelta table_schema_deltas = 2;
-}
-
 message QRepFlowState {
   QRepPartition last_partition = 1;
   uint64 num_partitions_processed = 2;
@@ -431,4 +398,9 @@ message FlowStateUpdate {
     CDCFlowStateUpdate cdc_flow_state_update = 1;
     QRepFlowStateUpdate qrep_flow_state_update = 2;
   }
+}
+
+message SetupFlowOutput {
+  map<uint32, string> src_table_id_name_mapping = 1;
+  map<string, TableSchema> table_name_schema_mapping = 2;
 }

@@ -39,9 +39,8 @@ func (s *SyncFlowExecution) executeSyncFlow(
 ) (*model.SyncResponse, error) {
 	s.logger.Info("executing sync flow - ", s.CDCFlowName)
 
-	syncMetaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+	syncMetaCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
 		StartToCloseTimeout: 1 * time.Minute,
-		WaitForCancellation: true,
 	})
 
 	// execute GetLastSyncedID on destination peer
@@ -50,7 +49,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 		FlowJobName:          s.CDCFlowName,
 	}
 
-	lastSyncFuture := workflow.ExecuteActivity(syncMetaCtx, flowable.GetLastSyncedID, lastSyncInput)
+	lastSyncFuture := workflow.ExecuteLocalActivity(syncMetaCtx, flowable.GetLastSyncedID, lastSyncInput)
 	var dstSyncState *protos.LastSyncState
 	if err := lastSyncFuture.Get(syncMetaCtx, &dstSyncState); err != nil {
 		return nil, fmt.Errorf("failed to get last synced ID from destination peer: %w", err)
@@ -75,6 +74,8 @@ func (s *SyncFlowExecution) executeSyncFlow(
 		LastSyncState:          dstSyncState,
 		SyncFlowOptions:        opts,
 		RelationMessageMapping: relationMessageMapping,
+		SrcTableIdNameMapping:  opts.SrcTableIdNameMapping,
+		TableNameSchemaMapping: opts.TableNameSchemaMapping,
 	}
 	fStartFlow := workflow.ExecuteActivity(startFlowCtx, flowable.StartFlow, startFlowInput)
 
@@ -82,22 +83,6 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	if err := fStartFlow.Get(startFlowCtx, &syncRes); err != nil {
 		return nil, fmt.Errorf("failed to flow: %w", err)
 	}
-
-	replayTableSchemaDeltaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Minute,
-		WaitForCancellation: true,
-	})
-	replayTableSchemaInput := &protos.ReplayTableSchemaDeltaInput{
-		FlowConnectionConfigs: config,
-		TableSchemaDeltas:     syncRes.TableSchemaDeltas,
-	}
-
-	fReplayTableSchemaDelta := workflow.ExecuteActivity(replayTableSchemaDeltaCtx,
-		flowable.ReplayTableSchemaDeltas, replayTableSchemaInput)
-	if err := fReplayTableSchemaDelta.Get(replayTableSchemaDeltaCtx, nil); err != nil {
-		return nil, fmt.Errorf("failed to replay schema delta: %w", err)
-	}
-
 	return syncRes, nil
 }
 

@@ -2,7 +2,7 @@ import { CDCConfig } from '../../../dto/MirrorsDTO';
 import { MirrorSetting } from './common';
 export const cdcSettings: MirrorSetting[] = [
   {
-    label: 'Initial Copy',
+    label: 'Initial Snapshot',
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,
@@ -17,15 +17,15 @@ export const cdcSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,
-        maxBatchSize: (value as number) || 100000,
+        maxBatchSize: (value as number) || 1000000,
       })),
-    tips: 'The number of rows PeerDB will pull from source at a time. If left empty, the default value is 100,000 rows.',
+    tips: 'The number of rows PeerDB will pull from source at a time. If left empty, the default value is 1,000,000 rows.',
     type: 'number',
-    default: '100000',
+    default: '1000000',
     advanced: true,
   },
   {
-    label: 'Idle Timeout (Seconds)',
+    label: 'Sync Interval (Seconds)',
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,
@@ -117,7 +117,7 @@ export const cdcSettings: MirrorSetting[] = [
     type: 'switch',
   },
   {
-    label: 'Initial Copy Only',
+    label: 'Initial Snapshot Only',
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,

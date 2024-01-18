@@ -143,7 +143,7 @@ impl FlowGrpcClient {
             });
         });
 
-        let do_initial_copy = job.do_initial_copy;
+        let do_initial_snapshot = job.do_initial_copy;
         let publication_name = job.publication_name.clone();
         let replication_slot_name = job.replication_slot_name.clone();
         let snapshot_num_rows_per_partition = job.snapshot_num_rows_per_partition;
@@ -155,7 +155,7 @@ impl FlowGrpcClient {
             destination: Some(dst),
             flow_job_name: job.name.clone(),
             table_mappings,
-            do_initial_copy,
+            do_initial_snapshot,
             publication_name: publication_name.unwrap_or_default(),
             snapshot_num_rows_per_partition: snapshot_num_rows_per_partition.unwrap_or(0),
             snapshot_max_parallel_workers: snapshot_max_parallel_workers.unwrap_or(0),
@@ -164,13 +164,11 @@ impl FlowGrpcClient {
             cdc_staging_path: job.cdc_staging_path.clone().unwrap_or_default(),
             soft_delete: job.soft_delete,
             replication_slot_name: replication_slot_name.unwrap_or_default(),
-            push_batch_size: job.push_batch_size.unwrap_or_default(),
-            push_parallelism: job.push_parallelism.unwrap_or_default(),
             max_batch_size: job.max_batch_size.unwrap_or_default(),
             resync: job.resync,
             soft_delete_col_name: job.soft_delete_col_name.clone().unwrap_or_default(),
             synced_at_col_name: job.synced_at_col_name.clone().unwrap_or_default(),
-            initial_copy_only: job.initial_copy_only,
+            initial_snapshot_only: job.initial_snapshot_only,
             ..Default::default()
         };
 

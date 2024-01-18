@@ -18,13 +18,12 @@ import (
 )
 
 type EventHubConnector struct {
-	ctx          context.Context
-	config       *protos.EventHubGroupConfig
-	pgMetadata   *metadataStore.PostgresMetadataStore
-	tableSchemas map[string]*protos.TableSchema
-	creds        *azidentity.DefaultAzureCredential
-	hubManager   *EventHubManager
-	logger       slog.Logger
+	ctx        context.Context
+	config     *protos.EventHubGroupConfig
+	pgMetadata *metadataStore.PostgresMetadataStore
+	creds      *azidentity.DefaultAzureCredential
+	hubManager *EventHubManager
+	logger     slog.Logger
 }
 
 // NewEventHubConnector creates a new EventHubConnector.
@@ -83,11 +82,6 @@ func (c *EventHubConnector) ConnectionActive() error {
 	return nil
 }
 
-func (c *EventHubConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
-	c.tableSchemas = req
-	return nil
-}
-
 func (c *EventHubConnector) NeedsSetupMetadataTables() bool {
 	return c.pgMetadata.NeedsSetupMetadata()
 }
@@ -127,7 +121,7 @@ func (c *EventHubConnector) processBatch(
 ) (uint32, error) {
 	ctx := context.Background()
 	batchPerTopic := NewHubBatches(c.hubManager)
-	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns)
+	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns, false)
 
 	eventHubFlushTimeout := peerdbenv.PeerDBEventhubFlushTimeoutSeconds()
 
@@ -178,6 +172,13 @@ func (c *EventHubConnector) processBatch(
 				return 0, err
 			}
 
+			ehConfig, ok := c.hubManager.peerConfig.Get(destination.PeerName)
+			if !ok {
+				c.logger.Error("failed to get eventhub config", slog.Any("error", err))
+				return 0, err
+			}
+
+			numPartitions := ehConfig.PartitionCount
 			// Scoped eventhub is of the form peer_name.eventhub_name.partition_column
 			// partition_column is the column in the table that is used to determine
 			// the partition key for the eventhub.
@@ -189,7 +190,7 @@ func (c *EventHubConnector) processBatch(
 			} else {
 				partitionKey = fmt.Sprintf("%v", partitionValue)
 			}
-
+			partitionKey = utils.HashedPartitionKey(partitionKey, numPartitions)
 			destination.SetPartitionValue(partitionKey)
 			err = batchPerTopic.AddEvent(ctx, destination, json, false)
 			if err != nil {
@@ -199,7 +200,7 @@ func (c *EventHubConnector) processBatch(
 
 			curNumRecords := numRecords.Load()
 			if curNumRecords%1000 == 0 {
-				c.logger.Error("processBatch", slog.Int("number of records processed for sending", int(curNumRecords)))
+				c.logger.Info("processBatch", slog.Int("number of records processed for sending", int(curNumRecords)))
 			}
 
 		case <-ticker.C:
@@ -259,6 +260,8 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		LastSyncedCheckPointID: lastCheckpoint,
 		NumRecordsSynced:       rowsSynced,
 		TableNameRowsMapping:   make(map[string]uint32),
+		TableSchemaDeltas:      req.Records.WaitForSchemaDeltas(req.TableMappings),
+		RelationMessageMapping: <-req.Records.RelationMessageMapping,
 	}, nil
 }
 
@@ -287,6 +290,11 @@ func (c *EventHubConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	return &protos.CreateRawTableOutput{
 		TableIdentifier: "n/a",
 	}, nil
+}
+
+func (c *EventHubConnector) ReplayTableSchemaDeltas(flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error {
+	c.logger.Info("ReplayTableSchemaDeltas for event hub is a no-op")
+	return nil
 }
 
 func (c *EventHubConnector) SetupNormalizedTables(

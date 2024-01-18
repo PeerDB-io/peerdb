@@ -35,22 +35,22 @@ func NewQRepAvroSyncMethod(connector *BigQueryConnector, gcsBucket string,
 }
 
 func (s *QRepAvroSyncMethod) SyncRecords(
+	req *model.SyncRecordsRequest,
 	rawTableName string,
-	flowJobName string,
-	records *model.CDCRecordStream,
 	dstTableMetadata *bigquery.TableMetadata,
 	syncBatchID int64,
 	stream *model.QRecordStream,
-) (int, error) {
+	tableNameRowsMapping map[string]uint32,
+) (*model.SyncResponse, error) {
 	activity.RecordHeartbeat(s.connector.ctx,
 		fmt.Sprintf("Flow job %s: Obtaining Avro schema"+
 			" for destination table %s and sync batch ID %d",
-			flowJobName, rawTableName, syncBatchID),
+			req.FlowJobName, rawTableName, syncBatchID),
 	)
 	// You will need to define your Avro schema as a string
 	avroSchema, err := DefineAvroSchema(rawTableName, dstTableMetadata, "", "")
 	if err != nil {
-		return 0, fmt.Errorf("failed to define Avro schema: %w", err)
+		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
 
 	stagingTable := fmt.Sprintf("%s_%s_staging", rawTableName, fmt.Sprint(syncBatchID))
@@ -58,9 +58,9 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		&datasetTable{
 			dataset: s.connector.datasetID,
 			table:   stagingTable,
-		}, stream, flowJobName)
+		}, stream, req.FlowJobName)
 	if err != nil {
-		return -1, fmt.Errorf("failed to push to avro stage: %v", err)
+		return nil, fmt.Errorf("failed to push to avro stage: %v", err)
 	}
 
 	bqClient := s.connector.client
@@ -68,20 +68,26 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	insertStmt := fmt.Sprintf("INSERT INTO `%s.%s` SELECT * FROM `%s.%s`;",
 		datasetID, rawTableName, datasetID, stagingTable)
 
-	lastCP, err := records.GetLastCheckpoint()
+	lastCP, err := req.Records.GetLastCheckpoint()
 	if err != nil {
-		return -1, fmt.Errorf("failed to get last checkpoint: %v", err)
+		return nil, fmt.Errorf("failed to get last checkpoint: %v", err)
 	}
-	updateMetadataStmt, err := s.connector.getUpdateMetadataStmt(flowJobName, lastCP, syncBatchID)
+	updateMetadataStmt, err := s.connector.getUpdateMetadataStmt(req.FlowJobName, lastCP, syncBatchID)
 	if err != nil {
-		return -1, fmt.Errorf("failed to update metadata: %v", err)
+		return nil, fmt.Errorf("failed to update metadata: %v", err)
 	}
 
 	activity.RecordHeartbeat(s.connector.ctx,
 		fmt.Sprintf("Flow job %s: performing insert and update transaction"+
 			" for destination table %s and sync batch ID %d",
-			flowJobName, rawTableName, syncBatchID),
+			req.FlowJobName, rawTableName, syncBatchID),
 	)
+
+	tableSchemaDeltas := req.Records.WaitForSchemaDeltas(req.TableMappings)
+	err = s.connector.ReplayTableSchemaDeltas(req.FlowJobName, tableSchemaDeltas)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
+	}
 
 	stmts := []string{
 		"BEGIN TRANSACTION;",
@@ -91,7 +97,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	}
 	_, err = bqClient.Query(strings.Join(stmts, "\n")).Read(s.connector.ctx)
 	if err != nil {
-		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
+		return nil, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
 
 	// drop the staging table
@@ -104,10 +110,17 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	}
 
 	slog.Info(fmt.Sprintf("loaded stage into %s.%s", datasetID, rawTableName),
-		slog.String(string(shared.FlowNameKey), flowJobName),
+		slog.String(string(shared.FlowNameKey), req.FlowJobName),
 		slog.String("dstTableName", rawTableName))
 
-	return numRecords, nil
+	return &model.SyncResponse{
+		LastSyncedCheckPointID: lastCP,
+		NumRecordsSynced:       int64(numRecords),
+		CurrentSyncBatchID:     syncBatchID,
+		TableNameRowsMapping:   tableNameRowsMapping,
+		TableSchemaDeltas:      tableSchemaDeltas,
+		RelationMessageMapping: <-req.Records.RelationMessageMapping,
+	}, nil
 }
 
 func getTransformedColumns(dstSchema *bigquery.Schema, syncedAtCol string, softDeleteCol string) []string {
@@ -123,9 +136,6 @@ func getTransformedColumns(dstSchema *bigquery.Schema, syncedAtCol string, softD
 		case bigquery.JSONFieldType:
 			transformedColumns = append(transformedColumns,
 				fmt.Sprintf("PARSE_JSON(`%s`,wide_number_mode=>'round') AS `%s`", col.Name, col.Name))
-		case bigquery.DateFieldType:
-			transformedColumns = append(transformedColumns,
-				fmt.Sprintf("CAST(`%s` AS DATE) AS `%s`", col.Name, col.Name))
 		default:
 			transformedColumns = append(transformedColumns, fmt.Sprintf("`%s`", col.Name))
 		}
@@ -277,9 +287,9 @@ func DefineAvroSchema(dstTableName string,
 func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 	considerRepeated := func(typ string, repeated bool) interface{} {
 		if repeated {
-			return map[string]interface{}{
-				"type":  "array",
-				"items": typ,
+			return qvalue.AvroSchemaArray{
+				Type:  "array",
+				Items: typ,
 			}
 		} else {
 			return typ
@@ -296,64 +306,79 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 	case bigquery.FloatFieldType:
 		return considerRepeated("double", bqField.Repeated), nil
 	case bigquery.BooleanFieldType:
-		return "boolean", nil
+		return considerRepeated("boolean", bqField.Repeated), nil
 	case bigquery.TimestampFieldType:
-		return map[string]string{
-			"type":        "long",
-			"logicalType": "timestamp-micros",
-		}, nil
+		timestampSchema := qvalue.AvroSchemaField{
+			Type:        "long",
+			LogicalType: "timestamp-micros",
+		}
+		if bqField.Repeated {
+			return qvalue.AvroSchemaComplexArray{
+				Type:  "array",
+				Items: timestampSchema,
+			}, nil
+		}
+		return timestampSchema, nil
 	case bigquery.DateFieldType:
-		return map[string]string{
-			"type":        "long",
-			"logicalType": "timestamp-micros",
-		}, nil
+		dateSchema := qvalue.AvroSchemaField{
+			Type:        "int",
+			LogicalType: "date",
+		}
+		if bqField.Repeated {
+			return qvalue.AvroSchemaComplexArray{
+				Type:  "array",
+				Items: dateSchema,
+			}, nil
+		}
+		return dateSchema, nil
+
 	case bigquery.TimeFieldType:
-		return map[string]string{
-			"type":        "long",
-			"logicalType": "timestamp-micros",
+		return qvalue.AvroSchemaField{
+			Type:        "long",
+			LogicalType: "timestamp-micros",
 		}, nil
 	case bigquery.DateTimeFieldType:
-		return map[string]interface{}{
-			"type": "record",
-			"name": "datetime",
-			"fields": []map[string]string{
+		return qvalue.AvroSchemaRecord{
+			Type: "record",
+			Name: "datetime",
+			Fields: []qvalue.AvroSchemaField{
 				{
-					"name":        "date",
-					"type":        "int",
-					"logicalType": "date",
+					Name:        "date",
+					Type:        "int",
+					LogicalType: "date",
 				},
 				{
-					"name":        "time",
-					"type":        "long",
-					"logicalType": "time-micros",
+					Name:        "time",
+					Type:        "long",
+					LogicalType: "time-micros",
 				},
 			},
 		}, nil
 	case bigquery.NumericFieldType:
-		return map[string]interface{}{
-			"type":        "bytes",
-			"logicalType": "decimal",
-			"precision":   38,
-			"scale":       9,
+		return qvalue.AvroSchemaNumeric{
+			Type:        "bytes",
+			LogicalType: "decimal",
+			Precision:   38,
+			Scale:       9,
 		}, nil
 	case bigquery.RecordFieldType:
-		avroFields := []map[string]interface{}{}
+		avroFields := []qvalue.AvroSchemaField{}
 		for _, bqSubField := range bqField.Schema {
 			avroType, err := GetAvroType(bqSubField)
 			if err != nil {
 				return nil, err
 			}
-			avroFields = append(avroFields, map[string]interface{}{
-				"name": bqSubField.Name,
-				"type": avroType,
+			avroFields = append(avroFields, qvalue.AvroSchemaField{
+				Name: bqSubField.Name,
+				Type: avroType,
 			})
 		}
-		return map[string]interface{}{
-			"type":   "record",
-			"name":   bqField.Name,
-			"fields": avroFields,
+		return qvalue.AvroSchemaRecord{
+			Type:   "record",
+			Name:   bqField.Name,
+			Fields: avroFields,
 		}, nil
-	// TODO(kaushik/sai): Add other field types as needed
+
 	default:
 		return nil, fmt.Errorf("unsupported BigQuery field type: %s", bqField.Type)
 	}

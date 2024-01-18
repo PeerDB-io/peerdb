@@ -18,6 +18,6 @@ type SlotSignal struct {
 func NewSlotSignal() SlotSignal {
 	return SlotSignal{
 		SlotCreated:   make(chan SlotCreationResult, 1),
-		CloneComplete: make(chan struct{}, 1),
+		CloneComplete: make(chan struct{}),
 	}
 }

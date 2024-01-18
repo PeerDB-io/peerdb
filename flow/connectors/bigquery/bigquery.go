@@ -58,14 +58,13 @@ type BigQueryServiceAccount struct {
 
 // BigQueryConnector is a Connector implementation for BigQuery.
 type BigQueryConnector struct {
-	ctx                    context.Context
-	bqConfig               *protos.BigqueryConfig
-	client                 *bigquery.Client
-	storageClient          *storage.Client
-	tableNameSchemaMapping map[string]*protos.TableSchema
-	datasetID              string
-	catalogPool            *pgxpool.Pool
-	logger                 slog.Logger
+	ctx           context.Context
+	bqConfig      *protos.BigqueryConfig
+	client        *bigquery.Client
+	storageClient *storage.Client
+	datasetID     string
+	catalogPool   *pgxpool.Pool
+	logger        slog.Logger
 }
 
 // Create BigQueryServiceAccount from BigqueryConfig
@@ -209,12 +208,6 @@ func (c *BigQueryConnector) ConnectionActive() error {
 func (c *BigQueryConnector) NeedsSetupMetadataTables() bool {
 	_, err := c.client.Dataset(c.datasetID).Table(MirrorJobsTable).Metadata(c.ctx)
 	return err != nil
-}
-
-// InitializeTableSchema initializes the schema for a table, implementing the Connector interface.
-func (c *BigQueryConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
-	c.tableNameSchemaMapping = req
-	return nil
 }
 
 func (c *BigQueryConnector) waitForTableReady(datasetTable *datasetTable) error {
@@ -499,6 +492,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		return nil, err
 	}
 
+	c.logger.Info(fmt.Sprintf("pushed %d records to %s.%s", res.NumRecordsSynced, c.datasetID, rawTableName))
 	return res, nil
 }
 
@@ -517,28 +511,16 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 	avroSync := NewQRepAvroSyncMethod(c, req.StagingPath, req.FlowJobName)
 	rawTableMetadata, err := c.client.Dataset(c.datasetID).Table(rawTableName).Metadata(c.ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get metadata of destination table: %v", err)
+		return nil, fmt.Errorf("failed to get metadata of destination table: %w", err)
 	}
 
-	numRecords, err := avroSync.SyncRecords(rawTableName, req.FlowJobName,
-		req.Records, rawTableMetadata, syncBatchID, streamRes.Stream)
+	res, err := avroSync.SyncRecords(req, rawTableName,
+		rawTableMetadata, syncBatchID, streamRes.Stream, streamReq.TableMapping)
 	if err != nil {
-		return nil, fmt.Errorf("failed to sync records via avro : %v", err)
+		return nil, fmt.Errorf("failed to sync records via avro: %w", err)
 	}
 
-	c.logger.Info(fmt.Sprintf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName))
-
-	lastCP, err := req.Records.GetLastCheckpoint()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get last checkpoint: %v", err)
-	}
-
-	return &model.SyncResponse{
-		LastSyncedCheckPointID: lastCP,
-		NumRecordsSynced:       int64(numRecords),
-		CurrentSyncBatchID:     syncBatchID,
-		TableNameRowsMapping:   tableNameRowsMapping,
-	}, nil
+	return res, nil
 }
 
 // NormalizeRecords normalizes raw table to destination table.
@@ -596,7 +578,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 			},
 			dstTableName:          tableName,
 			dstDatasetTable:       dstDatasetTable,
-			normalizedTableSchema: c.tableNameSchemaMapping[tableName],
+			normalizedTableSchema: req.TableNameSchemaMapping[tableName],
 			syncBatchID:           batchIDs.SyncBatchID,
 			normalizeBatchID:      batchIDs.NormalizeBatchID,
 			peerdbCols: &protos.PeerDBColumns{
@@ -800,7 +782,7 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 		}
 
 		// convert the column names and types to bigquery types
-		columns := make([]*bigquery.FieldSchema, 0, len(tableSchema.Columns)+2)
+		columns := make([]*bigquery.FieldSchema, 0, len(tableSchema.ColumnNames)+2)
 		utils.IterColumns(tableSchema, func(colName, genericColType string) {
 			columns = append(columns, &bigquery.FieldSchema{
 				Name:     colName,

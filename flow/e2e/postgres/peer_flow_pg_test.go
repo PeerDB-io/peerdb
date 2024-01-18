@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -84,7 +85,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			key TEXT NOT NULL,
-			value TEXT NOT NULL
+			value TEXT NOT NULL,
+			myh HSTORE NOT NULL
 		);
 	`, srcTableName))
 	require.NoError(s.t, err)
@@ -112,7 +114,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s(key, value) VALUES ($1, $2)
+			INSERT INTO %s(key, value, myh) VALUES ($1, $2, '"a"=>"b"')
 			`, srcTableName), testKey, testValue)
 			e2e.EnvNoError(s.t, env, err)
 		}
@@ -129,6 +131,134 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	err = s.comparePGTables(srcTableName, dstTableName, "id,key,value")
+	require.NoError(s.t, err)
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_Geospatial_PG() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
+
+	srcTableName := s.attachSchemaSuffix("test_geospatial_pg")
+	dstTableName := s.attachSchemaSuffix("test_geospatial_pg_dst")
+
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			gg geography NOT NULL,
+			gm geometry NOT NULL
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_geo_flow_pg"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		PostgresPort:     e2e.PostgresPort,
+		Destination:      s.peer,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+
+	limits := peerflow.CDCFlowLimits{
+		ExitAfterRecords: 1,
+		MaxBatchSize:     100,
+	}
+
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+		// insert 1 row into the source table
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO %s(gg, gm) VALUES ('POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))','LINESTRING(0 0, 1 1, 2 2)')
+			`, srcTableName))
+		e2e.EnvNoError(s.t, env, err)
+
+		s.t.Log("Inserted 1 row into the source table")
+	}()
+
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+
+	// Verify workflow completes without error
+	require.True(s.t, env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+
+	// allow only continue as new error
+	require.Contains(s.t, err.Error(), "continue as new")
+
+	err = s.comparePGTables(srcTableName, dstTableName, "id,gg,gm")
+	require.NoError(s.t, err)
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
+
+	srcTableName := s.attachSchemaSuffix("test_types_pg")
+	dstTableName := s.attachSchemaSuffix("test_types_pg_dst")
+
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+	CREATE TABLE IF NOT EXISTS %s (id serial PRIMARY KEY,c1 BIGINT,c2 BIT,c4 BOOLEAN,
+		c7 CHARACTER,c8 varchar,c9 CIDR,c11 DATE,c12 FLOAT,c13 DOUBLE PRECISION,
+		c14 INET,c15 INTEGER,c21 MACADDR,
+		c29 SMALLINT,c32 TEXT,
+		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ,
+		c40 UUID, c42 INT[], c43 FLOAT[], c44 TEXT[],
+		c46 DATE[], c47 TIMESTAMPTZ[], c48 TIMESTAMP[], c49 BOOLEAN[], c50 SMALLINT[]);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_types_pg"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		PostgresPort:     e2e.PostgresPort,
+		Destination:      s.peer,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+
+	limits := peerflow.CDCFlowLimits{
+		ExitAfterRecords: 1,
+		MaxBatchSize:     100,
+	}
+
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO %s SELECT 2,2,b'1',
+			true,'s','test','1.1.10.2'::cidr,
+			CURRENT_DATE,1.23,1.234,'192.168.1.5'::inet,1,
+			'08:00:2b:01:02:03'::macaddr,
+			1,'test',now(),now(),now()::time,now()::timetz,
+			'66073c38-b8df-4bdb-bbca-1c97596b8940'::uuid,
+			ARRAY[10299301,2579827],
+			ARRAY[0.0003, 8902.0092],
+			ARRAY['hello','bye'],
+			'{2020-01-01, 2020-01-02}'::date[],
+			'{"2020-01-01 01:01:01+00", "2020-01-02 01:01:01+00"}'::timestamptz[],
+			'{"2020-01-01 01:01:01", "2020-01-02 01:01:01"}'::timestamp[],
+			'{true, false}'::boolean[],
+			'{1,2}'::smallint[];
+			`, srcTableName))
+		e2e.EnvNoError(s.t, env, err)
+
+		s.t.Log("Inserted 1 row into the source table")
+	}()
+
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+
+	// Verify workflow completes without error
+	require.True(s.t, env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+
+	// allow only continue as new error
+	require.Contains(s.t, err.Error(), "continue as new")
+
+	allCols := []string{
+		"c1", "c2", "c4",
+		"c40", "id", "c9", "c11", "c12", "c13", "c14", "c15",
+		"c21", "c29", "c33", "c34", "c35", "c36",
+		"c7", "c8", "c32", "c42", "c43", "c44", "c46", "c47", "c48", "c49", "c50",
+	}
+	err = s.comparePGTables(srcTableName, dstTableName, strings.Join(allCols, ","))
 	require.NoError(s.t, err)
 }
 

@@ -9,7 +9,9 @@ import (
 	"strconv"
 	"time"
 
+	"cloud.google.com/go/civil"
 	"github.com/PeerDB-io/peer-flow/geo"
+	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
 	"github.com/google/uuid"
 )
 
@@ -55,16 +57,20 @@ func (q QValue) Equals(other QValue) bool {
 		return compareJSON(q.Value, other.Value)
 	case QValueKindBit:
 		return compareBit(q.Value, other.Value)
-	case QValueKindHStore:
-		return compareHStore(q.Value, other.Value)
 	case QValueKindArrayFloat32:
 		return compareNumericArrays(q.Value, other.Value)
 	case QValueKindArrayFloat64:
 		return compareNumericArrays(q.Value, other.Value)
-	case QValueKindArrayInt32:
+	case QValueKindArrayInt32, QValueKindArrayInt16:
 		return compareNumericArrays(q.Value, other.Value)
 	case QValueKindArrayInt64:
 		return compareNumericArrays(q.Value, other.Value)
+	case QValueKindArrayDate:
+		return compareDateArrays(q.Value, other.Value)
+	case QValueKindArrayTimestamp, QValueKindArrayTimestampTZ:
+		return compareTimeArrays(q.Value, other.Value)
+	case QValueKindArrayBoolean:
+		return compareBoolArrays(q.Value, other.Value)
 	case QValueKindArrayString:
 		return compareArrayString(q.Value, other.Value)
 	}
@@ -211,8 +217,15 @@ func compareString(value1, value2 interface{}) bool {
 		return true
 	}
 
+	// Catch matching HStore
+	parsedHstore1, err := hstore_util.ParseHstore(str1)
+	if err == nil && parsedHstore1 == str2 {
+		return true
+	}
+
 	// Catch matching WKB(in Postgres)-WKT(in destination) geo values
 	geoConvertedWKT, err := geo.GeoValidate(str1)
+
 	return err == nil && geo.GeoCompare(geoConvertedWKT, str2)
 }
 
@@ -252,21 +265,6 @@ func compareBit(value1, value2 interface{}) bool {
 	return bit1^bit2 == 0
 }
 
-func compareHStore(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	hstore1, ok1 := value1.(map[string]string)
-	hstore2, ok2 := value2.(map[string]string)
-
-	if !ok1 || !ok2 {
-		return false
-	}
-
-	return reflect.DeepEqual(hstore1, hstore2)
-}
-
 func compareNumericArrays(value1, value2 interface{}) bool {
 	if value1 == nil && value2 == nil {
 		return true
@@ -283,6 +281,12 @@ func compareNumericArrays(value1, value2 interface{}) bool {
 	// Helper function to convert a value to float64
 	convertToFloat64 := func(val interface{}) []float64 {
 		switch v := val.(type) {
+		case []int16:
+			result := make([]float64, len(v))
+			for i, value := range v {
+				result[i] = float64(value)
+			}
+			return result
 		case []int32:
 			result := make([]float64, len(v))
 			for i, value := range v {
@@ -317,6 +321,72 @@ func compareNumericArrays(value1, value2 interface{}) bool {
 
 	for i := range array1 {
 		if math.Abs(array1[i]-array2[i]) >= 1e9 {
+			return false
+		}
+	}
+
+	return true
+}
+
+func compareTimeArrays(value1, value2 interface{}) bool {
+	if value1 == nil && value2 == nil {
+		return true
+	}
+	array1, ok1 := value1.([]time.Time)
+	array2, ok2 := value2.([]time.Time)
+
+	if !ok1 || !ok2 {
+		return false
+	}
+
+	if len(array1) != len(array2) {
+		return false
+	}
+
+	for i := range array1 {
+		if !array1[i].Equal(array2[i]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func compareDateArrays(value1, value2 interface{}) bool {
+	if value1 == nil && value2 == nil {
+		return true
+	}
+	array1, ok1 := value1.([]time.Time)
+	array2, ok2 := value2.([]civil.Date)
+
+	if !ok1 || !ok2 || len(array1) != len(array2) {
+		return false
+	}
+
+	for i := range array1 {
+		if array1[i].Year() != array2[i].Year ||
+			array1[i].Month() != array2[i].Month ||
+			array1[i].Day() != array2[i].Day {
+			return false
+		}
+	}
+
+	return true
+}
+
+func compareBoolArrays(value1, value2 interface{}) bool {
+	if value1 == nil && value2 == nil {
+		return true
+	}
+	array1, ok1 := value1.([]bool)
+	array2, ok2 := value2.([]bool)
+
+	if !ok1 || !ok2 || len(array1) != len(array2) {
+		return false
+	}
+
+	for i := range array1 {
+		if array1[i] != array2[i] {
 			return false
 		}
 	}

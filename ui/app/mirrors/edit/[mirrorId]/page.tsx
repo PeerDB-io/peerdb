@@ -1,3 +1,4 @@
+import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import prisma from '@/app/utils/prisma';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { Header } from '@/lib/Header';
@@ -51,7 +52,15 @@ export default async function EditMirror({
     orderBy: {
       start_time: 'desc',
     },
+    distinct: ['batch_id'],
   });
+
+  const rows: SyncStatusRow[] = syncs.map((sync) => ({
+    batchId: sync.batch_id,
+    startTime: sync.start_time,
+    endTime: sync.end_time,
+    numRows: sync.rows_in_batch,
+  }));
 
   if (mirrorStatus.errorMessage) {
     return <NoMirror />;
@@ -59,20 +68,18 @@ export default async function EditMirror({
 
   let syncStatusChild = <></>;
   if (mirrorStatus.cdcStatus) {
-    let rowsSynced = syncs.reduce((acc, sync) => acc + sync.rows_in_batch, 0);
+    let rowsSynced = syncs.reduce((acc, sync) => {
+      if (sync.end_time !== null) {
+        return acc + sync.rows_in_batch;
+      }
+      return acc;
+    }, 0);
     syncStatusChild = (
-      <SyncStatus rowsSynced={rowsSynced} flowJobName={mirrorId} />
+      <SyncStatus rowsSynced={rowsSynced} rows={rows} flowJobName={mirrorId} />
     );
   } else {
     redirect(`/mirrors/status/qrep/${mirrorId}`);
   }
-
-  const rows = syncs.map((sync) => ({
-    batchId: sync.batch_id,
-    startTime: sync.start_time,
-    endTime: sync.end_time,
-    numRows: sync.rows_in_batch,
-  }));
 
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
+	connclickhouse "github.com/PeerDB-io/peer-flow/connectors/clickhouse"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	conns3 "github.com/PeerDB-io/peer-flow/connectors/s3"
@@ -68,11 +69,13 @@ type CDCSyncConnector interface {
 	// GetLastSyncBatchID gets the last batch synced to the destination from the metadata table
 	GetLastSyncBatchID(jobName string) (int64, error)
 
-	// InitializeTableSchema initializes the table schema of all the destination tables for the connector.
-	InitializeTableSchema(req map[string]*protos.TableSchema) error
-
 	// CreateRawTable creates a raw table for the connector with a given name and a fixed schema.
 	CreateRawTable(req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error)
+
+	// ReplayTableSchemaDelta changes a destination table to match the schema at source
+	// This could involve adding or dropping multiple columns.
+	// Connectors which are non-normalizing should implement this as a nop.
+	ReplayTableSchemaDeltas(flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error
 
 	// SetupNormalizedTables sets up the normalized table on the connector.
 	SetupNormalizedTables(req *protos.SetupNormalizedTableBatchInput) (
@@ -89,16 +92,9 @@ type CDCSyncConnector interface {
 type CDCNormalizeConnector interface {
 	Connector
 
-	// InitializeTableSchema initializes the table schema of all the destination tables for the connector.
-	InitializeTableSchema(req map[string]*protos.TableSchema) error
-
 	// NormalizeRecords merges records pushed earlier into the destination table.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
 	NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error)
-
-	// ReplayTableSchemaDelta changes a destination table to match the schema at source
-	// This could involve adding or dropping multiple columns.
-	ReplayTableSchemaDeltas(flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error
 }
 
 type QRepPullConnector interface {
@@ -202,6 +198,8 @@ func GetQRepSyncConnector(ctx context.Context, config *protos.Peer) (QRepSyncCon
 		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig())
 	case *protos.Peer_S3Config:
 		return conns3.NewS3Connector(ctx, config.GetS3Config())
+	case *protos.Peer_ClickhouseConfig:
+		return connclickhouse.NewClickhouseConnector(ctx, config.GetClickhouseConfig())
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}
@@ -247,6 +245,12 @@ func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
 		return conns3.NewS3Connector(ctx, s3Config)
 	// case protos.DBType_EVENTHUB:
 	// 	return connsqlserver.NewSQLServerConnector(ctx, config.GetSqlserverConfig())
+	case protos.DBType_CLICKHOUSE:
+		clickhouseConfig := peer.GetClickhouseConfig()
+		if clickhouseConfig == nil {
+			return nil, fmt.Errorf("missing clickhouse config for %s peer %s", peer.Type.String(), peer.Name)
+		}
+		return connclickhouse.NewClickhouseConnector(ctx, clickhouseConfig)
 	default:
 		return nil, fmt.Errorf("unsupported peer type %s", peer.Type.String())
 	}
@@ -259,7 +263,8 @@ func GetQRepConsolidateConnector(ctx context.Context,
 	switch inner.(type) {
 	case *protos.Peer_SnowflakeConfig:
 		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig())
-
+	case *protos.Peer_ClickhouseConfig:
+		return connclickhouse.NewClickhouseConnector(ctx, config.GetClickhouseConfig())
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}

@@ -364,7 +364,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
 	}()
 
 	if qe.snapshot != "" {
-		_, err = tx.Exec(qe.ctx, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", qe.snapshot))
+		_, err = tx.Exec(qe.ctx, fmt.Sprintf("SET TRANSACTION SNAPSHOT %s", QuoteLiteral(qe.snapshot)))
 		if err != nil {
 			stream.Records <- model.QRecordOrError{
 				Err: fmt.Errorf("failed to set snapshot: %w", err),

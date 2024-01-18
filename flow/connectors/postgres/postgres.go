@@ -28,7 +28,6 @@ type PostgresConnector struct {
 	pool               *SSHWrappedPostgresPool
 	replConfig         *pgxpool.Config
 	replPool           *SSHWrappedPostgresPool
-	tableSchemaMapping map[string]*protos.TableSchema
 	customTypesMapping map[uint32]string
 	metadataSchema     string
 	logger             slog.Logger
@@ -58,7 +57,6 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	replConfig.ConnConfig.RuntimeParams["replication"] = "database"
 	replConfig.ConnConfig.RuntimeParams["bytea_output"] = "hex"
 	replConfig.MaxConns = 1
-
 	pool, err := NewSSHWrappedPostgresPool(ctx, connConfig, pgConfig.SshConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create connection pool: %w", err)
@@ -285,7 +283,10 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	for record := range req.Records.GetRecords() {
 		switch typedRecord := record.(type) {
 		case *model.InsertRecord:
-			itemsJSON, err := typedRecord.Items.ToJSON()
+			itemsJSON, err := typedRecord.Items.ToJSONWithOptions(&model.ToJSONOptions{
+				UnnestColumns: map[string]struct{}{},
+				HStoreAsJSON:  false,
+			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to serialize insert record items to JSON: %w", err)
 			}
@@ -302,11 +303,17 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
 		case *model.UpdateRecord:
-			newItemsJSON, err := typedRecord.NewItems.ToJSON()
+			newItemsJSON, err := typedRecord.NewItems.ToJSONWithOptions(&model.ToJSONOptions{
+				UnnestColumns: map[string]struct{}{},
+				HStoreAsJSON:  false,
+			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to serialize update record new items to JSON: %w", err)
 			}
-			oldItemsJSON, err := typedRecord.OldItems.ToJSON()
+			oldItemsJSON, err := typedRecord.OldItems.ToJSONWithOptions(&model.ToJSONOptions{
+				UnnestColumns: map[string]struct{}{},
+				HStoreAsJSON:  false,
+			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to serialize update record old items to JSON: %w", err)
 			}
@@ -323,7 +330,10 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
 		case *model.DeleteRecord:
-			itemsJSON, err := typedRecord.Items.ToJSON()
+			itemsJSON, err := typedRecord.Items.ToJSONWithOptions(&model.ToJSONOptions{
+				UnnestColumns: map[string]struct{}{},
+				HStoreAsJSON:  false,
+			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to serialize delete record items to JSON: %w", err)
 			}
@@ -342,6 +352,12 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		default:
 			return nil, fmt.Errorf("unsupported record type for Postgres flow connector: %T", typedRecord)
 		}
+	}
+
+	tableSchemaDeltas := req.Records.WaitForSchemaDeltas(req.TableMappings)
+	err = c.ReplayTableSchemaDeltas(req.FlowJobName, tableSchemaDeltas)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
 	if len(records) == 0 {
@@ -400,6 +416,8 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		NumRecordsSynced:       int64(len(records)),
 		CurrentSyncBatchID:     syncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,
+		TableSchemaDeltas:      tableSchemaDeltas,
+		RelationMessageMapping: <-req.Records.RelationMessageMapping,
 	}, nil
 }
 
@@ -465,7 +483,7 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		normalizeStmtGen := &normalizeStmtGenerator{
 			rawTableName:          rawTableIdentifier,
 			dstTableName:          destinationTableName,
-			normalizedTableSchema: c.tableSchemaMapping[destinationTableName],
+			normalizedTableSchema: req.TableNameSchemaMapping[destinationTableName],
 			unchangedToastColumns: unchangedToastColsMap[destinationTableName],
 			peerdbCols: &protos.PeerDBColumns{
 				SoftDeleteColName: req.SoftDeleteColName,
@@ -638,7 +656,6 @@ func (c *PostgresConnector) getTableSchemaForTable(
 
 	return &protos.TableSchema{
 		TableIdentifier:       tableName,
-		Columns:               nil,
 		PrimaryKeyColumns:     pKeyCols,
 		IsReplicaIdentityFull: replicaIdentityType == ReplicaIdentityFull,
 		ColumnNames:           columnNames,
@@ -701,17 +718,15 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 	}, nil
 }
 
-// InitializeTableSchema initializes the schema for a table, implementing the Connector interface.
-func (c *PostgresConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
-	c.tableSchemaMapping = req
-	return nil
-}
-
 // ReplayTableSchemaDelta changes a destination table to match the schema at source
 // This could involve adding or dropping multiple columns.
 func (c *PostgresConnector) ReplayTableSchemaDeltas(flowJobName string,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
+	if len(schemaDeltas) == 0 {
+		return nil
+	}
+
 	// Postgres is cool and supports transactional DDL. So we use a transaction.
 	tableSchemaModifyTx, err := c.pool.Begin(c.ctx)
 	if err != nil {
@@ -760,7 +775,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(flowJobName string,
 func (c *PostgresConnector) EnsurePullability(
 	req *protos.EnsurePullabilityBatchInput,
 ) (*protos.EnsurePullabilityBatchOutput, error) {
-	tableIdentifierMapping := make(map[string]*protos.TableIdentifier)
+	tableIdentifierMapping := make(map[string]*protos.PostgresTableIdentifier)
 	for _, tableName := range req.SourceTableIdentifiers {
 		schemaTable, err := utils.ParseSchemaTable(tableName)
 		if err != nil {
@@ -788,12 +803,8 @@ func (c *PostgresConnector) EnsurePullability(
 			return nil, fmt.Errorf("table %s has no primary keys and does not have REPLICA IDENTITY FULL", schemaTable)
 		}
 
-		tableIdentifierMapping[tableName] = &protos.TableIdentifier{
-			TableIdentifier: &protos.TableIdentifier_PostgresTableIdentifier{
-				PostgresTableIdentifier: &protos.PostgresTableIdentifier{
-					RelId: relID,
-				},
-			},
+		tableIdentifierMapping[tableName] = &protos.PostgresTableIdentifier{
+			RelId: relID,
 		}
 		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("ensured pullability table %s", tableName))
 	}
@@ -836,7 +847,7 @@ func (c *PostgresConnector) SetupReplication(signal SlotSignal, req *protos.Setu
 	}
 	// Create the replication slot and publication
 	err = c.createSlotAndPublication(signal, exists,
-		slotName, publicationName, tableNameMapping, req.DoInitialCopy)
+		slotName, publicationName, tableNameMapping, req.DoInitialSnapshot)
 	if err != nil {
 		return fmt.Errorf("error creating replication slot and publication: %w", err)
 	}

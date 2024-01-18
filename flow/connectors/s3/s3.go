@@ -86,11 +86,6 @@ func (c *S3Connector) CreateRawTable(req *protos.CreateRawTableInput) (*protos.C
 	return nil, nil
 }
 
-func (c *S3Connector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
-	c.logger.Info("InitializeTableSchema for S3 is a no-op")
-	return nil
-}
-
 func (c *S3Connector) Close() error {
 	c.logger.Debug("Closing metadata store connection")
 	return c.pgMetadata.Close()
@@ -233,7 +228,14 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 		LastSyncedCheckPointID: lastCheckpoint,
 		NumRecordsSynced:       int64(numRecords),
 		TableNameRowsMapping:   tableNameRowsMapping,
+		TableSchemaDeltas:      req.Records.WaitForSchemaDeltas(req.TableMappings),
+		RelationMessageMapping: <-req.Records.RelationMessageMapping,
 	}, nil
+}
+
+func (c *S3Connector) ReplayTableSchemaDeltas(flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error {
+	c.logger.Info("ReplayTableSchemaDeltas for S3 is a no-op")
+	return nil
 }
 
 func (c *S3Connector) SetupNormalizedTables(req *protos.SetupNormalizedTableBatchInput) (

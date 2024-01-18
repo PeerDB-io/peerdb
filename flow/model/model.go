@@ -131,7 +131,7 @@ func (r *RecordItems) Len() int {
 	return len(r.Values)
 }
 
-func (r *RecordItems) toMap() (map[string]interface{}, error) {
+func (r *RecordItems) toMap(hstoreAsJSON bool) (map[string]interface{}, error) {
 	if r.ColToValIdx == nil {
 		return nil, errors.New("colToValIdx is nil")
 	}
@@ -146,6 +146,22 @@ func (r *RecordItems) toMap() (map[string]interface{}, error) {
 
 		var err error
 		switch v.Kind {
+		case qvalue.QValueKindBit, qvalue.QValueKindBytes:
+			bitVal, ok := v.Value.([]byte)
+			if !ok {
+				return nil, errors.New("expected []byte value")
+			}
+
+			// convert to binary string because
+			// json.Marshal stores byte arrays as
+			// base64
+			binStr := ""
+			for _, b := range bitVal {
+				binStr += fmt.Sprintf("%08b", b)
+			}
+
+			jsonStruct[col] = binStr
+
 		case qvalue.QValueKindString, qvalue.QValueKindJSON:
 			strVal, ok := v.Value.(string)
 			if !ok {
@@ -163,15 +179,19 @@ func (r *RecordItems) toMap() (map[string]interface{}, error) {
 				return nil, fmt.Errorf("expected string value for hstore column %s for value %T", col, v.Value)
 			}
 
-			jsonVal, err := hstore_util.ParseHstore(hstoreVal)
-			if err != nil {
-				return nil, fmt.Errorf("unable to convert hstore column %s to json for value %T", col, v.Value)
-			}
-
-			if len(jsonVal) > 15*1024*1024 {
-				jsonStruct[col] = ""
+			if !hstoreAsJSON {
+				jsonStruct[col] = hstoreVal
 			} else {
-				jsonStruct[col] = jsonVal
+				jsonVal, err := hstore_util.ParseHstore(hstoreVal)
+				if err != nil {
+					return nil, fmt.Errorf("unable to convert hstore column %s to json for value %T", col, v.Value)
+				}
+
+				if len(jsonVal) > 15*1024*1024 {
+					jsonStruct[col] = ""
+				} else {
+					jsonStruct[col] = jsonVal
+				}
 			}
 
 		case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindDate,
@@ -180,6 +200,16 @@ func (r *RecordItems) toMap() (map[string]interface{}, error) {
 			if err != nil {
 				return nil, err
 			}
+		case qvalue.QValueKindArrayDate:
+			dateArr, ok := v.Value.([]time.Time)
+			if !ok {
+				return nil, errors.New("expected []time.Time value")
+			}
+			formattedDateArr := make([]string, 0, len(dateArr))
+			for _, val := range dateArr {
+				formattedDateArr = append(formattedDateArr, val.Format("2006-01-02"))
+			}
+			jsonStruct[col] = formattedDateArr
 		case qvalue.QValueKindNumeric:
 			bigRat, ok := v.Value.(*big.Rat)
 			if !ok {
@@ -246,20 +276,22 @@ func (r *RecordItems) toMap() (map[string]interface{}, error) {
 
 type ToJSONOptions struct {
 	UnnestColumns map[string]struct{}
+	HStoreAsJSON  bool
 }
 
-func NewToJSONOptions(unnestCols []string) *ToJSONOptions {
+func NewToJSONOptions(unnestCols []string, hstoreAsJSON bool) *ToJSONOptions {
 	unnestColumns := make(map[string]struct{}, len(unnestCols))
 	for _, col := range unnestCols {
 		unnestColumns[col] = struct{}{}
 	}
 	return &ToJSONOptions{
 		UnnestColumns: unnestColumns,
+		HStoreAsJSON:  hstoreAsJSON,
 	}
 }
 
 func (r *RecordItems) ToJSONWithOpts(opts *ToJSONOptions) (string, error) {
-	jsonStruct, err := r.toMap()
+	jsonStruct, err := r.toMap(opts.HStoreAsJSON)
 	if err != nil {
 		return "", err
 	}
@@ -290,9 +322,15 @@ func (r *RecordItems) ToJSONWithOpts(opts *ToJSONOptions) (string, error) {
 	return string(jsonBytes), nil
 }
 
+// a separate method like gives flexibility
+// for us to handle some data types differently
+func (r *RecordItems) ToJSONWithOptions(options *ToJSONOptions) (string, error) {
+	return r.ToJSONWithOpts(options)
+}
+
 func (r *RecordItems) ToJSON() (string, error) {
 	unnestCols := make([]string, 0)
-	return r.ToJSONWithOpts(NewToJSONOptions(unnestCols))
+	return r.ToJSONWithOpts(NewToJSONOptions(unnestCols, true))
 }
 
 type InsertRecord struct {
@@ -496,19 +534,18 @@ type SyncRecordsRequest struct {
 	FlowJobName string
 	// SyncMode to use for pushing raw records
 	SyncMode protos.QRepSyncMode
+	// source:destination mappings
+	TableMappings []*protos.TableMapping
 	// Staging path for AVRO files in CDC
 	StagingPath string
-	// PushBatchSize is the number of records to push in a batch for EventHub.
-	PushBatchSize int64
-	// PushParallelism is the number of batches in Event Hub to push in parallel.
-	PushParallelism int64
 }
 
 type NormalizeRecordsRequest struct {
-	FlowJobName       string
-	SoftDelete        bool
-	SoftDeleteColName string
-	SyncedAtColName   string
+	FlowJobName            string
+	SoftDelete             bool
+	SoftDeleteColName      string
+	SyncedAtColName        string
+	TableNameSchemaMapping map[string]*protos.TableSchema
 }
 
 type SyncResponse struct {

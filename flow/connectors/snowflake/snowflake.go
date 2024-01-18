@@ -59,7 +59,7 @@ const (
 	 _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d AND _PEERDB_RECORD_TYPE != 2
 	 GROUP BY _PEERDB_DESTINATION_TABLE_NAME`
 	getTableSchemaSQL = `SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
-	 WHERE TABLE_SCHEMA=? AND TABLE_NAME=? ORDER BY ORDINAL_POSITION`
+	 WHERE UPPER(TABLE_SCHEMA)=? AND UPPER(TABLE_NAME)=? ORDER BY ORDINAL_POSITION`
 
 	insertJobMetadataSQL = "INSERT INTO %s.%s VALUES (?,?,?,?)"
 
@@ -80,11 +80,10 @@ const (
 )
 
 type SnowflakeConnector struct {
-	ctx                context.Context
-	database           *sql.DB
-	tableSchemaMapping map[string]*protos.TableSchema
-	metadataSchema     string
-	logger             slog.Logger
+	ctx            context.Context
+	database       *sql.DB
+	metadataSchema string
+	logger         slog.Logger
 }
 
 // creating this to capture array results from snowflake.
@@ -149,11 +148,10 @@ func NewSnowflakeConnector(ctx context.Context,
 
 	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &SnowflakeConnector{
-		ctx:                ctx,
-		database:           database,
-		tableSchemaMapping: nil,
-		metadataSchema:     metadataSchema,
-		logger:             *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
+		ctx:            ctx,
+		database:       database,
+		metadataSchema: metadataSchema,
+		logger:         *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 	}, nil
 }
 
@@ -225,7 +223,7 @@ func (c *SnowflakeConnector) GetTableSchema(
 ) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(strings.ToUpper(tableName))
+		tableSchema, err := c.getTableSchemaForTable(tableName)
 		if err != nil {
 			return nil, err
 		}
@@ -239,45 +237,24 @@ func (c *SnowflakeConnector) GetTableSchema(
 }
 
 func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.TableSchema, error) {
-	schemaTable, err := utils.ParseSchemaTable(tableName)
+	colNames, colTypes, err := c.getColsFromTable(tableName)
 	if err != nil {
-		return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
+		return nil, err
 	}
-	rows, err := c.database.QueryContext(c.ctx, getTableSchemaSQL, schemaTable.Schema, schemaTable.Table)
-	if err != nil {
-		return nil, fmt.Errorf("error querying Snowflake peer for schema of table %s: %w", tableName, err)
-	}
-	defer func() {
-		err = rows.Close()
-		if err != nil {
-			c.logger.Error("error while closing rows for reading schema of table",
-				slog.String("tableName", tableName),
-				slog.Any("error", err))
-		}
-	}()
 
-	var columnName, columnType pgtype.Text
-	columnNames := make([]string, 0, 8)
-	columnTypes := make([]string, 0, 8)
-	for rows.Next() {
-		err = rows.Scan(&columnName, &columnType)
-		if err != nil {
-			return nil, fmt.Errorf("error reading row for schema of table %s: %w", tableName, err)
-		}
-		genericColType, err := snowflakeTypeToQValueKind(columnType.String)
+	for i, sfType := range colTypes {
+		genericColType, err := snowflakeTypeToQValueKind(sfType)
 		if err != nil {
 			// we use string for invalid types
 			genericColType = qvalue.QValueKindString
 		}
-
-		columnNames = append(columnNames, columnName.String)
-		columnTypes = append(columnTypes, string(genericColType))
+		colTypes[i] = string(genericColType)
 	}
 
 	return &protos.TableSchema{
 		TableIdentifier: tableName,
-		ColumnNames:     columnNames,
-		ColumnTypes:     columnTypes,
+		ColumnNames:     colNames,
+		ColumnTypes:     colTypes,
 	}, nil
 }
 
@@ -449,16 +426,15 @@ func (c *SnowflakeConnector) SetupNormalizedTables(
 	}, nil
 }
 
-func (c *SnowflakeConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
-	c.tableSchemaMapping = req
-	return nil
-}
-
 // ReplayTableSchemaDeltas changes a destination table to match the schema at source
 // This could involve adding or dropping multiple columns.
 func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
+	if len(schemaDeltas) == 0 {
+		return nil
+	}
+
 	tableSchemaModifyTx, err := c.database.Begin()
 	if err != nil {
 		return fmt.Errorf("error starting transaction for schema modification: %w",
@@ -577,6 +553,12 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		return nil, err
 	}
 
+	tableSchemaDeltas := req.Records.WaitForSchemaDeltas(req.TableMappings)
+	err = c.ReplayTableSchemaDeltas(req.FlowJobName, tableSchemaDeltas)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
+	}
+
 	lastCheckpoint, err := req.Records.GetLastCheckpoint()
 	if err != nil {
 		return nil, err
@@ -587,6 +569,8 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		NumRecordsSynced:       int64(numRecords),
 		CurrentSyncBatchID:     syncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,
+		TableSchemaDeltas:      tableSchemaDeltas,
+		RelationMessageMapping: <-req.Records.RelationMessageMapping,
 	}, nil
 }
 
@@ -642,7 +626,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 				dstTableName:          tableName,
 				syncBatchID:           batchIDs.SyncBatchID,
 				normalizeBatchID:      batchIDs.NormalizeBatchID,
-				normalizedTableSchema: c.tableSchemaMapping[tableName],
+				normalizedTableSchema: req.TableNameSchemaMapping[tableName],
 				unchangedToastColumns: tableNametoUnchangedToastCols[tableName],
 				peerdbCols: &protos.PeerDBColumns{
 					SoftDelete:        req.SoftDelete,

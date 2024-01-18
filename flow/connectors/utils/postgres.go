@@ -8,6 +8,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -55,4 +56,16 @@ func GetCustomDataTypes(ctx context.Context, pool *pgxpool.Pool) (map[uint32]str
 		customTypeMap[typeID.Uint32] = typeName.String
 	}
 	return customTypeMap, nil
+}
+
+func RegisterHStore(ctx context.Context, conn *pgx.Conn) error {
+	var hstoreOID uint32
+	err := conn.QueryRow(context.Background(), `select oid from pg_type where typname = 'hstore'`).Scan(&hstoreOID)
+	if err != nil {
+		return err
+	}
+
+	conn.TypeMap().RegisterType(&pgtype.Type{Name: "hstore", OID: hstoreOID, Codec: pgtype.HstoreCodec{}})
+
+	return nil
 }

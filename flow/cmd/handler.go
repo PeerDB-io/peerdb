@@ -131,10 +131,9 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		},
 	}
 
-	maxBatchSize := int(cfg.MaxBatchSize)
+	maxBatchSize := cfg.MaxBatchSize
 	if maxBatchSize == 0 {
 		maxBatchSize = 1_000_000
-		cfg.MaxBatchSize = uint32(maxBatchSize)
 	}
 
 	limits := &peerflow.CDCFlowLimits{
@@ -172,14 +171,13 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
 
-	state := peerflow.NewCDCFlowWorkflowState()
 	_, err = h.temporalClient.ExecuteWorkflow(
 		ctx,                                // context
 		workflowOptions,                    // workflow start options
 		peerflow.CDCFlowWorkflowWithConfig, // workflow function
 		cfg,                                // workflow input
 		limits,                             // workflow limits
-		state,                              // workflow state
+		nil,                                // workflow state
 	)
 	if err != nil {
 		slog.Error("unable to start PeerFlow workflow", slog.Any("error", err))
@@ -663,6 +661,15 @@ func (h *FlowRequestHandler) CreatePeer(
 		}
 		s3Config := s3ConfigObject.S3Config
 		encodedConfig, encodingErr = proto.Marshal(s3Config)
+	case protos.DBType_CLICKHOUSE:
+		chConfigObject, ok := config.(*protos.Peer_ClickhouseConfig)
+
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+
+		chConfig := chConfigObject.ClickhouseConfig
+		encodedConfig, encodingErr = proto.Marshal(chConfig)
 	default:
 		return wrongConfigResponse, nil
 	}

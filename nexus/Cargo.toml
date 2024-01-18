@@ -16,3 +16,6 @@ members = [
 ]
 
 resolver = "2"
+
+[workspace.dependencies]
+pgwire = "0.19"

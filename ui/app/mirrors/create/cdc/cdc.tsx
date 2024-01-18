@@ -54,7 +54,7 @@ export default function CDCConfigForm({
   const paramDisplayCondition = (setting: MirrorSetting) => {
     const label = setting.label.toLowerCase();
     if (
-      (label.includes('snapshot') && mirrorConfig.doInitialCopy !== true) ||
+      (label.includes('snapshot') && mirrorConfig.doInitialSnapshot !== true) ||
       (label.includes('staging path') &&
         defaultSyncMode(mirrorConfig.destination?.type) !== 'AVRO')
     ) {

@@ -1,4 +1,4 @@
-import prisma from '@/app/utils/prisma';
+import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import { Label } from '@/lib/Label';
 import CdcGraph from './cdcGraph';
 import { SyncStatusTable } from './syncStatusTable';
@@ -9,35 +9,17 @@ function numberWithCommas(x: Number): string {
 type SyncStatusProps = {
   flowJobName: string | undefined;
   rowsSynced: Number;
+  rows: SyncStatusRow[];
 };
 
 export default async function SyncStatus({
   flowJobName,
   rowsSynced,
+  rows,
 }: SyncStatusProps) {
   if (!flowJobName) {
     return <div>Flow job name not provided!</div>;
   }
-
-  const syncs = await prisma.cdc_batches.findMany({
-    where: {
-      flow_name: flowJobName,
-      start_time: {
-        not: undefined,
-      },
-    },
-    orderBy: {
-      start_time: 'desc',
-    },
-    distinct: ['batch_id'],
-  });
-
-  const rows = syncs.map((sync) => ({
-    batchId: sync.batch_id,
-    startTime: sync.start_time,
-    endTime: sync.end_time,
-    numRows: sync.rows_in_batch,
-  }));
 
   return (
     <div>

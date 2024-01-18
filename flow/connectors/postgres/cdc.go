@@ -741,8 +741,8 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 	var parsedData any
 	var err error
 	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
-		if dt.Name == "uuid" {
-			// below is required to decode uuid to string
+		if dt.Name == "uuid" || dt.Name == "cidr" || dt.Name == "inet" || dt.Name == "macaddr" {
+			// below is required to decode above types to string
 			parsedData, err = dt.Codec.DecodeDatabaseSQLValue(p.typeMap, dataType, pgtype.TextFormatCode, data)
 		} else {
 			parsedData, err = dt.Codec.DecodeValue(p.typeMap, dataType, formatCode, data)

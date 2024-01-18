@@ -18,10 +18,6 @@ func TestAvroTransform(t *testing.T) {
 			Type: bigquery.JSONFieldType,
 		},
 		&bigquery.FieldSchema{
-			Name: "col3",
-			Type: bigquery.DateFieldType,
-		},
-		&bigquery.FieldSchema{
 			Name: "camelCol4",
 			Type: bigquery.StringFieldType,
 		},
@@ -34,7 +30,6 @@ func TestAvroTransform(t *testing.T) {
 	expectedTransformCols := []string{
 		"ST_GEOGFROMTEXT(`col1`) AS `col1`",
 		"PARSE_JSON(`col2`,wide_number_mode=>'round') AS `col2`",
-		"CAST(`col3` AS DATE) AS `col3`",
 		"`camelCol4`",
 	}
 	transformedCols := getTransformedColumns(dstSchema, "sync_col", "del_col")
