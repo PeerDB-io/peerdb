@@ -24,6 +24,8 @@ jobs:
           submodules: recursive
 
       - uses: bufbuild/buf-setup-action@v1.28.1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: setup protos
         run: |

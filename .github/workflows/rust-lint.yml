@@ -22,11 +22,13 @@ jobs:
           submodules: recursive
 
       - uses: bufbuild/buf-setup-action@v1.28.1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: setup protos
         run: |
           ./generate_protos.sh
-    
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
