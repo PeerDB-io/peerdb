@@ -18,6 +18,7 @@ type ClickhouseConnector struct {
 	database           *sql.DB
 	tableSchemaMapping map[string]*protos.TableSchema
 	logger             slog.Logger
+	config             *protos.ClickhouseConfig
 }
 
 func NewClickhouseConnector(ctx context.Context,
@@ -34,6 +35,7 @@ func NewClickhouseConnector(ctx context.Context,
 		database:           database,
 		tableSchemaMapping: nil,
 		logger:             *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
+		config:             clickhouseProtoConfig,
 	}, nil
 }
 
