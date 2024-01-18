@@ -23,7 +23,7 @@ type SnowflakeAvroSyncHandler struct {
 	connector *SnowflakeConnector
 }
 
-func NewSnowflakeAvroSyncMethod(
+func NewSnowflakeAvroSyncHandler(
 	config *protos.QRepConfig,
 	connector *SnowflakeConnector,
 ) *SnowflakeAvroSyncHandler {

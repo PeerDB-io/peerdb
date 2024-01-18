@@ -47,7 +47,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 		return 0, nil
 	}
 
-	avroSync := NewSnowflakeAvroSyncMethod(config, c)
+	avroSync := NewSnowflakeAvroSyncHandler(config, c)
 	return avroSync.SyncQRepRecords(config, partition, tblSchema, stream)
 }
 
