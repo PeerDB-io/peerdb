@@ -42,6 +42,7 @@ func NewQRepFlowState() *protos.QRepFlowState {
 		},
 		NumPartitionsProcessed: 0,
 		NeedsResync:            true,
+		CurrentFlowStatus:      protos.FlowStatus_STATUS_RUNNING,
 	}
 }
 
@@ -367,7 +368,7 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 }
 
 func (q *QRepFlowExecution) receiveAndHandleSignalAsync(ctx workflow.Context) {
-	signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
+	signalChan := workflow.GetSignalChannel(ctx, shared.FlowSignalName)
 
 	var signalVal shared.CDCFlowSignal
 	ok := signalChan.ReceiveAsync(&signalVal)
@@ -386,8 +387,8 @@ func setWorkflowQueries(ctx workflow.Context, state *protos.QRepFlowState) error
 	}
 
 	// Support a Query for the current status of the qrep flow.
-	err = workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (*protos.FlowStatus, error) {
-		return &state.CurrentFlowState, nil
+	err = workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (protos.FlowStatus, error) {
+		return state.CurrentFlowStatus, nil
 	})
 	if err != nil {
 		return fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
@@ -395,7 +396,7 @@ func setWorkflowQueries(ctx workflow.Context, state *protos.QRepFlowState) error
 
 	// Support an Update for the current status of the qrep flow.
 	err = workflow.SetUpdateHandler(ctx, shared.FlowStatusUpdate, func(status *protos.FlowStatus) error {
-		state.CurrentFlowState = *status
+		state.CurrentFlowStatus = *status
 		return nil
 	})
 	if err != nil {
@@ -427,6 +428,15 @@ func QRepFlowWorkflow(
 	err := setWorkflowQueries(ctx, state)
 	if err != nil {
 		return err
+	}
+
+	// Support an Update for the current status of the qrep flow.
+	err = workflow.SetUpdateHandler(ctx, shared.FlowStatusUpdate, func(status *protos.FlowStatus) error {
+		state.CurrentFlowStatus = *status
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to register query handler: %w", err)
 	}
 
 	// get qrep run uuid via side-effect
@@ -507,7 +517,8 @@ func QRepFlowWorkflow(
 	q.receiveAndHandleSignalAsync(ctx)
 	if q.activeSignal == shared.PauseSignal {
 		startTime := time.Now()
-		signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+		signalChan := workflow.GetSignalChannel(ctx, shared.FlowSignalName)
 		var signalVal shared.CDCFlowSignal
 
 		for q.activeSignal == shared.PauseSignal {
@@ -521,6 +532,7 @@ func QRepFlowWorkflow(
 	}
 	if q.activeSignal == shared.ShutdownSignal {
 		q.logger.Info("terminating workflow - ", config.FlowJobName)
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_TERMINATED
 		return nil
 	}
 

@@ -187,7 +187,7 @@ func SetupCDCFlowStatusQuery(t *testing.T, env *testsuite.TestWorkflowEnvironmen
 			err = response.Get(&state)
 			if err != nil {
 				slog.Error(err.Error())
-			} else if state.CurrentFlowState == protos.FlowStatus_STATUS_RUNNING {
+			} else if state.CurrentFlowStatus == protos.FlowStatus_STATUS_RUNNING {
 				return
 			}
 		} else if counter > 15 {

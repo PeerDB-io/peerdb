@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -205,8 +206,7 @@ func (c *PostgresConnector) PullRecords(catalogPool *pgxpool.Pool, req *model.Pu
 		slotName = req.OverrideReplicationSlotName
 	}
 
-	// Publication name would be the job name prefixed with "peerflow_pub_"
-	publicationName := fmt.Sprintf("peerflow_pub_%s", req.FlowJobName)
+	publicationName := c.getDefaultPublicationName(req.FlowJobName)
 	if req.OverridePublicationName != "" {
 		publicationName = req.OverridePublicationName
 	}
@@ -788,6 +788,16 @@ func (c *PostgresConnector) EnsurePullability(
 			return nil, err
 		}
 
+		tableIdentifierMapping[tableName] = &protos.PostgresTableIdentifier{
+			RelId: relID,
+		}
+
+		if !req.CheckConstraints {
+			msg := fmt.Sprintf("[no-constraints] ensured pullability table %s", tableName)
+			utils.RecordHeartbeatWithRecover(c.ctx, msg)
+			continue
+		}
+
 		replicaIdentity, replErr := c.getReplicaIdentityType(schemaTable)
 		if replErr != nil {
 			return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
@@ -799,13 +809,11 @@ func (c *PostgresConnector) EnsurePullability(
 		}
 
 		// we only allow no primary key if the table has REPLICA IDENTITY FULL
+		// this is ok for replica identity index as we populate the primary key columns
 		if len(pKeyCols) == 0 && !(replicaIdentity == ReplicaIdentityFull) {
 			return nil, fmt.Errorf("table %s has no primary keys and does not have REPLICA IDENTITY FULL", schemaTable)
 		}
 
-		tableIdentifierMapping[tableName] = &protos.PostgresTableIdentifier{
-			RelId: relID,
-		}
 		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("ensured pullability table %s", tableName))
 	}
 
@@ -826,8 +834,7 @@ func (c *PostgresConnector) SetupReplication(signal SlotSignal, req *protos.Setu
 		slotName = req.ExistingReplicationSlotName
 	}
 
-	// Publication name would be the job name prefixed with "peerflow_pub_"
-	publicationName := fmt.Sprintf("peerflow_pub_%s", req.FlowJobName)
+	publicationName := c.getDefaultPublicationName(req.FlowJobName)
 	if req.ExistingPublicationName != "" {
 		publicationName = req.ExistingPublicationName
 	}
@@ -859,8 +866,7 @@ func (c *PostgresConnector) PullFlowCleanup(jobName string) error {
 	// Slotname would be the job name prefixed with "peerflow_slot_"
 	slotName := fmt.Sprintf("peerflow_slot_%s", jobName)
 
-	// Publication name would be the job name prefixed with "peerflow_pub_"
-	publicationName := fmt.Sprintf("peerflow_pub_%s", jobName)
+	publicationName := c.getDefaultPublicationName(jobName)
 
 	pullFlowCleanupTx, err := c.pool.Begin(c.ctx)
 	if err != nil {
@@ -937,4 +943,43 @@ func (c *PostgresConnector) GetOpenConnectionsForUser() (*protos.GetOpenConnecti
 		UserName:               c.config.User,
 		CurrentOpenConnections: result.Int64,
 	}, nil
+}
+
+func (c *PostgresConnector) AddTablesToPublication(req *protos.AddTablesToPublicationInput) error {
+	// don't modify custom publications
+	if req == nil || len(req.AdditionalTables) == 0 {
+		return nil
+	}
+
+	additionalSrcTables := make([]string, 0, len(req.AdditionalTables))
+	for _, additionalTableMapping := range req.AdditionalTables {
+		additionalSrcTables = append(additionalSrcTables, additionalTableMapping.SourceTableIdentifier)
+	}
+
+	// just check if we have all the tables already in the publication
+	if req.PublicationName != "" {
+		rows, err := c.pool.Query(c.ctx,
+			"SELECT tablename FROM pg_publication_tables WHERE pubname=$1", req.PublicationName)
+		if err != nil {
+			return fmt.Errorf("failed to check tables in publication: %w", err)
+		}
+
+		tableNames, err := pgx.CollectRows[string](rows, pgx.RowTo)
+		if err != nil {
+			return fmt.Errorf("failed to check tables in publication: %w", err)
+		}
+		notPresentTables := utils.ArrayMinus(tableNames, additionalSrcTables)
+		if len(notPresentTables) > 0 {
+			return fmt.Errorf("some additional tables not present in custom publication: %s",
+				strings.Join(notPresentTables, ", "))
+		}
+	}
+
+	additionalSrcTablesString := strings.Join(additionalSrcTables, ",")
+	_, err := c.pool.Exec(c.ctx, fmt.Sprintf("ALTER PUBLICATION %s ADD TABLE %s",
+		c.getDefaultPublicationName(req.FlowJobName), additionalSrcTablesString))
+	if err != nil {
+		return fmt.Errorf("failed to alter publication: %w", err)
+	}
+	return nil
 }

@@ -327,7 +327,7 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		ctx,
 		req.WorkflowId,
 		"",
-		shared.CDCFlowSignalName,
+		shared.FlowSignalName,
 		shared.ShutdownSignal,
 	)
 	if err != nil {
@@ -442,8 +442,9 @@ func (h *FlowRequestHandler) FlowStateChange(
 	if err != nil {
 		return nil, err
 	}
+
 	if req.RequestedFlowState == protos.FlowStatus_STATUS_PAUSED &&
-		*currState == protos.FlowStatus_STATUS_RUNNING {
+		currState == protos.FlowStatus_STATUS_RUNNING {
 		err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_PAUSING)
 		if err != nil {
 			return nil, err
@@ -452,20 +453,20 @@ func (h *FlowRequestHandler) FlowStateChange(
 			ctx,
 			workflowID,
 			"",
-			shared.CDCFlowSignalName,
+			shared.FlowSignalName,
 			shared.PauseSignal,
 		)
 	} else if req.RequestedFlowState == protos.FlowStatus_STATUS_RUNNING &&
-		*currState == protos.FlowStatus_STATUS_PAUSED {
+		currState == protos.FlowStatus_STATUS_PAUSED {
 		err = h.temporalClient.SignalWorkflow(
 			ctx,
 			workflowID,
 			"",
-			shared.CDCFlowSignalName,
+			shared.FlowSignalName,
 			shared.NoopSignal,
 		)
 	} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED &&
-		(*currState == protos.FlowStatus_STATUS_RUNNING || *currState == protos.FlowStatus_STATUS_PAUSED) {
+		(currState == protos.FlowStatus_STATUS_RUNNING || currState == protos.FlowStatus_STATUS_PAUSED) {
 		err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_TERMINATING)
 		if err != nil {
 			return nil, err
@@ -482,7 +483,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			req.RequestedFlowState, currState)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("unable to signal CDCFlow workflow: %w", err)
+		return nil, fmt.Errorf("unable to signal workflow: %w", err)
 	}
 
 	return &protos.FlowStateChangeResponse{

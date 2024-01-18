@@ -604,3 +604,7 @@ func (c *PostgresConnector) getCurrentLSN() (pglogrepl.LSN, error) {
 	}
 	return pglogrepl.ParseLSN(result.String)
 }
+
+func (c *PostgresConnector) getDefaultPublicationName(jobName string) string {
+	return fmt.Sprintf("peerflow_pub_%s", jobName)
+}

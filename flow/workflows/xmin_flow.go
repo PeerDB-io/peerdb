@@ -119,7 +119,8 @@ func XminFlowWorkflow(
 	q.receiveAndHandleSignalAsync(ctx)
 	if x.activeSignal == shared.PauseSignal {
 		startTime := time.Now()
-		signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+		signalChan := workflow.GetSignalChannel(ctx, shared.FlowSignalName)
 		var signalVal shared.CDCFlowSignal
 
 		for x.activeSignal == shared.PauseSignal {
@@ -131,8 +132,9 @@ func XminFlowWorkflow(
 			}
 		}
 	}
-	if x.activeSignal == shared.ShutdownSignal {
-		x.logger.Info("terminating workflow - ", config.FlowJobName)
+	if q.activeSignal == shared.ShutdownSignal {
+		q.logger.Info("terminating workflow - ", config.FlowJobName)
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_TERMINATED
 		return nil
 	}
 

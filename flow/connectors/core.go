@@ -49,6 +49,9 @@ type CDCPullConnector interface {
 
 	// GetOpenConnectionsForUser returns the number of open connections for the user configured in the peer.
 	GetOpenConnectionsForUser() (*protos.GetOpenConnectionsForUserResult, error)
+
+	// AddTablesToPublication adds additional tables added to a mirror to the publication also
+	AddTablesToPublication(req *protos.AddTablesToPublicationInput) error
 }
 
 type CDCSyncConnector interface {

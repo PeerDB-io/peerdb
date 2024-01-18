@@ -51,7 +51,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 			Status: &protos.MirrorStatusResponse_CdcStatus{
 				CdcStatus: cdcStatus,
 			},
-			CurrentFlowState: *currState,
+			CurrentFlowState: currState,
 		}, nil
 	} else {
 		qrepStatus, err := h.QRepFlowStatus(ctx, req)
@@ -66,7 +66,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 			Status: &protos.MirrorStatusResponse_QrepStatus{
 				QrepStatus: qrepStatus,
 			},
-			CurrentFlowState: *currState,
+			CurrentFlowState: currState,
 		}, nil
 	}
 }
@@ -334,17 +334,19 @@ func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) 
 	return false, nil
 }
 
-func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID string) (*protos.FlowStatus, error) {
+func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID string) (protos.FlowStatus, error) {
 	res, err := h.temporalClient.QueryWorkflow(ctx, workflowID, "", shared.FlowStatusQuery)
 	if err != nil {
 		slog.Error(fmt.Sprintf("failed to get state in workflow with ID %s: %s", workflowID, err.Error()))
-		return nil, fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
+		return protos.FlowStatus_STATUS_UNKNOWN,
+			fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
 	}
-	var state *protos.FlowStatus
+	var state protos.FlowStatus
 	err = res.Get(&state)
 	if err != nil {
 		slog.Error(fmt.Sprintf("failed to get state in workflow with ID %s: %s", workflowID, err.Error()))
-		return nil, fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
+		return protos.FlowStatus_STATUS_UNKNOWN,
+			fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
 	}
 	return state, nil
 }
