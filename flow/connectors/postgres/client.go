@@ -491,7 +491,7 @@ func (c *PostgresConnector) updateSyncMetadata(flowJobName string, lastCP int64,
 		fmt.Sprintf(upsertJobMetadataForSyncSQL, c.metadataSchema, mirrorJobsTableIdentifier),
 		flowJobName, lastCP, syncBatchID, 0)
 	if err != nil {
-		return fmt.Errorf("failed to updset flow job status: %w", err)
+		return fmt.Errorf("failed to upsert flow job status: %w", err)
 	}
 
 	return nil
