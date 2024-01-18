@@ -39,9 +39,8 @@ func (s *SyncFlowExecution) executeSyncFlow(
 ) (*model.SyncResponse, error) {
 	s.logger.Info("executing sync flow - ", s.CDCFlowName)
 
-	syncMetaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+	syncMetaCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
 		StartToCloseTimeout: 1 * time.Minute,
-		WaitForCancellation: true,
 	})
 
 	// execute GetLastSyncedID on destination peer
@@ -50,7 +49,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 		FlowJobName:          s.CDCFlowName,
 	}
 
-	lastSyncFuture := workflow.ExecuteActivity(syncMetaCtx, flowable.GetLastSyncedID, lastSyncInput)
+	lastSyncFuture := workflow.ExecuteLocalActivity(syncMetaCtx, flowable.GetLastSyncedID, lastSyncInput)
 	var dstSyncState *protos.LastSyncState
 	if err := lastSyncFuture.Get(syncMetaCtx, &dstSyncState); err != nil {
 		return nil, fmt.Errorf("failed to get last synced ID from destination peer: %w", err)
