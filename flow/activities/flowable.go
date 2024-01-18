@@ -668,29 +668,24 @@ func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.Q
 	return dst.CleanupQRepFlow(config)
 }
 
-func (a *FlowableActivity) DropFlow(ctx context.Context, config *protos.ShutdownRequest) error {
-	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+func (a *FlowableActivity) DropFlowSource(ctx context.Context, config *protos.ShutdownRequest) error {
 	srcConn, err := connectors.GetCDCPullConnector(ctx, config.SourcePeer)
 	if err != nil {
 		return fmt.Errorf("failed to get source connector: %w", err)
 	}
 	defer connectors.CloseConnector(srcConn)
 
+	return srcConn.PullFlowCleanup(config.FlowJobName)
+}
+
+func (a *FlowableActivity) DropFlowDestination(ctx context.Context, config *protos.ShutdownRequest) error {
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.DestinationPeer)
 	if err != nil {
 		return fmt.Errorf("failed to get destination connector: %w", err)
 	}
 	defer connectors.CloseConnector(dstConn)
 
-	err = srcConn.PullFlowCleanup(config.FlowJobName)
-	if err != nil {
-		return fmt.Errorf("failed to cleanup source: %w", err)
-	}
-	err = dstConn.SyncFlowCleanup(config.FlowJobName)
-	if err != nil {
-		return fmt.Errorf("failed to cleanup destination: %w", err)
-	}
-	return nil
+	return dstConn.SyncFlowCleanup(config.FlowJobName)
 }
 
 func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*protos.Peer, error) {

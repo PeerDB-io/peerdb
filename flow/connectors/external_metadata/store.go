@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	cc "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -66,6 +67,10 @@ func (p *PostgresMetadataStore) Close() error {
 	return nil
 }
 
+func (p *PostgresMetadataStore) QualifyTable(table string) string {
+	return connpostgres.QuoteIdentifier(p.schemaName) + "." + connpostgres.QuoteIdentifier(table)
+}
+
 func (p *PostgresMetadataStore) Ping() error {
 	if p.pool == nil {
 		return fmt.Errorf("metadata db ping failed as pool does not exist")
@@ -106,7 +111,7 @@ func (p *PostgresMetadataStore) SetupMetadata() error {
 
 	// create the last sync state table
 	_, err = p.pool.Exec(p.ctx, `
-		CREATE TABLE IF NOT EXISTS `+p.schemaName+`.`+lastSyncStateTableName+` (
+		CREATE TABLE IF NOT EXISTS `+p.QualifyTable(lastSyncStateTableName)+` (
 			job_name TEXT PRIMARY KEY NOT NULL,
 			last_offset BIGINT NOT NULL,
 			updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -125,7 +130,7 @@ func (p *PostgresMetadataStore) SetupMetadata() error {
 func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (int64, error) {
 	rows := p.pool.QueryRow(p.ctx, `
 		SELECT last_offset
-		FROM `+p.schemaName+`.`+lastSyncStateTableName+`
+		FROM `+p.QualifyTable(lastSyncStateTableName)+`
 		WHERE job_name = $1
 	`, jobName)
 	var offset pgtype.Int8
@@ -147,7 +152,7 @@ func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (int64, error) {
 func (p *PostgresMetadataStore) GetLastBatchID(jobName string) (int64, error) {
 	rows := p.pool.QueryRow(p.ctx, `
 		SELECT sync_batch_id
-		FROM `+p.schemaName+`.`+lastSyncStateTableName+`
+		FROM `+p.QualifyTable(lastSyncStateTableName)+`
 		WHERE job_name = $1
 	`, jobName)
 
@@ -179,10 +184,10 @@ func (p *PostgresMetadataStore) UpdateLastOffset(jobName string, offset int64) e
 	// update the last offset
 	p.logger.Info("updating last offset", slog.Int64("offset", offset))
 	_, err = tx.Exec(p.ctx, `
-		INSERT INTO `+p.schemaName+`.`+lastSyncStateTableName+` (job_name, last_offset, sync_batch_id)
+		INSERT INTO `+p.QualifyTable(lastSyncStateTableName)+` (job_name, last_offset, sync_batch_id)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (job_name)
-		DO UPDATE SET last_offset = GREATEST(`+lastSyncStateTableName+`.last_offset, excluded.last_offset),
+		DO UPDATE SET last_offset = GREATEST(`+connpostgres.QuoteIdentifier(lastSyncStateTableName)+`.last_offset, excluded.last_offset),
 			updated_at = NOW()
 	`, jobName, offset, 0)
 
@@ -205,7 +210,7 @@ func (p *PostgresMetadataStore) UpdateLastOffset(jobName string, offset int64) e
 func (p *PostgresMetadataStore) IncrementID(jobName string) error {
 	p.logger.Info("incrementing sync batch id for job")
 	_, err := p.pool.Exec(p.ctx, `
-		UPDATE `+p.schemaName+`.`+lastSyncStateTableName+`
+		UPDATE `+p.QualifyTable(lastSyncStateTableName)+`
 		 SET sync_batch_id=sync_batch_id+1 WHERE job_name=$1
 	`, jobName)
 	if err != nil {
@@ -218,7 +223,7 @@ func (p *PostgresMetadataStore) IncrementID(jobName string) error {
 
 func (p *PostgresMetadataStore) DropMetadata(jobName string) error {
 	_, err := p.pool.Exec(p.ctx, `
-		DELETE FROM `+p.schemaName+`.`+lastSyncStateTableName+`
+		DELETE FROM `+p.QualifyTable(lastSyncStateTableName)+`
 		WHERE job_name = $1
 	`, jobName)
 	return err
