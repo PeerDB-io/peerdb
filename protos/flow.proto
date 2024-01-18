@@ -67,10 +67,6 @@ message FlowConnectionConfigs {
   bool soft_delete = 17;
   string soft_delete_col_name = 18;
   string synced_at_col_name = 19;
-
-  // make InitialCopyOnly enable EnsurePullability for the use case of dynamic table addition
-  // TODO: find a better way to do this.
-  bool force_pkey_checks = 20;
 }
 
 message RenameTableOption {
