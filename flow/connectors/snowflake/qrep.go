@@ -258,13 +258,8 @@ func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig
 	destTable := config.DestinationTableIdentifier
 	stageName := c.getStageNameForJob(config.FlowJobName)
 
-	colNames, _, err := c.getColsFromTable(destTable)
-	if err != nil {
-		c.logger.Error(fmt.Sprintf("failed to get columns from table %s", destTable), slog.Any("error", err))
-		return fmt.Errorf("failed to get columns from table %s: %w", destTable, err)
-	}
-
-	err = CopyStageToDestination(c, config, destTable, stageName, colNames)
+	writeHandler := NewSnowflakeAvroConsolidateHandler(c, config, destTable, stageName)
+	err := writeHandler.CopyStageToDestination()
 	if err != nil {
 		c.logger.Error("failed to copy stage to destination", slog.Any("error", err))
 		return fmt.Errorf("failed to copy stage to destination: %w", err)
