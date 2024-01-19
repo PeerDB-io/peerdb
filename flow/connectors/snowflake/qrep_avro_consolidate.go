@@ -149,8 +149,8 @@ func (s *SnowflakeAvroConsolidateHandler) generateUpsertMergeCommand(
 		upsertKeyCols[i] = caseMatchedCols[strings.ToLower(col)]
 	}
 
-	upsertKeys := []string{}
-	partitionKeyCols := []string{}
+	upsertKeys := make([]string, 0, len(upsertKeyCols))
+	partitionKeyCols := make([]string, 0, len(upsertKeyCols))
 	for _, key := range upsertKeyCols {
 		quotedKey := utils.QuoteIdentifier(key)
 		upsertKeys = append(upsertKeys, fmt.Sprintf("dst.%s = src.%s", quotedKey, quotedKey))
