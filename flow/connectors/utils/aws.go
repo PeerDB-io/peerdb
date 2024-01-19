@@ -1,12 +1,10 @@
 package utils
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
 
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
@@ -95,14 +93,8 @@ func CreateS3Client(s3Creds S3PeerCredentials) (*s3.Client, error) {
 		return nil, fmt.Errorf("failed to get AWS secrets: %w", err)
 	}
 
-	cfg, err := config.LoadDefaultConfig(
-		context.Background(),
-		config.WithRegion(awsSecrets.Region),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(awsSecrets.AccessKeyID, awsSecrets.SecretAccessKey, "")),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return s3.NewFromConfig(cfg), nil
+	return s3.New(s3.Options{
+		Region:      awsSecrets.Region,
+		Credentials: credentials.NewStaticCredentialsProvider(awsSecrets.AccessKeyID, awsSecrets.SecretAccessKey, ""),
+	}), nil
 }
