@@ -92,9 +92,13 @@ func CreateS3Client(s3Creds S3PeerCredentials) (*s3.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get AWS secrets: %w", err)
 	}
-
-	return s3.New(s3.Options{
+	options := s3.Options{
 		Region:      awsSecrets.Region,
 		Credentials: credentials.NewStaticCredentialsProvider(awsSecrets.AccessKeyID, awsSecrets.SecretAccessKey, ""),
-	}), nil
+	}
+	if awsSecrets.Endpoint != "" {
+		options.BaseEndpoint = &awsSecrets.Endpoint
+	}
+
+	return s3.New(options), nil
 }
