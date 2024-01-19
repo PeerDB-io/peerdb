@@ -1,0 +1,29 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="flow-api" type="GoApplicationRunConfiguration" factoryName="Go Application">
+    <module name="peerdb" />
+    <working_directory value="$PROJECT_DIR$/flow" />
+    <parameters value="api" />
+    <envs>
+      <env name="PEERDB_CATALOG_USER" value="postgres" />
+      <env name="PEERDB_CATALOG_PASSWORD" value="postgres" />
+      <env name="PEERDB_CATALOG_DATABASE" value="postgres" />
+      <env name="PEERDB_CATALOG_HOST" value="localhost" />
+      <env name="PEERDB_CATALOG_PORT" value="9901" />
+    </envs>
+    <EXTENSION ID="net.ashald.envfile">
+      <option name="IS_ENABLED" value="true" />
+      <option name="IS_SUBST" value="false" />
+      <option name="IS_PATH_MACRO_SUPPORTED" value="false" />
+      <option name="IS_IGNORE_MISSING_FILES" value="false" />
+      <option name="IS_ENABLE_EXPERIMENTAL_INTEGRATIONS" value="false" />
+      <ENTRIES>
+        <ENTRY IS_ENABLED="true" PARSER="runconfig" IS_EXECUTABLE="false" />
+      </ENTRIES>
+    </EXTENSION>
+    <kind value="PACKAGE" />
+    <package value="github.com/PeerDB-io/peer-flow/cmd" />
+    <directory value="$PROJECT_DIR$" />
+    <filePath value="$PROJECT_DIR$/flow/cmd/main.go" />
+    <method v="2" />
+  </configuration>
+</component>

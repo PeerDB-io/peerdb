@@ -26,6 +26,16 @@ type KafkaConnector struct {
 	producer *kafka.Producer
 }
 
+func (c *KafkaConnector) SetLastOffset(jobName string, lastOffset int64) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *KafkaConnector) ReplayTableSchemaDeltas(flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error {
+	//TODO implement me
+	panic("implement me")
+}
+
 func NewKafkaConnector(ctx context.Context,
 	kafkaProtoConfig *protos.KafkaConfig,
 ) (*KafkaConnector, error) {
@@ -143,12 +153,12 @@ func (c *KafkaConnector) SetupMetadataTables() error {
 	return nil
 }
 
-func (c *KafkaConnector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
+func (c *KafkaConnector) GetLastOffset(jobName string) (int64, error) {
 	metadataTopicName := "peerdb_" + jobName
 
 	subscribeErr := c.consumer.SubscribeTopics([]string{metadataTopicName}, nil)
 	if subscribeErr != nil {
-		return nil, fmt.Errorf("failed to subscribe offset reader to metadata topic: %w", subscribeErr)
+		return 0, fmt.Errorf("failed to subscribe offset reader to metadata topic: %w", subscribeErr)
 	}
 
 	assignErr := c.consumer.Assign([]kafka.TopicPartition{{
@@ -157,29 +167,27 @@ func (c *KafkaConnector) GetLastOffset(jobName string) (*protos.LastSyncState, e
 		Offset:    kafka.OffsetTail(2), // not 1 because ReadMessage reads the next message, not current
 	}})
 	if assignErr != nil {
-		return nil, fmt.Errorf("failed to assign partition for offset reader: %w", assignErr)
+		return 0, fmt.Errorf("failed to assign partition for offset reader: %w", assignErr)
 	}
 
 	lastMessage, readErr := c.consumer.ReadMessage(60 * time.Second)
 	if readErr != nil {
 		if strings.Contains(readErr.Error(), "Timed out") {
-			return nil, nil
+			return 0, nil
 		}
-		return nil, fmt.Errorf("unable to read latest offset: %w", readErr)
+		return 0, fmt.Errorf("unable to read latest offset: %w", readErr)
 	}
 
 	lastCheckpoint, integerParseErr := strconv.ParseInt(string(lastMessage.Value), 10, 64)
 	if integerParseErr != nil {
-		return nil, fmt.Errorf("error converting checkpoint string to int64: %w", integerParseErr)
+		return 0, fmt.Errorf("error converting checkpoint string to int64: %w", integerParseErr)
 	}
 
 	if err := c.consumer.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close offset reader: %w", err)
+		return 0, fmt.Errorf("failed to close offset reader: %w", err)
 	}
 
-	return &protos.LastSyncState{
-		Checkpoint: lastCheckpoint,
-	}, nil
+	return lastCheckpoint, nil
 }
 
 func (c *KafkaConnector) GetLastSyncBatchID(jobName string) (int64, error) {

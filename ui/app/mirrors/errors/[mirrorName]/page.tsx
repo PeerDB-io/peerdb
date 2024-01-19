@@ -27,7 +27,7 @@ const colorForErrorType = (errorType: string) => {
 };
 
 export default function MirrorError() {
-  const params = useParams<{ mirrorName: string }>();
+  const params = useParams<{ mirrorName: string }>()!;
   const [mirrorErrors, setMirrorErrors] = useState<MirrorLog[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);

@@ -122,6 +122,8 @@ services:
       - 8113:8113
     environment:
       <<: [*catalog-config, *flow-worker-env]
+    deploy:
+      replicas: ${flow_api_replicas:-1}
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
@@ -138,42 +140,16 @@ services:
       temporal-admin-tools:
         condition: service_healthy
 
-  flow-worker1:
-    container_name: flow-worker1
+  flow-worker:
+#    container_name: flow-worker1
     build:
       context: .
       dockerfile: stacks/flow.Dockerfile
       target: flow-worker
     environment:
       <<: [*catalog-config, *flow-worker-env]
-    depends_on:
-      temporal-admin-tools:
-        condition: service_healthy
-
-  flow-worker2:
-    container_name: flow-worker2
-    build:
-      context: .
-      dockerfile: stacks/flow.Dockerfile
-      target: flow-worker
-    environment:
-      <<: [*catalog-config, *flow-worker-env]
-    profiles:
-      - multi
-    depends_on:
-      temporal-admin-tools:
-        condition: service_healthy
-
-  flow-worker3:
-    container_name: flow-worker3
-    build:
-      context: .
-      dockerfile: stacks/flow.Dockerfile
-      target: flow-worker
-    environment:
-      <<: [*catalog-config, *flow-worker-env]
-    profiles:
-      - multi
+    deploy:
+      replicas: ${flow_worker_replicas:-3}
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
