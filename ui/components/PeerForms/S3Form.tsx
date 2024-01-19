@@ -152,7 +152,7 @@ const S3Form = ({ setter }: S3Props) => {
         You can also choose to use your own PostgreSQL database:
       </Label>
       <div style={{ width: '50%', display: 'flex', alignItems: 'center' }}>
-        <Label variant='subheadline'>Use my own metadata detabase</Label>
+        <Label variant='subheadline'>Use my own metadata database</Label>
         <Switch onCheckedChange={(state) => setShowMetadata(state)} />
       </div>
       {showMetadata &&
