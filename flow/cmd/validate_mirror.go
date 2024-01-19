@@ -25,7 +25,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		return nil, fmt.Errorf("source peer config is nil")
 	}
 
-	// 2. Check permissions of postgres peer
+	// Check permissions of postgres peer
 	err = connpostgres.CheckReplicationPermissions(ctx, sourcePool, sourcePeerConfig.User)
 	if err != nil {
 		return &protos.ValidateCDCMirrorResponse{
@@ -33,7 +33,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		}, fmt.Errorf("failed to check replication permissions: %v", err)
 	}
 
-	// 3. Check source tables
+	// Check source tables
 	sourceTables := make([]string, 0, len(req.ConnectionConfigs.TableMappings))
 	for _, tableMapping := range req.ConnectionConfigs.TableMappings {
 		sourceTables = append(sourceTables, tableMapping.SourceTableIdentifier)
