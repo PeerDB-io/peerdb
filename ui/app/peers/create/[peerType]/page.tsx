@@ -1,10 +1,10 @@
 'use client';
 import { PeerConfig } from '@/app/dto/PeersDTO';
 import BigqueryForm from '@/components/PeerForms/BigqueryConfig';
+import ClickhouseForm from '@/components/PeerForms/ClickhouseConfig';
 import PostgresForm from '@/components/PeerForms/PostgresForm';
 import S3Form from '@/components/PeerForms/S3Form';
 import SnowflakeForm from '@/components/PeerForms/SnowflakeForm';
-import ClickhouseForm from '@/components/PeerForms/ClickhouseConfig';
 
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
@@ -17,10 +17,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { handleCreate, handleValidate } from './handlers';
+import { clickhouseSetting } from './helpers/ch';
 import { getBlankSetting } from './helpers/common';
 import { postgresSetting } from './helpers/pg';
 import { snowflakeSetting } from './helpers/sf';
-import {clickhouseSetting} from './helpers/ch';
 
 type CreateConfigProps = {
   params: { peerType: string };
@@ -48,7 +48,9 @@ export default function CreateConfig({
       case 'BIGQUERY':
         return <BigqueryForm setter={setConfig} />;
       case 'CLICKHOUSE':
-        return <ClickhouseForm settings={clickhouseSetting} setter={setConfig} />;        
+        return (
+          <ClickhouseForm settings={clickhouseSetting} setter={setConfig} />
+        );
       case 'S3':
         return <S3Form setter={setConfig} />;
       default:

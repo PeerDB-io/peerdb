@@ -19,7 +19,7 @@ export const DBTypeToImageMapping = (peerType: DBType | string) => {
     case 'S3':
       return '/svgs/aws.svg';
     case 'CLICKHOUSE':
-      return '/svgs/ch.svg';      
+      return '/svgs/ch.svg';
     case DBType.EVENTHUB_GROUP:
     case DBType.EVENTHUB:
       return '/svgs/ms.svg';

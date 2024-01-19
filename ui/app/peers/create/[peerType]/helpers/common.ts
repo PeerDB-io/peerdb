@@ -1,9 +1,9 @@
 import { PeerConfig, PeerSetter } from '@/app/dto/PeersDTO';
 import { blankBigquerySetting } from './bq';
+import { blankClickhouseSetting } from './ch';
 import { blankPostgresSetting } from './pg';
 import { blankS3Setting } from './s3';
 import { blankSnowflakeSetting } from './sf';
-import {blankClickhouseSetting} from './ch';
 
 export interface PeerSetting {
   label: string;
