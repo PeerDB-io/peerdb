@@ -154,7 +154,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 	}
 
 	datasetID := config.GetDatasetId()
-	_, checkErr := client.Dataset(datasetID).Metadata(ctx)
+	_, checkErr := client.DatasetInProject(datasetID, config.ProjectId).Metadata(ctx)
 	if checkErr != nil {
 		slog.ErrorContext(ctx, "failed to get dataset metadata", slog.Any("error", checkErr))
 		return nil, fmt.Errorf("failed to get dataset metadata: %v", checkErr)
