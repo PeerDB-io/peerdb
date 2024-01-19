@@ -7,7 +7,6 @@ import { Dispatch, SetStateAction, useMemo, useState } from 'react';
 import { CDCConfig, MirrorSetter, TableMapRow } from '../../../dto/MirrorsDTO';
 import { MirrorSetting } from '../helpers/common';
 import CDCField from './fields';
-import GuideForDestinationSetup from './guide';
 import TableMapping from './tablemapping';
 
 interface MirrorConfigProps {
@@ -69,7 +68,6 @@ export default function CDCConfigForm({
   if (mirrorConfig.source != undefined && mirrorConfig.destination != undefined)
     return (
       <>
-        <GuideForDestinationSetup dstPeerType={mirrorConfig.destination.type} />
         {normalSettings.map((setting, id) => {
           return (
             paramDisplayCondition(setting) && (

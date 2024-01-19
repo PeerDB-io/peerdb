@@ -1,27 +1,29 @@
-import { DBTypeToGoodText } from '@/components/PeerTypeComponent';
-import { DBType } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import Link from 'next/link';
 
-const GuideForDestinationSetup = ({ dstPeerType }: { dstPeerType: DBType }) => {
+const GuideForDestinationSetup = ({
+  dstPeerType: peerType,
+}: {
+  dstPeerType: string;
+}) => {
   const linkForDst = () => {
-    switch (dstPeerType) {
-      case DBType.SNOWFLAKE:
+    switch (peerType) {
+      case 'SNOWFLAKE':
         return 'https://docs.peerdb.io/connect/snowflake';
-      case DBType.BIGQUERY:
+      case 'BIGQUERY':
         return 'https://docs.peerdb.io/connect/bigquery';
       default:
         return 'https://docs.peerdb.io/';
     }
   };
-  if (dstPeerType != DBType.SNOWFLAKE && dstPeerType != DBType.BIGQUERY) {
+  if (peerType != 'SNOWFLAKE' && peerType != 'BIGQUERY') {
     return <></>;
   }
   return (
     <Label variant='body' as='label' style={{ marginBottom: '1rem' }}>
       We recommend going through our{' '}
       <Link style={{ color: 'teal' }} href={linkForDst()} target='_blank'>
-        setup guide for {DBTypeToGoodText(dstPeerType)} destinations
+        setup guide for {peerType.toLowerCase()} destinations
       </Link>
       .
     </Label>

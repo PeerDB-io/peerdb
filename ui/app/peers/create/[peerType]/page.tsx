@@ -1,5 +1,6 @@
 'use client';
 import { PeerConfig } from '@/app/dto/PeersDTO';
+import GuideForDestinationSetup from '@/app/mirrors/create/cdc/guide';
 import BigqueryForm from '@/components/PeerForms/BigqueryConfig';
 import ClickhouseForm from '@/components/PeerForms/ClickhouseConfig';
 import PostgresForm from '@/components/PeerForms/PostgresForm';
@@ -78,6 +79,7 @@ export default function CreateConfig({
           {dbType.charAt(0).toUpperCase() + dbType.slice(1).toLowerCase()} peer
         </Label>
       </Panel>
+      <GuideForDestinationSetup dstPeerType={peerType} />
       <Panel>
         <RowWithTextField
           label={
