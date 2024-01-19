@@ -2,11 +2,11 @@ import { CDCConfig } from '../../../dto/MirrorsDTO';
 import { MirrorSetting } from './common';
 export const cdcSettings: MirrorSetting[] = [
   {
-    label: 'Initial Snapshot',
+    label: 'Initial Copy',
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,
-        doInitialCopy: (value as boolean) ?? true,
+        doInitialSnapshot: (value as boolean) ?? true,
       })),
     tips: 'Specify if you want initial load to happen for your tables.',
     type: 'switch',
@@ -117,7 +117,7 @@ export const cdcSettings: MirrorSetting[] = [
     type: 'switch',
   },
   {
-    label: 'Initial Snapshot Only',
+    label: 'Initial Copy Only',
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -571,4 +572,106 @@ func (c *PostgresConnector) getCurrentLSN() (pglogrepl.LSN, error) {
 
 func (c *PostgresConnector) getDefaultPublicationName(jobName string) string {
 	return fmt.Sprintf("peerflow_pub_%s", jobName)
+}
+
+func (c *PostgresConnector) CheckSourceTables(tableNames []string, pubName string) error {
+	if c.pool == nil {
+		return fmt.Errorf("check tables: pool is nil")
+	}
+
+	// Check that we can select from all tables
+	for _, tableName := range tableNames {
+		var row pgx.Row
+		err := c.pool.QueryRow(c.ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 0;", tableName)).Scan(&row)
+		if err != nil && err != pgx.ErrNoRows {
+			return err
+		}
+	}
+
+	// Check if tables belong to publication
+	tableArr := make([]string, 0, len(tableNames))
+	for _, tableName := range tableNames {
+		tableArr = append(tableArr, fmt.Sprintf("'%s'", tableName))
+	}
+
+	tableStr := strings.Join(tableArr, ",")
+
+	if pubName != "" {
+		var pubTableCount int
+		err := c.pool.QueryRow(c.ctx, fmt.Sprintf("select COUNT(DISTINCT(schemaname||'.'||tablename)) from pg_publication_tables "+
+			"where schemaname||'.'||tablename in (%s) and pubname=$1;", tableStr), pubName).Scan(&pubTableCount)
+		if err != nil {
+			return err
+		}
+
+		if pubTableCount != len(tableNames) {
+			return fmt.Errorf("not all tables belong to publication")
+		}
+	}
+
+	return nil
+}
+
+func (c *PostgresConnector) CheckReplicationPermissions(username string) error {
+	if c.pool == nil {
+		return fmt.Errorf("check replication permissions: pool is nil")
+	}
+
+	var replicationRes bool
+	err := c.pool.QueryRow(c.ctx, "SELECT rolreplication FROM pg_roles WHERE rolname = $1;", username).Scan(&replicationRes)
+	if err != nil {
+		return err
+	}
+
+	if !replicationRes {
+		return fmt.Errorf("postgres user does not have replication role")
+	}
+
+	// check wal_level
+	var walLevel string
+	err = c.pool.QueryRow(c.ctx, "SHOW wal_level;").Scan(&walLevel)
+	if err != nil {
+		return err
+	}
+
+	if walLevel != "logical" {
+		return fmt.Errorf("wal_level is not logical")
+	}
+
+	// max_wal_senders must be at least 2
+	var maxWalSendersRes string
+	err = c.pool.QueryRow(c.ctx, "SHOW max_wal_senders;").Scan(&maxWalSendersRes)
+	if err != nil {
+		return err
+	}
+
+	maxWalSenders, err := strconv.Atoi(maxWalSendersRes)
+	if err != nil {
+		return err
+	}
+
+	if maxWalSenders < 2 {
+		return fmt.Errorf("max_wal_senders must be at least 2")
+	}
+
+	return nil
+}
+
+func (c *PostgresConnector) GetPostgresVersion() (int, error) {
+	if c.pool == nil {
+		return -1, fmt.Errorf("version check: pool is nil")
+	}
+
+	var versionRes string
+	err := c.pool.QueryRow(c.ctx, "SHOW server_version_num;").Scan(&versionRes)
+	if err != nil {
+		return -1, err
+	}
+
+	version, err := strconv.Atoi(versionRes)
+	if err != nil {
+		return -1, err
+	}
+
+	return version / 10000, nil
 }

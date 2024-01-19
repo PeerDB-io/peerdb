@@ -1,8 +1,5 @@
 import { UCreateMirrorResponse } from '@/app/dto/MirrorsDTO';
-import {
-  CreateCDCFlowRequest,
-  CreateCDCFlowResponse,
-} from '@/grpc_generated/route';
+import { CreateCDCFlowRequest } from '@/grpc_generated/route';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 
 export async function POST(request: Request) {
@@ -15,18 +12,18 @@ export async function POST(request: Request) {
     createCatalogEntry: true,
   };
   try {
-    const createStatus: CreateCDCFlowResponse = await fetch(
-      `${flowServiceAddr}/v1/flows/cdc/create`,
-      {
-        method: 'POST',
-        body: JSON.stringify(req),
-      }
-    ).then((res) => {
+    const createStatus = await fetch(`${flowServiceAddr}/v1/flows/cdc/create`, {
+      method: 'POST',
+      body: JSON.stringify(req),
+    }).then((res) => {
       return res.json();
     });
 
+    if (!createStatus.worflowId) {
+      return new Response(JSON.stringify(createStatus));
+    }
     let response: UCreateMirrorResponse = {
-      created: !!createStatus.worflowId,
+      created: true,
     };
 
     return new Response(JSON.stringify(response));

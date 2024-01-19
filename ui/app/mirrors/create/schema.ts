@@ -24,7 +24,18 @@ export const tableMappingSchema = z
       partitionKey: z.string().optional(),
     })
   )
-  .nonempty('At least one table mapping is required');
+  .nonempty('At least one table mapping is required')
+  .superRefine((mappingArray, ctx) => {
+    if (
+      mappingArray.map((val) => val.destinationTableIdentifier).length !==
+      new Set(mappingArray).size
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Two source tables have been mapped to the same destination table`,
+      });
+    }
+  });
 
 export const cdcSchema = z.object({
   source: z.object(
