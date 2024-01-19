@@ -642,6 +642,8 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 		return err
 	}
 
+	defer connectors.CloseConnector(dstConn)
+
 	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
 		return fmt.Sprintf("consolidating partitions for job - %s", config.FlowJobName)
 	})
@@ -664,6 +666,8 @@ func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.Q
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return err
 	}
+
+	defer dst.Close()
 
 	return dst.CleanupQRepFlow(config)
 }
