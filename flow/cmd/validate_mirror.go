@@ -12,11 +12,11 @@ import (
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, error) {
-	sourcePeerName := req.ConnectionConfigs.Source.Name
-	sourcePool, err := h.getPoolForPGPeer(ctx, sourcePeerName)
+	pgPeer, err := connpostgres.NewPostgresConnector(ctx, req.ConnectionConfigs.Source.GetPostgresConfig())
 	if err != nil {
-		slog.Error("/validatecdc failed to obtain peer connection", slog.Any("error", err))
-		return nil, err
+		return &protos.ValidateCDCMirrorResponse{
+			Ok: false,
+		}, fmt.Errorf("failed to create postgres connector: %v", err)
 	}
 
 	sourcePeerConfig := req.ConnectionConfigs.Source.GetPostgresConfig()
@@ -26,7 +26,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	}
 
 	// Check permissions of postgres peer
-	err = connpostgres.CheckReplicationPermissions(ctx, sourcePool, sourcePeerConfig.User)
+	err = pgPeer.CheckReplicationPermissions(sourcePeerConfig.User)
 	if err != nil {
 		return &protos.ValidateCDCMirrorResponse{
 			Ok: false,
@@ -39,7 +39,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		sourceTables = append(sourceTables, tableMapping.SourceTableIdentifier)
 	}
 
-	err = connpostgres.CheckSourceTables(ctx, sourcePool, sourceTables, req.ConnectionConfigs.PublicationName)
+	err = pgPeer.CheckSourceTables(sourceTables, req.ConnectionConfigs.PublicationName)
 	if err != nil {
 		return &protos.ValidateCDCMirrorResponse{
 			Ok: false,

@@ -1,7 +1,6 @@
 package connpostgres
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -15,7 +14,6 @@ import (
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lib/pq/oid"
 )
 
@@ -576,15 +574,15 @@ func (c *PostgresConnector) getDefaultPublicationName(jobName string) string {
 	return fmt.Sprintf("peerflow_pub_%s", jobName)
 }
 
-func CheckSourceTables(ctx context.Context, pool *pgxpool.Pool, tableNames []string, pubName string) error {
-	if pool == nil {
+func (c *PostgresConnector) CheckSourceTables(tableNames []string, pubName string) error {
+	if c.pool == nil {
 		return fmt.Errorf("check tables: pool is nil")
 	}
 
 	// Check that we can select from all tables
 	for _, tableName := range tableNames {
 		var row pgx.Row
-		err := pool.QueryRow(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 0;", tableName)).Scan(&row)
+		err := c.pool.QueryRow(c.ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 0;", tableName)).Scan(&row)
 		if err != nil && err != pgx.ErrNoRows {
 			return err
 		}
@@ -600,7 +598,7 @@ func CheckSourceTables(ctx context.Context, pool *pgxpool.Pool, tableNames []str
 
 	if pubName != "" {
 		var pubTableCount int
-		err := pool.QueryRow(ctx, fmt.Sprintf("select COUNT(DISTINCT(schemaname||'.'||tablename)) from pg_publication_tables "+
+		err := c.pool.QueryRow(c.ctx, fmt.Sprintf("select COUNT(DISTINCT(schemaname||'.'||tablename)) from pg_publication_tables "+
 			"where schemaname||'.'||tablename in (%s) and pubname=$1;", tableStr), pubName).Scan(&pubTableCount)
 		if err != nil {
 			return err
@@ -614,13 +612,13 @@ func CheckSourceTables(ctx context.Context, pool *pgxpool.Pool, tableNames []str
 	return nil
 }
 
-func CheckReplicationPermissions(ctx context.Context, pool *pgxpool.Pool, username string) error {
-	if pool == nil {
+func (c *PostgresConnector) CheckReplicationPermissions(username string) error {
+	if c.pool == nil {
 		return fmt.Errorf("check replication permissions: pool is nil")
 	}
 
 	var replicationRes bool
-	err := pool.QueryRow(ctx, "SELECT rolreplication FROM pg_roles WHERE rolname = $1;", username).Scan(&replicationRes)
+	err := c.pool.QueryRow(c.ctx, "SELECT rolreplication FROM pg_roles WHERE rolname = $1;", username).Scan(&replicationRes)
 	if err != nil {
 		return err
 	}
@@ -631,7 +629,7 @@ func CheckReplicationPermissions(ctx context.Context, pool *pgxpool.Pool, userna
 
 	// check wal_level
 	var walLevel string
-	err = pool.QueryRow(ctx, "SHOW wal_level;").Scan(&walLevel)
+	err = c.pool.QueryRow(c.ctx, "SHOW wal_level;").Scan(&walLevel)
 	if err != nil {
 		return err
 	}
@@ -642,7 +640,7 @@ func CheckReplicationPermissions(ctx context.Context, pool *pgxpool.Pool, userna
 
 	// max_wal_senders must be at least 2
 	var maxWalSendersRes string
-	err = pool.QueryRow(ctx, "SHOW max_wal_senders;").Scan(&maxWalSendersRes)
+	err = c.pool.QueryRow(c.ctx, "SHOW max_wal_senders;").Scan(&maxWalSendersRes)
 	if err != nil {
 		return err
 	}
@@ -659,13 +657,13 @@ func CheckReplicationPermissions(ctx context.Context, pool *pgxpool.Pool, userna
 	return nil
 }
 
-func GetPostgresVersion(ctx context.Context, pool *pgxpool.Pool) (int, error) {
-	if pool == nil {
+func (c *PostgresConnector) GetPostgresVersion() (int, error) {
+	if c.pool == nil {
 		return -1, fmt.Errorf("version check: pool is nil")
 	}
 
 	var versionRes string
-	err := pool.QueryRow(ctx, "SHOW server_version_num;").Scan(&versionRes)
+	err := c.pool.QueryRow(c.ctx, "SHOW server_version_num;").Scan(&versionRes)
 	if err != nil {
 		return -1, err
 	}
