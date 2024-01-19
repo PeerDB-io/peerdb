@@ -27,12 +27,12 @@ type KafkaConnector struct {
 }
 
 func (c *KafkaConnector) SetLastOffset(jobName string, lastOffset int64) error {
-	//TODO implement me
+	// TODO implement me
 	panic("implement me")
 }
 
 func (c *KafkaConnector) ReplayTableSchemaDeltas(flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error {
-	//TODO implement me
+	// TODO implement me
 	panic("implement me")
 }
 
