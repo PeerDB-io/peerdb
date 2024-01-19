@@ -39,7 +39,7 @@ func (s PeerFlowE2ETestSuiteS3) Suffix() string {
 func tearDownSuite(s PeerFlowE2ETestSuiteS3) {
 	e2e.TearDownPostgres(s)
 
-	err := s.s3Helper.CleanUp()
+	err := s.s3Helper.CleanUp(context.Background())
 	if err != nil {
 		require.Fail(s.t, "failed to clean up s3", err)
 	}

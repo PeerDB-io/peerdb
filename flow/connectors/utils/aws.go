@@ -1,14 +1,14 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 type AWSSecrets struct {
@@ -89,23 +89,20 @@ func NewS3BucketAndPrefix(s3Path string) (*S3BucketAndPrefix, error) {
 	}, nil
 }
 
-func CreateS3Client(s3Creds S3PeerCredentials) (*s3.S3, error) {
+func CreateS3Client(s3Creds S3PeerCredentials) (*s3.Client, error) {
 	awsSecrets, err := GetAWSSecrets(s3Creds)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get AWS secrets: %w", err)
 	}
 
-	config := &aws.Config{
-		Region:   aws.String(awsSecrets.Region),
-		Endpoint: aws.String(awsSecrets.Endpoint),
+	cfg, err := config.LoadDefaultConfig(
+		context.Background(),
+		config.WithRegion(awsSecrets.Region),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(awsSecrets.AccessKeyID, awsSecrets.SecretAccessKey, "")),
+	)
+	if err != nil {
+		return nil, err
 	}
 
-	if s3Creds.AccessKeyID != "" && s3Creds.SecretAccessKey != "" {
-		config.Credentials = credentials.NewStaticCredentials(s3Creds.AccessKeyID, s3Creds.SecretAccessKey, "")
-	}
-
-	sess := session.Must(session.NewSession(config))
-
-	s3svc := s3.New(sess)
-	return s3svc, nil
+	return s3.NewFromConfig(cfg), nil
 }

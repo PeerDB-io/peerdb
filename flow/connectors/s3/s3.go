@@ -12,8 +12,8 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 const (
@@ -24,7 +24,7 @@ type S3Connector struct {
 	ctx        context.Context
 	url        string
 	pgMetadata *metadataStore.PostgresMetadataStore
-	client     s3.S3
+	client     s3.Client
 	creds      utils.S3PeerCredentials
 	logger     slog.Logger
 }
@@ -91,8 +91,8 @@ func (c *S3Connector) Close() error {
 	return c.pgMetadata.Close()
 }
 
-func ValidCheck(s3Client *s3.S3, bucketURL string, metadataDB *metadataStore.PostgresMetadataStore) error {
-	_, listErr := s3Client.ListBuckets(nil)
+func ValidCheck(ctx context.Context, s3Client *s3.Client, bucketURL string, metadataDB *metadataStore.PostgresMetadataStore) error {
+	_, listErr := s3Client.ListBuckets(ctx, nil)
 	if listErr != nil {
 		return fmt.Errorf("failed to list buckets: %w", listErr)
 	}
@@ -107,7 +107,7 @@ func ValidCheck(s3Client *s3.S3, bucketURL string, metadataDB *metadataStore.Pos
 	// Write an empty file and then delete it
 	// to check if we have write permissions
 	bucketName := aws.String(bucketPrefix.Bucket)
-	_, putErr := s3Client.PutObject(&s3.PutObjectInput{
+	_, putErr := s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: bucketName,
 		Key:    aws.String(_peerDBCheck),
 		Body:   reader,
@@ -116,7 +116,7 @@ func ValidCheck(s3Client *s3.S3, bucketURL string, metadataDB *metadataStore.Pos
 		return fmt.Errorf("failed to write to bucket: %w", putErr)
 	}
 
-	_, delErr := s3Client.DeleteObject(&s3.DeleteObjectInput{
+	_, delErr := s3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: bucketName,
 		Key:    aws.String(_peerDBCheck),
 	})
@@ -134,12 +134,12 @@ func ValidCheck(s3Client *s3.S3, bucketURL string, metadataDB *metadataStore.Pos
 }
 
 func (c *S3Connector) ConnectionActive() error {
-	_, listErr := c.client.ListBuckets(nil)
+	_, listErr := c.client.ListBuckets(c.ctx, nil)
 	if listErr != nil {
 		return listErr
 	}
 
-	validErr := ValidCheck(&c.client, c.url, c.pgMetadata)
+	validErr := ValidCheck(c.ctx, &c.client, c.url, c.pgMetadata)
 	if validErr != nil {
 		c.logger.Error("failed to validate s3 connector:", slog.Any("error", validErr))
 		return validErr

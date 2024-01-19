@@ -11,9 +11,8 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jackc/pgx/v5/pgtype"
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -343,16 +342,27 @@ func (c *SnowflakeConnector) dropStage(stagingPath string, job string) error {
 		}
 
 		// Create a list of all objects with the defined prefix in the bucket
-		iter := s3manager.NewDeleteListIterator(s3svc, &s3.ListObjectsInput{
+		pages := s3.NewListObjectsV2Paginator(s3svc, &s3.ListObjectsV2Input{
 			Bucket: aws.String(s3o.Bucket),
 			Prefix: aws.String(fmt.Sprintf("%s/%s", s3o.Prefix, job)),
 		})
+		for pages.HasMorePages() {
+			page, err := pages.NextPage(c.ctx)
+			if err != nil {
+				c.logger.Error("failed to list objects from bucket", slog.Any("error", err))
+				return fmt.Errorf("failed to list objects from bucket: %w", err)
+			}
 
-		// Iterate through the objects in the bucket with the prefix and delete them
-		s3Client := s3manager.NewBatchDeleteWithClient(s3svc)
-		if err := s3Client.Delete(aws.BackgroundContext(), iter); err != nil {
-			c.logger.Error("failed to delete objects from bucket", slog.Any("error", err))
-			return fmt.Errorf("failed to delete objects from bucket: %w", err)
+			for _, object := range page.Contents {
+				_, err = s3svc.DeleteObject(c.ctx, &s3.DeleteObjectInput{
+					Bucket: aws.String(s3o.Bucket),
+					Key:    object.Key,
+				})
+				if err != nil {
+					c.logger.Error("failed to delete objects from bucket", slog.Any("error", err))
+					return fmt.Errorf("failed to delete objects from bucket: %w", err)
+				}
+			}
 		}
 
 		c.logger.Info(fmt.Sprintf("Deleted contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job))
