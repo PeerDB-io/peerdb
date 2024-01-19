@@ -172,18 +172,18 @@ func (c *ClickhouseConnector) SyncRecords(req *model.SyncRecordsRequest) (*model
 	}
 
 	// transaction for SyncRecords
-	syncRecordsTx, err := c.database.BeginTx(c.ctx, nil)
-	if err != nil {
-		return nil, err
-	}
+	// syncRecordsTx, err := c.database.BeginTx(c.ctx, nil)
+	// if err != nil {
+	// 	return nil, err
+	// }
 	// in case we return after error, ensure transaction is rolled back
-	defer func() {
-		deferErr := syncRecordsTx.Rollback()
-		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Error("error while rolling back transaction for SyncRecords: %v",
-				slog.Any("error", deferErr), slog.Int64("syncBatchID", syncBatchID))
-		}
-	}()
+	// defer func() {
+	// 	deferErr := syncRecordsTx.Rollback()
+	// 	if deferErr != sql.ErrTxDone && deferErr != nil {
+	// 		c.logger.Error("error while rolling back transaction for SyncRecords: %v",
+	// 			slog.Any("error", deferErr), slog.Int64("syncBatchID", syncBatchID))
+	// 	}
+	// }()
 
 	// updating metadata with new offset and syncBatchID
 	err = c.updateSyncMetadata(req.FlowJobName, res.LastSyncedCheckPointID, syncBatchID, syncRecordsTx)
@@ -197,6 +197,45 @@ func (c *ClickhouseConnector) SyncRecords(req *model.SyncRecordsRequest) (*model
 	}
 
 	return res, nil
+}
+
+func (c *SnowflakeConnector) jobMetadataExistsTx(tx *sql.Tx, jobName string) (bool, error) {
+	checkIfJobMetadataExistsSQL := "SELECT TO_BOOLEAN(COUNT(1)) FROM %s WHERE MIRROR_JOB_NAME=?"
+
+	var result pgtype.Bool
+	err := tx.QueryRowContext(c.ctx,
+		fmt.Sprintf(checkIfJobMetadataExistsSQL, mirrorJobsTableIdentifier), jobName).Scan(&result)
+	if err != nil {
+		return false, fmt.Errorf("error reading result row: %w", err)
+	}
+	return result.Bool, nil
+}
+
+func (c *ClickhouseConnector) updateSyncMetadata(flowJobName string, lastCP int64,
+	syncBatchID int64, syncRecordsTx *sql.Tx,
+) error {
+	jobMetadataExists, err := c.jobMetadataExistsTx(syncRecordsTx, flowJobName)
+	if err != nil {
+		return fmt.Errorf("failed to get sync status for flow job: %w", err)
+	}
+
+	if !jobMetadataExists {
+		_, err := syncRecordsTx.ExecContext(c.ctx,
+			fmt.Sprintf(insertJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier),
+			flowJobName, lastCP, syncBatchID, 0)
+		if err != nil {
+			return fmt.Errorf("failed to insert flow job status: %w", err)
+		}
+	} else {
+		_, err := syncRecordsTx.ExecContext(c.ctx,
+			fmt.Sprintf(updateMetadataForSyncRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
+			lastCP, syncBatchID, flowJobName)
+		if err != nil {
+			return fmt.Errorf("failed to update flow job status: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (c *ClickhouseConnector) SyncFlowCleanup(jobName string) error {
