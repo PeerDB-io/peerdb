@@ -579,7 +579,7 @@ func (c *PostgresConnector) GetTableSchema(
 ) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(tableName, req.SkipPkeyAndReplicaCheck)
+		tableSchema, err := c.getTableSchemaForTable(tableName)
 		if err != nil {
 			return nil, err
 		}
@@ -595,27 +595,19 @@ func (c *PostgresConnector) GetTableSchema(
 
 func (c *PostgresConnector) getTableSchemaForTable(
 	tableName string,
-	skipPkeyAndReplicaCheck bool,
 ) (*protos.TableSchema, error) {
 	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
 		return nil, err
 	}
 
-	var pKeyCols []string
-	var replicaIdentityType ReplicaIdentityType
-	if !skipPkeyAndReplicaCheck {
-		var replErr error
-		replicaIdentityType, replErr = c.getReplicaIdentityType(schemaTable)
-		if replErr != nil {
-			return nil, fmt.Errorf("[getTableSchema]:error getting replica identity for table %s: %w", schemaTable, replErr)
-		}
-
-		var err error
-		pKeyCols, err = c.getPrimaryKeyColumns(replicaIdentityType, schemaTable)
-		if err != nil {
-			return nil, fmt.Errorf("[getTableSchema]:error getting primary key column for table %s: %w", schemaTable, err)
-		}
+	replicaIdentityType, err := c.getReplicaIdentityType(schemaTable)
+	if err != nil {
+		return nil, fmt.Errorf("[getTableSchema] error getting replica identity for table %s: %w", schemaTable, err)
+	}
+	pKeyCols, err := c.getPrimaryKeyColumns(replicaIdentityType, schemaTable)
+	if err != nil {
+		return nil, fmt.Errorf("[getTableSchema] error getting primary key column for table %s: %w", schemaTable, err)
 	}
 
 	// Get the column names and types
