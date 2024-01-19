@@ -158,9 +158,9 @@ func (s *SnowflakeAvroConsolidateHandler) generateUpsertMergeCommand(
 	}
 	upsertKeyClause := strings.Join(upsertKeys, " AND ")
 
-	updateSetClauses := []string{}
-	insertColumnsClauses := []string{}
-	insertValuesClauses := []string{}
+	updateSetClauses := make([]string, 0, len(s.allColNames))
+	insertColumnsClauses := make([]string, 0, len(s.allColNames))
+	insertValuesClauses := make([]string, 0, len(s.allColNames))
 	for _, column := range s.allColNames {
 		quotedColumn := utils.QuoteIdentifier(column)
 		updateSetClauses = append(updateSetClauses, fmt.Sprintf("%s = src.%s", quotedColumn, quotedColumn))
