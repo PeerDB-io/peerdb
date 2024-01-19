@@ -4,32 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
 
 	"github.com/PeerDB-io/peer-flow/connectors"
+	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
-
-func (h *FlowRequestHandler) GetPostgresVersion(ctx context.Context, pool *pgxpool.Pool) (int, error) {
-	if pool == nil {
-		return -1, fmt.Errorf("version check: pool is nil")
-	}
-
-	var versionRes string
-	err := pool.QueryRow(ctx, "SHOW server_version_num;").Scan(&versionRes)
-	if err != nil {
-		return -1, err
-	}
-
-	version, err := strconv.Atoi(versionRes)
-	if err != nil {
-		return -1, err
-	}
-
-	return version / 10000, nil
-}
 
 func (h *FlowRequestHandler) ValidatePeer(
 	ctx context.Context,
@@ -73,7 +54,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 			slog.Error("/peer/validate: failed to obtain peer connection", slog.Any("error", err))
 			return nil, err
 		}
-		version, err := h.GetPostgresVersion(ctx, sourcePool)
+		version, err := connpostgres.GetPostgresVersion(ctx, sourcePool)
 		if err != nil {
 			slog.Error("/peer/validate: pg version check", slog.Any("error", err))
 			return nil, err
