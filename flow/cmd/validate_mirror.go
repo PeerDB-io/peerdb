@@ -12,25 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func (h *FlowRequestHandler) GetPostgresVersion(ctx context.Context, pool *pgxpool.Pool) (int, error) {
-	if pool == nil {
-		return -1, fmt.Errorf("version check: pool is nil")
-	}
-
-	var versionRes string
-	err := pool.QueryRow(ctx, "SHOW server_version_num;").Scan(&versionRes)
-	if err != nil {
-		return -1, err
-	}
-
-	version, err := strconv.Atoi(versionRes)
-	if err != nil {
-		return -1, err
-	}
-
-	return version, nil
-}
-
 func (h *FlowRequestHandler) CheckReplicationPermissions(ctx context.Context, pool *pgxpool.Pool, username string) error {
 	if pool == nil {
 		return fmt.Errorf("check replication permissions: pool is nil")
@@ -122,20 +103,6 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	if err != nil {
 		slog.Error("/validatecdc failed to obtain peer connection", slog.Any("error", err))
 		return nil, err
-	}
-
-	// 1. Deny PG version < 12
-	version, err := h.GetPostgresVersion(ctx, sourcePool)
-	if err != nil {
-		slog.Error("/validatecdc pg version check", slog.Any("error", err))
-		return nil, err
-	}
-
-	if version < 12 {
-		return &protos.ValidateCDCMirrorResponse{
-				Ok: false,
-			}, fmt.Errorf("postgres version %d is not supported. "+
-				"Please upgrade to Postgres 12 or higher", version)
 	}
 
 	sourcePeerConfig := req.ConnectionConfigs.Source.GetPostgresConfig()

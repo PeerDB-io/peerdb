@@ -2,6 +2,7 @@
 import { DBType } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField';
+import Link from 'next/link';
 import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
 import { BarLoader } from 'react-spinners/';
 import { TableMapRow } from '../../../dto/MirrorsDTO';
@@ -39,8 +40,22 @@ const TableMapping = ({
 
   return (
     <div style={{ marginTop: '1rem' }}>
-      <Label as='label' colorName='lowContrast' style={{ fontSize: 14 }}>
+      <Label as='label' colorName='lowContrast' style={{ fontSize: 16 }}>
         Select tables to sync
+      </Label>
+      <br></br>
+      <Label as='label' style={{ fontSize: 15 }}>
+        Before selecting tables, please make sure that{' '}
+        <Link
+          style={{ color: 'teal' }}
+          target='_blank'
+          href={
+            'https://docs.peerdb.io/connect/rds_postgres#creating-peerdb-user-and-granting-permissions'
+          }
+        >
+          these permissions
+        </Link>{' '}
+        have been granted for your tables.
       </Label>
       <div
         style={{

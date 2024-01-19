@@ -87,6 +87,11 @@ const CDCCheck = (
   if (config.doInitialSnapshot == false && config.initialSnapshotOnly == true) {
     return 'Initial Snapshot Only cannot be true if Initial Snapshot is false.';
   }
+
+  if (config.doInitialSnapshot == true && config.replicationSlotName !== '') {
+    config.replicationSlotName = '';
+  }
+
   return '';
 };
 
@@ -107,6 +112,7 @@ const validateCDCFields = (
   if (!tablesValidity.success) {
     validationErr = tablesValidity.error.issues[0].message;
   }
+
   const configValidity = cdcSchema.safeParse(config);
   if (!configValidity.success) {
     validationErr = configValidity.error.issues[0].message;

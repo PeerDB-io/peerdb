@@ -12,7 +12,7 @@ interface FieldProps {
   handleChange: (val: string | boolean, setting: MirrorSetting) => void;
 }
 
-const CDCFields = ({ setting, handleChange }: FieldProps) => {
+const CDCField = ({ setting, handleChange }: FieldProps) => {
   return setting.type === 'switch' ? (
     <RowWithSwitch
       label={<Label>{setting.label}</Label>}
@@ -67,4 +67,4 @@ const CDCFields = ({ setting, handleChange }: FieldProps) => {
   );
 };
 
-export default CDCFields;
+export default CDCField;
