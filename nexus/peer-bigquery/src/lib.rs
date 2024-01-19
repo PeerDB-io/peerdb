@@ -89,12 +89,10 @@ impl BigQueryQueryExecutor {
             PgWireError::ApiError(err.into())
         })?;
 
-        let result_set = result_set.map_err(|err| {
+        result_set.map_err(|err| {
             tracing::error!("error running query: {}", err);
             PgWireError::ApiError(err.into())
-        })?;
-
-        Ok(result_set)
+        })
     }
 }
 
