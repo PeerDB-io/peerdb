@@ -64,6 +64,32 @@ export const handlePeer = (
   }
 };
 
+const CDCCheck = (
+  flowJobName: string,
+  rows: TableMapRow[],
+  config: CDCConfig
+) => {
+  const flowNameValid = flowNameSchema.safeParse(flowJobName);
+  if (!flowNameValid.success) {
+    const flowNameErr = flowNameValid.error.issues[0].message;
+    return flowNameErr;
+  }
+
+  const tableNameMapping = reformattedTableMapping(rows);
+  const fieldErr = validateCDCFields(tableNameMapping, config);
+  if (fieldErr) {
+    return fieldErr;
+  }
+
+  config['tableMappings'] = tableNameMapping as TableMapping[];
+  config['flowJobName'] = flowJobName;
+
+  if (config.doInitialSnapshot == false && config.initialSnapshotOnly == true) {
+    return 'Initial Snapshot Only cannot be true if Initial Snapshot is false.';
+  }
+  return '';
+};
+
 const validateCDCFields = (
   tableMapping: (
     | {
@@ -129,47 +155,29 @@ export const handleCreateCDC = async (
   flowJobName: string,
   rows: TableMapRow[],
   config: CDCConfig,
-  notify: (msg: string) => void,
+  notify: (msg: string, ok?: boolean) => void,
   setLoading: Dispatch<SetStateAction<boolean>>,
   route: RouteCallback
 ) => {
-  const flowNameValid = flowNameSchema.safeParse(flowJobName);
-  if (!flowNameValid.success) {
-    const flowNameErr = flowNameValid.error.issues[0].message;
-    notify(flowNameErr);
-    return;
-  }
-
-  const tableNameMapping = reformattedTableMapping(rows);
-  const fieldErr = validateCDCFields(tableNameMapping, config);
-  if (fieldErr) {
-    notify(fieldErr);
-    return;
-  }
-
-  config['tableMappings'] = tableNameMapping as TableMapping[];
-  config['flowJobName'] = flowJobName;
-
-  if (config.doInitialSnapshot == false && config.initialSnapshotOnly == true) {
-    notify(
-      'Initial Snapshot Only cannot be true if Initial Snapshot is false.'
-    );
+  const err = CDCCheck(flowJobName, rows, config);
+  if (err != '') {
+    notify(err);
     return;
   }
 
   setLoading(true);
-  const statusMessage: UCreateMirrorResponse = await fetch('/api/mirrors/cdc', {
+  const statusMessage = await fetch('/api/mirrors/cdc', {
     method: 'POST',
     body: JSON.stringify({
       config,
     }),
   }).then((res) => res.json());
   if (!statusMessage.created) {
-    notify('unable to create mirror.');
+    notify(statusMessage.message || 'Unable to create mirror.');
     setLoading(false);
     return;
   }
-  notify('CDC Mirror created successfully');
+  notify('CDC Mirror created successfully', true);
   route();
   setLoading(false);
 };
@@ -332,4 +340,35 @@ export const fetchAllTables = async (peerName: string) => {
     cache: 'no-store',
   }).then((res) => res.json());
   return tablesRes.tables;
+};
+
+export const handleValidateCDC = async (
+  flowJobName: string,
+  rows: TableMapRow[],
+  config: CDCConfig,
+  notify: (msg: string, ok?: boolean) => void,
+  setLoading: Dispatch<SetStateAction<boolean>>
+) => {
+  setLoading(true);
+  const err = CDCCheck(flowJobName, rows, config);
+  if (err != '') {
+    notify(err);
+    setLoading(false);
+    return;
+  }
+  const status = await fetch('/api/mirrors/cdc/validate', {
+    method: 'POST',
+    body: JSON.stringify({
+      config,
+    }),
+  })
+    .then((res) => res.json())
+    .catch((e) => console.log(e));
+  if (!status.ok) {
+    notify(status.message || 'Mirror is invalid');
+    setLoading(false);
+    return;
+  }
+  notify('CDC Mirror is valid', true);
+  setLoading(false);
 };

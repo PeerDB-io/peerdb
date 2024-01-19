@@ -5,6 +5,11 @@ export type UCreateMirrorResponse = {
   created: boolean;
 };
 
+export type UValidateMirrorResponse = {
+  ok: boolean;
+  errorMessage: string;
+};
+
 export type UDropMirrorResponse = {
   dropped: boolean;
   errorMessage: string;

@@ -122,6 +122,12 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.CreateCDCFlowResponse, error) {
 	cfg := req.ConnectionConfigs
+	_, validateErr := h.ValidateCDCMirror(ctx, req)
+	if validateErr != nil {
+		slog.Error("validate mirror error", slog.Any("error", validateErr))
+		return nil, fmt.Errorf("invalid mirror: %w", validateErr)
+	}
+
 	workflowID := fmt.Sprintf("%s-peerflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,

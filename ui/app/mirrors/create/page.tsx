@@ -20,13 +20,19 @@ import 'react-toastify/dist/ReactToastify.css';
 import { InfoPopover } from '../../../components/InfoPopover';
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 import CDCConfigForm from './cdc/cdc';
-import { handleCreateCDC, handleCreateQRep, handlePeer } from './handlers';
+import {
+  handleCreateCDC,
+  handleCreateQRep,
+  handlePeer,
+  handleValidateCDC,
+} from './handlers';
 import { cdcSettings } from './helpers/cdc';
 import { blankCDCSetting } from './helpers/common';
 import { qrepSettings } from './helpers/qrep';
 import MirrorCards from './mirrorcards';
 import QRepConfigForm from './qrep/qrep';
 import QRepQuery from './qrep/query';
+import * as styles from './styles';
 
 function getPeerValue(peer: Peer) {
   return peer.name;
@@ -49,16 +55,24 @@ function getPeerLabel(peer: Peer) {
   );
 }
 
-const notifyErr = (errMsg: string) => {
-  toast.error(errMsg, {
-    position: toast.POSITION.BOTTOM_CENTER,
-  });
+const notifyErr = (msg: string, ok?: boolean) => {
+  if (ok) {
+    toast.success(msg, {
+      position: toast.POSITION.BOTTOM_CENTER,
+    });
+    return;
+  } else {
+    toast.error(msg, {
+      position: toast.POSITION.BOTTOM_CENTER,
+    });
+  }
 };
 export default function CreateMirrors() {
   const router = useRouter();
   const [mirrorName, setMirrorName] = useState<string>('');
   const [mirrorType, setMirrorType] = useState<string>('');
-  const [loading, setLoading] = useState<boolean>(false);
+  const [creating, setCreating] = useState<boolean>(false);
+  const [validating, setValidating] = useState<boolean>(false);
   const [config, setConfig] = useState<CDCConfig | QRepConfig>(blankCDCSetting);
   const [peers, setPeers] = useState<Peer[]>([]);
   const [rows, setRows] = useState<TableMapRow[]>([]);
@@ -186,7 +200,7 @@ export default function CreateMirrors() {
             Configuration
           </Label>
         )}
-        {!loading && <ToastContainer />}
+        {!creating && <ToastContainer />}
         {mirrorType === '' ? (
           <></>
         ) : mirrorType === 'CDC' ? (
@@ -208,48 +222,64 @@ export default function CreateMirrors() {
       </Panel>
       <Panel>
         {mirrorType && (
-          <Button
-            style={{
-              position: 'fixed',
-              bottom: '5%',
-              right: '5%',
-              width: '10em',
-              height: '3em',
-              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
-              borderRadius: '2em',
-              fontWeight: 'bold',
-            }}
-            variant='normalSolid'
-            disabled={loading}
-            onClick={() =>
-              mirrorType === 'CDC'
-                ? handleCreateCDC(
-                    mirrorName,
-                    rows,
-                    config as CDCConfig,
-                    notifyErr,
-                    setLoading,
-                    listMirrorsPage
-                  )
-                : handleCreateQRep(
-                    mirrorName,
-                    qrepQuery,
-                    config as QRepConfig,
-                    notifyErr,
-                    setLoading,
-                    listMirrorsPage,
-                    mirrorType === 'XMIN' // for handling xmin specific
-                  )
-            }
-          >
-            {loading ? (
-              <ProgressCircle variant='determinate_progress_circle' />
-            ) : (
-              <>
-                <Icon name='add' /> Create Mirror
-              </>
-            )}
-          </Button>
+          <div style={styles.MirrorButtonContainer}>
+            <Button
+              style={styles.MirrorButtonStyle}
+              variant='peer'
+              disabled={creating}
+              onClick={() =>
+                mirrorType === 'CDC' &&
+                handleValidateCDC(
+                  mirrorName,
+                  rows,
+                  config as CDCConfig,
+                  notifyErr,
+                  setValidating
+                )
+              }
+            >
+              {validating ? (
+                <ProgressCircle variant='determinate_progress_circle' />
+              ) : (
+                <>
+                  <Icon name='checklist' /> Validate
+                </>
+              )}
+            </Button>
+            <Button
+              style={styles.MirrorButtonStyle}
+              variant='normalSolid'
+              disabled={creating}
+              onClick={() =>
+                mirrorType === 'CDC'
+                  ? handleCreateCDC(
+                      mirrorName,
+                      rows,
+                      config as CDCConfig,
+                      notifyErr,
+                      setCreating,
+                      listMirrorsPage
+                    )
+                  : handleCreateQRep(
+                      mirrorName,
+                      qrepQuery,
+                      config as QRepConfig,
+                      notifyErr,
+                      setCreating,
+                      listMirrorsPage,
+                      mirrorType === 'XMIN' // for handling xmin specific
+                    )
+              }
+            >
+              {creating ? (
+                <ProgressCircle variant='determinate_progress_circle' />
+              ) : (
+                <>
+                  <Icon name='add' /> Create Mirror
+                </>
+              )}
+            </Button>
+          </div>
         )}
       </Panel>
     </div>
