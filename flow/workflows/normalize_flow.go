@@ -6,6 +6,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"go.temporal.io/sdk/workflow"
 )
 
@@ -54,24 +55,36 @@ func NormalizeFlowWorkflow(ctx workflow.Context,
 		if canceled || (stopLoop && lastSyncBatchID == syncBatchID) {
 			break
 		}
-		if lastSyncBatchID == syncBatchID {
-			continue
-		}
-		lastSyncBatchID = syncBatchID
+		if lastSyncBatchID != syncBatchID {
+			lastSyncBatchID = syncBatchID
 
-		logger.Info("executing normalize - ", config.FlowJobName)
-		startNormalizeInput := &protos.StartNormalizeInput{
-			FlowConnectionConfigs:  config,
-			TableNameSchemaMapping: tableNameSchemaMapping,
-			SyncBatchID:            syncBatchID,
-		}
-		fStartNormalize := workflow.ExecuteActivity(normalizeFlowCtx, flowable.StartNormalize, startNormalizeInput)
+			logger.Info("executing normalize - ", config.FlowJobName)
+			startNormalizeInput := &protos.StartNormalizeInput{
+				FlowConnectionConfigs:  config,
+				TableNameSchemaMapping: tableNameSchemaMapping,
+				SyncBatchID:            syncBatchID,
+			}
+			fStartNormalize := workflow.ExecuteActivity(normalizeFlowCtx, flowable.StartNormalize, startNormalizeInput)
 
-		var normalizeResponse *model.NormalizeResponse
-		if err := fStartNormalize.Get(normalizeFlowCtx, &normalizeResponse); err != nil {
-			errors = append(errors, err.Error())
-		} else if normalizeResponse != nil {
-			results = append(results, *normalizeResponse)
+			var normalizeResponse *model.NormalizeResponse
+			if err := fStartNormalize.Get(normalizeFlowCtx, &normalizeResponse); err != nil {
+				errors = append(errors, err.Error())
+			} else if normalizeResponse != nil {
+				results = append(results, *normalizeResponse)
+			}
+		}
+
+		if !peerdbenv.PeerDBEnableParallelSyncNormalize() {
+			parent := workflow.GetInfo(ctx).ParentWorkflowExecution
+			if parent != nil {
+				workflow.SignalExternalWorkflow(
+					ctx,
+					parent.ID,
+					parent.RunID,
+					"SyncDone",
+					struct{}{},
+				)
+			}
 		}
 	}
 

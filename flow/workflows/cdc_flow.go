@@ -9,6 +9,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
 	"go.temporal.io/api/enums/v1"
@@ -427,6 +428,11 @@ func CDCFlowWorkflowWithConfig(
 		normalizeFlowOptions,
 	)
 
+	var normWaitChan workflow.ReceiveChannel
+	if !peerdbenv.PeerDBEnableParallelSyncNormalize() {
+		normWaitChan = workflow.GetSignalChannel(ctx, "SyncDone")
+	}
+
 	finishNormalize := func() {
 		childNormalizeFlowFuture.SignalChildWorkflow(ctx, "Sync", model.NormalizeSignal{
 			Done:        true,
@@ -446,17 +452,24 @@ func CDCFlowWorkflowWithConfig(
 		}
 	}
 
-	var canceled bool
+	var canceled, normDone bool
 	signalChan := workflow.GetSignalChannel(ctx, shared.FlowSignalName)
 	mainLoopSelector := workflow.NewSelector(ctx)
+	mainLoopSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
+		canceled = true
+	})
 	mainLoopSelector.AddReceive(signalChan, func(c workflow.ReceiveChannel, _ bool) {
 		var signalVal shared.CDCFlowSignal
 		c.ReceiveAsync(&signalVal)
 		state.ActiveSignal = shared.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
 	})
-	mainLoopSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
-		canceled = true
-	})
+	if normWaitChan != nil {
+		mainLoopSelector.AddReceive(normWaitChan, func(c workflow.ReceiveChannel, _ bool) {
+			var signalVal struct{}
+			c.ReceiveAsync(&signalVal)
+			normDone = true
+		})
+	}
 
 	for {
 		for !canceled && mainLoopSelector.HasPending() {
@@ -547,6 +560,7 @@ func CDCFlowWorkflowWithConfig(
 
 		var syncDone bool
 		var normalizeSignalError error
+		normDone = normWaitChan == nil
 		mainLoopSelector.AddFuture(childSyncFlowFuture, func(f workflow.Future) {
 			syncDone = true
 
@@ -602,13 +616,17 @@ func CDCFlowWorkflowWithConfig(
 					SyncBatchID:            childSyncFlowRes.CurrentSyncBatchID,
 					TableNameSchemaMapping: normalizeTableNameSchemaMapping,
 				})
-
 				normalizeSignalError = signalFuture.Get(ctx, nil)
+			} else {
+				normDone = true
 			}
 		})
 
-		for !syncDone && !canceled && state.ActiveSignal != shared.ShutdownSignal {
+		for !syncDone && !normDone && !canceled && state.ActiveSignal != shared.ShutdownSignal {
 			mainLoopSelector.Select(ctx)
+			if childNormalizeFlowFuture.IsReady() {
+				normDone = true
+			}
 		}
 		if canceled {
 			break
