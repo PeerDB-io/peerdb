@@ -26,9 +26,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: setup protos
-        run: |
-          ./generate_protos.sh
+      - run: buf generate protos
 
       - name: Install Node.js dependencies
         working-directory: ui

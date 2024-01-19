@@ -1,5 +1,5 @@
-#!/bin/bash
-set -Eeuo pipefail
+#!/bin/sh
+set -Eeu
 
 if ! command -v docker &> /dev/null
 then
