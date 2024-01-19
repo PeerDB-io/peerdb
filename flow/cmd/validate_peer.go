@@ -38,6 +38,8 @@ func (h *FlowRequestHandler) ValidatePeer(
 		}, nil
 	}
 
+	defer conn.Close()
+
 	if req.Peer.Type == protos.DBType_POSTGRES {
 		version, err := conn.(*connpostgres.PostgresConnector).GetPostgresVersion()
 		if err != nil {

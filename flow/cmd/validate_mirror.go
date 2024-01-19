@@ -19,6 +19,8 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		}, fmt.Errorf("failed to create postgres connector: %v", err)
 	}
 
+	defer pgPeer.Close()
+
 	sourcePeerConfig := req.ConnectionConfigs.Source.GetPostgresConfig()
 	if sourcePeerConfig == nil {
 		slog.Error("/validatecdc source peer config is nil", slog.Any("peer", req.ConnectionConfigs.Source))
