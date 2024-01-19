@@ -56,7 +56,7 @@ const constructPeer = (
         name,
         type: DBType.CLICKHOUSE,
         clickhouseConfig: config as ClickhouseConfig,
-      };      
+      };
     case 'S3':
       return {
         name,

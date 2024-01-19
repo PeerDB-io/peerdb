@@ -272,7 +272,6 @@ export const chSchema = z.object({
     .max(100, 'Password must be less than 100 characters'),
 });
 
-
 export const s3Schema = z.object({
   url: z
     .string({

@@ -1,5 +1,4 @@
-import { ClickhouseConfig, SSHConfig } from '@/grpc_generated/peers';
-import { Dispatch, SetStateAction } from 'react';
+import { ClickhouseConfig } from '@/grpc_generated/peers';
 import { PeerSetting } from './common';
 
 export const clickhouseSetting: PeerSetting[] = [
@@ -49,7 +48,6 @@ export const clickhouseSetting: PeerSetting[] = [
     helpfulLink:
       'https://docs.snowflake.com/en/user-guide/data-load-s3-config-storage-integration',
   },
-
 ];
 
 export const blankClickhouseSetting: ClickhouseConfig = {
@@ -58,5 +56,5 @@ export const blankClickhouseSetting: ClickhouseConfig = {
   user: '',
   password: '',
   database: '',
-  s3Integration:''
+  s3Integration: '',
 };
