@@ -24,10 +24,6 @@ const (
 )
 
 type CDCFlowLimits struct {
-	// Number of sync flows to execute in total.
-	// If 0, the number of sync flows will be continuously executed until the peer flow is canceled.
-	// This is typically non-zero for testing purposes.
-	TotalSyncFlows int
 	// Maximum number of rows in a sync flow batch.
 	MaxBatchSize uint32
 	// Rows synced after which we can say a test is done.
@@ -366,10 +362,6 @@ func CDCFlowWorkflowWithConfig(
 		}
 	}
 
-	if limits.TotalSyncFlows == 0 {
-		limits.TotalSyncFlows = maxSyncFlowsPerCDCFlow
-	}
-
 	syncFlowOptions := &protos.SyncFlowOptions{
 		BatchSize:              limits.MaxBatchSize,
 		IdleTimeoutSeconds:     0,
@@ -513,9 +505,9 @@ func CDCFlowWorkflowWithConfig(
 		// check if total sync flows have been completed
 		// since this happens immediately after we check for signals, the case of a signal being missed
 		// due to a new workflow starting is vanishingly low, but possible
-		if limits.TotalSyncFlows != 0 && currentSyncFlowNum == limits.TotalSyncFlows {
+		if currentSyncFlowNum == maxSyncFlowsPerCDCFlow {
 			w.logger.Info("All the syncflows have completed successfully, there was a"+
-				" limit on the number of syncflows to be executed: ", limits.TotalSyncFlows)
+				" limit on the number of syncflows to be executed: ", currentSyncFlowNum)
 			break
 		}
 		currentSyncFlowNum++

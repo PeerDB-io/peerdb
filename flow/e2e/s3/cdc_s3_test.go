@@ -43,8 +43,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows:   4,
-		ExitAfterRecords: 20,
+		ExitAfterRecords: -1,
 		MaxBatchSize:     5,
 	}
 
@@ -60,23 +59,18 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 			e2e.EnvNoError(s.t, env, err)
 		}
 		e2e.EnvNoError(s.t, env, err)
+
+		e2e.EnvWaitFor(s.t, env, time.Minute, "waiting for blobs", func() bool {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			files, err := s.s3Helper.ListAllFiles(ctx, flowJobName)
+			s.t.Logf("Files in Test_Complete_Simple_Flow_S3 %s: %d", flowJobName, len(files))
+			e2e.EnvNoError(s.t, env, err)
+			return len(files) == 4
+		})
+
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	s.t.Logf("JobName: %s", flowJobName)
-	files, err := s.s3Helper.ListAllFiles(ctx, flowJobName)
-	s.t.Logf("Files in Test_Complete_Simple_Flow_S3: %d", len(files))
-	require.NoError(s.t, err)
-
-	require.Equal(s.t, 4, len(files))
 }
