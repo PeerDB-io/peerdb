@@ -58,12 +58,11 @@ function getPeerLabel(peer: Peer) {
 const notifyErr = (msg: string, ok?: boolean) => {
   if (ok) {
     toast.success(msg, {
-      position: toast.POSITION.BOTTOM_CENTER,
+      position: 'bottom-center',
     });
-    return;
   } else {
     toast.error(msg, {
-      position: toast.POSITION.BOTTOM_CENTER,
+      position: 'bottom-center',
     });
   }
 };
