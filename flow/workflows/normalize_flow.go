@@ -76,15 +76,13 @@ func NormalizeFlowWorkflow(ctx workflow.Context,
 
 		if !peerdbenv.PeerDBEnableParallelSyncNormalize() {
 			parent := workflow.GetInfo(ctx).ParentWorkflowExecution
-			if parent != nil {
-				workflow.SignalExternalWorkflow(
-					ctx,
-					parent.ID,
-					parent.RunID,
-					"SyncDone",
-					struct{}{},
-				)
-			}
+			workflow.SignalExternalWorkflow(
+				ctx,
+				parent.ID,
+				parent.RunID,
+				"SyncDone",
+				struct{}{},
+			)
 		}
 	}
 

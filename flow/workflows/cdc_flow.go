@@ -452,7 +452,7 @@ func CDCFlowWorkflowWithConfig(
 		}
 	}
 
-	var canceled, normDone bool
+	var canceled bool
 	signalChan := workflow.GetSignalChannel(ctx, shared.FlowSignalName)
 	mainLoopSelector := workflow.NewSelector(ctx)
 	mainLoopSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
@@ -463,13 +463,6 @@ func CDCFlowWorkflowWithConfig(
 		c.ReceiveAsync(&signalVal)
 		state.ActiveSignal = shared.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
 	})
-	if normWaitChan != nil {
-		mainLoopSelector.AddReceive(normWaitChan, func(c workflow.ReceiveChannel, _ bool) {
-			var signalVal struct{}
-			c.ReceiveAsync(&signalVal)
-			normDone = true
-		})
-	}
 
 	for {
 		for !canceled && mainLoopSelector.HasPending() {
@@ -560,7 +553,7 @@ func CDCFlowWorkflowWithConfig(
 
 		var syncDone bool
 		var normalizeSignalError error
-		normDone = normWaitChan == nil
+		normDone := normWaitChan == nil
 		mainLoopSelector.AddFuture(childSyncFlowFuture, func(f workflow.Future) {
 			syncDone = true
 
@@ -622,11 +615,8 @@ func CDCFlowWorkflowWithConfig(
 			}
 		})
 
-		for !syncDone && !normDone && !canceled && state.ActiveSignal != shared.ShutdownSignal {
+		for !syncDone && !canceled && state.ActiveSignal != shared.ShutdownSignal {
 			mainLoopSelector.Select(ctx)
-			if childNormalizeFlowFuture.IsReady() {
-				normDone = true
-			}
 		}
 		if canceled {
 			break
@@ -637,9 +627,11 @@ func CDCFlowWorkflowWithConfig(
 			state.CurrentFlowStatus = protos.FlowStatus_STATUS_TERMINATED
 			return state, nil
 		}
-
 		if normalizeSignalError != nil {
 			return state, normalizeSignalError
+		}
+		if !normDone {
+			normWaitChan.Receive(ctx, nil)
 		}
 	}
 
