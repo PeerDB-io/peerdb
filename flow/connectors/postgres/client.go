@@ -624,7 +624,12 @@ func (c *PostgresConnector) CheckReplicationPermissions(username string) error {
 	}
 
 	if !replicationRes {
-		return fmt.Errorf("postgres user does not have replication role")
+		// RDS case: check pg_settings for rds.logical_replication
+		var setting string
+		err := c.pool.QueryRow(c.ctx, "SELECT setting FROM pg_settings WHERE name = 'rds.logical_replication';").Scan(&setting)
+		if err != nil || setting != "on" {
+			return fmt.Errorf("postgres user does not have replication role")
+		}
 	}
 
 	// check wal_level
