@@ -17,7 +17,13 @@ type props = {
   createdAt?: Date;
 };
 function CdcDetails({ syncs, createdAt, mirrorConfig }: props) {
-  let lastSyncedAt = moment(syncs[0]?.endTime).fromNow();
+  let lastSyncedAt = moment(
+    syncs.length > 1
+      ? syncs[1]?.endTime
+      : syncs.length
+        ? syncs[0]?.startTime
+        : new Date()
+  ).fromNow();
   let rowsSynced = syncs.reduce((acc, sync) => {
     if (sync.endTime !== null) {
       return acc + sync.numRows;
