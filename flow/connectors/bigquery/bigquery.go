@@ -161,22 +161,22 @@ func TableCheck(ctx context.Context, client *bigquery.Client, dataset string) er
 		},
 	})
 	if createErr != nil {
-		return fmt.Errorf("unable to validate table creation within dataset: %v."+
+		return fmt.Errorf("unable to validate table creation within dataset: %v. "+
 			"Please check if bigquery.tables.create permission has been granted", createErr)
 	}
 
 	errors := []string{}
-	insertQuery := client.Query(fmt.Sprintf("INSERT INTO %s.peerdb_validate_dummy VALUES(true)", dataset))
+	insertQuery := client.Query(fmt.Sprintf("INSERT INTO %s.%s VALUES(true)", dataset, dummyTable))
 	_, insertErr := insertQuery.Run(ctx)
 	if insertErr != nil {
-		errors = append(errors, fmt.Sprintf("unable to validate insertion into table: %v.", insertErr)+
+		errors = append(errors, fmt.Sprintf("unable to validate insertion into table: %v. ", insertErr)+
 			"Please check if bigquery.jobs.create permission has been granted")
 	}
 
 	// Drop the table
 	deleteErr := newTable.Delete(ctx)
 	if deleteErr != nil {
-		errors = append(errors, fmt.Sprintf("unable to delete table :%v.", deleteErr)+
+		errors = append(errors, fmt.Sprintf("unable to delete table :%v. ", deleteErr)+
 			"Please check if bigquery.tables.delete permission has been granted")
 	}
 
