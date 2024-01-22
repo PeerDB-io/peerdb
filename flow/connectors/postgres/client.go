@@ -596,7 +596,7 @@ func (c *PostgresConnector) CheckSourceTables(tableNames []string, pubName strin
 			return fmt.Errorf("invalid source table identifier: %s", table)
 		}
 
-		tableArr = append(tableArr, fmt.Sprintf(`('%s', '%s')`, schemaName, tableName))
+		tableArr = append(tableArr, fmt.Sprintf(`(%s::text, %s::text)`, QuoteLiteral(schemaName), QuoteLiteral(tableName)))
 		err := c.pool.QueryRow(c.ctx,
 			fmt.Sprintf("SELECT * FROM %s.%s LIMIT 0;", QuoteIdentifier(schemaName), QuoteIdentifier(tableName))).Scan(&row)
 		if err != nil && err != pgx.ErrNoRows {
@@ -609,7 +609,7 @@ func (c *PostgresConnector) CheckSourceTables(tableNames []string, pubName strin
 	if pubName != "" {
 		var pubTableCount int
 		err := c.pool.QueryRow(c.ctx, fmt.Sprintf(`
-		with source_table_components (sname, tname) as ( values %s)
+		with source_table_components (sname, tname) as (values %s)
 		select COUNT(DISTINCT(schemaname,tablename)) from pg_publication_tables 
 		INNER JOIN source_table_components stc 
 		ON schemaname=stc.sname and tablename=stc.tname where pubname=$1;`, tableStr), pubName).Scan(&pubTableCount)
