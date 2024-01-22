@@ -147,7 +147,7 @@ func (bqsa *BigQueryServiceAccount) CreateStorageClient(ctx context.Context) (*s
 // 2. Inserts one row into the table
 // 3. Deletes the table
 func TableCheck(ctx context.Context, client *bigquery.Client, dataset string) error {
-	dummyTable := "peerdb_validate_dummy"
+	dummyTable := "peerdb_validate_dummy_" + shared.RandomString(4)
 
 	newTable := client.Dataset(dataset).Table(dummyTable)
 
@@ -166,7 +166,7 @@ func TableCheck(ctx context.Context, client *bigquery.Client, dataset string) er
 	}
 
 	errors := []string{}
-	insertQuery := client.Query("INSERT INTO %s VALUES(true)")
+	insertQuery := client.Query(fmt.Sprintf("INSERT INTO %s.peerdb_validate_dummy VALUES(true)", dataset))
 	_, insertErr := insertQuery.Run(ctx)
 	if insertErr != nil {
 		errors = append(errors, fmt.Sprintf("unable to validate insertion into table: %v.", insertErr)+
