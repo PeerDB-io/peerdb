@@ -143,7 +143,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 
 	require.NoError(s.t, err)
 
-	require.Equal(s.t, 1, len(files))
+	require.Len(s.t, files, 1)
 }
 
 func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
@@ -192,5 +192,5 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 
 	require.NoError(s.t, err)
 
-	require.Equal(s.t, 10, len(files))
+	require.Len(s.t, files, 10)
 }

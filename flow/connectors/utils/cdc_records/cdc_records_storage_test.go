@@ -83,7 +83,7 @@ func TestSingleRecord(t *testing.T) {
 	err := cdcRecordsStore.Set(key, rec)
 	require.NoError(t, err)
 	// should not spill into DB
-	require.Equal(t, 1, len(cdcRecordsStore.inMemoryRecords))
+	require.Len(t, cdcRecordsStore.inMemoryRecords, 1)
 	require.Nil(t, cdcRecordsStore.pebbleDB)
 
 	reck, ok, err := cdcRecordsStore.Get(key)
@@ -100,11 +100,11 @@ func TestRecordsTillSpill(t *testing.T) {
 	cdcRecordsStore.numRecordsSwitchThreshold = 10
 
 	// add records upto set limit
-	for i := 0; i < 10; i++ {
+	for i := 1; i <= 10; i++ {
 		key, rec := genKeyAndRec(t)
 		err := cdcRecordsStore.Set(key, rec)
 		require.NoError(t, err)
-		require.Equal(t, i+1, len(cdcRecordsStore.inMemoryRecords))
+		require.Len(t, cdcRecordsStore.inMemoryRecords, i)
 		require.Nil(t, cdcRecordsStore.pebbleDB)
 	}
 

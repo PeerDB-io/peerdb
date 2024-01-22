@@ -754,7 +754,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	require.NoError(s.t, err)
 
 	// Make sure that there are no nulls
-	require.Equal(s.t, noNulls, true)
+	require.True(s.t, noNulls)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
@@ -1259,9 +1259,9 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 	require.NoError(s.t, err)
 
 	for _, field := range sfRows.Schema.Fields {
-		require.NotEqual(s.t, field.Name, "c2")
+		require.NotEqual(s.t, "c2", field.Name)
 	}
-	require.Equal(s.t, 5, len(sfRows.Schema.Fields))
+	require.Len(s.t, sfRows.Schema.Fields, 5)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {

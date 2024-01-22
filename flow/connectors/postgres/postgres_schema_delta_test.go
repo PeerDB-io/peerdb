@@ -250,9 +250,9 @@ func TestPostgresSchemaDeltaTestSuite(t *testing.T) {
 		err = teardownTx.Commit(context.Background())
 		require.NoError(s.t, err)
 
-		require.True(s.t, s.connector.ConnectionActive() == nil)
+		require.NoError(s.t, s.connector.ConnectionActive())
 		err = s.connector.Close()
 		require.NoError(s.t, err)
-		require.False(s.t, s.connector.ConnectionActive() == nil)
+		require.Error(s.t, s.connector.ConnectionActive())
 	})
 }
