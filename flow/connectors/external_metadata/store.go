@@ -123,7 +123,8 @@ func (p *PostgresMetadataStore) SetupMetadata() error {
 			job_name TEXT PRIMARY KEY NOT NULL,
 			last_offset BIGINT NOT NULL,
 			updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-			sync_batch_id BIGINT NOT NULL
+			sync_batch_id BIGINT NOT NULL,
+			normalize_batch_id BIGINT NOT NULL
 		)
 	`)
 	if err != nil && !utils.IsUniqueError(err) {
@@ -172,12 +173,35 @@ func (p *PostgresMetadataStore) GetLastBatchID(jobName string) (int64, error) {
 			return 0, nil
 		}
 
-		slog.Error("failed to get last offset", slog.Any("error", err))
+		p.logger.Error("failed to get last sync batch id", slog.Any("error", err))
 		return 0, err
 	}
 	p.logger.Info("got last batch id for job", slog.Int64("batch id", syncBatchID.Int64))
 
 	return syncBatchID.Int64, nil
+}
+
+func (p *PostgresMetadataStore) GetLastNormalizeBatchID(jobName string) (int64, error) {
+	rows := p.pool.QueryRow(p.ctx, `
+		SELECT normalize_batch_id
+		FROM `+p.schemaName+`.`+lastSyncStateTableName+`
+		WHERE job_name = $1
+	`, jobName)
+
+	var normalizeBatchID pgtype.Int8
+	err := rows.Scan(&normalizeBatchID)
+	if err != nil {
+		// if the job doesn't exist, return 0
+		if err.Error() == "no rows in result set" {
+			return 0, nil
+		}
+
+		p.logger.Error("failed to get last normalize", slog.Any("error", err))
+		return 0, err
+	}
+	p.logger.Info("got last normalize batch normalize id for job", slog.Int64("batch id", normalizeBatchID.Int64))
+
+	return normalizeBatchID.Int64, nil
 }
 
 // update offset for a job
@@ -214,7 +238,7 @@ func (p *PostgresMetadataStore) UpdateLastOffset(jobName string, offset int64) e
 	return nil
 }
 
-// update offset for a job
+// update the sync batch id for a job.
 func (p *PostgresMetadataStore) IncrementID(jobName string) error {
 	p.logger.Info("incrementing sync batch id for job")
 	_, err := p.conn.Exec(p.ctx, `
@@ -223,6 +247,20 @@ func (p *PostgresMetadataStore) IncrementID(jobName string) error {
 	`, jobName)
 	if err != nil {
 		p.logger.Error("failed to increment sync batch id", slog.Any("error", err))
+		return err
+	}
+
+	return nil
+}
+
+func (p *PostgresMetadataStore) UpdateNormalizeBatchID(jobName string, batchID int64) error {
+	p.logger.Info("updating normalize batch id for job")
+	_, err := p.pool.Exec(p.ctx, `
+		UPDATE `+p.schemaName+`.`+lastSyncStateTableName+`
+		 SET normalize_batch_id=$2 WHERE job_name=$1
+	`, jobName, batchID)
+	if err != nil {
+		p.logger.Error("failed to update normalize batch id", slog.Any("error", err))
 		return err
 	}
 

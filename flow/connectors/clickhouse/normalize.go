@@ -1,6 +1,7 @@
 package connclickhouse
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -109,7 +110,7 @@ func generateCreateTableSQLForNormalizedTable(
 func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
 	batchIDs, err := c.GetLastSyncAndNormalizeBatchID(req.FlowJobName)
 	if err != nil {
-		c.logger.ErrorContext(c.ctx, "[sf] error while getting last sync and normalize batch id", err)
+		c.logger.ErrorContext(c.ctx, "[clickhouse] error while getting last sync and normalize batch id", err)
 		return nil, err
 	}
 
@@ -122,23 +123,74 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 		}, nil
 	}
 
-	// This will never happen.
+	destinationTableNames, err := c.getDistinctTableNamesInBatch(
+		req.FlowJobName,
+		batchIDs.SyncBatchID,
+		batchIDs.NormalizeBatchID,
+	)
+	if err != nil {
+		c.logger.ErrorContext(c.ctx, "[clickhouse] error while getting distinct table names in batch", err)
+		return nil, err
+	}
+
+	// model the raw table data as inserts.
+
+	endNormalizeBatchId := batchIDs.NormalizeBatchID + 1
+	c.pgMetadata.UpdateNormalizeBatchID(req.FlowJobName, endNormalizeBatchId)
 	return &model.NormalizeResponse{
 		Done:         true,
-		StartBatchID: batchIDs.NormalizeBatchID + 1,
+		StartBatchID: endNormalizeBatchId,
 		EndBatchID:   batchIDs.SyncBatchID,
 	}, nil
 }
 
-func (c *ClickhouseConnector) GetLastSyncAndNormalizeBatchID(flowJobName string) (model.SyncAndNormalizeBatchID, error) {
-	// return sync batch id as the normalize batch id as well as this is a no-op.
-	batchId, err := c.pgMetadata.GetLastBatchID(flowJobName)
+func (c *ClickhouseConnector) getDistinctTableNamesInBatch(
+	flowJobName string,
+	syncBatchID int64,
+	normalizeBatchID int64,
+) ([]string, error) {
+	rawTbl := c.getRawTableName(flowJobName)
+
+	q := fmt.Sprintf(
+		`SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d`,
+		rawTbl, normalizeBatchID, syncBatchID)
+
+	rows, err := c.database.QueryContext(c.ctx, q)
 	if err != nil {
-		return model.SyncAndNormalizeBatchID{}, err
+		return nil, fmt.Errorf("error while querying raw table for distinct table names in batch: %w", err)
+	}
+
+	var tableNames []string
+	for rows.Next() {
+		var tableName sql.NullString
+		err = rows.Scan(&tableName)
+		if err != nil {
+			return nil, fmt.Errorf("error while scanning table name: %w", err)
+		}
+
+		if !tableName.Valid {
+			return nil, fmt.Errorf("table name is not valid")
+		}
+
+		tableNames = append(tableNames, tableName.String)
+	}
+
+	return tableNames, nil
+}
+
+func (c *ClickhouseConnector) GetLastSyncAndNormalizeBatchID(flowJobName string) (model.SyncAndNormalizeBatchID, error) {
+	syncBatchID, err := c.pgMetadata.GetLastBatchID(flowJobName)
+	if err != nil {
+		return model.SyncAndNormalizeBatchID{}, fmt.Errorf("error while getting last sync batch id: %w", err)
+	}
+
+	normalizeBatchID, err := c.pgMetadata.GetLastNormalizeBatchID(flowJobName)
+	if err != nil {
+		return model.SyncAndNormalizeBatchID{}, fmt.Errorf("error while getting last normalize batch id: %w", err)
 	}
 
 	return model.SyncAndNormalizeBatchID{
-		SyncBatchID:      batchId,
-		NormalizeBatchID: batchId,
+		SyncBatchID:      syncBatchID,
+		NormalizeBatchID: normalizeBatchID,
 	}, nil
 }

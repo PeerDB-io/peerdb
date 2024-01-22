@@ -121,10 +121,9 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 	}
 
 	qrepConfig := &protos.QRepConfig{
-		StagingPath: c.config.S3Integration,
-		FlowJobName: req.FlowJobName,
-		DestinationTableIdentifier: strings.ToLower(fmt.Sprintf("%s",
-			rawTableIdentifier)),
+		StagingPath:                c.config.S3Integration,
+		FlowJobName:                req.FlowJobName,
+		DestinationTableIdentifier: strings.ToLower(fmt.Sprintf("%s", rawTableIdentifier)),
 	}
 	avroSyncer := NewClickhouseAvroSyncMethod(qrepConfig, c)
 	destinationTableSchema, err := c.getTableSchema(qrepConfig.DestinationTableIdentifier)
