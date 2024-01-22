@@ -8,6 +8,7 @@ message SSHConfig {
   string user = 3;
   string password = 4;
   string private_key = 5;
+  string host_key = 6;
 }
 
 message SnowflakeConfig {
@@ -115,7 +116,7 @@ enum DBType {
   S3 = 5;
   SQLSERVER = 6;
   EVENTHUB_GROUP = 7;
-  CLICKHOUSE = 8;  
+  CLICKHOUSE = 8;
 }
 
 message Peer {
