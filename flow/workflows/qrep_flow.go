@@ -152,7 +152,7 @@ func (q *QRepFlowExecution) GetPartitions(
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Hour,
-		HeartbeatTimeout:    5 * time.Minute,
+		HeartbeatTimeout:    time.Minute,
 	})
 
 	partitionsFuture := workflow.ExecuteActivity(ctx, flowable.GetQRepPartitions, q.config, last, q.runUUID)
@@ -171,7 +171,7 @@ func (q *QRepPartitionFlowExecution) ReplicatePartitions(ctx workflow.Context,
 ) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * 5 * time.Hour,
-		HeartbeatTimeout:    5 * time.Minute,
+		HeartbeatTimeout:    time.Minute,
 	})
 
 	msg := fmt.Sprintf("replicating partition batch - %d", partitions.BatchId)
@@ -280,7 +280,7 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 	// only an operation for Snowflake currently.
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * time.Hour,
-		HeartbeatTimeout:    10 * time.Minute,
+		HeartbeatTimeout:    time.Minute,
 	})
 
 	if err := workflow.ExecuteActivity(ctx, flowable.ConsolidateQRepPartitions, q.config,
@@ -303,10 +303,9 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 func (q *QRepFlowExecution) waitForNewRows(ctx workflow.Context, lastPartition *protos.QRepPartition) error {
 	q.logger.Info("idling until new rows are detected")
 
-	waitActivityTimeout := time.Duration(q.config.WaitBetweenBatchesSeconds+60) * time.Second
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 16 * 365 * 24 * time.Hour, // 16 years
-		HeartbeatTimeout:    waitActivityTimeout,
+		HeartbeatTimeout:    time.Minute,
 	})
 
 	if err := workflow.ExecuteActivity(ctx, flowable.QRepWaitUntilNewRows, q.config,
@@ -322,7 +321,7 @@ func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, s
 		renamedTableIdentifier := fmt.Sprintf("%s_peerdb_resync", q.config.DestinationTableIdentifier)
 		createTablesFromExistingCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 10 * time.Minute,
-			HeartbeatTimeout:    2 * time.Minute,
+			HeartbeatTimeout:    time.Minute,
 		})
 		createTablesFromExistingFuture := workflow.ExecuteActivity(
 			createTablesFromExistingCtx, flowable.CreateTablesFromExisting, &protos.CreateTablesFromExistingInput{
@@ -355,7 +354,7 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 
 		renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 30 * time.Minute,
-			HeartbeatTimeout:    5 * time.Minute,
+			HeartbeatTimeout:    time.Minute,
 		})
 		renameTablesFuture := workflow.ExecuteActivity(renameTablesCtx, flowable.RenameTables, renameOpts)
 		if err := renameTablesFuture.Get(renameTablesCtx, nil); err != nil {

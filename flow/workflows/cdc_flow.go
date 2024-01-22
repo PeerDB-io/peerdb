@@ -345,7 +345,7 @@ func CDCFlowWorkflowWithConfig(
 			state.TableNameSchemaMapping = correctedTableNameSchemaMapping
 			renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 				StartToCloseTimeout: 12 * time.Hour,
-				HeartbeatTimeout:    1 * time.Hour,
+				HeartbeatTimeout:    time.Minute,
 			})
 			renameTablesFuture := workflow.ExecuteActivity(renameTablesCtx, flowable.RenameTables, renameOpts)
 			if err := renameTablesFuture.Get(renameTablesCtx, nil); err != nil {

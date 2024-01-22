@@ -476,7 +476,7 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		}
 	}()
 
-	supportsMerge, err := c.majorVersionCheck(150000)
+	supportsMerge, _, err := c.MajorVersionCheck(POSTGRES_15)
 	if err != nil {
 		return nil, err
 	}

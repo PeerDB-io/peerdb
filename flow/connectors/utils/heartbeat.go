@@ -11,7 +11,6 @@ import (
 
 func HeartbeatRoutine(
 	ctx context.Context,
-	interval time.Duration,
 	message func() string,
 ) func() {
 	shutdown := make(chan struct{})
@@ -26,7 +25,7 @@ func HeartbeatRoutine(
 				return
 			case <-ctx.Done():
 				return
-			case <-time.After(interval):
+			case <-time.After(15 * time.Second):
 			}
 		}
 	}()

@@ -270,7 +270,7 @@ func (s *SnowflakeAvroSyncHandler) putFileToStage(avroFile *avro.AvroFile, stage
 	activity.RecordHeartbeat(s.connector.ctx, "putting file to stage")
 	putCmd := fmt.Sprintf("PUT file://%s @%s", avroFile.FilePath, stage)
 
-	shutdown := utils.HeartbeatRoutine(s.connector.ctx, 10*time.Second, func() string {
+	shutdown := utils.HeartbeatRoutine(s.connector.ctx, func() string {
 		return fmt.Sprintf("putting file to stage %s", stage)
 	})
 	defer shutdown()

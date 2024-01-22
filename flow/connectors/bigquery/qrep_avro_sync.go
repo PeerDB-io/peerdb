@@ -42,7 +42,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	stream *model.QRecordStream,
 	tableNameRowsMapping map[string]uint32,
 ) (*model.SyncResponse, error) {
-	activity.RecordHeartbeat(s.connector.ctx, time.Minute,
+	activity.RecordHeartbeat(s.connector.ctx,
 		fmt.Sprintf("Flow job %s: Obtaining Avro schema"+
 			" for destination table %s and sync batch ID %d",
 			req.FlowJobName, rawTableName, syncBatchID),
@@ -77,7 +77,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		return nil, fmt.Errorf("failed to update metadata: %v", err)
 	}
 
-	activity.RecordHeartbeat(s.connector.ctx, time.Minute,
+	activity.RecordHeartbeat(s.connector.ctx,
 		fmt.Sprintf("Flow job %s: performing insert and update transaction"+
 			" for destination table %s and sync batch ID %d",
 			req.FlowJobName, rawTableName, syncBatchID),
@@ -392,12 +392,10 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	stream *model.QRecordStream,
 	flowName string,
 ) (int, error) {
-	shutdown := utils.HeartbeatRoutine(s.connector.ctx, time.Minute,
-		func() string {
-			return fmt.Sprintf("writing to avro stage for objectFolder %s and staging table %s",
-				objectFolder, stagingTable)
-		},
-	)
+	shutdown := utils.HeartbeatRoutine(s.connector.ctx, func() string {
+		return fmt.Sprintf("writing to avro stage for objectFolder %s and staging table %s",
+			objectFolder, stagingTable)
+	})
 	defer shutdown()
 
 	var avroFile *avro.AvroFile

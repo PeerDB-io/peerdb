@@ -17,6 +17,14 @@ import (
 	"github.com/lib/pq/oid"
 )
 
+type PGVersion int
+
+const (
+	POSTGRES_12 PGVersion = 120000
+	POSTGRES_13 PGVersion = 130000
+	POSTGRES_15 PGVersion = 150000
+)
+
 const (
 	mirrorJobsTableIdentifier = "peerdb_mirror_jobs"
 	createMirrorJobsTableSQL  = `CREATE TABLE IF NOT EXISTS %s.%s(mirror_job_name TEXT PRIMARY KEY,
@@ -305,7 +313,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 
 	if !s.PublicationExists {
 		// check and enable publish_via_partition_root
-		supportsPubViaRoot, err := c.majorVersionCheck(130000)
+		supportsPubViaRoot, _, err := c.MajorVersionCheck(POSTGRES_13)
 		if err != nil {
 			return fmt.Errorf("error checking Postgres version: %w", err)
 		}
@@ -472,14 +480,14 @@ func (c *PostgresConnector) jobMetadataExists(jobName string) (bool, error) {
 	return result.Bool, nil
 }
 
-func (c *PostgresConnector) majorVersionCheck(majorVersion int) (bool, error) {
+func (c *PostgresConnector) MajorVersionCheck(majorVersion PGVersion) (bool, int64, error) {
 	var version pgtype.Int8
 	err := c.pool.QueryRow(c.ctx, "SELECT current_setting('server_version_num')::INTEGER").Scan(&version)
 	if err != nil {
-		return false, fmt.Errorf("failed to get server version: %w", err)
+		return false, 0, fmt.Errorf("failed to get server version: %w", err)
 	}
 
-	return int(version.Int64) >= majorVersion, nil
+	return version.Int64 >= int64(majorVersion), version.Int64, nil
 }
 
 func (c *PostgresConnector) updateSyncMetadata(flowJobName string, lastCP int64, syncBatchID int64,
@@ -621,7 +629,12 @@ func (c *PostgresConnector) CheckReplicationPermissions(username string) error {
 	}
 
 	if !replicationRes {
-		return fmt.Errorf("postgres user does not have replication role")
+		// RDS case: check pg_settings for rds.logical_replication
+		var setting string
+		err := c.pool.QueryRow(c.ctx, "SELECT setting FROM pg_settings WHERE name = 'rds.logical_replication';").Scan(&setting)
+		if err != nil || setting != "on" {
+			return fmt.Errorf("postgres user does not have replication role")
+		}
 	}
 
 	// check wal_level
@@ -652,23 +665,4 @@ func (c *PostgresConnector) CheckReplicationPermissions(username string) error {
 	}
 
 	return nil
-}
-
-func (c *PostgresConnector) GetPostgresVersion() (int, error) {
-	if c.pool == nil {
-		return -1, fmt.Errorf("version check: pool is nil")
-	}
-
-	var versionRes string
-	err := c.pool.QueryRow(c.ctx, "SHOW server_version_num;").Scan(&versionRes)
-	if err != nil {
-		return -1, err
-	}
-
-	version, err := strconv.Atoi(versionRes)
-	if err != nil {
-		return -1, err
-	}
-
-	return version / 10000, nil
 }

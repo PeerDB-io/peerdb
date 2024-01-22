@@ -217,7 +217,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	go a.recordSlotSizePeriodically(errCtx, srcConn, slotNameForMetrics, input.FlowConnectionConfigs.Source.Name)
 
-	shutdown := utils.HeartbeatRoutine(ctx, 10*time.Second, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		jobName := input.FlowConnectionConfigs.FlowJobName
 		return fmt.Sprintf("transferring records for job - %s", jobName)
 	})
@@ -387,7 +387,7 @@ func (a *FlowableActivity) StartNormalize(
 	}
 	defer connectors.CloseConnector(dstConn)
 
-	shutdown := utils.HeartbeatRoutine(ctx, 15*time.Second, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("normalizing records from batch for job - %s", input.FlowConnectionConfigs.FlowJobName)
 	})
 	defer shutdown()
@@ -455,7 +455,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	}
 	defer connectors.CloseConnector(srcConn)
 
-	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("getting partitions for job - %s", config.FlowJobName)
 	})
 	defer shutdown()
@@ -544,6 +544,10 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	defer connectors.CloseConnector(dstConn)
 
 	slog.InfoContext(ctx, fmt.Sprintf("replicating partition %s\n", partition.PartitionId))
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
+		return fmt.Sprintf("syncing partition - %s: %d of %d total.", partition.PartitionId, idx, total)
+	})
+	defer shutdown()
 
 	var stream *model.QRecordStream
 	bufferSize := shared.FetchAndChannelSize
@@ -593,11 +597,6 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		}
 	}
 
-	shutdown := utils.HeartbeatRoutine(ctx, 1*time.Minute, func() string {
-		return fmt.Sprintf("syncing partition - %s: %d of %d total.", partition.PartitionId, idx, total)
-	})
-	defer shutdown()
-
 	rowsSynced, err := dstConn.SyncQRepRecords(config, partition, stream)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -635,10 +634,9 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	} else if err != nil {
 		return err
 	}
-
 	defer connectors.CloseConnector(dstConn)
 
-	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("consolidating partitions for job - %s", config.FlowJobName)
 	})
 	defer shutdown()
@@ -802,7 +800,21 @@ func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
 	attemptCount := 1
 	for {
 		activity.RecordHeartbeat(ctx, fmt.Sprintf("no new rows yet, attempt #%d", attemptCount))
-		time.Sleep(waitBetweenBatches)
+		waitUntil := time.Now().Add(waitBetweenBatches)
+		for {
+			sleep := time.Until(waitUntil)
+			if sleep > 15*time.Second {
+				sleep = 15 * time.Second
+			}
+			time.Sleep(sleep)
+
+			activity.RecordHeartbeat(ctx, "heartbeat while waiting before next batch")
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("cancelled while waiting for new rows: %w", err)
+			} else if time.Now().After(waitUntil) {
+				break
+			}
+		}
 
 		result, err := pgSrcConn.CheckForUpdatedMaxValue(config, last)
 		if err != nil {
@@ -829,6 +841,11 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
 	defer connectors.CloseConnector(dstConn)
+
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
+		return fmt.Sprintf("renaming tables for job - %s", config.FlowJobName)
+	})
+	defer shutdown()
 
 	if config.Peer.Type == protos.DBType_SNOWFLAKE {
 		sfConn, ok := dstConn.(*connsnowflake.SnowflakeConnector)
@@ -949,7 +966,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 		return nil
 	})
 
-	shutdown := utils.HeartbeatRoutine(ctx, 5*time.Minute, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return "syncing xmin."
 	})
 	defer shutdown()
