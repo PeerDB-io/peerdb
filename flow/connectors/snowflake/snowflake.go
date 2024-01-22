@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -383,12 +382,12 @@ func (c *SnowflakeConnector) getTableNametoUnchangedCols(flowJobName string, syn
 		var r UnchangedToastColumnResult
 		err := rows.Scan(&r.TableName, &r.UnchangedToastColumns)
 		if err != nil {
-			log.Fatalf("Failed to scan row: %v", err)
+			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 		resultMap[r.TableName] = r.UnchangedToastColumns
 	}
 	if err := rows.Err(); err != nil {
-		log.Fatalf("Error iterating over rows: %v", err)
+		return nil, fmt.Errorf("error iterating over rows: %w", err)
 	}
 	return resultMap, nil
 }

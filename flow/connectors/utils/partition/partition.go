@@ -45,14 +45,12 @@ func compareValues(prevEnd interface{}, start interface{}) int {
 			return -1
 		} else if pe.BlockNumber > v.BlockNumber {
 			return 1
+		} else if pe.OffsetNumber < v.OffsetNumber {
+			return -1
+		} else if pe.OffsetNumber > v.OffsetNumber {
+			return 1
 		} else {
-			if pe.OffsetNumber < v.OffsetNumber {
-				return -1
-			} else if pe.OffsetNumber > v.OffsetNumber {
-				return 1
-			} else {
-				return 0
-			}
+			return 0
 		}
 	case uint32: // xmin
 		if prevEnd.(uint32) < v {

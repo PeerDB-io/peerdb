@@ -382,11 +382,11 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 }
 
 // returns whether the function errors or there are nulls
-func (b *BigQueryTestHelper) CheckNull(tableName string, ColName []string) (bool, error) {
-	if len(ColName) == 0 {
+func (b *BigQueryTestHelper) CheckNull(tableName string, colName []string) (bool, error) {
+	if len(colName) == 0 {
 		return true, nil
 	}
-	joinedString := strings.Join(ColName, " is null or ") + " is null"
+	joinedString := strings.Join(colName, " is null or ") + " is null"
 	command := fmt.Sprintf("SELECT COUNT(*) FROM `%s.%s` WHERE %s",
 		b.Config.DatasetId, tableName, joinedString)
 	q := b.client.Query(command)
@@ -419,8 +419,8 @@ func (b *BigQueryTestHelper) CheckNull(tableName string, ColName []string) (bool
 }
 
 // check if NaN, Inf double values are null
-func (b *BigQueryTestHelper) CheckDoubleValues(tableName string, ColName []string) (bool, error) {
-	csep := strings.Join(ColName, ",")
+func (b *BigQueryTestHelper) CheckDoubleValues(tableName string, colName []string) (bool, error) {
+	csep := strings.Join(colName, ",")
 	command := fmt.Sprintf("SELECT %s FROM `%s.%s`",
 		csep, b.Config.DatasetId, tableName)
 	q := b.client.Query(command)

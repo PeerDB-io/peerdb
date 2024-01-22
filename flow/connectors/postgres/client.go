@@ -3,7 +3,6 @@ package connpostgres
 import (
 	"errors"
 	"fmt"
-	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -557,12 +556,12 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(flowJobName string, sync
 	for rows.Next() {
 		err := rows.Scan(&destinationTableName, &unchangedToastColumns)
 		if err != nil {
-			log.Fatalf("Failed to scan row: %v", err)
+			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 		resultMap[destinationTableName.String] = unchangedToastColumns
 	}
 	if err := rows.Err(); err != nil {
-		log.Fatalf("Error iterating over rows: %v", err)
+		return nil, fmt.Errorf("error iterating over rows: %w", err)
 	}
 	return resultMap, nil
 }

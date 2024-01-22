@@ -7,6 +7,7 @@ linters:
     - durationcheck
     - errcheck
     - forbidigo
+    - gocritic
     - gofumpt
     - gosec
     - gosimple
@@ -15,6 +16,7 @@ linters:
     - misspell
     - nakedret
     - nolintlint
+    - nonamedreturns
     - prealloc
     - staticcheck
     - stylecheck
@@ -28,6 +30,9 @@ linters:
     - wastedassign
     - whitespace
 linters-settings:
+  gocritic:
+    disabled-checks:
+      - ifElseChain
   stylecheck:
     checks:
       - all

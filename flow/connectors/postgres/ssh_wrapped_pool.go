@@ -137,18 +137,21 @@ func (swpp *SSHWrappedPostgresPool) Close() {
 
 type retryFunc func() error
 
-func retryWithBackoff(fn retryFunc, maxRetries int, backoff time.Duration) (err error) {
-	for i := 0; i < maxRetries; i++ {
-		err = fn()
+func retryWithBackoff(fn retryFunc, maxRetries int, backoff time.Duration) error {
+	i := 0
+	for {
+		err := fn()
 		if err == nil {
 			return nil
 		}
-		if i < maxRetries-1 {
+		i += 1
+		if i < maxRetries {
 			slog.Info(fmt.Sprintf("Attempt #%d failed, retrying in %s", i+1, backoff))
 			time.Sleep(backoff)
+		} else {
+			return err
 		}
 	}
-	return err
 }
 
 // see: https://github.com/jackc/pgx/issues/382#issuecomment-1496586216

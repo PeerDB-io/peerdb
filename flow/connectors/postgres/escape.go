@@ -21,14 +21,14 @@ func QuoteLiteral(literal string) string {
 	// https://git.postgresql.org/gitweb/?p=postgresql.git;a=blob;f=src/interfaces/libpq/fe-exec.c
 	//
 	// substitute any single-quotes (') with two single-quotes ('')
-	literal = strings.Replace(literal, `'`, `''`, -1)
+	literal = strings.ReplaceAll(literal, `'`, `''`)
 	// determine if the string has any backslashes (\) in it.
 	// if it does, replace any backslashes (\) with two backslashes (\\)
 	// then, we need to wrap the entire string with a PostgreSQL
 	// C-style escape. Per how "PQEscapeStringInternal" handles this case, we
 	// also add a space before the "E"
 	if strings.Contains(literal, `\`) {
-		literal = strings.Replace(literal, `\`, `\\`, -1)
+		literal = strings.ReplaceAll(literal, `\`, `\\`)
 		literal = ` E'` + literal + `'`
 	} else {
 		// otherwise, we can just wrap the literal with a pair of single quotes
@@ -53,5 +53,5 @@ func QuoteIdentifier(name string) string {
 	if end > -1 {
 		name = name[:end]
 	}
-	return `"` + strings.Replace(name, `"`, `""`, -1) + `"`
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
