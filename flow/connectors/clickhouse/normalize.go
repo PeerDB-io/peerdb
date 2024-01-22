@@ -164,6 +164,12 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 			projection.WriteString(fmt.Sprintf("%s(_peerdb_data, '%s') AS %s, ", extractionFuction, cn, cn))
 		}
 
+		// add _peerdb_sign as _peerdb_record_type / 2
+		projection.WriteString(fmt.Sprintf("intDiv(_peerdb_record_type, 2) AS %s, ", signColName))
+
+		// add _peerdb_timestamp as _peerdb_version
+		projection.WriteString(fmt.Sprintf("_peerdb_timestamp AS %s", versionColName))
+
 		colSelector.WriteString(") ")
 
 		selectQuery.WriteString(projection.String())
