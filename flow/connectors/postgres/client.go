@@ -146,6 +146,10 @@ func (c *PostgresConnector) getPrimaryKeyColumns(
 		`SELECT indexrelid FROM pg_index WHERE indrelid = $1 AND indisprimary`,
 		relID).Scan(&pkIndexOID)
 	if err != nil {
+		// don't error out if no pkey columns, this would happen in EnsurePullability or UI.
+		if err == pgx.ErrNoRows {
+			return []string{}, nil
+		}
 		return nil, fmt.Errorf("error finding primary key index for table %s: %w", schemaTable, err)
 	}
 
