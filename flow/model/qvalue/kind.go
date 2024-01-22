@@ -127,13 +127,20 @@ var QValueKindToClickhouseTypeMap = map[QValueKind]string{
 }
 
 func (kind QValueKind) ToDWHColumnType(dwhType QDWHType) (string, error) {
-	if dwhType != QDWHTypeSnowflake {
-		return "", fmt.Errorf("unsupported DWH type: %v", dwhType)
-	}
-
-	if val, ok := QValueKindToSnowflakeTypeMap[kind]; ok {
-		return val, nil
-	} else {
-		return "STRING", nil
+	switch dwhType {
+	case QDWHTypeSnowflake:
+		if val, ok := QValueKindToSnowflakeTypeMap[kind]; ok {
+			return val, nil
+		} else {
+			return "STRING", nil
+		}
+	case QDWHTypeClickhouse:
+		if val, ok := QValueKindToClickhouseTypeMap[kind]; ok {
+			return val, nil
+		} else {
+			return "String", nil
+		}
+	default:
+		return "", fmt.Errorf("unknown dwh type: %s", dwhType)
 	}
 }
