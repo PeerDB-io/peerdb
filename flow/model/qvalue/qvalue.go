@@ -10,9 +10,10 @@ import (
 	"time"
 
 	"cloud.google.com/go/civil"
+	"github.com/google/uuid"
+
 	"github.com/PeerDB-io/peer-flow/geo"
 	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
-	"github.com/google/uuid"
 )
 
 // if new types are added, register them in gob - cdc_records_storage.go

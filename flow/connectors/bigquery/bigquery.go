@@ -12,17 +12,17 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"go.temporal.io/sdk/activity"
+	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
+
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	cc "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/jackc/pgx/v5/pgxpool"
-
-	"go.temporal.io/sdk/activity"
-	"google.golang.org/api/iterator"
-	"google.golang.org/api/option"
 )
 
 const (

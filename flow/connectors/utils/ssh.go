@@ -4,8 +4,9 @@ import (
 	"encoding/base64"
 	"fmt"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"golang.org/x/crypto/ssh"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
 // getSSHClientConfig returns an *ssh.ClientConfig based on provided credentials.

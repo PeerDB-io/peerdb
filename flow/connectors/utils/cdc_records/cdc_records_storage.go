@@ -10,10 +10,11 @@ import (
 	"os"
 	"time"
 
+	"github.com/cockroachdb/pebble"
+
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/cockroachdb/pebble"
 )
 
 func encVal(val any) ([]byte, error) {

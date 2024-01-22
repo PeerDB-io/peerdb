@@ -8,12 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/e2eshared"
-	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
+
+	"github.com/PeerDB-io/peer-flow/e2e"
+	"github.com/PeerDB-io/peer-flow/e2eshared"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type PeerFlowE2ETestSuiteS3 struct {

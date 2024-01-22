@@ -12,15 +12,16 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/snowflakedb/gosnowflake"
+	"go.temporal.io/sdk/activity"
+	"golang.org/x/sync/errgroup"
+
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/snowflakedb/gosnowflake"
-	"go.temporal.io/sdk/activity"
-	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -510,7 +511,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	}()
 
 	// updating metadata with new offset and syncBatchID
-	err = c.updateSyncMetadata(req.FlowJobName, res.LastSyncedCheckPointID, syncBatchID, syncRecordsTx)
+	err = c.updateSyncMetadata(req.FlowJobName, res.LastSyncedCheckpointID, syncBatchID, syncRecordsTx)
 	if err != nil {
 		return nil, err
 	}
@@ -564,7 +565,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 	}
 
 	return &model.SyncResponse{
-		LastSyncedCheckPointID: lastCheckpoint,
+		LastSyncedCheckpointID: lastCheckpoint,
 		NumRecordsSynced:       int64(numRecords),
 		CurrentSyncBatchID:     syncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,

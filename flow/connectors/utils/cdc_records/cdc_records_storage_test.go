@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/stretchr/testify/require"
 )
 
 func getTimeForTesting(t *testing.T) time.Time {
@@ -47,7 +48,7 @@ func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record) {
 	rec := &model.InsertRecord{
 		SourceTableName:      "test_src_tbl",
 		DestinationTableName: "test_dst_tbl",
-		CheckPointID:         1,
+		CheckpointID:         1,
 		CommitID:             2,
 		Items: &model.RecordItems{
 			ColToValIdx: map[string]int{

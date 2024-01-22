@@ -3,10 +3,11 @@ package e2e_snowflake
 import (
 	"fmt"
 
-	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
+	"github.com/PeerDB-io/peer-flow/e2e"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
 //nolint:unparam

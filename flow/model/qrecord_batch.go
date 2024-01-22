@@ -6,10 +6,11 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/geo"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/PeerDB-io/peer-flow/geo"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 // QRecordBatch holds a batch of QRecord objects.

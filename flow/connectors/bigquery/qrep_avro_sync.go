@@ -5,17 +5,19 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"go.temporal.io/sdk/activity"
+
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"go.temporal.io/sdk/activity"
 )
 
 type QRepAvroSyncMethod struct {
@@ -53,8 +55,8 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
 
-	stagingTable := fmt.Sprintf("%s_%s_staging", rawTableName, fmt.Sprint(syncBatchID))
-	numRecords, err := s.writeToStage(fmt.Sprint(syncBatchID), rawTableName, avroSchema,
+	stagingTable := fmt.Sprintf("%s_%s_staging", rawTableName, strconv.FormatInt(syncBatchID, 10))
+	numRecords, err := s.writeToStage(strconv.FormatInt(syncBatchID, 10), rawTableName, avroSchema,
 		&datasetTable{
 			dataset: s.connector.datasetID,
 			table:   stagingTable,
@@ -105,7 +107,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		// just log the error this isn't fatal.
 		slog.Error("failed to delete staging table "+stagingTable,
 			slog.Any("error", err),
-			slog.String("syncBatchID", fmt.Sprint(syncBatchID)),
+			slog.Int64("syncBatchID", syncBatchID),
 			slog.String("destinationTable", rawTableName))
 	}
 
@@ -114,7 +116,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		slog.String("dstTableName", rawTableName))
 
 	return &model.SyncResponse{
-		LastSyncedCheckPointID: lastCP,
+		LastSyncedCheckpointID: lastCP,
 		NumRecordsSynced:       int64(numRecords),
 		CurrentSyncBatchID:     syncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,

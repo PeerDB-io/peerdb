@@ -4,16 +4,18 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 const (
@@ -200,7 +202,7 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 		DestinationTableIdentifier: fmt.Sprintf("raw_table_%s", req.FlowJobName),
 	}
 	partition := &protos.QRepPartition{
-		PartitionId: fmt.Sprint(syncBatchID),
+		PartitionId: strconv.FormatInt(syncBatchID, 10),
 	}
 	numRecords, err := c.SyncQRepRecords(qrepConfig, partition, recordStream)
 	if err != nil {
@@ -225,7 +227,7 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 	}
 
 	return &model.SyncResponse{
-		LastSyncedCheckPointID: lastCheckpoint,
+		LastSyncedCheckpointID: lastCheckpoint,
 		NumRecordsSynced:       int64(numRecords),
 		TableNameRowsMapping:   tableNameRowsMapping,
 		TableSchemaDeltas:      req.Records.WaitForSchemaDeltas(req.TableMappings),

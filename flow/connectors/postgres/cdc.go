@@ -3,19 +3,11 @@ package connpostgres
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"regexp"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/connectors/utils/cdc_records"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/geo"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -24,6 +16,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lib/pq/oid"
 	"go.temporal.io/sdk/activity"
+
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/cdc_records"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/geo"
+	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 const maxRetriesForWalSegmentRemoved = 5
@@ -600,7 +600,7 @@ func (p *PostgresCDCSource) processInsertMessage(
 	}
 
 	return &model.InsertRecord{
-		CheckPointID:         int64(lsn),
+		CheckpointID:         int64(lsn),
 		Items:                items,
 		DestinationTableName: p.TableNameMapping[tableName].Name,
 		SourceTableName:      tableName,
@@ -641,7 +641,7 @@ func (p *PostgresCDCSource) processUpdateMessage(
 	}
 
 	return &model.UpdateRecord{
-		CheckPointID:          int64(lsn),
+		CheckpointID:          int64(lsn),
 		OldItems:              oldItems,
 		NewItems:              newItems,
 		DestinationTableName:  p.TableNameMapping[tableName].Name,
@@ -678,7 +678,7 @@ func (p *PostgresCDCSource) processDeleteMessage(
 	}
 
 	return &model.DeleteRecord{
-		CheckPointID:         int64(lsn),
+		CheckpointID:         int64(lsn),
 		Items:                items,
 		DestinationTableName: p.TableNameMapping[tableName].Name,
 		SourceTableName:      tableName,
@@ -810,16 +810,12 @@ func (p *PostgresCDCSource) auditSchemaDelta(flowJobName string, rec *model.Rela
 	activityInfo := activity.GetInfo(p.ctx)
 	workflowID := activityInfo.WorkflowExecution.ID
 	runID := activityInfo.WorkflowExecution.RunID
-	recJSON, err := json.Marshal(rec)
-	if err != nil {
-		return fmt.Errorf("failed to marshal schema delta to JSON: %w", err)
-	}
 
-	_, err = p.catalogPool.Exec(p.ctx,
+	_, err := p.catalogPool.Exec(p.ctx,
 		`INSERT INTO
 		 peerdb_stats.schema_deltas_audit_log(flow_job_name,workflow_id,run_id,delta_info)
 		 VALUES($1,$2,$3,$4)`,
-		flowJobName, workflowID, runID, recJSON)
+		flowJobName, workflowID, runID, rec)
 	if err != nil {
 		return fmt.Errorf("failed to insert row into table: %w", err)
 	}
@@ -886,7 +882,7 @@ func (p *PostgresCDCSource) processRelationMessage(
 	p.relationMessageMapping[currRel.RelationId] = currRel
 	rec := &model.RelationRecord{
 		TableSchemaDelta: schemaDelta,
-		CheckPointID:     int64(lsn),
+		CheckpointID:     int64(lsn),
 	}
 	return rec, p.auditSchemaDelta(p.flowJobName, rec)
 }

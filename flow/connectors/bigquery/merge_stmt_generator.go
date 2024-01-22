@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"cloud.google.com/go/bigquery"
+
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"

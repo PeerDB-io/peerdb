@@ -9,6 +9,7 @@ import (
 	"time"
 
 	azeventhubs "github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
+
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
