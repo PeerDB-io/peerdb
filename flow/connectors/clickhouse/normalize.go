@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -23,11 +22,7 @@ func (c *ClickhouseConnector) SetupNormalizedTables(
 ) (*protos.SetupNormalizedTableBatchOutput, error) {
 	tableExistsMapping := make(map[string]bool)
 	for tableIdentifier, tableSchema := range req.TableNameSchemaMapping {
-		normalizedSchemaTable, err := utils.ParseSchemaTable(tableIdentifier)
-		if err != nil {
-			return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
-		}
-		tableAlreadyExists, err := c.checkIfTableExists(normalizedSchemaTable.Schema, normalizedSchemaTable.Table)
+		tableAlreadyExists, err := c.checkIfTableExists(c.config.Database, tableIdentifier)
 		if err != nil {
 			return nil, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
 		}
@@ -37,7 +32,7 @@ func (c *ClickhouseConnector) SetupNormalizedTables(
 		}
 
 		normalizedTableCreateSQL, err := generateCreateTableSQLForNormalizedTable(
-			normalizedSchemaTable,
+			tableIdentifier,
 			tableSchema,
 			req.SoftDeleteColName,
 			req.SyncedAtColName,
@@ -59,13 +54,13 @@ func (c *ClickhouseConnector) SetupNormalizedTables(
 }
 
 func generateCreateTableSQLForNormalizedTable(
-	normalizedSchemaTable *utils.SchemaTable,
+	normalizedTable string,
 	tableSchema *protos.TableSchema,
 	softDeleteColName string,
 	syncedAtColName string,
 ) (string, error) {
 	var stmtBuilder strings.Builder
-	stmtBuilder.WriteString(fmt.Sprintf("CREATE TABLE `%s`.`%s` (", normalizedSchemaTable.Schema, normalizedSchemaTable.Table))
+	stmtBuilder.WriteString(fmt.Sprintf("CREATE TABLE `%s` (", normalizedTable))
 
 	nc := len(tableSchema.ColumnNames)
 	for i := 0; i < nc; i++ {
