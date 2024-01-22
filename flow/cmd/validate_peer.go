@@ -47,7 +47,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 			return nil, err
 		}
 
-		if isValid {
+		if !isValid {
 			return &protos.ValidatePeerResponse{
 				Status: protos.ValidatePeerStatus_INVALID,
 				Message: fmt.Sprintf("%s peer %s must be of version 12 or above. Current version: %d",
