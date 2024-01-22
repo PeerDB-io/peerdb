@@ -28,13 +28,17 @@ func (c *ClickhouseConnector) getRawTableName(flowJobName string) string {
 }
 
 func (c *ClickhouseConnector) checkIfTableExists(databaseName string, tableIdentifier string) (bool, error) {
-	var result pgtype.Bool
+	var result sql.NullInt32
 	err := c.database.QueryRowContext(c.ctx, checkIfTableExistsSQL, databaseName, tableIdentifier).Scan(&result)
 	if err != nil {
 		return false, fmt.Errorf("error while reading result row: %w", err)
 	}
-	fmt.Printf("result: %+v\n", result)
-	return result.Bool, nil
+
+	if !result.Valid {
+		return false, fmt.Errorf("[clickhouse] checkIfTableExists: result is not valid")
+	}
+
+	return result.Int32 == 1, nil
 }
 
 type MirrorJobRow struct {
