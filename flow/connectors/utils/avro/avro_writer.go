@@ -13,8 +13,9 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/klauspost/compress/flate"
 	"github.com/klauspost/compress/snappy"
 	"github.com/klauspost/compress/zstd"
@@ -201,11 +202,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(bucketName, key string, s3Creds utils
 		return nil, fmt.Errorf("failed to create S3 client: %w", err)
 	}
 
-	// Create an uploader with the session and default options
-	uploader := s3manager.NewUploaderWithClient(s3svc)
-
-	// Upload the file to S3.
-	result, err := uploader.Upload(&s3manager.UploadInput{
+	_, err = manager.NewUploader(s3svc).Upload(p.ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(key),
 		Body:   r,
@@ -216,7 +213,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(bucketName, key string, s3Creds utils
 		return nil, fmt.Errorf("failed to upload file to path %s: %w", s3Path, err)
 	}
 
-	slog.Info("file uploaded to" + result.Location)
+	slog.Info("file uploaded to " + fmt.Sprintf("%s/%s", bucketName, key))
 
 	return &AvroFile{
 		NumRecords:      <-numRowsWritten,

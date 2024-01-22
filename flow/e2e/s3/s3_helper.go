@@ -12,8 +12,8 @@ import (
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 const (
@@ -21,7 +21,7 @@ const (
 )
 
 type S3TestHelper struct {
-	client     *s3.S3
+	client     *s3.Client
 	s3Config   *protos.S3Config
 	bucketName string
 	prefix     string
@@ -90,10 +90,10 @@ func (h *S3TestHelper) GetPeer() *protos.Peer {
 func (h *S3TestHelper) ListAllFiles(
 	ctx context.Context,
 	jobName string,
-) ([]*s3.Object, error) {
+) ([]s3types.Object, error) {
 	Bucket := h.bucketName
 	Prefix := fmt.Sprintf("%s/%s/", h.prefix, jobName)
-	files, err := h.client.ListObjects(&s3.ListObjectsInput{
+	files, err := h.client.ListObjects(ctx, &s3.ListObjectsInput{
 		Bucket: &Bucket,
 		Prefix: &Prefix,
 	})
@@ -106,10 +106,10 @@ func (h *S3TestHelper) ListAllFiles(
 }
 
 // Delete all generated objects during the test
-func (h *S3TestHelper) CleanUp() error {
+func (h *S3TestHelper) CleanUp(ctx context.Context) error {
 	Bucket := h.bucketName
 	Prefix := h.prefix
-	files, err := h.client.ListObjects(&s3.ListObjectsInput{
+	files, err := h.client.ListObjects(ctx, &s3.ListObjectsInput{
 		Bucket: &Bucket,
 		Prefix: &Prefix,
 	})
@@ -121,11 +121,11 @@ func (h *S3TestHelper) CleanUp() error {
 	// Delete each object
 	for _, obj := range files.Contents {
 		deleteInput := &s3.DeleteObjectInput{
-			Bucket: aws.String(Bucket),
+			Bucket: &Bucket,
 			Key:    obj.Key,
 		}
 
-		_, err := h.client.DeleteObject(deleteInput)
+		_, err := h.client.DeleteObject(ctx, deleteInput)
 		if err != nil {
 			return err
 		}
