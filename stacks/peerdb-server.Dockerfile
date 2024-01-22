@@ -12,7 +12,7 @@ FROM chef as builder
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive \
   apt-get install --assume-yes --no-install-recommends \
-  build-essential libssl-dev pkg-config curl unzip
+  build-essential pkg-config curl unzip
 WORKDIR /root/nexus
 COPY scripts /root/scripts
 RUN /root/scripts/install-protobuf.sh
