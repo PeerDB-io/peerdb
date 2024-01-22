@@ -15,7 +15,7 @@ const (
 	signColName    = "_peerdb_sign"
 	signColType    = "Int8"
 	versionColName = "_peerdb_version"
-	versionColType = "Int8"
+	versionColType = "Int64"
 )
 
 func (c *ClickhouseConnector) SetupNormalizedTables(
@@ -133,7 +133,71 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 		return nil, err
 	}
 
+	rawTbl := c.getRawTableName(req.FlowJobName)
+
 	// model the raw table data as inserts.
+	for _, tbl := range destinationTableNames {
+		// SELECT projection FROM raw_table WHERE _peerdb_batch_id > normalize_batch_id AND _peerdb_batch_id <= sync_batch_id
+		selectQuery := strings.Builder{}
+		selectQuery.WriteString("SELECT ")
+
+		colSelector := strings.Builder{}
+		colSelector.WriteString("(")
+
+		schema := c.tableSchemaMapping[tbl]
+		numCols := len(schema.ColumnNames)
+
+		projection := strings.Builder{}
+
+		for i := 0; i < numCols; i++ {
+			cn := schema.ColumnNames[i]
+			ct := schema.ColumnTypes[i]
+
+			colSelector.WriteString(fmt.Sprintf("%s", cn))
+			if i < numCols-1 {
+				colSelector.WriteString(",")
+			}
+
+			extractionFuction := "JSONExtractRaw"
+			switch qvalue.QValueKind(ct) {
+			case qvalue.QValueKindString:
+				extractionFuction = "JSONExtractString"
+			case qvalue.QValueKindInt64:
+				// TODO check if int64 is supported.
+				extractionFuction = "JSONExtractInt"
+			}
+			projection.WriteString(fmt.Sprintf("%s(_peerdb_data, '%s') AS %s, ", extractionFuction, cn, cn))
+		}
+
+		colSelector.WriteString(") ")
+
+		selectQuery.WriteString(projection.String())
+		selectQuery.WriteString(" FROM ")
+		selectQuery.WriteString(rawTbl)
+		selectQuery.WriteString(" WHERE _peerdb_batch_id > ")
+		selectQuery.WriteString(fmt.Sprintf("%d", batchIDs.NormalizeBatchID))
+		selectQuery.WriteString(" AND _peerdb_batch_id <= ")
+		selectQuery.WriteString(fmt.Sprintf("%d", batchIDs.SyncBatchID))
+		selectQuery.WriteString(" AND _peerdb_destination_table_name = '")
+		selectQuery.WriteString(tbl)
+		selectQuery.WriteString("'")
+
+		selectQuery.WriteString(" ORDER BY _peerdb_timestamp")
+
+		insertIntoSelectQuery := strings.Builder{}
+		insertIntoSelectQuery.WriteString("INSERT INTO ")
+		insertIntoSelectQuery.WriteString(tbl)
+		insertIntoSelectQuery.WriteString(colSelector.String())
+		insertIntoSelectQuery.WriteString(selectQuery.String())
+
+		q := insertIntoSelectQuery.String()
+		c.logger.InfoContext(c.ctx, "[clickhouse] insert into select query", q)
+
+		_, err = c.database.ExecContext(c.ctx, q)
+		if err != nil {
+			return nil, fmt.Errorf("error while inserting into normalized table: %w", err)
+		}
+	}
 
 	endNormalizeBatchId := batchIDs.NormalizeBatchID + 1
 	c.pgMetadata.UpdateNormalizeBatchID(req.FlowJobName, endNormalizeBatchId)
