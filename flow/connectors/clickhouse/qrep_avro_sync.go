@@ -55,7 +55,7 @@ func NewClickhouseAvroSyncMethod(
 
 func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(avroFile *avro.AvroFile) error {
 	fmt.Printf("\n************************* in CopyStageToDesti stagingPath: %+v", s.config.StagingPath)
-	stagingPath := s.config.StagingPath //"s3://avro-clickhouse"
+	stagingPath := "s3://avro-clickhouse" //s.config.StagingPath
 	s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
 	if err != nil {
 		return err
@@ -158,7 +158,7 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	fmt.Printf("\n************************* in SyncQRepRecords 1")
 	startTime := time.Now()
 	dstTableName := config.DestinationTableIdentifier
-	//s.config.StagingPath = "s3://avro-clickhouse"
+	s.config.StagingPath = "s3://avro-clickhouse"
 
 	schema, err := stream.Schema()
 	if err != nil {
@@ -228,7 +228,7 @@ func (s *ClickhouseAvroSyncMethod) writeToAvroFile(
 	partitionID string,
 	flowJobName string,
 ) (*avro.AvroFile, error) {
-	stagingPath := s.config.StagingPath //"s3://avro-clickhouse"
+	stagingPath := "s3://avro-clickhouse" //s.config.StagingPath //
 	fmt.Printf("\n****************************************** StagingPath: %+v*****\n", s.config.StagingPath)
 	ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema, avro.CompressZstd,
 		qvalue.QDWHTypeClickhouse)
