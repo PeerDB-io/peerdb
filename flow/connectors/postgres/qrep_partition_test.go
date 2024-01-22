@@ -184,7 +184,7 @@ func TestGetQRepPartitions(t *testing.T) {
 			// for now, but ideally we should check that the partition ranges
 			// are correct as well.
 			if tc.expectedNumPartitions != 0 {
-				assert.Equal(t, tc.expectedNumPartitions, len(got))
+				assert.Len(t, got, tc.expectedNumPartitions)
 				return
 			}
 

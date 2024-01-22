@@ -79,7 +79,7 @@ func TestEquals(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, e2eshared.CheckQRecordEquality(t, tt.q1, tt.q2), tt.want)
+			assert.Equal(t, tt.want, e2eshared.CheckQRecordEquality(t, tt.q1, tt.q2))
 		})
 	}
 }

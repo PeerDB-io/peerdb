@@ -246,7 +246,7 @@ func (c *PostgresConnector) checkSlotAndPublication(slot string, publication str
 // If slotName input is empty, all slot info rows are returned - this is for UI.
 // Else, only the row pertaining to that slotName will be returned.
 func (c *PostgresConnector) GetSlotInfo(slotName string) ([]*protos.SlotInfo, error) {
-	whereClause := ""
+	var whereClause string
 	if slotName != "" {
 		whereClause = fmt.Sprintf(" WHERE slot_name = %s", QuoteLiteral(slotName))
 	} else {

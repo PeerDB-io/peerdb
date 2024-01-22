@@ -505,7 +505,7 @@ func (c *QValueAvroConverter) processUUID() (interface{}, error) {
 
 	u, err := uuid.FromBytes(byteData[:])
 	if err != nil {
-		return nil, fmt.Errorf("[conversion] conversion of invalid UUID value: %v", err)
+		return nil, fmt.Errorf("[conversion] conversion of invalid UUID value: %w", err)
 	}
 
 	uuidString := u.String()

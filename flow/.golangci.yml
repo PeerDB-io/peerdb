@@ -10,21 +10,23 @@ linters:
     - gofumpt
     - gosec
     - gosimple
+    - ineffassign
+    - lll
     - misspell
     - nakedret
     - nolintlint
+    - prealloc
     - staticcheck
     - stylecheck
     - sqlclosecheck
+    - testifylint
+    - thelper
     - unconvert
     - unparam
-    - whitespace
-    - prealloc
-    - thelper
-    - ineffassign
     - unparam
     - unused
-    - lll
+    - wastedassign
+    - whitespace
 linters-settings:
   stylecheck:
     checks:
