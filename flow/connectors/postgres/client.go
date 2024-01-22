@@ -590,7 +590,7 @@ func (c *PostgresConnector) CheckSourceTables(tableNames []string, pubName strin
 	// Check that we can select from all tables
 	for _, tableName := range tableNames {
 		var row pgx.Row
-		err := c.pool.QueryRow(c.ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 0;", tableName)).Scan(&row)
+		err := c.pool.QueryRow(c.ctx, fmt.Sprintf("SELECT * FROM \"%s\" LIMIT 0;", tableName)).Scan(&row)
 		if err != nil && err != pgx.ErrNoRows {
 			return err
 		}
