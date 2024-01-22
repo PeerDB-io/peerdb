@@ -3,6 +3,7 @@ package connbigquery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -161,27 +162,25 @@ func TableCheck(ctx context.Context, client *bigquery.Client, dataset string) er
 		},
 	})
 	if createErr != nil {
-		return fmt.Errorf("unable to validate table creation within dataset: %v. "+
+		return fmt.Errorf("unable to validate table creation within dataset: %w. "+
 			"Please check if bigquery.tables.create permission has been granted", createErr)
 	}
 
-	errors := []string{}
+	var errs []error
 	insertQuery := client.Query(fmt.Sprintf("INSERT INTO %s.%s VALUES(true)", dataset, dummyTable))
 	_, insertErr := insertQuery.Run(ctx)
 	if insertErr != nil {
-		errors = append(errors, fmt.Sprintf("unable to validate insertion into table: %v. ", insertErr)+
-			"Please check if bigquery.jobs.create permission has been granted")
+		errs = append(errs, fmt.Errorf("unable to validate insertion into table: %w. ", insertErr))
 	}
 
 	// Drop the table
 	deleteErr := newTable.Delete(ctx)
 	if deleteErr != nil {
-		errors = append(errors, fmt.Sprintf("unable to delete table :%v. ", deleteErr)+
-			"Please check if bigquery.tables.delete permission has been granted")
+		errs = append(errs, fmt.Errorf("unable to delete table :%w. ", deleteErr))
 	}
 
-	if len(errors) > 0 {
-		return fmt.Errorf(strings.Join(errors, ","))
+	if len(errs) > 0 {
+		return errors.Join(errs...)
 	}
 
 	return nil
