@@ -597,8 +597,8 @@ func (c *PostgresConnector) CheckSourceTables(tableNames []string, pubName strin
 		}
 
 		quotedTableIdentifier := fmt.Sprintf("%s.%s",
-			QuoteIdentifier(schemaName),
-			QuoteIdentifier(tableName))
+			QuoteLiteral(schemaName),
+			QuoteLiteral(tableName))
 		tableArr = append(tableArr, quotedTableIdentifier)
 		err := c.pool.QueryRow(c.ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 0;", quotedTableIdentifier)).Scan(&row)
 		if err != nil && err != pgx.ErrNoRows {
