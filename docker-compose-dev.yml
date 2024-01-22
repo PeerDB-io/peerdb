@@ -19,10 +19,10 @@ x-flow-worker-env: &flow-worker-env
   # For GCS, these will be your HMAC keys instead
   # For more information:
   # https://cloud.google.com/storage/docs/authentication/managing-hmackeys
-  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
-  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-AKIASB7EBZDCEVIMB4XH}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-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}
   # For GCS, set this to "auto" without the quotes
-  AWS_REGION: ${AWS_REGION:-}
+  AWS_REGION: ${AWS_REGION:-us-east-2}
   # For GCS, set this as: https://storage.googleapis.com
   AWS_ENDPOINT: ${AWS_ENDPOINT:-}
   # enables worker profiling using Grafana Pyroscope
@@ -178,41 +178,40 @@ services:
       temporal-admin-tools:
         condition: service_healthy
 
-  peerdb:
-    container_name: peerdb-server
-    stop_signal: SIGINT
-    build:
-      context: .
-      dockerfile: stacks/peerdb-server.Dockerfile
-    environment:
-      <<: *catalog-config
-      PEERDB_LOG_DIR: /var/log/peerdb
-      PEERDB_PASSWORD: peerdb
-      PEERDB_FLOW_SERVER_ADDRESS: grpc://flow_api:8112
-      RUST_LOG: info
-      RUST_BACKTRACE: 1
-    ports:
-      - 9900:9900
-    depends_on:
-      catalog:
-        condition: service_healthy
+  # peerdb:
+  #   container_name: peerdb-server
+  #   stop_signal: SIGINT
+  #   build:
+  #     context: .
+  #     dockerfile: stacks/peerdb-server.Dockerfile
+  #   environment:
+  #     <<: *catalog-config
+  #     PEERDB_LOG_DIR: /var/log/peerdb
+  #     PEERDB_PASSWORD: peerdb
+  #     PEERDB_FLOW_SERVER_ADDRESS: grpc://flow_api:8112
+  #     RUST_LOG: info
+  #     RUST_BACKTRACE: 1
+  #   ports:
+  #     - 9900:9900
+  #   depends_on:
+  #     catalog:
+  #       condition: service_healthy
 
-  peerdb-ui:
-    container_name: peerdb-ui
-    build:
-      context: .
-      dockerfile: stacks/peerdb-ui.Dockerfile
-    ports:
-      - 3000:3000
-    environment:
-      <<: *catalog-config
-      DATABASE_URL: postgres://postgres:postgres@catalog:5432/postgres
-      PEERDB_FLOW_SERVER_HTTP: http://flow_api:8113
-      PEERDB_PASSWORD:
-      NEXTAUTH_SECRET: __changeme__
-      NEXTAUTH_URL: http://localhost:3000
-    depends_on:
-      - flow-api
-
+  # peerdb-ui:
+  #   container_name: peerdb-ui
+  #   build:
+  #     context: .
+  #     dockerfile: stacks/peerdb-ui.Dockerfile
+  #   ports:
+  #     - 3000:3000
+  #   environment:
+  #     <<: *catalog-config
+  #     DATABASE_URL: postgres://postgres:postgres@catalog:5432/postgres
+  #     PEERDB_FLOW_SERVER_HTTP: http://flow_api:8113
+  #     PEERDB_PASSWORD:
+  #     NEXTAUTH_SECRET: __changeme__
+  #     NEXTAUTH_URL: http://localhost:3000
+  #   depends_on:
+  #     - flow-api
 volumes:
   pgdata:

@@ -8,6 +8,7 @@ import {
   S3Config,
   SnowflakeConfig,
   SqlServerConfig,
+  ClickhouseConfig,
 } from '@/grpc_generated/peers';
 
 export const getTruePeer = (peer: CatalogPeer) => {
@@ -23,7 +24,8 @@ export const getTruePeer = (peer: CatalogPeer) => {
     | EventHubConfig
     | S3Config
     | SqlServerConfig
-    | EventHubGroupConfig;
+    | EventHubGroupConfig
+    | ClickhouseConfig;
   switch (peer.type) {
     case 0:
       config = BigqueryConfig.decode(options);
@@ -53,6 +55,10 @@ export const getTruePeer = (peer: CatalogPeer) => {
       config = EventHubGroupConfig.decode(options);
       newPeer.eventhubGroupConfig = config;
       break;
+    case 8:
+      config = ClickhouseConfig.decode(options);
+      newPeer.clickhouseConfig = config;  
+      break;    
     default:
       return newPeer;
   }

@@ -12,7 +12,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -75,15 +74,15 @@ func (c *ClickhouseConnector) CreateRawTable(req *protos.CreateRawTableInput) (*
 	// }
 
 	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %s (
-		_PEERDB_UID STRING NOT NULL,
-		_PEERDB_TIMESTAMP INT NOT NULL,
-		_PEERDB_DESTINATION_TABLE_NAME STRING NOT NULL,
-		_PEERDB_DATA STRING NOT NULL,
-		_PEERDB_RECORD_TYPE INTEGER NOT NULL,
-		_PEERDB_MATCH_DATA STRING,
-		_PEERDB_BATCH_ID INT,
-		_PEERDB_UNCHANGED_TOAST_COLUMNS STRING
-	) ENGINE = ReplacingMergeTree ORDER BY _PEERDB_UID;`
+		_peerdb_uid String NOT NULL,
+		_peerdb_timestamp Int64 NOT NULL,
+		_peerdb_destination_table_name String NOT NULL,
+		_peerdb_data String NOT NULL,
+		_peerdb_record_type Int NOT NULL,
+		_peerdb_match_data String,
+		_peerdb_batch_id Int,
+		_peerdb_unchanged_toast_columns String
+	) ENGINE = ReplacingMergeTree ORDER BY _peerdb_uid;`
 
 	_, err := c.database.ExecContext(c.ctx,
 		fmt.Sprintf(createRawTableSQL, rawTableName))
@@ -95,11 +94,11 @@ func (c *ClickhouseConnector) CreateRawTable(req *protos.CreateRawTableInput) (*
 	// 	return nil, fmt.Errorf("unable to commit transaction for creation of raw table: %w", err)
 	// }
 
-	stage := c.getStageNameForJob(req.FlowJobName)
-	err = c.createStage(stage, &protos.QRepConfig{})
-	if err != nil {
-		return nil, err
-	}
+	// stage := c.getStageNameForJob(req.FlowJobName)
+	// err = c.createStage(stage, &protos.QRepConfig{})
+	// if err != nil {
+	// 	return nil, err
+	// }
 
 	return &protos.CreateRawTableOutput{
 		TableIdentifier: rawTableName,
@@ -114,12 +113,15 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 	tableNameRowsMapping := make(map[string]uint32)
 	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
 	streamRes, err := utils.RecordsToRawTableStream(streamReq)
+	//x := *&streamRes.Stream
+	//y := (*x).Records
+	fmt.Printf("\n*******************############################## cdc.go in syncRecordsViaAvro  streamRes: %+v", streamRes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
 
 	qrepConfig := &protos.QRepConfig{
-		StagingPath: "",
+		StagingPath: c.config.S3Integration,
 		FlowJobName: req.FlowJobName,
 		DestinationTableIdentifier: strings.ToLower(fmt.Sprintf("%s",
 			rawTableIdentifier)),
@@ -157,8 +159,11 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 }
 
 func (c *ClickhouseConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	rawTableName := getRawTableName(req.FlowJobName)
-	c.logger.Info(fmt.Sprintf("pushing records to Snowflake table %s", rawTableName))
+	fmt.Printf("\n ******************************************** !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! in ClickhouseConnector.SyncRecords")
+	fmt.Printf("\n ******************************* in cdc.go in SyncRecords config: %+v", c.config.S3Integration)
+	//c.config.S3Integration = "s3://avro-clickhouse"
+	rawTableName := c.getRawTableName(req.FlowJobName)
+	c.logger.Info(fmt.Sprintf("pushing records to Clickhouse table %s", rawTableName))
 
 	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
 	if err != nil {
@@ -186,20 +191,36 @@ func (c *ClickhouseConnector) SyncRecords(req *model.SyncRecordsRequest) (*model
 	// }()
 
 	// updating metadata with new offset and syncBatchID
-	err = c.updateSyncMetadata(req.FlowJobName, res.LastSyncedCheckPointID, syncBatchID, syncRecordsTx)
+	// err = c.updateSyncMetadata(req.FlowJobName, res.LastSyncedCheckPointID, syncBatchID, syncRecordsTx)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// transaction commits
+	// err = syncRecordsTx.Commit()
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	lastCheckpoint, err := req.Records.GetLastCheckpoint()
 	if err != nil {
+		return nil, fmt.Errorf("failed to get last checkpoint: %w", err)
+	}
+
+	err = c.SetLastOffset(req.FlowJobName, lastCheckpoint)
+	if err != nil {
+		c.logger.Error("failed to update last offset for s3 cdc", slog.Any("error", err))
 		return nil, err
 	}
-	// transaction commits
-	err = syncRecordsTx.Commit()
+	err = c.pgMetadata.IncrementID(req.FlowJobName)
 	if err != nil {
+		c.logger.Error("failed to increment id", slog.Any("error", err))
 		return nil, err
 	}
 
 	return res, nil
 }
 
-func (c *SnowflakeConnector) jobMetadataExistsTx(tx *sql.Tx, jobName string) (bool, error) {
+func (c *ClickhouseConnector) jobMetadataExistsTx(tx *sql.Tx, jobName string) (bool, error) {
 	checkIfJobMetadataExistsSQL := "SELECT TO_BOOLEAN(COUNT(1)) FROM %s WHERE MIRROR_JOB_NAME=?"
 
 	var result pgtype.Bool
@@ -211,75 +232,78 @@ func (c *SnowflakeConnector) jobMetadataExistsTx(tx *sql.Tx, jobName string) (bo
 	return result.Bool, nil
 }
 
-func (c *ClickhouseConnector) updateSyncMetadata(flowJobName string, lastCP int64,
-	syncBatchID int64, syncRecordsTx *sql.Tx,
-) error {
-	jobMetadataExists, err := c.jobMetadataExistsTx(syncRecordsTx, flowJobName)
-	if err != nil {
-		return fmt.Errorf("failed to get sync status for flow job: %w", err)
-	}
+// func (c *ClickhouseConnector) updateSyncMetadata(flowJobName string, lastCP int64,
+// 	syncBatchID int64, syncRecordsTx *sql.Tx,
+// ) error {
+// 	jobMetadataExists, err := c.jobMetadataExistsTx(syncRecordsTx, flowJobName)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to get sync status for flow job: %w", err)
+// 	}
 
-	if !jobMetadataExists {
-		_, err := syncRecordsTx.ExecContext(c.ctx,
-			fmt.Sprintf(insertJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier),
-			flowJobName, lastCP, syncBatchID, 0)
-		if err != nil {
-			return fmt.Errorf("failed to insert flow job status: %w", err)
-		}
-	} else {
-		_, err := syncRecordsTx.ExecContext(c.ctx,
-			fmt.Sprintf(updateMetadataForSyncRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
-			lastCP, syncBatchID, flowJobName)
-		if err != nil {
-			return fmt.Errorf("failed to update flow job status: %w", err)
-		}
-	}
+// 	if !jobMetadataExists {
+// 		_, err := syncRecordsTx.ExecContext(c.ctx,
+// 			fmt.Sprintf(insertJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier),
+// 			flowJobName, lastCP, syncBatchID, 0)
+// 		if err != nil {
+// 			return fmt.Errorf("failed to insert flow job status: %w", err)
+// 		}
+// 	} else {
+// 		_, err := syncRecordsTx.ExecContext(c.ctx,
+// 			fmt.Sprintf(updateMetadataForSyncRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
+// 			lastCP, syncBatchID, flowJobName)
+// 		if err != nil {
+// 			return fmt.Errorf("failed to update flow job status: %w", err)
+// 		}
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
 func (c *ClickhouseConnector) SyncFlowCleanup(jobName string) error {
-	syncFlowCleanupTx, err := c.database.BeginTx(c.ctx, nil)
-	if err != nil {
-		return fmt.Errorf("unable to begin transaction for sync flow cleanup: %w", err)
-	}
-	defer func() {
-		deferErr := syncFlowCleanupTx.Rollback()
-		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Error("error while rolling back transaction for flow cleanup", slog.Any("error", deferErr))
-		}
-	}()
+	// syncFlowCleanupTx, err := c.database.BeginTx(c.ctx, nil)
+	// if err != nil {
+	// 	return fmt.Errorf("unable to begin transaction for sync flow cleanup: %w", err)
+	// }
+	// defer func() {
+	// 	deferErr := syncFlowCleanupTx.Rollback()
+	// 	if deferErr != sql.ErrTxDone && deferErr != nil {
+	// 		c.logger.Error("error while rolling back transaction for flow cleanup", slog.Any("error", deferErr))
+	// 	}
+	// }()
 
-	row := syncFlowCleanupTx.QueryRowContext(c.ctx, checkSchemaExistsSQL, c.metadataSchema)
-	var schemaExists pgtype.Bool
-	err = row.Scan(&schemaExists)
-	if err != nil {
-		return fmt.Errorf("unable to check if internal schema exists: %w", err)
-	}
+	// row := syncFlowCleanupTx.QueryRowContext(c.ctx, checkSchemaExistsSQL, c.metadataSchema)
+	// var schemaExists pgtype.Bool
+	// err = row.Scan(&schemaExists)
+	// if err != nil {
+	// 	return fmt.Errorf("unable to check if internal schema exists: %w", err)
+	// }
 
-	if schemaExists.Bool {
-		_, err = syncFlowCleanupTx.ExecContext(c.ctx, fmt.Sprintf(dropTableIfExistsSQL, c.metadataSchema,
-			getRawTableIdentifier(jobName)))
-		if err != nil {
-			return fmt.Errorf("unable to drop raw table: %w", err)
-		}
-		_, err = syncFlowCleanupTx.ExecContext(c.ctx,
-			fmt.Sprintf(deleteJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
-		if err != nil {
-			return fmt.Errorf("unable to delete job metadata: %w", err)
-		}
-	}
+	// if schemaExists.Bool {
+	// 	_, err = syncFlowCleanupTx.ExecContext(c.ctx, fmt.Sprintf(dropTableIfExistsSQL, c.metadataSchema,
+	// 		getRawTableIdentifier(jobName)))
+	// 	if err != nil {
+	// 		return fmt.Errorf("unable to drop raw table: %w", err)
+	// 	}
+	// 	_, err = syncFlowCleanupTx.ExecContext(c.ctx,
+	// 		fmt.Sprintf(deleteJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
+	// 	if err != nil {
+	// 		return fmt.Errorf("unable to delete job metadata: %w", err)
+	// 	}
+	// }
 
-	err = syncFlowCleanupTx.Commit()
-	if err != nil {
-		return fmt.Errorf("unable to commit transaction for sync flow cleanup: %w", err)
-	}
+	// err = syncFlowCleanupTx.Commit()
+	// if err != nil {
+	// 	return fmt.Errorf("unable to commit transaction for sync flow cleanup: %w", err)
+	// }
 
-	err = c.dropStage("", jobName)
+	// err = c.dropStage("", jobName)
+	// if err != nil {
+	// 	return err
+	// }
+	err := c.pgMetadata.DropMetadata(jobName)
 	if err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -288,53 +312,6 @@ func (c *ClickhouseConnector) SyncFlowCleanup(jobName string) error {
 func (c *ClickhouseConnector) ReplayTableSchemaDeltas(flowJobName string,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
-	if len(schemaDeltas) == 0 {
-		return nil
-	}
-
-	tableSchemaModifyTx, err := c.database.Begin()
-	if err != nil {
-		return fmt.Errorf("error starting transaction for schema modification: %w",
-			err)
-	}
-	defer func() {
-		deferErr := tableSchemaModifyTx.Rollback()
-		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Error("error rolling back transaction for table schema modification", slog.Any("error", deferErr))
-		}
-	}()
-
-	for _, schemaDelta := range schemaDeltas {
-		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
-			continue
-		}
-
-		for _, addedColumn := range schemaDelta.AddedColumns {
-			sfColtype, err := qValueKindToSnowflakeType(qvalue.QValueKind(addedColumn.ColumnType))
-			if err != nil {
-				return fmt.Errorf("failed to convert column type %s to snowflake type: %w",
-					addedColumn.ColumnType, err)
-			}
-			_, err = tableSchemaModifyTx.ExecContext(c.ctx,
-				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
-					schemaDelta.DstTableName, strings.ToUpper(addedColumn.ColumnName), sfColtype))
-			if err != nil {
-				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
-					schemaDelta.DstTableName, err)
-			}
-			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName,
-				addedColumn.ColumnType),
-				slog.String("destination table name", schemaDelta.DstTableName),
-				slog.String("source table name", schemaDelta.SrcTableName))
-		}
-	}
-
-	err = tableSchemaModifyTx.Commit()
-	if err != nil {
-		return fmt.Errorf("failed to commit transaction for table schema modification: %w",
-			err)
-	}
-
 	return nil
 }
 
@@ -352,6 +329,12 @@ func (c *ClickhouseConnector) SetupMetadataTables() error {
 
 	return nil
 }
+
+// func (c *ClickhouseConnector) SetupNormalizedTables(
+// 	req *protos.SetupNormalizedTableBatchInput,
+// ) (*protos.SetupNormalizedTableBatchOutput, error) {
+// 	return nil, nil
+// }
 
 func (c *ClickhouseConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	return c.pgMetadata.GetLastBatchID(jobName)
@@ -371,3 +354,11 @@ func (c *ClickhouseConnector) SetLastOffset(jobName string, offset int64) error 
 
 	return nil
 }
+
+// func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
+// 	return &model.NormalizeResponse{
+// 		Done:         true,
+// 		StartBatchID: 1,
+// 		EndBatchID:   1,
+// 	}, nil
+// }

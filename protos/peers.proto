@@ -97,6 +97,7 @@ message ClickhouseConfig{
   string password = 4;
   string database = 5;
   string s3_integration = 6; // staging to store avro files
+  PostgresConfig metadata_db = 7;
 }
 
 message SqlServerConfig {

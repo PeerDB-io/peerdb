@@ -158,7 +158,10 @@ func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConne
 		return conneventhub.NewEventHubConnector(ctx, config.GetEventhubGroupConfig())
 	case *protos.Peer_S3Config:
 		return conns3.NewS3Connector(ctx, config.GetS3Config())
+	case *protos.Peer_ClickhouseConfig:
+		return connclickhouse.NewClickhouseConnector(ctx, config.GetClickhouseConfig())
 	default:
+		fmt.Printf("\n*********************** in GetCDCSyncConnector not found %+v %T\n", inner, inner)
 		return nil, ErrUnsupportedFunctionality
 	}
 }
@@ -174,7 +177,10 @@ func GetCDCNormalizeConnector(ctx context.Context,
 		return connbigquery.NewBigQueryConnector(ctx, config.GetBigqueryConfig())
 	case *protos.Peer_SnowflakeConfig:
 		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig())
+	case *protos.Peer_ClickhouseConfig:
+		return connclickhouse.NewClickhouseConnector(ctx, config.GetClickhouseConfig())
 	default:
+		fmt.Printf("\n*********************** in GetCDCNormalizeConnector not found %+v %T\n", inner, inner)
 		return nil, ErrUnsupportedFunctionality
 	}
 }

@@ -24,6 +24,7 @@ func (c *ClickhouseConnector) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
+	fmt.Printf("\n******************* in ClickhouseConnector.SyncQRepRecords")
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
 	flowLog := slog.Group("sync_metadata",

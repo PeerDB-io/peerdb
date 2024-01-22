@@ -112,6 +112,7 @@ func (p *PostgresMetadataStore) SetupMetadata() error {
 	// create the schema
 	_, err := p.conn.Exec(p.ctx, "CREATE SCHEMA IF NOT EXISTS "+p.schemaName)
 	if err != nil && !utils.IsUniqueError(err) {
+		fmt.Printf("********** error in SetupMetadata %+v", err)
 		p.logger.Error("failed to create schema", slog.Any("error", err))
 		return err
 	}
