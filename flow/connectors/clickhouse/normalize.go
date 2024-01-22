@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	signColName    = "_peerdb_sign"
+	signColName    = "_PEERDB_IS_DELETED"
 	signColType    = "Int8"
-	versionColName = "_peerdb_version"
+	versionColName = "_PEERDB_VERSION"
 	versionColType = "Int64"
 )
 
@@ -77,7 +77,7 @@ func generateCreateTableSQLForNormalizedTable(
 
 	// synced at column will be added to all normalized tables
 	if syncedAtColName != "" {
-		stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", syncedAtColName, "DateTime64(9)"))
+		stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", syncedAtColName, "DateTime64(9) DEFAULT now()"))
 	}
 
 	// add sign and version columns
