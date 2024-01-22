@@ -41,13 +41,13 @@ func (h *FlowRequestHandler) ValidatePeer(
 	defer conn.Close()
 
 	if req.Peer.Type == protos.DBType_POSTGRES {
-		version, err := conn.(*connpostgres.PostgresConnector).GetPostgresVersion()
+		isValid, version, err := conn.(*connpostgres.PostgresConnector).MajorVersionCheck(connpostgres.POSTGRES_12)
 		if err != nil {
 			slog.Error("/peer/validate: pg version check", slog.Any("error", err))
 			return nil, err
 		}
 
-		if version < 12 {
+		if isValid {
 			return &protos.ValidatePeerResponse{
 				Status: protos.ValidatePeerStatus_INVALID,
 				Message: fmt.Sprintf("%s peer %s must be of version 12 or above. Current version: %d",
