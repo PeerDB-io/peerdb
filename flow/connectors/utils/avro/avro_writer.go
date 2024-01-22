@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"sync/atomic"
-	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -131,7 +130,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 	numRows := atomic.Uint32{}
 
 	if p.ctx != nil {
-		shutdown := utils.HeartbeatRoutine(p.ctx, 30*time.Second, func() string {
+		shutdown := utils.HeartbeatRoutine(p.ctx, func() string {
 			written := numRows.Load()
 			return fmt.Sprintf("[avro] written %d rows to OCF", written)
 		})

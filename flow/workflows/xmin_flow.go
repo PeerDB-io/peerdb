@@ -78,7 +78,7 @@ func XminFlowWorkflow(
 	var lastPartition int64
 	replicateXminPartitionCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * 5 * time.Hour,
-		HeartbeatTimeout:    5 * time.Minute,
+		HeartbeatTimeout:    time.Minute,
 	})
 	err = workflow.ExecuteActivity(
 		replicateXminPartitionCtx,
