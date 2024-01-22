@@ -107,7 +107,7 @@ func (c *ClickhouseConnector) isPartitionSynced(partitionID string) (bool, error
 }
 
 func (c *ClickhouseConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
-	err := c.createQRepMetadataTable() //(createMetadataTablesTx)
+	err := c.createQRepMetadataTable()
 	if err != nil {
 		return err
 	}
@@ -122,7 +122,7 @@ func (c *ClickhouseConnector) SetupQRepMetadataTables(config *protos.QRepConfig)
 	return nil
 }
 
-func (c *ClickhouseConnector) createQRepMetadataTable() error { // createMetadataTableTx *sql.Tx
+func (c *ClickhouseConnector) createQRepMetadataTable() error {
 	// Define the schema
 	schemaStatement := `
 	CREATE TABLE IF NOT EXISTS %s (
