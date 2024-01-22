@@ -9,7 +9,7 @@ import 'react-toastify/dist/ReactToastify.css';
 import { alertConfigReqSchema, alertConfigType } from './validation';
 const notifyErr = (errMsg: string) => {
   toast.error(errMsg, {
-    position: toast.POSITION.BOTTOM_CENTER,
+    position: 'bottom-center',
   });
 };
 

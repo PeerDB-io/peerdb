@@ -7,7 +7,7 @@ import { toast } from 'react-toastify';
 
 const notifyErr = (errMsg: string) => {
   toast.error(errMsg, {
-    position: toast.POSITION.BOTTOM_CENTER,
+    position: 'bottom-center',
   });
 };
 
