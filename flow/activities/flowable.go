@@ -640,6 +640,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	} else if err != nil {
 		return err
 	}
+	defer connectors.CloseConnector(dstConn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("consolidating partitions for job - %s", config.FlowJobName)
@@ -663,6 +664,8 @@ func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.Q
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return err
 	}
+
+	defer dst.Close()
 
 	return dst.CleanupQRepFlow(config)
 }
@@ -1003,4 +1006,25 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	}
 
 	return currentSnapshotXmin, nil
+}
+
+func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *protos.FlowConnectionConfigs,
+	additionalTableMappings []*protos.TableMapping,
+) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
+	srcConn, err := connectors.GetCDCPullConnector(ctx, cfg.Source)
+	if err != nil {
+		return fmt.Errorf("failed to get source connector: %w", err)
+	}
+	defer connectors.CloseConnector(srcConn)
+
+	err = srcConn.AddTablesToPublication(&protos.AddTablesToPublicationInput{
+		FlowJobName:      cfg.FlowJobName,
+		PublicationName:  cfg.PublicationName,
+		AdditionalTables: additionalTableMappings,
+	})
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
+	}
+	return err
 }

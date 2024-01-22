@@ -7,6 +7,7 @@ import { S3Config } from '@/grpc_generated/peers';
 import { Dispatch, SetStateAction } from 'react';
 import {
   bqSchema,
+  chSchema,
   peerNameSchema,
   pgSchema,
   s3Schema,
@@ -47,6 +48,10 @@ const validateFields = (
     case 'BIGQUERY':
       const bqConfig = bqSchema.safeParse(config);
       if (!bqConfig.success) validationErr = bqConfig.error.issues[0].message;
+      break;
+    case 'CLICKHOUSE':
+      const chConfig = chSchema.safeParse(config);
+      if (!chConfig.success) validationErr = chConfig.error.issues[0].message;
       break;
     case 'S3':
       const s3Config = s3Schema.safeParse(config);

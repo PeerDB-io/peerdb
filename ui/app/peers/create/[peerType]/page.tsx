@@ -1,9 +1,12 @@
 'use client';
 import { PeerConfig } from '@/app/dto/PeersDTO';
+import GuideForDestinationSetup from '@/app/mirrors/create/cdc/guide';
 import BigqueryForm from '@/components/PeerForms/BigqueryConfig';
+import ClickhouseForm from '@/components/PeerForms/ClickhouseConfig';
 import PostgresForm from '@/components/PeerForms/PostgresForm';
 import S3Form from '@/components/PeerForms/S3Form';
 import SnowflakeForm from '@/components/PeerForms/SnowflakeForm';
+
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
 import { Label } from '@/lib/Label';
@@ -15,6 +18,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { handleCreate, handleValidate } from './handlers';
+import { clickhouseSetting } from './helpers/ch';
 import { getBlankSetting } from './helpers/common';
 import { postgresSetting } from './helpers/pg';
 import { snowflakeSetting } from './helpers/sf';
@@ -44,6 +48,10 @@ export default function CreateConfig({
         return <SnowflakeForm settings={snowflakeSetting} setter={setConfig} />;
       case 'BIGQUERY':
         return <BigqueryForm setter={setConfig} />;
+      case 'CLICKHOUSE':
+        return (
+          <ClickhouseForm settings={clickhouseSetting} setter={setConfig} />
+        );
       case 'S3':
         return <S3Form setter={setConfig} />;
       default:
@@ -71,6 +79,7 @@ export default function CreateConfig({
           {dbType.charAt(0).toUpperCase() + dbType.slice(1).toLowerCase()} peer
         </Label>
       </Panel>
+      <GuideForDestinationSetup dstPeerType={peerType} />
       <Panel>
         <RowWithTextField
           label={

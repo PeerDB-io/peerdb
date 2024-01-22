@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -14,6 +15,14 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq/oid"
+)
+
+type PGVersion int
+
+const (
+	POSTGRES_12 PGVersion = 120000
+	POSTGRES_13 PGVersion = 130000
+	POSTGRES_15 PGVersion = 150000
 )
 
 const (
@@ -35,9 +44,9 @@ const (
 	getLastSyncAndNormalizeBatchID_SQL = "SELECT sync_batch_id,normalize_batch_id FROM %s.%s WHERE mirror_job_name=$1"
 	createNormalizedTableSQL           = "CREATE TABLE IF NOT EXISTS %s(%s)"
 
-	insertJobMetadataSQL                 = "INSERT INTO %s.%s VALUES ($1,$2,$3,$4)"
+	upsertJobMetadataForSyncSQL = `INSERT INTO %s.%s AS j VALUES ($1,$2,$3,$4)
+	 ON CONFLICT(mirror_job_name) DO UPDATE SET lsn_offset=GREATEST(j.lsn_offset, EXCLUDED.lsn_offset), sync_batch_id=EXCLUDED.sync_batch_id`
 	checkIfJobMetadataExistsSQL          = "SELECT COUNT(1)::TEXT::BOOL FROM %s.%s WHERE mirror_job_name=$1"
-	updateMetadataForSyncRecordsSQL      = "UPDATE %s.%s SET lsn_offset=GREATEST(lsn_offset, $1), sync_batch_id=$2 WHERE mirror_job_name=$3"
 	updateMetadataForNormalizeRecordsSQL = "UPDATE %s.%s SET normalize_batch_id=$1 WHERE mirror_job_name=$2"
 
 	getDistinctDestinationTableNamesSQL = `SELECT DISTINCT _peerdb_destination_table_name FROM %s.%s WHERE
@@ -160,8 +169,6 @@ func (c *PostgresConnector) getReplicaIdentityIndexColumns(relID uint32, schemaT
 
 // getColumnNamesForIndex returns the column names for a given index.
 func (c *PostgresConnector) getColumnNamesForIndex(indexOID oid.Oid) ([]string, error) {
-	var col pgtype.Text
-	cols := make([]string, 0)
 	rows, err := c.pool.Query(c.ctx,
 		`SELECT a.attname FROM pg_index i
 		 JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
@@ -170,14 +177,10 @@ func (c *PostgresConnector) getColumnNamesForIndex(indexOID oid.Oid) ([]string, 
 	if err != nil {
 		return nil, fmt.Errorf("error getting columns for index %v: %w", indexOID, err)
 	}
-	defer rows.Close()
 
-	for rows.Next() {
-		err = rows.Scan(&col)
-		if err != nil {
-			return nil, fmt.Errorf("error scanning column for index %v: %w", indexOID, err)
-		}
-		cols = append(cols, col.String)
+	cols, err := pgx.CollectRows[string](rows, pgx.RowTo)
+	if err != nil {
+		return nil, fmt.Errorf("error scanning column for index %v: %w", indexOID, err)
 	}
 	return cols, nil
 }
@@ -309,9 +312,18 @@ func (c *PostgresConnector) createSlotAndPublication(
 	tableNameString := strings.Join(srcTableNames, ", ")
 
 	if !s.PublicationExists {
+		// check and enable publish_via_partition_root
+		supportsPubViaRoot, _, err := c.MajorVersionCheck(POSTGRES_13)
+		if err != nil {
+			return fmt.Errorf("error checking Postgres version: %w", err)
+		}
+		var pubViaRootString string
+		if supportsPubViaRoot {
+			pubViaRootString = "WITH(publish_via_partition_root=true)"
+		}
 		// Create the publication to help filter changes only for the given tables
-		stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s", publication, tableNameString)
-		_, err := c.pool.Exec(c.ctx, stmt)
+		stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s %s", publication, tableNameString, pubViaRootString)
+		_, err = c.pool.Exec(c.ctx, stmt)
 		if err != nil {
 			c.logger.Warn(fmt.Sprintf("Error creating publication '%s': %v", publication, err))
 			return fmt.Errorf("error creating publication '%s' : %w", publication, err)
@@ -471,49 +483,24 @@ func (c *PostgresConnector) jobMetadataExists(jobName string) (bool, error) {
 	return result.Bool, nil
 }
 
-func (c *PostgresConnector) jobMetadataExistsTx(tx pgx.Tx, jobName string) (bool, error) {
-	var result pgtype.Bool
-	err := tx.QueryRow(c.ctx,
-		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
-	if err != nil {
-		return false, fmt.Errorf("error reading result row: %w", err)
-	}
-
-	return result.Bool, nil
-}
-
-func (c *PostgresConnector) majorVersionCheck(majorVersion int) (bool, error) {
+func (c *PostgresConnector) MajorVersionCheck(majorVersion PGVersion) (bool, int64, error) {
 	var version pgtype.Int8
 	err := c.pool.QueryRow(c.ctx, "SELECT current_setting('server_version_num')::INTEGER").Scan(&version)
 	if err != nil {
-		return false, fmt.Errorf("failed to get server version: %w", err)
+		return false, 0, fmt.Errorf("failed to get server version: %w", err)
 	}
 
-	return int(version.Int64) >= majorVersion, nil
+	return version.Int64 >= int64(majorVersion), version.Int64, nil
 }
 
 func (c *PostgresConnector) updateSyncMetadata(flowJobName string, lastCP int64, syncBatchID int64,
 	syncRecordsTx pgx.Tx,
 ) error {
-	jobMetadataExists, err := c.jobMetadataExistsTx(syncRecordsTx, flowJobName)
+	_, err := syncRecordsTx.Exec(c.ctx,
+		fmt.Sprintf(upsertJobMetadataForSyncSQL, c.metadataSchema, mirrorJobsTableIdentifier),
+		flowJobName, lastCP, syncBatchID, 0)
 	if err != nil {
-		return fmt.Errorf("failed to get sync status for flow job: %w", err)
-	}
-
-	if !jobMetadataExists {
-		_, err := syncRecordsTx.Exec(c.ctx,
-			fmt.Sprintf(insertJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier),
-			flowJobName, lastCP, syncBatchID, 0)
-		if err != nil {
-			return fmt.Errorf("failed to insert flow job status: %w", err)
-		}
-	} else {
-		_, err := syncRecordsTx.Exec(c.ctx,
-			fmt.Sprintf(updateMetadataForSyncRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
-			lastCP, syncBatchID, flowJobName)
-		if err != nil {
-			return fmt.Errorf("failed to update flow job status: %w", err)
-		}
+		return fmt.Errorf("failed to upsert flow job status: %w", err)
 	}
 
 	return nil
@@ -522,15 +509,7 @@ func (c *PostgresConnector) updateSyncMetadata(flowJobName string, lastCP int64,
 func (c *PostgresConnector) updateNormalizeMetadata(flowJobName string, normalizeBatchID int64,
 	normalizeRecordsTx pgx.Tx,
 ) error {
-	jobMetadataExists, err := c.jobMetadataExistsTx(normalizeRecordsTx, flowJobName)
-	if err != nil {
-		return fmt.Errorf("failed to get sync status for flow job: %w", err)
-	}
-	if !jobMetadataExists {
-		return fmt.Errorf("job metadata does not exist, unable to update")
-	}
-
-	_, err = normalizeRecordsTx.Exec(c.ctx,
+	_, err := normalizeRecordsTx.Exec(c.ctx,
 		fmt.Sprintf(updateMetadataForNormalizeRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
 		normalizeBatchID, flowJobName)
 	if err != nil {
@@ -550,16 +529,10 @@ func (c *PostgresConnector) getDistinctTableNamesInBatch(flowJobName string, syn
 	if err != nil {
 		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
 	}
-	defer rows.Close()
 
-	var result pgtype.Text
-	destinationTableNames := make([]string, 0)
-	for rows.Next() {
-		err = rows.Scan(&result)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read row: %w", err)
-		}
-		destinationTableNames = append(destinationTableNames, result.String)
+	destinationTableNames, err := pgx.CollectRows[string](rows, pgx.RowTo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan row: %w", err)
 	}
 	return destinationTableNames, nil
 }
@@ -603,4 +576,96 @@ func (c *PostgresConnector) getCurrentLSN() (pglogrepl.LSN, error) {
 		return 0, fmt.Errorf("error while running query: %w", err)
 	}
 	return pglogrepl.ParseLSN(result.String)
+}
+
+func (c *PostgresConnector) getDefaultPublicationName(jobName string) string {
+	return fmt.Sprintf("peerflow_pub_%s", jobName)
+}
+
+func (c *PostgresConnector) CheckSourceTables(tableNames []string, pubName string) error {
+	if c.pool == nil {
+		return fmt.Errorf("check tables: pool is nil")
+	}
+
+	// Check that we can select from all tables
+	for _, tableName := range tableNames {
+		var row pgx.Row
+		err := c.pool.QueryRow(c.ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 0;", tableName)).Scan(&row)
+		if err != nil && err != pgx.ErrNoRows {
+			return err
+		}
+	}
+
+	// Check if tables belong to publication
+	tableArr := make([]string, 0, len(tableNames))
+	for _, tableName := range tableNames {
+		tableArr = append(tableArr, fmt.Sprintf("'%s'", tableName))
+	}
+
+	tableStr := strings.Join(tableArr, ",")
+
+	if pubName != "" {
+		var pubTableCount int
+		err := c.pool.QueryRow(c.ctx, fmt.Sprintf("select COUNT(DISTINCT(schemaname||'.'||tablename)) from pg_publication_tables "+
+			"where schemaname||'.'||tablename in (%s) and pubname=$1;", tableStr), pubName).Scan(&pubTableCount)
+		if err != nil {
+			return err
+		}
+
+		if pubTableCount != len(tableNames) {
+			return fmt.Errorf("not all tables belong to publication")
+		}
+	}
+
+	return nil
+}
+
+func (c *PostgresConnector) CheckReplicationPermissions(username string) error {
+	if c.pool == nil {
+		return fmt.Errorf("check replication permissions: pool is nil")
+	}
+
+	var replicationRes bool
+	err := c.pool.QueryRow(c.ctx, "SELECT rolreplication FROM pg_roles WHERE rolname = $1;", username).Scan(&replicationRes)
+	if err != nil {
+		return err
+	}
+
+	if !replicationRes {
+		// RDS case: check pg_settings for rds.logical_replication
+		var setting string
+		err := c.pool.QueryRow(c.ctx, "SELECT setting FROM pg_settings WHERE name = 'rds.logical_replication';").Scan(&setting)
+		if err != nil || setting != "on" {
+			return fmt.Errorf("postgres user does not have replication role")
+		}
+	}
+
+	// check wal_level
+	var walLevel string
+	err = c.pool.QueryRow(c.ctx, "SHOW wal_level;").Scan(&walLevel)
+	if err != nil {
+		return err
+	}
+
+	if walLevel != "logical" {
+		return fmt.Errorf("wal_level is not logical")
+	}
+
+	// max_wal_senders must be at least 2
+	var maxWalSendersRes string
+	err = c.pool.QueryRow(c.ctx, "SHOW max_wal_senders;").Scan(&maxWalSendersRes)
+	if err != nil {
+		return err
+	}
+
+	maxWalSenders, err := strconv.Atoi(maxWalSendersRes)
+	if err != nil {
+		return err
+	}
+
+	if maxWalSenders < 2 {
+		return fmt.Errorf("max_wal_senders must be at least 2")
+	}
+
+	return nil
 }

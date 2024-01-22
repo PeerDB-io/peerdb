@@ -35,7 +35,7 @@ type CDCPullConnector interface {
 	EnsurePullability(req *protos.EnsurePullabilityBatchInput) (
 		*protos.EnsurePullabilityBatchOutput, error)
 
-	// Methods related to retrieving and pusing records for this connector as a source and destination.
+	// Methods related to retrieving and pushing records for this connector as a source and destination.
 
 	// PullRecords pulls records from the source, and returns a RecordBatch.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
@@ -49,6 +49,9 @@ type CDCPullConnector interface {
 
 	// GetOpenConnectionsForUser returns the number of open connections for the user configured in the peer.
 	GetOpenConnectionsForUser() (*protos.GetOpenConnectionsForUserResult, error)
+
+	// AddTablesToPublication adds additional tables added to a mirror to the publication also
+	AddTablesToPublication(req *protos.AddTablesToPublicationInput) error
 }
 
 type CDCSyncConnector interface {

@@ -197,13 +197,17 @@ message MirrorStatusResponse {
   peerdb_flow.FlowStatus current_flow_state = 5;
 }
 
+message ValidateCDCMirrorResponse{
+  bool ok = 1;
+}
+
 message FlowStateChangeRequest {
   string flow_job_name = 1;
   peerdb_flow.FlowStatus requested_flow_state = 2;
   peerdb_peers.Peer source_peer = 3;
   peerdb_peers.Peer destination_peer = 4;
   // only can be sent in certain situations
-  optional peerdb_flow.FlowStateUpdate flow_state_update = 5;
+  optional peerdb_flow.FlowConfigUpdate flow_config_update = 5;
 }
 
 message FlowStateChangeResponse {
@@ -222,6 +226,12 @@ service FlowService {
   rpc ValidatePeer(ValidatePeerRequest) returns (ValidatePeerResponse) {
     option (google.api.http) = {
       post: "/v1/peers/validate",
+      body: "*"
+     };
+  }
+    rpc ValidateCDCMirror(CreateCDCFlowRequest) returns (ValidateCDCMirrorResponse) {
+    option (google.api.http) = {
+      post: "/v1/mirrors/cdc/validate",
       body: "*"
      };
   }

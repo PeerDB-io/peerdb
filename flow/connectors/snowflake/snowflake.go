@@ -542,7 +542,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		DestinationTableIdentifier: strings.ToLower(fmt.Sprintf("%s.%s", c.metadataSchema,
 			rawTableIdentifier)),
 	}
-	avroSyncer := NewSnowflakeAvroSyncMethod(qrepConfig, c)
+	avroSyncer := NewSnowflakeAvroSyncHandler(qrepConfig, c)
 	destinationTableSchema, err := c.getTableSchema(qrepConfig.DestinationTableIdentifier)
 	if err != nil {
 		return nil, err

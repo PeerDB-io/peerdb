@@ -14,6 +14,7 @@ import (
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -21,10 +22,6 @@ const (
 )
 
 type CDCFlowLimits struct {
-	// Number of sync flows to execute in total.
-	// If 0, the number of sync flows will be continuously executed until the peer flow is cancelled.
-	// This is typically non-zero for testing purposes.
-	TotalSyncFlows int
 	// Maximum number of rows in a sync flow batch.
 	MaxBatchSize uint32
 	// Rows synced after which we can say a test is done.
@@ -47,11 +44,12 @@ type CDCFlowWorkflowState struct {
 	// Global mapping of relation IDs to RelationMessages sent as a part of logical replication.
 	// Needed to support schema changes.
 	RelationMessageMapping model.RelationMessageMapping
-	// current workflow state
-	CurrentFlowState protos.FlowStatus
+	CurrentFlowStatus      protos.FlowStatus
 	// moved from config here, set by SetupFlow
 	SrcTableIdNameMapping  map[uint32]string
 	TableNameSchemaMapping map[string]*protos.TableSchema
+	// flow config update request, set to nil after processed
+	FlowConfigUpdates []*protos.CDCFlowConfigUpdate
 }
 
 type SignalProps struct {
@@ -75,9 +73,10 @@ func NewCDCFlowWorkflowState(numTables int) *CDCFlowWorkflowState {
 				RelationName: "protobuf_workaround",
 			},
 		},
-		CurrentFlowState:       protos.FlowStatus_STATUS_SETUP,
-		SrcTableIdNameMapping:  make(map[uint32]string, numTables),
-		TableNameSchemaMapping: make(map[string]*protos.TableSchema, numTables),
+		CurrentFlowStatus:      protos.FlowStatus_STATUS_SETUP,
+		SrcTableIdNameMapping:  nil,
+		TableNameSchemaMapping: nil,
+		FlowConfigUpdates:      nil,
 	}
 }
 
@@ -140,14 +139,77 @@ func GetChildWorkflowID(
 // CDCFlowWorkflowResult is the result of the PeerFlowWorkflow.
 type CDCFlowWorkflowResult = CDCFlowWorkflowState
 
-func (w *CDCFlowWorkflowExecution) receiveAndHandleSignalAsync(ctx workflow.Context, state *CDCFlowWorkflowState) {
-	signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
+func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Context,
+	cfg *protos.FlowConnectionConfigs, state *CDCFlowWorkflowState,
+	limits *CDCFlowLimits, mirrorNameSearch *map[string]interface{},
+) error {
+	for _, flowConfigUpdate := range state.FlowConfigUpdates {
+		if len(flowConfigUpdate.AdditionalTables) == 0 {
+			continue
+		}
+		if shared.AdditionalTablesHasOverlap(cfg.TableMappings, flowConfigUpdate.AdditionalTables) {
+			return fmt.Errorf("duplicate source/destination tables found in additionalTables")
+		}
 
-	var signalVal shared.CDCFlowSignal
-	ok := signalChan.ReceiveAsync(&signalVal)
-	if ok {
-		state.ActiveSignal = shared.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
+		alterPublicationAddAdditionalTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 5 * time.Minute,
+		})
+		alterPublicationAddAdditionalTablesFuture := workflow.ExecuteActivity(
+			alterPublicationAddAdditionalTablesCtx,
+			flowable.AddTablesToPublication,
+			cfg, flowConfigUpdate.AdditionalTables)
+		if err := alterPublicationAddAdditionalTablesFuture.Get(ctx, nil); err != nil {
+			w.logger.Error("failed to alter publication for additional tables: ", err)
+			return err
+		}
+
+		additionalTablesWorkflowCfg := proto.Clone(cfg).(*protos.FlowConnectionConfigs)
+		additionalTablesWorkflowCfg.DoInitialSnapshot = true
+		additionalTablesWorkflowCfg.InitialSnapshotOnly = true
+		additionalTablesWorkflowCfg.TableMappings = flowConfigUpdate.AdditionalTables
+		additionalTablesWorkflowCfg.FlowJobName = fmt.Sprintf("%s_additional_tables_%s", cfg.FlowJobName,
+			strings.ToLower(shared.RandomString(8)))
+
+		childAdditionalTablesCDCFlowID,
+			err := GetChildWorkflowID(ctx, "cdc-flow", additionalTablesWorkflowCfg.FlowJobName)
+		if err != nil {
+			return err
+		}
+
+		// execute the sync flow as a child workflow
+		childAdditionalTablesCDCFlowOpts := workflow.ChildWorkflowOptions{
+			WorkflowID:        childAdditionalTablesCDCFlowID,
+			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+			RetryPolicy: &temporal.RetryPolicy{
+				MaximumAttempts: 20,
+			},
+			SearchAttributes:    *mirrorNameSearch,
+			WaitForCancellation: true,
+		}
+		childAdditionalTablesCDCFlowCtx := workflow.WithChildOptions(ctx, childAdditionalTablesCDCFlowOpts)
+		childAdditionalTablesCDCFlowFuture := workflow.ExecuteChildWorkflow(
+			childAdditionalTablesCDCFlowCtx,
+			CDCFlowWorkflowWithConfig,
+			additionalTablesWorkflowCfg,
+			nil,
+			limits,
+		)
+		var res *CDCFlowWorkflowResult
+		if err := childAdditionalTablesCDCFlowFuture.Get(childAdditionalTablesCDCFlowCtx, &res); err != nil {
+			return err
+		}
+
+		for tableID, tableName := range res.SrcTableIdNameMapping {
+			state.SrcTableIdNameMapping[tableID] = tableName
+		}
+		for tableName, tableSchema := range res.TableNameSchemaMapping {
+			state.TableNameSchemaMapping[tableName] = tableSchema
+		}
+		cfg.TableMappings = append(cfg.TableMappings, flowConfigUpdate.AdditionalTables...)
+		// finished processing, wipe it
+		state.FlowConfigUpdates = nil
 	}
+	return nil
 }
 
 func CDCFlowWorkflowWithConfig(
@@ -165,10 +227,6 @@ func CDCFlowWorkflowWithConfig(
 
 	w := NewCDCFlowWorkflowExecution(ctx)
 
-	if limits.TotalSyncFlows == 0 {
-		limits.TotalSyncFlows = maxSyncFlowsPerCDCFlow
-	}
-
 	err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (CDCFlowWorkflowState, error) {
 		return *state, nil
 	})
@@ -176,19 +234,18 @@ func CDCFlowWorkflowWithConfig(
 		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.CDCFlowStateQuery, err)
 	}
 	err = workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (protos.FlowStatus, error) {
-		return state.CurrentFlowState, nil
+		return state.CurrentFlowStatus, nil
 	})
 	if err != nil {
 		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
 	}
 	err = workflow.SetUpdateHandler(ctx, shared.FlowStatusUpdate, func(status protos.FlowStatus) error {
-		state.CurrentFlowState = status
+		state.CurrentFlowStatus = status
 		return nil
 	})
 	if err != nil {
 		return state, fmt.Errorf("failed to set `%s` update handler: %w", shared.FlowStatusUpdate, err)
 	}
-
 	mirrorNameSearch := map[string]interface{}{
 		shared.MirrorNameSearchAttribute: cfg.FlowJobName,
 	}
@@ -197,7 +254,7 @@ func CDCFlowWorkflowWithConfig(
 	// because Resync modifies TableMappings before Setup and also before Snapshot
 	// for safety, rely on the idempotency of SetupFlow instead
 	// also, no signals are being handled until the loop starts, so no PAUSE/DROP will take here.
-	if state.CurrentFlowState != protos.FlowStatus_STATUS_RUNNING {
+	if state.CurrentFlowStatus != protos.FlowStatus_STATUS_RUNNING {
 		// if resync is true, alter the table name schema mapping to temporarily add
 		// a suffix to the table names.
 		if cfg.Resync {
@@ -231,7 +288,7 @@ func CDCFlowWorkflowWithConfig(
 		}
 		state.SrcTableIdNameMapping = setupFlowOutput.SrcTableIdNameMapping
 		state.TableNameSchemaMapping = setupFlowOutput.TableNameSchemaMapping
-		state.CurrentFlowState = protos.FlowStatus_STATUS_SNAPSHOT
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_SNAPSHOT
 
 		// next part of the setup is to snapshot-initial-copy and setup replication slots.
 		snapshotFlowID, err := GetChildWorkflowID(ctx, "snapshot-flow", cfg.FlowJobName)
@@ -294,7 +351,7 @@ func CDCFlowWorkflowWithConfig(
 			}
 		}
 
-		state.CurrentFlowState = protos.FlowStatus_STATUS_RUNNING
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 		state.Progress = append(state.Progress, "executed setup flow and snapshot flow")
 
 		// if initial_copy_only is opted for, we end the flow here.
@@ -339,18 +396,30 @@ func CDCFlowWorkflowWithConfig(
 	currentSyncFlowNum := 0
 	totalRecordsSynced := 0
 
-	for {
-		// check and act on signals before a fresh flow starts.
-		w.receiveAndHandleSignalAsync(ctx, state)
+	var canceled bool
+	signalChan := workflow.GetSignalChannel(ctx, shared.FlowSignalName)
+	mainLoopSelector := workflow.NewSelector(ctx)
+	mainLoopSelector.AddReceive(signalChan, func(c workflow.ReceiveChannel, _ bool) {
+		var signalVal shared.CDCFlowSignal
+		c.ReceiveAsync(&signalVal)
+		state.ActiveSignal = shared.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
+	})
+	mainLoopSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
+		canceled = true
+	})
 
-		if err := ctx.Err(); err != nil {
-			return nil, err
+	for {
+		for !canceled && mainLoopSelector.HasPending() {
+			mainLoopSelector.Select(ctx)
+		}
+		if canceled {
+			break
 		}
 
 		if state.ActiveSignal == shared.PauseSignal {
 			startTime := time.Now()
-			state.CurrentFlowState = protos.FlowStatus_STATUS_PAUSED
-			signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
+			state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+			signalChan := workflow.GetSignalChannel(ctx, shared.FlowSignalName)
 			var signalVal shared.CDCFlowSignal
 
 			for state.ActiveSignal == shared.PauseSignal {
@@ -359,6 +428,13 @@ func CDCFlowWorkflowWithConfig(
 				ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute, &signalVal)
 				if ok {
 					state.ActiveSignal = shared.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
+					// only process config updates when going from STATUS_PAUSED to STATUS_RUNNING
+					if state.ActiveSignal == shared.NoopSignal {
+						err = w.processCDCFlowConfigUpdates(ctx, cfg, state, limits, &mirrorNameSearch)
+						if err != nil {
+							return state, err
+						}
+					}
 				} else if err := ctx.Err(); err != nil {
 					return nil, err
 				}
@@ -370,18 +446,19 @@ func CDCFlowWorkflowWithConfig(
 		// check if the peer flow has been shutdown
 		if state.ActiveSignal == shared.ShutdownSignal {
 			w.logger.Info("peer flow has been shutdown")
-			state.CurrentFlowState = protos.FlowStatus_STATUS_TERMINATED
+			state.CurrentFlowStatus = protos.FlowStatus_STATUS_TERMINATED
 			return state, nil
 		}
 
-		state.CurrentFlowState = protos.FlowStatus_STATUS_RUNNING
+		cdcPropertiesSelector.Select(ctx)
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 
 		// check if total sync flows have been completed
 		// since this happens immediately after we check for signals, the case of a signal being missed
 		// due to a new workflow starting is vanishingly low, but possible
-		if limits.TotalSyncFlows != 0 && currentSyncFlowNum == limits.TotalSyncFlows {
+		if currentSyncFlowNum == maxSyncFlowsPerCDCFlow {
 			w.logger.Info("All the syncflows have completed successfully, there was a"+
-				" limit on the number of syncflows to be executed: ", limits.TotalSyncFlows)
+				" limit on the number of syncflows to be executed: ", currentSyncFlowNum)
 			break
 		}
 		currentSyncFlowNum++
@@ -416,54 +493,68 @@ func CDCFlowWorkflowWithConfig(
 			syncFlowOptions,
 		)
 
+		var syncDone bool
 		var childSyncFlowRes *model.SyncResponse
-		if err := childSyncFlowFuture.Get(syncCtx, &childSyncFlowRes); err != nil {
-			w.logger.Error("failed to execute sync flow: ", err)
-			state.SyncFlowErrors = append(state.SyncFlowErrors, err.Error())
-		} else {
-			state.SyncFlowStatuses = append(state.SyncFlowStatuses, childSyncFlowRes)
-			if childSyncFlowRes != nil {
+		mainLoopSelector.AddFuture(childSyncFlowFuture, func(f workflow.Future) {
+			syncDone = true
+			if err := f.Get(syncCtx, &childSyncFlowRes); err != nil {
+				w.logger.Error("failed to execute sync flow: ", err)
+				state.SyncFlowErrors = append(state.SyncFlowErrors, err.Error())
+			} else if childSyncFlowRes != nil {
+				state.SyncFlowStatuses = append(state.SyncFlowStatuses, childSyncFlowRes)
 				state.RelationMessageMapping = childSyncFlowRes.RelationMessageMapping
 				totalRecordsSynced += int(childSyncFlowRes.NumRecordsSynced)
-			}
-		}
-
-		w.logger.Info("Total records synced: ", totalRecordsSynced)
-
-		var tableSchemaDeltas []*protos.TableSchemaDelta = nil
-		if childSyncFlowRes != nil {
-			tableSchemaDeltas = childSyncFlowRes.TableSchemaDeltas
-		}
-
-		// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
-		if tableSchemaDeltas != nil {
-			modifiedSrcTables := make([]string, 0)
-			modifiedDstTables := make([]string, 0)
-
-			for _, tableSchemaDelta := range tableSchemaDeltas {
-				modifiedSrcTables = append(modifiedSrcTables, tableSchemaDelta.SrcTableName)
-				modifiedDstTables = append(modifiedDstTables, tableSchemaDelta.DstTableName)
+				w.logger.Info("Total records synced: ", totalRecordsSynced)
 			}
 
-			getModifiedSchemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-				StartToCloseTimeout: 5 * time.Minute,
-			})
-			getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.GetTableSchema,
-				&protos.GetTableSchemaBatchInput{
-					PeerConnectionConfig: cfg.Source,
-					TableIdentifiers:     modifiedSrcTables,
-					FlowName:             cfg.FlowJobName,
+			var tableSchemaDeltas []*protos.TableSchemaDelta = nil
+			if childSyncFlowRes != nil {
+				tableSchemaDeltas = childSyncFlowRes.TableSchemaDeltas
+			}
+
+			// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
+			if tableSchemaDeltas != nil {
+				modifiedSrcTables := make([]string, 0)
+				modifiedDstTables := make([]string, 0)
+
+				for _, tableSchemaDelta := range tableSchemaDeltas {
+					modifiedSrcTables = append(modifiedSrcTables, tableSchemaDelta.SrcTableName)
+					modifiedDstTables = append(modifiedDstTables, tableSchemaDelta.DstTableName)
+				}
+
+				getModifiedSchemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+					StartToCloseTimeout: 5 * time.Minute,
 				})
+				getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.GetTableSchema,
+					&protos.GetTableSchemaBatchInput{
+						PeerConnectionConfig: cfg.Source,
+						TableIdentifiers:     modifiedSrcTables,
+						FlowName:             cfg.FlowJobName,
+					})
 
-			var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
-			if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {
-				w.logger.Error("failed to execute schema update at source: ", err)
-				state.SyncFlowErrors = append(state.SyncFlowErrors, err.Error())
-			} else {
-				for i := range modifiedSrcTables {
-					state.TableNameSchemaMapping[modifiedDstTables[i]] = getModifiedSchemaRes.TableNameSchemaMapping[modifiedSrcTables[i]]
+				var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
+				if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {
+					w.logger.Error("failed to execute schema update at source: ", err)
+					state.SyncFlowErrors = append(state.SyncFlowErrors, err.Error())
+				} else {
+					for i := range modifiedSrcTables {
+						state.TableNameSchemaMapping[modifiedDstTables[i]] = getModifiedSchemaRes.TableNameSchemaMapping[modifiedSrcTables[i]]
+					}
 				}
 			}
+		})
+
+		for !syncDone && !canceled && state.ActiveSignal != shared.ShutdownSignal {
+			mainLoopSelector.Select(ctx)
+		}
+		if canceled {
+			break
+		}
+		// check if the peer flow has been shutdown
+		if state.ActiveSignal == shared.ShutdownSignal {
+			w.logger.Info("peer flow has been shutdown")
+			state.CurrentFlowStatus = protos.FlowStatus_STATUS_TERMINATED
+			return state, nil
 		}
 
 		normalizeFlowID, err := GetChildWorkflowID(ctx, "normalize-flow", cfg.FlowJobName)
@@ -495,9 +586,8 @@ func CDCFlowWorkflowWithConfig(
 		} else {
 			state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, childNormalizeFlowRes)
 		}
-		cdcPropertiesSelector.Select(ctx)
 	}
 
 	state.TruncateProgress(w.logger)
-	return nil, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, limits, state)
+	return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, limits, state)
 }

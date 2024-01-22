@@ -12,7 +12,7 @@ const (
 	snapshotFlowTaskQueue = "snapshot-flow-task-queue"
 
 	// Signals
-	CDCFlowSignalName              = "peer-flow-signal"
+	FlowSignalName                 = "peer-flow-signal"
 	CDCDynamicPropertiesSignalName = "cdc-dynamic-properties"
 
 	// Queries

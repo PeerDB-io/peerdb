@@ -103,6 +103,7 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 func (s *SetupFlowExecution) ensurePullability(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
+	checkConstraints bool,
 ) (map[uint32]string, error) {
 	s.logger.Info("ensuring pullability for peer flow - ", s.cdcFlowName)
 
@@ -119,6 +120,7 @@ func (s *SetupFlowExecution) ensurePullability(
 		PeerConnectionConfig:   config.Source,
 		FlowJobName:            s.cdcFlowName,
 		SourceTableIdentifiers: srcTblIdentifiers,
+		CheckConstraints:       checkConstraints,
 	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.EnsurePullability, ensurePullabilityInput)
@@ -264,16 +266,14 @@ func (s *SetupFlowExecution) executeSetupFlow(
 	}
 
 	setupFlowOutput := protos.SetupFlowOutput{}
-	// for initial copy only flows, we don't need to ensure pullability or create the raw table
-	// as we don't need the primary key requirement.
-	if !config.InitialSnapshotOnly {
-		// then ensure pullability
-		srcTableIdNameMapping, err := s.ensurePullability(ctx, config)
-		if err != nil {
-			return nil, fmt.Errorf("failed to ensure pullability: %w", err)
-		}
-		setupFlowOutput.SrcTableIdNameMapping = srcTableIdNameMapping
+	srcTableIdNameMapping, err := s.ensurePullability(ctx, config, !config.InitialSnapshotOnly)
+	if err != nil {
+		return nil, fmt.Errorf("failed to ensure pullability: %w", err)
+	}
+	setupFlowOutput.SrcTableIdNameMapping = srcTableIdNameMapping
 
+	// for initial copy only flows, we don't need to create the raw table
+	if !config.InitialSnapshotOnly {
 		// then create the raw table
 		if err := s.createRawTable(ctx, config); err != nil {
 			return nil, fmt.Errorf("failed to create raw table: %w", err)

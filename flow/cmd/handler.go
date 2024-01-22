@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/connectors"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
@@ -122,6 +121,12 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.CreateCDCFlowResponse, error) {
 	cfg := req.ConnectionConfigs
+	_, validateErr := h.ValidateCDCMirror(ctx, req)
+	if validateErr != nil {
+		slog.Error("validate mirror error", slog.Any("error", validateErr))
+		return nil, fmt.Errorf("invalid mirror: %w", validateErr)
+	}
+
 	workflowID := fmt.Sprintf("%s-peerflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
@@ -137,7 +142,6 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	}
 
 	limits := &peerflow.CDCFlowLimits{
-		TotalSyncFlows:   0,
 		ExitAfterRecords: -1,
 		MaxBatchSize:     maxBatchSize,
 	}
@@ -327,7 +331,7 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		ctx,
 		req.WorkflowId,
 		"",
-		shared.CDCFlowSignalName,
+		shared.FlowSignalName,
 		shared.ShutdownSignal,
 	)
 	if err != nil {
@@ -442,8 +446,9 @@ func (h *FlowRequestHandler) FlowStateChange(
 	if err != nil {
 		return nil, err
 	}
+
 	if req.RequestedFlowState == protos.FlowStatus_STATUS_PAUSED &&
-		*currState == protos.FlowStatus_STATUS_RUNNING {
+		currState == protos.FlowStatus_STATUS_RUNNING {
 		err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_PAUSING)
 		if err != nil {
 			return nil, err
@@ -452,20 +457,20 @@ func (h *FlowRequestHandler) FlowStateChange(
 			ctx,
 			workflowID,
 			"",
-			shared.CDCFlowSignalName,
+			shared.FlowSignalName,
 			shared.PauseSignal,
 		)
 	} else if req.RequestedFlowState == protos.FlowStatus_STATUS_RUNNING &&
-		*currState == protos.FlowStatus_STATUS_PAUSED {
+		currState == protos.FlowStatus_STATUS_PAUSED {
 		err = h.temporalClient.SignalWorkflow(
 			ctx,
 			workflowID,
 			"",
-			shared.CDCFlowSignalName,
+			shared.FlowSignalName,
 			shared.NoopSignal,
 		)
 	} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED &&
-		(*currState == protos.FlowStatus_STATUS_RUNNING || *currState == protos.FlowStatus_STATUS_PAUSED) {
+		(currState == protos.FlowStatus_STATUS_RUNNING || currState == protos.FlowStatus_STATUS_PAUSED) {
 		err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_TERMINATING)
 		if err != nil {
 			return nil, err
@@ -482,7 +487,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			req.RequestedFlowState, currState)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("unable to signal CDCFlow workflow: %w", err)
+		return nil, fmt.Errorf("unable to signal workflow: %w", err)
 	}
 
 	return &protos.FlowStateChangeResponse{
@@ -553,50 +558,6 @@ func (h *FlowRequestHandler) handleWorkflowNotClosed(ctx context.Context, workfl
 	}
 
 	return nil
-}
-
-func (h *FlowRequestHandler) ValidatePeer(
-	ctx context.Context,
-	req *protos.ValidatePeerRequest,
-) (*protos.ValidatePeerResponse, error) {
-	if req.Peer == nil {
-		return &protos.ValidatePeerResponse{
-			Status:  protos.ValidatePeerStatus_INVALID,
-			Message: "no peer provided",
-		}, nil
-	}
-
-	if len(req.Peer.Name) == 0 {
-		return &protos.ValidatePeerResponse{
-			Status:  protos.ValidatePeerStatus_INVALID,
-			Message: "no peer name provided",
-		}, nil
-	}
-
-	conn, err := connectors.GetConnector(ctx, req.Peer)
-	if err != nil {
-		return &protos.ValidatePeerResponse{
-			Status: protos.ValidatePeerStatus_INVALID,
-			Message: fmt.Sprintf("peer type is missing or "+
-				"your requested configuration for %s peer %s was invalidated: %s",
-				req.Peer.Type, req.Peer.Name, err),
-		}, nil
-	}
-
-	connErr := conn.ConnectionActive()
-	if connErr != nil {
-		return &protos.ValidatePeerResponse{
-			Status: protos.ValidatePeerStatus_INVALID,
-			Message: fmt.Sprintf("failed to establish active connection to %s peer %s: %v",
-				req.Peer.Type, req.Peer.Name, connErr),
-		}, nil
-	}
-
-	return &protos.ValidatePeerResponse{
-		Status: protos.ValidatePeerStatus_VALID,
-		Message: fmt.Sprintf("%s peer %s is valid",
-			req.Peer.Type, req.Peer.Name),
-	}, nil
 }
 
 func (h *FlowRequestHandler) CreatePeer(
