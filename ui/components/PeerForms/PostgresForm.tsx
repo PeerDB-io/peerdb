@@ -137,12 +137,9 @@ export default function PostgresForm({ settings, setter }: ConfigProps) {
                     (sshConfig as SSHConfig)[
                       sshParam.label === 'BASE64 Private Key'
                         ? 'privateKey'
-                        : (sshParam.label.toLowerCase() as
-                            | 'host'
-                            | 'port'
-                            | 'user'
-                            | 'password'
-                            | 'privateKey')
+                        : sshParam.label === 'Host Key'
+                          ? 'hostKey'
+                          : (sshParam.label.toLowerCase() as keyof SSHConfig)
                     ] || ''
                   }
                 />

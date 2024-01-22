@@ -39,11 +39,7 @@ func NewSSHWrappedPostgresPool(
 	if sshConfig != nil {
 		sshServer = fmt.Sprintf("%s:%d", sshConfig.Host, sshConfig.Port)
 		var err error
-		clientConfig, err = utils.GetSSHClientConfig(
-			sshConfig.User,
-			sshConfig.Password,
-			sshConfig.PrivateKey,
-		)
+		clientConfig, err = utils.GetSSHClientConfig(sshConfig)
 		if err != nil {
 			slog.Error("Failed to get SSH client config", slog.Any("error", err))
 			cancel()

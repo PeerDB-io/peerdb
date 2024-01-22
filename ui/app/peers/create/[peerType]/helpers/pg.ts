@@ -86,6 +86,13 @@ export const sshSetting = [
     optional: true,
     tips: 'Private key as a BASE64 string for authentication in order to SSH into your machine.',
   },
+  {
+    label: 'Host Key',
+    stateHandler: (value: string, setter: sshSetter) =>
+      setter((curr) => ({ ...curr, hostKey: value })),
+    optional: true,
+    tips: 'Public key of host to mitigate MITM attacks when SSHing into your machine.',
+  },
 ];
 
 export const blankSSHConfig: SSHConfig = {
@@ -94,6 +101,7 @@ export const blankSSHConfig: SSHConfig = {
   user: '',
   password: '',
   privateKey: '',
+  hostKey: '',
 };
 
 export const blankPostgresSetting: PostgresConfig = {
