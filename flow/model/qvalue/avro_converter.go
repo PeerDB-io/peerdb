@@ -7,6 +7,7 @@ import (
 	"time"
 
 	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
+	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/google/uuid"
 	"github.com/linkedin/goavro/v2"
 )
@@ -323,7 +324,7 @@ func (c *QValueAvroConverter) processNumeric() (interface{}, error) {
 		return nil, fmt.Errorf("invalid Numeric value: expected *big.Rat, got %T", c.Value.Value)
 	}
 
-	scale := 9
+	scale := numeric.PeerDBNumericScale
 	decimalValue := num.FloatString(scale)
 	num.SetString(decimalValue)
 	if c.Nullable {
