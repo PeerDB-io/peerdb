@@ -605,7 +605,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	if err != nil {
 		return nil, fmt.Errorf("[getTableSchema] error getting replica identity for table %s: %w", schemaTable, err)
 	}
-	pKeyCols, err := c.getPrimaryKeyColumns(replicaIdentityType, schemaTable)
+	pKeyCols, err := c.getUniqueColumns(replicaIdentityType, schemaTable)
 	if err != nil {
 		return nil, fmt.Errorf("[getTableSchema] error getting primary key column for table %s: %w", schemaTable, err)
 	}
@@ -790,7 +790,7 @@ func (c *PostgresConnector) EnsurePullability(
 			return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
 		}
 
-		pKeyCols, err := c.getPrimaryKeyColumns(replicaIdentity, schemaTable)
+		pKeyCols, err := c.getUniqueColumns(replicaIdentity, schemaTable)
 		if err != nil {
 			return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
 		}
