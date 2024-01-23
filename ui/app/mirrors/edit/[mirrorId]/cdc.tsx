@@ -4,6 +4,7 @@ import TimeLabel from '@/components/TimeComponent';
 import {
   CDCMirrorStatus,
   CloneTableSummary,
+  MirrorStatusResponse,
   SnapshotStatus,
 } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
@@ -230,13 +231,13 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
 };
 
 type CDCMirrorStatusProps = {
-  cdc: CDCMirrorStatus;
+  status: MirrorStatusResponse;
   rows: SyncStatusRow[];
   createdAt?: Date;
   syncStatusChild?: React.ReactNode;
 };
 export function CDCMirror({
-  cdc,
+  status,
   rows,
   createdAt,
   syncStatusChild,
@@ -249,8 +250,8 @@ export function CDCMirror({
   };
 
   let snapshot = <></>;
-  if (cdc.snapshotStatus) {
-    snapshot = <SnapshotStatusTable status={cdc.snapshotStatus} />;
+  if (status.cdcStatus?.snapshotStatus) {
+    snapshot = <SnapshotStatusTable status={status.cdcStatus?.snapshotStatus} />;
   }
   useEffect(() => {
     setMounted(true);
@@ -283,7 +284,8 @@ export function CDCMirror({
           <CdcDetails
             syncs={rows}
             createdAt={createdAt}
-            mirrorConfig={cdc.config}
+            mirrorConfig={status.cdcStatus?.config!}
+            mirrorStatus={status.currentFlowState}
           />
         </TabPanel>
         <TabPanel>{syncStatusChild}</TabPanel>

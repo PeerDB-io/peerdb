@@ -8,6 +8,7 @@ import { redirect } from 'next/navigation';
 import { CDCMirror } from './cdc';
 import NoMirror from './nomirror';
 import SyncStatus from './syncStatus';
+import { Icon } from '@/lib/Icon';
 
 type EditMirrorProps = {
   params: { mirrorId: string };
@@ -33,9 +34,10 @@ export default async function EditMirror({
     return <div>No mirror status found!</div>;
   }
 
-  let createdAt = await prisma.flows.findFirst({
+  let mirrorInfo = await prisma.flows.findFirst({
     select: {
       created_at: true,
+      workflow_id: true
     },
     where: {
       name: mirrorId,
@@ -86,9 +88,9 @@ export default async function EditMirror({
       <Header variant='title2'>{mirrorId}</Header>
       <CDCMirror
         rows={rows}
-        createdAt={createdAt?.created_at}
+        createdAt={mirrorInfo?.created_at}
         syncStatusChild={syncStatusChild}
-        cdc={mirrorStatus.cdcStatus}
+        status={mirrorStatus}
       />
     </LayoutMain>
   );
