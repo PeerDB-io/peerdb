@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"slices"
 	"sync/atomic"
 	"time"
 
@@ -425,7 +424,7 @@ type CDCRecordStream struct {
 	// Records are a list of json objects.
 	records chan Record
 	// Schema changes from the slot
-	SchemaDeltas chan *protos.TableSchemaDelta
+	SchemaDeltas []*protos.TableSchemaDelta
 	// Indicates if the last checkpoint has been set.
 	lastCheckpointSet bool
 	// lastCheckpointID is the last ID of the commit that corresponds to this batch.
@@ -437,9 +436,8 @@ type CDCRecordStream struct {
 func NewCDCRecordStream() *CDCRecordStream {
 	channelBuffer := peerdbenv.PeerDBCDCChannelBufferSize()
 	return &CDCRecordStream{
-		records: make(chan Record, channelBuffer),
-		// TODO (kaushik): more than 1024 schema deltas can cause problems!
-		SchemaDeltas:      make(chan *protos.TableSchemaDelta, 1<<10),
+		records:           make(chan Record, channelBuffer),
+		SchemaDeltas:      make([]*protos.TableSchemaDelta, 0),
 		emptySignal:       make(chan bool, 1),
 		lastCheckpointSet: false,
 		lastCheckpointID:  atomic.Int64{},
@@ -479,40 +477,29 @@ func (r *CDCRecordStream) WaitAndCheckEmpty() bool {
 	return isEmpty
 }
 
-func (r *CDCRecordStream) WaitForSchemaDeltas(tableMappings []*protos.TableMapping) []*protos.TableSchemaDelta {
-	schemaDeltas := make([]*protos.TableSchemaDelta, 0)
-schemaLoop:
-	for delta := range r.SchemaDeltas {
-		for _, tm := range tableMappings {
-			if delta.SrcTableName == tm.SourceTableIdentifier && delta.DstTableName == tm.DestinationTableIdentifier {
-				if len(tm.Exclude) == 0 {
-					break
-				}
-				added := make([]*protos.DeltaAddedColumn, 0, len(delta.AddedColumns))
-				for _, column := range delta.AddedColumns {
-					if !slices.Contains(tm.Exclude, column.ColumnName) {
-						added = append(added, column)
-					}
-				}
-				if len(added) != 0 {
-					schemaDeltas = append(schemaDeltas, &protos.TableSchemaDelta{
-						SrcTableName: delta.SrcTableName,
-						DstTableName: delta.DstTableName,
-						AddedColumns: added,
-					})
-				}
-				continue schemaLoop
+func (r *CDCRecordStream) AddSchemaDelta(tableNameMapping map[string]NameAndExclude, delta *protos.TableSchemaDelta) {
+	if tm, ok := tableNameMapping[delta.SrcTableName]; ok && len(tm.Exclude) != 0 {
+		added := make([]*protos.DeltaAddedColumn, 0, len(delta.AddedColumns))
+		for _, column := range delta.AddedColumns {
+			if _, has := tm.Exclude[column.ColumnName]; !has {
+				added = append(added, column)
 			}
 		}
-		schemaDeltas = append(schemaDeltas, delta)
+		if len(added) != 0 {
+			r.SchemaDeltas = append(r.SchemaDeltas, &protos.TableSchemaDelta{
+				SrcTableName: delta.SrcTableName,
+				DstTableName: delta.DstTableName,
+				AddedColumns: added,
+			})
+		}
+	} else {
+		r.SchemaDeltas = append(r.SchemaDeltas, delta)
 	}
-	return schemaDeltas
 }
 
 func (r *CDCRecordStream) Close() {
 	close(r.emptySignal)
 	close(r.records)
-	close(r.SchemaDeltas)
 	r.lastCheckpointSet = true
 }
 

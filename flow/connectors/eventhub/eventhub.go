@@ -255,7 +255,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		LastSyncedCheckpointID: lastCheckpoint,
 		NumRecordsSynced:       int64(numRecords),
 		TableNameRowsMapping:   make(map[string]uint32),
-		TableSchemaDeltas:      req.Records.WaitForSchemaDeltas(req.TableMappings),
+		TableSchemaDeltas:      req.Records.SchemaDeltas,
 	}, nil
 }
 
