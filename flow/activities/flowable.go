@@ -9,6 +9,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pglogrepl"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"go.temporal.io/sdk/activity"
+	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/PeerDB-io/peer-flow/connectors"
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
@@ -20,13 +28,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/PeerDB-io/peer-flow/shared/alerting"
-	"github.com/jackc/pglogrepl"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"go.temporal.io/sdk/activity"
-	"golang.org/x/sync/errgroup"
-	"google.golang.org/protobuf/proto"
 )
 
 // CheckConnectionResult is the result of a CheckConnection call.
@@ -578,7 +579,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 				err = monitoring.UpdatePullEndTimeAndRowsForPartition(ctx,
 					a.CatalogPool, runUUID, partition, numRecords)
 				if err != nil {
-					slog.ErrorContext(ctx, fmt.Sprintf("%v", err))
+					slog.ErrorContext(ctx, err.Error())
 					goroutineErr = err
 				}
 			}
@@ -967,7 +968,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 		err = monitoring.UpdatePullEndTimeAndRowsForPartition(
 			errCtx, a.CatalogPool, runUUID, partition, int64(numRecords))
 		if err != nil {
-			slog.Error(fmt.Sprintf("%v", err))
+			slog.Error(err.Error())
 			return err
 		}
 

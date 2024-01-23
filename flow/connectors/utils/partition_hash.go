@@ -1,8 +1,8 @@
 package utils
 
 import (
-	"fmt"
 	"hash/fnv"
+	"strconv"
 )
 
 func hashString(s string) uint32 {
@@ -14,5 +14,5 @@ func hashString(s string) uint32 {
 func HashedPartitionKey(s string, numPartitions uint32) string {
 	hashValue := hashString(s)
 	partition := hashValue % numPartitions
-	return fmt.Sprintf("%d", partition)
+	return strconv.FormatUint(uint64(partition), 10)
 }

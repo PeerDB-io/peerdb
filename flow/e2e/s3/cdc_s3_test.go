@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/PeerDB-io/peer-flow/e2e"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
-	"github.com/stretchr/testify/require"
 )
 
 func (s PeerFlowE2ETestSuiteS3) attachSchemaSuffix(tableName string) string {

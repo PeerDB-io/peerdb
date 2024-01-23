@@ -6,13 +6,13 @@ import (
 	"sort"
 	"time"
 
+	"go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/workflow"
+	"golang.org/x/exp/maps"
+
 	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"golang.org/x/exp/maps"
-
-	"go.temporal.io/sdk/log"
-	"go.temporal.io/sdk/workflow"
 )
 
 // SetupFlow is the workflow that is responsible for ensuring all the

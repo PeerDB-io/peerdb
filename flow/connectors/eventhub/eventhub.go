@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -155,7 +156,7 @@ func (c *EventHubConnector) processBatch(
 
 			numRecords.Add(1)
 
-			recordLSN := record.GetCheckPointID()
+			recordLSN := record.GetCheckpointID()
 			if recordLSN > lastSeenLSN {
 				lastSeenLSN = recordLSN
 			}
@@ -251,7 +252,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 	return &model.SyncResponse{
 		CurrentSyncBatchID:     req.SyncBatchID,
-		LastSyncedCheckPointID: lastCheckpoint,
+		LastSyncedCheckpointID: lastCheckpoint,
 		NumRecordsSynced:       int64(numRecords),
 		TableNameRowsMapping:   make(map[string]uint32),
 		TableSchemaDeltas:      req.Records.WaitForSchemaDeltas(req.TableMappings),

@@ -10,16 +10,15 @@ import (
 	"runtime"
 	"syscall"
 
+	"github.com/grafana/pyroscope-go"
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/worker"
+
 	"github.com/PeerDB-io/peer-flow/activities"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/PeerDB-io/peer-flow/shared/alerting"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
-
-	"github.com/grafana/pyroscope-go"
-
-	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/worker"
 )
 
 type WorkerOptions struct {

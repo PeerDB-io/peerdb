@@ -22,11 +22,11 @@ type AWSSecrets struct {
 }
 
 type S3PeerCredentials struct {
-	AccessKeyID     string
-	SecretAccessKey string
-	AwsRoleArn      string
-	Region          string
-	Endpoint        string
+	AccessKeyID     string `json:"accessKeyId"`
+	SecretAccessKey string `json:"secretAccessKey"`
+	AwsRoleArn      string `json:"awsRoleArn"`
+	Region          string `json:"region"`
+	Endpoint        string `json:"endpoint"`
 }
 
 func GetAWSSecrets(creds S3PeerCredentials) (*AWSSecrets, error) {

@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (

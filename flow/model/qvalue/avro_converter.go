@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"strconv"
 	"time"
 
-	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
 	"github.com/google/uuid"
 	"github.com/linkedin/goavro/v2"
+
+	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
+	"github.com/PeerDB-io/peer-flow/model/numeric"
 )
 
 // https://avro.apache.org/docs/1.11.0/spec.html
@@ -274,7 +277,7 @@ func (c *QValueAvroConverter) processGoTime() (interface{}, error) {
 	// Snowflake has issues with avro timestamp types, returning as string form of the int64
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == QDWHTypeSnowflake {
-		return fmt.Sprint(ret), nil
+		return strconv.FormatInt(ret, 10), nil
 	}
 	return ret, nil
 }
@@ -293,7 +296,7 @@ func (c *QValueAvroConverter) processGoDate() (interface{}, error) {
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == QDWHTypeSnowflake {
 		ret := t.UnixMicro()
-		return fmt.Sprint(ret), nil
+		return strconv.FormatInt(ret, 10), nil
 	}
 	return t, nil
 }
@@ -323,6 +326,9 @@ func (c *QValueAvroConverter) processNumeric() (interface{}, error) {
 		return nil, fmt.Errorf("invalid Numeric value: expected *big.Rat, got %T", c.Value.Value)
 	}
 
+	scale := numeric.PeerDBNumericScale
+	decimalValue := num.FloatString(scale)
+	num.SetString(decimalValue)
 	if c.Nullable {
 		return goavro.Union("bytes.decimal", num), nil
 	}
