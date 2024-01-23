@@ -54,7 +54,7 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(config *protos.QRepConfi
 	srcSchema *model.QRecordSchema,
 ) (*bigquery.TableMetadata, error) {
 	destDatasetTable, _ := c.convertToDatasetTable(config.DestinationTableIdentifier)
-	bqTable := c.client.Dataset(destDatasetTable.dataset).Table(destDatasetTable.table)
+	bqTable := c.client.DatasetInProject(c.projectID, destDatasetTable.dataset).Table(destDatasetTable.table)
 	dstTableMetadata, err := bqTable.Metadata(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get metadata of table %s: %w", destDatasetTable, err)
@@ -134,7 +134,7 @@ func (c *BigQueryConnector) SetupQRepMetadataTables(config *protos.QRepConfig) e
 	}
 
 	// reference the table
-	table := c.client.Dataset(c.datasetID).Table(qRepMetadataTableName)
+	table := c.client.DatasetInProject(c.projectID, c.datasetID).Table(qRepMetadataTableName)
 
 	// check if the table exists
 	meta, err := table.Metadata(c.ctx)
@@ -156,7 +156,10 @@ func (c *BigQueryConnector) SetupQRepMetadataTables(config *protos.QRepConfig) e
 	}
 
 	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		_, err = c.client.Query(fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier)).Read(c.ctx)
+		query := c.client.Query(fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
+		query.DefaultDatasetID = c.datasetID
+		query.DefaultProjectID = c.projectID
+		_, err = query.Read(c.ctx)
 		if err != nil {
 			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
 		}
@@ -172,6 +175,8 @@ func (c *BigQueryConnector) isPartitionSynced(partitionID string) (bool, error) 
 	)
 
 	query := c.client.Query(queryString)
+	query.DefaultDatasetID = c.datasetID
+	query.DefaultProjectID = c.projectID
 	it, err := query.Read(c.ctx)
 	if err != nil {
 		return false, fmt.Errorf("failed to execute query: %w", err)
