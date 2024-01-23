@@ -485,13 +485,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	c.logger.Info(fmt.Sprintf("pushing records to Snowflake table %s", rawTableIdentifier))
 
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
-	}
-	syncBatchID += 1
-
-	res, err := c.syncRecordsViaAvro(req, rawTableIdentifier, syncBatchID)
+	res, err := c.syncRecordsViaAvro(req, rawTableIdentifier, req.SyncBatchID)
 	if err != nil {
 		return nil, err
 	}
@@ -506,12 +500,12 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 		deferErr := syncRecordsTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
 			c.logger.Error("error while rolling back transaction for SyncRecords: %v",
-				slog.Any("error", deferErr), slog.Int64("syncBatchID", syncBatchID))
+				slog.Any("error", deferErr), slog.Int64("syncBatchID", req.SyncBatchID))
 		}
 	}()
 
 	// updating metadata with new offset and syncBatchID
-	err = c.updateSyncMetadata(req.FlowJobName, res.LastSyncedCheckpointID, syncBatchID, syncRecordsTx)
+	err = c.updateSyncMetadata(req.FlowJobName, res.LastSyncedCheckpointID, req.SyncBatchID, syncRecordsTx)
 	if err != nil {
 		return nil, err
 	}

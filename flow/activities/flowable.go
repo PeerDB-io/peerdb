@@ -252,24 +252,6 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	hasRecords := !recordBatch.WaitAndCheckEmpty()
 	slog.InfoContext(ctx, fmt.Sprintf("the current sync flow has records: %v", hasRecords))
-	if a.CatalogPool != nil && hasRecords {
-		syncBatchID, err := dstConn.GetLastSyncBatchID(flowName)
-		if err != nil && conn.Destination.Type != protos.DBType_EVENTHUB {
-			return nil, err
-		}
-
-		err = monitoring.AddCDCBatchForFlow(ctx, a.CatalogPool, flowName,
-			monitoring.CDCBatchInfo{
-				BatchID:     syncBatchID + 1,
-				RowsInBatch: 0,
-				BatchEndlSN: 0,
-				StartTime:   startTime,
-			})
-		if err != nil {
-			a.Alerter.LogFlowError(ctx, flowName, err)
-			return nil, err
-		}
-	}
 
 	if !hasRecords {
 		// wait for the pull goroutine to finish
@@ -292,8 +274,27 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		}, nil
 	}
 
+	syncBatchID, err := dstConn.GetLastSyncBatchID(flowName)
+	if err != nil && conn.Destination.Type != protos.DBType_EVENTHUB {
+		return nil, err
+	}
+	syncBatchID += 1
+
+	err = monitoring.AddCDCBatchForFlow(ctx, a.CatalogPool, flowName,
+		monitoring.CDCBatchInfo{
+			BatchID:     syncBatchID,
+			RowsInBatch: 0,
+			BatchEndlSN: 0,
+			StartTime:   startTime,
+		})
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, flowName, err)
+		return nil, err
+	}
+
 	syncStartTime := time.Now()
 	res, err := dstConn.SyncRecords(&model.SyncRecordsRequest{
+		SyncBatchID:   syncBatchID,
 		Records:       recordBatch,
 		FlowJobName:   input.FlowConnectionConfigs.FlowJobName,
 		TableMappings: input.FlowConnectionConfigs.TableMappings,
@@ -377,13 +378,13 @@ func (a *FlowableActivity) StartNormalize(
 	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
 		dstConn, err := connectors.GetCDCSyncConnector(ctx, conn.Destination)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get connector: %v", err)
+			return nil, fmt.Errorf("failed to get connector: %w", err)
 		}
 		defer connectors.CloseConnector(dstConn)
 
 		lastSyncBatchID, err := dstConn.GetLastSyncBatchID(input.FlowConnectionConfigs.FlowJobName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get last sync batch ID: %v", err)
+			return nil, fmt.Errorf("failed to get last sync batch ID: %w", err)
 		}
 
 		err = monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName,

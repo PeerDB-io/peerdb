@@ -273,11 +273,6 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	c.logger.Info(fmt.Sprintf("pushing records to Postgres table %s via COPY", rawTableIdentifier))
 
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
-	}
-	syncBatchID += 1
 	records := make([][]interface{}, 0)
 	tableNameRowsMapping := make(map[string]uint32)
 
@@ -299,7 +294,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				itemsJSON,
 				0,
 				"{}",
-				syncBatchID,
+				req.SyncBatchID,
 				"",
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
@@ -326,7 +321,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				newItemsJSON,
 				1,
 				oldItemsJSON,
-				syncBatchID,
+				req.SyncBatchID,
 				utils.KeysToString(typedRecord.UnchangedToastColumns),
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
@@ -346,7 +341,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				itemsJSON,
 				2,
 				itemsJSON,
-				syncBatchID,
+				req.SyncBatchID,
 				"",
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
@@ -356,7 +351,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}
 
 	tableSchemaDeltas := req.Records.WaitForSchemaDeltas(req.TableMappings)
-	err = c.ReplayTableSchemaDeltas(req.FlowJobName, tableSchemaDeltas)
+	err := c.ReplayTableSchemaDeltas(req.FlowJobName, tableSchemaDeltas)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
@@ -402,7 +397,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}
 
 	// updating metadata with new offset and syncBatchID
-	err = c.updateSyncMetadata(req.FlowJobName, lastCP, syncBatchID, syncRecordsTx)
+	err = c.updateSyncMetadata(req.FlowJobName, lastCP, req.SyncBatchID, syncRecordsTx)
 	if err != nil {
 		return nil, err
 	}
@@ -415,7 +410,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	return &model.SyncResponse{
 		LastSyncedCheckpointID: lastCP,
 		NumRecordsSynced:       int64(len(records)),
-		CurrentSyncBatchID:     syncBatchID,
+		CurrentSyncBatchID:     req.SyncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,
 		TableSchemaDeltas:      tableSchemaDeltas,
 	}, nil

@@ -184,14 +184,8 @@ func (c *S3Connector) SetLastOffset(jobName string, offset int64) error {
 }
 
 func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
-	}
-	syncBatchID += 1
-
 	tableNameRowsMapping := make(map[string]uint32)
-	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
+	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, req.SyncBatchID)
 	streamRes, err := utils.RecordsToRawTableStream(streamReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
@@ -202,7 +196,7 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 		DestinationTableIdentifier: fmt.Sprintf("raw_table_%s", req.FlowJobName),
 	}
 	partition := &protos.QRepPartition{
-		PartitionId: strconv.FormatInt(syncBatchID, 10),
+		PartitionId: strconv.FormatInt(req.SyncBatchID, 10),
 	}
 	numRecords, err := c.SyncQRepRecords(qrepConfig, partition, recordStream)
 	if err != nil {
