@@ -323,6 +323,9 @@ func (c *QValueAvroConverter) processNumeric() (interface{}, error) {
 		return nil, fmt.Errorf("invalid Numeric value: expected *big.Rat, got %T", c.Value.Value)
 	}
 
+	scale := 9
+	decimalValue := num.FloatString(scale)
+	num.SetString(decimalValue)
 	if c.Nullable {
 		return goavro.Union("bytes.decimal", num), nil
 	}
