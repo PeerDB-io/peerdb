@@ -121,7 +121,6 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		CurrentSyncBatchID:     syncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,
 		TableSchemaDeltas:      tableSchemaDeltas,
-		RelationMessageMapping: <-req.Records.RelationMessageMapping,
 	}, nil
 }
 

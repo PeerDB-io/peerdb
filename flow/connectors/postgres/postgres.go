@@ -418,7 +418,6 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		CurrentSyncBatchID:     syncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,
 		TableSchemaDeltas:      tableSchemaDeltas,
-		RelationMessageMapping: <-req.Records.RelationMessageMapping,
 	}, nil
 }
 

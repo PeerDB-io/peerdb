@@ -570,7 +570,6 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		CurrentSyncBatchID:     syncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,
 		TableSchemaDeltas:      tableSchemaDeltas,
-		RelationMessageMapping: <-req.Records.RelationMessageMapping,
 	}, nil
 }
 

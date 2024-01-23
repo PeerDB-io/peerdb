@@ -287,8 +287,8 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		}
 
 		return &model.SyncResponse{
-			RelationMessageMapping: <-recordBatch.RelationMessageMapping,
 			TableSchemaDeltas:      tableSchemaDeltas,
+			RelationMessageMapping: input.RelationMessageMapping,
 		}, nil
 	}
 
@@ -299,6 +299,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		TableMappings: input.FlowConnectionConfigs.TableMappings,
 		StagingPath:   input.FlowConnectionConfigs.CdcStagingPath,
 	})
+	res.RelationMessageMapping = input.RelationMessageMapping
 	if err != nil {
 		slog.Warn("failed to push records", slog.Any("error", err))
 		a.Alerter.LogFlowError(ctx, flowName, err)

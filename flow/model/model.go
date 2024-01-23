@@ -425,8 +425,6 @@ type CDCRecordStream struct {
 	records chan Record
 	// Schema changes from the slot
 	SchemaDeltas chan *protos.TableSchemaDelta
-	// Relation message mapping
-	RelationMessageMapping chan RelationMessageMapping
 	// Indicates if the last checkpoint has been set.
 	lastCheckpointSet bool
 	// lastCheckpointID is the last ID of the commit that corresponds to this batch.
@@ -440,11 +438,10 @@ func NewCDCRecordStream() *CDCRecordStream {
 	return &CDCRecordStream{
 		records: make(chan Record, channelBuffer),
 		// TODO (kaushik): more than 1024 schema deltas can cause problems!
-		SchemaDeltas:           make(chan *protos.TableSchemaDelta, 1<<10),
-		emptySignal:            make(chan bool, 1),
-		RelationMessageMapping: make(chan RelationMessageMapping, 1),
-		lastCheckpointSet:      false,
-		lastCheckpointID:       atomic.Int64{},
+		SchemaDeltas:      make(chan *protos.TableSchemaDelta, 1<<10),
+		emptySignal:       make(chan bool, 1),
+		lastCheckpointSet: false,
+		lastCheckpointID:  atomic.Int64{},
 	}
 }
 
@@ -515,7 +512,6 @@ func (r *CDCRecordStream) Close() {
 	close(r.emptySignal)
 	close(r.records)
 	close(r.SchemaDeltas)
-	close(r.RelationMessageMapping)
 	r.lastCheckpointSet = true
 }
 

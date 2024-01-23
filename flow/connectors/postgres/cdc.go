@@ -236,7 +236,6 @@ func (p *PostgresCDCSource) consumeStream(
 		if cdcRecordsStorage.IsEmpty() {
 			records.SignalAsEmpty()
 		}
-		records.RelationMessageMapping <- p.relationMessageMapping
 		p.logger.Info(fmt.Sprintf("[finished] PullRecords streamed %d records", cdcRecordsStorage.Len()))
 		err := cdcRecordsStorage.Close()
 		if err != nil {
