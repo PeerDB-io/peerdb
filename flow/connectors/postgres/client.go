@@ -408,18 +408,18 @@ func generateCreateTableSQLForNormalizedTable(
 ) string {
 	createTableSQLArray := make([]string, 0, utils.TableSchemaColumns(sourceTableSchema)+2)
 	utils.IterColumns(sourceTableSchema, func(columnName, genericColumnType string) {
-		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("\"%s\" %s,", columnName,
-			qValueKindToPostgresType(genericColumnType)))
+		createTableSQLArray = append(createTableSQLArray,
+			fmt.Sprintf("%s %s", QuoteIdentifier(columnName), qValueKindToPostgresType(genericColumnType)))
 	})
 
 	if softDeleteColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf(`%s BOOL DEFAULT FALSE,`, QuoteIdentifier(softDeleteColName)))
+			fmt.Sprintf(`%s BOOL DEFAULT FALSE`, QuoteIdentifier(softDeleteColName)))
 	}
 
 	if syncedAtColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf(`%s TIMESTAMP DEFAULT CURRENT_TIMESTAMP,`, QuoteIdentifier(syncedAtColName)))
+			fmt.Sprintf(`%s TIMESTAMP DEFAULT CURRENT_TIMESTAMP`, QuoteIdentifier(syncedAtColName)))
 	}
 
 	// add composite primary key to the table
@@ -428,12 +428,11 @@ func generateCreateTableSQLForNormalizedTable(
 		for _, primaryKeyCol := range sourceTableSchema.PrimaryKeyColumns {
 			primaryKeyColsQuoted = append(primaryKeyColsQuoted, QuoteIdentifier(primaryKeyCol))
 		}
-		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s),",
-			strings.TrimSuffix(strings.Join(primaryKeyColsQuoted, ","), ",")))
+		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s)",
+			strings.Join(primaryKeyColsQuoted, ",")))
 	}
 
-	return fmt.Sprintf(createNormalizedTableSQL, sourceTableIdentifier,
-		strings.TrimSuffix(strings.Join(createTableSQLArray, ""), ","))
+	return fmt.Sprintf(createNormalizedTableSQL, sourceTableIdentifier, strings.Join(createTableSQLArray, ","))
 }
 
 func (c *PostgresConnector) GetLastSyncBatchID(jobName string) (int64, error) {

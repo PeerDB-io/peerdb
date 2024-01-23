@@ -779,14 +779,14 @@ func generateCreateTableSQLForNormalizedTable(
 				slog.Any("error", err))
 			return
 		}
-		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`%s %s,`, normalizedColName, sfColType))
+		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`%s %s`, normalizedColName, sfColType))
 	})
 
 	// add a _peerdb_is_deleted column to the normalized table
 	// this is boolean default false, and is used to mark records as deleted
 	if softDeleteColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf(`%s BOOLEAN DEFAULT FALSE,`, softDeleteColName))
+			fmt.Sprintf(`%s BOOLEAN DEFAULT FALSE`, softDeleteColName))
 	}
 
 	// add a _peerdb_synced column to the normalized table
@@ -794,7 +794,7 @@ func generateCreateTableSQLForNormalizedTable(
 	// default value is the current timestamp (snowflake)
 	if syncedAtColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf(`%s TIMESTAMP DEFAULT CURRENT_TIMESTAMP,`, syncedAtColName))
+			fmt.Sprintf(`%s TIMESTAMP DEFAULT CURRENT_TIMESTAMP`, syncedAtColName))
 	}
 
 	// add composite primary key to the table
@@ -804,12 +804,12 @@ func generateCreateTableSQLForNormalizedTable(
 			normalizedPrimaryKeyCols = append(normalizedPrimaryKeyCols,
 				SnowflakeIdentifierNormalize(primaryKeyCol))
 		}
-		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s),",
-			strings.TrimSuffix(strings.Join(normalizedPrimaryKeyCols, ","), ",")))
+		createTableSQLArray = append(createTableSQLArray,
+			fmt.Sprintf("PRIMARY KEY(%s)", strings.Join(normalizedPrimaryKeyCols, ",")))
 	}
 
 	return fmt.Sprintf(createNormalizedTableSQL, snowflakeSchemaTableNormalize(dstSchemaTable),
-		strings.TrimSuffix(strings.Join(createTableSQLArray, ""), ","))
+		strings.Join(createTableSQLArray, ","))
 }
 
 func getRawTableIdentifier(jobName string) string {

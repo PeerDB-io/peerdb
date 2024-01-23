@@ -41,31 +41,31 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 		switch qvalue.QValueKind(genericColumnType) {
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:\"%s\") "+
-				"AS %s,", toVariantColumnName, columnName, targetColumnName))
+				"AS %s", toVariantColumnName, columnName, targetColumnName))
 		case qvalue.QValueKindGeography:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
-				fmt.Sprintf("TO_GEOGRAPHY(CAST(%s:\"%s\" AS STRING),true) AS %s,",
+				fmt.Sprintf("TO_GEOGRAPHY(CAST(%s:\"%s\" AS STRING),true) AS %s",
 					toVariantColumnName, columnName, targetColumnName))
 		case qvalue.QValueKindGeometry:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
-				fmt.Sprintf("TO_GEOMETRY(CAST(%s:\"%s\" AS STRING),true) AS %s,",
+				fmt.Sprintf("TO_GEOMETRY(CAST(%s:\"%s\" AS STRING),true) AS %s",
 					toVariantColumnName, columnName, targetColumnName))
 		case qvalue.QValueKindJSON, qvalue.QValueKindHStore:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
-				fmt.Sprintf("PARSE_JSON(CAST(%s:\"%s\" AS STRING)) AS %s,",
+				fmt.Sprintf("PARSE_JSON(CAST(%s:\"%s\" AS STRING)) AS %s",
 					toVariantColumnName, columnName, targetColumnName))
 		// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - handle time types and interval types
 		// case model.ColumnTypeTime:
 		// 	flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("TIME_FROM_PARTS(0,0,0,%s:%s:"+
 		// 		"Microseconds*1000) "+
-		// 		"AS %s,", toVariantColumnName, columnName, columnName))
+		// 		"AS %s", toVariantColumnName, columnName, columnName))
 		default:
 			if qvKind == qvalue.QValueKindNumeric {
 				flattenedCastsSQLArray = append(flattenedCastsSQLArray,
-					fmt.Sprintf("TRY_CAST((%s:\"%s\")::text AS %s) AS %s,",
+					fmt.Sprintf("TRY_CAST((%s:\"%s\")::text AS %s) AS %s",
 						toVariantColumnName, columnName, sfType, targetColumnName))
 			} else {
-				flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:\"%s\" AS %s) AS %s,",
+				flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:\"%s\" AS %s) AS %s",
 					toVariantColumnName, columnName, sfType, targetColumnName))
 			}
 		}
@@ -74,7 +74,7 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ""), ",")
+	flattenedCastsSQL := strings.Join(flattenedCastsSQLArray, ",")
 
 	quotedUpperColNames := make([]string, 0, len(columnNames))
 	for _, columnName := range columnNames {
@@ -85,7 +85,7 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 		fmt.Sprintf(`"%s"`, strings.ToUpper(m.peerdbCols.SyncedAtColName)),
 	)
 
-	insertColumnsSQL := strings.TrimSuffix(strings.Join(quotedUpperColNames, ","), ",")
+	insertColumnsSQL := strings.Join(quotedUpperColNames, ",")
 
 	insertValuesSQLArray := make([]string, 0, len(columnNames))
 	for _, columnName := range columnNames {

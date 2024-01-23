@@ -742,8 +742,8 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(flowJobName string,
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			_, err = tableSchemaModifyTx.Exec(c.ctx, fmt.Sprintf(
-				"ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
-				schemaDelta.DstTableName, addedColumn.ColumnName,
+				"ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s",
+				schemaDelta.DstTableName, QuoteIdentifier(addedColumn.ColumnName),
 				qValueKindToPostgresType(addedColumn.ColumnType)))
 			if err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
