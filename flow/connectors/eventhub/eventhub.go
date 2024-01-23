@@ -302,9 +302,5 @@ func (c *EventHubConnector) SetupNormalizedTables(
 }
 
 func (c *EventHubConnector) SyncFlowCleanup(jobName string) error {
-	err := c.pgMetadata.DropMetadata(jobName)
-	if err != nil {
-		return err
-	}
-	return nil
+	return c.pgMetadata.DropMetadata(jobName)
 }
