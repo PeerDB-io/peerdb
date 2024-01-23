@@ -3,8 +3,9 @@ package e2e_bigquery
 import (
 	"fmt"
 
-	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/stretchr/testify/require"
+
+	"github.com/PeerDB-io/peer-flow/e2e"
 )
 
 func (s PeerFlowE2ETestSuiteBQ) setupSourceTable(tableName string, rowCount int) {

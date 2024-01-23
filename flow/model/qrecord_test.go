@@ -4,11 +4,12 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestEquals(t *testing.T) {

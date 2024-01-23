@@ -8,14 +8,15 @@ import (
 	"strings"
 	"time"
 
+	_ "github.com/snowflakedb/gosnowflake"
+	"go.temporal.io/sdk/activity"
+
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	_ "github.com/snowflakedb/gosnowflake"
-	"go.temporal.io/sdk/activity"
 )
 
 type SnowflakeAvroSyncHandler struct {

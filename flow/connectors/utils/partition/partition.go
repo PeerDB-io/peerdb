@@ -5,11 +5,11 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
-
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
 // Function to compare two values
