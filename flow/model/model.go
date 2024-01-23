@@ -525,7 +525,8 @@ type SyncAndNormalizeBatchID struct {
 }
 
 type SyncRecordsRequest struct {
-	Records *CDCRecordStream
+	SyncBatchID int64
+	Records     *CDCRecordStream
 	// FlowJobName is the name of the flow job.
 	FlowJobName string
 	// SyncMode to use for pushing raw records

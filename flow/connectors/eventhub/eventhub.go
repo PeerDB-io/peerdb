@@ -249,16 +249,10 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		return nil, err
 	}
 
-	rowsSynced := int64(numRecords)
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		c.logger.Error("failed to get last sync batch id", slog.Any("error", err))
-	}
-
 	return &model.SyncResponse{
-		CurrentSyncBatchID:     syncBatchID,
+		CurrentSyncBatchID:     req.SyncBatchID,
 		LastSyncedCheckPointID: lastCheckpoint,
-		NumRecordsSynced:       rowsSynced,
+		NumRecordsSynced:       int64(numRecords),
 		TableNameRowsMapping:   make(map[string]uint32),
 		TableSchemaDeltas:      req.Records.WaitForSchemaDeltas(req.TableMappings),
 	}, nil

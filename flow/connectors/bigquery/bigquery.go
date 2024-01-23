@@ -479,15 +479,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 	c.logger.Info(fmt.Sprintf("pushing records to %s.%s...", c.datasetID, rawTableName))
 
-	// generate a sequential number for last synced batch this sequence will be
-	// used to keep track of records that are normalized in NormalizeFlowWorkflow
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
-	}
-	syncBatchID += 1
-
-	res, err := c.syncRecordsViaAvro(req, rawTableName, syncBatchID)
+	res, err := c.syncRecordsViaAvro(req, rawTableName, req.SyncBatchID)
 	if err != nil {
 		return nil, err
 	}
