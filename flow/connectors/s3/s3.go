@@ -248,9 +248,5 @@ func (c *S3Connector) SetupNormalizedTables(req *protos.SetupNormalizedTableBatc
 }
 
 func (c *S3Connector) SyncFlowCleanup(jobName string) error {
-	err := c.pgMetadata.DropMetadata(jobName)
-	if err != nil {
-		return err
-	}
-	return nil
+	return c.pgMetadata.DropMetadata(jobName)
 }
