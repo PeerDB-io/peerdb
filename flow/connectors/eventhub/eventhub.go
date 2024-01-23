@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -132,11 +133,8 @@ func (c *EventHubConnector) processBatch(
 	lastUpdatedOffset := int64(0)
 
 	numRecords := atomic.Uint32{}
-	shutdown := utils.HeartbeatRoutine(c.ctx, 10*time.Second, func() string {
-		return fmt.Sprintf(
-			"processed %d records for flow %s",
-			numRecords.Load(), flowJobName,
-		)
+	shutdown := utils.HeartbeatRoutine(c.ctx, func() string {
+		return fmt.Sprintf("processed %d records for flow %s", numRecords.Load(), flowJobName)
 	})
 	defer shutdown()
 
@@ -158,7 +156,7 @@ func (c *EventHubConnector) processBatch(
 
 			numRecords.Add(1)
 
-			recordLSN := record.GetCheckPointID()
+			recordLSN := record.GetCheckpointID()
 			if recordLSN > lastSeenLSN {
 				lastSeenLSN = recordLSN
 			}
@@ -252,19 +250,12 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		return nil, err
 	}
 
-	rowsSynced := int64(numRecords)
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		c.logger.Error("failed to get last sync batch id", slog.Any("error", err))
-	}
-
 	return &model.SyncResponse{
-		CurrentSyncBatchID:     syncBatchID,
-		LastSyncedCheckPointID: lastCheckpoint,
-		NumRecordsSynced:       rowsSynced,
+		CurrentSyncBatchID:     req.SyncBatchID,
+		LastSyncedCheckpointID: lastCheckpoint,
+		NumRecordsSynced:       int64(numRecords),
 		TableNameRowsMapping:   make(map[string]uint32),
 		TableSchemaDeltas:      req.Records.WaitForSchemaDeltas(req.TableMappings),
-		RelationMessageMapping: <-req.Records.RelationMessageMapping,
 	}, nil
 }
 

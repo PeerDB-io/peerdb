@@ -6,22 +6,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/snowflakedb/gosnowflake"
+	"go.temporal.io/sdk/activity"
+	"golang.org/x/sync/errgroup"
+
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/snowflakedb/gosnowflake"
-	"go.temporal.io/sdk/activity"
-	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -383,12 +383,12 @@ func (c *SnowflakeConnector) getTableNametoUnchangedCols(flowJobName string, syn
 		var r UnchangedToastColumnResult
 		err := rows.Scan(&r.TableName, &r.UnchangedToastColumns)
 		if err != nil {
-			log.Fatalf("Failed to scan row: %v", err)
+			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 		resultMap[r.TableName] = r.UnchangedToastColumns
 	}
 	if err := rows.Err(); err != nil {
-		log.Fatalf("Error iterating over rows: %v", err)
+		return nil, fmt.Errorf("error iterating over rows: %w", err)
 	}
 	return resultMap, nil
 }
@@ -418,6 +418,7 @@ func (c *SnowflakeConnector) SetupNormalizedTables(
 			return nil, fmt.Errorf("[sf] error while creating normalized table: %w", err)
 		}
 		tableExistsMapping[tableIdentifier] = false
+		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("created table %s", tableIdentifier))
 	}
 
 	return &protos.SetupNormalizedTableBatchOutput{
@@ -484,13 +485,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	c.logger.Info(fmt.Sprintf("pushing records to Snowflake table %s", rawTableIdentifier))
 
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
-	}
-	syncBatchID += 1
-
-	res, err := c.syncRecordsViaAvro(req, rawTableIdentifier, syncBatchID)
+	res, err := c.syncRecordsViaAvro(req, rawTableIdentifier, req.SyncBatchID)
 	if err != nil {
 		return nil, err
 	}
@@ -505,12 +500,12 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 		deferErr := syncRecordsTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
 			c.logger.Error("error while rolling back transaction for SyncRecords: %v",
-				slog.Any("error", deferErr), slog.Int64("syncBatchID", syncBatchID))
+				slog.Any("error", deferErr), slog.Int64("syncBatchID", req.SyncBatchID))
 		}
 	}()
 
 	// updating metadata with new offset and syncBatchID
-	err = c.updateSyncMetadata(req.FlowJobName, res.LastSyncedCheckPointID, syncBatchID, syncRecordsTx)
+	err = c.updateSyncMetadata(req.FlowJobName, res.LastSyncedCheckpointID, req.SyncBatchID, syncRecordsTx)
 	if err != nil {
 		return nil, err
 	}
@@ -541,7 +536,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		DestinationTableIdentifier: strings.ToLower(fmt.Sprintf("%s.%s", c.metadataSchema,
 			rawTableIdentifier)),
 	}
-	avroSyncer := NewSnowflakeAvroSyncMethod(qrepConfig, c)
+	avroSyncer := NewSnowflakeAvroSyncHandler(qrepConfig, c)
 	destinationTableSchema, err := c.getTableSchema(qrepConfig.DestinationTableIdentifier)
 	if err != nil {
 		return nil, err
@@ -564,12 +559,11 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 	}
 
 	return &model.SyncResponse{
-		LastSyncedCheckPointID: lastCheckpoint,
+		LastSyncedCheckpointID: lastCheckpoint,
 		NumRecordsSynced:       int64(numRecords),
 		CurrentSyncBatchID:     syncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,
 		TableSchemaDeltas:      tableSchemaDeltas,
-		RelationMessageMapping: <-req.Records.RelationMessageMapping,
 	}, nil
 }
 

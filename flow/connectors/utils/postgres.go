@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
 func IsUniqueError(err error) bool {
@@ -62,6 +63,10 @@ func RegisterHStore(ctx context.Context, conn *pgx.Conn) error {
 	var hstoreOID uint32
 	err := conn.QueryRow(context.Background(), `select oid from pg_type where typname = 'hstore'`).Scan(&hstoreOID)
 	if err != nil {
+		// hstore isn't present, just proceed
+		if err == pgx.ErrNoRows {
+			return nil
+		}
 		return err
 	}
 

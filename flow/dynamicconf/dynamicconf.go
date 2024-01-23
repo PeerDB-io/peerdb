@@ -6,9 +6,10 @@ import (
 	"strconv"
 	"time"
 
-	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 )
 
 func dynamicConfKeyExists(ctx context.Context, conn *pgxpool.Pool, key string) bool {

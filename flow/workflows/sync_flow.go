@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model"
 )
 
 type SyncFlowState struct {
@@ -64,7 +65,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 
 	startFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 72 * time.Hour,
-		HeartbeatTimeout:    30 * time.Second,
+		HeartbeatTimeout:    time.Minute,
 		WaitForCancellation: true,
 	})
 

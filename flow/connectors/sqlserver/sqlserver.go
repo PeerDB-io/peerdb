@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/jmoiron/sqlx"
+	_ "github.com/microsoft/go-mssqldb"
+
 	peersql "github.com/PeerDB-io/peer-flow/connectors/sql"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/jmoiron/sqlx"
-	_ "github.com/microsoft/go-mssqldb"
 )
 
 type SQLServerConnector struct {

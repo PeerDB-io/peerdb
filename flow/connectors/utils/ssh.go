@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
 // getSSHClientConfig returns an *ssh.ClientConfig based on provided credentials.
@@ -13,17 +15,17 @@ import (
 //	user: SSH username
 //	password: SSH password (can be empty if using a private key)
 //	privateKeyString: Private key as a string (can be empty if using a password)
-func GetSSHClientConfig(user, password, privateKeyString string) (*ssh.ClientConfig, error) {
+func GetSSHClientConfig(config *protos.SSHConfig) (*ssh.ClientConfig, error) {
 	var authMethods []ssh.AuthMethod
 
 	// Password-based authentication
-	if password != "" {
-		authMethods = append(authMethods, ssh.Password(password))
+	if config.Password != "" {
+		authMethods = append(authMethods, ssh.Password(config.Password))
 	}
 
 	// Private key-based authentication
-	if privateKeyString != "" {
-		pkey, err := base64.StdEncoding.DecodeString(privateKeyString)
+	if config.PrivateKey != "" {
+		pkey, err := base64.StdEncoding.DecodeString(config.PrivateKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to base64 decode private key: %w", err)
 		}
@@ -40,10 +42,21 @@ func GetSSHClientConfig(user, password, privateKeyString string) (*ssh.ClientCon
 		return nil, fmt.Errorf("no authentication methods provided")
 	}
 
-	return &ssh.ClientConfig{
-		User: user,
-		Auth: authMethods,
+	var hostKeyCallback ssh.HostKeyCallback
+	if config.HostKey != "" {
+		pubKey, err := ssh.ParsePublicKey([]byte(config.HostKey))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse host key: %w", err)
+		}
+		hostKeyCallback = ssh.FixedHostKey(pubKey)
+	} else {
 		//nolint:gosec
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		hostKeyCallback = ssh.InsecureIgnoreHostKey()
+	}
+
+	return &ssh.ClientConfig{
+		User:            config.User,
+		Auth:            authMethods,
+		HostKeyCallback: hostKeyCallback,
 	}, nil
 }

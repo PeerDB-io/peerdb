@@ -12,6 +12,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
+	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
@@ -57,8 +58,8 @@ type PullRecordsRequest struct {
 }
 
 type Record interface {
-	// GetCheckPointID returns the ID of the record.
-	GetCheckPointID() int64
+	// GetCheckpointID returns the ID of the record.
+	GetCheckpointID() int64
 	// get table name
 	GetDestinationTableName() string
 	// get columns and values for the record
@@ -215,7 +216,7 @@ func (r *RecordItems) toMap(hstoreAsJSON bool) (map[string]interface{}, error) {
 			if !ok {
 				return nil, errors.New("expected *big.Rat value")
 			}
-			jsonStruct[col] = bigRat.FloatString(9)
+			jsonStruct[col] = bigRat.FloatString(numeric.PeerDBNumericScale)
 		case qvalue.QValueKindFloat64:
 			floatVal, ok := v.Value.(float64)
 			if !ok {
@@ -338,8 +339,8 @@ type InsertRecord struct {
 	SourceTableName string
 	// Name of the destination table
 	DestinationTableName string
-	// CheckPointID is the ID of the record.
-	CheckPointID int64
+	// CheckpointID is the ID of the record.
+	CheckpointID int64
 	// CommitID is the ID of the commit corresponding to this record.
 	CommitID int64
 	// Items is a map of column name to value.
@@ -347,8 +348,8 @@ type InsertRecord struct {
 }
 
 // Implement Record interface for InsertRecord.
-func (r *InsertRecord) GetCheckPointID() int64 {
-	return r.CheckPointID
+func (r *InsertRecord) GetCheckpointID() int64 {
+	return r.CheckpointID
 }
 
 func (r *InsertRecord) GetDestinationTableName() string {
@@ -362,8 +363,8 @@ func (r *InsertRecord) GetItems() *RecordItems {
 type UpdateRecord struct {
 	// Name of the source table
 	SourceTableName string
-	// CheckPointID is the ID of the record.
-	CheckPointID int64
+	// CheckpointID is the ID of the record.
+	CheckpointID int64
 	// Name of the destination table
 	DestinationTableName string
 	// OldItems is a map of column name to value.
@@ -375,8 +376,8 @@ type UpdateRecord struct {
 }
 
 // Implement Record interface for UpdateRecord.
-func (r *UpdateRecord) GetCheckPointID() int64 {
-	return r.CheckPointID
+func (r *UpdateRecord) GetCheckpointID() int64 {
+	return r.CheckpointID
 }
 
 // Implement Record interface for UpdateRecord.
@@ -393,8 +394,8 @@ type DeleteRecord struct {
 	SourceTableName string
 	// Name of the destination table
 	DestinationTableName string
-	// CheckPointID is the ID of the record.
-	CheckPointID int64
+	// CheckpointID is the ID of the record.
+	CheckpointID int64
 	// Items is a map of column name to value.
 	Items *RecordItems
 	// unchanged toast columns, filled from latest UpdateRecord
@@ -402,8 +403,8 @@ type DeleteRecord struct {
 }
 
 // Implement Record interface for DeleteRecord.
-func (r *DeleteRecord) GetCheckPointID() int64 {
-	return r.CheckPointID
+func (r *DeleteRecord) GetCheckpointID() int64 {
+	return r.CheckpointID
 }
 
 func (r *DeleteRecord) GetDestinationTableName() string {
@@ -425,12 +426,10 @@ type CDCRecordStream struct {
 	records chan Record
 	// Schema changes from the slot
 	SchemaDeltas chan *protos.TableSchemaDelta
-	// Relation message mapping
-	RelationMessageMapping chan RelationMessageMapping
 	// Indicates if the last checkpoint has been set.
 	lastCheckpointSet bool
-	// lastCheckPointID is the last ID of the commit that corresponds to this batch.
-	lastCheckPointID atomic.Int64
+	// lastCheckpointID is the last ID of the commit that corresponds to this batch.
+	lastCheckpointID atomic.Int64
 	// empty signal to indicate if the records are going to be empty or not.
 	emptySignal chan bool
 }
@@ -440,20 +439,19 @@ func NewCDCRecordStream() *CDCRecordStream {
 	return &CDCRecordStream{
 		records: make(chan Record, channelBuffer),
 		// TODO (kaushik): more than 1024 schema deltas can cause problems!
-		SchemaDeltas:           make(chan *protos.TableSchemaDelta, 1<<10),
-		emptySignal:            make(chan bool, 1),
-		RelationMessageMapping: make(chan RelationMessageMapping, 1),
-		lastCheckpointSet:      false,
-		lastCheckPointID:       atomic.Int64{},
+		SchemaDeltas:      make(chan *protos.TableSchemaDelta, 1<<10),
+		emptySignal:       make(chan bool, 1),
+		lastCheckpointSet: false,
+		lastCheckpointID:  atomic.Int64{},
 	}
 }
 
 func (r *CDCRecordStream) UpdateLatestCheckpoint(val int64) {
 	// TODO update with https://github.com/golang/go/issues/63999 once implemented
-	// r.lastCheckPointID.Max(val)
-	oldLast := r.lastCheckPointID.Load()
-	for oldLast < val && !r.lastCheckPointID.CompareAndSwap(oldLast, val) {
-		oldLast = r.lastCheckPointID.Load()
+	// r.lastCheckpointID.Max(val)
+	oldLast := r.lastCheckpointID.Load()
+	for oldLast < val && !r.lastCheckpointID.CompareAndSwap(oldLast, val) {
+		oldLast = r.lastCheckpointID.Load()
 	}
 }
 
@@ -461,7 +459,7 @@ func (r *CDCRecordStream) GetLastCheckpoint() (int64, error) {
 	if !r.lastCheckpointSet {
 		return 0, errors.New("last checkpoint not set, stream is still active")
 	}
-	return r.lastCheckPointID.Load(), nil
+	return r.lastCheckpointID.Load(), nil
 }
 
 func (r *CDCRecordStream) AddRecord(record Record) {
@@ -515,7 +513,6 @@ func (r *CDCRecordStream) Close() {
 	close(r.emptySignal)
 	close(r.records)
 	close(r.SchemaDeltas)
-	close(r.RelationMessageMapping)
 	r.lastCheckpointSet = true
 }
 
@@ -529,7 +526,8 @@ type SyncAndNormalizeBatchID struct {
 }
 
 type SyncRecordsRequest struct {
-	Records *CDCRecordStream
+	SyncBatchID int64
+	Records     *CDCRecordStream
 	// FlowJobName is the name of the flow job.
 	FlowJobName string
 	// SyncMode to use for pushing raw records
@@ -549,8 +547,8 @@ type NormalizeRecordsRequest struct {
 }
 
 type SyncResponse struct {
-	// LastSyncedCheckPointID is the last ID that was synced.
-	LastSyncedCheckPointID int64
+	// LastSyncedCheckpointID is the last ID that was synced.
+	LastSyncedCheckpointID int64
 	// NumRecordsSynced is the number of records that were synced.
 	NumRecordsSynced int64
 	// CurrentSyncBatchID is the ID of the currently synced batch.
@@ -572,13 +570,13 @@ type NormalizeResponse struct {
 
 // being clever and passing the delta back as a regular record instead of heavy CDC refactoring.
 type RelationRecord struct {
-	CheckPointID     int64
-	TableSchemaDelta *protos.TableSchemaDelta
+	CheckpointID     int64                    `json:"checkpointId"`
+	TableSchemaDelta *protos.TableSchemaDelta `json:"tableSchemaDelta"`
 }
 
 // Implement Record interface for RelationRecord.
-func (r *RelationRecord) GetCheckPointID() int64 {
-	return r.CheckPointID
+func (r *RelationRecord) GetCheckpointID() int64 {
+	return r.CheckpointID
 }
 
 func (r *RelationRecord) GetDestinationTableName() string {

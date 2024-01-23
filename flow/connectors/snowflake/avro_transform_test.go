@@ -11,7 +11,7 @@ func TestAvroTransform(t *testing.T) {
 		`$1:"col3" AS "COL3",` +
 		`($1:"camelCol4")::STRING AS "camelCol4",` +
 		`CURRENT_TIMESTAMP AS "SYNC_COL"`
-	transform, cols := GetTransformSQL(colNames, colTypes, "sync_col")
+	transform, cols := getTransformSQL(colNames, colTypes, "sync_col")
 	if transform != expectedTransform {
 		t.Errorf("Transform SQL is not correct. Got: %v", transform)
 	}

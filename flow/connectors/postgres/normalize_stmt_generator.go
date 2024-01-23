@@ -6,10 +6,11 @@ import (
 	"slices"
 	"strings"
 
+	"golang.org/x/exp/maps"
+
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"golang.org/x/exp/maps"
 )
 
 type normalizeStmtGenerator struct {

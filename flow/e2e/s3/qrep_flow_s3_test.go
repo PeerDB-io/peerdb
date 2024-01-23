@@ -8,12 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/e2eshared"
-	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
+
+	"github.com/PeerDB-io/peer-flow/e2e"
+	"github.com/PeerDB-io/peer-flow/e2eshared"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type PeerFlowE2ETestSuiteS3 struct {
@@ -39,7 +40,7 @@ func (s PeerFlowE2ETestSuiteS3) Suffix() string {
 func tearDownSuite(s PeerFlowE2ETestSuiteS3) {
 	e2e.TearDownPostgres(s)
 
-	err := s.s3Helper.CleanUp()
+	err := s.s3Helper.CleanUp(context.Background())
 	if err != nil {
 		require.Fail(s.t, "failed to clean up s3", err)
 	}
@@ -143,7 +144,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 
 	require.NoError(s.t, err)
 
-	require.Equal(s.t, 1, len(files))
+	require.Len(s.t, files, 1)
 }
 
 func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
@@ -192,5 +193,5 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 
 	require.NoError(s.t, err)
 
-	require.Equal(s.t, 10, len(files))
+	require.Len(s.t, files, 10)
 }

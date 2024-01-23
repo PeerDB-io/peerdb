@@ -8,6 +8,7 @@ import (
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -37,8 +38,8 @@ func NewClickhouseConnector(ctx context.Context,
 }
 
 func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, error) {
-	dsn := fmt.Sprintf("tcp://%s:%d?username=%s&password=%s", //&database=%s"
-		config.Host, config.Port, config.User, config.Password) //, config.Database
+	dsn := fmt.Sprintf("tcp://%s:%d?username=%s&password=%s", // TODO &database=%s"
+		config.Host, config.Port, config.User, config.Password) // TODO , config.Database
 
 	conn, err := sql.Open("clickhouse", dsn)
 	if err != nil {

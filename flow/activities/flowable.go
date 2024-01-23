@@ -9,6 +9,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pglogrepl"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"go.temporal.io/sdk/activity"
+	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/PeerDB-io/peer-flow/connectors"
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
@@ -20,13 +28,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/PeerDB-io/peer-flow/shared/alerting"
-	"github.com/jackc/pglogrepl"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"go.temporal.io/sdk/activity"
-	"golang.org/x/sync/errgroup"
-	"google.golang.org/protobuf/proto"
 )
 
 // CheckConnectionResult is the result of a CheckConnection call.
@@ -218,7 +219,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	go a.recordSlotSizePeriodically(errCtx, srcConn, slotNameForMetrics, input.FlowConnectionConfigs.Source.Name)
 
-	shutdown := utils.HeartbeatRoutine(ctx, 10*time.Second, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		jobName := input.FlowConnectionConfigs.FlowJobName
 		return fmt.Sprintf("transferring records for job - %s", jobName)
 	})
@@ -251,24 +252,6 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	hasRecords := !recordBatch.WaitAndCheckEmpty()
 	slog.InfoContext(ctx, fmt.Sprintf("the current sync flow has records: %v", hasRecords))
-	if a.CatalogPool != nil && hasRecords {
-		syncBatchID, err := dstConn.GetLastSyncBatchID(flowName)
-		if err != nil && conn.Destination.Type != protos.DBType_EVENTHUB {
-			return nil, err
-		}
-
-		err = monitoring.AddCDCBatchForFlow(ctx, a.CatalogPool, flowName,
-			monitoring.CDCBatchInfo{
-				BatchID:     syncBatchID + 1,
-				RowsInBatch: 0,
-				BatchEndlSN: 0,
-				StartTime:   startTime,
-			})
-		if err != nil {
-			a.Alerter.LogFlowError(ctx, flowName, err)
-			return nil, err
-		}
-	}
 
 	if !hasRecords {
 		// wait for the pull goroutine to finish
@@ -286,18 +269,38 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		}
 
 		return &model.SyncResponse{
-			RelationMessageMapping: <-recordBatch.RelationMessageMapping,
 			TableSchemaDeltas:      tableSchemaDeltas,
+			RelationMessageMapping: input.RelationMessageMapping,
 		}, nil
+	}
+
+	syncBatchID, err := dstConn.GetLastSyncBatchID(flowName)
+	if err != nil && conn.Destination.Type != protos.DBType_EVENTHUB {
+		return nil, err
+	}
+	syncBatchID += 1
+
+	err = monitoring.AddCDCBatchForFlow(ctx, a.CatalogPool, flowName,
+		monitoring.CDCBatchInfo{
+			BatchID:     syncBatchID,
+			RowsInBatch: 0,
+			BatchEndlSN: 0,
+			StartTime:   startTime,
+		})
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, flowName, err)
+		return nil, err
 	}
 
 	syncStartTime := time.Now()
 	res, err := dstConn.SyncRecords(&model.SyncRecordsRequest{
+		SyncBatchID:   syncBatchID,
 		Records:       recordBatch,
 		FlowJobName:   input.FlowConnectionConfigs.FlowJobName,
 		TableMappings: input.FlowConnectionConfigs.TableMappings,
 		StagingPath:   input.FlowConnectionConfigs.CdcStagingPath,
 	})
+	res.RelationMessageMapping = input.RelationMessageMapping
 	if err != nil {
 		slog.Warn("failed to push records", slog.Any("error", err))
 		a.Alerter.LogFlowError(ctx, flowName, err)
@@ -375,13 +378,13 @@ func (a *FlowableActivity) StartNormalize(
 	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
 		dstConn, err := connectors.GetCDCSyncConnector(ctx, conn.Destination)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get connector: %v", err)
+			return nil, fmt.Errorf("failed to get connector: %w", err)
 		}
 		defer connectors.CloseConnector(dstConn)
 
 		lastSyncBatchID, err := dstConn.GetLastSyncBatchID(input.FlowConnectionConfigs.FlowJobName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get last sync batch ID: %v", err)
+			return nil, fmt.Errorf("failed to get last sync batch ID: %w", err)
 		}
 
 		err = monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName,
@@ -392,7 +395,7 @@ func (a *FlowableActivity) StartNormalize(
 	}
 	defer connectors.CloseConnector(dstConn)
 
-	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("normalizing records from batch for job - %s", input.FlowConnectionConfigs.FlowJobName)
 	})
 	defer shutdown()
@@ -461,7 +464,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	}
 	defer connectors.CloseConnector(srcConn)
 
-	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("getting partitions for job - %s", config.FlowJobName)
 	})
 	defer shutdown()
@@ -550,6 +553,10 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	defer connectors.CloseConnector(dstConn)
 
 	slog.InfoContext(ctx, fmt.Sprintf("replicating partition %s\n", partition.PartitionId))
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
+		return fmt.Sprintf("syncing partition - %s: %d of %d total.", partition.PartitionId, idx, total)
+	})
+	defer shutdown()
 
 	var stream *model.QRecordStream
 	bufferSize := shared.FetchAndChannelSize
@@ -572,7 +579,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 				err = monitoring.UpdatePullEndTimeAndRowsForPartition(ctx,
 					a.CatalogPool, runUUID, partition, numRecords)
 				if err != nil {
-					slog.ErrorContext(ctx, fmt.Sprintf("%v", err))
+					slog.ErrorContext(ctx, err.Error())
 					goroutineErr = err
 				}
 			}
@@ -598,11 +605,6 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 			return fmt.Errorf("failed to convert to qrecord stream: %w", err)
 		}
 	}
-
-	shutdown := utils.HeartbeatRoutine(ctx, 1*time.Minute, func() string {
-		return fmt.Sprintf("syncing partition - %s: %d of %d total.", partition.PartitionId, idx, total)
-	})
-	defer shutdown()
 
 	rowsSynced, err := dstConn.SyncQRepRecords(config, partition, stream)
 	if err != nil {
@@ -641,8 +643,9 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	} else if err != nil {
 		return err
 	}
+	defer connectors.CloseConnector(dstConn)
 
-	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("consolidating partitions for job - %s", config.FlowJobName)
 	})
 	defer shutdown()
@@ -664,6 +667,8 @@ func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.Q
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return err
 	}
+
+	defer dst.Close()
 
 	return dst.CleanupQRepFlow(config)
 }
@@ -799,7 +804,21 @@ func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
 	attemptCount := 1
 	for {
 		activity.RecordHeartbeat(ctx, fmt.Sprintf("no new rows yet, attempt #%d", attemptCount))
-		time.Sleep(waitBetweenBatches)
+		waitUntil := time.Now().Add(waitBetweenBatches)
+		for {
+			sleep := time.Until(waitUntil)
+			if sleep > 15*time.Second {
+				sleep = 15 * time.Second
+			}
+			time.Sleep(sleep)
+
+			activity.RecordHeartbeat(ctx, "heartbeat while waiting before next batch")
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("cancelled while waiting for new rows: %w", err)
+			} else if time.Now().After(waitUntil) {
+				break
+			}
+		}
 
 		result, err := pgSrcConn.CheckForUpdatedMaxValue(config, last)
 		if err != nil {
@@ -826,6 +845,11 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
 	defer connectors.CloseConnector(dstConn)
+
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
+		return fmt.Sprintf("renaming tables for job - %s", config.FlowJobName)
+	})
+	defer shutdown()
 
 	if config.Peer.Type == protos.DBType_SNOWFLAKE {
 		sfConn, ok := dstConn.(*connsnowflake.SnowflakeConnector)
@@ -939,14 +963,14 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 		err = monitoring.UpdatePullEndTimeAndRowsForPartition(
 			errCtx, a.CatalogPool, runUUID, partition, int64(numRecords))
 		if err != nil {
-			slog.Error(fmt.Sprintf("%v", err))
+			slog.Error(err.Error())
 			return err
 		}
 
 		return nil
 	})
 
-	shutdown := utils.HeartbeatRoutine(ctx, 5*time.Minute, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return "syncing xmin."
 	})
 	defer shutdown()
@@ -980,4 +1004,25 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	}
 
 	return currentSnapshotXmin, nil
+}
+
+func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *protos.FlowConnectionConfigs,
+	additionalTableMappings []*protos.TableMapping,
+) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
+	srcConn, err := connectors.GetCDCPullConnector(ctx, cfg.Source)
+	if err != nil {
+		return fmt.Errorf("failed to get source connector: %w", err)
+	}
+	defer connectors.CloseConnector(srcConn)
+
+	err = srcConn.AddTablesToPublication(&protos.AddTablesToPublicationInput{
+		FlowJobName:      cfg.FlowJobName,
+		PublicationName:  cfg.PublicationName,
+		AdditionalTables: additionalTableMappings,
+	})
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
+	}
+	return err
 }

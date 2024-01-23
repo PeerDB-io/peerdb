@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model"
 )
 
 type NormalizeFlowState struct {
@@ -50,7 +51,7 @@ func (s *NormalizeFlowExecution) executeNormalizeFlow(
 
 	normalizeFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 7 * 24 * time.Hour,
-		HeartbeatTimeout:    5 * time.Minute,
+		HeartbeatTimeout:    time.Minute,
 	})
 
 	startNormalizeInput := &protos.StartNormalizeInput{

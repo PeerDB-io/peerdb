@@ -43,3 +43,4 @@ jobs:
           prettier_dir: ui
           eslint_args: "--max-warnings 0"
           eslint_extensions: js,ts,jsx,tsx
+          prettier_extensions: js,ts,jsx,tsx,json

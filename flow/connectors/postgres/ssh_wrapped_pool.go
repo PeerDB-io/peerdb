@@ -8,10 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/ssh"
+
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
 type SSHWrappedPostgresPool struct {
@@ -39,11 +40,7 @@ func NewSSHWrappedPostgresPool(
 	if sshConfig != nil {
 		sshServer = fmt.Sprintf("%s:%d", sshConfig.Host, sshConfig.Port)
 		var err error
-		clientConfig, err = utils.GetSSHClientConfig(
-			sshConfig.User,
-			sshConfig.Password,
-			sshConfig.PrivateKey,
-		)
+		clientConfig, err = utils.GetSSHClientConfig(sshConfig)
 		if err != nil {
 			slog.Error("Failed to get SSH client config", slog.Any("error", err))
 			cancel()
@@ -137,18 +134,21 @@ func (swpp *SSHWrappedPostgresPool) Close() {
 
 type retryFunc func() error
 
-func retryWithBackoff(fn retryFunc, maxRetries int, backoff time.Duration) (err error) {
-	for i := 0; i < maxRetries; i++ {
-		err = fn()
+func retryWithBackoff(fn retryFunc, maxRetries int, backoff time.Duration) error {
+	i := 0
+	for {
+		err := fn()
 		if err == nil {
 			return nil
 		}
-		if i < maxRetries-1 {
+		i += 1
+		if i < maxRetries {
 			slog.Info(fmt.Sprintf("Attempt #%d failed, retrying in %s", i+1, backoff))
 			time.Sleep(backoff)
+		} else {
+			return err
 		}
 	}
-	return err
 }
 
 // see: https://github.com/jackc/pgx/issues/382#issuecomment-1496586216

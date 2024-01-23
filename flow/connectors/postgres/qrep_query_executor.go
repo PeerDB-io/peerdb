@@ -4,19 +4,18 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"go.temporal.io/sdk/activity"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/geo"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
-
-	"go.temporal.io/sdk/activity"
 )
 
 type QRepQueryExecutor struct {
@@ -84,7 +83,7 @@ func (qe *QRepQueryExecutor) executeQueryInTx(tx pgx.Tx, cursorName string, fetc
 	q := fmt.Sprintf("FETCH %d FROM %s", fetchSize, cursorName)
 
 	if !qe.testEnv {
-		shutdown := utils.HeartbeatRoutine(qe.ctx, 1*time.Minute, func() string {
+		shutdown := utils.HeartbeatRoutine(qe.ctx, func() string {
 			qe.logger.Info(fmt.Sprintf("still running '%s'...", q))
 			return fmt.Sprintf("running '%s'", q)
 		})

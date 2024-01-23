@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	connclickhouse "github.com/PeerDB-io/peer-flow/connectors/clickhouse"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
@@ -15,7 +17,6 @@ import (
 	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var ErrUnsupportedFunctionality = errors.New("requested connector does not support functionality")
@@ -35,7 +36,7 @@ type CDCPullConnector interface {
 	EnsurePullability(req *protos.EnsurePullabilityBatchInput) (
 		*protos.EnsurePullabilityBatchOutput, error)
 
-	// Methods related to retrieving and pusing records for this connector as a source and destination.
+	// Methods related to retrieving and pushing records for this connector as a source and destination.
 
 	// PullRecords pulls records from the source, and returns a RecordBatch.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
@@ -49,6 +50,9 @@ type CDCPullConnector interface {
 
 	// GetOpenConnectionsForUser returns the number of open connections for the user configured in the peer.
 	GetOpenConnectionsForUser() (*protos.GetOpenConnectionsForUserResult, error)
+
+	// AddTablesToPublication adds additional tables added to a mirror to the publication also
+	AddTablesToPublication(req *protos.AddTablesToPublicationInput) error
 }
 
 type CDCSyncConnector interface {

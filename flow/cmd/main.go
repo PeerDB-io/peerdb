@@ -8,9 +8,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/urfave/cli/v3"
 	_ "go.uber.org/automaxprocs"
+
+	"github.com/PeerDB-io/peer-flow/logger"
 )
 
 func main() {

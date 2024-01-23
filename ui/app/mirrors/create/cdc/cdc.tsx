@@ -6,7 +6,7 @@ import { Icon } from '@/lib/Icon';
 import { Dispatch, SetStateAction, useMemo, useState } from 'react';
 import { CDCConfig, MirrorSetter, TableMapRow } from '../../../dto/MirrorsDTO';
 import { MirrorSetting } from '../helpers/common';
-import CDCFields from './fields';
+import CDCField from './fields';
 import TableMapping from './tablemapping';
 
 interface MirrorConfigProps {
@@ -55,6 +55,8 @@ export default function CDCConfigForm({
     const label = setting.label.toLowerCase();
     if (
       (label.includes('snapshot') && mirrorConfig.doInitialSnapshot !== true) ||
+      (label === 'replication slot name' &&
+        mirrorConfig.doInitialSnapshot === true) ||
       (label.includes('staging path') &&
         defaultSyncMode(mirrorConfig.destination?.type) !== 'AVRO')
     ) {
@@ -69,7 +71,7 @@ export default function CDCConfigForm({
         {normalSettings.map((setting, id) => {
           return (
             paramDisplayCondition(setting) && (
-              <CDCFields
+              <CDCField
                 key={id}
                 handleChange={handleChange}
                 setting={setting}
@@ -99,7 +101,7 @@ export default function CDCConfigForm({
         {show &&
           advancedSettings.map((setting, id) => {
             return (
-              <CDCFields
+              <CDCField
                 key={id}
                 handleChange={handleChange}
                 setting={setting}

@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/stretchr/testify/require"
 )
 
 func getTimeForTesting(t *testing.T) time.Time {
@@ -47,7 +48,7 @@ func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record) {
 	rec := &model.InsertRecord{
 		SourceTableName:      "test_src_tbl",
 		DestinationTableName: "test_dst_tbl",
-		CheckPointID:         1,
+		CheckpointID:         1,
 		CommitID:             2,
 		Items: &model.RecordItems{
 			ColToValIdx: map[string]int{
@@ -83,7 +84,7 @@ func TestSingleRecord(t *testing.T) {
 	err := cdcRecordsStore.Set(key, rec)
 	require.NoError(t, err)
 	// should not spill into DB
-	require.Equal(t, 1, len(cdcRecordsStore.inMemoryRecords))
+	require.Len(t, cdcRecordsStore.inMemoryRecords, 1)
 	require.Nil(t, cdcRecordsStore.pebbleDB)
 
 	reck, ok, err := cdcRecordsStore.Get(key)
@@ -100,11 +101,11 @@ func TestRecordsTillSpill(t *testing.T) {
 	cdcRecordsStore.numRecordsSwitchThreshold = 10
 
 	// add records upto set limit
-	for i := 0; i < 10; i++ {
+	for i := 1; i <= 10; i++ {
 		key, rec := genKeyAndRec(t)
 		err := cdcRecordsStore.Set(key, rec)
 		require.NoError(t, err)
-		require.Equal(t, i+1, len(cdcRecordsStore.inMemoryRecords))
+		require.Len(t, cdcRecordsStore.inMemoryRecords, i)
 		require.Nil(t, cdcRecordsStore.pebbleDB)
 	}
 

@@ -40,11 +40,11 @@ func (p *hstoreParser) atEnd() bool {
 }
 
 // consume returns the next byte of the string, or end if the string is done.
-func (p *hstoreParser) consume() (b byte, end bool) {
+func (p *hstoreParser) consume() (byte, bool) {
 	if p.pos >= len(p.str) {
 		return 0, true
 	}
-	b = p.str[p.pos]
+	b := p.str[p.pos]
 	p.pos++
 	return b, false
 }

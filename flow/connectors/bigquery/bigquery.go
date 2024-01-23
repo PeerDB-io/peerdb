@@ -12,17 +12,17 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"go.temporal.io/sdk/activity"
+	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
+
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	cc "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/jackc/pgx/v5/pgxpool"
-
-	"go.temporal.io/sdk/activity"
-	"google.golang.org/api/iterator"
-	"google.golang.org/api/option"
 )
 
 const (
@@ -479,15 +479,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 	c.logger.Info(fmt.Sprintf("pushing records to %s.%s...", c.datasetID, rawTableName))
 
-	// generate a sequential number for last synced batch this sequence will be
-	// used to keep track of records that are normalized in NormalizeFlowWorkflow
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
-	}
-	syncBatchID += 1
-
-	res, err := c.syncRecordsViaAvro(req, rawTableName, syncBatchID)
+	res, err := c.syncRecordsViaAvro(req, rawTableName, req.SyncBatchID)
 	if err != nil {
 		return nil, err
 	}
@@ -834,6 +826,7 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 		datasetTablesSet[*datasetTable] = struct{}{}
 		// log that table was created
 		c.logger.Info(fmt.Sprintf("created table %s", tableIdentifier))
+		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("created table %s", tableIdentifier))
 	}
 
 	return &protos.SetupNormalizedTableBatchOutput{

@@ -7,25 +7,40 @@ linters:
     - durationcheck
     - errcheck
     - forbidigo
+    - gci
+    - gocritic
     - gofumpt
     - gosec
     - gosimple
+    - ineffassign
+    - lll
     - misspell
+    - musttag
     - nakedret
     - nolintlint
+    - nonamedreturns
+    - perfsprint
+    - prealloc
     - staticcheck
     - stylecheck
     - sqlclosecheck
+    - testifylint
+    - thelper
     - unconvert
     - unparam
-    - whitespace
-    - prealloc
-    - thelper
-    - ineffassign
     - unparam
     - unused
-    - lll
+    - wastedassign
+    - whitespace
 linters-settings:
+  gci:
+    sections:
+      - standard
+      - 'prefix(github.com/PeerDB-io)'
+      - default
+  gocritic:
+    disabled-checks:
+      - ifElseChain
   stylecheck:
     checks:
       - all

@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"google.golang.org/api/iterator"
+	"google.golang.org/protobuf/encoding/protojson"
+
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
-
-	"google.golang.org/api/iterator"
-	"google.golang.org/protobuf/encoding/protojson"
 )
 
 func (c *BigQueryConnector) SyncQRepRecords(

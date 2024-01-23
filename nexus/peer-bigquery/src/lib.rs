@@ -82,18 +82,17 @@ impl BigQueryQueryExecutor {
             .client
             .job()
             .query(&self.project_id, query_req)
-            .await
-            .map_err(|err| {
-                tracing::error!("error running query: {}", err);
-                PgWireError::ApiError(err.into())
-            })?;
+            .await;
 
         token.end().await.map_err(|err| {
             tracing::error!("error closing tracking token: {}", err);
             PgWireError::ApiError(err.into())
         })?;
 
-        Ok(result_set)
+        result_set.map_err(|err| {
+            tracing::error!("error running query: {}", err);
+            PgWireError::ApiError(err.into())
+        })
     }
 }
 

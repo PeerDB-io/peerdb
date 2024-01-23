@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"log/slog"
 
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/proto"
+
+	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
 func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName string) (*protos.PostgresConfig, error) {
@@ -60,16 +62,9 @@ func (h *FlowRequestHandler) GetSchemas(
 		return &protos.PeerSchemasResponse{Schemas: nil}, err
 	}
 
-	defer rows.Close()
-	var schemas []string
-	for rows.Next() {
-		var schema string
-		err := rows.Scan(&schema)
-		if err != nil {
-			return &protos.PeerSchemasResponse{Schemas: nil}, err
-		}
-
-		schemas = append(schemas, schema)
+	schemas, err := pgx.CollectRows[string](rows, pgx.RowTo)
+	if err != nil {
+		return &protos.PeerSchemasResponse{Schemas: nil}, err
 	}
 	return &protos.PeerSchemasResponse{Schemas: schemas}, nil
 }

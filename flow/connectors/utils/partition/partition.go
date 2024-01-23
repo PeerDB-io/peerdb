@@ -5,11 +5,11 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
-
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
 // Function to compare two values
@@ -45,14 +45,12 @@ func compareValues(prevEnd interface{}, start interface{}) int {
 			return -1
 		} else if pe.BlockNumber > v.BlockNumber {
 			return 1
+		} else if pe.OffsetNumber < v.OffsetNumber {
+			return -1
+		} else if pe.OffsetNumber > v.OffsetNumber {
+			return 1
 		} else {
-			if pe.OffsetNumber < v.OffsetNumber {
-				return -1
-			} else if pe.OffsetNumber > v.OffsetNumber {
-				return 1
-			} else {
-				return 0
-			}
+			return 0
 		}
 	case uint32: // xmin
 		if prevEnd.(uint32) < v {

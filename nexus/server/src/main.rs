@@ -66,11 +66,7 @@ impl AuthSource for FixedPasswordAuthSource {
         // randomly generate a 4 byte salt
         let salt = rand::thread_rng().gen::<[u8; 4]>();
         let password = &self.password;
-        let hash_password = hash_md5_password(
-            login_info.user().unwrap_or(""),
-            password,
-            &salt,
-        );
+        let hash_password = hash_md5_password(login_info.user().unwrap_or(""), password, &salt);
         Ok(Password::new(
             Some(salt.to_vec()),
             hash_password.as_bytes().to_vec(),
@@ -116,9 +112,9 @@ impl NexusBackend {
     ) -> PgWireResult<Vec<Response<'a>>> {
         let res = executor.execute(stmt).await?;
         match res {
-            QueryOutput::AffectedRows(rows) => Ok(vec![Response::Execution(
-                Tag::new("OK").with_rows(rows),
-            )]),
+            QueryOutput::AffectedRows(rows) => {
+                Ok(vec![Response::Execution(Tag::new("OK").with_rows(rows))])
+            }
             QueryOutput::Stream(rows) => {
                 let schema = rows.schema();
                 let res = sendable_stream_to_query_response(schema, rows)?;
@@ -134,17 +130,13 @@ impl NexusBackend {
                 match cm {
                     peer_cursor::CursorModification::Created(cursor_name) => {
                         peer_cursors.add_cursor(cursor_name, peer_holder.unwrap());
-                        Ok(vec![Response::Execution(Tag::new(
-                            "DECLARE CURSOR",
-                        ))])
+                        Ok(vec![Response::Execution(Tag::new("DECLARE CURSOR"))])
                     }
                     peer_cursor::CursorModification::Closed(cursors) => {
                         for cursor_name in cursors {
                             peer_cursors.remove_cursor(&cursor_name);
                         }
-                        Ok(vec![Response::Execution(Tag::new(
-                            "CLOSE CURSOR",
-                        ))])
+                        Ok(vec![Response::Execution(Tag::new("CLOSE CURSOR"))])
                     }
                 }
             }
@@ -187,9 +179,7 @@ impl NexusBackend {
     ) -> PgWireResult<Vec<Response<'static>>> {
         if if_not_exists {
             let existing_mirror_success = "MIRROR ALREADY EXISTS";
-            Ok(vec![Response::Execution(Tag::new(
-                existing_mirror_success,
-            ))])
+            Ok(vec![Response::Execution(Tag::new(existing_mirror_success))])
         } else {
             Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
@@ -272,6 +262,7 @@ impl NexusBackend {
                                 flow_job_name,
                                 workflow_details,
                                 pt::peerdb_flow::FlowStatus::StatusTerminated,
+                                None,
                             )
                             .await
                             .map_err(|err| {
@@ -288,14 +279,10 @@ impl NexusBackend {
                                 )
                             })?;
                         let drop_mirror_success = format!("DROP MIRROR {}", flow_job_name);
-                        Ok(vec![Response::Execution(Tag::new(
-                            &drop_mirror_success,
-                        ))])
+                        Ok(vec![Response::Execution(Tag::new(&drop_mirror_success))])
                     } else if *if_exists {
                         let no_mirror_success = "NO SUCH MIRROR";
-                        Ok(vec![Response::Execution(Tag::new(
-                            no_mirror_success,
-                        ))])
+                        Ok(vec![Response::Execution(Tag::new(no_mirror_success))])
                     } else {
                         Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                             "ERROR".to_owned(),
@@ -347,16 +334,12 @@ impl NexusBackend {
                         if qrep_flow_job.disabled {
                             let create_mirror_success =
                                 format!("CREATE MIRROR {}", qrep_flow_job.name);
-                            return Ok(vec![Response::Execution(Tag::new(
-                                &create_mirror_success,
-                            ))]);
+                            return Ok(vec![Response::Execution(Tag::new(&create_mirror_success))]);
                         }
 
                         let _workflow_id = self.run_qrep_mirror(qrep_flow_job).await?;
                         let create_mirror_success = format!("CREATE MIRROR {}", qrep_flow_job.name);
-                        Ok(vec![Response::Execution(Tag::new(
-                            &create_mirror_success,
-                        ))])
+                        Ok(vec![Response::Execution(Tag::new(&create_mirror_success))])
                     } else {
                         Self::handle_mirror_existence(*if_not_exists, &qrep_flow_job.name)
                     }
@@ -396,9 +379,7 @@ impl NexusBackend {
                             e.to_string(),
                         )))
                     })?;
-                    Ok(vec![Response::Execution(Tag::new(
-                        "OK",
-                    ))])
+                    Ok(vec![Response::Execution(Tag::new("OK"))])
                 }
                 PeerDDL::CreateMirrorForCDC {
                     if_not_exists,
@@ -477,9 +458,7 @@ impl NexusBackend {
                             })?;
 
                         let create_mirror_success = format!("CREATE MIRROR {}", flow_job.name);
-                        Ok(vec![Response::Execution(Tag::new(
-                            &create_mirror_success,
-                        ))])
+                        Ok(vec![Response::Execution(Tag::new(&create_mirror_success))])
                     } else {
                         Self::handle_mirror_existence(*if_not_exists, &flow_job.name)
                     }
@@ -506,9 +485,7 @@ impl NexusBackend {
                     } {
                         let workflow_id = self.run_qrep_mirror(&job).await?;
                         let create_mirror_success = format!("STARTED WORKFLOW {}", workflow_id);
-                        Ok(vec![Response::Execution(Tag::new(
-                            &create_mirror_success,
-                        ))])
+                        Ok(vec![Response::Execution(Tag::new(&create_mirror_success))])
                     } else {
                         Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                             "ERROR".to_owned(),
@@ -550,14 +527,10 @@ impl NexusBackend {
                             PgWireError::ApiError(format!("unable to drop peer: {:?}", err).into())
                         })?;
                         let drop_peer_success = format!("DROP PEER {}", peer_name);
-                        Ok(vec![Response::Execution(Tag::new(
-                            &drop_peer_success,
-                        ))])
+                        Ok(vec![Response::Execution(Tag::new(&drop_peer_success))])
                     } else if *if_exists {
                         let no_peer_success = "NO SUCH PEER";
-                        Ok(vec![Response::Execution(Tag::new(
-                            no_peer_success,
-                        ))])
+                        Ok(vec![Response::Execution(Tag::new(no_peer_success))])
                     } else {
                         Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                             "ERROR".to_owned(),
@@ -638,15 +611,11 @@ impl NexusBackend {
                                 })?;
 
                             let resync_mirror_success = format!("RESYNC MIRROR {}", mirror_name);
-                            Ok(vec![Response::Execution(Tag::new(
-                                &resync_mirror_success,
-                            ))])
+                            Ok(vec![Response::Execution(Tag::new(&resync_mirror_success))])
                         }
                         None => {
                             let no_peer_success = "NO SUCH QREP MIRROR";
-                            Ok(vec![Response::Execution(Tag::new(
-                                no_peer_success,
-                            ))])
+                            Ok(vec![Response::Execution(Tag::new(no_peer_success))])
                         }
                     }
                 }
@@ -687,6 +656,7 @@ impl NexusBackend {
                                 flow_job_name,
                                 workflow_details,
                                 pt::peerdb_flow::FlowStatus::StatusPaused,
+                                None,
                             )
                             .await
                             .map_err(|err| {
@@ -695,14 +665,10 @@ impl NexusBackend {
                                 )
                             })?;
                         let drop_mirror_success = format!("PAUSE MIRROR {}", flow_job_name);
-                        Ok(vec![Response::Execution(Tag::new(
-                            &drop_mirror_success,
-                        ))])
+                        Ok(vec![Response::Execution(Tag::new(&drop_mirror_success))])
                     } else if *if_exists {
                         let no_mirror_success = "NO SUCH MIRROR";
-                        Ok(vec![Response::Execution(Tag::new(
-                            no_mirror_success,
-                        ))])
+                        Ok(vec![Response::Execution(Tag::new(no_mirror_success))])
                     } else {
                         Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                             "ERROR".to_owned(),
@@ -748,6 +714,7 @@ impl NexusBackend {
                                 flow_job_name,
                                 workflow_details,
                                 pt::peerdb_flow::FlowStatus::StatusRunning,
+                                None,
                             )
                             .await
                             .map_err(|err| {
@@ -755,15 +722,11 @@ impl NexusBackend {
                                     format!("unable to resume flow job: {:?}", err).into(),
                                 )
                             })?;
-                        let drop_mirror_success = format!("RESUME MIRROR {}", flow_job_name);
-                        Ok(vec![Response::Execution(Tag::new(
-                            &drop_mirror_success,
-                        ))])
+                        let resume_mirror_success = format!("RESUME MIRROR {}", flow_job_name);
+                        Ok(vec![Response::Execution(Tag::new(&resume_mirror_success))])
                     } else if *if_exists {
                         let no_mirror_success = "NO SUCH MIRROR";
-                        Ok(vec![Response::Execution(Tag::new(
-                            no_mirror_success,
-                        ))])
+                        Ok(vec![Response::Execution(Tag::new(no_mirror_success))])
                     } else {
                         Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                             "ERROR".to_owned(),

@@ -4,11 +4,12 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestEquals(t *testing.T) {
@@ -79,7 +80,7 @@ func TestEquals(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, e2eshared.CheckQRecordEquality(t, tt.q1, tt.q2), tt.want)
+			assert.Equal(t, tt.want, e2eshared.CheckQRecordEquality(t, tt.q1, tt.q2))
 		})
 	}
 }

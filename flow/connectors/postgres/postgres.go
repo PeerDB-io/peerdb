@@ -5,7 +5,14 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
@@ -13,11 +20,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // PostgresConnector is a Connector implementation for Postgres.
@@ -205,8 +207,7 @@ func (c *PostgresConnector) PullRecords(catalogPool *pgxpool.Pool, req *model.Pu
 		slotName = req.OverrideReplicationSlotName
 	}
 
-	// Publication name would be the job name prefixed with "peerflow_pub_"
-	publicationName := fmt.Sprintf("peerflow_pub_%s", req.FlowJobName)
+	publicationName := c.getDefaultPublicationName(req.FlowJobName)
 	if req.OverridePublicationName != "" {
 		publicationName = req.OverridePublicationName
 	}
@@ -272,11 +273,6 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	c.logger.Info(fmt.Sprintf("pushing records to Postgres table %s via COPY", rawTableIdentifier))
 
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
-	}
-	syncBatchID += 1
 	records := make([][]interface{}, 0)
 	tableNameRowsMapping := make(map[string]uint32)
 
@@ -298,7 +294,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				itemsJSON,
 				0,
 				"{}",
-				syncBatchID,
+				req.SyncBatchID,
 				"",
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
@@ -325,7 +321,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				newItemsJSON,
 				1,
 				oldItemsJSON,
-				syncBatchID,
+				req.SyncBatchID,
 				utils.KeysToString(typedRecord.UnchangedToastColumns),
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
@@ -345,7 +341,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				itemsJSON,
 				2,
 				itemsJSON,
-				syncBatchID,
+				req.SyncBatchID,
 				"",
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
@@ -355,14 +351,14 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}
 
 	tableSchemaDeltas := req.Records.WaitForSchemaDeltas(req.TableMappings)
-	err = c.ReplayTableSchemaDeltas(req.FlowJobName, tableSchemaDeltas)
+	err := c.ReplayTableSchemaDeltas(req.FlowJobName, tableSchemaDeltas)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
 	if len(records) == 0 {
 		return &model.SyncResponse{
-			LastSyncedCheckPointID: 0,
+			LastSyncedCheckpointID: 0,
 			NumRecordsSynced:       0,
 		}, nil
 	}
@@ -401,7 +397,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}
 
 	// updating metadata with new offset and syncBatchID
-	err = c.updateSyncMetadata(req.FlowJobName, lastCP, syncBatchID, syncRecordsTx)
+	err = c.updateSyncMetadata(req.FlowJobName, lastCP, req.SyncBatchID, syncRecordsTx)
 	if err != nil {
 		return nil, err
 	}
@@ -412,12 +408,11 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}
 
 	return &model.SyncResponse{
-		LastSyncedCheckPointID: lastCP,
+		LastSyncedCheckpointID: lastCP,
 		NumRecordsSynced:       int64(len(records)),
-		CurrentSyncBatchID:     syncBatchID,
+		CurrentSyncBatchID:     req.SyncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,
 		TableSchemaDeltas:      tableSchemaDeltas,
-		RelationMessageMapping: <-req.Records.RelationMessageMapping,
 	}, nil
 }
 
@@ -473,7 +468,7 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		}
 	}()
 
-	supportsMerge, err := c.majorVersionCheck(150000)
+	supportsMerge, _, err := c.MajorVersionCheck(POSTGRES_15)
 	if err != nil {
 		return nil, err
 	}
@@ -788,6 +783,16 @@ func (c *PostgresConnector) EnsurePullability(
 			return nil, err
 		}
 
+		tableIdentifierMapping[tableName] = &protos.PostgresTableIdentifier{
+			RelId: relID,
+		}
+
+		if !req.CheckConstraints {
+			msg := fmt.Sprintf("[no-constraints] ensured pullability table %s", tableName)
+			utils.RecordHeartbeatWithRecover(c.ctx, msg)
+			continue
+		}
+
 		replicaIdentity, replErr := c.getReplicaIdentityType(schemaTable)
 		if replErr != nil {
 			return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
@@ -799,13 +804,11 @@ func (c *PostgresConnector) EnsurePullability(
 		}
 
 		// we only allow no primary key if the table has REPLICA IDENTITY FULL
+		// this is ok for replica identity index as we populate the primary key columns
 		if len(pKeyCols) == 0 && !(replicaIdentity == ReplicaIdentityFull) {
 			return nil, fmt.Errorf("table %s has no primary keys and does not have REPLICA IDENTITY FULL", schemaTable)
 		}
 
-		tableIdentifierMapping[tableName] = &protos.PostgresTableIdentifier{
-			RelId: relID,
-		}
 		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("ensured pullability table %s", tableName))
 	}
 
@@ -826,8 +829,7 @@ func (c *PostgresConnector) SetupReplication(signal SlotSignal, req *protos.Setu
 		slotName = req.ExistingReplicationSlotName
 	}
 
-	// Publication name would be the job name prefixed with "peerflow_pub_"
-	publicationName := fmt.Sprintf("peerflow_pub_%s", req.FlowJobName)
+	publicationName := c.getDefaultPublicationName(req.FlowJobName)
 	if req.ExistingPublicationName != "" {
 		publicationName = req.ExistingPublicationName
 	}
@@ -859,8 +861,7 @@ func (c *PostgresConnector) PullFlowCleanup(jobName string) error {
 	// Slotname would be the job name prefixed with "peerflow_slot_"
 	slotName := fmt.Sprintf("peerflow_slot_%s", jobName)
 
-	// Publication name would be the job name prefixed with "peerflow_pub_"
-	publicationName := fmt.Sprintf("peerflow_pub_%s", jobName)
+	publicationName := c.getDefaultPublicationName(jobName)
 
 	pullFlowCleanupTx, err := c.pool.Begin(c.ctx)
 	if err != nil {
@@ -937,4 +938,43 @@ func (c *PostgresConnector) GetOpenConnectionsForUser() (*protos.GetOpenConnecti
 		UserName:               c.config.User,
 		CurrentOpenConnections: result.Int64,
 	}, nil
+}
+
+func (c *PostgresConnector) AddTablesToPublication(req *protos.AddTablesToPublicationInput) error {
+	// don't modify custom publications
+	if req == nil || len(req.AdditionalTables) == 0 {
+		return nil
+	}
+
+	additionalSrcTables := make([]string, 0, len(req.AdditionalTables))
+	for _, additionalTableMapping := range req.AdditionalTables {
+		additionalSrcTables = append(additionalSrcTables, additionalTableMapping.SourceTableIdentifier)
+	}
+
+	// just check if we have all the tables already in the publication
+	if req.PublicationName != "" {
+		rows, err := c.pool.Query(c.ctx,
+			"SELECT tablename FROM pg_publication_tables WHERE pubname=$1", req.PublicationName)
+		if err != nil {
+			return fmt.Errorf("failed to check tables in publication: %w", err)
+		}
+
+		tableNames, err := pgx.CollectRows[string](rows, pgx.RowTo)
+		if err != nil {
+			return fmt.Errorf("failed to check tables in publication: %w", err)
+		}
+		notPresentTables := utils.ArrayMinus(tableNames, additionalSrcTables)
+		if len(notPresentTables) > 0 {
+			return fmt.Errorf("some additional tables not present in custom publication: %s",
+				strings.Join(notPresentTables, ", "))
+		}
+	}
+
+	additionalSrcTablesString := strings.Join(additionalSrcTables, ",")
+	_, err := c.pool.Exec(c.ctx, fmt.Sprintf("ALTER PUBLICATION %s ADD TABLE %s",
+		c.getDefaultPublicationName(req.FlowJobName), additionalSrcTablesString))
+	if err != nil {
+		return fmt.Errorf("failed to alter publication: %w", err)
+	}
+	return nil
 }

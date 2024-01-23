@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"time"
 
+	"go.temporal.io/sdk/workflow"
+
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"go.temporal.io/sdk/workflow"
 )
 
 func DropFlowWorkflow(ctx workflow.Context, req *protos.ShutdownRequest) error {

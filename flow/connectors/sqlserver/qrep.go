@@ -6,12 +6,13 @@ import (
 	"log/slog"
 	"text/template"
 
-	utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jmoiron/sqlx"
+
+	utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model"
 )
 
 func (c *SQLServerConnector) GetQRepPartitions(

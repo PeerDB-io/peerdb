@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type XminFlowExecution struct {
@@ -78,7 +79,7 @@ func XminFlowWorkflow(
 	var lastPartition int64
 	replicateXminPartitionCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * 5 * time.Hour,
-		HeartbeatTimeout:    5 * time.Minute,
+		HeartbeatTimeout:    time.Minute,
 	})
 	err = workflow.ExecuteActivity(
 		replicateXminPartitionCtx,
@@ -119,7 +120,8 @@ func XminFlowWorkflow(
 	q.receiveAndHandleSignalAsync(ctx)
 	if x.activeSignal == shared.PauseSignal {
 		startTime := time.Now()
-		signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+		signalChan := workflow.GetSignalChannel(ctx, shared.FlowSignalName)
 		var signalVal shared.CDCFlowSignal
 
 		for x.activeSignal == shared.PauseSignal {
@@ -131,8 +133,9 @@ func XminFlowWorkflow(
 			}
 		}
 	}
-	if x.activeSignal == shared.ShutdownSignal {
-		x.logger.Info("terminating workflow - ", config.FlowJobName)
+	if q.activeSignal == shared.ShutdownSignal {
+		q.logger.Info("terminating workflow - ", config.FlowJobName)
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_TERMINATED
 		return nil
 	}
 

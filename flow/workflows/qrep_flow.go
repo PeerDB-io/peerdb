@@ -6,13 +6,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type QRepFlowExecution struct {
@@ -42,6 +43,7 @@ func NewQRepFlowState() *protos.QRepFlowState {
 		},
 		NumPartitionsProcessed: 0,
 		NeedsResync:            true,
+		CurrentFlowStatus:      protos.FlowStatus_STATUS_RUNNING,
 	}
 }
 
@@ -151,7 +153,7 @@ func (q *QRepFlowExecution) GetPartitions(
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Hour,
-		HeartbeatTimeout:    5 * time.Minute,
+		HeartbeatTimeout:    time.Minute,
 	})
 
 	partitionsFuture := workflow.ExecuteActivity(ctx, flowable.GetQRepPartitions, q.config, last, q.runUUID)
@@ -170,7 +172,7 @@ func (q *QRepPartitionFlowExecution) ReplicatePartitions(ctx workflow.Context,
 ) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * 5 * time.Hour,
-		HeartbeatTimeout:    5 * time.Minute,
+		HeartbeatTimeout:    time.Minute,
 	})
 
 	msg := fmt.Sprintf("replicating partition batch - %d", partitions.BatchId)
@@ -279,7 +281,7 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 	// only an operation for Snowflake currently.
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * time.Hour,
-		HeartbeatTimeout:    10 * time.Minute,
+		HeartbeatTimeout:    time.Minute,
 	})
 
 	if err := workflow.ExecuteActivity(ctx, flowable.ConsolidateQRepPartitions, q.config,
@@ -302,10 +304,9 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 func (q *QRepFlowExecution) waitForNewRows(ctx workflow.Context, lastPartition *protos.QRepPartition) error {
 	q.logger.Info("idling until new rows are detected")
 
-	waitActivityTimeout := time.Duration(q.config.WaitBetweenBatchesSeconds+60) * time.Second
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 16 * 365 * 24 * time.Hour, // 16 years
-		HeartbeatTimeout:    waitActivityTimeout,
+		HeartbeatTimeout:    time.Minute,
 	})
 
 	if err := workflow.ExecuteActivity(ctx, flowable.QRepWaitUntilNewRows, q.config,
@@ -321,7 +322,7 @@ func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, s
 		renamedTableIdentifier := fmt.Sprintf("%s_peerdb_resync", q.config.DestinationTableIdentifier)
 		createTablesFromExistingCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 10 * time.Minute,
-			HeartbeatTimeout:    2 * time.Minute,
+			HeartbeatTimeout:    time.Minute,
 		})
 		createTablesFromExistingFuture := workflow.ExecuteActivity(
 			createTablesFromExistingCtx, flowable.CreateTablesFromExisting, &protos.CreateTablesFromExistingInput{
@@ -354,7 +355,7 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 
 		renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 30 * time.Minute,
-			HeartbeatTimeout:    5 * time.Minute,
+			HeartbeatTimeout:    time.Minute,
 		})
 		renameTablesFuture := workflow.ExecuteActivity(renameTablesCtx, flowable.RenameTables, renameOpts)
 		if err := renameTablesFuture.Get(renameTablesCtx, nil); err != nil {
@@ -367,7 +368,7 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 }
 
 func (q *QRepFlowExecution) receiveAndHandleSignalAsync(ctx workflow.Context) {
-	signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
+	signalChan := workflow.GetSignalChannel(ctx, shared.FlowSignalName)
 
 	var signalVal shared.CDCFlowSignal
 	ok := signalChan.ReceiveAsync(&signalVal)
@@ -386,8 +387,8 @@ func setWorkflowQueries(ctx workflow.Context, state *protos.QRepFlowState) error
 	}
 
 	// Support a Query for the current status of the qrep flow.
-	err = workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (*protos.FlowStatus, error) {
-		return &state.CurrentFlowState, nil
+	err = workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (protos.FlowStatus, error) {
+		return state.CurrentFlowStatus, nil
 	})
 	if err != nil {
 		return fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
@@ -395,7 +396,7 @@ func setWorkflowQueries(ctx workflow.Context, state *protos.QRepFlowState) error
 
 	// Support an Update for the current status of the qrep flow.
 	err = workflow.SetUpdateHandler(ctx, shared.FlowStatusUpdate, func(status *protos.FlowStatus) error {
-		state.CurrentFlowState = *status
+		state.CurrentFlowStatus = *status
 		return nil
 	})
 	if err != nil {
@@ -427,6 +428,15 @@ func QRepFlowWorkflow(
 	err := setWorkflowQueries(ctx, state)
 	if err != nil {
 		return err
+	}
+
+	// Support an Update for the current status of the qrep flow.
+	err = workflow.SetUpdateHandler(ctx, shared.FlowStatusUpdate, func(status *protos.FlowStatus) error {
+		state.CurrentFlowStatus = *status
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to register query handler: %w", err)
 	}
 
 	// get qrep run uuid via side-effect
@@ -507,7 +517,8 @@ func QRepFlowWorkflow(
 	q.receiveAndHandleSignalAsync(ctx)
 	if q.activeSignal == shared.PauseSignal {
 		startTime := time.Now()
-		signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+		signalChan := workflow.GetSignalChannel(ctx, shared.FlowSignalName)
 		var signalVal shared.CDCFlowSignal
 
 		for q.activeSignal == shared.PauseSignal {
@@ -521,6 +532,7 @@ func QRepFlowWorkflow(
 	}
 	if q.activeSignal == shared.ShutdownSignal {
 		q.logger.Info("terminating workflow - ", config.FlowJobName)
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_TERMINATED
 		return nil
 	}
 

@@ -8,8 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/PeerDB-io/peer-flow/model"
 )
 
 type Suite interface {

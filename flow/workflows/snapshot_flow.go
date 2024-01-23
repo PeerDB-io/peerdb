@@ -7,15 +7,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+	"go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/temporal"
+	"go.temporal.io/sdk/workflow"
+
 	"github.com/PeerDB-io/peer-flow/concurrency"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/google/uuid"
-
-	"go.temporal.io/sdk/log"
-	"go.temporal.io/sdk/temporal"
-	"go.temporal.io/sdk/workflow"
 )
 
 type SnapshotFlowExecution struct {
@@ -288,7 +288,7 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 	sessionOpts := &workflow.SessionOptions{
 		CreationTimeout:  5 * time.Minute,
 		ExecutionTimeout: time.Hour * 24 * 365 * 100, // 100 years
-		HeartbeatTimeout: time.Hour * 24 * 365 * 100, // 100 years
+		HeartbeatTimeout: time.Hour,
 	}
 
 	sessionCtx, err := workflow.CreateSession(ctx, sessionOpts)
