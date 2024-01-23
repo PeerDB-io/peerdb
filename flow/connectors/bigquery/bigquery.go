@@ -494,7 +494,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {
 	tableNameRowsMapping := make(map[string]uint32)
-	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
+	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), req.TableMappings, tableNameRowsMapping, syncBatchID)
 	streamRes, err := utils.RecordsToRawTableStream(streamReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
@@ -507,7 +507,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 	}
 
 	res, err := avroSync.SyncRecords(req, rawTableName,
-		rawTableMetadata, syncBatchID, streamRes.Stream, streamReq.TableMapping)
+		rawTableMetadata, syncBatchID, streamRes, streamReq.TableNameRowsMapping)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync records via avro: %w", err)
 	}

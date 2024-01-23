@@ -41,7 +41,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	rawTableName string,
 	dstTableMetadata *bigquery.TableMetadata,
 	syncBatchID int64,
-	stream *model.QRecordStream,
+	streamRes *model.RecordsToStreamResponse,
 	tableNameRowsMapping map[string]uint32,
 ) (*model.SyncResponse, error) {
 	activity.RecordHeartbeat(s.connector.ctx,
@@ -60,7 +60,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		&datasetTable{
 			dataset: s.connector.datasetID,
 			table:   stagingTable,
-		}, stream, req.FlowJobName)
+		}, streamRes.Stream, req.FlowJobName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to push to avro stage: %v", err)
 	}
@@ -85,8 +85,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 			req.FlowJobName, rawTableName, syncBatchID),
 	)
 
-	tableSchemaDeltas := req.Records.WaitForSchemaDeltas(req.TableMappings)
-	err = s.connector.ReplayTableSchemaDeltas(req.FlowJobName, tableSchemaDeltas)
+	err = s.connector.ReplayTableSchemaDeltas(req.FlowJobName, streamRes.TableSchemaDeltas)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
@@ -120,7 +119,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		NumRecordsSynced:       int64(numRecords),
 		CurrentSyncBatchID:     syncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,
-		TableSchemaDeltas:      tableSchemaDeltas,
+		TableSchemaDeltas:      streamRes.TableSchemaDeltas,
 	}, nil
 }
 

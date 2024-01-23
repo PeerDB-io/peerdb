@@ -524,7 +524,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {
 	tableNameRowsMapping := make(map[string]uint32)
-	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
+	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), req.TableMappings, tableNameRowsMapping, syncBatchID)
 	streamRes, err := utils.RecordsToRawTableStream(streamReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
@@ -547,8 +547,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		return nil, err
 	}
 
-	tableSchemaDeltas := req.Records.WaitForSchemaDeltas(req.TableMappings)
-	err = c.ReplayTableSchemaDeltas(req.FlowJobName, tableSchemaDeltas)
+	err = c.ReplayTableSchemaDeltas(req.FlowJobName, streamRes.TableSchemaDeltas)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
@@ -563,7 +562,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		NumRecordsSynced:       int64(numRecords),
 		CurrentSyncBatchID:     syncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,
-		TableSchemaDeltas:      tableSchemaDeltas,
+		TableSchemaDeltas:      streamRes.TableSchemaDeltas,
 	}, nil
 }
 

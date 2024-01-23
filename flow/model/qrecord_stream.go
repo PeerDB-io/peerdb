@@ -1,6 +1,10 @@
 package model
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+)
 
 type QRecordOrError struct {
 	Record QRecord
@@ -20,20 +24,23 @@ type QRecordStream struct {
 }
 
 type RecordsToStreamRequest struct {
-	records      <-chan Record
-	TableMapping map[string]uint32
-	BatchID      int64
+	records              <-chan Record
+	TableMappings        []*protos.TableMapping
+	TableNameRowsMapping map[string]uint32
+	BatchID              int64
 }
 
 func NewRecordsToStreamRequest(
 	records <-chan Record,
-	tableMapping map[string]uint32,
+	tableMappings []*protos.TableMapping,
+	tableNameRowsMapping map[string]uint32,
 	batchID int64,
 ) *RecordsToStreamRequest {
 	return &RecordsToStreamRequest{
-		records:      records,
-		TableMapping: tableMapping,
-		BatchID:      batchID,
+		records:              records,
+		TableMappings:        tableMappings,
+		TableNameRowsMapping: tableNameRowsMapping,
+		BatchID:              batchID,
 	}
 }
 
@@ -42,7 +49,8 @@ func (r *RecordsToStreamRequest) GetRecords() <-chan Record {
 }
 
 type RecordsToStreamResponse struct {
-	Stream *QRecordStream
+	Stream            *QRecordStream
+	TableSchemaDeltas []*protos.TableSchemaDelta
 }
 
 func NewQRecordStream(buffer int) *QRecordStream {

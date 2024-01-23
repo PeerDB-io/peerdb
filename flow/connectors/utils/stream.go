@@ -2,13 +2,44 @@ package utils
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
+
+func AppendSchemaDelta(
+	deltas []*protos.TableSchemaDelta,
+	delta *protos.TableSchemaDelta,
+	tableMappings []*protos.TableMapping,
+) []*protos.TableSchemaDelta {
+	for _, tm := range tableMappings {
+		if delta.SrcTableName == tm.SourceTableIdentifier && delta.DstTableName == tm.DestinationTableIdentifier {
+			if len(tm.Exclude) == 0 {
+				break
+			}
+			added := make([]*protos.DeltaAddedColumn, 0, len(delta.AddedColumns))
+			for _, column := range delta.AddedColumns {
+				if !slices.Contains(tm.Exclude, column.ColumnName) {
+					added = append(added, column)
+				}
+			}
+			if len(added) != 0 {
+				deltas = append(deltas, &protos.TableSchemaDelta{
+					SrcTableName: delta.SrcTableName,
+					DstTableName: delta.DstTableName,
+					AddedColumns: added,
+				})
+			}
+			return deltas
+		}
+	}
+	return append(deltas, delta)
+}
 
 func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.RecordsToStreamResponse, error) {
 	recordStream := model.NewQRecordStream(1 << 17)
@@ -60,18 +91,25 @@ func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.RecordsT
 		return nil, err
 	}
 
+	response := model.RecordsToStreamResponse{
+		Stream:            recordStream,
+		TableSchemaDeltas: nil,
+	}
+
 	go func() {
 		for record := range req.GetRecords() {
-			qRecordOrError := recordToQRecordOrError(req.TableMapping, req.BatchID, record)
-			recordStream.Records <- qRecordOrError
+			if relrec, ok := record.(*model.RelationRecord); ok {
+				response.TableSchemaDeltas = AppendSchemaDelta(response.TableSchemaDeltas, relrec.TableSchemaDelta, req.TableMappings)
+			} else {
+				qRecordOrError := recordToQRecordOrError(req.TableNameRowsMapping, req.BatchID, record)
+				recordStream.Records <- qRecordOrError
+			}
 		}
 
 		close(recordStream.Records)
 	}()
 
-	return &model.RecordsToStreamResponse{
-		Stream: recordStream,
-	}, nil
+	return &response, nil
 }
 
 func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, record model.Record) model.QRecordOrError {

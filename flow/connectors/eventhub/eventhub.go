@@ -119,7 +119,8 @@ func (c *EventHubConnector) SetLastOffset(jobName string, offset int64) error {
 func (c *EventHubConnector) processBatch(
 	flowJobName string,
 	batch *model.CDCRecordStream,
-) (uint32, error) {
+	tableMappings []*protos.TableMapping,
+) (uint32, []*protos.TableSchemaDelta, error) {
 	ctx := context.Background()
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns, false)
@@ -138,6 +139,7 @@ func (c *EventHubConnector) processBatch(
 	})
 	defer shutdown()
 
+	var tableSchemaDeltas []*protos.TableSchemaDelta
 	for {
 		select {
 		case record, ok := <-batch.GetRecords():
@@ -145,13 +147,17 @@ func (c *EventHubConnector) processBatch(
 				c.logger.Info("flushing batches because no more records")
 				err := batchPerTopic.flushAllBatches(ctx, flowJobName)
 				if err != nil {
-					return 0, err
+					return 0, nil, err
 				}
 
 				currNumRecords := numRecords.Load()
 
 				c.logger.Info("processBatch", slog.Int("Total records sent to event hub", int(currNumRecords)))
-				return currNumRecords, nil
+				return currNumRecords, tableSchemaDeltas, nil
+			}
+
+			if relrec, ok := record.(*model.RelationRecord); ok {
+				tableSchemaDeltas = utils.AppendSchemaDelta(tableSchemaDeltas, relrec.TableSchemaDelta, tableMappings)
 			}
 
 			numRecords.Add(1)
@@ -164,19 +170,19 @@ func (c *EventHubConnector) processBatch(
 			json, err := record.GetItems().ToJSONWithOpts(toJSONOpts)
 			if err != nil {
 				c.logger.Info("failed to convert record to json: %v", err)
-				return 0, err
+				return 0, nil, err
 			}
 
 			destination, err := NewScopedEventhub(record.GetDestinationTableName())
 			if err != nil {
 				c.logger.Error("failed to get topic name", slog.Any("error", err))
-				return 0, err
+				return 0, nil, err
 			}
 
 			ehConfig, ok := c.hubManager.peerConfig.Get(destination.PeerName)
 			if !ok {
 				c.logger.Error("failed to get eventhub config", slog.Any("error", err))
-				return 0, err
+				return 0, nil, err
 			}
 
 			numPartitions := ehConfig.PartitionCount
@@ -186,9 +192,7 @@ func (c *EventHubConnector) processBatch(
 			partitionColumn := destination.PartitionKeyColumn
 			partitionValue := record.GetItems().GetColumnValue(partitionColumn).Value
 			var partitionKey string
-			if partitionValue == nil {
-				partitionKey = ""
-			} else {
+			if partitionValue != nil {
 				partitionKey = fmt.Sprintf("%v", partitionValue)
 			}
 			partitionKey = utils.HashedPartitionKey(partitionKey, numPartitions)
@@ -196,7 +200,7 @@ func (c *EventHubConnector) processBatch(
 			err = batchPerTopic.AddEvent(ctx, destination, json, false)
 			if err != nil {
 				c.logger.Error("failed to add event to batch", slog.Any("error", err))
-				return 0, err
+				return 0, nil, err
 			}
 
 			curNumRecords := numRecords.Load()
@@ -207,7 +211,7 @@ func (c *EventHubConnector) processBatch(
 		case <-ticker.C:
 			err := batchPerTopic.flushAllBatches(ctx, flowJobName)
 			if err != nil {
-				return 0, err
+				return 0, nil, err
 			}
 
 			if lastSeenLSN > lastUpdatedOffset {
@@ -215,7 +219,7 @@ func (c *EventHubConnector) processBatch(
 				lastUpdatedOffset = lastSeenLSN
 				c.logger.Info("processBatch", slog.Int64("updated last offset", lastSeenLSN))
 				if err != nil {
-					return 0, fmt.Errorf("failed to update last offset: %v", err)
+					return 0, nil, fmt.Errorf("failed to update last offset: %v", err)
 				}
 			}
 
@@ -225,9 +229,7 @@ func (c *EventHubConnector) processBatch(
 }
 
 func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	batch := req.Records
-
-	numRecords, err := c.processBatch(req.FlowJobName, batch)
+	numRecords, tableSchemaDeltas, err := c.processBatch(req.FlowJobName, req.Records, req.TableMappings)
 	if err != nil {
 		c.logger.Error("failed to process batch", slog.Any("error", err))
 		return nil, err
@@ -255,7 +257,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		LastSyncedCheckpointID: lastCheckpoint,
 		NumRecordsSynced:       int64(numRecords),
 		TableNameRowsMapping:   make(map[string]uint32),
-		TableSchemaDeltas:      req.Records.WaitForSchemaDeltas(req.TableMappings),
+		TableSchemaDeltas:      tableSchemaDeltas,
 	}, nil
 }
 

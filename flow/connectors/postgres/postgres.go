@@ -275,6 +275,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 	records := make([][]interface{}, 0)
 	tableNameRowsMapping := make(map[string]uint32)
+	var tableSchemaDeltas []*protos.TableSchemaDelta
 
 	for record := range req.Records.GetRecords() {
 		switch typedRecord := record.(type) {
@@ -345,12 +346,13 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				"",
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
+		case *model.RelationRecord:
+			tableSchemaDeltas = utils.AppendSchemaDelta(tableSchemaDeltas, typedRecord.TableSchemaDelta, req.TableMappings)
 		default:
 			return nil, fmt.Errorf("unsupported record type for Postgres flow connector: %T", typedRecord)
 		}
 	}
 
-	tableSchemaDeltas := req.Records.WaitForSchemaDeltas(req.TableMappings)
 	err := c.ReplayTableSchemaDeltas(req.FlowJobName, tableSchemaDeltas)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)

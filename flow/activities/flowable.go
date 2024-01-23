@@ -261,7 +261,17 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 			return nil, fmt.Errorf("failed in pull records when: %w", err)
 		}
 		slog.InfoContext(ctx, "no records to push")
-		tableSchemaDeltas := recordBatch.WaitForSchemaDeltas(input.FlowConnectionConfigs.TableMappings)
+
+		// still possible schema deltas were pushed to recordBatch, so empty records channel
+		var tableSchemaDeltas []*protos.TableSchemaDelta
+		for record := range recordBatch.GetRecords() {
+			relrec := record.(*model.RelationRecord)
+			tableSchemaDeltas = utils.AppendSchemaDelta(
+				tableSchemaDeltas,
+				relrec.TableSchemaDelta,
+				input.FlowConnectionConfigs.TableMappings,
+			)
+		}
 
 		err := dstConn.ReplayTableSchemaDeltas(flowName, tableSchemaDeltas)
 		if err != nil {

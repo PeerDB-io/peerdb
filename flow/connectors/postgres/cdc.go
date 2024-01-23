@@ -108,8 +108,8 @@ func getChildToParentRelIDMap(ctx context.Context, pool *pgxpool.Pool) (map[uint
 				parent.oid AS parentrelid,
 				child.oid AS childrelid
 		FROM pg_inherits
-				JOIN pg_class parent            ON pg_inherits.inhparent = parent.oid
-				JOIN pg_class child             ON pg_inherits.inhrelid   = child.oid
+				JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
+				JOIN pg_class child  ON pg_inherits.inhrelid  = child.oid
 		WHERE parent.relkind='p';
 	`
 
@@ -507,7 +507,7 @@ func (p *PostgresCDCSource) consumeStream(
 					if len(tableSchemaDelta.AddedColumns) > 0 {
 						p.logger.Info(fmt.Sprintf("Detected schema change for table %s, addedColumns: %v",
 							tableSchemaDelta.SrcTableName, tableSchemaDelta.AddedColumns))
-						records.SchemaDeltas <- tableSchemaDelta
+						records.AddRecord(rec)
 					}
 				}
 			}

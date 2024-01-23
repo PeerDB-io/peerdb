@@ -185,7 +185,7 @@ func (c *S3Connector) SetLastOffset(jobName string, offset int64) error {
 
 func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
 	tableNameRowsMapping := make(map[string]uint32)
-	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, req.SyncBatchID)
+	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), req.TableMappings, tableNameRowsMapping, req.SyncBatchID)
 	streamRes, err := utils.RecordsToRawTableStream(streamReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
@@ -224,7 +224,7 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 		LastSyncedCheckpointID: lastCheckpoint,
 		NumRecordsSynced:       int64(numRecords),
 		TableNameRowsMapping:   tableNameRowsMapping,
-		TableSchemaDeltas:      req.Records.WaitForSchemaDeltas(req.TableMappings),
+		TableSchemaDeltas:      streamRes.TableSchemaDeltas,
 	}, nil
 }
 
