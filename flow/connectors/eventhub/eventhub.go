@@ -186,10 +186,8 @@ func (c *EventHubConnector) processBatch(
 			partitionColumn := destination.PartitionKeyColumn
 			partitionValue := record.GetItems().GetColumnValue(partitionColumn).Value
 			var partitionKey string
-			if partitionValue == nil {
-				partitionKey = ""
-			} else {
-				partitionKey = fmt.Sprintf("%v", partitionValue)
+			if partitionValue != nil {
+				partitionKey = fmt.Sprint(partitionValue)
 			}
 			partitionKey = utils.HashedPartitionKey(partitionKey, numPartitions)
 			destination.SetPartitionValue(partitionKey)
