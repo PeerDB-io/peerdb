@@ -2,7 +2,6 @@
 import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import TimeLabel from '@/components/TimeComponent';
 import {
-  CDCMirrorStatus,
   CloneTableSummary,
   MirrorStatusResponse,
   SnapshotStatus,
@@ -251,7 +250,9 @@ export function CDCMirror({
 
   let snapshot = <></>;
   if (status.cdcStatus?.snapshotStatus) {
-    snapshot = <SnapshotStatusTable status={status.cdcStatus?.snapshotStatus} />;
+    snapshot = (
+      <SnapshotStatusTable status={status.cdcStatus?.snapshotStatus} />
+    );
   }
   useEffect(() => {
     setMounted(true);

@@ -201,7 +201,7 @@ function statusChangeHandle(
         className='IconButton'
         aria-label='Pause (disabled)'
         disabled={true}
-        style={{opacity:'50%'}}
+        style={{ opacity: '50%' }}
       >
         <Icon name='pause' />
       </button>
