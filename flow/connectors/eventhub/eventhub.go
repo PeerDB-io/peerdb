@@ -261,7 +261,6 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		NumRecordsSynced:       rowsSynced,
 		TableNameRowsMapping:   make(map[string]uint32),
 		TableSchemaDeltas:      req.Records.WaitForSchemaDeltas(req.TableMappings),
-		RelationMessageMapping: <-req.Records.RelationMessageMapping,
 	}, nil
 }
 
