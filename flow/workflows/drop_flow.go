@@ -1,44 +1,38 @@
 package peerflow
 
 import (
+	"errors"
+	"fmt"
 	"time"
 
-	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-// DropFlowWorkflowExecution represents the state for execution of a drop flow.
-type DropFlowWorkflowExecution struct {
-	shutDownRequest *protos.ShutdownRequest
-	flowExecutionID string
-	logger          log.Logger
-}
-
-func newDropFlowWorkflowExecution(ctx workflow.Context, req *protos.ShutdownRequest) *DropFlowWorkflowExecution {
-	return &DropFlowWorkflowExecution{
-		shutDownRequest: req,
-		flowExecutionID: workflow.GetInfo(ctx).WorkflowExecution.ID,
-		logger:          workflow.GetLogger(ctx),
-	}
-}
-
 func DropFlowWorkflow(ctx workflow.Context, req *protos.ShutdownRequest) error {
-	execution := newDropFlowWorkflowExecution(ctx, req)
-	execution.logger.Info("performing cleanup for flow ", req.FlowJobName)
+	logger := workflow.GetLogger(ctx)
+	logger.Info("performing cleanup for flow ", req.FlowJobName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Minute,
 	})
 
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
+	dropSourceFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowSource, req)
+	dropDestinationFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowDestination, req)
 
-	dropFlowFuture := workflow.ExecuteActivity(ctx, flowable.DropFlow, req)
-	if err := dropFlowFuture.Get(ctx, nil); err != nil {
-		return err
-	}
+	var sourceError, destinationError error
+	selector := workflow.NewNamedSelector(ctx, fmt.Sprintf("%s-drop", req.FlowJobName))
+	selector.AddFuture(dropSourceFuture, func(f workflow.Future) {
+		sourceError = f.Get(ctx, nil)
+	})
+	selector.AddFuture(dropDestinationFuture, func(f workflow.Future) {
+		destinationError = f.Get(ctx, nil)
+	})
+	selector.Select(ctx)
+	selector.Select(ctx)
 
-	return nil
+	return errors.Join(sourceError, destinationError)
 }
