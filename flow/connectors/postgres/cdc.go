@@ -507,7 +507,7 @@ func (p *PostgresCDCSource) consumeStream(
 					if len(tableSchemaDelta.AddedColumns) > 0 {
 						p.logger.Info(fmt.Sprintf("Detected schema change for table %s, addedColumns: %v",
 							tableSchemaDelta.SrcTableName, tableSchemaDelta.AddedColumns))
-						records.SchemaDeltas <- tableSchemaDelta
+						records.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
 					}
 				}
 			}

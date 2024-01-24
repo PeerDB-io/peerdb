@@ -224,7 +224,7 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 		LastSyncedCheckpointID: lastCheckpoint,
 		NumRecordsSynced:       int64(numRecords),
 		TableNameRowsMapping:   tableNameRowsMapping,
-		TableSchemaDeltas:      req.Records.WaitForSchemaDeltas(req.TableMappings),
+		TableSchemaDeltas:      req.Records.SchemaDeltas,
 	}, nil
 }
 

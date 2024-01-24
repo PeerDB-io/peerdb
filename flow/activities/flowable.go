@@ -261,15 +261,14 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 			return nil, fmt.Errorf("failed in pull records when: %w", err)
 		}
 		slog.InfoContext(ctx, "no records to push")
-		tableSchemaDeltas := recordBatch.WaitForSchemaDeltas(input.FlowConnectionConfigs.TableMappings)
 
-		err := dstConn.ReplayTableSchemaDeltas(flowName, tableSchemaDeltas)
+		err := dstConn.ReplayTableSchemaDeltas(flowName, recordBatch.SchemaDeltas)
 		if err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
 		return &model.SyncResponse{
-			TableSchemaDeltas:      tableSchemaDeltas,
+			TableSchemaDeltas:      recordBatch.SchemaDeltas,
 			RelationMessageMapping: input.RelationMessageMapping,
 		}, nil
 	}
