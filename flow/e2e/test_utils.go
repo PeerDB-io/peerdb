@@ -505,12 +505,7 @@ func NewTStructuredLogger(logger slog.Logger) *TStructuredLogger {
 }
 
 func (l *TStructuredLogger) keyvalsToFields(keyvals []interface{}) slog.Attr {
-	var attrs []any
-	for i := 0; i < len(keyvals); i += 1 {
-		key := fmt.Sprintf("%v", keyvals[i])
-		attrs = append(attrs, key)
-	}
-	return slog.Group("test-log", attrs...)
+	return slog.Group("test-log", keyvals...)
 }
 
 func (l *TStructuredLogger) Debug(msg string, keyvals ...interface{}) {

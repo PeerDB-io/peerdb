@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"os"
 	"sync/atomic"
@@ -185,22 +184,22 @@ func (p *peerDBOCFWriter) WriteOCF(w io.Writer) (int, error) {
 }
 
 func (p *peerDBOCFWriter) WriteRecordsToS3(bucketName, key string, s3Creds utils.S3PeerCredentials) (*AvroFile, error) {
-	r, w := io.Pipe()
-	numRowsWritten := make(chan int, 1)
-	go func() {
-		defer w.Close()
-		numRows, err := p.WriteOCF(w)
-		if err != nil {
-			log.Fatalf("%v", err)
-		}
-		numRowsWritten <- numRows
-	}()
-
 	s3svc, err := utils.CreateS3Client(s3Creds)
 	if err != nil {
 		slog.Error("failed to create S3 client: ", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create S3 client: %w", err)
 	}
+
+	r, w := io.Pipe()
+	defer r.Close()
+	var writeOcfError error
+	var numRows int
+	var noPanic bool
+	go func() {
+		defer w.Close()
+		numRows, writeOcfError = p.WriteOCF(w)
+		noPanic = true
+	}()
 
 	_, err = manager.NewUploader(s3svc).Upload(p.ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucketName),
@@ -212,11 +211,17 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(bucketName, key string, s3Creds utils
 		slog.Error("failed to upload file: ", slog.Any("error", err), slog.Any("s3_path", s3Path))
 		return nil, fmt.Errorf("failed to upload file to path %s: %w", s3Path, err)
 	}
-
 	slog.Info("file uploaded to " + fmt.Sprintf("%s/%s", bucketName, key))
 
+	if !noPanic {
+		return nil, fmt.Errorf("WriteOCF panicked while writing avro to S3 %s/%s", bucketName, key)
+	}
+	if writeOcfError != nil {
+		return nil, writeOcfError
+	}
+
 	return &AvroFile{
-		NumRecords:      <-numRowsWritten,
+		NumRecords:      numRows,
 		StorageLocation: AvroS3Storage,
 		FilePath:        key,
 	}, nil
