@@ -23,6 +23,8 @@ type EventHubManager struct {
 	peerConfig cmap.ConcurrentMap[string, *protos.EventHubConfig]
 	// eventhub name -> client
 	hubs sync.Map
+	// eventhub name -> number of partitions
+	partitionCount sync.Map
 }
 
 func NewEventHubManager(
@@ -39,6 +41,28 @@ func NewEventHubManager(
 		creds:      creds,
 		peerConfig: peerConfig,
 	}
+}
+
+func (m *EventHubManager) GetNumPartitions(ctx context.Context, name ScopedEventhub) (int, error) {
+	partitionCount, ok := m.partitionCount.Load(name)
+	if ok {
+		return partitionCount.(int), nil
+	}
+
+	hub, err := m.GetOrCreateHubClient(ctx, name)
+	if err != nil {
+		return 0, err
+	}
+
+	props, err := hub.GetEventHubProperties(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get eventhub properties: %v", err)
+	}
+
+	numPartitions := len(props.PartitionIDs)
+	m.partitionCount.Store(name, numPartitions)
+
+	return numPartitions, nil
 }
 
 func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedEventhub) (
