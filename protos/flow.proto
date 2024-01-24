@@ -389,6 +389,8 @@ enum FlowStatus {
 
 message CDCFlowConfigUpdate {
   repeated TableMapping additional_tables = 1;
+  uint32 batch_size = 2;
+  uint64 idle_timeout = 3;
 }
 
 message QRepFlowConfigUpdate {
@@ -411,3 +413,4 @@ message AddTablesToPublicationInput{
   string publication_name = 2;
   repeated TableMapping additional_tables = 3;
 }
+
