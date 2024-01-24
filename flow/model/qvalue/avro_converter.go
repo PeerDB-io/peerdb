@@ -342,7 +342,7 @@ func (c *QValueAvroConverter) processGoTimeTZ() (interface{}, error) {
 		return nil, fmt.Errorf("invalid TimeTZ value")
 	}
 
-	// Snowflake has issues with avro timestamp types, returning as string form of the int64
+	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == QDWHTypeSnowflake {
 		return t.Format("15:04:05.999999-0700"), nil
@@ -360,7 +360,7 @@ func (c *QValueAvroConverter) processGoTime() (interface{}, error) {
 		return nil, fmt.Errorf("invalid Time value")
 	}
 
-	// Snowflake has issues with avro timestamp types, returning as string form of the int64
+	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == QDWHTypeSnowflake {
 		return t.Format("15:04:05.999999"), nil
@@ -378,7 +378,7 @@ func (c *QValueAvroConverter) processGoTimestampTZ() (interface{}, error) {
 		return nil, fmt.Errorf("invalid TimestampTZ value")
 	}
 
-	// Snowflake has issues with avro timestamp types, returning as string form of the int64
+	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == QDWHTypeSnowflake {
 		return t.Format("2006-01-02 15:04:05.999999-0700"), nil
@@ -396,7 +396,7 @@ func (c *QValueAvroConverter) processGoTimestamp() (interface{}, error) {
 		return nil, fmt.Errorf("invalid Timestamp value")
 	}
 
-	// Snowflake has issues with avro timestamp types, returning as string form of the int64
+	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == QDWHTypeSnowflake {
 		return t.Format("2006-01-02 15:04:05.999999"), nil
@@ -414,7 +414,7 @@ func (c *QValueAvroConverter) processGoDate() (interface{}, error) {
 		return nil, fmt.Errorf("invalid Time value for Date")
 	}
 
-	// Snowflake has issues with avro timestamp types, returning as string form of the int64
+	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == QDWHTypeSnowflake {
 		return t.Format("2006-01-02"), nil
@@ -542,7 +542,7 @@ func (c *QValueAvroConverter) processArrayTime() (interface{}, error) {
 
 	transformedTimeArr := make([]interface{}, 0, len(arrayTime))
 	for _, t := range arrayTime {
-		// Snowflake has issues with avro timestamp types, returning as string form of the int64
+		// Snowflake has issues with avro timestamp types, returning as string form
 		// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 		if c.TargetDWH == QDWHTypeSnowflake {
 			transformedTimeArr = append(transformedTimeArr, t.String())
