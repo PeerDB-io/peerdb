@@ -95,8 +95,8 @@ func TestExecuteAndProcessQuery(t *testing.T) {
 		t.Fatalf("expected 1 record, got %v", len(batch.Records))
 	}
 
-	if batch.Records[0].Entries[1].Value != "testdata" {
-		t.Fatalf("expected 'testdata', got %v", batch.Records[0].Entries[0].Value)
+	if batch.Records[0][1].Value != "testdata" {
+		t.Fatalf("expected 'testdata', got %v", batch.Records[0][0].Value)
 	}
 }
 
@@ -212,52 +212,52 @@ func TestAllDataTypes(t *testing.T) {
 	record := batch.Records[0]
 
 	expectedBool := true
-	if record.Entries[0].Value.(bool) != expectedBool {
-		t.Fatalf("expected %v, got %v", expectedBool, record.Entries[0].Value)
+	if record[0].Value.(bool) != expectedBool {
+		t.Fatalf("expected %v, got %v", expectedBool, record[0].Value)
 	}
 
 	expectedInt4 := int32(2)
-	if record.Entries[1].Value.(int32) != expectedInt4 {
-		t.Fatalf("expected %v, got %v", expectedInt4, record.Entries[1].Value)
+	if record[1].Value.(int32) != expectedInt4 {
+		t.Fatalf("expected %v, got %v", expectedInt4, record[1].Value)
 	}
 
 	expectedInt8 := int64(3)
-	if record.Entries[2].Value.(int64) != expectedInt8 {
-		t.Fatalf("expected %v, got %v", expectedInt8, record.Entries[2].Value)
+	if record[2].Value.(int64) != expectedInt8 {
+		t.Fatalf("expected %v, got %v", expectedInt8, record[2].Value)
 	}
 
 	expectedFloat4 := float32(1.1)
-	if record.Entries[3].Value.(float32) != expectedFloat4 {
-		t.Fatalf("expected %v, got %v", expectedFloat4, record.Entries[3].Value)
+	if record[3].Value.(float32) != expectedFloat4 {
+		t.Fatalf("expected %v, got %v", expectedFloat4, record[3].Value)
 	}
 
 	expectedFloat8 := float64(2.2)
-	if record.Entries[4].Value.(float64) != expectedFloat8 {
-		t.Fatalf("expected %v, got %v", expectedFloat8, record.Entries[4].Value)
+	if record[4].Value.(float64) != expectedFloat8 {
+		t.Fatalf("expected %v, got %v", expectedFloat8, record[4].Value)
 	}
 
 	expectedText := "text"
-	if record.Entries[5].Value.(string) != expectedText {
-		t.Fatalf("expected %v, got %v", expectedText, record.Entries[5].Value)
+	if record[5].Value.(string) != expectedText {
+		t.Fatalf("expected %v, got %v", expectedText, record[5].Value)
 	}
 
 	expectedBytea := []byte("bytea")
-	if !bytes.Equal(record.Entries[6].Value.([]byte), expectedBytea) {
-		t.Fatalf("expected %v, got %v", expectedBytea, record.Entries[6].Value)
+	if !bytes.Equal(record[6].Value.([]byte), expectedBytea) {
+		t.Fatalf("expected %v, got %v", expectedBytea, record[6].Value)
 	}
 
 	expectedJSON := `{"key":"value"}`
-	if record.Entries[7].Value.(string) != expectedJSON {
-		t.Fatalf("expected %v, got %v", expectedJSON, record.Entries[7].Value)
+	if record[7].Value.(string) != expectedJSON {
+		t.Fatalf("expected %v, got %v", expectedJSON, record[7].Value)
 	}
 
-	actualUUID := record.Entries[8].Value.([16]uint8)
+	actualUUID := record[8].Value.([16]uint8)
 	if !bytes.Equal(actualUUID[:], savedUUID[:]) {
 		t.Fatalf("expected %v, got %v", savedUUID, actualUUID)
 	}
 
 	expectedNumeric := "123.456"
-	actualNumeric := record.Entries[10].Value.(*big.Rat).FloatString(3)
+	actualNumeric := record[10].Value.(*big.Rat).FloatString(3)
 	if actualNumeric != expectedNumeric {
 		t.Fatalf("expected %v, got %v", expectedNumeric, actualNumeric)
 	}

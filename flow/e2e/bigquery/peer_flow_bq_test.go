@@ -82,7 +82,7 @@ func (s PeerFlowE2ETestSuiteBQ) checkJSONValue(tableName, colName, fieldName, va
 		return fmt.Errorf("json value check failed: %v", err)
 	}
 
-	jsonVal := res.Records[0].Entries[0].Value
+	jsonVal := res.Records[0][0].Value
 	if jsonVal != value {
 		return fmt.Errorf("bad json value in field %s of column %s: %v. expected: %v", fieldName, colName, jsonVal, value)
 	}
@@ -114,7 +114,7 @@ func (s *PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, softDel
 	recordCount := 0
 
 	for _, record := range recordBatch.Records {
-		for _, entry := range record.Entries {
+		for _, entry := range record {
 			if entry.Kind == qvalue.QValueKindBoolean {
 				isDeleteVal, ok := entry.Value.(bool)
 				if !(ok && isDeleteVal) {

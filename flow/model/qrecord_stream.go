@@ -1,9 +1,13 @@
 package model
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
+)
 
 type QRecordOrError struct {
-	Record QRecord
+	Record []qvalue.QValue
 	Err    error
 }
 

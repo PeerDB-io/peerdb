@@ -334,7 +334,7 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 		return nil, fmt.Errorf("failed to run command: %w", err)
 	}
 
-	var records []model.QRecord
+	var records [][]qvalue.QValue
 	for {
 		var row []bigquery.Value
 		err := it.Next(&row)
@@ -355,13 +355,7 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 			qValues[i] = qv
 		}
 
-		// Create a QRecord
-		record := model.NewQRecord(len(qValues))
-		for i, qv := range qValues {
-			record.Set(i, qv)
-		}
-
-		records = append(records, record)
+		records = append(records, qValues)
 	}
 
 	// Now you should fill the column names as well. Here we assume the schema is
@@ -376,9 +370,8 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 
 	// Return a QRecordBatch
 	return &model.QRecordBatch{
-		NumRecords: uint32(len(records)),
-		Records:    records,
-		Schema:     schema,
+		Records: records,
+		Schema:  schema,
 	}, nil
 }
 
@@ -514,9 +507,9 @@ func (b *BigQueryTestHelper) RunInt64Query(query string) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("could not execute query: %w", err)
 	}
-	if recordBatch.NumRecords != 1 {
-		return 0, fmt.Errorf("expected only 1 record, got %d", recordBatch.NumRecords)
+	if len(recordBatch.Records) != 1 {
+		return 0, fmt.Errorf("expected only 1 record, got %d", len(recordBatch.Records))
 	}
 
-	return recordBatch.Records[0].Entries[0].Value.(int64), nil
+	return recordBatch.Records[0][0].Value.(int64), nil
 }
