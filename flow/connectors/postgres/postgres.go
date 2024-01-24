@@ -639,6 +639,10 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating over table schema: %w", err)
 	}
+	// if we have no pkey, we will use all columns as the pkey for the MERGE statement
+	if replicaIdentityType == ReplicaIdentityFull && len(pKeyCols) == 0 {
+		pKeyCols = columnNames
+	}
 
 	return &protos.TableSchema{
 		TableIdentifier:       tableName,
@@ -796,7 +800,7 @@ func (c *PostgresConnector) EnsurePullability(
 
 		// we only allow no primary key if the table has REPLICA IDENTITY FULL
 		// this is ok for replica identity index as we populate the primary key columns
-		if len(pKeyCols) == 0 && !(replicaIdentity == ReplicaIdentityFull) {
+		if len(pKeyCols) == 0 && replicaIdentity != ReplicaIdentityFull {
 			return nil, fmt.Errorf("table %s has no primary keys and does not have REPLICA IDENTITY FULL", schemaTable)
 		}
 
