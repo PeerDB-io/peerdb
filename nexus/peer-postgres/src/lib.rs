@@ -9,40 +9,42 @@ use pt::peerdb_peers::PostgresConfig;
 use sqlparser::ast::Statement;
 use tokio_postgres::Client;
 
-mod ast;
-mod stream;
+pub mod ast;
+pub mod stream;
 
 // PostgresQueryExecutor is a QueryExecutor that uses a Postgres database as its
 // backing store.
 pub struct PostgresQueryExecutor {
-    config: PostgresConfig,
-    peername: Option<String>,
+    peername: String,
     client: Box<Client>,
 }
 
+pub async fn schema_from_query(client: &Client, query: &str) -> anyhow::Result<Schema> {
+    let prepared = client.prepare_typed(query, &[]).await?;
+
+    let fields: Vec<FieldInfo> = prepared
+        .columns()
+        .iter()
+        .map(|c| {
+            let name = c.name().to_string();
+            FieldInfo::new(name, None, None, c.type_().clone(), FieldFormat::Text)
+        })
+        .collect();
+
+    Ok(Arc::new(fields))
+}
+
 impl PostgresQueryExecutor {
-    pub async fn new(peername: Option<String>, config: &PostgresConfig) -> anyhow::Result<Self> {
+    pub async fn new(peername: String, config: &PostgresConfig) -> anyhow::Result<Self> {
         let client = postgres_connection::connect_postgres(config).await?;
         Ok(Self {
-            config: config.clone(),
             peername,
             client: Box::new(client),
         })
     }
 
     pub async fn schema_from_query(&self, query: &str) -> anyhow::Result<Schema> {
-        let prepared = self.client.prepare_typed(query, &[]).await?;
-
-        let fields: Vec<FieldInfo> = prepared
-            .columns()
-            .iter()
-            .map(|c| {
-                let name = c.name().to_string();
-                FieldInfo::new(name, None, None, c.type_().clone(), FieldFormat::Text)
-            })
-            .collect();
-
-        Ok(Arc::new(fields))
+        schema_from_query(&self.client, query).await
     }
 }
 
@@ -51,7 +53,7 @@ impl QueryExecutor for PostgresQueryExecutor {
     #[tracing::instrument(skip(self, stmt), fields(stmt = %stmt))]
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
         let ast = ast::PostgresAst {
-            peername: self.peername.clone(),
+            peername: Some(self.peername.clone()),
         };
         // if the query is a select statement, we need to fetch the rows
         // and return them as a QueryOutput::Stream, else we return the
@@ -127,10 +129,5 @@ impl QueryExecutor for PostgresQueryExecutor {
             }
             _ => Ok(None),
         }
-    }
-
-    async fn is_connection_valid(&self) -> anyhow::Result<bool> {
-        let _ = PostgresQueryExecutor::new(None, &self.config).await?;
-        Ok(true)
     }
 }

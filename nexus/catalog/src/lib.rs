@@ -1,8 +1,9 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use anyhow::{anyhow, Context};
-use peer_cursor::QueryExecutor;
-use peer_postgres::PostgresQueryExecutor;
+use peer_cursor::{QueryExecutor, QueryOutput, Schema};
+use peer_postgres::{ast, schema_from_query, stream};
+use pgwire::error::{PgWireError, PgWireResult};
 use postgres_connection::{connect_postgres, get_pg_connection_string};
 use prost::Message;
 use pt::{
@@ -11,6 +12,7 @@ use pt::{
     peerdb_peers::{peer::Config, DbType, Peer},
 };
 use serde_json::Value;
+use sqlparser::ast::Statement;
 use tokio_postgres::{types, Client};
 
 mod embedded {
@@ -19,8 +21,7 @@ mod embedded {
 }
 
 pub struct Catalog {
-    pg: Box<Client>,
-    executor: Arc<dyn QueryExecutor>,
+    pg: Client,
 }
 
 async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
@@ -77,20 +78,11 @@ impl<'a> CatalogConfig<'a> {
 impl Catalog {
     pub async fn new(pt_config: pt::peerdb_peers::PostgresConfig) -> anyhow::Result<Self> {
         let client = connect_postgres(&pt_config).await?;
-        let executor = PostgresQueryExecutor::new(None, &pt_config).await?;
-
-        Ok(Self {
-            pg: Box::new(client),
-            executor: Arc::new(executor),
-        })
+        Ok(Self { pg: client })
     }
 
     pub async fn run_migrations(&mut self) -> anyhow::Result<()> {
         run_migrations(&mut self.pg).await
-    }
-
-    pub fn get_executor(&self) -> &Arc<dyn QueryExecutor> {
-        &self.executor
     }
 
     pub async fn create_peer(&self, peer: &Peer) -> anyhow::Result<i64> {
@@ -600,5 +592,82 @@ impl Catalog {
             )?),
             None => None,
         })
+    }
+}
+
+// This is mostly copied from peer-postgres
+#[async_trait::async_trait]
+impl QueryExecutor for Catalog {
+    #[tracing::instrument(skip(self, stmt), fields(stmt = %stmt))]
+    async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
+        let ast = ast::PostgresAst { peername: None };
+        // if the query is a select statement, we need to fetch the rows
+        // and return them as a QueryOutput::Stream, else we return the
+        // number of affected rows.
+        match stmt {
+            Statement::Query(query) => {
+                let mut query = query.clone();
+                ast.rewrite_query(&mut query);
+                let rewritten_query = query.to_string();
+
+                // first fetch the schema as this connection will be
+                // short lived, only then run the query as the query
+                // could hold the pin on the connection for a long time.
+                let schema = schema_from_query(&self.pg, &rewritten_query)
+                    .await
+                    .map_err(|e| {
+                        tracing::error!("error getting schema: {}", e);
+                        PgWireError::ApiError(format!("error getting schema: {}", e).into())
+                    })?;
+
+                tracing::info!("[catalog] rewritten query: {}", rewritten_query);
+                // given that there could be a lot of rows returned, we
+                // need to use a cursor to stream the rows back to the
+                // client.
+                let stream = self
+                    .pg
+                    .query_raw(&rewritten_query, std::iter::empty::<&str>())
+                    .await
+                    .map_err(|e| {
+                        tracing::error!("error executing query: {}", e);
+                        PgWireError::ApiError(format!("error executing query: {}", e).into())
+                    })?;
+
+                // log that raw query execution has completed
+                tracing::info!("[catalog] raw query execution completed");
+
+                let cursor = stream::PgRecordStream::new(stream, schema);
+                Ok(QueryOutput::Stream(Box::pin(cursor)))
+            }
+            _ => {
+                let mut rewritten_stmt = stmt.clone();
+                ast.rewrite_statement(&mut rewritten_stmt).map_err(|e| {
+                    tracing::error!("error rewriting statement: {}", e);
+                    PgWireError::ApiError(format!("error rewriting statement: {}", e).into())
+                })?;
+                let rewritten_query = rewritten_stmt.to_string();
+                tracing::info!("[catalog] rewritten statement: {}", rewritten_query);
+                let rows_affected = self.pg.execute(&rewritten_query, &[]).await.map_err(|e| {
+                    tracing::error!("error executing query: {}", e);
+                    PgWireError::ApiError(format!("error executing query: {}", e).into())
+                })?;
+                Ok(QueryOutput::AffectedRows(rows_affected as usize))
+            }
+        }
+    }
+
+    async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<Schema>> {
+        match stmt {
+            Statement::Query(_query) => {
+                let schema = schema_from_query(&self.pg, &stmt.to_string())
+                    .await
+                    .map_err(|e| {
+                        tracing::error!("error getting schema: {}", e);
+                        PgWireError::ApiError(format!("error getting schema: {}", e).into())
+                    })?;
+                Ok(Some(schema))
+            }
+            _ => Ok(None),
+        }
     }
 }
