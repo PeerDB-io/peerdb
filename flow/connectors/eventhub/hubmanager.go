@@ -127,10 +127,9 @@ func (m *EventHubManager) CreateEventDataBatch(ctx context.Context, destination 
 	}
 
 	opts := &azeventhubs.EventDataBatchOptions{
-		// Eventhubs internally does the routing
-		// to partition based on hash of the partition key.
-		// Same partition key is guaranteed to map to same partition.
-		PartitionKey: &destination.PartitionKeyValue,
+		// We want to route same hashed partition value
+		// to same partition.
+		PartitionID: &destination.PartitionKeyValue,
 	}
 	batch, err := hub.NewEventDataBatch(ctx, opts)
 	if err != nil {
