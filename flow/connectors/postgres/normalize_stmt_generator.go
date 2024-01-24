@@ -82,13 +82,15 @@ func (n *normalizeStmtGenerator) generateFallbackStatements() []string {
 	}
 	deleteWhereClauseSQL := strings.Join(deleteWhereClauseArray, " AND ")
 
-	deleteUpdate := ""
+	// make it update instead in case soft-delete is enabled
+	deleteUpdate := fmt.Sprintf(`DELETE FROM %s USING `, parsedDstTable.String())
 	if n.peerdbCols.SoftDelete {
 		deleteUpdate = fmt.Sprintf(`UPDATE %s SET %s=TRUE`,
 			parsedDstTable.String(), QuoteIdentifier(n.peerdbCols.SoftDeleteColName))
 		if n.peerdbCols.SyncedAtColName != "" {
 			deleteUpdate += fmt.Sprintf(`,%s=CURRENT_TIMESTAMP`, QuoteIdentifier(n.peerdbCols.SyncedAtColName))
 		}
+		deleteUpdate += " FROM"
 	}
 	fallbackUpsertStatement := fmt.Sprintf(fallbackUpsertStatementSQL,
 		strings.Join(maps.Values(primaryKeyColumnCasts), ","), n.metadataSchema,
@@ -96,7 +98,7 @@ func (n *normalizeStmtGenerator) generateFallbackStatements() []string {
 		strings.Join(n.normalizedTableSchema.PrimaryKeyColumns, ","), updateColumnsSQL)
 	fallbackDeleteStatement := fmt.Sprintf(fallbackDeleteStatementSQL,
 		strings.Join(maps.Values(primaryKeyColumnCasts), ","), n.metadataSchema,
-		n.rawTableName, parsedDstTable.String(), deleteUpdate, deleteWhereClauseSQL)
+		n.rawTableName, deleteUpdate, deleteWhereClauseSQL)
 
 	return []string{fallbackUpsertStatement, fallbackDeleteStatement}
 }
