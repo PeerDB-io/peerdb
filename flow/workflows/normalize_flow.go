@@ -9,6 +9,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 func NormalizeFlowWorkflow(ctx workflow.Context,
@@ -25,7 +26,7 @@ func NormalizeFlowWorkflow(ctx workflow.Context,
 
 	results := make([]model.NormalizeResponse, 0, 4)
 	errors := make([]string, 0)
-	syncChan := workflow.GetSignalChannel(ctx, "Sync")
+	syncChan := workflow.GetSignalChannel(ctx, shared.NormalizeSyncSignalName)
 
 	var stopLoop, canceled bool
 	var lastSyncBatchID, syncBatchID int64
@@ -54,6 +55,11 @@ func NormalizeFlowWorkflow(ctx workflow.Context,
 			selector.Select(ctx)
 		}
 		if canceled || (stopLoop && lastSyncBatchID == syncBatchID) {
+			if canceled {
+				logger.Info("normalize canceled - ", config.FlowJobName)
+			} else {
+				logger.Info("normalize finished - ", config.FlowJobName)
+			}
 			break
 		}
 		if lastSyncBatchID != syncBatchID {
@@ -81,7 +87,7 @@ func NormalizeFlowWorkflow(ctx workflow.Context,
 				ctx,
 				parent.ID,
 				parent.RunID,
-				"SyncDone",
+				shared.NormalizeSyncDoneSignalName,
 				struct{}{},
 			)
 		}

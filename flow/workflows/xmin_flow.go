@@ -117,11 +117,11 @@ func XminFlowWorkflow(
 
 	// here, we handle signals after the end of the flow because a new workflow does not inherit the signals
 	// and the chance of missing a signal is much higher if the check is before the time consuming parts run
-	q.receiveAndHandleSignalAsync(ctx)
+	signalChan := workflow.GetSignalChannel(ctx, shared.FlowSignalName)
+	q.receiveAndHandleSignalAsync(signalChan)
 	if x.activeSignal == shared.PauseSignal {
 		startTime := time.Now()
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
-		signalChan := workflow.GetSignalChannel(ctx, shared.FlowSignalName)
 		var signalVal shared.CDCFlowSignal
 
 		for x.activeSignal == shared.PauseSignal {

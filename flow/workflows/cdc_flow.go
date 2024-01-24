@@ -423,11 +423,11 @@ func CDCFlowWorkflowWithConfig(
 
 	var normWaitChan workflow.ReceiveChannel
 	if !peerdbenv.PeerDBEnableParallelSyncNormalize() {
-		normWaitChan = workflow.GetSignalChannel(ctx, "SyncDone")
+		normWaitChan = workflow.GetSignalChannel(ctx, shared.NormalizeSyncDoneSignalName)
 	}
 
 	finishNormalize := func() {
-		childNormalizeFlowFuture.SignalChildWorkflow(ctx, "Sync", model.NormalizeSignal{
+		childNormalizeFlowFuture.SignalChildWorkflow(ctx, shared.NormalizeSyncSignalName, model.NormalizeSignal{
 			Done:        true,
 			SyncBatchID: -1,
 		})
@@ -597,7 +597,7 @@ func CDCFlowWorkflowWithConfig(
 					}
 				}
 
-				signalFuture := childNormalizeFlowFuture.SignalChildWorkflow(ctx, "Sync", model.NormalizeSignal{
+				signalFuture := childNormalizeFlowFuture.SignalChildWorkflow(ctx, shared.NormalizeSyncSignalName, model.NormalizeSignal{
 					Done:                   false,
 					SyncBatchID:            childSyncFlowRes.CurrentSyncBatchID,
 					TableNameSchemaMapping: normalizeTableNameSchemaMapping,
