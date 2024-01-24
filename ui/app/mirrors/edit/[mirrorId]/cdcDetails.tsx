@@ -6,13 +6,13 @@ import TimeLabel from '@/components/TimeComponent';
 import { FlowConnectionConfigs, FlowStatus } from '@/grpc_generated/flow';
 import { dBTypeFromJSON } from '@/grpc_generated/peers';
 import { FlowStateChangeRequest } from '@/grpc_generated/route';
+import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import moment from 'moment';
 import Link from 'next/link';
 import MirrorValues from './configValues';
 import TablePairs from './tablePairs';
-import { Button } from '@/lib/Button';
 
 type props = {
   syncs: SyncStatusRow[];
@@ -167,7 +167,7 @@ function statusChangeHandle(
           await fetch(`/api/mirrors/state_change`, {
             method: 'POST',
             body: JSON.stringify(req),
-            cache: 'no-cache'
+            cache: 'no-cache',
           });
           window.location.reload();
         }}
@@ -190,7 +190,7 @@ function statusChangeHandle(
           await fetch(`/api/mirrors/state_change`, {
             method: 'POST',
             body: JSON.stringify(req),
-            cache: 'no-cache'
+            cache: 'no-cache',
           });
           window.location.reload();
         }}
