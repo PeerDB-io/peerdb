@@ -3,8 +3,11 @@ import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import MirrorInfo from '@/components/MirrorInfo';
 import PeerButton from '@/components/PeerComponent';
 import TimeLabel from '@/components/TimeComponent';
-import { FlowConnectionConfigs } from '@/grpc_generated/flow';
+import { FlowConnectionConfigs, FlowStatus } from '@/grpc_generated/flow';
 import { dBTypeFromJSON } from '@/grpc_generated/peers';
+import { FlowStateChangeRequest } from '@/grpc_generated/route';
+import { Button } from '@/lib/Button';
+import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import moment from 'moment';
 import Link from 'next/link';
@@ -13,10 +16,11 @@ import TablePairs from './tablePairs';
 
 type props = {
   syncs: SyncStatusRow[];
-  mirrorConfig: FlowConnectionConfigs | undefined;
+  mirrorConfig: FlowConnectionConfigs;
   createdAt?: Date;
+  mirrorStatus: FlowStatus;
 };
-function CdcDetails({ syncs, createdAt, mirrorConfig }: props) {
+function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
   let lastSyncedAt = moment(
     syncs.length > 1
       ? syncs[1]?.endTime
@@ -31,7 +35,7 @@ function CdcDetails({ syncs, createdAt, mirrorConfig }: props) {
     return acc;
   }, 0);
 
-  const tablesSynced = mirrorConfig?.tableMappings;
+  const tablesSynced = mirrorConfig.tableMappings;
   return (
     <>
       <div className='mt-10'>
@@ -49,11 +53,14 @@ function CdcDetails({ syncs, createdAt, mirrorConfig }: props) {
                 borderRadius: '1rem',
                 border: '1px solid rgba(0,0,0,0.1)',
                 cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
               }}
             >
-              <Link href={`/mirrors/errors/${mirrorConfig?.flowJobName}`}>
-                <Label> Active </Label>
+              <Link href={`/mirrors/errors/${mirrorConfig.flowJobName}`}>
+                <Label>{formatStatus(mirrorStatus)}</Label>
               </Link>
+              {statusChangeHandle(mirrorConfig, mirrorStatus)}
             </div>
           </div>
           <div className='basis-1/4 md:basis-1/3'>
@@ -138,6 +145,82 @@ function CdcDetails({ syncs, createdAt, mirrorConfig }: props) {
 
 export function numberWithCommas(x: any): string {
   return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+function statusChangeHandle(
+  mirrorConfig: FlowConnectionConfigs,
+  mirrorStatus: FlowStatus
+) {
+  // hopefully there's a better way to do this cast
+  if (mirrorStatus.toString() === FlowStatus[FlowStatus.STATUS_RUNNING]) {
+    return (
+      <Button
+        className='IconButton'
+        aria-label='Pause'
+        onClick={async () => {
+          const req: FlowStateChangeRequest = {
+            flowJobName: mirrorConfig.flowJobName,
+            sourcePeer: mirrorConfig.source,
+            destinationPeer: mirrorConfig.destination,
+            requestedFlowState: FlowStatus.STATUS_PAUSED,
+          };
+          await fetch(`/api/mirrors/state_change`, {
+            method: 'POST',
+            body: JSON.stringify(req),
+            cache: 'no-store',
+          });
+          window.location.reload();
+        }}
+      >
+        <Icon name='pause' />
+      </Button>
+    );
+  } else if (mirrorStatus.toString() === FlowStatus[FlowStatus.STATUS_PAUSED]) {
+    return (
+      <Button
+        className='IconButton'
+        aria-label='Play'
+        onClick={async () => {
+          const req: FlowStateChangeRequest = {
+            flowJobName: mirrorConfig.flowJobName,
+            sourcePeer: mirrorConfig.source,
+            destinationPeer: mirrorConfig.destination,
+            requestedFlowState: FlowStatus.STATUS_RUNNING,
+          };
+          await fetch(`/api/mirrors/state_change`, {
+            method: 'POST',
+            body: JSON.stringify(req),
+            cache: 'no-store',
+          });
+          window.location.reload();
+        }}
+      >
+        <Icon name='play_circle' />
+      </Button>
+    );
+  } else {
+    return (
+      <Button
+        className='IconButton'
+        aria-label='Pause (disabled)'
+        disabled={true}
+        style={{ opacity: '50%' }}
+      >
+        <Icon name='pause' />
+      </Button>
+    );
+  }
+}
+
+function formatStatus(mirrorStatus: FlowStatus) {
+  const mirrorStatusLower = mirrorStatus
+    .toString()
+    .split('_')
+    .at(-1)
+    ?.toLocaleLowerCase()!;
+  return (
+    mirrorStatusLower.at(0)?.toLocaleUpperCase() + mirrorStatusLower.slice(1)
+  );
 }
 
 export default CdcDetails;
