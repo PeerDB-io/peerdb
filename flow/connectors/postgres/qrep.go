@@ -84,7 +84,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 ) ([]*protos.QRepPartition, error) {
 	var err error
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
-	quotedWatermarkColumn := fmt.Sprintf("\"%s\"", config.WatermarkColumn)
+	quotedWatermarkColumn := QuoteIdentifier(config.WatermarkColumn)
 
 	whereClause := ""
 	if last != nil && last.Range != nil {
@@ -198,7 +198,7 @@ func (c *PostgresConnector) getMinMaxValues(
 	last *protos.QRepPartition,
 ) (interface{}, interface{}, error) {
 	var minValue, maxValue interface{}
-	quotedWatermarkColumn := fmt.Sprintf("\"%s\"", config.WatermarkColumn)
+	quotedWatermarkColumn := QuoteIdentifier(config.WatermarkColumn)
 
 	parsedWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
 	if err != nil {
