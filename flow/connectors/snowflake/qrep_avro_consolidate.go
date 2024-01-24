@@ -94,6 +94,12 @@ func getTransformSQL(colNames []string, colTypes []string, syncedAtCol string) (
 		case "NUMBER":
 			transformations = append(transformations,
 				fmt.Sprintf("$1:\"%s\" AS %s", avroColName, normalizedColName))
+		case "DATE":
+			transformations = append(transformations,
+				fmt.Sprintf("TO_DATE($1:\"%s\") AS %s", avroColName, normalizedColName))
+		case "TIME":
+			transformations = append(transformations,
+				fmt.Sprintf("TO_TIME(SPLIT($1:\"%s\",'+')[0]) AS %s", avroColName, normalizedColName))
 		case "VARIANT":
 			transformations = append(transformations,
 				fmt.Sprintf("PARSE_JSON($1:\"%s\") AS %s", avroColName, normalizedColName))
@@ -114,7 +120,6 @@ func (s *SnowflakeAvroConsolidateHandler) getCopyTransformation(copyDstTable str
 	copyOpts := []string{
 		"FILE_FORMAT = (TYPE = AVRO)",
 		"PURGE = TRUE",
-		"ON_ERROR = 'CONTINUE'",
 	}
 	transformationSQL, columnsSQL := getTransformSQL(s.allColNames, s.allColTypes, s.config.SyncedAtColName)
 	return fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) %s",

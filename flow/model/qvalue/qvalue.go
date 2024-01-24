@@ -45,9 +45,11 @@ func (q QValue) Equals(other QValue) bool {
 	case QValueKindString:
 		return compareString(q.Value, other.Value)
 	// all internally represented as a Golang time.Time
-	case QValueKindTime, QValueKindTimeTZ, QValueKindDate,
+	case QValueKindDate,
 		QValueKindTimestamp, QValueKindTimestampTZ:
 		return compareGoTime(q.Value, other.Value)
+	case QValueKindTime, QValueKindTimeTZ:
+		return compareGoCivilTime(q.Value, other.Value)
 	case QValueKindNumeric:
 		return compareNumeric(q.Value, other.Value)
 	case QValueKindBytes:
@@ -160,6 +162,29 @@ func compareGoTime(value1, value2 interface{}) bool {
 	t2 := et2.UnixMicro()
 
 	return t1 == t2
+}
+
+func compareGoCivilTime(value1, value2 interface{}) bool {
+	if value1 == nil && value2 == nil {
+		return true
+	}
+
+	t1, ok1 := value1.(time.Time)
+	t2, ok2 := value2.(time.Time)
+
+	if !ok1 || !ok2 {
+		if !ok2 {
+			// For BigQuery, we need to compare civil.Time with time.Time
+			ct2, ok3 := value2.(civil.Time)
+			if !ok3 {
+				return false
+			}
+			return t1.Hour() == ct2.Hour && t1.Minute() == ct2.Minute && t1.Second() == ct2.Second
+		}
+		return false
+	}
+
+	return t1.Hour() == t2.Hour() && t1.Minute() == t2.Minute() && t1.Second() == t2.Second()
 }
 
 func compareUUID(value1, value2 interface{}) bool {

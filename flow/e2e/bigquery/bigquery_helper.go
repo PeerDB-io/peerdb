@@ -220,6 +220,8 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 		return qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: v}, nil
 	case civil.Date:
 		return qvalue.QValue{Kind: qvalue.QValueKindDate, Value: bqValue.(civil.Date).In(time.UTC)}, nil
+	case civil.Time:
+		return qvalue.QValue{Kind: qvalue.QValueKindTime, Value: bqValue.(civil.Time)}, nil
 	case time.Time:
 		return qvalue.QValue{Kind: qvalue.QValueKindTimestamp, Value: v}, nil
 	case *big.Rat:

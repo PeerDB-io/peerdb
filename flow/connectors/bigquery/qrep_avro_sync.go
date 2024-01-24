@@ -342,7 +342,7 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 	case bigquery.TimeFieldType:
 		return qvalue.AvroSchemaField{
 			Type:        "long",
-			LogicalType: "timestamp-micros",
+			LogicalType: "time-micros",
 		}, nil
 	case bigquery.DateTimeFieldType:
 		return qvalue.AvroSchemaRecord{

@@ -248,6 +248,8 @@ func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) err
 		"f12 boolean[]",
 		"f13 smallint[]",
 		"my_date DATE",
+		"my_time TIME",
+		"my_timetz TIMETZ",
 		"my_mood mood",
 		"myh HSTORE",
 		`"geometryPoint" geometry(point)`,
@@ -310,7 +312,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 							'{"2026-01-17 10:00:00","2026-01-18 13:45:00"}',
 							'{true, false}',
 							'{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}',
-							 CURRENT_DATE, 'happy', '"a"=>"b"','POINT(1 2)','POINT(40.7128 -74.0060)',
+							'1970-06-02', CURRENT_TIME, CURRENT_TIME,'happy', '"a"=>"b"','POINT(1 2)','POINT(40.7128 -74.0060)',
 						'LINESTRING(0 0, 1 1, 2 2)',
 						'LINESTRING(-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831)',
 						'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))','POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'
@@ -328,7 +330,8 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 					deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
 					paid_eth_price, card_bought_notified, address, account_id,
 					asset_id, status, transaction_id, settled_at, reference_id,
-					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, my_date, my_mood, myh,
+					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, my_date, 
+					my_time, my_timetz, my_mood, myh,
 					"geometryPoint", geography_point,geometry_linestring, geography_linestring,geometry_polygon, geography_polygon
 			) VALUES %s;
 	`, suffix, tableName, strings.Join(rows, ",")))
@@ -451,6 +454,8 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "f8", Type: qvalue.QValueKindInt16, Nullable: true},
 			{Name: "f13", Type: qvalue.QValueKindArrayInt16, Nullable: true},
 			{Name: "my_date", Type: qvalue.QValueKindDate, Nullable: true},
+			{Name: "my_time", Type: qvalue.QValueKindTime, Nullable: true},
+			{Name: "my_timetz", Type: qvalue.QValueKindTimeTZ, Nullable: true},
 			{Name: "my_mood", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "geometryPoint", Type: qvalue.QValueKindGeometry, Nullable: true},
 			{Name: "geometry_linestring", Type: qvalue.QValueKindGeometry, Nullable: true},
