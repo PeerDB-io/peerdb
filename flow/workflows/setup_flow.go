@@ -11,7 +11,6 @@ import (
 	"golang.org/x/exp/maps"
 
 	"github.com/PeerDB-io/peer-flow/activities"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
@@ -207,15 +206,16 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		for _, mapping := range flowConnectionConfigs.TableMappings {
 			if mapping.SourceTableIdentifier == srcTableName {
 				if len(mapping.Exclude) != 0 {
-					columnCount := utils.TableSchemaColumns(tableSchema)
+					columnCount := len(tableSchema.ColumnNames)
 					columnNames := make([]string, 0, columnCount)
 					columnTypes := make([]string, 0, columnCount)
-					utils.IterColumns(tableSchema, func(columnName, columnType string) {
+					for i, columnName := range tableSchema.ColumnNames {
+						columnType := tableSchema.ColumnTypes[i]
 						if !slices.Contains(mapping.Exclude, columnName) {
 							columnNames = append(columnNames, columnName)
 							columnTypes = append(columnTypes, columnType)
 						}
-					})
+					}
 					tableSchema = &protos.TableSchema{
 						TableIdentifier:       tableSchema.TableIdentifier,
 						PrimaryKeyColumns:     tableSchema.PrimaryKeyColumns,

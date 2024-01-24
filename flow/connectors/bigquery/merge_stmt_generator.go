@@ -34,7 +34,7 @@ type mergeStmtGenerator struct {
 func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 	// for each column in the normalized table, generate CAST + JSON_EXTRACT_SCALAR
 	// statement.
-	flattenedProjs := make([]string, 0, utils.TableSchemaColumns(m.normalizedTableSchema)+3)
+	flattenedProjs := make([]string, 0, len(m.normalizedTableSchema.ColumnNames)+3)
 
 	for i, colName := range m.normalizedTableSchema.ColumnNames {
 		colType := m.normalizedTableSchema.ColumnTypes[i]
@@ -124,7 +124,7 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 // generateMergeStmt generates a merge statement.
 func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) string {
 	// comma separated list of column names
-	columnCount := utils.TableSchemaColumns(m.normalizedTableSchema)
+	columnCount := len(m.normalizedTableSchema.ColumnNames)
 	backtickColNames := make([]string, 0, columnCount)
 	shortBacktickColNames := make([]string, 0, columnCount)
 	pureColNames := make([]string, 0, columnCount)

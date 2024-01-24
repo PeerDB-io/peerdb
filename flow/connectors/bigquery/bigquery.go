@@ -810,13 +810,14 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 
 		// convert the column names and types to bigquery types
 		columns := make([]*bigquery.FieldSchema, 0, len(tableSchema.ColumnNames)+2)
-		utils.IterColumns(tableSchema, func(colName, genericColType string) {
+		for i, colName := range tableSchema.ColumnNames {
+			genericColType := tableSchema.ColumnTypes[i]
 			columns = append(columns, &bigquery.FieldSchema{
 				Name:     colName,
 				Type:     qValueKindToBigQueryType(genericColType),
 				Repeated: qvalue.QValueKind(genericColType).IsArray(),
 			})
-		})
+		}
 
 		if req.SoftDeleteColName != "" {
 			columns = append(columns, &bigquery.FieldSchema{
@@ -908,7 +909,7 @@ func (c *BigQueryConnector) RenameTables(req *protos.RenameTablesInput) (*protos
 			dstDatasetTable.string()))
 
 		if req.SoftDeleteColName != nil {
-			allCols := strings.Join(utils.TableSchemaColumnNames(renameRequest.TableSchema), ",")
+			allCols := strings.Join(renameRequest.TableSchema.ColumnNames, ",")
 			pkeyCols := strings.Join(renameRequest.TableSchema.PrimaryKeyColumns, ",")
 
 			c.logger.InfoContext(c.ctx, fmt.Sprintf("handling soft-deletes for table '%s'...", dstDatasetTable.string()))
