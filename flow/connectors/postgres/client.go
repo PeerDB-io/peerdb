@@ -125,9 +125,11 @@ func (c *PostgresConnector) getReplicaIdentityType(schemaTable *utils.SchemaTabl
 	return ReplicaIdentityType(replicaIdentity), nil
 }
 
-// getPrimaryKeyColumns returns the primary key columns for a given table.
-// Errors if there is no primary key column or if there is more than one primary key column.
-func (c *PostgresConnector) getPrimaryKeyColumns(
+// getUniqueColumns returns the unique columns (used to select in MERGE statement) for a given table.
+// For replica identity 'd'/default, these are the primary key columns
+// For replica identity 'i'/index, these are the columns in the selected index (indisreplident set)
+// For replica identity 'f'/full, if there is a primary key we use that
+func (c *PostgresConnector) getUniqueColumns(
 	replicaIdentity ReplicaIdentityType,
 	schemaTable *utils.SchemaTable,
 ) ([]string, error) {
@@ -146,6 +148,10 @@ func (c *PostgresConnector) getPrimaryKeyColumns(
 		`SELECT indexrelid FROM pg_index WHERE indrelid = $1 AND indisprimary`,
 		relID).Scan(&pkIndexOID)
 	if err != nil {
+		// don't error out if no pkey columns, this would happen in EnsurePullability or UI.
+		if err == pgx.ErrNoRows {
+			return []string{}, nil
+		}
 		return nil, fmt.Errorf("error finding primary key index for table %s: %w", schemaTable, err)
 	}
 
@@ -158,7 +164,7 @@ func (c *PostgresConnector) getReplicaIdentityIndexColumns(relID uint32, schemaT
 	// Fetch the OID of the index used as the replica identity
 	err := c.pool.QueryRow(c.ctx,
 		`SELECT indexrelid FROM pg_index
-         WHERE indrelid = $1 AND indisreplident = true`,
+         WHERE indrelid=$1 AND indisreplident=true`,
 		relID).Scan(&indexRelID)
 	if err != nil {
 		return nil, fmt.Errorf("error finding replica identity index for table %s: %w", schemaTable, err)
