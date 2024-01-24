@@ -167,6 +167,7 @@ function statusChangeHandle(
           await fetch(`/api/mirrors/state_change`, {
             method: 'POST',
             body: JSON.stringify(req),
+            cache: 'no-cache'
           });
           window.location.reload();
         }}
@@ -189,6 +190,7 @@ function statusChangeHandle(
           await fetch(`/api/mirrors/state_change`, {
             method: 'POST',
             body: JSON.stringify(req),
+            cache: 'no-cache'
           });
           window.location.reload();
         }}
