@@ -148,6 +148,15 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			}
 			values[i] = v
 
+		case qvalue.QValueKindTime:
+			t, ok := qValue.Value.(time.Time)
+			if !ok {
+				src.err = fmt.Errorf("invalid Time value")
+				return nil, src.err
+			}
+			time := pgtype.Time{Microseconds: t.UnixMicro(), Valid: true}
+			values[i] = time
+
 		case qvalue.QValueKindTimestamp:
 			t, ok := qValue.Value.(time.Time)
 			if !ok {
