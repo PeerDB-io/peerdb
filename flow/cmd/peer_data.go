@@ -8,11 +8,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/proto"
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
@@ -33,17 +31,19 @@ func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName strin
 	return &pgPeerConfig, nil
 }
 
-func (h *FlowRequestHandler) getPoolForPGPeer(ctx context.Context, peerName string) (*pgxpool.Pool, error) {
+func (h *FlowRequestHandler) getPoolForPGPeer(ctx context.Context, peerName string) (*connpostgres.SSHWrappedPostgresPool, error) {
 	pgPeerConfig, err := h.getPGPeerConfig(ctx, peerName)
 	if err != nil {
 		return nil, err
 	}
-	connStr := utils.GetPGConnectionString(pgPeerConfig)
-	peerPool, err := pgxpool.New(ctx, connStr)
+
+	pool, err := connpostgres.NewSSHWrappedPostgresPoolFromConfig(ctx, pgPeerConfig)
 	if err != nil {
+		slog.Error("Failed to create postgres pool", slog.Any("error", err))
 		return nil, err
 	}
-	return peerPool, nil
+
+	return pool, nil
 }
 
 func (h *FlowRequestHandler) GetSchemas(

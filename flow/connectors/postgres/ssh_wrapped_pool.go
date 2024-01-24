@@ -27,6 +27,23 @@ type SSHWrappedPostgresPool struct {
 	cancel     context.CancelFunc
 }
 
+func NewSSHWrappedPostgresPoolFromConfig(
+	ctx context.Context,
+	pgConfig *protos.PostgresConfig,
+) (*SSHWrappedPostgresPool, error) {
+	connectionString := utils.GetPGConnectionString(pgConfig)
+
+	connConfig, err := pgxpool.ParseConfig(connectionString)
+	if err != nil {
+		return nil, err
+	}
+
+	// set pool size to 3 to avoid connection pool exhaustion
+	connConfig.MaxConns = 3
+
+	return NewSSHWrappedPostgresPool(ctx, connConfig, pgConfig.SshConfig)
+}
+
 func NewSSHWrappedPostgresPool(
 	ctx context.Context,
 	poolConfig *pgxpool.Config,

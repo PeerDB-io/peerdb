@@ -55,14 +55,15 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	// set pool size to 3 to avoid connection pool exhaustion
 	connConfig.MaxConns = 3
 
-	// ensure that replication is set to database
-	replConfig.ConnConfig.RuntimeParams["replication"] = "database"
-	replConfig.ConnConfig.RuntimeParams["bytea_output"] = "hex"
-	replConfig.MaxConns = 1
 	pool, err := NewSSHWrappedPostgresPool(ctx, connConfig, pgConfig.SshConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create connection pool: %w", err)
 	}
+
+	// ensure that replication is set to database
+	replConfig.ConnConfig.RuntimeParams["replication"] = "database"
+	replConfig.ConnConfig.RuntimeParams["bytea_output"] = "hex"
+	replConfig.MaxConns = 1
 
 	customTypeMap, err := utils.GetCustomDataTypes(ctx, pool.Pool)
 	if err != nil {
