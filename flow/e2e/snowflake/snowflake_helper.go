@@ -159,21 +159,21 @@ func (s *SnowflakeTestHelper) RunIntQuery(query string) (int, error) {
 	}
 
 	rec := rows.Records[0]
-	if rec.NumEntries != 1 {
-		return 0, fmt.Errorf("failed to execute query: %s, returned %d != 1 columns", query, rec.NumEntries)
+	if len(rec) != 1 {
+		return 0, fmt.Errorf("failed to execute query: %s, returned %d != 1 columns", query, len(rec))
 	}
 
-	switch rec.Entries[0].Kind {
+	switch rec[0].Kind {
 	case qvalue.QValueKindInt32:
-		return int(rec.Entries[0].Value.(int32)), nil
+		return int(rec[0].Value.(int32)), nil
 	case qvalue.QValueKindInt64:
-		return int(rec.Entries[0].Value.(int64)), nil
+		return int(rec[0].Value.(int64)), nil
 	case qvalue.QValueKindNumeric:
 		// get big.Rat and convert to int
-		rat := rec.Entries[0].Value.(*big.Rat)
+		rat := rec[0].Value.(*big.Rat)
 		return int(rat.Num().Int64() / rat.Denom().Int64()), nil
 	default:
-		return 0, fmt.Errorf("failed to execute query: %s, returned value of type %s", query, rec.Entries[0].Kind)
+		return 0, fmt.Errorf("failed to execute query: %s, returned value of type %s", query, rec[0].Kind)
 	}
 }
 
@@ -185,7 +185,7 @@ func (s *SnowflakeTestHelper) checkSyncedAt(query string) error {
 	}
 
 	for _, record := range recordBatch.Records {
-		for _, entry := range record.Entries {
+		for _, entry := range record {
 			if entry.Kind != qvalue.QValueKindTimestamp {
 				return fmt.Errorf("synced_at column check failed: _PEERDB_SYNCED_AT is not timestamp")
 			}

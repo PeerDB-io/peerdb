@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 type Suite interface {
@@ -68,16 +69,16 @@ func ReadFileToBytes(path string) ([]byte, error) {
 }
 
 // checks if two QRecords are identical
-func CheckQRecordEquality(t *testing.T, q model.QRecord, other model.QRecord) bool {
+func CheckQRecordEquality(t *testing.T, q []qvalue.QValue, other []qvalue.QValue) bool {
 	t.Helper()
 
-	if q.NumEntries != other.NumEntries {
-		t.Logf("unequal entry count: %d != %d", q.NumEntries, other.NumEntries)
+	if len(q) != len(other) {
+		t.Logf("unequal entry count: %d != %d", len(q), len(other))
 		return false
 	}
 
-	for i, entry := range q.Entries {
-		otherEntry := other.Entries[i]
+	for i, entry := range q {
+		otherEntry := other[i]
 		if !entry.Equals(otherEntry) {
 			t.Logf("entry %d: %v != %v", i, entry, otherEntry)
 			return false
@@ -97,10 +98,10 @@ func CheckEqualRecordBatches(t *testing.T, q *model.QRecordBatch, other *model.Q
 	}
 
 	// First check simple attributes
-	if q.NumRecords != other.NumRecords {
+	if len(q.Records) != len(other.Records) {
 		// print num records
-		t.Logf("q.NumRecords: %d", q.NumRecords)
-		t.Logf("other.NumRecords: %d", other.NumRecords)
+		t.Logf("q.NumRecords: %d", len(q.Records))
+		t.Logf("other.NumRecords: %d", len(other.Records))
 		return false
 	}
 
