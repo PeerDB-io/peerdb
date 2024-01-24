@@ -12,6 +12,7 @@ import moment from 'moment';
 import Link from 'next/link';
 import MirrorValues from './configValues';
 import TablePairs from './tablePairs';
+import { Button } from '@/lib/Button';
 
 type props = {
   syncs: SyncStatusRow[];
@@ -153,7 +154,7 @@ function statusChangeHandle(
   // hopefully there's a better way to do this cast
   if (mirrorStatus.toString() === FlowStatus[FlowStatus.STATUS_RUNNING]) {
     return (
-      <button
+      <Button
         className='IconButton'
         aria-label='Pause'
         onClick={async () => {
@@ -171,11 +172,11 @@ function statusChangeHandle(
         }}
       >
         <Icon name='pause' />
-      </button>
+      </Button>
     );
   } else if (mirrorStatus.toString() === FlowStatus[FlowStatus.STATUS_PAUSED]) {
     return (
-      <button
+      <Button
         className='IconButton'
         aria-label='Play'
         onClick={async () => {
@@ -193,18 +194,18 @@ function statusChangeHandle(
         }}
       >
         <Icon name='play_circle' />
-      </button>
+      </Button>
     );
   } else {
     return (
-      <button
+      <Button
         className='IconButton'
         aria-label='Pause (disabled)'
         disabled={true}
         style={{ opacity: '50%' }}
       >
         <Icon name='pause' />
-      </button>
+      </Button>
     );
   }
 }
