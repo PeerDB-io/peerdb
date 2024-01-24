@@ -10,6 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
+	"github.com/stretchr/testify/require"
+
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
@@ -18,11 +24,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
-	"github.com/jackc/pgerrcode"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
-	"github.com/stretchr/testify/require"
 )
 
 type PeerFlowE2ETestSuiteBQ struct {
@@ -81,7 +82,7 @@ func (s PeerFlowE2ETestSuiteBQ) checkJSONValue(tableName, colName, fieldName, va
 		return fmt.Errorf("json value check failed: %v", err)
 	}
 
-	jsonVal := res.Records[0].Entries[0].Value
+	jsonVal := res.Records[0][0].Value
 	if jsonVal != value {
 		return fmt.Errorf("bad json value in field %s of column %s: %v. expected: %v", fieldName, colName, jsonVal, value)
 	}
@@ -113,7 +114,7 @@ func (s *PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, softDel
 	recordCount := 0
 
 	for _, record := range recordBatch.Records {
-		for _, entry := range record.Entries {
+		for _, entry := range record {
 			if entry.Kind == qvalue.QValueKindBoolean {
 				isDeleteVal, ok := entry.Value.(bool)
 				if !(ok && isDeleteVal) {

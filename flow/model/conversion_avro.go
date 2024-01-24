@@ -8,14 +8,14 @@ import (
 )
 
 type QRecordAvroConverter struct {
-	QRecord        QRecord
+	QRecord        []qvalue.QValue
 	TargetDWH      qvalue.QDWHType
 	NullableFields map[string]struct{}
 	ColNames       []string
 }
 
 func NewQRecordAvroConverter(
-	q QRecord,
+	q []qvalue.QValue,
 	targetDWH qvalue.QDWHType,
 	nullableFields map[string]struct{},
 	colNames []string,
@@ -31,18 +31,18 @@ func NewQRecordAvroConverter(
 func (qac *QRecordAvroConverter) Convert() (map[string]interface{}, error) {
 	m := map[string]interface{}{}
 
-	for idx := range qac.QRecord.Entries {
+	for idx, val := range qac.QRecord {
 		key := qac.ColNames[idx]
 		_, nullable := qac.NullableFields[key]
 
 		avroConverter := qvalue.NewQValueAvroConverter(
-			qac.QRecord.Entries[idx],
+			val,
 			qac.TargetDWH,
 			nullable,
 		)
 		avroVal, err := avroConverter.ToAvroValue()
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert QValue to Avro-compatible value: %v", err)
+			return nil, fmt.Errorf("failed to convert QValue to Avro-compatible value: %w", err)
 		}
 
 		m[key] = avroVal
@@ -100,7 +100,7 @@ func GetAvroSchemaDefinition(
 
 	avroSchemaJSON, err := json.Marshal(avroSchema)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal Avro schema to JSON: %v", err)
+		return nil, fmt.Errorf("failed to marshal Avro schema to JSON: %w", err)
 	}
 
 	return &QRecordAvroSchemaDefinition{

@@ -4,16 +4,18 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 const (
@@ -24,7 +26,7 @@ type S3Connector struct {
 	ctx        context.Context
 	url        string
 	pgMetadata *metadataStore.PostgresMetadataStore
-	client     s3.S3
+	client     s3.Client
 	creds      utils.S3PeerCredentials
 	logger     slog.Logger
 }
@@ -91,8 +93,8 @@ func (c *S3Connector) Close() error {
 	return c.pgMetadata.Close()
 }
 
-func ValidCheck(s3Client *s3.S3, bucketURL string, metadataDB *metadataStore.PostgresMetadataStore) error {
-	_, listErr := s3Client.ListBuckets(nil)
+func ValidCheck(ctx context.Context, s3Client *s3.Client, bucketURL string, metadataDB *metadataStore.PostgresMetadataStore) error {
+	_, listErr := s3Client.ListBuckets(ctx, nil)
 	if listErr != nil {
 		return fmt.Errorf("failed to list buckets: %w", listErr)
 	}
@@ -107,7 +109,7 @@ func ValidCheck(s3Client *s3.S3, bucketURL string, metadataDB *metadataStore.Pos
 	// Write an empty file and then delete it
 	// to check if we have write permissions
 	bucketName := aws.String(bucketPrefix.Bucket)
-	_, putErr := s3Client.PutObject(&s3.PutObjectInput{
+	_, putErr := s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: bucketName,
 		Key:    aws.String(_peerDBCheck),
 		Body:   reader,
@@ -116,7 +118,7 @@ func ValidCheck(s3Client *s3.S3, bucketURL string, metadataDB *metadataStore.Pos
 		return fmt.Errorf("failed to write to bucket: %w", putErr)
 	}
 
-	_, delErr := s3Client.DeleteObject(&s3.DeleteObjectInput{
+	_, delErr := s3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: bucketName,
 		Key:    aws.String(_peerDBCheck),
 	})
@@ -134,12 +136,12 @@ func ValidCheck(s3Client *s3.S3, bucketURL string, metadataDB *metadataStore.Pos
 }
 
 func (c *S3Connector) ConnectionActive() error {
-	_, listErr := c.client.ListBuckets(nil)
+	_, listErr := c.client.ListBuckets(c.ctx, nil)
 	if listErr != nil {
 		return listErr
 	}
 
-	validErr := ValidCheck(&c.client, c.url, c.pgMetadata)
+	validErr := ValidCheck(c.ctx, &c.client, c.url, c.pgMetadata)
 	if validErr != nil {
 		c.logger.Error("failed to validate s3 connector:", slog.Any("error", validErr))
 		return validErr
@@ -182,14 +184,8 @@ func (c *S3Connector) SetLastOffset(jobName string, offset int64) error {
 }
 
 func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
-	}
-	syncBatchID += 1
-
 	tableNameRowsMapping := make(map[string]uint32)
-	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
+	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, req.SyncBatchID)
 	streamRes, err := utils.RecordsToRawTableStream(streamReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
@@ -200,7 +196,7 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 		DestinationTableIdentifier: fmt.Sprintf("raw_table_%s", req.FlowJobName),
 	}
 	partition := &protos.QRepPartition{
-		PartitionId: fmt.Sprint(syncBatchID),
+		PartitionId: strconv.FormatInt(req.SyncBatchID, 10),
 	}
 	numRecords, err := c.SyncQRepRecords(qrepConfig, partition, recordStream)
 	if err != nil {
@@ -225,11 +221,10 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 	}
 
 	return &model.SyncResponse{
-		LastSyncedCheckPointID: lastCheckpoint,
+		LastSyncedCheckpointID: lastCheckpoint,
 		NumRecordsSynced:       int64(numRecords),
 		TableNameRowsMapping:   tableNameRowsMapping,
-		TableSchemaDeltas:      req.Records.WaitForSchemaDeltas(req.TableMappings),
-		RelationMessageMapping: <-req.Records.RelationMessageMapping,
+		TableSchemaDeltas:      req.Records.SchemaDeltas,
 	}, nil
 }
 
@@ -247,9 +242,5 @@ func (c *S3Connector) SetupNormalizedTables(req *protos.SetupNormalizedTableBatc
 }
 
 func (c *S3Connector) SyncFlowCleanup(jobName string) error {
-	err := c.pgMetadata.DropMetadata(jobName)
-	if err != nil {
-		return err
-	}
-	return nil
+	return c.pgMetadata.DropMetadata(jobName)
 }

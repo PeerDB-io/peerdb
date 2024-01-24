@@ -10,9 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq/oid"
+
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 func postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
@@ -262,8 +263,7 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		val = qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: floatVal}
 	case qvalue.QValueKindString:
 		// handling all unsupported types with strings as well for now.
-		textVal := value
-		val = qvalue.QValue{Kind: qvalue.QValueKindString, Value: fmt.Sprint(textVal)}
+		val = qvalue.QValue{Kind: qvalue.QValueKindString, Value: fmt.Sprint(value)}
 	case qvalue.QValueKindUUID:
 		switch value.(type) {
 		case string:

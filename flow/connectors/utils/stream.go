@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/google/uuid"
 )
 
 func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.RecordsToStreamResponse, error) {
@@ -182,9 +183,6 @@ func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, recor
 	}
 
 	return model.QRecordOrError{
-		Record: model.QRecord{
-			NumEntries: 8,
-			Entries:    entries[:],
-		},
+		Record: entries[:],
 	}
 }

@@ -6,13 +6,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type QRepFlowExecution struct {
@@ -108,10 +109,9 @@ func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Contex
 		})
 
 		tableSchemaInput := &protos.GetTableSchemaBatchInput{
-			PeerConnectionConfig:    q.config.SourcePeer,
-			TableIdentifiers:        []string{q.config.WatermarkTable},
-			FlowName:                q.config.FlowJobName,
-			SkipPkeyAndReplicaCheck: true,
+			PeerConnectionConfig: q.config.SourcePeer,
+			TableIdentifiers:     []string{q.config.WatermarkTable},
+			FlowName:             q.config.FlowJobName,
 		}
 
 		future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)

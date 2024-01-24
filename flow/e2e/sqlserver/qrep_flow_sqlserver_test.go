@@ -5,9 +5,15 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
+	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
@@ -15,10 +21,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
-	"github.com/stretchr/testify/require"
 )
 
 type PeerFlowE2ETestSuiteSQLServer struct {
@@ -95,8 +97,8 @@ func (s PeerFlowE2ETestSuiteSQLServer) insertRowsIntoSQLServerTable(tableName st
 	schemaQualified := fmt.Sprintf("%s.%s", s.sqlsHelper.SchemaName, tableName)
 	for i := 0; i < numRows; i++ {
 		params := make(map[string]interface{})
-		params["id"] = "test_id_" + fmt.Sprintf("%d", i)
-		params["card_id"] = "test_card_id_" + fmt.Sprintf("%d", i)
+		params["id"] = "test_id_" + strconv.Itoa(i)
+		params["card_id"] = "test_card_id_" + strconv.Itoa(i)
 		params["v_from"] = time.Now()
 		params["price"] = 100.00
 		params["status"] = 1

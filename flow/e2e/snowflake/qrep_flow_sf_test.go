@@ -3,10 +3,11 @@ package e2e_snowflake
 import (
 	"fmt"
 
-	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
+	"github.com/PeerDB-io/peer-flow/e2e"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
 //nolint:unparam
@@ -25,7 +26,7 @@ func (s PeerFlowE2ETestSuiteSF) checkJSONValue(tableName, colName, fieldName, va
 		return fmt.Errorf("json value check failed: %v", err)
 	}
 
-	jsonVal := res.Records[0].Entries[0].Value
+	jsonVal := res.Records[0][0].Value
 	if jsonVal != value {
 		return fmt.Errorf("bad json value in field %s of column %s: %v. expected: %v", fieldName, colName, jsonVal, value)
 	}

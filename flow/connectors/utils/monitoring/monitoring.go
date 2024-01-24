@@ -4,16 +4,17 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-
 	"google.golang.org/protobuf/proto"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type CDCBatchInfo struct {
@@ -233,8 +234,8 @@ func addPartitionToQRepRun(ctx context.Context, pool *pgxpool.Pool, flowJobName 
 	var rangeStart, rangeEnd string
 	switch x := partition.Range.Range.(type) {
 	case *protos.PartitionRange_IntRange:
-		rangeStart = fmt.Sprint(x.IntRange.Start)
-		rangeEnd = fmt.Sprint(x.IntRange.End)
+		rangeStart = strconv.FormatInt(x.IntRange.Start, 10)
+		rangeEnd = strconv.FormatInt(x.IntRange.End, 10)
 	case *protos.PartitionRange_TimestampRange:
 		rangeStart = x.TimestampRange.Start.AsTime().String()
 		rangeEnd = x.TimestampRange.End.AsTime().String()

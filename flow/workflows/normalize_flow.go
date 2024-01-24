@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"time"
 
+	"go.temporal.io/sdk/workflow"
+
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"go.temporal.io/sdk/workflow"
 )
 
 func NormalizeFlowWorkflow(ctx workflow.Context,

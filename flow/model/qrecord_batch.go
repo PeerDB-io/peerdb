@@ -6,23 +6,23 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/geo"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/PeerDB-io/peer-flow/geo"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
-// QRecordBatch holds a batch of QRecord objects.
+// QRecordBatch holds a batch of []QValue slices
 type QRecordBatch struct {
-	NumRecords uint32 // NumRecords represents the number of records in the batch.
-	Records    []QRecord
-	Schema     *QRecordSchema
+	Records [][]qvalue.QValue
+	Schema  *QRecordSchema
 }
 
 func (q *QRecordBatch) ToQRecordStream(buffer int) (*QRecordStream, error) {
 	stream := NewQRecordStream(buffer)
 
-	slog.Info(fmt.Sprintf("Converting %d records to QRecordStream", q.NumRecords))
+	slog.Info(fmt.Sprintf("Converting %d records to QRecordStream", len(q.Records)))
 
 	go func() {
 		err := stream.SetSchema(q.Schema)
@@ -89,10 +89,10 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 	}
 
 	record := src.currentRecord.Record
-	numEntries := len(record.Entries)
+	numEntries := len(record)
 
 	values := make([]interface{}, numEntries)
-	for i, qValue := range record.Entries {
+	for i, qValue := range record {
 		if qValue.Value == nil {
 			values[i] = nil
 			continue
@@ -146,6 +146,15 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 				return nil, src.err
 			}
 			values[i] = v
+
+		case qvalue.QValueKindTime:
+			t, ok := qValue.Value.(time.Time)
+			if !ok {
+				src.err = fmt.Errorf("invalid Time value")
+				return nil, src.err
+			}
+			time := pgtype.Time{Microseconds: t.UnixMicro(), Valid: true}
+			values[i] = time
 
 		case qvalue.QValueKindTimestamp:
 			t, ok := qValue.Value.(time.Time)

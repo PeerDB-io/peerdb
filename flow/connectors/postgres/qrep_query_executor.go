@@ -5,17 +5,17 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"go.temporal.io/sdk/activity"
+
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/geo"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
-
-	"go.temporal.io/sdk/activity"
 )
 
 type QRepQueryExecutor struct {
@@ -130,7 +130,7 @@ func (qe *QRepQueryExecutor) ProcessRows(
 	fieldDescriptions []pgconn.FieldDescription,
 ) (*model.QRecordBatch, error) {
 	// Initialize the record slice
-	records := make([]model.QRecord, 0)
+	records := make([][]qvalue.QValue, 0)
 	qe.logger.Info("Processing rows")
 	// Iterate over the rows
 	for rows.Next() {
@@ -148,12 +148,11 @@ func (qe *QRepQueryExecutor) ProcessRows(
 	}
 
 	batch := &model.QRecordBatch{
-		NumRecords: uint32(len(records)),
-		Records:    records,
-		Schema:     qe.fieldDescriptionsToSchema(fieldDescriptions),
+		Records: records,
+		Schema:  qe.fieldDescriptionsToSchema(fieldDescriptions),
 	}
 
-	qe.logger.Info(fmt.Sprintf("[postgres] pulled %d records", batch.NumRecords))
+	qe.logger.Info(fmt.Sprintf("[postgres] pulled %d records", len(batch.Records)))
 
 	return batch, nil
 }
@@ -283,9 +282,8 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 			return nil, fmt.Errorf("failed to get schema from stream: %w", schema.Err)
 		}
 		batch := &model.QRecordBatch{
-			NumRecords: 0,
-			Records:    make([]model.QRecord, 0),
-			Schema:     schema.Schema,
+			Records: make([][]qvalue.QValue, 0),
+			Schema:  schema.Schema,
 		}
 		for record := range stream.Records {
 			if record.Err == nil {
@@ -294,7 +292,6 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 				return nil, fmt.Errorf("[pg] failed to get record from stream: %w", record.Err)
 			}
 		}
-		batch.NumRecords = uint32(len(batch.Records))
 		return batch, nil
 	}
 }
@@ -437,14 +434,14 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
 
 func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription,
 	customTypeMap map[uint32]string,
-) (model.QRecord, error) {
+) ([]qvalue.QValue, error) {
 	// make vals an empty array of QValue of size len(fds)
-	record := model.NewQRecord(len(fds))
+	record := make([]qvalue.QValue, len(fds))
 
 	values, err := row.Values()
 	if err != nil {
 		slog.Error("[pg_query_executor] failed to get values from row", slog.Any("error", err))
-		return model.QRecord{}, fmt.Errorf("failed to scan row: %w", err)
+		return nil, fmt.Errorf("failed to scan row: %w", err)
 	}
 
 	for i, fd := range fds {
@@ -454,9 +451,9 @@ func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription,
 			tmp, err := parseFieldFromPostgresOID(fd.DataTypeOID, values[i])
 			if err != nil {
 				slog.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))
-				return model.QRecord{}, fmt.Errorf("failed to parse field: %w", err)
+				return nil, fmt.Errorf("failed to parse field: %w", err)
 			}
-			record.Set(i, tmp)
+			record[i] = tmp
 		} else {
 			customQKind := customTypeToQKind(typeName)
 			if customQKind == qvalue.QValueKindGeography || customQKind == qvalue.QValueKindGeometry {
@@ -468,11 +465,10 @@ func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription,
 					values[i] = wkt
 				}
 			}
-			customTypeVal := qvalue.QValue{
+			record[i] = qvalue.QValue{
 				Kind:  customQKind,
 				Value: values[i],
 			}
-			record.Set(i, customTypeVal)
 		}
 	}
 

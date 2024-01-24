@@ -8,17 +8,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // PostgresConnector is a Connector implementation for Postgres.
@@ -272,11 +273,6 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	c.logger.Info(fmt.Sprintf("pushing records to Postgres table %s via COPY", rawTableIdentifier))
 
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
-	}
-	syncBatchID += 1
 	records := make([][]interface{}, 0)
 	tableNameRowsMapping := make(map[string]uint32)
 
@@ -298,7 +294,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				itemsJSON,
 				0,
 				"{}",
-				syncBatchID,
+				req.SyncBatchID,
 				"",
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
@@ -325,7 +321,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				newItemsJSON,
 				1,
 				oldItemsJSON,
-				syncBatchID,
+				req.SyncBatchID,
 				utils.KeysToString(typedRecord.UnchangedToastColumns),
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
@@ -345,7 +341,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				itemsJSON,
 				2,
 				itemsJSON,
-				syncBatchID,
+				req.SyncBatchID,
 				"",
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
@@ -354,18 +350,15 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		}
 	}
 
-	tableSchemaDeltas := req.Records.WaitForSchemaDeltas(req.TableMappings)
-	err = c.ReplayTableSchemaDeltas(req.FlowJobName, tableSchemaDeltas)
+	err := c.ReplayTableSchemaDeltas(req.FlowJobName, req.Records.SchemaDeltas)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
 	if len(records) == 0 {
 		return &model.SyncResponse{
-			LastSyncedCheckPointID: 0,
+			LastSyncedCheckpointID: 0,
 			NumRecordsSynced:       0,
-			TableSchemaDeltas:      tableSchemaDeltas,
-			RelationMessageMapping: <-req.Records.RelationMessageMapping,
 		}, nil
 	}
 
@@ -403,7 +396,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}
 
 	// updating metadata with new offset and syncBatchID
-	err = c.updateSyncMetadata(req.FlowJobName, lastCP, syncBatchID, syncRecordsTx)
+	err = c.updateSyncMetadata(req.FlowJobName, lastCP, req.SyncBatchID, syncRecordsTx)
 	if err != nil {
 		return nil, err
 	}
@@ -414,12 +407,11 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}
 
 	return &model.SyncResponse{
-		LastSyncedCheckPointID: lastCP,
+		LastSyncedCheckpointID: lastCP,
 		NumRecordsSynced:       int64(len(records)),
-		CurrentSyncBatchID:     syncBatchID,
+		CurrentSyncBatchID:     req.SyncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,
-		TableSchemaDeltas:      tableSchemaDeltas,
-		RelationMessageMapping: <-req.Records.RelationMessageMapping,
+		TableSchemaDeltas:      req.Records.SchemaDeltas,
 	}, nil
 }
 
@@ -587,7 +579,7 @@ func (c *PostgresConnector) GetTableSchema(
 ) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(tableName, req.SkipPkeyAndReplicaCheck)
+		tableSchema, err := c.getTableSchemaForTable(tableName)
 		if err != nil {
 			return nil, err
 		}
@@ -603,27 +595,19 @@ func (c *PostgresConnector) GetTableSchema(
 
 func (c *PostgresConnector) getTableSchemaForTable(
 	tableName string,
-	skipPkeyAndReplicaCheck bool,
 ) (*protos.TableSchema, error) {
 	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
 		return nil, err
 	}
 
-	var pKeyCols []string
-	var replicaIdentityType ReplicaIdentityType
-	if !skipPkeyAndReplicaCheck {
-		var replErr error
-		replicaIdentityType, replErr = c.getReplicaIdentityType(schemaTable)
-		if replErr != nil {
-			return nil, fmt.Errorf("[getTableSchema]:error getting replica identity for table %s: %w", schemaTable, replErr)
-		}
-
-		var err error
-		pKeyCols, err = c.getPrimaryKeyColumns(replicaIdentityType, schemaTable)
-		if err != nil {
-			return nil, fmt.Errorf("[getTableSchema]:error getting primary key column for table %s: %w", schemaTable, err)
-		}
+	replicaIdentityType, err := c.getReplicaIdentityType(schemaTable)
+	if err != nil {
+		return nil, fmt.Errorf("[getTableSchema] error getting replica identity for table %s: %w", schemaTable, err)
+	}
+	pKeyCols, err := c.getUniqueColumns(replicaIdentityType, schemaTable)
+	if err != nil {
+		return nil, fmt.Errorf("[getTableSchema] error getting primary key column for table %s: %w", schemaTable, err)
 	}
 
 	// Get the column names and types
@@ -655,6 +639,10 @@ func (c *PostgresConnector) getTableSchemaForTable(
 
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating over table schema: %w", err)
+	}
+	// if we have no pkey, we will use all columns as the pkey for the MERGE statement
+	if replicaIdentityType == ReplicaIdentityFull && len(pKeyCols) == 0 {
+		pKeyCols = columnNames
 	}
 
 	return &protos.TableSchema{
@@ -751,8 +739,8 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			_, err = tableSchemaModifyTx.Exec(c.ctx, fmt.Sprintf(
-				"ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
-				schemaDelta.DstTableName, addedColumn.ColumnName,
+				"ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s",
+				schemaDelta.DstTableName, QuoteIdentifier(addedColumn.ColumnName),
 				qValueKindToPostgresType(addedColumn.ColumnType)))
 			if err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
@@ -807,14 +795,14 @@ func (c *PostgresConnector) EnsurePullability(
 			return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
 		}
 
-		pKeyCols, err := c.getPrimaryKeyColumns(replicaIdentity, schemaTable)
+		pKeyCols, err := c.getUniqueColumns(replicaIdentity, schemaTable)
 		if err != nil {
 			return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
 		}
 
 		// we only allow no primary key if the table has REPLICA IDENTITY FULL
 		// this is ok for replica identity index as we populate the primary key columns
-		if len(pKeyCols) == 0 && !(replicaIdentity == ReplicaIdentityFull) {
+		if len(pKeyCols) == 0 && replicaIdentity != ReplicaIdentityFull {
 			return nil, fmt.Errorf("table %s has no primary keys and does not have REPLICA IDENTITY FULL", schemaTable)
 		}
 

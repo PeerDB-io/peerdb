@@ -6,9 +6,11 @@ import (
 	"math/big"
 	"time"
 
-	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
 	"github.com/google/uuid"
 	"github.com/linkedin/goavro/v2"
+
+	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
+	"github.com/PeerDB-io/peer-flow/model/numeric"
 )
 
 // https://avro.apache.org/docs/1.11.0/spec.html
@@ -148,8 +150,56 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 	case QValueKindInvalid:
 		// we will attempt to convert invalid to a string
 		return c.processNullableUnion("string", c.Value.Value)
-	case QValueKindTime, QValueKindTimeTZ, QValueKindTimestamp, QValueKindTimestampTZ:
+	case QValueKindTime:
 		t, err := c.processGoTime()
+		if err != nil || t == nil {
+			return t, err
+		}
+		if c.TargetDWH == QDWHTypeSnowflake {
+			if c.Nullable {
+				return c.processNullableUnion("string", t.(string))
+			} else {
+				return t.(string), nil
+			}
+		}
+
+		if c.TargetDWH == QDWHTypeClickhouse {
+			if c.Nullable {
+				return c.processNullableUnion("long", t.(int64))
+			} else {
+				return t.(int64), nil
+			}
+		}
+		if c.Nullable {
+			return goavro.Union("long.time-micros", t.(int64)), nil
+		}
+		return t.(int64), nil
+	case QValueKindTimeTZ:
+		t, err := c.processGoTimeTZ()
+		if err != nil || t == nil {
+			return t, err
+		}
+		if c.TargetDWH == QDWHTypeSnowflake {
+			if c.Nullable {
+				return c.processNullableUnion("string", t.(string))
+			} else {
+				return t.(string), nil
+			}
+		}
+
+		if c.TargetDWH == QDWHTypeClickhouse {
+			if c.Nullable {
+				return c.processNullableUnion("long", t.(int64))
+			} else {
+				return t.(int64), nil
+			}
+		}
+		if c.Nullable {
+			return goavro.Union("long.time-micros", t.(int64)), nil
+		}
+		return t.(int64), nil
+	case QValueKindTimestamp:
+		t, err := c.processGoTimestamp()
 		if err != nil || t == nil {
 			return t, err
 		}
@@ -172,7 +222,30 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 			return goavro.Union("long.timestamp-micros", t.(int64)), nil
 		}
 		return t.(int64), nil
+	case QValueKindTimestampTZ:
+		t, err := c.processGoTimestampTZ()
+		if err != nil || t == nil {
+			return t, err
+		}
+		if c.TargetDWH == QDWHTypeSnowflake {
+			if c.Nullable {
+				return c.processNullableUnion("string", t.(string))
+			} else {
+				return t.(string), nil
+			}
+		}
 
+		if c.TargetDWH == QDWHTypeClickhouse {
+			if c.Nullable {
+				return c.processNullableUnion("long", t.(int64))
+			} else {
+				return t.(int64), nil
+			}
+		}
+		if c.Nullable {
+			return goavro.Union("long.timestamp-micros", t.(int64)), nil
+		}
+		return t.(int64), nil
 	case QValueKindDate:
 		t, err := c.processGoDate()
 		if err != nil || t == nil {
@@ -188,9 +261,8 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 
 		if c.Nullable {
 			return goavro.Union("int.date", t), nil
-		} else {
-			return t, nil
 		}
+		return t, nil
 
 	case QValueKindString, QValueKindCIDR, QValueKindINET, QValueKindMacaddr:
 		if c.TargetDWH == QDWHTypeSnowflake && c.Value.Value != nil &&
@@ -260,6 +332,24 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 	}
 }
 
+func (c *QValueAvroConverter) processGoTimeTZ() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
+	t, ok := c.Value.Value.(time.Time)
+	if !ok {
+		return nil, fmt.Errorf("invalid TimeTZ value")
+	}
+
+	// Snowflake has issues with avro timestamp types, returning as string form
+	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
+	if c.TargetDWH == QDWHTypeSnowflake {
+		return t.Format("15:04:05.999999-0700"), nil
+	}
+	return t.UnixMicro(), nil
+}
+
 func (c *QValueAvroConverter) processGoTime() (interface{}, error) {
 	if c.Value.Value == nil && c.Nullable {
 		return nil, nil
@@ -270,13 +360,48 @@ func (c *QValueAvroConverter) processGoTime() (interface{}, error) {
 		return nil, fmt.Errorf("invalid Time value")
 	}
 
-	ret := t.UnixMicro()
-	// Snowflake has issues with avro timestamp types, returning as string form of the int64
+	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == QDWHTypeSnowflake {
-		return fmt.Sprint(ret), nil
+		return t.Format("15:04:05.999999"), nil
 	}
-	return ret, nil
+	return t.UnixMicro(), nil
+}
+
+func (c *QValueAvroConverter) processGoTimestampTZ() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
+	t, ok := c.Value.Value.(time.Time)
+	if !ok {
+		return nil, fmt.Errorf("invalid TimestampTZ value")
+	}
+
+	// Snowflake has issues with avro timestamp types, returning as string form
+	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
+	if c.TargetDWH == QDWHTypeSnowflake {
+		return t.Format("2006-01-02 15:04:05.999999-0700"), nil
+	}
+	return t.UnixMicro(), nil
+}
+
+func (c *QValueAvroConverter) processGoTimestamp() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
+	t, ok := c.Value.Value.(time.Time)
+	if !ok {
+		return nil, fmt.Errorf("invalid Timestamp value")
+	}
+
+	// Snowflake has issues with avro timestamp types, returning as string form
+	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
+	if c.TargetDWH == QDWHTypeSnowflake {
+		return t.Format("2006-01-02 15:04:05.999999"), nil
+	}
+	return t.UnixMicro(), nil
 }
 
 func (c *QValueAvroConverter) processGoDate() (interface{}, error) {
@@ -289,11 +414,10 @@ func (c *QValueAvroConverter) processGoDate() (interface{}, error) {
 		return nil, fmt.Errorf("invalid Time value for Date")
 	}
 
-	// Snowflake has issues with avro timestamp types, returning as string form of the int64
+	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == QDWHTypeSnowflake {
-		ret := t.UnixMicro()
-		return fmt.Sprint(ret), nil
+		return t.Format("2006-01-02"), nil
 	}
 	return t, nil
 }
@@ -323,6 +447,9 @@ func (c *QValueAvroConverter) processNumeric() (interface{}, error) {
 		return nil, fmt.Errorf("invalid Numeric value: expected *big.Rat, got %T", c.Value.Value)
 	}
 
+	scale := numeric.PeerDBNumericScale
+	decimalValue := num.FloatString(scale)
+	num.SetString(decimalValue)
 	if c.Nullable {
 		return goavro.Union("bytes.decimal", num), nil
 	}
@@ -415,7 +542,7 @@ func (c *QValueAvroConverter) processArrayTime() (interface{}, error) {
 
 	transformedTimeArr := make([]interface{}, 0, len(arrayTime))
 	for _, t := range arrayTime {
-		// Snowflake has issues with avro timestamp types, returning as string form of the int64
+		// Snowflake has issues with avro timestamp types, returning as string form
 		// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 		if c.TargetDWH == QDWHTypeSnowflake {
 			transformedTimeArr = append(transformedTimeArr, t.String())
@@ -505,7 +632,7 @@ func (c *QValueAvroConverter) processUUID() (interface{}, error) {
 
 	u, err := uuid.FromBytes(byteData[:])
 	if err != nil {
-		return nil, fmt.Errorf("[conversion] conversion of invalid UUID value: %v", err)
+		return nil, fmt.Errorf("[conversion] conversion of invalid UUID value: %w", err)
 	}
 
 	uuidString := u.String()

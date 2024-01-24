@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -155,7 +156,7 @@ func (c *EventHubConnector) processBatch(
 
 			numRecords.Add(1)
 
-			recordLSN := record.GetCheckPointID()
+			recordLSN := record.GetCheckpointID()
 			if recordLSN > lastSeenLSN {
 				lastSeenLSN = recordLSN
 			}
@@ -185,10 +186,8 @@ func (c *EventHubConnector) processBatch(
 			partitionColumn := destination.PartitionKeyColumn
 			partitionValue := record.GetItems().GetColumnValue(partitionColumn).Value
 			var partitionKey string
-			if partitionValue == nil {
-				partitionKey = ""
-			} else {
-				partitionKey = fmt.Sprintf("%v", partitionValue)
+			if partitionValue != nil {
+				partitionKey = fmt.Sprint(partitionValue)
 			}
 			partitionKey = utils.HashedPartitionKey(partitionKey, numPartitions)
 			destination.SetPartitionValue(partitionKey)
@@ -249,19 +248,12 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		return nil, err
 	}
 
-	rowsSynced := int64(numRecords)
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		c.logger.Error("failed to get last sync batch id", slog.Any("error", err))
-	}
-
 	return &model.SyncResponse{
-		CurrentSyncBatchID:     syncBatchID,
-		LastSyncedCheckPointID: lastCheckpoint,
-		NumRecordsSynced:       rowsSynced,
+		CurrentSyncBatchID:     req.SyncBatchID,
+		LastSyncedCheckpointID: lastCheckpoint,
+		NumRecordsSynced:       int64(numRecords),
 		TableNameRowsMapping:   make(map[string]uint32),
-		TableSchemaDeltas:      req.Records.WaitForSchemaDeltas(req.TableMappings),
-		RelationMessageMapping: <-req.Records.RelationMessageMapping,
+		TableSchemaDeltas:      req.Records.SchemaDeltas,
 	}, nil
 }
 
@@ -308,9 +300,5 @@ func (c *EventHubConnector) SetupNormalizedTables(
 }
 
 func (c *EventHubConnector) SyncFlowCleanup(jobName string) error {
-	err := c.pgMetadata.DropMetadata(jobName)
-	if err != nil {
-		return err
-	}
-	return nil
+	return c.pgMetadata.DropMetadata(jobName)
 }

@@ -6,22 +6,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/snowflakedb/gosnowflake"
+	"go.temporal.io/sdk/activity"
+	"golang.org/x/sync/errgroup"
+
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/snowflakedb/gosnowflake"
-	"go.temporal.io/sdk/activity"
-	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -34,6 +34,7 @@ const (
 		_PEERDB_TIMESTAMP INT NOT NULL,_PEERDB_DESTINATION_TABLE_NAME STRING NOT NULL,_PEERDB_DATA STRING NOT NULL,
 		_PEERDB_RECORD_TYPE INTEGER NOT NULL, _PEERDB_MATCH_DATA STRING,_PEERDB_BATCH_ID INT,
 		_PEERDB_UNCHANGED_TOAST_COLUMNS STRING)`
+	createDummyTableSQL         = "CREATE TABLE IF NOT EXISTS %s.%s(_PEERDB_DUMMY_COL STRING)"
 	rawTableMultiValueInsertSQL = "INSERT INTO %s.%s VALUES%s"
 	createNormalizedTableSQL    = "CREATE TABLE IF NOT EXISTS %s(%s)"
 	toVariantColumnName         = "VAR_COLS"
@@ -76,6 +77,7 @@ const (
 	getLastNormalizeBatchID_SQL = "SELECT NORMALIZE_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	dropTableIfExistsSQL        = "DROP TABLE IF EXISTS %s.%s"
 	deleteJobMetadataSQL        = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=?"
+	dropSchemaIfExistsSQL       = "DROP SCHEMA IF EXISTS %s"
 	checkSchemaExistsSQL        = "SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME=?"
 )
 
@@ -103,6 +105,64 @@ func (a *ArrayString) Scan(src interface{}) error {
 type UnchangedToastColumnResult struct {
 	TableName             string
 	UnchangedToastColumns ArrayString
+}
+
+func TableCheck(ctx context.Context, database *sql.DB) error {
+	dummySchema := "PEERDB_DUMMY_SCHEMA_" + shared.RandomString(4)
+	dummyTable := "PEERDB_DUMMY_TABLE_" + shared.RandomString(4)
+
+	// In a transaction, create a table, insert a row into the table and then drop the table
+	// If any of these steps fail, the transaction will be rolled back
+	tx, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	// in case we return after error, ensure transaction is rolled back
+	defer func() {
+		deferErr := tx.Rollback()
+		if deferErr != sql.ErrTxDone && deferErr != nil {
+			activity.GetLogger(ctx).Error("error while rolling back transaction for table check",
+				slog.Any("error", deferErr))
+		}
+	}()
+
+	// create schema
+	_, err = tx.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, dummySchema))
+	if err != nil {
+		return fmt.Errorf("failed to create schema: %w", err)
+	}
+
+	// create table
+	_, err = tx.ExecContext(ctx, fmt.Sprintf(createDummyTableSQL, dummySchema, dummyTable))
+	if err != nil {
+		return fmt.Errorf("failed to create table: %w", err)
+	}
+
+	// insert row
+	_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s.%s VALUES ('dummy')", dummySchema, dummyTable))
+	if err != nil {
+		return fmt.Errorf("failed to insert row: %w", err)
+	}
+
+	// drop table
+	_, err = tx.ExecContext(ctx, fmt.Sprintf(dropTableIfExistsSQL, dummySchema, dummyTable))
+	if err != nil {
+		return fmt.Errorf("failed to drop table: %w", err)
+	}
+
+	// drop schema
+	_, err = tx.ExecContext(ctx, fmt.Sprintf(dropSchemaIfExistsSQL, dummySchema))
+	if err != nil {
+		return fmt.Errorf("failed to drop schema: %w", err)
+	}
+
+	// commit transaction
+	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
 }
 
 func NewSnowflakeConnector(ctx context.Context,
@@ -139,6 +199,11 @@ func NewSnowflakeConnector(ctx context.Context,
 	err = database.PingContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
+	}
+
+	err = TableCheck(ctx, database)
+	if err != nil {
+		return nil, fmt.Errorf("could not validate snowflake peer: %w", err)
 	}
 
 	metadataSchema := "_PEERDB_INTERNAL"
@@ -379,12 +444,12 @@ func (c *SnowflakeConnector) getTableNametoUnchangedCols(flowJobName string, syn
 		var r UnchangedToastColumnResult
 		err := rows.Scan(&r.TableName, &r.UnchangedToastColumns)
 		if err != nil {
-			log.Fatalf("Failed to scan row: %v", err)
+			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 		resultMap[r.TableName] = r.UnchangedToastColumns
 	}
 	if err := rows.Err(); err != nil {
-		log.Fatalf("Error iterating over rows: %v", err)
+		return nil, fmt.Errorf("error iterating over rows: %w", err)
 	}
 	return resultMap, nil
 }
@@ -481,13 +546,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	c.logger.Info(fmt.Sprintf("pushing records to Snowflake table %s", rawTableIdentifier))
 
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
-	}
-	syncBatchID += 1
-
-	res, err := c.syncRecordsViaAvro(req, rawTableIdentifier, syncBatchID)
+	res, err := c.syncRecordsViaAvro(req, rawTableIdentifier, req.SyncBatchID)
 	if err != nil {
 		return nil, err
 	}
@@ -502,12 +561,12 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 		deferErr := syncRecordsTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
 			c.logger.Error("error while rolling back transaction for SyncRecords: %v",
-				slog.Any("error", deferErr), slog.Int64("syncBatchID", syncBatchID))
+				slog.Any("error", deferErr), slog.Int64("syncBatchID", req.SyncBatchID))
 		}
 	}()
 
 	// updating metadata with new offset and syncBatchID
-	err = c.updateSyncMetadata(req.FlowJobName, res.LastSyncedCheckPointID, syncBatchID, syncRecordsTx)
+	err = c.updateSyncMetadata(req.FlowJobName, res.LastSyncedCheckpointID, req.SyncBatchID, syncRecordsTx)
 	if err != nil {
 		return nil, err
 	}
@@ -549,8 +608,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		return nil, err
 	}
 
-	tableSchemaDeltas := req.Records.WaitForSchemaDeltas(req.TableMappings)
-	err = c.ReplayTableSchemaDeltas(req.FlowJobName, tableSchemaDeltas)
+	err = c.ReplayTableSchemaDeltas(req.FlowJobName, req.Records.SchemaDeltas)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
@@ -561,12 +619,11 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 	}
 
 	return &model.SyncResponse{
-		LastSyncedCheckPointID: lastCheckpoint,
+		LastSyncedCheckpointID: lastCheckpoint,
 		NumRecordsSynced:       int64(numRecords),
 		CurrentSyncBatchID:     syncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,
-		TableSchemaDeltas:      tableSchemaDeltas,
-		RelationMessageMapping: <-req.Records.RelationMessageMapping,
+		TableSchemaDeltas:      req.Records.SchemaDeltas,
 	}, nil
 }
 
@@ -783,14 +840,14 @@ func generateCreateTableSQLForNormalizedTable(
 				slog.Any("error", err))
 			return
 		}
-		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`%s %s,`, normalizedColName, sfColType))
+		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`%s %s`, normalizedColName, sfColType))
 	})
 
 	// add a _peerdb_is_deleted column to the normalized table
 	// this is boolean default false, and is used to mark records as deleted
 	if softDeleteColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf(`%s BOOLEAN DEFAULT FALSE,`, softDeleteColName))
+			fmt.Sprintf(`%s BOOLEAN DEFAULT FALSE`, softDeleteColName))
 	}
 
 	// add a _peerdb_synced column to the normalized table
@@ -798,7 +855,7 @@ func generateCreateTableSQLForNormalizedTable(
 	// default value is the current timestamp (snowflake)
 	if syncedAtColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf(`%s TIMESTAMP DEFAULT CURRENT_TIMESTAMP,`, syncedAtColName))
+			fmt.Sprintf(`%s TIMESTAMP DEFAULT CURRENT_TIMESTAMP`, syncedAtColName))
 	}
 
 	// add composite primary key to the table
@@ -808,12 +865,12 @@ func generateCreateTableSQLForNormalizedTable(
 			normalizedPrimaryKeyCols = append(normalizedPrimaryKeyCols,
 				SnowflakeIdentifierNormalize(primaryKeyCol))
 		}
-		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s),",
-			strings.TrimSuffix(strings.Join(normalizedPrimaryKeyCols, ","), ",")))
+		createTableSQLArray = append(createTableSQLArray,
+			fmt.Sprintf("PRIMARY KEY(%s)", strings.Join(normalizedPrimaryKeyCols, ",")))
 	}
 
 	return fmt.Sprintf(createNormalizedTableSQL, snowflakeSchemaTableNormalize(dstSchemaTable),
-		strings.TrimSuffix(strings.Join(createTableSQLArray, ""), ","))
+		strings.Join(createTableSQLArray, ","))
 }
 
 func getRawTableIdentifier(jobName string) string {

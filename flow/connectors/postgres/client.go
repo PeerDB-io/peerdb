@@ -3,18 +3,18 @@ package connpostgres
 import (
 	"errors"
 	"fmt"
-	"log"
 	"regexp"
 	"strconv"
 	"strings"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq/oid"
+
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model"
 )
 
 type PGVersion int
@@ -121,13 +121,18 @@ func (c *PostgresConnector) getReplicaIdentityType(schemaTable *utils.SchemaTabl
 	if err != nil {
 		return ReplicaIdentityDefault, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, err)
 	}
+	if replicaIdentity == rune(ReplicaIdentityNothing) {
+		return ReplicaIdentityType(replicaIdentity), fmt.Errorf("table %s has replica identity 'n'/NOTHING", schemaTable)
+	}
 
 	return ReplicaIdentityType(replicaIdentity), nil
 }
 
-// getPrimaryKeyColumns returns the primary key columns for a given table.
-// Errors if there is no primary key column or if there is more than one primary key column.
-func (c *PostgresConnector) getPrimaryKeyColumns(
+// getUniqueColumns returns the unique columns (used to select in MERGE statement) for a given table.
+// For replica identity 'd'/default, these are the primary key columns
+// For replica identity 'i'/index, these are the columns in the selected index (indisreplident set)
+// For replica identity 'f'/full, if there is a primary key we use that, else we return all columns
+func (c *PostgresConnector) getUniqueColumns(
 	replicaIdentity ReplicaIdentityType,
 	schemaTable *utils.SchemaTable,
 ) ([]string, error) {
@@ -140,12 +145,16 @@ func (c *PostgresConnector) getPrimaryKeyColumns(
 		return c.getReplicaIdentityIndexColumns(relID, schemaTable)
 	}
 
-	// Find the primary key index OID
+	// Find the primary key index OID, for replica identity 'd'/default or 'f'/full
 	var pkIndexOID oid.Oid
 	err = c.pool.QueryRow(c.ctx,
 		`SELECT indexrelid FROM pg_index WHERE indrelid = $1 AND indisprimary`,
 		relID).Scan(&pkIndexOID)
 	if err != nil {
+		// don't error out if no pkey index, this would happen in EnsurePullability or UI.
+		if err == pgx.ErrNoRows {
+			return []string{}, nil
+		}
 		return nil, fmt.Errorf("error finding primary key index for table %s: %w", schemaTable, err)
 	}
 
@@ -158,7 +167,7 @@ func (c *PostgresConnector) getReplicaIdentityIndexColumns(relID uint32, schemaT
 	// Fetch the OID of the index used as the replica identity
 	err := c.pool.QueryRow(c.ctx,
 		`SELECT indexrelid FROM pg_index
-         WHERE indrelid = $1 AND indisreplident = true`,
+         WHERE indrelid=$1 AND indisreplident=true`,
 		relID).Scan(&indexRelID)
 	if err != nil {
 		return nil, fmt.Errorf("error finding replica identity index for table %s: %w", schemaTable, err)
@@ -246,7 +255,7 @@ func (c *PostgresConnector) checkSlotAndPublication(slot string, publication str
 // If slotName input is empty, all slot info rows are returned - this is for UI.
 // Else, only the row pertaining to that slotName will be returned.
 func (c *PostgresConnector) GetSlotInfo(slotName string) ([]*protos.SlotInfo, error) {
-	whereClause := ""
+	var whereClause string
 	if slotName != "" {
 		whereClause = fmt.Sprintf(" WHERE slot_name = %s", QuoteLiteral(slotName))
 	} else {
@@ -408,18 +417,18 @@ func generateCreateTableSQLForNormalizedTable(
 ) string {
 	createTableSQLArray := make([]string, 0, utils.TableSchemaColumns(sourceTableSchema)+2)
 	utils.IterColumns(sourceTableSchema, func(columnName, genericColumnType string) {
-		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("\"%s\" %s,", columnName,
-			qValueKindToPostgresType(genericColumnType)))
+		createTableSQLArray = append(createTableSQLArray,
+			fmt.Sprintf("%s %s", QuoteIdentifier(columnName), qValueKindToPostgresType(genericColumnType)))
 	})
 
 	if softDeleteColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf(`%s BOOL DEFAULT FALSE,`, QuoteIdentifier(softDeleteColName)))
+			fmt.Sprintf(`%s BOOL DEFAULT FALSE`, QuoteIdentifier(softDeleteColName)))
 	}
 
 	if syncedAtColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf(`%s TIMESTAMP DEFAULT CURRENT_TIMESTAMP,`, QuoteIdentifier(syncedAtColName)))
+			fmt.Sprintf(`%s TIMESTAMP DEFAULT CURRENT_TIMESTAMP`, QuoteIdentifier(syncedAtColName)))
 	}
 
 	// add composite primary key to the table
@@ -428,12 +437,11 @@ func generateCreateTableSQLForNormalizedTable(
 		for _, primaryKeyCol := range sourceTableSchema.PrimaryKeyColumns {
 			primaryKeyColsQuoted = append(primaryKeyColsQuoted, QuoteIdentifier(primaryKeyCol))
 		}
-		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s),",
-			strings.TrimSuffix(strings.Join(primaryKeyColsQuoted, ","), ",")))
+		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s)",
+			strings.Join(primaryKeyColsQuoted, ",")))
 	}
 
-	return fmt.Sprintf(createNormalizedTableSQL, sourceTableIdentifier,
-		strings.TrimSuffix(strings.Join(createTableSQLArray, ""), ","))
+	return fmt.Sprintf(createNormalizedTableSQL, sourceTableIdentifier, strings.Join(createTableSQLArray, ","))
 }
 
 func (c *PostgresConnector) GetLastSyncBatchID(jobName string) (int64, error) {
@@ -554,12 +562,12 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(flowJobName string, sync
 	for rows.Next() {
 		err := rows.Scan(&destinationTableName, &unchangedToastColumns)
 		if err != nil {
-			log.Fatalf("Failed to scan row: %v", err)
+			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 		resultMap[destinationTableName.String] = unchangedToastColumns
 	}
 	if err := rows.Err(); err != nil {
-		log.Fatalf("Error iterating over rows: %v", err)
+		return nil, fmt.Errorf("error iterating over rows: %w", err)
 	}
 	return resultMap, nil
 }
@@ -585,26 +593,31 @@ func (c *PostgresConnector) CheckSourceTables(tableNames []string, pubName strin
 	}
 
 	// Check that we can select from all tables
-	for _, tableName := range tableNames {
+	tableArr := make([]string, 0, len(tableNames))
+	for _, table := range tableNames {
 		var row pgx.Row
-		err := c.pool.QueryRow(c.ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 0;", tableName)).Scan(&row)
+		schemaName, tableName, found := strings.Cut(table, ".")
+		if !found {
+			return fmt.Errorf("invalid source table identifier: %s", table)
+		}
+
+		tableArr = append(tableArr, fmt.Sprintf(`(%s::text, %s::text)`, QuoteLiteral(schemaName), QuoteLiteral(tableName)))
+		err := c.pool.QueryRow(c.ctx,
+			fmt.Sprintf("SELECT * FROM %s.%s LIMIT 0;", QuoteIdentifier(schemaName), QuoteIdentifier(tableName))).Scan(&row)
 		if err != nil && err != pgx.ErrNoRows {
 			return err
 		}
 	}
 
 	// Check if tables belong to publication
-	tableArr := make([]string, 0, len(tableNames))
-	for _, tableName := range tableNames {
-		tableArr = append(tableArr, fmt.Sprintf("'%s'", tableName))
-	}
-
 	tableStr := strings.Join(tableArr, ",")
-
 	if pubName != "" {
 		var pubTableCount int
-		err := c.pool.QueryRow(c.ctx, fmt.Sprintf("select COUNT(DISTINCT(schemaname||'.'||tablename)) from pg_publication_tables "+
-			"where schemaname||'.'||tablename in (%s) and pubname=$1;", tableStr), pubName).Scan(&pubTableCount)
+		err := c.pool.QueryRow(c.ctx, fmt.Sprintf(`
+		with source_table_components (sname, tname) as (values %s)
+		select COUNT(DISTINCT(schemaname,tablename)) from pg_publication_tables
+		INNER JOIN source_table_components stc
+		ON schemaname=stc.sname and tablename=stc.tname where pubname=$1;`, tableStr), pubName).Scan(&pubTableCount)
 		if err != nil {
 			return err
 		}

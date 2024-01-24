@@ -184,7 +184,6 @@ message GetTableSchemaBatchInput {
   peerdb_peers.Peer peer_connection_config = 1;
   repeated string table_identifiers = 2;
   string flow_name = 3;
-  bool skip_pkey_and_replica_check = 4;
 }
 
 message GetTableSchemaBatchOutput {

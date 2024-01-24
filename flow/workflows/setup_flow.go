@@ -6,13 +6,13 @@ import (
 	"sort"
 	"time"
 
+	"go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/workflow"
+	"golang.org/x/exp/maps"
+
 	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"golang.org/x/exp/maps"
-
-	"go.temporal.io/sdk/log"
-	"go.temporal.io/sdk/workflow"
 )
 
 // SetupFlow is the workflow that is responsible for ensuring all the
@@ -182,10 +182,9 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	sort.Strings(sourceTables)
 
 	tableSchemaInput := &protos.GetTableSchemaBatchInput{
-		PeerConnectionConfig:    flowConnectionConfigs.Source,
-		TableIdentifiers:        sourceTables,
-		FlowName:                s.cdcFlowName,
-		SkipPkeyAndReplicaCheck: flowConnectionConfigs.InitialSnapshotOnly,
+		PeerConnectionConfig: flowConnectionConfigs.Source,
+		TableIdentifiers:     sourceTables,
+		FlowName:             s.cdcFlowName,
 	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)

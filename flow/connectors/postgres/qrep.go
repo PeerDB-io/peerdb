@@ -8,14 +8,15 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	partition_utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const qRepMetadataTableName = "_peerdb_query_replication_metadata"
@@ -83,7 +84,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 ) ([]*protos.QRepPartition, error) {
 	var err error
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
-	quotedWatermarkColumn := fmt.Sprintf("\"%s\"", config.WatermarkColumn)
+	quotedWatermarkColumn := QuoteIdentifier(config.WatermarkColumn)
 
 	whereClause := ""
 	if last != nil && last.Range != nil {
@@ -197,7 +198,7 @@ func (c *PostgresConnector) getMinMaxValues(
 	last *protos.QRepPartition,
 ) (interface{}, interface{}, error) {
 	var minValue, maxValue interface{}
-	quotedWatermarkColumn := fmt.Sprintf("\"%s\"", config.WatermarkColumn)
+	quotedWatermarkColumn := QuoteIdentifier(config.WatermarkColumn)
 
 	parsedWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
 	if err != nil {

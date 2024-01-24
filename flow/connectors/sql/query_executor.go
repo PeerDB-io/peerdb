@@ -9,14 +9,14 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jmoiron/sqlx"
-
 	"go.temporal.io/sdk/activity"
+
+	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type SQLQueryExecutor interface {
@@ -173,7 +173,7 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 		qfields[i] = qfield
 	}
 
-	var records []model.QRecord
+	var records [][]qvalue.QValue
 	totalRowsProcessed := 0
 	const heartBeatNumRows = 25000
 
@@ -237,13 +237,7 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 			qValues[i] = qv
 		}
 
-		// Create a QRecord
-		record := model.NewQRecord(len(qValues))
-		for i, qv := range qValues {
-			record.Set(i, qv)
-		}
-
-		records = append(records, record)
+		records = append(records, qValues)
 		totalRowsProcessed += 1
 
 		if totalRowsProcessed%heartBeatNumRows == 0 {
@@ -258,9 +252,8 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 
 	// Return a QRecordBatch
 	return &model.QRecordBatch{
-		NumRecords: uint32(len(records)),
-		Records:    records,
-		Schema:     model.NewQRecordSchema(qfields),
+		Records: records,
+		Schema:  model.NewQRecordSchema(qfields),
 	}, nil
 }
 

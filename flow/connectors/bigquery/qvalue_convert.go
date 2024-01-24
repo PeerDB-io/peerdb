@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"cloud.google.com/go/bigquery"
+
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 

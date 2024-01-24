@@ -11,13 +11,14 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/civil"
+	"google.golang.org/api/iterator"
+
 	peer_bq "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"google.golang.org/api/iterator"
 )
 
 type BigQueryTestHelper struct {
@@ -218,7 +219,9 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 	case bool:
 		return qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: v}, nil
 	case civil.Date:
-		return qvalue.QValue{Kind: qvalue.QValueKindDate, Value: bqValue.(civil.Date).In(time.UTC)}, nil
+		return qvalue.QValue{Kind: qvalue.QValueKindDate, Value: v.In(time.UTC)}, nil
+	case civil.Time:
+		return qvalue.QValue{Kind: qvalue.QValueKindTime, Value: v}, nil
 	case time.Time:
 		return qvalue.QValue{Kind: qvalue.QValueKindTimestamp, Value: v}, nil
 	case *big.Rat:
@@ -333,7 +336,7 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 		return nil, fmt.Errorf("failed to run command: %w", err)
 	}
 
-	var records []model.QRecord
+	var records [][]qvalue.QValue
 	for {
 		var row []bigquery.Value
 		err := it.Next(&row)
@@ -354,13 +357,7 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 			qValues[i] = qv
 		}
 
-		// Create a QRecord
-		record := model.NewQRecord(len(qValues))
-		for i, qv := range qValues {
-			record.Set(i, qv)
-		}
-
-		records = append(records, record)
+		records = append(records, qValues)
 	}
 
 	// Now you should fill the column names as well. Here we assume the schema is
@@ -375,18 +372,17 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 
 	// Return a QRecordBatch
 	return &model.QRecordBatch{
-		NumRecords: uint32(len(records)),
-		Records:    records,
-		Schema:     schema,
+		Records: records,
+		Schema:  schema,
 	}, nil
 }
 
 // returns whether the function errors or there are nulls
-func (b *BigQueryTestHelper) CheckNull(tableName string, ColName []string) (bool, error) {
-	if len(ColName) == 0 {
+func (b *BigQueryTestHelper) CheckNull(tableName string, colName []string) (bool, error) {
+	if len(colName) == 0 {
 		return true, nil
 	}
-	joinedString := strings.Join(ColName, " is null or ") + " is null"
+	joinedString := strings.Join(colName, " is null or ") + " is null"
 	command := fmt.Sprintf("SELECT COUNT(*) FROM `%s.%s` WHERE %s",
 		b.Config.DatasetId, tableName, joinedString)
 	q := b.client.Query(command)
@@ -419,8 +415,8 @@ func (b *BigQueryTestHelper) CheckNull(tableName string, ColName []string) (bool
 }
 
 // check if NaN, Inf double values are null
-func (b *BigQueryTestHelper) CheckDoubleValues(tableName string, ColName []string) (bool, error) {
-	csep := strings.Join(ColName, ",")
+func (b *BigQueryTestHelper) CheckDoubleValues(tableName string, colName []string) (bool, error) {
+	csep := strings.Join(colName, ",")
 	command := fmt.Sprintf("SELECT %s FROM `%s.%s`",
 		csep, b.Config.DatasetId, tableName)
 	q := b.client.Query(command)
@@ -513,9 +509,9 @@ func (b *BigQueryTestHelper) RunInt64Query(query string) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("could not execute query: %w", err)
 	}
-	if recordBatch.NumRecords != 1 {
-		return 0, fmt.Errorf("expected only 1 record, got %d", recordBatch.NumRecords)
+	if len(recordBatch.Records) != 1 {
+		return 0, fmt.Errorf("expected only 1 record, got %d", len(recordBatch.Records))
 	}
 
-	return recordBatch.Records[0].Entries[0].Value.(int64), nil
+	return recordBatch.Records[0][0].Value.(int64), nil
 }

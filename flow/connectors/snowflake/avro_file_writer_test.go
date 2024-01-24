@@ -8,11 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/require"
 )
 
 // createQValue creates a QValue of the appropriate kind for a given placeholder.
@@ -96,9 +97,8 @@ func generateRecords(
 
 	// Create sample records
 	records := &model.QRecordBatch{
-		NumRecords: numRows,
-		Records:    make([]model.QRecord, numRows),
-		Schema:     schema,
+		Records: make([][]qvalue.QValue, numRows),
+		Schema:  schema,
 	}
 
 	for i, kind := range allQValueKinds {
@@ -120,9 +120,7 @@ func generateRecords(
 			}
 		}
 
-		records.Records[row] = model.QRecord{
-			Entries: entries,
-		}
+		records.Records[row] = entries
 	}
 
 	stream, err := records.ToQRecordStream(1024)
