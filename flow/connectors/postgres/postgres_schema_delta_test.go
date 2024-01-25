@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -121,14 +120,14 @@ func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 		PrimaryKeyColumns: []string{"id"},
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
-	utils.IterColumns(expectedTableSchema, func(columnName, columnType string) {
+	for i, columnName := range expectedTableSchema.ColumnNames {
 		if columnName != "id" {
 			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
 				ColumnName: columnName,
-				ColumnType: columnType,
+				ColumnType: expectedTableSchema.ColumnTypes[i],
 			})
 		}
-	})
+	}
 
 	err = s.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
@@ -171,14 +170,14 @@ func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 		PrimaryKeyColumns: []string{"id"},
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
-	utils.IterColumns(expectedTableSchema, func(columnName, columnType string) {
+	for i, columnName := range expectedTableSchema.ColumnNames {
 		if columnName != "id" {
 			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
 				ColumnName: columnName,
-				ColumnType: columnType,
+				ColumnType: expectedTableSchema.ColumnTypes[i],
 			})
 		}
-	})
+	}
 
 	err = s.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
@@ -212,14 +211,14 @@ func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 		PrimaryKeyColumns: []string{" "},
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
-	utils.IterColumns(expectedTableSchema, func(columnName, columnType string) {
+	for i, columnName := range expectedTableSchema.ColumnNames {
 		if columnName != " " {
 			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
 				ColumnName: columnName,
-				ColumnType: columnType,
+				ColumnType: expectedTableSchema.ColumnTypes[i],
 			})
 		}
-	})
+	}
 
 	err = s.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,

@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     destinationPeer,
     removeFlowEntry: true,
   };
-  console.log('/drop/mirror: req:', req);
+  console.log('/mirrors/drop: req:', req);
   try {
     const dropStatus: ShutdownResponse = await fetch(
       `${flowServiceAddr}/v1/mirrors/drop`,

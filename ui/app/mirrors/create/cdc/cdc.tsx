@@ -1,5 +1,4 @@
 'use client';
-import { QRepSyncMode } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
@@ -39,7 +38,7 @@ export default function CDCConfigForm({
 }: MirrorConfigProps) {
   const [show, setShow] = useState(false);
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
-    let stateVal: string | boolean | QRepSyncMode = val;
+    let stateVal: string | boolean = val;
     setting.stateHandler(stateVal, setter);
   };
 

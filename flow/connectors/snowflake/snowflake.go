@@ -831,17 +831,18 @@ func generateCreateTableSQLForNormalizedTable(
 	softDeleteColName string,
 	syncedAtColName string,
 ) string {
-	createTableSQLArray := make([]string, 0, utils.TableSchemaColumns(sourceTableSchema)+2)
-	utils.IterColumns(sourceTableSchema, func(columnName, genericColumnType string) {
+	createTableSQLArray := make([]string, 0, len(sourceTableSchema.ColumnNames)+2)
+	for i, columnName := range sourceTableSchema.ColumnNames {
+		genericColumnType := sourceTableSchema.ColumnTypes[i]
 		normalizedColName := SnowflakeIdentifierNormalize(columnName)
 		sfColType, err := qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))
 		if err != nil {
 			slog.Warn(fmt.Sprintf("failed to convert column type %s to snowflake type", genericColumnType),
 				slog.Any("error", err))
-			return
+			continue
 		}
 		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`%s %s`, normalizedColName, sfColType))
-	})
+	}
 
 	// add a _peerdb_is_deleted column to the normalized table
 	// this is boolean default false, and is used to mark records as deleted
@@ -997,7 +998,7 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 		for _, renameRequest := range req.RenameTableOptions {
 			src := renameRequest.CurrentName
 			dst := renameRequest.NewName
-			allCols := strings.Join(utils.TableSchemaColumnNames(renameRequest.TableSchema), ",")
+			allCols := strings.Join(renameRequest.TableSchema.ColumnNames, ",")
 			pkeyCols := strings.Join(renameRequest.TableSchema.PrimaryKeyColumns, ",")
 
 			c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))

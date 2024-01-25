@@ -285,7 +285,9 @@ service FlowService {
   rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {
     option (google.api.http) = { post: "/v1/mirrors/drop", body: "*" };
   }
-  rpc FlowStateChange(FlowStateChangeRequest) returns (FlowStateChangeResponse) {}
+  rpc FlowStateChange(FlowStateChangeRequest) returns (FlowStateChangeResponse) {
+    option (google.api.http) = { post: "/v1/mirrors/state_change", body: "*" };
+  }
   rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {
     option (google.api.http) = { get: "/v1/mirrors/{flow_job_name}" };
   }

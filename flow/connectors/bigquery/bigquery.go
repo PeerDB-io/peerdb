@@ -260,11 +260,11 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(flowJobName string,
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			dstDatasetTable, _ := c.convertToDatasetTable(schemaDelta.DstTableName)
 			query := c.client.Query(fmt.Sprintf(
-				"ALTER TABLE %s.%s ADD COLUMN IF NOT EXISTS `%s` %s", dstDatasetTable.dataset,
+				"ALTER TABLE %s ADD COLUMN IF NOT EXISTS `%s` %s",
 				dstDatasetTable.table, addedColumn.ColumnName,
 				qValueKindToBigQueryType(addedColumn.ColumnType)))
 			query.DefaultProjectID = c.projectID
-			query.DefaultDatasetID = c.datasetID
+			query.DefaultDatasetID = dstDatasetTable.dataset
 			_, err := query.Read(c.ctx)
 			if err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
@@ -312,7 +312,7 @@ func (c *BigQueryConnector) SetupMetadataTables() error {
 }
 
 func (c *BigQueryConnector) GetLastOffset(jobName string) (int64, error) {
-	query := fmt.Sprintf("SELECT offset FROM %s.%s WHERE mirror_job_name = '%s'", c.datasetID, MirrorJobsTable, jobName)
+	query := fmt.Sprintf("SELECT offset FROM %s WHERE mirror_job_name = '%s'", MirrorJobsTable, jobName)
 	q := c.client.Query(query)
 	q.DefaultProjectID = c.projectID
 	q.DefaultDatasetID = c.datasetID
@@ -339,8 +339,7 @@ func (c *BigQueryConnector) GetLastOffset(jobName string) (int64, error) {
 
 func (c *BigQueryConnector) SetLastOffset(jobName string, lastOffset int64) error {
 	query := fmt.Sprintf(
-		"UPDATE %s.%s SET offset = GREATEST(offset, %d) WHERE mirror_job_name = '%s'",
-		c.datasetID,
+		"UPDATE %s SET offset = GREATEST(offset, %d) WHERE mirror_job_name = '%s'",
 		MirrorJobsTable,
 		lastOffset,
 		jobName,
@@ -357,8 +356,8 @@ func (c *BigQueryConnector) SetLastOffset(jobName string, lastOffset int64) erro
 }
 
 func (c *BigQueryConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	query := fmt.Sprintf("SELECT sync_batch_id FROM %s.%s WHERE mirror_job_name = '%s'",
-		c.datasetID, MirrorJobsTable, jobName)
+	query := fmt.Sprintf("SELECT sync_batch_id FROM %s WHERE mirror_job_name = '%s'",
+		MirrorJobsTable, jobName)
 	q := c.client.Query(query)
 	q.DisableQueryCache = true
 	q.DefaultProjectID = c.projectID
@@ -385,8 +384,8 @@ func (c *BigQueryConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 }
 
 func (c *BigQueryConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
-	query := fmt.Sprintf("SELECT normalize_batch_id FROM %s.%s WHERE mirror_job_name = '%s'",
-		c.datasetID, MirrorJobsTable, jobName)
+	query := fmt.Sprintf("SELECT normalize_batch_id FROM %s WHERE mirror_job_name = '%s'",
+		MirrorJobsTable, jobName)
 	q := c.client.Query(query)
 	q.DisableQueryCache = true
 	q.DefaultProjectID = c.projectID
@@ -416,9 +415,9 @@ func (c *BigQueryConnector) getDistinctTableNamesInBatch(flowJobName string, syn
 	rawTableName := c.getRawTableName(flowJobName)
 
 	// Prepare the query to retrieve distinct tables in that batch
-	query := fmt.Sprintf(`SELECT DISTINCT _peerdb_destination_table_name FROM %s.%s
+	query := fmt.Sprintf(`SELECT DISTINCT _peerdb_destination_table_name FROM %s
 	 WHERE _peerdb_batch_id > %d and _peerdb_batch_id <= %d`,
-		c.datasetID, rawTableName, normalizeBatchID, syncBatchID)
+		rawTableName, normalizeBatchID, syncBatchID)
 	// Run the query
 	q := c.client.Query(query)
 	q.DefaultProjectID = c.projectID
@@ -459,10 +458,10 @@ func (c *BigQueryConnector) getTableNametoUnchangedCols(flowJobName string, sync
 	// where a placeholder value for unchanged cols can be set in DeleteRecord if there is no backfill
 	// we don't want these particular DeleteRecords to be used in the update statement
 	query := fmt.Sprintf(`SELECT _peerdb_destination_table_name,
-	array_agg(DISTINCT _peerdb_unchanged_toast_columns) as unchanged_toast_columns FROM %s.%s
+	array_agg(DISTINCT _peerdb_unchanged_toast_columns) as unchanged_toast_columns FROM %s
 	 WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d AND _peerdb_record_type != 2
 	 GROUP BY _peerdb_destination_table_name`,
-		c.datasetID, rawTableName, normalizeBatchID, syncBatchID)
+		rawTableName, normalizeBatchID, syncBatchID)
 	// Run the query
 	q := c.client.Query(query)
 	q.DefaultDatasetID = c.datasetID
@@ -587,6 +586,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		dstDatasetTable, _ := c.convertToDatasetTable(tableName)
 		mergeGen := &mergeStmtGenerator{
 			rawDatasetTable: &datasetTable{
+				project: c.projectID,
 				dataset: c.datasetID,
 				table:   rawTableName,
 			},
@@ -609,7 +609,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 				i+1, len(mergeStmts), tableName))
 			q := c.client.Query(mergeStmt)
 			q.DefaultProjectID = c.projectID
-			q.DefaultDatasetID = c.datasetID
+			q.DefaultDatasetID = dstDatasetTable.dataset
 			_, err = q.Read(c.ctx)
 			if err != nil {
 				return nil, fmt.Errorf("failed to execute merge statement %s: %v", mergeStmt, err)
@@ -618,8 +618,8 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	}
 	// update metadata to make the last normalized batch id to the recent last sync batch id.
 	updateMetadataStmt := fmt.Sprintf(
-		"UPDATE %s.%s SET normalize_batch_id=%d WHERE mirror_job_name='%s';",
-		c.datasetID, MirrorJobsTable, req.SyncBatchID, req.FlowJobName)
+		"UPDATE %s SET normalize_batch_id=%d WHERE mirror_job_name='%s';",
+		MirrorJobsTable, req.SyncBatchID, req.FlowJobName)
 
 	query := c.client.Query(updateMetadataStmt)
 	query.DefaultProjectID = c.projectID
@@ -719,12 +719,12 @@ func (c *BigQueryConnector) getUpdateMetadataStmt(jobName string, lastSyncedChec
 
 	// create the job in the metadata table
 	jobStatement := fmt.Sprintf(
-		"INSERT INTO %s.%s (mirror_job_name,offset,sync_batch_id) VALUES ('%s',%d,%d);",
-		c.datasetID, MirrorJobsTable, jobName, lastSyncedCheckpointID, batchID)
+		"INSERT INTO %s (mirror_job_name,offset,sync_batch_id) VALUES ('%s',%d,%d);",
+		MirrorJobsTable, jobName, lastSyncedCheckpointID, batchID)
 	if hasJob {
 		jobStatement = fmt.Sprintf(
-			"UPDATE %s.%s SET offset=GREATEST(offset,%d),sync_batch_id=%d WHERE mirror_job_name = '%s';",
-			c.datasetID, MirrorJobsTable, lastSyncedCheckpointID, batchID, jobName)
+			"UPDATE %s SET offset=GREATEST(offset,%d),sync_batch_id=%d WHERE mirror_job_name = '%s';",
+			MirrorJobsTable, lastSyncedCheckpointID, batchID, jobName)
 	}
 
 	return jobStatement, nil
@@ -733,8 +733,8 @@ func (c *BigQueryConnector) getUpdateMetadataStmt(jobName string, lastSyncedChec
 // metadataHasJob checks if the metadata table has the given job.
 func (c *BigQueryConnector) metadataHasJob(jobName string) (bool, error) {
 	checkStmt := fmt.Sprintf(
-		"SELECT COUNT(*) FROM %s.%s WHERE mirror_job_name = '%s'",
-		c.datasetID, MirrorJobsTable, jobName)
+		"SELECT COUNT(*) FROM %s WHERE mirror_job_name = '%s'",
+		MirrorJobsTable, jobName)
 
 	q := c.client.Query(checkStmt)
 	q.DefaultProjectID = c.projectID
@@ -804,13 +804,14 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 
 		// convert the column names and types to bigquery types
 		columns := make([]*bigquery.FieldSchema, 0, len(tableSchema.ColumnNames)+2)
-		utils.IterColumns(tableSchema, func(colName, genericColType string) {
+		for i, colName := range tableSchema.ColumnNames {
+			genericColType := tableSchema.ColumnTypes[i]
 			columns = append(columns, &bigquery.FieldSchema{
 				Name:     colName,
 				Type:     qValueKindToBigQueryType(genericColType),
 				Repeated: qvalue.QValueKind(genericColType).IsArray(),
 			})
-		})
+		}
 
 		if req.SoftDeleteColName != "" {
 			columns = append(columns, &bigquery.FieldSchema{
@@ -872,7 +873,7 @@ func (c *BigQueryConnector) SyncFlowCleanup(jobName string) error {
 	}
 
 	// deleting job from metadata table
-	query := fmt.Sprintf("DELETE FROM %s.%s WHERE mirror_job_name = '%s'", c.datasetID, MirrorJobsTable, jobName)
+	query := fmt.Sprintf("DELETE FROM %s WHERE mirror_job_name = '%s'", MirrorJobsTable, jobName)
 	queryHandler := c.client.Query(query)
 	queryHandler.DefaultProjectID = c.projectID
 	queryHandler.DefaultDatasetID = c.datasetID
@@ -902,7 +903,7 @@ func (c *BigQueryConnector) RenameTables(req *protos.RenameTablesInput) (*protos
 			dstDatasetTable.string()))
 
 		if req.SoftDeleteColName != nil {
-			allCols := strings.Join(utils.TableSchemaColumnNames(renameRequest.TableSchema), ",")
+			allCols := strings.Join(renameRequest.TableSchema.ColumnNames, ",")
 			pkeyCols := strings.Join(renameRequest.TableSchema.PrimaryKeyColumns, ",")
 
 			c.logger.InfoContext(c.ctx, fmt.Sprintf("handling soft-deletes for table '%s'...", dstDatasetTable.string()))
@@ -1011,12 +1012,16 @@ func (c *BigQueryConnector) CreateTablesFromExisting(req *protos.CreateTablesFro
 }
 
 type datasetTable struct {
+	project string
 	dataset string
 	table   string
 }
 
 func (d *datasetTable) string() string {
-	return fmt.Sprintf("%s.%s", d.dataset, d.table)
+	if d.project == "" {
+		return fmt.Sprintf("%s.%s", d.dataset, d.table)
+	}
+	return fmt.Sprintf("%s.%s.%s", d.project, d.dataset, d.table)
 }
 
 func (c *BigQueryConnector) convertToDatasetTable(tableName string) (*datasetTable, error) {
@@ -1030,6 +1035,12 @@ func (c *BigQueryConnector) convertToDatasetTable(tableName string) (*datasetTab
 		return &datasetTable{
 			dataset: parts[0],
 			table:   parts[1],
+		}, nil
+	} else if len(parts) == 3 {
+		return &datasetTable{
+			project: parts[0],
+			dataset: parts[1],
+			table:   parts[2],
 		}, nil
 	} else {
 		return nil, fmt.Errorf("invalid BigQuery table name: %s", tableName)

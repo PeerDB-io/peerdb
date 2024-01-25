@@ -34,7 +34,7 @@ type mergeStmtGenerator struct {
 func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 	// for each column in the normalized table, generate CAST + JSON_EXTRACT_SCALAR
 	// statement.
-	flattenedProjs := make([]string, 0, utils.TableSchemaColumns(m.normalizedTableSchema)+3)
+	flattenedProjs := make([]string, 0, len(m.normalizedTableSchema.ColumnNames)+3)
 
 	for i, colName := range m.normalizedTableSchema.ColumnNames {
 		colType := m.normalizedTableSchema.ColumnTypes[i]
@@ -93,9 +93,9 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 	)
 
 	// normalize anything between last normalized batch id to last sync batchid
-	return fmt.Sprintf(`WITH _f AS
-	 (SELECT %s FROM %s WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d AND
-	 _peerdb_destination_table_name='%s')`,
+	return fmt.Sprintf("WITH _f AS "+
+		"(SELECT %s FROM `%s` WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d AND "+
+		"_peerdb_destination_table_name='%s')",
 		strings.Join(flattenedProjs, ","), m.rawDatasetTable.string(), m.normalizeBatchID,
 		m.syncBatchID, m.dstTableName)
 }
@@ -124,7 +124,7 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 // generateMergeStmt generates a merge statement.
 func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) string {
 	// comma separated list of column names
-	columnCount := utils.TableSchemaColumns(m.normalizedTableSchema)
+	columnCount := len(m.normalizedTableSchema.ColumnNames)
 	backtickColNames := make([]string, 0, columnCount)
 	shortBacktickColNames := make([]string, 0, columnCount)
 	pureColNames := make([]string, 0, columnCount)
@@ -169,15 +169,11 @@ func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) s
 		}
 	}
 
-	return fmt.Sprintf(`
-	MERGE %s _t USING(%s,%s) _d
-	ON %s
-		WHEN NOT MATCHED AND _d._rt!=2 THEN
-			INSERT (%s) VALUES(%s)
-		%s
-		WHEN MATCHED AND _d._rt=2 THEN
-	%s;
-	`, m.dstDatasetTable.string(), m.generateFlattenedCTE(), m.generateDeDupedCTE(),
+	return fmt.Sprintf("MERGE `%s` _t USING(%s,%s) _d"+
+		" ON %s WHEN NOT MATCHED AND _d._rt!=2 THEN "+
+		"INSERT (%s) VALUES(%s) "+
+		"%s WHEN MATCHED AND _d._rt=2 THEN %s;",
+		m.dstDatasetTable.table, m.generateFlattenedCTE(), m.generateDeDupedCTE(),
 		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
 }
 
