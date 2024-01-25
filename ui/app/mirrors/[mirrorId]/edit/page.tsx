@@ -13,7 +13,7 @@ type EditMirrorProps = {
 };
 const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
   const [rows, setRows] = useState<TableMapRow[]>([]);
-  // todo: use mirrorId to query flows table/temporal and get config
+  // todo: use mirrorId (which is mirrorName) to query flows table/temporal and get config
   // you will have to decode the config to get the table mapping. see: /mirrors/page.tsx
   return (
     <div>
