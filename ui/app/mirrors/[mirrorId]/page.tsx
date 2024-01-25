@@ -1,5 +1,6 @@
 import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import prisma from '@/app/utils/prisma';
+import EditButton from '@/components/EditButton';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { Header } from '@/lib/Header';
 import { LayoutMain } from '@/lib/Layout';
@@ -84,7 +85,10 @@ export default async function EditMirror({
 
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
-      <Header variant='title2'>{mirrorId}</Header>
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        <Header variant='title2'>{mirrorId}</Header>
+        <EditButton toLink={`/mirrors/${mirrorId}/edit`} />
+      </div>
       <CDCMirror
         rows={rows}
         createdAt={mirrorInfo?.created_at}
