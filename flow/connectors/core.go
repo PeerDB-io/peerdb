@@ -161,7 +161,6 @@ func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConne
 	case *protos.Peer_ClickhouseConfig:
 		return connclickhouse.NewClickhouseConnector(ctx, config.GetClickhouseConfig())
 	default:
-		//fmt.Printf("\n*********************** in GetCDCSyncConnector not found %+v %T\n", inner, inner)
 		return nil, ErrUnsupportedFunctionality
 	}
 }
@@ -180,7 +179,6 @@ func GetCDCNormalizeConnector(ctx context.Context,
 	case *protos.Peer_ClickhouseConfig:
 		return connclickhouse.NewClickhouseConnector(ctx, config.GetClickhouseConfig())
 	default:
-		//fmt.Printf("\n*********************** in GetCDCNormalizeConnector not found %+v %T\n", inner, inner)
 		return nil, ErrUnsupportedFunctionality
 	}
 }

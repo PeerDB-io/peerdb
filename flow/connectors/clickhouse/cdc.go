@@ -119,12 +119,12 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 	streamRes, err := utils.RecordsToRawTableStream(streamReq)
 	//x := *&streamRes.Stream
 	//y := (*x).Records
-	//fmt.Printf("\n*******************############################## cdc.go in syncRecordsViaAvro  streamRes: %+v", streamRes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
 
 	qrepConfig := &protos.QRepConfig{
+		DestinationPeer:            c.config.DestinationPeer,
 		StagingPath:                c.config.S3Integration,
 		FlowJobName:                req.FlowJobName,
 		DestinationTableIdentifier: strings.ToLower(fmt.Sprintf("%s", rawTableIdentifier)),
@@ -162,8 +162,6 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 }
 
 func (c *ClickhouseConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	//fmt.Printf("\n ******************************************** !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! in ClickhouseConnector.SyncRecords")
-	//fmt.Printf("\n ******************************* in cdc.go in SyncRecords config: %+v", c.config.S3Integration)
 	//c.config.S3Integration = "s3://avro-clickhouse"
 	rawTableName := c.getRawTableName(req.FlowJobName)
 	c.logger.Info(fmt.Sprintf("pushing records to Clickhouse table %s", rawTableName))

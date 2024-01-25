@@ -371,7 +371,6 @@ func (a *FlowableActivity) StartNormalize(
 ) (*model.NormalizeResponse, error) {
 	conn := input.FlowConnectionConfigs
 	ctx = context.WithValue(ctx, shared.FlowNameKey, conn.FlowJobName)
-	//fmt.Printf("\n*********************** in StartNormalize %+v\n", conn)
 	dstConn, err := connectors.GetCDCNormalizeConnector(ctx, conn.Destination)
 	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
 		dstConn, err := connectors.GetCDCSyncConnector(ctx, conn.Destination)

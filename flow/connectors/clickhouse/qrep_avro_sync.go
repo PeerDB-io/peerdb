@@ -55,7 +55,6 @@ func NewClickhouseAvroSyncMethod(
 // }
 
 func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(avroFile *avro.AvroFile) error {
-	//fmt.Printf("\n************************* in CopyStageToDesti stagingPath: %+v", s.config.StagingPath)
 	stagingPath := s.config.StagingPath
 	if stagingPath == "" {
 		stagingPath = s.config.DestinationPeer.GetClickhouseConfig().S3Integration //"s3://avro-clickhouse"
@@ -74,8 +73,6 @@ func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(avroFile *avro.AvroFil
 	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM s3('%s','%s','%s', 'Avro')",
 		s.config.DestinationTableIdentifier, avroFileUrl, awsCreds.AccessKeyID, awsCreds.SecretAccessKey)
 
-	//fmt.Printf("\n************************ CopyStagingToDestination query: %s\n", query)
-
 	_, err = s.connector.database.Exec(query)
 
 	return err
@@ -86,8 +83,6 @@ func (s *ClickhouseAvroSyncMethod) SyncRecords(
 	stream *model.QRecordStream,
 	flowJobName string,
 ) (int, error) {
-	//fmt.Printf("\n************************* in qrep_avro_sync: SyncRecords1  dstTableSchema	 %+v", dstTableSchema)
-	//fmt.Printf("\n************************ in qrep_avro_sync: SyncRecords2 config %+v", s.config)
 	//s.config.StagingPath = "s3://avro-clickhouse"
 	tableLog := slog.String("destinationTable", s.config.DestinationTableIdentifier)
 	dstTableName := s.config.DestinationTableIdentifier
@@ -97,8 +92,6 @@ func (s *ClickhouseAvroSyncMethod) SyncRecords(
 		return -1, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
-	//fmt.Printf("\n******************************* in qrep_avro_sync: SyncRecords3  stream schema %+v", schema)
-
 	s.connector.logger.Info("sync function called and schema acquired", tableLog)
 
 	avroSchema, err := s.getAvroSchema(dstTableName, schema)
@@ -106,12 +99,8 @@ func (s *ClickhouseAvroSyncMethod) SyncRecords(
 		return 0, err
 	}
 
-	//fmt.Printf("\n******************************* in qrep_avro_sync: SyncRecords5  avro schema %+v", avroSchema)
-
 	partitionID := shared.RandomString(16)
-	//fmt.Printf("\n******************* calling writeToAvroFile partitionId: %+v", partitionID)
 	avroFile, err := s.writeToAvroFile(stream, avroSchema, partitionID, flowJobName)
-	//fmt.Printf("\n******************* records written to avrofile %+v", avroFile)
 	if err != nil {
 		return 0, err
 	}
@@ -145,7 +134,6 @@ func (s *ClickhouseAvroSyncMethod) SyncRecords(
 
 	//Copy stage/avro to destination
 	err = s.CopyStageToDestination(avroFile)
-	//fmt.Printf("\n ***************** in qrep_avro_sync: SyncRecords after CopyStageToDestination err: %+v", err)
 	if err != nil {
 		return 0, err
 	}
@@ -159,8 +147,6 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	dstTableSchema []*sql.ColumnType,
 	stream *model.QRecordStream,
 ) (int, error) {
-	fmt.Printf("\n******************* in qrep_avro_sync: SyncQRepRecords config %+v", s.config.DestinationPeer)
-	//fmt.Printf("\n************************* in SyncQRepRecords 1")
 	startTime := time.Now()
 	dstTableName := config.DestinationTableIdentifier
 	//s.config.StagingPath = "s3://avro-clickhouse"
@@ -170,14 +156,10 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	if err != nil {
 		return -1, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
-	//fmt.Printf("\n******************************* in qrep_avro_sync: SyncQRepRecords 2 avro schema %+v", schema)
 	avroSchema, err := s.getAvroSchema(dstTableName, schema)
 	if err != nil {
 		return 0, err
 	}
-
-	//fmt.Printf("\n******************************* in qrep_avro_sync: SyncQRepRecords 3 avro schema %+v", avroSchema)
-	//fmt.Printf("\n******************************* in qrep_avro_sync: SyncQRepRecords 4 avro schema  %+v",)
 
 	avroFile, err := s.writeToAvroFile(stream, avroSchema, partition.PartitionId, config.FlowJobName)
 	if err != nil {
@@ -191,8 +173,6 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	awsCreds, err := utils.GetAWSSecrets(utils.S3PeerCredentials{})
 	avroFileUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com%s", s3o.Bucket, awsCreds.Region, avroFile.FilePath)
 
-	//fmt.Printf("\n*********************** in qrep_avro_sync SyncQRepRecords 4 avroFileUrl: %+v", avroFileUrl)
-
 	if err != nil {
 		return 0, err
 	}
@@ -201,11 +181,7 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	query := fmt.Sprintf("INSERT INTO %s (%s) SELECT * FROM s3('%s','%s','%s', 'Avro')",
 		config.DestinationTableIdentifier, selector, avroFileUrl, awsCreds.AccessKeyID, awsCreds.SecretAccessKey)
 
-	//fmt.Printf("\n************************************ in qrep_avro_sync SyncQRepRecords 5 query: %s\n", query)
-
 	_, err = s.connector.database.Exec(query)
-
-	//fmt.Printf("\n************************************ in qrep_avro_sync SyncQRepRecords 6 err: %+v\n", err)
 
 	if err != nil {
 		return 0, err
@@ -238,12 +214,10 @@ func (s *ClickhouseAvroSyncMethod) writeToAvroFile(
 	partitionID string,
 	flowJobName string,
 ) (*avro.AvroFile, error) {
-	fmt.Printf("\n************************* in writeToAvroFile 1 21 %+v", s.config)
 	stagingPath := s.config.StagingPath //"s3://avro-clickhouse"
 	if stagingPath == "" {
 		stagingPath = s.config.DestinationPeer.GetClickhouseConfig().S3Integration //"s3://avro-clickhouse"
 	}
-	fmt.Printf("\n****************************************** StagingPath: %+v*****\n", stagingPath)
 	ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema, avro.CompressZstd,
 		qvalue.QDWHTypeClickhouse)
 	s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
@@ -253,7 +227,6 @@ func (s *ClickhouseAvroSyncMethod) writeToAvroFile(
 
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, flowJobName, partitionID)           // s.config.FlowJobName
 	avroFile, err := ocfWriter.WriteRecordsToS3(s3o.Bucket, s3AvroFileKey, utils.S3PeerCredentials{}) ///utils.S3PeerCredentials{})
-	//fmt.Printf("\n************************* writeToAvroFile 2 avroFile %+v, err: %+v", avroFile, err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write records to S3: %w", err)
 	}

@@ -134,7 +134,6 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 	// model the raw table data as inserts.
 	for _, tbl := range destinationTableNames {
 		// SELECT projection FROM raw_table WHERE _peerdb_batch_id > normalize_batch_id AND _peerdb_batch_id <= sync_batch_id
-		//fmt.Printf("\n************************* in normalize_records1: tbl %s", tbl)
 		selectQuery := strings.Builder{}
 		selectQuery.WriteString("SELECT ")
 
@@ -143,7 +142,6 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 
 		//schema := c.tableSchemaMapping[tbl]
 		schema := req.TableNameSchemaMapping[tbl]
-		//fmt.Printf("\n************************* in normalize_records2: schema %+v", schema)
 		numCols := len(schema.ColumnNames)
 
 		projection := strings.Builder{}
@@ -244,8 +242,6 @@ func (c *ClickhouseConnector) getDistinctTableNamesInBatch(
 
 		tableNames = append(tableNames, tableName.String)
 	}
-
-	fmt.Printf("\n****************************** getDistinctTableNamesInBatch tableNames %+v", tableNames)
 
 	return tableNames, nil
 }

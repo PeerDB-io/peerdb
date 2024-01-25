@@ -121,7 +121,6 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.CreateCDCFlowResponse, error) {
 	cfg := req.ConnectionConfigs
-	fmt.Printf("\n******************************** CreateCDCFlow %+v", cfg)
 
 	_, validateErr := h.ValidateCDCMirror(ctx, req)
 	if validateErr != nil {
@@ -230,7 +229,6 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	ctx context.Context, req *protos.CreateQRepFlowRequest,
 ) (*protos.CreateQRepFlowResponse, error) {
 	cfg := req.QrepConfig
-	fmt.Printf("\n******************************** CreateQRepFlow config: %+v", cfg)
 
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
