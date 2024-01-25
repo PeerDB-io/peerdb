@@ -44,11 +44,12 @@ func (n *normalizeStmtGenerator) generateNormalizeStatements() []string {
 }
 
 func (n *normalizeStmtGenerator) generateFallbackStatements() []string {
-	columnCount := utils.TableSchemaColumns(n.normalizedTableSchema)
+	columnCount := len(n.normalizedTableSchema.ColumnNames)
 	columnNames := make([]string, 0, columnCount)
 	flattenedCastsSQLArray := make([]string, 0, columnCount)
 	primaryKeyColumnCasts := make(map[string]string, len(n.normalizedTableSchema.PrimaryKeyColumns))
-	utils.IterColumns(n.normalizedTableSchema, func(columnName, genericColumnType string) {
+	for i, columnName := range n.normalizedTableSchema.ColumnNames {
+		genericColumnType := n.normalizedTableSchema.ColumnTypes[i]
 		quotedCol := QuoteIdentifier(columnName)
 		stringCol := QuoteLiteral(columnName)
 		columnNames = append(columnNames, quotedCol)
@@ -64,16 +65,16 @@ func (n *normalizeStmtGenerator) generateFallbackStatements() []string {
 		if slices.Contains(n.normalizedTableSchema.PrimaryKeyColumns, columnName) {
 			primaryKeyColumnCasts[columnName] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
 		}
-	})
+	}
 	flattenedCastsSQL := strings.Join(flattenedCastsSQLArray, ",")
 	parsedDstTable, _ := utils.ParseSchemaTable(n.dstTableName)
 
 	insertColumnsSQL := strings.Join(columnNames, ",")
-	updateColumnsSQLArray := make([]string, 0, utils.TableSchemaColumns(n.normalizedTableSchema))
-	utils.IterColumns(n.normalizedTableSchema, func(columnName, _ string) {
+	updateColumnsSQLArray := make([]string, 0, columnCount)
+	for _, columnName := range n.normalizedTableSchema.ColumnNames {
 		quotedCol := QuoteIdentifier(columnName)
 		updateColumnsSQLArray = append(updateColumnsSQLArray, fmt.Sprintf(`%s=EXCLUDED.%s`, quotedCol, quotedCol))
-	})
+	}
 	updateColumnsSQL := strings.Join(updateColumnsSQLArray, ",")
 	deleteWhereClauseArray := make([]string, 0, len(n.normalizedTableSchema.PrimaryKeyColumns))
 	for columnName, columnCast := range primaryKeyColumnCasts {
@@ -104,19 +105,20 @@ func (n *normalizeStmtGenerator) generateFallbackStatements() []string {
 }
 
 func (n *normalizeStmtGenerator) generateMergeStatement() string {
-	quotedColumnNames := utils.TableSchemaColumnNames(n.normalizedTableSchema)
-	for i, columnName := range quotedColumnNames {
-		quotedColumnNames[i] = QuoteIdentifier(columnName)
-	}
+	columnCount := len(n.normalizedTableSchema.ColumnNames)
+	quotedColumnNames := make([]string, columnCount)
 
-	flattenedCastsSQLArray := make([]string, 0, utils.TableSchemaColumns(n.normalizedTableSchema))
+	flattenedCastsSQLArray := make([]string, 0, columnCount)
 	parsedDstTable, _ := utils.ParseSchemaTable(n.dstTableName)
 
 	primaryKeyColumnCasts := make(map[string]string)
 	primaryKeySelectSQLArray := make([]string, 0, len(n.normalizedTableSchema.PrimaryKeyColumns))
-	utils.IterColumns(n.normalizedTableSchema, func(columnName, genericColumnType string) {
+	for i, columnName := range n.normalizedTableSchema.ColumnNames {
+		genericColumnType := n.normalizedTableSchema.ColumnTypes[i]
 		quotedCol := QuoteIdentifier(columnName)
 		stringCol := QuoteLiteral(columnName)
+		quotedColumnNames[i] = quotedCol
+
 		pgType := qValueKindToPostgresType(genericColumnType)
 		if qvalue.QValueKind(genericColumnType).IsArray() {
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
@@ -131,9 +133,9 @@ func (n *normalizeStmtGenerator) generateMergeStatement() string {
 			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray, fmt.Sprintf("src.%s=dst.%s",
 				quotedCol, quotedCol))
 		}
-	})
+	}
 	flattenedCastsSQL := strings.Join(flattenedCastsSQLArray, ",")
-	insertValuesSQLArray := make([]string, 0, len(quotedColumnNames)+2)
+	insertValuesSQLArray := make([]string, 0, columnCount+2)
 	for _, quotedCol := range quotedColumnNames {
 		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("src.%s", quotedCol))
 	}

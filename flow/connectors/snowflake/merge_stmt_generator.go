@@ -27,14 +27,15 @@ type mergeStmtGenerator struct {
 
 func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 	parsedDstTable, _ := utils.ParseSchemaTable(m.dstTableName)
-	columnNames := utils.TableSchemaColumnNames(m.normalizedTableSchema)
+	columnNames := m.normalizedTableSchema.ColumnNames
 
-	flattenedCastsSQLArray := make([]string, 0, utils.TableSchemaColumns(m.normalizedTableSchema))
-	err := utils.IterColumnsError(m.normalizedTableSchema, func(columnName, genericColumnType string) error {
+	flattenedCastsSQLArray := make([]string, 0, len(columnNames))
+	for i, columnName := range columnNames {
+		genericColumnType := m.normalizedTableSchema.ColumnTypes[i]
 		qvKind := qvalue.QValueKind(genericColumnType)
 		sfType, err := qValueKindToSnowflakeType(qvKind)
 		if err != nil {
-			return fmt.Errorf("failed to convert column type %s to snowflake type: %w", genericColumnType, err)
+			return "", fmt.Errorf("failed to convert column type %s to snowflake type: %w", genericColumnType, err)
 		}
 
 		targetColumnName := SnowflakeIdentifierNormalize(columnName)
@@ -69,10 +70,6 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 					toVariantColumnName, columnName, sfType, targetColumnName))
 			}
 		}
-		return nil
-	})
-	if err != nil {
-		return "", err
 	}
 	flattenedCastsSQL := strings.Join(flattenedCastsSQLArray, ",")
 

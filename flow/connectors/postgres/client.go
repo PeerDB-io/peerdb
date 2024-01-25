@@ -424,11 +424,12 @@ func generateCreateTableSQLForNormalizedTable(
 	softDeleteColName string,
 	syncedAtColName string,
 ) string {
-	createTableSQLArray := make([]string, 0, utils.TableSchemaColumns(sourceTableSchema)+2)
-	utils.IterColumns(sourceTableSchema, func(columnName, genericColumnType string) {
+	createTableSQLArray := make([]string, 0, len(sourceTableSchema.ColumnNames)+2)
+	for i, columnName := range sourceTableSchema.ColumnNames {
+		genericColumnType := sourceTableSchema.ColumnTypes[i]
 		createTableSQLArray = append(createTableSQLArray,
 			fmt.Sprintf("%s %s", QuoteIdentifier(columnName), qValueKindToPostgresType(genericColumnType)))
-	})
+	}
 
 	if softDeleteColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
