@@ -507,11 +507,6 @@ func (r *CDCRecordStream) GetRecords() <-chan Record {
 	return r.records
 }
 
-type SyncAndNormalizeBatchID struct {
-	SyncBatchID      int64
-	NormalizeBatchID int64
-}
-
 type SyncRecordsRequest struct {
 	SyncBatchID int64
 	Records     *CDCRecordStream
@@ -525,6 +520,7 @@ type SyncRecordsRequest struct {
 
 type NormalizeRecordsRequest struct {
 	FlowJobName            string
+	SyncBatchID            int64
 	SoftDelete             bool
 	SoftDeleteColName      string
 	SyncedAtColName        string
@@ -544,6 +540,17 @@ type SyncResponse struct {
 	TableSchemaDeltas []*protos.TableSchemaDelta
 	// to be stored in state for future PullFlows
 	RelationMessageMapping RelationMessageMapping
+}
+
+type NormalizeSignal struct {
+	Done                   bool
+	SyncBatchID            int64
+	TableNameSchemaMapping map[string]*protos.TableSchema
+}
+
+type NormalizeFlowResponse struct {
+	Results []NormalizeResponse
+	Errors  []string
 }
 
 type NormalizeResponse struct {

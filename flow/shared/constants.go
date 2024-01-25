@@ -14,6 +14,8 @@ const (
 	// Signals
 	FlowSignalName                 = "peer-flow-signal"
 	CDCDynamicPropertiesSignalName = "cdc-dynamic-properties"
+	NormalizeSyncSignalName        = "normalize-sync"
+	NormalizeSyncDoneSignalName    = "normalize-sync-done"
 
 	// Queries
 	CDCFlowStateQuery  = "q-cdc-flow-status"

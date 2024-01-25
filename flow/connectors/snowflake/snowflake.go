@@ -70,15 +70,15 @@ const (
 
 	checkIfTableExistsSQL = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.TABLES
 	 WHERE TABLE_SCHEMA=? and TABLE_NAME=?`
-	checkIfJobMetadataExistsSQL     = "SELECT TO_BOOLEAN(COUNT(1)) FROM %s.%s WHERE MIRROR_JOB_NAME=?"
-	getLastOffsetSQL                = "SELECT OFFSET FROM %s.%s WHERE MIRROR_JOB_NAME=?"
-	setLastOffsetSQL                = "UPDATE %s.%s SET OFFSET=GREATEST(OFFSET, ?) WHERE MIRROR_JOB_NAME=?"
-	getLastSyncBatchID_SQL          = "SELECT SYNC_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
-	getLastSyncNormalizeBatchID_SQL = "SELECT SYNC_BATCH_ID, NORMALIZE_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
-	dropTableIfExistsSQL            = "DROP TABLE IF EXISTS %s.%s"
-	deleteJobMetadataSQL            = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=?"
-	dropSchemaIfExistsSQL           = "DROP SCHEMA IF EXISTS %s"
-	checkSchemaExistsSQL            = "SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME=?"
+	checkIfJobMetadataExistsSQL = "SELECT TO_BOOLEAN(COUNT(1)) FROM %s.%s WHERE MIRROR_JOB_NAME=?"
+	getLastOffsetSQL            = "SELECT OFFSET FROM %s.%s WHERE MIRROR_JOB_NAME=?"
+	setLastOffsetSQL            = "UPDATE %s.%s SET OFFSET=GREATEST(OFFSET, ?) WHERE MIRROR_JOB_NAME=?"
+	getLastSyncBatchID_SQL      = "SELECT SYNC_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
+	getLastNormalizeBatchID_SQL = "SELECT NORMALIZE_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
+	dropTableIfExistsSQL        = "DROP TABLE IF EXISTS %s.%s"
+	deleteJobMetadataSQL        = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=?"
+	dropSchemaIfExistsSQL       = "DROP SCHEMA IF EXISTS %s"
+	checkSchemaExistsSQL        = "SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME=?"
 )
 
 type SnowflakeConnector struct {
@@ -381,28 +381,24 @@ func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	return result.Int64, nil
 }
 
-func (c *SnowflakeConnector) GetLastSyncAndNormalizeBatchID(jobName string) (model.SyncAndNormalizeBatchID, error) {
-	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastSyncNormalizeBatchID_SQL, c.metadataSchema,
+func (c *SnowflakeConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
+	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastNormalizeBatchID_SQL, c.metadataSchema,
 		mirrorJobsTableIdentifier), jobName)
 	if err != nil {
-		return model.SyncAndNormalizeBatchID{},
-			fmt.Errorf("error querying Snowflake peer for last normalizeBatchId: %w", err)
+		return 0, fmt.Errorf("error querying Snowflake peer for last normalizeBatchId: %w", err)
 	}
 	defer rows.Close()
 
-	var syncResult, normResult pgtype.Int8
+	var normBatchID pgtype.Int8
 	if !rows.Next() {
 		c.logger.Warn("No row found, returning 0")
-		return model.SyncAndNormalizeBatchID{}, nil
+		return 0, nil
 	}
-	err = rows.Scan(&syncResult, &normResult)
+	err = rows.Scan(&normBatchID)
 	if err != nil {
-		return model.SyncAndNormalizeBatchID{}, fmt.Errorf("error while reading result row: %w", err)
+		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
-	return model.SyncAndNormalizeBatchID{
-		SyncBatchID:      syncResult.Int64,
-		NormalizeBatchID: normResult.Int64,
-	}, nil
+	return normBatchID.Int64, nil
 }
 
 func (c *SnowflakeConnector) getDistinctTableNamesInBatch(flowJobName string, syncBatchID int64,
@@ -633,16 +629,17 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 
 // NormalizeRecords normalizes raw table to destination table.
 func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
-	batchIDs, err := c.GetLastSyncAndNormalizeBatchID(req.FlowJobName)
+	normBatchID, err := c.GetLastNormalizeBatchID(req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
+
 	// normalize has caught up with sync, chill until more records are loaded.
-	if batchIDs.NormalizeBatchID >= batchIDs.SyncBatchID {
+	if normBatchID >= req.SyncBatchID {
 		return &model.NormalizeResponse{
 			Done:         false,
-			StartBatchID: batchIDs.NormalizeBatchID,
-			EndBatchID:   batchIDs.SyncBatchID,
+			StartBatchID: normBatchID,
+			EndBatchID:   req.SyncBatchID,
 		}, nil
 	}
 
@@ -658,14 +655,14 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 	}
 	destinationTableNames, err := c.getDistinctTableNamesInBatch(
 		req.FlowJobName,
-		batchIDs.SyncBatchID,
-		batchIDs.NormalizeBatchID,
+		req.SyncBatchID,
+		normBatchID,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	tableNametoUnchangedToastCols, err := c.getTableNametoUnchangedCols(req.FlowJobName, batchIDs.SyncBatchID, batchIDs.NormalizeBatchID)
+	tableNametoUnchangedToastCols, err := c.getTableNametoUnchangedCols(req.FlowJobName, req.SyncBatchID, normBatchID)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't tablename to unchanged cols mapping: %w", err)
 	}
@@ -681,8 +678,8 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 			mergeGen := &mergeStmtGenerator{
 				rawTableName:          getRawTableIdentifier(req.FlowJobName),
 				dstTableName:          tableName,
-				syncBatchID:           batchIDs.SyncBatchID,
-				normalizeBatchID:      batchIDs.NormalizeBatchID,
+				syncBatchID:           req.SyncBatchID,
+				normalizeBatchID:      normBatchID,
 				normalizedTableSchema: req.TableNameSchemaMapping[tableName],
 				unchangedToastColumns: tableNametoUnchangedToastCols[tableName],
 				peerdbCols: &protos.PeerDBColumns{
@@ -728,15 +725,15 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 	}
 
 	// updating metadata with new normalizeBatchID
-	err = c.updateNormalizeMetadata(req.FlowJobName, batchIDs.SyncBatchID)
+	err = c.updateNormalizeMetadata(req.FlowJobName, req.SyncBatchID)
 	if err != nil {
 		return nil, err
 	}
 
 	return &model.NormalizeResponse{
 		Done:         true,
-		StartBatchID: batchIDs.NormalizeBatchID + 1,
-		EndBatchID:   batchIDs.SyncBatchID,
+		StartBatchID: normBatchID + 1,
+		EndBatchID:   req.SyncBatchID,
 	}, nil
 }
 

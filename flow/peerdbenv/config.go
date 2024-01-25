@@ -74,3 +74,8 @@ func PeerDBCatalogDatabase() string {
 func PeerDBEnableWALHeartbeat() bool {
 	return getEnvBool("PEERDB_ENABLE_WAL_HEARTBEAT", false)
 }
+
+// PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE
+func PeerDBEnableParallelSyncNormalize() bool {
+	return getEnvBool("PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE", false)
+}
