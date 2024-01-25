@@ -93,9 +93,9 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 	)
 
 	// normalize anything between last normalized batch id to last sync batchid
-	return fmt.Sprintf(`WITH _f AS
-	 (SELECT %s FROM %s WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d AND
-	 _peerdb_destination_table_name='%s')`,
+	return fmt.Sprintf("WITH _f AS "+
+		"(SELECT %s FROM `%s` WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d AND "+
+		"_peerdb_destination_table_name='%s')",
 		strings.Join(flattenedProjs, ","), m.rawDatasetTable.string(), m.normalizeBatchID,
 		m.syncBatchID, m.dstTableName)
 }
@@ -169,15 +169,11 @@ func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) s
 		}
 	}
 
-	return fmt.Sprintf(`
-	MERGE %s _t USING(%s,%s) _d
-	ON %s
-		WHEN NOT MATCHED AND _d._rt!=2 THEN
-			INSERT (%s) VALUES(%s)
-		%s
-		WHEN MATCHED AND _d._rt=2 THEN
-	%s;
-	`, m.dstDatasetTable.string(), m.generateFlattenedCTE(), m.generateDeDupedCTE(),
+	return fmt.Sprintf("MERGE `%s` _t USING(%s,%s) _d"+
+		" ON %s WHEN NOT MATCHED AND _d._rt!=2 THEN "+
+		"INSERT (%s) VALUES(%s) "+
+		"%s WHEN MATCHED AND _d._rt=2 THEN %s;",
+		m.dstDatasetTable.string(), m.generateFlattenedCTE(), m.generateDeDupedCTE(),
 		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
 }
 
