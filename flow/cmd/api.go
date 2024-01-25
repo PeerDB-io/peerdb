@@ -27,7 +27,6 @@ import (
 )
 
 type APIServerParams struct {
-	ctx               context.Context
 	Port              uint16
 	GatewayPort       uint16
 	TemporalHostPort  string
@@ -88,8 +87,7 @@ func killExistingHeartbeatFlows(
 	return nil
 }
 
-func APIMain(args *APIServerParams) error {
-	ctx := args.ctx
+func APIMain(ctx context.Context, args *APIServerParams) error {
 	clientOptions := client.Options{
 		HostPort:  args.TemporalHostPort,
 		Namespace: args.TemporalNamespace,

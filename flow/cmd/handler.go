@@ -169,8 +169,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		}
 	}
 
-	var err error
-	err = h.updateFlowConfigInCatalog(cfg)
+	err := h.updateFlowConfigInCatalog(ctx, cfg)
 	if err != nil {
 		slog.Error("unable to update flow config in catalog", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
@@ -195,6 +194,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 }
 
 func (h *FlowRequestHandler) updateFlowConfigInCatalog(
+	ctx context.Context,
 	cfg *protos.FlowConnectionConfigs,
 ) error {
 	var cfgBytes []byte
@@ -205,9 +205,7 @@ func (h *FlowRequestHandler) updateFlowConfigInCatalog(
 		return fmt.Errorf("unable to marshal flow config: %w", err)
 	}
 
-	_, err = h.pool.Exec(context.Background(),
-		"UPDATE flows SET config_proto = $1 WHERE name = $2",
-		cfgBytes, cfg.FlowJobName)
+	_, err = h.pool.Exec(ctx, "UPDATE flows SET config_proto = $1 WHERE name = $2", cfgBytes, cfg.FlowJobName)
 	if err != nil {
 		return fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
@@ -216,11 +214,10 @@ func (h *FlowRequestHandler) updateFlowConfigInCatalog(
 }
 
 func (h *FlowRequestHandler) removeFlowEntryInCatalog(
+	ctx context.Context,
 	flowName string,
 ) error {
-	_, err := h.pool.Exec(context.Background(),
-		"DELETE FROM flows WHERE name = $1",
-		flowName)
+	_, err := h.pool.Exec(ctx, "DELETE FROM flows WHERE name = $1", flowName)
 	if err != nil {
 		return fmt.Errorf("unable to remove flow entry in catalog: %w", err)
 	}
@@ -286,7 +283,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		return nil, fmt.Errorf("unable to start QRepFlow workflow: %w", err)
 	}
 
-	err = h.updateQRepConfigInCatalog(cfg)
+	err = h.updateQRepConfigInCatalog(ctx, cfg)
 	if err != nil {
 		slog.Error("unable to update qrep config in catalog",
 			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
@@ -300,6 +297,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 
 // updateQRepConfigInCatalog updates the qrep config in the catalog
 func (h *FlowRequestHandler) updateQRepConfigInCatalog(
+	ctx context.Context,
 	cfg *protos.QRepConfig,
 ) error {
 	var cfgBytes []byte
@@ -310,7 +308,7 @@ func (h *FlowRequestHandler) updateQRepConfigInCatalog(
 		return fmt.Errorf("unable to marshal qrep config: %w", err)
 	}
 
-	_, err = h.pool.Exec(context.Background(),
+	_, err = h.pool.Exec(ctx,
 		"UPDATE flows SET config_proto = $1 WHERE name = $2",
 		cfgBytes, cfg.FlowJobName)
 	if err != nil {
@@ -417,7 +415,7 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	}
 
 	if req.RemoveFlowEntry {
-		delErr := h.removeFlowEntryInCatalog(req.FlowJobName)
+		delErr := h.removeFlowEntryInCatalog(ctx, req.FlowJobName)
 		if delErr != nil {
 			slog.Error("unable to remove flow job entry",
 				slog.String(string(shared.FlowNameKey), req.FlowJobName),

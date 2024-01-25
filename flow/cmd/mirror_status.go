@@ -77,7 +77,7 @@ func (h *FlowRequestHandler) CDCFlowStatus(
 	req *protos.MirrorStatusRequest,
 ) (*protos.CDCMirrorStatus, error) {
 	slog.Info("CDC mirror status endpoint called", slog.String(string(shared.FlowNameKey), req.FlowJobName))
-	config, err := h.getFlowConfigFromCatalog(req.FlowJobName)
+	config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +207,7 @@ func (h *FlowRequestHandler) QRepFlowStatus(
 	return &protos.QRepMirrorStatus{
 		// The clone table jobs that are children of the CDC snapshot flow
 		// do not have a config entry, so allow this to be nil.
-		Config:     h.getQRepConfigFromCatalog(req.FlowJobName),
+		Config:     h.getQRepConfigFromCatalog(ctx, req.FlowJobName),
 		Partitions: partitionStatuses,
 	}, nil
 }
@@ -257,13 +257,14 @@ func (h *FlowRequestHandler) getPartitionStatuses(
 }
 
 func (h *FlowRequestHandler) getFlowConfigFromCatalog(
+	ctx context.Context,
 	flowJobName string,
 ) (*protos.FlowConnectionConfigs, error) {
 	var configBytes sql.RawBytes
 	var err error
 	var config protos.FlowConnectionConfigs
 
-	err = h.pool.QueryRow(context.Background(),
+	err = h.pool.QueryRow(ctx,
 		"SELECT config_proto FROM flows WHERE name = $1", flowJobName).Scan(&configBytes)
 	if err != nil {
 		slog.Error(fmt.Sprintf("unable to query flow config from catalog: %s", err.Error()))
@@ -279,7 +280,7 @@ func (h *FlowRequestHandler) getFlowConfigFromCatalog(
 	return &config, nil
 }
 
-func (h *FlowRequestHandler) getQRepConfigFromCatalog(flowJobName string) *protos.QRepConfig {
+func (h *FlowRequestHandler) getQRepConfigFromCatalog(ctx context.Context, flowJobName string) *protos.QRepConfig {
 	var configBytes []byte
 	var config protos.QRepConfig
 
@@ -299,7 +300,7 @@ func (h *FlowRequestHandler) getQRepConfigFromCatalog(flowJobName string) *proto
 
 	// Iterate over queries and attempt to fetch the config
 	for _, qInfo := range queryInfos {
-		err := h.pool.QueryRow(context.Background(), qInfo.Query, flowJobName).Scan(&configBytes)
+		err := h.pool.QueryRow(ctx, qInfo.Query, flowJobName).Scan(&configBytes)
 		if err == nil {
 			break
 		}
