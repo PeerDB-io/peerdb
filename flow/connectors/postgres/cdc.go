@@ -897,7 +897,7 @@ func (p *PostgresCDCSource) recToTablePKey(req *model.PullRecordsRequest,
 		if err != nil {
 			return nil, fmt.Errorf("error getting pkey column value: %w", err)
 		}
-		pkeyColsMerged = append(pkeyColsMerged, []byte(fmt.Sprintf("%v", pkeyColVal.Value))...)
+		pkeyColsMerged = append(pkeyColsMerged, []byte(fmt.Sprint(pkeyColVal.Value))...)
 	}
 
 	return &model.TableWithPkey{

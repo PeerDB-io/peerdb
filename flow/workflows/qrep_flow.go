@@ -235,13 +235,9 @@ func (q *QRepFlowExecution) processPartitions(
 		chunkSize = 1
 	}
 
-	batches := make([][]*protos.QRepPartition, 0)
+	batches := make([][]*protos.QRepPartition, 0, len(partitions)/chunkSize+1)
 	for i := 0; i < len(partitions); i += chunkSize {
-		end := i + chunkSize
-		if end > len(partitions) {
-			end = len(partitions)
-		}
-
+		end := min(i+chunkSize, len(partitions))
 		batches = append(batches, partitions[i:end])
 	}
 
