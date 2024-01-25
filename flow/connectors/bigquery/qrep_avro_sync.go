@@ -58,6 +58,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	stagingTable := fmt.Sprintf("%s_%s_staging", rawTableName, strconv.FormatInt(syncBatchID, 10))
 	numRecords, err := s.writeToStage(strconv.FormatInt(syncBatchID, 10), rawTableName, avroSchema,
 		&datasetTable{
+			project: s.connector.projectID,
 			dataset: s.connector.datasetID,
 			table:   stagingTable,
 		}, stream, req.FlowJobName)
@@ -67,8 +68,8 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 
 	bqClient := s.connector.client
 	datasetID := s.connector.datasetID
-	insertStmt := fmt.Sprintf("INSERT INTO `%s.%s` SELECT * FROM `%s.%s`;",
-		datasetID, rawTableName, datasetID, stagingTable)
+	insertStmt := fmt.Sprintf("INSERT INTO `%s` SELECT * FROM `%s`;",
+		rawTableName, stagingTable)
 
 	lastCP, err := req.Records.GetLastCheckpoint()
 	if err != nil {
@@ -171,6 +172,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	// create a staging table name with partitionID replace hyphens with underscores
 	dstDatasetTable, _ := s.connector.convertToDatasetTable(dstTableName)
 	stagingDatasetTable := &datasetTable{
+		project: s.connector.projectID,
 		dataset: dstDatasetTable.dataset,
 		table: fmt.Sprintf("%s_%s_staging", dstDatasetTable.table,
 			strings.ReplaceAll(partition.PartitionId, "-", "_")),
@@ -198,7 +200,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	}
 	// Insert the records from the staging table into the destination table
 	insertStmt := fmt.Sprintf("INSERT INTO `%s` SELECT %s FROM `%s`;",
-		dstDatasetTable.string(), selector, stagingDatasetTable.string())
+		dstTableName, selector, stagingDatasetTable)
 
 	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(partition, flowJobName, startTime)
 	if err != nil {
@@ -229,7 +231,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 			flowLog)
 	}
 
-	slog.Info(fmt.Sprintf("loaded stage into %s", dstDatasetTable.string()), flowLog)
+	slog.Info(fmt.Sprintf("loaded stage into %s", dstTableName), flowLog)
 	return numRecords, nil
 }
 

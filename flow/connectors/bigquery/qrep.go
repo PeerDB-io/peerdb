@@ -112,10 +112,10 @@ func (c *BigQueryConnector) createMetadataInsertStatement(
 	partitionJSON := string(pbytes)
 
 	insertMetadataStmt := fmt.Sprintf(
-		"INSERT INTO %s._peerdb_query_replication_metadata"+
+		"INSERT INTO _peerdb_query_replication_metadata"+
 			"(flowJobName, partitionID, syncPartition, syncStartTime, syncFinishTime) "+
 			"VALUES ('%s', '%s', JSON '%s', TIMESTAMP('%s'), CURRENT_TIMESTAMP());",
-		c.datasetID, jobName, partition.PartitionId,
+		jobName, partition.PartitionId,
 		partitionJSON, startTime.Format(time.RFC3339))
 
 	return insertMetadataStmt, nil
@@ -170,8 +170,8 @@ func (c *BigQueryConnector) SetupQRepMetadataTables(config *protos.QRepConfig) e
 
 func (c *BigQueryConnector) isPartitionSynced(partitionID string) (bool, error) {
 	queryString := fmt.Sprintf(
-		"SELECT COUNT(*) FROM %s._peerdb_query_replication_metadata WHERE partitionID = '%s';",
-		c.datasetID, partitionID,
+		"SELECT COUNT(*) FROM _peerdb_query_replication_metadata WHERE partitionID = '%s';",
+		partitionID,
 	)
 
 	query := c.client.Query(queryString)
