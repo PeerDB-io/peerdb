@@ -1,5 +1,6 @@
 import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import prisma from '@/app/utils/prisma';
+import EditButton from '@/components/EditButton';
 import { ResyncDialog } from '@/components/ResyncDialog';
 import { FlowConnectionConfigs } from '@/grpc_generated/flow';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
@@ -109,9 +110,10 @@ export default async function ViewMirror({
       >
         <div style={{ display: 'flex', alignItems: 'center' }}>
           <Header variant='title2'>{mirrorId}</Header>
+          <EditButton toLink={`/mirrors/${mirrorId}/edit`} />
         </div>
-        {resyncComponent}
       </div>
+      {resyncComponent}
       <CDCMirror
         rows={rows}
         createdAt={mirrorInfo?.created_at}
