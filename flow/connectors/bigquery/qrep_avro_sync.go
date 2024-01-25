@@ -200,7 +200,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	}
 	// Insert the records from the staging table into the destination table
 	insertStmt := fmt.Sprintf("INSERT INTO `%s` SELECT %s FROM `%s`;",
-		dstTableName, selector, stagingDatasetTable)
+		dstTableName, selector, stagingDatasetTable.string())
 
 	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(partition, flowJobName, startTime)
 	if err != nil {

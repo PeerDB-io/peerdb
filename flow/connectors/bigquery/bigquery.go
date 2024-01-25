@@ -615,7 +615,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 				i+1, len(mergeStmts), tableName))
 			q := c.client.Query(mergeStmt)
 			q.DefaultProjectID = c.projectID
-			q.DefaultDatasetID = c.datasetID
+			q.DefaultDatasetID = dstDatasetTable.dataset
 			_, err = q.Read(c.ctx)
 			if err != nil {
 				return nil, fmt.Errorf("failed to execute merge statement %s: %v", mergeStmt, err)

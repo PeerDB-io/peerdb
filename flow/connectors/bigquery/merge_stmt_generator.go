@@ -173,7 +173,7 @@ func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) s
 		" ON %s WHEN NOT MATCHED AND _d._rt!=2 THEN "+
 		"INSERT (%s) VALUES(%s) "+
 		"%s WHEN MATCHED AND _d._rt=2 THEN %s;",
-		m.dstDatasetTable.string(), m.generateFlattenedCTE(), m.generateDeDupedCTE(),
+		m.dstDatasetTable.table, m.generateFlattenedCTE(), m.generateDeDupedCTE(),
 		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
 }
 
