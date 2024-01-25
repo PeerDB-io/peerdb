@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	backoff "github.com/cenkalti/backoff/v4"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -326,30 +325,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		slog.String(string(shared.FlowNameKey), req.FlowJobName),
 		slog.String("workflowId", req.WorkflowId),
 	)
-	err := h.temporalClient.SignalWorkflow(
-		ctx,
-		req.WorkflowId,
-		"",
-		shared.FlowSignalName,
-		shared.ShutdownSignal,
-	)
-	if err != nil {
-		slog.Error("unable to signal PeerFlow workflow",
-			logs,
-			slog.Any("error", err),
-		)
-		return &protos.ShutdownResponse{
-			Ok:           false,
-			ErrorMessage: fmt.Sprintf("unable to signal PeerFlow workflow: %v", err),
-		}, fmt.Errorf("unable to signal PeerFlow workflow: %w", err)
-	}
 
-	err = h.waitForWorkflowClose(ctx, req.WorkflowId)
+	err := h.handleCancelWorkflow(ctx, req.WorkflowId, "")
 	if err != nil {
-		slog.Error("unable to wait for PeerFlow workflow to close",
-			logs,
-			slog.Any("error", err),
-		)
+		slog.Error("unable to cancel workflow", logs, slog.Any("error", err))
 		return &protos.ShutdownResponse{
 			Ok:           false,
 			ErrorMessage: fmt.Sprintf("unable to wait for PeerFlow workflow to close: %v", err),
@@ -401,7 +380,7 @@ func (h *FlowRequestHandler) ShutdownFlow(
 			}, fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
 		}
 	case <-time.After(1 * time.Minute):
-		err := h.handleWorkflowNotClosed(ctx, workflowID, "")
+		err := h.handleCancelWorkflow(ctx, workflowID, "")
 		if err != nil {
 			slog.Error("unable to wait for DropFlow workflow to close",
 				logs,
@@ -494,38 +473,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 	}, nil
 }
 
-func (h *FlowRequestHandler) waitForWorkflowClose(ctx context.Context, workflowID string) error {
-	expBackoff := backoff.NewExponentialBackOff()
-	expBackoff.InitialInterval = 3 * time.Second
-	expBackoff.MaxInterval = 10 * time.Second
-	expBackoff.MaxElapsedTime = 1 * time.Minute
-
-	// empty will terminate the latest run
-	runID := ""
-
-	operation := func() error {
-		workflowRes, err := h.temporalClient.DescribeWorkflowExecution(ctx, workflowID, runID)
-		if err != nil {
-			// Permanent error will stop the retries
-			return backoff.Permanent(fmt.Errorf("unable to describe PeerFlow workflow: %w", err))
-		}
-
-		if workflowRes.WorkflowExecutionInfo.CloseTime != nil {
-			return nil
-		}
-
-		return fmt.Errorf("workflow - %s not closed yet: %v", workflowID, workflowRes)
-	}
-
-	err := backoff.Retry(operation, expBackoff)
-	if err != nil {
-		return h.handleWorkflowNotClosed(ctx, workflowID, runID)
-	}
-
-	return nil
-}
-
-func (h *FlowRequestHandler) handleWorkflowNotClosed(ctx context.Context, workflowID, runID string) error {
+func (h *FlowRequestHandler) handleCancelWorkflow(ctx context.Context, workflowID, runID string) error {
 	errChan := make(chan error, 1)
 
 	// Create a new context with timeout for CancelWorkflow

@@ -490,14 +490,6 @@ func CDCFlowWorkflowWithConfig(
 			w.logger.Info("mirror has been resumed after ", time.Since(startTime))
 		}
 
-		// check if the peer flow has been shutdown
-		if state.ActiveSignal == shared.ShutdownSignal {
-			finishNormalize()
-			w.logger.Info("peer flow has been shutdown")
-			state.CurrentFlowStatus = protos.FlowStatus_STATUS_TERMINATED
-			return state, nil
-		}
-
 		cdcPropertiesSelector.Select(ctx)
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 
@@ -606,17 +598,11 @@ func CDCFlowWorkflowWithConfig(
 			}
 		})
 
-		for !syncDone && !canceled && state.ActiveSignal != shared.ShutdownSignal {
+		for !syncDone && !canceled {
 			mainLoopSelector.Select(ctx)
 		}
 		if canceled {
 			break
-		}
-		// check if the peer flow has been shutdown
-		if state.ActiveSignal == shared.ShutdownSignal {
-			w.logger.Info("peer flow has been shutdown")
-			state.CurrentFlowStatus = protos.FlowStatus_STATUS_TERMINATED
-			return state, nil
 		}
 		if normalizeSignalError != nil {
 			return state, normalizeSignalError

@@ -8,9 +8,6 @@ func FlowSignalHandler(activeSignal CDCFlowSignal,
 	v CDCFlowSignal, logger log.Logger,
 ) CDCFlowSignal {
 	switch v {
-	case ShutdownSignal:
-		logger.Info("received shutdown signal")
-		return v
 	case PauseSignal:
 		logger.Info("received pause signal")
 		if activeSignal == NoopSignal {
