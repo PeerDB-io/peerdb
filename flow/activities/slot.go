@@ -77,8 +77,8 @@ func (a *FlowableActivity) recordSlotSizePeriodically(
 
 	timeout := 5 * time.Minute
 	ticker := time.NewTicker(timeout)
-
 	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ticker.C:

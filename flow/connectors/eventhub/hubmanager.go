@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -103,8 +104,13 @@ func (m *EventHubManager) closeProducerClient(ctx context.Context, pc *azeventhu
 }
 
 func (m *EventHubManager) Close(ctx context.Context) error {
-	var allErrors error
+	numHubsClosed := atomic.Uint32{}
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
+		return fmt.Sprintf("closed %d eventhub clients", numHubsClosed.Load())
+	})
+	defer shutdown()
 
+	var allErrors error
 	m.hubs.Range(func(key any, value any) bool {
 		name := key.(ScopedEventhub)
 		hub := value.(*azeventhubs.ProducerClient)
@@ -113,6 +119,7 @@ func (m *EventHubManager) Close(ctx context.Context) error {
 			slog.Error(fmt.Sprintf("failed to close eventhub client for %v", name), slog.Any("error", err))
 			allErrors = errors.Join(allErrors, err)
 		}
+		numHubsClosed.Add(1)
 		return true
 	})
 
