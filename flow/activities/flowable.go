@@ -318,9 +318,11 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	slog.InfoContext(ctx, fmt.Sprintf("pushed %d records in %d seconds\n",
 		numRecords, int(syncDuration.Seconds())),
 	)
+	activity.RecordHeartbeat(ctx, fmt.Sprintf("pushed %d records", numRecords))
 
 	lastCheckpoint, err := recordBatch.GetLastCheckpoint()
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to get last checkpoint", slog.Any("error", err))
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, fmt.Errorf("failed to get last checkpoint: %w", err)
 	}
@@ -334,6 +336,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		pglogrepl.LSN(lastCheckpoint),
 	)
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to update num rows and end lsn for cdc batch", slog.Any("error", err))
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, err
 	}
@@ -345,6 +348,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		pglogrepl.LSN(lastCheckpoint),
 	)
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to update latest lsn at target for cdc flow", slog.Any("error", err))
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, err
 	}
@@ -356,6 +360,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		}
 	}
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to update latest lsn at target for cdc flow", slog.Any("error", err))
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, err
 	}
