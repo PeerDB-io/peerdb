@@ -78,11 +78,7 @@ impl BigQueryQueryExecutor {
                 PgWireError::ApiError(err.into())
             })?;
 
-        let result_set = self
-            .client
-            .job()
-            .query(&self.project_id, query_req)
-            .await;
+        let result_set = self.client.job().query(&self.project_id, query_req).await;
 
         token.end().await.map_err(|err| {
             tracing::error!("error closing tracking token: {}", err);
@@ -236,14 +232,5 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 "only SELECT statements are supported in bigquery".to_owned(),
             )))),
         }
-    }
-    async fn is_connection_valid(&self) -> anyhow::Result<bool> {
-        let sql = "SELECT 1;";
-        let _result_set = self
-            .client
-            .job()
-            .query(&self.project_id, QueryRequest::new(sql))
-            .await?;
-        Ok(true)
     }
 }
