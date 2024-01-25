@@ -130,8 +130,7 @@ func main() {
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					temporalHostPort := cmd.String("temporal-host-port")
 
-					return APIMain(&APIServerParams{
-						ctx:               appCtx,
+					return APIMain(ctx, &APIServerParams{
 						Port:              uint16(cmd.Uint("port")),
 						TemporalHostPort:  temporalHostPort,
 						GatewayPort:       uint16(cmd.Uint("gateway-port")),
@@ -144,7 +143,7 @@ func main() {
 		},
 	}
 
-	if err := app.Run(context.Background(), os.Args); err != nil {
+	if err := app.Run(appCtx, os.Args); err != nil {
 		log.Fatalf("error running app: %v", err)
 	}
 }
