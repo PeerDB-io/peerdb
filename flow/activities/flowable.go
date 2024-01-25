@@ -315,12 +315,12 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	numRecords := res.NumRecordsSynced
 	syncDuration := time.Since(syncStartTime)
 
-	slog.InfoContext(ctx, fmt.Sprintf("pushed %d records in %d seconds\n",
-		numRecords, int(syncDuration.Seconds())),
-	)
+	slog.InfoContext(ctx, fmt.Sprintf("pushed %d records in %d seconds", numRecords, int(syncDuration.Seconds())))
+	activity.RecordHeartbeat(ctx, fmt.Sprintf("pushed %d records", numRecords))
 
 	lastCheckpoint, err := recordBatch.GetLastCheckpoint()
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to get last checkpoint", slog.Any("error", err))
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, fmt.Errorf("failed to get last checkpoint: %w", err)
 	}
@@ -334,6 +334,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		pglogrepl.LSN(lastCheckpoint),
 	)
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to update num rows and end lsn for cdc batch", slog.Any("error", err))
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, err
 	}
@@ -345,6 +346,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		pglogrepl.LSN(lastCheckpoint),
 	)
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to update latest lsn at target for cdc flow", slog.Any("error", err))
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, err
 	}
@@ -356,6 +358,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		}
 	}
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to update latest lsn at target for cdc flow", slog.Any("error", err))
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, err
 	}
@@ -627,7 +630,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 			return err
 		}
 
-		slog.InfoContext(ctx, fmt.Sprintf("pushed %d records\n", rowsSynced))
+		slog.InfoContext(ctx, fmt.Sprintf("pushed %d records", rowsSynced))
 	}
 
 	err = monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition)
@@ -779,7 +782,8 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 				slog.InfoContext(ctx, fmt.Sprintf("sent walheartbeat to peer %v", pgPeer.Name))
 			}
 		}
-		ticker.Reset(sendTimeout)
+		ticker.Stop()
+		ticker = time.NewTicker(sendTimeout)
 	}
 }
 
