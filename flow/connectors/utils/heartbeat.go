@@ -16,6 +16,9 @@ func HeartbeatRoutine(
 	shutdown := make(chan struct{})
 	go func() {
 		counter := 0
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+
 		for {
 			counter += 1
 			msg := fmt.Sprintf("heartbeat #%d: %s", counter, message())
@@ -25,7 +28,8 @@ func HeartbeatRoutine(
 				return
 			case <-ctx.Done():
 				return
-			case <-time.After(15 * time.Second):
+			case <-ticker.C:
+				ticker.Reset(15 * time.Second)
 			}
 		}
 	}()
