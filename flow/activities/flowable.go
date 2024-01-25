@@ -315,9 +315,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	numRecords := res.NumRecordsSynced
 	syncDuration := time.Since(syncStartTime)
 
-	slog.InfoContext(ctx, fmt.Sprintf("pushed %d records in %d seconds\n",
-		numRecords, int(syncDuration.Seconds())),
-	)
+	slog.InfoContext(ctx, fmt.Sprintf("pushed %d records in %d seconds", numRecords, int(syncDuration.Seconds())))
 
 	lastCheckpoint, err := recordBatch.GetLastCheckpoint()
 	if err != nil {
@@ -421,7 +419,7 @@ func (a *FlowableActivity) StartNormalize(
 	}
 
 	// log the number of batches normalized
-	slog.InfoContext(ctx, fmt.Sprintf("normalized records from batch %d to batch %d\n",
+	slog.InfoContext(ctx, fmt.Sprintf("normalized records from batch %d to batch %d",
 		res.StartBatchID, res.EndBatchID))
 
 	return res, nil
@@ -499,11 +497,11 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 
 	numPartitions := len(partitions.Partitions)
 
-	slog.InfoContext(ctx, fmt.Sprintf("replicating partitions for batch %d - size: %d\n",
+	slog.InfoContext(ctx, fmt.Sprintf("replicating partitions for batch %d - size: %d",
 		partitions.BatchId, numPartitions),
 	)
 	for i, p := range partitions.Partitions {
-		slog.InfoContext(ctx, fmt.Sprintf("batch-%d - replicating partition - %s\n", partitions.BatchId, p.PartitionId))
+		slog.InfoContext(ctx, fmt.Sprintf("batch-%d - replicating partition - %s", partitions.BatchId, p.PartitionId))
 		err := a.replicateQRepPartition(ctx, config, i+1, numPartitions, p, runUUID)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -545,7 +543,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	}
 	defer connectors.CloseConnector(dstConn)
 
-	slog.InfoContext(ctx, fmt.Sprintf("replicating partition %s\n", partition.PartitionId))
+	slog.InfoContext(ctx, fmt.Sprintf("replicating partition %s", partition.PartitionId))
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("syncing partition - %s: %d of %d total.", partition.PartitionId, idx, total)
 	})
@@ -584,7 +582,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return fmt.Errorf("failed to pull qrep records: %w", err)
 		}
-		slog.InfoContext(ctx, fmt.Sprintf("pulled %d records\n", len(recordBatch.Records)))
+		slog.InfoContext(ctx, fmt.Sprintf("pulled %d records", len(recordBatch.Records)))
 
 		err = monitoring.UpdatePullEndTimeAndRowsForPartition(ctx, a.CatalogPool, runUUID, partition, int64(len(recordBatch.Records)))
 		if err != nil {
@@ -605,7 +603,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	}
 
 	if rowsSynced == 0 {
-		slog.InfoContext(ctx, fmt.Sprintf("no records to push for partition %s\n", partition.PartitionId))
+		slog.InfoContext(ctx, fmt.Sprintf("no records to push for partition %s", partition.PartitionId))
 		pullCancel()
 	} else {
 		wg.Wait()
@@ -619,7 +617,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 			return err
 		}
 
-		slog.InfoContext(ctx, fmt.Sprintf("pushed %d records\n", rowsSynced))
+		slog.InfoContext(ctx, fmt.Sprintf("pushed %d records", rowsSynced))
 	}
 
 	err = monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition)
@@ -726,6 +724,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 	sendTimeout := 10 * time.Minute
 	ticker := time.NewTicker(sendTimeout)
 	defer ticker.Stop()
+
 	activity.RecordHeartbeat(ctx, "sending walheartbeat every 10 minutes")
 	for {
 		select {
@@ -792,7 +791,7 @@ func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
 	}
 	defer connectors.CloseConnector(srcConn)
 	pgSrcConn := srcConn.(*connpostgres.PostgresConnector)
-	slog.InfoContext(ctx, fmt.Sprintf("current last partition value is %v\n", last))
+	slog.InfoContext(ctx, fmt.Sprintf("current last partition value is %v", last))
 	attemptCount := 1
 	for {
 		activity.RecordHeartbeat(ctx, fmt.Sprintf("no new rows yet, attempt #%d", attemptCount))
@@ -908,7 +907,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	}
 	defer connectors.CloseConnector(dstConn)
 
-	slog.InfoContext(ctx, "replicating xmin\n")
+	slog.InfoContext(ctx, "replicating xmin")
 
 	bufferSize := shared.FetchAndChannelSize
 	errGroup, errCtx := errgroup.WithContext(ctx)
@@ -974,7 +973,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	}
 
 	if rowsSynced == 0 {
-		slog.InfoContext(ctx, "no records to push for xmin\n")
+		slog.InfoContext(ctx, "no records to push for xmin")
 	} else {
 		err := errGroup.Wait()
 		if err != nil {
@@ -987,7 +986,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 			return 0, err
 		}
 
-		slog.InfoContext(ctx, fmt.Sprintf("pushed %d records\n", rowsSynced))
+		slog.InfoContext(ctx, fmt.Sprintf("pushed %d records", rowsSynced))
 	}
 
 	err = monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition)

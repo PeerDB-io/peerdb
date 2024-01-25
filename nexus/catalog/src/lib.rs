@@ -1,8 +1,9 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use anyhow::{anyhow, Context};
-use peer_cursor::QueryExecutor;
-use peer_postgres::PostgresQueryExecutor;
+use peer_cursor::{QueryExecutor, QueryOutput, Schema};
+use peer_postgres::{self, ast};
+use pgwire::error::{PgWireResult};
 use postgres_connection::{connect_postgres, get_pg_connection_string};
 use prost::Message;
 use pt::{
@@ -11,6 +12,7 @@ use pt::{
     peerdb_peers::{peer::Config, DbType, Peer},
 };
 use serde_json::Value;
+use sqlparser::ast::Statement;
 use tokio_postgres::{types, Client};
 
 mod embedded {
@@ -19,8 +21,7 @@ mod embedded {
 }
 
 pub struct Catalog {
-    pg: Box<Client>,
-    executor: Arc<dyn QueryExecutor>,
+    pg: Client,
 }
 
 async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
@@ -77,20 +78,11 @@ impl<'a> CatalogConfig<'a> {
 impl Catalog {
     pub async fn new(pt_config: pt::peerdb_peers::PostgresConfig) -> anyhow::Result<Self> {
         let client = connect_postgres(&pt_config).await?;
-        let executor = PostgresQueryExecutor::new(None, &pt_config).await?;
-
-        Ok(Self {
-            pg: Box::new(client),
-            executor: Arc::new(executor),
-        })
+        Ok(Self { pg: client })
     }
 
     pub async fn run_migrations(&mut self) -> anyhow::Result<()> {
         run_migrations(&mut self.pg).await
-    }
-
-    pub fn get_executor(&self) -> &Arc<dyn QueryExecutor> {
-        &self.executor
     }
 
     pub async fn create_peer(&self, peer: &Peer) -> anyhow::Result<i64> {
@@ -600,5 +592,19 @@ impl Catalog {
             )?),
             None => None,
         })
+    }
+}
+
+#[async_trait::async_trait]
+impl QueryExecutor for Catalog {
+    #[tracing::instrument(skip(self, stmt), fields(stmt = %stmt))]
+    async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
+        peer_postgres::pg_execute(&self.pg, ast::PostgresAst {
+            peername: None,
+        }, stmt).await
+    }
+
+    async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<Schema>> {
+        peer_postgres::pg_describe(&self.pg, stmt).await
     }
 }

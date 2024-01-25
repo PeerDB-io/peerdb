@@ -3,8 +3,6 @@ use async_recursion::async_recursion;
 use cursor::SnowflakeCursorManager;
 use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, Schema};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
-use sqlparser::dialect::GenericDialect;
-use sqlparser::parser;
 use std::cmp::min;
 use std::time::Duration;
 use stream::SnowflakeDataType;
@@ -422,12 +420,5 @@ impl QueryExecutor for SnowflakeQueryExecutor {
                 "only SELECT statements are supported in snowflake".to_owned(),
             )))),
         }
-    }
-
-    async fn is_connection_valid(&self) -> anyhow::Result<bool> {
-        let sql = "SELECT 1;";
-        let test_stmt = parser::Parser::parse_sql(&GenericDialect {}, sql)?;
-        let _ = self.execute(&test_stmt[0]).await?;
-        Ok(true)
     }
 }

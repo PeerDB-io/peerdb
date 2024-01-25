@@ -129,7 +129,9 @@ impl NexusBackend {
                 let mut peer_cursors = self.peer_cursors.lock().await;
                 match cm {
                     peer_cursor::CursorModification::Created(cursor_name) => {
-                        peer_cursors.add_cursor(cursor_name, peer_holder.unwrap());
+                        if let Some(peer_holder) = peer_holder {
+                            peer_cursors.add_cursor(cursor_name, peer_holder);
+                        }
                         Ok(vec![Response::Execution(Tag::new("DECLARE CURSOR"))])
                     }
                     peer_cursor::CursorModification::Closed(cursors) => {
@@ -354,7 +356,6 @@ impl NexusBackend {
         &self,
         nexus_stmt: NexusStatement,
     ) -> PgWireResult<Vec<Response<'a>>> {
-        let mut peer_holder: Option<Box<Peer>> = None;
         match nexus_stmt {
             NexusStatement::PeerDDL { stmt: _, ref ddl } => match ddl.as_ref() {
                 PeerDDL::CreatePeer {
@@ -738,19 +739,21 @@ impl NexusBackend {
             },
             NexusStatement::PeerQuery { stmt, assoc } => {
                 // get the query executor
-                let executor = match assoc {
+                let (peer_holder, executor): (Option<_>, Arc<dyn QueryExecutor>) = match assoc {
                     QueryAssociation::Peer(peer) => {
                         tracing::info!("handling peer[{}] query: {}", peer.name, stmt);
-                        peer_holder = Some(peer.clone());
-                        self.get_peer_executor(&peer).await.map_err(|err| {
-                            PgWireError::ApiError(
-                                format!("unable to get peer executor: {:?}", err).into(),
-                            )
-                        })?
+                        (
+                            Some(peer.clone()),
+                            self.get_peer_executor(&peer).await.map_err(|err| {
+                                PgWireError::ApiError(
+                                    format!("unable to get peer executor: {:?}", err).into(),
+                                )
+                            })?,
+                        )
                     }
                     QueryAssociation::Catalog => {
                         tracing::info!("handling catalog query: {}", stmt);
-                        Arc::clone(self.catalog.get_executor())
+                        (None, self.catalog.clone())
                     }
                 };
 
@@ -773,7 +776,7 @@ impl NexusBackend {
                         analyzer::CursorEvent::Close(c) => peer_cursors.get_peer(&c),
                     };
                     match peer {
-                        None => Arc::clone(self.catalog.get_executor()),
+                        None => self.catalog.clone(),
                         Some(peer) => self.get_peer_executor(peer).await.map_err(|err| {
                             PgWireError::ApiError(
                                 format!("unable to get peer executor: {:?}", err).into(),
@@ -782,8 +785,7 @@ impl NexusBackend {
                     }
                 };
 
-                self.execute_statement(executor.as_ref(), &stmt, peer_holder)
-                    .await
+                self.execute_statement(executor.as_ref(), &stmt, None).await
             }
 
             NexusStatement::Empty => Ok(vec![Response::EmptyQuery]),
@@ -840,9 +842,8 @@ impl NexusBackend {
                         Arc::new(executor)
                     }
                     Some(Config::PostgresConfig(ref c)) => {
-                        let peername = Some(peer.name.clone());
                         let executor =
-                            peer_postgres::PostgresQueryExecutor::new(peername, c).await?;
+                            peer_postgres::PostgresQueryExecutor::new(peer.name.clone(), c).await?;
                         Arc::new(executor)
                     }
                     Some(Config::SnowflakeConfig(ref c)) => {
@@ -1024,7 +1025,7 @@ impl ExtendedQueryHandler for NexusBackend {
                             }
                         }
                     }
-                    QueryAssociation::Catalog => self.catalog.get_executor().describe(stmt).await?,
+                    QueryAssociation::Catalog => self.catalog.describe(stmt).await?,
                 };
                 if let Some(described_schema) = schema {
                     if self.peerdb_fdw_mode {
@@ -1178,8 +1179,7 @@ async fn run_migrations<'a>(config: &CatalogConfig<'a>) -> anyhow::Result<()> {
     // retry connecting to the catalog 3 times with 30 seconds delay
     // if it fails, return an error
     for _ in 0..3 {
-        let catalog = Catalog::new(config.to_postgres_config()).await;
-        match catalog {
+        match Catalog::new(config.to_postgres_config()).await {
             Ok(mut catalog) => {
                 catalog.run_migrations().await?;
                 return Ok(());
