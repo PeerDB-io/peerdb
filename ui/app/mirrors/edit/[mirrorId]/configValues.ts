@@ -1,15 +1,5 @@
-import { FlowConnectionConfigs, QRepSyncMode } from '@/grpc_generated/flow';
+import { FlowConnectionConfigs } from '@/grpc_generated/flow';
 
-const syncModeToLabel = (mode: QRepSyncMode) => {
-  switch (mode.toString()) {
-    case 'QREP_SYNC_MODE_STORAGE_AVRO':
-      return 'AVRO';
-    case 'QREP_SYNC_MODE_MULTI_INSERT':
-      return 'Copy with Binary';
-    default:
-      return 'AVRO';
-  }
-};
 const MirrorValues = (mirrorConfig: FlowConnectionConfigs | undefined) => {
   return [
     {

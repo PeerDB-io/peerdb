@@ -1,6 +1,6 @@
 'use client';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
-import { QRepConfig, QRepSyncMode, QRepWriteType } from '@/grpc_generated/flow';
+import { QRepConfig, QRepWriteType } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
@@ -51,7 +51,7 @@ export default function QRepConfigForm({
   const [loading, setLoading] = useState(false);
 
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
-    let stateVal: string | boolean | QRepSyncMode | QRepWriteType | string[] =
+    let stateVal: string | boolean | QRepWriteType | string[] =
       val;
     if (setting.label.includes('Write Type')) {
       switch (val) {

@@ -1,6 +1,5 @@
 import {
   FlowConnectionConfigs,
-  QRepSyncMode,
   QRepWriteType,
 } from '@/grpc_generated/flow';
 import { Peer } from '@/grpc_generated/peers';
@@ -8,7 +7,7 @@ import { Peer } from '@/grpc_generated/peers';
 export interface MirrorSetting {
   label: string;
   stateHandler: (
-    value: string | string[] | Peer | boolean | QRepSyncMode | QRepWriteType,
+    value: string | string[] | Peer | boolean | QRepWriteType,
     setter: any
   ) => void;
   type?: string;

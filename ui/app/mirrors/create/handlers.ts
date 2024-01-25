@@ -8,7 +8,6 @@ import {
 import {
   FlowConnectionConfigs,
   QRepConfig,
-  QRepSyncMode,
   QRepWriteType,
 } from '@/grpc_generated/flow';
 import { DBType, Peer, dBTypeToJSON } from '@/grpc_generated/peers';
@@ -28,28 +27,6 @@ export const handlePeer = (
 ) => {
   if (!peer) return;
   if (peerEnd === 'dst') {
-    if (peer.type === DBType.POSTGRES) {
-      setConfig((curr) => {
-        return {
-          ...curr,
-          cdcSyncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
-          snapshotSyncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
-          syncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
-        };
-      });
-    } else if (
-      peer.type === DBType.SNOWFLAKE ||
-      peer.type === DBType.BIGQUERY
-    ) {
-      setConfig((curr) => {
-        return {
-          ...curr,
-          cdcSyncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
-          snapshotSyncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
-          syncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
-        };
-      });
-    }
     setConfig((curr) => ({
       ...curr,
       destination: peer,
@@ -237,12 +214,6 @@ export const handleCreateQRep = async (
   }
   config.flowJobName = flowJobName;
   config.query = query;
-
-  if (config.destinationPeer?.type == DBType.POSTGRES) {
-    config.syncMode = QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT;
-  } else {
-    config.syncMode = QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO;
-  }
 
   setLoading(true);
   const statusMessage: UCreateMirrorResponse = await fetch(
