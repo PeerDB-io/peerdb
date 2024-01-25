@@ -202,6 +202,9 @@ func (c *EventHubConnector) processBatch(
 				c.logger.Info("processBatch", slog.Int("number of records processed for sending", int(curNumRecords)))
 			}
 
+		case <-c.ctx.Done():
+			return 0, fmt.Errorf("[eventhub] context cancelled %w", c.ctx.Err())
+
 		case <-ticker.C:
 			err := batchPerTopic.flushAllBatches(ctx, flowJobName)
 			if err != nil {
@@ -213,7 +216,7 @@ func (c *EventHubConnector) processBatch(
 				lastUpdatedOffset = lastSeenLSN
 				c.logger.Info("processBatch", slog.Int64("updated last offset", lastSeenLSN))
 				if err != nil {
-					return 0, fmt.Errorf("failed to update last offset: %v", err)
+					return 0, fmt.Errorf("failed to update last offset: %w", err)
 				}
 			}
 
