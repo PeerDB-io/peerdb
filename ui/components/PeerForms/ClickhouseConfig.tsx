@@ -18,7 +18,7 @@ interface ConfigProps {
   setter: PeerSetter;
 }
 
-export default function PostgresForm({ settings, setter }: ConfigProps) {
+export default function ClickhouseForm({ settings, setter }: ConfigProps) {
   const [showSSH, setShowSSH] = useState<boolean>(false);
   const [sshConfig, setSSHConfig] = useState<SSHConfig>(blankSSHConfig);
 

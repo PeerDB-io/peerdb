@@ -29,7 +29,7 @@ export const cdcSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,
-        idleTimeoutSeconds: (value as number) || 100000,
+        idleTimeoutSeconds: (value as number) || 60,
       })),
     tips: 'Time after which a Sync flow ends, if it happens before pull batch size is reached. Defaults to 60 seconds.',
     helpfulLink: 'https://docs.peerdb.io/metrics/important_cdc_configs',
