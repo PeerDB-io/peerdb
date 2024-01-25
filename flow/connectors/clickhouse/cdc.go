@@ -119,7 +119,7 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 	streamRes, err := utils.RecordsToRawTableStream(streamReq)
 	//x := *&streamRes.Stream
 	//y := (*x).Records
-	fmt.Printf("\n*******************############################## cdc.go in syncRecordsViaAvro  streamRes: %+v", streamRes)
+	//fmt.Printf("\n*******************############################## cdc.go in syncRecordsViaAvro  streamRes: %+v", streamRes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
@@ -162,8 +162,8 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 }
 
 func (c *ClickhouseConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	fmt.Printf("\n ******************************************** !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! in ClickhouseConnector.SyncRecords")
-	fmt.Printf("\n ******************************* in cdc.go in SyncRecords config: %+v", c.config.S3Integration)
+	//fmt.Printf("\n ******************************************** !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! in ClickhouseConnector.SyncRecords")
+	//fmt.Printf("\n ******************************* in cdc.go in SyncRecords config: %+v", c.config.S3Integration)
 	//c.config.S3Integration = "s3://avro-clickhouse"
 	rawTableName := c.getRawTableName(req.FlowJobName)
 	c.logger.Info(fmt.Sprintf("pushing records to Clickhouse table %s", rawTableName))

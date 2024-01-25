@@ -36,7 +36,7 @@ type QRepPartitionFlowExecution struct {
 
 // returns a new empty QRepFlowState
 func NewQRepFlowState() *protos.QRepFlowState {
-	fmt.Printf("\n*****************************NewQRepFlowState")
+	//fmt.Printf("\n*****************************NewQRepFlowState")
 
 	return &protos.QRepFlowState{
 		LastPartition: &protos.QRepPartition{
@@ -51,7 +51,7 @@ func NewQRepFlowState() *protos.QRepFlowState {
 
 // returns a new empty QRepFlowState
 func NewQRepFlowStateForTesting() *protos.QRepFlowState {
-	fmt.Printf("\n*****************************NewQRepFlowStateForTesting")
+	//fmt.Printf("\n*****************************NewQRepFlowStateForTesting")
 
 	return &protos.QRepFlowState{
 		LastPartition: &protos.QRepPartition{
@@ -66,7 +66,7 @@ func NewQRepFlowStateForTesting() *protos.QRepFlowState {
 
 // NewQRepFlowExecution creates a new instance of QRepFlowExecution.
 func NewQRepFlowExecution(ctx workflow.Context, config *protos.QRepConfig, runUUID string) *QRepFlowExecution {
-	fmt.Printf("\n*****************************NewQRepFlowExecution")
+	//fmt.Printf("\n*****************************NewQRepFlowExecution")
 
 	return &QRepFlowExecution{
 		config:                  config,
@@ -82,7 +82,7 @@ func NewQRepFlowExecution(ctx workflow.Context, config *protos.QRepConfig, runUU
 func NewQRepPartitionFlowExecution(ctx workflow.Context,
 	config *protos.QRepConfig, runUUID string,
 ) *QRepPartitionFlowExecution {
-	fmt.Printf("\n*****************************NewQRepPartitionFlowExecution")
+	//fmt.Printf("\n*****************************NewQRepPartitionFlowExecution")
 
 	return &QRepPartitionFlowExecution{
 		config:          config,
@@ -411,7 +411,7 @@ func QRepFlowWorkflow(
 	config *protos.QRepConfig,
 	state *protos.QRepFlowState,
 ) error {
-	fmt.Printf("\n*****************************QRepFlowWorkflow")
+	//fmt.Printf("\n*****************************QRepFlowWorkflow")
 
 	// The structure of this workflow is as follows:
 	//   1. Start the loop to continuously run the replication flow.
@@ -547,7 +547,7 @@ func QRepPartitionWorkflow(
 	partitions *protos.QRepPartitionBatch,
 	runUUID string,
 ) error {
-	fmt.Printf("\n*****************************QRepPartitionWorkflow")
+	//fmt.Printf("\n*****************************QRepPartitionWorkflow")
 
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	q := NewQRepPartitionFlowExecution(ctx, config, runUUID)

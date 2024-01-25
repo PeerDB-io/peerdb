@@ -124,7 +124,7 @@ func (p *PostgresMetadataStore) SetupMetadata() error {
 			last_offset BIGINT NOT NULL,
 			updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 			sync_batch_id BIGINT NOT NULL,
-			normalize_batch_id BIGINT NOT NULL
+			normalize_batch_id BIGINT
 		)
 	`)
 	if err != nil && !utils.IsUniqueError(err) {

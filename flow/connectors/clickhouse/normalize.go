@@ -134,13 +134,16 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 	// model the raw table data as inserts.
 	for _, tbl := range destinationTableNames {
 		// SELECT projection FROM raw_table WHERE _peerdb_batch_id > normalize_batch_id AND _peerdb_batch_id <= sync_batch_id
+		//fmt.Printf("\n************************* in normalize_records1: tbl %s", tbl)
 		selectQuery := strings.Builder{}
 		selectQuery.WriteString("SELECT ")
 
 		colSelector := strings.Builder{}
 		colSelector.WriteString("(")
 
-		schema := c.tableSchemaMapping[tbl]
+		//schema := c.tableSchemaMapping[tbl]
+		schema := req.TableNameSchemaMapping[tbl]
+		//fmt.Printf("\n************************* in normalize_records2: schema %+v", schema)
 		numCols := len(schema.ColumnNames)
 
 		projection := strings.Builder{}
@@ -149,10 +152,10 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 			cn := schema.ColumnNames[i]
 			ct := schema.ColumnTypes[i]
 
-			colSelector.WriteString(fmt.Sprintf("%s", cn))
-			if i < numCols-1 {
-				colSelector.WriteString(",")
-			}
+			colSelector.WriteString(fmt.Sprintf("%s,", cn))
+			// if i < numCols-1 {
+			// 	colSelector.WriteString(",")
+			// }
 
 			extractionFuction := "JSONExtractRaw"
 			switch qvalue.QValueKind(ct) {
@@ -167,10 +170,11 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 
 		// add _peerdb_sign as _peerdb_record_type / 2
 		projection.WriteString(fmt.Sprintf("intDiv(_peerdb_record_type, 2) AS %s, ", signColName))
+		colSelector.WriteString(fmt.Sprintf("%s,", signColName))
 
 		// add _peerdb_timestamp as _peerdb_version
 		projection.WriteString(fmt.Sprintf("_peerdb_timestamp AS %s", versionColName))
-
+		colSelector.WriteString(versionColName)
 		colSelector.WriteString(") ")
 
 		selectQuery.WriteString(projection.String())
@@ -240,6 +244,8 @@ func (c *ClickhouseConnector) getDistinctTableNamesInBatch(
 
 		tableNames = append(tableNames, tableName.String)
 	}
+
+	fmt.Printf("\n****************************** getDistinctTableNamesInBatch tableNames %+v", tableNames)
 
 	return tableNames, nil
 }
