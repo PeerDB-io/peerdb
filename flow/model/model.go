@@ -517,8 +517,6 @@ type SyncRecordsRequest struct {
 	Records     *CDCRecordStream
 	// FlowJobName is the name of the flow job.
 	FlowJobName string
-	// SyncMode to use for pushing raw records
-	SyncMode protos.QRepSyncMode
 	// source:destination mappings
 	TableMappings []*protos.TableMapping
 	// Staging path for AVRO files in CDC

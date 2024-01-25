@@ -245,11 +245,6 @@ message PartitionRange {
 }
 
 // protos for qrep
-enum QRepSyncMode {
-  QREP_SYNC_MODE_MULTI_INSERT = 0;
-  QREP_SYNC_MODE_STORAGE_AVRO = 1;
-}
-
 enum QRepWriteType {
   QREP_WRITE_MODE_APPEND = 0;
   QREP_WRITE_MODE_UPSERT = 1;
@@ -276,19 +271,13 @@ message QRepConfig {
   string watermark_column = 7;
 
   bool initial_copy_only = 8;
-  QRepSyncMode sync_mode = 9;
 
-  // DEPRECATED: eliminate when breaking changes are allowed.
-  uint32 batch_size_int = 10;
-  // DEPRECATED: eliminate when breaking changes are allowed.
-  uint32 batch_duration_seconds = 11;
-
-  uint32 max_parallel_workers = 12;
+  uint32 max_parallel_workers = 9;
 
   // time to wait between getting partitions to process
-  uint32 wait_between_batches_seconds = 13;
+  uint32 wait_between_batches_seconds = 10;
 
-  QRepWriteMode write_mode = 14;
+  QRepWriteMode write_mode = 11;
 
   // This is only used when sync_mode is AVRO
   // this is the location where the avro files will be written
@@ -296,22 +285,22 @@ message QRepConfig {
   // if this starts with s3:// then it will be written to S3, only supported in Snowflake
   // if nothing is specified then it will be written to local disk
   // if using GCS or S3 make sure your instance has the correct permissions.
-  string staging_path = 15;
+  string staging_path = 12;
 
   // This setting overrides batch_size_int and batch_duration_seconds
   // and instead uses the number of rows per partition to determine
   // how many rows to process per batch.
-  uint32 num_rows_per_partition = 16;
+  uint32 num_rows_per_partition = 13;
 
   // Creates the watermark table on the destination as-is, can be used for some queries.
-  bool setup_watermark_table_on_destination = 17;
+  bool setup_watermark_table_on_destination = 14;
 
   // create new tables with "_peerdb_resync" suffix, perform initial load and then swap the new table with the old ones
   // to be used after the old mirror is dropped
-  bool dst_table_full_resync = 18;
+  bool dst_table_full_resync = 15;
 
-  string synced_at_col_name = 19;
-  string soft_delete_col_name = 20;
+  string synced_at_col_name = 16;
+  string soft_delete_col_name = 17;
 }
 
 message QRepPartition {
