@@ -51,8 +51,7 @@ export default function QRepConfigForm({
   const [loading, setLoading] = useState(false);
 
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
-    let stateVal: string | boolean | QRepWriteType | string[] =
-      val;
+    let stateVal: string | boolean | QRepWriteType | string[] = val;
     if (setting.label.includes('Write Type')) {
       switch (val) {
         case 'Upsert':

@@ -1,7 +1,4 @@
-import {
-  FlowConnectionConfigs,
-  QRepWriteType,
-} from '@/grpc_generated/flow';
+import { FlowConnectionConfigs, QRepWriteType } from '@/grpc_generated/flow';
 import { Peer } from '@/grpc_generated/peers';
 
 export interface MirrorSetting {
