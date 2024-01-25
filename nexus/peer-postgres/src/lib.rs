@@ -19,7 +19,17 @@ pub struct PostgresQueryExecutor {
     client: Box<Client>,
 }
 
-pub async fn schema_from_query(client: &Client, query: &str) -> anyhow::Result<Schema> {
+impl PostgresQueryExecutor {
+    pub async fn new(peername: String, config: &PostgresConfig) -> anyhow::Result<Self> {
+        let client = postgres_connection::connect_postgres(config).await?;
+        Ok(Self {
+            peername,
+            client: Box::new(client),
+        })
+    }
+}
+
+async fn schema_from_query(client: &Client, query: &str) -> anyhow::Result<Schema> {
     let prepared = client.prepare_typed(query, &[]).await?;
 
     let fields: Vec<FieldInfo> = prepared
@@ -34,27 +44,7 @@ pub async fn schema_from_query(client: &Client, query: &str) -> anyhow::Result<S
     Ok(Arc::new(fields))
 }
 
-impl PostgresQueryExecutor {
-    pub async fn new(peername: String, config: &PostgresConfig) -> anyhow::Result<Self> {
-        let client = postgres_connection::connect_postgres(config).await?;
-        Ok(Self {
-            peername,
-            client: Box::new(client),
-        })
-    }
-
-    pub async fn schema_from_query(&self, query: &str) -> anyhow::Result<Schema> {
-        schema_from_query(&self.client, query).await
-    }
-}
-
-#[async_trait::async_trait]
-impl QueryExecutor for PostgresQueryExecutor {
-    #[tracing::instrument(skip(self, stmt), fields(stmt = %stmt))]
-    async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
-        let ast = ast::PostgresAst {
-            peername: Some(self.peername.clone()),
-        };
+pub async fn pg_execute(client: &Client, ast: ast::PostgresAst, stmt: &Statement) -> PgWireResult<QueryOutput> {
         // if the query is a select statement, we need to fetch the rows
         // and return them as a QueryOutput::Stream, else we return the
         // number of affected rows.
@@ -67,8 +57,7 @@ impl QueryExecutor for PostgresQueryExecutor {
                 // first fetch the schema as this connection will be
                 // short lived, only then run the query as the query
                 // could hold the pin on the connection for a long time.
-                let schema = self
-                    .schema_from_query(&rewritten_query)
+                let schema = schema_from_query(client, &rewritten_query)
                     .await
                     .map_err(|e| {
                         tracing::error!("error getting schema: {}", e);
@@ -79,8 +68,7 @@ impl QueryExecutor for PostgresQueryExecutor {
                 // given that there could be a lot of rows returned, we
                 // need to use a cursor to stream the rows back to the
                 // client.
-                let stream = self
-                    .client
+                let stream = client
                     .query_raw(&rewritten_query, std::iter::empty::<&str>())
                     .await
                     .map_err(|e| {
@@ -103,7 +91,7 @@ impl QueryExecutor for PostgresQueryExecutor {
                 let rewritten_query = rewritten_stmt.to_string();
                 tracing::info!("[peer-postgres] rewritten statement: {}", rewritten_query);
                 let rows_affected =
-                    self.client
+                    client
                         .execute(&rewritten_query, &[])
                         .await
                         .map_err(|e| {
@@ -113,13 +101,13 @@ impl QueryExecutor for PostgresQueryExecutor {
                 Ok(QueryOutput::AffectedRows(rows_affected as usize))
             }
         }
-    }
 
-    async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<Schema>> {
+}
+
+pub async fn pg_describe(client: &Client, stmt: &Statement) -> PgWireResult<Option<Schema>> {
         match stmt {
             Statement::Query(_query) => {
-                let schema = self
-                    .schema_from_query(&stmt.to_string())
+                let schema = schema_from_query(client, &stmt.to_string())
                     .await
                     .map_err(|e| {
                         tracing::error!("error getting schema: {}", e);
@@ -129,5 +117,18 @@ impl QueryExecutor for PostgresQueryExecutor {
             }
             _ => Ok(None),
         }
+}
+
+#[async_trait::async_trait]
+impl QueryExecutor for PostgresQueryExecutor {
+    #[tracing::instrument(skip(self, stmt), fields(stmt = %stmt))]
+    async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
+        pg_execute(&self.client, ast::PostgresAst {
+            peername: Some(self.peername.clone()),
+        }, stmt).await
+    }
+
+    async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<Schema>> {
+        pg_describe(&self.client, stmt).await
     }
 }
