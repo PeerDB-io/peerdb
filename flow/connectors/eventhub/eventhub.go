@@ -224,7 +224,8 @@ func (c *EventHubConnector) processBatch(
 				}
 			}
 
-			ticker.Reset(eventHubFlushTimeout)
+			ticker.Stop()
+			ticker = time.NewTicker(eventHubFlushTimeout)
 		}
 	}
 }
