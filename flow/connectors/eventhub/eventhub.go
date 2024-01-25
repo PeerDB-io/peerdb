@@ -69,7 +69,7 @@ func (c *EventHubConnector) Close() error {
 		allErrors = errors.Join(allErrors, err)
 	}
 
-	err = c.hubManager.Close(context.Background())
+	err = c.hubManager.Close(c.ctx)
 	if err != nil {
 		c.logger.Error("failed to close event hub manager", slog.Any("error", err))
 		allErrors = errors.Join(allErrors, err)

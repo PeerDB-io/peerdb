@@ -315,9 +315,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	numRecords := res.NumRecordsSynced
 	syncDuration := time.Since(syncStartTime)
 
-	slog.InfoContext(ctx, fmt.Sprintf("pushed %d records in %d seconds\n",
-		numRecords, int(syncDuration.Seconds())),
-	)
+	slog.InfoContext(ctx, fmt.Sprintf("pushed %d records in %d seconds", numRecords, int(syncDuration.Seconds())))
 	activity.RecordHeartbeat(ctx, fmt.Sprintf("pushed %d records", numRecords))
 
 	lastCheckpoint, err := recordBatch.GetLastCheckpoint()
@@ -632,7 +630,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 			return err
 		}
 
-		slog.InfoContext(ctx, fmt.Sprintf("pushed %d records\n", rowsSynced))
+		slog.InfoContext(ctx, fmt.Sprintf("pushed %d records", rowsSynced))
 	}
 
 	err = monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition)
