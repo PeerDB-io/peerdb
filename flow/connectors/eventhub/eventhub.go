@@ -124,9 +124,7 @@ func (c *EventHubConnector) processBatch(
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns, false)
 
-	eventHubFlushTimeout := peerdbenv.PeerDBEventhubFlushTimeoutSeconds()
-
-	ticker := time.NewTicker(eventHubFlushTimeout)
+	ticker := time.NewTicker(peerdbenv.PeerDBEventhubFlushTimeoutSeconds())
 	defer ticker.Stop()
 
 	lastSeenLSN := int64(0)
@@ -219,8 +217,6 @@ func (c *EventHubConnector) processBatch(
 					return 0, fmt.Errorf("failed to update last offset: %w", err)
 				}
 			}
-
-			ticker.Reset(eventHubFlushTimeout)
 		}
 	}
 }

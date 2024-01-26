@@ -75,8 +75,7 @@ func (a *FlowableActivity) recordSlotSizePeriodically(
 		return
 	}
 
-	timeout := 5 * time.Minute
-	ticker := time.NewTicker(timeout)
+	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
 	for {
@@ -89,6 +88,5 @@ func (a *FlowableActivity) recordSlotSizePeriodically(
 		case <-ctx.Done():
 			return
 		}
-		ticker.Reset(timeout)
 	}
 }

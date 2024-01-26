@@ -29,7 +29,6 @@ func HeartbeatRoutine(
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				ticker.Reset(15 * time.Second)
 			}
 		}
 	}()
