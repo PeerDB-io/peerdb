@@ -105,13 +105,10 @@ func XminFlowWorkflow(
 			ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute, &signalVal)
 			if ok {
 				q.activeSignal = shared.FlowSignalHandler(q.activeSignal, signalVal, q.logger)
+			} else if err := ctx.Err(); err != nil {
+				return err
 			}
 		}
-	}
-	if q.activeSignal == shared.ShutdownSignal {
-		q.logger.Info("terminating workflow - ", config.FlowJobName)
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_TERMINATED
-		return nil
 	}
 
 	// Continue the workflow with new state

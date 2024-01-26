@@ -35,7 +35,7 @@ type (
 
 const (
 	NoopSignal CDCFlowSignal = iota
-	ShutdownSignal
+	_
 	PauseSignal
 
 	FlowNameKey      ContextKey = "flowName"
