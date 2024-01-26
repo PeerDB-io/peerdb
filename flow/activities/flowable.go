@@ -721,8 +721,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 		return nil
 	}
 
-	sendTimeout := 10 * time.Minute
-	ticker := time.NewTicker(sendTimeout)
+	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
 
 	activity.RecordHeartbeat(ctx, "sending walheartbeat every 10 minutes")
@@ -768,7 +767,6 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 				slog.InfoContext(ctx, fmt.Sprintf("sent walheartbeat to peer %v", pgPeer.Name))
 			}
 		}
-		ticker.Reset(sendTimeout)
 	}
 }
 
