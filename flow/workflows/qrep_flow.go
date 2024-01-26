@@ -36,7 +36,6 @@ type QRepPartitionFlowExecution struct {
 
 // returns a new empty QRepFlowState
 func NewQRepFlowState() *protos.QRepFlowState {
-
 	return &protos.QRepFlowState{
 		LastPartition: &protos.QRepPartition{
 			PartitionId: "not-applicable-partition",
@@ -50,7 +49,6 @@ func NewQRepFlowState() *protos.QRepFlowState {
 
 // returns a new empty QRepFlowState
 func NewQRepFlowStateForTesting() *protos.QRepFlowState {
-
 	return &protos.QRepFlowState{
 		LastPartition: &protos.QRepPartition{
 			PartitionId: "not-applicable-partition",
@@ -64,7 +62,6 @@ func NewQRepFlowStateForTesting() *protos.QRepFlowState {
 
 // NewQRepFlowExecution creates a new instance of QRepFlowExecution.
 func NewQRepFlowExecution(ctx workflow.Context, config *protos.QRepConfig, runUUID string) *QRepFlowExecution {
-
 	return &QRepFlowExecution{
 		config:                  config,
 		flowExecutionID:         workflow.GetInfo(ctx).WorkflowExecution.ID,
@@ -79,7 +76,6 @@ func NewQRepFlowExecution(ctx workflow.Context, config *protos.QRepConfig, runUU
 func NewQRepPartitionFlowExecution(ctx workflow.Context,
 	config *protos.QRepConfig, runUUID string,
 ) *QRepPartitionFlowExecution {
-
 	return &QRepPartitionFlowExecution{
 		config:          config,
 		flowExecutionID: workflow.GetInfo(ctx).WorkflowExecution.ID,
@@ -407,7 +403,6 @@ func QRepFlowWorkflow(
 	config *protos.QRepConfig,
 	state *protos.QRepFlowState,
 ) error {
-
 	// The structure of this workflow is as follows:
 	//   1. Start the loop to continuously run the replication flow.
 	//   2. In the loop, query the source database to get the partitions to replicate.
@@ -542,7 +537,6 @@ func QRepPartitionWorkflow(
 	partitions *protos.QRepPartitionBatch,
 	runUUID string,
 ) error {
-
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	q := NewQRepPartitionFlowExecution(ctx, config, runUUID)
 	return q.ReplicatePartitions(ctx, partitions)

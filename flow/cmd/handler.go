@@ -121,7 +121,6 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.CreateCDCFlowResponse, error) {
 	cfg := req.ConnectionConfigs
-
 	_, validateErr := h.ValidateCDCMirror(ctx, req)
 	if validateErr != nil {
 		slog.Error("validate mirror error", slog.Any("error", validateErr))
@@ -229,7 +228,6 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	ctx context.Context, req *protos.CreateQRepFlowRequest,
 ) (*protos.CreateQRepFlowResponse, error) {
 	cfg := req.QrepConfig
-
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,

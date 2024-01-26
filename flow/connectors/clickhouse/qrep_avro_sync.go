@@ -32,28 +32,6 @@ func NewClickhouseAvroSyncMethod(
 	}
 }
 
-// func (s *ClickhouseAvroSyncMethod) putFileToStage(avroFile *avro.AvroFile, stage string) error {
-// 	if avroFile.StorageLocation != avro.AvroLocalStorage {
-// 		s.connector.logger.Info("no file to put to stage")
-// 		return nil
-// 	}
-
-// 	activity.RecordHeartbeat(s.connector.ctx, "putting file to stage")
-// 	putCmd := fmt.Sprintf("PUT file://%s @%s", avroFile.FilePath, stage)
-
-// 	shutdown := utils.HeartbeatRoutine(s.connector.ctx, 10*time.Second, func() string {
-// 		return fmt.Sprintf("putting file to stage %s", stage)
-// 	})
-// 	defer shutdown()
-
-// 	if _, err := s.connector.database.ExecContext(s.connector.ctx, putCmd); err != nil {
-// 		return fmt.Errorf("failed to put file to stage: %w", err)
-// 	}
-
-// 	s.connector.logger.Info(fmt.Sprintf("put file %s to stage %s", avroFile.FilePath, stage))
-// 	return nil
-// }
-
 func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(avroFile *avro.AvroFile) error {
 	stagingPath := s.config.StagingPath
 	if stagingPath == "" {
@@ -106,31 +84,6 @@ func (s *ClickhouseAvroSyncMethod) SyncRecords(
 	}
 	defer avroFile.Cleanup()
 	s.connector.logger.Info(fmt.Sprintf("written %d records to Avro file", avroFile.NumRecords), tableLog)
-
-	// stage := s.connector.getStageNameForJob(s.config.FlowJobName)
-	// err = s.connector.createStage(stage, s.config)
-	// if err != nil {
-	// 	return 0, err
-	// }
-	// s.connector.logger.Info(fmt.Sprintf("Created stage %s", stage))
-
-	// colNames, _, err := s.connector.getColsFromTable(s.config.DestinationTableIdentifier)
-	// if err != nil {
-	// 	return 0, err
-	// }
-
-	// err = s.putFileToStage(avroFile, "stage")
-	// if err != nil {
-	// 	return 0, err
-	// }
-	// s.connector.logger.Info("pushed avro file to stage", tableLog)
-
-	// err = CopyStageToDestination(s.connector, s.config, s.config.DestinationTableIdentifier, stage, colNames)
-	// if err != nil {
-	// 	return 0, err
-	// }
-	// s.connector.logger.Info(fmt.Sprintf("copying records into %s from stage %s",
-	// 	s.config.DestinationTableIdentifier, stage))
 
 	//Copy stage/avro to destination
 	err = s.CopyStageToDestination(avroFile)

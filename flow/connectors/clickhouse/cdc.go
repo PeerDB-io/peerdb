@@ -48,26 +48,26 @@ type MirrorJobRow struct {
 	NormalizeBatchID int
 }
 
-func (c *ClickhouseConnector) getMirrorRowByJobNAme(jobName string) (*MirrorJobRow, error) {
-	getLastOffsetSQL := "SELECT mirror_job_name, offset, sync_batch_id, normalize_batch_id FROM %s WHERE MIRROR_JOB_NAME=? Limit 1"
+// func (c *ClickhouseConnector) getMirrorRowByJobNAme(jobName string) (*MirrorJobRow, error) {
+// 	getLastOffsetSQL := "SELECT mirror_job_name, offset, sync_batch_id, normalize_batch_id FROM %s WHERE MIRROR_JOB_NAME=? Limit 1"
 
-	row := c.database.QueryRowContext(c.ctx, fmt.Sprintf(getLastOffsetSQL, mirrorJobsTableIdentifier), jobName)
+// 	row := c.database.QueryRowContext(c.ctx, fmt.Sprintf(getLastOffsetSQL, mirrorJobsTableIdentifier), jobName)
 
-	var result MirrorJobRow
+// 	var result MirrorJobRow
 
-	err := row.Scan(
-		&result.MirrorJobName,
-		&result.Offset,
-		&result.SyncBatchID,
-		&result.NormalizeBatchID,
-	)
+// 	err := row.Scan(
+// 		&result.MirrorJobName,
+// 		&result.Offset,
+// 		&result.SyncBatchID,
+// 		&result.NormalizeBatchID,
+// 	)
 
-	if err != nil {
-		return nil, err
-	}
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	return &result, nil
-}
+// 	return &result, nil
+// }
 
 func (c *ClickhouseConnector) CreateRawTable(req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
 	rawTableName := c.getRawTableName(req.FlowJobName)
