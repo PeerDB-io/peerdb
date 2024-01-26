@@ -21,6 +21,7 @@ linters:
     - nonamedreturns
     - perfsprint
     - prealloc
+    - rowserrcheck
     - staticcheck
     - stylecheck
     - sqlclosecheck

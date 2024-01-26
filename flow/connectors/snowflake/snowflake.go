@@ -324,25 +324,14 @@ func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.T
 }
 
 func (c *SnowflakeConnector) GetLastOffset(jobName string) (int64, error) {
-	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastOffsetSQL,
-		c.metadataSchema, mirrorJobsTableIdentifier), jobName)
-	if err != nil {
-		return 0, fmt.Errorf("error querying Snowflake peer for last syncedID: %w", err)
-	}
-	defer func() {
-		err = rows.Close()
-		if err != nil {
-			c.logger.Error("error while closing rows for reading last offset", slog.Any("error", err))
-		}
-	}()
-
-	if !rows.Next() {
-		c.logger.Warn("No row found, returning 0")
-		return 0, nil
-	}
 	var result pgtype.Int8
-	err = rows.Scan(&result)
+	err := c.database.QueryRowContext(c.ctx, fmt.Sprintf(getLastOffsetSQL,
+		c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			c.logger.Warn("No row found, returning 0")
+			return 0, nil
+		}
 		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
 	if result.Int64 == 0 {
@@ -362,40 +351,28 @@ func (c *SnowflakeConnector) SetLastOffset(jobName string, lastOffset int64) err
 }
 
 func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastSyncBatchID_SQL, c.metadataSchema,
-		mirrorJobsTableIdentifier), jobName)
-	if err != nil {
-		return 0, fmt.Errorf("error querying Snowflake peer for last syncBatchId: %w", err)
-	}
-	defer rows.Close()
-
 	var result pgtype.Int8
-	if !rows.Next() {
-		c.logger.Warn("No row found, returning 0")
-		return 0, nil
-	}
-	err = rows.Scan(&result)
+	err := c.database.QueryRowContext(c.ctx, fmt.Sprintf(getLastSyncBatchID_SQL, c.metadataSchema,
+		mirrorJobsTableIdentifier), jobName).Scan(&result)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			c.logger.Warn("No row found, returning 0")
+			return 0, nil
+		}
 		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
 	return result.Int64, nil
 }
 
 func (c *SnowflakeConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
-	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastNormalizeBatchID_SQL, c.metadataSchema,
-		mirrorJobsTableIdentifier), jobName)
-	if err != nil {
-		return 0, fmt.Errorf("error querying Snowflake peer for last normalizeBatchId: %w", err)
-	}
-	defer rows.Close()
-
 	var normBatchID pgtype.Int8
-	if !rows.Next() {
-		c.logger.Warn("No row found, returning 0")
-		return 0, nil
-	}
-	err = rows.Scan(&normBatchID)
+	err := c.database.QueryRowContext(c.ctx, fmt.Sprintf(getLastNormalizeBatchID_SQL, c.metadataSchema,
+		mirrorJobsTableIdentifier), jobName).Scan(&normBatchID)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			c.logger.Warn("No row found, returning 0")
+			return 0, nil
+		}
 		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
 	return normBatchID.Int64, nil
@@ -421,6 +398,11 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(flowJobName string, sy
 			return nil, fmt.Errorf("failed to read row: %w", err)
 		}
 		destinationTableNames = append(destinationTableNames, result.String)
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
 	return destinationTableNames, nil
 }

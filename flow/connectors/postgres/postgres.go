@@ -162,20 +162,13 @@ func (c *PostgresConnector) SetupMetadataTables() error {
 
 // GetLastOffset returns the last synced offset for a job.
 func (c *PostgresConnector) GetLastOffset(jobName string) (int64, error) {
-	rows, err := c.pool.
-		Query(c.ctx, fmt.Sprintf(getLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
-	if err != nil {
-		return 0, fmt.Errorf("error getting last offset for job %s: %w", jobName, err)
-	}
-	defer rows.Close()
-
-	if !rows.Next() {
-		c.logger.Info("No row found, returning nil")
-		return 0, nil
-	}
 	var result pgtype.Int8
-	err = rows.Scan(&result)
+	err := c.pool.QueryRow(c.ctx, fmt.Sprintf(getLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
 	if err != nil {
+		if err == pgx.ErrNoRows {
+			c.logger.Info("No row found, returning nil")
+			return 0, nil
+		}
 		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
 

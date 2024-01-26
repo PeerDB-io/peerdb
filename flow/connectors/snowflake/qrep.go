@@ -82,12 +82,9 @@ func (c *SnowflakeConnector) getTableSchema(tableName string) ([]*sql.ColumnType
 	}
 
 	//nolint:gosec
-	queryString := fmt.Sprintf(`
-	SELECT *
-	FROM %s
-	LIMIT 0
-	`, snowflakeSchemaTableNormalize(schematable))
+	queryString := fmt.Sprintf("SELECT * FROM %s LIMIT 0", snowflakeSchemaTableNormalize(schematable))
 
+	//nolint:rowserrcheck
 	rows, err := c.database.QueryContext(c.ctx, queryString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
@@ -301,6 +298,11 @@ func (c *SnowflakeConnector) getColsFromTable(tableName string) ([]string, []str
 		}
 		colNames = append(colNames, colName.String)
 		colTypes = append(colTypes, colType.String)
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read rows: %w", err)
 	}
 
 	if len(colNames) == 0 {
