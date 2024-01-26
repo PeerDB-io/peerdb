@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/goleak"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -58,6 +59,8 @@ func (s PeerFlowE2ETestSuiteSF) GetRows(tableName string, sfSelector string) (*m
 
 func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSuite, func(s PeerFlowE2ETestSuiteSF) {
+		defer goleak.VerifyNone(t)
+
 		e2e.TearDownPostgres(s)
 
 		if s.sfHelper != nil {
