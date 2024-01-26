@@ -51,9 +51,9 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
-	txConfig := s.connector.pool.poolConfig.Copy()
+	txConfig := s.connector.pool.Config()
 	txConfig.AfterConnect = utils.RegisterHStore
-	txPool, err := pgxpool.NewWithConfig(s.connector.pool.ctx, txConfig)
+	txPool, err := pgxpool.NewWithConfig(s.connector.ctx, txConfig)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create tx pool: %v", err)
 	}

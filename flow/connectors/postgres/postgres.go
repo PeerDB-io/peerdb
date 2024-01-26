@@ -27,9 +27,9 @@ type PostgresConnector struct {
 	connStr            string
 	ctx                context.Context
 	config             *protos.PostgresConfig
-	pool               *SSHWrappedPostgresPool
-	replConfig         *pgxpool.Config
-	replPool           *SSHWrappedPostgresPool
+	ssh                *SSHTunnel
+	pool               *pgxpool.Pool
+	replConfig         *pgx.ConnConfig
 	customTypesMapping map[uint32]string
 	metadataSchema     string
 	logger             slog.Logger
@@ -42,7 +42,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	// create a separate connection pool for non-replication queries as replication connections cannot
 	// be used for extended query protocol, i.e. prepared statements
 	connConfig, err := pgxpool.ParseConfig(connectionString)
-	replConfig := connConfig.Copy()
+	replConfig := connConfig.ConnConfig.Copy()
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
@@ -55,17 +55,21 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	// set pool size to 3 to avoid connection pool exhaustion
 	connConfig.MaxConns = 3
 
-	pool, err := NewSSHWrappedPostgresPool(ctx, connConfig, pgConfig.SshConfig)
+	tunnel, err := NewSSHTunnel(ctx, pgConfig.SshConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
+	}
+
+	pool, err := tunnel.NewPostgresPoolFromConfig(ctx, connConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create connection pool: %w", err)
 	}
 
 	// ensure that replication is set to database
-	replConfig.ConnConfig.RuntimeParams["replication"] = "database"
-	replConfig.ConnConfig.RuntimeParams["bytea_output"] = "hex"
-	replConfig.MaxConns = 1
+	replConfig.RuntimeParams["replication"] = "database"
+	replConfig.RuntimeParams["bytea_output"] = "hex"
 
-	customTypeMap, err := utils.GetCustomDataTypes(ctx, pool.Pool)
+	customTypeMap, err := utils.GetCustomDataTypes(ctx, pool)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get custom type map: %w", err)
 	}
@@ -81,9 +85,9 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		connStr:            connectionString,
 		ctx:                ctx,
 		config:             pgConfig,
+		ssh:                tunnel,
 		pool:               pool,
 		replConfig:         replConfig,
-		replPool:           nil,
 		customTypesMapping: customTypeMap,
 		metadataSchema:     metadataSchema,
 		logger:             *flowLog,
@@ -91,35 +95,26 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 }
 
 // GetPool returns the connection pool.
-func (c *PostgresConnector) GetPool() *SSHWrappedPostgresPool {
+func (c *PostgresConnector) GetPool() *pgxpool.Pool {
 	return c.pool
 }
 
-func (c *PostgresConnector) GetReplPool(ctx context.Context) (*SSHWrappedPostgresPool, error) {
-	if c.replPool != nil {
-		return c.replPool, nil
-	}
-
-	pool, err := NewSSHWrappedPostgresPool(ctx, c.replConfig, c.config.SshConfig)
+func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, error) {
+	conn, err := c.ssh.NewPostgresConnFromConfig(ctx, c.replConfig)
 	if err != nil {
 		slog.Error("failed to create replication connection pool", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create replication connection pool: %w", err)
 	}
 
-	c.replPool = pool
-	return pool, nil
+	return conn, nil
 }
 
 // Close closes all connections.
 func (c *PostgresConnector) Close() error {
-	if c.pool != nil {
+	if c != nil {
 		c.pool.Close()
+		c.ssh.Close()
 	}
-
-	if c.replPool != nil {
-		c.replPool.Close()
-	}
-
 	return nil
 }
 
@@ -224,14 +219,15 @@ func (c *PostgresConnector) PullRecords(catalogPool *pgxpool.Pool, req *model.Pu
 
 	c.logger.Info("PullRecords: performed checks for slot and publication")
 
-	replPool, err := c.GetReplPool(c.ctx)
+	replConn, err := c.CreateReplConn(c.ctx)
 	if err != nil {
 		return err
 	}
+	defer replConn.Close(c.ctx)
 
 	cdc, err := NewPostgresCDCSource(&PostgresCDCConfig{
 		AppContext:             c.ctx,
-		Connection:             replPool.Pool,
+		Connection:             replConn,
 		SrcTableIDNameMapping:  req.SrcTableIDNameMapping,
 		Slot:                   slotName,
 		Publication:            publicationName,

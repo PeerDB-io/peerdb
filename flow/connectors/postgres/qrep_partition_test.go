@@ -72,10 +72,17 @@ func TestGetQRepPartitions(t *testing.T) {
 		t.Fatalf("Failed to parse config: %v", err)
 	}
 
-	pool, err := NewSSHWrappedPostgresPool(context.Background(), config, nil)
+	tunnel, err := NewSSHTunnel(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Failed to create tunnel: %v", err)
+	}
+	defer tunnel.Close()
+
+	pool, err := tunnel.NewPostgresPoolFromConfig(context.Background(), config)
 	if err != nil {
 		t.Fatalf("Failed to create pool: %v", err)
 	}
+	defer pool.Close()
 
 	// Generate a random schema name
 	rndUint, err := shared.RandomUInt64()
@@ -103,7 +110,7 @@ func TestGetQRepPartitions(t *testing.T) {
 	}
 
 	// from 2010 Jan 1 10:00 AM UTC to 2010 Jan 30 10:00 AM UTC
-	numRows := prepareTestData(t, pool.Pool, schemaName)
+	numRows := prepareTestData(t, pool, schemaName)
 
 	// Define the test cases
 	testCases := []*testCase{

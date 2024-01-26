@@ -30,7 +30,7 @@ const maxRetriesForWalSegmentRemoved = 5
 
 type PostgresCDCSource struct {
 	ctx                    context.Context
-	replPool               *pgxpool.Pool
+	replConn               *pgx.Conn
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]model.NameAndExclude
 	slot                   string
@@ -54,7 +54,7 @@ type PostgresCDCSource struct {
 
 type PostgresCDCConfig struct {
 	AppContext             context.Context
-	Connection             *pgxpool.Pool
+	Connection             *pgx.Conn
 	Slot                   string
 	Publication            string
 	SrcTableIDNameMapping  map[uint32]string
@@ -84,7 +84,7 @@ func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig, customTypeMap map[uint32
 	flowName, _ := cdcConfig.AppContext.Value(shared.FlowNameKey).(string)
 	return &PostgresCDCSource{
 		ctx:                       cdcConfig.AppContext,
-		replPool:                  cdcConfig.Connection,
+		replConn:                  cdcConfig.Connection,
 		SrcTableIDNameMapping:     cdcConfig.SrcTableIDNameMapping,
 		TableNameMapping:          cdcConfig.TableNameMapping,
 		slot:                      cdcConfig.Slot,
@@ -102,7 +102,7 @@ func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig, customTypeMap map[uint32
 	}, nil
 }
 
-func getChildToParentRelIDMap(ctx context.Context, pool *pgxpool.Pool) (map[uint32]uint32, error) {
+func getChildToParentRelIDMap(ctx context.Context, conn *pgx.Conn) (map[uint32]uint32, error) {
 	query := `
 		SELECT
 				parent.oid AS parentrelid,
@@ -113,7 +113,7 @@ func getChildToParentRelIDMap(ctx context.Context, pool *pgxpool.Pool) (map[uint
 		WHERE parent.relkind='p';
 	`
 
-	rows, err := pool.Query(ctx, query, pgx.QueryExecModeSimpleProtocol)
+	rows, err := conn.Query(ctx, query, pgx.QueryExecModeSimpleProtocol)
 	if err != nil {
 		return nil, fmt.Errorf("error querying for child to parent relid map: %w", err)
 	}
@@ -141,15 +141,7 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) error {
 		return fmt.Errorf("error getting replication options: %w", err)
 	}
 
-	// create replication connection
-	replicationConn, err := p.replPool.Acquire(p.ctx)
-	if err != nil {
-		return fmt.Errorf("error acquiring connection for replication: %w", err)
-	}
-
-	defer replicationConn.Release()
-
-	pgConn := replicationConn.Conn().PgConn()
+	pgConn := p.replConn.PgConn()
 	p.logger.Info("created replication connection")
 
 	// start replication

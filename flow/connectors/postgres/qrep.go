@@ -311,7 +311,7 @@ func (c *PostgresConnector) PullQRepRecords(
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
 		executor, err := NewQRepQueryExecutorSnapshot(
-			c.pool.Pool, c.ctx, c.config.TransactionSnapshot,
+			c.pool, c.ctx, c.config.TransactionSnapshot,
 			config.FlowJobName, partition.PartitionId)
 		if err != nil {
 			return nil, err
@@ -355,7 +355,7 @@ func (c *PostgresConnector) PullQRepRecords(
 	}
 
 	executor, err := NewQRepQueryExecutorSnapshot(
-		c.pool.Pool, c.ctx, c.config.TransactionSnapshot,
+		c.pool, c.ctx, c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return nil, err
@@ -379,7 +379,7 @@ func (c *PostgresConnector) PullQRepRecordStream(
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
 		executor, err := NewQRepQueryExecutorSnapshot(
-			c.pool.Pool, c.ctx, c.config.TransactionSnapshot,
+			c.pool, c.ctx, c.config.TransactionSnapshot,
 			config.FlowJobName, partition.PartitionId)
 		if err != nil {
 			return 0, err
@@ -425,7 +425,7 @@ func (c *PostgresConnector) PullQRepRecordStream(
 	}
 
 	executor, err := NewQRepQueryExecutorSnapshot(
-		c.pool.Pool, c.ctx, c.config.TransactionSnapshot,
+		c.pool, c.ctx, c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, err
@@ -524,7 +524,7 @@ func (c *PostgresConnector) PullXminRecordStream(
 	}
 
 	executor, err := NewQRepQueryExecutorSnapshot(
-		c.pool.Pool, c.ctx, c.config.TransactionSnapshot,
+		c.pool, c.ctx, c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, currentSnapshotXmin, err

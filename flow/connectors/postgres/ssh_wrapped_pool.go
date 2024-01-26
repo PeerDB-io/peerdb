@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/ssh"
 
@@ -15,40 +16,19 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
-type SSHWrappedPostgresPool struct {
-	*pgxpool.Pool
-
-	poolConfig *pgxpool.Config
-	sshConfig  *ssh.ClientConfig
-	sshServer  string
-	once       sync.Once
-	sshClient  *ssh.Client
-	ctx        context.Context
-	cancel     context.CancelFunc
+type SSHTunnel struct {
+	sshConfig *ssh.ClientConfig
+	sshServer string
+	once      sync.Once
+	sshClient *ssh.Client
+	ctx       context.Context
+	cancel    context.CancelFunc
 }
 
-func NewSSHWrappedPostgresPoolFromConfig(
+func NewSSHTunnel(
 	ctx context.Context,
-	pgConfig *protos.PostgresConfig,
-) (*SSHWrappedPostgresPool, error) {
-	connectionString := utils.GetPGConnectionString(pgConfig)
-
-	connConfig, err := pgxpool.ParseConfig(connectionString)
-	if err != nil {
-		return nil, err
-	}
-
-	// set pool size to 3 to avoid connection pool exhaustion
-	connConfig.MaxConns = 3
-
-	return NewSSHWrappedPostgresPool(ctx, connConfig, pgConfig.SshConfig)
-}
-
-func NewSSHWrappedPostgresPool(
-	ctx context.Context,
-	poolConfig *pgxpool.Config,
 	sshConfig *protos.SSHConfig,
-) (*SSHWrappedPostgresPool, error) {
+) (*SSHTunnel, error) {
 	swCtx, cancel := context.WithCancel(ctx)
 
 	var sshServer string
@@ -65,12 +45,11 @@ func NewSSHWrappedPostgresPool(
 		}
 	}
 
-	pool := &SSHWrappedPostgresPool{
-		poolConfig: poolConfig,
-		sshConfig:  clientConfig,
-		sshServer:  sshServer,
-		ctx:        swCtx,
-		cancel:     cancel,
+	pool := &SSHTunnel{
+		sshConfig: clientConfig,
+		sshServer: sshServer,
+		ctx:       swCtx,
+		cancel:    cancel,
 	}
 
 	err := pool.connect()
@@ -81,72 +60,146 @@ func NewSSHWrappedPostgresPool(
 	return pool, nil
 }
 
-func (swpp *SSHWrappedPostgresPool) connect() error {
+func (tunnel *SSHTunnel) connect() error {
 	var err error
-	swpp.once.Do(func() {
-		err = swpp.setupSSH()
-		if err != nil {
-			return
-		}
-
-		swpp.Pool, err = pgxpool.NewWithConfig(swpp.ctx, swpp.poolConfig)
-		if err != nil {
-			slog.Error("Failed to create pool:", slog.Any("error", err))
-			return
-		}
-
-		host := swpp.poolConfig.ConnConfig.Host
-		err = retryWithBackoff(func() error {
-			err = swpp.Ping(swpp.ctx)
-			if err != nil {
-				slog.Error("Failed to ping pool", slog.Any("error", err), slog.String("host", host))
-				return err
-			}
-			return nil
-		}, 5, 5*time.Second)
-
-		if err != nil {
-			slog.Error("Failed to create pool", slog.Any("error", err), slog.String("host", host))
-		}
+	tunnel.once.Do(func() {
+		err = tunnel.setupSSH()
 	})
 
 	return err
 }
 
-func (swpp *SSHWrappedPostgresPool) setupSSH() error {
-	if swpp.sshConfig == nil {
+func (tunnel *SSHTunnel) setupSSH() error {
+	if tunnel.sshConfig == nil {
 		return nil
 	}
 
-	slog.Info("Setting up SSH connection to " + swpp.sshServer)
+	slog.Info("Setting up SSH connection to " + tunnel.sshServer)
 
 	var err error
-	swpp.sshClient, err = ssh.Dial("tcp", swpp.sshServer, swpp.sshConfig)
+	tunnel.sshClient, err = ssh.Dial("tcp", tunnel.sshServer, tunnel.sshConfig)
 	if err != nil {
 		return err
-	}
-
-	swpp.poolConfig.ConnConfig.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		conn, err := swpp.sshClient.Dial(network, addr)
-		if err != nil {
-			return nil, err
-		}
-		return &noDeadlineConn{Conn: conn}, nil
 	}
 
 	return nil
 }
 
-func (swpp *SSHWrappedPostgresPool) Close() {
-	swpp.cancel()
+func (tunnel *SSHTunnel) Close() {
+	tunnel.cancel()
 
-	if swpp.Pool != nil {
-		swpp.Pool.Close()
+	if tunnel.sshClient != nil {
+		tunnel.sshClient.Close()
+	}
+}
+
+func (tunnel *SSHTunnel) NewPostgresPoolFromPostgresConfig(
+	ctx context.Context,
+	pgConfig *protos.PostgresConfig,
+) (*pgxpool.Pool, error) {
+	connectionString := utils.GetPGConnectionString(pgConfig)
+
+	poolConfig, err := pgxpool.ParseConfig(connectionString)
+	if err != nil {
+		return nil, err
 	}
 
-	if swpp.sshClient != nil {
-		swpp.sshClient.Close()
+	return tunnel.NewPostgresPoolFromConfig(ctx, poolConfig)
+}
+
+func (tunnel *SSHTunnel) NewPostgresPoolFromConfig(
+	ctx context.Context,
+	poolConfig *pgxpool.Config,
+) (*pgxpool.Pool, error) {
+	// set pool size to 3 to avoid connection pool exhaustion
+	poolConfig.MaxConns = 3
+
+	if tunnel.sshClient != nil {
+		poolConfig.ConnConfig.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			conn, err := tunnel.sshClient.Dial(network, addr)
+			if err != nil {
+				return nil, err
+			}
+			return &noDeadlineConn{Conn: conn}, nil
+		}
 	}
+
+	pool, err := pgxpool.NewWithConfig(tunnel.ctx, poolConfig)
+	if err != nil {
+		slog.Error("Failed to create pool:", slog.Any("error", err))
+		return nil, err
+	}
+
+	host := poolConfig.ConnConfig.Host
+	err = retryWithBackoff(func() error {
+		err = pool.Ping(tunnel.ctx)
+		if err != nil {
+			slog.Error("Failed to ping pool", slog.Any("error", err), slog.String("host", host))
+			return err
+		}
+		return nil
+	}, 5, 5*time.Second)
+
+	if err != nil {
+		slog.Error("Failed to create pool", slog.Any("error", err), slog.String("host", host))
+		pool.Close()
+		return nil, err
+	}
+
+	return pool, nil
+}
+
+func (tunnel *SSHTunnel) NewPostgresConnFromPostgresConfig(
+	ctx context.Context,
+	pgConfig *protos.PostgresConfig,
+) (*pgx.Conn, error) {
+	connectionString := utils.GetPGConnectionString(pgConfig)
+
+	connConfig, err := pgx.ParseConfig(connectionString)
+	if err != nil {
+		return nil, err
+	}
+
+	return tunnel.NewPostgresConnFromConfig(ctx, connConfig)
+}
+
+func (tunnel *SSHTunnel) NewPostgresConnFromConfig(
+	ctx context.Context,
+	connConfig *pgx.ConnConfig,
+) (*pgx.Conn, error) {
+	if tunnel.sshClient != nil {
+		connConfig.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			conn, err := tunnel.sshClient.Dial(network, addr)
+			if err != nil {
+				return nil, err
+			}
+			return &noDeadlineConn{Conn: conn}, nil
+		}
+	}
+
+	conn, err := pgx.ConnectConfig(tunnel.ctx, connConfig)
+	if err != nil {
+		slog.Error("Failed to create pool:", slog.Any("error", err))
+		return nil, err
+	}
+
+	host := connConfig.Host
+	err = retryWithBackoff(func() error {
+		err = conn.Ping(tunnel.ctx)
+		if err != nil {
+			slog.Error("Failed to ping pool", slog.Any("error", err), slog.String("host", host))
+			return err
+		}
+		return nil
+	}, 5, 5*time.Second)
+
+	if err != nil {
+		slog.Error("Failed to create pool", slog.Any("error", err), slog.String("host", host))
+		conn.Close(ctx)
+		return nil, err
+	}
+
+	return conn, nil
 }
 
 type retryFunc func() error
