@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
 
@@ -20,7 +20,7 @@ import (
 type PeerFlowE2ETestSuiteS3 struct {
 	t *testing.T
 
-	pool     *pgxpool.Pool
+	conn     *pgx.Conn
 	s3Helper *S3TestHelper
 	suffix   string
 }
@@ -29,8 +29,8 @@ func (s PeerFlowE2ETestSuiteS3) T() *testing.T {
 	return s.t
 }
 
-func (s PeerFlowE2ETestSuiteS3) Pool() *pgxpool.Pool {
-	return s.pool
+func (s PeerFlowE2ETestSuiteS3) Conn() *pgx.Conn {
+	return s.conn
 }
 
 func (s PeerFlowE2ETestSuiteS3) Suffix() string {
@@ -55,9 +55,9 @@ func TestPeerFlowE2ETestSuiteGCS(t *testing.T) {
 }
 
 func (s PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int) {
-	err := e2e.CreateTableForQRep(s.pool, s.suffix, tableName)
+	err := e2e.CreateTableForQRep(s.conn, s.suffix, tableName)
 	require.NoError(s.t, err)
-	err = e2e.PopulateSourceTable(s.pool, s.suffix, tableName, rowCount)
+	err = e2e.PopulateSourceTable(s.conn, s.suffix, tableName, rowCount)
 	require.NoError(s.t, err)
 }
 
@@ -72,8 +72,8 @@ func setupSuite(t *testing.T, gcs bool) PeerFlowE2ETestSuiteS3 {
 	}
 
 	suffix := "s3_" + strings.ToLower(shared.RandomString(8))
-	pool, err := e2e.SetupPostgres(suffix)
-	if err != nil || pool == nil {
+	conn, err := e2e.SetupPostgres(suffix)
+	if err != nil || conn == nil {
 		require.Fail(t, "failed to setup postgres", err)
 	}
 
@@ -84,7 +84,7 @@ func setupSuite(t *testing.T, gcs bool) PeerFlowE2ETestSuiteS3 {
 
 	return PeerFlowE2ETestSuiteS3{
 		t:        t,
-		pool:     pool,
+		conn:     conn,
 		s3Helper: helper,
 		suffix:   suffix,
 	}

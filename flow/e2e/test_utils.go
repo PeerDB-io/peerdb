@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
@@ -90,8 +91,8 @@ func EnvTrue(t *testing.T, env *testsuite.TestWorkflowEnvironment, val bool) {
 	}
 }
 
-func GetPgRows(pool *pgxpool.Pool, suffix string, table string, cols string) (*model.QRecordBatch, error) {
-	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(pool, context.Background(), "testflow", "testpart")
+func GetPgRows(conn *pgx.Conn, suffix string, table string, cols string) (*model.QRecordBatch, error) {
+	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(conn, context.Background(), "testflow", "testpart")
 	pgQueryExecutor.SetTestEnv(true)
 
 	return pgQueryExecutor.ExecuteAndProcessQuery(
@@ -103,9 +104,7 @@ func RequireEqualTables(suite e2eshared.RowSource, table string, cols string) {
 	t := suite.T()
 	t.Helper()
 
-	suffix := suite.Suffix()
-	pool := suite.Pool()
-	pgRows, err := GetPgRows(pool, suffix, table, cols)
+	pgRows, err := GetPgRows(suite.Conn(), suite.Suffix(), table, cols)
 	require.NoError(t, err)
 
 	rows, err := suite.GetRows(table, cols)
@@ -118,9 +117,7 @@ func EnvEqualTables(env *testsuite.TestWorkflowEnvironment, suite e2eshared.RowS
 	t := suite.T()
 	t.Helper()
 
-	suffix := suite.Suffix()
-	pool := suite.Pool()
-	pgRows, err := GetPgRows(pool, suffix, table, cols)
+	pgRows, err := GetPgRows(suite.Conn(), suite.Suffix(), table, cols)
 	EnvNoError(t, env, err)
 
 	rows, err := suite.GetRows(table, cols)
@@ -154,9 +151,7 @@ func EnvWaitForEqualTablesWithNames(
 	EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
 		t.Helper()
 
-		suffix := suite.Suffix()
-		pool := suite.Pool()
-		pgRows, err := GetPgRows(pool, suffix, srcTable, cols)
+		pgRows, err := GetPgRows(suite.Conn(), suite.Suffix(), srcTable, cols)
 		if err != nil {
 			return false
 		}
@@ -202,7 +197,7 @@ func SetupCDCFlowStatusQuery(t *testing.T, env *testsuite.TestWorkflowEnvironmen
 	}
 }
 
-func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) error {
+func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
 
 	tblFields := []string{
@@ -261,11 +256,11 @@ func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) err
 	}
 	tblFieldStr := strings.Join(tblFields, ",")
 	var pgErr *pgconn.PgError
-	_, enumErr := pool.Exec(context.Background(), createMoodEnum)
+	_, enumErr := conn.Exec(context.Background(), createMoodEnum)
 	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !utils.IsUniqueError(pgErr) {
 		return enumErr
 	}
-	_, err := pool.Exec(context.Background(), fmt.Sprintf(`
+	_, err := conn.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE e2e_test_%s.%s (
 			%s
 		);`, suffix, tableName, tblFieldStr))
@@ -290,7 +285,7 @@ func generate20MBJson() ([]byte, error) {
 	return v, nil
 }
 
-func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, rowCount int) error {
+func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCount int) error {
 	var ids []string
 	var rows []string
 	for i := 0; i < rowCount-1; i++ {
@@ -322,7 +317,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 		rows = append(rows, row)
 	}
 
-	_, err := pool.Exec(context.Background(), fmt.Sprintf(`
+	_, err := conn.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO e2e_test_%s.%s (
 					id, card_id, "from", price, created_at,
 					updated_at, transaction_hash, ownerable_type, ownerable_id,
@@ -330,7 +325,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 					deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
 					paid_eth_price, card_bought_notified, address, account_id,
 					asset_id, status, transaction_id, settled_at, reference_id,
-					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, my_date, 
+					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, my_date,
 					my_time, my_mood, myh,
 					"geometryPoint", geography_point,geometry_linestring, geography_linestring,geometry_polygon, geography_polygon
 			) VALUES %s;
@@ -340,7 +335,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 	}
 
 	// add a row where all the nullable fields are null
-	_, err = pool.Exec(context.Background(), fmt.Sprintf(`
+	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
 	INSERT INTO e2e_test_%s.%s (
 			id, "from", created_at, updated_at,
 			transfer_type, blockchain, card_bought_notified, asset_id
@@ -358,7 +353,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 	if err != nil {
 		return err
 	}
-	_, err = pool.Exec(context.Background(), fmt.Sprintf(`
+	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
 		UPDATE e2e_test_%s.%s SET f5 = $1 WHERE id = $2;
 	`, suffix, tableName), v, ids[0])
 	if err != nil {
@@ -366,7 +361,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 	}
 
 	// update my_date to a date before 1970
-	_, err = pool.Exec(context.Background(), fmt.Sprintf(`
+	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
 		UPDATE e2e_test_%s.%s SET old_date = '1950-01-01' WHERE id = $1;
 	`, suffix, tableName), ids[0])
 	if err != nil {

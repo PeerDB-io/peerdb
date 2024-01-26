@@ -139,7 +139,6 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) error {
 	}
 
 	pgConn := p.replConn.PgConn()
-	p.logger.Info("created replication connection")
 
 	// start replication
 	var clientXLogPos, startLSN pglogrepl.LSN

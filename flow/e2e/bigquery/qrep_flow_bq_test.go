@@ -9,9 +9,9 @@ import (
 )
 
 func (s PeerFlowE2ETestSuiteBQ) setupSourceTable(tableName string, rowCount int) {
-	err := e2e.CreateTableForQRep(s.pool, s.bqSuffix, tableName)
+	err := e2e.CreateTableForQRep(s.conn, s.bqSuffix, tableName)
 	require.NoError(s.t, err)
-	err = e2e.PopulateSourceTable(s.pool, s.bqSuffix, tableName, rowCount)
+	err = e2e.PopulateSourceTable(s.conn, s.bqSuffix, tableName, rowCount)
 	require.NoError(s.t, err)
 }
 

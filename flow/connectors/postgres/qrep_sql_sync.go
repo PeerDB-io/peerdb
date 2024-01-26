@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -51,17 +50,22 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
-	txConfig := s.connector.pool.Config()
-	txConfig.AfterConnect = utils.RegisterHStore
-	txPool, err := pgxpool.NewWithConfig(s.connector.ctx, txConfig)
+	txConfig := s.connector.conn.Config()
+	txConn, err := pgx.ConnectConfig(s.connector.ctx, txConfig)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create tx pool: %v", err)
+		return 0, fmt.Errorf("failed to create tx pool: %w", err)
+	}
+	defer txConn.Close(s.connector.ctx)
+
+	err = utils.RegisterHStore(s.connector.ctx, txConn)
+	if err != nil {
+		return 0, fmt.Errorf("failed to register hstore: %w", err)
 	}
 
 	// Second transaction - to handle rest of the processing
-	tx, err := txPool.Begin(context.Background())
+	tx, err := txConn.Begin(s.connector.ctx)
 	if err != nil {
-		return 0, fmt.Errorf("failed to begin transaction: %v", err)
+		return 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer func() {
 		if err := tx.Rollback(context.Background()); err != nil {

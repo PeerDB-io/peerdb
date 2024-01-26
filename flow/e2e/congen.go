@@ -8,7 +8,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -34,15 +33,15 @@ func GetTestPostgresConf() *protos.PostgresConfig {
 	}
 }
 
-func cleanPostgres(pool *pgxpool.Pool, suffix string) error {
+func cleanPostgres(conn *pgx.Conn, suffix string) error {
 	// drop the e2e_test schema with the given suffix if it exists
-	_, err := pool.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS e2e_test_%s CASCADE", suffix))
+	_, err := conn.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS e2e_test_%s CASCADE", suffix))
 	if err != nil {
 		return fmt.Errorf("failed to drop e2e_test schema: %w", err)
 	}
 
 	// drop all open slots with the given suffix
-	_, err = pool.Exec(
+	_, err = conn.Exec(
 		context.Background(),
 		"SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name LIKE $1",
 		fmt.Sprintf("%%_%s", suffix),
@@ -52,13 +51,14 @@ func cleanPostgres(pool *pgxpool.Pool, suffix string) error {
 	}
 
 	// list all publications from pg_publication table
-	rows, err := pool.Query(context.Background(),
+	rows, err := conn.Query(context.Background(),
 		"SELECT pubname FROM pg_publication WHERE pubname LIKE $1",
 		fmt.Sprintf("%%_%s", suffix),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to list publications: %w", err)
 	}
+	defer rows.Close()
 
 	// drop all publications with the given suffix
 	for rows.Next() {
@@ -68,7 +68,7 @@ func cleanPostgres(pool *pgxpool.Pool, suffix string) error {
 			return fmt.Errorf("failed to scan publication name: %w", err)
 		}
 
-		_, err = pool.Exec(context.Background(), fmt.Sprintf("DROP PUBLICATION %s", pubName.String))
+		_, err = conn.Exec(context.Background(), fmt.Sprintf("DROP PUBLICATION %s", pubName.String))
 		if err != nil {
 			return fmt.Errorf("failed to drop publication %s: %w", pubName.String, err)
 		}
@@ -77,27 +77,16 @@ func cleanPostgres(pool *pgxpool.Pool, suffix string) error {
 	return nil
 }
 
-// setupPostgres sets up the postgres connection pool.
-func SetupPostgres(suffix string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(context.Background(), utils.GetPGConnectionString(GetTestPostgresConf()))
+func setupPostgresSchema(conn *pgx.Conn, suffix string) error {
+	setupTx, err := conn.Begin(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("failed to create postgres connection pool: %w", err)
-	}
-
-	err = cleanPostgres(pool, suffix)
-	if err != nil {
-		return nil, err
-	}
-
-	setupTx, err := pool.Begin(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("failed to start setup transaction")
+		return fmt.Errorf("failed to start setup transaction")
 	}
 
 	// create an e2e_test schema
 	_, err = setupTx.Exec(context.Background(), "SELECT pg_advisory_xact_lock(hashtext('Megaton Mile'))")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get lock: %w", err)
+		return fmt.Errorf("failed to get lock: %w", err)
 	}
 	defer func() {
 		deferErr := setupTx.Rollback(context.Background())
@@ -109,7 +98,7 @@ func SetupPostgres(suffix string) (*pgxpool.Pool, error) {
 	// create an e2e_test schema
 	_, err = setupTx.Exec(context.Background(), fmt.Sprintf("CREATE SCHEMA e2e_test_%s", suffix))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create e2e_test schema: %w", err)
+		return fmt.Errorf("failed to create e2e_test schema: %w", err)
 	}
 
 	_, err = setupTx.Exec(context.Background(), `
@@ -127,33 +116,50 @@ func SetupPostgres(suffix string) (*pgxpool.Pool, error) {
 		SET search_path = 'pg_catalog';
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create utility functions: %w", err)
+		return fmt.Errorf("failed to create utility functions: %w", err)
 	}
 
-	err = setupTx.Commit(context.Background())
+	return setupTx.Commit(context.Background())
+}
+
+// setupPostgres sets up the postgres connection.
+func SetupPostgres(suffix string) (*pgx.Conn, error) {
+	conn, err := pgx.Connect(context.Background(), utils.GetPGConnectionString(GetTestPostgresConf()))
 	if err != nil {
-		return nil, fmt.Errorf("error committing setup transaction: %w", err)
+		return nil, fmt.Errorf("failed to create postgres connection: %w", err)
 	}
 
-	return pool, nil
+	err = cleanPostgres(conn, suffix)
+	if err != nil {
+		conn.Close(context.Background())
+		return nil, err
+	}
+
+	err = setupPostgresSchema(conn, suffix)
+	if err != nil {
+		conn.Close(context.Background())
+		return nil, err
+	}
+
+	return conn, nil
 }
 
 func TearDownPostgres[T e2eshared.Suite](s T) {
 	t := s.T()
 	t.Helper()
-	pool := s.Pool()
-	suffix := s.Suffix()
 
-	if pool != nil {
+	conn := s.Conn()
+	if conn != nil {
+		suffix := s.Suffix()
 		t.Log("begin tearing down postgres schema", suffix)
 		deadline := time.Now().Add(2 * time.Minute)
 		for {
-			err := cleanPostgres(pool, suffix)
+			err := cleanPostgres(conn, suffix)
 			if err == nil {
-				pool.Close()
+				conn.Close(context.Background())
 				return
 			} else if time.Now().After(deadline) {
-				require.Fail(t, "failed to teardown postgres schema", suffix)
+				require.Fail(t, "failed to teardown postgres schema", "%s: %v", suffix, err)
 			}
 			time.Sleep(time.Second)
 		}

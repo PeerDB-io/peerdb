@@ -33,7 +33,7 @@ func SetupSuite(t *testing.T) PostgresSchemaDeltaTestSuite {
 	})
 	require.NoError(t, err)
 
-	setupTx, err := connector.pool.Begin(context.Background())
+	setupTx, err := connector.conn.Begin(context.Background())
 	require.NoError(t, err)
 	defer func() {
 		err := setupTx.Rollback(context.Background())
@@ -59,7 +59,7 @@ func SetupSuite(t *testing.T) PostgresSchemaDeltaTestSuite {
 
 func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	tableName := fmt.Sprintf("%s.simple_add_column", s.schema)
-	_, err := s.connector.pool.Exec(context.Background(),
+	_, err := s.connector.conn.Exec(context.Background(),
 		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
 	require.NoError(s.t, err)
 
@@ -87,7 +87,7 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 
 func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 	tableName := fmt.Sprintf("%s.add_drop_all_column_types", s.schema)
-	_, err := s.connector.pool.Exec(context.Background(),
+	_, err := s.connector.conn.Exec(context.Background(),
 		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
 	require.NoError(s.t, err)
 
@@ -145,7 +145,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 
 func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 	tableName := fmt.Sprintf("%s.add_drop_tricky_column_names", s.schema)
-	_, err := s.connector.pool.Exec(context.Background(),
+	_, err := s.connector.conn.Exec(context.Background(),
 		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
 	require.NoError(s.t, err)
 
@@ -195,7 +195,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 
 func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 	tableName := fmt.Sprintf("%s.add_drop_whitespace_column_names", s.schema)
-	_, err := s.connector.pool.Exec(context.Background(),
+	_, err := s.connector.conn.Exec(context.Background(),
 		fmt.Sprintf("CREATE TABLE %s(\" \" INT PRIMARY KEY)", tableName))
 	require.NoError(s.t, err)
 
@@ -236,7 +236,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 
 func TestPostgresSchemaDeltaTestSuite(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSuite, func(s PostgresSchemaDeltaTestSuite) {
-		teardownTx, err := s.connector.pool.Begin(context.Background())
+		teardownTx, err := s.connector.conn.Begin(context.Background())
 		require.NoError(s.t, err)
 		defer func() {
 			err := teardownTx.Rollback(context.Background())

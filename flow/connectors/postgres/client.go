@@ -1,6 +1,7 @@
 package connpostgres
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"regexp"
@@ -96,7 +97,7 @@ const (
 // getRelIDForTable returns the relation ID for a table.
 func (c *PostgresConnector) getRelIDForTable(schemaTable *utils.SchemaTable) (uint32, error) {
 	var relID pgtype.Uint32
-	err := c.pool.QueryRow(c.ctx,
+	err := c.conn.QueryRow(c.ctx,
 		`SELECT c.oid FROM pg_class c JOIN pg_namespace n
 		 ON n.oid = c.relnamespace WHERE n.nspname=$1 AND c.relname=$2`,
 		schemaTable.Schema, schemaTable.Table).Scan(&relID)
@@ -115,7 +116,7 @@ func (c *PostgresConnector) getReplicaIdentityType(schemaTable *utils.SchemaTabl
 	}
 
 	var replicaIdentity rune
-	err := c.pool.QueryRow(c.ctx,
+	err := c.conn.QueryRow(c.ctx,
 		`SELECT relreplident FROM pg_class WHERE oid = $1;`,
 		relID).Scan(&replicaIdentity)
 	if err != nil {
@@ -147,7 +148,7 @@ func (c *PostgresConnector) getUniqueColumns(
 
 	// Find the primary key index OID, for replica identity 'd'/default or 'f'/full
 	var pkIndexOID oid.Oid
-	err = c.pool.QueryRow(c.ctx,
+	err = c.conn.QueryRow(c.ctx,
 		`SELECT indexrelid FROM pg_index WHERE indrelid = $1 AND indisprimary`,
 		relID).Scan(&pkIndexOID)
 	if err != nil {
@@ -165,7 +166,7 @@ func (c *PostgresConnector) getUniqueColumns(
 func (c *PostgresConnector) getReplicaIdentityIndexColumns(relID uint32, schemaTable *utils.SchemaTable) ([]string, error) {
 	var indexRelID oid.Oid
 	// Fetch the OID of the index used as the replica identity
-	err := c.pool.QueryRow(c.ctx,
+	err := c.conn.QueryRow(c.ctx,
 		`SELECT indexrelid FROM pg_index
          WHERE indrelid=$1 AND indisreplident=true`,
 		relID).Scan(&indexRelID)
@@ -178,7 +179,7 @@ func (c *PostgresConnector) getReplicaIdentityIndexColumns(relID uint32, schemaT
 
 // getColumnNamesForIndex returns the column names for a given index.
 func (c *PostgresConnector) getColumnNamesForIndex(indexOID oid.Oid) ([]string, error) {
-	rows, err := c.pool.Query(c.ctx,
+	rows, err := c.conn.Query(c.ctx,
 		`SELECT a.attname FROM pg_index i
 		 JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
 		 WHERE i.indexrelid = $1 ORDER BY a.attname ASC`,
@@ -196,7 +197,7 @@ func (c *PostgresConnector) getColumnNamesForIndex(indexOID oid.Oid) ([]string, 
 
 func (c *PostgresConnector) tableExists(schemaTable *utils.SchemaTable) (bool, error) {
 	var exists pgtype.Bool
-	err := c.pool.QueryRow(c.ctx,
+	err := c.conn.QueryRow(c.ctx,
 		`SELECT EXISTS (
 			SELECT FROM pg_tables
 			WHERE schemaname = $1
@@ -219,7 +220,7 @@ func (c *PostgresConnector) checkSlotAndPublication(slot string, publication str
 
 	// Check if the replication slot exists
 	var slotName pgtype.Text
-	err := c.pool.QueryRow(c.ctx,
+	err := c.conn.QueryRow(c.ctx,
 		"SELECT slot_name FROM pg_replication_slots WHERE slot_name = $1",
 		slot).Scan(&slotName)
 	if err != nil {
@@ -233,7 +234,7 @@ func (c *PostgresConnector) checkSlotAndPublication(slot string, publication str
 
 	// Check if the publication exists
 	var pubName pgtype.Text
-	err = c.pool.QueryRow(c.ctx,
+	err = c.conn.QueryRow(c.ctx,
 		"SELECT pubname FROM pg_publication WHERE pubname = $1",
 		publication).Scan(&pubName)
 	if err != nil {
@@ -251,18 +252,15 @@ func (c *PostgresConnector) checkSlotAndPublication(slot string, publication str
 	}, nil
 }
 
-// GetSlotInfo gets the information about the replication slot size and LSNs
-// If slotName input is empty, all slot info rows are returned - this is for UI.
-// Else, only the row pertaining to that slotName will be returned.
-func (c *PostgresConnector) GetSlotInfo(slotName string) ([]*protos.SlotInfo, error) {
+func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database string) ([]*protos.SlotInfo, error) {
 	var whereClause string
 	if slotName != "" {
 		whereClause = fmt.Sprintf("WHERE slot_name=%s", QuoteLiteral(slotName))
 	} else {
-		whereClause = fmt.Sprintf("WHERE database=%s", QuoteLiteral(c.config.Database))
+		whereClause = fmt.Sprintf("WHERE database=%s", QuoteLiteral(database))
 	}
 
-	hasWALStatus, _, err := c.MajorVersionCheck(POSTGRES_13)
+	hasWALStatus, _, err := majorVersionCheck(ctx, conn, POSTGRES_13)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +268,7 @@ func (c *PostgresConnector) GetSlotInfo(slotName string) ([]*protos.SlotInfo, er
 	if !hasWALStatus {
 		walStatusSelector = "'unknown'"
 	}
-	rows, err := c.pool.Query(c.ctx, fmt.Sprintf(`SELECT slot_name, redo_lsn::Text,restart_lsn::text,%s,
+	rows, err := conn.Query(ctx, fmt.Sprintf(`SELECT slot_name, redo_lsn::Text,restart_lsn::text,%s,
 		confirmed_flush_lsn::text,active,
 		round((CASE WHEN pg_is_in_recovery() THEN pg_last_wal_receive_lsn() ELSE pg_current_wal_lsn() END
 		- confirmed_flush_lsn) / 1024 / 1024) AS MB_Behind
@@ -304,6 +302,13 @@ func (c *PostgresConnector) GetSlotInfo(slotName string) ([]*protos.SlotInfo, er
 		})
 	}
 	return slotInfoRows, nil
+}
+
+// GetSlotInfo gets the information about the replication slot size and LSNs
+// If slotName input is empty, all slot info rows are returned - this is for UI.
+// Else, only the row pertaining to that slotName will be returned.
+func (c *PostgresConnector) GetSlotInfo(slotName string) ([]*protos.SlotInfo, error) {
+	return getSlotInfo(c.ctx, c.conn, slotName, c.config.Database)
 }
 
 // createSlotAndPublication creates the replication slot and publication.
@@ -341,7 +346,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 		}
 		// Create the publication to help filter changes only for the given tables
 		stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s %s", publication, tableNameString, pubViaRootString)
-		_, err = c.pool.Exec(c.ctx, stmt)
+		_, err = c.conn.Exec(c.ctx, stmt)
 		if err != nil {
 			c.logger.Warn(fmt.Sprintf("Error creating publication '%s': %v", publication, err))
 			return fmt.Errorf("error creating publication '%s' : %w", publication, err)
@@ -352,7 +357,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 	if !s.SlotExists {
 		conn, err := c.CreateReplConn(c.ctx)
 		if err != nil {
-			return fmt.Errorf("[slot] error acquiring pool: %w", err)
+			return fmt.Errorf("[slot] error acquiring connection: %w", err)
 		}
 		defer conn.Close(c.ctx)
 
@@ -400,7 +405,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 }
 
 func (c *PostgresConnector) createMetadataSchema() error {
-	_, err := c.pool.Exec(c.ctx, fmt.Sprintf(createSchemaSQL, c.metadataSchema))
+	_, err := c.conn.Exec(c.ctx, fmt.Sprintf(createSchemaSQL, c.metadataSchema))
 	if err != nil && !utils.IsUniqueError(err) {
 		return fmt.Errorf("error while creating internal schema: %w", err)
 	}
@@ -450,7 +455,7 @@ func generateCreateTableSQLForNormalizedTable(
 
 func (c *PostgresConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	var result pgtype.Int8
-	err := c.pool.QueryRow(c.ctx, fmt.Sprintf(
+	err := c.conn.QueryRow(c.ctx, fmt.Sprintf(
 		getLastSyncBatchID_SQL,
 		c.metadataSchema,
 		mirrorJobsTableIdentifier,
@@ -467,7 +472,7 @@ func (c *PostgresConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 
 func (c *PostgresConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
 	var result pgtype.Int8
-	err := c.pool.QueryRow(c.ctx, fmt.Sprintf(
+	err := c.conn.QueryRow(c.ctx, fmt.Sprintf(
 		getLastNormalizeBatchID_SQL,
 		c.metadataSchema,
 		mirrorJobsTableIdentifier,
@@ -484,7 +489,7 @@ func (c *PostgresConnector) GetLastNormalizeBatchID(jobName string) (int64, erro
 
 func (c *PostgresConnector) jobMetadataExists(jobName string) (bool, error) {
 	var result pgtype.Bool
-	err := c.pool.QueryRow(c.ctx,
+	err := c.conn.QueryRow(c.ctx,
 		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
 	if err != nil {
 		return false, fmt.Errorf("error reading result row: %w", err)
@@ -492,14 +497,18 @@ func (c *PostgresConnector) jobMetadataExists(jobName string) (bool, error) {
 	return result.Bool, nil
 }
 
-func (c *PostgresConnector) MajorVersionCheck(majorVersion PGVersion) (bool, int64, error) {
+func majorVersionCheck(ctx context.Context, conn *pgx.Conn, majorVersion PGVersion) (bool, int64, error) {
 	var version pgtype.Int8
-	err := c.pool.QueryRow(c.ctx, "SELECT current_setting('server_version_num')::INTEGER").Scan(&version)
+	err := conn.QueryRow(ctx, "SELECT current_setting('server_version_num')::INTEGER").Scan(&version)
 	if err != nil {
 		return false, 0, fmt.Errorf("failed to get server version: %w", err)
 	}
 
 	return version.Int64 >= int64(majorVersion), version.Int64, nil
+}
+
+func (c *PostgresConnector) MajorVersionCheck(majorVersion PGVersion) (bool, int64, error) {
+	return majorVersionCheck(c.ctx, c.conn, majorVersion)
 }
 
 func (c *PostgresConnector) updateSyncMetadata(flowJobName string, lastCP int64, syncBatchID int64,
@@ -533,7 +542,7 @@ func (c *PostgresConnector) getDistinctTableNamesInBatch(flowJobName string, syn
 ) ([]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
-	rows, err := c.pool.Query(c.ctx, fmt.Sprintf(getDistinctDestinationTableNamesSQL, c.metadataSchema,
+	rows, err := c.conn.Query(c.ctx, fmt.Sprintf(getDistinctDestinationTableNamesSQL, c.metadataSchema,
 		rawTableIdentifier), normalizeBatchID, syncBatchID)
 	if err != nil {
 		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
@@ -551,7 +560,7 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(flowJobName string, sync
 ) (map[string][]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
-	rows, err := c.pool.Query(c.ctx, fmt.Sprintf(getTableNameToUnchangedToastColsSQL, c.metadataSchema,
+	rows, err := c.conn.Query(c.ctx, fmt.Sprintf(getTableNameToUnchangedToastColsSQL, c.metadataSchema,
 		rawTableIdentifier), normalizeBatchID, syncBatchID)
 	if err != nil {
 		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
@@ -577,7 +586,7 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(flowJobName string, sync
 }
 
 func (c *PostgresConnector) getCurrentLSN() (pglogrepl.LSN, error) {
-	row := c.pool.QueryRow(c.ctx,
+	row := c.conn.QueryRow(c.ctx,
 		"SELECT CASE WHEN pg_is_in_recovery() THEN pg_last_wal_receive_lsn() ELSE pg_current_wal_lsn() END")
 	var result pgtype.Text
 	err := row.Scan(&result)
@@ -592,8 +601,8 @@ func (c *PostgresConnector) getDefaultPublicationName(jobName string) string {
 }
 
 func (c *PostgresConnector) CheckSourceTables(tableNames []string, pubName string) error {
-	if c.pool == nil {
-		return fmt.Errorf("check tables: pool is nil")
+	if c.conn == nil {
+		return fmt.Errorf("check tables: conn is nil")
 	}
 
 	// Check that we can select from all tables
@@ -606,7 +615,7 @@ func (c *PostgresConnector) CheckSourceTables(tableNames []string, pubName strin
 		}
 
 		tableArr = append(tableArr, fmt.Sprintf(`(%s::text, %s::text)`, QuoteLiteral(schemaName), QuoteLiteral(tableName)))
-		err := c.pool.QueryRow(c.ctx,
+		err := c.conn.QueryRow(c.ctx,
 			fmt.Sprintf("SELECT * FROM %s.%s LIMIT 0;", QuoteIdentifier(schemaName), QuoteIdentifier(tableName))).Scan(&row)
 		if err != nil && err != pgx.ErrNoRows {
 			return err
@@ -617,7 +626,7 @@ func (c *PostgresConnector) CheckSourceTables(tableNames []string, pubName strin
 	tableStr := strings.Join(tableArr, ",")
 	if pubName != "" {
 		var pubTableCount int
-		err := c.pool.QueryRow(c.ctx, fmt.Sprintf(`
+		err := c.conn.QueryRow(c.ctx, fmt.Sprintf(`
 		with source_table_components (sname, tname) as (values %s)
 		select COUNT(DISTINCT(schemaname,tablename)) from pg_publication_tables
 		INNER JOIN source_table_components stc
@@ -635,12 +644,12 @@ func (c *PostgresConnector) CheckSourceTables(tableNames []string, pubName strin
 }
 
 func (c *PostgresConnector) CheckReplicationPermissions(username string) error {
-	if c.pool == nil {
-		return fmt.Errorf("check replication permissions: pool is nil")
+	if c.conn == nil {
+		return fmt.Errorf("check replication permissions: conn is nil")
 	}
 
 	var replicationRes bool
-	err := c.pool.QueryRow(c.ctx, "SELECT rolreplication FROM pg_roles WHERE rolname = $1;", username).Scan(&replicationRes)
+	err := c.conn.QueryRow(c.ctx, "SELECT rolreplication FROM pg_roles WHERE rolname = $1;", username).Scan(&replicationRes)
 	if err != nil {
 		return err
 	}
@@ -648,7 +657,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(username string) error {
 	if !replicationRes {
 		// RDS case: check pg_settings for rds.logical_replication
 		var setting string
-		err := c.pool.QueryRow(c.ctx, "SELECT setting FROM pg_settings WHERE name = 'rds.logical_replication';").Scan(&setting)
+		err := c.conn.QueryRow(c.ctx, "SELECT setting FROM pg_settings WHERE name = 'rds.logical_replication';").Scan(&setting)
 		if err != nil || setting != "on" {
 			return fmt.Errorf("postgres user does not have replication role")
 		}
@@ -656,7 +665,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(username string) error {
 
 	// check wal_level
 	var walLevel string
-	err = c.pool.QueryRow(c.ctx, "SHOW wal_level;").Scan(&walLevel)
+	err = c.conn.QueryRow(c.ctx, "SHOW wal_level;").Scan(&walLevel)
 	if err != nil {
 		return err
 	}
@@ -667,7 +676,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(username string) error {
 
 	// max_wal_senders must be at least 2
 	var maxWalSendersRes string
-	err = c.pool.QueryRow(c.ctx, "SHOW max_wal_senders;").Scan(&maxWalSendersRes)
+	err = c.conn.QueryRow(c.ctx, "SHOW max_wal_senders;").Scan(&maxWalSendersRes)
 	if err != nil {
 		return err
 	}

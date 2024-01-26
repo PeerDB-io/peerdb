@@ -17,6 +17,7 @@ import (
 	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/shared/alerting"
 )
 
 var ErrUnsupportedFunctionality = errors.New("requested connector does not support functionality")
@@ -45,11 +46,12 @@ type CDCPullConnector interface {
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(jobName string) error
 
+	// HandleSlotInfo update monitoring info on slot size etc
+	// threadsafe
+	HandleSlotInfo(ctx context.Context, alerter *alerting.Alerter, catalogPool *pgxpool.Pool, slotName string, peerName string) error
+
 	// GetSlotInfo returns the WAL (or equivalent) info of a slot for the connector.
 	GetSlotInfo(slotName string) ([]*protos.SlotInfo, error)
-
-	// GetOpenConnectionsForUser returns the number of open connections for the user configured in the peer.
-	GetOpenConnectionsForUser() (*protos.GetOpenConnectionsForUserResult, error)
 
 	// AddTablesToPublication adds additional tables added to a mirror to the publication also
 	AddTablesToPublication(req *protos.AddTablesToPublicationInput) error

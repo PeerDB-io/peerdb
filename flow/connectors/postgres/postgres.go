@@ -16,10 +16,13 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
+	"github.com/PeerDB-io/peer-flow/dynamicconf"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peer-flow/shared/alerting"
 )
 
 // PostgresConnector is a Connector implementation for Postgres.
@@ -28,7 +31,7 @@ type PostgresConnector struct {
 	ctx                context.Context
 	config             *protos.PostgresConfig
 	ssh                *SSHTunnel
-	pool               *pgxpool.Pool
+	conn               *pgx.Conn
 	replConfig         *pgx.ConnConfig
 	customTypesMapping map[uint32]string
 	metadataSchema     string
@@ -41,35 +44,32 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 
 	// create a separate connection pool for non-replication queries as replication connections cannot
 	// be used for extended query protocol, i.e. prepared statements
-	connConfig, err := pgxpool.ParseConfig(connectionString)
-	replConfig := connConfig.ConnConfig.Copy()
+	connConfig, err := pgx.ParseConfig(connectionString)
+	replConfig := connConfig.Copy()
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 
-	runtimeParams := connConfig.ConnConfig.RuntimeParams
+	runtimeParams := connConfig.Config.RuntimeParams
 	runtimeParams["application_name"] = "peerdb_query_executor"
 	runtimeParams["idle_in_transaction_session_timeout"] = "0"
 	runtimeParams["statement_timeout"] = "0"
-
-	// set pool size to 3 to avoid connection pool exhaustion
-	connConfig.MaxConns = 3
 
 	tunnel, err := NewSSHTunnel(ctx, pgConfig.SshConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
 	}
 
-	pool, err := tunnel.NewPostgresPoolFromConfig(ctx, connConfig)
+	conn, err := tunnel.NewPostgresConnFromConfig(ctx, connConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create connection pool: %w", err)
+		return nil, fmt.Errorf("failed to create connection: %w", err)
 	}
 
 	// ensure that replication is set to database
-	replConfig.RuntimeParams["replication"] = "database"
-	replConfig.RuntimeParams["bytea_output"] = "hex"
+	replConfig.Config.RuntimeParams["replication"] = "database"
+	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
 
-	customTypeMap, err := utils.GetCustomDataTypes(ctx, pool)
+	customTypeMap, err := utils.GetCustomDataTypes(ctx, conn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get custom type map: %w", err)
 	}
@@ -86,7 +86,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		ctx:                ctx,
 		config:             pgConfig,
 		ssh:                tunnel,
-		pool:               pool,
+		conn:               conn,
 		replConfig:         replConfig,
 		customTypesMapping: customTypeMap,
 		metadataSchema:     metadataSchema,
@@ -94,16 +94,11 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	}, nil
 }
 
-// GetPool returns the connection pool.
-func (c *PostgresConnector) GetPool() *pgxpool.Pool {
-	return c.pool
-}
-
 func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, error) {
 	conn, err := c.ssh.NewPostgresConnFromConfig(ctx, c.replConfig)
 	if err != nil {
-		slog.Error("failed to create replication connection pool", slog.Any("error", err))
-		return nil, fmt.Errorf("failed to create replication connection pool: %w", err)
+		slog.Error("failed to create replication connection", slog.Any("error", err))
+		return nil, fmt.Errorf("failed to create replication connection: %w", err)
 	}
 
 	return conn, nil
@@ -112,7 +107,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 // Close closes all connections.
 func (c *PostgresConnector) Close() error {
 	if c != nil {
-		c.pool.Close()
+		c.conn.Close(c.ctx)
 		c.ssh.Close()
 	}
 	return nil
@@ -120,10 +115,10 @@ func (c *PostgresConnector) Close() error {
 
 // ConnectionActive returns true if the connection is active.
 func (c *PostgresConnector) ConnectionActive() error {
-	if c.pool == nil {
-		return fmt.Errorf("connection pool is nil")
+	if c.conn == nil {
+		return fmt.Errorf("connection is nil")
 	}
-	pingErr := c.pool.Ping(c.ctx)
+	pingErr := c.conn.Ping(c.ctx)
 	return pingErr
 }
 
@@ -146,7 +141,7 @@ func (c *PostgresConnector) SetupMetadataTables() error {
 		return err
 	}
 
-	_, err = c.pool.Exec(c.ctx, fmt.Sprintf(createMirrorJobsTableSQL,
+	_, err = c.conn.Exec(c.ctx, fmt.Sprintf(createMirrorJobsTableSQL,
 		c.metadataSchema, mirrorJobsTableIdentifier))
 	if err != nil && !utils.IsUniqueError(err) {
 		return fmt.Errorf("error creating table %s: %w", mirrorJobsTableIdentifier, err)
@@ -158,7 +153,7 @@ func (c *PostgresConnector) SetupMetadataTables() error {
 // GetLastOffset returns the last synced offset for a job.
 func (c *PostgresConnector) GetLastOffset(jobName string) (int64, error) {
 	var result pgtype.Int8
-	err := c.pool.QueryRow(c.ctx, fmt.Sprintf(getLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
+	err := c.conn.QueryRow(c.ctx, fmt.Sprintf(getLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			c.logger.Info("No row found, returning nil")
@@ -175,7 +170,7 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (int64, error) {
 
 // SetLastOffset updates the last synced offset for a job.
 func (c *PostgresConnector) SetLastOffset(jobName string, lastOffset int64) error {
-	_, err := c.pool.
+	_, err := c.conn.
 		Exec(c.ctx, fmt.Sprintf(setLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), lastOffset, jobName)
 	if err != nil {
 		return fmt.Errorf("error setting last offset for job %s: %w", jobName, err)
@@ -204,7 +199,7 @@ func (c *PostgresConnector) PullRecords(catalogPool *pgxpool.Pool, req *model.Pu
 	// Check if the replication slot and publication exist
 	exists, err := c.checkSlotAndPublication(slotName, publicationName)
 	if err != nil {
-		return fmt.Errorf("error checking for replication slot and publication: %w", err)
+		return err
 	}
 
 	if !exists.PublicationExists {
@@ -351,7 +346,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		}, nil
 	}
 
-	syncRecordsTx, err := c.pool.Begin(c.ctx)
+	syncRecordsTx, err := c.conn.Begin(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error starting transaction for syncing records: %w", err)
 	}
@@ -446,7 +441,7 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		return nil, err
 	}
 
-	normalizeRecordsTx, err := c.pool.Begin(c.ctx)
+	normalizeRecordsTx, err := c.conn.Begin(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error starting transaction for normalizing records: %w", err)
 	}
@@ -528,7 +523,7 @@ func (c *PostgresConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 		return nil, fmt.Errorf("error creating internal schema: %w", err)
 	}
 
-	createRawTableTx, err := c.pool.Begin(c.ctx)
+	createRawTableTx, err := c.conn.Begin(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error starting transaction for creating raw table: %w", err)
 	}
@@ -600,7 +595,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	}
 
 	// Get the column names and types
-	rows, err := c.pool.Query(c.ctx,
+	rows, err := c.conn.Query(c.ctx,
 		fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, schemaTable.String()),
 		pgx.QueryExecModeSimpleProtocol)
 	if err != nil {
@@ -649,7 +644,7 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 ) {
 	tableExistsMapping := make(map[string]bool)
 	// Postgres is cool and supports transactional DDL. So we use a transaction.
-	createNormalizedTablesTx, err := c.pool.Begin(c.ctx)
+	createNormalizedTablesTx, err := c.conn.Begin(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error starting transaction for creating raw table: %w", err)
 	}
@@ -709,7 +704,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	}
 
 	// Postgres is cool and supports transactional DDL. So we use a transaction.
-	tableSchemaModifyTx, err := c.pool.Begin(c.ctx)
+	tableSchemaModifyTx, err := c.conn.Begin(c.ctx)
 	if err != nil {
 		return fmt.Errorf("error starting transaction for schema modification: %w",
 			err)
@@ -823,7 +818,7 @@ func (c *PostgresConnector) SetupReplication(signal SlotSignal, req *protos.Setu
 	// Check if the replication slot and publication exist
 	exists, err := c.checkSlotAndPublication(slotName, publicationName)
 	if err != nil {
-		return fmt.Errorf("error checking for replication slot and publication: %w", err)
+		return err
 	}
 
 	tableNameMapping := make(map[string]model.NameAndExclude)
@@ -849,7 +844,7 @@ func (c *PostgresConnector) PullFlowCleanup(jobName string) error {
 
 	publicationName := c.getDefaultPublicationName(jobName)
 
-	pullFlowCleanupTx, err := c.pool.Begin(c.ctx)
+	pullFlowCleanupTx, err := c.conn.Begin(c.ctx)
 	if err != nil {
 		return fmt.Errorf("error starting transaction for flow cleanup: %w", err)
 	}
@@ -880,7 +875,7 @@ func (c *PostgresConnector) PullFlowCleanup(jobName string) error {
 }
 
 func (c *PostgresConnector) SyncFlowCleanup(jobName string) error {
-	syncFlowCleanupTx, err := c.pool.Begin(c.ctx)
+	syncFlowCleanupTx, err := c.conn.Begin(c.ctx)
 	if err != nil {
 		return fmt.Errorf("unable to begin transaction for sync flow cleanup: %w", err)
 	}
@@ -908,10 +903,69 @@ func (c *PostgresConnector) SyncFlowCleanup(jobName string) error {
 	return nil
 }
 
+func (c *PostgresConnector) HandleSlotInfo(
+	ctx context.Context,
+	alerter *alerting.Alerter,
+	catalogPool *pgxpool.Pool,
+	slotName string,
+	peerName string,
+) error {
+	// must create new connection because HandleSlotInfo is threadsafe
+	conn, err := c.ssh.NewPostgresConnFromPostgresConfig(ctx, c.config)
+	if err != nil {
+		slog.WarnContext(c.ctx, "warning: failed to connect to get slot info", slog.Any("error", err))
+		return err
+	}
+	defer conn.Close(ctx)
+
+	slotInfo, err := c.GetSlotInfo(slotName)
+	if err != nil {
+		slog.WarnContext(c.ctx, "warning: failed to get slot info", slog.Any("error", err))
+		return err
+	}
+
+	if len(slotInfo) == 0 {
+		slog.WarnContext(c.ctx, "warning: unable to get slot info", slog.Any("slotName", slotName))
+		return nil
+	}
+
+	deploymentUIDPrefix := ""
+	if peerdbenv.PeerDBDeploymentUID() != "" {
+		deploymentUIDPrefix = fmt.Sprintf("[%s] ", peerdbenv.PeerDBDeploymentUID())
+	}
+
+	slotLagInMBThreshold := dynamicconf.PeerDBSlotLagMBAlertThreshold(c.ctx)
+	if (slotLagInMBThreshold > 0) && (slotInfo[0].LagInMb >= float32(slotLagInMBThreshold)) {
+		alerter.AlertIf(c.ctx, fmt.Sprintf("%s-slot-lag-threshold-exceeded", peerName),
+			fmt.Sprintf(`%sSlot `+"`%s`"+` on peer `+"`%s`"+` has exceeded threshold size of %dMB, currently at %.2fMB!
+cc: <!channel>`,
+				deploymentUIDPrefix, slotName, peerName, slotLagInMBThreshold, slotInfo[0].LagInMb))
+	}
+
+	// Also handles alerts for PeerDB user connections exceeding a given limit here
+	maxOpenConnectionsThreshold := dynamicconf.PeerDBOpenConnectionsAlertThreshold(c.ctx)
+	res, err := getOpenConnectionsForUser(ctx, conn, c.config.User)
+	if err != nil {
+		slog.WarnContext(c.ctx, "warning: failed to get current open connections", slog.Any("error", err))
+		return err
+	}
+	if (maxOpenConnectionsThreshold > 0) && (res.CurrentOpenConnections >= int64(maxOpenConnectionsThreshold)) {
+		alerter.AlertIf(c.ctx, fmt.Sprintf("%s-max-open-connections-threshold-exceeded", peerName),
+			fmt.Sprintf(`%sOpen connections from PeerDB user `+"`%s`"+` on peer `+"`%s`"+
+				` has exceeded threshold size of %d connections, currently at %d connections!
+cc: <!channel>`,
+				deploymentUIDPrefix, res.UserName, peerName, maxOpenConnectionsThreshold, res.CurrentOpenConnections))
+	}
+
+	if len(slotInfo) != 0 {
+		return monitoring.AppendSlotSizeInfo(c.ctx, catalogPool, peerName, slotInfo[0])
+	}
+	return nil
+}
+
 // GetLastOffset returns the last synced offset for a job.
-func (c *PostgresConnector) GetOpenConnectionsForUser() (*protos.GetOpenConnectionsForUserResult, error) {
-	row := c.pool.
-		QueryRow(c.ctx, getNumConnectionsForUser, c.config.User)
+func getOpenConnectionsForUser(ctx context.Context, conn *pgx.Conn, user string) (*protos.GetOpenConnectionsForUserResult, error) {
+	row := conn.QueryRow(ctx, getNumConnectionsForUser, user)
 
 	// COUNT() returns BIGINT
 	var result pgtype.Int8
@@ -921,7 +975,7 @@ func (c *PostgresConnector) GetOpenConnectionsForUser() (*protos.GetOpenConnecti
 	}
 
 	return &protos.GetOpenConnectionsForUserResult{
-		UserName:               c.config.User,
+		UserName:               user,
 		CurrentOpenConnections: result.Int64,
 	}, nil
 }
@@ -939,7 +993,7 @@ func (c *PostgresConnector) AddTablesToPublication(req *protos.AddTablesToPublic
 
 	// just check if we have all the tables already in the publication
 	if req.PublicationName != "" {
-		rows, err := c.pool.Query(c.ctx,
+		rows, err := c.conn.Query(c.ctx,
 			"SELECT tablename FROM pg_publication_tables WHERE pubname=$1", req.PublicationName)
 		if err != nil {
 			return fmt.Errorf("failed to check tables in publication: %w", err)
@@ -957,7 +1011,7 @@ func (c *PostgresConnector) AddTablesToPublication(req *protos.AddTablesToPublic
 	}
 
 	additionalSrcTablesString := strings.Join(additionalSrcTables, ",")
-	_, err := c.pool.Exec(c.ctx, fmt.Sprintf("ALTER PUBLICATION %s ADD TABLE %s",
+	_, err := c.conn.Exec(c.ctx, fmt.Sprintf("ALTER PUBLICATION %s ADD TABLE %s",
 		c.getDefaultPublicationName(req.FlowJobName), additionalSrcTablesString))
 	if err != nil {
 		return fmt.Errorf("failed to alter publication: %w", err)

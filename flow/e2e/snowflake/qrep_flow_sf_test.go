@@ -12,9 +12,9 @@ import (
 
 //nolint:unparam
 func (s PeerFlowE2ETestSuiteSF) setupSourceTable(tableName string, numRows int) {
-	err := e2e.CreateTableForQRep(s.pool, s.pgSuffix, tableName)
+	err := e2e.CreateTableForQRep(s.conn, s.pgSuffix, tableName)
 	require.NoError(s.t, err)
-	err = e2e.PopulateSourceTable(s.pool, s.pgSuffix, tableName, numRows)
+	err = e2e.PopulateSourceTable(s.conn, s.pgSuffix, tableName, numRows)
 	require.NoError(s.t, err)
 }
 
@@ -34,7 +34,7 @@ func (s PeerFlowE2ETestSuiteSF) checkJSONValue(tableName, colName, fieldName, va
 }
 
 func (s PeerFlowE2ETestSuiteSF) compareTableContentsWithDiffSelectorsSF(tableName, pgSelector, sfSelector string) {
-	pgRows, err := e2e.GetPgRows(s.pool, s.pgSuffix, tableName, pgSelector)
+	pgRows, err := e2e.GetPgRows(s.conn, s.pgSuffix, tableName, pgSelector)
 	require.NoError(s.t, err)
 
 	sfRows, err := s.GetRows(tableName, sfSelector)
