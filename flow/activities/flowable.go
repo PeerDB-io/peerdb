@@ -299,12 +299,13 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		TableMappings: input.FlowConnectionConfigs.TableMappings,
 		StagingPath:   input.FlowConnectionConfigs.CdcStagingPath,
 	})
-	res.RelationMessageMapping = input.RelationMessageMapping
+
 	if err != nil {
 		slog.Warn("failed to push records", slog.Any("error", err))
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, fmt.Errorf("failed to push records: %w", err)
 	}
+	res.RelationMessageMapping = input.RelationMessageMapping
 
 	err = errGroup.Wait()
 	if err != nil {

@@ -139,8 +139,8 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 		return nil, err
 	}
 
-	tableSchemaDeltas := req.Records.WaitForSchemaDeltas(req.TableMappings)
-	err = c.ReplayTableSchemaDeltas(req.FlowJobName, tableSchemaDeltas)
+	//tableSchemaDeltas := req.Records.WaitForSchemaDeltas(req.TableMappings)
+	err = c.ReplayTableSchemaDeltas(req.FlowJobName, req.Records.SchemaDeltas)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
@@ -155,8 +155,8 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 		NumRecordsSynced:       int64(numRecords),
 		CurrentSyncBatchID:     syncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,
-		TableSchemaDeltas:      tableSchemaDeltas,
-		RelationMessageMapping: <-req.Records.RelationMessageMapping,
+		TableSchemaDeltas:      req.Records.SchemaDeltas,
+		//RelationMessageMapping: <-req.Records.RelationMessageMapping,
 	}, nil
 }
 
