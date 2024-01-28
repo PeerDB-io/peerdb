@@ -151,7 +151,7 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 	}
 
 	return &model.SyncResponse{
-		LastSyncedCheckPointID: lastCheckpoint,
+		LastSyncedCheckpointID: lastCheckpoint,
 		NumRecordsSynced:       int64(numRecords),
 		CurrentSyncBatchID:     syncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,
@@ -165,13 +165,13 @@ func (c *ClickhouseConnector) SyncRecords(req *model.SyncRecordsRequest) (*model
 	rawTableName := c.getRawTableName(req.FlowJobName)
 	c.logger.Info(fmt.Sprintf("pushing records to Clickhouse table %s", rawTableName))
 
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
-	}
-	syncBatchID += 1
+	// syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
+	// }
+	// syncBatchID += 1
 
-	res, err := c.syncRecordsViaAvro(req, rawTableName, syncBatchID)
+	res, err := c.syncRecordsViaAvro(req, rawTableName, req.SyncBatchID)
 	if err != nil {
 		return nil, err
 	}
