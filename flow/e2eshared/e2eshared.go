@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -16,7 +16,7 @@ import (
 
 type Suite interface {
 	T() *testing.T
-	Pool() *pgxpool.Pool
+	Conn() *pgx.Conn
 	Suffix() string
 }
 

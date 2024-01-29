@@ -8,7 +8,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/activity"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -19,7 +18,7 @@ import (
 )
 
 type QRepQueryExecutor struct {
-	pool          *pgxpool.Pool
+	conn          *pgx.Conn
 	ctx           context.Context
 	snapshot      string
 	testEnv       bool
@@ -29,11 +28,11 @@ type QRepQueryExecutor struct {
 	logger        slog.Logger
 }
 
-func NewQRepQueryExecutor(pool *pgxpool.Pool, ctx context.Context,
+func NewQRepQueryExecutor(conn *pgx.Conn, ctx context.Context,
 	flowJobName string, partitionID string,
 ) *QRepQueryExecutor {
 	return &QRepQueryExecutor{
-		pool:        pool,
+		conn:        conn,
 		ctx:         ctx,
 		snapshot:    "",
 		flowJobName: flowJobName,
@@ -44,18 +43,18 @@ func NewQRepQueryExecutor(pool *pgxpool.Pool, ctx context.Context,
 	}
 }
 
-func NewQRepQueryExecutorSnapshot(pool *pgxpool.Pool, ctx context.Context, snapshot string,
+func NewQRepQueryExecutorSnapshot(conn *pgx.Conn, ctx context.Context, snapshot string,
 	flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
 	qrepLog := slog.Group("qrep-metadata", slog.String(string(shared.FlowNameKey), flowJobName),
 		slog.String(string(shared.PartitionIDKey), partitionID))
 	slog.Info("Declared new qrep executor for snapshot", qrepLog)
-	CustomTypeMap, err := utils.GetCustomDataTypes(ctx, pool)
+	CustomTypeMap, err := utils.GetCustomDataTypes(ctx, conn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get custom data types: %w", err)
 	}
 	return &QRepQueryExecutor{
-		pool:          pool,
+		conn:          conn,
 		ctx:           ctx,
 		snapshot:      snapshot,
 		flowJobName:   flowJobName,
@@ -70,7 +69,7 @@ func (qe *QRepQueryExecutor) SetTestEnv(testEnv bool) {
 }
 
 func (qe *QRepQueryExecutor) ExecuteQuery(query string, args ...interface{}) (pgx.Rows, error) {
-	rows, err := qe.pool.Query(qe.ctx, query, args...)
+	rows, err := qe.conn.Query(qe.ctx, query, args...)
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to execute query", slog.Any("error", err))
 		return nil, err
@@ -243,8 +242,6 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 		return 0, fmt.Errorf("failed to process rows: %w", err)
 	}
 
-	rows.Close()
-
 	if rows.Err() != nil {
 		stream.Records <- model.QRecordOrError{
 			Err: rows.Err(),
@@ -263,9 +260,11 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 ) (*model.QRecordBatch, error) {
 	stream := model.NewQRecordStream(1024)
 	errors := make(chan error, 1)
-	defer close(errors)
 	qe.logger.Info("Executing and processing query", slog.String("query", query))
+
+	// must wait on errors to close before returning to maintain qe.conn exclusion
 	go func() {
+		defer close(errors)
 		_, err := qe.ExecuteAndProcessQueryStream(stream, query, args...)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to execute and process query stream", slog.Any("error", err))
@@ -279,6 +278,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	case schema := <-stream.SchemaChan():
 		if schema.Err != nil {
 			qe.logger.Error("[pg_query_executor] failed to get schema from stream", slog.Any("error", schema.Err))
+			<-errors
 			return nil, fmt.Errorf("failed to get schema from stream: %w", schema.Err)
 		}
 		batch := &model.QRecordBatch{
@@ -289,9 +289,11 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 			if record.Err == nil {
 				batch.Records = append(batch.Records, record.Record)
 			} else {
+				<-errors
 				return nil, fmt.Errorf("[pg] failed to get record from stream: %w", record.Err)
 			}
 		}
+		<-errors
 		return batch, nil
 	}
 }
@@ -304,7 +306,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	qe.logger.Info("Executing and processing query stream", slog.String("query", query))
 	defer close(stream.Records)
 
-	tx, err := qe.pool.BeginTx(qe.ctx, pgx.TxOptions{
+	tx, err := qe.conn.BeginTx(qe.ctx, pgx.TxOptions{
 		AccessMode: pgx.ReadOnly,
 		IsoLevel:   pgx.RepeatableRead,
 	})
@@ -326,7 +328,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamGettingCurrentSnapshotX
 	qe.logger.Info("Executing and processing query stream", slog.String("query", query))
 	defer close(stream.Records)
 
-	tx, err := qe.pool.BeginTx(qe.ctx, pgx.TxOptions{
+	tx, err := qe.conn.BeginTx(qe.ctx, pgx.TxOptions{
 		AccessMode: pgx.ReadOnly,
 		IsoLevel:   pgx.RepeatableRead,
 	})

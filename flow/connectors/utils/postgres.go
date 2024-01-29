@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
@@ -34,8 +33,8 @@ func GetPGConnectionString(pgConfig *protos.PostgresConfig) string {
 	return connString
 }
 
-func GetCustomDataTypes(ctx context.Context, pool *pgxpool.Pool) (map[uint32]string, error) {
-	rows, err := pool.Query(ctx, `
+func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]string, error) {
+	rows, err := conn.Query(ctx, `
 		SELECT t.oid, t.typname as type
 		FROM pg_type t
 		LEFT JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace

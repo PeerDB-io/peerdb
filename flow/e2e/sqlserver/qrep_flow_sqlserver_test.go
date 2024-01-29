@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
 
@@ -26,7 +26,7 @@ import (
 type PeerFlowE2ETestSuiteSQLServer struct {
 	t *testing.T
 
-	pool       *pgxpool.Pool
+	conn       *pgx.Conn
 	sqlsHelper *SQLServerHelper
 	suffix     string
 }
@@ -35,8 +35,8 @@ func (s PeerFlowE2ETestSuiteSQLServer) T() *testing.T {
 	return s.t
 }
 
-func (s PeerFlowE2ETestSuiteSQLServer) Pool() *pgxpool.Pool {
-	return s.pool
+func (s PeerFlowE2ETestSuiteSQLServer) Conn() *pgx.Conn {
+	return s.conn
 }
 
 func (s PeerFlowE2ETestSuiteSQLServer) Suffix() string {
@@ -65,7 +65,7 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSQLServer {
 	}
 
 	suffix := "sqls_" + strings.ToLower(shared.RandomString(8))
-	pool, err := e2e.SetupPostgres(suffix)
+	conn, err := e2e.SetupPostgres(suffix)
 	if err != nil {
 		require.NoError(t, err)
 	}
@@ -81,7 +81,7 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSQLServer {
 
 	return PeerFlowE2ETestSuiteSQLServer{
 		t:          t,
-		pool:       pool,
+		conn:       conn,
 		sqlsHelper: sqlsHelper,
 		suffix:     suffix,
 	}
@@ -115,10 +115,10 @@ func (s PeerFlowE2ETestSuiteSQLServer) insertRowsIntoSQLServerTable(tableName st
 func (s PeerFlowE2ETestSuiteSQLServer) setupPGDestinationTable(tableName string) {
 	ctx := context.Background()
 
-	_, err := s.pool.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS e2e_test_%s.%s", s.suffix, tableName))
+	_, err := s.conn.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS e2e_test_%s.%s", s.suffix, tableName))
 	require.NoError(s.t, err)
 
-	_, err = s.pool.Exec(ctx,
+	_, err = s.conn.Exec(ctx,
 		fmt.Sprintf("CREATE TABLE e2e_test_%s.%s (id TEXT, card_id TEXT, v_from TIMESTAMP, price NUMERIC, status INT)",
 			s.suffix, tableName))
 	require.NoError(s.t, err)
@@ -184,7 +184,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 	// Verify that the destination table has the same number of rows as the source table
 	var numRowsInDest pgtype.Int8
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s", dstTableName)
-	err = s.pool.QueryRow(context.Background(), countQuery).Scan(&numRowsInDest)
+	err = s.conn.QueryRow(context.Background(), countQuery).Scan(&numRowsInDest)
 	require.NoError(s.t, err)
 
 	require.Equal(s.t, numRows, int(numRowsInDest.Int64))

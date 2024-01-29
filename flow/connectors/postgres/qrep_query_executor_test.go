@@ -9,18 +9,18 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 )
 
-func setupDB(t *testing.T) (*pgxpool.Pool, string) {
+func setupDB(t *testing.T) (*pgx.Conn, string) {
 	t.Helper()
 
-	config, err := pgxpool.ParseConfig("postgres://postgres:postgres@localhost:7132/postgres")
+	config, err := pgx.ParseConfig("postgres://postgres:postgres@localhost:7132/postgres")
 	if err != nil {
 		t.Fatalf("unable to parse config: %v", err)
 	}
 
-	pool, err := pgxpool.NewWithConfig(context.Background(), config)
+	conn, err := pgx.ConnectConfig(context.Background(), config)
 	if err != nil {
 		t.Fatalf("unable to connect to database: %v", err)
 	}
@@ -29,61 +29,45 @@ func setupDB(t *testing.T) (*pgxpool.Pool, string) {
 	schemaName := fmt.Sprintf("schema_%d", time.Now().Unix())
 
 	// Create the schema
-	_, err = pool.Exec(context.Background(), fmt.Sprintf("CREATE SCHEMA %s;", schemaName))
+	_, err = conn.Exec(context.Background(), fmt.Sprintf("CREATE SCHEMA %s;", schemaName))
 	if err != nil {
 		t.Fatalf("unable to create schema: %v", err)
 	}
 
-	return pool, schemaName
+	return conn, schemaName
 }
 
-func teardownDB(t *testing.T, pool *pgxpool.Pool, schemaName string) {
+func teardownDB(t *testing.T, conn *pgx.Conn, schemaName string) {
 	t.Helper()
 
-	_, err := pool.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA %s CASCADE;", schemaName))
+	_, err := conn.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA %s CASCADE;", schemaName))
 	if err != nil {
 		t.Fatalf("error while dropping schema: %v", err)
 	}
 }
 
-func TestNewQRepQueryExecutor(t *testing.T) {
-	pool, schema := setupDB(t)
-	defer pool.Close()
-
-	defer teardownDB(t, pool, schema)
-
-	ctx := context.Background()
-	qe := NewQRepQueryExecutor(pool, ctx, "test flow", "test part")
-
-	if qe == nil {
-		t.Fatalf("expected QRepQueryExecutor, got nil")
-	}
-}
-
 func TestExecuteAndProcessQuery(t *testing.T) {
-	pool, schemaName := setupDB(t)
-	defer pool.Close()
+	conn, schemaName := setupDB(t)
+	defer conn.Close(context.Background())
 
-	defer teardownDB(t, pool, schemaName)
+	defer teardownDB(t, conn, schemaName)
 
 	ctx := context.Background()
-
-	qe := NewQRepQueryExecutor(pool, ctx, "test flow", "test part")
-	qe.SetTestEnv(true)
 
 	query := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.test(id SERIAL PRIMARY KEY, data TEXT);", schemaName)
-	rows, err := qe.ExecuteQuery(query)
+	_, err := conn.Exec(ctx, query)
 	if err != nil {
 		t.Fatalf("error while creating test table: %v", err)
 	}
-	rows.Close()
 
 	query = fmt.Sprintf("INSERT INTO %s.test(data) VALUES('testdata');", schemaName)
-	rows, err = qe.ExecuteQuery(query)
+	_, err = conn.Exec(ctx, query)
 	if err != nil {
 		t.Fatalf("error while inserting into test table: %v", err)
 	}
-	rows.Close()
+
+	qe := NewQRepQueryExecutor(conn, ctx, "test flow", "test part")
+	qe.SetTestEnv(true)
 
 	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
 	batch, err := qe.ExecuteAndProcessQuery(query)
@@ -101,14 +85,13 @@ func TestExecuteAndProcessQuery(t *testing.T) {
 }
 
 func TestAllDataTypes(t *testing.T) {
-	pool, schemaName := setupDB(t)
-	defer pool.Close()
+	conn, schemaName := setupDB(t)
+	defer conn.Close(context.Background())
 
 	// Call teardownDB function after test
-	defer teardownDB(t, pool, schemaName)
+	defer teardownDB(t, conn, schemaName)
 
 	ctx := context.Background()
-	qe := NewQRepQueryExecutor(pool, ctx, "test flow", "test part")
 
 	// Create a table that contains every data type we want to test
 	query := fmt.Sprintf(`
@@ -131,11 +114,10 @@ func TestAllDataTypes(t *testing.T) {
 		col_date DATE
 	);`, schemaName)
 
-	rows, err := qe.ExecuteQuery(query)
+	_, err := conn.Exec(ctx, query)
 	if err != nil {
 		t.Fatalf("error while creating test table: %v", err)
 	}
-	rows.Close()
 
 	// Insert a row into the table
 	query = fmt.Sprintf(`
@@ -164,7 +146,7 @@ func TestAllDataTypes(t *testing.T) {
 	savedTime := time.Now()
 	savedUUID := uuid.New()
 
-	_, err = pool.Exec(
+	_, err = conn.Exec(
 		context.Background(),
 		query,
 		true,               // col_bool
@@ -188,11 +170,12 @@ func TestAllDataTypes(t *testing.T) {
 		t.Fatalf("error while inserting into test table: %v", err)
 	}
 
+	qe := NewQRepQueryExecutor(conn, ctx, "test flow", "test part")
 	// Select the row back out of the table
 	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
-	rows, err = qe.ExecuteQuery(query)
+	rows, err := qe.ExecuteQuery(query)
 	if err != nil {
-		t.Fatalf("error while executing and processing query: %v", err)
+		t.Fatalf("error while executing query: %v", err)
 	}
 	defer rows.Close()
 

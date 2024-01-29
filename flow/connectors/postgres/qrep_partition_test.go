@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -67,7 +67,7 @@ func TestGetQRepPartitions(t *testing.T) {
 	const connStr = "postgres://postgres:postgres@localhost:7132/postgres"
 
 	// Setup the DB
-	config, err := pgxpool.ParseConfig(connStr)
+	config, err := pgx.ParseConfig(connStr)
 	if err != nil {
 		t.Fatalf("Failed to parse config: %v", err)
 	}
@@ -78,11 +78,11 @@ func TestGetQRepPartitions(t *testing.T) {
 	}
 	defer tunnel.Close()
 
-	pool, err := tunnel.NewPostgresPoolFromConfig(context.Background(), config)
+	conn, err := tunnel.NewPostgresConnFromConfig(context.Background(), config)
 	if err != nil {
-		t.Fatalf("Failed to create pool: %v", err)
+		t.Fatalf("Failed to create connection: %v", err)
 	}
-	defer pool.Close()
+	defer conn.Close(context.Background())
 
 	// Generate a random schema name
 	rndUint, err := shared.RandomUInt64()
@@ -92,13 +92,13 @@ func TestGetQRepPartitions(t *testing.T) {
 	schemaName := fmt.Sprintf("test_%d", rndUint)
 
 	// Create the schema
-	_, err = pool.Exec(context.Background(), fmt.Sprintf(`CREATE SCHEMA %s;`, schemaName))
+	_, err = conn.Exec(context.Background(), fmt.Sprintf(`CREATE SCHEMA %s;`, schemaName))
 	if err != nil {
 		t.Fatalf("Failed to create schema: %v", err)
 	}
 
 	// Create the table in the new schema
-	_, err = pool.Exec(context.Background(), fmt.Sprintf(`
+	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s.test (
 			id SERIAL PRIMARY KEY,
 			value INT NOT NULL,
@@ -110,7 +110,7 @@ func TestGetQRepPartitions(t *testing.T) {
 	}
 
 	// from 2010 Jan 1 10:00 AM UTC to 2010 Jan 30 10:00 AM UTC
-	numRows := prepareTestData(t, pool, schemaName)
+	numRows := prepareTestData(t, conn, schemaName)
 
 	// Define the test cases
 	testCases := []*testCase{
@@ -173,7 +173,7 @@ func TestGetQRepPartitions(t *testing.T) {
 				connStr: connStr,
 				ctx:     context.Background(),
 				config:  &protos.PostgresConfig{},
-				pool:    pool,
+				conn:    conn,
 				logger:  *slog.With(slog.String(string(shared.FlowNameKey), "testGetQRepPartitions")),
 			}
 
@@ -209,14 +209,14 @@ func TestGetQRepPartitions(t *testing.T) {
 	}
 
 	// Drop the schema at the end
-	_, err = pool.Exec(context.Background(), fmt.Sprintf(`DROP SCHEMA %s CASCADE;`, schemaName))
+	_, err = conn.Exec(context.Background(), fmt.Sprintf(`DROP SCHEMA %s CASCADE;`, schemaName))
 	if err != nil {
 		t.Fatalf("Failed to drop schema: %v", err)
 	}
 }
 
 // returns the number of rows inserted
-func prepareTestData(t *testing.T, pool *pgxpool.Pool, schema string) int {
+func prepareTestData(t *testing.T, pool *pgx.Conn, schema string) int {
 	t.Helper()
 
 	// Define the start and end times

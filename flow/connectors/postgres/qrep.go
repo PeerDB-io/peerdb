@@ -36,7 +36,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 	}
 
 	// begin a transaction
-	tx, err := c.pool.BeginTx(c.ctx, pgx.TxOptions{
+	tx, err := c.conn.BeginTx(c.ctx, pgx.TxOptions{
 		AccessMode: pgx.ReadOnly,
 		IsoLevel:   pgx.RepeatableRead,
 	})
@@ -169,6 +169,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		c.logger.Error(fmt.Sprintf("failed to query for partitions: %v", err))
 		return nil, fmt.Errorf("failed to query for partitions: %w", err)
 	}
+	defer rows.Close()
 
 	partitionHelper := partition_utils.NewPartitionHelper()
 	for rows.Next() {
@@ -182,6 +183,11 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		if err != nil {
 			return nil, fmt.Errorf("failed to add partition: %w", err)
 		}
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
 
 	err = tx.Commit(c.ctx)
@@ -271,7 +277,7 @@ func (c *PostgresConnector) getMinMaxValues(
 func (c *PostgresConnector) CheckForUpdatedMaxValue(config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) (bool, error) {
-	tx, err := c.pool.Begin(c.ctx)
+	tx, err := c.conn.Begin(c.ctx)
 	if err != nil {
 		return false, fmt.Errorf("unable to begin transaction for getting max value: %w", err)
 	}
@@ -311,7 +317,7 @@ func (c *PostgresConnector) PullQRepRecords(
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
 		executor, err := NewQRepQueryExecutorSnapshot(
-			c.pool, c.ctx, c.config.TransactionSnapshot,
+			c.conn, c.ctx, c.config.TransactionSnapshot,
 			config.FlowJobName, partition.PartitionId)
 		if err != nil {
 			return nil, err
@@ -355,7 +361,7 @@ func (c *PostgresConnector) PullQRepRecords(
 	}
 
 	executor, err := NewQRepQueryExecutorSnapshot(
-		c.pool, c.ctx, c.config.TransactionSnapshot,
+		c.conn, c.ctx, c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return nil, err
@@ -379,7 +385,7 @@ func (c *PostgresConnector) PullQRepRecordStream(
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
 		executor, err := NewQRepQueryExecutorSnapshot(
-			c.pool, c.ctx, c.config.TransactionSnapshot,
+			c.conn, c.ctx, c.config.TransactionSnapshot,
 			config.FlowJobName, partition.PartitionId)
 		if err != nil {
 			return 0, err
@@ -425,7 +431,7 @@ func (c *PostgresConnector) PullQRepRecordStream(
 	}
 
 	executor, err := NewQRepQueryExecutorSnapshot(
-		c.pool, c.ctx, c.config.TransactionSnapshot,
+		c.conn, c.ctx, c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, err
@@ -492,7 +498,7 @@ func (c *PostgresConnector) SetupQRepMetadataTables(config *protos.QRepConfig) e
 		syncFinishTime TIMESTAMP DEFAULT NOW()
 	)`, metadataTableIdentifier.Sanitize())
 	// execute create table query
-	_, err = c.pool.Exec(c.ctx, createQRepMetadataTableSQL)
+	_, err = c.conn.Exec(c.ctx, createQRepMetadataTableSQL)
 	if err != nil && !utils.IsUniqueError(err) {
 		return fmt.Errorf("failed to create table %s: %w", qRepMetadataTableName, err)
 	}
@@ -500,7 +506,7 @@ func (c *PostgresConnector) SetupQRepMetadataTables(config *protos.QRepConfig) e
 
 	if config.WriteMode != nil &&
 		config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		_, err = c.pool.Exec(c.ctx,
+		_, err = c.conn.Exec(c.ctx,
 			fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
 		if err != nil {
 			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
@@ -524,7 +530,7 @@ func (c *PostgresConnector) PullXminRecordStream(
 	}
 
 	executor, err := NewQRepQueryExecutorSnapshot(
-		c.pool, c.ctx, c.config.TransactionSnapshot,
+		c.conn, c.ctx, c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, currentSnapshotXmin, err
@@ -578,7 +584,7 @@ func (c *PostgresConnector) isPartitionSynced(partitionID string) (bool, error) 
 
 	// prepare and execute the query
 	var result bool
-	err := c.pool.QueryRow(c.ctx, queryString, partitionID).Scan(&result)
+	err := c.conn.QueryRow(c.ctx, queryString, partitionID).Scan(&result)
 	if err != nil {
 		return false, fmt.Errorf("failed to execute query: %w", err)
 	}

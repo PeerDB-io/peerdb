@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 )
 
 func BenchmarkQRepQueryExecutor(b *testing.B) {
@@ -13,15 +13,15 @@ func BenchmarkQRepQueryExecutor(b *testing.B) {
 
 	ctx := context.Background()
 
-	// Create a separate connection pool for non-replication queries
-	pool, err := pgxpool.New(ctx, connectionString)
+	// Create a separate connection for non-replication queries
+	conn, err := pgx.Connect(ctx, connectionString)
 	if err != nil {
-		b.Fatalf("failed to create connection pool: %v", err)
+		b.Fatalf("failed to create connection: %v", err)
 	}
-	defer pool.Close()
+	defer conn.Close(context.Background())
 
 	// Create a new QRepQueryExecutor instance
-	qe := NewQRepQueryExecutor(pool, context.Background(), "test flow", "test part")
+	qe := NewQRepQueryExecutor(conn, context.Background(), "test flow", "test part")
 
 	// Run the benchmark
 	b.ResetTimer()
