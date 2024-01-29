@@ -261,13 +261,15 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	stream := model.NewQRecordStream(1024)
 	errors := make(chan error, 1)
 	qe.logger.Info("Executing and processing query", slog.String("query", query))
+
+	// must wait on errors to close before returning to maintain qe.conn exclusion
 	go func() {
+		defer close(errors)
 		_, err := qe.ExecuteAndProcessQueryStream(stream, query, args...)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to execute and process query stream", slog.Any("error", err))
 			errors <- err
 		}
-		close(errors)
 	}()
 
 	select {
