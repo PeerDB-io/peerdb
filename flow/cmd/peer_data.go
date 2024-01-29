@@ -31,32 +31,39 @@ func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName strin
 	return &pgPeerConfig, nil
 }
 
-func (h *FlowRequestHandler) getPoolForPGPeer(ctx context.Context, peerName string) (*connpostgres.SSHWrappedPostgresPool, error) {
+func (h *FlowRequestHandler) getConnForPGPeer(ctx context.Context, peerName string) (*connpostgres.SSHTunnel, *pgx.Conn, error) {
 	pgPeerConfig, err := h.getPGPeerConfig(ctx, peerName)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	pool, err := connpostgres.NewSSHWrappedPostgresPoolFromConfig(ctx, pgPeerConfig)
+	tunnel, err := connpostgres.NewSSHTunnel(ctx, pgPeerConfig.SshConfig)
 	if err != nil {
 		slog.Error("Failed to create postgres pool", slog.Any("error", err))
-		return nil, err
+		return nil, nil, err
 	}
 
-	return pool, nil
+	conn, err := tunnel.NewPostgresConnFromPostgresConfig(ctx, pgPeerConfig)
+	if err != nil {
+		tunnel.Close()
+		return nil, nil, err
+	}
+
+	return tunnel, conn, nil
 }
 
 func (h *FlowRequestHandler) GetSchemas(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerSchemasResponse, error) {
-	peerPool, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
 	if err != nil {
 		return &protos.PeerSchemasResponse{Schemas: nil}, err
 	}
+	defer tunnel.Close()
+	defer peerConn.Close(ctx)
 
-	defer peerPool.Close()
-	rows, err := peerPool.Query(ctx, "SELECT schema_name"+
+	rows, err := peerConn.Query(ctx, "SELECT schema_name"+
 		" FROM information_schema.schemata WHERE schema_name !~ '^pg_' AND schema_name <> 'information_schema';")
 	if err != nil {
 		return &protos.PeerSchemasResponse{Schemas: nil}, err
@@ -73,13 +80,14 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	ctx context.Context,
 	req *protos.SchemaTablesRequest,
 ) (*protos.SchemaTablesResponse, error) {
-	peerPool, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
 	if err != nil {
 		return &protos.SchemaTablesResponse{Tables: nil}, err
 	}
+	defer tunnel.Close()
+	defer peerConn.Close(ctx)
 
-	defer peerPool.Close()
-	rows, err := peerPool.Query(ctx, `SELECT DISTINCT ON (t.relname)
+	rows, err := peerConn.Query(ctx, `SELECT DISTINCT ON (t.relname)
     t.relname,
     CASE
         WHEN con.contype = 'p' OR t.relreplident = 'i' OR t.relreplident = 'f' THEN true
@@ -130,13 +138,14 @@ func (h *FlowRequestHandler) GetAllTables(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.AllTablesResponse, error) {
-	peerPool, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
 	if err != nil {
 		return &protos.AllTablesResponse{Tables: nil}, err
 	}
+	defer tunnel.Close()
+	defer peerConn.Close(ctx)
 
-	defer peerPool.Close()
-	rows, err := peerPool.Query(ctx, "SELECT table_schema || '.' || table_name AS schema_table "+
+	rows, err := peerConn.Query(ctx, "SELECT table_schema || '.' || table_name AS schema_table "+
 		"FROM information_schema.tables WHERE table_schema !~ '^pg_' AND table_schema <> 'information_schema'")
 	if err != nil {
 		return &protos.AllTablesResponse{Tables: nil}, err
@@ -160,13 +169,14 @@ func (h *FlowRequestHandler) GetColumns(
 	ctx context.Context,
 	req *protos.TableColumnsRequest,
 ) (*protos.TableColumnsResponse, error) {
-	peerPool, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
 	if err != nil {
 		return &protos.TableColumnsResponse{Columns: nil}, err
 	}
+	defer tunnel.Close()
+	defer peerConn.Close(ctx)
 
-	defer peerPool.Close()
-	rows, err := peerPool.Query(ctx, `
+	rows, err := peerConn.Query(ctx, `
 	SELECT
     cols.column_name,
     cols.data_type,
@@ -240,22 +250,16 @@ func (h *FlowRequestHandler) GetStatInfo(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerStatResponse, error) {
-	pgConfig, err := h.getPGPeerConfig(ctx, req.PeerName)
+	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
 	if err != nil {
 		return &protos.PeerStatResponse{StatData: nil}, err
 	}
+	defer tunnel.Close()
+	defer peerConn.Close(ctx)
 
-	pgConnector, err := connpostgres.NewPostgresConnector(ctx, pgConfig)
-	if err != nil {
-		slog.Error("Failed to create postgres connector", slog.Any("error", err))
-		return &protos.PeerStatResponse{StatData: nil}, err
-	}
-	defer pgConnector.Close()
+	peerUser := peerConn.Config().User
 
-	peerPool := pgConnector.GetPool()
-	peerUser := pgConfig.User
-
-	rows, err := peerPool.Query(ctx, "SELECT pid, wait_event, wait_event_type, query_start::text, query,"+
+	rows, err := peerConn.Query(ctx, "SELECT pid, wait_event, wait_event_type, query_start::text, query,"+
 		"EXTRACT(epoch FROM(now()-query_start)) AS dur"+
 		" FROM pg_stat_activity WHERE "+
 		"usename=$1 AND state != 'idle';", peerUser)
