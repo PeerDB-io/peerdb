@@ -205,47 +205,35 @@ func (p *PostgresMetadataStore) GetLastNormalizeBatchID(jobName string) (int64, 
 
 // update offset for a job
 func (p *PostgresMetadataStore) UpdateLastOffset(jobName string, offset int64) error {
-	// start a transaction
-	tx, err := p.conn.Begin(p.ctx)
-	if err != nil {
-		p.logger.Error("failed to start transaction", slog.Any("error", err))
-		return err
-	}
-
-	// update the last offset
 	p.logger.Info("updating last offset", slog.Int64("offset", offset))
-	_, err = tx.Exec(p.ctx, `
+	_, err := p.conn.Exec(p.ctx, `
 		INSERT INTO `+p.QualifyTable(lastSyncStateTableName)+` (job_name, last_offset, sync_batch_id)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (job_name)
 		DO UPDATE SET last_offset = GREATEST(`+connpostgres.QuoteIdentifier(lastSyncStateTableName)+`.last_offset, excluded.last_offset),
 			updated_at = NOW()
 	`, jobName, offset, 0)
-
 	if err != nil {
 		p.logger.Error("failed to update last offset", slog.Any("error", err))
-		return err
-	}
-
-	// commit the transaction
-	err = tx.Commit(p.ctx)
-	if err != nil {
-		p.logger.Error("failed to commit transaction", slog.Any("error", err))
 		return err
 	}
 
 	return nil
 }
 
-// update the sync batch id for a job.
-func (p *PostgresMetadataStore) IncrementID(jobName string) error {
-	p.logger.Info("incrementing sync batch id for job")
+func (p *PostgresMetadataStore) FinishBatch(jobName string, syncBatchID int64, offset int64) error {
+	p.logger.Info("finishing batch", slog.Int64("SyncBatchID", syncBatchID), slog.Int64("offset", offset))
 	_, err := p.conn.Exec(p.ctx, `
-		UPDATE `+p.QualifyTable(lastSyncStateTableName)+`
-		 SET sync_batch_id=sync_batch_id+1 WHERE job_name=$1
-	`, jobName)
+		INSERT INTO `+p.QualifyTable(lastSyncStateTableName)+` (job_name, last_offset, sync_batch_id)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (job_name)
+		DO UPDATE SET
+			last_offset = GREATEST(`+connpostgres.QuoteIdentifier(lastSyncStateTableName)+`.last_offset, excluded.last_offset),
+			sync_batch_id = GREATEST(`+connpostgres.QuoteIdentifier(lastSyncStateTableName)+`.sync_batch_id, excluded.sync_batch_id),
+			updated_at = NOW()
+	`, jobName, offset, syncBatchID)
 	if err != nil {
-		p.logger.Error("failed to increment sync batch id", slog.Any("error", err))
+		p.logger.Error("failed to finish batch", slog.Any("error", err))
 		return err
 	}
 
