@@ -1,6 +1,7 @@
 import { CatalogPeer } from '@/app/dto/PeersDTO';
 import {
   BigqueryConfig,
+  ClickhouseConfig,
   EventHubConfig,
   EventHubGroupConfig,
   Peer,
@@ -23,7 +24,8 @@ export const getTruePeer = (peer: CatalogPeer) => {
     | EventHubConfig
     | S3Config
     | SqlServerConfig
-    | EventHubGroupConfig;
+    | EventHubGroupConfig
+    | ClickhouseConfig;
   switch (peer.type) {
     case 0:
       config = BigqueryConfig.decode(options);
@@ -52,6 +54,10 @@ export const getTruePeer = (peer: CatalogPeer) => {
     case 7:
       config = EventHubGroupConfig.decode(options);
       newPeer.eventhubGroupConfig = config;
+      break;
+    case 8:
+      config = ClickhouseConfig.decode(options);
+      newPeer.clickhouseConfig = config;
       break;
     default:
       return newPeer;

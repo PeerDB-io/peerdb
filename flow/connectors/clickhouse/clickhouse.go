@@ -9,6 +9,7 @@ import (
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
+	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -16,8 +17,10 @@ import (
 type ClickhouseConnector struct {
 	ctx                context.Context
 	database           *sql.DB
+	pgMetadata         *metadataStore.PostgresMetadataStore
 	tableSchemaMapping map[string]*protos.TableSchema
 	logger             slog.Logger
+	config             *protos.ClickhouseConfig
 }
 
 func NewClickhouseConnector(ctx context.Context,
@@ -28,12 +31,22 @@ func NewClickhouseConnector(ctx context.Context,
 		return nil, fmt.Errorf("failed to open connection to Clickhouse peer: %w", err)
 	}
 
+	metadataSchemaName := "peerdb_s3_metadata" // #nosec G101
+	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx,
+		clickhouseProtoConfig.GetMetadataDb(), metadataSchemaName)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to create postgres metadata store", slog.Any("error", err))
+		return nil, err
+	}
+
 	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &ClickhouseConnector{
 		ctx:                ctx,
 		database:           database,
+		pgMetadata:         pgMetadata,
 		tableSchemaMapping: nil,
 		logger:             *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
+		config:             clickhouseProtoConfig,
 	}, nil
 }
 

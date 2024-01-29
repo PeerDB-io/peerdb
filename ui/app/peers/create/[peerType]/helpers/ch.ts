@@ -57,4 +57,5 @@ export const blankClickhouseSetting: ClickhouseConfig = {
   password: '',
   database: '',
   s3Integration: '',
+  metadataDb: undefined,
 };
