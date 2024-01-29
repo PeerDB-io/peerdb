@@ -141,6 +141,6 @@ func (kind QValueKind) ToDWHColumnType(dwhType QDWHType) (string, error) {
 			return "String", nil
 		}
 	default:
-		return "", fmt.Errorf("unknown dwh type: %s", dwhType)
+		return "", fmt.Errorf("unknown dwh type: %v", dwhType)
 	}
 }
