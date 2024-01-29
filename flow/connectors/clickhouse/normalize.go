@@ -194,7 +194,7 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 		insertIntoSelectQuery.WriteString(selectQuery.String())
 
 		q := insertIntoSelectQuery.String()
-		c.logger.InfoContext(c.ctx, fmt.Sprintf("[clickhouse] insert into select query", q))
+		c.logger.InfoContext(c.ctx, fmt.Sprintf("[clickhouse] insert into select query %s", q))
 
 		_, err = c.database.ExecContext(c.ctx, q)
 		if err != nil {
