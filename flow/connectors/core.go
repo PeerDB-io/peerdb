@@ -253,8 +253,6 @@ func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
 			return nil, fmt.Errorf("missing s3 config for %s peer %s", peer.Type.String(), peer.Name)
 		}
 		return conns3.NewS3Connector(ctx, s3Config)
-	// case protos.DBType_EVENTHUB:
-	// 	return connsqlserver.NewSQLServerConnector(ctx, config.GetSqlserverConfig())
 	case protos.DBType_CLICKHOUSE:
 		clickhouseConfig := peer.GetClickhouseConfig()
 		if clickhouseConfig == nil {
