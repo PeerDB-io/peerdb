@@ -34,7 +34,6 @@ type PostgresCDCSource struct {
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]model.NameAndExclude
 	slot                   string
-	SetLastOffset          func(int64) error
 	publication            string
 	relationMessageMapping model.RelationMessageMapping
 	typeMap                *pgtype.Map
@@ -62,7 +61,6 @@ type PostgresCDCConfig struct {
 	RelationMessageMapping model.RelationMessageMapping
 	CatalogPool            *pgxpool.Pool
 	FlowJobName            string
-	SetLastOffset          func(int64) error
 }
 
 type startReplicationOpts struct {
@@ -88,7 +86,6 @@ func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig, customTypeMap map[uint32
 		SrcTableIDNameMapping:     cdcConfig.SrcTableIDNameMapping,
 		TableNameMapping:          cdcConfig.TableNameMapping,
 		slot:                      cdcConfig.Slot,
-		SetLastOffset:             cdcConfig.SetLastOffset,
 		publication:               cdcConfig.Publication,
 		relationMessageMapping:    cdcConfig.RelationMessageMapping,
 		typeMap:                   pgtype.NewMap(),
