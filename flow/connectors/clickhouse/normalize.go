@@ -140,7 +140,6 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 		colSelector := strings.Builder{}
 		colSelector.WriteString("(")
 
-
 		schema := req.TableNameSchemaMapping[tbl]
 		numCols := len(schema.ColumnNames)
 
@@ -247,11 +246,6 @@ func (c *ClickhouseConnector) getDistinctTableNamesInBatch(
 }
 
 func (c *ClickhouseConnector) GetLastNormalizeBatchID(flowJobName string) (int64, error) {
-	// syncBatchID, err := c.pgMetadata.GetLastBatchID(flowJobName)
-	// if err != nil {
-	// 	return 0, fmt.Errorf("error while getting last sync batch id: %w", err)
-	// }
-
 	normalizeBatchID, err := c.pgMetadata.GetLastNormalizeBatchID(flowJobName)
 	if err != nil {
 		return 0, fmt.Errorf("error while getting last normalize batch id: %w", err)
