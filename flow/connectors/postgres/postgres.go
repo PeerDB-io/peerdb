@@ -913,19 +913,19 @@ func (c *PostgresConnector) HandleSlotInfo(
 	// must create new connection because HandleSlotInfo is threadsafe
 	conn, err := c.ssh.NewPostgresConnFromPostgresConfig(ctx, c.config)
 	if err != nil {
-		slog.WarnContext(c.ctx, "warning: failed to connect to get slot info", slog.Any("error", err))
+		slog.WarnContext(ctx, "warning: failed to connect to get slot info", slog.Any("error", err))
 		return err
 	}
 	defer conn.Close(ctx)
 
 	slotInfo, err := c.GetSlotInfo(slotName)
 	if err != nil {
-		slog.WarnContext(c.ctx, "warning: failed to get slot info", slog.Any("error", err))
+		slog.WarnContext(ctx, "warning: failed to get slot info", slog.Any("error", err))
 		return err
 	}
 
 	if len(slotInfo) == 0 {
-		slog.WarnContext(c.ctx, "warning: unable to get slot info", slog.Any("slotName", slotName))
+		slog.WarnContext(ctx, "warning: unable to get slot info", slog.Any("slotName", slotName))
 		return nil
 	}
 
@@ -934,23 +934,23 @@ func (c *PostgresConnector) HandleSlotInfo(
 		deploymentUIDPrefix = fmt.Sprintf("[%s] ", peerdbenv.PeerDBDeploymentUID())
 	}
 
-	slotLagInMBThreshold := dynamicconf.PeerDBSlotLagMBAlertThreshold(c.ctx)
+	slotLagInMBThreshold := dynamicconf.PeerDBSlotLagMBAlertThreshold(ctx)
 	if (slotLagInMBThreshold > 0) && (slotInfo[0].LagInMb >= float32(slotLagInMBThreshold)) {
-		alerter.AlertIf(c.ctx, fmt.Sprintf("%s-slot-lag-threshold-exceeded", peerName),
+		alerter.AlertIf(ctx, fmt.Sprintf("%s-slot-lag-threshold-exceeded", peerName),
 			fmt.Sprintf(`%sSlot `+"`%s`"+` on peer `+"`%s`"+` has exceeded threshold size of %dMB, currently at %.2fMB!
 cc: <!channel>`,
 				deploymentUIDPrefix, slotName, peerName, slotLagInMBThreshold, slotInfo[0].LagInMb))
 	}
 
 	// Also handles alerts for PeerDB user connections exceeding a given limit here
-	maxOpenConnectionsThreshold := dynamicconf.PeerDBOpenConnectionsAlertThreshold(c.ctx)
+	maxOpenConnectionsThreshold := dynamicconf.PeerDBOpenConnectionsAlertThreshold(ctx)
 	res, err := getOpenConnectionsForUser(ctx, conn, c.config.User)
 	if err != nil {
-		slog.WarnContext(c.ctx, "warning: failed to get current open connections", slog.Any("error", err))
+		slog.WarnContext(ctx, "warning: failed to get current open connections", slog.Any("error", err))
 		return err
 	}
 	if (maxOpenConnectionsThreshold > 0) && (res.CurrentOpenConnections >= int64(maxOpenConnectionsThreshold)) {
-		alerter.AlertIf(c.ctx, fmt.Sprintf("%s-max-open-connections-threshold-exceeded", peerName),
+		alerter.AlertIf(ctx, fmt.Sprintf("%s-max-open-connections-threshold-exceeded", peerName),
 			fmt.Sprintf(`%sOpen connections from PeerDB user `+"`%s`"+` on peer `+"`%s`"+
 				` has exceeded threshold size of %d connections, currently at %d connections!
 cc: <!channel>`,
@@ -958,7 +958,7 @@ cc: <!channel>`,
 	}
 
 	if len(slotInfo) != 0 {
-		return monitoring.AppendSlotSizeInfo(c.ctx, catalogPool, peerName, slotInfo[0])
+		return monitoring.AppendSlotSizeInfo(ctx, catalogPool, peerName, slotInfo[0])
 	}
 	return nil
 }

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -58,19 +57,15 @@ func cleanPostgres(conn *pgx.Conn, suffix string) error {
 	if err != nil {
 		return fmt.Errorf("failed to list publications: %w", err)
 	}
-	defer rows.Close()
+	publications, err := pgx.CollectRows[string](rows, pgx.RowTo)
+	if err != nil {
+		return fmt.Errorf("failed to read publications: %w", err)
+	}
 
-	// drop all publications with the given suffix
-	for rows.Next() {
-		var pubName pgtype.Text
-		err = rows.Scan(&pubName)
+	for _, pubName := range publications {
+		_, err = conn.Exec(context.Background(), fmt.Sprintf("DROP PUBLICATION %s", pubName))
 		if err != nil {
-			return fmt.Errorf("failed to scan publication name: %w", err)
-		}
-
-		_, err = conn.Exec(context.Background(), fmt.Sprintf("DROP PUBLICATION %s", pubName.String))
-		if err != nil {
-			return fmt.Errorf("failed to drop publication %s: %w", pubName.String, err)
+			return fmt.Errorf("failed to drop publication %s: %w", pubName, err)
 		}
 	}
 

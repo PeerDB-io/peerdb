@@ -63,8 +63,7 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuitePG {
 		require.Fail(t, "failed to setup postgres", err)
 	}
 
-	var connector *connpostgres.PostgresConnector
-	connector, err = connpostgres.NewPostgresConnector(context.Background(),
+	connector, err := connpostgres.NewPostgresConnector(context.Background(),
 		&protos.PostgresConfig{
 			Host:     "localhost",
 			Port:     7132,
