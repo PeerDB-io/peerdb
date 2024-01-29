@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -19,10 +20,17 @@ const (
 	lastSyncStateTableName = "last_sync_state"
 )
 
+type Querier interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+	Exec(ctx context.Context, sql string, arguments ...interface{}) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row
+	Ping(ctx context.Context) error
+}
+
 type PostgresMetadataStore struct {
 	ctx        context.Context
 	config     *protos.PostgresConfig
-	pool       *pgxpool.Pool
+	conn       Querier
 	schemaName string
 	logger     slog.Logger
 }
@@ -30,21 +38,21 @@ type PostgresMetadataStore struct {
 func NewPostgresMetadataStore(ctx context.Context, pgConfig *protos.PostgresConfig,
 	schemaName string,
 ) (*PostgresMetadataStore, error) {
-	var storePool *pgxpool.Pool
-	var poolErr error
+	var storeConn Querier
+	var err error
 	if pgConfig == nil {
-		storePool, poolErr = cc.GetCatalogConnectionPoolFromEnv()
-		if poolErr != nil {
-			return nil, fmt.Errorf("failed to create catalog connection pool: %v", poolErr)
+		storeConn, err = cc.GetCatalogConnectionPoolFromEnv()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create catalog connection pool: %w", err)
 		}
 
 		slog.InfoContext(ctx, "obtained catalog connection pool for metadata store")
 	} else {
 		connectionString := utils.GetPGConnectionString(pgConfig)
-		storePool, poolErr = pgxpool.New(ctx, connectionString)
-		if poolErr != nil {
-			slog.ErrorContext(ctx, "failed to create connection pool", slog.Any("error", poolErr))
-			return nil, poolErr
+		storeConn, err = pgx.Connect(ctx, connectionString)
+		if err != nil {
+			slog.ErrorContext(ctx, "failed to create connection pool", slog.Any("error", err))
+			return nil, err
 		}
 
 		slog.InfoContext(ctx, "created connection pool for metadata store")
@@ -54,15 +62,16 @@ func NewPostgresMetadataStore(ctx context.Context, pgConfig *protos.PostgresConf
 	return &PostgresMetadataStore{
 		ctx:        ctx,
 		config:     pgConfig,
-		pool:       storePool,
+		conn:       storeConn,
 		schemaName: schemaName,
 		logger:     *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 	}, nil
 }
 
 func (p *PostgresMetadataStore) Close() error {
-	if p.config != nil && p.pool != nil {
-		p.pool.Close()
+	// only close p.conn when it isn't catalog
+	if conn, ok := p.conn.(*pgx.Conn); ok {
+		conn.Close(p.ctx)
 	}
 
 	return nil
@@ -73,10 +82,7 @@ func (p *PostgresMetadataStore) QualifyTable(table string) string {
 }
 
 func (p *PostgresMetadataStore) Ping() error {
-	if p.pool == nil {
-		return fmt.Errorf("metadata db ping failed as pool does not exist")
-	}
-	pingErr := p.pool.Ping(p.ctx)
+	pingErr := p.conn.Ping(p.ctx)
 	if pingErr != nil {
 		return fmt.Errorf("metadata db ping failed: %w", pingErr)
 	}
@@ -86,10 +92,10 @@ func (p *PostgresMetadataStore) Ping() error {
 
 func (p *PostgresMetadataStore) NeedsSetupMetadata() bool {
 	// check if schema exists
-	rows := p.pool.QueryRow(p.ctx, "SELECT count(*) FROM pg_catalog.pg_namespace WHERE nspname = $1", p.schemaName)
+	row := p.conn.QueryRow(p.ctx, "SELECT count(*) FROM pg_catalog.pg_namespace WHERE nspname = $1", p.schemaName)
 
 	var exists pgtype.Int8
-	err := rows.Scan(&exists)
+	err := row.Scan(&exists)
 	if err != nil {
 		p.logger.Error("failed to check if schema exists", slog.Any("error", err))
 		return false
@@ -104,14 +110,14 @@ func (p *PostgresMetadataStore) NeedsSetupMetadata() bool {
 
 func (p *PostgresMetadataStore) SetupMetadata() error {
 	// create the schema
-	_, err := p.pool.Exec(p.ctx, "CREATE SCHEMA IF NOT EXISTS "+p.schemaName)
+	_, err := p.conn.Exec(p.ctx, "CREATE SCHEMA IF NOT EXISTS "+p.schemaName)
 	if err != nil && !utils.IsUniqueError(err) {
 		p.logger.Error("failed to create schema", slog.Any("error", err))
 		return err
 	}
 
 	// create the last sync state table
-	_, err = p.pool.Exec(p.ctx, `
+	_, err = p.conn.Exec(p.ctx, `
 		CREATE TABLE IF NOT EXISTS `+p.QualifyTable(lastSyncStateTableName)+` (
 			job_name TEXT PRIMARY KEY NOT NULL,
 			last_offset BIGINT NOT NULL,
@@ -129,15 +135,15 @@ func (p *PostgresMetadataStore) SetupMetadata() error {
 }
 
 func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (int64, error) {
-	rows := p.pool.QueryRow(p.ctx, `
+	row := p.conn.QueryRow(p.ctx, `
 		SELECT last_offset
 		FROM `+p.QualifyTable(lastSyncStateTableName)+`
 		WHERE job_name = $1
 	`, jobName)
 	var offset pgtype.Int8
-	err := rows.Scan(&offset)
+	err := row.Scan(&offset)
 	if err != nil {
-		if err.Error() == "no rows in result set" {
+		if err == pgx.ErrNoRows {
 			return 0, nil
 		}
 
@@ -151,17 +157,17 @@ func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (int64, error) {
 }
 
 func (p *PostgresMetadataStore) GetLastBatchID(jobName string) (int64, error) {
-	rows := p.pool.QueryRow(p.ctx, `
+	row := p.conn.QueryRow(p.ctx, `
 		SELECT sync_batch_id
 		FROM `+p.QualifyTable(lastSyncStateTableName)+`
 		WHERE job_name = $1
 	`, jobName)
 
 	var syncBatchID pgtype.Int8
-	err := rows.Scan(&syncBatchID)
+	err := row.Scan(&syncBatchID)
 	if err != nil {
 		// if the job doesn't exist, return 0
-		if err.Error() == "no rows in result set" {
+		if err == pgx.ErrNoRows {
 			return 0, nil
 		}
 
@@ -176,7 +182,7 @@ func (p *PostgresMetadataStore) GetLastBatchID(jobName string) (int64, error) {
 // update offset for a job
 func (p *PostgresMetadataStore) UpdateLastOffset(jobName string, offset int64) error {
 	// start a transaction
-	tx, err := p.pool.Begin(p.ctx)
+	tx, err := p.conn.Begin(p.ctx)
 	if err != nil {
 		p.logger.Error("failed to start transaction", slog.Any("error", err))
 		return err
@@ -210,7 +216,7 @@ func (p *PostgresMetadataStore) UpdateLastOffset(jobName string, offset int64) e
 // update offset for a job
 func (p *PostgresMetadataStore) IncrementID(jobName string) error {
 	p.logger.Info("incrementing sync batch id for job")
-	_, err := p.pool.Exec(p.ctx, `
+	_, err := p.conn.Exec(p.ctx, `
 		UPDATE `+p.QualifyTable(lastSyncStateTableName)+`
 		 SET sync_batch_id=sync_batch_id+1 WHERE job_name=$1
 	`, jobName)
@@ -223,7 +229,7 @@ func (p *PostgresMetadataStore) IncrementID(jobName string) error {
 }
 
 func (p *PostgresMetadataStore) DropMetadata(jobName string) error {
-	_, err := p.pool.Exec(p.ctx, `
+	_, err := p.conn.Exec(p.ctx, `
 		DELETE FROM `+p.QualifyTable(lastSyncStateTableName)+`
 		WHERE job_name = $1
 	`, jobName)
