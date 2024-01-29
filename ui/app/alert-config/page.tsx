@@ -22,7 +22,7 @@ const options: editor.IStandaloneEditorConstructionOptions = {
   scrollBeyondLastLine: false,
 };
 
-const ConfigJSONView = ({ config }: { config: string }) => {
+export const ConfigJSONView = ({ config }: { config: string }) => {
   return <Editor options={options} value={config} language='json' />;
 };
 
