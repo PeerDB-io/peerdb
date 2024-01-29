@@ -1,6 +1,7 @@
 import { CatalogPeer } from '@/app/dto/PeersDTO';
 import {
   BigqueryConfig,
+  ClickhouseConfig,
   EventHubConfig,
   EventHubGroupConfig,
   Peer,
@@ -8,7 +9,6 @@ import {
   S3Config,
   SnowflakeConfig,
   SqlServerConfig,
-  ClickhouseConfig,
 } from '@/grpc_generated/peers';
 
 export const getTruePeer = (peer: CatalogPeer) => {
@@ -57,8 +57,8 @@ export const getTruePeer = (peer: CatalogPeer) => {
       break;
     case 8:
       config = ClickhouseConfig.decode(options);
-      newPeer.clickhouseConfig = config;  
-      break;    
+      newPeer.clickhouseConfig = config;
+      break;
     default:
       return newPeer;
   }
