@@ -5,20 +5,16 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jackc/pgx/v5/pgtype"
-	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
-
-const qRepMetadataTableName = "_peerdb_query_replication_metadata"
 
 func (c *SnowflakeConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
@@ -37,7 +33,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	}
 	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
 
-	done, err := c.isPartitionSynced(partition.PartitionId)
+	done, err := c.pgMetadata.IsQrepPartitionSynced(partition.PartitionId)
 	if err != nil {
 		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
 	}
@@ -49,30 +45,6 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 
 	avroSync := NewSnowflakeAvroSyncHandler(config, c)
 	return avroSync.SyncQRepRecords(config, partition, tblSchema, stream)
-}
-
-func (c *SnowflakeConnector) createMetadataInsertStatement(
-	partition *protos.QRepPartition,
-	jobName string,
-	startTime time.Time,
-) (string, error) {
-	// marshal the partition to json using protojson
-	pbytes, err := protojson.Marshal(partition)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal partition to json: %v", err)
-	}
-
-	// convert the bytes to string
-	partitionJSON := string(pbytes)
-
-	insertMetadataStmt := fmt.Sprintf(
-		`INSERT INTO %s.%s
-			(flowJobName, partitionID, syncPartition, syncStartTime, syncFinishTime)
-			VALUES ('%s', '%s', '%s', '%s'::timestamp, CURRENT_TIMESTAMP);`,
-		c.metadataSchema, qRepMetadataTableName, jobName, partition.PartitionId,
-		partitionJSON, startTime.Format(time.RFC3339))
-
-	return insertMetadataStmt, nil
 }
 
 func (c *SnowflakeConnector) getTableSchema(tableName string) ([]*sql.ColumnType, error) {
@@ -99,49 +71,13 @@ func (c *SnowflakeConnector) getTableSchema(tableName string) ([]*sql.ColumnType
 	return columnTypes, nil
 }
 
-func (c *SnowflakeConnector) isPartitionSynced(partitionID string) (bool, error) {
-	//nolint:gosec
-	queryString := fmt.Sprintf(`
-		SELECT COUNT(*)
-		FROM %s.%s
-		WHERE partitionID = '%s'
-	`, c.metadataSchema, qRepMetadataTableName, partitionID)
-
-	row := c.database.QueryRow(queryString)
-
-	var count pgtype.Int8
-	if err := row.Scan(&count); err != nil {
-		return false, fmt.Errorf("failed to execute query: %w", err)
-	}
-
-	return count.Int64 > 0, nil
-}
-
 func (c *SnowflakeConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
-	// NOTE that Snowflake does not support transactional DDL
-	createMetadataTablesTx, err := c.database.BeginTx(c.ctx, nil)
-	if err != nil {
-		return fmt.Errorf("unable to begin transaction for creating metadata tables: %w", err)
-	}
-	// in case we return after error, ensure transaction is rolled back
-	defer func() {
-		deferErr := createMetadataTablesTx.Rollback()
-		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Error("error while rolling back transaction for creating metadata tables",
-				slog.Any("error", deferErr))
-		}
-	}()
-	err = c.createPeerDBInternalSchema(createMetadataTablesTx)
-	if err != nil {
-		return err
-	}
-	err = c.createQRepMetadataTable(createMetadataTablesTx)
+	_, err := c.database.ExecContext(c.ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
 	if err != nil {
 		return err
 	}
 
 	stageName := c.getStageNameForJob(config.FlowJobName)
-
 	err = c.createStage(stageName, config)
 	if err != nil {
 		return err
@@ -154,35 +90,6 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(config *protos.QRepConfig) 
 		}
 	}
 
-	err = createMetadataTablesTx.Commit()
-	if err != nil {
-		return fmt.Errorf("unable to commit transaction for creating metadata tables: %w", err)
-	}
-
-	return nil
-}
-
-func (c *SnowflakeConnector) createQRepMetadataTable(createMetadataTableTx *sql.Tx) error {
-	// Define the schema
-	schemaStatement := `
-	CREATE TABLE IF NOT EXISTS %s.%s (
-			flowJobName STRING,
-			partitionID STRING,
-			syncPartition STRING,
-			syncStartTime TIMESTAMP_LTZ,
-			syncFinishTime TIMESTAMP_LTZ
-	);
-	`
-	queryString := fmt.Sprintf(schemaStatement, c.metadataSchema, qRepMetadataTableName)
-
-	_, err := createMetadataTableTx.Exec(queryString)
-	if err != nil {
-		c.logger.Error(fmt.Sprintf("failed to create table %s.%s", c.metadataSchema, qRepMetadataTableName),
-			slog.Any("error", err))
-		return fmt.Errorf("failed to create table %s.%s: %w", c.metadataSchema, qRepMetadataTableName, err)
-	}
-
-	c.logger.Info(fmt.Sprintf("Created table %s", qRepMetadataTableName))
 	return nil
 }
 
@@ -371,5 +278,5 @@ func (c *SnowflakeConnector) dropStage(stagingPath string, job string) error {
 }
 
 func (c *SnowflakeConnector) getStageNameForJob(job string) string {
-	return fmt.Sprintf("%s.peerdb_stage_%s", c.metadataSchema, job)
+	return fmt.Sprintf("%s.peerdb_stage_%s", c.rawSchema, job)
 }

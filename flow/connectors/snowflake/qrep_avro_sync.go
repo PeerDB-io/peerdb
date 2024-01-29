@@ -290,17 +290,9 @@ func (s *SnowflakeAvroSyncHandler) insertMetadata(
 	startTime time.Time,
 ) error {
 	partitionLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
-	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(partition, flowJobName, startTime)
+	err := s.connector.pgMetadata.FinishQrepPartition(partition, flowJobName, startTime)
 	if err != nil {
-		s.connector.logger.Error("failed to create metadata insert statement",
-			slog.Any("error", err), partitionLog)
-		return fmt.Errorf("failed to create metadata insert statement: %v", err)
-	}
-
-	if _, err := s.connector.database.ExecContext(s.connector.ctx, insertMetadataStmt); err != nil {
-		s.connector.logger.Error("failed to execute metadata insert statement "+insertMetadataStmt,
-			slog.Any("error", err), partitionLog)
-		return fmt.Errorf("failed to execute metadata insert statement: %v", err)
+		return fmt.Errorf("failed to execute metadata insert statement: %w", err)
 	}
 
 	s.connector.logger.Info("inserted metadata for partition", partitionLog)

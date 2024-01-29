@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -18,6 +20,7 @@ import (
 
 const (
 	lastSyncStateTableName = "last_sync_state"
+	qrepTableName          = "qrep_metadata"
 )
 
 type Querier interface {
@@ -118,16 +121,37 @@ func (p *PostgresMetadataStore) SetupMetadata() error {
 
 	// create the last sync state table
 	_, err = p.conn.Exec(p.ctx, `
-		CREATE TABLE IF NOT EXISTS `+p.QualifyTable(lastSyncStateTableName)+` (
+		CREATE TABLE IF NOT EXISTS `+p.QualifyTable(lastSyncStateTableName)+`(
 			job_name TEXT PRIMARY KEY NOT NULL,
 			last_offset BIGINT NOT NULL,
-			updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			sync_batch_id BIGINT NOT NULL,
 			normalize_batch_id BIGINT
-		)
-	`)
+		)`)
 	if err != nil && !utils.IsUniqueError(err) {
 		p.logger.Error("failed to create last sync state table", slog.Any("error", err))
+		return err
+	}
+
+	_, err = p.conn.Exec(p.ctx, `
+		CREATE TABLE IF NOT EXISTS `+p.QualifyTable(qrepTableName)+`(
+			job_name TEXT NOT NULL,
+			partition_id TEXT NOT NULL,
+			sync_partition JSON NOT NULL,
+			sync_start_time TIMESTAMPTZ NOT NULL,
+			sync_finish_time TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`)
+	if err != nil && !utils.IsUniqueError(err) {
+		p.logger.Error("failed to create qrep metadata table", slog.Any("error", err))
+		return err
+	}
+
+	_, err = p.conn.Exec(p.ctx,
+		`CREATE INDEX IF NOT EXISTS ix_qrep_metadata_partition_id ON `+
+			p.QualifyTable(qrepTableName)+
+			` USING hash (partition_id)`)
+	if err != nil && !utils.IsUniqueError(err) {
+		p.logger.Error("failed to create qrep metadata index", slog.Any("error", err))
 		return err
 	}
 
@@ -136,11 +160,10 @@ func (p *PostgresMetadataStore) SetupMetadata() error {
 }
 
 func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (int64, error) {
-	row := p.conn.QueryRow(p.ctx, `
-		SELECT last_offset
-		FROM `+p.QualifyTable(lastSyncStateTableName)+`
-		WHERE job_name = $1
-	`, jobName)
+	row := p.conn.QueryRow(p.ctx,
+		`SELECT last_offset FROM `+
+			p.QualifyTable(lastSyncStateTableName)+
+			` WHERE job_name = $1`, jobName)
 	var offset pgtype.Int8
 	err := row.Scan(&offset)
 	if err != nil {
@@ -158,11 +181,10 @@ func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (int64, error) {
 }
 
 func (p *PostgresMetadataStore) GetLastBatchID(jobName string) (int64, error) {
-	row := p.conn.QueryRow(p.ctx, `
-		SELECT sync_batch_id
-		FROM `+p.QualifyTable(lastSyncStateTableName)+`
-		WHERE job_name = $1
-	`, jobName)
+	row := p.conn.QueryRow(p.ctx,
+		`SELECT sync_batch_id FROM `+
+			p.QualifyTable(lastSyncStateTableName)+
+			` WHERE job_name = $1`, jobName)
 
 	var syncBatchID pgtype.Int8
 	err := row.Scan(&syncBatchID)
@@ -181,11 +203,10 @@ func (p *PostgresMetadataStore) GetLastBatchID(jobName string) (int64, error) {
 }
 
 func (p *PostgresMetadataStore) GetLastNormalizeBatchID(jobName string) (int64, error) {
-	rows := p.conn.QueryRow(p.ctx, `
-		SELECT normalize_batch_id
-		FROM `+p.schemaName+`.`+lastSyncStateTableName+`
-		WHERE job_name = $1
-	`, jobName)
+	rows := p.conn.QueryRow(p.ctx,
+		`SELECT normalize_batch_id FROM `+
+			p.QualifyTable(lastSyncStateTableName)+
+			` WHERE job_name = $1`, jobName)
 
 	var normalizeBatchID pgtype.Int8
 	err := rows.Scan(&normalizeBatchID)
@@ -242,10 +263,9 @@ func (p *PostgresMetadataStore) FinishBatch(jobName string, syncBatchID int64, o
 
 func (p *PostgresMetadataStore) UpdateNormalizeBatchID(jobName string, batchID int64) error {
 	p.logger.Info("updating normalize batch id for job")
-	_, err := p.conn.Exec(p.ctx, `
-		UPDATE `+p.schemaName+`.`+lastSyncStateTableName+`
-		 SET normalize_batch_id=$2 WHERE job_name=$1
-	`, jobName, batchID)
+	_, err := p.conn.Exec(p.ctx,
+		`UPDATE `+p.QualifyTable(lastSyncStateTableName)+
+			` SET normalize_batch_id=$2 WHERE job_name=$1`, jobName, batchID)
 	if err != nil {
 		p.logger.Error("failed to update normalize batch id", slog.Any("error", err))
 		return err
@@ -254,10 +274,51 @@ func (p *PostgresMetadataStore) UpdateNormalizeBatchID(jobName string, batchID i
 	return nil
 }
 
-func (p *PostgresMetadataStore) DropMetadata(jobName string) error {
-	_, err := p.conn.Exec(p.ctx, `
-		DELETE FROM `+p.QualifyTable(lastSyncStateTableName)+`
-		WHERE job_name = $1
-	`, jobName)
+func (p *PostgresMetadataStore) FinishQrepPartition(
+	partition *protos.QRepPartition,
+	jobName string,
+	startTime time.Time,
+) error {
+	pbytes, err := protojson.Marshal(partition)
+	if err != nil {
+		return fmt.Errorf("failed to marshal partition to json: %w", err)
+	}
+	partitionJSON := string(pbytes)
+
+	_, err = p.conn.Exec(p.ctx,
+		`INSERT INTO `+p.QualifyTable(qrepTableName)+
+			`(job_name, partition_id, sync_partition, sync_start_time) VALUES ($1, $2, $3, $4)`,
+		jobName, partition.PartitionId, partitionJSON, startTime)
 	return err
+}
+
+func (p *PostgresMetadataStore) IsQrepPartitionSynced(partitionID string) (bool, error) {
+	var count int64
+	err := p.conn.QueryRow(p.ctx,
+		`SELECT COUNT(*) FROM `+
+			p.QualifyTable(qrepTableName)+
+			` WHERE partition_id = $1`,
+		partitionID).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to execute query: %w", err)
+	}
+	return count > 0, nil
+}
+
+func (p *PostgresMetadataStore) DropMetadata(jobName string) error {
+	_, err := p.conn.Exec(p.ctx,
+		`DELETE FROM `+p.QualifyTable(lastSyncStateTableName)+
+			` WHERE job_name = $1`, jobName)
+	if err != nil {
+		return err
+	}
+
+	_, err = p.conn.Exec(p.ctx,
+		`DELETE FROM `+p.QualifyTable(qrepTableName)+
+			` WHERE job_name = $1`, jobName)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

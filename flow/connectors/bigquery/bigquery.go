@@ -27,12 +27,6 @@ import (
 )
 
 const (
-	/*
-		Different batch Ids in code/BigQuery
-		1. batchID - identifier in raw table on target to depict which batch a row was inserted.
-		3. syncBatchID - batch id that was last synced or will be synced
-		4. normalizeBatchID - batch id that was last normalized or will be normalized.
-	*/
 	// MirrorJobsTable has the following schema:
 	// CREATE TABLE peerdb_mirror_jobs (
 	//   mirror_job_id STRING NOT NULL,

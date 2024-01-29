@@ -155,13 +155,7 @@ func (c *S3Connector) NeedsSetupMetadataTables() bool {
 }
 
 func (c *S3Connector) SetupMetadataTables() error {
-	err := c.pgMetadata.SetupMetadata()
-	if err != nil {
-		c.logger.Error("failed to setup metadata tables", slog.Any("error", err))
-		return err
-	}
-
-	return nil
+	return c.pgMetadata.SetupMetadata()
 }
 
 func (c *S3Connector) GetLastSyncBatchID(jobName string) (int64, error) {
@@ -172,15 +166,8 @@ func (c *S3Connector) GetLastOffset(jobName string) (int64, error) {
 	return c.pgMetadata.FetchLastOffset(jobName)
 }
 
-// update offset for a job
 func (c *S3Connector) SetLastOffset(jobName string, offset int64) error {
-	err := c.pgMetadata.UpdateLastOffset(jobName, offset)
-	if err != nil {
-		c.logger.Error("failed to update last offset: ", slog.Any("error", err))
-		return err
-	}
-
-	return nil
+	return c.pgMetadata.UpdateLastOffset(jobName, offset)
 }
 
 func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
