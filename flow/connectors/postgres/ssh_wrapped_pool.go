@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -93,62 +92,6 @@ func (tunnel *SSHTunnel) Close() {
 	}
 }
 
-func (tunnel *SSHTunnel) NewPostgresPoolFromPostgresConfig(
-	ctx context.Context,
-	pgConfig *protos.PostgresConfig,
-) (*pgxpool.Pool, error) {
-	connectionString := utils.GetPGConnectionString(pgConfig)
-
-	poolConfig, err := pgxpool.ParseConfig(connectionString)
-	if err != nil {
-		return nil, err
-	}
-
-	return tunnel.NewPostgresPoolFromConfig(ctx, poolConfig)
-}
-
-func (tunnel *SSHTunnel) NewPostgresPoolFromConfig(
-	ctx context.Context,
-	poolConfig *pgxpool.Config,
-) (*pgxpool.Pool, error) {
-	// set pool size to 3 to avoid connection pool exhaustion
-	poolConfig.MaxConns = 3
-
-	if tunnel.sshClient != nil {
-		poolConfig.ConnConfig.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			conn, err := tunnel.sshClient.Dial(network, addr)
-			if err != nil {
-				return nil, err
-			}
-			return &noDeadlineConn{Conn: conn}, nil
-		}
-	}
-
-	pool, err := pgxpool.NewWithConfig(tunnel.ctx, poolConfig)
-	if err != nil {
-		slog.Error("Failed to create pool:", slog.Any("error", err))
-		return nil, err
-	}
-
-	host := poolConfig.ConnConfig.Host
-	err = retryWithBackoff(func() error {
-		err = pool.Ping(tunnel.ctx)
-		if err != nil {
-			slog.Error("Failed to ping pool", slog.Any("error", err), slog.String("host", host))
-			return err
-		}
-		return nil
-	}, 5, 5*time.Second)
-
-	if err != nil {
-		slog.Error("Failed to create pool", slog.Any("error", err), slog.String("host", host))
-		pool.Close()
-		return nil, err
-	}
-
-	return pool, nil
-}
-
 func (tunnel *SSHTunnel) NewPostgresConnFromPostgresConfig(
 	ctx context.Context,
 	pgConfig *protos.PostgresConfig,
@@ -159,6 +102,7 @@ func (tunnel *SSHTunnel) NewPostgresConnFromPostgresConfig(
 	if err != nil {
 		return nil, err
 	}
+	connConfig.RuntimeParams["application_name"] = "peerdb"
 
 	return tunnel.NewPostgresConnFromConfig(ctx, connConfig)
 }

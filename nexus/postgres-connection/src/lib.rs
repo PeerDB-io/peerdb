@@ -58,7 +58,7 @@ impl rustls::client::danger::ServerCertVerifier for NoCertificateVerification {
 pub fn get_pg_connection_string(config: &PostgresConfig) -> String {
     let mut connection_string = String::from("postgres://");
 
-    connection_string.push_str(&config.user);
+    connection_string.push_str(&urlencoding::encode(&config.user));
     if !config.password.is_empty() {
         connection_string.push(':');
         connection_string.push_str(&urlencoding::encode(&config.password));
@@ -67,8 +67,8 @@ pub fn get_pg_connection_string(config: &PostgresConfig) -> String {
     // Add the timeout as a query parameter, sslmode changes here appear to be useless
     write!(
         connection_string,
-        "@{}:{}/{}?connect_timeout=15",
-        config.host, config.port, config.database
+        "@{}:{}/{}?connect_timeout=15&application_name=peerdb_nexus",
+        config.host, config.port, urlencoding::encode(&config.database)
     )
     .ok();
 

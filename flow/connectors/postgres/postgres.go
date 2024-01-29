@@ -51,7 +51,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	}
 
 	runtimeParams := connConfig.Config.RuntimeParams
-	runtimeParams["application_name"] = "peerdb_query_executor"
+	runtimeParams["application_name"] = "peerdb"
 	runtimeParams["idle_in_transaction_session_timeout"] = "0"
 	runtimeParams["statement_timeout"] = "0"
 
@@ -66,6 +66,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	}
 
 	// ensure that replication is set to database
+	replConfig.Config.RuntimeParams["application_name"] = "peerdb"
 	replConfig.Config.RuntimeParams["replication"] = "database"
 	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
 
