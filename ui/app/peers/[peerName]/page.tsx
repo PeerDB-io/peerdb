@@ -63,13 +63,7 @@ const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
       </div>
       <PeerDetails peerName={peerName} />
       {slots && stats ? (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-          }}
-        >
+        <div>
           <SlotTable data={slots} />
           <StatTable data={stats} />
         </div>
