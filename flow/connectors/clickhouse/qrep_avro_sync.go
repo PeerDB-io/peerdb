@@ -61,7 +61,6 @@ func (s *ClickhouseAvroSyncMethod) SyncRecords(
 	stream *model.QRecordStream,
 	flowJobName string,
 ) (int, error) {
-
 	tableLog := slog.String("destinationTable", s.config.DestinationTableIdentifier)
 	dstTableName := s.config.DestinationTableIdentifier
 
@@ -84,8 +83,6 @@ func (s *ClickhouseAvroSyncMethod) SyncRecords(
 	}
 	defer avroFile.Cleanup()
 	s.connector.logger.Info(fmt.Sprintf("written %d records to Avro file", avroFile.NumRecords), tableLog)
-
-
 	err = s.CopyStageToDestination(avroFile)
 	if err != nil {
 		return 0, err
