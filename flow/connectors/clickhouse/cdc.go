@@ -9,10 +9,11 @@ import (
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const (
@@ -117,7 +118,7 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 	tableNameRowsMapping := make(map[string]uint32)
 	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
 	streamRes, err := utils.RecordsToRawTableStream(streamReq)
-	//x := *&streamRes.Stream
+
 	//y := (*x).Records
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
@@ -139,7 +140,7 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 		return nil, err
 	}
 
-	//tableSchemaDeltas := req.Records.WaitForSchemaDeltas(req.TableMappings)
+
 	err = c.ReplayTableSchemaDeltas(req.FlowJobName, req.Records.SchemaDeltas)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
@@ -156,12 +157,12 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 		CurrentSyncBatchID:     syncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,
 		TableSchemaDeltas:      req.Records.SchemaDeltas,
-		//RelationMessageMapping: <-req.Records.RelationMessageMapping,
+		// RelationMessageMapping: <-req.Records.RelationMessageMapping,
 	}, nil
 }
 
 func (c *ClickhouseConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	//c.config.S3Integration = "s3://avro-clickhouse"
+
 	rawTableName := c.getRawTableName(req.FlowJobName)
 	c.logger.Info(fmt.Sprintf("pushing records to Clickhouse table %s", rawTableName))
 

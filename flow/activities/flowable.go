@@ -299,7 +299,6 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		TableMappings: input.FlowConnectionConfigs.TableMappings,
 		StagingPath:   input.FlowConnectionConfigs.CdcStagingPath,
 	})
-
 	if err != nil {
 		slog.Warn("failed to push records", slog.Any("error", err))
 		a.Alerter.LogFlowError(ctx, flowName, err)

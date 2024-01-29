@@ -35,7 +35,7 @@ func NewClickhouseAvroSyncMethod(
 func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(avroFile *avro.AvroFile) error {
 	stagingPath := s.config.StagingPath
 	if stagingPath == "" {
-		stagingPath = s.config.DestinationPeer.GetClickhouseConfig().S3Integration //"s3://avro-clickhouse"
+		stagingPath = s.config.DestinationPeer.GetClickhouseConfig().S3Integration // "s3://avro-clickhouse"
 	}
 	s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
 	if err != nil {
@@ -61,7 +61,7 @@ func (s *ClickhouseAvroSyncMethod) SyncRecords(
 	stream *model.QRecordStream,
 	flowJobName string,
 ) (int, error) {
-	//s.config.StagingPath = "s3://avro-clickhouse"
+
 	tableLog := slog.String("destinationTable", s.config.DestinationTableIdentifier)
 	dstTableName := s.config.DestinationTableIdentifier
 
@@ -85,7 +85,7 @@ func (s *ClickhouseAvroSyncMethod) SyncRecords(
 	defer avroFile.Cleanup()
 	s.connector.logger.Info(fmt.Sprintf("written %d records to Avro file", avroFile.NumRecords), tableLog)
 
-	//Copy stage/avro to destination
+
 	err = s.CopyStageToDestination(avroFile)
 	if err != nil {
 		return 0, err
@@ -102,7 +102,7 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 ) (int, error) {
 	startTime := time.Now()
 	dstTableName := config.DestinationTableIdentifier
-	//s.config.StagingPath = "s3://avro-clickhouse"
+
 	stagingPath := s.config.DestinationPeer.GetClickhouseConfig().S3Integration
 
 	schema, err := stream.Schema()
@@ -167,9 +167,9 @@ func (s *ClickhouseAvroSyncMethod) writeToAvroFile(
 	partitionID string,
 	flowJobName string,
 ) (*avro.AvroFile, error) {
-	stagingPath := s.config.StagingPath //"s3://avro-clickhouse"
+	stagingPath := s.config.StagingPath // "s3://avro-clickhouse"
 	if stagingPath == "" {
-		stagingPath = s.config.DestinationPeer.GetClickhouseConfig().S3Integration //"s3://avro-clickhouse"
+		stagingPath = s.config.DestinationPeer.GetClickhouseConfig().S3Integration // "s3://avro-clickhouse"
 	}
 	ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema, avro.CompressZstd,
 		qvalue.QDWHTypeClickhouse)

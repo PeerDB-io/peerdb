@@ -140,7 +140,7 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 		colSelector := strings.Builder{}
 		colSelector.WriteString("(")
 
-		//schema := c.tableSchemaMapping[tbl]
+
 		schema := req.TableNameSchemaMapping[tbl]
 		numCols := len(schema.ColumnNames)
 
