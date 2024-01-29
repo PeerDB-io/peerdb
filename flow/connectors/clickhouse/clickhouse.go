@@ -31,7 +31,7 @@ func NewClickhouseConnector(ctx context.Context,
 		return nil, fmt.Errorf("failed to open connection to Clickhouse peer: %w", err)
 	}
 
-	metadataSchemaName := "peerdb_s3_metadata" // #nosec G101
+	metadataSchemaName := "peerdb_ch_metadata"
 	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx,
 		clickhouseProtoConfig.GetMetadataDb(), metadataSchemaName)
 	if err != nil {
