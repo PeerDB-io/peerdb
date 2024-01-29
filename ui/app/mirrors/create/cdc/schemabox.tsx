@@ -50,8 +50,6 @@ const SchemaBox = ({
   const [expandedSchemas, setExpandedSchemas] = useState<string[]>([]);
   const [tableQuery, setTableQuery] = useState<string>('');
 
-  const [handlingAll, setHandlingAll] = useState(false);
-
   const searchedTables = useMemo(() => {
     const tableQueryLower = tableQuery.toLowerCase();
     return rows
@@ -125,17 +123,16 @@ const SchemaBox = ({
     e: React.MouseEvent<HTMLInputElement, MouseEvent>,
     schemaName: string
   ) => {
-    setHandlingAll(true);
     const newRows = [...rows];
-    for (const row of newRows) {
+    for (let i = 0; i < newRows.length; i++) {
+      const row = newRows[i];
       if (row.schema === schemaName) {
-        row.selected = e.currentTarget.checked;
+        newRows[i] = { ...row, selected: e.currentTarget.checked };
         if (e.currentTarget.checked) addTableColumns(row.source);
         else removeTableColumns(row.source);
       }
     }
     setRows(newRows);
-    setHandlingAll(false);
   };
 
   const rowsDoNotHaveSchemaTables = (schema: string) => {
@@ -199,8 +196,7 @@ const SchemaBox = ({
           </div>
         </div>
         {/* TABLE BOX */}
-        {handlingAll && <BarLoader />}
-        {!handlingAll && schemaIsExpanded(schema) && (
+        {schemaIsExpanded(schema) && (
           <div className='ml-5 mt-3' style={{ width: '90%' }}>
             {searchedTables.length ? (
               searchedTables.map((row) => {

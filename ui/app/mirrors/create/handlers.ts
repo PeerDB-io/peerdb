@@ -120,17 +120,13 @@ interface TableMapping {
 }
 const reformattedTableMapping = (tableMapping: TableMapRow[]) => {
   const mapping = tableMapping
-    .map((row) => {
-      if (row?.selected === true) {
-        return {
-          sourceTableIdentifier: row.source,
-          destinationTableIdentifier: row.destination,
-          partitionKey: row.partitionKey,
-          exclude: row.exclude,
-        };
-      }
-    })
-    .filter(Boolean);
+    .filter((row) => row?.selected === true)
+    .map((row) => ({
+      sourceTableIdentifier: row.source,
+      destinationTableIdentifier: row.destination,
+      partitionKey: row.partitionKey,
+      exclude: Array.from(row.exclude),
+    }));
   return mapping;
 };
 
@@ -277,7 +273,7 @@ export const fetchTables = async (
         source: `${schemaName}.${tableObject.tableName}`,
         destination: dstName,
         partitionKey: '',
-        exclude: [],
+        exclude: new Set(),
         selected: false,
         canMirror: tableObject.canMirror,
       });

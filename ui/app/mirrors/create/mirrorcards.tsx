@@ -41,7 +41,7 @@ const MirrorCards = ({
       >
         {cards.map((card, index) => {
           return (
-            <div
+            <label
               key={index}
               style={{
                 padding: '0.5rem',
@@ -79,7 +79,7 @@ const MirrorCards = ({
               >
                 Learn more
               </Label>
-            </div>
+            </label>
           );
         })}
       </div>

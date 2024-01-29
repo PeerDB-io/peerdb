@@ -23,7 +23,7 @@ export type TableMapRow = {
   source: string;
   destination: string;
   partitionKey: string;
-  exclude: string[];
+  exclude: Set<string>;
   selected: boolean;
   canMirror: boolean;
 };
