@@ -789,6 +789,9 @@ fn parse_db_options(
             Some(config)
         }
         DbType::Clickhouse => {
+            let conn_str = opts.get("metadata_db");
+            let metadata_db = parse_metadata_db_info(conn_str.copied())?;
+
             let s3_int = opts
                 .get("s3_integration")
                 .map(|s| s.to_string())
@@ -814,6 +817,7 @@ fn parse_db_options(
                     .context("no default database specified")?
                     .to_string(),
                 s3_integration: s3_int,
+                metadata_db,
             };
             let config = Config::ClickhouseConfig(clickhouse_config);
             Some(config)
