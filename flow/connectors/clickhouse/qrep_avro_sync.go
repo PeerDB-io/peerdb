@@ -42,7 +42,7 @@ func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(avroFile *avro.AvroFil
 		return err
 	}
 	awsCreds, err := utils.GetAWSSecrets(utils.S3PeerCredentials{})
-	avroFileUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com%s", s3o.Bucket, awsCreds.Region, avroFile.FilePath)
+	avroFileUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s3o.Bucket, awsCreds.Region, avroFile.FilePath)
 
 	if err != nil {
 		return err
@@ -124,7 +124,7 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 		return 0, err
 	}
 	awsCreds, err := utils.GetAWSSecrets(utils.S3PeerCredentials{})
-	avroFileUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com%s", s3o.Bucket, awsCreds.Region, avroFile.FilePath)
+	avroFileUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s3o.Bucket, awsCreds.Region, avroFile.FilePath)
 
 	if err != nil {
 		return 0, err
@@ -178,7 +178,9 @@ func (s *ClickhouseAvroSyncMethod) writeToAvroFile(
 		return nil, fmt.Errorf("failed to parse staging path: %w", err)
 	}
 
-	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, flowJobName, partitionID)           // s.config.FlowJobName
+	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, flowJobName, partitionID) // s.config.FlowJobName
+	s3AvroFileKey = strings.Trim(s3AvroFileKey, "/")
+
 	avroFile, err := ocfWriter.WriteRecordsToS3(s3o.Bucket, s3AvroFileKey, utils.S3PeerCredentials{}) ///utils.S3PeerCredentials{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to write records to S3: %w", err)
