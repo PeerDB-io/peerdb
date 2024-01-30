@@ -15,6 +15,8 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
+var big10 = big.NewInt(10)
+
 func postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
 	switch recvOID {
 	case pgtype.BoolOID:
@@ -525,7 +527,6 @@ func numericToRat(numVal *pgtype.Numeric) (*big.Rat, error) {
 		}
 
 		rat := new(big.Rat).SetInt(numVal.Int)
-		big10 := big.NewInt(10)
 		if numVal.Exp > 0 {
 			mul := new(big.Int).Exp(big10, big.NewInt(int64(numVal.Exp)), nil)
 			rat.Mul(rat, new(big.Rat).SetInt(mul))
