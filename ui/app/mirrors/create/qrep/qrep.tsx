@@ -138,12 +138,12 @@ export default function QRepConfigForm({
     if (mirrorConfig.destinationPeer?.type === DBType.BIGQUERY) {
       setter((curr) => ({
         ...curr,
-        destinationTableIdentifier: mirrorConfig.watermarkTable?.split('.')[1],
+        watermarkTable: mirrorConfig.watermarkTable?.split('.')[1],
       }));
     } else {
       setter((curr) => ({
         ...curr,
-        destinationTableIdentifier: mirrorConfig.watermarkTable,
+        watermarkTable: mirrorConfig.watermarkTable,
       }));
     }
   }, [mirrorConfig.destinationPeer, mirrorConfig.watermarkTable, setter]);
