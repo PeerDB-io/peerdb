@@ -614,5 +614,9 @@ func CDCFlowWorkflowWithConfig(
 
 	finishNormalize()
 	state.TruncateProgress(w.logger)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, limits, state)
 }

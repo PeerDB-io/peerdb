@@ -525,7 +525,9 @@ func QRepFlowWorkflow(
 			}
 		}
 	}
-
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Continue the workflow with new state
 	return workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
 }

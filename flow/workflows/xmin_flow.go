@@ -111,6 +111,9 @@ func XminFlowWorkflow(
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Continue the workflow with new state
 	return workflow.NewContinueAsNewError(ctx, XminFlowWorkflow, config, state)
 }
