@@ -15,6 +15,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/geo"
 	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
+	"github.com/PeerDB-io/peer-flow/model/numeric"
 )
 
 // if new types are added, register them in gob - cdc_records_storage.go
@@ -226,8 +227,8 @@ func compareNumeric(value1, value2 interface{}) bool {
 	}
 
 	// check if the values have less than or equal to 9 significant digits right of the decimal
-	str1 := rat1.FloatString(10)
-	str2 := rat2.FloatString(10)
+	str1 := numeric.StripTrailingZeros(rat1.FloatString(10))
+	str2 := numeric.StripTrailingZeros(rat2.FloatString(10))
 	if len(str1) > 2 && len(str2) > 2 {
 		decimals1 := len(str1) - strings.Index(str1, ".") - 1
 		decimals2 := len(str2) - strings.Index(str2, ".") - 1
