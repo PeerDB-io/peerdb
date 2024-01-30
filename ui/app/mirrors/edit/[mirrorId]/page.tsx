@@ -1,5 +1,7 @@
 import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import prisma from '@/app/utils/prisma';
+import { ResyncDialog } from '@/components/ResyncDialog';
+import { FlowConnectionConfigs } from '@/grpc_generated/flow';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { Header } from '@/lib/Header';
 import { LayoutMain } from '@/lib/Layout';
@@ -25,7 +27,7 @@ async function getMirrorStatus(mirrorId: string) {
   return json;
 }
 
-export default async function EditMirror({
+export default async function ViewMirror({
   params: { mirrorId },
 }: EditMirrorProps) {
   const mirrorStatus: MirrorStatusResponse = await getMirrorStatus(mirrorId);
@@ -37,6 +39,7 @@ export default async function EditMirror({
     select: {
       created_at: true,
       workflow_id: true,
+      config_proto: true,
     },
     where: {
       name: mirrorId,
@@ -67,6 +70,10 @@ export default async function EditMirror({
     return <NoMirror />;
   }
 
+  if (!mirrorInfo) {
+    return <div>No mirror info found</div>;
+  }
+  const mirrorConfig = FlowConnectionConfigs.decode(mirrorInfo.config_proto!);
   let syncStatusChild = <></>;
   if (mirrorStatus.cdcStatus) {
     let rowsSynced = syncs.reduce((acc, sync) => {
@@ -84,7 +91,22 @@ export default async function EditMirror({
 
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
-      <Header variant='title2'>{mirrorId}</Header>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          paddingRight: '2rem',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <Header variant='title2'>{mirrorId}</Header>
+        </div>
+        <ResyncDialog
+          mirrorConfig={mirrorConfig}
+          workflowId={mirrorInfo.workflow_id || ''}
+        />
+      </div>
       <CDCMirror
         rows={rows}
         createdAt={mirrorInfo?.created_at}
