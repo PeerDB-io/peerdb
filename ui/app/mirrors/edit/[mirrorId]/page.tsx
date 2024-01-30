@@ -73,8 +73,9 @@ export default async function ViewMirror({
   if (!mirrorInfo) {
     return <div>No mirror info found</div>;
   }
-  const mirrorConfig = FlowConnectionConfigs.decode(mirrorInfo.config_proto!);
+
   let syncStatusChild = <></>;
+  let resyncComponent = <></>;
   if (mirrorStatus.cdcStatus) {
     let rowsSynced = syncs.reduce((acc, sync) => {
       if (sync.end_time !== null) {
@@ -82,6 +83,13 @@ export default async function ViewMirror({
       }
       return acc;
     }, 0);
+    const mirrorConfig = FlowConnectionConfigs.decode(mirrorInfo.config_proto!);
+    resyncComponent = (
+      <ResyncDialog
+        mirrorConfig={mirrorConfig}
+        workflowId={mirrorInfo.workflow_id || ''}
+      />
+    );
     syncStatusChild = (
       <SyncStatus rowsSynced={rowsSynced} rows={rows} flowJobName={mirrorId} />
     );
@@ -102,10 +110,7 @@ export default async function ViewMirror({
         <div style={{ display: 'flex', alignItems: 'center' }}>
           <Header variant='title2'>{mirrorId}</Header>
         </div>
-        <ResyncDialog
-          mirrorConfig={mirrorConfig}
-          workflowId={mirrorInfo.workflow_id || ''}
-        />
+        {resyncComponent}
       </div>
       <CDCMirror
         rows={rows}
