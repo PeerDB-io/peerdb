@@ -40,6 +40,7 @@ export const ResyncDialog = ({
     setSyncing(true);
     setMsg('Resyncing...');
     mirrorConfig.resync = true;
+    mirrorConfig.doInitialSnapshot = true;
     const createStatus = await fetch('/api/mirrors/cdc', {
       method: 'POST',
       body: JSON.stringify({
