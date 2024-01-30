@@ -12,50 +12,56 @@ export const ResyncDialog = ({
   mirrorConfig,
   workflowId,
 }: {
-  mirrorConfig:CDCConfig,
-    workflowId:string
+  mirrorConfig: CDCConfig;
+  workflowId: string;
 }) => {
   const [syncing, setSyncing] = useState(false);
   const [dropping, setDropping] = useState(false);
   const [msg, setMsg] = useState('');
 
   const handleResync = async () => {
-    setMsg('Dropping existing mirror')
-    const dropStatus = await handleDropMirror({
+    setMsg('Dropping existing mirror');
+    const dropStatus = await handleDropMirror(
+      {
         workflowId: workflowId,
         flowJobName: mirrorConfig.flowJobName,
         sourcePeer: mirrorConfig.source!,
         destinationPeer: mirrorConfig.destination!,
         forResync: true,
-    }, setDropping, setMsg);
+      },
+      setDropping,
+      setMsg
+    );
 
-    if(!dropStatus){
-        return;
+    if (!dropStatus) {
+      return;
     }
 
-    setSyncing(true)
+    setSyncing(true);
     setMsg('Resyncing...');
+    mirrorConfig.resync = true;
     const createStatus = await fetch('/api/mirrors/cdc', {
-        method: 'POST',
-        body: JSON.stringify({
-          config:mirrorConfig,
-        }),
-      }).then((res) => res.json());
+      method: 'POST',
+      body: JSON.stringify({
+        config: mirrorConfig,
+      }),
+    }).then((res) => res.json());
     setSyncing(false);
-    if(!createStatus.created){
-        setMsg('Resyncing of existing mirror failed');
-        return;
-    };
+    if (!createStatus.created) {
+      setMsg('Resyncing of existing mirror failed');
+      return;
+    }
 
     setMsg('Mirror resynced successfully');
-}
+    window.location.reload();
+  };
 
   return (
     <Dialog
       noInteract={true}
       size='xLarge'
       triggerButton={
-        <Button variant='normalSolid' style={{height:'2em', width:'8em'}}>
+        <Button variant='normalSolid' style={{ height: '2em', width: '8em' }}>
           Resync
         </Button>
       }
@@ -70,12 +76,12 @@ export const ResyncDialog = ({
           <br></br>
           This involves <b>dropping the existing mirror</b> and recreating it.
         </Label>
-    <div style={{display:'flex', alignItems:'center'}}>
-        {syncing || dropping && <DotLoader size={15}/>}
-        <Label as='label' style={{ marginTop: '0.3rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          {syncing || (dropping && <DotLoader size={15} />)}
+          <Label as='label' style={{ marginTop: '0.3rem' }}>
             {msg}
-        </Label>
-    </div>
+          </Label>
+        </div>
         <div style={{ display: 'flex', marginTop: '1rem' }}>
           <DialogClose>
             <Button style={{ backgroundColor: '#6c757d', color: 'white' }}>

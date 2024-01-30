@@ -26,13 +26,13 @@ interface deleteAlertArgs {
   id: number | bigint;
 }
 
-export const handleDropMirror = async (dropArgs: dropMirrorArgs,
-  setLoading:Dispatch<SetStateAction<boolean>>,
-  setMsg:Dispatch<SetStateAction<string>>
-  ) => {
+export const handleDropMirror = async (
+  dropArgs: dropMirrorArgs,
+  setLoading: Dispatch<SetStateAction<boolean>>,
+  setMsg: Dispatch<SetStateAction<string>>
+) => {
   if (!dropArgs.workflowId) {
     setMsg('Workflow ID not found for this mirror.');
-    console.log('Workflow ID not found for this mirror.')
     return false;
   }
   setLoading(true);
@@ -41,7 +41,7 @@ export const handleDropMirror = async (dropArgs: dropMirrorArgs,
     body: JSON.stringify(dropArgs),
   }).then((res) => res.json());
   setLoading(false);
-  if (dropRes.dropped !== true){
+  if (dropRes.dropped !== true) {
     setMsg(
       `Unable to drop mirror ${dropArgs.flowJobName}. ${
         dropRes.errorMessage ?? ''
@@ -51,10 +51,10 @@ export const handleDropMirror = async (dropArgs: dropMirrorArgs,
   }
 
   setMsg('Mirror dropped successfully.');
-  if(!dropArgs.forResync){
+  if (!dropArgs.forResync) {
     window.location.reload();
   }
-  
+
   return true;
 };
 
@@ -147,7 +147,11 @@ export const DropDialog = ({
           <Button
             onClick={() =>
               mode === 'MIRROR'
-                ? handleDropMirror(dropArgs as dropMirrorArgs, setLoading, setMsg)
+                ? handleDropMirror(
+                    dropArgs as dropMirrorArgs,
+                    setLoading,
+                    setMsg
+                  )
                 : mode === 'PEER'
                   ? handleDropPeer(dropArgs as dropPeerArgs)
                   : handleDeleteAlert(dropArgs as deleteAlertArgs)
