@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/civil"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/geo"
 	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
+	"github.com/PeerDB-io/peer-flow/model/numeric"
 )
 
 // if new types are added, register them in gob - cdc_records_storage.go
@@ -224,9 +226,24 @@ func compareNumeric(value1, value2 interface{}) bool {
 		return false
 	}
 
-	// check if the difference is less than 1e-9
-	diff := new(big.Rat).Sub(rat1, rat2)
-	return diff.Abs(diff).Cmp(big.NewRat(1, 1000000000)) < 0
+	str1 := numeric.StripTrailingZeros(rat1.FloatString(10))
+	str2 := numeric.StripTrailingZeros(rat2.FloatString(10))
+	if len(str1) > 2 && len(str2) > 2 {
+		decimals1 := len(str1) - strings.Index(str1, ".") - 1
+		decimals2 := len(str2) - strings.Index(str2, ".") - 1
+		// for cases like 1.12345 or 1.12345678, check exact equality
+		if decimals1 <= 9 && decimals2 <= 9 {
+			return str1 == str2
+		} else {
+			// check if the difference is less than 1e-9
+			diff := new(big.Rat).Sub(rat1, rat2)
+			if diff.Cmp(big.NewRat(1, 1000000000)) < 0 {
+				return true
+			}
+		}
+	}
+
+	return str1 == str2
 }
 
 func compareString(value1, value2 interface{}) bool {

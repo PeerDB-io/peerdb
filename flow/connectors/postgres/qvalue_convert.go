@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"math/big"
 	"strings"
 	"time"
@@ -15,6 +14,8 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
+
+var big10 = big.NewInt(10)
 
 func postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
 	switch recvOID {
@@ -525,12 +526,14 @@ func numericToRat(numVal *pgtype.Numeric) (*big.Rat, error) {
 			return nil, errors.New("numeric value is infinity")
 		}
 
-		rat := new(big.Rat)
-
-		rat.SetInt(numVal.Int)
-		divisor := new(big.Rat).SetFloat64(math.Pow10(int(-numVal.Exp)))
-		rat.Quo(rat, divisor)
-
+		rat := new(big.Rat).SetInt(numVal.Int)
+		if numVal.Exp > 0 {
+			mul := new(big.Int).Exp(big10, big.NewInt(int64(numVal.Exp)), nil)
+			rat.Mul(rat, new(big.Rat).SetInt(mul))
+		} else if numVal.Exp < 0 {
+			mul := new(big.Int).Exp(big10, big.NewInt(int64(-numVal.Exp)), nil)
+			rat.Quo(rat, new(big.Rat).SetInt(mul))
+		}
 		return rat, nil
 	}
 
