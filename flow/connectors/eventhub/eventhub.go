@@ -236,12 +236,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		return nil, err
 	}
 
-	err = c.SetLastOffset(req.FlowJobName, lastCheckpoint)
-	if err != nil {
-		c.logger.Error("failed to update last offset", slog.Any("error", err))
-		return nil, err
-	}
-	err = c.pgMetadata.IncrementID(req.FlowJobName)
+	err = c.pgMetadata.FinishBatch(req.FlowJobName, req.SyncBatchID, lastCheckpoint)
 	if err != nil {
 		c.logger.Error("failed to increment id", slog.Any("error", err))
 		return nil, err
