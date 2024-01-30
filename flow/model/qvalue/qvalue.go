@@ -226,12 +226,12 @@ func compareNumeric(value1, value2 interface{}) bool {
 		return false
 	}
 
-	// check if the values have less than or equal to 9 significant digits right of the decimal
 	str1 := numeric.StripTrailingZeros(rat1.FloatString(10))
 	str2 := numeric.StripTrailingZeros(rat2.FloatString(10))
 	if len(str1) > 2 && len(str2) > 2 {
 		decimals1 := len(str1) - strings.Index(str1, ".") - 1
 		decimals2 := len(str2) - strings.Index(str2, ".") - 1
+		// for cases like 1.12345 or 1.12345678, check exact equality
 		if decimals1 <= 9 && decimals2 <= 9 {
 			return str1 == str2
 		} else {
