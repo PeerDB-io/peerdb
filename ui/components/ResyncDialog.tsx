@@ -5,7 +5,7 @@ import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Label } from '@/lib/Label';
 import { Divider } from '@tremor/react';
 import { useState } from 'react';
-import { BarLoader, ClipLoader, DotLoader } from 'react-spinners';
+import { BarLoader, DotLoader } from 'react-spinners';
 import { handleDropMirror } from './DropDialog';
 
 export const ResyncDialog = ({
@@ -38,7 +38,7 @@ export const ResyncDialog = ({
     const createStatus = await fetch('/api/mirrors/cdc', {
         method: 'POST',
         body: JSON.stringify({
-          mirrorConfig,
+          config:mirrorConfig,
         }),
       }).then((res) => res.json());
     setSyncing(false);
