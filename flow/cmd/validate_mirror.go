@@ -12,6 +12,12 @@ import (
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, error) {
+	if req.ConnectionConfigs == nil {
+		slog.Error("/validatecdc connection configs is nil")
+		return &protos.ValidateCDCMirrorResponse{
+			Ok: false,
+		}, fmt.Errorf("connection configs is nil")
+	}
 	sourcePeerConfig := req.ConnectionConfigs.Source.GetPostgresConfig()
 	if sourcePeerConfig == nil {
 		slog.Error("/validatecdc source peer config is nil", slog.Any("peer", req.ConnectionConfigs.Source))

@@ -7,7 +7,7 @@ import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { Divider } from '@tremor/react';
-import { useState } from 'react';
+import { Dispatch, SetStateAction, useState } from 'react';
 import { BarLoader } from 'react-spinners';
 
 interface dropMirrorArgs {
@@ -15,6 +15,7 @@ interface dropMirrorArgs {
   flowJobName: string;
   sourcePeer: Peer;
   destinationPeer: Peer;
+  forResync?: boolean;
 }
 
 interface dropPeerArgs {
@@ -25,6 +26,38 @@ interface deleteAlertArgs {
   id: number | bigint;
 }
 
+export const handleDropMirror = async (dropArgs: dropMirrorArgs,
+  setLoading:Dispatch<SetStateAction<boolean>>,
+  setMsg:Dispatch<SetStateAction<string>>
+  ) => {
+  if (!dropArgs.workflowId) {
+    setMsg('Workflow ID not found for this mirror.');
+    console.log('Workflow ID not found for this mirror.')
+    return false;
+  }
+  setLoading(true);
+  const dropRes: UDropMirrorResponse = await fetch('/api/mirrors/drop', {
+    method: 'POST',
+    body: JSON.stringify(dropArgs),
+  }).then((res) => res.json());
+  setLoading(false);
+  if (dropRes.dropped !== true){
+    setMsg(
+      `Unable to drop mirror ${dropArgs.flowJobName}. ${
+        dropRes.errorMessage ?? ''
+      }`
+    );
+    return false;
+  }
+
+  setMsg('Mirror dropped successfully.');
+  if(!dropArgs.forResync){
+    window.location.reload();
+  }
+  
+  return true;
+};
+
 export const DropDialog = ({
   mode,
   dropArgs,
@@ -34,28 +67,6 @@ export const DropDialog = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
-  const handleDropMirror = async (dropArgs: dropMirrorArgs) => {
-    if (!dropArgs.workflowId) {
-      setMsg('Workflow ID not found for this mirror.');
-      return;
-    }
-    setLoading(true);
-    const dropRes: UDropMirrorResponse = await fetch('api/mirrors/drop', {
-      method: 'POST',
-      body: JSON.stringify(dropArgs),
-    }).then((res) => res.json());
-    setLoading(false);
-    if (dropRes.dropped !== true)
-      setMsg(
-        `Unable to drop mirror ${dropArgs.flowJobName}. ${
-          dropRes.errorMessage ?? ''
-        }`
-      );
-    else {
-      setMsg('Mirror dropped successfully.');
-      window.location.reload();
-    }
-  };
 
   const handleDropPeer = async (dropArgs: dropPeerArgs) => {
     if (!dropArgs.peerName) {
@@ -136,7 +147,7 @@ export const DropDialog = ({
           <Button
             onClick={() =>
               mode === 'MIRROR'
-                ? handleDropMirror(dropArgs as dropMirrorArgs)
+                ? handleDropMirror(dropArgs as dropMirrorArgs, setLoading, setMsg)
                 : mode === 'PEER'
                   ? handleDropPeer(dropArgs as dropPeerArgs)
                   : handleDeleteAlert(dropArgs as deleteAlertArgs)
