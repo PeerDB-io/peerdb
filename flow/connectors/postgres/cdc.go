@@ -26,8 +26,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-const maxRetriesForWalSegmentRemoved = 5
-
 type PostgresCDCSource struct {
 	ctx                    context.Context
 	replConn               *pgx.Conn
@@ -266,7 +264,6 @@ func (p *PostgresCDCSource) consumeStream(
 
 	pkmRequiresResponse := false
 	waitingForCommit := false
-	retryAttemptForWALSegmentRemoved := 0
 
 	for {
 		if pkmRequiresResponse {
@@ -349,20 +346,7 @@ func (p *PostgresCDCSource) consumeStream(
 		}
 
 		if errMsg, ok := rawMsg.(*pgproto3.ErrorResponse); ok {
-			if errMsg.Severity == "ERROR" && errMsg.Code == "XX000" {
-				if p.walSegmentRemovedRegex.MatchString(errMsg.Message) {
-					retryAttemptForWALSegmentRemoved++
-					if retryAttemptForWALSegmentRemoved > maxRetriesForWalSegmentRemoved {
-						return fmt.Errorf("max retries for WAL segment removed exceeded: %+v", errMsg)
-					} else {
-						p.logger.Warn(
-							"WAL segment removed, restarting replication retrying in 30 seconds...",
-							slog.Any("error", errMsg), slog.Int("retryAttempt", retryAttemptForWALSegmentRemoved))
-						time.Sleep(30 * time.Second)
-						continue
-					}
-				}
-			}
+			p.logger.Error(fmt.Sprintf("received Postgres WAL error: %+v", errMsg))
 			return fmt.Errorf("received Postgres WAL error: %+v", errMsg)
 		}
 
