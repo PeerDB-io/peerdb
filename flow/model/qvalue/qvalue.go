@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/civil"
@@ -224,9 +225,24 @@ func compareNumeric(value1, value2 interface{}) bool {
 		return false
 	}
 
-	// check if the difference is less than 1e-9
-	diff := new(big.Rat).Sub(rat1, rat2)
-	return diff.Abs(diff).Cmp(big.NewRat(1, 1000000000)) < 0
+	// check if the values have less than or equal to 9 significant digits right of the decimal
+	str1 := rat1.FloatString(10)
+	str2 := rat2.FloatString(10)
+	if len(str1) > 2 && len(str2) > 2 {
+		decimals1 := len(str1) - strings.Index(str1, ".") - 1
+		decimals2 := len(str2) - strings.Index(str2, ".") - 1
+		if decimals1 <= 9 && decimals2 <= 9 {
+			return str1 == str2
+		} else {
+			// check if the difference is less than 1e-9
+			diff := new(big.Rat).Sub(rat1, rat2)
+			if diff.Cmp(big.NewRat(1, 1000000000)) < 0 {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func compareString(value1, value2 interface{}) bool {

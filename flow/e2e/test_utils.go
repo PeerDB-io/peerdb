@@ -297,7 +297,7 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 						CURRENT_TIMESTAMP, E'\\\\xDEADBEEF', 'type1', '%s',
 						1, 0, 1, 'dealType1',
 						'%s', '%s', false, 1.2345,
-						1.2345, false, 12345, '%s',
+						1.2345, false, 200.12345678, '%s',
 						12345, 1, '%s', CURRENT_TIMESTAMP, 'refID',
 						CURRENT_TIMESTAMP, 1, ARRAY['text1', 'text2'], ARRAY[123, 456], ARRAY[789, 012],
 						ARRAY['varchar1', 'varchar2'], '{"key": -8.02139037433155}',
