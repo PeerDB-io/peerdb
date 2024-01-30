@@ -222,29 +222,30 @@ export default function CreateMirrors() {
       <Panel>
         {mirrorType && (
           <div style={styles.MirrorButtonContainer}>
-            <Button
-              style={styles.MirrorButtonStyle}
-              variant='peer'
-              disabled={creating}
-              onClick={() =>
-                mirrorType === 'CDC' &&
-                handleValidateCDC(
-                  mirrorName,
-                  rows,
-                  config as CDCConfig,
-                  notifyErr,
-                  setValidating
-                )
-              }
-            >
-              {validating ? (
-                <ProgressCircle variant='determinate_progress_circle' />
-              ) : (
-                <>
-                  <Icon name='checklist' /> Validate
-                </>
-              )}
-            </Button>
+            {mirrorType === 'CDC' && (
+              <Button
+                style={styles.MirrorButtonStyle}
+                variant='peer'
+                disabled={creating}
+                onClick={() =>
+                  handleValidateCDC(
+                    mirrorName,
+                    rows,
+                    config as CDCConfig,
+                    notifyErr,
+                    setValidating
+                  )
+                }
+              >
+                {validating ? (
+                  <ProgressCircle variant='determinate_progress_circle' />
+                ) : (
+                  <>
+                    <Icon name='checklist' /> Validate
+                  </>
+                )}
+              </Button>
+            )}
             <Button
               style={styles.MirrorButtonStyle}
               variant='normalSolid'
