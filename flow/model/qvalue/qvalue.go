@@ -243,7 +243,7 @@ func compareNumeric(value1, value2 interface{}) bool {
 		}
 	}
 
-	return false
+	return str1 == str2
 }
 
 func compareString(value1, value2 interface{}) bool {
