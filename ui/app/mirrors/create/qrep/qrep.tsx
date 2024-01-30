@@ -135,20 +135,6 @@ export default function QRepConfigForm({
   }, [mirrorConfig.sourcePeer]);
 
   useEffect(() => {
-    if (mirrorConfig.destinationPeer?.type === DBType.BIGQUERY) {
-      setter((curr) => ({
-        ...curr,
-        watermarkTable: mirrorConfig.watermarkTable?.split('.')[1],
-      }));
-    } else {
-      setter((curr) => ({
-        ...curr,
-        watermarkTable: mirrorConfig.watermarkTable,
-      }));
-    }
-  }, [mirrorConfig.destinationPeer, mirrorConfig.watermarkTable, setter]);
-
-  useEffect(() => {
     // set defaults
     setter((curr) => ({ ...curr, ...blankQRepSetting }));
   }, [setter]);
@@ -281,11 +267,7 @@ export default function QRepConfigForm({
                     <TextField
                       variant='simple'
                       type={setting.type}
-                      defaultValue={
-                        setting.label === 'Destination Table Name'
-                          ? mirrorConfig.destinationTableIdentifier
-                          : (setting.default as string)
-                      }
+                      defaultValue={setting.default as string}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                         handleChange(e.target.value, setting)
                       }
