@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -67,8 +66,7 @@ func TestPeerFlowE2ETestSuiteBQ(t *testing.T) {
 
 		err := s.bqHelper.DropDataset(s.bqHelper.Config.DatasetId)
 		if err != nil {
-			slog.Error("failed to tear down bigquery", slog.Any("error", err))
-			s.t.FailNow()
+			s.t.Fatalf("failed to tear down bigquery: %v", err)
 		}
 	})
 }
@@ -146,14 +144,12 @@ func setupBigQuery(t *testing.T) *BigQueryTestHelper {
 
 	bqHelper, err := NewBigQueryTestHelper()
 	if err != nil {
-		slog.Error("Error in test", slog.Any("error", err))
-		t.FailNow()
+		t.Fatalf("Failed to create helper: %v", err)
 	}
 
 	err = bqHelper.RecreateDataset()
 	if err != nil {
-		slog.Error("Error in test", slog.Any("error", err))
-		t.FailNow()
+		t.Fatalf("Failed to recreate dataset: %v", err)
 	}
 
 	return bqHelper
@@ -167,16 +163,15 @@ func setupSuite(t *testing.T) PeerFlowE2ETestSuiteBQ {
 	if err != nil {
 		// it's okay if the .env file is not present
 		// we will use the default values
-		slog.Info("Unable to load .env file, using default values from env")
+		t.Log("Unable to load .env file, using default values from env")
 	}
 
 	suffix := shared.RandomString(8)
 	tsSuffix := time.Now().Format("20060102150405")
 	bqSuffix := fmt.Sprintf("bq_%s_%s", strings.ToLower(suffix), tsSuffix)
-	conn, err := e2e.SetupPostgres(bqSuffix)
+	conn, err := e2e.SetupPostgres(t, bqSuffix)
 	if err != nil || conn == nil {
-		slog.Error("failed to setup postgres", slog.Any("error", err))
-		t.FailNow()
+		t.Fatalf("failed to setup postgres: %v", err)
 	}
 
 	bq := setupBigQuery(t)

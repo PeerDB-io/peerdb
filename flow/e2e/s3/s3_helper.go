@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"time"
 
@@ -99,10 +98,8 @@ func (h *S3TestHelper) ListAllFiles(
 		Prefix: &Prefix,
 	})
 	if err != nil {
-		slog.Error("failed to list bucket files", slog.Any("error", err))
 		return nil, err
 	}
-	slog.Info(fmt.Sprintf("Files in ListAllFiles in S3 test: %v", files))
 	return files.Contents, nil
 }
 
@@ -115,7 +112,6 @@ func (h *S3TestHelper) CleanUp(ctx context.Context) error {
 		Prefix: &Prefix,
 	})
 	if err != nil {
-		slog.Error("failed to list bucket files", slog.Any("error", err))
 		return err
 	}
 
@@ -132,6 +128,5 @@ func (h *S3TestHelper) CleanUp(ctx context.Context) error {
 		}
 	}
 
-	slog.Info("Deletion completed.")
 	return nil
 }

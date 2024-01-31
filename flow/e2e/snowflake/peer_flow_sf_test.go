@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -62,15 +61,13 @@ func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
 		if s.sfHelper != nil {
 			err := s.sfHelper.Cleanup()
 			if err != nil {
-				slog.Error("failed to tear down Snowflake", slog.Any("error", err))
-				s.t.FailNow()
+				s.t.Fatalf("failed to tear down Snowflake: %v", err)
 			}
 		}
 
 		err := s.connector.Close()
 		if err != nil {
-			slog.Error("failed to close Snowflake connector", slog.Any("error", err))
-			s.t.FailNow()
+			s.t.Fatalf("failed to close Snowflake connector: %v", err)
 		}
 	})
 }
@@ -90,23 +87,21 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSF {
 	if err != nil {
 		// it's okay if the .env file is not present
 		// we will use the default values
-		slog.Info("Unable to load .env file, using default values from env")
+		t.Log("Unable to load .env file, using default values from env")
 	}
 
 	suffix := shared.RandomString(8)
 	tsSuffix := time.Now().Format("20060102150405")
 	pgSuffix := fmt.Sprintf("sf_%s_%s", strings.ToLower(suffix), tsSuffix)
 
-	conn, err := e2e.SetupPostgres(pgSuffix)
+	conn, err := e2e.SetupPostgres(t, pgSuffix)
 	if err != nil || conn == nil {
-		slog.Error("failed to setup Postgres", slog.Any("error", err))
-		t.FailNow()
+		t.Fatalf("failed to setup Postgres: %v", err)
 	}
 
 	sfHelper, err := NewSnowflakeTestHelper()
 	if err != nil {
-		slog.Error("failed to setup Snowflake", slog.Any("error", err))
-		t.FailNow()
+		t.Fatalf("failed to setup Snowflake: %v", err)
 	}
 
 	connector, err := connsnowflake.NewSnowflakeConnector(
