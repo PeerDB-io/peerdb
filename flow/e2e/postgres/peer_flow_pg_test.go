@@ -76,8 +76,7 @@ func (s PeerFlowE2ETestSuitePG) WaitForSchema(
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_flow")
 	dstTableName := s.attachSchemaSuffix("test_simple_flow_dst")
@@ -136,8 +135,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Geospatial_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_geospatial_pg")
 	dstTableName := s.attachSchemaSuffix("test_geospatial_pg_dst")
@@ -190,8 +188,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Geospatial_PG() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_types_pg")
 	dstTableName := s.attachSchemaSuffix("test_types_pg_dst")
@@ -264,8 +261,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_enum_flow")
 	dstTableName := s.attachSchemaSuffix("test_enum_flow_dst")
@@ -321,8 +317,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_schema_changes")
 	dstTableName := s.attachSchemaSuffix("test_simple_schema_changes_dst")
@@ -445,8 +440,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_cpkey")
 	dstTableName := s.attachSchemaSuffix("test_simple_cpkey_dst")
@@ -509,8 +503,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast1")
 	randomString := s.attachSchemaSuffix("random_string")
@@ -587,8 +580,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast2")
 	randomString := s.attachSchemaSuffix("random_string")
@@ -658,8 +650,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_peerdb_cols")
 	dstTableName := s.attachSchemaSuffix("test_peerdb_cols_dst")
@@ -719,8 +710,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Basic() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel")
 	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
@@ -809,8 +799,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Basic() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_IUD_Same_Batch() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel_iud")
 	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
@@ -894,8 +883,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_IUD_Same_Batch() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel_ud")
 	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
@@ -982,8 +970,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Insert_After_Delete() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_softdel_iad")
 	dstTableName := s.attachSchemaSuffix("test_softdel_iad_dst")

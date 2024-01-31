@@ -16,8 +16,7 @@ func (s PeerFlowE2ETestSuiteBQ) setupSourceTable(tableName string, rowCount int)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	numRows := 10
 
@@ -48,8 +47,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	numRows := 10
 
