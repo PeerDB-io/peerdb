@@ -33,7 +33,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	}
 	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
 
-	done, err := c.pgMetadata.IsQrepPartitionSynced(partition.PartitionId)
+	done, err := c.pgMetadata.IsQrepPartitionSynced(config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
 	}
