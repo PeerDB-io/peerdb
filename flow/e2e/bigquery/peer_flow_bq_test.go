@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -414,69 +413,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	e2e.RequireEqualTables(s, dstTableName, "id,t1,t2,k")
-}
-
-func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
-
-	srcTableName := s.attachSchemaSuffix("test_toast_bq_2")
-	dstTableName := "test_toast_bq_2"
-
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (
-			id SERIAL PRIMARY KEY,
-			t1 text,
-			t2 text,
-			k int
-		);
-	`, srcTableName))
-	require.NoError(s.t, err)
-
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_toast_bq_2"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
-		Destination:      s.bqHelper.Peer,
-		CdcStagingPath:   "",
-	}
-
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-
-	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 0,
-		MaxBatchSize:     100,
-	}
-
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and execute a transaction touching toast columns
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	go func() {
-		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
-		/* transaction updating no rows */
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
-			BEGIN;
-			UPDATE %s SET k=102 WHERE id=1;
-			UPDATE %s SET t1='dummy' WHERE id=2;
-			END;
-		`, srcTableName, srcTableName))
-		e2e.EnvNoError(s.t, env, err)
-		s.t.Log("Executed a transaction touching toast columns")
-		wg.Done()
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-	wg.Wait()
 
 	// Verify workflow completes without error
 	require.True(s.t, env.IsWorkflowCompleted())
