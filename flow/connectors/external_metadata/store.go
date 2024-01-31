@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
@@ -23,61 +23,26 @@ const (
 	qrepTableName          = "qrep_metadata"
 )
 
-type Querier interface {
-	Begin(ctx context.Context) (pgx.Tx, error)
-	Exec(ctx context.Context, sql string, arguments ...interface{}) (pgconn.CommandTag, error)
-	QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row
-	Ping(ctx context.Context) error
-}
-
 type PostgresMetadataStore struct {
 	ctx        context.Context
-	config     *protos.PostgresConfig
-	conn       Querier
+	pool       *pgxpool.Pool
 	schemaName string
 	logger     slog.Logger
 }
 
-func NewPostgresMetadataStore(ctx context.Context, pgConfig *protos.PostgresConfig,
-	schemaName string,
-) (*PostgresMetadataStore, error) {
-	var storeConn Querier
-	var err error
-	if pgConfig == nil {
-		storeConn, err = cc.GetCatalogConnectionPoolFromEnv()
-		if err != nil {
-			return nil, fmt.Errorf("failed to create catalog connection pool: %w", err)
-		}
-
-		slog.InfoContext(ctx, "obtained catalog connection pool for metadata store")
-	} else {
-		connectionString := utils.GetPGConnectionString(pgConfig)
-		storeConn, err = pgx.Connect(ctx, connectionString)
-		if err != nil {
-			slog.ErrorContext(ctx, "failed to create connection pool", slog.Any("error", err))
-			return nil, err
-		}
-
-		slog.InfoContext(ctx, "created connection pool for metadata store")
+func NewPostgresMetadataStore(ctx context.Context, schemaName string) (*PostgresMetadataStore, error) {
+	pool, err := cc.GetCatalogConnectionPoolFromEnv()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create catalog connection pool: %w", err)
 	}
 
 	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &PostgresMetadataStore{
 		ctx:        ctx,
-		config:     pgConfig,
-		conn:       storeConn,
+		pool:       pool,
 		schemaName: schemaName,
 		logger:     *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 	}, nil
-}
-
-func (p *PostgresMetadataStore) Close() error {
-	// only close p.conn when it isn't catalog
-	if conn, ok := p.conn.(*pgx.Conn); ok {
-		conn.Close(p.ctx)
-	}
-
-	return nil
 }
 
 func (p *PostgresMetadataStore) QualifyTable(table string) string {
@@ -85,7 +50,7 @@ func (p *PostgresMetadataStore) QualifyTable(table string) string {
 }
 
 func (p *PostgresMetadataStore) Ping() error {
-	pingErr := p.conn.Ping(p.ctx)
+	pingErr := p.pool.Ping(p.ctx)
 	if pingErr != nil {
 		return fmt.Errorf("metadata db ping failed: %w", pingErr)
 	}
@@ -95,7 +60,7 @@ func (p *PostgresMetadataStore) Ping() error {
 
 func (p *PostgresMetadataStore) NeedsSetupMetadata() bool {
 	// check if schema exists
-	row := p.conn.QueryRow(p.ctx, "SELECT count(*) FROM pg_catalog.pg_namespace WHERE nspname = $1", p.schemaName)
+	row := p.pool.QueryRow(p.ctx, "SELECT count(*) FROM pg_catalog.pg_namespace WHERE nspname = $1", p.schemaName)
 
 	var exists pgtype.Int8
 	err := row.Scan(&exists)
@@ -113,14 +78,14 @@ func (p *PostgresMetadataStore) NeedsSetupMetadata() bool {
 
 func (p *PostgresMetadataStore) SetupMetadata() error {
 	// create the schema
-	_, err := p.conn.Exec(p.ctx, "CREATE SCHEMA IF NOT EXISTS "+p.schemaName)
+	_, err := p.pool.Exec(p.ctx, "CREATE SCHEMA IF NOT EXISTS "+p.schemaName)
 	if err != nil && !utils.IsUniqueError(err) {
 		p.logger.Error("failed to create schema", slog.Any("error", err))
 		return err
 	}
 
 	// create the last sync state table
-	_, err = p.conn.Exec(p.ctx, `
+	_, err = p.pool.Exec(p.ctx, `
 		CREATE TABLE IF NOT EXISTS `+p.QualifyTable(lastSyncStateTableName)+`(
 			job_name TEXT PRIMARY KEY NOT NULL,
 			last_offset BIGINT NOT NULL,
@@ -133,7 +98,7 @@ func (p *PostgresMetadataStore) SetupMetadata() error {
 		return err
 	}
 
-	_, err = p.conn.Exec(p.ctx, `
+	_, err = p.pool.Exec(p.ctx, `
 		CREATE TABLE IF NOT EXISTS `+p.QualifyTable(qrepTableName)+`(
 			job_name TEXT NOT NULL,
 			partition_id TEXT NOT NULL,
@@ -152,7 +117,7 @@ func (p *PostgresMetadataStore) SetupMetadata() error {
 }
 
 func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (int64, error) {
-	row := p.conn.QueryRow(p.ctx,
+	row := p.pool.QueryRow(p.ctx,
 		`SELECT last_offset FROM `+
 			p.QualifyTable(lastSyncStateTableName)+
 			` WHERE job_name = $1`, jobName)
@@ -173,7 +138,7 @@ func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (int64, error) {
 }
 
 func (p *PostgresMetadataStore) GetLastBatchID(jobName string) (int64, error) {
-	row := p.conn.QueryRow(p.ctx,
+	row := p.pool.QueryRow(p.ctx,
 		`SELECT sync_batch_id FROM `+
 			p.QualifyTable(lastSyncStateTableName)+
 			` WHERE job_name = $1`, jobName)
@@ -195,7 +160,7 @@ func (p *PostgresMetadataStore) GetLastBatchID(jobName string) (int64, error) {
 }
 
 func (p *PostgresMetadataStore) GetLastNormalizeBatchID(jobName string) (int64, error) {
-	rows := p.conn.QueryRow(p.ctx,
+	rows := p.pool.QueryRow(p.ctx,
 		`SELECT normalize_batch_id FROM `+
 			p.QualifyTable(lastSyncStateTableName)+
 			` WHERE job_name = $1`, jobName)
@@ -219,7 +184,7 @@ func (p *PostgresMetadataStore) GetLastNormalizeBatchID(jobName string) (int64, 
 // update offset for a job
 func (p *PostgresMetadataStore) UpdateLastOffset(jobName string, offset int64) error {
 	p.logger.Info("updating last offset", slog.Int64("offset", offset))
-	_, err := p.conn.Exec(p.ctx, `
+	_, err := p.pool.Exec(p.ctx, `
 		INSERT INTO `+p.QualifyTable(lastSyncStateTableName)+` (job_name, last_offset, sync_batch_id)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (job_name)
@@ -236,7 +201,7 @@ func (p *PostgresMetadataStore) UpdateLastOffset(jobName string, offset int64) e
 
 func (p *PostgresMetadataStore) FinishBatch(jobName string, syncBatchID int64, offset int64) error {
 	p.logger.Info("finishing batch", slog.Int64("SyncBatchID", syncBatchID), slog.Int64("offset", offset))
-	_, err := p.conn.Exec(p.ctx, `
+	_, err := p.pool.Exec(p.ctx, `
 		INSERT INTO `+p.QualifyTable(lastSyncStateTableName)+` (job_name, last_offset, sync_batch_id)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (job_name)
@@ -255,7 +220,7 @@ func (p *PostgresMetadataStore) FinishBatch(jobName string, syncBatchID int64, o
 
 func (p *PostgresMetadataStore) UpdateNormalizeBatchID(jobName string, batchID int64) error {
 	p.logger.Info("updating normalize batch id for job")
-	_, err := p.conn.Exec(p.ctx,
+	_, err := p.pool.Exec(p.ctx,
 		`UPDATE `+p.QualifyTable(lastSyncStateTableName)+
 			` SET normalize_batch_id=$2 WHERE job_name=$1`, jobName, batchID)
 	if err != nil {
@@ -277,7 +242,7 @@ func (p *PostgresMetadataStore) FinishQrepPartition(
 	}
 	partitionJSON := string(pbytes)
 
-	_, err = p.conn.Exec(p.ctx,
+	_, err = p.pool.Exec(p.ctx,
 		`INSERT INTO `+p.QualifyTable(qrepTableName)+
 			`(job_name, partition_id, sync_partition, sync_start_time) VALUES ($1, $2, $3, $4)
 			ON CONFLICT (job_name, partition_id) DO UPDATE SET sync_partition = $3, sync_start_time = $4, sync_finish_time = NOW()`,
@@ -287,7 +252,7 @@ func (p *PostgresMetadataStore) FinishQrepPartition(
 
 func (p *PostgresMetadataStore) IsQrepPartitionSynced(jobName string, partitionID string) (bool, error) {
 	var exists bool
-	err := p.conn.QueryRow(p.ctx,
+	err := p.pool.QueryRow(p.ctx,
 		`SELECT EXISTS(SELECT * FROM `+
 			p.QualifyTable(qrepTableName)+
 			` WHERE job_name = $1 AND partition_id = $2)`,
@@ -299,14 +264,14 @@ func (p *PostgresMetadataStore) IsQrepPartitionSynced(jobName string, partitionI
 }
 
 func (p *PostgresMetadataStore) DropMetadata(jobName string) error {
-	_, err := p.conn.Exec(p.ctx,
+	_, err := p.pool.Exec(p.ctx,
 		`DELETE FROM `+p.QualifyTable(lastSyncStateTableName)+
 			` WHERE job_name = $1`, jobName)
 	if err != nil {
 		return err
 	}
 
-	_, err = p.conn.Exec(p.ctx,
+	_, err = p.pool.Exec(p.ctx,
 		`DELETE FROM `+p.QualifyTable(qrepTableName)+
 			` WHERE job_name = $1`, jobName)
 	if err != nil {

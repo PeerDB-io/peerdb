@@ -202,7 +202,7 @@ func NewSnowflakeConnector(ctx context.Context,
 		rawSchema = *snowflakeProtoConfig.MetadataSchema
 	}
 
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx, nil, "peerdb_sf_metadata")
+	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx, "peerdb_sf_metadata")
 	if err != nil {
 		return nil, fmt.Errorf("could not connect to metadata store: %w", err)
 	}

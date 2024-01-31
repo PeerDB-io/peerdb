@@ -3,7 +3,6 @@ package e2e_s3
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -68,11 +67,11 @@ func setupSuite(t *testing.T, gcs bool) PeerFlowE2ETestSuiteS3 {
 	if err != nil {
 		// it's okay if the .env file is not present
 		// we will use the default values
-		slog.Info("Unable to load .env file, using default values from env")
+		t.Log("Unable to load .env file, using default values from env")
 	}
 
 	suffix := "s3_" + strings.ToLower(shared.RandomString(8))
-	conn, err := e2e.SetupPostgres(suffix)
+	conn, err := e2e.SetupPostgres(t, suffix)
 	if err != nil || conn == nil {
 		require.Fail(t, "failed to setup postgres", err)
 	}

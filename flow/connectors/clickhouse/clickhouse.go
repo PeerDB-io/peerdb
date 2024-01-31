@@ -32,8 +32,7 @@ func NewClickhouseConnector(ctx context.Context,
 	}
 
 	metadataSchemaName := "peerdb_ch_metadata"
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx,
-		clickhouseProtoConfig.GetMetadataDb(), metadataSchemaName)
+	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx, metadataSchemaName)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to create postgres metadata store", slog.Any("error", err))
 		return nil, err

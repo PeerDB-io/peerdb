@@ -3,7 +3,6 @@ package e2e_sqlserver
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -61,11 +60,11 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSQLServer {
 	if err != nil {
 		// it's okay if the .env file is not present
 		// we will use the default values
-		slog.Info("Unable to load .env file, using default values from env")
+		t.Log("Unable to load .env file, using default values from env")
 	}
 
 	suffix := "sqls_" + strings.ToLower(shared.RandomString(8))
-	conn, err := e2e.SetupPostgres(suffix)
+	conn, err := e2e.SetupPostgres(t, suffix)
 	if err != nil {
 		require.NoError(t, err)
 	}

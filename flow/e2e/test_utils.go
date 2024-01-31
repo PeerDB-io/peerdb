@@ -181,7 +181,7 @@ func SetupCDCFlowStatusQuery(t *testing.T, env *testsuite.TestWorkflowEnvironmen
 			var state peerflow.CDCFlowWorkflowState
 			err = response.Get(&state)
 			if err != nil {
-				slog.Error(err.Error())
+				t.Log(err.Error())
 			} else if state.CurrentFlowStatus == protos.FlowStatus_STATUS_RUNNING {
 				return
 			}
@@ -191,7 +191,7 @@ func SetupCDCFlowStatusQuery(t *testing.T, env *testsuite.TestWorkflowEnvironmen
 			runtime.Goexit()
 		} else if counter > 5 {
 			// log the error for informational purposes
-			slog.Error(err.Error())
+			t.Log(err.Error())
 		}
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"time"
 
@@ -63,13 +62,6 @@ func NewS3TestHelper(switchToGCS bool) (*S3TestHelper, error) {
 			SecretAccessKey: &config.SecretAccessKey,
 			Region:          &config.Region,
 			Endpoint:        &endpoint,
-			MetadataDb: &protos.PostgresConfig{
-				Host:     "localhost",
-				Port:     7132,
-				Password: "postgres",
-				User:     "postgres",
-				Database: "postgres",
-			},
 		},
 		bucketName,
 		prefix,
@@ -99,10 +91,8 @@ func (h *S3TestHelper) ListAllFiles(
 		Prefix: &Prefix,
 	})
 	if err != nil {
-		slog.Error("failed to list bucket files", slog.Any("error", err))
 		return nil, err
 	}
-	slog.Info(fmt.Sprintf("Files in ListAllFiles in S3 test: %v", files))
 	return files.Contents, nil
 }
 
@@ -115,7 +105,6 @@ func (h *S3TestHelper) CleanUp(ctx context.Context) error {
 		Prefix: &Prefix,
 	})
 	if err != nil {
-		slog.Error("failed to list bucket files", slog.Any("error", err))
 		return err
 	}
 
@@ -132,6 +121,5 @@ func (h *S3TestHelper) CleanUp(ctx context.Context) error {
 		}
 	}
 
-	slog.Info("Deletion completed.")
 	return nil
 }

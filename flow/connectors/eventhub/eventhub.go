@@ -2,7 +2,6 @@ package conneventhub
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync/atomic"
@@ -41,8 +40,7 @@ func NewEventHubConnector(
 
 	hubManager := NewEventHubManager(defaultAzureCreds, config)
 	metadataSchemaName := "peerdb_eventhub_metadata"
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx, config.GetMetadataDb(),
-		metadataSchemaName)
+	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx, metadataSchemaName)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to create postgres metadata store",
 			slog.Any("error", err))
@@ -61,22 +59,13 @@ func NewEventHubConnector(
 }
 
 func (c *EventHubConnector) Close() error {
-	var allErrors error
-
-	// close the postgres metadata store.
-	err := c.pgMetadata.Close()
-	if err != nil {
-		c.logger.Error(fmt.Sprintf("failed to close postgres metadata store: %v", err))
-		allErrors = errors.Join(allErrors, err)
-	}
-
-	err = c.hubManager.Close(context.Background())
+	err := c.hubManager.Close(context.Background())
 	if err != nil {
 		c.logger.Error("failed to close event hub manager", slog.Any("error", err))
-		allErrors = errors.Join(allErrors, err)
+		return err
 	}
 
-	return allErrors
+	return nil
 }
 
 func (c *EventHubConnector) ConnectionActive() error {
