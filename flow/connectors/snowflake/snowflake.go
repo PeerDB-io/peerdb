@@ -293,7 +293,7 @@ func (c *SnowflakeConnector) GetTableSchema(
 			return nil, err
 		}
 		res[tableName] = tableSchema
-		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("fetched schema for table %s", tableName))
+		utils.RecordHeartbeat(c.ctx, fmt.Sprintf("fetched schema for table %s", tableName))
 	}
 
 	return &protos.GetTableSchemaBatchOutput{
@@ -461,7 +461,7 @@ func (c *SnowflakeConnector) SetupNormalizedTables(
 			return nil, fmt.Errorf("[sf] error while creating normalized table: %w", err)
 		}
 		tableExistsMapping[tableIdentifier] = false
-		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("created table %s", tableIdentifier))
+		utils.RecordHeartbeat(c.ctx, fmt.Sprintf("created table %s", tableIdentifier))
 	}
 
 	return &protos.SetupNormalizedTableBatchOutput{
