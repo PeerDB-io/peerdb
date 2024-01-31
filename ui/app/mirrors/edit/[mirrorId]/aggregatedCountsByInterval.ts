@@ -1,7 +1,7 @@
 import moment from 'moment';
 
 type timestampType = {
-  timestamp: Date | null;
+  timestamp: Date | string | null;
   count: number;
 };
 
