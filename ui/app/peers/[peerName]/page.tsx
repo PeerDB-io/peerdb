@@ -2,6 +2,7 @@ import ReloadButton from '@/components/ReloadButton';
 import { PeerSlotResponse, PeerStatResponse } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
+import LagGraph from './lagGraph';
 import PeerDetails from './peerDetails';
 import SlotTable from './slottable';
 import StatTable from './stattable';
@@ -65,6 +66,7 @@ const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
       {slots && stats ? (
         <div>
           <SlotTable data={slots} />
+          <LagGraph slotNames={slots.map((slot) => slot.slotName)} />
           <StatTable data={stats} />
         </div>
       ) : (
