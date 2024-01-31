@@ -225,8 +225,7 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	numRows := 10
 
@@ -271,8 +270,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Setup_Destination_And_PeerDB_Columns_QRep_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	numRows := 10
 
