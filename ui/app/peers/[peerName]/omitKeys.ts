@@ -1,7 +1,7 @@
 // sensitive keys
 const omitKeys = [
   'privateKey', // snowflake and bigquery
-  'password', // postgres, metadatadb for non-dwh peers, snowflake
+  'password', // postgres, snowflake
   'secretAccessKey', // s3/gcs
   'subscriptionId', // eventhub
   'privateKeyId', // bigquery

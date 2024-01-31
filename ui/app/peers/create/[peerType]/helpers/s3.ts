@@ -45,15 +45,6 @@ export const s3Setting: PeerSetting[] = [
   },
 ];
 
-export const blankMetadata = {
-  host: '',
-  port: 5432,
-  user: 'postgres',
-  password: '',
-  database: 'postgres',
-  transactionSnapshot: '',
-};
-
 export const blankS3Setting: S3Config = {
   url: 's3://<bucket_name>/<prefix_name>',
   accessKeyId: undefined,
@@ -61,7 +52,4 @@ export const blankS3Setting: S3Config = {
   roleArn: undefined,
   region: undefined,
   endpoint: '',
-  // For Storage peers created in UI
-  // we use catalog as the metadata DB
-  metadataDb: blankMetadata,
 };

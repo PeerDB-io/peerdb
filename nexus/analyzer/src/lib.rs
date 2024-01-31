@@ -663,8 +663,6 @@ fn parse_db_options(
             Some(config)
         }
         DbType::Eventhub => {
-            let conn_str = opts.get("metadata_db");
-            let metadata_db = parse_metadata_db_info(conn_str.copied())?;
             let subscription_id = opts
                 .get("subscription_id")
                 .map(|s| s.to_string())
@@ -697,7 +695,6 @@ fn parse_db_options(
                     .get("location")
                     .context("location not specified")?
                     .to_string(),
-                metadata_db,
                 subscription_id,
                 partition_count,
                 message_retention_in_days,
@@ -706,8 +703,6 @@ fn parse_db_options(
             Some(config)
         }
         DbType::S3 => {
-            let s3_conn_str = opts.get("metadata_db");
-            let metadata_db = parse_metadata_db_info(s3_conn_str.copied())?;
             let s3_config = S3Config {
                 url: opts
                     .get("url")
@@ -718,7 +713,6 @@ fn parse_db_options(
                 region: opts.get("region").map(|s| s.to_string()),
                 role_arn: opts.get("role_arn").map(|s| s.to_string()),
                 endpoint: opts.get("endpoint").map(|s| s.to_string()),
-                metadata_db,
             };
             let config = Config::S3Config(s3_config);
             Some(config)
@@ -746,9 +740,6 @@ fn parse_db_options(
             Some(config)
         }
         DbType::EventhubGroup => {
-            let conn_str = opts.get("metadata_db");
-            let metadata_db = parse_metadata_db_info(conn_str.copied())?;
-
             // split comma separated list of columns and trim
             let unnest_columns = opts
                 .get("unnest_columns")
@@ -782,16 +773,12 @@ fn parse_db_options(
 
             let eventhub_group_config = pt::peerdb_peers::EventHubGroupConfig {
                 eventhubs,
-                metadata_db,
                 unnest_columns,
             };
             let config = Config::EventhubGroupConfig(eventhub_group_config);
             Some(config)
         }
         DbType::Clickhouse => {
-            let conn_str = opts.get("metadata_db");
-            let metadata_db = parse_metadata_db_info(conn_str.copied())?;
-
             let s3_int = opts
                 .get("s3_integration")
                 .map(|s| s.to_string())
@@ -817,7 +804,6 @@ fn parse_db_options(
                     .context("no default database specified")?
                     .to_string(),
                 s3_integration: s3_int,
-                metadata_db,
             };
             let config = Config::ClickhouseConfig(clickhouse_config);
             Some(config)
@@ -825,43 +811,4 @@ fn parse_db_options(
     };
 
     Ok(config)
-}
-
-fn parse_metadata_db_info(conn_str: Option<&str>) -> anyhow::Result<Option<PostgresConfig>> {
-    let conn_str = match conn_str {
-        Some(conn_str) => conn_str,
-        None => return Ok(None),
-    };
-
-    if conn_str.is_empty() {
-        return Ok(None);
-    }
-
-    let mut metadata_db = PostgresConfig::default();
-    let param_pairs: Vec<&str> = conn_str.split_whitespace().collect();
-    match param_pairs.len() {
-                5 => Ok(true),
-                _ => Err(anyhow::Error::msg("Invalid connection string. Check formatting and if the required parameters have been specified.")),
-            }?;
-
-    for pair in param_pairs {
-        let key_value: Vec<&str> = pair.trim().split('=').collect();
-        match key_value.len() {
-            2 => Ok(true),
-            _ => Err(anyhow::Error::msg(
-                "Invalid config setting for PG. Check the formatting",
-            )),
-        }?;
-        let value = key_value[1].to_string();
-        match key_value[0] {
-            "host" => metadata_db.host = value,
-            "port" => metadata_db.port = value.parse().context("Invalid PG Port")?,
-            "database" => metadata_db.database = value,
-            "user" => metadata_db.user = value,
-            "password" => metadata_db.password = value,
-            _ => (),
-        };
-    }
-
-    Ok(Some(metadata_db))
 }

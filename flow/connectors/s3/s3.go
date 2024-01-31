@@ -66,8 +66,7 @@ func NewS3Connector(ctx context.Context,
 		return nil, fmt.Errorf("failed to create S3 client: %w", err)
 	}
 	metadataSchemaName := "peerdb_s3_metadata"
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx,
-		config.GetMetadataDb(), metadataSchemaName)
+	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx, metadataSchemaName)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to create postgres metadata store", slog.Any("error", err))
 		return nil, err
@@ -89,8 +88,7 @@ func (c *S3Connector) CreateRawTable(req *protos.CreateRawTableInput) (*protos.C
 }
 
 func (c *S3Connector) Close() error {
-	c.logger.Debug("Closing metadata store connection")
-	return c.pgMetadata.Close()
+	return nil
 }
 
 func ValidCheck(ctx context.Context, s3Client *s3.Client, bucketURL string, metadataDB *metadataStore.PostgresMetadataStore) error {
