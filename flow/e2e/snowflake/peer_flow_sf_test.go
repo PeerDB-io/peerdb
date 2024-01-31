@@ -359,7 +359,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 4,
+		ExitAfterRecords: -1,
 		MaxBatchSize:     100,
 	}
 
@@ -383,18 +383,11 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 		`, srcTableName, srcTableName, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Executed a transaction touching toast columns")
+		e2e.EnvWaitForEqualTables(env, s, "normalizing tx", "test_toast_sf_1", `id,t1,t2,k`)
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	e2e.RequireEqualTables(s, "test_toast_sf_1", `id,t1,t2,k`)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
@@ -424,7 +417,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 11,
+		ExitAfterRecords: -1,
 		MaxBatchSize:     100,
 	}
 
@@ -454,18 +447,11 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 			srcTableName, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Executed a transaction touching toast columns")
+		e2e.EnvWaitForEqualTables(env, s, "normalizing tx", "test_toast_sf_3", `id,t1,t2,k`)
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	e2e.RequireEqualTables(s, "test_toast_sf_3", `id,t1,t2,k`)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
@@ -494,7 +480,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 6,
+		ExitAfterRecords: -1,
 		MaxBatchSize:     100,
 	}
 
@@ -518,18 +504,11 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 		`, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Executed a transaction touching toast columns")
+		e2e.EnvWaitForEqualTables(env, s, "normalizing tx", "test_toast_sf_4", `id,t1,k`)
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	e2e.RequireEqualTables(s, "test_toast_sf_4", `id,t1,k`)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
@@ -559,7 +538,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 4,
+		ExitAfterRecords: -1,
 		MaxBatchSize:     100,
 	}
 
@@ -582,18 +561,12 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 		`, srcTableName, srcTableName, srcTableName, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Executed a transaction touching toast columns")
+
+		e2e.EnvWaitForEqualTables(env, s, "normalizing tx", "test_toast_sf_5", `id,t1,t2,k`)
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	e2e.RequireEqualTables(s, "test_toast_sf_5", `id,t1,t2,k`)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
@@ -1015,7 +988,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 20,
+		ExitAfterRecords: -1,
 		MaxBatchSize:     100,
 	}
 
@@ -1044,19 +1017,12 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 
 		err = rowsTx.Commit(context.Background())
 		e2e.EnvNoError(s.t, env, err)
+
+		e2e.EnvWaitForEqualTables(env, s, "normalizing tx", "test_cpkey_toast1", "id,c1,c2,t,t2")
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	// verify our updates and delete happened
-	e2e.RequireEqualTables(s, "test_cpkey_toast1", "id,c1,c2,t,t2")
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
@@ -1323,7 +1289,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 	}
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 3,
+		ExitAfterRecords: -1,
 		MaxBatchSize:     100,
 	}
 
@@ -1350,21 +1316,20 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 		e2e.EnvNoError(s.t, env, err)
 
 		e2e.EnvNoError(s.t, env, insertTx.Commit(context.Background()))
+
+		e2e.EnvWaitForEqualTables(env, s, "normalizing tx", "test_softdel_iud", "id,c1,c2,t")
+		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "checking soft delete", func() bool {
+			newerSyncedAtQuery := fmt.Sprintf(`
+				SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED`, dstTableName)
+			numNewRows, err := s.sfHelper.RunIntQuery(newerSyncedAtQuery)
+			e2e.EnvNoError(s.t, env, err)
+			return numNewRows == 1
+		})
+
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	// verify our updates and delete happened
-	e2e.RequireEqualTables(s, "test_softdel_iud", "id,c1,c2,t")
-
-	newerSyncedAtQuery := fmt.Sprintf(`
-		SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED`, dstTableName)
-	numNewRows, err := s.sfHelper.RunIntQuery(newerSyncedAtQuery)
-	require.NoError(s.t, err)
-	require.Equal(s.t, 1, numNewRows)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
@@ -1442,17 +1407,18 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 			dstName+" WHERE NOT _PEERDB_IS_DELETED",
 			"id,c1,c2,t",
 		)
+		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "checking soft delete", func() bool {
+			newerSyncedAtQuery := fmt.Sprintf(`
+				SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED`, dstTableName)
+			numNewRows, err := s.sfHelper.RunIntQuery(newerSyncedAtQuery)
+			e2e.EnvNoError(s.t, env, err)
+			return numNewRows == 1
+		})
 
 		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
-
-	newerSyncedAtQuery := fmt.Sprintf(`
-		SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED`, dstTableName)
-	numNewRows, err := s.sfHelper.RunIntQuery(newerSyncedAtQuery)
-	require.NoError(s.t, err)
-	require.Equal(s.t, 1, numNewRows)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {

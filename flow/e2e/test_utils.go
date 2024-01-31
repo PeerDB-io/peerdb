@@ -405,7 +405,6 @@ func CreateQRepWorkflowConfig(
 
 func RunQrepFlowWorkflow(env *testsuite.TestWorkflowEnvironment, config *protos.QRepConfig) {
 	state := peerflow.NewQRepFlowState()
-	time.Sleep(5 * time.Second)
 	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, config, state)
 }
 
