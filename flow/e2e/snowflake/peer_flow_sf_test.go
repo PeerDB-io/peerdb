@@ -561,7 +561,9 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 		`, srcTableName, srcTableName, srcTableName, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Executed a transaction touching toast columns")
+
 		e2e.EnvWaitForEqualTables(env, s, "normalizing tx", "test_toast_sf_5", `id,t1,t2,k`)
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)

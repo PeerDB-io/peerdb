@@ -635,7 +635,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
+		ExitAfterRecords: 1,
 		MaxBatchSize:     100,
 	}
 
@@ -1075,7 +1075,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 20,
+		ExitAfterRecords: -1,
 		MaxBatchSize:     100,
 	}
 
