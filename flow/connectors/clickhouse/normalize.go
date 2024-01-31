@@ -155,15 +155,26 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 			// 	colSelector.WriteString(",")
 			// }
 
-			extractionFuction := "JSONExtractRaw"
-			switch qvalue.QValueKind(ct) {
-			case qvalue.QValueKindString:
-				extractionFuction = "JSONExtractString"
-			case qvalue.QValueKindInt64:
-				// TODO check if int64 is supported.
-				extractionFuction = "JSONExtractInt"
-			}
-			projection.WriteString(fmt.Sprintf("%s(_peerdb_data, '%s') AS %s, ", extractionFuction, cn, cn))
+			//extractionFuction := "JSONExtract"
+			genericType := qvalue.QValueKind(ct)
+
+			// switch qvalue.QValueKind(ct) {
+			// case qvalue.QValueKindString:
+			// 	extractionFuction = "JSONExtractString"
+			// case qvalue.QValueKindInt64:
+			// 	// TODO check if int64 is supported.
+			// 	extractionFuction = "JSONExtractInt"
+			// case qvalue.QValueKindFloat32:
+			// case qvalue.QValueKindFloat64:
+			// 	extractionFuction = "JSONExtractFloat"
+			// case qvalue.QValueKindArrayBoolean:
+			// 	extractionFuction = "JSONExtractBool"
+			// case qvalue.QValueKindNumeric:
+			// 	genericType = "Decimal"
+
+			// }
+			//projection.WriteString(fmt.Sprintf("%s(_peerdb_data, '%s', '%s') AS %s, ", extractionFuction, cn, genericType, cn))
+			projection.WriteString(fmt.Sprintf("JSONExtract(_peerdb_data, '%s', '%s') AS %s, ", cn, genericType, cn))
 		}
 
 		// add _peerdb_sign as _peerdb_record_type / 2
