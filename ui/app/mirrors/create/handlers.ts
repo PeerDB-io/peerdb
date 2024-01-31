@@ -118,7 +118,9 @@ interface TableMapping {
   partitionKey: string;
   exclude: string[];
 }
-const reformattedTableMapping = (tableMapping: TableMapRow[]) => {
+export const reformattedTableMapping = (
+  tableMapping: TableMapRow[]
+): TableMapping[] => {
   const mapping = tableMapping
     .filter((row) => row?.selected === true)
     .map((row) => ({

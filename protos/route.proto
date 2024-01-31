@@ -96,6 +96,7 @@ message QRepMirrorStatus {
   // or if we are in the continuous streaming mode.
 }
 
+// to be removed eventually
 message CDCSyncStatus {
   int64 start_lsn = 1;
   int64 end_lsn = 2;

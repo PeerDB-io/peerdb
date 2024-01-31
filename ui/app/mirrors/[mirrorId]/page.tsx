@@ -69,6 +69,7 @@ export default async function EditMirror({
   }
 
   let syncStatusChild = <></>;
+  let editButtonHTML = <></>;
   if (mirrorStatus.cdcStatus) {
     let rowsSynced = syncs.reduce((acc, sync) => {
       if (sync.end_time !== null) {
@@ -79,16 +80,19 @@ export default async function EditMirror({
     syncStatusChild = (
       <SyncStatus rowsSynced={rowsSynced} rows={rows} flowJobName={mirrorId} />
     );
+    editButtonHTML = (
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        <Header variant='title2'>{mirrorId}</Header>
+        <EditButton toLink={`/mirrors/${mirrorId}/edit`} />
+      </div>
+    );
   } else {
     redirect(`/mirrors/status/qrep/${mirrorId}`);
   }
 
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
-      <div style={{ display: 'flex', alignItems: 'center' }}>
-        <Header variant='title2'>{mirrorId}</Header>
-        <EditButton toLink={`/mirrors/${mirrorId}/edit`} />
-      </div>
+      {editButtonHTML}
       <CDCMirror
         rows={rows}
         createdAt={mirrorInfo?.created_at}
