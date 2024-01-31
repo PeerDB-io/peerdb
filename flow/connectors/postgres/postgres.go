@@ -569,7 +569,7 @@ func (c *PostgresConnector) GetTableSchema(
 			return nil, err
 		}
 		res[tableName] = tableSchema
-		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("fetched schema for table %s", tableName))
+		utils.RecordHeartbeat(c.ctx, fmt.Sprintf("fetched schema for table %s", tableName))
 		c.logger.Info(fmt.Sprintf("fetched schema for table %s", tableName))
 	}
 
@@ -681,7 +681,7 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 
 		tableExistsMapping[tableIdentifier] = false
 		c.logger.Info(fmt.Sprintf("created table %s", tableIdentifier))
-		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("created table %s", tableIdentifier))
+		utils.RecordHeartbeat(c.ctx, fmt.Sprintf("created table %s", tableIdentifier))
 	}
 
 	err = createNormalizedTablesTx.Commit(c.ctx)
@@ -771,7 +771,7 @@ func (c *PostgresConnector) EnsurePullability(
 
 		if !req.CheckConstraints {
 			msg := fmt.Sprintf("[no-constraints] ensured pullability table %s", tableName)
-			utils.RecordHeartbeatWithRecover(c.ctx, msg)
+			utils.RecordHeartbeat(c.ctx, msg)
 			continue
 		}
 
@@ -791,7 +791,7 @@ func (c *PostgresConnector) EnsurePullability(
 			return nil, fmt.Errorf("table %s has no primary keys and does not have REPLICA IDENTITY FULL", schemaTable)
 		}
 
-		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("ensured pullability table %s", tableName))
+		utils.RecordHeartbeat(c.ctx, fmt.Sprintf("ensured pullability table %s", tableName))
 	}
 
 	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil

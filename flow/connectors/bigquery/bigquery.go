@@ -908,7 +908,7 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 		datasetTablesSet[*datasetTable] = struct{}{}
 		// log that table was created
 		c.logger.Info(fmt.Sprintf("created table %s", tableIdentifier))
-		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("created table %s", tableIdentifier))
+		utils.RecordHeartbeat(c.ctx, fmt.Sprintf("created table %s", tableIdentifier))
 	}
 
 	return &protos.SetupNormalizedTableBatchOutput{
