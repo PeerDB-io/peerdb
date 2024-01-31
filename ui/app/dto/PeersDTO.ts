@@ -51,3 +51,9 @@ export type CatalogPeer = {
   options: Buffer;
 };
 export type PeerSetter = React.Dispatch<React.SetStateAction<PeerConfig>>;
+
+export type SlotLagPoint = {
+  updatedAt: string;
+  slotSize?: string;
+  walStatus: string | null;
+};
