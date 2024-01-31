@@ -20,8 +20,7 @@ func (s PeerFlowE2ETestSuiteS3) attachSuffix(input string) string {
 }
 
 func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_flow_s3")
 	dstTableName := fmt.Sprintf("%s.%s", "peerdb_test_s3", "test_simple_flow_s3")

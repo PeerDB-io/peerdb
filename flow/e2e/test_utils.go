@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"runtime"
 	"slices"
 	"strings"
@@ -489,26 +488,35 @@ func GetOwnersSelectorStringsSF() [2]string {
 	return [2]string{strings.Join(pgFields, ","), strings.Join(sfFields, ",")}
 }
 
-func NewTemporalTestWorkflowEnvironment() *testsuite.TestWorkflowEnvironment {
+type testWriter struct {
+	*testing.T
+}
+
+func (tw *testWriter) Write(p []byte) (int, error) {
+	tw.T.Log(string(p))
+	return len(p), nil
+}
+
+func NewTemporalTestWorkflowEnvironment(t *testing.T) *testsuite.TestWorkflowEnvironment {
+	t.Helper()
 	testSuite := &testsuite.WorkflowTestSuite{}
 
 	logger := slog.New(logger.NewHandler(
 		slog.NewJSONHandler(
-			os.Stdout,
+			&testWriter{t},
 			&slog.HandlerOptions{Level: slog.LevelWarn},
-		)))
-	tLogger := NewTStructuredLogger(*logger)
+		),
+	))
+	tLogger := TStructuredLogger{logger: logger}
 
-	testSuite.SetLogger(tLogger)
-	return testSuite.NewTestWorkflowEnvironment()
+	testSuite.SetLogger(&tLogger)
+	env := testSuite.NewTestWorkflowEnvironment()
+	RegisterWorkflowsAndActivities(t, env)
+	return env
 }
 
 type TStructuredLogger struct {
 	logger *slog.Logger
-}
-
-func NewTStructuredLogger(logger slog.Logger) *TStructuredLogger {
-	return &TStructuredLogger{logger: &logger}
 }
 
 func (l *TStructuredLogger) keyvalsToFields(keyvals []interface{}) slog.Attr {

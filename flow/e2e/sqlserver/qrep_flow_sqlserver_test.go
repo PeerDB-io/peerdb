@@ -141,8 +141,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 		s.t.Skip("Skipping SQL Server test")
 	}
 
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	numRows := 10
 	tblName := "test_qrep_flow_avro_ss_append"
