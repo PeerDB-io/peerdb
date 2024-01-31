@@ -62,13 +62,6 @@ func NewS3TestHelper(switchToGCS bool) (*S3TestHelper, error) {
 			SecretAccessKey: &config.SecretAccessKey,
 			Region:          &config.Region,
 			Endpoint:        &endpoint,
-			MetadataDb: &protos.PostgresConfig{
-				Host:     "localhost",
-				Port:     7132,
-				Password: "postgres",
-				User:     "postgres",
-				Database: "postgres",
-			},
 		},
 		bucketName,
 		prefix,
