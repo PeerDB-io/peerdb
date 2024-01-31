@@ -64,7 +64,6 @@ message EventHubConfig {
   string namespace = 1;
   string resource_group = 2;
   string location = 3;
-  PostgresConfig metadata_db = 4;
   // if this is empty PeerDB uses `AZURE_SUBSCRIPTION_ID` environment variable.
   string subscription_id = 5;
   // defaults to 3
@@ -76,7 +75,6 @@ message EventHubConfig {
 message EventHubGroupConfig {
   // event hub peer name to event hub config
   map<string, EventHubConfig> eventhubs = 1;
-  PostgresConfig metadata_db = 2;
   repeated string unnest_columns = 3;
 }
 
@@ -87,7 +85,6 @@ message S3Config {
   optional string role_arn = 4;
   optional string region = 5;
   optional string endpoint = 6;
-  PostgresConfig metadata_db = 7;
 }
 
 message ClickhouseConfig{
@@ -97,7 +94,6 @@ message ClickhouseConfig{
   string password = 4;
   string database = 5;
   string s3_integration = 6; // staging to store avro files
-  PostgresConfig metadata_db = 7;
 }
 
 message SqlServerConfig {
