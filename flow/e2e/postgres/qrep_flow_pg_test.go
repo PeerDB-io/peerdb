@@ -3,7 +3,6 @@ package e2e_postgres
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -54,11 +53,11 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuitePG {
 	if err != nil {
 		// it's okay if the .env file is not present
 		// we will use the default values
-		slog.Info("Unable to load .env file, using default values from env")
+		t.Log("Unable to load .env file, using default values from env")
 	}
 
 	suffix := "pg_" + strings.ToLower(shared.RandomString(8))
-	conn, err := e2e.SetupPostgres(suffix)
+	conn, err := e2e.SetupPostgres(t, suffix)
 	if err != nil {
 		require.Fail(t, "failed to setup postgres", err)
 	}
@@ -197,7 +196,6 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 	require.NoError(s.t, err)
 
 	flowJobName := "test_simple_slot_creation"
-	flowLog := slog.String(string(shared.FlowNameKey), flowJobName)
 	setupReplicationInput := &protos.SetupReplicationInput{
 		FlowJobName: flowJobName,
 		TableNameMapping: map[string]string{
@@ -212,16 +210,14 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 		setupError <- s.connector.SetupReplication(signal, setupReplicationInput)
 	}()
 
-	slog.Info("waiting for slot creation to complete", flowLog)
+	s.t.Log("waiting for slot creation to complete: ", flowJobName)
 	slotInfo := <-signal.SlotCreated
-	slog.Info(fmt.Sprintf("slot creation complete: %v", slotInfo), flowLog)
-
-	slog.Info("signaling clone complete after waiting for 2 seconds", flowLog)
+	s.t.Logf("slot creation complete: %v. Signaling clone complete in 2 seconds", slotInfo)
 	time.Sleep(2 * time.Second)
 	close(signal.CloneComplete)
 
 	require.NoError(s.t, <-setupError)
-	slog.Info("successfully setup replication", flowLog)
+	s.t.Logf("successfully setup replication: %s", flowJobName)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {

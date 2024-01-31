@@ -3,7 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -72,7 +72,9 @@ func cleanPostgres(conn *pgx.Conn, suffix string) error {
 	return nil
 }
 
-func setupPostgresSchema(conn *pgx.Conn, suffix string) error {
+func setupPostgresSchema(t *testing.T, conn *pgx.Conn, suffix string) error {
+	t.Helper()
+
 	setupTx, err := conn.Begin(context.Background())
 	if err != nil {
 		return fmt.Errorf("failed to start setup transaction")
@@ -86,7 +88,7 @@ func setupPostgresSchema(conn *pgx.Conn, suffix string) error {
 	defer func() {
 		deferErr := setupTx.Rollback(context.Background())
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			slog.Error("error rolling back setup transaction", slog.Any("error", err))
+			t.Errorf("error rolling back setup transaction: %v", err)
 		}
 	}()
 
@@ -117,8 +119,10 @@ func setupPostgresSchema(conn *pgx.Conn, suffix string) error {
 	return setupTx.Commit(context.Background())
 }
 
-// setupPostgres sets up the postgres connection.
-func SetupPostgres(suffix string) (*pgx.Conn, error) {
+// SetupPostgres sets up the postgres connection.
+func SetupPostgres(t *testing.T, suffix string) (*pgx.Conn, error) {
+	t.Helper()
+
 	conn, err := pgx.Connect(context.Background(), utils.GetPGConnectionString(GetTestPostgresConf()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres connection: %w", err)
@@ -130,7 +134,7 @@ func SetupPostgres(suffix string) (*pgx.Conn, error) {
 		return nil, err
 	}
 
-	err = setupPostgresSchema(conn, suffix)
+	err = setupPostgresSchema(t, conn, suffix)
 	if err != nil {
 		conn.Close(context.Background())
 		return nil, err

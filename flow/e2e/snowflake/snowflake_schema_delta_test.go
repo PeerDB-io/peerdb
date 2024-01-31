@@ -3,7 +3,6 @@ package e2e_snowflake
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -28,8 +27,7 @@ func setupSchemaDeltaSuite(t *testing.T) SnowflakeSchemaDeltaTestSuite {
 
 	sfTestHelper, err := NewSnowflakeTestHelper()
 	if err != nil {
-		slog.Error("Error in test", slog.Any("error", err))
-		t.FailNow()
+		t.Fatalf("Error in test: %v", err)
 	}
 
 	connector, err := connsnowflake.NewSnowflakeConnector(
@@ -37,8 +35,7 @@ func setupSchemaDeltaSuite(t *testing.T) SnowflakeSchemaDeltaTestSuite {
 		sfTestHelper.Config,
 	)
 	if err != nil {
-		slog.Error("Error in test", slog.Any("error", err))
-		t.FailNow()
+		t.Fatalf("Error in test: %v", err)
 	}
 
 	return SnowflakeSchemaDeltaTestSuite{
