@@ -37,33 +37,33 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 	flattenedProjs := make([]string, 0, len(m.normalizedTableSchema.Columns)+3)
 
 	for _, column := range m.normalizedTableSchema.Columns {
-		colType := column.ColumnType
+		colType := column.Type
 		bqType := qValueKindToBigQueryType(colType)
 		// CAST doesn't work for FLOAT, so rewrite it to FLOAT64.
 		if bqType == bigquery.FloatFieldType {
 			bqType = "FLOAT64"
 		}
 		var castStmt string
-		shortCol := m.shortColumn[column.ColumnName]
+		shortCol := m.shortColumn[column.Name]
 		switch qvalue.QValueKind(colType) {
 		case qvalue.QValueKindJSON, qvalue.QValueKindHStore:
 			// if the type is JSON, then just extract JSON
 			castStmt = fmt.Sprintf("CAST(PARSE_JSON(JSON_VALUE(_peerdb_data, '$.%s'),wide_number_mode=>'round') AS %s) AS `%s`",
-				column.ColumnName, bqType, shortCol)
+				column.Name, bqType, shortCol)
 		// expecting data in BASE64 format
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 			castStmt = fmt.Sprintf("FROM_BASE64(JSON_VALUE(_peerdb_data,'$.%s')) AS `%s`",
-				column.ColumnName, shortCol)
+				column.Name, shortCol)
 		case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64, qvalue.QValueKindArrayInt16,
 			qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64, qvalue.QValueKindArrayString,
 			qvalue.QValueKindArrayBoolean, qvalue.QValueKindArrayTimestamp, qvalue.QValueKindArrayTimestampTZ,
 			qvalue.QValueKindArrayDate:
 			castStmt = fmt.Sprintf("ARRAY(SELECT CAST(element AS %s) FROM "+
 				"UNNEST(CAST(JSON_VALUE_ARRAY(_peerdb_data, '$.%s') AS ARRAY<STRING>)) AS element WHERE element IS NOT null) AS `%s`",
-				bqType, column.ColumnName, shortCol)
+				bqType, column.Name, shortCol)
 		case qvalue.QValueKindGeography, qvalue.QValueKindGeometry, qvalue.QValueKindPoint:
 			castStmt = fmt.Sprintf("CAST(ST_GEOGFROMTEXT(JSON_VALUE(_peerdb_data, '$.%s')) AS %s) AS `%s`",
-				column.ColumnName, bqType, shortCol)
+				column.Name, bqType, shortCol)
 		// MAKE_INTERVAL(years INT64, months INT64, days INT64, hours INT64, minutes INT64, seconds INT64)
 		// Expecting interval to be in the format of {"Microseconds":2000000,"Days":0,"Months":0,"Valid":true}
 		// json.Marshal in SyncRecords for Postgres already does this - once new data-stores are added,
@@ -73,15 +73,15 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 		// castStmt = fmt.Sprintf("MAKE_INTERVAL(0,CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Months') AS INT64),"+
 		// 	"CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Days') AS INT64),0,0,"+
 		// 	"CAST(CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Microseconds') AS INT64)/1000000 AS  INT64)) AS %s",
-		// 	column.ColumnName, column.ColumnName, column.ColumnName, column.ColumnName)
+		// 	column.Name, column.Name, column.Name, column.Name)
 		// TODO add proper granularity for time types, then restore this
 		// case model.ColumnTypeTime:
 		// 	castStmt = fmt.Sprintf("time(timestamp_micros(CAST(JSON_EXTRACT(_peerdb_data, '$.%s.Microseconds')"+
 		// 		" AS int64))) AS %s",
-		// 		column.ColumnName, column.ColumnName)
+		// 		column.Name, column.Name)
 		default:
 			castStmt = fmt.Sprintf("CAST(JSON_VALUE(_peerdb_data, '$.%s') AS %s) AS `%s`",
-				column.ColumnName, bqType, shortCol)
+				column.Name, bqType, shortCol)
 		}
 		flattenedProjs = append(flattenedProjs, castStmt)
 	}
@@ -130,10 +130,10 @@ func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) s
 	pureColNames := make([]string, 0, columnCount)
 	for i, col := range m.normalizedTableSchema.Columns {
 		shortCol := fmt.Sprintf("_c%d", i)
-		m.shortColumn[col.ColumnName] = shortCol
-		backtickColNames = append(backtickColNames, fmt.Sprintf("`%s`", col.ColumnName))
+		m.shortColumn[col.Name] = shortCol
+		backtickColNames = append(backtickColNames, fmt.Sprintf("`%s`", col.Name))
 		shortBacktickColNames = append(shortBacktickColNames, fmt.Sprintf("`%s`", shortCol))
-		pureColNames = append(pureColNames, col.ColumnName)
+		pureColNames = append(pureColNames, col.Name)
 	}
 	csep := strings.Join(backtickColNames, ", ")
 	shortCsep := strings.Join(shortBacktickColNames, ", ")

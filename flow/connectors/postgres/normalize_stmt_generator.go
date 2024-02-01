@@ -49,9 +49,9 @@ func (n *normalizeStmtGenerator) generateFallbackStatements() []string {
 	flattenedCastsSQLArray := make([]string, 0, columnCount)
 	primaryKeyColumnCasts := make(map[string]string, len(n.normalizedTableSchema.PrimaryKeyColumns))
 	for _, column := range n.normalizedTableSchema.Columns {
-		genericColumnType := column.ColumnType
-		quotedCol := QuoteIdentifier(column.ColumnName)
-		stringCol := QuoteLiteral(column.ColumnName)
+		genericColumnType := column.Type
+		quotedCol := QuoteIdentifier(column.Name)
+		stringCol := QuoteLiteral(column.Name)
 		columnNames = append(columnNames, quotedCol)
 		pgType := qValueKindToPostgresType(genericColumnType)
 		if qvalue.QValueKind(genericColumnType).IsArray() {
@@ -62,8 +62,8 @@ func (n *normalizeStmtGenerator) generateFallbackStatements() []string {
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>%s)::%s AS %s",
 				stringCol, pgType, quotedCol))
 		}
-		if slices.Contains(n.normalizedTableSchema.PrimaryKeyColumns, column.ColumnName) {
-			primaryKeyColumnCasts[column.ColumnName] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
+		if slices.Contains(n.normalizedTableSchema.PrimaryKeyColumns, column.Name) {
+			primaryKeyColumnCasts[column.Name] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
 		}
 	}
 	flattenedCastsSQL := strings.Join(flattenedCastsSQLArray, ",")
@@ -72,7 +72,7 @@ func (n *normalizeStmtGenerator) generateFallbackStatements() []string {
 	insertColumnsSQL := strings.Join(columnNames, ",")
 	updateColumnsSQLArray := make([]string, 0, columnCount)
 	for _, column := range n.normalizedTableSchema.Columns {
-		quotedCol := QuoteIdentifier(column.ColumnName)
+		quotedCol := QuoteIdentifier(column.Name)
 		updateColumnsSQLArray = append(updateColumnsSQLArray, fmt.Sprintf(`%s=EXCLUDED.%s`, quotedCol, quotedCol))
 	}
 	updateColumnsSQL := strings.Join(updateColumnsSQLArray, ",")
@@ -114,9 +114,9 @@ func (n *normalizeStmtGenerator) generateMergeStatement() string {
 	primaryKeyColumnCasts := make(map[string]string)
 	primaryKeySelectSQLArray := make([]string, 0, len(n.normalizedTableSchema.PrimaryKeyColumns))
 	for i, column := range n.normalizedTableSchema.Columns {
-		genericColumnType := column.ColumnType
-		quotedCol := QuoteIdentifier(column.ColumnName)
-		stringCol := QuoteLiteral(column.ColumnName)
+		genericColumnType := column.Type
+		quotedCol := QuoteIdentifier(column.Name)
+		stringCol := QuoteLiteral(column.Name)
 		quotedColumnNames[i] = quotedCol
 
 		pgType := qValueKindToPostgresType(genericColumnType)
@@ -128,8 +128,8 @@ func (n *normalizeStmtGenerator) generateMergeStatement() string {
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>%s)::%s AS %s",
 				stringCol, pgType, quotedCol))
 		}
-		if slices.Contains(n.normalizedTableSchema.PrimaryKeyColumns, column.ColumnName) {
-			primaryKeyColumnCasts[column.ColumnName] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
+		if slices.Contains(n.normalizedTableSchema.PrimaryKeyColumns, column.Name) {
+			primaryKeyColumnCasts[column.Name] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
 			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray, fmt.Sprintf("src.%s=dst.%s",
 				quotedCol, quotedCol))
 		}

@@ -180,8 +180,8 @@ message TableSchema {
 }
 
 message FieldDescription {
-  string column_name = 1;
-  string column_type = 2;
+  string name = 1;
+  string type = 2;
   int32 type_modifier = 3;
 }
 

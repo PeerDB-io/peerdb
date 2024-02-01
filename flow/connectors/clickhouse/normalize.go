@@ -64,8 +64,8 @@ func generateCreateTableSQLForNormalizedTable(
 	stmtBuilder.WriteString(fmt.Sprintf("CREATE TABLE `%s` (", normalizedTable))
 
 	for _, column := range tableSchema.Columns {
-		colName := column.ColumnName
-		colType := qvalue.QValueKind(column.ColumnType)
+		colName := column.Name
+		colType := qvalue.QValueKind(column.Type)
 		clickhouseType, err := qValueKindToClickhouseType(colType)
 		if err != nil {
 			return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
@@ -145,8 +145,8 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 		projection := strings.Builder{}
 
 		for _, column := range schema.Columns {
-			cn := column.ColumnName
-			ct := column.ColumnType
+			cn := column.Name
+			ct := column.Type
 
 			colSelector.WriteString(fmt.Sprintf("%s,", cn))
 			// if i < numCols-1 {

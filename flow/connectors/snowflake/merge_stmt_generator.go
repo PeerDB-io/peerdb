@@ -31,30 +31,30 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 
 	flattenedCastsSQLArray := make([]string, 0, len(columns))
 	for _, column := range columns {
-		genericColumnType := column.ColumnType
+		genericColumnType := column.Type
 		qvKind := qvalue.QValueKind(genericColumnType)
 		sfType, err := qValueKindToSnowflakeType(qvKind)
 		if err != nil {
 			return "", fmt.Errorf("failed to convert column type %s to snowflake type: %w", genericColumnType, err)
 		}
 
-		targetColumnName := SnowflakeIdentifierNormalize(column.ColumnName)
+		targetColumnName := SnowflakeIdentifierNormalize(column.Name)
 		switch qvalue.QValueKind(genericColumnType) {
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:\"%s\") "+
-				"AS %s", toVariantColumnName, column.ColumnName, targetColumnName))
+				"AS %s", toVariantColumnName, column.Name, targetColumnName))
 		case qvalue.QValueKindGeography:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
 				fmt.Sprintf("TO_GEOGRAPHY(CAST(%s:\"%s\" AS STRING),true) AS %s",
-					toVariantColumnName, column.ColumnName, targetColumnName))
+					toVariantColumnName, column.Name, targetColumnName))
 		case qvalue.QValueKindGeometry:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
 				fmt.Sprintf("TO_GEOMETRY(CAST(%s:\"%s\" AS STRING),true) AS %s",
-					toVariantColumnName, column.ColumnName, targetColumnName))
+					toVariantColumnName, column.Name, targetColumnName))
 		case qvalue.QValueKindJSON, qvalue.QValueKindHStore:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
 				fmt.Sprintf("PARSE_JSON(CAST(%s:\"%s\" AS STRING)) AS %s",
-					toVariantColumnName, column.ColumnName, targetColumnName))
+					toVariantColumnName, column.Name, targetColumnName))
 		// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - handle time types and interval types
 		// case model.ColumnTypeTime:
 		// 	flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("TIME_FROM_PARTS(0,0,0,%s:%s:"+
@@ -64,10 +64,10 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 			if qvKind == qvalue.QValueKindNumeric {
 				flattenedCastsSQLArray = append(flattenedCastsSQLArray,
 					fmt.Sprintf("TRY_CAST((%s:\"%s\")::text AS %s) AS %s",
-						toVariantColumnName, column.ColumnName, sfType, targetColumnName))
+						toVariantColumnName, column.Name, sfType, targetColumnName))
 			} else {
 				flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:\"%s\" AS %s) AS %s",
-					toVariantColumnName, column.ColumnName, sfType, targetColumnName))
+					toVariantColumnName, column.Name, sfType, targetColumnName))
 			}
 		}
 	}
@@ -76,8 +76,8 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 	quotedUpperColNames := make([]string, 0, len(columns))
 	columnNames := make([]string, 0, len(columns))
 	for _, column := range columns {
-		quotedUpperColNames = append(quotedUpperColNames, SnowflakeIdentifierNormalize(column.ColumnName))
-		columnNames = append(columnNames, column.ColumnName)
+		quotedUpperColNames = append(quotedUpperColNames, SnowflakeIdentifierNormalize(column.Name))
+		columnNames = append(columnNames, column.Name)
 	}
 	// append synced_at column
 	quotedUpperColNames = append(quotedUpperColNames,
@@ -88,7 +88,7 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 
 	insertValuesSQLArray := make([]string, 0, len(columns))
 	for _, column := range columns {
-		normalizedColName := SnowflakeIdentifierNormalize(column.ColumnName)
+		normalizedColName := SnowflakeIdentifierNormalize(column.Name)
 		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("SOURCE.%s", normalizedColName))
 	}
 	// fill in synced_at column

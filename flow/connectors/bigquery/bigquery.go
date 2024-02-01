@@ -671,9 +671,9 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 		// convert the column names and types to bigquery types
 		columns := make([]*bigquery.FieldSchema, 0, len(tableSchema.Columns)+2)
 		for _, column := range tableSchema.Columns {
-			genericColType := column.ColumnType
+			genericColType := column.Type
 			columns = append(columns, &bigquery.FieldSchema{
-				Name:     column.ColumnName,
+				Name:     column.Name,
 				Type:     qValueKindToBigQueryType(genericColType),
 				Repeated: qvalue.QValueKind(genericColType).IsArray(),
 			})
@@ -766,7 +766,7 @@ func (c *BigQueryConnector) RenameTables(req *protos.RenameTablesInput) (*protos
 
 		columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
 		for _, col := range renameRequest.TableSchema.Columns {
-			columnNames = append(columnNames, col.ColumnName)
+			columnNames = append(columnNames, col.Name)
 		}
 
 		if req.SoftDeleteColName != nil {

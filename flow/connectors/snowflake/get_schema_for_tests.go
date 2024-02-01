@@ -23,8 +23,8 @@ func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.T
 		}
 		colTypes[i] = string(genericColType)
 		colFields = append(colFields, &protos.FieldDescription{
-			ColumnName:   colNames[i],
-			ColumnType:   colTypes[i],
+			Name:         colNames[i],
+			Type:         colTypes[i],
 			TypeModifier: -1,
 		})
 	}

@@ -209,7 +209,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 					columnCount := len(tableSchema.Columns)
 					columns := make([]*protos.FieldDescription, 0, columnCount)
 					for _, column := range tableSchema.Columns {
-						if !slices.Contains(mapping.Exclude, column.ColumnName) {
+						if !slices.Contains(mapping.Exclude, column.Name) {
 							columns = append(columns, column)
 						}
 					}

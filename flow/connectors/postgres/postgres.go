@@ -620,8 +620,8 @@ func (c *PostgresConnector) getTableSchemaForTable(
 
 		columnNames = append(columnNames, fieldDescription.Name)
 		columns = append(columns, &protos.FieldDescription{
-			ColumnName:   fieldDescription.Name,
-			ColumnType:   string(genericColType),
+			Name:         fieldDescription.Name,
+			Type:         string(genericColType),
 			TypeModifier: fieldDescription.TypeModifier,
 		})
 	}

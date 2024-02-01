@@ -145,8 +145,8 @@ func (s *SnapshotFlowExecution) cloneTable(
 			if v.TableIdentifier == srcName {
 				quotedColumns := make([]string, 0, len(v.Columns))
 				for _, col := range v.Columns {
-					if !slices.Contains(mapping.Exclude, col.ColumnName) {
-						quotedColumns = append(quotedColumns, connpostgres.QuoteIdentifier(col.ColumnName))
+					if !slices.Contains(mapping.Exclude, col.Name) {
+						quotedColumns = append(quotedColumns, connpostgres.QuoteIdentifier(col.Name))
 					}
 				}
 				from = strings.Join(quotedColumns, ",")

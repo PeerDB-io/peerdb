@@ -649,8 +649,8 @@ func generateCreateTableSQLForNormalizedTable(
 ) string {
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns)+2)
 	for _, column := range sourceTableSchema.Columns {
-		genericColumnType := column.ColumnType
-		normalizedColName := SnowflakeIdentifierNormalize(column.ColumnName)
+		genericColumnType := column.Type
+		normalizedColName := SnowflakeIdentifierNormalize(column.Name)
 		sfColType, err := qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))
 		if err != nil {
 			slog.Warn(fmt.Sprintf("failed to convert column type %s to snowflake type", genericColumnType),
@@ -731,7 +731,7 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 
 			columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
 			for _, col := range renameRequest.TableSchema.Columns {
-				columnNames = append(columnNames, col.ColumnName)
+				columnNames = append(columnNames, col.Name)
 			}
 
 			allCols := strings.Join(columnNames, ",")
