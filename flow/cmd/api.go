@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +23,7 @@ import (
 
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
@@ -91,6 +93,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 	clientOptions := client.Options{
 		HostPort:  args.TemporalHostPort,
 		Namespace: args.TemporalNamespace,
+		Logger:    slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))),
 	}
 	if args.TemporalCert != "" && args.TemporalKey != "" {
 		slog.Info("Using temporal certificate/key for authentication")

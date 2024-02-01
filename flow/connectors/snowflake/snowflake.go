@@ -15,11 +15,13 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/snowflakedb/gosnowflake"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/log"
 	"golang.org/x/sync/errgroup"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -76,7 +78,7 @@ type SnowflakeConnector struct {
 	database   *sql.DB
 	pgMetadata *metadataStore.PostgresMetadataStore
 	rawSchema  string
-	logger     slog.Logger
+	logger     log.Logger
 }
 
 // creating this to capture array results from snowflake.
@@ -112,7 +114,7 @@ func TableCheck(ctx context.Context, database *sql.DB) error {
 	defer func() {
 		deferErr := tx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			activity.GetLogger(ctx).Error("error while rolling back transaction for table check",
+			logger.LoggerFromCtx(ctx).Error("error while rolling back transaction for table check",
 				slog.Any("error", deferErr))
 		}
 	}()
@@ -207,13 +209,12 @@ func NewSnowflakeConnector(ctx context.Context,
 		return nil, fmt.Errorf("could not connect to metadata store: %w", err)
 	}
 
-	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &SnowflakeConnector{
 		ctx:        ctx,
 		database:   database,
 		pgMetadata: pgMetadata,
 		rawSchema:  rawSchema,
-		logger:     *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
+		logger:     logger.LoggerFromCtx(ctx),
 	}, nil
 }
 

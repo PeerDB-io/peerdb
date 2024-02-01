@@ -8,13 +8,14 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type EventHubConnector struct {
@@ -23,7 +24,7 @@ type EventHubConnector struct {
 	pgMetadata *metadataStore.PostgresMetadataStore
 	creds      *azidentity.DefaultAzureCredential
 	hubManager *EventHubManager
-	logger     slog.Logger
+	logger     log.Logger
 }
 
 // NewEventHubConnector creates a new EventHubConnector.
@@ -46,14 +47,13 @@ func NewEventHubConnector(
 		return nil, err
 	}
 
-	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &EventHubConnector{
 		ctx:        ctx,
 		config:     config,
 		pgMetadata: pgMetadata,
 		creds:      defaultAzureCreds,
 		hubManager: hubManager,
-		logger:     *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
+		logger:     logger.LoggerFromCtx(ctx),
 	}, nil
 }
 

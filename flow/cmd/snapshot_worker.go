@@ -3,12 +3,15 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
+	"log/slog"
+	"os"
 
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 
 	"github.com/PeerDB-io/peer-flow/activities"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/PeerDB-io/peer-flow/shared/alerting"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
@@ -25,6 +28,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) error {
 	clientOptions := client.Options{
 		HostPort:  opts.TemporalHostPort,
 		Namespace: opts.TemporalNamespace,
+		Logger:    slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))),
 	}
 
 	if opts.TemporalCert != "" && opts.TemporalKey != "" {

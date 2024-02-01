@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
+	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -174,7 +175,7 @@ func TestGetQRepPartitions(t *testing.T) {
 				ctx:     context.Background(),
 				config:  &protos.PostgresConfig{},
 				conn:    conn,
-				logger:  *slog.With(slog.String(string(shared.FlowNameKey), "testGetQRepPartitions")),
+				logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testGetQRepPartitions"))),
 			}
 
 			got, err := c.GetQRepPartitions(tc.config, tc.last)

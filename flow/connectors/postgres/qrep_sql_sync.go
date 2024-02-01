@@ -117,7 +117,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 			dstTableIdentifier.Sanitize(),
 		)
 
-		slog.Info(fmt.Sprintf("Creating staging table %s - '%s'",
+		s.connector.logger.Info(fmt.Sprintf("Creating staging table %s - '%s'",
 			stagingTableName, createStagingTableStmt), syncLog)
 		_, err = tx.Exec(context.Background(), createStagingTableStmt)
 
@@ -169,7 +169,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 			strings.Join(writeMode.UpsertKeyColumns, ", "),
 			setClause,
 		)
-		slog.Info("Performing upsert operation", slog.String("upsertStmt", upsertStmt), syncLog)
+		s.connector.logger.Info("Performing upsert operation", slog.String("upsertStmt", upsertStmt), syncLog)
 		res, err := tx.Exec(context.Background(), upsertStmt)
 		if err != nil {
 			return -1, fmt.Errorf("failed to perform upsert operation: %v", err)
@@ -182,14 +182,14 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 			"DROP TABLE %s;",
 			stagingTableIdentifier.Sanitize(),
 		)
-		slog.Info("Dropping staging table", slog.String("stagingTable", stagingTableName), syncLog)
+		s.connector.logger.Info("Dropping staging table", slog.String("stagingTable", stagingTableName), syncLog)
 		_, err = tx.Exec(context.Background(), dropStagingTableStmt)
 		if err != nil {
 			return -1, fmt.Errorf("failed to drop staging table: %v", err)
 		}
 	}
 
-	slog.Info(fmt.Sprintf("pushed %d records to %s", numRowsSynced, dstTableName), syncLog)
+	s.connector.logger.Info(fmt.Sprintf("pushed %d records to %s", numRowsSynced, dstTableName), syncLog)
 
 	// marshal the partition to json using protojson
 	pbytes, err := protojson.Marshal(partition)
@@ -202,7 +202,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		"INSERT INTO %s VALUES ($1, $2, $3, $4, $5);",
 		metadataTableIdentifier.Sanitize(),
 	)
-	slog.Info("Executing transaction inside Qrep sync", syncLog)
+	s.connector.logger.Info("Executing transaction inside Qrep sync", syncLog)
 	_, err = tx.Exec(
 		context.Background(),
 		insertMetadataStmt,
@@ -222,6 +222,6 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	}
 
 	numRowsInserted := copySource.NumRecords()
-	slog.Info(fmt.Sprintf("pushed %d records to %s", numRowsInserted, dstTableName), syncLog)
+	s.connector.logger.Info(fmt.Sprintf("pushed %d records to %s", numRowsInserted, dstTableName), syncLog)
 	return numRowsInserted, nil
 }
