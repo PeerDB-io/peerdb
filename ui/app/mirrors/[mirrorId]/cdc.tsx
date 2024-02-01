@@ -248,7 +248,7 @@ export function CDCMirror({
     setSelectedTab(index);
   };
 
-  let snapshot = <></>;
+  let snapshot = null;
   if (status.cdcStatus?.snapshotStatus) {
     snapshot = (
       <SnapshotStatusTable status={status.cdcStatus?.snapshotStatus} />

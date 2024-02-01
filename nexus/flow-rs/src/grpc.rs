@@ -51,7 +51,7 @@ impl FlowGrpcClient {
             create_catalog_entry: false,
         };
         let response = self.client.create_q_rep_flow(create_qrep_flow_req).await?;
-        let workflow_id = response.into_inner().worflow_id;
+        let workflow_id = response.into_inner().workflow_id;
         Ok(workflow_id)
     }
 
@@ -82,7 +82,7 @@ impl FlowGrpcClient {
             create_catalog_entry: false,
         };
         let response = self.client.create_cdc_flow(create_peer_flow_req).await?;
-        let workflow_id = response.into_inner().worflow_id;
+        let workflow_id = response.into_inner().workflow_id;
         Ok(workflow_id)
     }
 

@@ -2,6 +2,7 @@ package peerflow
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
 	"go.temporal.io/sdk/workflow"
@@ -65,7 +66,7 @@ func NormalizeFlowWorkflow(ctx workflow.Context,
 		if lastSyncBatchID != syncBatchID {
 			lastSyncBatchID = syncBatchID
 
-			logger.Info("executing normalize - ", config.FlowJobName)
+			logger.Info("executing normalize - ", slog.String("flowName", config.FlowJobName))
 			startNormalizeInput := &protos.StartNormalizeInput{
 				FlowConnectionConfigs:  config,
 				TableNameSchemaMapping: tableNameSchemaMapping,

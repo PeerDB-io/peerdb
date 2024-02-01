@@ -173,7 +173,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
           }}
           variant='normalSolid'
           disabled={
-            config.additionalTables.length > 0 &&
+            additionalTables.length > 0 &&
             mirrorState.currentFlowState.toString() !==
               FlowStatus[FlowStatus.STATUS_PAUSED]
           }

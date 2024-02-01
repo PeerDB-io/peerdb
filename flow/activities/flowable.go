@@ -192,21 +192,21 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	ctx = context.WithValue(ctx, shared.FlowNameKey, input.FlowConnectionConfigs.FlowJobName)
 	logger := activity.GetLogger(ctx)
 	activity.RecordHeartbeat(ctx, "starting flow...")
-	conn := input.FlowConnectionConfigs
-	dstConn, err := connectors.GetCDCSyncConnector(ctx, conn.Destination)
+	config := input.FlowConnectionConfigs
+	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.Destination)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
 	}
 	defer connectors.CloseConnector(dstConn)
 
 	logger.Info("pulling records...")
-	tblNameMapping := make(map[string]model.NameAndExclude)
-	for _, v := range input.FlowConnectionConfigs.TableMappings {
+	tblNameMapping := make(map[string]model.NameAndExclude, len(input.SyncFlowOptions.TableMappings))
+	for _, v := range input.SyncFlowOptions.TableMappings {
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
 	}
 
 	errGroup, errCtx := errgroup.WithContext(ctx)
-	srcConn, err := connectors.GetCDCPullConnector(errCtx, conn.Source)
+	srcConn, err := connectors.GetCDCPullConnector(errCtx, config.Source)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get source connector: %w", err)
 	}
@@ -236,9 +236,8 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 			TableNameMapping:      tblNameMapping,
 			LastOffset:            input.LastSyncState.Checkpoint,
 			MaxBatchSize:          input.SyncFlowOptions.BatchSize,
-			IdleTimeout: peerdbenv.PeerDBCDCIdleTimeoutSeconds(
-				int(input.SyncFlowOptions.IdleTimeoutSeconds),
-			),
+			IdleTimeout: time.Duration(input.SyncFlowOptions.IdleTimeoutSeconds) *
+				time.Second,
 			TableNameSchemaMapping:      input.TableNameSchemaMapping,
 			OverridePublicationName:     input.FlowConnectionConfigs.PublicationName,
 			OverrideReplicationSlotName: input.FlowConnectionConfigs.ReplicationSlotName,
@@ -251,7 +250,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	})
 
 	hasRecords := !recordBatch.WaitAndCheckEmpty()
-	logger.Info("current sync flow has records?", hasRecords)
+	logger.Info("current sync flow has records?", slog.Bool("hasRecords", hasRecords))
 
 	if !hasRecords {
 		// wait for the pull goroutine to finish
@@ -275,7 +274,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	}
 
 	syncBatchID, err := dstConn.GetLastSyncBatchID(flowName)
-	if err != nil && conn.Destination.Type != protos.DBType_EVENTHUB {
+	if err != nil && config.Destination.Type != protos.DBType_EVENTHUB {
 		return nil, err
 	}
 	syncBatchID += 1
@@ -297,7 +296,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		SyncBatchID:   syncBatchID,
 		Records:       recordBatch,
 		FlowJobName:   input.FlowConnectionConfigs.FlowJobName,
-		TableMappings: input.FlowConnectionConfigs.TableMappings,
+		TableMappings: input.SyncFlowOptions.TableMappings,
 		StagingPath:   input.FlowConnectionConfigs.CdcStagingPath,
 	})
 	if err != nil {
