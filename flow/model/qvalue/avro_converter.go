@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/google/uuid"
 	"github.com/linkedin/goavro/v2"
 	log "github.com/sirupsen/logrus"
@@ -256,7 +257,7 @@ func (c *QValueAvroConverter) processNumeric() (interface{}, error) {
 		return nil, fmt.Errorf("invalid Numeric value: expected *big.Rat, got %T", c.Value.Value)
 	}
 
-	decimalValue := num.FloatString(9)
+	decimalValue := num.FloatString(numeric.PeerDBNumericScale)
 	num.SetString(decimalValue)
 	if c.Nullable {
 		return goavro.Union("bytes.decimal", num), nil

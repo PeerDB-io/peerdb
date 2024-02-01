@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
@@ -149,7 +150,7 @@ func (r *RecordItems) toMap() (map[string]interface{}, error) {
 			if !ok {
 				return nil, errors.New("expected *big.Rat value")
 			}
-			jsonStruct[col] = bigRat.FloatString(9)
+			jsonStruct[col] = bigRat.FloatString(numeric.PeerDBNumericScale)
 		default:
 			jsonStruct[col] = v.Value
 		}
