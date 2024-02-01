@@ -202,7 +202,7 @@ func NewSnowflakeConnector(ctx context.Context,
 		rawSchema = *snowflakeProtoConfig.MetadataSchema
 	}
 
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx, "peerdb_sf_metadata")
+	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("could not connect to metadata store: %w", err)
 	}
@@ -240,11 +240,11 @@ func (c *SnowflakeConnector) ConnectionActive() error {
 }
 
 func (c *SnowflakeConnector) NeedsSetupMetadataTables() bool {
-	return c.pgMetadata.NeedsSetupMetadata()
+	return false
 }
 
 func (c *SnowflakeConnector) SetupMetadataTables() error {
-	return c.pgMetadata.SetupMetadata()
+	return nil
 }
 
 // only used for testing atm. doesn't return info about pkey or ReplicaIdentity [which is PG specific anyway].

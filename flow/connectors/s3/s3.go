@@ -65,8 +65,7 @@ func NewS3Connector(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to create S3 client: %w", err)
 	}
-	metadataSchemaName := "peerdb_s3_metadata"
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx, metadataSchemaName)
+	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to create postgres metadata store", slog.Any("error", err))
 		return nil, err
@@ -149,11 +148,11 @@ func (c *S3Connector) ConnectionActive() error {
 }
 
 func (c *S3Connector) NeedsSetupMetadataTables() bool {
-	return c.pgMetadata.NeedsSetupMetadata()
+	return false
 }
 
 func (c *S3Connector) SetupMetadataTables() error {
-	return c.pgMetadata.SetupMetadata()
+	return nil
 }
 
 func (c *S3Connector) GetLastSyncBatchID(jobName string) (int64, error) {

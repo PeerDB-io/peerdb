@@ -39,8 +39,7 @@ func NewEventHubConnector(
 	}
 
 	hubManager := NewEventHubManager(defaultAzureCreds, config)
-	metadataSchemaName := "peerdb_eventhub_metadata"
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx, metadataSchemaName)
+	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to create postgres metadata store",
 			slog.Any("error", err))
@@ -73,16 +72,10 @@ func (c *EventHubConnector) ConnectionActive() error {
 }
 
 func (c *EventHubConnector) NeedsSetupMetadataTables() bool {
-	return c.pgMetadata.NeedsSetupMetadata()
+	return false
 }
 
 func (c *EventHubConnector) SetupMetadataTables() error {
-	err := c.pgMetadata.SetupMetadata()
-	if err != nil {
-		c.logger.Error(fmt.Sprintf("failed to setup metadata tables: %v", err))
-		return err
-	}
-
 	return nil
 }
 
