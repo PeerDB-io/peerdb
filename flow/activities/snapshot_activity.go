@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	"go.temporal.io/sdk/activity"
+
 	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -36,9 +38,11 @@ func (a *SnapshotActivity) SetupReplication(
 	config *protos.SetupReplicationInput,
 ) (*protos.SetupReplicationOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	logger := activity.GetLogger(ctx)
+
 	dbType := config.PeerConnectionConfig.Type
 	if dbType != protos.DBType_POSTGRES {
-		slog.InfoContext(ctx, fmt.Sprintf("setup replication is no-op for %s", dbType))
+		logger.Info(fmt.Sprintf("setup replication is no-op for %s", dbType))
 		return nil, nil
 	}
 
@@ -53,12 +57,12 @@ func (a *SnapshotActivity) SetupReplication(
 	defer close(replicationErr)
 
 	closeConnectionForError := func(err error) {
-		slog.ErrorContext(ctx, "failed to setup replication", slog.Any("error", err))
+		logger.Error("failed to setup replication", slog.Any("error", err))
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		// it is important to close the connection here as it is not closed in CloseSlotKeepAlive
 		connCloseErr := conn.Close()
 		if connCloseErr != nil {
-			slog.ErrorContext(ctx, "failed to close connection", slog.Any("error", connCloseErr))
+			logger.Error("failed to close connection", slog.Any("error", connCloseErr))
 		}
 	}
 
@@ -73,11 +77,11 @@ func (a *SnapshotActivity) SetupReplication(
 		}
 	}()
 
-	slog.InfoContext(ctx, "waiting for slot to be created...")
+	logger.Info("waiting for slot to be created...")
 	var slotInfo connpostgres.SlotCreationResult
 	select {
 	case slotInfo = <-slotSignal.SlotCreated:
-		slog.InfoContext(ctx, fmt.Sprintf("slot '%s' created", slotInfo.SlotName))
+		logger.Info("slot created", slotInfo.SlotName)
 	case err := <-replicationErr:
 		closeConnectionForError(err)
 		return nil, fmt.Errorf("failed to setup replication: %w", err)
