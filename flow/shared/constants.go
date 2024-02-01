@@ -18,7 +18,7 @@ const (
 	NormalizeSyncDoneSignalName    = "normalize-sync-done"
 
 	// Queries
-	CDCFlowStateQuery  = "q-cdc-flow-status"
+	CDCFlowStateQuery  = "q-cdc-flow-state"
 	QRepFlowStateQuery = "q-qrep-flow-state"
 	FlowStatusQuery    = "q-flow-status"
 

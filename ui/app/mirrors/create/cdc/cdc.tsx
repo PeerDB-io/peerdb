@@ -113,6 +113,7 @@ export default function CDCConfigForm({
           rows={rows}
           setRows={setRows}
           peerType={mirrorConfig.destination?.type}
+          omitAdditionalTablesMapping={new Map<string, string[]>()}
         />
       </>
     );

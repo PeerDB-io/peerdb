@@ -35,6 +35,7 @@ interface SchemaBoxProps {
     SetStateAction<{ tableName: string; columns: string[] }[]>
   >;
   peerType?: DBType;
+  omitAdditionalTables: string[] | undefined;
 }
 const SchemaBox = ({
   sourcePeer,
@@ -44,6 +45,7 @@ const SchemaBox = ({
   setRows,
   tableColumns,
   setTableColumns,
+  omitAdditionalTables,
 }: SchemaBoxProps) => {
   const [tablesLoading, setTablesLoading] = useState(false);
   const [columnsLoading, setColumnsLoading] = useState(false);
@@ -146,6 +148,11 @@ const SchemaBox = ({
       if (rowsDoNotHaveSchemaTables(schemaName)) {
         setTablesLoading(true);
         fetchTables(sourcePeer, schemaName, peerType).then((newRows) => {
+          for (const row of newRows) {
+            if (omitAdditionalTables?.includes(row.source)) {
+              row.canMirror = false;
+            }
+          }
           setRows((oldRows) => [
             ...oldRows.filter((oldRow) => oldRow.schema !== schema),
             ...newRows,
