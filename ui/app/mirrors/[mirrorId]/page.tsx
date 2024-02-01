@@ -1,5 +1,6 @@
 import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import prisma from '@/app/utils/prisma';
+import EditButton from '@/components/EditButton';
 import { ResyncDialog } from '@/components/ResyncDialog';
 import { FlowConnectionConfigs } from '@/grpc_generated/flow';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
@@ -74,8 +75,10 @@ export default async function ViewMirror({
     return <div>No mirror info found</div>;
   }
 
-  let syncStatusChild = <></>;
-  let resyncComponent = <></>;
+  let syncStatusChild = null;
+  let resyncComponent = null;
+  let editButtonHTML = null;
+
   if (mirrorStatus.cdcStatus) {
     let rowsSynced = syncs.reduce((acc, sync) => {
       if (sync.end_time !== null) {
@@ -93,6 +96,11 @@ export default async function ViewMirror({
     syncStatusChild = (
       <SyncStatus rowsSynced={rowsSynced} rows={rows} flowJobName={mirrorId} />
     );
+    editButtonHTML = (
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        <EditButton toLink={`/mirrors/${mirrorId}/edit`} />
+      </div>
+    );
   } else {
     redirect(`/mirrors/status/qrep/${mirrorId}`);
   }
@@ -109,6 +117,7 @@ export default async function ViewMirror({
       >
         <div style={{ display: 'flex', alignItems: 'center' }}>
           <Header variant='title2'>{mirrorId}</Header>
+          {editButtonHTML}
         </div>
         {resyncComponent}
       </div>
