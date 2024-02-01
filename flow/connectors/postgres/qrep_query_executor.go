@@ -125,8 +125,8 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 				Name:      cname,
 				Type:      ctype,
 				Nullable:  cnullable,
-				Precision: int64(precision),
-				Scale:     int64(scale),
+				Precision: precision,
+				Scale:     scale,
 			}
 		} else {
 			qfields[i] = model.QField{

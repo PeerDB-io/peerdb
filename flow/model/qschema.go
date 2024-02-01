@@ -9,8 +9,8 @@ import (
 type QField struct {
 	Name      string
 	Type      qvalue.QValueKind
-	Precision int64
-	Scale     int64
+	Precision int16
+	Scale     int16
 	Nullable  bool
 }
 

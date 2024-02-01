@@ -27,8 +27,8 @@ type AvroSchemaComplexArray struct {
 type AvroSchemaNumeric struct {
 	Type        string `json:"type"`
 	LogicalType string `json:"logicalType"`
-	Precision   int64  `json:"precision"`
-	Scale       int64  `json:"scale"`
+	Precision   int16  `json:"precision"`
+	Scale       int16  `json:"scale"`
 }
 
 type AvroSchemaRecord struct {
@@ -50,7 +50,7 @@ type AvroSchemaField struct {
 //
 // For example, QValueKindInt64 would return an AvroLogicalSchema of "long". Unsupported QValueKinds
 // will return an error.
-func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision int64, scale int64) (interface{}, error) {
+func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision int16, scale int16) (interface{}, error) {
 	avroNumericPrecision := precision
 	avroNumericScale := scale
 	if precision > 38 || precision <= 0 || scale > 37 || scale <= 0 {
