@@ -605,7 +605,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 
 	fields := rows.FieldDescriptions()
 	columnNames := make([]string, 0, len(fields))
-	columnTypes := make([]string, 0, len(fields))
+	columns := make([]*protos.FieldDescription, 0, len(fields))
 	for _, fieldDescription := range fields {
 		genericColType := postgresOIDToQValueKind(fieldDescription.DataTypeOID)
 		if genericColType == qvalue.QValueKindInvalid {
@@ -618,7 +618,11 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		}
 
 		columnNames = append(columnNames, fieldDescription.Name)
-		columnTypes = append(columnTypes, string(genericColType))
+		columns = append(columns, &protos.FieldDescription{
+			Name:         fieldDescription.Name,
+			Type:         string(genericColType),
+			TypeModifier: fieldDescription.TypeModifier,
+		})
 	}
 
 	if err = rows.Err(); err != nil {
@@ -633,8 +637,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		TableIdentifier:       tableName,
 		PrimaryKeyColumns:     pKeyCols,
 		IsReplicaIdentityFull: replicaIdentityType == ReplicaIdentityFull,
-		ColumnNames:           columnNames,
-		ColumnTypes:           columnTypes,
+		Columns:               columns,
 	}, nil
 }
 

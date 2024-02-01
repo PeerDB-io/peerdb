@@ -176,8 +176,13 @@ message TableSchema {
   string table_identifier = 1;
   repeated string primary_key_columns = 2;
   bool is_replica_identity_full = 3;
-  repeated string column_names = 4;
-  repeated string column_types = 5;
+  repeated FieldDescription columns = 6;
+}
+
+message FieldDescription {
+  string name = 1;
+  string type = 2;
+  int32 type_modifier = 3;
 }
 
 message GetTableSchemaBatchInput {
