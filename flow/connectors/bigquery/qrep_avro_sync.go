@@ -63,7 +63,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 			table:   stagingTable,
 		}, stream, req.FlowJobName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to push to avro stage: %v", err)
+		return nil, fmt.Errorf("failed to push to avro stage: %w", err)
 	}
 
 	bqClient := s.connector.client
@@ -73,11 +73,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 
 	lastCP, err := req.Records.GetLastCheckpoint()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get last checkpoint: %v", err)
-	}
-	updateMetadataStmt, err := s.connector.getUpdateMetadataStmt(req.FlowJobName, lastCP, syncBatchID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update metadata: %v", err)
+		return nil, fmt.Errorf("failed to get last checkpoint: %w", err)
 	}
 
 	activity.RecordHeartbeat(s.connector.ctx,
@@ -91,18 +87,17 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
-	stmts := []string{
-		"BEGIN TRANSACTION;",
-		insertStmt,
-		updateMetadataStmt,
-		"COMMIT TRANSACTION;",
-	}
-	query := bqClient.Query(strings.Join(stmts, "\n"))
+	query := bqClient.Query(insertStmt)
 	query.DefaultDatasetID = s.connector.datasetID
 	query.DefaultProjectID = s.connector.projectID
 	_, err = query.Read(s.connector.ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute statements in a transaction: %v", err)
+		return nil, fmt.Errorf("failed to execute statements in a transaction: %w", err)
+	}
+
+	err = s.connector.pgMetadata.FinishBatch(req.FlowJobName, syncBatchID, lastCP)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update metadata: %w", err)
 	}
 
 	// drop the staging table
@@ -180,7 +175,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	numRecords, err := s.writeToStage(partition.PartitionId, flowJobName, avroSchema,
 		stagingDatasetTable, stream, flowJobName)
 	if err != nil {
-		return -1, fmt.Errorf("failed to push to avro stage: %v", err)
+		return -1, fmt.Errorf("failed to push to avro stage: %w", err)
 	}
 	activity.RecordHeartbeat(s.connector.ctx, fmt.Sprintf(
 		"Flow job %s: running insert-into-select transaction for"+
@@ -202,24 +197,19 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	insertStmt := fmt.Sprintf("INSERT INTO `%s` SELECT %s FROM `%s`;",
 		dstTableName, selector, stagingDatasetTable.string())
 
-	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(partition, flowJobName, startTime)
-	if err != nil {
-		return -1, fmt.Errorf("failed to create metadata insert statement: %v", err)
-	}
 	slog.Info("Performing transaction inside QRep sync function", flowLog)
 
-	stmts := []string{
-		"BEGIN TRANSACTION;",
-		insertStmt,
-		insertMetadataStmt,
-		"COMMIT TRANSACTION;",
-	}
-	query := bqClient.Query(strings.Join(stmts, "\n"))
+	query := bqClient.Query(insertStmt)
 	query.DefaultDatasetID = s.connector.datasetID
 	query.DefaultProjectID = s.connector.projectID
 	_, err = query.Read(s.connector.ctx)
 	if err != nil {
-		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
+		return -1, fmt.Errorf("failed to execute statements in a transaction: %w", err)
+	}
+
+	err = s.connector.pgMetadata.FinishQrepPartition(partition, flowJobName, startTime)
+	if err != nil {
+		return -1, err
 	}
 
 	// drop the staging table
@@ -283,7 +273,7 @@ func DefineAvroSchema(dstTableName string,
 
 	avroSchemaJSON, err := json.Marshal(avroSchema)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal Avro schema to JSON: %v", err)
+		return nil, fmt.Errorf("failed to marshal Avro schema to JSON: %w", err)
 	}
 
 	return &model.QRecordAvroSchemaDefinition{
