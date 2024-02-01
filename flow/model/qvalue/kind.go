@@ -100,13 +100,13 @@ var QValueKindToClickhouseTypeMap = map[QValueKind]string{
 	QValueKindInt64:       "Int64",
 	QValueKindFloat32:     "Float32",
 	QValueKindFloat64:     "Float64",
-	QValueKindNumeric:     "Float64",
+	QValueKindNumeric:     "Decimal128(9)",
 	QValueKindString:      "String",
 	QValueKindJSON:        "String",
 	QValueKindTimestamp:   "DateTime64(6)",
 	QValueKindTimestampTZ: "TIMESTAMP",
-	QValueKindTime:        "TIME",
-	QValueKindDate:        "DATE",
+	QValueKindTime:        "String",
+	QValueKindDate:        "Date",
 	QValueKindBit:         "Boolean",
 	QValueKindBytes:       "String",
 	QValueKindStruct:      "String",
@@ -124,6 +124,8 @@ var QValueKindToClickhouseTypeMap = map[QValueKind]string{
 	QValueKindArrayInt32:   "Array(Int32)",
 	QValueKindArrayInt64:   "Array(Int64)",
 	QValueKindArrayString:  "Array(String)",
+	QValueKindArrayBoolean: "Array(Bool)",
+	QValueKindArrayInt16:   "Array(Int16)",
 }
 
 func (kind QValueKind) ToDWHColumnType(dwhType QDWHType) (string, error) {
