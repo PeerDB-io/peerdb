@@ -149,36 +149,15 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 			ct := column.Type
 
 			colSelector.WriteString(fmt.Sprintf("%s,", cn))
-			// if i < numCols-1 {
-			// 	colSelector.WriteString(",")
-			// }
-
-			//extractionFuction := "JSONExtract"
 			colType := qvalue.QValueKind(ct)
 			clickhouseType, err := qValueKindToClickhouseType(colType)
 			if err != nil {
 				return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 			}
-			if(clickhouseType =="DateTime64(6)") {
+			if clickhouseType == "DateTime64(6)" {
 				clickhouseType = "String"
 			}
 
-			// switch qvalue.QValueKind(ct) {
-			// case qvalue.QValueKindString:
-			// 	extractionFuction = "JSONExtractString"
-			// case qvalue.QValueKindInt64:
-			// 	// TODO check if int64 is supported.
-			// 	extractionFuction = "JSONExtractInt"
-			// case qvalue.QValueKindFloat32:
-			// case qvalue.QValueKindFloat64:
-			// 	extractionFuction = "JSONExtractFloat"
-			// case qvalue.QValueKindArrayBoolean:
-			// 	extractionFuction = "JSONExtractBool"
-			// case qvalue.QValueKindNumeric:
-			// 	genericType = "Decimal"
-
-			// }
-			//projection.WriteString(fmt.Sprintf("%s(_peerdb_data, '%s', '%s') AS %s, ", extractionFuction, cn, genericType, cn))
 			projection.WriteString(fmt.Sprintf("JSONExtract(_peerdb_data, '%s', '%s') AS %s, ", cn, clickhouseType, cn))
 		}
 
