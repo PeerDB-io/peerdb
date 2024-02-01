@@ -109,7 +109,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 			slog.String("destinationTable", rawTableName))
 	}
 
-	slog.Info(fmt.Sprintf("loaded stage into %s.%s", datasetID, rawTableName),
+	s.connector.logger.Info(fmt.Sprintf("loaded stage into %s.%s", datasetID, rawTableName),
 		slog.String(string(shared.FlowNameKey), req.FlowJobName),
 		slog.String("dstTableName", rawTableName))
 
@@ -162,8 +162,8 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	if err != nil {
 		return 0, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
-	slog.Info("Obtained Avro schema for destination table", flowLog)
-	slog.Info(fmt.Sprintf("Avro schema: %v\n", avroSchema), flowLog)
+	s.connector.logger.Info("Obtained Avro schema for destination table", flowLog)
+	s.connector.logger.Info(fmt.Sprintf("Avro schema: %v\n", avroSchema), flowLog)
 	// create a staging table name with partitionID replace hyphens with underscores
 	dstDatasetTable, _ := s.connector.convertToDatasetTable(dstTableName)
 	stagingDatasetTable := &datasetTable{
@@ -197,7 +197,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	insertStmt := fmt.Sprintf("INSERT INTO `%s` SELECT %s FROM `%s`;",
 		dstTableName, selector, stagingDatasetTable.string())
 
-	slog.Info("Performing transaction inside QRep sync function", flowLog)
+	s.connector.logger.Info("Performing transaction inside QRep sync function", flowLog)
 
 	query := bqClient.Query(insertStmt)
 	query.DefaultDatasetID = s.connector.datasetID
@@ -221,7 +221,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 			flowLog)
 	}
 
-	slog.Info(fmt.Sprintf("loaded stage into %s", dstTableName), flowLog)
+	s.connector.logger.Info(fmt.Sprintf("loaded stage into %s", dstTableName), flowLog)
 	return numRecords, nil
 }
 
@@ -426,7 +426,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 		}
 
 		avroFilePath := fmt.Sprintf("%s/%s.avro", tmpDir, syncID)
-		slog.Info("writing records to local file", idLog)
+		s.connector.logger.Info("writing records to local file", idLog)
 		avroFile, err = ocfWriter.WriteRecordsToAvroFile(avroFilePath)
 		if err != nil {
 			return 0, fmt.Errorf("failed to write records to local Avro file: %w", err)
@@ -437,7 +437,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	if avroFile.NumRecords == 0 {
 		return 0, nil
 	}
-	slog.Info(fmt.Sprintf("wrote %d records", avroFile.NumRecords), idLog)
+	s.connector.logger.Info(fmt.Sprintf("wrote %d records", avroFile.NumRecords), idLog)
 
 	bqClient := s.connector.client
 	var avroRef bigquery.LoadSource
@@ -472,7 +472,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	if err := status.Err(); err != nil {
 		return 0, fmt.Errorf("failed to load Avro file into BigQuery table: %w", err)
 	}
-	slog.Info(fmt.Sprintf("Pushed from %s to BigQuery", avroFile.FilePath), idLog)
+	s.connector.logger.Info(fmt.Sprintf("Pushed from %s to BigQuery", avroFile.FilePath), idLog)
 
 	err = s.connector.waitForTableReady(stagingTable)
 	if err != nil {

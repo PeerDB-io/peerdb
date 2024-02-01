@@ -2,10 +2,10 @@ package connpostgres
 
 import (
 	"fmt"
-	"log/slog"
 	"slices"
 	"strings"
 
+	"go.temporal.io/sdk/log"
 	"golang.org/x/exp/maps"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -28,7 +28,7 @@ type normalizeStmtGenerator struct {
 	// Postgres metadata schema
 	metadataSchema string
 	// to log fallback statement selection
-	logger slog.Logger
+	logger log.Logger
 }
 
 func (n *normalizeStmtGenerator) generateNormalizeStatements() []string {
