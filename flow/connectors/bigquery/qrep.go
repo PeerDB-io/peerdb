@@ -34,7 +34,7 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	}
 
 	if done {
-		c.logger.InfoContext(c.ctx, fmt.Sprintf("Partition %s has already been synced", partition.PartitionId))
+		c.logger.Info(fmt.Sprintf("Partition %s has already been synced", partition.PartitionId))
 		return 0, nil
 	}
 	c.logger.Info(fmt.Sprintf("QRep sync function called and partition existence checked for"+

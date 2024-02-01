@@ -15,6 +15,7 @@ import (
 	"cloud.google.com/go/storage"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/log"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	cc "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -54,7 +56,7 @@ type BigQueryConnector struct {
 	datasetID     string
 	projectID     string
 	catalogPool   *pgxpool.Pool
-	logger        slog.Logger
+	logger        log.Logger
 }
 
 // Create BigQueryServiceAccount from BigqueryConfig
@@ -222,8 +224,6 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		return nil, fmt.Errorf("failed to create catalog connection pool: %v", err)
 	}
 
-	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
-
 	return &BigQueryConnector{
 		ctx:           ctx,
 		bqConfig:      config,
@@ -233,7 +233,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		pgMetadata:    metadataStore.NewPostgresMetadataStoreFromCatalog(ctx, catalogPool),
 		storageClient: storageClient,
 		catalogPool:   catalogPool,
-		logger:        *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
+		logger:        logger.LoggerFromCtx(ctx),
 	}, nil
 }
 
@@ -279,7 +279,7 @@ func (c *BigQueryConnector) waitForTableReady(datasetTable *datasetTable) error 
 			return nil
 		}
 
-		slog.Info("waiting for table to be ready",
+		c.logger.Info("waiting for table to be ready",
 			slog.String("table", datasetTable.table), slog.Int("attempt", attempt))
 		attempt++
 		time.Sleep(sleepInterval)
@@ -651,7 +651,7 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 				return nil, fmt.Errorf("error while checking metadata for BigQuery dataset %s: %w",
 					datasetTable.dataset, err)
 			}
-			c.logger.InfoContext(c.ctx, fmt.Sprintf("creating dataset %s...", dataset.DatasetID))
+			c.logger.Info(fmt.Sprintf("creating dataset %s...", dataset.DatasetID))
 			err = dataset.Create(c.ctx, nil)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create BigQuery dataset %s: %w", dataset.DatasetID, err)
@@ -758,7 +758,7 @@ func (c *BigQueryConnector) RenameTables(req *protos.RenameTablesInput) (*protos
 	for _, renameRequest := range req.RenameTableOptions {
 		srcDatasetTable, _ := c.convertToDatasetTable(renameRequest.CurrentName)
 		dstDatasetTable, _ := c.convertToDatasetTable(renameRequest.NewName)
-		c.logger.InfoContext(c.ctx, fmt.Sprintf("renaming table '%s' to '%s'...", srcDatasetTable.string(),
+		c.logger.Info(fmt.Sprintf("renaming table '%s' to '%s'...", srcDatasetTable.string(),
 			dstDatasetTable.string()))
 
 		activity.RecordHeartbeat(c.ctx, fmt.Sprintf("renaming table '%s' to '%s'...", srcDatasetTable.string(),
@@ -768,11 +768,11 @@ func (c *BigQueryConnector) RenameTables(req *protos.RenameTablesInput) (*protos
 			allCols := strings.Join(renameRequest.TableSchema.ColumnNames, ",")
 			pkeyCols := strings.Join(renameRequest.TableSchema.PrimaryKeyColumns, ",")
 
-			c.logger.InfoContext(c.ctx, fmt.Sprintf("handling soft-deletes for table '%s'...", dstDatasetTable.string()))
+			c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dstDatasetTable.string()))
 
 			activity.RecordHeartbeat(c.ctx, fmt.Sprintf("handling soft-deletes for table '%s'...", dstDatasetTable.string()))
 
-			c.logger.InfoContext(c.ctx, fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
+			c.logger.Info(fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
 				srcDatasetTable.string(), fmt.Sprintf("%s,%s", allCols, *req.SoftDeleteColName),
 				allCols, *req.SoftDeleteColName, dstDatasetTable.string(),
 				pkeyCols, pkeyCols, srcDatasetTable.string()))
@@ -796,7 +796,7 @@ func (c *BigQueryConnector) RenameTables(req *protos.RenameTablesInput) (*protos
 			activity.RecordHeartbeat(c.ctx, fmt.Sprintf("setting synced at column for table '%s'...",
 				srcDatasetTable.string()))
 
-			c.logger.InfoContext(c.ctx,
+			c.logger.Info(
 				fmt.Sprintf("UPDATE %s SET %s = CURRENT_TIMESTAMP WHERE %s IS NULL", srcDatasetTable.string(),
 					*req.SyncedAtColName, *req.SyncedAtColName))
 			query := c.client.Query(
@@ -811,7 +811,7 @@ func (c *BigQueryConnector) RenameTables(req *protos.RenameTablesInput) (*protos
 			}
 		}
 
-		c.logger.InfoContext(c.ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s",
+		c.logger.Info(fmt.Sprintf("DROP TABLE IF EXISTS %s",
 			dstDatasetTable.string()))
 		// drop the dst table if exists
 		dropQuery := c.client.Query(fmt.Sprintf("DROP TABLE IF EXISTS %s",
@@ -823,7 +823,7 @@ func (c *BigQueryConnector) RenameTables(req *protos.RenameTablesInput) (*protos
 			return nil, fmt.Errorf("unable to drop table %s: %w", dstDatasetTable.string(), err)
 		}
 
-		c.logger.InfoContext(c.ctx, fmt.Sprintf("ALTER TABLE %s RENAME TO %s",
+		c.logger.Info(fmt.Sprintf("ALTER TABLE %s RENAME TO %s",
 			srcDatasetTable.string(), dstDatasetTable.table))
 		// rename the src table to dst
 		query := c.client.Query(fmt.Sprintf("ALTER TABLE %s RENAME TO %s",
@@ -836,7 +836,7 @@ func (c *BigQueryConnector) RenameTables(req *protos.RenameTablesInput) (*protos
 				dstDatasetTable.string(), err)
 		}
 
-		c.logger.InfoContext(c.ctx, fmt.Sprintf("successfully renamed table '%s' to '%s'", srcDatasetTable.string(),
+		c.logger.Info(fmt.Sprintf("successfully renamed table '%s' to '%s'", srcDatasetTable.string(),
 			dstDatasetTable.string()))
 	}
 

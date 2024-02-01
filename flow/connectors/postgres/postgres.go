@@ -13,15 +13,16 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/dynamicconf"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/PeerDB-io/peer-flow/shared/alerting"
 )
 
@@ -35,7 +36,7 @@ type PostgresConnector struct {
 	replConfig         *pgx.ConnConfig
 	customTypesMapping map[uint32]string
 	metadataSchema     string
-	logger             slog.Logger
+	logger             log.Logger
 }
 
 // NewPostgresConnector creates a new instance of PostgresConnector.
@@ -80,8 +81,6 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		metadataSchema = *pgConfig.MetadataSchema
 	}
 
-	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
-	flowLog := slog.With(slog.String(string(shared.FlowNameKey), flowName))
 	return &PostgresConnector{
 		connStr:            connectionString,
 		ctx:                ctx,
@@ -91,7 +90,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		replConfig:         replConfig,
 		customTypesMapping: customTypeMap,
 		metadataSchema:     metadataSchema,
-		logger:             *flowLog,
+		logger:             logger.LoggerFromCtx(ctx),
 	}, nil
 }
 

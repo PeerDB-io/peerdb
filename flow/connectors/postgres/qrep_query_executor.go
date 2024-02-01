@@ -9,9 +9,11 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/geo"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -25,7 +27,7 @@ type QRepQueryExecutor struct {
 	flowJobName   string
 	partitionID   string
 	customTypeMap map[uint32]string
-	logger        slog.Logger
+	logger        log.Logger
 }
 
 func NewQRepQueryExecutor(conn *pgx.Conn, ctx context.Context,
@@ -37,18 +39,16 @@ func NewQRepQueryExecutor(conn *pgx.Conn, ctx context.Context,
 		snapshot:    "",
 		flowJobName: flowJobName,
 		partitionID: partitionID,
-		logger: *slog.With(
-			slog.String(string(shared.FlowNameKey), flowJobName),
-			slog.String(string(shared.PartitionIDKey), partitionID)),
+		logger: log.With(
+			logger.LoggerFromCtx(ctx),
+			slog.String(string(shared.PartitionIDKey), partitionID),
+		),
 	}
 }
 
 func NewQRepQueryExecutorSnapshot(conn *pgx.Conn, ctx context.Context, snapshot string,
 	flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
-	qrepLog := slog.Group("qrep-metadata", slog.String(string(shared.FlowNameKey), flowJobName),
-		slog.String(string(shared.PartitionIDKey), partitionID))
-	slog.Info("Declared new qrep executor for snapshot", qrepLog)
 	CustomTypeMap, err := utils.GetCustomDataTypes(ctx, conn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get custom data types: %w", err)
@@ -60,7 +60,10 @@ func NewQRepQueryExecutorSnapshot(conn *pgx.Conn, ctx context.Context, snapshot 
 		flowJobName:   flowJobName,
 		partitionID:   partitionID,
 		customTypeMap: CustomTypeMap,
-		logger:        *slog.With(qrepLog),
+		logger: log.With(
+			logger.LoggerFromCtx(ctx),
+			slog.String(string(shared.PartitionIDKey), partitionID),
+		),
 	}, nil
 }
 

@@ -10,12 +10,13 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 const (
@@ -28,7 +29,7 @@ type S3Connector struct {
 	pgMetadata *metadataStore.PostgresMetadataStore
 	client     s3.Client
 	creds      utils.S3PeerCredentials
-	logger     slog.Logger
+	logger     log.Logger
 }
 
 func NewS3Connector(ctx context.Context,
@@ -70,14 +71,13 @@ func NewS3Connector(ctx context.Context,
 		slog.ErrorContext(ctx, "failed to create postgres metadata store", slog.Any("error", err))
 		return nil, err
 	}
-	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &S3Connector{
 		ctx:        ctx,
 		url:        config.Url,
 		pgMetadata: pgMetadata,
 		client:     *s3Client,
 		creds:      s3PeerCreds,
-		logger:     *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
+		logger:     logger.LoggerFromCtx(ctx),
 	}, nil
 }
 
