@@ -98,7 +98,6 @@ export default async function ViewMirror({
     );
     editButtonHTML = (
       <div style={{ display: 'flex', alignItems: 'center' }}>
-        <Header variant='title2'>{mirrorId}</Header>
         <EditButton toLink={`/mirrors/${mirrorId}/edit`} />
       </div>
     );
@@ -120,8 +119,8 @@ export default async function ViewMirror({
           <Header variant='title2'>{mirrorId}</Header>
           {editButtonHTML}
         </div>
+        {resyncComponent}
       </div>
-      {resyncComponent}
       <CDCMirror
         rows={rows}
         createdAt={mirrorInfo?.created_at}
