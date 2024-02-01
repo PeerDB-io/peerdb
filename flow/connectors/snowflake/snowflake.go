@@ -17,6 +17,7 @@ import (
 	"go.temporal.io/sdk/activity"
 	"golang.org/x/sync/errgroup"
 
+	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -25,9 +26,6 @@ import (
 )
 
 const (
-	mirrorJobsTableIdentifier = "PEERDB_MIRROR_JOBS"
-	createMirrorJobsTableSQL  = `CREATE TABLE IF NOT EXISTS %s.%s(MIRROR_JOB_NAME STRING NOT NULL,OFFSET INT NOT NULL,
-		SYNC_BATCH_ID INT NOT NULL,NORMALIZE_BATCH_ID INT NOT NULL)`
 	rawTablePrefix    = "_PEERDB_RAW"
 	createSchemaSQL   = "CREATE TRANSIENT SCHEMA IF NOT EXISTS %s"
 	createRawTableSQL = `CREATE TABLE IF NOT EXISTS %s.%s(_PEERDB_UID STRING NOT NULL,
@@ -55,22 +53,15 @@ const (
 		 WHEN MATCHED AND (SOURCE._PEERDB_RECORD_TYPE = 2) THEN %s`
 	getDistinctDestinationTableNames = `SELECT DISTINCT _PEERDB_DESTINATION_TABLE_NAME FROM %s.%s WHERE
 	 _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d`
-	getTableNametoUnchangedColsSQL = `SELECT _PEERDB_DESTINATION_TABLE_NAME,
+	getTableNameToUnchangedColsSQL = `SELECT _PEERDB_DESTINATION_TABLE_NAME,
 	 ARRAY_AGG(DISTINCT _PEERDB_UNCHANGED_TOAST_COLUMNS) FROM %s.%s WHERE
 	 _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d AND _PEERDB_RECORD_TYPE != 2
 	 GROUP BY _PEERDB_DESTINATION_TABLE_NAME`
 	getTableSchemaSQL = `SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
 	 WHERE UPPER(TABLE_SCHEMA)=? AND UPPER(TABLE_NAME)=? ORDER BY ORDINAL_POSITION`
 
-	insertJobMetadataSQL = "INSERT INTO %s.%s VALUES (?,?,?,?)"
-
-	updateMetadataForSyncRecordsSQL = `UPDATE %s.%s SET OFFSET=GREATEST(OFFSET, ?), SYNC_BATCH_ID=?
-	 WHERE MIRROR_JOB_NAME=?`
-	updateMetadataForNormalizeRecordsSQL = "UPDATE %s.%s SET NORMALIZE_BATCH_ID=? WHERE MIRROR_JOB_NAME=?"
-
 	checkIfTableExistsSQL = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.TABLES
 	 WHERE TABLE_SCHEMA=? and TABLE_NAME=?`
-	checkIfJobMetadataExistsSQL = "SELECT TO_BOOLEAN(COUNT(1)) FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	getLastOffsetSQL            = "SELECT OFFSET FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	setLastOffsetSQL            = "UPDATE %s.%s SET OFFSET=GREATEST(OFFSET, ?) WHERE MIRROR_JOB_NAME=?"
 	getLastSyncBatchID_SQL      = "SELECT SYNC_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
@@ -78,14 +69,14 @@ const (
 	dropTableIfExistsSQL        = "DROP TABLE IF EXISTS %s.%s"
 	deleteJobMetadataSQL        = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	dropSchemaIfExistsSQL       = "DROP SCHEMA IF EXISTS %s"
-	checkSchemaExistsSQL        = "SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME=?"
 )
 
 type SnowflakeConnector struct {
-	ctx            context.Context
-	database       *sql.DB
-	metadataSchema string
-	logger         slog.Logger
+	ctx        context.Context
+	database   *sql.DB
+	pgMetadata *metadataStore.PostgresMetadataStore
+	rawSchema  string
+	logger     slog.Logger
 }
 
 // creating this to capture array results from snowflake.
@@ -206,17 +197,23 @@ func NewSnowflakeConnector(ctx context.Context,
 		return nil, fmt.Errorf("could not validate snowflake peer: %w", err)
 	}
 
-	metadataSchema := "_PEERDB_INTERNAL"
+	rawSchema := "_PEERDB_INTERNAL"
 	if snowflakeProtoConfig.MetadataSchema != nil {
-		metadataSchema = *snowflakeProtoConfig.MetadataSchema
+		rawSchema = *snowflakeProtoConfig.MetadataSchema
+	}
+
+	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("could not connect to metadata store: %w", err)
 	}
 
 	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &SnowflakeConnector{
-		ctx:            ctx,
-		database:       database,
-		metadataSchema: metadataSchema,
-		logger:         *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
+		ctx:        ctx,
+		database:   database,
+		pgMetadata: pgMetadata,
+		rawSchema:  rawSchema,
+		logger:     *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 	}, nil
 }
 
@@ -243,42 +240,10 @@ func (c *SnowflakeConnector) ConnectionActive() error {
 }
 
 func (c *SnowflakeConnector) NeedsSetupMetadataTables() bool {
-	result, err := c.checkIfTableExists(c.metadataSchema, mirrorJobsTableIdentifier)
-	if err != nil {
-		return true
-	}
-	return !result
+	return false
 }
 
 func (c *SnowflakeConnector) SetupMetadataTables() error {
-	// NOTE that Snowflake does not support transactional DDL
-	createMetadataTablesTx, err := c.database.BeginTx(c.ctx, nil)
-	if err != nil {
-		return fmt.Errorf("unable to begin transaction for creating metadata tables: %w", err)
-	}
-	// in case we return after error, ensure transaction is rolled back
-	defer func() {
-		deferErr := createMetadataTablesTx.Rollback()
-		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Error("error while rolling back transaction for creating metadata tables",
-				slog.Any("error", deferErr))
-		}
-	}()
-
-	err = c.createPeerDBInternalSchema(createMetadataTablesTx)
-	if err != nil {
-		return err
-	}
-	_, err = createMetadataTablesTx.ExecContext(c.ctx, fmt.Sprintf(createMirrorJobsTableSQL,
-		c.metadataSchema, mirrorJobsTableIdentifier))
-	if err != nil {
-		return fmt.Errorf("error while setting up mirror jobs table: %w", err)
-	}
-	err = createMetadataTablesTx.Commit()
-	if err != nil {
-		return fmt.Errorf("unable to commit transaction for creating metadata tables: %w", err)
-	}
-
 	return nil
 }
 
@@ -324,58 +289,19 @@ func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.T
 }
 
 func (c *SnowflakeConnector) GetLastOffset(jobName string) (int64, error) {
-	var result pgtype.Int8
-	err := c.database.QueryRowContext(c.ctx, fmt.Sprintf(getLastOffsetSQL,
-		c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			c.logger.Warn("No row found, returning 0")
-			return 0, nil
-		}
-		return 0, fmt.Errorf("error while reading result row: %w", err)
-	}
-	if result.Int64 == 0 {
-		c.logger.Warn("Assuming zero offset means no sync has happened")
-		return 0, nil
-	}
-	return result.Int64, nil
+	return c.pgMetadata.FetchLastOffset(jobName)
 }
 
-func (c *SnowflakeConnector) SetLastOffset(jobName string, lastOffset int64) error {
-	_, err := c.database.ExecContext(c.ctx, fmt.Sprintf(setLastOffsetSQL,
-		c.metadataSchema, mirrorJobsTableIdentifier), lastOffset, jobName)
-	if err != nil {
-		return fmt.Errorf("error querying Snowflake peer for last syncedID: %w", err)
-	}
-	return nil
+func (c *SnowflakeConnector) SetLastOffset(jobName string, offset int64) error {
+	return c.pgMetadata.UpdateLastOffset(jobName, offset)
 }
 
 func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	var result pgtype.Int8
-	err := c.database.QueryRowContext(c.ctx, fmt.Sprintf(getLastSyncBatchID_SQL, c.metadataSchema,
-		mirrorJobsTableIdentifier), jobName).Scan(&result)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			c.logger.Warn("No row found, returning 0")
-			return 0, nil
-		}
-		return 0, fmt.Errorf("error while reading result row: %w", err)
-	}
-	return result.Int64, nil
+	return c.pgMetadata.GetLastBatchID(jobName)
 }
 
 func (c *SnowflakeConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
-	var normBatchID pgtype.Int8
-	err := c.database.QueryRowContext(c.ctx, fmt.Sprintf(getLastNormalizeBatchID_SQL, c.metadataSchema,
-		mirrorJobsTableIdentifier), jobName).Scan(&normBatchID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			c.logger.Warn("No row found, returning 0")
-			return 0, nil
-		}
-		return 0, fmt.Errorf("error while reading result row: %w", err)
-	}
-	return normBatchID.Int64, nil
+	return c.pgMetadata.GetLastNormalizeBatchID(jobName)
 }
 
 func (c *SnowflakeConnector) getDistinctTableNamesInBatch(flowJobName string, syncBatchID int64,
@@ -383,7 +309,7 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(flowJobName string, sy
 ) ([]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
-	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getDistinctDestinationTableNames, c.metadataSchema,
+	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getDistinctDestinationTableNames, c.rawSchema,
 		rawTableIdentifier, normalizeBatchID, syncBatchID))
 	if err != nil {
 		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
@@ -407,12 +333,12 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(flowJobName string, sy
 	return destinationTableNames, nil
 }
 
-func (c *SnowflakeConnector) getTableNametoUnchangedCols(flowJobName string, syncBatchID int64,
+func (c *SnowflakeConnector) getTableNameToUnchangedCols(flowJobName string, syncBatchID int64,
 	normalizeBatchID int64,
 ) (map[string][]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
-	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getTableNametoUnchangedColsSQL, c.metadataSchema,
+	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getTableNameToUnchangedColsSQL, c.rawSchema,
 		rawTableIdentifier, normalizeBatchID, syncBatchID))
 	if err != nil {
 		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
@@ -533,27 +459,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 		return nil, err
 	}
 
-	// transaction for SyncRecords
-	syncRecordsTx, err := c.database.BeginTx(c.ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	// in case we return after error, ensure transaction is rolled back
-	defer func() {
-		deferErr := syncRecordsTx.Rollback()
-		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Error("error while rolling back transaction for SyncRecords: %v",
-				slog.Any("error", deferErr), slog.Int64("syncBatchID", req.SyncBatchID))
-		}
-	}()
-
-	// updating metadata with new offset and syncBatchID
-	err = c.updateSyncMetadata(req.FlowJobName, res.LastSyncedCheckpointID, req.SyncBatchID, syncRecordsTx)
-	if err != nil {
-		return nil, err
-	}
-	// transaction commits
-	err = syncRecordsTx.Commit()
+	err = c.pgMetadata.FinishBatch(req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpointID)
 	if err != nil {
 		return nil, err
 	}
@@ -576,7 +482,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 	qrepConfig := &protos.QRepConfig{
 		StagingPath: "",
 		FlowJobName: req.FlowJobName,
-		DestinationTableIdentifier: strings.ToLower(fmt.Sprintf("%s.%s", c.metadataSchema,
+		DestinationTableIdentifier: strings.ToLower(fmt.Sprintf("%s.%s", c.rawSchema,
 			rawTableIdentifier)),
 	}
 	avroSyncer := NewSnowflakeAvroSyncHandler(qrepConfig, c)
@@ -625,16 +531,6 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 		}, nil
 	}
 
-	jobMetadataExists, err := c.jobMetadataExists(req.FlowJobName)
-	if err != nil {
-		return nil, err
-	}
-	// sync hasn't created job metadata yet, chill.
-	if !jobMetadataExists {
-		return &model.NormalizeResponse{
-			Done: false,
-		}, nil
-	}
 	destinationTableNames, err := c.getDistinctTableNamesInBatch(
 		req.FlowJobName,
 		req.SyncBatchID,
@@ -644,7 +540,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 		return nil, err
 	}
 
-	tableNametoUnchangedToastCols, err := c.getTableNametoUnchangedCols(req.FlowJobName, req.SyncBatchID, normBatchID)
+	tableNameToUnchangedToastCols, err := c.getTableNameToUnchangedCols(req.FlowJobName, req.SyncBatchID, normBatchID)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't tablename to unchanged cols mapping: %w", err)
 	}
@@ -663,7 +559,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 				syncBatchID:           req.SyncBatchID,
 				normalizeBatchID:      normBatchID,
 				normalizedTableSchema: req.TableNameSchemaMapping[tableName],
-				unchangedToastColumns: tableNametoUnchangedToastCols[tableName],
+				unchangedToastColumns: tableNameToUnchangedToastCols[tableName],
 				peerdbCols: &protos.PeerDBColumns{
 					SoftDelete:        req.SoftDelete,
 					SoftDeleteColName: req.SoftDeleteColName,
@@ -706,8 +602,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 		return nil, fmt.Errorf("error while normalizing records: %w", err)
 	}
 
-	// updating metadata with new normalizeBatchID
-	err = c.updateNormalizeMetadata(req.FlowJobName, req.SyncBatchID)
+	err = c.pgMetadata.UpdateNormalizeBatchID(req.FlowJobName, req.SyncBatchID)
 	if err != nil {
 		return nil, err
 	}
@@ -720,20 +615,20 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 }
 
 func (c *SnowflakeConnector) CreateRawTable(req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
-	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
+	_, err := c.database.ExecContext(c.ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
+	if err != nil {
+		return nil, err
+	}
 
 	createRawTableTx, err := c.database.BeginTx(c.ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to begin transaction for creation of raw table: %w", err)
 	}
-	err = c.createPeerDBInternalSchema(createRawTableTx)
-	if err != nil {
-		return nil, err
-	}
 	// there is no easy way to check if a table has the same schema in Snowflake,
 	// so just executing the CREATE TABLE IF NOT EXISTS blindly.
+	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	_, err = createRawTableTx.ExecContext(c.ctx,
-		fmt.Sprintf(createRawTableSQL, c.metadataSchema, rawTableIdentifier))
+		fmt.Sprintf(createRawTableSQL, c.rawSchema, rawTableIdentifier))
 	if err != nil {
 		return nil, fmt.Errorf("unable to create raw table: %w", err)
 	}
@@ -754,6 +649,11 @@ func (c *SnowflakeConnector) CreateRawTable(req *protos.CreateRawTableInput) (*p
 }
 
 func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
+	err := c.pgMetadata.DropMetadata(jobName)
+	if err != nil {
+		return fmt.Errorf("unable to clear metadata for sync flow cleanup: %w", err)
+	}
+
 	syncFlowCleanupTx, err := c.database.BeginTx(c.ctx, nil)
 	if err != nil {
 		return fmt.Errorf("unable to begin transaction for sync flow cleanup: %w", err)
@@ -764,31 +664,6 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 			c.logger.Error("error while rolling back transaction for flow cleanup", slog.Any("error", deferErr))
 		}
 	}()
-
-	row := syncFlowCleanupTx.QueryRowContext(c.ctx, checkSchemaExistsSQL, c.metadataSchema)
-	var schemaExists pgtype.Bool
-	err = row.Scan(&schemaExists)
-	if err != nil {
-		return fmt.Errorf("unable to check if internal schema exists: %w", err)
-	}
-
-	if schemaExists.Bool {
-		_, err = syncFlowCleanupTx.ExecContext(c.ctx, fmt.Sprintf(dropTableIfExistsSQL, c.metadataSchema,
-			getRawTableIdentifier(jobName)))
-		if err != nil {
-			return fmt.Errorf("unable to drop raw table: %w", err)
-		}
-		_, err = syncFlowCleanupTx.ExecContext(c.ctx,
-			fmt.Sprintf(deleteJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
-		if err != nil {
-			return fmt.Errorf("unable to delete job metadata: %w", err)
-		}
-	}
-
-	err = syncFlowCleanupTx.Commit()
-	if err != nil {
-		return fmt.Errorf("unable to commit transaction for sync flow cleanup: %w", err)
-	}
 
 	err = c.dropStage("", jobName)
 	if err != nil {
@@ -859,92 +734,6 @@ func generateCreateTableSQLForNormalizedTable(
 func getRawTableIdentifier(jobName string) string {
 	jobName = regexp.MustCompile("[^a-zA-Z0-9]+").ReplaceAllString(jobName, "_")
 	return fmt.Sprintf("%s_%s", rawTablePrefix, jobName)
-}
-
-func (c *SnowflakeConnector) jobMetadataExists(jobName string) (bool, error) {
-	var result pgtype.Bool
-	err := c.database.QueryRowContext(c.ctx,
-		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
-	if err != nil {
-		return false, fmt.Errorf("error reading result row: %w", err)
-	}
-	return result.Bool, nil
-}
-
-func (c *SnowflakeConnector) jobMetadataExistsTx(tx *sql.Tx, jobName string) (bool, error) {
-	var result pgtype.Bool
-	err := tx.QueryRowContext(c.ctx,
-		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
-	if err != nil {
-		return false, fmt.Errorf("error reading result row: %w", err)
-	}
-	return result.Bool, nil
-}
-
-func (c *SnowflakeConnector) updateSyncMetadata(flowJobName string, lastCP int64,
-	syncBatchID int64, syncRecordsTx *sql.Tx,
-) error {
-	jobMetadataExists, err := c.jobMetadataExistsTx(syncRecordsTx, flowJobName)
-	if err != nil {
-		return fmt.Errorf("failed to get sync status for flow job: %w", err)
-	}
-
-	if !jobMetadataExists {
-		_, err := syncRecordsTx.ExecContext(c.ctx,
-			fmt.Sprintf(insertJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier),
-			flowJobName, lastCP, syncBatchID, 0)
-		if err != nil {
-			return fmt.Errorf("failed to insert flow job status: %w", err)
-		}
-	} else {
-		_, err := syncRecordsTx.ExecContext(c.ctx,
-			fmt.Sprintf(updateMetadataForSyncRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
-			lastCP, syncBatchID, flowJobName)
-		if err != nil {
-			return fmt.Errorf("failed to update flow job status: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func (c *SnowflakeConnector) updateNormalizeMetadata(flowJobName string, normalizeBatchID int64) error {
-	jobMetadataExists, err := c.jobMetadataExists(flowJobName)
-	if err != nil {
-		return fmt.Errorf("failed to get sync status for flow job: %w", err)
-	}
-	if !jobMetadataExists {
-		return fmt.Errorf("job metadata does not exist, unable to update")
-	}
-
-	stmt := fmt.Sprintf(updateMetadataForNormalizeRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier)
-	_, err = c.database.ExecContext(c.ctx, stmt, normalizeBatchID, flowJobName)
-	if err != nil {
-		return fmt.Errorf("failed to update metadata for NormalizeTables: %w", err)
-	}
-
-	return nil
-}
-
-func (c *SnowflakeConnector) createPeerDBInternalSchema(createSchemaTx *sql.Tx) error {
-	// check if the internal schema exists
-	row := createSchemaTx.QueryRowContext(c.ctx, checkSchemaExistsSQL, c.metadataSchema)
-	var schemaExists pgtype.Bool
-	err := row.Scan(&schemaExists)
-	if err != nil {
-		return fmt.Errorf("error while reading result row: %w", err)
-	}
-
-	if schemaExists.Bool {
-		c.logger.Info(fmt.Sprintf("internal schema %s already exists", c.metadataSchema))
-		return nil
-	}
-
-	_, err = createSchemaTx.ExecContext(c.ctx, fmt.Sprintf(createSchemaSQL, c.metadataSchema))
-	if err != nil {
-		return fmt.Errorf("error while creating internal schema for PeerDB: %w", err)
-	}
-	return nil
 }
 
 func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {

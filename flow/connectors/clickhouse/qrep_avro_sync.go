@@ -195,11 +195,11 @@ func (s *ClickhouseAvroSyncMethod) insertMetadata(
 	if err != nil {
 		s.connector.logger.Error("failed to create metadata insert statement",
 			slog.Any("error", err), partitionLog)
-		return fmt.Errorf("failed to create metadata insert statement: %v", err)
+		return fmt.Errorf("failed to create metadata insert statement: %w", err)
 	}
 
 	if _, err := s.connector.database.Exec(insertMetadataStmt); err != nil {
-		return fmt.Errorf("failed to execute metadata insert statement: %v", err)
+		return fmt.Errorf("failed to execute metadata insert statement: %w", err)
 	}
 
 	return nil
