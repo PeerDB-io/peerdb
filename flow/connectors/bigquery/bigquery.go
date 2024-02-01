@@ -670,15 +670,15 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 		}
 
 		// convert the column names and types to bigquery types
-		columns := make([]*bigquery.FieldSchema, 0, len(tableSchema.ColumnNames)+2)
+		columns := make([]*bigquery.FieldSchema, 0, len(tableSchema.Columns)+2)
 		for _, column := range tableSchema.Columns {
-			genericColType := column.ColumnType
+			genericColType := column.Type
 			if genericColType == "numeric" {
 				precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
 				precision = min(precision, numeric.PeerDBNumericPrecision)
 				scale = min(scale, numeric.PeerDBNumericScale)
 				columns = append(columns, &bigquery.FieldSchema{
-					Name:      column.ColumnName,
+					Name:      column.Name,
 					Type:      bigquery.NumericFieldType,
 					Repeated:  qvalue.QValueKind(genericColType).IsArray(),
 					Precision: int64(precision),
@@ -686,7 +686,7 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 				})
 			} else {
 				columns = append(columns, &bigquery.FieldSchema{
-					Name:     column.ColumnName,
+					Name:     column.Name,
 					Type:     qValueKindToBigQueryType(genericColType),
 					Repeated: qvalue.QValueKind(genericColType).IsArray(),
 				})
