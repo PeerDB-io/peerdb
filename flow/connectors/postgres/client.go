@@ -426,15 +426,15 @@ func generateCreateTableSQLForNormalizedTable(
 ) string {
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.ColumnNames)+2)
 	for _, column := range sourceTableSchema.Columns {
-		genericColumnType := qValueKindToPostgresType(column.ColumnType)
+		pgColumnType := qValueKindToPostgresType(column.ColumnType)
 		if column.ColumnType == "numeric" {
 			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
 			if column.TypeModifier != -1 {
-				genericColumnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
+				pgColumnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
 			}
 		}
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf("%s %s", QuoteIdentifier(column.ColumnName), genericColumnType))
+			fmt.Sprintf("%s %s", QuoteIdentifier(column.ColumnName), pgColumnType))
 	}
 
 	if softDeleteColName != "" {
