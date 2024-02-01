@@ -68,8 +68,8 @@ export default async function EditMirror({
     return <NoMirror />;
   }
 
-  let syncStatusChild = <></>;
-  let editButtonHTML = <></>;
+  let syncStatusChild = null;
+  let editButtonHTML = null;
   if (mirrorStatus.cdcStatus) {
     let rowsSynced = syncs.reduce((acc, sync) => {
       if (sync.end_time !== null) {

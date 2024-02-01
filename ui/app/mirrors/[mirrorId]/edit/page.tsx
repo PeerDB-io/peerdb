@@ -69,7 +69,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
     });
     return omitAdditionalTablesMapping;
   }, [mirrorState]);
-  useMemo(() => {
+  useEffect(() => {
     setConfig((c) => ({
       ...c,
       additionalTables: reformattedTableMapping(rows),
