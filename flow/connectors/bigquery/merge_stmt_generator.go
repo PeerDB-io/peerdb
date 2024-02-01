@@ -34,36 +34,36 @@ type mergeStmtGenerator struct {
 func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 	// for each column in the normalized table, generate CAST + JSON_EXTRACT_SCALAR
 	// statement.
-	flattenedProjs := make([]string, 0, len(m.normalizedTableSchema.ColumnNames)+3)
+	flattenedProjs := make([]string, 0, len(m.normalizedTableSchema.Columns)+3)
 
-	for i, colName := range m.normalizedTableSchema.ColumnNames {
-		colType := m.normalizedTableSchema.ColumnTypes[i]
+	for _, column := range m.normalizedTableSchema.Columns {
+		colType := column.ColumnType
 		bqType := qValueKindToBigQueryType(colType)
 		// CAST doesn't work for FLOAT, so rewrite it to FLOAT64.
 		if bqType == bigquery.FloatFieldType {
 			bqType = "FLOAT64"
 		}
 		var castStmt string
-		shortCol := m.shortColumn[colName]
+		shortCol := m.shortColumn[column.ColumnName]
 		switch qvalue.QValueKind(colType) {
 		case qvalue.QValueKindJSON, qvalue.QValueKindHStore:
 			// if the type is JSON, then just extract JSON
 			castStmt = fmt.Sprintf("CAST(PARSE_JSON(JSON_VALUE(_peerdb_data, '$.%s'),wide_number_mode=>'round') AS %s) AS `%s`",
-				colName, bqType, shortCol)
+				column.ColumnName, bqType, shortCol)
 		// expecting data in BASE64 format
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 			castStmt = fmt.Sprintf("FROM_BASE64(JSON_VALUE(_peerdb_data,'$.%s')) AS `%s`",
-				colName, shortCol)
+				column.ColumnName, shortCol)
 		case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64, qvalue.QValueKindArrayInt16,
 			qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64, qvalue.QValueKindArrayString,
 			qvalue.QValueKindArrayBoolean, qvalue.QValueKindArrayTimestamp, qvalue.QValueKindArrayTimestampTZ,
 			qvalue.QValueKindArrayDate:
 			castStmt = fmt.Sprintf("ARRAY(SELECT CAST(element AS %s) FROM "+
 				"UNNEST(CAST(JSON_VALUE_ARRAY(_peerdb_data, '$.%s') AS ARRAY<STRING>)) AS element WHERE element IS NOT null) AS `%s`",
-				bqType, colName, shortCol)
+				bqType, column.ColumnName, shortCol)
 		case qvalue.QValueKindGeography, qvalue.QValueKindGeometry, qvalue.QValueKindPoint:
 			castStmt = fmt.Sprintf("CAST(ST_GEOGFROMTEXT(JSON_VALUE(_peerdb_data, '$.%s')) AS %s) AS `%s`",
-				colName, bqType, shortCol)
+				column.ColumnName, bqType, shortCol)
 		// MAKE_INTERVAL(years INT64, months INT64, days INT64, hours INT64, minutes INT64, seconds INT64)
 		// Expecting interval to be in the format of {"Microseconds":2000000,"Days":0,"Months":0,"Valid":true}
 		// json.Marshal in SyncRecords for Postgres already does this - once new data-stores are added,
@@ -73,15 +73,15 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 		// castStmt = fmt.Sprintf("MAKE_INTERVAL(0,CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Months') AS INT64),"+
 		// 	"CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Days') AS INT64),0,0,"+
 		// 	"CAST(CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Microseconds') AS INT64)/1000000 AS  INT64)) AS %s",
-		// 	colName, colName, colName, colName)
+		// 	column.ColumnName, column.ColumnName, column.ColumnName, column.ColumnName)
 		// TODO add proper granularity for time types, then restore this
 		// case model.ColumnTypeTime:
 		// 	castStmt = fmt.Sprintf("time(timestamp_micros(CAST(JSON_EXTRACT(_peerdb_data, '$.%s.Microseconds')"+
 		// 		" AS int64))) AS %s",
-		// 		colName, colName)
+		// 		column.ColumnName, column.ColumnName)
 		default:
 			castStmt = fmt.Sprintf("CAST(JSON_VALUE(_peerdb_data, '$.%s') AS %s) AS `%s`",
-				colName, bqType, shortCol)
+				column.ColumnName, bqType, shortCol)
 		}
 		flattenedProjs = append(flattenedProjs, castStmt)
 	}
@@ -124,16 +124,16 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 // generateMergeStmt generates a merge statement.
 func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) string {
 	// comma separated list of column names
-	columnCount := len(m.normalizedTableSchema.ColumnNames)
+	columnCount := len(m.normalizedTableSchema.Columns)
 	backtickColNames := make([]string, 0, columnCount)
 	shortBacktickColNames := make([]string, 0, columnCount)
 	pureColNames := make([]string, 0, columnCount)
-	for i, colName := range m.normalizedTableSchema.ColumnNames {
+	for i, col := range m.normalizedTableSchema.Columns {
 		shortCol := fmt.Sprintf("_c%d", i)
-		m.shortColumn[colName] = shortCol
-		backtickColNames = append(backtickColNames, fmt.Sprintf("`%s`", colName))
+		m.shortColumn[col.ColumnName] = shortCol
+		backtickColNames = append(backtickColNames, fmt.Sprintf("`%s`", col.ColumnName))
 		shortBacktickColNames = append(shortBacktickColNames, fmt.Sprintf("`%s`", shortCol))
-		pureColNames = append(pureColNames, colName)
+		pureColNames = append(pureColNames, col.ColumnName)
 	}
 	csep := strings.Join(backtickColNames, ", ")
 	shortCsep := strings.Join(shortBacktickColNames, ", ")

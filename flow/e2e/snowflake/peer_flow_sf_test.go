@@ -752,17 +752,27 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 
 		expectedTableSchema := &protos.TableSchema{
 			TableIdentifier: strings.ToUpper(dstTableName),
-			ColumnNames: []string{
-				"ID",
-				"C1",
-				"_PEERDB_IS_DELETED",
-				"_PEERDB_SYNCED_AT",
-			},
-			ColumnTypes: []string{
-				string(qvalue.QValueKindNumeric),
-				string(qvalue.QValueKindNumeric),
-				string(qvalue.QValueKindBoolean),
-				string(qvalue.QValueKindTimestamp),
+			Columns: []*protos.FieldDescription{
+				{
+					ColumnName:   "ID",
+					ColumnType:   string(qvalue.QValueKindNumeric),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "C1",
+					ColumnType:   string(qvalue.QValueKindNumeric),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "_PEERDB_IS_DELETED",
+					ColumnType:   string(qvalue.QValueKindBoolean),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "_PEERDB_SYNCED_AT",
+					ColumnType:   string(qvalue.QValueKindTimestamp),
+					TypeModifier: -1,
+				},
 			},
 		}
 		output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
@@ -785,17 +795,27 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		e2e.EnvWaitForEqualTables(env, s, "normalize altered row", "test_simple_schema_changes", "id,c1,c2")
 		expectedTableSchema = &protos.TableSchema{
 			TableIdentifier: strings.ToUpper(dstTableName),
-			ColumnNames: []string{
-				"ID",
-				"C1",
-				"_PEERDB_SYNCED_AT",
-				"C2",
-			},
-			ColumnTypes: []string{
-				string(qvalue.QValueKindNumeric),
-				string(qvalue.QValueKindNumeric),
-				string(qvalue.QValueKindTimestamp),
-				string(qvalue.QValueKindNumeric),
+			Columns: []*protos.FieldDescription{
+				{
+					ColumnName:   "ID",
+					ColumnType:   string(qvalue.QValueKindNumeric),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "C1",
+					ColumnType:   string(qvalue.QValueKindNumeric),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "_PEERDB_SYNCED_AT",
+					ColumnType:   string(qvalue.QValueKindTimestamp),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "C2",
+					ColumnType:   string(qvalue.QValueKindNumeric),
+					TypeModifier: -1,
+				},
 			},
 		}
 		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
@@ -819,19 +839,32 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		e2e.EnvWaitForEqualTables(env, s, "normalize dropped c2 column", "test_simple_schema_changes", "id,c1,c3")
 		expectedTableSchema = &protos.TableSchema{
 			TableIdentifier: strings.ToUpper(dstTableName),
-			ColumnNames: []string{
-				"ID",
-				"C1",
-				"_PEERDB_SYNCED_AT",
-				"C2",
-				"C3",
-			},
-			ColumnTypes: []string{
-				string(qvalue.QValueKindNumeric),
-				string(qvalue.QValueKindNumeric),
-				string(qvalue.QValueKindTimestamp),
-				string(qvalue.QValueKindNumeric),
-				string(qvalue.QValueKindNumeric),
+			Columns: []*protos.FieldDescription{
+				{
+					ColumnName:   "ID",
+					ColumnType:   string(qvalue.QValueKindNumeric),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "C1",
+					ColumnType:   string(qvalue.QValueKindNumeric),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "_PEERDB_SYNCED_AT",
+					ColumnType:   string(qvalue.QValueKindTimestamp),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "C2",
+					ColumnType:   string(qvalue.QValueKindNumeric),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "C3",
+					ColumnType:   string(qvalue.QValueKindNumeric),
+					TypeModifier: -1,
+				},
 			},
 		}
 		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
@@ -855,19 +888,32 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		e2e.EnvWaitForEqualTables(env, s, "normalize dropped c3 column", "test_simple_schema_changes", "id,c1")
 		expectedTableSchema = &protos.TableSchema{
 			TableIdentifier: strings.ToUpper(dstTableName),
-			ColumnNames: []string{
-				"ID",
-				"C1",
-				"_PEERDB_SYNCED_AT",
-				"C2",
-				"C3",
-			},
-			ColumnTypes: []string{
-				string(qvalue.QValueKindNumeric),
-				string(qvalue.QValueKindNumeric),
-				string(qvalue.QValueKindTimestamp),
-				string(qvalue.QValueKindNumeric),
-				string(qvalue.QValueKindNumeric),
+			Columns: []*protos.FieldDescription{
+				{
+					ColumnName:   "ID",
+					ColumnType:   string(qvalue.QValueKindNumeric),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "C1",
+					ColumnType:   string(qvalue.QValueKindNumeric),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "_PEERDB_SYNCED_AT",
+					ColumnType:   string(qvalue.QValueKindTimestamp),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "C2",
+					ColumnType:   string(qvalue.QValueKindNumeric),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "C3",
+					ColumnType:   string(qvalue.QValueKindNumeric),
+					TypeModifier: -1,
+				},
 			},
 		}
 		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{

@@ -355,14 +355,25 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		s.t.Log("Inserted initial row in the source table")
 
 		s.WaitForSchema(env, "normalizing first row", srcTableName, dstTableName, "id,c1", &protos.TableSchema{
-			TableIdentifier: dstTableName,
-			ColumnNames:     []string{"id", "c1", "_PEERDB_SYNCED_AT"},
-			ColumnTypes: []string{
-				string(qvalue.QValueKindInt64),
-				string(qvalue.QValueKindInt64),
-				string(qvalue.QValueKindTimestamp),
-			},
+			TableIdentifier:   dstTableName,
 			PrimaryKeyColumns: []string{"id"},
+			Columns: []*protos.FieldDescription{
+				{
+					ColumnName:   "id",
+					ColumnType:   string(qvalue.QValueKindInt64),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "c1",
+					ColumnType:   string(qvalue.QValueKindInt64),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "_PEERDB_SYNCED_AT",
+					ColumnType:   string(qvalue.QValueKindTimestamp),
+					TypeModifier: -1,
+				},
+			},
 		})
 
 		// alter source table, add column c2 and insert another row.
@@ -376,15 +387,30 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		s.t.Log("Inserted row with added c2 in the source table")
 
 		s.WaitForSchema(env, "normalizing altered row", srcTableName, dstTableName, "id,c1,c2", &protos.TableSchema{
-			TableIdentifier: dstTableName,
-			ColumnNames:     []string{"id", "c1", "_PEERDB_SYNCED_AT", "c2"},
-			ColumnTypes: []string{
-				string(qvalue.QValueKindInt64),
-				string(qvalue.QValueKindInt64),
-				string(qvalue.QValueKindTimestamp),
-				string(qvalue.QValueKindInt64),
-			},
+			TableIdentifier:   dstTableName,
 			PrimaryKeyColumns: []string{"id"},
+			Columns: []*protos.FieldDescription{
+				{
+					ColumnName:   "id",
+					ColumnType:   string(qvalue.QValueKindInt64),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "c1",
+					ColumnType:   string(qvalue.QValueKindInt64),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "_PEERDB_SYNCED_AT",
+					ColumnType:   string(qvalue.QValueKindTimestamp),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "c2",
+					ColumnType:   string(qvalue.QValueKindInt64),
+					TypeModifier: -1,
+				},
+			},
 		})
 
 		// alter source table, add column c3, drop column c2 and insert another row.
@@ -398,16 +424,35 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		s.t.Log("Inserted row with added c3 in the source table")
 
 		s.WaitForSchema(env, "normalizing dropped column row", srcTableName, dstTableName, "id,c1,c3", &protos.TableSchema{
-			TableIdentifier: dstTableName,
-			ColumnNames:     []string{"id", "c1", "_PEERDB_SYNCED_AT", "c2", "c3"},
-			ColumnTypes: []string{
-				string(qvalue.QValueKindInt64),
-				string(qvalue.QValueKindInt64),
-				string(qvalue.QValueKindTimestamp),
-				string(qvalue.QValueKindInt64),
-				string(qvalue.QValueKindInt64),
-			},
+			TableIdentifier:   dstTableName,
 			PrimaryKeyColumns: []string{"id"},
+			Columns: []*protos.FieldDescription{
+				{
+					ColumnName:   "id",
+					ColumnType:   string(qvalue.QValueKindInt64),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "c1",
+					ColumnType:   string(qvalue.QValueKindInt64),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "c2",
+					ColumnType:   string(qvalue.QValueKindInt64),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "_PEERDB_SYNCED_AT",
+					ColumnType:   string(qvalue.QValueKindTimestamp),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "c3",
+					ColumnType:   string(qvalue.QValueKindInt64),
+					TypeModifier: -1,
+				},
+			},
 		})
 
 		// alter source table, drop column c3 and insert another row.
@@ -421,16 +466,35 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		s.t.Log("Inserted row after dropping all columns in the source table")
 
 		s.WaitForSchema(env, "normalizing 2nd dropped column row", srcTableName, dstTableName, "id,c1", &protos.TableSchema{
-			TableIdentifier: dstTableName,
-			ColumnNames:     []string{"id", "c1", "_PEERDB_SYNCED_AT", "c2", "c3"},
-			ColumnTypes: []string{
-				string(qvalue.QValueKindInt64),
-				string(qvalue.QValueKindInt64),
-				string(qvalue.QValueKindTimestamp),
-				string(qvalue.QValueKindInt64),
-				string(qvalue.QValueKindInt64),
-			},
+			TableIdentifier:   dstTableName,
 			PrimaryKeyColumns: []string{"id"},
+			Columns: []*protos.FieldDescription{
+				{
+					ColumnName:   "id",
+					ColumnType:   string(qvalue.QValueKindInt64),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "c1",
+					ColumnType:   string(qvalue.QValueKindInt64),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "_PEERDB_SYNCED_AT",
+					ColumnType:   string(qvalue.QValueKindTimestamp),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "c2",
+					ColumnType:   string(qvalue.QValueKindInt64),
+					TypeModifier: -1,
+				},
+				{
+					ColumnName:   "c3",
+					ColumnType:   string(qvalue.QValueKindInt64),
+					TypeModifier: -1,
+				},
+			},
 		})
 
 		env.CancelWorkflow()

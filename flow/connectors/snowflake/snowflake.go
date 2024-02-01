@@ -247,47 +247,6 @@ func (c *SnowflakeConnector) SetupMetadataTables() error {
 	return nil
 }
 
-// only used for testing atm. doesn't return info about pkey or ReplicaIdentity [which is PG specific anyway].
-func (c *SnowflakeConnector) GetTableSchema(
-	req *protos.GetTableSchemaBatchInput,
-) (*protos.GetTableSchemaBatchOutput, error) {
-	res := make(map[string]*protos.TableSchema)
-	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(tableName)
-		if err != nil {
-			return nil, err
-		}
-		res[tableName] = tableSchema
-		utils.RecordHeartbeat(c.ctx, fmt.Sprintf("fetched schema for table %s", tableName))
-	}
-
-	return &protos.GetTableSchemaBatchOutput{
-		TableNameSchemaMapping: res,
-	}, nil
-}
-
-func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.TableSchema, error) {
-	colNames, colTypes, err := c.getColsFromTable(tableName)
-	if err != nil {
-		return nil, err
-	}
-
-	for i, sfType := range colTypes {
-		genericColType, err := snowflakeTypeToQValueKind(sfType)
-		if err != nil {
-			// we use string for invalid types
-			genericColType = qvalue.QValueKindString
-		}
-		colTypes[i] = string(genericColType)
-	}
-
-	return &protos.TableSchema{
-		TableIdentifier: tableName,
-		ColumnNames:     colNames,
-		ColumnTypes:     colTypes,
-	}, nil
-}
-
 func (c *SnowflakeConnector) GetLastOffset(jobName string) (int64, error) {
 	return c.pgMetadata.FetchLastOffset(jobName)
 }
@@ -688,10 +647,10 @@ func generateCreateTableSQLForNormalizedTable(
 	softDeleteColName string,
 	syncedAtColName string,
 ) string {
-	createTableSQLArray := make([]string, 0, len(sourceTableSchema.ColumnNames)+2)
-	for i, columnName := range sourceTableSchema.ColumnNames {
-		genericColumnType := sourceTableSchema.ColumnTypes[i]
-		normalizedColName := SnowflakeIdentifierNormalize(columnName)
+	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns)+2)
+	for _, column := range sourceTableSchema.Columns {
+		genericColumnType := column.ColumnType
+		normalizedColName := SnowflakeIdentifierNormalize(column.ColumnName)
 		sfColType, err := qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))
 		if err != nil {
 			slog.Warn(fmt.Sprintf("failed to convert column type %s to snowflake type", genericColumnType),
@@ -769,7 +728,13 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 		for _, renameRequest := range req.RenameTableOptions {
 			src := renameRequest.CurrentName
 			dst := renameRequest.NewName
-			allCols := strings.Join(renameRequest.TableSchema.ColumnNames, ",")
+
+			columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
+			for _, col := range renameRequest.TableSchema.Columns {
+				columnNames = append(columnNames, col.ColumnName)
+			}
+
+			allCols := strings.Join(columnNames, ",")
 			pkeyCols := strings.Join(renameRequest.TableSchema.PrimaryKeyColumns, ",")
 
 			c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))

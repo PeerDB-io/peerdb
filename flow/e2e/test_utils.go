@@ -540,11 +540,25 @@ func (l *TStructuredLogger) Error(msg string, keyvals ...interface{}) {
 }
 
 func CompareTableSchemas(x *protos.TableSchema, y *protos.TableSchema) bool {
+	xColNames := make([]string, 0, len(x.Columns))
+	xColTypes := make([]string, 0, len(x.Columns))
+	yColNames := make([]string, 0, len(y.Columns))
+	yColTypes := make([]string, 0, len(y.Columns))
+
+	for _, col := range x.Columns {
+		xColNames = append(xColNames, col.ColumnName)
+		xColTypes = append(xColTypes, col.ColumnType)
+	}
+	for _, col := range y.Columns {
+		yColNames = append(yColNames, col.ColumnName)
+		yColTypes = append(yColTypes, col.ColumnType)
+	}
+
 	return x.TableIdentifier == y.TableIdentifier ||
 		x.IsReplicaIdentityFull == y.IsReplicaIdentityFull ||
 		slices.Compare(x.PrimaryKeyColumns, y.PrimaryKeyColumns) == 0 ||
-		slices.Compare(x.ColumnNames, y.ColumnNames) == 0 ||
-		slices.Compare(x.ColumnTypes, y.ColumnTypes) == 0
+		slices.Compare(xColNames, yColNames) == 0 ||
+		slices.Compare(xColTypes, yColTypes) == 0
 }
 
 func RequireEqualRecordBatches(t *testing.T, q *model.QRecordBatch, other *model.QRecordBatch) {

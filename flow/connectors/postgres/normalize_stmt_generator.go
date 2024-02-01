@@ -44,14 +44,14 @@ func (n *normalizeStmtGenerator) generateNormalizeStatements() []string {
 }
 
 func (n *normalizeStmtGenerator) generateFallbackStatements() []string {
-	columnCount := len(n.normalizedTableSchema.ColumnNames)
+	columnCount := len(n.normalizedTableSchema.Columns)
 	columnNames := make([]string, 0, columnCount)
 	flattenedCastsSQLArray := make([]string, 0, columnCount)
 	primaryKeyColumnCasts := make(map[string]string, len(n.normalizedTableSchema.PrimaryKeyColumns))
-	for i, columnName := range n.normalizedTableSchema.ColumnNames {
-		genericColumnType := n.normalizedTableSchema.ColumnTypes[i]
-		quotedCol := QuoteIdentifier(columnName)
-		stringCol := QuoteLiteral(columnName)
+	for _, column := range n.normalizedTableSchema.Columns {
+		genericColumnType := column.ColumnType
+		quotedCol := QuoteIdentifier(column.ColumnName)
+		stringCol := QuoteLiteral(column.ColumnName)
 		columnNames = append(columnNames, quotedCol)
 		pgType := qValueKindToPostgresType(genericColumnType)
 		if qvalue.QValueKind(genericColumnType).IsArray() {
@@ -62,8 +62,8 @@ func (n *normalizeStmtGenerator) generateFallbackStatements() []string {
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>%s)::%s AS %s",
 				stringCol, pgType, quotedCol))
 		}
-		if slices.Contains(n.normalizedTableSchema.PrimaryKeyColumns, columnName) {
-			primaryKeyColumnCasts[columnName] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
+		if slices.Contains(n.normalizedTableSchema.PrimaryKeyColumns, column.ColumnName) {
+			primaryKeyColumnCasts[column.ColumnName] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
 		}
 	}
 	flattenedCastsSQL := strings.Join(flattenedCastsSQLArray, ",")
@@ -71,8 +71,8 @@ func (n *normalizeStmtGenerator) generateFallbackStatements() []string {
 
 	insertColumnsSQL := strings.Join(columnNames, ",")
 	updateColumnsSQLArray := make([]string, 0, columnCount)
-	for _, columnName := range n.normalizedTableSchema.ColumnNames {
-		quotedCol := QuoteIdentifier(columnName)
+	for _, column := range n.normalizedTableSchema.Columns {
+		quotedCol := QuoteIdentifier(column.ColumnName)
 		updateColumnsSQLArray = append(updateColumnsSQLArray, fmt.Sprintf(`%s=EXCLUDED.%s`, quotedCol, quotedCol))
 	}
 	updateColumnsSQL := strings.Join(updateColumnsSQLArray, ",")
@@ -105,7 +105,7 @@ func (n *normalizeStmtGenerator) generateFallbackStatements() []string {
 }
 
 func (n *normalizeStmtGenerator) generateMergeStatement() string {
-	columnCount := len(n.normalizedTableSchema.ColumnNames)
+	columnCount := len(n.normalizedTableSchema.Columns)
 	quotedColumnNames := make([]string, columnCount)
 
 	flattenedCastsSQLArray := make([]string, 0, columnCount)
@@ -113,10 +113,10 @@ func (n *normalizeStmtGenerator) generateMergeStatement() string {
 
 	primaryKeyColumnCasts := make(map[string]string)
 	primaryKeySelectSQLArray := make([]string, 0, len(n.normalizedTableSchema.PrimaryKeyColumns))
-	for i, columnName := range n.normalizedTableSchema.ColumnNames {
-		genericColumnType := n.normalizedTableSchema.ColumnTypes[i]
-		quotedCol := QuoteIdentifier(columnName)
-		stringCol := QuoteLiteral(columnName)
+	for i, column := range n.normalizedTableSchema.Columns {
+		genericColumnType := column.ColumnType
+		quotedCol := QuoteIdentifier(column.ColumnName)
+		stringCol := QuoteLiteral(column.ColumnName)
 		quotedColumnNames[i] = quotedCol
 
 		pgType := qValueKindToPostgresType(genericColumnType)
@@ -128,8 +128,8 @@ func (n *normalizeStmtGenerator) generateMergeStatement() string {
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>%s)::%s AS %s",
 				stringCol, pgType, quotedCol))
 		}
-		if slices.Contains(n.normalizedTableSchema.PrimaryKeyColumns, columnName) {
-			primaryKeyColumnCasts[columnName] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
+		if slices.Contains(n.normalizedTableSchema.PrimaryKeyColumns, column.ColumnName) {
+			primaryKeyColumnCasts[column.ColumnName] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
 			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray, fmt.Sprintf("src.%s=dst.%s",
 				quotedCol, quotedCol))
 		}

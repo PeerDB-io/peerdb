@@ -79,9 +79,19 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	require.NoError(s.t, err)
 	require.Equal(s.t, &protos.TableSchema{
 		TableIdentifier:   tableName,
-		ColumnNames:       []string{"id", "hi"},
-		ColumnTypes:       []string{string(qvalue.QValueKindInt32), string(qvalue.QValueKindInt64)},
 		PrimaryKeyColumns: []string{"id"},
+		Columns: []*protos.FieldDescription{
+			{
+				ColumnName:   "id",
+				ColumnType:   string(qvalue.QValueKindInt32),
+				TypeModifier: -1,
+			},
+			{
+				ColumnName:   "hi",
+				ColumnType:   string(qvalue.QValueKindInt64),
+				TypeModifier: -1,
+			},
+		},
 	}, output.TableNameSchemaMapping[tableName])
 }
 
@@ -92,39 +102,16 @@ func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 	require.NoError(s.t, err)
 
 	expectedTableSchema := &protos.TableSchema{
-		TableIdentifier: tableName,
-		// goal is to test all types we're currently mapping to, not all QValue types
-		ColumnNames: []string{
-			"id", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9",
-			"c10", "c11", "c12", "c13", "c14", "c15", "c16",
-		},
-		ColumnTypes: []string{
-			string(qvalue.QValueKindInt32),
-			string(qvalue.QValueKindBit),
-			string(qvalue.QValueKindBoolean),
-			string(qvalue.QValueKindBytes),
-			string(qvalue.QValueKindDate),
-			string(qvalue.QValueKindFloat32),
-			string(qvalue.QValueKindFloat64),
-			string(qvalue.QValueKindInt16),
-			string(qvalue.QValueKindInt32),
-			string(qvalue.QValueKindInt64),
-			string(qvalue.QValueKindJSON),
-			string(qvalue.QValueKindNumeric),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindTime),
-			string(qvalue.QValueKindTimestamp),
-			string(qvalue.QValueKindTimestampTZ),
-			string(qvalue.QValueKindUUID),
-		},
+		TableIdentifier:   tableName,
 		PrimaryKeyColumns: []string{"id"},
+		Columns:           AddAllColumnTypesFields,
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
-	for i, columnName := range expectedTableSchema.ColumnNames {
-		if columnName != "id" {
+	for _, column := range expectedTableSchema.Columns {
+		if column.ColumnName != "id" {
 			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
-				ColumnName: columnName,
-				ColumnType: expectedTableSchema.ColumnTypes[i],
+				ColumnName: column.ColumnName,
+				ColumnType: column.ColumnType,
 			})
 		}
 	}
@@ -150,31 +137,16 @@ func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 	require.NoError(s.t, err)
 
 	expectedTableSchema := &protos.TableSchema{
-		TableIdentifier: tableName,
-		ColumnNames: []string{
-			"id", "c1", "C1", "C 1", "right",
-			"select", "XMIN", "Cariño", "±ªþ³§", "カラム",
-		},
-		ColumnTypes: []string{
-			string(qvalue.QValueKindInt32),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-		},
+		TableIdentifier:   tableName,
 		PrimaryKeyColumns: []string{"id"},
+		Columns:           TrickyFields,
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
-	for i, columnName := range expectedTableSchema.ColumnNames {
-		if columnName != "id" {
+	for _, column := range expectedTableSchema.Columns {
+		if column.ColumnName != "id" {
 			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
-				ColumnName: columnName,
-				ColumnType: expectedTableSchema.ColumnTypes[i],
+				ColumnName: column.ColumnName,
+				ColumnType: column.ColumnType,
 			})
 		}
 	}
@@ -200,22 +172,16 @@ func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 	require.NoError(s.t, err)
 
 	expectedTableSchema := &protos.TableSchema{
-		TableIdentifier: tableName,
-		ColumnNames:     []string{" ", "  ", "   ", "\t"},
-		ColumnTypes: []string{
-			string(qvalue.QValueKindInt32),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindInt64),
-			string(qvalue.QValueKindDate),
-		},
+		TableIdentifier:   tableName,
 		PrimaryKeyColumns: []string{" "},
+		Columns:           WhitespaceFields,
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
-	for i, columnName := range expectedTableSchema.ColumnNames {
-		if columnName != " " {
+	for _, column := range expectedTableSchema.Columns {
+		if column.ColumnName != " " {
 			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
-				ColumnName: columnName,
-				ColumnType: expectedTableSchema.ColumnTypes[i],
+				ColumnName: column.ColumnName,
+				ColumnType: column.ColumnType,
 			})
 		}
 	}

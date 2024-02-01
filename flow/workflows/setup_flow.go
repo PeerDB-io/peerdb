@@ -206,22 +206,18 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		for _, mapping := range flowConnectionConfigs.TableMappings {
 			if mapping.SourceTableIdentifier == srcTableName {
 				if len(mapping.Exclude) != 0 {
-					columnCount := len(tableSchema.ColumnNames)
-					columnNames := make([]string, 0, columnCount)
-					columnTypes := make([]string, 0, columnCount)
-					for i, columnName := range tableSchema.ColumnNames {
-						columnType := tableSchema.ColumnTypes[i]
-						if !slices.Contains(mapping.Exclude, columnName) {
-							columnNames = append(columnNames, columnName)
-							columnTypes = append(columnTypes, columnType)
+					columnCount := len(tableSchema.Columns)
+					columns := make([]*protos.FieldDescription, 0, columnCount)
+					for _, column := range tableSchema.Columns {
+						if !slices.Contains(mapping.Exclude, column.ColumnName) {
+							columns = append(columns, column)
 						}
 					}
 					tableSchema = &protos.TableSchema{
 						TableIdentifier:       tableSchema.TableIdentifier,
 						PrimaryKeyColumns:     tableSchema.PrimaryKeyColumns,
 						IsReplicaIdentityFull: tableSchema.IsReplicaIdentityFull,
-						ColumnNames:           columnNames,
-						ColumnTypes:           columnTypes,
+						Columns:               columns,
 					}
 				}
 				break
