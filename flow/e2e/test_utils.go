@@ -540,11 +540,30 @@ func (l *TStructuredLogger) Error(msg string, keyvals ...interface{}) {
 }
 
 func CompareTableSchemas(x *protos.TableSchema, y *protos.TableSchema) bool {
+	xColNames := make([]string, 0, len(x.Columns))
+	xColTypes := make([]string, 0, len(x.Columns))
+	yColNames := make([]string, 0, len(y.Columns))
+	yColTypes := make([]string, 0, len(y.Columns))
+	xTypmods := make([]int32, 0, len(x.Columns))
+	yTypmods := make([]int32, 0, len(y.Columns))
+
+	for _, col := range x.Columns {
+		xColNames = append(xColNames, col.Name)
+		xColTypes = append(xColTypes, col.Type)
+		xTypmods = append(xTypmods, col.TypeModifier)
+	}
+	for _, col := range y.Columns {
+		yColNames = append(yColNames, col.Name)
+		yColTypes = append(yColTypes, col.Type)
+		yTypmods = append(yTypmods, col.TypeModifier)
+	}
+
 	return x.TableIdentifier == y.TableIdentifier ||
 		x.IsReplicaIdentityFull == y.IsReplicaIdentityFull ||
 		slices.Compare(x.PrimaryKeyColumns, y.PrimaryKeyColumns) == 0 ||
-		slices.Compare(x.ColumnNames, y.ColumnNames) == 0 ||
-		slices.Compare(x.ColumnTypes, y.ColumnTypes) == 0
+		slices.Compare(xColNames, yColNames) == 0 ||
+		slices.Compare(xColTypes, yColTypes) == 0 ||
+		slices.Compare(xTypmods, yTypmods) == 0
 }
 
 func RequireEqualRecordBatches(t *testing.T, q *model.QRecordBatch, other *model.QRecordBatch) {

@@ -66,8 +66,18 @@ func (s SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	require.NoError(s.t, err)
 	require.Equal(s.t, &protos.TableSchema{
 		TableIdentifier: tableName,
-		ColumnNames:     []string{"ID", "HI"},
-		ColumnTypes:     []string{string(qvalue.QValueKindString), string(qvalue.QValueKindJSON)},
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         "ID",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "HI",
+				Type:         string(qvalue.QValueKindJSON),
+				TypeModifier: -1,
+			},
+		},
 	}, output.TableNameSchemaMapping[tableName])
 }
 
@@ -78,28 +88,71 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
-		// goal is to test all types we're currently mapping to, not all QValue types
-		ColumnNames: []string{"ID", "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10"},
-		ColumnTypes: []string{
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindBoolean),
-			string(qvalue.QValueKindBytes),
-			string(qvalue.QValueKindDate),
-			string(qvalue.QValueKindFloat64),
-			string(qvalue.QValueKindJSON),
-			string(qvalue.QValueKindNumeric),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindTime),
-			string(qvalue.QValueKindTimestamp),
-			string(qvalue.QValueKindTimestampTZ),
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         "ID",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C1",
+				Type:         string(qvalue.QValueKindBoolean),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C2",
+				Type:         string(qvalue.QValueKindBytes),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C3",
+				Type:         string(qvalue.QValueKindDate),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C4",
+				Type:         string(qvalue.QValueKindFloat64),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C5",
+				Type:         string(qvalue.QValueKindJSON),
+				TypeModifier: -1,
+			},
+			{
+				Name: "C6",
+				Type: string(qvalue.QValueKindNumeric),
+
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C7",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C8",
+				Type:         string(qvalue.QValueKindTime),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C9",
+				Type:         string(qvalue.QValueKindTimestamp),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C10",
+				Type:         string(qvalue.QValueKindTimestampTZ),
+				TypeModifier: -1,
+			},
 		},
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
-	for i, columnName := range expectedTableSchema.ColumnNames {
-		if columnName != "ID" {
+	for _, column := range expectedTableSchema.Columns {
+		if column.Name != "ID" {
 			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
-				ColumnName: columnName,
-				ColumnType: expectedTableSchema.ColumnTypes[i],
+				ColumnName: column.Name,
+				ColumnType: column.Type,
 			})
 		}
 	}
@@ -125,36 +178,60 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
-		// strings.ToUpper also does Unicode uppercasing :)
-		ColumnNames: []string{
-			"ID",
-			"C1",
-			"C 1",
-			"RIGHT",
-			"SELECT",
-			"XMIN",
-			"CARIÑO",
-			"±ªÞ³§",
-			"カラム",
-		},
-		ColumnTypes: []string{
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         "ID",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C1",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C 1",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "RIGHT",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "SELECT",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "XMIN",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "CARIÑO",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "±ªÞ³§",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "カラム",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
 		},
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
-	for i, columnName := range expectedTableSchema.ColumnNames {
-		if columnName != "ID" {
+	for _, column := range expectedTableSchema.Columns {
+		if column.Name != "ID" {
 			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
-				ColumnName: columnName,
-				ColumnType: expectedTableSchema.ColumnTypes[i],
+				ColumnName: column.Name,
+				ColumnType: column.Type,
 			})
 		}
 	}
@@ -180,20 +257,35 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
-		ColumnNames:     []string{" ", "  ", "   ", "\t"},
-		ColumnTypes: []string{
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindTime),
-			string(qvalue.QValueKindDate),
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         " ",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "  ",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "   ",
+				Type:         string(qvalue.QValueKindTime),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "\t",
+				Type:         string(qvalue.QValueKindDate),
+				TypeModifier: -1,
+			},
 		},
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
-	for i, columnName := range expectedTableSchema.ColumnNames {
-		if columnName != " " {
+	for _, column := range expectedTableSchema.Columns {
+		if column.Name != " " {
 			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
-				ColumnName: columnName,
-				ColumnType: expectedTableSchema.ColumnTypes[i],
+				ColumnName: column.Name,
+				ColumnType: column.Type,
 			})
 		}
 	}

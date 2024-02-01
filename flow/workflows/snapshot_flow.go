@@ -143,10 +143,10 @@ func (s *SnapshotFlowExecution) cloneTable(
 	if len(mapping.Exclude) != 0 {
 		for _, v := range s.tableNameSchemaMapping {
 			if v.TableIdentifier == srcName {
-				quotedColumns := make([]string, 0, len(v.ColumnNames))
-				for _, colName := range v.ColumnNames {
-					if !slices.Contains(mapping.Exclude, colName) {
-						quotedColumns = append(quotedColumns, connpostgres.QuoteIdentifier(colName))
+				quotedColumns := make([]string, 0, len(v.Columns))
+				for _, col := range v.Columns {
+					if !slices.Contains(mapping.Exclude, col.Name) {
+						quotedColumns = append(quotedColumns, connpostgres.QuoteIdentifier(col.Name))
 					}
 				}
 				from = strings.Join(quotedColumns, ",")
