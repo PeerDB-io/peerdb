@@ -286,8 +286,8 @@ func DefineAvroSchema(dstTableName string,
 func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 	avroNumericPrecision := bqField.Precision
 	avroNumericScale := bqField.Scale
-	if avroNumericPrecision > 38 || avroNumericPrecision < 0 ||
-		avroNumericScale > 9 || avroNumericScale < 0 {
+	if avroNumericPrecision > 38 || avroNumericPrecision <= 0 ||
+		avroNumericScale > 9 || avroNumericScale <= 0 {
 		avroNumericPrecision = numeric.PeerDBNumericPrecision
 		avroNumericScale = numeric.PeerDBNumericScale
 	}

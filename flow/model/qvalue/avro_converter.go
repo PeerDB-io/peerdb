@@ -53,7 +53,7 @@ type AvroSchemaField struct {
 func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision int64, scale int64) (interface{}, error) {
 	avroNumericPrecision := precision
 	avroNumericScale := scale
-	if precision > 38 || precision < 0 || scale > 37 || scale < 0 {
+	if precision > 38 || precision <= 0 || scale > 37 || scale <= 0 {
 		avroNumericPrecision = numeric.PeerDBNumericPrecision
 		avroNumericScale = numeric.PeerDBNumericScale
 	}
