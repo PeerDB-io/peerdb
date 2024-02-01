@@ -27,8 +27,8 @@ type AvroSchemaComplexArray struct {
 type AvroSchemaNumeric struct {
 	Type        string `json:"type"`
 	LogicalType string `json:"logicalType"`
-	Precision   int    `json:"precision"`
-	Scale       int    `json:"scale"`
+	Precision   int16  `json:"precision"`
+	Scale       int16  `json:"scale"`
 }
 
 type AvroSchemaRecord struct {
@@ -50,7 +50,14 @@ type AvroSchemaField struct {
 //
 // For example, QValueKindInt64 would return an AvroLogicalSchema of "long". Unsupported QValueKinds
 // will return an error.
-func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType) (interface{}, error) {
+func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision int16, scale int16) (interface{}, error) {
+	avroNumericPrecision := precision
+	avroNumericScale := scale
+	if precision > 38 || precision <= 0 || scale > 37 || scale < 0 {
+		avroNumericPrecision = numeric.PeerDBNumericPrecision
+		avroNumericScale = numeric.PeerDBNumericScale
+	}
+
 	switch kind {
 	case QValueKindString, QValueKindUUID:
 		return "string", nil
@@ -73,8 +80,8 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType) (interface
 		return AvroSchemaNumeric{
 			Type:        "bytes",
 			LogicalType: "decimal",
-			Precision:   38,
-			Scale:       9,
+			Precision:   avroNumericPrecision,
+			Scale:       avroNumericScale,
 		}, nil
 	case QValueKindTime, QValueKindTimeTZ, QValueKindDate, QValueKindTimestamp, QValueKindTimestampTZ:
 		if targetDWH == QDWHTypeClickhouse {
@@ -447,8 +454,7 @@ func (c *QValueAvroConverter) processNumeric() (interface{}, error) {
 		return nil, fmt.Errorf("invalid Numeric value: expected *big.Rat, got %T", c.Value.Value)
 	}
 
-	scale := numeric.PeerDBNumericScale
-	decimalValue := num.FloatString(scale)
+	decimalValue := num.FloatString(100)
 	num.SetString(decimalValue)
 	if c.Nullable {
 		return goavro.Union("bytes.decimal", num), nil

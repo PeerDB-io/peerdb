@@ -25,6 +25,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -672,11 +673,26 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 		columns := make([]*bigquery.FieldSchema, 0, len(tableSchema.Columns)+2)
 		for _, column := range tableSchema.Columns {
 			genericColType := column.Type
-			columns = append(columns, &bigquery.FieldSchema{
-				Name:     column.Name,
-				Type:     qValueKindToBigQueryType(genericColType),
-				Repeated: qvalue.QValueKind(genericColType).IsArray(),
-			})
+			if genericColType == "numeric" {
+				precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
+				if column.TypeModifier == -1 || precision > 38 || scale > 37 {
+					precision = numeric.PeerDBNumericPrecision
+					scale = numeric.PeerDBNumericScale
+				}
+				columns = append(columns, &bigquery.FieldSchema{
+					Name:      column.Name,
+					Type:      bigquery.BigNumericFieldType,
+					Repeated:  qvalue.QValueKind(genericColType).IsArray(),
+					Precision: int64(precision),
+					Scale:     int64(scale),
+				})
+			} else {
+				columns = append(columns, &bigquery.FieldSchema{
+					Name:     column.Name,
+					Type:     qValueKindToBigQueryType(genericColType),
+					Repeated: qvalue.QValueKind(genericColType).IsArray(),
+				})
+			}
 		}
 
 		if req.SoftDeleteColName != "" {

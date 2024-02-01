@@ -76,7 +76,7 @@ func GetAvroSchemaDefinition(
 	nullableFields := make(map[string]struct{})
 
 	for _, qField := range qRecordSchema.Fields {
-		avroType, err := qvalue.GetAvroSchemaFromQValueKind(qField.Type, targetDWH)
+		avroType, err := qvalue.GetAvroSchemaFromQValueKind(qField.Type, targetDWH, qField.Precision, qField.Scale)
 		if err != nil {
 			return nil, err
 		}

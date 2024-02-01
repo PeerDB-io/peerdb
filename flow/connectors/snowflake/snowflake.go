@@ -23,6 +23,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -658,6 +659,16 @@ func generateCreateTableSQLForNormalizedTable(
 				slog.Any("error", err))
 			continue
 		}
+
+		if genericColumnType == "numeric" {
+			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
+			if column.TypeModifier == -1 || precision > 38 || scale > 37 {
+				precision = numeric.PeerDBNumericPrecision
+				scale = numeric.PeerDBNumericScale
+			}
+			sfColType = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
+		}
+
 		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`%s %s`, normalizedColName, sfColType))
 	}
 
