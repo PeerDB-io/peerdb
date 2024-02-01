@@ -1,6 +1,6 @@
 'use client';
 import { SlotLagPoint } from '@/app/dto/PeersDTO';
-import aggregateCountsByInterval from '@/app/mirrors/edit/[mirrorId]/aggregatedCountsByInterval';
+import aggregateCountsByInterval from '@/app/mirrors/[mirrorId]/aggregatedCountsByInterval';
 import { formatGraphLabel, timeOptions } from '@/app/utils/graph';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle/ProgressCircle';

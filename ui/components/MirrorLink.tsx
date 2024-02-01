@@ -11,7 +11,7 @@ const MirrorLink = ({ flowName }: { flowName: string }) => {
       {isLoading ? (
         <ProgressCircle variant='determinate_progress_circle' />
       ) : (
-        <Link href={`/mirrors/edit/${flowName}`}>
+        <Link href={`/mirrors/${flowName}`}>
           <Label>
             <div className='cursor-pointer underline'>{flowName}</div>
           </Label>

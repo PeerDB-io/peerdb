@@ -4,7 +4,7 @@ import { Label } from '@/lib/Label';
 import { BarChart } from '@tremor/react';
 import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
-import aggregateCountsByInterval from '../../../edit/[mirrorId]/aggregatedCountsByInterval';
+import aggregateCountsByInterval from '../../../[mirrorId]/aggregatedCountsByInterval';
 
 type QrepStatusRow = {
   partitionID: string;

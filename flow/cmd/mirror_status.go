@@ -12,6 +12,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
+	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
 
 func (h *FlowRequestHandler) MirrorStatus(
@@ -81,6 +82,18 @@ func (h *FlowRequestHandler) CDCFlowStatus(
 	if err != nil {
 		return nil, err
 	}
+	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+	state, err := h.getCDCWorkflowState(ctx, workflowID)
+	if err != nil {
+		return nil, err
+	}
+
+	// patching config to show latest values from state
+	config.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
+	config.MaxBatchSize = state.SyncFlowOptions.BatchSize
 
 	var initialCopyStatus *protos.SnapshotStatus
 
@@ -339,16 +352,16 @@ func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) 
 func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID string) (protos.FlowStatus, error) {
 	res, err := h.temporalClient.QueryWorkflow(ctx, workflowID, "", shared.FlowStatusQuery)
 	if err != nil {
-		slog.Error(fmt.Sprintf("failed to get state in workflow with ID %s: %s", workflowID, err.Error()))
+		slog.Error(fmt.Sprintf("failed to get status in workflow with ID %s: %s", workflowID, err.Error()))
 		return protos.FlowStatus_STATUS_UNKNOWN,
-			fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
+			fmt.Errorf("failed to get status in workflow with ID %s: %w", workflowID, err)
 	}
 	var state protos.FlowStatus
 	err = res.Get(&state)
 	if err != nil {
-		slog.Error(fmt.Sprintf("failed to get state in workflow with ID %s: %s", workflowID, err.Error()))
+		slog.Error(fmt.Sprintf("failed to get status in workflow with ID %s: %s", workflowID, err.Error()))
 		return protos.FlowStatus_STATUS_UNKNOWN,
-			fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
+			fmt.Errorf("failed to get status in workflow with ID %s: %w", workflowID, err)
 	}
 	return state, nil
 }
@@ -364,4 +377,23 @@ func (h *FlowRequestHandler) updateWorkflowStatus(
 		return fmt.Errorf("failed to update state in workflow with ID %s: %w", workflowID, err)
 	}
 	return nil
+}
+
+func (h *FlowRequestHandler) getCDCWorkflowState(ctx context.Context,
+	workflowID string,
+) (*peerflow.CDCFlowWorkflowState, error) {
+	res, err := h.temporalClient.QueryWorkflow(ctx, workflowID, "", shared.CDCFlowStateQuery)
+	if err != nil {
+		slog.Error(fmt.Sprintf("failed to get state in workflow with ID %s: %s", workflowID, err.Error()))
+		return nil,
+			fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
+	}
+	var state peerflow.CDCFlowWorkflowState
+	err = res.Get(&state)
+	if err != nil {
+		slog.Error(fmt.Sprintf("failed to get state in workflow with ID %s: %s", workflowID, err.Error()))
+		return nil,
+			fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
+	}
+	return &state, nil
 }

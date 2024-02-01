@@ -15,6 +15,8 @@ interface TableMappingProps {
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
   peerType?: DBType;
+  // schema -> omitted source table mapping
+  omitAdditionalTablesMapping: Map<string, string[]>;
 }
 
 const TableMapping = ({
@@ -22,6 +24,7 @@ const TableMapping = ({
   rows,
   setRows,
   peerType,
+  omitAdditionalTablesMapping,
 }: TableMappingProps) => {
   const [allSchemas, setAllSchemas] = useState<string[]>();
   const [schemaQuery, setSchemaQuery] = useState('');
@@ -88,6 +91,7 @@ const TableMapping = ({
               tableColumns={tableColumns}
               setTableColumns={setTableColumns}
               peerType={peerType}
+              omitAdditionalTables={omitAdditionalTablesMapping.get(schema)}
             />
           ))
         ) : (
