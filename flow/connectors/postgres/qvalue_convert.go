@@ -107,8 +107,8 @@ func postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
 	}
 }
 
-func qValueKindToPostgresType(qvalueKind string) string {
-	switch qvalue.QValueKind(qvalueKind) {
+func qValueKindToPostgresType(colTypeStr string) string {
+	switch qvalue.QValueKind(colTypeStr) {
 	case qvalue.QValueKindBoolean:
 		return "BOOLEAN"
 	case qvalue.QValueKindInt16:

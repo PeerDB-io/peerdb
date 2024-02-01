@@ -16,6 +16,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/numeric"
 )
 
 type PGVersion int
@@ -423,11 +424,17 @@ func generateCreateTableSQLForNormalizedTable(
 	softDeleteColName string,
 	syncedAtColName string,
 ) string {
-	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns)+2)
+	createTableSQLArray := make([]string, 0, len(sourceTableSchema.ColumnNames)+2)
 	for _, column := range sourceTableSchema.Columns {
-		genericColumnType := column.Type
+		genericColumnType := qValueKindToPostgresType(column.ColumnType)
+		if column.ColumnType == "numeric" {
+			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
+			if column.TypeModifier != -1 {
+				genericColumnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
+			}
+		}
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf("%s %s", QuoteIdentifier(column.Name), qValueKindToPostgresType(genericColumnType)))
+			fmt.Sprintf("%s %s", QuoteIdentifier(column.ColumnName), genericColumnType))
 	}
 
 	if softDeleteColName != "" {

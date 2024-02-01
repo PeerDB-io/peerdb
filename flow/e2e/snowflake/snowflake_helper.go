@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"os"
 	"time"
@@ -55,7 +56,7 @@ func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
 	}
 
 	testDatabaseName := fmt.Sprintf("e2e_test_%d", runID)
-
+	slog.Info("Creating test database: " + testDatabaseName)
 	adminClient, err := connsnowflake.NewSnowflakeClient(context.Background(), config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Snowflake client: %w", err)

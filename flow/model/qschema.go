@@ -7,9 +7,11 @@ import (
 )
 
 type QField struct {
-	Name     string
-	Type     qvalue.QValueKind
-	Nullable bool
+	Name      string
+	Type      qvalue.QValueKind
+	Precision int64
+	Scale     int64
+	Nullable  bool
 }
 
 type QRecordSchema struct {

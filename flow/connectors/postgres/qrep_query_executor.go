@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/geo"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -118,10 +119,21 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 		// there isn't a way to know if a column is nullable or not
 		// TODO fix this.
 		cnullable := true
-		qfields[i] = model.QField{
-			Name:     cname,
-			Type:     ctype,
-			Nullable: cnullable,
+		if ctype == qvalue.QValueKindNumeric {
+			precision, scale := numeric.ParseNumericTypmod(fd.TypeModifier)
+			qfields[i] = model.QField{
+				Name:      cname,
+				Type:      ctype,
+				Nullable:  cnullable,
+				Precision: int64(precision),
+				Scale:     int64(scale),
+			}
+		} else {
+			qfields[i] = model.QField{
+				Name:     cname,
+				Type:     ctype,
+				Nullable: cnullable,
+			}
 		}
 	}
 	return model.NewQRecordSchema(qfields)
