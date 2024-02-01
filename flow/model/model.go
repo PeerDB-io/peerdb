@@ -11,7 +11,6 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
-	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
@@ -215,7 +214,7 @@ func (r *RecordItems) toMap(hstoreAsJSON bool) (map[string]interface{}, error) {
 			if !ok {
 				return nil, errors.New("expected *big.Rat value")
 			}
-			jsonStruct[col] = bigRat.FloatString(numeric.PeerDBNumericScale)
+			jsonStruct[col] = bigRat.FloatString(100)
 		case qvalue.QValueKindFloat64:
 			floatVal, ok := v.Value.(float64)
 			if !ok {

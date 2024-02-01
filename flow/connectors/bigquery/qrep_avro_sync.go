@@ -16,6 +16,7 @@ import (
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -283,6 +284,14 @@ func DefineAvroSchema(dstTableName string,
 }
 
 func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
+	avroNumericPrecision := int16(bqField.Precision)
+	avroNumericScale := int16(bqField.Scale)
+	if avroNumericPrecision > 38 || avroNumericPrecision <= 0 ||
+		avroNumericScale > 38 || avroNumericScale < 0 {
+		avroNumericPrecision = numeric.PeerDBNumericPrecision
+		avroNumericScale = numeric.PeerDBNumericScale
+	}
+
 	considerRepeated := func(typ string, repeated bool) interface{} {
 		if repeated {
 			return qvalue.AvroSchemaArray{
@@ -352,12 +361,12 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 				},
 			},
 		}, nil
-	case bigquery.NumericFieldType:
+	case bigquery.BigNumericFieldType:
 		return qvalue.AvroSchemaNumeric{
 			Type:        "bytes",
 			LogicalType: "decimal",
-			Precision:   38,
-			Scale:       9,
+			Precision:   avroNumericPrecision,
+			Scale:       avroNumericScale,
 		}, nil
 	case bigquery.RecordFieldType:
 		avroFields := []qvalue.AvroSchemaField{}
@@ -458,6 +467,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 
 	loader := bqClient.DatasetInProject(s.connector.projectID, stagingTable.dataset).Table(stagingTable.table).LoaderFrom(avroRef)
 	loader.UseAvroLogicalTypes = true
+	loader.DecimalTargetTypes = []bigquery.DecimalTargetType{bigquery.BigNumericTargetType}
 	loader.WriteDisposition = bigquery.WriteTruncate
 	job, err := loader.Run(s.connector.ctx)
 	if err != nil {

@@ -20,7 +20,7 @@ func qValueKindToBigQueryType(colType string) bigquery.FieldType {
 	case qvalue.QValueKindFloat32, qvalue.QValueKindFloat64:
 		return bigquery.FloatFieldType
 	case qvalue.QValueKindNumeric:
-		return bigquery.NumericFieldType
+		return bigquery.BigNumericFieldType
 	// string related
 	case qvalue.QValueKindString:
 		return bigquery.StringFieldType
@@ -82,7 +82,7 @@ func BigQueryTypeToQValueKind(fieldType bigquery.FieldType) (qvalue.QValueKind, 
 		return qvalue.QValueKindTime, nil
 	case bigquery.RecordFieldType:
 		return qvalue.QValueKindStruct, nil
-	case bigquery.NumericFieldType:
+	case bigquery.NumericFieldType, bigquery.BigNumericFieldType:
 		return qvalue.QValueKindNumeric, nil
 	case bigquery.GeographyFieldType:
 		return qvalue.QValueKindGeography, nil

@@ -6,6 +6,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
@@ -62,9 +63,15 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 		// 		"AS %s", toVariantColumnName, columnName, columnName))
 		default:
 			if qvKind == qvalue.QValueKindNumeric {
+				precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
+				if column.TypeModifier == -1 || precision > 38 || scale > 37 {
+					precision = numeric.PeerDBNumericPrecision
+					scale = numeric.PeerDBNumericScale
+				}
+				numericType := fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
 				flattenedCastsSQLArray = append(flattenedCastsSQLArray,
 					fmt.Sprintf("TRY_CAST((%s:\"%s\")::text AS %s) AS %s",
-						toVariantColumnName, column.Name, sfType, targetColumnName))
+						toVariantColumnName, column.Name, numericType, targetColumnName))
 			} else {
 				flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:\"%s\" AS %s) AS %s",
 					toVariantColumnName, column.Name, sfType, targetColumnName))

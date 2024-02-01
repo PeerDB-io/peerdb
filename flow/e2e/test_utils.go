@@ -219,7 +219,7 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 		"card_eth_value DOUBLE PRECISION",
 		"paid_eth_price DOUBLE PRECISION",
 		"card_bought_notified BOOLEAN DEFAULT false NOT NULL",
-		"address NUMERIC",
+		"address NUMERIC(20,8)",
 		"account_id UUID",
 		"asset_id NUMERIC NOT NULL",
 		"status INTEGER",
