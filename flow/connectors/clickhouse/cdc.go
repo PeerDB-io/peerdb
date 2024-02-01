@@ -158,18 +158,11 @@ func (c *ClickhouseConnector) ReplayTableSchemaDeltas(flowJobName string,
 	return nil
 }
 
-// external
 func (c *ClickhouseConnector) NeedsSetupMetadataTables() bool {
-	return c.pgMetadata.NeedsSetupMetadata()
+	return false
 }
 
 func (c *ClickhouseConnector) SetupMetadataTables() error {
-	err := c.pgMetadata.SetupMetadata()
-	if err != nil {
-		c.logger.Error("failed to setup metadata tables", slog.Any("error", err))
-		return err
-	}
-
 	return nil
 }
 

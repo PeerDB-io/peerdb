@@ -65,8 +65,7 @@ func NewS3Connector(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to create S3 client: %w", err)
 	}
-	metadataSchemaName := "peerdb_s3_metadata"
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx, metadataSchemaName)
+	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to create postgres metadata store", slog.Any("error", err))
 		return nil, err
@@ -149,16 +148,10 @@ func (c *S3Connector) ConnectionActive() error {
 }
 
 func (c *S3Connector) NeedsSetupMetadataTables() bool {
-	return c.pgMetadata.NeedsSetupMetadata()
+	return false
 }
 
 func (c *S3Connector) SetupMetadataTables() error {
-	err := c.pgMetadata.SetupMetadata()
-	if err != nil {
-		c.logger.Error("failed to setup metadata tables", slog.Any("error", err))
-		return err
-	}
-
 	return nil
 }
 
@@ -170,15 +163,8 @@ func (c *S3Connector) GetLastOffset(jobName string) (int64, error) {
 	return c.pgMetadata.FetchLastOffset(jobName)
 }
 
-// update offset for a job
 func (c *S3Connector) SetLastOffset(jobName string, offset int64) error {
-	err := c.pgMetadata.UpdateLastOffset(jobName, offset)
-	if err != nil {
-		c.logger.Error("failed to update last offset: ", slog.Any("error", err))
-		return err
-	}
-
-	return nil
+	return c.pgMetadata.UpdateLastOffset(jobName, offset)
 }
 
 func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {

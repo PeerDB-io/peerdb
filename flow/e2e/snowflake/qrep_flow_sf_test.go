@@ -19,11 +19,13 @@ func (s PeerFlowE2ETestSuiteSF) setupSourceTable(tableName string, numRows int) 
 }
 
 func (s PeerFlowE2ETestSuiteSF) checkJSONValue(tableName, colName, fieldName, value string) error {
-	res, err := s.sfHelper.ExecuteAndProcessQuery(fmt.Sprintf(
-		"SELECT %s:%s FROM %s;",
-		colName, fieldName, tableName))
+	res, err := s.sfHelper.ExecuteAndProcessQuery(fmt.Sprintf("SELECT %s:%s FROM %s", colName, fieldName, tableName))
 	if err != nil {
 		return fmt.Errorf("json value check failed: %v", err)
+	}
+
+	if len(res.Records) == 0 {
+		return fmt.Errorf("bad json: empty result set from %s", tableName)
 	}
 
 	jsonVal := res.Records[0][0].Value
