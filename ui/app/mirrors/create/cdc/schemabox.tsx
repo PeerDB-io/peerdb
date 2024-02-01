@@ -148,11 +148,11 @@ const SchemaBox = ({
       if (rowsDoNotHaveSchemaTables(schemaName)) {
         setTablesLoading(true);
         fetchTables(sourcePeer, schemaName, peerType).then((newRows) => {
-          newRows.forEach((value, i, arr) => {
-            if (omitAdditionalTables?.includes(value.source)) {
-              arr.at(i)!.canMirror = false;
+          for (const row of newRows) {
+            if (omitAdditionalTables?.includes(row.source)) {
+              row.canMirror = false;
             }
-          });
+          }
           setRows((oldRows) => [
             ...oldRows.filter((oldRow) => oldRow.schema !== schema),
             ...newRows,

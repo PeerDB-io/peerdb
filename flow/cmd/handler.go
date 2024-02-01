@@ -463,7 +463,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				shared.NoopSignal,
 			)
 		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED &&
-			(currState == protos.FlowStatus_STATUS_RUNNING || currState == protos.FlowStatus_STATUS_PAUSED) {
+			(currState != protos.FlowStatus_STATUS_TERMINATED) {
 			err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_TERMINATING)
 			if err != nil {
 				return nil, err
@@ -475,7 +475,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				DestinationPeer: req.DestinationPeer,
 				RemoveFlowEntry: false,
 			})
-		} else {
+		} else if req.RequestedFlowState != currState {
 			return nil, fmt.Errorf("illegal state change requested: %v, current state is: %v",
 				req.RequestedFlowState, currState)
 		}

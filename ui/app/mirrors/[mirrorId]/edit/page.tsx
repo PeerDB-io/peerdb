@@ -15,17 +15,21 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import TableMapping from '../../create/cdc/tablemapping';
 import { reformattedTableMapping } from '../../create/handlers';
+import { blankCDCSetting } from '../../create/helpers/common';
 
 type EditMirrorProps = {
   params: { mirrorId: string };
 };
 
 const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
+  const defaultBatchSize = blankCDCSetting.maxBatchSize;
+  const defaultIdleTimeout = blankCDCSetting.idleTimeoutSeconds;
+
   const [rows, setRows] = useState<TableMapRow[]>([]);
   const [mirrorState, setMirrorState] = useState<MirrorStatusResponse>();
   const [config, setConfig] = useState<CDCFlowConfigUpdate>({
-    batchSize: 1000000,
-    idleTimeout: 60,
+    batchSize: defaultBatchSize,
+    idleTimeout: defaultIdleTimeout,
     additionalTables: [],
   });
   const { push } = useRouter();
@@ -44,14 +48,14 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
         setConfig({
           batchSize:
             (res as MirrorStatusResponse).cdcStatus?.config?.maxBatchSize ||
-            1000000,
+            defaultBatchSize,
           idleTimeout:
             (res as MirrorStatusResponse).cdcStatus?.config
-              ?.idleTimeoutSeconds || 60,
+              ?.idleTimeoutSeconds || defaultIdleTimeout,
           additionalTables: [],
         });
       });
-  }, [mirrorId]);
+  }, [mirrorId, defaultBatchSize, defaultIdleTimeout]);
 
   useEffect(() => {
     fetchStateAndUpdateDeps();
@@ -69,19 +73,33 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
     });
     return omitAdditionalTablesMapping;
   }, [mirrorState]);
-  useEffect(() => {
-    setConfig((c) => ({
-      ...c,
-      additionalTables: reformattedTableMapping(rows),
-    }));
+
+  const additionalTables = useMemo(() => {
+    return reformattedTableMapping(rows);
   }, [rows]);
 
   if (!mirrorState) {
     return <ProgressCircle />;
   }
 
-  // todo: use mirrorId (which is mirrorName) to query flows table/temporal and get config
-  // you will have to decode the config to get the table mapping. see: /mirrors/page.tsx
+  const sendFlowStateChangeRequest = async () => {
+    const req: FlowStateChangeRequest = {
+      flowJobName: mirrorId,
+      sourcePeer: mirrorState.cdcStatus?.config?.source,
+      destinationPeer: mirrorState.cdcStatus?.config?.destination,
+      requestedFlowState: FlowStatus.STATUS_UNKNOWN,
+      flowConfigUpdate: {
+        cdcFlowConfigUpdate: { ...config, additionalTables },
+      },
+    };
+    await fetch(`/api/mirrors/state_change`, {
+      method: 'POST',
+      body: JSON.stringify(req),
+      cache: 'no-store',
+    });
+    push(`/mirrors/${mirrorId}`);
+  };
+
   return (
     <div>
       <Label variant='title3'>Edit {mirrorId}</Label>
@@ -145,34 +163,33 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
         setRows={setRows}
         omitAdditionalTablesMapping={omitAdditionalTablesMapping}
       />
-      <Button
-        style={{ marginTop: '1rem', width: '8%', height: '2.5rem' }}
-        variant='normalSolid'
-        disabled={
-          config.additionalTables.length > 0 &&
-          mirrorState.currentFlowState.toString() !==
-            FlowStatus[FlowStatus.STATUS_PAUSED]
-        }
-        onClick={async () => {
-          const req: FlowStateChangeRequest = {
-            flowJobName: mirrorId,
-            sourcePeer: mirrorState.cdcStatus?.config?.source,
-            destinationPeer: mirrorState.cdcStatus?.config?.destination,
-            requestedFlowState: FlowStatus.STATUS_UNKNOWN,
-            flowConfigUpdate: {
-              cdcFlowConfigUpdate: config,
-            },
-          };
-          await fetch(`/api/mirrors/state_change`, {
-            method: 'POST',
-            body: JSON.stringify(req),
-            cache: 'no-store',
-          });
-          push(`/mirrors/${mirrorId}`);
-        }}
-      >
-        Edit Mirror
-      </Button>
+      <div style={{ display: 'flex' }}>
+        <Button
+          style={{
+            marginTop: '1rem',
+            marginRight: '1rem',
+            width: '8%',
+            height: '2.5rem',
+          }}
+          variant='normalSolid'
+          disabled={
+            config.additionalTables.length > 0 &&
+            mirrorState.currentFlowState.toString() !==
+              FlowStatus[FlowStatus.STATUS_PAUSED]
+          }
+          onClick={sendFlowStateChangeRequest}
+        >
+          Edit Mirror
+        </Button>
+        <Button
+          style={{ marginTop: '1rem', width: '8%', height: '2.5rem' }}
+          onClick={() => {
+            push(`/mirrors/${mirrorId}`);
+          }}
+        >
+          Back
+        </Button>
+      </div>
     </div>
   );
 };
