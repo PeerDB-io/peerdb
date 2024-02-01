@@ -131,7 +131,7 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 	}
 	s.connector.logger.Info("Put file to stage in Avro sync for snowflake", partitionLog)
 
-	err = s.insertMetadata(partition, config.FlowJobName, startTime)
+	err = s.connector.pgMetadata.FinishQrepPartition(partition, config.FlowJobName, startTime)
 	if err != nil {
 		return -1, err
 	}
@@ -281,20 +281,5 @@ func (s *SnowflakeAvroSyncHandler) putFileToStage(avroFile *avro.AvroFile, stage
 	}
 
 	s.connector.logger.Info(fmt.Sprintf("put file %s to stage %s", avroFile.FilePath, stage))
-	return nil
-}
-
-func (s *SnowflakeAvroSyncHandler) insertMetadata(
-	partition *protos.QRepPartition,
-	flowJobName string,
-	startTime time.Time,
-) error {
-	partitionLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
-	err := s.connector.pgMetadata.FinishQrepPartition(partition, flowJobName, startTime)
-	if err != nil {
-		return fmt.Errorf("failed to execute metadata insert statement: %w", err)
-	}
-
-	s.connector.logger.Info("inserted metadata for partition", partitionLog)
 	return nil
 }
