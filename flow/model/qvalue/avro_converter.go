@@ -74,9 +74,9 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision 
 	case QValueKindBytes, QValueKindBit:
 		return "bytes", nil
 	case QValueKindNumeric:
-		if targetDWH == QDWHTypeClickhouse {
-			return "double", nil
-		}
+		// if targetDWH == QDWHTypeClickhouse {
+		// 	return "double", nil
+		// }
 		return AvroSchemaNumeric{
 			Type:        "bytes",
 			LogicalType: "decimal",
@@ -85,6 +85,9 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision 
 		}, nil
 	case QValueKindTime, QValueKindTimeTZ, QValueKindDate, QValueKindTimestamp, QValueKindTimestampTZ:
 		if targetDWH == QDWHTypeClickhouse {
+			if kind == QValueKindTime  {
+				return "string", nil
+			}
 			return "long", nil
 		}
 		return "string", nil
@@ -172,9 +175,9 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 
 		if c.TargetDWH == QDWHTypeClickhouse {
 			if c.Nullable {
-				return c.processNullableUnion("long", t.(int64))
+				return c.processNullableUnion("string", t.(string))
 			} else {
-				return t.(int64), nil
+				return t.(string), nil
 			}
 		}
 		if c.Nullable {
@@ -370,6 +373,10 @@ func (c *QValueAvroConverter) processGoTime() (interface{}, error) {
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == QDWHTypeSnowflake {
+		return t.Format("15:04:05.999999"), nil
+	}
+
+	if c.TargetDWH ==  QDWHTypeClickhouse {
 		return t.Format("15:04:05.999999"), nil
 	}
 	return t.UnixMicro(), nil
