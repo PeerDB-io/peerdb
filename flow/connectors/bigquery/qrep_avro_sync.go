@@ -287,7 +287,7 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 	avroNumericPrecision := int16(bqField.Precision)
 	avroNumericScale := int16(bqField.Scale)
 	if avroNumericPrecision > 38 || avroNumericPrecision <= 0 ||
-		avroNumericScale > 9 || avroNumericScale <= 0 {
+		avroNumericScale > 38 || avroNumericScale < 0 {
 		avroNumericPrecision = numeric.PeerDBNumericPrecision
 		avroNumericScale = numeric.PeerDBNumericScale
 	}
@@ -361,7 +361,7 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 				},
 			},
 		}, nil
-	case bigquery.NumericFieldType:
+	case bigquery.BigNumericFieldType:
 		return qvalue.AvroSchemaNumeric{
 			Type:        "bytes",
 			LogicalType: "decimal",
@@ -467,6 +467,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 
 	loader := bqClient.DatasetInProject(s.connector.projectID, stagingTable.dataset).Table(stagingTable.table).LoaderFrom(avroRef)
 	loader.UseAvroLogicalTypes = true
+	loader.DecimalTargetTypes = []bigquery.DecimalTargetType{bigquery.BigNumericTargetType}
 	loader.WriteDisposition = bigquery.WriteTruncate
 	job, err := loader.Run(s.connector.ctx)
 	if err != nil {

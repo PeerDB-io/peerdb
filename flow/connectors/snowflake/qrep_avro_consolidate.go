@@ -120,6 +120,7 @@ func (s *SnowflakeAvroConsolidateHandler) getCopyTransformation(copyDstTable str
 	copyOpts := []string{
 		"FILE_FORMAT = (TYPE = AVRO)",
 		"PURGE = TRUE",
+		"ON_ERROR = 'CONTINUE'",
 	}
 	transformationSQL, columnsSQL := getTransformSQL(s.allColNames, s.allColTypes, s.config.SyncedAtColName)
 	return fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) %s",

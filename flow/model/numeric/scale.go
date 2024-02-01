@@ -6,7 +6,7 @@ import (
 
 const (
 	PeerDBNumericPrecision = 38
-	PeerDBNumericScale     = 9
+	PeerDBNumericScale     = 20
 )
 
 func StripTrailingZeros(value string) string {

@@ -675,11 +675,13 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 			genericColType := column.Type
 			if genericColType == "numeric" {
 				precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
-				precision = min(precision, numeric.PeerDBNumericPrecision)
-				scale = min(scale, numeric.PeerDBNumericScale)
+				if column.TypeModifier == -1 || precision > 38 || scale > 37 {
+					precision = numeric.PeerDBNumericPrecision
+					scale = numeric.PeerDBNumericScale
+				}
 				columns = append(columns, &bigquery.FieldSchema{
 					Name:      column.Name,
-					Type:      bigquery.NumericFieldType,
+					Type:      bigquery.BigNumericFieldType,
 					Repeated:  qvalue.QValueKind(genericColType).IsArray(),
 					Precision: int64(precision),
 					Scale:     int64(scale),
