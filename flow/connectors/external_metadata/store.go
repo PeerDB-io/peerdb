@@ -41,6 +41,15 @@ func NewPostgresMetadataStore(ctx context.Context) (*PostgresMetadataStore, erro
 	}, nil
 }
 
+func NewPostgresMetadataStoreFromCatalog(ctx context.Context, pool *pgxpool.Pool) *PostgresMetadataStore {
+	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
+	return &PostgresMetadataStore{
+		ctx:    ctx,
+		pool:   pool,
+		logger: *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
+	}
+}
+
 func (p *PostgresMetadataStore) Ping() error {
 	pingErr := p.pool.Ping(p.ctx)
 	if pingErr != nil {
