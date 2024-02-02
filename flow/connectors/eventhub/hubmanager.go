@@ -125,7 +125,6 @@ func (m *EventHubManager) Close(ctx context.Context) error {
 
 	m.hubs.Range(func(key any, value any) bool {
 		name := key.(ScopedEventhub)
-		slog.Info(fmt.Sprintf("closing eventhub client for %v", name))
 		hub := value.(*azeventhubs.ProducerClient)
 		err := m.closeProducerClient(ctx, hub)
 		if err != nil {
