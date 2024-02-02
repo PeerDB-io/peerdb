@@ -449,7 +449,7 @@ func CDCFlowWorkflowWithConfig(
 			state.FlowConfigUpdates = append(state.FlowConfigUpdates, cdcConfigUpdate)
 		}
 
-		slog.Info("CDC Signal received. Parameters on signal reception:",
+		w.logger.Info("CDC Signal received. Parameters on signal reception:",
 			slog.Int("BatchSize", int(state.SyncFlowOptions.BatchSize)),
 			slog.Int("IdleTimeout", int(state.SyncFlowOptions.IdleTimeoutSeconds)),
 			slog.Any("AdditionalTables", cdcConfigUpdate.AdditionalTables))
