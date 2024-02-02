@@ -236,8 +236,9 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 			TableNameMapping:      tblNameMapping,
 			LastOffset:            input.LastSyncState.Checkpoint,
 			MaxBatchSize:          input.SyncFlowOptions.BatchSize,
-			IdleTimeout: time.Duration(input.SyncFlowOptions.IdleTimeoutSeconds) *
-				time.Second,
+			IdleTimeout: peerdbenv.PeerDBCDCIdleTimeoutSeconds(
+				int(input.SyncFlowOptions.IdleTimeoutSeconds),
+			),
 			TableNameSchemaMapping:      input.TableNameSchemaMapping,
 			OverridePublicationName:     input.FlowConnectionConfigs.PublicationName,
 			OverrideReplicationSlotName: input.FlowConnectionConfigs.ReplicationSlotName,

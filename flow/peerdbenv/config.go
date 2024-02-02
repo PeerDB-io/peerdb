@@ -29,6 +29,18 @@ func PeerDBEventhubFlushTimeoutSeconds() time.Duration {
 	return time.Duration(x) * time.Second
 }
 
+// env variable doesn't exist anymore, but tests appear to depend on this
+// in lieu of an actual value of IdleTimeoutSeconds
+func PeerDBCDCIdleTimeoutSeconds(providedValue int) time.Duration {
+	var x int
+	if providedValue > 0 {
+		x = providedValue
+	} else {
+		x = getEnvInt("", 10)
+	}
+	return time.Duration(x) * time.Second
+}
+
 // PEERDB_CDC_DISK_SPILL_THRESHOLD
 func PeerDBCDCDiskSpillThreshold() int {
 	return getEnvInt("PEERDB_CDC_DISK_SPILL_THRESHOLD", 1_000_000)
