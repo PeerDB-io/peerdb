@@ -101,7 +101,7 @@ func XminFlowWorkflow(
 		var signalVal shared.CDCFlowSignal
 
 		for q.activeSignal == shared.PauseSignal {
-			q.logger.Info("mirror has been paused for ", slog.Any("duration", time.Since(startTime)))
+			q.logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
 			// only place we block on receive, so signal processing is immediate
 			ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute, &signalVal)
 			if ok {

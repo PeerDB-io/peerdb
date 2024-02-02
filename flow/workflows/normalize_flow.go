@@ -66,7 +66,7 @@ func NormalizeFlowWorkflow(ctx workflow.Context,
 		if lastSyncBatchID != syncBatchID {
 			lastSyncBatchID = syncBatchID
 
-			logger.Info("executing normalize - ", slog.String("flowName", config.FlowJobName))
+			logger.Info("executing normalize", slog.String("flowName", config.FlowJobName))
 			startNormalizeInput := &protos.StartNormalizeInput{
 				FlowConnectionConfigs:  config,
 				TableNameSchemaMapping: tableNameSchemaMapping,

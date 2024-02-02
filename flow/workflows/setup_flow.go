@@ -2,6 +2,7 @@ package peerflow
 
 import (
 	"fmt"
+	"log/slog"
 	"slices"
 	"sort"
 	"time"
@@ -253,7 +254,7 @@ func (s *SetupFlowExecution) executeSetupFlow(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
 ) (*protos.SetupFlowOutput, error) {
-	s.logger.Info("executing setup flow - ", s.cdcFlowName)
+	s.logger.Info("executing setup flow", slog.String("flowName", s.cdcFlowName))
 
 	// first check the connectionsAndSetupMetadataTables
 	if err := s.checkConnectionsAndSetupMetadataTables(ctx, config); err != nil {

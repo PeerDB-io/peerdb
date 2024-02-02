@@ -477,7 +477,7 @@ func CDCFlowWorkflowWithConfig(
 			state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
 
 			for state.ActiveSignal == shared.PauseSignal {
-				w.logger.Info("mirror has been paused for ", slog.Any("duration", time.Since(startTime)))
+				w.logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
 				// only place we block on receive, so signal processing is immediate
 				mainLoopSelector.Select(ctx)
 				if state.ActiveSignal == shared.NoopSignal {

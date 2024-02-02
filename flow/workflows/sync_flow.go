@@ -39,7 +39,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	opts *protos.SyncFlowOptions,
 	relationMessageMapping model.RelationMessageMapping,
 ) (*model.SyncResponse, error) {
-	s.logger.Info("executing sync flow - ", slog.String("flowName", s.CDCFlowName))
+	s.logger.Info("executing sync flow", slog.String("flowName", s.CDCFlowName))
 
 	syncMetaCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
 		StartToCloseTimeout: 1 * time.Minute,
