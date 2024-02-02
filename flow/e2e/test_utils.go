@@ -211,15 +211,14 @@ func SetupCDCFlowStatusQuery(t *testing.T, env *testsuite.TestWorkflowEnvironmen
 
 func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
-
 	tblFields := []string{
 		"id UUID NOT NULL PRIMARY KEY",
 		"card_id UUID",
-		`"from" TIMESTAMP NOT NULL`,
-		"price NUMERIC",
-		"created_at TIMESTAMP NOT NULL",
-		"updated_at TIMESTAMP NOT NULL",
-		"transaction_hash BYTEA",
+		// `"from" TIMESTAMP NOT NULL`,
+		// "price NUMERIC",
+		// "created_at TIMESTAMP NOT NULL",
+		// "updated_at TIMESTAMP NOT NULL",
+		// "transaction_hash BYTEA",
 		"ownerable_type VARCHAR",
 		"ownerable_id UUID",
 		"user_nonce INTEGER",
@@ -232,22 +231,22 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 		"card_eth_value DOUBLE PRECISION",
 		"paid_eth_price DOUBLE PRECISION",
 		"card_bought_notified BOOLEAN DEFAULT false NOT NULL",
-		"address NUMERIC(20,8)",
+		// "address NUMERIC(20,8)",
 		"account_id UUID",
-		"asset_id NUMERIC NOT NULL",
+		// "asset_id NUMERIC NOT NULL",
 		"status INTEGER",
 		"transaction_id UUID",
-		"settled_at TIMESTAMP",
+		// "settled_at TIMESTAMP",
 		"reference_id VARCHAR",
-		"settle_at TIMESTAMP",
+		// "settle_at TIMESTAMP",
 		"settlement_delay_reason INTEGER",
-		"f1 text[]",
-		"f2 bigint[]",
-		"f3 int[]",
-		"f4 varchar[]",
-		"f5 jsonb",
-		"f6 jsonb",
-		"f7 jsonb",
+		// "f1 text[]",
+		// "f2 bigint[]",
+		// "f3 int[]",
+		// "f4 varchar[]",
+		// "f5 jsonb",
+		// "f6 jsonb",
+		// "f7 jsonb",
 		"f8 smallint",
 		"f9 date[]",
 		"f10 timestamp with time zone[]",
@@ -277,15 +276,88 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 		return enumErr
 	}
 	_, err := conn.Exec(context.Background(), fmt.Sprintf(`
-		CREATE TABLE e2e_test_%s.%s (
-			%s
-		);`, suffix, tableName, tblFieldStr))
+        CREATE TABLE e2e_test_%s.%s (
+            %s
+        );`, suffix, tableName, tblFieldStr))
 	if err != nil {
 		return err
 	}
-
 	return nil
 }
+
+// func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
+// 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
+
+// 	tblFields := []string{
+// 		"id UUID NOT NULL PRIMARY KEY",
+// 		"card_id UUID",
+// 		`"from" TIMESTAMP NOT NULL`,
+// 		"price NUMERIC",
+// 		"created_at TIMESTAMP NOT NULL",
+// 		"updated_at TIMESTAMP NOT NULL",
+// 		"transaction_hash BYTEA",
+// 		"ownerable_type VARCHAR",
+// 		"ownerable_id UUID",
+// 		"user_nonce INTEGER",
+// 		"transfer_type INTEGER DEFAULT 0 NOT NULL",
+// 		"blockchain INTEGER NOT NULL",
+// 		"deal_type VARCHAR",
+// 		"deal_id UUID",
+// 		"ethereum_transaction_id UUID",
+// 		"ignore_price BOOLEAN DEFAULT false",
+// 		"card_eth_value DOUBLE PRECISION",
+// 		"paid_eth_price DOUBLE PRECISION",
+// 		"card_bought_notified BOOLEAN DEFAULT false NOT NULL",
+// 		"address NUMERIC(20,8)",
+// 		"account_id UUID",
+// 		"asset_id NUMERIC NOT NULL",
+// 		"status INTEGER",
+// 		"transaction_id UUID",
+// 		"settled_at TIMESTAMP",
+// 		"reference_id VARCHAR",
+// 		"settle_at TIMESTAMP",
+// 		"settlement_delay_reason INTEGER",
+// 		"f1 text[]",
+// 		"f2 bigint[]",
+// 		"f3 int[]",
+// 		"f4 varchar[]",
+// 		"f5 jsonb",
+// 		"f6 jsonb",
+// 		"f7 jsonb",
+// 		"f8 smallint",
+// 		"f9 date[]",
+// 		"f10 timestamp with time zone[]",
+// 		"f11 timestamp without time zone[]",
+// 		"f12 boolean[]",
+// 		"f13 smallint[]",
+// 		"my_date DATE",
+// 		"old_date DATE",
+// 		"my_time TIME",
+// 		"my_mood mood",
+// 		"myh HSTORE",
+// 		`"geometryPoint" geometry(point)`,
+// 		"geography_point geography(point)",
+// 		"geometry_linestring geometry(linestring)",
+// 		"geography_linestring geography(linestring)",
+// 		"geometry_polygon geometry(polygon)",
+// 		"geography_polygon geography(polygon)",
+// 	}
+// 	tblFieldStr := strings.Join(tblFields, ",")
+// 	var pgErr *pgconn.PgError
+// 	_, enumErr := conn.Exec(context.Background(), createMoodEnum)
+// 	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !utils.IsUniqueError(pgErr) {
+// 		return enumErr
+// 	}
+// 	_, err := conn.Exec(context.Background(), fmt.Sprintf(`
+// 		CREATE TABLE e2e_test_%s.%s (
+// 			%s
+// 		);`, suffix, tableName, tblFieldStr))
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	return nil
+// }
 
 func generate20MBJson() ([]byte, error) {
 	xn := make(map[string]interface{}, 215000)
@@ -336,7 +408,6 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String())
 		rows = append(rows, row)
 	}
-
 	_, err := conn.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO e2e_test_%s.%s (
 					id, card_id, "from", price, created_at,
@@ -357,43 +428,125 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 	if err != nil {
 		return err
 	}
-
 	// add a row where all the nullable fields are null
 	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
-	INSERT INTO e2e_test_%s.%s (
-			id, "from", created_at, updated_at,
-			transfer_type, blockchain, card_bought_notified, asset_id
-	) VALUES (
-			'%s', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
-			0, 1, false, 12345
-	);
-	`, suffix, tableName, uuid.New().String()))
+    INSERT INTO e2e_test_%s.%s (
+            id, "from", created_at, updated_at,
+            transfer_type, blockchain, card_bought_notified, asset_id
+    ) VALUES (
+            '%s', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+            0, 1, false, 12345
+    );
+    `, suffix, tableName, uuid.New().String()))
 	if err != nil {
 		return err
 	}
-
 	// generate a 20 MB json and update id[0]'s col f5 to it
 	v, err := generate20MBJson()
 	if err != nil {
 		return err
 	}
 	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
-		UPDATE e2e_test_%s.%s SET f5 = $1 WHERE id = $2;
-	`, suffix, tableName), v, ids[0])
+        UPDATE e2e_test_%s.%s SET f5 = $1 WHERE id = $2;
+    `, suffix, tableName), v, ids[0])
 	if err != nil {
 		return err
 	}
-
 	// update my_date to a date before 1970
 	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
-		UPDATE e2e_test_%s.%s SET old_date = '1950-01-01' WHERE id = $1;
-	`, suffix, tableName), ids[0])
+        UPDATE e2e_test_%s.%s SET old_date = '1950-01-01' WHERE id = $1;
+    `, suffix, tableName), ids[0])
 	if err != nil {
 		return err
 	}
-
 	return nil
 }
+
+// func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCount int) error {
+// 	var ids []string
+// 	var rows []string
+// 	for i := 0; i < rowCount-1; i++ {
+// 		id := uuid.New().String()
+// 		ids = append(ids, id)
+// 		row := fmt.Sprintf(`
+// 					(
+// 						'%s', '%s', CURRENT_TIMESTAMP, 3.86487206688919, CURRENT_TIMESTAMP,
+// 						CURRENT_TIMESTAMP, E'\\\\xDEADBEEF', 'type1', '%s',
+// 						1, 0, 1, 'dealType1',
+// 						'%s', '%s', false, 1.2345,
+// 						1.2345, false, 200.12345678, '%s',
+// 						200, 1, '%s', CURRENT_TIMESTAMP, 'refID',
+// 						CURRENT_TIMESTAMP, 1, ARRAY['text1', 'text2'], ARRAY[123, 456], ARRAY[789, 012],
+// 						ARRAY['varchar1', 'varchar2'], '{"key": -8.02139037433155}',
+// 						'[{"key1": "value1", "key2": "value2", "key3": "value3"}]',
+// 						'{"key": "value"}', 15,'{2023-09-09,2029-08-10}',
+// 							'{"2024-01-15 17:00:00+00","2024-01-16 14:30:00+00"}',
+// 							'{"2026-01-17 10:00:00","2026-01-18 13:45:00"}',
+// 							'{true, false}',
+// 							'{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}',
+// 							CURRENT_DATE, CURRENT_TIME,'happy', '"a"=>"b"','POINT(1 2)','POINT(40.7128 -74.0060)',
+// 						'LINESTRING(0 0, 1 1, 2 2)',
+// 						'LINESTRING(-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831)',
+// 						'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))','POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'
+// 					)`,
+// 			id, uuid.New().String(), uuid.New().String(),
+// 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String())
+// 		rows = append(rows, row)
+// 	}
+
+// 	_, err := conn.Exec(context.Background(), fmt.Sprintf(`
+// 			INSERT INTO e2e_test_%s.%s (
+// 					id, card_id, "from", price, created_at,
+// 					updated_at, transaction_hash, ownerable_type, ownerable_id,
+// 					user_nonce, transfer_type, blockchain, deal_type,
+// 					deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
+// 					paid_eth_price, card_bought_notified, address, account_id,
+// 					asset_id, status, transaction_id, settled_at, reference_id,
+// 					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, my_date,
+// 					my_time, my_mood, myh,
+// 					"geometryPoint", geography_point,geometry_linestring, geography_linestring,geometry_polygon, geography_polygon
+// 			) VALUES %s;
+// 	`, suffix, tableName, strings.Join(rows, ",")))
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	// add a row where all the nullable fields are null
+// 	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
+// 	INSERT INTO e2e_test_%s.%s (
+// 			id, "from", created_at, updated_at,
+// 			transfer_type, blockchain, card_bought_notified, asset_id
+// 	) VALUES (
+// 			'%s', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+// 			0, 1, false, 12345
+// 	);
+// 	`, suffix, tableName, uuid.New().String()))
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	// generate a 20 MB json and update id[0]'s col f5 to it
+// 	v, err := generate20MBJson()
+// 	if err != nil {
+// 		return err
+// 	}
+// 	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
+// 		UPDATE e2e_test_%s.%s SET f5 = $1 WHERE id = $2;
+// 	`, suffix, tableName), v, ids[0])
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	// update my_date to a date before 1970
+// 	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
+// 		UPDATE e2e_test_%s.%s SET old_date = '1950-01-01' WHERE id = $1;
+// 	`, suffix, tableName), ids[0])
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	return nil
+// }
 
 func CreateQRepWorkflowConfig(
 	flowJobName string,
@@ -496,6 +649,26 @@ func GetOwnersSchema() *model.QRecordSchema {
 }
 
 func GetOwnersSelectorStringsSF() [2]string {
+	schema := GetOwnersSchema()
+	pgFields := make([]string, 0, len(schema.Fields))
+	sfFields := make([]string, 0, len(schema.Fields))
+	for _, field := range schema.Fields {
+		pgFields = append(pgFields, fmt.Sprintf(`"%s"`, field.Name))
+		if strings.Contains(field.Name, "geo") {
+			colName := connsnowflake.SnowflakeIdentifierNormalize(field.Name)
+
+			// Have to apply a WKT transformation here,
+			// else the sql driver we use receives the values as snowflake's OBJECT
+			// which is troublesome to deal with. Now it receives it as string.
+			sfFields = append(sfFields, fmt.Sprintf(`ST_ASWKT(%s) as %s`, colName, colName))
+		} else {
+			sfFields = append(sfFields, connsnowflake.SnowflakeIdentifierNormalize(field.Name))
+		}
+	}
+	return [2]string{strings.Join(pgFields, ","), strings.Join(sfFields, ",")}
+}
+
+func GetOwnersSelectorStringsCH() [2]string {
 	schema := GetOwnersSchema()
 	pgFields := make([]string, 0, len(schema.Fields))
 	sfFields := make([]string, 0, len(schema.Fields))

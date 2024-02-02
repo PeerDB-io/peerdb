@@ -19,7 +19,7 @@ const (
 	postgresUser     = "postgres"
 	postgresPassword = "postgres"
 	postgresDatabase = "postgres"
-	PostgresPort     = 7132
+	PostgresPort     = 9999
 )
 
 func GetTestPostgresConf() *protos.PostgresConfig {

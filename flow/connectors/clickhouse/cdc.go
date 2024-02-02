@@ -90,7 +90,7 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 		DestinationTableIdentifier: strings.ToLower(rawTableIdentifier),
 	}
 	avroSyncer := NewClickhouseAvroSyncMethod(qrepConfig, c)
-	destinationTableSchema, err := c.getTableSchema(qrepConfig.DestinationTableIdentifier)
+	destinationTableSchema, err := c.GetTableSchema(qrepConfig.DestinationTableIdentifier)
 	if err != nil {
 		return nil, err
 	}

@@ -1,0 +1,296 @@
+package e2e_clickhouse
+
+import (
+	"fmt"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+
+	"github.com/PeerDB-io/peer-flow/e2e"
+)
+
+//nolint:unparam
+func (s PeerFlowE2ETestSuiteCH) setupSourceTable(tableName string, numRows int) {
+	err := e2e.CreateTableForQRep(s.conn, s.pgSuffix, tableName)
+	require.NoError(s.t, err)
+	err = e2e.PopulateSourceTable(s.conn, s.pgSuffix, tableName, numRows)
+	require.NoError(s.t, err)
+}
+
+// func (s PeerFlowE2ETestSuiteCH) checkJSONValue(tableName, colName, fieldName, value string) error {
+// 	res, err := s.chHelper.ExecuteAndProcessQuery(fmt.Sprintf("SELECT %s:%s FROM %s", colName, fieldName, tableName))
+// 	if err != nil {
+// 		return fmt.Errorf("json value check failed: %v", err)
+// 	}
+
+// 	if len(res.Records) == 0 {
+// 		return fmt.Errorf("bad json: empty result set from %s", tableName)
+// 	}
+
+// 	jsonVal := res.Records[0][0].Value
+// 	if jsonVal != value {
+// 		return fmt.Errorf("bad json value in field %s of column %s: %v. expected: %v", fieldName, colName, jsonVal, value)
+// 	}
+// 	return nil
+// }
+
+func (s PeerFlowE2ETestSuiteCH) compareTableContentsWithDiffSelectorsCH(tableName, pgSelector, chSelector string) {
+	pgRows, err := e2e.GetPgRows(s.conn, s.pgSuffix, tableName, pgSelector)
+	require.NoError(s.t, err)
+
+	chRows, err := s.GetRows(tableName, chSelector)
+	require.NoError(s.t, err)
+
+	e2e.RequireEqualRecordBatches(s.t, pgRows, chRows)
+}
+
+// func (s PeerFlowE2ETestSuiteCH) Test_Complete_QRep_Flow_Avro_CH() {
+// 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+
+// 	numRows := 10
+
+// 	tblName := "test_qrep_flow_avro_ch"
+// 	s.setupSourceTable(tblName, numRows)
+
+// 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.chHelper.testSchemaName, tblName)
+
+// 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
+// 		s.pgSuffix, tblName)
+
+// 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+// 		"test_qrep_flow_avro_ch",
+// 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
+// 		dstSchemaQualified,
+// 		query,
+// 		s.chHelper.Peer,
+// 		"",
+// 		false,
+// 		"",
+// 	)
+// 	qrepConfig.SetupWatermarkTableOnDestination = true
+// 	require.NoError(s.t, err)
+
+// 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+
+// 	// Verify workflow completes without error
+// 	require.True(s.t, env.IsWorkflowCompleted())
+
+// 	err = env.GetWorkflowError()
+// 	require.NoError(s.t, err)
+
+// 	sel := e2e.GetOwnersSelectorStringsCH()
+// 	s.compareTableContentsWithDiffSelectorsCH(tblName, sel[0], sel[1])
+
+// 	err = s.checkJSONValue(dstSchemaQualified, "f7", "key", "\"value\"")
+// 	require.NoError(s.t, err)
+// }
+
+// func (s PeerFlowE2ETestSuiteCH) Test_Complete_QRep_Flow_Avro_CH_Upsert_Simple() {
+// 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+
+// 	numRows := 10
+
+// 	tblName := "test_qrep_flow_avro_ch_ups"
+// 	s.setupSourceTable(tblName, numRows)
+
+// 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.chHelper.testSchemaName, tblName)
+
+// 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
+// 		s.pgSuffix, tblName)
+
+// 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+// 		"test_qrep_flow_avro_ch",
+// 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
+// 		dstSchemaQualified,
+// 		query,
+// 		s.chHelper.Peer,
+// 		"",
+// 		false,
+// 		"",
+// 	)
+// 	qrepConfig.WriteMode = &protos.QRepWriteMode{
+// 		WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
+// 		UpsertKeyColumns: []string{"id"},
+// 	}
+// 	qrepConfig.SetupWatermarkTableOnDestination = true
+// 	require.NoError(s.t, err)
+
+// 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+
+// 	// Verify workflow completes without error
+// 	require.True(s.t, env.IsWorkflowCompleted())
+
+// 	err = env.GetWorkflowError()
+// 	require.NoError(s.t, err)
+
+// 	sel := e2e.GetOwnersSelectorStringsCH()
+// 	s.compareTableContentsWithDiffSelectorsCH(tblName, sel[0], sel[1])
+// }
+
+func (s PeerFlowE2ETestSuiteCH) Test_Complete_QRep_Flow_Avro_CH_S3() {
+	fmt.Printf("\n*********************************............Test_Complete_QRep_Flow_Avro_CH_S3")
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+
+	numRows := 10
+
+	tblName := "test_qrep_flow_avro_ch_s3"
+	s.setupSourceTable(tblName, numRows)
+
+	dstSchemaQualified := fmt.Sprintf("%s.%s", s.chHelper.testSchemaName, tblName)
+
+	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
+		s.pgSuffix, tblName)
+
+	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+		"test_qrep_flow_avro_ch",
+		s.attachSchemaSuffix(tblName),
+		dstSchemaQualified,
+		query,
+		s.chHelper.Peer,
+		"",
+		false,
+		"",
+	)
+	require.NoError(s.t, err)
+	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
+	qrepConfig.SetupWatermarkTableOnDestination = true
+
+	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+
+	// Verify workflow completes without error
+	require.True(s.t, env.IsWorkflowCompleted())
+
+	err = env.GetWorkflowError()
+	require.NoError(s.t, err)
+
+	sel := e2e.GetOwnersSelectorStringsCH()
+	s.compareTableContentsWithDiffSelectorsCH(tblName, sel[0], sel[1])
+}
+
+// func (s PeerFlowE2ETestSuiteCH) Test_Complete_QRep_Flow_Avro_CH_Upsert_XMIN() {
+// 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+
+// 	numRows := 10
+
+// 	tblName := "test_qrep_flow_avro_ch_ups_xmin"
+// 	s.setupSourceTable(tblName, numRows)
+
+// 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.chHelper.testSchemaName, tblName)
+
+// 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s",
+// 		s.pgSuffix, tblName)
+
+// 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+// 		"test_qrep_flow_avro_ch_xmin",
+// 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
+// 		dstSchemaQualified,
+// 		query,
+// 		s.chHelper.Peer,
+// 		"",
+// 		false,
+// 		"",
+// 	)
+// 	qrepConfig.WriteMode = &protos.QRepWriteMode{
+// 		WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
+// 		UpsertKeyColumns: []string{"id"},
+// 	}
+// 	qrepConfig.WatermarkColumn = "xmin"
+// 	qrepConfig.SetupWatermarkTableOnDestination = true
+// 	require.NoError(s.t, err)
+
+// 	e2e.RunXminFlowWorkflow(env, qrepConfig)
+
+// 	// Verify workflow completes without error
+// 	require.True(s.t, env.IsWorkflowCompleted())
+
+// 	err = env.GetWorkflowError()
+// 	require.NoError(s.t, err)
+
+// 	sel := e2e.GetOwnersSelectorStringsCH()
+// 	s.compareTableContentsWithDiffSelectorsCH(tblName, sel[0], sel[1])
+// }
+
+// func (s PeerFlowE2ETestSuiteCH) Test_Complete_QRep_Flow_Avro_CH_S3_Integration() {
+// 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+
+// 	numRows := 10
+
+// 	tblName := "test_qrep_flow_avro_ch_s3_int"
+// 	s.setupSourceTable(tblName, numRows)
+
+// 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.chHelper.testSchemaName, tblName)
+
+// 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
+// 		s.pgSuffix, tblName)
+
+// 	chPeer := s.chHelper.Peer
+// 	chPeer.GetClickhouseConfig().S3Integration = "peerdb_s3_integration"
+
+// 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+// 		"test_qrep_flow_avro_ch_int",
+// 		s.attachSchemaSuffix(tblName),
+// 		dstSchemaQualified,
+// 		query,
+// 		chPeer,
+// 		"",
+// 		false,
+// 		"",
+// 	)
+// 	require.NoError(s.t, err)
+// 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
+// 	qrepConfig.SetupWatermarkTableOnDestination = true
+
+// 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+
+// 	// Verify workflow completes without error
+// 	require.True(s.t, env.IsWorkflowCompleted())
+
+// 	err = env.GetWorkflowError()
+// 	require.NoError(s.t, err)
+
+// 	sel := e2e.GetOwnersSelectorStringsCH()
+// 	s.compareTableContentsWithDiffSelectorsCH(tblName, sel[0], sel[1])
+// }
+
+// func (s PeerFlowE2ETestSuiteCH) Test_PeerDB_Columns_QRep_CH() {
+// 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+
+// 	numRows := 10
+
+// 	tblName := "test_qrep_columns_ch"
+// 	s.setupSourceTable(tblName, numRows)
+
+// 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.chHelper.testSchemaName, tblName)
+
+// 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
+// 		s.pgSuffix, tblName)
+
+// 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+// 		"test_columns_qrep_ch",
+// 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
+// 		dstSchemaQualified,
+// 		query,
+// 		s.chHelper.Peer,
+// 		"",
+// 		true,
+// 		"_PEERDB_SYNCED_AT",
+// 	)
+// 	qrepConfig.WriteMode = &protos.QRepWriteMode{
+// 		WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
+// 		UpsertKeyColumns: []string{"id"},
+// 	}
+// 	qrepConfig.SetupWatermarkTableOnDestination = true
+// 	require.NoError(s.t, err)
+
+// 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+
+// 	// Verify workflow completes without error
+// 	require.True(s.t, env.IsWorkflowCompleted())
+
+// 	err = env.GetWorkflowError()
+// 	require.NoError(s.t, err)
+
+// 	err = s.chHelper.checkSyncedAt(fmt.Sprintf(`SELECT "_PEERDB_SYNCED_AT" FROM %s.%s`,
+// 		s.chHelper.testSchemaName, tblName))
+// 	require.NoError(s.t, err)
+// }

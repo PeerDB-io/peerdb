@@ -1,0 +1,8 @@
+{
+    "host": "localhost",
+    "port": 9000,
+    "user": "clickhouse",
+    "password": "clickhouse",
+    "database": "desti",
+    "s3_integration": ""
+}
