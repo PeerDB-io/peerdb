@@ -105,12 +105,12 @@ func (s *SnapshotFlowExecution) cloneTable(
 
 	var childWorkflowID string
 	if err := childWorkflowIDSideEffect.Get(&childWorkflowID); err != nil {
-		slog.Error(fmt.Sprintf("failed to get child id for source table %s and destination table %s",
+		s.logger.Error(fmt.Sprintf("failed to get child id for source table %s and destination table %s",
 			srcName, dstName), slog.Any("error", err), cloneLog)
 		return fmt.Errorf("failed to get child workflow ID: %w", err)
 	}
 
-	slog.Info(fmt.Sprintf("Obtained child id %s for source table %s and destination table %s",
+	s.logger.Info(fmt.Sprintf("Obtained child id %s for source table %s and destination table %s",
 		childWorkflowID, srcName, dstName), cloneLog)
 
 	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
@@ -136,7 +136,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 
 	parsedSrcTable, err := utils.ParseSchemaTable(srcName)
 	if err != nil {
-		slog.Error("unable to parse source table", slog.Any("error", err), cloneLog)
+		s.logger.Error("unable to parse source table", slog.Any("error", err), cloneLog)
 		return fmt.Errorf("unable to parse source table: %w", err)
 	}
 	from := "*"
@@ -197,7 +197,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 	slotInfo *protos.SetupReplicationOutput,
 	maxParallelClones int,
 ) error {
-	slog.Info(fmt.Sprintf("cloning tables for slot name %s and snapshotName %s",
+	s.logger.Info(fmt.Sprintf("cloning tables for slot name %s and snapshotName %s",
 		slotInfo.SlotName, slotInfo.SnapshotName))
 
 	boundSelector := concurrency.NewBoundSelector(maxParallelClones, ctx)
@@ -206,7 +206,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 		source := v.SourceTableIdentifier
 		destination := v.DestinationTableIdentifier
 		snapshotName := slotInfo.SnapshotName
-		slog.Info(fmt.Sprintf(
+		s.logger.Info(fmt.Sprintf(
 			"Cloning table with source table %s and destination table name %s",
 			source, destination),
 			slog.String("snapshotName", snapshotName),
