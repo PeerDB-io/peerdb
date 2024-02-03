@@ -44,8 +44,6 @@ type PostgresCDCSource struct {
 	// for storing chema delta audit logs to catalog
 	catalogPool *pgxpool.Pool
 	flowJobName string
-
-	signaledAsNonEmpty bool
 }
 
 type PostgresCDCConfig struct {
@@ -89,7 +87,6 @@ func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig, customTypeMap map[uint32
 		logger:                    *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 		catalogPool:               cdcConfig.CatalogPool,
 		flowJobName:               cdcConfig.FlowJobName,
-		signaledAsNonEmpty:        false,
 	}, nil
 }
 
@@ -236,21 +233,16 @@ func (p *PostgresCDCSource) consumeStream(
 	nextStandbyMessageDeadline := time.Now().Add(standbyMessageTimeout)
 
 	addRecordWithKey := func(key *model.TableWithPkey, rec model.Record) error {
-		if key != nil {
-			err := cdcRecordsStorage.Set(*key, rec)
-			if err != nil {
-				return err
-			}
+		err := cdcRecordsStorage.Set(key, rec)
+		if err != nil {
+			return err
 		}
 		records.AddRecord(rec)
 
-		// we are not storing in case of replident full
-		// so don't tie signalling to length of storage
-		if !p.signaledAsNonEmpty {
+		if cdcRecordsStorage.Len() == 1 {
 			records.SignalAsNotEmpty()
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
 			p.logger.Info(fmt.Sprintf("pushing the standby deadline to %s", nextStandbyMessageDeadline))
-			p.signaledAsNonEmpty = true
 		}
 		return nil
 	}
@@ -556,7 +548,7 @@ func (p *PostgresCDCSource) processInsertMessage(
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug(fmt.Sprintf("InsertMessage => LSN: %d, RelationID: %d, Relation Name: %s",
+	p.logger.Info(fmt.Sprintf("InsertMessage => LSN: %d, RelationID: %d, Relation Name: %s",
 		lsn, relID, tableName))
 
 	rel, ok := p.relationMessageMapping[relID]
@@ -591,7 +583,7 @@ func (p *PostgresCDCSource) processUpdateMessage(
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug(fmt.Sprintf("UpdateMessage => LSN: %d, RelationID: %d, Relation Name: %s",
+	p.logger.Info(fmt.Sprintf("UpdateMessage => LSN: %d, RelationID: %d, Relation Name: %s",
 		lsn, relID, tableName))
 
 	rel, ok := p.relationMessageMapping[relID]
@@ -634,7 +626,7 @@ func (p *PostgresCDCSource) processDeleteMessage(
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug(fmt.Sprintf("DeleteMessage => LSN: %d, RelationID: %d, Relation Name: %s",
+	p.logger.Info(fmt.Sprintf("DeleteMessage => LSN: %d, RelationID: %d, Relation Name: %s",
 		lsn, relID, tableName))
 
 	rel, ok := p.relationMessageMapping[relID]
