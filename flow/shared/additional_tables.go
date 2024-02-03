@@ -18,8 +18,8 @@ func AdditionalTablesHasOverlap(currentTableMappings []*protos.TableMapping,
 		currentDstTables = append(currentDstTables, currentTableMapping.DestinationTableIdentifier)
 	}
 	for _, additionalTableMapping := range additionalTableMappings {
-		currentSrcTables = append(currentSrcTables, additionalTableMapping.SourceTableIdentifier)
-		currentDstTables = append(currentDstTables, additionalTableMapping.DestinationTableIdentifier)
+		additionalSrcTables = append(additionalSrcTables, additionalTableMapping.SourceTableIdentifier)
+		additionalDstTables = append(additionalDstTables, additionalTableMapping.DestinationTableIdentifier)
 	}
 
 	return utils.ArraysHaveOverlap(currentSrcTables, additionalSrcTables) ||
