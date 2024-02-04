@@ -267,11 +267,18 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}, nil
 }
 
+func (c *EventHubConnector) GetPeerOfEventhubNamespace(eventhubNamespace string) string {
+	for peerName, config := range c.config.Eventhubs {
+		if config.Namespace == eventhubNamespace {
+			return peerName
+		}
+	}
+	return ""
+}
+
 func (c *EventHubConnector) CreateRawTable(req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
 	// create topics for each table
-	// key is the source table and value is the "eh_peer.eh_topic" that ought to be used.
 	tableMap := req.GetTableNameMapping()
-
 	for _, destinationTable := range tableMap {
 		// parse peer name and topic name.
 		name, err := NewScopedEventhub(destinationTable)
@@ -281,7 +288,8 @@ func (c *EventHubConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 			return nil, err
 		}
 
-		err = c.hubManager.EnsureEventHubExists(c.ctx, name)
+		peerName := c.GetPeerOfEventhubNamespace(name.EventhubNamespace)
+		err = c.hubManager.EnsureEventHubExists(c.ctx, name, peerName)
 		if err != nil {
 			c.logger.Error("failed to ensure eventhub exists",
 				slog.Any("error", err), slog.String("destinationTable", destinationTable))
