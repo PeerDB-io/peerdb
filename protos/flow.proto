@@ -42,7 +42,7 @@ message FlowConnectionConfigs {
   peerdb_peers.Peer destination = 3;
 
   // config for the CDC flow itself
-  // currently, MaxBatchSize and IdleTimeoutSeconds are dynamic via Temporal signals
+  // currently, TableMappings, MaxBatchSize and IdleTimeoutSeconds are dynamic via Temporal signals
   repeated TableMapping table_mappings = 4;
   uint32 max_batch_size = 5;
   uint64 idle_timeout_seconds = 6;
@@ -103,6 +103,7 @@ message SyncFlowOptions {
   uint64 idle_timeout_seconds = 3;
   map<uint32, string> src_table_id_name_mapping = 4;
   map<string, TableSchema> table_name_schema_mapping = 5;
+  repeated TableMapping table_mappings = 6;
 }
 
 message NormalizeFlowOptions {
@@ -363,22 +364,20 @@ message GetOpenConnectionsForUserResult {
 // STATUS_RUNNING -> STATUS_PAUSED/STATUS_TERMINATED
 // STATUS_PAUSED -> STATUS_RUNNING/STATUS_TERMINATED
 // UI can read everything except STATUS_UNKNOWN
+// terminate button should always be enabled
 enum FlowStatus {
   // should never be read by UI, bail
   STATUS_UNKNOWN = 0;
   // enable pause and terminate buttons
   STATUS_RUNNING = 1;
-  // pause button becomes resume button, terminate button should still be enabled
+  // pause button becomes resume button
   STATUS_PAUSED = 2;
-  // neither button should be enabled
   STATUS_PAUSING = 3;
-  // neither button should be enabled, not reachable in QRep mirrors
+  // not reachable in QRep mirrors
   STATUS_SETUP = 4;
-  // neither button should be enabled, not reachable in QRep mirrors
+  // not reachable in QRep mirrors
   STATUS_SNAPSHOT = 5;
-  // neither button should be enabled
   STATUS_TERMINATING = 6;
-  // neither button should be enabled
   STATUS_TERMINATED = 7;
 }
 

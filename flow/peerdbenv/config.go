@@ -29,13 +29,14 @@ func PeerDBEventhubFlushTimeoutSeconds() time.Duration {
 	return time.Duration(x) * time.Second
 }
 
-// PEERDB_CDC_IDLE_TIMEOUT_SECONDS
+// env variable doesn't exist anymore, but tests appear to depend on this
+// in lieu of an actual value of IdleTimeoutSeconds
 func PeerDBCDCIdleTimeoutSeconds(providedValue int) time.Duration {
 	var x int
 	if providedValue > 0 {
 		x = providedValue
 	} else {
-		x = getEnvInt("PEERDB_CDC_IDLE_TIMEOUT_SECONDS", 60)
+		x = getEnvInt("", 10)
 	}
 	return time.Duration(x) * time.Second
 }

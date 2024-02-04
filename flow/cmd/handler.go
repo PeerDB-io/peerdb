@@ -188,7 +188,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	}
 
 	return &protos.CreateCDCFlowResponse{
-		WorflowId: workflowID,
+		WorkflowId: workflowID,
 	}, nil
 }
 
@@ -290,7 +290,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	}
 
 	return &protos.CreateQRepFlowResponse{
-		WorflowId: workflowID,
+		WorkflowId: workflowID,
 	}, nil
 }
 

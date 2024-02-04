@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"time"
 
 	"github.com/jackc/pglogrepl"
@@ -45,8 +44,6 @@ type PostgresCDCSource struct {
 	// for storing chema delta audit logs to catalog
 	catalogPool *pgxpool.Pool
 	flowJobName string
-
-	walSegmentRemovedRegex *regexp.Regexp
 }
 
 type PostgresCDCConfig struct {
@@ -74,9 +71,6 @@ func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig, customTypeMap map[uint32
 		return nil, fmt.Errorf("error getting child to parent relid map: %w", err)
 	}
 
-	pattern := "requested WAL segment .* has already been removed.*"
-	regex := regexp.MustCompile(pattern)
-
 	flowName, _ := cdcConfig.AppContext.Value(shared.FlowNameKey).(string)
 	return &PostgresCDCSource{
 		ctx:                       cdcConfig.AppContext,
@@ -93,7 +87,6 @@ func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig, customTypeMap map[uint32
 		logger:                    *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 		catalogPool:               cdcConfig.CatalogPool,
 		flowJobName:               cdcConfig.FlowJobName,
-		walSegmentRemovedRegex:    regex,
 	}, nil
 }
 
@@ -239,12 +232,12 @@ func (p *PostgresCDCSource) consumeStream(
 	standbyMessageTimeout := req.IdleTimeout
 	nextStandbyMessageDeadline := time.Now().Add(standbyMessageTimeout)
 
-	addRecordWithKey := func(key model.TableWithPkey, rec model.Record) error {
-		records.AddRecord(rec)
+	addRecordWithKey := func(key *model.TableWithPkey, rec model.Record) error {
 		err := cdcRecordsStorage.Set(key, rec)
 		if err != nil {
 			return err
 		}
+		records.AddRecord(rec)
 
 		if cdcRecordsStorage.Len() == 1 {
 			records.SignalAsNotEmpty()
@@ -252,14 +245,6 @@ func (p *PostgresCDCSource) consumeStream(
 			p.logger.Info(fmt.Sprintf("pushing the standby deadline to %s", nextStandbyMessageDeadline))
 		}
 		return nil
-	}
-
-	addRecord := func(rec model.Record) error {
-		key, err := p.recToTablePKey(req, rec)
-		if err != nil {
-			return err
-		}
-		return addRecordWithKey(*key, rec)
 	}
 
 	pkmRequiresResponse := false
@@ -329,7 +314,6 @@ func (p *PostgresCDCSource) consumeStream(
 		rawMsg, err := conn.ReceiveMessage(ctx)
 		cancel()
 
-		utils.RecordHeartbeat(p.ctx, "consumeStream ReceiveMessage")
 		ctxErr := p.ctx.Err()
 		if ctxErr != nil {
 			return fmt.Errorf("consumeStream preempted: %w", ctxErr)
@@ -396,7 +380,7 @@ func (p *PostgresCDCSource) consumeStream(
 					// will change in future
 					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
 					if isFullReplica {
-						err = addRecord(rec)
+						err := addRecordWithKey(nil, rec)
 						if err != nil {
 							return err
 						}
@@ -411,14 +395,14 @@ func (p *PostgresCDCSource) consumeStream(
 							return err
 						}
 						if !ok {
-							err = addRecordWithKey(*tablePkeyVal, rec)
+							err = addRecordWithKey(tablePkeyVal, rec)
 						} else {
 							// iterate through unchanged toast cols and set them in new record
 							updatedCols := r.NewItems.UpdateIfNotExists(latestRecord.GetItems())
 							for _, col := range updatedCols {
 								delete(r.UnchangedToastColumns, col)
 							}
-							err = addRecordWithKey(*tablePkeyVal, rec)
+							err = addRecordWithKey(tablePkeyVal, rec)
 						}
 						if err != nil {
 							return err
@@ -428,7 +412,7 @@ func (p *PostgresCDCSource) consumeStream(
 				case *model.InsertRecord:
 					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
 					if isFullReplica {
-						err = addRecord(rec)
+						err := addRecordWithKey(nil, rec)
 						if err != nil {
 							return err
 						}
@@ -438,42 +422,53 @@ func (p *PostgresCDCSource) consumeStream(
 							return err
 						}
 
-						err = addRecordWithKey(*tablePkeyVal, rec)
+						err = addRecordWithKey(tablePkeyVal, rec)
 						if err != nil {
 							return err
 						}
 					}
 				case *model.DeleteRecord:
-					tablePkeyVal, err := p.recToTablePKey(req, rec)
-					if err != nil {
-						return err
-					}
-
-					latestRecord, ok, err := cdcRecordsStorage.Get(*tablePkeyVal)
-					if err != nil {
-						return err
-					}
-					if ok {
-						deleteRecord := rec.(*model.DeleteRecord)
-						deleteRecord.Items = latestRecord.GetItems()
-						updateRecord, ok := latestRecord.(*model.UpdateRecord)
-						if ok {
-							deleteRecord.UnchangedToastColumns = updateRecord.UnchangedToastColumns
+					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
+					if isFullReplica {
+						err := addRecordWithKey(nil, rec)
+						if err != nil {
+							return err
 						}
 					} else {
-						deleteRecord := rec.(*model.DeleteRecord)
-						// there is nothing to backfill the items in the delete record with,
-						// so don't update the row with this record
-						// add sentinel value to prevent update statements from selecting
-						deleteRecord.UnchangedToastColumns = map[string]struct{}{
-							"_peerdb_not_backfilled_delete": {},
+						tablePkeyVal, err := p.recToTablePKey(req, rec)
+						if err != nil {
+							return err
+						}
+
+						latestRecord, ok, err := cdcRecordsStorage.Get(*tablePkeyVal)
+						if err != nil {
+							return err
+						}
+						if ok {
+							deleteRecord := rec.(*model.DeleteRecord)
+							deleteRecord.Items = latestRecord.GetItems()
+							updateRecord, ok := latestRecord.(*model.UpdateRecord)
+							if ok {
+								deleteRecord.UnchangedToastColumns = updateRecord.UnchangedToastColumns
+							}
+						} else {
+							deleteRecord := rec.(*model.DeleteRecord)
+							// there is nothing to backfill the items in the delete record with,
+							// so don't update the row with this record
+							// add sentinel value to prevent update statements from selecting
+							deleteRecord.UnchangedToastColumns = map[string]struct{}{
+								"_peerdb_not_backfilled_delete": {},
+							}
+						}
+
+						// A delete can only be followed by an INSERT, which does not need backfilling
+						// No need to store DeleteRecords in memory or disk.
+						err = addRecordWithKey(nil, rec)
+						if err != nil {
+							return err
 						}
 					}
 
-					err = addRecord(rec)
-					if err != nil {
-						return err
-					}
 				case *model.RelationRecord:
 					tableSchemaDelta := r.TableSchemaDelta
 					if len(tableSchemaDelta.AddedColumns) > 0 {
@@ -524,9 +519,6 @@ func (p *PostgresCDCSource) processMessage(batch *model.CDCRecordStream, xld pgl
 			return nil, nil
 		}
 
-		// TODO (kaushik): consider persistent state for a mirror job
-		// to be stored somewhere in temporal state. We might need to persist
-		// the state of the relation message somewhere
 		p.logger.Debug(fmt.Sprintf("RelationMessage => RelationID: %d, Namespace: %s, RelationName: %s, Columns: %v",
 			msg.RelationID, msg.Namespace, msg.RelationName, msg.Columns))
 		if p.relationMessageMapping[msg.RelationID] == nil {
@@ -556,7 +548,7 @@ func (p *PostgresCDCSource) processInsertMessage(
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug(fmt.Sprintf("InsertMessage => LSN: %d, RelationID: %d, Relation Name: %s",
+	p.logger.Info(fmt.Sprintf("InsertMessage => LSN: %d, RelationID: %d, Relation Name: %s",
 		lsn, relID, tableName))
 
 	rel, ok := p.relationMessageMapping[relID]
@@ -591,7 +583,7 @@ func (p *PostgresCDCSource) processUpdateMessage(
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug(fmt.Sprintf("UpdateMessage => LSN: %d, RelationID: %d, Relation Name: %s",
+	p.logger.Info(fmt.Sprintf("UpdateMessage => LSN: %d, RelationID: %d, Relation Name: %s",
 		lsn, relID, tableName))
 
 	rel, ok := p.relationMessageMapping[relID]
@@ -634,7 +626,7 @@ func (p *PostgresCDCSource) processDeleteMessage(
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug(fmt.Sprintf("DeleteMessage => LSN: %d, RelationID: %d, Relation Name: %s",
+	p.logger.Info(fmt.Sprintf("DeleteMessage => LSN: %d, RelationID: %d, Relation Name: %s",
 		lsn, relID, tableName))
 
 	rel, ok := p.relationMessageMapping[relID]

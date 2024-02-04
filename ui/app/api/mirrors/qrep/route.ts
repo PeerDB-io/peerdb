@@ -25,7 +25,7 @@ export async function POST(request: Request) {
       return res.json();
     });
     let response: UCreateMirrorResponse = {
-      created: !!createStatus.worflowId,
+      created: !!createStatus.workflowId,
     };
 
     return new Response(JSON.stringify(response));

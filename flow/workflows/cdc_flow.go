@@ -57,10 +57,16 @@ type CDCFlowWorkflowState struct {
 	SyncFlowOptions *protos.SyncFlowOptions
 	// options passed to all NormalizeFlows
 	NormalizeFlowOptions *protos.NormalizeFlowOptions
+	// initially copied from config, all changes are made here though
+	TableMappings []*protos.TableMapping
 }
 
 // returns a new empty PeerFlowState
-func NewCDCFlowWorkflowState(numTables int) *CDCFlowWorkflowState {
+func NewCDCFlowWorkflowState(cfgTableMappings []*protos.TableMapping) *CDCFlowWorkflowState {
+	tableMappings := make([]*protos.TableMapping, 0, len(cfgTableMappings))
+	for _, tableMapping := range cfgTableMappings {
+		tableMappings = append(tableMappings, proto.Clone(tableMapping).(*protos.TableMapping))
+	}
 	return &CDCFlowWorkflowState{
 		Progress:              []string{"started"},
 		SyncFlowStatuses:      nil,
@@ -81,6 +87,7 @@ func NewCDCFlowWorkflowState(numTables int) *CDCFlowWorkflowState {
 		FlowConfigUpdates:      nil,
 		SyncFlowOptions:        nil,
 		NormalizeFlowOptions:   nil,
+		TableMappings:          tableMappings,
 	}
 }
 
@@ -151,7 +158,7 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 		if len(flowConfigUpdate.AdditionalTables) == 0 {
 			continue
 		}
-		if shared.AdditionalTablesHasOverlap(cfg.TableMappings, flowConfigUpdate.AdditionalTables) {
+		if shared.AdditionalTablesHasOverlap(state.TableMappings, flowConfigUpdate.AdditionalTables) {
 			return fmt.Errorf("duplicate source/destination tables found in additionalTables")
 		}
 
@@ -173,7 +180,7 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 		additionalTablesWorkflowCfg.TableMappings = flowConfigUpdate.AdditionalTables
 
 		childAdditionalTablesCDCFlowID,
-			err := GetChildWorkflowID(ctx, "cdc-flow", additionalTablesWorkflowCfg.FlowJobName)
+			err := GetChildWorkflowID(ctx, "additional-cdc-flow", additionalTablesWorkflowCfg.FlowJobName)
 		if err != nil {
 			return err
 		}
@@ -207,7 +214,8 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 		for tableName, tableSchema := range res.TableNameSchemaMapping {
 			state.TableNameSchemaMapping[tableName] = tableSchema
 		}
-		cfg.TableMappings = append(cfg.TableMappings, flowConfigUpdate.AdditionalTables...)
+		state.TableMappings = append(state.TableMappings, flowConfigUpdate.AdditionalTables...)
+		state.SyncFlowOptions.TableMappings = state.TableMappings
 		// finished processing, wipe it
 		state.FlowConfigUpdates = nil
 	}
@@ -224,7 +232,7 @@ func CDCFlowWorkflowWithConfig(
 		return nil, fmt.Errorf("invalid connection configs")
 	}
 	if state == nil {
-		state = NewCDCFlowWorkflowState(len(cfg.TableMappings))
+		state = NewCDCFlowWorkflowState(cfg.TableMappings)
 	}
 
 	w := NewCDCFlowWorkflowExecution(ctx)
@@ -260,7 +268,7 @@ func CDCFlowWorkflowWithConfig(
 		// if resync is true, alter the table name schema mapping to temporarily add
 		// a suffix to the table names.
 		if cfg.Resync {
-			for _, mapping := range cfg.TableMappings {
+			for _, mapping := range state.TableMappings {
 				oldName := mapping.DestinationTableIdentifier
 				newName := fmt.Sprintf("%s_resync", oldName)
 				mapping.DestinationTableIdentifier = newName
@@ -328,7 +336,7 @@ func CDCFlowWorkflowWithConfig(
 			}
 			renameOpts.SyncedAtColName = &cfg.SyncedAtColName
 			correctedTableNameSchemaMapping := make(map[string]*protos.TableSchema)
-			for _, mapping := range cfg.TableMappings {
+			for _, mapping := range state.TableMappings {
 				oldName := mapping.DestinationTableIdentifier
 				newName := strings.TrimSuffix(oldName, "_resync")
 				renameOpts.RenameTableOptions = append(renameOpts.RenameTableOptions, &protos.RenameTableOption{
@@ -368,6 +376,7 @@ func CDCFlowWorkflowWithConfig(
 		IdleTimeoutSeconds:     cfg.IdleTimeoutSeconds,
 		SrcTableIdNameMapping:  state.SrcTableIdNameMapping,
 		TableNameSchemaMapping: state.TableNameSchemaMapping,
+		TableMappings:          state.TableMappings,
 	}
 	state.NormalizeFlowOptions = &protos.NormalizeFlowOptions{
 		TableNameSchemaMapping: state.TableNameSchemaMapping,
@@ -468,7 +477,7 @@ func CDCFlowWorkflowWithConfig(
 			state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
 
 			for state.ActiveSignal == shared.PauseSignal {
-				w.logger.Info("mirror has been paused for ", time.Since(startTime))
+				w.logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
 				// only place we block on receive, so signal processing is immediate
 				mainLoopSelector.Select(ctx)
 				if state.ActiveSignal == shared.NoopSignal {
@@ -539,7 +548,8 @@ func CDCFlowWorkflowWithConfig(
 				state.SyncFlowStatuses = append(state.SyncFlowStatuses, childSyncFlowRes)
 				state.RelationMessageMapping = childSyncFlowRes.RelationMessageMapping
 				totalRecordsSynced += childSyncFlowRes.NumRecordsSynced
-				w.logger.Info("Total records synced: ", totalRecordsSynced)
+				w.logger.Info("Total records synced: ",
+					slog.Int64("totalRecordsSynced", totalRecordsSynced))
 			}
 
 			if childSyncFlowRes != nil {

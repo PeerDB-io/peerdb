@@ -72,37 +72,39 @@ func (c *cdcRecordsStore) initPebbleDB() error {
 	return nil
 }
 
-func (c *cdcRecordsStore) Set(key model.TableWithPkey, rec model.Record) error {
-	_, ok := c.inMemoryRecords[key]
-	if ok || len(c.inMemoryRecords) < c.numRecordsSwitchThreshold {
-		c.inMemoryRecords[key] = rec
-	} else {
-		if c.pebbleDB == nil {
-			slog.Info(fmt.Sprintf("more than %d primary keys read, spilling to disk",
-				c.numRecordsSwitchThreshold),
-				slog.String(string(shared.FlowNameKey), c.flowJobName))
-			err := c.initPebbleDB()
+func (c *cdcRecordsStore) Set(key *model.TableWithPkey, rec model.Record) error {
+	if key != nil {
+		_, ok := c.inMemoryRecords[*key]
+		if ok || len(c.inMemoryRecords) < c.numRecordsSwitchThreshold {
+			c.inMemoryRecords[*key] = rec
+		} else {
+			if c.pebbleDB == nil {
+				slog.Info(fmt.Sprintf("more than %d primary keys read, spilling to disk",
+					c.numRecordsSwitchThreshold),
+					slog.String(string(shared.FlowNameKey), c.flowJobName))
+				err := c.initPebbleDB()
+				if err != nil {
+					return err
+				}
+			}
+
+			encodedKey, err := encVal(key)
 			if err != nil {
 				return err
 			}
-		}
-
-		encodedKey, err := encVal(key)
-		if err != nil {
-			return err
-		}
-		// necessary to point pointer to interface so the interface is exposed
-		// instead of the underlying type
-		encodedRec, err := encVal(&rec)
-		if err != nil {
-			return err
-		}
-		// we're using Pebble as a cache, no need for durability here.
-		err = c.pebbleDB.Set(encodedKey, encodedRec, &pebble.WriteOptions{
-			Sync: false,
-		})
-		if err != nil {
-			return fmt.Errorf("unable to store value in Pebble: %w", err)
+			// necessary to point pointer to interface so the interface is exposed
+			// instead of the underlying type
+			encodedRec, err := encVal(&rec)
+			if err != nil {
+				return err
+			}
+			// we're using Pebble as a cache, no need for durability here.
+			err = c.pebbleDB.Set(encodedKey, encodedRec, &pebble.WriteOptions{
+				Sync: false,
+			})
+			if err != nil {
+				return fmt.Errorf("unable to store value in Pebble: %w", err)
+			}
 		}
 	}
 	c.numRecords++

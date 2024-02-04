@@ -3,6 +3,7 @@ package peerflow
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -471,7 +472,7 @@ func QRepFlowWorkflow(
 		return err
 	}
 
-	logger.Info("consolidating partitions for peer flow - ", config.FlowJobName)
+	logger.Info("consolidating partitions for peer flow - ", slog.String("flowName", config.FlowJobName))
 	if err = q.consolidatePartitions(ctx); err != nil {
 		return err
 	}
@@ -515,7 +516,7 @@ func QRepFlowWorkflow(
 		var signalVal shared.CDCFlowSignal
 
 		for q.activeSignal == shared.PauseSignal {
-			q.logger.Info("mirror has been paused for ", time.Since(startTime))
+			q.logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
 			// only place we block on receive, so signal processing is immediate
 			ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute, &signalVal)
 			if ok {
