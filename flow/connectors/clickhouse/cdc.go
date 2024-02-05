@@ -85,7 +85,7 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 	}
 
 	qrepConfig := &protos.QRepConfig{
-		StagingPath:                c.config.S3Integration,
+		StagingPath:                c.config.S3Path,
 		FlowJobName:                req.FlowJobName,
 		DestinationTableIdentifier: strings.ToLower(rawTableIdentifier),
 	}

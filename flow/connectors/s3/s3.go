@@ -124,20 +124,17 @@ func ValidCheck(ctx context.Context, s3Client *s3.Client, bucketURL string, meta
 	}
 
 	// check if we can ping external metadata
-	err := metadataDB.Ping()
-	if err != nil {
-		return fmt.Errorf("failed to ping external metadata: %w", err)
+	if metadataDB != nil {
+		err := metadataDB.Ping()
+		if err != nil {
+			return fmt.Errorf("failed to ping external metadata: %w", err)
+		}
 	}
 
 	return nil
 }
 
 func (c *S3Connector) ConnectionActive() error {
-	_, listErr := c.client.ListBuckets(c.ctx, nil)
-	if listErr != nil {
-		return listErr
-	}
-
 	validErr := ValidCheck(c.ctx, &c.client, c.url, c.pgMetadata)
 	if validErr != nil {
 		c.logger.Error("failed to validate s3 connector:", slog.Any("error", validErr))

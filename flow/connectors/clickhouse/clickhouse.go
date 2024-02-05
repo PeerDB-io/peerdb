@@ -10,6 +10,8 @@ import (
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
+	conns3 "github.com/PeerDB-io/peer-flow/connectors/s3"
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -21,12 +23,28 @@ type ClickhouseConnector struct {
 	tableSchemaMapping map[string]*protos.TableSchema
 	logger             slog.Logger
 	config             *protos.ClickhouseConfig
+	creds              utils.S3PeerCredentials
+}
+
+func ValidateS3(ctx context.Context, bucketUrl string, creds utils.S3PeerCredentials) error {
+	// for validation purposes
+	s3Client, err := utils.CreateS3Client(creds)
+	if err != nil {
+		return fmt.Errorf("failed to create S3 client: %w", err)
+	}
+
+	validErr := conns3.ValidCheck(ctx, s3Client, bucketUrl, nil)
+	if validErr != nil {
+		return validErr
+	}
+
+	return nil
 }
 
 func NewClickhouseConnector(ctx context.Context,
-	clickhouseProtoConfig *protos.ClickhouseConfig,
+	config *protos.ClickhouseConfig,
 ) (*ClickhouseConnector, error) {
-	database, err := connect(ctx, clickhouseProtoConfig)
+	database, err := connect(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open connection to Clickhouse peer: %w", err)
 	}
@@ -37,6 +55,17 @@ func NewClickhouseConnector(ctx context.Context,
 		return nil, err
 	}
 
+	s3PeerCreds := utils.S3PeerCredentials{
+		AccessKeyID:     config.AccessKeyId,
+		SecretAccessKey: config.SecretAccessKey,
+		Region:          config.Region,
+	}
+
+	validateErr := ValidateS3(ctx, config.S3Path, s3PeerCreds)
+	if validateErr != nil {
+		return nil, fmt.Errorf("failed to validate S3 bucket: %w", validateErr)
+	}
+
 	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &ClickhouseConnector{
 		ctx:                ctx,
@@ -44,7 +73,8 @@ func NewClickhouseConnector(ctx context.Context,
 		pgMetadata:         pgMetadata,
 		tableSchemaMapping: nil,
 		logger:             *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
-		config:             clickhouseProtoConfig,
+		config:             config,
+		creds:              s3PeerCreds,
 	}, nil
 }
 

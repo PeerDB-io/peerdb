@@ -779,11 +779,6 @@ fn parse_db_options(
             Some(config)
         }
         DbType::Clickhouse => {
-            let s3_int = opts
-                .get("s3_integration")
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-
             let clickhouse_config = ClickhouseConfig {
                 host: opts.get("host").context("no host specified")?.to_string(),
                 port: opts
@@ -803,7 +798,22 @@ fn parse_db_options(
                     .get("database")
                     .context("no default database specified")?
                     .to_string(),
-                s3_integration: s3_int,
+                s3_path: opts
+                    .get("s3_path")
+                    .context("no s3 path specified")?
+                    .to_string(),
+                access_key_id: opts
+                    .get("access_key_id")
+                    .context("no access key id specified")?
+                    .to_string(),
+                secret_access_key: opts
+                    .get("secret_access_key")
+                    .context("no secret access key specified")?
+                    .to_string(),
+                region: opts
+                    .get("region")
+                    .context("no region specified")?
+                    .to_string(),
             };
             let config = Config::ClickhouseConfig(clickhouse_config);
             Some(config)

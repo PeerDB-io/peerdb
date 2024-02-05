@@ -40,13 +40,32 @@ export const clickhouseSetting: PeerSetting[] = [
       'https://www.postgresql.org/docs/current/sql-createdatabase.html',
   },
   {
-    label: 'S3 Integration',
+    label: 'S3 Path',
     stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, s3Integration: value })),
-    optional: true,
-    tips: `This is needed only if you plan to run a mirror and you wish to stage AVRO files on S3.`,
+      setter((curr) => ({ ...curr, s3Path: value })),
+    tips: `This is an S3 bucket/object URL field. This bucket will be used as our intermediate stage for CDC`,
+  },
+  {
+    label: 'Access Key ID',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, accessKeyId: value })),
+    tips: 'The AWS access key ID associated with your account.',
     helpfulLink:
-      'https://docs.snowflake.com/en/user-guide/data-load-s3-config-storage-integration',
+      'https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html',
+  },
+  {
+    label: 'Secret Access Key',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, secretAccessKey: value })),
+    tips: 'The AWS secret access key associated with the above bucket.',
+    helpfulLink:
+      'https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html',
+  },
+  {
+    label: 'Region',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, region: value })),
+    tips: 'The region where your bucket is located. For example, us-east-1.',
   },
 ];
 
@@ -56,5 +75,8 @@ export const blankClickhouseSetting: ClickhouseConfig = {
   user: '',
   password: '',
   database: '',
-  s3Integration: '',
+  s3Path: '',
+  accessKeyId: '',
+  secretAccessKey: '',
+  region: '',
 };

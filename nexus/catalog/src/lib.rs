@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::{anyhow, Context};
 use peer_cursor::{QueryExecutor, QueryOutput, Schema};
 use peer_postgres::{self, ast};
-use pgwire::error::{PgWireResult};
+use pgwire::error::PgWireResult;
 use postgres_connection::{connect_postgres, get_pg_connection_string};
 use prost::Message;
 use pt::{
@@ -165,7 +165,10 @@ impl Catalog {
     pub async fn get_peer_id_i32(&self, peer_name: &str) -> anyhow::Result<i32> {
         let stmt = self
             .pg
-            .prepare_typed("SELECT id FROM public.peers WHERE name = $1", &[types::Type::TEXT])
+            .prepare_typed(
+                "SELECT id FROM public.peers WHERE name = $1",
+                &[types::Type::TEXT],
+            )
             .await?;
 
         self.pg
@@ -179,7 +182,10 @@ impl Catalog {
     pub async fn get_peer_type_for_id(&self, peer_id: i32) -> anyhow::Result<DbType> {
         let stmt = self
             .pg
-            .prepare_typed("SELECT type FROM public.peers WHERE id = $1", &[types::Type::INT4])
+            .prepare_typed(
+                "SELECT type FROM public.peers WHERE id = $1",
+                &[types::Type::INT4],
+            )
             .await?;
 
         self.pg
@@ -251,7 +257,10 @@ impl Catalog {
     pub async fn get_peer_by_id(&self, peer_id: i32) -> anyhow::Result<Peer> {
         let stmt = self
             .pg
-            .prepare_typed("SELECT name, type, options FROM public.peers WHERE id = $1", &[])
+            .prepare_typed(
+                "SELECT name, type, options FROM public.peers WHERE id = $1",
+                &[],
+            )
             .await?;
 
         let rows = self.pg.query(&stmt, &[&peer_id]).await?;
@@ -557,7 +566,10 @@ impl Catalog {
     pub async fn delete_flow_job_entry(&self, flow_job_name: &str) -> anyhow::Result<()> {
         let rows = self
             .pg
-            .execute("DELETE FROM public.flows WHERE name = $1", &[&flow_job_name])
+            .execute(
+                "DELETE FROM public.flows WHERE name = $1",
+                &[&flow_job_name],
+            )
             .await?;
         if rows == 0 {
             return Err(anyhow!("unable to delete flow job metadata"));
@@ -568,7 +580,10 @@ impl Catalog {
     pub async fn check_peer_entry(&self, peer_name: &str) -> anyhow::Result<i64> {
         let peer_check = self
             .pg
-            .query_one("SELECT COUNT(*) FROM public.peers WHERE name = $1", &[&peer_name])
+            .query_one(
+                "SELECT COUNT(*) FROM public.peers WHERE name = $1",
+                &[&peer_name],
+            )
             .await?;
         let peer_count: i64 = peer_check.get(0);
         Ok(peer_count)
@@ -599,9 +614,7 @@ impl Catalog {
 impl QueryExecutor for Catalog {
     #[tracing::instrument(skip(self, stmt), fields(stmt = %stmt))]
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
-        peer_postgres::pg_execute(&self.pg, ast::PostgresAst {
-            peername: None,
-        }, stmt).await
+        peer_postgres::pg_execute(&self.pg, ast::PostgresAst { peername: None }, stmt).await
     }
 
     async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<Schema>> {

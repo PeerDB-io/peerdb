@@ -68,7 +68,9 @@ pub fn get_pg_connection_string(config: &PostgresConfig) -> String {
     write!(
         connection_string,
         "@{}:{}/{}?connect_timeout=15&application_name=peerdb_nexus",
-        config.host, config.port, urlencoding::encode(&config.database)
+        config.host,
+        config.port,
+        urlencoding::encode(&config.database)
     )
     .ok();
 
