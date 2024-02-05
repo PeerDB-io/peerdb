@@ -779,11 +779,6 @@ fn parse_db_options(
             Some(config)
         }
         DbType::Clickhouse => {
-            let s3_int = opts
-                .get("s3_integration")
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-
             let clickhouse_config = ClickhouseConfig {
                 host: opts.get("host").context("no host specified")?.to_string(),
                 port: opts
