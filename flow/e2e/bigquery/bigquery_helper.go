@@ -415,10 +415,9 @@ func (b *BigQueryTestHelper) CheckNull(tableName string, colName []string) (bool
 }
 
 // check if NaN, Inf double values are null
-func (b *BigQueryTestHelper) CheckDoubleValues(tableName string, colName []string) (bool, error) {
-	csep := strings.Join(colName, ",")
-	command := fmt.Sprintf("SELECT %s FROM `%s.%s`",
-		csep, b.Config.DatasetId, tableName)
+func (b *BigQueryTestHelper) CheckDoubleValues(tableName string, c1 string, c2 string) (bool, error) {
+	command := fmt.Sprintf("SELECT %s, %s FROM `%s.%s`",
+		c1, c2, b.Config.DatasetId, tableName)
 	q := b.client.Query(command)
 	q.DisableQueryCache = true
 	it, err := q.Read(context.Background())
@@ -435,6 +434,10 @@ func (b *BigQueryTestHelper) CheckDoubleValues(tableName string, colName []strin
 		if err != nil {
 			return false, fmt.Errorf("failed to iterate over query results: %w", err)
 		}
+	}
+
+	if len(row) == 0 {
+		return false, nil
 	}
 
 	floatArr, _ := row[1].([]float64)

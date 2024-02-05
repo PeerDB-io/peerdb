@@ -43,8 +43,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     5,
+		MaxBatchSize: 5,
 	}
 
 	go func() {
@@ -60,8 +59,8 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 		}
 		e2e.EnvNoError(s.t, env, err)
 
-		e2e.EnvWaitFor(s.t, env, time.Minute, "waiting for blobs", func() bool {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "waiting for blobs", func() bool {
+			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 			defer cancel()
 			files, err := s.s3Helper.ListAllFiles(ctx, flowJobName)
 			s.t.Logf("Files in Test_Complete_Simple_Flow_S3 %s: %d", flowJobName, len(files))

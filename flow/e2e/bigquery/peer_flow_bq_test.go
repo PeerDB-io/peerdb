@@ -191,10 +191,8 @@ func setupSuite(t *testing.T) PeerFlowE2ETestSuiteBQ {
 func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Connection_Config() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
-	// TODO (kaushikiska): ensure flow name can only be alpha numeric and underscores.
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 0,
-		MaxBatchSize:     1,
+		MaxBatchSize: 1,
 	}
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, nil, &limits, nil)
@@ -233,18 +231,16 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 0,
-		MaxBatchSize:     1,
+		MaxBatchSize: 1,
 	}
 
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+		e2e.EnvWaitForEqualTables(env, s, "create table", dstTableName, "id,key,value")
+		env.CancelWorkflow()
+	}()
+
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
@@ -273,18 +269,16 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 0,
-		MaxBatchSize:     1,
+		MaxBatchSize: 1,
 	}
 
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+		e2e.EnvWaitForEqualTables(env, s, "create table", dstTableName, "id,key,value")
+		env.CancelWorkflow()
+	}()
+
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
 }
 
 // Test_Complete_Simple_Flow_BQ tests a complete flow with data in the source table.
@@ -316,12 +310,9 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 10,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and then insert 10 rows into the source table
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		// insert 10 rows into the source table
@@ -334,23 +325,12 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
 			e2e.EnvNoError(s.t, env, err)
 		}
 		s.t.Log("Inserted 10 rows into the source table")
+
+		e2e.EnvWaitForEqualTables(env, s, "normalize inserts", dstTableName, "id,key,value")
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	count, err := s.bqHelper.countRows(dstTableName)
-	require.NoError(s.t, err)
-	require.Equal(s.t, 10, count)
-
-	// TODO: verify that the data is correctly synced to the destination table
-	// on the bigquery side
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
@@ -380,8 +360,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -439,8 +418,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -503,8 +481,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -561,8 +538,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -625,8 +601,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -655,41 +630,40 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		'{1, 2}'::smallint[];
 		`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
+
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize types", func() bool {
+			noNulls, err := s.bqHelper.CheckNull(dstTableName, []string{
+				"c41", "c1", "c2", "c3", "c4",
+				"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
+				"c21", "c22", "c23", "c24", "c28", "c29", "c30", "c31", "c33", "c34", "c35", "c36",
+				"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46", "c47", "c48",
+				"c49", "c50", "c51",
+			})
+			if err != nil {
+				s.t.Log(err)
+				return false
+			}
+
+			// check if JSON on bigquery side is a good JSON
+			if err := s.checkJSONValue(dstTableName, "c17", "sai", "-8.021390374331551"); err != nil {
+				return false
+			}
+
+			// check if HSTORE on bigquery side is a good JSON
+			if err := s.checkJSONValue(dstTableName, "c46", "key1", "\"value1\""); err != nil {
+				return false
+			}
+			if err := s.checkJSONValue(dstTableName, "c46", "key2", "null"); err != nil {
+				return false
+			}
+
+			return noNulls
+		})
+
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	noNulls, err := s.bqHelper.CheckNull(dstTableName, []string{
-		"c41", "c1", "c2", "c3", "c4",
-		"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
-		"c21", "c22", "c23", "c24", "c28", "c29", "c30", "c31", "c33", "c34", "c35", "c36",
-		"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46", "c47", "c48",
-		"c49", "c50", "c51",
-	})
-	if err != nil {
-		s.t.Log(err)
-	}
-	// Make sure that there are no nulls
-	require.True(s.t, noNulls)
-
-	// check if JSON on bigquery side is a good JSON
-	err = s.checkJSONValue(dstTableName, "c17", "sai", "-8.021390374331551")
-	require.NoError(s.t, err)
-
-	// check if HSTORE on bigquery side is a good JSON
-	err = s.checkJSONValue(dstTableName, "c46", "key1", "\"value1\"")
-	require.NoError(s.t, err)
-	err = s.checkJSONValue(dstTableName, "c46", "key2", "null")
-	require.NoError(s.t, err)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles_BQ() {
@@ -713,8 +687,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles_BQ() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -726,21 +699,15 @@ func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles_BQ() {
 		INSERT INTO %s SELECT 2, 'NaN'::double precision, '{NaN, Infinity, -Infinity}';
 		`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
+
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize weird floats", func() bool {
+			good, err := s.bqHelper.CheckDoubleValues(dstTableName, "c1", "c2")
+			return err == nil && good
+		})
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	// check if JSON on bigquery side is a good JSON
-	good, err := s.bqHelper.CheckDoubleValues(dstTableName, []string{"c1", "c2"})
-	require.NoError(s.t, err)
-	require.True(s.t, good)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
@@ -769,8 +736,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 10,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -800,27 +766,32 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 			e2e.EnvNoError(s.t, env, err)
 		}
 		s.t.Log("Inserted 6 valid geography rows and 10 total rows into source")
+
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize shapes", func() bool {
+			// We inserted 4 invalid shapes in each,
+			// which should be filtered out as null on destination.
+			lineCount, err := s.bqHelper.countRowsWithDataset(s.bqHelper.Config.DatasetId, dstTableName, "line")
+			if err != nil {
+				return false
+			}
+
+			polyCount, err := s.bqHelper.countRowsWithDataset(s.bqHelper.Config.DatasetId, dstTableName, "`polyPoly`")
+			if err != nil {
+				return false
+			}
+
+			if lineCount != 6 || polyCount != 6 {
+				s.t.Logf("wrong counts, expect 6 lines 6 polies, not %d lines %d polies", lineCount, polyCount)
+				return false
+			} else {
+				return true
+			}
+		})
+
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	// We inserted 4 invalid shapes in each.
-	// They should have been filtered out as null on destination
-	lineCount, err := s.bqHelper.countRowsWithDataset(s.bqHelper.Config.DatasetId, dstTableName, "line")
-	require.NoError(s.t, err)
-
-	polyCount, err := s.bqHelper.countRowsWithDataset(s.bqHelper.Config.DatasetId, dstTableName, "`polyPoly`")
-	require.NoError(s.t, err)
-
-	require.Equal(s.t, 6, lineCount)
-	require.Equal(s.t, 6, polyCount)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
@@ -848,8 +819,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 2,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -863,21 +833,24 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 		`, srcTable1Name, srcTable2Name))
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Executed an insert on two tables")
+
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize both tables", func() bool {
+			count1, err := s.bqHelper.countRows(dstTable1Name)
+			if err != nil {
+				return false
+			}
+			count2, err := s.bqHelper.countRows(dstTable2Name)
+			if err != nil {
+				return false
+			}
+
+			return count1 == 1 && count2 == 1
+		})
+
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	count1, err := s.bqHelper.countRows(dstTable1Name)
-	require.NoError(s.t, err)
-	count2, err := s.bqHelper.countRows(dstTable2Name)
-	require.NoError(s.t, err)
-
-	require.Equal(s.t, 1, count1)
-	require.Equal(s.t, 1, count2)
 }
 
 // TODO: not checking schema exactly, add later
@@ -906,8 +879,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -995,8 +967,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1059,8 +1030,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1124,8 +1094,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1182,8 +1151,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Columns_BQ() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 2,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	go func() {
@@ -1201,19 +1169,14 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Columns_BQ() {
 			DELETE FROM %s WHERE id=1
 		`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
+
+		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize insert/delete", func() bool {
+			return s.checkPeerdbColumns(dstTableName, true) == nil
+		})
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	err = s.checkPeerdbColumns(dstTableName, true)
-	require.NoError(s.t, err)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
@@ -1245,8 +1208,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 2,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1260,24 +1222,25 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
 		`, srcTable1Name, srcTable2Name))
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Executed an insert on two tables")
+
+		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize multi dataset", func() bool {
+			count1, err := s.bqHelper.countRows(dstTable1Name)
+			if err != nil {
+				return false
+			}
+			count2, err := s.bqHelper.countRowsWithDataset(secondDataset, dstTable2Name, "")
+			if err != nil {
+				return false
+			}
+
+			return count1 == 1 && count2 == 1
+		})
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	count1, err := s.bqHelper.countRows(dstTable1Name)
-	require.NoError(s.t, err)
-	count2, err := s.bqHelper.countRowsWithDataset(secondDataset, dstTable2Name, "")
-	require.NoError(s.t, err)
-
-	require.Equal(s.t, 1, count1)
-	require.Equal(s.t, 1, count2)
-
-	err = s.bqHelper.DropDataset(secondDataset)
-	require.NoError(s.t, err)
+	require.NoError(s.t, s.bqHelper.DropDataset(secondDataset))
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
@@ -1318,8 +1281,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 	}
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1401,8 +1363,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 	}
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1482,8 +1443,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 	}
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1569,8 +1529,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 	}
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup

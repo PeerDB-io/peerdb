@@ -142,8 +142,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	}
 
 	limits := &peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     maxBatchSize,
+		MaxBatchSize: maxBatchSize,
 	}
 
 	if req.ConnectionConfigs.SoftDeleteColName == "" {
