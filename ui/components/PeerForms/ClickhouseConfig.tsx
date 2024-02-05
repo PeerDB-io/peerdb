@@ -76,7 +76,7 @@ export default function ClickhouseForm({ settings, setter }: ConfigProps) {
         variant='subheadline'
         colorName='lowContrast'
       >
-        Transient Stage
+        Transient S3 Stage
       </Label>
       <Label>
         Please provide an S3 object URL and access credentials to store our
