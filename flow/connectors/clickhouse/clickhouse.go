@@ -27,8 +27,6 @@ type ClickhouseConnector struct {
 }
 
 func ValidateS3(ctx context.Context, bucketUrl string, creds utils.S3PeerCredentials) error {
-	slog.Info("Validating S3 bucket", slog.String("bucketUrl", bucketUrl))
-	slog.Info("Validating S3 credentials", slog.Any("creds", creds))
 	// for validation purposes
 	s3Client, err := utils.CreateS3Client(creds)
 	if err != nil {
