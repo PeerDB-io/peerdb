@@ -72,11 +72,12 @@ func NewClickhouseTestHelper() (*ClickhouseTestHelper, error) {
 	}
 
 	return &ClickhouseTestHelper{
-		Config:           config,
-		Peer:             peer,
-		adminClient:      adminClient,
-		testClient:       testClient,
-		testSchemaName:   "PUBLIC",
+		Config:      config,
+		Peer:        peer,
+		adminClient: adminClient,
+		testClient:  testClient,
+		//testSchemaName:   "PUBLIC",
+		testSchemaName:   testDatabaseName,
 		testDatabaseName: testDatabaseName,
 	}, nil
 }

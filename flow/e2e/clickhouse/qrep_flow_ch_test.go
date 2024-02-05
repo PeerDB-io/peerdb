@@ -2,6 +2,7 @@ package e2e_clickhouse
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -15,6 +16,18 @@ func (s PeerFlowE2ETestSuiteCH) setupSourceTable(tableName string, numRows int) 
 	require.NoError(s.t, err)
 	err = e2e.PopulateSourceTable(s.conn, s.pgSuffix, tableName, numRows)
 	require.NoError(s.t, err)
+}
+
+func (s PeerFlowE2ETestSuiteCH) setupCHDestinationTable(dstTable string) {
+	schema := e2e.GetOwnersSchema()
+	//TODO: write your own table creation logic for ch or modify the one in chHelper()
+	err := s.chHelper.CreateTable(dstTable, schema)
+	// fail if table creation fails
+	if err != nil {
+		require.FailNow(s.t, "unable to create table on clickhouse", err)
+	}
+
+	slog.Info(fmt.Sprintf("created table on clickhouse: %s.%s.", s.chHelper.testDatabaseName, dstTable))
 }
 
 // func (s PeerFlowE2ETestSuiteCH) checkJSONValue(tableName, colName, fieldName, value string) error {
@@ -135,6 +148,8 @@ func (s PeerFlowE2ETestSuiteCH) Test_Complete_QRep_Flow_Avro_CH_S3() {
 
 	tblName := "test_qrep_flow_avro_ch_s3"
 	s.setupSourceTable(tblName, numRows)
+	s.setupCHDestinationTable(tblName) //As currently qrep doesnot create destination table on its own
+	fmt.Printf("\n*********************************............Test_Complete_QRep_Flow_Avro_CH_S3 1 setupSourceTable done\n")
 
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.chHelper.testSchemaName, tblName)
 
@@ -151,20 +166,24 @@ func (s PeerFlowE2ETestSuiteCH) Test_Complete_QRep_Flow_Avro_CH_S3() {
 		false,
 		"",
 	)
+	fmt.Printf("\n*********************************............Test_Complete_QRep_Flow_Avro_CH_S3 2\n")
 	require.NoError(s.t, err)
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
 	qrepConfig.SetupWatermarkTableOnDestination = true
-
+	fmt.Printf("\n*********************************............Test_Complete_QRep_Flow_Avro_CH_S3 3\n")
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
-
+	fmt.Printf("\n*********************************............Test_Complete_QRep_Flow_Avro_CH_S3 4\n")
 	// Verify workflow completes without error
 	require.True(s.t, env.IsWorkflowCompleted())
-
+	fmt.Printf("\n*********************************............Test_Complete_QRep_Flow_Avro_CH_S3 5\n")
 	err = env.GetWorkflowError()
+	fmt.Printf("\n*********************************............Test_Complete_QRep_Flow_Avro_CH_S3 5.5\n %+v", err)
 	require.NoError(s.t, err)
-
+	fmt.Printf("\n*********************************............Test_Complete_QRep_Flow_Avro_CH_S3 6\n")
 	sel := e2e.GetOwnersSelectorStringsCH()
+	fmt.Printf("\n*********************************............Test_Complete_QRep_Flow_Avro_CH_S3 7\n")
 	s.compareTableContentsWithDiffSelectorsCH(tblName, sel[0], sel[1])
+	fmt.Printf("\n*********************************............Test_Complete_QRep_Flow_Avro_CH_S3 8\n")
 }
 
 // func (s PeerFlowE2ETestSuiteCH) Test_Complete_QRep_Flow_Avro_CH_Upsert_XMIN() {

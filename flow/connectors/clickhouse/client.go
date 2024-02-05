@@ -28,7 +28,7 @@ func NewClickhouseClient(ctx context.Context, config *protos.ClickhouseConfig) (
 	}
 
 	genericExecutor := *peersql.NewGenericSQLQueryExecutor(
-		ctx, database, clickhouseTypeToQValueKindMap, qvalue.QValueKindToSnowflakeTypeMap)
+		ctx, database, clickhouseTypeToQValueKindMap, qvalue.QValueKindToClickhouseTypeMap)
 
 	return &ClickhouseClient{
 		GenericSQLQueryExecutor: genericExecutor,

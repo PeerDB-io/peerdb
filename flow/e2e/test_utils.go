@@ -217,7 +217,7 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 		// `"from" TIMESTAMP NOT NULL`,
 		// "price NUMERIC",
 		// "created_at TIMESTAMP NOT NULL",
-		// "updated_at TIMESTAMP NOT NULL",
+		"updated_at TIMESTAMP NOT NULL",
 		// "transaction_hash BYTEA",
 		"ownerable_type VARCHAR",
 		"ownerable_id UUID",
@@ -428,33 +428,39 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 	if err != nil {
 		return err
 	}
+
 	// add a row where all the nullable fields are null
 	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
     INSERT INTO e2e_test_%s.%s (
-            id, "from", created_at, updated_at,
-            transfer_type, blockchain, card_bought_notified, asset_id
+            id, updated_at,
+            transfer_type, blockchain, card_bought_notified
     ) VALUES (
-            '%s', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
-            0, 1, false, 12345
+            '%s',CURRENT_TIMESTAMP,
+            0, 1, false
     );
     `, suffix, tableName, uuid.New().String()))
 	if err != nil {
 		return err
 	}
 	// generate a 20 MB json and update id[0]'s col f5 to it
-	v, err := generate20MBJson()
-	if err != nil {
-		return err
-	}
-	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
-        UPDATE e2e_test_%s.%s SET f5 = $1 WHERE id = $2;
-    `, suffix, tableName), v, ids[0])
-	if err != nil {
-		return err
-	}
+	// starts her *************
+	// v, err := generate20MBJson()
+	// if err != nil {
+
+	// 	return err
+	// }
+
+	// _, err = conn.Exec(context.Background(), fmt.Sprintf(`
+	//     UPDATE e2e_test_%s.%s SET f8 = 5 WHERE id = $2;
+	// `, suffix, tableName), v, ids[0])
+	// if err != nil {
+	// 	return err
+	// }
+	fmt.Printf("*\n idhar")
+
 	// update my_date to a date before 1970
 	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
-        UPDATE e2e_test_%s.%s SET old_date = '1950-01-01' WHERE id = $1;
+        UPDATE e2e_test_%s.%s SET ownerable_type = 'Hello' WHERE id = $1;
     `, suffix, tableName), ids[0])
 	if err != nil {
 		return err
@@ -622,13 +628,13 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "reference_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "settle_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
 			{Name: "settlement_delay_reason", Type: qvalue.QValueKindInt64, Nullable: true},
-			{Name: "f1", Type: qvalue.QValueKindArrayString, Nullable: true},
-			{Name: "f2", Type: qvalue.QValueKindArrayInt64, Nullable: true},
-			{Name: "f3", Type: qvalue.QValueKindArrayInt32, Nullable: true},
-			{Name: "f4", Type: qvalue.QValueKindArrayString, Nullable: true},
-			{Name: "f5", Type: qvalue.QValueKindJSON, Nullable: true},
-			{Name: "f6", Type: qvalue.QValueKindJSON, Nullable: true},
-			{Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
+			// {Name: "f1", Type: qvalue.QValueKindArrayString, Nullable: true},
+			// {Name: "f2", Type: qvalue.QValueKindArrayInt64, Nullable: true},
+			// {Name: "f3", Type: qvalue.QValueKindArrayInt32, Nullable: true},
+			// {Name: "f4", Type: qvalue.QValueKindArrayString, Nullable: true},
+			// {Name: "f5", Type: qvalue.QValueKindJSON, Nullable: true},
+			// {Name: "f6", Type: qvalue.QValueKindJSON, Nullable: true},
+			// {Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
 			{Name: "f8", Type: qvalue.QValueKindInt16, Nullable: true},
 			{Name: "f13", Type: qvalue.QValueKindArrayInt16, Nullable: true},
 			{Name: "my_date", Type: qvalue.QValueKindDate, Nullable: true},
