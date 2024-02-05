@@ -336,7 +336,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				return nil, fmt.Errorf("unsupported record type for Postgres flow connector: %T", typedRecord)
 			}
 
-			numRecords++
+			numRecords += 1
 			tableNameRowsMapping[record.GetDestinationTableName()] += 1
 			return row, nil
 		}
