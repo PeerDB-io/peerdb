@@ -604,7 +604,7 @@ func (c *PostgresConnector) getCurrentLSN() (pglogrepl.LSN, error) {
 }
 
 func (c *PostgresConnector) getDefaultPublicationName(jobName string) string {
-	return fmt.Sprintf("peerflow_pub_%s", jobName)
+	return utils.QuoteIdentifier(fmt.Sprintf("peerflow_pub_%s", jobName))
 }
 
 func (c *PostgresConnector) CheckSourceTables(tableNames []string, pubName string) error {
