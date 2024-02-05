@@ -147,8 +147,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -211,8 +210,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 20,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -229,20 +227,15 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 			e2e.EnvNoError(s.t, env, err)
 		}
 		s.t.Log("Inserted 20 rows into the source table")
+
+		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize insert", func() bool {
+			count, err := s.sfHelper.CountRows("test_replica_identity_no_pkey")
+			return err == nil && count == 20
+		})
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	count, err := s.sfHelper.CountRows("test_replica_identity_no_pkey")
-	require.NoError(s.t, err)
-	require.Equal(s.t, 20, count)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
@@ -271,8 +264,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 10,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -302,26 +294,31 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 			e2e.EnvNoError(s.t, env, err)
 		}
 		s.t.Log("Inserted 6 valid geography rows and 10 total rows into source")
+
+		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize shapes", func() bool {
+			// We inserted 4 invalid shapes in each,
+			// which should be filtered out as null on destination.
+			lineCount, err := s.sfHelper.CountNonNullRows("test_invalid_geo_sf_avro_cdc", "line")
+			if err != nil {
+				return false
+			}
+
+			polyCount, err := s.sfHelper.CountNonNullRows("test_invalid_geo_sf_avro_cdc", "poly")
+			if err != nil {
+				return false
+			}
+
+			if lineCount != 6 || polyCount != 6 {
+				s.t.Logf("wrong counts, expect 6 lines 6 polies, not %d lines %d polies", lineCount, polyCount)
+				return false
+			} else {
+				return true
+			}
+		})
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	// We inserted 4 invalid shapes in each.
-	// They should have been filtered out as null on destination
-	lineCount, err := s.sfHelper.CountNonNullRows("test_invalid_geo_sf_avro_cdc", "line")
-	require.NoError(s.t, err)
-	require.Equal(s.t, 6, lineCount)
-
-	polyCount, err := s.sfHelper.CountNonNullRows("test_invalid_geo_sf_avro_cdc", "poly")
-	require.NoError(s.t, err)
-	require.Equal(s.t, 6, polyCount)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
@@ -350,8 +347,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -407,8 +403,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -469,8 +464,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -526,8 +520,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -590,8 +583,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -619,41 +611,41 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 		'{1,2}'::smallint[];
 		`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
+
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize types", func() bool {
+			noNulls, err := s.sfHelper.CheckNull("test_types_sf", []string{
+				"c41", "c1", "c2", "c3", "c4",
+				"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
+				"c21", "c22", "c23", "c24", "c28", "c29", "c30", "c31", "c33", "c34", "c35", "c36",
+				"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46", "c47", "c48", "c49",
+				"c50", "c51", "c52", "c53", "c54",
+			})
+			if err != nil {
+				s.t.Log(err)
+				return false
+			}
+
+			// check if JSON on snowflake side is a good JSON
+			if err := s.checkJSONValue(dstTableName, "c17", "sai", "1"); err != nil {
+				return false
+			}
+
+			// check if HSTORE on snowflake is a good JSON
+			if err := s.checkJSONValue(dstTableName, "c49", "a", `"a\"quote\""`); err != nil {
+				return false
+			}
+
+			if err := s.checkJSONValue(dstTableName, "c49", "b", "null"); err != nil {
+				return false
+			}
+
+			return noNulls
+		})
+
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	noNulls, err := s.sfHelper.CheckNull("test_types_sf", []string{
-		"c41", "c1", "c2", "c3", "c4",
-		"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
-		"c21", "c22", "c23", "c24", "c28", "c29", "c30", "c31", "c33", "c34", "c35", "c36",
-		"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46", "c47", "c48", "c49",
-		"c50", "c51", "c52", "c53", "c54",
-	})
-	if err != nil {
-		s.t.Log(err)
-	}
-
-	// check if JSON on snowflake side is a good JSON
-	err = s.checkJSONValue(dstTableName, "c17", "sai", "1")
-	require.NoError(s.t, err)
-
-	// check if HSTORE on snowflake is a good JSON
-	err = s.checkJSONValue(dstTableName, "c49", "a", `"a\"quote\""`)
-	require.NoError(s.t, err)
-
-	err = s.checkJSONValue(dstTableName, "c49", "b", "null")
-	require.NoError(s.t, err)
-
-	// Make sure that there are no nulls
-	require.True(s.t, noNulls)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
@@ -680,8 +672,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 2,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -694,21 +685,24 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 		INSERT INTO %s (c1,c2) VALUES (-1,'dummy_-1');
 		`, srcTable1Name, srcTable2Name))
 		e2e.EnvNoError(s.t, env, err)
+
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize both tables", func() bool {
+			count1, err := s.sfHelper.CountRows("test1_sf")
+			if err != nil {
+				return false
+			}
+			count2, err := s.sfHelper.CountRows("test2_sf")
+			if err != nil {
+				return false
+			}
+
+			return count1 == 1 && count2 == 1
+		})
+
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	count1, err := s.sfHelper.CountRows("test1_sf")
-	require.NoError(s.t, err)
-	count2, err := s.sfHelper.CountRows("test2_sf")
-	require.NoError(s.t, err)
-
-	require.Equal(s.t, 1, count1)
-	require.Equal(s.t, 1, count2)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
@@ -735,8 +729,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -956,8 +949,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1017,8 +1009,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1083,8 +1074,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1155,8 +1145,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 	}
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1235,8 +1224,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 	}
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1314,8 +1302,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 	}
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1396,8 +1383,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 	}
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1483,8 +1469,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 	}
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1551,8 +1536,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup

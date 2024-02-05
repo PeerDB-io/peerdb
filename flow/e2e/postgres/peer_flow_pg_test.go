@@ -101,8 +101,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 10,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -119,19 +118,14 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 			e2e.EnvNoError(s.t, env, err)
 		}
 		s.t.Log("Inserted 10 rows into the source table")
+
+		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize 10 rows", func() bool {
+			return s.comparePGTables(srcTableName, dstTableName, "id,key,value") == nil
+		})
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	err = s.comparePGTables(srcTableName, dstTableName, "id,key,value")
-	require.NoError(s.t, err)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Geospatial_PG() {
@@ -159,8 +153,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Geospatial_PG() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	go func() {
@@ -172,19 +165,13 @@ func (s PeerFlowE2ETestSuitePG) Test_Geospatial_PG() {
 		e2e.EnvNoError(s.t, env, err)
 
 		s.t.Log("Inserted 1 row into the source table")
+		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize shapes", func() bool {
+			return s.comparePGTables(srcTableName, dstTableName, "id,gg,gm") == nil
+		})
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	err = s.comparePGTables(srcTableName, dstTableName, "id,gg,gm")
-	require.NoError(s.t, err)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
@@ -214,8 +201,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	go func() {
@@ -239,25 +225,19 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 		e2e.EnvNoError(s.t, env, err)
 
 		s.t.Log("Inserted 1 row into the source table")
+		allCols := strings.Join([]string{
+			"c1", "c2", "c4",
+			"c40", "id", "c9", "c11", "c12", "c13", "c14", "c15",
+			"c21", "c29", "c33", "c34", "c35", "c36",
+			"c7", "c8", "c32", "c42", "c43", "c44", "c46", "c47", "c48", "c49", "c50",
+		}, ",")
+		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize types", func() bool {
+			return s.comparePGTables(srcTableName, dstTableName, allCols) == nil
+		})
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	allCols := []string{
-		"c1", "c2", "c4",
-		"c40", "id", "c9", "c11", "c12", "c13", "c14", "c15",
-		"c21", "c29", "c33", "c34", "c35", "c36",
-		"c7", "c8", "c32", "c42", "c43", "c44", "c46", "c47", "c48", "c49", "c50",
-	}
-	err = s.comparePGTables(srcTableName, dstTableName, strings.Join(allCols, ","))
-	require.NoError(s.t, err)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
@@ -290,8 +270,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	go func() {
@@ -301,19 +280,14 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 			`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Inserted enums into the source table")
+		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize enum", func() bool {
+			return s.checkEnums(srcTableName, dstTableName) == nil
+		})
+
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	err = s.checkEnums(srcTableName, dstTableName)
-	require.NoError(s.t, err)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
@@ -340,8 +314,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     1,
+		MaxBatchSize: 1,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -530,8 +503,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -598,8 +570,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 20,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -627,20 +598,14 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 
 		err = rowsTx.Commit(context.Background())
 		e2e.EnvNoError(s.t, env, err)
+
+		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize tx", func() bool {
+			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t,t2") == nil
+		})
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	// verify our updates and delete happened
-	err = s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t,t2")
-	require.NoError(s.t, err)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
@@ -675,8 +640,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -739,8 +703,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 2,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	go func() {
@@ -759,18 +722,14 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns() {
 		`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Inserted and deleted a row for peerdb column check")
+
+		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize insert/delete", func() bool {
+			return s.checkPeerdbColumns(dstTableName, 1) == nil
+		})
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-
-	err = env.GetWorkflowError()
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-	checkErr := s.checkPeerdbColumns(dstTableName, 1)
-	require.NoError(s.t, checkErr)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Basic() {
@@ -811,8 +770,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Basic() {
 	}
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -900,8 +858,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_IUD_Same_Batch() {
 	}
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 3,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -927,23 +884,21 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_IUD_Same_Batch() {
 		e2e.EnvNoError(s.t, env, err)
 
 		e2e.EnvNoError(s.t, env, insertTx.Commit(context.Background()))
+
+		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize tx", func() bool {
+			return s.comparePGTables(cmpTableName, dstTableName, "id,c1,c2,t") == nil
+		})
+
+		softDeleteQuery := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE "_PEERDB_IS_DELETED"`, dstTableName)
+		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize soft delete", func() bool {
+			numRows, err := s.RunInt64Query(softDeleteQuery)
+			return err == nil && numRows == 1
+		})
+
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	// verify our updates and delete happened
-	err = s.comparePGTables(cmpTableName, dstTableName, "id,c1,c2,t")
-	require.NoError(s.t, err)
-
-	softDeleteQuery := fmt.Sprintf(`
-		SELECT COUNT(*) FROM %s WHERE "_PEERDB_IS_DELETED"`,
-		dstTableName)
-	numRows, err := s.RunInt64Query(softDeleteQuery)
-	require.NoError(s.t, err)
-	require.Equal(s.t, int64(1), numRows)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
@@ -984,8 +939,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
 	}
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1070,8 +1024,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Insert_After_Delete() {
 	}
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: -1,
-		MaxBatchSize:     100,
+		MaxBatchSize: 100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
