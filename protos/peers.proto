@@ -93,7 +93,10 @@ message ClickhouseConfig{
   string user = 3;
   string password = 4;
   string database = 5;
-  string s3_integration = 6; // staging to store avro files
+  string s3_path = 6; // path to S3 bucket which will store avro files
+  string access_key_id = 7;
+  string secret_access_key = 8;
+  string region = 9;
 }
 
 message SqlServerConfig {

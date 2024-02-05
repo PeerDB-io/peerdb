@@ -229,6 +229,34 @@ export const bqSchema = z.object({
     .max(1024, 'DatasetID must be less than 1025 characters'),
 });
 
+const urlSchema = z
+  .string({
+    invalid_type_error: 'URL must be a string',
+    required_error: 'URL is required',
+  })
+  .min(1, { message: 'URL must be non-empty' })
+  .refine((url) => url.startsWith('s3://'), {
+    message: 'URL must start with s3://',
+  });
+
+const accessKeySchema = z
+  .string({
+    invalid_type_error: 'Access Key ID must be a string',
+    required_error: 'Access Key ID is required',
+  })
+  .min(1, { message: 'Access Key ID must be non-empty' });
+
+const secretKeySchema = z
+  .string({
+    invalid_type_error: 'Secret Access Key must be a string',
+    required_error: 'Secret Access Key is required',
+  })
+  .min(1, { message: 'Secret Access Key must be non-empty' });
+
+const regionSchema = z.string({
+  invalid_type_error: 'Region must be a string',
+});
+
 export const chSchema = z.object({
   host: z
     .string({
@@ -266,40 +294,22 @@ export const chSchema = z.object({
     })
     .min(1, 'Password must be non-empty')
     .max(100, 'Password must be less than 100 characters'),
+  s3Path: urlSchema,
+  accessKeyId: accessKeySchema,
+  secretAccessKey: secretKeySchema,
+  region: regionSchema.min(1, { message: 'Region must be non-empty' }),
 });
 
 export const s3Schema = z.object({
-  url: z
-    .string({
-      invalid_type_error: 'URL must be a string',
-      required_error: 'URL is required',
-    })
-    .min(1, { message: 'URL must be non-empty' })
-    .refine((url) => url.startsWith('s3://'), {
-      message: 'URL must start with s3://',
-    }),
-  accessKeyId: z
-    .string({
-      invalid_type_error: 'Access Key ID must be a string',
-      required_error: 'Access Key ID is required',
-    })
-    .min(1, { message: 'Access Key ID must be non-empty' }),
-  secretAccessKey: z
-    .string({
-      invalid_type_error: 'Secret Access Key must be a string',
-      required_error: 'Secret Access Key is required',
-    })
-    .min(1, { message: 'Secret Access Key must be non-empty' }),
+  url: urlSchema,
+  accessKeyId: accessKeySchema,
+  secretAccessKey: secretKeySchema,
   roleArn: z
     .string({
       invalid_type_error: 'Role ARN must be a string',
     })
     .optional(),
-  region: z
-    .string({
-      invalid_type_error: 'Region must be a string',
-    })
-    .optional(),
+  region: regionSchema.optional(),
   endpoint: z
     .string({
       invalid_type_error: 'Endpoint must be a string',
