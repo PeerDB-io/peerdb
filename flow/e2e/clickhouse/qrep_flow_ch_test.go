@@ -13,6 +13,7 @@ import (
 //nolint:unparam
 func (s PeerFlowE2ETestSuiteCH) setupSourceTable(tableName string, numRows int) {
 	err := e2e.CreateTableForQRep(s.conn, s.pgSuffix, tableName)
+	fmt.Printf("\n**************************** setupSourceTable created")
 	require.NoError(s.t, err)
 	err = e2e.PopulateSourceTable(s.conn, s.pgSuffix, tableName, numRows)
 	require.NoError(s.t, err)

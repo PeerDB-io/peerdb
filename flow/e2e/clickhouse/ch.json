@@ -4,5 +4,5 @@
     "user": "clickhouse",
     "password": "clickhouse",
     "database": "desti",
-    "s3_integration": ""
+    "s3_integration": "s3://peerdb-test-bucket"
 }

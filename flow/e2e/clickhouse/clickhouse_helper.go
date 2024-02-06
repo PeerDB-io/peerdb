@@ -85,7 +85,7 @@ func NewClickhouseTestHelper() (*ClickhouseTestHelper, error) {
 func generateCHPeer(clickhouseConfig *protos.ClickhouseConfig) *protos.Peer {
 	ret := &protos.Peer{}
 	ret.Name = "test_ch_peer"
-	ret.Type = protos.DBType_SNOWFLAKE
+	ret.Type = protos.DBType_CLICKHOUSE
 
 	ret.Config = &protos.Peer_ClickhouseConfig{
 		ClickhouseConfig: clickhouseConfig,

@@ -119,6 +119,8 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 		return 0, err
 	}
 
+	fmt.Printf("\n*********************************............SyncQRepRecords 2 avroFile %+v\n", avroFile)
+
 	s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
 	if err != nil {
 		return 0, err

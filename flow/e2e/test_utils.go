@@ -214,7 +214,7 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 	tblFields := []string{
 		"id UUID NOT NULL PRIMARY KEY",
 		"card_id UUID",
-		// `"from" TIMESTAMP NOT NULL`,
+		//`"from" TIMESTAMP NOT NULL`,
 		// "price NUMERIC",
 		// "created_at TIMESTAMP NOT NULL",
 		"updated_at TIMESTAMP NOT NULL",
@@ -430,18 +430,18 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 	}
 
 	// add a row where all the nullable fields are null
-	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
-    INSERT INTO e2e_test_%s.%s (
-            id, updated_at,
-            transfer_type, blockchain, card_bought_notified
-    ) VALUES (
-            '%s',CURRENT_TIMESTAMP,
-            0, 1, false
-    );
-    `, suffix, tableName, uuid.New().String()))
-	if err != nil {
-		return err
-	}
+	// _, err = conn.Exec(context.Background(), fmt.Sprintf(`
+	// INSERT INTO e2e_test_%s.%s (
+	//         id, from, updated_at,
+	//         transfer_type, blockchain, card_bought_notified
+	// ) VALUES (
+	//         '%s',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,
+	//         0, 1, false
+	// );
+	// `, suffix, tableName, uuid.New().String()))
+	// if err != nil {
+	// 	return err
+	// }
 	// generate a 20 MB json and update id[0]'s col f5 to it
 	// starts her *************
 	// v, err := generate20MBJson()
@@ -602,7 +602,7 @@ func GetOwnersSchema() *model.QRecordSchema {
 		Fields: []model.QField{
 			{Name: "id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "card_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "from", Type: qvalue.QValueKindTimestamp, Nullable: true},
+			//{Name: "from", Type: qvalue.QValueKindTimestamp, Nullable: true},
 			{Name: "price", Type: qvalue.QValueKindNumeric, Nullable: true},
 			{Name: "created_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
 			{Name: "updated_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
