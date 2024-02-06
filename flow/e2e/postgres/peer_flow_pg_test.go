@@ -1138,10 +1138,10 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 			},
 		})
 		sentUpdate = true
-	}, 35*time.Second)
+	}, 42*time.Second)
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(shared.FlowSignalName, shared.NoopSignal)
-	}, 42*time.Second)
+	}, 56*time.Second)
 
 	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
