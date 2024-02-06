@@ -68,7 +68,12 @@ func (m *EventHubManager) GetNumPartitions(ctx context.Context, name ScopedEvent
 func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedEventhub) (
 	*azeventhubs.ProducerClient, error,
 ) {
-	namespace := name.EventhubNamespace
+	ehConfig, ok := m.peerConfig.Get(name.PeerName)
+	if !ok {
+		return nil, fmt.Errorf("eventhub '%s' not configured", name.Eventhub)
+	}
+
+	namespace := ehConfig.Namespace
 	// if the namespace isn't fully qualified, add the `.servicebus.windows.net`
 	// check by counting the number of '.' in the namespace
 	if strings.Count(namespace, ".") < 2 {
@@ -159,10 +164,10 @@ func (m *EventHubManager) CreateEventDataBatch(ctx context.Context, destination 
 }
 
 // EnsureEventHubExists ensures that the eventhub exists.
-func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedEventhub, peerName string) error {
-	cfg, ok := m.peerConfig.Get(peerName)
+func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedEventhub) error {
+	cfg, ok := m.peerConfig.Get(name.PeerName)
 	if !ok {
-		return fmt.Errorf("eventhub peer '%s' not configured", peerName)
+		return fmt.Errorf("eventhub peer '%s' not configured", name.PeerName)
 	}
 
 	hubClient, err := m.getEventHubMgmtClient(cfg.SubscriptionId)
