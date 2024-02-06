@@ -85,7 +85,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision 
 		}, nil
 	case QValueKindTime, QValueKindTimeTZ, QValueKindDate, QValueKindTimestamp, QValueKindTimestampTZ:
 		if targetDWH == QDWHTypeClickhouse {
-			if kind == QValueKindTime  {
+			if kind == QValueKindTime {
 				return "string", nil
 			}
 			return "long", nil
@@ -376,7 +376,7 @@ func (c *QValueAvroConverter) processGoTime() (interface{}, error) {
 		return t.Format("15:04:05.999999"), nil
 	}
 
-	if c.TargetDWH ==  QDWHTypeClickhouse {
+	if c.TargetDWH == QDWHTypeClickhouse {
 		return t.Format("15:04:05.999999"), nil
 	}
 	return t.UnixMicro(), nil
