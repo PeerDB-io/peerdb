@@ -1125,7 +1125,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(shared.FlowSignalName, shared.PauseSignal)
 		sentPause = true
-	}, 14*time.Second)
+	}, 28*time.Second)
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(shared.CDCDynamicPropertiesSignalName, &protos.CDCFlowConfigUpdate{
 			IdleTimeout: 14,
@@ -1138,10 +1138,10 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 			},
 		})
 		sentUpdate = true
-	}, 21*time.Second)
+	}, 35*time.Second)
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(shared.FlowSignalName, shared.NoopSignal)
-	}, 28*time.Second)
+	}, 42*time.Second)
 
 	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
