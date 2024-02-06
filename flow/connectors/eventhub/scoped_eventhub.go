@@ -19,7 +19,7 @@ func NewScopedEventhub(dstTableName string) (ScopedEventhub, error) {
 	// split by dot, the model is peername.eventhub.uniquekey.partition_key_column
 	parts := strings.Split(dstTableName, ".")
 
-	if len(parts) != 3 {
+	if len(parts) != 4 {
 		return ScopedEventhub{}, fmt.Errorf("invalid scoped eventhub '%s'", dstTableName)
 	}
 
