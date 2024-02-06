@@ -28,8 +28,8 @@ func NewScopedEventhub(dstTableName string) (ScopedEventhub, error) {
 	// It's just so that we have distinct destination table names
 	// in create mirror's table mapping.
 	// We can ignore it.
-	eventhubPart := strings.Trim(parts[0], `"`)
-	namespacePart := strings.Trim(parts[1], `"`)
+	namespacePart := strings.Trim(parts[0], `"`)
+	eventhubPart := strings.Trim(parts[1], `"`)
 	partitionPart := strings.Trim(parts[3], `"`)
 	return ScopedEventhub{
 		EventhubNamespace:  namespacePart,
