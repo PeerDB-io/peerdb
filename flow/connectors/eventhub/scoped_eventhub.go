@@ -16,7 +16,7 @@ type ScopedEventhub struct {
 }
 
 func NewScopedEventhub(dstTableName string) (ScopedEventhub, error) {
-	// split by dot, the model is peername.eventhub.partition_key_column
+	// split by dot, the model is peername.eventhub.uniquekey.partition_key_column
 	parts := strings.Split(dstTableName, ".")
 
 	if len(parts) != 3 {
@@ -24,8 +24,9 @@ func NewScopedEventhub(dstTableName string) (ScopedEventhub, error) {
 	}
 
 	// support eventhub name and partition key with hyphens etc.
+	// unique key is unused.
 	eventhubPart := strings.Trim(parts[1], `"`)
-	partitionPart := strings.Trim(parts[2], `"`)
+	partitionPart := strings.Trim(parts[3], `"`)
 	return ScopedEventhub{
 		PeerName:           parts[0],
 		Eventhub:           eventhubPart,
