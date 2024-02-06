@@ -1232,9 +1232,9 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "sent pause signal", func() bool {
 			return sentPause
 		})
-		// add 1 more row - guarantee finishing another sync
-		addRows(1)
 		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "paused workflow", func() bool {
+			// keep adding 1 more row - guarantee finishing another sync
+			addRows(1)
 			flowStatus := getFlowStatus()
 			return flowStatus == protos.FlowStatus_STATUS_PAUSED
 		})
