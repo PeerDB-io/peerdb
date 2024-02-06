@@ -74,9 +74,6 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision 
 	case QValueKindBytes, QValueKindBit:
 		return "bytes", nil
 	case QValueKindNumeric:
-		// if targetDWH == QDWHTypeClickhouse {
-		// 	return "double", nil
-		// }
 		return AvroSchemaNumeric{
 			Type:        "bytes",
 			LogicalType: "decimal",
