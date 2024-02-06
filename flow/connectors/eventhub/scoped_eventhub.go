@@ -16,7 +16,7 @@ type ScopedEventhub struct {
 }
 
 func NewScopedEventhub(dstTableName string) (ScopedEventhub, error) {
-	// split by dot, the model is eventhub_namespace.eventhub_name.table_name.partition_key_column
+	// split by dot, the model is eventhub.eventhub_namespace.table_name.partition_key_column
 	parts := strings.Split(dstTableName, ".")
 
 	if len(parts) != 4 {
