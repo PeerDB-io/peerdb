@@ -225,6 +225,11 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	})
 	defer shutdown()
 
+	batchSize := input.SyncFlowOptions.BatchSize
+	if batchSize <= 0 {
+		batchSize = 1_000_000
+	}
+
 	// start a goroutine to pull records from the source
 	recordBatch := model.NewCDCRecordStream()
 	startTime := time.Now()
@@ -235,7 +240,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 			SrcTableIDNameMapping: input.SrcTableIdNameMapping,
 			TableNameMapping:      tblNameMapping,
 			LastOffset:            input.LastSyncState.Checkpoint,
-			MaxBatchSize:          input.SyncFlowOptions.BatchSize,
+			MaxBatchSize:          batchSize,
 			IdleTimeout: peerdbenv.PeerDBCDCIdleTimeoutSeconds(
 				int(input.SyncFlowOptions.IdleTimeoutSeconds),
 			),
