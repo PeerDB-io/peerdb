@@ -49,8 +49,18 @@ export const postgresSetting: PeerSetting[] = [
   },
 ];
 
-type sshSetter = Dispatch<SetStateAction<SSHConfig>>;
-export const sshSetting = [
+export type sshSetter = Dispatch<SetStateAction<SSHConfig>>;
+export interface SSHSetting {
+  label: string;
+  stateHandler: (value: string, setter: sshSetter) => void;
+  type?: string;
+  optional?: boolean;
+  tips?: string;
+  helpfulLink?: string;
+  default?: string | number;
+}
+
+export const sshSetting: SSHSetting[] = [
   {
     label: 'Host',
     stateHandler: (value: string, setter: sshSetter) =>
@@ -80,11 +90,12 @@ export const sshSetting = [
     tips: 'Password associated with the user you provided.',
   },
   {
-    label: 'BASE64 Private Key',
+    label: 'Private Key',
     stateHandler: (value: string, setter: sshSetter) =>
       setter((curr) => ({ ...curr, privateKey: value })),
     optional: true,
-    tips: 'Private key as a BASE64 string for authentication in order to SSH into your machine.',
+    type: 'file',
+    tips: 'Private key for authentication in order to SSH into your machine.',
   },
   {
     label: 'Host Key',
