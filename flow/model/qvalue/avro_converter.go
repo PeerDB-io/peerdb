@@ -441,7 +441,7 @@ func (c *QValueAvroConverter) processNullableUnion(
 }
 
 func (c *QValueAvroConverter) processNumeric() (interface{}, error) {
-	if c.Value.Value == nil && c.Nullable {
+	if c.Value.Value == nil {
 		return nil, nil
 	}
 
