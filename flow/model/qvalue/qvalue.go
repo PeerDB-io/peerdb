@@ -129,6 +129,9 @@ func compareInt64(value1, value2 interface{}) bool {
 }
 
 func compareFloat32(value1, value2 interface{}) bool {
+	if value1 == nil && value2 == nil {
+		return true
+	}
 	float1, ok1 := getFloat32(value1)
 	float2, ok2 := getFloat32(value2)
 	return ok1 && ok2 && float1 == float2
