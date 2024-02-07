@@ -265,6 +265,9 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 		"geography_linestring geography(linestring)",
 		"geometry_polygon geometry(polygon)",
 		"geography_polygon geography(polygon)",
+		"myreal REAL",
+		"myreal2 REAL",
+		"myreal3 REAL",
 	}
 	tblFieldStr := strings.Join(tblFields, ",")
 	var pgErr *pgconn.PgError
@@ -322,7 +325,10 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 							CURRENT_DATE, CURRENT_TIME,'happy', '"a"=>"b"','POINT(1 2)','POINT(40.7128 -74.0060)',
 						'LINESTRING(0 0, 1 1, 2 2)',
 						'LINESTRING(-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831)',
-						'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))','POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'
+						'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))','POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))',
+						3.14159,
+						1,
+						1.0
 					)`,
 			id, uuid.New().String(), uuid.New().String(),
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String())
@@ -339,7 +345,10 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 					asset_id, status, transaction_id, settled_at, reference_id,
 					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, my_date,
 					my_time, my_mood, myh,
-					"geometryPoint", geography_point,geometry_linestring, geography_linestring,geometry_polygon, geography_polygon
+					"geometryPoint", geography_point,geometry_linestring, geography_linestring,geometry_polygon, geography_polygon,
+					myreal,
+					myreal2,
+					myreal3
 			) VALUES %s;
 	`, suffix, tableName, strings.Join(rows, ",")))
 	if err != nil {
@@ -476,6 +485,9 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "geography_point", Type: qvalue.QValueKindGeography, Nullable: true},
 			{Name: "geography_linestring", Type: qvalue.QValueKindGeography, Nullable: true},
 			{Name: "geography_polygon", Type: qvalue.QValueKindGeography, Nullable: true},
+			{Name: "myreal", Type: qvalue.QValueKindFloat32, Nullable: true},
+			{Name: "myreal2", Type: qvalue.QValueKindFloat32, Nullable: true},
+			{Name: "myreal3", Type: qvalue.QValueKindFloat32, Nullable: true},
 		},
 	}
 }
