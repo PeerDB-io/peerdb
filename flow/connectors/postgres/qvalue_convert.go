@@ -517,12 +517,13 @@ func parseFieldFromPostgresOID(oid uint32, value interface{}) (qvalue.QValue, er
 func numericToRat(numVal *pgtype.Numeric) (*big.Rat, error) {
 	if numVal.Valid {
 		if numVal.NaN {
-			return nil, errors.New("numeric value is NaN")
+			// set to nil if NaN
+			return nil, nil
 		}
 
 		switch numVal.InfinityModifier {
 		case pgtype.NegativeInfinity, pgtype.Infinity:
-			return nil, errors.New("numeric value is infinity")
+			return nil, nil
 		}
 
 		rat := new(big.Rat).SetInt(numVal.Int)
