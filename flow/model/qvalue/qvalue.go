@@ -609,6 +609,8 @@ func getRat(v interface{}) (*big.Rat, bool) {
 	case uint16:
 		rat := new(big.Rat)
 		return rat.SetUint64(uint64(value)), true
+	case nil:
+		return nil, true
 	}
 	return nil, false
 }
