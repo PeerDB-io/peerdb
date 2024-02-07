@@ -861,6 +861,9 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 			// table exists, go to next table
 			tableExistsMapping[tableIdentifier] = true
 			datasetTablesSet[*datasetTable] = struct{}{}
+
+			c.logger.Info(fmt.Sprintf("table already exists %s", tableIdentifier))
+			numTablesSetup.Add(1)
 			continue
 		}
 
