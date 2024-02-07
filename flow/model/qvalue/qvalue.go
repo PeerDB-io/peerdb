@@ -226,6 +226,10 @@ func compareNumeric(value1, value2 interface{}) bool {
 		return false
 	}
 
+	if rat1 == nil && rat2 == nil {
+		return true
+	}
+
 	str1 := numeric.StripTrailingZeros(rat1.FloatString(10))
 	str2 := numeric.StripTrailingZeros(rat2.FloatString(10))
 	if len(str1) > 2 && len(str2) > 2 {
@@ -625,6 +629,8 @@ func getRat(v interface{}) (*big.Rat, bool) {
 	case uint16:
 		rat := new(big.Rat)
 		return rat.SetUint64(uint64(value)), true
+	case nil:
+		return nil, true
 	}
 	return nil, false
 }
