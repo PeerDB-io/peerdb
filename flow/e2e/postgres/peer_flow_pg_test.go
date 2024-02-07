@@ -1124,6 +1124,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	// might have something to do with how test workflows handle fast-forwarding time.
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(shared.FlowSignalName, shared.PauseSignal)
+		s.t.Log("Sent pause signal")
 		sentPause = true
 	}, 28*time.Second)
 	env.RegisterDelayedCallback(func() {
@@ -1137,10 +1138,12 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 				},
 			},
 		})
+		s.t.Log("Sent update signal")
 		sentUpdate = true
 	}, 56*time.Second)
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(shared.FlowSignalName, shared.NoopSignal)
+		s.t.Log("Sent resume signal")
 	}, 84*time.Second)
 
 	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
