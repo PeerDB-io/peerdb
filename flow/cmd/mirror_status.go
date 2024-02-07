@@ -343,7 +343,7 @@ func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) 
 		return false, fmt.Errorf("unable to query flow: %w", err)
 	}
 
-	if !query.Valid || len(query.String) == 0 {
+	if !query.Valid || query.String == "" {
 		return true, nil
 	}
 

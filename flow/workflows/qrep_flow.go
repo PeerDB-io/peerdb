@@ -468,12 +468,12 @@ func QRepFlowWorkflow(
 	}
 
 	logger.Info("partitions to replicate - ", len(partitions.Partitions))
-	if err = q.processPartitions(ctx, maxParallelWorkers, partitions.Partitions); err != nil {
+	if err := q.processPartitions(ctx, maxParallelWorkers, partitions.Partitions); err != nil {
 		return err
 	}
 
 	logger.Info("consolidating partitions for peer flow - ", slog.String("flowName", config.FlowJobName))
-	if err = q.consolidatePartitions(ctx); err != nil {
+	if err := q.consolidatePartitions(ctx); err != nil {
 		return err
 	}
 

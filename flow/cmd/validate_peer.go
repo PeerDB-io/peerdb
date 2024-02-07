@@ -21,7 +21,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 		}, nil
 	}
 
-	if len(req.Peer.Name) == 0 {
+	if req.Peer.Name == "" {
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: "no peer name provided",
