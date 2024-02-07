@@ -336,8 +336,7 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 					"geometryPoint", geography_point,geometry_linestring, geography_linestring,geometry_polygon, geography_polygon,
 					myreal,
 					myreal2,
-					myreal3,
-
+					myreal3
 			) VALUES %s;
 	`, suffix, tableName, strings.Join(rows, ",")))
 	if err != nil {
