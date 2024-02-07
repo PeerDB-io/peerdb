@@ -40,8 +40,22 @@ linters-settings:
       - 'prefix(github.com/PeerDB-io)'
       - default
   gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
     disabled-checks:
       - ifElseChain
+      - importShadow
+      - paramTypeCombine
+      - sprintfQuotedString
+      - unnamedResult
+      - whyNoLint
+    settings:
+      hugeParam:
+        sizeThreshold: 512
   stylecheck:
     checks:
       - all

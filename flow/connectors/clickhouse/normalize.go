@@ -149,9 +149,6 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 			ct := column.Type
 
 			colSelector.WriteString(fmt.Sprintf("%s,", cn))
-			// if i < numCols-1 {
-			// 	colSelector.WriteString(",")
-			// }
 
 			extractionFuction := "JSONExtractRaw"
 			switch qvalue.QValueKind(ct) {
