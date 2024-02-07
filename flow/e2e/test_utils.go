@@ -64,7 +64,9 @@ func RegisterWorkflowsAndActivities(t *testing.T, env *testsuite.TestWorkflowEnv
 		CatalogPool: conn,
 		Alerter:     alerter,
 	})
-	env.RegisterActivity(&activities.SnapshotActivity{})
+	env.RegisterActivity(&activities.SnapshotActivity{
+		Alerter: alerter,
+	})
 }
 
 // Helper function to assert errors in go routines running concurrent to workflows
