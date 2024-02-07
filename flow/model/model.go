@@ -215,6 +215,11 @@ func (r *RecordItems) toMap(hstoreAsJSON bool) (map[string]interface{}, error) {
 			if !ok {
 				return nil, errors.New("expected *big.Rat value")
 			}
+
+			if bigRat == nil {
+				jsonStruct[col] = nil
+				continue
+			}
 			jsonStruct[col] = bigRat.FloatString(numeric.PeerDBNumericScale)
 		case qvalue.QValueKindFloat64:
 			floatVal, ok := v.Value.(float64)
