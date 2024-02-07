@@ -280,7 +280,7 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		}
 		return c.processNullableUnion("string", c.Value.Value)
 	case QValueKindFloat32:
-		if c.TargetDWH == QDWHTypeSnowflake || c.TargetDWH == QDWHTypeBigQuery {
+		if c.TargetDWH == QDWHTypeBigQuery {
 			return c.processNullableUnion("double", c.Value.Value)
 		}
 		return c.processNullableUnion("float", c.Value.Value)
