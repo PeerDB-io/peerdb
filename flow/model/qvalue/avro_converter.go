@@ -461,6 +461,10 @@ func (c *QValueAvroConverter) processNumeric() (interface{}, error) {
 		return nil, fmt.Errorf("invalid Numeric value: expected *big.Rat, got %T", c.Value.Value)
 	}
 
+	if num == nil {
+		return nil, nil
+	}
+
 	decimalValue := num.FloatString(100)
 	num.SetString(decimalValue)
 	if c.Nullable {
