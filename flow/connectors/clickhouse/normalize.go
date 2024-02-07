@@ -149,16 +149,16 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 			ct := column.Type
 
 			colSelector.WriteString(fmt.Sprintf("%s,", cn))
-
-			extractionFuction := "JSONExtractRaw"
-			switch qvalue.QValueKind(ct) {
-			case qvalue.QValueKindString:
-				extractionFuction = "JSONExtractString"
-			case qvalue.QValueKindInt64:
-				// TODO check if int64 is supported.
-				extractionFuction = "JSONExtractInt"
+			colType := qvalue.QValueKind(ct)
+			clickhouseType, err := qValueKindToClickhouseType(colType)
+			if err != nil {
+				return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 			}
-			projection.WriteString(fmt.Sprintf("%s(_peerdb_data, '%s') AS %s, ", extractionFuction, cn, cn))
+			if clickhouseType == "DateTime64(6)" {
+				clickhouseType = "String"
+			}
+
+			projection.WriteString(fmt.Sprintf("JSONExtract(_peerdb_data, '%s', '%s') AS '%s', ", cn, clickhouseType, cn))
 		}
 
 		// add _peerdb_sign as _peerdb_record_type / 2
