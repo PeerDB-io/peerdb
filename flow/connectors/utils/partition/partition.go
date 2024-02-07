@@ -1,6 +1,7 @@
 package partition_utils
 
 import (
+	"cmp"
 	"fmt"
 	"log/slog"
 	"time"
@@ -16,21 +17,9 @@ import (
 func compareValues(prevEnd interface{}, start interface{}) int {
 	switch v := start.(type) {
 	case int64:
-		if prevEnd.(int64) < v {
-			return -1
-		} else if prevEnd.(int64) > v {
-			return 1
-		} else {
-			return 0
-		}
+		return cmp.Compare(prevEnd.(int64), v)
 	case int32:
-		if prevEnd.(int64) < int64(v) {
-			return -1
-		} else if prevEnd.(int64) > int64(v) {
-			return 1
-		} else {
-			return 0
-		}
+		return cmp.Compare(prevEnd.(int64), int64(v))
 	case time.Time:
 		if prevEnd.(time.Time).Before(v) {
 			return -1
@@ -41,25 +30,12 @@ func compareValues(prevEnd interface{}, start interface{}) int {
 		}
 	case pgtype.TID:
 		pe := prevEnd.(pgtype.TID)
-		if pe.BlockNumber < v.BlockNumber {
-			return -1
-		} else if pe.BlockNumber > v.BlockNumber {
-			return 1
-		} else if pe.OffsetNumber < v.OffsetNumber {
-			return -1
-		} else if pe.OffsetNumber > v.OffsetNumber {
-			return 1
-		} else {
-			return 0
+		if c := cmp.Compare(pe.BlockNumber, v.BlockNumber); c != 0 {
+			return c
 		}
+		return cmp.Compare(pe.OffsetNumber, v.OffsetNumber)
 	case uint32: // xmin
-		if prevEnd.(uint32) < v {
-			return -1
-		} else if prevEnd.(uint32) > v {
-			return 1
-		} else {
-			return 0
-		}
+		return cmp.Compare(prevEnd.(uint32), v)
 	default:
 		return 0
 	}
