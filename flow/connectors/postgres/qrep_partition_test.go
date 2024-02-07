@@ -63,8 +63,6 @@ func newTestCaseForCTID(schema string, name string, rows uint32, expectedNum int
 }
 
 func TestGetQRepPartitions(t *testing.T) {
-	// log.SetLevel(log.DebugLevel)
-
 	const connStr = "postgres://postgres:postgres@localhost:7132/postgres"
 
 	// Setup the DB
@@ -222,23 +220,18 @@ func prepareTestData(t *testing.T, pool *pgx.Conn, schema string) int {
 
 	// Define the start and end times
 	startTime := time.Date(2010, time.January, 1, 10, 0, 0, 0, time.UTC)
-	endTime := time.Date(2010, time.January, 30, 10, 0, 0, 0, time.UTC)
+	endTime := time.Date(2010, time.January, 31, 10, 0, 0, 0, time.UTC)
 
-	// Prepare the time range
-	var times []time.Time
-	for t := startTime; !t.After(endTime); t = t.Add(24 * time.Hour) {
-		times = append(times, t)
-	}
-
-	// Insert the test data
-	for i, time := range times {
+	times := 0
+	for tm := startTime; tm.Before(endTime); tm = tm.Add(24 * time.Hour) {
+		times += 1
 		_, err := pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s.test (value, "from") VALUES ($1, $2)
-		`, schema), i+1, time)
+		`, schema), times, tm)
 		if err != nil {
 			t.Fatalf("Failed to insert test data: %v", err)
 		}
 	}
 
-	return len(times)
+	return times
 }

@@ -1014,9 +1014,13 @@ func (c *PostgresConnector) AddTablesToPublication(req *protos.AddTablesToPublic
 		}
 	} else {
 		for _, additionalSrcTable := range additionalSrcTables {
-			_, err := c.conn.Exec(c.ctx, fmt.Sprintf("ALTER PUBLICATION %s ADD TABLE %s",
+			schemaTable, err := utils.ParseSchemaTable(additionalSrcTable)
+			if err != nil {
+				return err
+			}
+			_, err = c.conn.Exec(c.ctx, fmt.Sprintf("ALTER PUBLICATION %s ADD TABLE %s",
 				utils.QuoteIdentifier(c.getDefaultPublicationName(req.FlowJobName)),
-				utils.QuoteIdentifier(additionalSrcTable)))
+				schemaTable.String()))
 			// don't error out if table is already added to our publication
 			if err != nil && !strings.Contains(err.Error(), "SQLSTATE 42710") {
 				return fmt.Errorf("failed to alter publication: %w", err)

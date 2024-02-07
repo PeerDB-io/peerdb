@@ -24,11 +24,6 @@ const (
 	maxSyncFlowsPerCDCFlow = 32
 )
 
-type CDCFlowLimits struct {
-	// Maximum number of rows in a sync flow batch.
-	MaxBatchSize uint32
-}
-
 type CDCFlowWorkflowState struct {
 	// Progress events for the peer flow.
 	Progress []string
@@ -150,14 +145,15 @@ type CDCFlowWorkflowResult = CDCFlowWorkflowState
 
 func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Context,
 	cfg *protos.FlowConnectionConfigs, state *CDCFlowWorkflowState,
-	limits *CDCFlowLimits, mirrorNameSearch map[string]interface{},
+	mirrorNameSearch map[string]interface{},
 ) error {
 	for _, flowConfigUpdate := range state.FlowConfigUpdates {
 		if len(flowConfigUpdate.AdditionalTables) == 0 {
 			continue
 		}
 		if shared.AdditionalTablesHasOverlap(state.TableMappings, flowConfigUpdate.AdditionalTables) {
-			return fmt.Errorf("duplicate source/destination tables found in additionalTables")
+			w.logger.Warn("duplicate source/destination tables found in additionalTables")
+			continue
 		}
 
 		alterPublicationAddAdditionalTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -199,7 +195,6 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 			CDCFlowWorkflowWithConfig,
 			additionalTablesWorkflowCfg,
 			nil,
-			limits,
 		)
 		var res *CDCFlowWorkflowResult
 		if err := childAdditionalTablesCDCFlowFuture.Get(childAdditionalTablesCDCFlowCtx, &res); err != nil {
@@ -223,7 +218,6 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 func CDCFlowWorkflowWithConfig(
 	ctx workflow.Context,
 	cfg *protos.FlowConnectionConfigs,
-	limits *CDCFlowLimits,
 	state *CDCFlowWorkflowState,
 ) (*CDCFlowWorkflowResult, error) {
 	if cfg == nil {
@@ -369,7 +363,7 @@ func CDCFlowWorkflowWithConfig(
 	}
 
 	state.SyncFlowOptions = &protos.SyncFlowOptions{
-		BatchSize: limits.MaxBatchSize,
+		BatchSize: cfg.MaxBatchSize,
 		// this means the env variable assignment path is never hit
 		IdleTimeoutSeconds:     cfg.IdleTimeoutSeconds,
 		SrcTableIdNameMapping:  state.SrcTableIdNameMapping,
@@ -479,7 +473,7 @@ func CDCFlowWorkflowWithConfig(
 				// only place we block on receive, so signal processing is immediate
 				mainLoopSelector.Select(ctx)
 				if state.ActiveSignal == shared.NoopSignal {
-					err = w.processCDCFlowConfigUpdates(ctx, cfg, state, limits, mirrorNameSearch)
+					err = w.processCDCFlowConfigUpdates(ctx, cfg, state, mirrorNameSearch)
 					if err != nil {
 						return state, err
 					}
@@ -609,5 +603,5 @@ func CDCFlowWorkflowWithConfig(
 		return nil, err
 	}
 
-	return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, limits, state)
+	return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, state)
 }

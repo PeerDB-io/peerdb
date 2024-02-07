@@ -68,7 +68,7 @@ func XminFlowWorkflow(
 		return fmt.Errorf("xmin replication failed: %w", err)
 	}
 
-	if err = q.consolidatePartitions(ctx); err != nil {
+	if err := q.consolidatePartitions(ctx); err != nil {
 		return err
 	}
 

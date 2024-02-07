@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
 	"github.com/PeerDB-io/peer-flow/activities"
@@ -63,7 +64,9 @@ func RegisterWorkflowsAndActivities(t *testing.T, env *testsuite.TestWorkflowEnv
 		CatalogPool: conn,
 		Alerter:     alerter,
 	})
-	env.RegisterActivity(&activities.SnapshotActivity{})
+	env.RegisterActivity(&activities.SnapshotActivity{
+		Alerter: alerter,
+	})
 }
 
 // Helper function to assert errors in go routines running concurrent to workflows
@@ -162,6 +165,16 @@ func EnvWaitForEqualTablesWithNames(
 
 		return e2eshared.CheckEqualRecordBatches(t, pgRows, rows)
 	})
+}
+
+func RequireEnvCanceled(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
+	t.Helper()
+	err := env.GetWorkflowError()
+	if err == nil {
+		t.Fatal("Expected workflow to be canceled, not completed")
+	} else if _, ok := errors.Unwrap(err).(*temporal.CanceledError); !ok {
+		t.Fatalf("Expected workflow to be canceled, not %v", err)
+	}
 }
 
 func SetupCDCFlowStatusQuery(t *testing.T, env *testsuite.TestWorkflowEnvironment,
@@ -410,7 +423,6 @@ func RunQrepFlowWorkflow(env *testsuite.TestWorkflowEnvironment, config *protos.
 func RunXminFlowWorkflow(env *testsuite.TestWorkflowEnvironment, config *protos.QRepConfig) {
 	state := peerflow.NewQRepFlowState()
 	state.LastPartition.PartitionId = uuid.New().String()
-	time.Sleep(5 * time.Second)
 	env.ExecuteWorkflow(peerflow.XminFlowWorkflow, config, state)
 }
 

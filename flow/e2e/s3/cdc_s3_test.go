@@ -41,10 +41,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-
-	limits := peerflow.CDCFlowLimits{
-		MaxBatchSize: 5,
-	}
+	flowConnConfig.MaxBatchSize = 5
 
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
@@ -71,5 +68,6 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	e2e.RequireEnvCanceled(s.t, env)
 }

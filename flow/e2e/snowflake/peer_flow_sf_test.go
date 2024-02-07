@@ -145,10 +145,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-
-	limits := peerflow.CDCFlowLimits{
-		MaxBatchSize: 100,
-	}
+	flowConnConfig.MaxBatchSize = 100
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert 20 rows into the source table
@@ -169,7 +166,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	e2e.RequireEnvCanceled(s.t, env)
 
 	// check the number of rows where _PEERDB_SYNCED_AT is newer than 5 mins ago
 	// it should match the count.
@@ -208,10 +206,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-
-	limits := peerflow.CDCFlowLimits{
-		MaxBatchSize: 100,
-	}
+	flowConnConfig.MaxBatchSize = 100
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert 20 rows into the source table
@@ -235,7 +230,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	e2e.RequireEnvCanceled(s.t, env)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
@@ -262,10 +258,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-
-	limits := peerflow.CDCFlowLimits{
-		MaxBatchSize: 100,
-	}
+	flowConnConfig.MaxBatchSize = 100
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert 10 rows into the source table
@@ -318,7 +311,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	e2e.RequireEnvCanceled(s.t, env)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
@@ -345,10 +339,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-
-	limits := peerflow.CDCFlowLimits{
-		MaxBatchSize: 100,
-	}
+	flowConnConfig.MaxBatchSize = 100
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
@@ -374,7 +365,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	e2e.RequireEnvCanceled(s.t, env)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
@@ -401,10 +393,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-
-	limits := peerflow.CDCFlowLimits{
-		MaxBatchSize: 100,
-	}
+	flowConnConfig.MaxBatchSize = 100
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
@@ -436,7 +425,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	e2e.RequireEnvCanceled(s.t, env)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
@@ -462,10 +452,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-
-	limits := peerflow.CDCFlowLimits{
-		MaxBatchSize: 100,
-	}
+	flowConnConfig.MaxBatchSize = 100
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
@@ -491,7 +478,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	e2e.RequireEnvCanceled(s.t, env)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
@@ -518,10 +506,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-
-	limits := peerflow.CDCFlowLimits{
-		MaxBatchSize: 100,
-	}
+	flowConnConfig.MaxBatchSize = 100
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
@@ -547,7 +532,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	e2e.RequireEnvCanceled(s.t, env)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
@@ -581,10 +567,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-
-	limits := peerflow.CDCFlowLimits{
-		MaxBatchSize: 100,
-	}
+	flowConnConfig.MaxBatchSize = 100
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
@@ -645,7 +628,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	e2e.RequireEnvCanceled(s.t, env)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
@@ -670,10 +654,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-
-	limits := peerflow.CDCFlowLimits{
-		MaxBatchSize: 100,
-	}
+	flowConnConfig.MaxBatchSize = 100
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
@@ -702,7 +683,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	e2e.RequireEnvCanceled(s.t, env)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
@@ -727,10 +709,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-
-	limits := peerflow.CDCFlowLimits{
-		MaxBatchSize: 100,
-	}
+	flowConnConfig.MaxBatchSize = 100
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert and mutate schema repeatedly.
@@ -919,7 +898,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	e2e.RequireEnvCanceled(s.t, env)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
@@ -947,10 +927,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-
-	limits := peerflow.CDCFlowLimits{
-		MaxBatchSize: 100,
-	}
+	flowConnConfig.MaxBatchSize = 100
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
@@ -978,7 +955,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	e2e.RequireEnvCanceled(s.t, env)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
@@ -1007,10 +985,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-
-	limits := peerflow.CDCFlowLimits{
-		MaxBatchSize: 100,
-	}
+	flowConnConfig.MaxBatchSize = 100
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
@@ -1042,7 +1017,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	e2e.RequireEnvCanceled(s.t, env)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
@@ -1072,10 +1048,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-
-	limits := peerflow.CDCFlowLimits{
-		MaxBatchSize: 100,
-	}
+	flowConnConfig.MaxBatchSize = 100
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
@@ -1103,7 +1076,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	e2e.RequireEnvCanceled(s.t, env)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
@@ -1142,10 +1116,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 		Source:          e2e.GeneratePostgresPeer(e2e.PostgresPort),
 		CdcStagingPath:  connectionGen.CdcStagingPath,
 		SyncedAtColName: "_PEERDB_SYNCED_AT",
-	}
-
-	limits := peerflow.CDCFlowLimits{
-		MaxBatchSize: 100,
+		MaxBatchSize:    100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1174,7 +1145,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, nil)
+	e2e.RequireEnvCanceled(s.t, env)
 
 	sfRows, err := s.GetRows(tableName, "*")
 	require.NoError(s.t, err)
@@ -1221,10 +1193,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
-	}
-
-	limits := peerflow.CDCFlowLimits{
-		MaxBatchSize: 100,
+		MaxBatchSize:      100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1255,7 +1224,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, nil)
+	e2e.RequireEnvCanceled(s.t, env)
 
 	newerSyncedAtQuery := fmt.Sprintf(`
 		SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED`, dstTableName)
@@ -1299,10 +1269,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
-	}
-
-	limits := peerflow.CDCFlowLimits{
-		MaxBatchSize: 100,
+		MaxBatchSize:      100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1341,7 +1308,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, nil)
+	e2e.RequireEnvCanceled(s.t, env)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
@@ -1380,10 +1348,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
-	}
-
-	limits := peerflow.CDCFlowLimits{
-		MaxBatchSize: 100,
+		MaxBatchSize:      100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1428,7 +1393,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, nil)
+	e2e.RequireEnvCanceled(s.t, env)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
@@ -1466,10 +1432,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
-	}
-
-	limits := peerflow.CDCFlowLimits{
-		MaxBatchSize: 100,
+		MaxBatchSize:      100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1501,7 +1464,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, nil)
+	e2e.RequireEnvCanceled(s.t, env)
 
 	newerSyncedAtQuery := fmt.Sprintf(`
 		SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED`, dstTableName)
@@ -1534,10 +1498,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-
-	limits := peerflow.CDCFlowLimits{
-		MaxBatchSize: 100,
-	}
+	flowConnConfig.MaxBatchSize = 100
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert 20 rows into the source table
@@ -1565,5 +1526,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	e2e.RequireEnvCanceled(s.t, env)
 }

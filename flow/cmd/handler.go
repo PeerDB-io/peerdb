@@ -136,15 +136,6 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		},
 	}
 
-	maxBatchSize := cfg.MaxBatchSize
-	if maxBatchSize == 0 {
-		maxBatchSize = 1_000_000
-	}
-
-	limits := &peerflow.CDCFlowLimits{
-		MaxBatchSize: maxBatchSize,
-	}
-
 	if req.ConnectionConfigs.SoftDeleteColName == "" {
 		req.ConnectionConfigs.SoftDeleteColName = "_PEERDB_IS_DELETED"
 	} else {
@@ -178,7 +169,6 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		workflowOptions,                    // workflow start options
 		peerflow.CDCFlowWorkflowWithConfig, // workflow function
 		cfg,                                // workflow input
-		limits,                             // workflow limits
 		nil,                                // workflow state
 	)
 	if err != nil {

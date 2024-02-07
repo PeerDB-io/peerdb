@@ -496,7 +496,6 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 			Value: fmt.Sprintf("POINT(%f %f)", xCoord, yCoord),
 		}
 	default:
-		// log.Warnf("unhandled QValueKind => %v, parsing as string", qvalueKind)
 		textVal, ok := value.(string)
 		if !ok {
 			return qvalue.QValue{}, fmt.Errorf("failed to parse value %v into QValueKind %v", value, qvalueKind)
