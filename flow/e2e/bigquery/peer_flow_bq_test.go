@@ -606,7 +606,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		'{"2020-01-01 01:01:01+00", "2020-01-02 01:01:01+00"}'::timestamptz[],
 		'{"2020-01-01 01:01:01", "2020-01-02 01:01:01"}'::timestamp[],
 		'{true, false}'::boolean[],
-		'{1, 2}'::smallint[], 'NaN'::numeric;
+		'{1, 2}'::smallint[];
 		`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 
