@@ -922,7 +922,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 	}
 	defer conn.Close(ctx)
 
-	slotInfo, err := c.GetSlotInfo(slotName)
+	slotInfo, err := getSlotInfo(ctx, conn, slotName, c.config.Database)
 	if err != nil {
 		slog.WarnContext(ctx, "warning: failed to get slot info", slog.Any("error", err))
 		return err
