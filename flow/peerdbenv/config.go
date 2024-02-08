@@ -35,7 +35,8 @@ func PeerDBCDCIdleTimeoutSeconds(providedValue int) time.Duration {
 	if providedValue > 0 {
 		x = providedValue
 	} else {
-		x = getEnvInt("PEERDB_CDC_IDLE_TIMEOUT_SECONDS", 60)
+		// for customer we need 900 seconds.
+		x = getEnvInt("PEERDB_CDC_IDLE_TIMEOUT_SECONDS", 60*15)
 	}
 	return time.Duration(x) * time.Second
 }
