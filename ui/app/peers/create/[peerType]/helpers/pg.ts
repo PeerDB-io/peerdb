@@ -90,7 +90,7 @@ export const sshSetting: SSHSetting[] = [
     tips: 'Password associated with the user you provided.',
   },
   {
-    label: 'Private Key',
+    label: 'SSH Private Key',
     stateHandler: (value: string, setter: sshSetter) =>
       setter((curr) => ({ ...curr, privateKey: value })),
     optional: true,
@@ -98,11 +98,11 @@ export const sshSetting: SSHSetting[] = [
     tips: 'Private key for authentication in order to SSH into your machine.',
   },
   {
-    label: 'Host Key',
+    label: "Host's Public Key",
     stateHandler: (value: string, setter: sshSetter) =>
       setter((curr) => ({ ...curr, hostKey: value })),
     optional: true,
-    tips: 'Public key of host to mitigate MITM attacks when SSHing into your machine.',
+    tips: 'Public key of host to mitigate MITM attacks when SSHing into your machine. It generally resides at /etc/ssh/ssh_host_[algo]_key.pub',
   },
 ];
 

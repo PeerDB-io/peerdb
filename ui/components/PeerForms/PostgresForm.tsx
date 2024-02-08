@@ -174,9 +174,9 @@ export default function PostgresForm({ settings, setter }: ConfigProps) {
                   type={sshParam.type}
                   defaultValue={
                     (sshConfig as SSHConfig)[
-                      sshParam.label === 'Private Key'
+                      sshParam.label === 'SSH Private Key'
                         ? 'privateKey'
-                        : sshParam.label === 'Host Key'
+                        : sshParam.label === "Host's Public Key"
                           ? 'hostKey'
                           : (sshParam.label.toLowerCase() as keyof SSHConfig)
                     ] || ''
