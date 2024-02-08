@@ -362,16 +362,21 @@ func CDCFlowWorkflowWithConfig(
 		}
 	}
 
-	state.SyncFlowOptions = &protos.SyncFlowOptions{
-		BatchSize: cfg.MaxBatchSize,
-		// this means the env variable assignment path is never hit
-		IdleTimeoutSeconds:     cfg.IdleTimeoutSeconds,
-		SrcTableIdNameMapping:  state.SrcTableIdNameMapping,
-		TableNameSchemaMapping: state.TableNameSchemaMapping,
-		TableMappings:          state.TableMappings,
+	// when we carry forward state, don't remake the options
+	if state.SyncFlowOptions != nil {
+		state.SyncFlowOptions = &protos.SyncFlowOptions{
+			BatchSize: cfg.MaxBatchSize,
+			// this means the env variable assignment path is never hit
+			IdleTimeoutSeconds:     cfg.IdleTimeoutSeconds,
+			SrcTableIdNameMapping:  state.SrcTableIdNameMapping,
+			TableNameSchemaMapping: state.TableNameSchemaMapping,
+			TableMappings:          state.TableMappings,
+		}
 	}
-	state.NormalizeFlowOptions = &protos.NormalizeFlowOptions{
-		TableNameSchemaMapping: state.TableNameSchemaMapping,
+	if state.NormalizeFlowOptions != nil {
+		state.NormalizeFlowOptions = &protos.NormalizeFlowOptions{
+			TableNameSchemaMapping: state.TableNameSchemaMapping,
+		}
 	}
 
 	currentSyncFlowNum := 0
