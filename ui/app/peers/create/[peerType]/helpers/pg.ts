@@ -40,17 +40,20 @@ export const postgresSetting: PeerSetting[] = [
     helpfulLink:
       'https://www.postgresql.org/docs/current/sql-createdatabase.html',
   },
-  {
-    label: 'Transaction Snapshot',
-    stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, transactionSnapshot: value })),
-    optional: true,
-    tips: 'This is optional and only needed if this peer is part of any query replication mirror.',
-  },
 ];
 
-type sshSetter = Dispatch<SetStateAction<SSHConfig>>;
-export const sshSetting = [
+export type sshSetter = Dispatch<SetStateAction<SSHConfig>>;
+export interface SSHSetting {
+  label: string;
+  stateHandler: (value: string, setter: sshSetter) => void;
+  type?: string;
+  optional?: boolean;
+  tips?: string;
+  helpfulLink?: string;
+  default?: string | number;
+}
+
+export const sshSetting: SSHSetting[] = [
   {
     label: 'Host',
     stateHandler: (value: string, setter: sshSetter) =>
@@ -80,18 +83,20 @@ export const sshSetting = [
     tips: 'Password associated with the user you provided.',
   },
   {
-    label: 'BASE64 Private Key',
+    label: 'SSH Private Key',
     stateHandler: (value: string, setter: sshSetter) =>
       setter((curr) => ({ ...curr, privateKey: value })),
     optional: true,
-    tips: 'Private key as a BASE64 string for authentication in order to SSH into your machine.',
+    type: 'file',
+    tips: 'Private key for authentication in order to SSH into your machine.',
   },
   {
-    label: 'Host Key',
+    label: "Host's Public Key",
     stateHandler: (value: string, setter: sshSetter) =>
       setter((curr) => ({ ...curr, hostKey: value })),
     optional: true,
-    tips: 'Public key of host to mitigate MITM attacks when SSHing into your machine.',
+    type: 'textarea',
+    tips: 'Public key of host to mitigate MITM attacks when SSHing into your machine. It generally resides at /etc/ssh/ssh_host_[algo]_key.pub',
   },
 ];
 
