@@ -1195,6 +1195,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		s.t.Log("Sent pause signal")
 		sentPause = true
 	}, 28*time.Second)
+	// this signal being sent also unblocks another WaitFor
 	env.RegisterDelayedCallback(func() {
 		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "send update signal after pause confirmed", func() bool {
 			flowStatus := getFlowStatus()
