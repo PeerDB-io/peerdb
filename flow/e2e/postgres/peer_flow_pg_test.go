@@ -1118,6 +1118,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	dstTable1Name := s.attachSchemaSuffix("test_dynconfig_1_dst")
 	dstTable2Name := s.attachSchemaSuffix("test_dynconfig_2_dst")
 	sentPause := false
+	isPaused := false
 	sentUpdate := false
 
 	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
@@ -1200,6 +1201,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 			if flowStatus != protos.FlowStatus_STATUS_PAUSED {
 				return false
 			}
+			isPaused = true
 			env.SignalWorkflow(shared.CDCDynamicPropertiesSignalName, &protos.CDCFlowConfigUpdate{
 				IdleTimeout: 14,
 				BatchSize:   12,
@@ -1253,8 +1255,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "paused workflow", func() bool {
 			// keep adding 1 more row - guarantee finishing another sync
 			addRows(1)
-			flowStatus := getFlowStatus()
-			return flowStatus == protos.FlowStatus_STATUS_PAUSED
+			// isPaused - set from the WaitFor that sends update signal
+			return isPaused
 		})
 		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "normalize 1 record - first table", func() bool {
 			return s.comparePGTables(srcTable1Name, dstTable1Name, "id,t") == nil
