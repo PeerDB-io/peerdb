@@ -363,7 +363,7 @@ func CDCFlowWorkflowWithConfig(
 	}
 
 	// when we carry forward state, don't remake the options
-	if state.SyncFlowOptions != nil {
+	if state.SyncFlowOptions == nil {
 		state.SyncFlowOptions = &protos.SyncFlowOptions{
 			BatchSize: cfg.MaxBatchSize,
 			// this means the env variable assignment path is never hit
@@ -373,7 +373,7 @@ func CDCFlowWorkflowWithConfig(
 			TableMappings:          state.TableMappings,
 		}
 	}
-	if state.NormalizeFlowOptions != nil {
+	if state.NormalizeFlowOptions == nil {
 		state.NormalizeFlowOptions = &protos.NormalizeFlowOptions{
 			TableNameSchemaMapping: state.TableNameSchemaMapping,
 		}
