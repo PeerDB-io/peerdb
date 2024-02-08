@@ -1242,7 +1242,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		})
 
 		workflowState := getWorkFlowState()
-		assert.EqualValues(s.t, 5, workflowState.SyncFlowOptions.IdleTimeoutSeconds)
+		assert.EqualValues(s.t, 7, workflowState.SyncFlowOptions.IdleTimeoutSeconds)
 		assert.EqualValues(s.t, 6, workflowState.SyncFlowOptions.BatchSize)
 		assert.EqualValues(s.t, 1, len(workflowState.TableMappings))
 		assert.EqualValues(s.t, 1, len(workflowState.SrcTableIdNameMapping))
