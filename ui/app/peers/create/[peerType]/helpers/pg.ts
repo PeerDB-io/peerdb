@@ -95,6 +95,7 @@ export const sshSetting: SSHSetting[] = [
     stateHandler: (value: string, setter: sshSetter) =>
       setter((curr) => ({ ...curr, hostKey: value })),
     optional: true,
+    type: 'textarea',
     tips: 'Public key of host to mitigate MITM attacks when SSHing into your machine. It generally resides at /etc/ssh/ssh_host_[algo]_key.pub',
   },
 ];

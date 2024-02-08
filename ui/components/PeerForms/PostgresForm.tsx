@@ -162,15 +162,14 @@ export default function PostgresForm({ settings, setter }: ConfigProps) {
                 }}
               >
                 <TextField
-                  variant='simple'
+                  variant={'simple'}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                     handleSSHParam(e, sshParam)
                   }
-                  style={
-                    sshParam.type === 'file'
-                      ? { border: 'none', height: 'auto' }
-                      : { border: 'auto' }
-                  }
+                  style={{
+                    border: sshParam.type === 'file' ? 'none' : 'auto',
+                    height: sshParam.type === 'textarea' ? '15rem' : 'auto',
+                  }}
                   type={sshParam.type}
                   defaultValue={
                     (sshConfig as SSHConfig)[
