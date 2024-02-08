@@ -1,11 +1,11 @@
 'use client';
-import { ConfigJSONView } from '@/app/alert-config/page';
 import { Peer } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { useCallback, useEffect, useState } from 'react';
+import ConfigJSONView from './ConfigJSONView';
 
 export const PeerInfo = ({ peerName }: { peerName: string }) => {
   const [info, setInfo] = useState<Peer>();
