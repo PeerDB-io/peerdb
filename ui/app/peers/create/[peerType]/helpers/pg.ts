@@ -40,13 +40,6 @@ export const postgresSetting: PeerSetting[] = [
     helpfulLink:
       'https://www.postgresql.org/docs/current/sql-createdatabase.html',
   },
-  {
-    label: 'Transaction Snapshot',
-    stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, transactionSnapshot: value })),
-    optional: true,
-    tips: 'This is optional and only needed if this peer is part of any query replication mirror.',
-  },
 ];
 
 export type sshSetter = Dispatch<SetStateAction<SSHConfig>>;
