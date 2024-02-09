@@ -41,9 +41,19 @@ func PeerDBCDCIdleTimeoutSeconds(providedValue int) time.Duration {
 	return time.Duration(x) * time.Second
 }
 
-// PEERDB_CDC_DISK_SPILL_THRESHOLD
-func PeerDBCDCDiskSpillThreshold() int {
-	return getEnvInt("PEERDB_CDC_DISK_SPILL_THRESHOLD", 1_000_000)
+// PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD
+func PeerDBCDCDiskSpillRecordsThreshold() int {
+	return getEnvInt("PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD", 1_000_000)
+}
+
+// PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD, negative numbers means memory threshold disabled
+func PeerDBCDCDiskSpillMemPercentThreshold() int {
+	return getEnvInt("PEERDB_CDC_DISK_SPILL_MEM_PERCENT_THRESHOLD", -1)
+}
+
+// GOMEMLIMIT is a variable internal to Golang itself, we use this for internal targets, 0 means no maximum
+func PeerDBFlowWorkerMaxMemBytes() uint64 {
+	return getEnvUint[uint64]("GOMEMLIMIT", 0)
 }
 
 // PEERDB_CATALOG_HOST
@@ -53,7 +63,7 @@ func PeerDBCatalogHost() string {
 
 // PEERDB_CATALOG_PORT
 func PeerDBCatalogPort() uint32 {
-	return getEnvUint32("PEERDB_CATALOG_PORT", 5432)
+	return getEnvUint[uint32]("PEERDB_CATALOG_PORT", 5432)
 }
 
 // PEERDB_CATALOG_USER

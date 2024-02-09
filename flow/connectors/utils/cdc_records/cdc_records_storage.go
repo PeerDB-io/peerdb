@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math/big"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/cockroachdb/pebble"
@@ -34,6 +35,9 @@ type cdcRecordsStore struct {
 	flowJobName               string
 	dbFolderName              string
 	numRecordsSwitchThreshold int
+	memThresholdBytes         uint64
+	thresholdReason           string
+	memStats                  runtime.MemStats
 }
 
 func NewCDCRecordsStore(flowJobName string) *cdcRecordsStore {
@@ -43,7 +47,16 @@ func NewCDCRecordsStore(flowJobName string) *cdcRecordsStore {
 		numRecords:                0,
 		flowJobName:               flowJobName,
 		dbFolderName:              fmt.Sprintf("%s/%s_%s", os.TempDir(), flowJobName, shared.RandomString(8)),
-		numRecordsSwitchThreshold: peerdbenv.PeerDBCDCDiskSpillThreshold(),
+		numRecordsSwitchThreshold: peerdbenv.PeerDBCDCDiskSpillRecordsThreshold(),
+		memThresholdBytes: func() uint64 {
+			memPercent := peerdbenv.PeerDBCDCDiskSpillMemPercentThreshold()
+			maxMemBytes := peerdbenv.PeerDBFlowWorkerMaxMemBytes()
+			if memPercent > 0 && maxMemBytes > 0 {
+				return maxMemBytes * uint64(memPercent) / 100
+			}
+			return 0
+		}(),
+		thresholdReason: "",
 	}
 }
 
@@ -72,15 +85,32 @@ func (c *cdcRecordsStore) initPebbleDB() error {
 	return nil
 }
 
+func (c *cdcRecordsStore) diskSpillThresholdsExceeded() bool {
+	if len(c.inMemoryRecords) >= c.numRecordsSwitchThreshold {
+		c.thresholdReason = fmt.Sprintf("more than %d primary keys read, spilling to disk",
+			c.numRecordsSwitchThreshold)
+		return true
+	}
+	if c.memThresholdBytes > 0 {
+		runtime.ReadMemStats(&c.memStats)
+
+		if c.memStats.Alloc >= c.memThresholdBytes {
+			c.thresholdReason = fmt.Sprintf("memalloc greater than %d bytes, spilling to disk",
+				c.memThresholdBytes)
+			return true
+		}
+	}
+	return false
+}
+
 func (c *cdcRecordsStore) Set(key *model.TableWithPkey, rec model.Record) error {
 	if key != nil {
 		_, ok := c.inMemoryRecords[*key]
-		if ok || len(c.inMemoryRecords) < c.numRecordsSwitchThreshold {
+		if ok || !c.diskSpillThresholdsExceeded() {
 			c.inMemoryRecords[*key] = rec
 		} else {
 			if c.pebbleDB == nil {
-				slog.Info(fmt.Sprintf("more than %d primary keys read, spilling to disk",
-					c.numRecordsSwitchThreshold),
+				slog.Info(c.thresholdReason,
 					slog.String(string(shared.FlowNameKey), c.flowJobName))
 				err := c.initPebbleDB()
 				if err != nil {
