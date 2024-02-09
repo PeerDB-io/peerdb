@@ -225,7 +225,9 @@ func (p *PostgresCDCSource) consumeStream(
 	shutdown := utils.HeartbeatRoutine(p.ctx, func() string {
 		jobName := p.flowJobName
 		currRecords := cdcRecordsStorage.Len()
-		return fmt.Sprintf("pulling records for job - %s, currently have %d records", jobName, currRecords)
+		msg := fmt.Sprintf("pulling records for job - %s, currently have %d records", jobName, currRecords)
+		p.logger.Info(msg)
+		return msg
 	})
 	defer shutdown()
 
