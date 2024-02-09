@@ -452,13 +452,17 @@ func (c *QValueAvroConverter) processNullableUnion(
 }
 
 func (c *QValueAvroConverter) processNumeric() (interface{}, error) {
-	if c.Value.Value == nil && c.Nullable {
+	if c.Value.Value == nil {
 		return nil, nil
 	}
 
 	num, ok := c.Value.Value.(*big.Rat)
 	if !ok {
 		return nil, fmt.Errorf("invalid Numeric value: expected *big.Rat, got %T", c.Value.Value)
+	}
+
+	if num == nil {
+		return nil, nil
 	}
 
 	decimalValue := num.FloatString(100)

@@ -193,6 +193,17 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 				src.err = fmt.Errorf("invalid Numeric value %v", qValue.Value)
 				return nil, src.err
 			}
+			if v == nil {
+				values[i] = pgtype.Numeric{
+					Int:              nil,
+					Exp:              0,
+					NaN:              true,
+					InfinityModifier: pgtype.Finite,
+					Valid:            true,
+				}
+				break
+			}
+
 			// TODO: account for precision and scale issues.
 			values[i] = v.FloatString(38)
 
