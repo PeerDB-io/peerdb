@@ -44,7 +44,6 @@ const PeerButton = ({
   const handleClick = () => {
     setIsLoading(true);
     router.push(`/peers/${peerName}`);
-    setIsLoading(false);
   };
   return (
     <Button
