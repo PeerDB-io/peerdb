@@ -95,7 +95,7 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 		return nil, err
 	}
 
-	numRecords, err := avroSyncer.SyncRecords(destinationTableSchema, streamRes.Stream, req.FlowJobName)
+	numRecords, err := avroSyncer.SyncRecords(c.ctx, destinationTableSchema, streamRes.Stream, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +133,7 @@ func (c *ClickhouseConnector) SyncRecords(req *model.SyncRecordsRequest) (*model
 		return nil, fmt.Errorf("failed to get last checkpoint: %w", err)
 	}
 
-	err = c.pgMetadata.FinishBatch(req.FlowJobName, req.SyncBatchID, lastCheckpoint)
+	err = c.pgMetadata.FinishBatch(c.ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
 	if err != nil {
 		c.logger.Error("failed to increment id", slog.Any("error", err))
 		return nil, err
@@ -143,7 +143,7 @@ func (c *ClickhouseConnector) SyncRecords(req *model.SyncRecordsRequest) (*model
 }
 
 func (c *ClickhouseConnector) SyncFlowCleanup(jobName string) error {
-	err := c.pgMetadata.DropMetadata(jobName)
+	err := c.pgMetadata.DropMetadata(c.ctx, jobName)
 	if err != nil {
 		return err
 	}
@@ -167,16 +167,16 @@ func (c *ClickhouseConnector) SetupMetadataTables() error {
 }
 
 func (c *ClickhouseConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	return c.pgMetadata.GetLastBatchID(jobName)
+	return c.pgMetadata.GetLastBatchID(c.ctx, jobName)
 }
 
 func (c *ClickhouseConnector) GetLastOffset(jobName string) (int64, error) {
-	return c.pgMetadata.FetchLastOffset(jobName)
+	return c.pgMetadata.FetchLastOffset(c.ctx, jobName)
 }
 
 // update offset for a job
 func (c *ClickhouseConnector) SetLastOffset(jobName string, offset int64) error {
-	err := c.pgMetadata.UpdateLastOffset(jobName, offset)
+	err := c.pgMetadata.UpdateLastOffset(c.ctx, jobName, offset)
 	if err != nil {
 		c.logger.Error("failed to update last offset: ", slog.Any("error", err))
 		return err

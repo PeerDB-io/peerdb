@@ -28,7 +28,7 @@ func (c *BigQueryConnector) SyncQRepRecords(
 		return 0, err
 	}
 
-	done, err := c.pgMetadata.IsQrepPartitionSynced(config.FlowJobName, partition.PartitionId)
+	done, err := c.pgMetadata.IsQrepPartitionSynced(c.ctx, config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
 	}
@@ -42,7 +42,7 @@ func (c *BigQueryConnector) SyncQRepRecords(
 		partition.PartitionId, destTable))
 
 	avroSync := NewQRepAvroSyncMethod(c, config.StagingPath, config.FlowJobName)
-	return avroSync.SyncQRepRecords(config.FlowJobName, destTable, partition,
+	return avroSync.SyncQRepRecords(c.ctx, config.FlowJobName, destTable, partition,
 		tblMetadata, stream, config.SyncedAtColName, config.SoftDeleteColName)
 }
 

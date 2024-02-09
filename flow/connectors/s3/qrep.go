@@ -63,8 +63,8 @@ func (c *S3Connector) writeToAvroFile(
 	}
 
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, jobName, partitionID)
-	writer := avro.NewPeerDBOCFWriter(c.ctx, stream, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
-	avroFile, err := writer.WriteRecordsToS3(s3o.Bucket, s3AvroFileKey, c.creds)
+	writer := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
+	avroFile, err := writer.WriteRecordsToS3(c.ctx, s3o.Bucket, s3AvroFileKey, c.creds)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to S3: %w", err)
 	}

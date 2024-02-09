@@ -49,7 +49,7 @@ func (c *ClickhouseConnector) SyncQRepRecords(
 
 	avroSync := NewClickhouseAvroSyncMethod(config, c)
 
-	return avroSync.SyncQRepRecords(config, partition, tblSchema, stream)
+	return avroSync.SyncQRepRecords(c.ctx, config, partition, tblSchema, stream)
 }
 
 func (c *ClickhouseConnector) createMetadataInsertStatement(

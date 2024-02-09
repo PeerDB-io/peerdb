@@ -146,9 +146,8 @@ func TestWriteRecordsToAvroFileHappyPath(t *testing.T) {
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
-	writer := avro.NewPeerDBOCFWriter(context.Background(),
-		records, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
-	_, err = writer.WriteRecordsToAvroFile(tmpfile.Name())
+	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
+	_, err = writer.WriteRecordsToAvroFile(context.Background(), tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -174,9 +173,8 @@ func TestWriteRecordsToZstdAvroFileHappyPath(t *testing.T) {
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
-	writer := avro.NewPeerDBOCFWriter(context.Background(),
-		records, avroSchema, avro.CompressZstd, qvalue.QDWHTypeSnowflake)
-	_, err = writer.WriteRecordsToAvroFile(tmpfile.Name())
+	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressZstd, qvalue.QDWHTypeSnowflake)
+	_, err = writer.WriteRecordsToAvroFile(context.Background(), tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -202,9 +200,8 @@ func TestWriteRecordsToDeflateAvroFileHappyPath(t *testing.T) {
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
-	writer := avro.NewPeerDBOCFWriter(context.Background(),
-		records, avroSchema, avro.CompressDeflate, qvalue.QDWHTypeSnowflake)
-	_, err = writer.WriteRecordsToAvroFile(tmpfile.Name())
+	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressDeflate, qvalue.QDWHTypeSnowflake)
+	_, err = writer.WriteRecordsToAvroFile(context.Background(), tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -229,9 +226,8 @@ func TestWriteRecordsToAvroFileNonNull(t *testing.T) {
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
-	writer := avro.NewPeerDBOCFWriter(context.Background(),
-		records, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
-	_, err = writer.WriteRecordsToAvroFile(tmpfile.Name())
+	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
+	_, err = writer.WriteRecordsToAvroFile(context.Background(), tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -257,9 +253,8 @@ func TestWriteRecordsToAvroFileAllNulls(t *testing.T) {
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
-	writer := avro.NewPeerDBOCFWriter(context.Background(),
-		records, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
-	_, err = writer.WriteRecordsToAvroFile(tmpfile.Name())
+	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
+	_, err = writer.WriteRecordsToAvroFile(context.Background(), tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty

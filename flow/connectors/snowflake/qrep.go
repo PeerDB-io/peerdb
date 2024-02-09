@@ -33,7 +33,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	}
 	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
 
-	done, err := c.pgMetadata.IsQrepPartitionSynced(config.FlowJobName, partition.PartitionId)
+	done, err := c.pgMetadata.IsQrepPartitionSynced(c.ctx, config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
 	}
@@ -44,7 +44,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	}
 
 	avroSync := NewSnowflakeAvroSyncHandler(config, c)
-	return avroSync.SyncQRepRecords(config, partition, tblSchema, stream)
+	return avroSync.SyncQRepRecords(c.ctx, config, partition, tblSchema, stream)
 }
 
 func (c *SnowflakeConnector) getTableSchema(tableName string) ([]*sql.ColumnType, error) {
@@ -163,7 +163,7 @@ func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig
 	stageName := c.getStageNameForJob(config.FlowJobName)
 
 	writeHandler := NewSnowflakeAvroConsolidateHandler(c, config, destTable, stageName)
-	err := writeHandler.CopyStageToDestination()
+	err := writeHandler.CopyStageToDestination(c.ctx)
 	if err != nil {
 		c.logger.Error("failed to copy stage to destination", slog.Any("error", err))
 		return fmt.Errorf("failed to copy stage to destination: %w", err)

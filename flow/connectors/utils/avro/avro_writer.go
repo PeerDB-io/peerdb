@@ -40,7 +40,6 @@ const (
 )
 
 type peerDBOCFWriter struct {
-	ctx                  context.Context
 	stream               *model.QRecordStream
 	avroSchema           *model.QRecordAvroSchemaDefinition
 	avroCompressionCodec AvroCompressionCodec
@@ -64,14 +63,12 @@ func (l *AvroFile) Cleanup() {
 }
 
 func NewPeerDBOCFWriter(
-	ctx context.Context,
 	stream *model.QRecordStream,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	avroCompressionCodec AvroCompressionCodec,
 	targetDWH qvalue.QDWHType,
 ) *peerDBOCFWriter {
 	return &peerDBOCFWriter{
-		ctx:                  ctx,
 		stream:               stream,
 		avroSchema:           avroSchema,
 		avroCompressionCodec: avroCompressionCodec,
@@ -118,7 +115,7 @@ func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error
 	return ocfWriter, nil
 }
 
-func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (int, error) {
+func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter *goavro.OCFWriter) (int, error) {
 	schema, err := p.stream.Schema()
 	if err != nil {
 		slog.Error("failed to get schema from stream", slog.Any("error", err))
@@ -129,8 +126,8 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 
 	numRows := atomic.Uint32{}
 
-	if p.ctx != nil {
-		shutdown := utils.HeartbeatRoutine(p.ctx, func() string {
+	if ctx != nil {
+		shutdown := utils.HeartbeatRoutine(ctx, func() string {
 			written := numRows.Load()
 			return fmt.Sprintf("[avro] written %d rows to OCF", written)
 		})
@@ -168,7 +165,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 	return int(numRows.Load()), nil
 }
 
-func (p *peerDBOCFWriter) WriteOCF(w io.Writer) (int, error) {
+func (p *peerDBOCFWriter) WriteOCF(ctx context.Context, w io.Writer) (int, error) {
 	ocfWriter, err := p.createOCFWriter(w)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create OCF writer: %w", err)
@@ -176,14 +173,14 @@ func (p *peerDBOCFWriter) WriteOCF(w io.Writer) (int, error) {
 	// we have to keep a reference to the underlying writer as goavro doesn't provide any access to it
 	defer p.writer.Close()
 
-	numRows, err := p.writeRecordsToOCFWriter(ocfWriter)
+	numRows, err := p.writeRecordsToOCFWriter(ctx, ocfWriter)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to OCF writer: %w", err)
 	}
 	return numRows, nil
 }
 
-func (p *peerDBOCFWriter) WriteRecordsToS3(bucketName, key string, s3Creds utils.S3PeerCredentials) (*AvroFile, error) {
+func (p *peerDBOCFWriter) WriteRecordsToS3(ctx context.Context, bucketName, key string, s3Creds utils.S3PeerCredentials) (*AvroFile, error) {
 	s3svc, err := utils.CreateS3Client(s3Creds)
 	if err != nil {
 		slog.Error("failed to create S3 client: ", slog.Any("error", err))
@@ -197,11 +194,11 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(bucketName, key string, s3Creds utils
 	var noPanic bool
 	go func() {
 		defer w.Close()
-		numRows, writeOcfError = p.WriteOCF(w)
+		numRows, writeOcfError = p.WriteOCF(ctx, w)
 		noPanic = true
 	}()
 
-	_, err = manager.NewUploader(s3svc).Upload(p.ctx, &s3.PutObjectInput{
+	_, err = manager.NewUploader(s3svc).Upload(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(key),
 		Body:   r,
@@ -226,13 +223,13 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(bucketName, key string, s3Creds utils
 	}, nil
 }
 
-func (p *peerDBOCFWriter) WriteRecordsToAvroFile(filePath string) (*AvroFile, error) {
+func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, filePath string) (*AvroFile, error) {
 	file, err := os.Create(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temporary Avro file: %w", err)
 	}
 
-	numRecords, err := p.WriteOCF(file)
+	numRecords, err := p.WriteOCF(ctx, file)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write records to temporary Avro file: %w", err)
 	}

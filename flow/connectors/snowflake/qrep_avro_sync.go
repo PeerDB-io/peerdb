@@ -1,6 +1,7 @@
 package connsnowflake
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -35,6 +36,7 @@ func NewSnowflakeAvroSyncHandler(
 }
 
 func (s *SnowflakeAvroSyncHandler) SyncRecords(
+	ctx context.Context,
 	dstTableSchema []*sql.ColumnType,
 	stream *model.QRecordStream,
 	flowJobName string,
@@ -55,7 +57,7 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 	}
 
 	partitionID := shared.RandomString(16)
-	avroFile, err := s.writeToAvroFile(stream, avroSchema, partitionID, flowJobName)
+	avroFile, err := s.writeToAvroFile(ctx, stream, avroSchema, partitionID, flowJobName)
 	if err != nil {
 		return 0, err
 	}
@@ -69,14 +71,14 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 	}
 	s.connector.logger.Info(fmt.Sprintf("Created stage %s", stage))
 
-	err = s.putFileToStage(avroFile, stage)
+	err = s.putFileToStage(ctx, avroFile, stage)
 	if err != nil {
 		return 0, err
 	}
 	s.connector.logger.Info("pushed avro file to stage", tableLog)
 
 	writeHandler := NewSnowflakeAvroConsolidateHandler(s.connector, s.config, s.config.DestinationTableIdentifier, stage)
-	err = writeHandler.CopyStageToDestination()
+	err = writeHandler.CopyStageToDestination(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -87,6 +89,7 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 }
 
 func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
+	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	dstTableSchema []*sql.ColumnType,
@@ -102,12 +105,7 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 	}
 	s.connector.logger.Info("sync function called and schema acquired", partitionLog)
 
-	err = s.addMissingColumns(
-		schema,
-		dstTableSchema,
-		dstTableName,
-		partition,
-	)
+	err = s.addMissingColumns(ctx, schema, dstTableSchema, dstTableName, partition)
 	if err != nil {
 		return 0, err
 	}
@@ -117,7 +115,7 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 		return 0, err
 	}
 
-	avroFile, err := s.writeToAvroFile(stream, avroSchema, partition.PartitionId, config.FlowJobName)
+	avroFile, err := s.writeToAvroFile(ctx, stream, avroSchema, partition.PartitionId, config.FlowJobName)
 	if err != nil {
 		return 0, err
 	}
@@ -125,23 +123,24 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 
 	stage := s.connector.getStageNameForJob(config.FlowJobName)
 
-	err = s.putFileToStage(avroFile, stage)
+	err = s.putFileToStage(ctx, avroFile, stage)
 	if err != nil {
 		return 0, err
 	}
 	s.connector.logger.Info("Put file to stage in Avro sync for snowflake", partitionLog)
 
-	err = s.connector.pgMetadata.FinishQrepPartition(partition, config.FlowJobName, startTime)
+	err = s.connector.pgMetadata.FinishQrepPartition(ctx, partition, config.FlowJobName, startTime)
 	if err != nil {
 		return -1, err
 	}
 
-	activity.RecordHeartbeat(s.connector.ctx, "finished syncing records")
+	activity.RecordHeartbeat(ctx, "finished syncing records")
 
 	return avroFile.NumRecords, nil
 }
 
 func (s *SnowflakeAvroSyncHandler) addMissingColumns(
+	ctx context.Context,
 	schema *model.QRecordSchema,
 	dstTableSchema []*sql.ColumnType,
 	dstTableName string,
@@ -186,7 +185,7 @@ func (s *SnowflakeAvroSyncHandler) addMissingColumns(
 			s.connector.logger.Info(fmt.Sprintf("altering destination table %s with command `%s`",
 				dstTableName, alterTableCmd), partitionLog)
 
-			if _, err := tx.ExecContext(s.connector.ctx, alterTableCmd); err != nil {
+			if _, err := tx.ExecContext(ctx, alterTableCmd); err != nil {
 				return fmt.Errorf("failed to alter destination table: %w", err)
 			}
 		}
@@ -218,14 +217,14 @@ func (s *SnowflakeAvroSyncHandler) getAvroSchema(
 }
 
 func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
+	ctx context.Context,
 	stream *model.QRecordStream,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	partitionID string,
 	flowJobName string,
 ) (*avro.AvroFile, error) {
 	if s.config.StagingPath == "" {
-		ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema, avro.CompressZstd,
-			qvalue.QDWHTypeSnowflake)
+		ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressZstd, qvalue.QDWHTypeSnowflake)
 		tmpDir := fmt.Sprintf("%s/peerdb-avro-%s", os.TempDir(), flowJobName)
 		err := os.MkdirAll(tmpDir, os.ModePerm)
 		if err != nil {
@@ -234,15 +233,14 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 
 		localFilePath := fmt.Sprintf("%s/%s.avro.zst", tmpDir, partitionID)
 		s.connector.logger.Info("writing records to local file " + localFilePath)
-		avroFile, err := ocfWriter.WriteRecordsToAvroFile(localFilePath)
+		avroFile, err := ocfWriter.WriteRecordsToAvroFile(ctx, localFilePath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to write records to Avro file: %w", err)
 		}
 
 		return avroFile, nil
 	} else if strings.HasPrefix(s.config.StagingPath, "s3://") {
-		ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema, avro.CompressZstd,
-			qvalue.QDWHTypeSnowflake)
+		ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressZstd, qvalue.QDWHTypeSnowflake)
 		s3o, err := utils.NewS3BucketAndPrefix(s.config.StagingPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse staging path: %w", err)
@@ -251,7 +249,7 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 		s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, s.config.FlowJobName, partitionID)
 		s.connector.logger.Info("OCF: Writing records to S3",
 			slog.String(string(shared.PartitionIDKey), partitionID))
-		avroFile, err := ocfWriter.WriteRecordsToS3(s3o.Bucket, s3AvroFileKey, utils.S3PeerCredentials{})
+		avroFile, err := ocfWriter.WriteRecordsToS3(ctx, s3o.Bucket, s3AvroFileKey, utils.S3PeerCredentials{})
 		if err != nil {
 			return nil, fmt.Errorf("failed to write records to S3: %w", err)
 		}
@@ -262,21 +260,21 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 	return nil, fmt.Errorf("unsupported staging path: %s", s.config.StagingPath)
 }
 
-func (s *SnowflakeAvroSyncHandler) putFileToStage(avroFile *avro.AvroFile, stage string) error {
+func (s *SnowflakeAvroSyncHandler) putFileToStage(ctx context.Context, avroFile *avro.AvroFile, stage string) error {
 	if avroFile.StorageLocation != avro.AvroLocalStorage {
 		s.connector.logger.Info("no file to put to stage")
 		return nil
 	}
 
-	activity.RecordHeartbeat(s.connector.ctx, "putting file to stage")
+	activity.RecordHeartbeat(ctx, "putting file to stage")
 	putCmd := fmt.Sprintf("PUT file://%s @%s", avroFile.FilePath, stage)
 
-	shutdown := utils.HeartbeatRoutine(s.connector.ctx, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("putting file to stage %s", stage)
 	})
 	defer shutdown()
 
-	if _, err := s.connector.database.ExecContext(s.connector.ctx, putCmd); err != nil {
+	if _, err := s.connector.database.ExecContext(ctx, putCmd); err != nil {
 		return fmt.Errorf("failed to put file to stage: %w", err)
 	}
 

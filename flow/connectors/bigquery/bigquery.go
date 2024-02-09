@@ -182,6 +182,8 @@ func TableCheck(ctx context.Context, client *bigquery.Client, dataset string, pr
 
 // NewBigQueryConnector creates a new BigQueryConnector from a PeerConnectionConfig.
 func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*BigQueryConnector, error) {
+	logger := logger.LoggerFromCtx(ctx)
+
 	bqsa, err := NewBigQueryServiceAccount(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create BigQueryServiceAccount: %v", err)
@@ -206,13 +208,13 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 
 	_, datasetErr := client.DatasetInProject(projectID, datasetID).Metadata(ctx)
 	if datasetErr != nil {
-		slog.ErrorContext(ctx, "failed to get dataset metadata", slog.Any("error", datasetErr))
+		logger.Error("failed to get dataset metadata", "error", datasetErr)
 		return nil, fmt.Errorf("failed to get dataset metadata: %v", datasetErr)
 	}
 
 	permissionErr := TableCheck(ctx, client, datasetID, projectID)
 	if permissionErr != nil {
-		slog.ErrorContext(ctx, "failed to get run mock table check", slog.Any("error", permissionErr))
+		logger.Error("failed to get run mock table check", "error", permissionErr)
 		return nil, permissionErr
 	}
 
@@ -232,10 +234,10 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		client:        client,
 		datasetID:     datasetID,
 		projectID:     projectID,
-		pgMetadata:    metadataStore.NewPostgresMetadataStoreFromCatalog(ctx, catalogPool),
+		pgMetadata:    metadataStore.NewPostgresMetadataStoreFromCatalog(logger, catalogPool),
 		storageClient: storageClient,
 		catalogPool:   catalogPool,
-		logger:        logger.LoggerFromCtx(ctx),
+		logger:        logger,
 	}, nil
 }
 
@@ -324,19 +326,19 @@ func (c *BigQueryConnector) SetupMetadataTables() error {
 }
 
 func (c *BigQueryConnector) GetLastOffset(jobName string) (int64, error) {
-	return c.pgMetadata.FetchLastOffset(jobName)
+	return c.pgMetadata.FetchLastOffset(c.ctx, jobName)
 }
 
 func (c *BigQueryConnector) SetLastOffset(jobName string, offset int64) error {
-	return c.pgMetadata.UpdateLastOffset(jobName, offset)
+	return c.pgMetadata.UpdateLastOffset(c.ctx, jobName, offset)
 }
 
 func (c *BigQueryConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	return c.pgMetadata.GetLastBatchID(jobName)
+	return c.pgMetadata.GetLastBatchID(c.ctx, jobName)
 }
 
 func (c *BigQueryConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
-	return c.pgMetadata.GetLastNormalizeBatchID(jobName)
+	return c.pgMetadata.GetLastNormalizeBatchID(c.ctx, jobName)
 }
 
 func (c *BigQueryConnector) getDistinctTableNamesInBatch(flowJobName string, syncBatchID int64,
@@ -457,7 +459,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 		return nil, fmt.Errorf("failed to get metadata of destination table: %w", err)
 	}
 
-	res, err := avroSync.SyncRecords(req, rawTableName,
+	res, err := avroSync.SyncRecords(c.ctx, req, rawTableName,
 		rawTableMetadata, syncBatchID, streamRes.Stream, streamReq.TableMapping)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync records via avro: %w", err)
@@ -542,7 +544,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		}
 	}
 
-	err = c.pgMetadata.UpdateNormalizeBatchID(req.FlowJobName, req.SyncBatchID)
+	err = c.pgMetadata.UpdateNormalizeBatchID(c.ctx, req.FlowJobName, req.SyncBatchID)
 	if err != nil {
 		return nil, err
 	}
@@ -760,7 +762,7 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 }
 
 func (c *BigQueryConnector) SyncFlowCleanup(jobName string) error {
-	err := c.pgMetadata.DropMetadata(jobName)
+	err := c.pgMetadata.DropMetadata(c.ctx, jobName)
 	if err != nil {
 		return fmt.Errorf("unable to clear metadata for sync flow cleanup: %w", err)
 	}

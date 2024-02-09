@@ -3,7 +3,6 @@ package conns3
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -32,7 +31,8 @@ type S3Connector struct {
 	logger     log.Logger
 }
 
-func NewS3Connector(ctx context.Context,
+func NewS3Connector(
+	ctx context.Context,
 	config *protos.S3Config,
 ) (*S3Connector, error) {
 	keyID := ""
@@ -66,9 +66,10 @@ func NewS3Connector(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to create S3 client: %w", err)
 	}
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
+	logger := logger.LoggerFromCtx(ctx)
+	pgMetadata, err := metadataStore.NewPostgresMetadataStore(logger)
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to create postgres metadata store", slog.Any("error", err))
+		logger.Error("failed to create postgres metadata store", "error", err)
 		return nil, err
 	}
 	return &S3Connector{
@@ -77,7 +78,7 @@ func NewS3Connector(ctx context.Context,
 		pgMetadata: pgMetadata,
 		client:     *s3Client,
 		creds:      s3PeerCreds,
-		logger:     logger.LoggerFromCtx(ctx),
+		logger:     logger,
 	}, nil
 }
 
@@ -125,7 +126,7 @@ func ValidCheck(ctx context.Context, s3Client *s3.Client, bucketURL string, meta
 
 	// check if we can ping external metadata
 	if metadataDB != nil {
-		err := metadataDB.Ping()
+		err := metadataDB.Ping(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to ping external metadata: %w", err)
 		}
@@ -137,7 +138,7 @@ func ValidCheck(ctx context.Context, s3Client *s3.Client, bucketURL string, meta
 func (c *S3Connector) ConnectionActive() error {
 	validErr := ValidCheck(c.ctx, &c.client, c.url, c.pgMetadata)
 	if validErr != nil {
-		c.logger.Error("failed to validate s3 connector:", slog.Any("error", validErr))
+		c.logger.Error("failed to validate s3 connector:", "error", validErr)
 		return validErr
 	}
 
@@ -153,15 +154,15 @@ func (c *S3Connector) SetupMetadataTables() error {
 }
 
 func (c *S3Connector) GetLastSyncBatchID(jobName string) (int64, error) {
-	return c.pgMetadata.GetLastBatchID(jobName)
+	return c.pgMetadata.GetLastBatchID(c.ctx, jobName)
 }
 
 func (c *S3Connector) GetLastOffset(jobName string) (int64, error) {
-	return c.pgMetadata.FetchLastOffset(jobName)
+	return c.pgMetadata.FetchLastOffset(c.ctx, jobName)
 }
 
 func (c *S3Connector) SetLastOffset(jobName string, offset int64) error {
-	return c.pgMetadata.UpdateLastOffset(jobName, offset)
+	return c.pgMetadata.UpdateLastOffset(c.ctx, jobName, offset)
 }
 
 func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
@@ -190,9 +191,9 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 		return nil, fmt.Errorf("failed to get last checkpoint: %w", err)
 	}
 
-	err = c.pgMetadata.FinishBatch(req.FlowJobName, req.SyncBatchID, lastCheckpoint)
+	err = c.pgMetadata.FinishBatch(c.ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
 	if err != nil {
-		c.logger.Error("failed to increment id", slog.Any("error", err))
+		c.logger.Error("failed to increment id", "error", err)
 		return nil, err
 	}
 
@@ -218,5 +219,5 @@ func (c *S3Connector) SetupNormalizedTables(req *protos.SetupNormalizedTableBatc
 }
 
 func (c *S3Connector) SyncFlowCleanup(jobName string) error {
-	return c.pgMetadata.DropMetadata(jobName)
+	return c.pgMetadata.DropMetadata(c.ctx, jobName)
 }
