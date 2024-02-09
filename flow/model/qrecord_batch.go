@@ -194,7 +194,13 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 				return nil, src.err
 			}
 			if v == nil {
-				values[i] = nil
+				values[i] = pgtype.Numeric{
+					Int:              nil,
+					Exp:              0,
+					NaN:              true,
+					InfinityModifier: pgtype.Finite,
+					Valid:            true,
+				}
 				break
 			}
 
