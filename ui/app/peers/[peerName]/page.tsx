@@ -1,9 +1,9 @@
+import { PeerInfo } from '@/components/PeerInfo';
 import ReloadButton from '@/components/ReloadButton';
 import { PeerSlotResponse, PeerStatResponse } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 import LagGraph from './lagGraph';
-import PeerDetails from './peerDetails';
 import SlotTable from './slottable';
 import StatTable from './stattable';
 
@@ -59,10 +59,21 @@ const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
   return (
     <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-        <div style={{ fontSize: 20, fontWeight: 'bold' }}>{peerName}</div>
+        <div
+          style={{
+            fontSize: 20,
+            fontWeight: 'bold',
+            display: 'flex',
+            alignItems: 'center',
+            columnGap: '1rem',
+          }}
+        >
+          <div>{peerName}</div>
+          <PeerInfo peerName={peerName} />
+        </div>
         <ReloadButton />
       </div>
-      <PeerDetails peerName={peerName} />
+
       {slots && stats ? (
         <div>
           <SlotTable data={slots} />

@@ -49,23 +49,6 @@ export const snowflakeSetting: PeerSetting[] = [
       'https://docs.snowflake.com/en/user-guide/security-access-control-overview#roles',
   },
   {
-    label: 'Query Timeout',
-    stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, queryTimeout: parseInt(value, 10) || 30 })),
-    optional: true,
-    tips: 'This is the maximum time in seconds that a query can run before being cancelled. If not specified, the default is 30 seconds',
-    default: 30,
-  },
-  {
-    label: 'S3 Integration',
-    stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, s3Integration: value })),
-    optional: true,
-    tips: `This is needed only if you plan to run a mirror and you wish to stage AVRO files on S3.`,
-    helpfulLink:
-      'https://docs.snowflake.com/en/user-guide/data-load-s3-config-storage-integration',
-  },
-  {
     label: 'Password',
     stateHandler: (value, setter) => {
       if (!value.length) {

@@ -1,11 +1,10 @@
 'use client';
+import ConfigJSONView from '@/components/ConfigJSONView';
 import { DropDialog } from '@/components/DropDialog';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
-import Editor from '@monaco-editor/react';
-import { editor } from 'monaco-editor';
 import Image from 'next/image';
 import React, { useState } from 'react';
 import { PulseLoader } from 'react-spinners';
@@ -13,18 +12,6 @@ import useSWR from 'swr';
 import { UAlertConfigResponse } from '../dto/AlertDTO';
 import { fetcher } from '../utils/swr';
 import NewAlertConfig from './new';
-
-const options: editor.IStandaloneEditorConstructionOptions = {
-  readOnly: true,
-  minimap: { enabled: false },
-  fontSize: 14,
-  lineNumbers: 'off',
-  scrollBeyondLastLine: false,
-};
-
-export const ConfigJSONView = ({ config }: { config: string }) => {
-  return <Editor options={options} value={config} language='json' />;
-};
 
 const ServiceIcon = (serviceType: string) => {
   switch (serviceType.toLowerCase()) {
