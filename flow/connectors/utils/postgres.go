@@ -23,7 +23,7 @@ func GetPGConnectionString(pgConfig *protos.PostgresConfig) string {
 	passwordEscaped := url.QueryEscape(pgConfig.Password)
 	// for a url like postgres://user:password@host:port/dbname
 	connString := fmt.Sprintf(
-		"postgres://%s:%s@%s:%d/%s",
+		"postgres://%s:%s@%s:%d/%s?application_name=peerdb&client_encoding=UTF8",
 		pgConfig.User,
 		passwordEscaped,
 		pgConfig.Host,
