@@ -125,11 +125,7 @@ export function QRepFlows({
   );
 
   if (mirrors.length === 0) {
-    return (
-      <>
-        <Label variant='headline'>{title}: None</Label>
-      </>
-    );
+    return <Label variant='headline'>{title}: None</Label>;
   }
 
   return (
