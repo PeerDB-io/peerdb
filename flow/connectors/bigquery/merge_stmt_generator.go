@@ -177,20 +177,6 @@ func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) s
 		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
 }
 
-func (m *mergeStmtGenerator) generateMergeStmts(allUnchangedToastColas []string) []string {
-	// TODO (kaushik): This is so that the statement size for individual merge statements
-	// doesn't exceed the limit. We should make this configurable.
-	const batchSize = 8
-	partitions := utils.ArrayChunks(allUnchangedToastColas, batchSize)
-
-	mergeStmts := make([]string, 0, len(partitions))
-	for _, partition := range partitions {
-		mergeStmts = append(mergeStmts, m.generateMergeStmt(partition))
-	}
-
-	return mergeStmts
-}
-
 /*
 This function takes an array of unique unchanged toast column groups and an array of all column names,
 and returns suitable UPDATE statements as part of a MERGE operation.

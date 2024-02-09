@@ -18,17 +18,23 @@ func ArrayMinus[T comparable](first, second []T) []T {
 	return result
 }
 
-func ArrayChunks[T any](slice []T, size int) [][]T {
-	var partitions [][]T
-
-	for size < len(slice) {
-		slice, partitions = slice[size:], append(partitions, slice[0:size])
+// Call f with subslices of slice. An empty slice will call f once with nil.
+func ArrayIterChunks[T any](slice []T, size int, f func(chunk []T) error) error {
+	if len(slice) == 0 {
+		return f(nil)
 	}
-
-	// Add the last remaining values
-	partitions = append(partitions, slice)
-
-	return partitions
+	if size <= 0 {
+		return nil
+	}
+	lo := 0
+	for lo < len(slice) {
+		hi := min(lo+size, len(slice))
+		if err := f(slice[lo:hi:hi]); err != nil {
+			return err
+		}
+		lo = hi
+	}
+	return nil
 }
 
 func ArraysHaveOverlap[T comparable](first, second []T) bool {
