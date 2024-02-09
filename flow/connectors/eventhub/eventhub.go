@@ -32,18 +32,17 @@ func NewEventHubConnector(
 	ctx context.Context,
 	config *protos.EventHubGroupConfig,
 ) (*EventHubConnector, error) {
+	logger := logger.LoggerFromCtx(ctx)
 	defaultAzureCreds, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to get default azure credentials",
-			slog.Any("error", err))
+		logger.Error("failed to get default azure credentials", "error", err)
 		return nil, err
 	}
 
 	hubManager := NewEventHubManager(defaultAzureCreds, config)
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
+	pgMetadata, err := metadataStore.NewPostgresMetadataStore(logger)
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to create postgres metadata store",
-			slog.Any("error", err))
+		logger.Error("failed to create postgres metadata store", "error", err)
 		return nil, err
 	}
 
@@ -53,7 +52,6 @@ func NewEventHubConnector(
 		pgMetadata: pgMetadata,
 		creds:      defaultAzureCreds,
 		hubManager: hubManager,
-		logger:     logger.LoggerFromCtx(ctx),
 	}, nil
 }
 
@@ -80,15 +78,15 @@ func (c *EventHubConnector) SetupMetadataTables() error {
 }
 
 func (c *EventHubConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	return c.pgMetadata.GetLastBatchID(jobName)
+	return c.pgMetadata.GetLastBatchID(c.ctx, jobName)
 }
 
 func (c *EventHubConnector) GetLastOffset(jobName string) (int64, error) {
-	return c.pgMetadata.FetchLastOffset(jobName)
+	return c.pgMetadata.FetchLastOffset(c.ctx, jobName)
 }
 
 func (c *EventHubConnector) SetLastOffset(jobName string, offset int64) error {
-	err := c.pgMetadata.UpdateLastOffset(jobName, offset)
+	err := c.pgMetadata.UpdateLastOffset(c.ctx, jobName, offset)
 	if err != nil {
 		c.logger.Error(fmt.Sprintf("failed to update last offset: %v", err))
 		return err
@@ -218,7 +216,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		return nil, err
 	}
 
-	err = c.pgMetadata.FinishBatch(req.FlowJobName, req.SyncBatchID, lastCheckpoint)
+	err = c.pgMetadata.FinishBatch(c.ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
 	if err != nil {
 		c.logger.Error("failed to increment id", slog.Any("error", err))
 		return nil, err
@@ -276,5 +274,5 @@ func (c *EventHubConnector) SetupNormalizedTables(
 }
 
 func (c *EventHubConnector) SyncFlowCleanup(jobName string) error {
-	return c.pgMetadata.DropMetadata(jobName)
+	return c.pgMetadata.DropMetadata(c.ctx, jobName)
 }

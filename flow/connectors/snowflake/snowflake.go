@@ -116,7 +116,7 @@ func TableCheck(ctx context.Context, database *sql.DB) error {
 		deferErr := tx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
 			logger.LoggerFromCtx(ctx).Error("error while rolling back transaction for table check",
-				slog.Any("error", deferErr))
+				"error", deferErr)
 		}
 	}()
 
@@ -159,9 +159,11 @@ func TableCheck(ctx context.Context, database *sql.DB) error {
 	return nil
 }
 
-func NewSnowflakeConnector(ctx context.Context,
+func NewSnowflakeConnector(
+	ctx context.Context,
 	snowflakeProtoConfig *protos.SnowflakeConfig,
 ) (*SnowflakeConnector, error) {
+	logger := logger.LoggerFromCtx(ctx)
 	PrivateKeyRSA, err := shared.DecodePKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey),
 		snowflakeProtoConfig.Password)
 	if err != nil {
@@ -205,7 +207,7 @@ func NewSnowflakeConnector(ctx context.Context,
 		rawSchema = *snowflakeProtoConfig.MetadataSchema
 	}
 
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
+	pgMetadata, err := metadataStore.NewPostgresMetadataStore(logger)
 	if err != nil {
 		return nil, fmt.Errorf("could not connect to metadata store: %w", err)
 	}
@@ -215,7 +217,7 @@ func NewSnowflakeConnector(ctx context.Context,
 		database:   database,
 		pgMetadata: pgMetadata,
 		rawSchema:  rawSchema,
-		logger:     logger.LoggerFromCtx(ctx),
+		logger:     logger,
 	}, nil
 }
 
@@ -250,19 +252,19 @@ func (c *SnowflakeConnector) SetupMetadataTables() error {
 }
 
 func (c *SnowflakeConnector) GetLastOffset(jobName string) (int64, error) {
-	return c.pgMetadata.FetchLastOffset(jobName)
+	return c.pgMetadata.FetchLastOffset(c.ctx, jobName)
 }
 
 func (c *SnowflakeConnector) SetLastOffset(jobName string, offset int64) error {
-	return c.pgMetadata.UpdateLastOffset(jobName, offset)
+	return c.pgMetadata.UpdateLastOffset(c.ctx, jobName, offset)
 }
 
 func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	return c.pgMetadata.GetLastBatchID(jobName)
+	return c.pgMetadata.GetLastBatchID(c.ctx, jobName)
 }
 
 func (c *SnowflakeConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
-	return c.pgMetadata.GetLastNormalizeBatchID(jobName)
+	return c.pgMetadata.GetLastNormalizeBatchID(c.ctx, jobName)
 }
 
 func (c *SnowflakeConnector) getDistinctTableNamesInBatch(flowJobName string, syncBatchID int64,
@@ -373,7 +375,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
 	defer func() {
 		deferErr := tableSchemaModifyTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Error("error rolling back transaction for table schema modification", slog.Any("error", deferErr))
+			c.logger.Error("error rolling back transaction for table schema modification", "error", deferErr)
 		}
 	}()
 
@@ -397,8 +399,8 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
 			}
 			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName,
 				addedColumn.ColumnType),
-				slog.String("destination table name", schemaDelta.DstTableName),
-				slog.String("source table name", schemaDelta.SrcTableName))
+				"destination table name", schemaDelta.DstTableName,
+				"source table name", schemaDelta.SrcTableName)
 		}
 	}
 
@@ -420,7 +422,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 		return nil, err
 	}
 
-	err = c.pgMetadata.FinishBatch(req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpointID)
+	err = c.pgMetadata.FinishBatch(c.ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpointID)
 	if err != nil {
 		return nil, err
 	}
@@ -452,7 +454,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		return nil, err
 	}
 
-	numRecords, err := avroSyncer.SyncRecords(destinationTableSchema, streamRes.Stream, req.FlowJobName)
+	numRecords, err := avroSyncer.SyncRecords(c.ctx, destinationTableSchema, streamRes.Stream, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
@@ -533,7 +535,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 			}
 
 			startTime := time.Now()
-			c.logger.Info("[merge] merging records...", slog.String("destTable", tableName))
+			c.logger.Info("[merge] merging records...", "destTable", tableName)
 
 			result, err := c.database.ExecContext(gCtx, mergeStatement, tableName)
 			if err != nil {
@@ -545,7 +547,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 			c.logger.Info(fmt.Sprintf("[merge] merged records into %s, took: %d seconds",
 				tableName, endTime.Sub(startTime)/time.Second))
 			if err != nil {
-				c.logger.Error("[merge] error while normalizing records", slog.Any("error", err))
+				c.logger.Error("[merge] error while normalizing records", "error", err)
 				return err
 			}
 
@@ -563,7 +565,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 		return nil, fmt.Errorf("error while normalizing records: %w", err)
 	}
 
-	err = c.pgMetadata.UpdateNormalizeBatchID(req.FlowJobName, req.SyncBatchID)
+	err = c.pgMetadata.UpdateNormalizeBatchID(c.ctx, req.FlowJobName, req.SyncBatchID)
 	if err != nil {
 		return nil, err
 	}
@@ -610,7 +612,7 @@ func (c *SnowflakeConnector) CreateRawTable(req *protos.CreateRawTableInput) (*p
 }
 
 func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
-	err := c.pgMetadata.DropMetadata(jobName)
+	err := c.pgMetadata.DropMetadata(c.ctx, jobName)
 	if err != nil {
 		return fmt.Errorf("unable to clear metadata for sync flow cleanup: %w", err)
 	}
@@ -622,7 +624,7 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 	defer func() {
 		deferErr := syncFlowCleanupTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Error("error while rolling back transaction for flow cleanup", slog.Any("error", deferErr))
+			c.logger.Error("error while rolling back transaction for flow cleanup", "error", deferErr)
 		}
 	}()
 
@@ -715,7 +717,7 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 	defer func() {
 		deferErr := renameTablesTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Error("error rolling back transaction for renaming tables", slog.Any("error", err))
+			c.logger.Error("error rolling back transaction for renaming tables", "error", err)
 		}
 	}()
 
@@ -807,7 +809,7 @@ func (c *SnowflakeConnector) CreateTablesFromExisting(req *protos.CreateTablesFr
 	defer func() {
 		deferErr := createTablesFromExistingTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Info("error rolling back transaction for creating tables", slog.Any("error", err))
+			c.logger.Info("error rolling back transaction for creating tables", "error", err)
 		}
 	}()
 

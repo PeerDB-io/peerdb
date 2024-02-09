@@ -1,6 +1,7 @@
 package connsnowflake
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -35,7 +36,7 @@ func NewSnowflakeAvroConsolidateHandler(
 	}
 }
 
-func (s *SnowflakeAvroConsolidateHandler) CopyStageToDestination() error {
+func (s *SnowflakeAvroConsolidateHandler) CopyStageToDestination(ctx context.Context) error {
 	s.connector.logger.Info("Copying stage to destination " + s.dstTableName)
 
 	colNames, colTypes, colsErr := s.connector.getColsFromTable(s.dstTableName)
@@ -54,12 +55,12 @@ func (s *SnowflakeAvroConsolidateHandler) CopyStageToDestination() error {
 	}
 
 	if appendMode {
-		err := s.handleAppendMode()
+		err := s.handleAppendMode(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to handle append mode: %w", err)
 		}
 	} else {
-		err := s.handleUpsertMode()
+		err := s.handleUpsertMode(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to handle upsert mode: %w", err)
 		}
@@ -127,11 +128,11 @@ func (s *SnowflakeAvroConsolidateHandler) getCopyTransformation(copyDstTable str
 		copyDstTable, columnsSQL, transformationSQL, s.stage, strings.Join(copyOpts, ","))
 }
 
-func (s *SnowflakeAvroConsolidateHandler) handleAppendMode() error {
+func (s *SnowflakeAvroConsolidateHandler) handleAppendMode(ctx context.Context) error {
 	parsedDstTable, _ := utils.ParseSchemaTable(s.dstTableName)
 	copyCmd := s.getCopyTransformation(snowflakeSchemaTableNormalize(parsedDstTable))
 	s.connector.logger.Info("running copy command: " + copyCmd)
-	_, err := s.connector.database.ExecContext(s.connector.ctx, copyCmd)
+	_, err := s.connector.database.ExecContext(ctx, copyCmd)
 	if err != nil {
 		return fmt.Errorf("failed to run COPY INTO command: %w", err)
 	}
@@ -195,7 +196,7 @@ func (s *SnowflakeAvroConsolidateHandler) generateUpsertMergeCommand(
 }
 
 // handleUpsertMode handles the upsert mode
-func (s *SnowflakeAvroConsolidateHandler) handleUpsertMode() error {
+func (s *SnowflakeAvroConsolidateHandler) handleUpsertMode(ctx context.Context) error {
 	runID, err := shared.RandomUInt64()
 	if err != nil {
 		return fmt.Errorf("failed to generate run ID: %w", err)
@@ -206,13 +207,13 @@ func (s *SnowflakeAvroConsolidateHandler) handleUpsertMode() error {
 	//nolint:gosec
 	createTempTableCmd := fmt.Sprintf("CREATE TEMPORARY TABLE %s AS SELECT * FROM %s LIMIT 0",
 		tempTableName, s.dstTableName)
-	if _, err := s.connector.database.ExecContext(s.connector.ctx, createTempTableCmd); err != nil {
+	if _, err := s.connector.database.ExecContext(ctx, createTempTableCmd); err != nil {
 		return fmt.Errorf("failed to create temp table: %w", err)
 	}
 	s.connector.logger.Info("created temp table " + tempTableName)
 
 	copyCmd := s.getCopyTransformation(tempTableName)
-	_, err = s.connector.database.ExecContext(s.connector.ctx, copyCmd)
+	_, err = s.connector.database.ExecContext(ctx, copyCmd)
 	if err != nil {
 		return fmt.Errorf("failed to run COPY INTO command: %w", err)
 	}
@@ -221,7 +222,7 @@ func (s *SnowflakeAvroConsolidateHandler) handleUpsertMode() error {
 	mergeCmd := s.generateUpsertMergeCommand(tempTableName)
 
 	startTime := time.Now()
-	rows, err := s.connector.database.ExecContext(s.connector.ctx, mergeCmd)
+	rows, err := s.connector.database.ExecContext(ctx, mergeCmd)
 	if err != nil {
 		return fmt.Errorf("failed to merge data into destination table '%s': %w", mergeCmd, err)
 	}

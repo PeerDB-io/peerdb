@@ -106,7 +106,7 @@ func generateCreateTableSQLForNormalizedTable(
 func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
 	normBatchID, err := c.GetLastNormalizeBatchID(req.FlowJobName)
 	if err != nil {
-		c.logger.ErrorContext(c.ctx, "[clickhouse] error while getting last sync and normalize batch id", err)
+		c.logger.Error("[clickhouse] error while getting last sync and normalize batch id", "error", err)
 		return nil, err
 	}
 
@@ -125,7 +125,7 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 		normBatchID,
 	)
 	if err != nil {
-		c.logger.ErrorContext(c.ctx, "[clickhouse] error while getting distinct table names in batch", err)
+		c.logger.Error("[clickhouse] error while getting distinct table names in batch", "error", err)
 		return nil, err
 	}
 
@@ -190,7 +190,7 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 		insertIntoSelectQuery.WriteString(selectQuery.String())
 
 		q := insertIntoSelectQuery.String()
-		c.logger.InfoContext(c.ctx, fmt.Sprintf("[clickhouse] insert into select query %s", q))
+		c.logger.Info(fmt.Sprintf("[clickhouse] insert into select query %s", q))
 
 		_, err = c.database.ExecContext(c.ctx, q)
 		if err != nil {
@@ -199,9 +199,9 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 	}
 
 	endNormalizeBatchId := normBatchID + 1
-	err = c.pgMetadata.UpdateNormalizeBatchID(req.FlowJobName, endNormalizeBatchId)
+	err = c.pgMetadata.UpdateNormalizeBatchID(c.ctx, req.FlowJobName, endNormalizeBatchId)
 	if err != nil {
-		c.logger.ErrorContext(c.ctx, "[clickhouse] error while updating normalize batch id", err)
+		c.logger.Error("[clickhouse] error while updating normalize batch id", "error", err)
 		return nil, err
 	}
 
@@ -253,7 +253,7 @@ func (c *ClickhouseConnector) getDistinctTableNamesInBatch(
 }
 
 func (c *ClickhouseConnector) GetLastNormalizeBatchID(flowJobName string) (int64, error) {
-	normalizeBatchID, err := c.pgMetadata.GetLastNormalizeBatchID(flowJobName)
+	normalizeBatchID, err := c.pgMetadata.GetLastNormalizeBatchID(c.ctx, flowJobName)
 	if err != nil {
 		return 0, fmt.Errorf("error while getting last normalize batch id: %w", err)
 	}

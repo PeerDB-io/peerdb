@@ -477,7 +477,7 @@ func (c *PostgresConnector) SyncQRepRecords(
 	c.logger.Info("SyncRecords called and initial checks complete.")
 
 	stagingTableSync := &QRepStagingTableSync{connector: c}
-	return stagingTableSync.SyncQRepRecords(
+	return stagingTableSync.SyncQRepRecords(c.ctx,
 		config.FlowJobName, dstTable, partition, stream,
 		config.WriteMode, config.SyncedAtColName)
 }

@@ -30,6 +30,7 @@ type QRepStagingTableSync struct {
 }
 
 func (s *QRepStagingTableSync) SyncQRepRecords(
+	ctx context.Context,
 	flowJobName string,
 	dstTableName *utils.SchemaTable,
 	partition *protos.QRepPartition,
@@ -51,19 +52,19 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	}
 
 	txConfig := s.connector.conn.Config()
-	txConn, err := pgx.ConnectConfig(s.connector.ctx, txConfig)
+	txConn, err := pgx.ConnectConfig(ctx, txConfig)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create tx pool: %w", err)
 	}
-	defer txConn.Close(s.connector.ctx)
+	defer txConn.Close(ctx)
 
-	err = utils.RegisterHStore(s.connector.ctx, txConn)
+	err = utils.RegisterHStore(ctx, txConn)
 	if err != nil {
 		return 0, fmt.Errorf("failed to register hstore: %w", err)
 	}
 
 	// Second transaction - to handle rest of the processing
-	tx, err := txConn.Begin(s.connector.ctx)
+	tx, err := txConn.Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}

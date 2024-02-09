@@ -4,16 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log/slog"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	conns3 "github.com/PeerDB-io/peer-flow/connectors/s3"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peer-flow/logger"
 )
 
 type ClickhouseConnector struct {
@@ -21,7 +21,7 @@ type ClickhouseConnector struct {
 	database           *sql.DB
 	pgMetadata         *metadataStore.PostgresMetadataStore
 	tableSchemaMapping map[string]*protos.TableSchema
-	logger             slog.Logger
+	logger             log.Logger
 	config             *protos.ClickhouseConfig
 	creds              utils.S3PeerCredentials
 }
@@ -41,17 +41,19 @@ func ValidateS3(ctx context.Context, bucketUrl string, creds utils.S3PeerCredent
 	return nil
 }
 
-func NewClickhouseConnector(ctx context.Context,
+func NewClickhouseConnector(
+	ctx context.Context,
 	config *protos.ClickhouseConfig,
 ) (*ClickhouseConnector, error) {
+	logger := logger.LoggerFromCtx(ctx)
 	database, err := connect(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open connection to Clickhouse peer: %w", err)
 	}
 
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
+	pgMetadata, err := metadataStore.NewPostgresMetadataStore(logger)
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to create postgres metadata store", slog.Any("error", err))
+		logger.Error("failed to create postgres metadata store", "error", err)
 		return nil, err
 	}
 
@@ -66,15 +68,14 @@ func NewClickhouseConnector(ctx context.Context,
 		return nil, fmt.Errorf("failed to validate S3 bucket: %w", validateErr)
 	}
 
-	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &ClickhouseConnector{
 		ctx:                ctx,
 		database:           database,
 		pgMetadata:         pgMetadata,
 		tableSchemaMapping: nil,
-		logger:             *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 		config:             config,
 		creds:              s3PeerCreds,
+		logger:             logger,
 	}, nil
 }
 
