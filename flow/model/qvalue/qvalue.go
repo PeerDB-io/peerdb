@@ -227,6 +227,10 @@ func compareNumeric(value1, value2 interface{}) bool {
 		return false
 	}
 
+	if rat1 == nil && rat2 == nil {
+		return true
+	}
+
 	return rat1.Cmp(rat2) == 0
 }
 
