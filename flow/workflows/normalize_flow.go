@@ -1,7 +1,6 @@
 package peerflow
 
 import (
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -15,10 +14,8 @@ import (
 
 func NormalizeFlowWorkflow(ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
-	options *protos.NormalizeFlowOptions,
 ) (*model.NormalizeFlowResponse, error) {
 	logger := workflow.GetLogger(ctx)
-	tableNameSchemaMapping := options.TableNameSchemaMapping
 
 	normalizeFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 7 * 24 * time.Hour,
@@ -28,12 +25,13 @@ func NormalizeFlowWorkflow(ctx workflow.Context,
 	results := make([]model.NormalizeResponse, 0, 4)
 	errors := make([]string, 0)
 	syncChan := workflow.GetSignalChannel(ctx, shared.NormalizeSyncSignalName)
+	var tableNameSchemaMapping map[string]*protos.TableSchema
 
 	var stopLoop, canceled bool
 	var lastSyncBatchID, syncBatchID int64
 	lastSyncBatchID = -1
 	syncBatchID = -1
-	selector := workflow.NewNamedSelector(ctx, fmt.Sprintf("%s-normalize", config.FlowJobName))
+	selector := workflow.NewNamedSelector(ctx, config.FlowJobName+"-normalize")
 	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
 		canceled = true
 	})
@@ -46,9 +44,7 @@ func NormalizeFlowWorkflow(ctx workflow.Context,
 		if s.SyncBatchID > syncBatchID {
 			syncBatchID = s.SyncBatchID
 		}
-		if len(s.TableNameSchemaMapping) != 0 {
-			tableNameSchemaMapping = s.TableNameSchemaMapping
-		}
+		tableNameSchemaMapping = s.TableNameSchemaMapping
 	})
 	for !stopLoop {
 		selector.Select(ctx)
