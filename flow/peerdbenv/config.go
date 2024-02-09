@@ -51,9 +51,9 @@ func PeerDBCDCDiskSpillMemPercentThreshold() int {
 	return getEnvInt("PEERDB_CDC_DISK_SPILL_MEM_PERCENT_THRESHOLD", -1)
 }
 
-// PEERDB_FLOW_WORKER_MAX_MEM_BYTES, 0 means no maximum
+// GOMEMLIMIT is a variable internal to Golang itself, we use this for internal targets, 0 means no maximum
 func PeerDBFlowWorkerMaxMemBytes() uint64 {
-	return getEnvUint[uint64]("PEERDB_FLOW_WORKER_MAX_MEM_BYTES", 0)
+	return getEnvUint[uint64]("GOMEMLIMIT", 0)
 }
 
 // PEERDB_CATALOG_HOST

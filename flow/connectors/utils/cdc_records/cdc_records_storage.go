@@ -85,7 +85,7 @@ func (c *cdcRecordsStore) initPebbleDB() error {
 	return nil
 }
 
-func (c *cdcRecordsStore) thresholdsExceeded() bool {
+func (c *cdcRecordsStore) diskSpillThresholdsExceeded() bool {
 	if len(c.inMemoryRecords) >= c.numRecordsSwitchThreshold {
 		c.thresholdReason = fmt.Sprintf("more than %d primary keys read, spilling to disk",
 			c.numRecordsSwitchThreshold)
@@ -106,7 +106,7 @@ func (c *cdcRecordsStore) thresholdsExceeded() bool {
 func (c *cdcRecordsStore) Set(key *model.TableWithPkey, rec model.Record) error {
 	if key != nil {
 		_, ok := c.inMemoryRecords[*key]
-		if ok || !c.thresholdsExceeded() {
+		if ok || !c.diskSpillThresholdsExceeded() {
 			c.inMemoryRecords[*key] = rec
 		} else {
 			if c.pebbleDB == nil {
