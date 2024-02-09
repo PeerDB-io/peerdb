@@ -106,10 +106,6 @@ message SyncFlowOptions {
   repeated TableMapping table_mappings = 6;
 }
 
-message NormalizeFlowOptions {
-  map<string, TableSchema> table_name_schema_mapping = 1;
-}
-
 message LastSyncState {
   int64 checkpoint = 1;
 }

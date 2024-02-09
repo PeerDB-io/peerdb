@@ -29,7 +29,7 @@ type CDCFlowWorkflowState struct {
 	Progress []string
 	// Accumulates status for sync flows spawned.
 	SyncFlowStatuses []*model.SyncResponse
-	// Accumulates status for sync flows spawned.
+	// Accumulates status for normalize flows spawned.
 	NormalizeFlowStatuses []model.NormalizeResponse
 	// Current signalled state of the peer flow.
 	ActiveSignal shared.CDCFlowSignal
@@ -48,8 +48,6 @@ type CDCFlowWorkflowState struct {
 	FlowConfigUpdates []*protos.CDCFlowConfigUpdate
 	// options passed to all SyncFlows
 	SyncFlowOptions *protos.SyncFlowOptions
-	// options passed to all NormalizeFlows
-	NormalizeFlowOptions *protos.NormalizeFlowOptions
 	// initially copied from config, all changes are made here though
 	TableMappings []*protos.TableMapping
 }
@@ -61,8 +59,9 @@ func NewCDCFlowWorkflowState(cfgTableMappings []*protos.TableMapping) *CDCFlowWo
 		tableMappings = append(tableMappings, proto.Clone(tableMapping).(*protos.TableMapping))
 	}
 	return &CDCFlowWorkflowState{
-		Progress:              []string{"started"},
-		SyncFlowStatuses:      nil,
+		Progress: []string{"started"},
+		// 1 more than the limit of 10
+		SyncFlowStatuses:      make([]*model.SyncResponse, 0, 11),
 		NormalizeFlowStatuses: nil,
 		ActiveSignal:          shared.NoopSignal,
 		SyncFlowErrors:        nil,
@@ -79,7 +78,6 @@ func NewCDCFlowWorkflowState(cfgTableMappings []*protos.TableMapping) *CDCFlowWo
 		TableNameSchemaMapping: nil,
 		FlowConfigUpdates:      nil,
 		SyncFlowOptions:        nil,
-		NormalizeFlowOptions:   nil,
 		TableMappings:          tableMappings,
 	}
 }
@@ -262,7 +260,7 @@ func CDCFlowWorkflowWithConfig(
 		if cfg.Resync {
 			for _, mapping := range state.TableMappings {
 				oldName := mapping.DestinationTableIdentifier
-				newName := fmt.Sprintf("%s_resync", oldName)
+				newName := oldName + "_resync"
 				mapping.DestinationTableIdentifier = newName
 			}
 		}
@@ -373,11 +371,6 @@ func CDCFlowWorkflowWithConfig(
 			TableMappings:          state.TableMappings,
 		}
 	}
-	if state.NormalizeFlowOptions == nil {
-		state.NormalizeFlowOptions = &protos.NormalizeFlowOptions{
-			TableNameSchemaMapping: state.TableNameSchemaMapping,
-		}
-	}
 
 	currentSyncFlowNum := 0
 	totalRecordsSynced := int64(0)
@@ -401,7 +394,6 @@ func CDCFlowWorkflowWithConfig(
 		normCtx,
 		NormalizeFlowWorkflow,
 		cfg,
-		state.NormalizeFlowOptions,
 	)
 
 	var normWaitChan workflow.ReceiveChannel
