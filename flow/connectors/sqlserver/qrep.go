@@ -2,6 +2,7 @@ package connsqlserver
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log/slog"
 	"text/template"
@@ -16,7 +17,7 @@ import (
 )
 
 func (c *SQLServerConnector) GetQRepPartitions(
-	config *protos.QRepConfig, last *protos.QRepPartition,
+	ctx context.Context, config *protos.QRepConfig, last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
 	if config.WatermarkTable == "" {
 		c.logger.Info("watermark table is empty, doing full table refresh")
@@ -70,7 +71,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 			}
 		}
 	} else {
-		row := c.db.QueryRow(countQuery)
+		row := c.db.QueryRowContext(ctx, countQuery)
 		if err = row.Scan(&totalRows); err != nil {
 			return nil, fmt.Errorf("failed to query for total rows: %w", err)
 		}
@@ -151,7 +152,9 @@ func (c *SQLServerConnector) GetQRepPartitions(
 }
 
 func (c *SQLServerConnector) PullQRepRecords(
-	config *protos.QRepConfig, partition *protos.QRepPartition,
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
 ) (*model.QRecordBatch, error) {
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
@@ -162,7 +165,7 @@ func (c *SQLServerConnector) PullQRepRecords(
 
 	if partition.FullTablePartition {
 		// this is a full table partition, so just run the query
-		return c.ExecuteAndProcessQuery(query)
+		return c.ExecuteAndProcessQuery(ctx, query)
 	}
 
 	var rangeStart interface{}
@@ -185,7 +188,7 @@ func (c *SQLServerConnector) PullQRepRecords(
 		"endRange":   rangeEnd,
 	}
 
-	return c.NamedExecuteAndProcessQuery(query, rangeParams)
+	return c.NamedExecuteAndProcessQuery(ctx, query, rangeParams)
 }
 
 func BuildQuery(query string) (string, error) {

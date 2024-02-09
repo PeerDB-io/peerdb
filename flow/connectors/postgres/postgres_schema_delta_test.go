@@ -63,7 +63,7 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
 	require.NoError(s.t, err)
 
-	err = s.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
+	err = s.connector.ReplayTableSchemaDeltas(context.Background(), "schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: []*protos.DeltaAddedColumn{{
@@ -73,7 +73,7 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+	output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
 	})
 	require.NoError(s.t, err)
@@ -116,14 +116,14 @@ func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 		}
 	}
 
-	err = s.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
+	err = s.connector.ReplayTableSchemaDeltas(context.Background(), "schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+	output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
 	})
 	require.NoError(s.t, err)
@@ -151,14 +151,14 @@ func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 		}
 	}
 
-	err = s.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
+	err = s.connector.ReplayTableSchemaDeltas(context.Background(), "schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+	output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
 	})
 	require.NoError(s.t, err)
@@ -186,14 +186,14 @@ func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 		}
 	}
 
-	err = s.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
+	err = s.connector.ReplayTableSchemaDeltas(context.Background(), "schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+	output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
 	})
 	require.NoError(s.t, err)
@@ -216,9 +216,9 @@ func TestPostgresSchemaDeltaTestSuite(t *testing.T) {
 		err = teardownTx.Commit(context.Background())
 		require.NoError(s.t, err)
 
-		require.NoError(s.t, s.connector.ConnectionActive())
-		err = s.connector.Close()
+		require.NoError(s.t, s.connector.ConnectionActive(context.Background()))
+		err = s.connector.Close(context.Background())
 		require.NoError(s.t, err)
-		require.Error(s.t, s.connector.ConnectionActive())
+		require.Error(s.t, s.connector.ConnectionActive(context.Background()))
 	})
 }

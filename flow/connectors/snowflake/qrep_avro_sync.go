@@ -65,7 +65,7 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 	s.connector.logger.Info(fmt.Sprintf("written %d records to Avro file", avroFile.NumRecords), tableLog)
 
 	stage := s.connector.getStageNameForJob(s.config.FlowJobName)
-	err = s.connector.createStage(stage, s.config)
+	err = s.connector.createStage(ctx, stage, s.config)
 	if err != nil {
 		return 0, err
 	}

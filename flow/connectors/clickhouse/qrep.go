@@ -1,6 +1,7 @@
 package connclickhouse
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -20,6 +21,7 @@ import (
 const qRepMetadataTableName = "_peerdb_query_replication_metadata"
 
 func (c *ClickhouseConnector) SyncQRepRecords(
+	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
@@ -31,7 +33,7 @@ func (c *ClickhouseConnector) SyncQRepRecords(
 		slog.String("destinationTable", destTable),
 	)
 
-	done, err := c.isPartitionSynced(partition.PartitionId)
+	done, err := c.isPartitionSynced(ctx, partition.PartitionId)
 	if err != nil {
 		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
 	}
@@ -49,7 +51,7 @@ func (c *ClickhouseConnector) SyncQRepRecords(
 
 	avroSync := NewClickhouseAvroSyncMethod(config, c)
 
-	return avroSync.SyncQRepRecords(c.ctx, config, partition, tblSchema, stream)
+	return avroSync.SyncQRepRecords(ctx, config, partition, tblSchema, stream)
 }
 
 func (c *ClickhouseConnector) createMetadataInsertStatement(
@@ -94,11 +96,11 @@ func (c *ClickhouseConnector) getTableSchema(tableName string) ([]*sql.ColumnTyp
 	return columnTypes, nil
 }
 
-func (c *ClickhouseConnector) isPartitionSynced(partitionID string) (bool, error) {
+func (c *ClickhouseConnector) isPartitionSynced(ctx context.Context, partitionID string) (bool, error) {
 	//nolint:gosec
 	queryString := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE partitionID = '%s'`, qRepMetadataTableName, partitionID)
 
-	row := c.database.QueryRow(queryString)
+	row := c.database.QueryRowContext(ctx, queryString)
 
 	var count int
 	if err := row.Scan(&count); err != nil {
@@ -107,14 +109,14 @@ func (c *ClickhouseConnector) isPartitionSynced(partitionID string) (bool, error
 	return count > 0, nil
 }
 
-func (c *ClickhouseConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
-	err := c.createQRepMetadataTable()
+func (c *ClickhouseConnector) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {
+	err := c.createQRepMetadataTable(ctx)
 	if err != nil {
 		return err
 	}
 
 	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		_, err = c.database.Exec(fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
+		_, err = c.database.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
 		if err != nil {
 			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
 		}
@@ -123,7 +125,7 @@ func (c *ClickhouseConnector) SetupQRepMetadataTables(config *protos.QRepConfig)
 	return nil
 }
 
-func (c *ClickhouseConnector) createQRepMetadataTable() error {
+func (c *ClickhouseConnector) createQRepMetadataTable(ctx context.Context) error {
 	// Define the schema
 	schemaStatement := `
 	CREATE TABLE IF NOT EXISTS %s (
@@ -136,7 +138,7 @@ func (c *ClickhouseConnector) createQRepMetadataTable() error {
 		ORDER BY partitionID;
 	`
 	queryString := fmt.Sprintf(schemaStatement, qRepMetadataTableName)
-	_, err := c.database.Exec(queryString)
+	_, err := c.database.ExecContext(ctx, queryString)
 	if err != nil {
 		c.logger.Error(fmt.Sprintf("failed to create table %s", qRepMetadataTableName),
 			slog.Any("error", err))
@@ -147,19 +149,19 @@ func (c *ClickhouseConnector) createQRepMetadataTable() error {
 	return nil
 }
 
-func (c *ClickhouseConnector) ConsolidateQRepPartitions(config *protos.QRepConfig) error {
+func (c *ClickhouseConnector) ConsolidateQRepPartitions(_ context.Context, config *protos.QRepConfig) error {
 	c.logger.Info("Consolidating partitions noop")
 	return nil
 }
 
 // CleanupQRepFlow function for clickhouse connector
-func (c *ClickhouseConnector) CleanupQRepFlow(config *protos.QRepConfig) error {
+func (c *ClickhouseConnector) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {
 	c.logger.Info("Cleaning up flow job")
-	return c.dropStage(config.StagingPath, config.FlowJobName)
+	return c.dropStage(ctx, config.StagingPath, config.FlowJobName)
 }
 
 // dropStage drops the stage for the given job.
-func (c *ClickhouseConnector) dropStage(stagingPath string, job string) error {
+func (c *ClickhouseConnector) dropStage(ctx context.Context, stagingPath string, job string) error {
 	// if s3 we need to delete the contents of the bucket
 	if strings.HasPrefix(stagingPath, "s3://") {
 		s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
@@ -183,14 +185,14 @@ func (c *ClickhouseConnector) dropStage(stagingPath string, job string) error {
 			Prefix: aws.String(fmt.Sprintf("%s/%s", s3o.Prefix, job)),
 		})
 		for pages.HasMorePages() {
-			page, err := pages.NextPage(c.ctx)
+			page, err := pages.NextPage(ctx)
 			if err != nil {
 				c.logger.Error("failed to list objects from bucket", slog.Any("error", err))
 				return fmt.Errorf("failed to list objects from bucket: %w", err)
 			}
 
 			for _, object := range page.Contents {
-				_, err = s3svc.DeleteObject(c.ctx, &s3.DeleteObjectInput{
+				_, err = s3svc.DeleteObject(ctx, &s3.DeleteObjectInput{
 					Bucket: aws.String(s3o.Bucket),
 					Key:    object.Key,
 				})

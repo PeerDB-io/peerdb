@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"log"
@@ -109,7 +110,7 @@ func WorkerMain(opts *WorkerOptions) error {
 		clientOptions.ConnectionOptions = connOptions
 	}
 
-	conn, err := utils.GetCatalogConnectionPoolFromEnv()
+	conn, err := utils.GetCatalogConnectionPoolFromEnv(context.Background())
 	if err != nil {
 		return fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}

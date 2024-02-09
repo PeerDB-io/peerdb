@@ -65,7 +65,7 @@ func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
 			}
 		}
 
-		err := s.connector.Close()
+		err := s.connector.Close(context.Background())
 		if err != nil {
 			s.t.Fatalf("failed to close Snowflake connector: %v", err)
 		}
@@ -747,7 +747,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 				},
 			},
 		}
-		output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+		output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 			TableIdentifiers: []string{dstTableName},
 		})
 		e2e.EnvNoError(s.t, env, err)
@@ -790,7 +790,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 				},
 			},
 		}
-		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+		output, err = s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 			TableIdentifiers: []string{dstTableName},
 		})
 		e2e.EnvNoError(s.t, env, err)
@@ -839,7 +839,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 				},
 			},
 		}
-		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+		output, err = s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 			TableIdentifiers: []string{dstTableName},
 		})
 		e2e.EnvNoError(s.t, env, err)
@@ -888,7 +888,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 				},
 			},
 		}
-		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+		output, err = s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 			TableIdentifiers: []string{dstTableName},
 		})
 		e2e.EnvNoError(s.t, env, err)

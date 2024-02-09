@@ -1,6 +1,7 @@
 package connbigquery
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -13,6 +14,7 @@ import (
 )
 
 func (c *BigQueryConnector) SyncQRepRecords(
+	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
@@ -23,12 +25,12 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	if err != nil {
 		return 0, fmt.Errorf("failed to get schema of source table %s: %w", config.WatermarkTable, err)
 	}
-	tblMetadata, err := c.replayTableSchemaDeltasQRep(config, partition, srcSchema)
+	tblMetadata, err := c.replayTableSchemaDeltasQRep(ctx, config, partition, srcSchema)
 	if err != nil {
 		return 0, err
 	}
 
-	done, err := c.pgMetadata.IsQrepPartitionSynced(c.ctx, config.FlowJobName, partition.PartitionId)
+	done, err := c.pgMetadata.IsQrepPartitionSynced(ctx, config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
 	}
@@ -42,16 +44,19 @@ func (c *BigQueryConnector) SyncQRepRecords(
 		partition.PartitionId, destTable))
 
 	avroSync := NewQRepAvroSyncMethod(c, config.StagingPath, config.FlowJobName)
-	return avroSync.SyncQRepRecords(c.ctx, config.FlowJobName, destTable, partition,
+	return avroSync.SyncQRepRecords(ctx, config.FlowJobName, destTable, partition,
 		tblMetadata, stream, config.SyncedAtColName, config.SoftDeleteColName)
 }
 
-func (c *BigQueryConnector) replayTableSchemaDeltasQRep(config *protos.QRepConfig, partition *protos.QRepPartition,
+func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
 	srcSchema *model.QRecordSchema,
 ) (*bigquery.TableMetadata, error) {
 	destDatasetTable, _ := c.convertToDatasetTable(config.DestinationTableIdentifier)
 	bqTable := c.client.DatasetInProject(c.projectID, destDatasetTable.dataset).Table(destDatasetTable.table)
-	dstTableMetadata, err := bqTable.Metadata(c.ctx)
+	dstTableMetadata, err := bqTable.Metadata(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get metadata of table %s: %w", destDatasetTable, err)
 	}
@@ -82,23 +87,23 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(config *protos.QRepConfi
 		}
 	}
 
-	err = c.ReplayTableSchemaDeltas(config.FlowJobName, []*protos.TableSchemaDelta{tableSchemaDelta})
+	err = c.ReplayTableSchemaDeltas(ctx, config.FlowJobName, []*protos.TableSchemaDelta{tableSchemaDelta})
 	if err != nil {
 		return nil, fmt.Errorf("failed to add columns to destination table: %w", err)
 	}
-	dstTableMetadata, err = bqTable.Metadata(c.ctx)
+	dstTableMetadata, err = bqTable.Metadata(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get metadata of table %s: %w", destDatasetTable, err)
 	}
 	return dstTableMetadata, nil
 }
 
-func (c *BigQueryConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
+func (c *BigQueryConnector) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {
 	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
 		query := c.client.Query(fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
 		query.DefaultDatasetID = c.datasetID
 		query.DefaultProjectID = c.projectID
-		_, err := query.Read(c.ctx)
+		_, err := query.Read(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
 		}

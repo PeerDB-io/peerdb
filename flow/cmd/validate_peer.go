@@ -37,10 +37,10 @@ func (h *FlowRequestHandler) ValidatePeer(
 		}, nil
 	}
 
-	defer conn.Close()
+	defer conn.Close(ctx)
 
 	if req.Peer.Type == protos.DBType_POSTGRES {
-		isValid, version, err := conn.(*connpostgres.PostgresConnector).MajorVersionCheck(connpostgres.POSTGRES_12)
+		isValid, version, err := conn.(*connpostgres.PostgresConnector).MajorVersionCheck(ctx, connpostgres.POSTGRES_12)
 		if err != nil {
 			slog.Error("/peer/validate: pg version check", slog.Any("error", err))
 			return nil, err
@@ -55,7 +55,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 		}
 	}
 
-	connErr := conn.ConnectionActive()
+	connErr := conn.ConnectionActive(ctx)
 	if connErr != nil {
 		return &protos.ValidatePeerResponse{
 			Status: protos.ValidatePeerStatus_INVALID,

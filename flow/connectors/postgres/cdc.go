@@ -26,7 +26,6 @@ import (
 )
 
 type PostgresCDCSource struct {
-	ctx                    context.Context
 	replConn               *pgx.Conn
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]model.NameAndExclude
@@ -47,7 +46,6 @@ type PostgresCDCSource struct {
 }
 
 type PostgresCDCConfig struct {
-	AppContext             context.Context
 	Connection             *pgx.Conn
 	Slot                   string
 	Publication            string
@@ -65,15 +63,14 @@ type startReplicationOpts struct {
 }
 
 // Create a new PostgresCDCSource
-func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig, customTypeMap map[uint32]string) (*PostgresCDCSource, error) {
-	childToParentRelIDMap, err := getChildToParentRelIDMap(cdcConfig.AppContext, cdcConfig.Connection)
+func NewPostgresCDCSource(ctx context.Context, cdcConfig *PostgresCDCConfig, customTypeMap map[uint32]string) (*PostgresCDCSource, error) {
+	childToParentRelIDMap, err := getChildToParentRelIDMap(ctx, cdcConfig.Connection)
 	if err != nil {
 		return nil, fmt.Errorf("error getting child to parent relid map: %w", err)
 	}
 
-	flowName, _ := cdcConfig.AppContext.Value(shared.FlowNameKey).(string)
+	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &PostgresCDCSource{
-		ctx:                       cdcConfig.AppContext,
 		replConn:                  cdcConfig.Connection,
 		SrcTableIDNameMapping:     cdcConfig.SrcTableIDNameMapping,
 		TableNameMapping:          cdcConfig.TableNameMapping,
@@ -123,7 +120,7 @@ func getChildToParentRelIDMap(ctx context.Context, conn *pgx.Conn) (map[uint32]u
 }
 
 // PullRecords pulls records from the cdc stream
-func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) error {
+func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullRecordsRequest) error {
 	replicationOpts, err := p.replicationOptions()
 	if err != nil {
 		return fmt.Errorf("error getting replication options: %w", err)
@@ -145,18 +142,18 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) error {
 		replicationOpts: *replicationOpts,
 	}
 
-	err = p.startReplication(opts)
+	err = p.startReplication(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("error starting replication: %w", err)
 	}
 
 	p.logger.Info(fmt.Sprintf("started replication on slot %s at startLSN: %d", p.slot, startLSN))
 
-	return p.consumeStream(pgConn, req, clientXLogPos, req.RecordStream)
+	return p.consumeStream(ctx, pgConn, req, clientXLogPos, req.RecordStream)
 }
 
-func (p *PostgresCDCSource) startReplication(opts startReplicationOpts) error {
-	err := pglogrepl.StartReplication(p.ctx, opts.conn, p.slot, opts.startLSN, opts.replicationOpts)
+func (p *PostgresCDCSource) startReplication(ctx context.Context, opts startReplicationOpts) error {
+	err := pglogrepl.StartReplication(ctx, opts.conn, p.slot, opts.startLSN, opts.replicationOpts)
 	if err != nil {
 		p.logger.Error("error starting replication", slog.Any("error", err))
 		return fmt.Errorf("error starting replication at startLsn - %d: %w", opts.startLSN, err)
@@ -183,13 +180,14 @@ func (p *PostgresCDCSource) replicationOptions() (*pglogrepl.StartReplicationOpt
 
 // start consuming the cdc stream
 func (p *PostgresCDCSource) consumeStream(
+	ctx context.Context,
 	conn *pgconn.PgConn,
 	req *model.PullRecordsRequest,
 	clientXLogPos pglogrepl.LSN,
 	records *model.CDCRecordStream,
 ) error {
 	defer func() {
-		err := conn.Close(p.ctx)
+		err := conn.Close(ctx)
 		if err != nil {
 			p.logger.Error("error closing replication connection", slog.Any("error", err))
 		}
@@ -202,7 +200,7 @@ func (p *PostgresCDCSource) consumeStream(
 	if clientXLogPos > 0 {
 		consumedXLogPos = clientXLogPos
 
-		err := pglogrepl.SendStandbyStatusUpdate(p.ctx, conn,
+		err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
 			pglogrepl.StandbyStatusUpdate{WALWritePosition: consumedXLogPos})
 		if err != nil {
 			return fmt.Errorf("[initial-flush] SendStandbyStatusUpdate failed: %w", err)
@@ -222,7 +220,7 @@ func (p *PostgresCDCSource) consumeStream(
 		}
 	}()
 
-	shutdown := utils.HeartbeatRoutine(p.ctx, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		jobName := p.flowJobName
 		currRecords := cdcRecordsStorage.Len()
 		msg := fmt.Sprintf("pulling records for job - %s, currently have %d records", jobName, currRecords)
@@ -254,7 +252,7 @@ func (p *PostgresCDCSource) consumeStream(
 
 	for {
 		if pkmRequiresResponse {
-			err := pglogrepl.SendStandbyStatusUpdate(p.ctx, conn,
+			err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
 				pglogrepl.StandbyStatusUpdate{WALWritePosition: consumedXLogPos})
 			if err != nil {
 				return fmt.Errorf("SendStandbyStatusUpdate failed: %w", err)
@@ -305,18 +303,18 @@ func (p *PostgresCDCSource) consumeStream(
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
 		}
 
-		var ctx context.Context
+		var receiveCtx context.Context
 		var cancel context.CancelFunc
 
 		if cdcRecordsStorage.IsEmpty() {
-			ctx, cancel = context.WithCancel(p.ctx)
+			receiveCtx, cancel = context.WithCancel(ctx)
 		} else {
-			ctx, cancel = context.WithDeadline(p.ctx, nextStandbyMessageDeadline)
+			receiveCtx, cancel = context.WithDeadline(ctx, nextStandbyMessageDeadline)
 		}
-		rawMsg, err := conn.ReceiveMessage(ctx)
+		rawMsg, err := conn.ReceiveMessage(receiveCtx)
 		cancel()
 
-		ctxErr := p.ctx.Err()
+		ctxErr := ctx.Err()
 		if ctxErr != nil {
 			return fmt.Errorf("consumeStream preempted: %w", ctxErr)
 		}
@@ -368,7 +366,7 @@ func (p *PostgresCDCSource) consumeStream(
 
 			p.logger.Debug(fmt.Sprintf("XLogData => WALStart %s ServerWALEnd %s ServerTime %s\n",
 				xld.WALStart, xld.ServerWALEnd, xld.ServerTime))
-			rec, err := p.processMessage(records, xld, clientXLogPos)
+			rec, err := p.processMessage(ctx, records, xld, clientXLogPos)
 			if err != nil {
 				return fmt.Errorf("error processing message: %w", err)
 			}
@@ -488,7 +486,10 @@ func (p *PostgresCDCSource) consumeStream(
 	}
 }
 
-func (p *PostgresCDCSource) processMessage(batch *model.CDCRecordStream, xld pglogrepl.XLogData,
+func (p *PostgresCDCSource) processMessage(
+	ctx context.Context,
+	batch *model.CDCRecordStream,
+	xld pglogrepl.XLogData,
 	currentClientXlogPos pglogrepl.LSN,
 ) (model.Record, error) {
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
@@ -528,7 +529,7 @@ func (p *PostgresCDCSource) processMessage(batch *model.CDCRecordStream, xld pgl
 		} else {
 			// RelationMessages don't contain an LSN, so we use current clientXlogPos instead.
 			// https://github.com/postgres/postgres/blob/8b965c549dc8753be8a38c4a1b9fabdb535a4338/src/backend/replication/logical/proto.c#L670
-			return p.processRelationMessage(currentClientXlogPos, convertRelationMessageToProto(msg))
+			return p.processRelationMessage(ctx, currentClientXlogPos, convertRelationMessageToProto(msg))
 		}
 
 	case *pglogrepl.TruncateMessage:
@@ -771,12 +772,12 @@ func convertRelationMessageToProto(msg *pglogrepl.RelationMessage) *protos.Relat
 	}
 }
 
-func (p *PostgresCDCSource) auditSchemaDelta(flowJobName string, rec *model.RelationRecord) error {
-	activityInfo := activity.GetInfo(p.ctx)
+func (p *PostgresCDCSource) auditSchemaDelta(ctx context.Context, flowJobName string, rec *model.RelationRecord) error {
+	activityInfo := activity.GetInfo(ctx)
 	workflowID := activityInfo.WorkflowExecution.ID
 	runID := activityInfo.WorkflowExecution.RunID
 
-	_, err := p.catalogPool.Exec(p.ctx,
+	_, err := p.catalogPool.Exec(ctx,
 		`INSERT INTO
 		 peerdb_stats.schema_deltas_audit_log(flow_job_name,workflow_id,run_id,delta_info)
 		 VALUES($1,$2,$3,$4)`,
@@ -789,6 +790,7 @@ func (p *PostgresCDCSource) auditSchemaDelta(flowJobName string, rec *model.Rela
 
 // processRelationMessage processes a RelationMessage and returns a TableSchemaDelta
 func (p *PostgresCDCSource) processRelationMessage(
+	ctx context.Context,
 	lsn pglogrepl.LSN,
 	currRel *protos.RelationMessage,
 ) (model.Record, error) {
@@ -849,7 +851,7 @@ func (p *PostgresCDCSource) processRelationMessage(
 		TableSchemaDelta: schemaDelta,
 		CheckpointID:     int64(lsn),
 	}
-	return rec, p.auditSchemaDelta(p.flowJobName, rec)
+	return rec, p.auditSchemaDelta(ctx, p.flowJobName, rec)
 }
 
 func (p *PostgresCDCSource) recToTablePKey(req *model.PullRecordsRequest,

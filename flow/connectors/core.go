@@ -23,76 +23,76 @@ import (
 var ErrUnsupportedFunctionality = errors.New("requested connector does not support functionality")
 
 type Connector interface {
-	Close() error
-	ConnectionActive() error
+	Close(context.Context) error
+	ConnectionActive(context.Context) error
 }
 
 type CDCPullConnector interface {
 	Connector
 
 	// GetTableSchema returns the schema of a table.
-	GetTableSchema(req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error)
+	GetTableSchema(ctx context.Context, req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error)
 
 	// EnsurePullability ensures that the connector is pullable.
-	EnsurePullability(req *protos.EnsurePullabilityBatchInput) (
+	EnsurePullability(ctx context.Context, req *protos.EnsurePullabilityBatchInput) (
 		*protos.EnsurePullabilityBatchOutput, error)
 
 	// Methods related to retrieving and pushing records for this connector as a source and destination.
 
 	// PullRecords pulls records from the source, and returns a RecordBatch.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
-	PullRecords(catalogPool *pgxpool.Pool, req *model.PullRecordsRequest) error
+	PullRecords(ctx context.Context, catalogPool *pgxpool.Pool, req *model.PullRecordsRequest) error
 
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
-	PullFlowCleanup(jobName string) error
+	PullFlowCleanup(ctx context.Context, jobName string) error
 
 	// HandleSlotInfo update monitoring info on slot size etc
 	// threadsafe
 	HandleSlotInfo(ctx context.Context, alerter *alerting.Alerter, catalogPool *pgxpool.Pool, slotName string, peerName string) error
 
 	// GetSlotInfo returns the WAL (or equivalent) info of a slot for the connector.
-	GetSlotInfo(slotName string) ([]*protos.SlotInfo, error)
+	GetSlotInfo(ctx context.Context, slotName string) ([]*protos.SlotInfo, error)
 
 	// AddTablesToPublication adds additional tables added to a mirror to the publication also
-	AddTablesToPublication(req *protos.AddTablesToPublicationInput) error
+	AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error
 }
 
 type CDCSyncConnector interface {
 	Connector
 
 	// NeedsSetupMetadataTables checks if the metadata table [PEERDB_MIRROR_JOBS] needs to be created.
-	NeedsSetupMetadataTables() bool
+	NeedsSetupMetadataTables(ctx context.Context) bool
 
 	// SetupMetadataTables creates the metadata table [PEERDB_MIRROR_JOBS] if necessary.
-	SetupMetadataTables() error
+	SetupMetadataTables(ctx context.Context) error
 
 	// GetLastOffset gets the last offset from the metadata table on the destination
-	GetLastOffset(jobName string) (int64, error)
+	GetLastOffset(ctx context.Context, jobName string) (int64, error)
 
 	// SetLastOffset updates the last offset on the metadata table on the destination
-	SetLastOffset(jobName string, lastOffset int64) error
+	SetLastOffset(ctx context.Context, jobName string, lastOffset int64) error
 
 	// GetLastSyncBatchID gets the last batch synced to the destination from the metadata table
-	GetLastSyncBatchID(jobName string) (int64, error)
+	GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error)
 
 	// CreateRawTable creates a raw table for the connector with a given name and a fixed schema.
-	CreateRawTable(req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error)
+	CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error)
 
 	// ReplayTableSchemaDelta changes a destination table to match the schema at source
 	// This could involve adding or dropping multiple columns.
 	// Connectors which are non-normalizing should implement this as a nop.
-	ReplayTableSchemaDeltas(flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error
+	ReplayTableSchemaDeltas(ctx context.Context, flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error
 
 	// SetupNormalizedTables sets up the normalized table on the connector.
-	SetupNormalizedTables(req *protos.SetupNormalizedTableBatchInput) (
+	SetupNormalizedTables(ctx context.Context, req *protos.SetupNormalizedTableBatchInput) (
 		*protos.SetupNormalizedTableBatchOutput, error)
 
 	// SyncRecords pushes records to the destination peer and stores it in PeerDB specific tables.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
-	SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error)
+	SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error)
 
 	// SyncFlowCleanup drops metadata tables on the destination, as a part of DROP MIRROR.
-	SyncFlowCleanup(jobName string) error
+	SyncFlowCleanup(ctx context.Context, jobName string) error
 }
 
 type CDCNormalizeConnector interface {
@@ -100,28 +100,28 @@ type CDCNormalizeConnector interface {
 
 	// NormalizeRecords merges records pushed earlier into the destination table.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
-	NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error)
+	NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error)
 }
 
 type QRepPullConnector interface {
 	Connector
 
 	// GetQRepPartitions returns the partitions for a given table that haven't been synced yet.
-	GetQRepPartitions(config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error)
+	GetQRepPartitions(ctx context.Context, config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error)
 
 	// PullQRepRecords returns the records for a given partition.
-	PullQRepRecords(config *protos.QRepConfig, partition *protos.QRepPartition) (*model.QRecordBatch, error)
+	PullQRepRecords(ctx context.Context, config *protos.QRepConfig, partition *protos.QRepPartition) (*model.QRecordBatch, error)
 }
 
 type QRepSyncConnector interface {
 	Connector
 
 	// SetupQRepMetadataTables sets up the metadata tables for QRep.
-	SetupQRepMetadataTables(config *protos.QRepConfig) error
+	SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error
 
 	// SyncQRepRecords syncs the records for a given partition.
 	// returns the number of records synced.
-	SyncQRepRecords(config *protos.QRepConfig, partition *protos.QRepPartition,
+	SyncQRepRecords(ctx context.Context, config *protos.QRepConfig, partition *protos.QRepPartition,
 		stream *model.QRecordStream) (int, error)
 }
 
@@ -129,10 +129,10 @@ type QRepConsolidateConnector interface {
 	Connector
 
 	// ConsolidateQRepPartitions consolidates the partitions for a given table.
-	ConsolidateQRepPartitions(config *protos.QRepConfig) error
+	ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig) error
 
 	// CleanupQRepFlow cleans up the QRep flow for a given table.
-	CleanupQRepFlow(config *protos.QRepConfig) error
+	CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error
 }
 
 func GetCDCPullConnector(ctx context.Context, config *protos.Peer) (CDCPullConnector, error) {
@@ -278,12 +278,12 @@ func GetQRepConsolidateConnector(ctx context.Context,
 	}
 }
 
-func CloseConnector(conn Connector) {
+func CloseConnector(ctx context.Context, conn Connector) {
 	if conn == nil {
 		return
 	}
 
-	err := conn.Close()
+	err := conn.Close(ctx)
 	if err != nil {
 		slog.Error("error closing connector", slog.Any("error", err))
 	}

@@ -119,7 +119,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 
 	grpcServer := grpc.NewServer()
 
-	catalogConn, err := utils.GetCatalogConnectionPoolFromEnv()
+	catalogConn, err := utils.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to get catalog connection pool: %w", err)
 	}

@@ -25,7 +25,7 @@ func dynamicConfKeyExists(ctx context.Context, conn *pgxpool.Pool, key string) b
 }
 
 func dynamicConfUint32(ctx context.Context, key string, defaultValue uint32) uint32 {
-	conn, err := utils.GetCatalogConnectionPoolFromEnv()
+	conn, err := utils.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		slog.Error("Failed to get catalog connection pool: %v", err)
 		return defaultValue

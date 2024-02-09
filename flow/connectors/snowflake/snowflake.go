@@ -75,7 +75,6 @@ const (
 )
 
 type SnowflakeConnector struct {
-	ctx        context.Context
 	database   *sql.DB
 	pgMetadata *metadataStore.PostgresMetadataStore
 	rawSchema  string
@@ -207,13 +206,12 @@ func NewSnowflakeConnector(
 		rawSchema = *snowflakeProtoConfig.MetadataSchema
 	}
 
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(logger)
+	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("could not connect to metadata store: %w", err)
 	}
 
 	return &SnowflakeConnector{
-		ctx:        ctx,
 		database:   database,
 		pgMetadata: pgMetadata,
 		rawSchema:  rawSchema,
@@ -221,7 +219,7 @@ func NewSnowflakeConnector(
 	}, nil
 }
 
-func (c *SnowflakeConnector) Close() error {
+func (c *SnowflakeConnector) Close(_ context.Context) error {
 	if c == nil || c.database == nil {
 		return nil
 	}
@@ -233,46 +231,49 @@ func (c *SnowflakeConnector) Close() error {
 	return nil
 }
 
-func (c *SnowflakeConnector) ConnectionActive() error {
+func (c *SnowflakeConnector) ConnectionActive(ctx context.Context) error {
 	if c == nil || c.database == nil {
 		return fmt.Errorf("SnowflakeConnector is nil")
 	}
 
 	// This also checks if database exists
-	err := c.database.PingContext(c.ctx)
+	err := c.database.PingContext(ctx)
 	return err
 }
 
-func (c *SnowflakeConnector) NeedsSetupMetadataTables() bool {
+func (c *SnowflakeConnector) NeedsSetupMetadataTables(_ context.Context) bool {
 	return false
 }
 
-func (c *SnowflakeConnector) SetupMetadataTables() error {
+func (c *SnowflakeConnector) SetupMetadataTables(_ context.Context) error {
 	return nil
 }
 
-func (c *SnowflakeConnector) GetLastOffset(jobName string) (int64, error) {
-	return c.pgMetadata.FetchLastOffset(c.ctx, jobName)
+func (c *SnowflakeConnector) GetLastOffset(ctx context.Context, jobName string) (int64, error) {
+	return c.pgMetadata.FetchLastOffset(ctx, jobName)
 }
 
-func (c *SnowflakeConnector) SetLastOffset(jobName string, offset int64) error {
-	return c.pgMetadata.UpdateLastOffset(c.ctx, jobName, offset)
+func (c *SnowflakeConnector) SetLastOffset(ctx context.Context, jobName string, offset int64) error {
+	return c.pgMetadata.UpdateLastOffset(ctx, jobName, offset)
 }
 
-func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	return c.pgMetadata.GetLastBatchID(c.ctx, jobName)
+func (c *SnowflakeConnector) GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error) {
+	return c.pgMetadata.GetLastBatchID(ctx, jobName)
 }
 
-func (c *SnowflakeConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
-	return c.pgMetadata.GetLastNormalizeBatchID(c.ctx, jobName)
+func (c *SnowflakeConnector) GetLastNormalizeBatchID(ctx context.Context, jobName string) (int64, error) {
+	return c.pgMetadata.GetLastNormalizeBatchID(ctx, jobName)
 }
 
-func (c *SnowflakeConnector) getDistinctTableNamesInBatch(flowJobName string, syncBatchID int64,
+func (c *SnowflakeConnector) getDistinctTableNamesInBatch(
+	ctx context.Context,
+	flowJobName string,
+	syncBatchID int64,
 	normalizeBatchID int64,
 ) ([]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
-	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getDistinctDestinationTableNames, c.rawSchema,
+	rows, err := c.database.QueryContext(ctx, fmt.Sprintf(getDistinctDestinationTableNames, c.rawSchema,
 		rawTableIdentifier, normalizeBatchID, syncBatchID))
 	if err != nil {
 		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
@@ -296,12 +297,15 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(flowJobName string, sy
 	return destinationTableNames, nil
 }
 
-func (c *SnowflakeConnector) getTableNameToUnchangedCols(flowJobName string, syncBatchID int64,
+func (c *SnowflakeConnector) getTableNameToUnchangedCols(
+	ctx context.Context,
+	flowJobName string,
+	syncBatchID int64,
 	normalizeBatchID int64,
 ) (map[string][]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
-	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getTableNameToUnchangedColsSQL, c.rawSchema,
+	rows, err := c.database.QueryContext(ctx, fmt.Sprintf(getTableNameToUnchangedColsSQL, c.rawSchema,
 		rawTableIdentifier, normalizeBatchID, syncBatchID))
 	if err != nil {
 		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
@@ -326,6 +330,7 @@ func (c *SnowflakeConnector) getTableNameToUnchangedCols(flowJobName string, syn
 }
 
 func (c *SnowflakeConnector) SetupNormalizedTables(
+	ctx context.Context,
 	req *protos.SetupNormalizedTableBatchInput,
 ) (*protos.SetupNormalizedTableBatchOutput, error) {
 	tableExistsMapping := make(map[string]bool)
@@ -334,7 +339,7 @@ func (c *SnowflakeConnector) SetupNormalizedTables(
 		if err != nil {
 			return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
 		}
-		tableAlreadyExists, err := c.checkIfTableExists(normalizedSchemaTable.Schema, normalizedSchemaTable.Table)
+		tableAlreadyExists, err := c.checkIfTableExists(ctx, normalizedSchemaTable.Schema, normalizedSchemaTable.Table)
 		if err != nil {
 			return nil, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
 		}
@@ -345,12 +350,12 @@ func (c *SnowflakeConnector) SetupNormalizedTables(
 
 		normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
 			normalizedSchemaTable, tableSchema, req.SoftDeleteColName, req.SyncedAtColName)
-		_, err = c.database.ExecContext(c.ctx, normalizedTableCreateSQL)
+		_, err = c.database.ExecContext(ctx, normalizedTableCreateSQL)
 		if err != nil {
 			return nil, fmt.Errorf("[sf] error while creating normalized table: %w", err)
 		}
 		tableExistsMapping[tableIdentifier] = false
-		utils.RecordHeartbeat(c.ctx, fmt.Sprintf("created table %s", tableIdentifier))
+		utils.RecordHeartbeat(ctx, fmt.Sprintf("created table %s", tableIdentifier))
 	}
 
 	return &protos.SetupNormalizedTableBatchOutput{
@@ -360,7 +365,9 @@ func (c *SnowflakeConnector) SetupNormalizedTables(
 
 // ReplayTableSchemaDeltas changes a destination table to match the schema at source
 // This could involve adding or dropping multiple columns.
-func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
+func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
+	ctx context.Context,
+	flowJobName string,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	if len(schemaDeltas) == 0 {
@@ -390,7 +397,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
 				return fmt.Errorf("failed to convert column type %s to snowflake type: %w",
 					addedColumn.ColumnType, err)
 			}
-			_, err = tableSchemaModifyTx.ExecContext(c.ctx,
+			_, err = tableSchemaModifyTx.ExecContext(ctx,
 				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
 					schemaDelta.DstTableName, strings.ToUpper(addedColumn.ColumnName), sfColtype))
 			if err != nil {
@@ -413,16 +420,16 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
 	return nil
 }
 
-func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+func (c *SnowflakeConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	c.logger.Info(fmt.Sprintf("pushing records to Snowflake table %s", rawTableIdentifier))
 
-	res, err := c.syncRecordsViaAvro(req, rawTableIdentifier, req.SyncBatchID)
+	res, err := c.syncRecordsViaAvro(ctx, req, rawTableIdentifier, req.SyncBatchID)
 	if err != nil {
 		return nil, err
 	}
 
-	err = c.pgMetadata.FinishBatch(c.ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpointID)
+	err = c.pgMetadata.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpointID)
 	if err != nil {
 		return nil, err
 	}
@@ -431,6 +438,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 }
 
 func (c *SnowflakeConnector) syncRecordsViaAvro(
+	ctx context.Context,
 	req *model.SyncRecordsRequest,
 	rawTableIdentifier string,
 	syncBatchID int64,
@@ -449,17 +457,17 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 			rawTableIdentifier)),
 	}
 	avroSyncer := NewSnowflakeAvroSyncHandler(qrepConfig, c)
-	destinationTableSchema, err := c.getTableSchema(qrepConfig.DestinationTableIdentifier)
+	destinationTableSchema, err := c.getTableSchema(ctx, qrepConfig.DestinationTableIdentifier)
 	if err != nil {
 		return nil, err
 	}
 
-	numRecords, err := avroSyncer.SyncRecords(c.ctx, destinationTableSchema, streamRes.Stream, req.FlowJobName)
+	numRecords, err := avroSyncer.SyncRecords(ctx, destinationTableSchema, streamRes.Stream, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
 
-	err = c.ReplayTableSchemaDeltas(req.FlowJobName, req.Records.SchemaDeltas)
+	err = c.ReplayTableSchemaDeltas(ctx, req.FlowJobName, req.Records.SchemaDeltas)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
@@ -479,8 +487,8 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 }
 
 // NormalizeRecords normalizes raw table to destination table.
-func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
-	normBatchID, err := c.GetLastNormalizeBatchID(req.FlowJobName)
+func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
+	normBatchID, err := c.GetLastNormalizeBatchID(ctx, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
@@ -495,6 +503,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 	}
 
 	destinationTableNames, err := c.getDistinctTableNamesInBatch(
+		ctx,
 		req.FlowJobName,
 		req.SyncBatchID,
 		normBatchID,
@@ -503,13 +512,13 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 		return nil, err
 	}
 
-	tableNameToUnchangedToastCols, err := c.getTableNameToUnchangedCols(req.FlowJobName, req.SyncBatchID, normBatchID)
+	tableNameToUnchangedToastCols, err := c.getTableNameToUnchangedCols(ctx, req.FlowJobName, req.SyncBatchID, normBatchID)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't tablename to unchanged cols mapping: %w", err)
 	}
 
 	var totalRowsAffected int64 = 0
-	g, gCtx := errgroup.WithContext(c.ctx)
+	g, gCtx := errgroup.WithContext(ctx)
 	g.SetLimit(8) // limit parallel merges to 8
 
 	for _, destinationTableName := range destinationTableNames {
@@ -565,7 +574,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 		return nil, fmt.Errorf("error while normalizing records: %w", err)
 	}
 
-	err = c.pgMetadata.UpdateNormalizeBatchID(c.ctx, req.FlowJobName, req.SyncBatchID)
+	err = c.pgMetadata.UpdateNormalizeBatchID(ctx, req.FlowJobName, req.SyncBatchID)
 	if err != nil {
 		return nil, err
 	}
@@ -577,20 +586,20 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 	}, nil
 }
 
-func (c *SnowflakeConnector) CreateRawTable(req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
-	_, err := c.database.ExecContext(c.ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
+func (c *SnowflakeConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
+	_, err := c.database.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
 	if err != nil {
 		return nil, err
 	}
 
-	createRawTableTx, err := c.database.BeginTx(c.ctx, nil)
+	createRawTableTx, err := c.database.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to begin transaction for creation of raw table: %w", err)
 	}
 	// there is no easy way to check if a table has the same schema in Snowflake,
 	// so just executing the CREATE TABLE IF NOT EXISTS blindly.
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
-	_, err = createRawTableTx.ExecContext(c.ctx,
+	_, err = createRawTableTx.ExecContext(ctx,
 		fmt.Sprintf(createRawTableSQL, c.rawSchema, rawTableIdentifier))
 	if err != nil {
 		return nil, fmt.Errorf("unable to create raw table: %w", err)
@@ -601,7 +610,7 @@ func (c *SnowflakeConnector) CreateRawTable(req *protos.CreateRawTableInput) (*p
 	}
 
 	stage := c.getStageNameForJob(req.FlowJobName)
-	err = c.createStage(stage, &protos.QRepConfig{})
+	err = c.createStage(ctx, stage, &protos.QRepConfig{})
 	if err != nil {
 		return nil, err
 	}
@@ -611,13 +620,13 @@ func (c *SnowflakeConnector) CreateRawTable(req *protos.CreateRawTableInput) (*p
 	}, nil
 }
 
-func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
-	err := c.pgMetadata.DropMetadata(c.ctx, jobName)
+func (c *SnowflakeConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
+	err := c.pgMetadata.DropMetadata(ctx, jobName)
 	if err != nil {
 		return fmt.Errorf("unable to clear metadata for sync flow cleanup: %w", err)
 	}
 
-	syncFlowCleanupTx, err := c.database.BeginTx(c.ctx, nil)
+	syncFlowCleanupTx, err := c.database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("unable to begin transaction for sync flow cleanup: %w", err)
 	}
@@ -628,7 +637,7 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 		}
 	}()
 
-	err = c.dropStage("", jobName)
+	err = c.dropStage(ctx, "", jobName)
 	if err != nil {
 		return err
 	}
@@ -636,9 +645,13 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 	return nil
 }
 
-func (c *SnowflakeConnector) checkIfTableExists(schemaIdentifier string, tableIdentifier string) (bool, error) {
+func (c *SnowflakeConnector) checkIfTableExists(
+	ctx context.Context,
+	schemaIdentifier string,
+	tableIdentifier string,
+) (bool, error) {
 	var result pgtype.Bool
-	err := c.database.QueryRowContext(c.ctx, checkIfTableExistsSQL, schemaIdentifier, tableIdentifier).Scan(&result)
+	err := c.database.QueryRowContext(ctx, checkIfTableExistsSQL, schemaIdentifier, tableIdentifier).Scan(&result)
 	if err != nil {
 		return false, fmt.Errorf("error while reading result row: %w", err)
 	}
@@ -709,8 +722,8 @@ func getRawTableIdentifier(jobName string) string {
 	return fmt.Sprintf("%s_%s", rawTablePrefix, jobName)
 }
 
-func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
-	renameTablesTx, err := c.database.BeginTx(c.ctx, nil)
+func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
+	renameTablesTx, err := c.database.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to begin transaction for rename tables: %w", err)
 	}
@@ -727,10 +740,10 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 
 			c.logger.Info(fmt.Sprintf("setting synced at column for table '%s'...", resyncTblName))
 
-			activity.RecordHeartbeat(c.ctx, fmt.Sprintf("setting synced at column for table '%s'...",
+			activity.RecordHeartbeat(ctx, fmt.Sprintf("setting synced at column for table '%s'...",
 				resyncTblName))
 
-			_, err = renameTablesTx.ExecContext(c.ctx,
+			_, err = renameTablesTx.ExecContext(ctx,
 				fmt.Sprintf("UPDATE %s SET %s = CURRENT_TIMESTAMP", resyncTblName, *req.SyncedAtColName))
 			if err != nil {
 				return nil, fmt.Errorf("unable to set synced at column for table %s: %w", resyncTblName, err)
@@ -753,9 +766,9 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 
 			c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
 
-			activity.RecordHeartbeat(c.ctx, fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
+			activity.RecordHeartbeat(ctx, fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
 
-			_, err = renameTablesTx.ExecContext(c.ctx,
+			_, err = renameTablesTx.ExecContext(ctx,
 				fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
 					src, fmt.Sprintf("%s,%s", allCols, *req.SoftDeleteColName), allCols, *req.SoftDeleteColName,
 					dst, pkeyCols, pkeyCols, src))
@@ -772,16 +785,16 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 
 		c.logger.Info(fmt.Sprintf("renaming table '%s' to '%s'...", src, dst))
 
-		activity.RecordHeartbeat(c.ctx, fmt.Sprintf("renaming table '%s' to '%s'...", src, dst))
+		activity.RecordHeartbeat(ctx, fmt.Sprintf("renaming table '%s' to '%s'...", src, dst))
 
 		// drop the dst table if exists
-		_, err = renameTablesTx.ExecContext(c.ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", dst))
+		_, err = renameTablesTx.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", dst))
 		if err != nil {
 			return nil, fmt.Errorf("unable to drop table %s: %w", dst, err)
 		}
 
 		// rename the src table to dst
-		_, err = renameTablesTx.ExecContext(c.ctx, fmt.Sprintf("ALTER TABLE %s RENAME TO %s", src, dst))
+		_, err = renameTablesTx.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s RENAME TO %s", src, dst))
 		if err != nil {
 			return nil, fmt.Errorf("unable to rename table %s to %s: %w", src, dst, err)
 		}
@@ -799,10 +812,10 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 	}, nil
 }
 
-func (c *SnowflakeConnector) CreateTablesFromExisting(req *protos.CreateTablesFromExistingInput) (
+func (c *SnowflakeConnector) CreateTablesFromExisting(ctx context.Context, req *protos.CreateTablesFromExistingInput) (
 	*protos.CreateTablesFromExistingOutput, error,
 ) {
-	createTablesFromExistingTx, err := c.database.BeginTx(c.ctx, nil)
+	createTablesFromExistingTx, err := c.database.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to begin transaction for rename tables: %w", err)
 	}
@@ -816,10 +829,10 @@ func (c *SnowflakeConnector) CreateTablesFromExisting(req *protos.CreateTablesFr
 	for newTable, existingTable := range req.NewToExistingTableMapping {
 		c.logger.Info(fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
 
-		activity.RecordHeartbeat(c.ctx, fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
+		activity.RecordHeartbeat(ctx, fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
 
 		// rename the src table to dst
-		_, err = createTablesFromExistingTx.ExecContext(c.ctx,
+		_, err = createTablesFromExistingTx.ExecContext(ctx,
 			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s LIKE %s", newTable, existingTable))
 		if err != nil {
 			return nil, fmt.Errorf("unable to create table %s: %w", newTable, err)

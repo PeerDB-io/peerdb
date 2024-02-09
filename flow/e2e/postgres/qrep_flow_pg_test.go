@@ -207,7 +207,7 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 
 	setupError := make(chan error)
 	go func() {
-		setupError <- s.connector.SetupReplication(signal, setupReplicationInput)
+		setupError <- s.connector.SetupReplication(context.Background(), signal, setupReplicationInput)
 	}()
 
 	s.t.Log("waiting for slot creation to complete: ", flowJobName)

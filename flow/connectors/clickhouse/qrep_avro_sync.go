@@ -33,7 +33,7 @@ func NewClickhouseAvroSyncMethod(
 	}
 }
 
-func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(avroFile *avro.AvroFile) error {
+func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, avroFile *avro.AvroFile) error {
 	stagingPath := s.config.StagingPath
 	if stagingPath == "" {
 		stagingPath = s.config.DestinationPeer.GetClickhouseConfig().S3Path // "s3://avro-clickhouse"
@@ -52,7 +52,7 @@ func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(avroFile *avro.AvroFil
 	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM s3('%s','%s','%s', 'Avro')",
 		s.config.DestinationTableIdentifier, avroFileUrl, awsCreds.AccessKeyID, awsCreds.SecretAccessKey)
 
-	_, err = s.connector.database.Exec(query)
+	_, err = s.connector.database.ExecContext(ctx, query)
 
 	return err
 }
@@ -85,7 +85,7 @@ func (s *ClickhouseAvroSyncMethod) SyncRecords(
 	}
 	defer avroFile.Cleanup()
 	s.connector.logger.Info(fmt.Sprintf("written %d records to Avro file", avroFile.NumRecords), tableLog)
-	err = s.CopyStageToDestination(avroFile)
+	err = s.CopyStageToDestination(ctx, avroFile)
 	if err != nil {
 		return 0, err
 	}
@@ -134,13 +134,13 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	query := fmt.Sprintf("INSERT INTO %s (%s) SELECT * FROM s3('%s','%s','%s', 'Avro')",
 		config.DestinationTableIdentifier, selector, avroFileUrl, awsCreds.AccessKeyID, awsCreds.SecretAccessKey)
 
-	_, err = s.connector.database.Exec(query)
+	_, err = s.connector.database.ExecContext(ctx, query)
 
 	if err != nil {
 		return 0, err
 	}
 
-	err = s.insertMetadata(partition, config.FlowJobName, startTime)
+	err = s.insertMetadata(ctx, partition, config.FlowJobName, startTime)
 	if err != nil {
 		return -1, err
 	}
@@ -189,6 +189,7 @@ func (s *ClickhouseAvroSyncMethod) writeToAvroFile(
 }
 
 func (s *ClickhouseAvroSyncMethod) insertMetadata(
+	ctx context.Context,
 	partition *protos.QRepPartition,
 	flowJobName string,
 	startTime time.Time,
@@ -201,7 +202,7 @@ func (s *ClickhouseAvroSyncMethod) insertMetadata(
 		return fmt.Errorf("failed to create metadata insert statement: %w", err)
 	}
 
-	if _, err := s.connector.database.Exec(insertMetadataStmt); err != nil {
+	if _, err := s.connector.database.ExecContext(ctx, insertMetadataStmt); err != nil {
 		return fmt.Errorf("failed to execute metadata insert statement: %w", err)
 	}
 

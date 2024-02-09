@@ -1,6 +1,7 @@
 package connsnowflake
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -8,8 +9,8 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
-func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.TableSchema, error) {
-	colNames, colTypes, err := c.getColsFromTable(tableName)
+func (c *SnowflakeConnector) getTableSchemaForTable(ctx context.Context, tableName string) (*protos.TableSchema, error) {
+	colNames, colTypes, err := c.getColsFromTable(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -37,16 +38,17 @@ func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.T
 
 // only used for testing atm. doesn't return info about pkey or ReplicaIdentity [which is PG specific anyway].
 func (c *SnowflakeConnector) GetTableSchema(
+	ctx context.Context,
 	req *protos.GetTableSchemaBatchInput,
 ) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema, len(req.TableIdentifiers))
 	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(tableName)
+		tableSchema, err := c.getTableSchemaForTable(ctx, tableName)
 		if err != nil {
 			return nil, err
 		}
 		res[tableName] = tableSchema
-		utils.RecordHeartbeat(c.ctx, fmt.Sprintf("fetched schema for table %s", tableName))
+		utils.RecordHeartbeat(ctx, fmt.Sprintf("fetched schema for table %s", tableName))
 	}
 
 	return &protos.GetTableSchemaBatchOutput{

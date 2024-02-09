@@ -3,6 +3,7 @@ run:
     - generated
 linters:
   enable:
+    - containedctx
     - dogsled
     - durationcheck
     - errcheck

@@ -1,6 +1,7 @@
 package connsnowflake
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -17,6 +18,7 @@ import (
 )
 
 func (c *SnowflakeConnector) SyncQRepRecords(
+	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
@@ -27,13 +29,13 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 		slog.String(string(shared.PartitionIDKey), partition.PartitionId),
 		slog.String("destinationTable", destTable),
 	)
-	tblSchema, err := c.getTableSchema(destTable)
+	tblSchema, err := c.getTableSchema(ctx, destTable)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
 	}
 	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
 
-	done, err := c.pgMetadata.IsQrepPartitionSynced(c.ctx, config.FlowJobName, partition.PartitionId)
+	done, err := c.pgMetadata.IsQrepPartitionSynced(ctx, config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
 	}
@@ -44,10 +46,10 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	}
 
 	avroSync := NewSnowflakeAvroSyncHandler(config, c)
-	return avroSync.SyncQRepRecords(c.ctx, config, partition, tblSchema, stream)
+	return avroSync.SyncQRepRecords(ctx, config, partition, tblSchema, stream)
 }
 
-func (c *SnowflakeConnector) getTableSchema(tableName string) ([]*sql.ColumnType, error) {
+func (c *SnowflakeConnector) getTableSchema(ctx context.Context, tableName string) ([]*sql.ColumnType, error) {
 	schematable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse table '%s'", tableName)
@@ -57,7 +59,7 @@ func (c *SnowflakeConnector) getTableSchema(tableName string) ([]*sql.ColumnType
 	queryString := fmt.Sprintf("SELECT * FROM %s LIMIT 0", snowflakeSchemaTableNormalize(schematable))
 
 	//nolint:rowserrcheck
-	rows, err := c.database.QueryContext(c.ctx, queryString)
+	rows, err := c.database.QueryContext(ctx, queryString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -71,20 +73,20 @@ func (c *SnowflakeConnector) getTableSchema(tableName string) ([]*sql.ColumnType
 	return columnTypes, nil
 }
 
-func (c *SnowflakeConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
-	_, err := c.database.ExecContext(c.ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
+func (c *SnowflakeConnector) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {
+	_, err := c.database.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
 	if err != nil {
 		return err
 	}
 
 	stageName := c.getStageNameForJob(config.FlowJobName)
-	err = c.createStage(stageName, config)
+	err = c.createStage(ctx, stageName, config)
 	if err != nil {
 		return err
 	}
 
 	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		_, err = c.database.Exec(fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
+		_, err = c.database.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
 		if err != nil {
 			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
 		}
@@ -93,7 +95,7 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(config *protos.QRepConfig) 
 	return nil
 }
 
-func (c *SnowflakeConnector) createStage(stageName string, config *protos.QRepConfig) error {
+func (c *SnowflakeConnector) createStage(ctx context.Context, stageName string, config *protos.QRepConfig) error {
 	var createStageStmt string
 	if strings.HasPrefix(config.StagingPath, "s3://") {
 		stmt, err := c.createExternalStage(stageName, config)
@@ -110,7 +112,7 @@ func (c *SnowflakeConnector) createStage(stageName string, config *protos.QRepCo
 	}
 
 	// Execute the query
-	_, err := c.database.Exec(createStageStmt)
+	_, err := c.database.ExecContext(ctx, createStageStmt)
 	if err != nil {
 		c.logger.Error(fmt.Sprintf("failed to create stage %s", stageName), slog.Any("error", err))
 		return fmt.Errorf("failed to create stage %s: %w", stageName, err)
@@ -156,14 +158,14 @@ func (c *SnowflakeConnector) createExternalStage(stageName string, config *proto
 	}
 }
 
-func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig) error {
+func (c *SnowflakeConnector) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig) error {
 	c.logger.Info("Consolidating partitions")
 
 	destTable := config.DestinationTableIdentifier
 	stageName := c.getStageNameForJob(config.FlowJobName)
 
 	writeHandler := NewSnowflakeAvroConsolidateHandler(c, config, destTable, stageName)
-	err := writeHandler.CopyStageToDestination(c.ctx)
+	err := writeHandler.CopyStageToDestination(ctx)
 	if err != nil {
 		c.logger.Error("failed to copy stage to destination", slog.Any("error", err))
 		return fmt.Errorf("failed to copy stage to destination: %w", err)
@@ -173,12 +175,12 @@ func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig
 }
 
 // CleanupQRepFlow function for snowflake connector
-func (c *SnowflakeConnector) CleanupQRepFlow(config *protos.QRepConfig) error {
+func (c *SnowflakeConnector) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {
 	c.logger.Info("Cleaning up flow job")
-	return c.dropStage(config.StagingPath, config.FlowJobName)
+	return c.dropStage(ctx, config.StagingPath, config.FlowJobName)
 }
 
-func (c *SnowflakeConnector) getColsFromTable(tableName string) ([]string, []string, error) {
+func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName string) ([]string, []string, error) {
 	// parse the table name to get the schema and table name
 	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
@@ -186,7 +188,7 @@ func (c *SnowflakeConnector) getColsFromTable(tableName string) ([]string, []str
 	}
 
 	rows, err := c.database.QueryContext(
-		c.ctx,
+		ctx,
 		getTableSchemaSQL,
 		strings.ToUpper(schemaTable.Schema),
 		strings.ToUpper(schemaTable.Table),
@@ -220,11 +222,11 @@ func (c *SnowflakeConnector) getColsFromTable(tableName string) ([]string, []str
 }
 
 // dropStage drops the stage for the given job.
-func (c *SnowflakeConnector) dropStage(stagingPath string, job string) error {
+func (c *SnowflakeConnector) dropStage(ctx context.Context, stagingPath string, job string) error {
 	stageName := c.getStageNameForJob(job)
 	stmt := fmt.Sprintf("DROP STAGE IF EXISTS %s", stageName)
 
-	_, err := c.database.Exec(stmt)
+	_, err := c.database.ExecContext(ctx, stmt)
 	if err != nil {
 		return fmt.Errorf("failed to drop stage %s: %w", stageName, err)
 	}
@@ -252,14 +254,14 @@ func (c *SnowflakeConnector) dropStage(stagingPath string, job string) error {
 			Prefix: aws.String(fmt.Sprintf("%s/%s", s3o.Prefix, job)),
 		})
 		for pages.HasMorePages() {
-			page, err := pages.NextPage(c.ctx)
+			page, err := pages.NextPage(ctx)
 			if err != nil {
 				c.logger.Error("failed to list objects from bucket", slog.Any("error", err))
 				return fmt.Errorf("failed to list objects from bucket: %w", err)
 			}
 
 			for _, object := range page.Contents {
-				_, err = s3svc.DeleteObject(c.ctx, &s3.DeleteObjectInput{
+				_, err = s3svc.DeleteObject(ctx, &s3.DeleteObjectInput{
 					Bucket: aws.String(s3o.Bucket),
 					Key:    object.Key,
 				})

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"log/slog"
@@ -61,7 +62,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) error {
 		EnableSessionWorker: true,
 	})
 
-	conn, err := utils.GetCatalogConnectionPoolFromEnv()
+	conn, err := utils.GetCatalogConnectionPoolFromEnv(context.Background())
 	if err != nil {
 		return fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}

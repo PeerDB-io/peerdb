@@ -20,16 +20,12 @@ type SSHTunnel struct {
 	sshServer string
 	once      sync.Once
 	sshClient *ssh.Client
-	ctx       context.Context
-	cancel    context.CancelFunc
 }
 
 func NewSSHTunnel(
 	ctx context.Context,
 	sshConfig *protos.SSHConfig,
 ) (*SSHTunnel, error) {
-	swCtx, cancel := context.WithCancel(ctx)
-
 	var sshServer string
 	var clientConfig *ssh.ClientConfig
 
@@ -39,7 +35,6 @@ func NewSSHTunnel(
 		clientConfig, err = utils.GetSSHClientConfig(sshConfig)
 		if err != nil {
 			slog.Error("Failed to get SSH client config", slog.Any("error", err))
-			cancel()
 			return nil, err
 		}
 	}
@@ -47,8 +42,6 @@ func NewSSHTunnel(
 	pool := &SSHTunnel{
 		sshConfig: clientConfig,
 		sshServer: sshServer,
-		ctx:       swCtx,
-		cancel:    cancel,
 	}
 
 	err := pool.connect()
@@ -85,8 +78,6 @@ func (tunnel *SSHTunnel) setupSSH() error {
 }
 
 func (tunnel *SSHTunnel) Close() {
-	tunnel.cancel()
-
 	if tunnel.sshClient != nil {
 		tunnel.sshClient.Close()
 	}
@@ -121,7 +112,7 @@ func (tunnel *SSHTunnel) NewPostgresConnFromConfig(
 		}
 	}
 
-	conn, err := pgx.ConnectConfig(tunnel.ctx, connConfig)
+	conn, err := pgx.ConnectConfig(ctx, connConfig)
 	if err != nil {
 		slog.Error("Failed to create pool:", slog.Any("error", err))
 		return nil, err
@@ -129,7 +120,7 @@ func (tunnel *SSHTunnel) NewPostgresConnFromConfig(
 
 	host := connConfig.Host
 	err = retryWithBackoff(func() error {
-		err = conn.Ping(tunnel.ctx)
+		err = conn.Ping(ctx)
 		if err != nil {
 			slog.Error("Failed to ping pool", slog.Any("error", err), slog.String("host", host))
 			return err

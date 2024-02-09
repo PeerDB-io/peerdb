@@ -8,14 +8,12 @@ import (
 
 	peersql "github.com/PeerDB-io/peer-flow/connectors/sql"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 type ClickhouseClient struct {
 	peersql.GenericSQLQueryExecutor
-	// ctx is the context.
-	ctx context.Context
-	// config is the Snowflake config.
 	Config *protos.ClickhouseConfig
 }
 
@@ -28,11 +26,10 @@ func NewClickhouseClient(ctx context.Context, config *protos.ClickhouseConfig) (
 	}
 
 	genericExecutor := *peersql.NewGenericSQLQueryExecutor(
-		ctx, database, clickhouseTypeToQValueKindMap, qvalue.QValueKindToSnowflakeTypeMap)
+		logger.LoggerFromCtx(ctx), database, clickhouseTypeToQValueKindMap, qvalue.QValueKindToSnowflakeTypeMap)
 
 	return &ClickhouseClient{
 		GenericSQLQueryExecutor: genericExecutor,
-		ctx:                     ctx,
 		Config:                  config,
 	}, nil
 }
