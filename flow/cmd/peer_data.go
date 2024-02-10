@@ -194,7 +194,9 @@ func (h *FlowRequestHandler) GetColumns(
 		pg_constraint ON pg_attribute.attrelid = pg_constraint.conrelid
 		AND pg_attribute.attnum = ANY(pg_constraint.conkey)
 	WHERE
-		relname = $1
+		relnamespace::regnamespace::text = $1
+		AND
+		relname = $2
 		AND pg_attribute.attnum > 0
 	ORDER BY
     attnum;
