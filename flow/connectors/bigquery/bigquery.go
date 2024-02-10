@@ -407,11 +407,11 @@ func (c *BigQueryConnector) getTableNametoUnchangedCols(flowJobName string, sync
 	resultMap := make(map[string][]string)
 
 	// Process the query results using an iterator.
-	var row struct {
-		Tablename             string   `bigquery:"_peerdb_destination_table_name"`
-		UnchangedToastColumns []string `bigquery:"unchanged_toast_columns"`
-	}
 	for {
+		var row struct {
+			Tablename             string   `bigquery:"_peerdb_destination_table_name"`
+			UnchangedToastColumns []string `bigquery:"unchanged_toast_columns"`
+		}
 		err := it.Next(&row)
 		if err == iterator.Done {
 			break
@@ -529,18 +529,29 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 			},
 			shortColumn: map[string]string{},
 		}
+
 		// normalize anything between last normalized batch id to last sync batchid
-		mergeStmts := mergeGen.generateMergeStmts(unchangedToastColumns)
-		for i, mergeStmt := range mergeStmts {
-			c.logger.Info(fmt.Sprintf("running merge statement [%d/%d] for table %s..",
-				i+1, len(mergeStmts), tableName))
+		// TODO (kaushik): This is so that the statement size for individual merge statements
+		// doesn't exceed the limit. We should make this configurable.
+		const batchSize = 8
+		stmtNum := 0
+		err = utils.ArrayIterChunks(unchangedToastColumns, batchSize, func(chunk []string) error {
+			stmtNum += 1
+			mergeStmt := mergeGen.generateMergeStmt(chunk)
+			c.logger.Info(fmt.Sprintf("running merge statement %d for table %s..",
+				stmtNum, tableName))
+
 			q := c.client.Query(mergeStmt)
 			q.DefaultProjectID = c.projectID
 			q.DefaultDatasetID = dstDatasetTable.dataset
-			_, err = q.Read(c.ctx)
+			_, err := q.Read(c.ctx)
 			if err != nil {
-				return nil, fmt.Errorf("failed to execute merge statement %s: %v", mergeStmt, err)
+				return fmt.Errorf("failed to execute merge statement %s: %v", mergeStmt, err)
 			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
 		}
 	}
 
