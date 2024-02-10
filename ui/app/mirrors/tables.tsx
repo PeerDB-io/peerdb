@@ -123,6 +123,11 @@ export function QRepFlows({
       }),
     [searchQuery, qrepFlows]
   );
+
+  if (mirrors.length === 0) {
+    return <Label variant='headline'>{title}: None</Label>;
+  }
+
   return (
     <>
       <Label variant='headline'>{title}</Label>
