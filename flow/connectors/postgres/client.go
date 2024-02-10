@@ -375,6 +375,11 @@ func (c *PostgresConnector) createSlotAndPublication(
 			return fmt.Errorf("[slot] error setting idle_in_transaction_session_timeout: %w", err)
 		}
 
+		_, err = conn.Exec(ctx, "SET lock_timeout = 0")
+		if err != nil {
+			return fmt.Errorf("[slot] error setting lock_timeout: %w", err)
+		}
+
 		opts := pglogrepl.CreateReplicationSlotOptions{
 			Temporary: false,
 			Mode:      pglogrepl.LogicalReplication,
