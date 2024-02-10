@@ -11,8 +11,7 @@ import (
 )
 
 //nolint:unparam
-func (s PeerFlowE2ETestSuiteCH) setupSourceTable(tableName string, numRows int) {
-	fieldNames := []string{"id", "ownerable_type", "created_at", "updated_at"}
+func (s PeerFlowE2ETestSuiteCH) setupSourceTable(tableName string, numRows int, fieldNames []string) {
 	err := e2e.CreateTableForQRepNew(s.conn, s.pgSuffix, tableName, fieldNames)
 	fmt.Printf("\n**************************** setupSourceTable created")
 	require.NoError(s.t, err)
@@ -20,9 +19,7 @@ func (s PeerFlowE2ETestSuiteCH) setupSourceTable(tableName string, numRows int) 
 	require.NoError(s.t, err)
 }
 
-func (s PeerFlowE2ETestSuiteCH) setupCHDestinationTable(dstTable string) {
-	fieldNames := []string{"id", "ownerable_type", "created_at", "updated_at"}
-
+func (s PeerFlowE2ETestSuiteCH) setupCHDestinationTable(dstTable string, fieldNames []string) {
 	schema := e2e.GetOwnersSchemaNew(fieldNames)
 	//TODO: write your own table creation logic for ch or modify the one in chHelper()
 	err := s.chHelper.CreateTable(dstTable, schema)
@@ -152,8 +149,8 @@ func (s PeerFlowE2ETestSuiteCH) Test_Complete_QRep_Flow_Avro_CH_S3() {
 	numRows := 10
 
 	tblName := "test_qrep_flow_avro_ch_s3"
-	s.setupSourceTable(tblName, numRows)
-	s.setupCHDestinationTable(tblName) //As currently qrep doesnot create destination table on its own
+	s.setupSourceTable(tblName, numRows, fieldNames)
+	s.setupCHDestinationTable(tblName, fieldNames) //As currently qrep doesnot create destination table on its own
 	fmt.Printf("\n*********************************............Test_Complete_QRep_Flow_Avro_CH_S3 1 setupSourceTable done\n")
 
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.chHelper.testSchemaName, tblName)
