@@ -263,6 +263,9 @@ func CDCFlowWorkflowWithConfig(
 				newName := oldName + "_resync"
 				mapping.DestinationTableIdentifier = newName
 			}
+
+			// because we have renamed the tables.
+			cfg.TableMappings = state.TableMappings
 		}
 
 		// start the SetupFlow workflow as a child workflow, and wait for it to complete

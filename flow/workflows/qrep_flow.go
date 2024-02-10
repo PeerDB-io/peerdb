@@ -101,6 +101,29 @@ func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
 	return nil
 }
 
+func (q *QRepFlowExecution) getTableSchema(ctx workflow.Context, tableName string) (*protos.TableSchema, error) {
+	q.logger.Info("fetching schema for table - ", tableName)
+
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+	})
+
+	tableSchemaInput := &protos.GetTableSchemaBatchInput{
+		PeerConnectionConfig: q.config.SourcePeer,
+		TableIdentifiers:     []string{tableName},
+		FlowName:             q.config.FlowJobName,
+	}
+
+	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
+
+	var tblSchemaOutput *protos.GetTableSchemaBatchOutput
+	if err := future.Get(ctx, &tblSchemaOutput); err != nil {
+		return nil, fmt.Errorf("failed to fetch schema for table %s: %w", tableName, err)
+	}
+
+	return tblSchemaOutput.TableNameSchemaMapping[tableName], nil
+}
+
 func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Context) error {
 	if q.config.SetupWatermarkTableOnDestination {
 		q.logger.Info("setting up watermark table on destination for qrep flow: ", q.config.FlowJobName)
@@ -109,31 +132,24 @@ func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Contex
 			StartToCloseTimeout: 5 * time.Minute,
 		})
 
-		tableSchemaInput := &protos.GetTableSchemaBatchInput{
-			PeerConnectionConfig: q.config.SourcePeer,
-			TableIdentifiers:     []string{q.config.WatermarkTable},
-			FlowName:             q.config.FlowJobName,
-		}
-
-		future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
-
-		var tblSchemaOutput *protos.GetTableSchemaBatchOutput
-		if err := future.Get(ctx, &tblSchemaOutput); err != nil {
+		// fetch the schema for the watermark table
+		watermarkTableSchema, err := q.getTableSchema(ctx, q.config.WatermarkTable)
+		if err != nil {
 			q.logger.Error("failed to fetch schema for watermark table: ", err)
-			return fmt.Errorf("failed to fetch schema for watermark table %s: %w", q.config.WatermarkTable, err)
+			return fmt.Errorf("failed to fetch schema for watermark table: %w", err)
 		}
 
 		// now setup the normalized tables on the destination peer
 		setupConfig := &protos.SetupNormalizedTableBatchInput{
 			PeerConnectionConfig: q.config.DestinationPeer,
 			TableNameSchemaMapping: map[string]*protos.TableSchema{
-				q.config.DestinationTableIdentifier: tblSchemaOutput.TableNameSchemaMapping[q.config.WatermarkTable],
+				q.config.DestinationTableIdentifier: watermarkTableSchema,
 			},
 			SyncedAtColName: q.config.SyncedAtColName,
 			FlowName:        q.config.FlowJobName,
 		}
 
-		future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
+		future := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
 		var createNormalizedTablesOutput *protos.SetupNormalizedTableBatchOutput
 		if err := future.Get(ctx, &createNormalizedTablesOutput); err != nil {
 			q.logger.Error("failed to create watermark table: ", err)
@@ -342,10 +358,17 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 		renameOpts := &protos.RenameTablesInput{}
 		renameOpts.FlowJobName = q.config.FlowJobName
 		renameOpts.Peer = q.config.DestinationPeer
+
+		tblSchema, err := q.getTableSchema(ctx, q.config.DestinationTableIdentifier)
+		if err != nil {
+			return fmt.Errorf("failed to fetch schema for table %s: %w", q.config.DestinationTableIdentifier, err)
+		}
+
 		renameOpts.RenameTableOptions = []*protos.RenameTableOption{
 			{
 				CurrentName: q.config.DestinationTableIdentifier,
 				NewName:     oldTableIdentifier,
+				TableSchema: tblSchema,
 			},
 		}
 
