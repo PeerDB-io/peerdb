@@ -108,7 +108,7 @@ func (s *SetupFlowExecution) ensurePullability(
 	s.logger.Info("ensuring pullability for peer flow - ", s.cdcFlowName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Minute,
+		StartToCloseTimeout: 1 * time.Hour,
 	})
 	srcTableIdNameMapping := make(map[uint32]string)
 
