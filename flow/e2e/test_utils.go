@@ -209,16 +209,298 @@ func SetupCDCFlowStatusQuery(t *testing.T, env *testsuite.TestWorkflowEnvironmen
 	}
 }
 
+func CreateTableForQRepNew(conn *pgx.Conn, suffix string, tableName string, fieldNames []string) error {
+	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
+
+	// Mapping of field names to field types
+	fieldTypes := map[string]string{
+		"id":                      "UUID NOT NULL PRIMARY KEY",
+		"card_id":                 "UUID",
+		"from":                    "TIMESTAMP NOT NULL",
+		"price":                   "NUMERIC",
+		"created_at":              "TIMESTAMP NOT NULL",
+		"updated_at":              "TIMESTAMP NOT NULL",
+		"transaction_hash":        "BYTEA",
+		"ownerable_type":          "VARCHAR",
+		"ownerable_id":            "UUID",
+		"user_nonce":              "INTEGER",
+		"transfer_type":           "INTEGER DEFAULT 0 NOT NULL",
+		"blockchain":              "INTEGER NOT NULL",
+		"deal_type":               "VARCHAR",
+		"deal_id":                 "UUID",
+		"ethereum_transaction_id": "UUID",
+		"ignore_price":            "BOOLEAN DEFAULT false",
+		"card_eth_value":          "DOUBLE PRECISION",
+		"paid_eth_price":          "DOUBLE PRECISION",
+		"card_bought_notified":    "BOOLEAN DEFAULT false NOT NULL",
+		"address":                 "NUMERIC(20,8)",
+		"account_id":              "UUID",
+		"asset_id":                "NUMERIC NOT NULL",
+		"status":                  "INTEGER",
+		"transaction_id":          "UUID",
+		"settled_at":              "TIMESTAMP",
+		"reference_id":            "VARCHAR",
+		"settle_at":               "TIMESTAMP",
+		"settlement_delay_reason": "INTEGER",
+		"f1":                      "text[]",
+		"f2":                      "bigint[]",
+		"f3":                      "int[]",
+		"f4":                      "varchar[]",
+		"f5":                      "jsonb",
+		"f6":                      "jsonb",
+		"f7":                      "jsonb",
+		"f8":                      "smallint",
+		"f9":                      "date[]",
+		"f10":                     "timestamp with time zone[]",
+		"f11":                     "timestamp without time zone[]",
+		"f12":                     "boolean[]",
+		"f13":                     "smallint[]",
+		"my_date":                 "DATE",
+		"old_date":                "DATE",
+		"my_time":                 "TIME",
+		"my_mood":                 "mood",
+		"myh":                     "HSTORE",
+		"geometryPoint":           "geometry(point)",
+		"geography_point":         "geography(point)",
+		"geometry_linestring":     "geometry(linestring)",
+		"geography_linestring":    "geography(linestring)",
+		"geometry_polygon":        "geometry(polygon)",
+		"geography_polygon":       "geography(polygon)",
+		"nannu":                   "NUMERIC",
+		"myreal":                  "REAL",
+		"myreal2":                 "REAL",
+		"myreal3":                 "REAL",
+	}
+
+	// Prepare the fields string
+	fields := make([]string, 0, len(fieldNames))
+	for _, fieldName := range fieldNames {
+		fieldType, ok := fieldTypes[fieldName]
+		if !ok {
+			return fmt.Errorf("field type for %s not found", fieldName)
+		}
+		fields = append(fields, fmt.Sprintf("%s %s", fieldName, fieldType))
+	}
+
+	tblFieldStr := strings.Join(fields, ", ")
+
+	var pgErr *pgconn.PgError
+	_, enumErr := conn.Exec(context.Background(), createMoodEnum)
+	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !utils.IsUniqueError(pgErr) {
+		return enumErr
+	}
+
+	_, err := conn.Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE e2e_test_%s.%s (
+			%s
+		);`,
+		suffix, tableName, tblFieldStr))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func PopulateSourceTableNew(conn *pgx.Conn, suffix string, tableName string, rowCount int, fieldNames []string) error {
+	var ids []string
+	var rows []string
+
+	// Function to generate a random UUID
+	generateUUID := func() string {
+		return uuid.New().String()
+	}
+
+	// Map of hardcoded values for each field
+	hardcodedValues := map[string]string{
+		"from":                    "CURRENT_TIMESTAMP",
+		"created_at":              "CURRENT_TIMESTAMP",
+		"updated_at":              "CURRENT_TIMESTAMP",
+		"transaction_hash":        "E'\\\\xDEADBEEF'",
+		"ownerable_type":          "'type1'",
+		"deal_type":               "'dealType1'",
+		"ignore_price":            "false",
+		"card_bought_notified":    "false",
+		"status":                  "1",
+		"settlement_delay_reason": "1",
+		"f1":                      "'{text1, text2}'",
+		"f2":                      "'{123, 456}'",
+		"f3":                      "'{789, 012}'",
+		"f4":                      "'{varchar1, varchar2}'",
+		"f5":                      `'"key": "value"'`,
+		"f6":                      `'[{"key1": "value1", "key2": "value2", "key3": "value3"}]'`,
+		"f7":                      `'{"key": "value"}'`,
+		"f8":                      "'15'",
+		"f9":                      "'{2023-09-09,2029-08-10}'",
+		"f10":                     `'{"2024-01-15 17:00:00+00","2024-01-16 14:30:00+00"}'`,
+		"f11":                     `'{"2026-01-17 10:00:00","2026-01-18 13:45:00"}'`,
+		"f12":                     "'{true, false}'",
+		"f13":                     "'{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}'",
+		"my_date":                 "CURRENT_DATE",
+		"my_time":                 "CURRENT_TIME",
+		"my_mood":                 "'happy'",
+		"myh":                     `'\"a\"=>\"b\"'`,
+		"geometryPoint":           "'POINT(1 2)'",
+		"geography_point":         "'POINT(40.7128 -74.0060)'",
+		"geometry_linestring":     "'LINESTRING(0 0, 1 1, 2 2)'",
+		"geography_linestring":    "'LINESTRING(-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831)'",
+		"geometry_polygon":        "'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'",
+		"geography_polygon":       "'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'",
+		"nannu":                   "'NaN'",
+		"myreal":                  "'3.14159'",
+		"myreal2":                 "'1'",
+		"myreal3":                 "'1.0'",
+	}
+
+	// Prepare the rows
+	for i := 0; i < rowCount-1; i++ {
+		id := generateUUID()
+		ids = append(ids, id)
+
+		var fieldValues []string
+		for _, fieldName := range fieldNames {
+			switch fieldName {
+			case "id":
+				fieldValues = append(fieldValues, fmt.Sprintf("'%s'", id))
+			case "card_id", "ownerable_id", "deal_id", "ethereum_transaction_id", "transaction_id", "asset_id", "account_id":
+				fieldValues = append(fieldValues, fmt.Sprintf("'%s'", generateUUID()))
+			default:
+				hardcodedValue, ok := hardcodedValues[fieldName]
+				if !ok {
+					return fmt.Errorf("hardcoded value for field %s not found", fieldName)
+				}
+				fieldValues = append(fieldValues, hardcodedValue)
+			}
+		}
+
+		rows = append(rows, fmt.Sprintf("(%s)", strings.Join(fieldValues, ", ")))
+	}
+
+	// Insert data into the table
+	_, err := conn.Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO e2e_test_%s.%s (%s)
+		VALUES %s;
+	`, suffix, tableName, strings.Join(fieldNames, ", "), strings.Join(rows, ", ")))
+
+	if err != nil {
+		return err
+	}
+
+	// Add a row where all the nullable fields are null
+	// _, err = conn.Exec(context.Background(), fmt.Sprintf(`
+	// 	INSERT INTO e2e_test_%s.%s (
+	// 		id, from, updated_at,
+	// 		transfer_type, blockchain, card_bought_notified
+	// 	) VALUES (
+	// 		'%s',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,
+	// 		0, 1, false
+	// 	);
+	// `, suffix, tableName, generateUUID()))
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func GetOwnersSchemaNew(fieldNames []string) *model.QRecordSchema {
+	var fields []model.QField
+
+	// Function to check if a field is present in the list
+	isIncluded := func(fieldName string) bool {
+		for _, name := range fieldNames {
+			if name == fieldName {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Append fields based on the provided list
+	appendField := func(field model.QField) {
+		if len(fieldNames) == 0 || isIncluded(field.Name) {
+			fields = append(fields, field)
+		}
+	}
+
+	// Define all fields
+	allFields := []model.QField{
+		{Name: "id", Type: qvalue.QValueKindString, Nullable: true},
+		{Name: "card_id", Type: qvalue.QValueKindString, Nullable: true},
+		{Name: "from", Type: qvalue.QValueKindTimestamp, Nullable: true},
+		{Name: "price", Type: qvalue.QValueKindNumeric, Nullable: true},
+		{Name: "created_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
+		{Name: "updated_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
+		{Name: "transaction_hash", Type: qvalue.QValueKindBytes, Nullable: true},
+		{Name: "ownerable_type", Type: qvalue.QValueKindString, Nullable: true},
+		{Name: "ownerable_id", Type: qvalue.QValueKindString, Nullable: true},
+		{Name: "user_nonce", Type: qvalue.QValueKindInt64, Nullable: true},
+		{Name: "transfer_type", Type: qvalue.QValueKindInt64, Nullable: true},
+		{Name: "blockchain", Type: qvalue.QValueKindInt64, Nullable: true},
+		{Name: "deal_type", Type: qvalue.QValueKindString, Nullable: true},
+		{Name: "deal_id", Type: qvalue.QValueKindString, Nullable: true},
+		{Name: "ethereum_transaction_id", Type: qvalue.QValueKindString, Nullable: true},
+		{Name: "ignore_price", Type: qvalue.QValueKindBoolean, Nullable: true},
+		{Name: "card_eth_value", Type: qvalue.QValueKindFloat64, Nullable: true},
+		{Name: "paid_eth_price", Type: qvalue.QValueKindFloat64, Nullable: true},
+		{Name: "card_bought_notified", Type: qvalue.QValueKindBoolean, Nullable: true},
+		{Name: "address", Type: qvalue.QValueKindNumeric, Nullable: true},
+		{Name: "account_id", Type: qvalue.QValueKindString, Nullable: true},
+		{Name: "asset_id", Type: qvalue.QValueKindNumeric, Nullable: true},
+		{Name: "status", Type: qvalue.QValueKindInt64, Nullable: true},
+		{Name: "transaction_id", Type: qvalue.QValueKindString, Nullable: true},
+		{Name: "settled_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
+		{Name: "reference_id", Type: qvalue.QValueKindString, Nullable: true},
+		{Name: "settle_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
+		{Name: "settlement_delay_reason", Type: qvalue.QValueKindInt64, Nullable: true},
+		{Name: "f1", Type: qvalue.QValueKindArrayString, Nullable: true},
+		{Name: "f2", Type: qvalue.QValueKindArrayInt64, Nullable: true},
+		{Name: "f3", Type: qvalue.QValueKindArrayInt32, Nullable: true},
+		{Name: "f4", Type: qvalue.QValueKindArrayString, Nullable: true},
+		{Name: "f5", Type: qvalue.QValueKindJSON, Nullable: true},
+		{Name: "f6", Type: qvalue.QValueKindJSON, Nullable: true},
+		{Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
+		{Name: "f8", Type: qvalue.QValueKindInt16, Nullable: true},
+		// {Name: "f9", Type: qvalue.QValueKindArrayDate, Nullable: true},
+		// {Name: "f10", Type: qvalue.QValueKindArrayTimestampTz, Nullable: true},
+		// {Name: "f11", Type: qvalue.QValueKindArrayTimestamp, Nullable: true},
+		// {Name: "f12", Type: qvalue.QValueKindArrayBoolean, Nullable: true},
+		{Name: "f13", Type: qvalue.QValueKindArrayInt16, Nullable: true},
+		{Name: "my_date", Type: qvalue.QValueKindDate, Nullable: true},
+		{Name: "old_date", Type: qvalue.QValueKindDate, Nullable: true},
+		{Name: "my_time", Type: qvalue.QValueKindTime, Nullable: true},
+		{Name: "my_mood", Type: qvalue.QValueKindString, Nullable: true},
+		{Name: "geometryPoint", Type: qvalue.QValueKindGeometry, Nullable: true},
+		{Name: "geometry_linestring", Type: qvalue.QValueKindGeometry, Nullable: true},
+		{Name: "geometry_polygon", Type: qvalue.QValueKindGeometry, Nullable: true},
+		{Name: "geography_point", Type: qvalue.QValueKindGeography, Nullable: true},
+		{Name: "geography_linestring", Type: qvalue.QValueKindGeography, Nullable: true},
+		{Name: "geography_polygon", Type: qvalue.QValueKindGeography, Nullable: true},
+		{Name: "nannu", Type: qvalue.QValueKindFloat64, Nullable: true},
+		{Name: "myreal", Type: qvalue.QValueKindFloat32, Nullable: true},
+		{Name: "myreal2", Type: qvalue.QValueKindFloat32, Nullable: true},
+		{Name: "myreal3", Type: qvalue.QValueKindFloat32, Nullable: true},
+	}
+
+	// Append selected fields to the final schema
+	for _, field := range allFields {
+		appendField(field)
+	}
+
+	return &model.QRecordSchema{Fields: fields}
+}
+
 func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
 	tblFields := []string{
 		"id UUID NOT NULL PRIMARY KEY",
 		"card_id UUID",
-		//`"from" TIMESTAMP NOT NULL`,
-		// "price NUMERIC",
-		// "created_at TIMESTAMP NOT NULL",
+		`"from" TIMESTAMP NOT NULL`,
+		"price NUMERIC",
+		"created_at TIMESTAMP NOT NULL",
 		"updated_at TIMESTAMP NOT NULL",
-		// "transaction_hash BYTEA",
+		"transaction_hash BYTEA",
 		"ownerable_type VARCHAR",
 		"ownerable_id UUID",
 		"user_nonce INTEGER",
@@ -231,22 +513,22 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 		"card_eth_value DOUBLE PRECISION",
 		"paid_eth_price DOUBLE PRECISION",
 		"card_bought_notified BOOLEAN DEFAULT false NOT NULL",
-		// "address NUMERIC(20,8)",
+		"address NUMERIC(20,8)",
 		"account_id UUID",
-		// "asset_id NUMERIC NOT NULL",
+		"asset_id NUMERIC NOT NULL",
 		"status INTEGER",
 		"transaction_id UUID",
-		// "settled_at TIMESTAMP",
+		"settled_at TIMESTAMP",
 		"reference_id VARCHAR",
-		// "settle_at TIMESTAMP",
+		"settle_at TIMESTAMP",
 		"settlement_delay_reason INTEGER",
-		// "f1 text[]",
-		// "f2 bigint[]",
-		// "f3 int[]",
-		// "f4 varchar[]",
-		// "f5 jsonb",
-		// "f6 jsonb",
-		// "f7 jsonb",
+		"f1 text[]",
+		"f2 bigint[]",
+		"f3 int[]",
+		"f4 varchar[]",
+		"f5 jsonb",
+		"f6 jsonb",
+		"f7 jsonb",
 		"f8 smallint",
 		"f9 date[]",
 		"f10 timestamp with time zone[]",
@@ -602,7 +884,7 @@ func GetOwnersSchema() *model.QRecordSchema {
 		Fields: []model.QField{
 			{Name: "id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "card_id", Type: qvalue.QValueKindString, Nullable: true},
-			//{Name: "from", Type: qvalue.QValueKindTimestamp, Nullable: true},
+			{Name: "from", Type: qvalue.QValueKindTimestamp, Nullable: true},
 			{Name: "price", Type: qvalue.QValueKindNumeric, Nullable: true},
 			{Name: "created_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
 			{Name: "updated_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
@@ -628,13 +910,13 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "reference_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "settle_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
 			{Name: "settlement_delay_reason", Type: qvalue.QValueKindInt64, Nullable: true},
-			// {Name: "f1", Type: qvalue.QValueKindArrayString, Nullable: true},
-			// {Name: "f2", Type: qvalue.QValueKindArrayInt64, Nullable: true},
-			// {Name: "f3", Type: qvalue.QValueKindArrayInt32, Nullable: true},
-			// {Name: "f4", Type: qvalue.QValueKindArrayString, Nullable: true},
-			// {Name: "f5", Type: qvalue.QValueKindJSON, Nullable: true},
-			// {Name: "f6", Type: qvalue.QValueKindJSON, Nullable: true},
-			// {Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
+			{Name: "f1", Type: qvalue.QValueKindArrayString, Nullable: true},
+			{Name: "f2", Type: qvalue.QValueKindArrayInt64, Nullable: true},
+			{Name: "f3", Type: qvalue.QValueKindArrayInt32, Nullable: true},
+			{Name: "f4", Type: qvalue.QValueKindArrayString, Nullable: true},
+			{Name: "f5", Type: qvalue.QValueKindJSON, Nullable: true},
+			{Name: "f6", Type: qvalue.QValueKindJSON, Nullable: true},
+			{Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
 			{Name: "f8", Type: qvalue.QValueKindInt16, Nullable: true},
 			{Name: "f13", Type: qvalue.QValueKindArrayInt16, Nullable: true},
 			{Name: "my_date", Type: qvalue.QValueKindDate, Nullable: true},
@@ -674,8 +956,8 @@ func GetOwnersSelectorStringsSF() [2]string {
 	return [2]string{strings.Join(pgFields, ","), strings.Join(sfFields, ",")}
 }
 
-func GetOwnersSelectorStringsCH() [2]string {
-	schema := GetOwnersSchema()
+func GetOwnersSelectorStringsCH(fieldNames []string) [2]string {
+	schema := GetOwnersSchemaNew(fieldNames)
 	pgFields := make([]string, 0, len(schema.Fields))
 	sfFields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
@@ -688,7 +970,7 @@ func GetOwnersSelectorStringsCH() [2]string {
 			// which is troublesome to deal with. Now it receives it as string.
 			sfFields = append(sfFields, fmt.Sprintf(`ST_ASWKT(%s) as %s`, colName, colName))
 		} else {
-			sfFields = append(sfFields, connsnowflake.SnowflakeIdentifierNormalize(field.Name))
+			sfFields = append(sfFields, field.Name)
 		}
 	}
 	return [2]string{strings.Join(pgFields, ","), strings.Join(sfFields, ",")}

@@ -41,7 +41,7 @@ func (s PeerFlowE2ETestSuiteCH) Suffix() string {
 
 func (s PeerFlowE2ETestSuiteCH) GetRows(tableName string, chSelector string) (*model.QRecordBatch, error) {
 	s.t.Helper()
-	qualifiedTableName := fmt.Sprintf(`%s.%s.%s`, s.chHelper.testDatabaseName, s.chHelper.testSchemaName, tableName)
+	qualifiedTableName := fmt.Sprintf(`%s.%s`, s.chHelper.testDatabaseName, tableName)
 	chSelQuery := fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, chSelector, qualifiedTableName)
 	s.t.Logf("running query on clickhouse: %s", chSelQuery)
 	return s.chHelper.ExecuteAndProcessQuery(chSelQuery)

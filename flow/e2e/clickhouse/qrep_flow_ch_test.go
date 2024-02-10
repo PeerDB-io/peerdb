@@ -12,15 +12,18 @@ import (
 
 //nolint:unparam
 func (s PeerFlowE2ETestSuiteCH) setupSourceTable(tableName string, numRows int) {
-	err := e2e.CreateTableForQRep(s.conn, s.pgSuffix, tableName)
+	fieldNames := []string{"id", "ownerable_type", "created_at", "updated_at"}
+	err := e2e.CreateTableForQRepNew(s.conn, s.pgSuffix, tableName, fieldNames)
 	fmt.Printf("\n**************************** setupSourceTable created")
 	require.NoError(s.t, err)
-	err = e2e.PopulateSourceTable(s.conn, s.pgSuffix, tableName, numRows)
+	err = e2e.PopulateSourceTableNew(s.conn, s.pgSuffix, tableName, numRows, fieldNames)
 	require.NoError(s.t, err)
 }
 
 func (s PeerFlowE2ETestSuiteCH) setupCHDestinationTable(dstTable string) {
-	schema := e2e.GetOwnersSchema()
+	fieldNames := []string{"id", "ownerable_type", "created_at", "updated_at"}
+
+	schema := e2e.GetOwnersSchemaNew(fieldNames)
 	//TODO: write your own table creation logic for ch or modify the one in chHelper()
 	err := s.chHelper.CreateTable(dstTable, schema)
 	// fail if table creation fails
@@ -142,6 +145,7 @@ func (s PeerFlowE2ETestSuiteCH) compareTableContentsWithDiffSelectorsCH(tableNam
 // }
 
 func (s PeerFlowE2ETestSuiteCH) Test_Complete_QRep_Flow_Avro_CH_S3() {
+	fieldNames := []string{"id", "ownerable_type", "created_at", "updated_at"}
 	fmt.Printf("\n*********************************............Test_Complete_QRep_Flow_Avro_CH_S3")
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
@@ -181,7 +185,7 @@ func (s PeerFlowE2ETestSuiteCH) Test_Complete_QRep_Flow_Avro_CH_S3() {
 	fmt.Printf("\n*********************************............Test_Complete_QRep_Flow_Avro_CH_S3 5.5\n %+v", err)
 	require.NoError(s.t, err)
 	fmt.Printf("\n*********************************............Test_Complete_QRep_Flow_Avro_CH_S3 6\n")
-	sel := e2e.GetOwnersSelectorStringsCH()
+	sel := e2e.GetOwnersSelectorStringsCH(fieldNames)
 	fmt.Printf("\n*********************************............Test_Complete_QRep_Flow_Avro_CH_S3 7\n")
 	s.compareTableContentsWithDiffSelectorsCH(tblName, sel[0], sel[1])
 	fmt.Printf("\n*********************************............Test_Complete_QRep_Flow_Avro_CH_S3 8\n")

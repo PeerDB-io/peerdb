@@ -4,5 +4,8 @@
     "user": "clickhouse",
     "password": "clickhouse",
     "database": "desti",
-    "s3_integration": "s3://peerdb-test-bucket"
+    "s3_path": "s3://peerdb-test-bucket",
+    "access_key_id":"",
+    "secret_access_key": "",
+    "region": "us-east-2"
 }
