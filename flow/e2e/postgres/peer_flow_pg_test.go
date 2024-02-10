@@ -60,7 +60,7 @@ func (s PeerFlowE2ETestSuitePG) WaitForSchema(
 	s.t.Helper()
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, reason, func() bool {
 		s.t.Helper()
-		output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+		output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 			TableIdentifiers: []string{dstTableName},
 		})
 		if err != nil {

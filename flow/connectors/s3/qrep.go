@@ -1,6 +1,7 @@
 package conns3
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 
@@ -13,6 +14,7 @@ import (
 )
 
 func (c *S3Connector) SyncQRepRecords(
+	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
@@ -31,7 +33,7 @@ func (c *S3Connector) SyncQRepRecords(
 		return 0, err
 	}
 
-	numRecords, err := c.writeToAvroFile(stream, avroSchema, partition.PartitionId, config.FlowJobName)
+	numRecords, err := c.writeToAvroFile(ctx, stream, avroSchema, partition.PartitionId, config.FlowJobName)
 	if err != nil {
 		return 0, err
 	}
@@ -52,6 +54,7 @@ func getAvroSchema(
 }
 
 func (c *S3Connector) writeToAvroFile(
+	ctx context.Context,
 	stream *model.QRecordStream,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	partitionID string,
@@ -64,7 +67,7 @@ func (c *S3Connector) writeToAvroFile(
 
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, jobName, partitionID)
 	writer := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
-	avroFile, err := writer.WriteRecordsToS3(c.ctx, s3o.Bucket, s3AvroFileKey, c.creds)
+	avroFile, err := writer.WriteRecordsToS3(ctx, s3o.Bucket, s3AvroFileKey, c.creds)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to S3: %w", err)
 	}
@@ -74,7 +77,7 @@ func (c *S3Connector) writeToAvroFile(
 }
 
 // S3 just sets up destination, not metadata tables
-func (c *S3Connector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
+func (c *S3Connector) SetupQRepMetadataTables(_ context.Context, config *protos.QRepConfig) error {
 	c.logger.Info("QRep metadata setup not needed for S3.")
 	return nil
 }

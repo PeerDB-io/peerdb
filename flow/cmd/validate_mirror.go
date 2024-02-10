@@ -30,10 +30,10 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 			Ok: false,
 		}, fmt.Errorf("failed to create postgres connector: %v", err)
 	}
-	defer pgPeer.Close()
+	defer pgPeer.Close(ctx)
 
 	// Check permissions of postgres peer
-	err = pgPeer.CheckReplicationPermissions(sourcePeerConfig.User)
+	err = pgPeer.CheckReplicationPermissions(ctx, sourcePeerConfig.User)
 	if err != nil {
 		return &protos.ValidateCDCMirrorResponse{
 			Ok: false,
@@ -46,7 +46,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		sourceTables = append(sourceTables, tableMapping.SourceTableIdentifier)
 	}
 
-	err = pgPeer.CheckSourceTables(sourceTables, req.ConnectionConfigs.PublicationName)
+	err = pgPeer.CheckSourceTables(ctx, sourceTables, req.ConnectionConfigs.PublicationName)
 	if err != nil {
 		return &protos.ValidateCDCMirrorResponse{
 			Ok: false,

@@ -16,7 +16,6 @@ import (
 type SQLServerConnector struct {
 	peersql.GenericSQLQueryExecutor
 
-	ctx    context.Context
 	config *protos.SqlServerConfig
 	db     *sqlx.DB
 	logger log.Logger
@@ -37,20 +36,21 @@ func NewSQLServerConnector(ctx context.Context, config *protos.SqlServerConfig) 
 		return nil, err
 	}
 
+	logger := logger.LoggerFromCtx(ctx)
+
 	genericExecutor := *peersql.NewGenericSQLQueryExecutor(
-		ctx, db, sqlServerTypeToQValueKindMap, qValueKindToSQLServerTypeMap)
+		logger, db, sqlServerTypeToQValueKindMap, qValueKindToSQLServerTypeMap)
 
 	return &SQLServerConnector{
 		GenericSQLQueryExecutor: genericExecutor,
-		ctx:                     ctx,
 		config:                  config,
 		db:                      db,
-		logger:                  logger.LoggerFromCtx(ctx),
+		logger:                  logger,
 	}, nil
 }
 
 // Close closes the database connection
-func (c *SQLServerConnector) Close() error {
+func (c *SQLServerConnector) Close(_ context.Context) error {
 	if c.db != nil {
 		return c.db.Close()
 	}
@@ -58,8 +58,8 @@ func (c *SQLServerConnector) Close() error {
 }
 
 // ConnectionActive checks if the connection is still active
-func (c *SQLServerConnector) ConnectionActive() error {
-	if err := c.db.Ping(); err != nil {
+func (c *SQLServerConnector) ConnectionActive(ctx context.Context) error {
+	if err := c.db.PingContext(ctx); err != nil {
 		return err
 	}
 	return nil

@@ -1,6 +1,7 @@
 package connclickhouse
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -27,9 +28,9 @@ func (c *ClickhouseConnector) getRawTableName(flowJobName string) string {
 	return fmt.Sprintf("_peerdb_raw_%s", flowJobName)
 }
 
-func (c *ClickhouseConnector) checkIfTableExists(databaseName string, tableIdentifier string) (bool, error) {
+func (c *ClickhouseConnector) checkIfTableExists(ctx context.Context, databaseName string, tableIdentifier string) (bool, error) {
 	var result sql.NullInt32
-	err := c.database.QueryRowContext(c.ctx, checkIfTableExistsSQL, databaseName, tableIdentifier).Scan(&result)
+	err := c.database.QueryRowContext(ctx, checkIfTableExistsSQL, databaseName, tableIdentifier).Scan(&result)
 	if err != nil {
 		return false, fmt.Errorf("error while reading result row: %w", err)
 	}
@@ -48,7 +49,7 @@ type MirrorJobRow struct {
 	NormalizeBatchID int
 }
 
-func (c *ClickhouseConnector) CreateRawTable(req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
+func (c *ClickhouseConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
 	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %s (
@@ -62,7 +63,7 @@ func (c *ClickhouseConnector) CreateRawTable(req *protos.CreateRawTableInput) (*
 		_peerdb_unchanged_toast_columns String
 	) ENGINE = ReplacingMergeTree ORDER BY _peerdb_uid;`
 
-	_, err := c.database.ExecContext(c.ctx,
+	_, err := c.database.ExecContext(ctx,
 		fmt.Sprintf(createRawTableSQL, rawTableName))
 	if err != nil {
 		return nil, fmt.Errorf("unable to create raw table: %w", err)
@@ -73,6 +74,7 @@ func (c *ClickhouseConnector) CreateRawTable(req *protos.CreateRawTableInput) (*
 }
 
 func (c *ClickhouseConnector) syncRecordsViaAvro(
+	ctx context.Context,
 	req *model.SyncRecordsRequest,
 	rawTableIdentifier string,
 	syncBatchID int64,
@@ -95,12 +97,12 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 		return nil, err
 	}
 
-	numRecords, err := avroSyncer.SyncRecords(c.ctx, destinationTableSchema, streamRes.Stream, req.FlowJobName)
+	numRecords, err := avroSyncer.SyncRecords(ctx, destinationTableSchema, streamRes.Stream, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
 
-	err = c.ReplayTableSchemaDeltas(req.FlowJobName, req.Records.SchemaDeltas)
+	err = c.ReplayTableSchemaDeltas(ctx, req.FlowJobName, req.Records.SchemaDeltas)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
@@ -119,11 +121,11 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 	}, nil
 }
 
-func (c *ClickhouseConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+func (c *ClickhouseConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
 	rawTableName := c.getRawTableName(req.FlowJobName)
 	c.logger.Info(fmt.Sprintf("pushing records to Clickhouse table %s", rawTableName))
 
-	res, err := c.syncRecordsViaAvro(req, rawTableName, req.SyncBatchID)
+	res, err := c.syncRecordsViaAvro(ctx, req, rawTableName, req.SyncBatchID)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +135,7 @@ func (c *ClickhouseConnector) SyncRecords(req *model.SyncRecordsRequest) (*model
 		return nil, fmt.Errorf("failed to get last checkpoint: %w", err)
 	}
 
-	err = c.pgMetadata.FinishBatch(c.ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
+	err = c.pgMetadata.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
 	if err != nil {
 		c.logger.Error("failed to increment id", slog.Any("error", err))
 		return nil, err
@@ -142,41 +144,39 @@ func (c *ClickhouseConnector) SyncRecords(req *model.SyncRecordsRequest) (*model
 	return res, nil
 }
 
-func (c *ClickhouseConnector) SyncFlowCleanup(jobName string) error {
-	err := c.pgMetadata.DropMetadata(c.ctx, jobName)
+func (c *ClickhouseConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
+	err := c.pgMetadata.DropMetadata(ctx, jobName)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-// ReplayTableSchemaDeltas changes a destination table to match the schema at source
-// This could involve adding or dropping multiple columns.
-func (c *ClickhouseConnector) ReplayTableSchemaDeltas(flowJobName string,
+func (c *ClickhouseConnector) ReplayTableSchemaDeltas(_ context.Context, flowJobName string,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	return nil
 }
 
-func (c *ClickhouseConnector) NeedsSetupMetadataTables() bool {
+func (c *ClickhouseConnector) NeedsSetupMetadataTables(_ context.Context) bool {
 	return false
 }
 
-func (c *ClickhouseConnector) SetupMetadataTables() error {
+func (c *ClickhouseConnector) SetupMetadataTables(_ context.Context) error {
 	return nil
 }
 
-func (c *ClickhouseConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	return c.pgMetadata.GetLastBatchID(c.ctx, jobName)
+func (c *ClickhouseConnector) GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error) {
+	return c.pgMetadata.GetLastBatchID(ctx, jobName)
 }
 
-func (c *ClickhouseConnector) GetLastOffset(jobName string) (int64, error) {
-	return c.pgMetadata.FetchLastOffset(c.ctx, jobName)
+func (c *ClickhouseConnector) GetLastOffset(ctx context.Context, jobName string) (int64, error) {
+	return c.pgMetadata.FetchLastOffset(ctx, jobName)
 }
 
 // update offset for a job
-func (c *ClickhouseConnector) SetLastOffset(jobName string, offset int64) error {
-	err := c.pgMetadata.UpdateLastOffset(c.ctx, jobName, offset)
+func (c *ClickhouseConnector) SetLastOffset(ctx context.Context, jobName string, offset int64) error {
+	err := c.pgMetadata.UpdateLastOffset(ctx, jobName, offset)
 	if err != nil {
 		c.logger.Error("failed to update last offset: ", slog.Any("error", err))
 		return err

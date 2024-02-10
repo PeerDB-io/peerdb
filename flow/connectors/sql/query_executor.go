@@ -13,56 +13,53 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jmoiron/sqlx"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type SQLQueryExecutor interface {
-	ConnectionActive() error
-	Close() error
+	ConnectionActive(context.Context) error
+	Close(context.Context) error
 
-	CreateSchema(schemaName string) error
-	DropSchema(schemaName string) error
-	CheckSchemaExists(schemaName string) (bool, error)
-	RecreateSchema(schemaName string) error
+	CreateSchema(ctx context.Context, schemaName string) error
+	DropSchema(ctx context.Context, schemaName string) error
+	CheckSchemaExists(ctx context.Context, schemaName string) (bool, error)
+	RecreateSchema(ctx context.Context, schemaName string) error
 
-	CreateTable(schema *model.QRecordSchema, schemaName string, tableName string) error
-	CountRows(schemaName string, tableName string) (int64, error)
+	CreateTable(ctx context.Context, schema *model.QRecordSchema, schemaName string, tableName string) error
+	CountRows(ctx context.Context, schemaName string, tableName string) (int64, error)
 
-	ExecuteAndProcessQuery(query string, args ...interface{}) (*model.QRecordBatch, error)
-	NamedExecuteAndProcessQuery(query string, arg interface{}) (*model.QRecordBatch, error)
-	ExecuteQuery(query string, args ...interface{}) error
-	NamedExec(query string, arg interface{}) (sql.Result, error)
+	ExecuteAndProcessQuery(ctx context.Context, query string, args ...interface{}) (*model.QRecordBatch, error)
+	NamedExecuteAndProcessQuery(ctx context.Context, query string, arg interface{}) (*model.QRecordBatch, error)
+	ExecuteQuery(ctx context.Context, query string, args ...interface{}) error
+	NamedExec(ctx context.Context, query string, arg interface{}) (sql.Result, error)
 }
 
 type GenericSQLQueryExecutor struct {
-	ctx                context.Context
 	db                 *sqlx.DB
 	dbtypeToQValueKind map[string]qvalue.QValueKind
 	qvalueKindToDBType map[qvalue.QValueKind]string
-	logger             slog.Logger
+	logger             log.Logger
 }
 
 func NewGenericSQLQueryExecutor(
-	ctx context.Context,
+	logger log.Logger,
 	db *sqlx.DB,
 	dbtypeToQValueKind map[string]qvalue.QValueKind,
 	qvalueKindToDBType map[qvalue.QValueKind]string,
 ) *GenericSQLQueryExecutor {
-	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &GenericSQLQueryExecutor{
-		ctx:                ctx,
 		db:                 db,
 		dbtypeToQValueKind: dbtypeToQValueKind,
 		qvalueKindToDBType: qvalueKindToDBType,
-		logger:             *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
+		logger:             logger,
 	}
 }
 
-func (g *GenericSQLQueryExecutor) ConnectionActive() bool {
-	err := g.db.PingContext(g.ctx)
+func (g *GenericSQLQueryExecutor) ConnectionActive(ctx context.Context) bool {
+	err := g.db.PingContext(ctx)
 	return err == nil
 }
 
@@ -70,32 +67,32 @@ func (g *GenericSQLQueryExecutor) Close() error {
 	return g.db.Close()
 }
 
-func (g *GenericSQLQueryExecutor) CreateSchema(schemaName string) error {
-	_, err := g.db.ExecContext(g.ctx, "CREATE SCHEMA "+schemaName)
+func (g *GenericSQLQueryExecutor) CreateSchema(ctx context.Context, schemaName string) error {
+	_, err := g.db.ExecContext(ctx, "CREATE SCHEMA "+schemaName)
 	return err
 }
 
-func (g *GenericSQLQueryExecutor) DropSchema(schemaName string) error {
-	_, err := g.db.ExecContext(g.ctx, "DROP SCHEMA IF EXISTS "+schemaName+" CASCADE")
+func (g *GenericSQLQueryExecutor) DropSchema(ctx context.Context, schemaName string) error {
+	_, err := g.db.ExecContext(ctx, "DROP SCHEMA IF EXISTS "+schemaName+" CASCADE")
 	return err
 }
 
 // the SQL query this function executes appears to be MySQL/MariaDB specific.
-func (g *GenericSQLQueryExecutor) CheckSchemaExists(schemaName string) (bool, error) {
+func (g *GenericSQLQueryExecutor) CheckSchemaExists(ctx context.Context, schemaName string) (bool, error) {
 	var exists pgtype.Bool
 	// use information schemata to check if schema exists
-	err := g.db.QueryRowxContext(g.ctx,
+	err := g.db.QueryRowxContext(ctx,
 		"SELECT EXISTS(SELECT 1 FROM information_schema.schemata WHERE schema_name = $1)", schemaName).Scan(&exists)
 	return exists.Bool, err
 }
 
-func (g *GenericSQLQueryExecutor) RecreateSchema(schemaName string) error {
-	err := g.DropSchema(schemaName)
+func (g *GenericSQLQueryExecutor) RecreateSchema(ctx context.Context, schemaName string) error {
+	err := g.DropSchema(ctx, schemaName)
 	if err != nil {
 		return fmt.Errorf("failed to drop schema: %w", err)
 	}
 
-	err = g.CreateSchema(schemaName)
+	err = g.CreateSchema(ctx, schemaName)
 	if err != nil {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
@@ -103,7 +100,7 @@ func (g *GenericSQLQueryExecutor) RecreateSchema(schemaName string) error {
 	return nil
 }
 
-func (g *GenericSQLQueryExecutor) CreateTable(schema *model.QRecordSchema, schemaName string, tableName string) error {
+func (g *GenericSQLQueryExecutor) CreateTable(ctx context.Context, schema *model.QRecordSchema, schemaName string, tableName string) error {
 	fields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
 		dbType, ok := g.qvalueKindToDBType[field.Type]
@@ -115,7 +112,7 @@ func (g *GenericSQLQueryExecutor) CreateTable(schema *model.QRecordSchema, schem
 
 	command := fmt.Sprintf("CREATE TABLE %s.%s (%s)", schemaName, tableName, strings.Join(fields, ", "))
 
-	_, err := g.db.ExecContext(g.ctx, command)
+	_, err := g.db.ExecContext(ctx, command)
 	if err != nil {
 		return fmt.Errorf("failed to create table: %w", err)
 	}
@@ -123,20 +120,21 @@ func (g *GenericSQLQueryExecutor) CreateTable(schema *model.QRecordSchema, schem
 	return nil
 }
 
-func (g *GenericSQLQueryExecutor) CountRows(schemaName string, tableName string) (int64, error) {
+func (g *GenericSQLQueryExecutor) CountRows(ctx context.Context, schemaName string, tableName string) (int64, error) {
 	var count pgtype.Int8
-	err := g.db.QueryRowx("SELECT COUNT(*) FROM " + schemaName + "." + tableName).Scan(&count)
+	err := g.db.QueryRowxContext(ctx, "SELECT COUNT(*) FROM "+schemaName+"."+tableName).Scan(&count)
 	return count.Int64, err
 }
 
 func (g *GenericSQLQueryExecutor) CountNonNullRows(
+	ctx context.Context,
 	schemaName string,
 	tableName string,
 	columnName string,
 ) (int64, error) {
 	var count pgtype.Int8
-	err := g.db.QueryRowx("SELECT COUNT(CASE WHEN " + columnName +
-		" IS NOT NULL THEN 1 END) AS non_null_count FROM " + schemaName + "." + tableName).Scan(&count)
+	err := g.db.QueryRowxContext(ctx, "SELECT COUNT(CASE WHEN "+columnName+
+		" IS NOT NULL THEN 1 END) AS non_null_count FROM "+schemaName+"."+tableName).Scan(&count)
 	return count.Int64, err
 }
 
@@ -155,7 +153,7 @@ func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (model.
 	}, nil
 }
 
-func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBatch, error) {
+func (g *GenericSQLQueryExecutor) processRows(ctx context.Context, rows *sqlx.Rows) (*model.QRecordBatch, error) {
 	dbColTypes, err := rows.ColumnTypes()
 	if err != nil {
 		return nil, err
@@ -241,7 +239,7 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 		totalRowsProcessed += 1
 
 		if totalRowsProcessed%heartBeatNumRows == 0 {
-			activity.RecordHeartbeat(g.ctx, fmt.Sprintf("processed %d rows", totalRowsProcessed))
+			activity.RecordHeartbeat(ctx, fmt.Sprintf("processed %d rows", totalRowsProcessed))
 		}
 	}
 
@@ -258,46 +256,50 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 }
 
 func (g *GenericSQLQueryExecutor) ExecuteAndProcessQuery(
-	query string, args ...interface{},
+	ctx context.Context,
+	query string,
+	args ...interface{},
 ) (*model.QRecordBatch, error) {
-	rows, err := g.db.QueryxContext(g.ctx, query, args...)
+	rows, err := g.db.QueryxContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	return g.processRows(rows)
+	return g.processRows(ctx, rows)
 }
 
 func (g *GenericSQLQueryExecutor) NamedExecuteAndProcessQuery(
-	query string, arg interface{},
+	ctx context.Context,
+	query string,
+	arg interface{},
 ) (*model.QRecordBatch, error) {
-	rows, err := g.db.NamedQueryContext(g.ctx, query, arg)
+	rows, err := g.db.NamedQueryContext(ctx, query, arg)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	return g.processRows(rows)
+	return g.processRows(ctx, rows)
 }
 
-func (g *GenericSQLQueryExecutor) ExecuteQuery(query string, args ...interface{}) error {
-	_, err := g.db.ExecContext(g.ctx, query, args...)
+func (g *GenericSQLQueryExecutor) ExecuteQuery(ctx context.Context, query string, args ...interface{}) error {
+	_, err := g.db.ExecContext(ctx, query, args...)
 	return err
 }
 
-func (g *GenericSQLQueryExecutor) NamedExec(query string, arg interface{}) (sql.Result, error) {
-	return g.db.NamedExecContext(g.ctx, query, arg)
+func (g *GenericSQLQueryExecutor) NamedExec(ctx context.Context, query string, arg interface{}) (sql.Result, error) {
+	return g.db.NamedExecContext(ctx, query, arg)
 }
 
 // returns true if any of the columns are null in value
-func (g *GenericSQLQueryExecutor) CheckNull(schema string, tableName string, colNames []string) (bool, error) {
+func (g *GenericSQLQueryExecutor) CheckNull(ctx context.Context, schema string, tableName string, colNames []string) (bool, error) {
 	var count pgtype.Int8
 	joinedString := strings.Join(colNames, " is null or ") + " is null"
 	query := fmt.Sprintf("SELECT COUNT(*) FROM %s.%s WHERE %s",
 		schema, tableName, joinedString)
 
-	err := g.db.QueryRowxContext(g.ctx, query).Scan(&count)
+	err := g.db.QueryRowxContext(ctx, query).Scan(&count)
 	if err != nil {
 		return false, err
 	}

@@ -22,7 +22,6 @@ import (
 
 type QRepQueryExecutor struct {
 	conn          *pgx.Conn
-	ctx           context.Context
 	snapshot      string
 	testEnv       bool
 	flowJobName   string
@@ -36,7 +35,6 @@ func NewQRepQueryExecutor(conn *pgx.Conn, ctx context.Context,
 ) *QRepQueryExecutor {
 	return &QRepQueryExecutor{
 		conn:        conn,
-		ctx:         ctx,
 		snapshot:    "",
 		flowJobName: flowJobName,
 		partitionID: partitionID,
@@ -47,7 +45,7 @@ func NewQRepQueryExecutor(conn *pgx.Conn, ctx context.Context,
 	}
 }
 
-func NewQRepQueryExecutorSnapshot(conn *pgx.Conn, ctx context.Context, snapshot string,
+func NewQRepQueryExecutorSnapshot(ctx context.Context, conn *pgx.Conn, snapshot string,
 	flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
 	CustomTypeMap, err := utils.GetCustomDataTypes(ctx, conn)
@@ -56,7 +54,6 @@ func NewQRepQueryExecutorSnapshot(conn *pgx.Conn, ctx context.Context, snapshot 
 	}
 	return &QRepQueryExecutor{
 		conn:          conn,
-		ctx:           ctx,
 		snapshot:      snapshot,
 		flowJobName:   flowJobName,
 		partitionID:   partitionID,
@@ -72,8 +69,8 @@ func (qe *QRepQueryExecutor) SetTestEnv(testEnv bool) {
 	qe.testEnv = testEnv
 }
 
-func (qe *QRepQueryExecutor) ExecuteQuery(query string, args ...interface{}) (pgx.Rows, error) {
-	rows, err := qe.conn.Query(qe.ctx, query, args...)
+func (qe *QRepQueryExecutor) ExecuteQuery(ctx context.Context, query string, args ...interface{}) (pgx.Rows, error) {
+	rows, err := qe.conn.Query(ctx, query, args...)
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to execute query", slog.Any("error", err))
 		return nil, err
@@ -81,19 +78,19 @@ func (qe *QRepQueryExecutor) ExecuteQuery(query string, args ...interface{}) (pg
 	return rows, nil
 }
 
-func (qe *QRepQueryExecutor) executeQueryInTx(tx pgx.Tx, cursorName string, fetchSize int) (pgx.Rows, error) {
+func (qe *QRepQueryExecutor) executeQueryInTx(ctx context.Context, tx pgx.Tx, cursorName string, fetchSize int) (pgx.Rows, error) {
 	qe.logger.Info("Executing query in transaction")
 	q := fmt.Sprintf("FETCH %d FROM %s", fetchSize, cursorName)
 
 	if !qe.testEnv {
-		shutdown := utils.HeartbeatRoutine(qe.ctx, func() string {
+		shutdown := utils.HeartbeatRoutine(ctx, func() string {
 			qe.logger.Info(fmt.Sprintf("still running '%s'...", q))
 			return fmt.Sprintf("running '%s'", q)
 		})
 		defer shutdown()
 	}
 
-	rows, err := tx.Query(qe.ctx, q)
+	rows, err := tx.Query(ctx, q)
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to execute query in tx", slog.Any("error", err))
 		return nil, err
@@ -172,6 +169,7 @@ func (qe *QRepQueryExecutor) ProcessRows(
 }
 
 func (qe *QRepQueryExecutor) processRowsStream(
+	ctx context.Context,
 	cursorName string,
 	stream *model.QRecordStream,
 	rows pgx.Rows,
@@ -179,8 +177,6 @@ func (qe *QRepQueryExecutor) processRowsStream(
 ) (int, error) {
 	numRows := 0
 	const heartBeatNumRows = 5000
-
-	ctx := qe.ctx
 
 	// Iterate over the rows
 	for rows.Next() {
@@ -205,35 +201,36 @@ func (qe *QRepQueryExecutor) processRowsStream(
 			}
 
 			if numRows%heartBeatNumRows == 0 {
-				qe.recordHeartbeat("cursor: %s - fetched %d records", cursorName, numRows)
+				qe.recordHeartbeat(ctx, "cursor: %s - fetched %d records", cursorName, numRows)
 			}
 
 			numRows++
 		}
 	}
 
-	qe.recordHeartbeat("cursor %s - fetch completed - %d records", cursorName, numRows)
+	qe.recordHeartbeat(ctx, "cursor %s - fetch completed - %d records", cursorName, numRows)
 	qe.logger.Info("processed row stream")
 	return numRows, nil
 }
 
-func (qe *QRepQueryExecutor) recordHeartbeat(x string, args ...interface{}) {
+func (qe *QRepQueryExecutor) recordHeartbeat(ctx context.Context, x string, args ...interface{}) {
 	if qe.testEnv {
 		qe.logger.Info(fmt.Sprintf(x, args...))
 		return
 	}
 	msg := fmt.Sprintf(x, args...)
-	activity.RecordHeartbeat(qe.ctx, msg)
+	activity.RecordHeartbeat(ctx, msg)
 }
 
 func (qe *QRepQueryExecutor) processFetchedRows(
+	ctx context.Context,
 	query string,
 	tx pgx.Tx,
 	cursorName string,
 	fetchSize int,
 	stream *model.QRecordStream,
 ) (int, error) {
-	rows, err := qe.executeQueryInTx(tx, cursorName, fetchSize)
+	rows, err := qe.executeQueryInTx(ctx, tx, cursorName, fetchSize)
 	if err != nil {
 		stream.Records <- model.QRecordOrError{
 			Err: err,
@@ -251,7 +248,7 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 		_ = stream.SetSchema(schema)
 	}
 
-	numRows, err := qe.processRowsStream(cursorName, stream, rows, fieldDescriptions)
+	numRows, err := qe.processRowsStream(ctx, cursorName, stream, rows, fieldDescriptions)
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to process rows", slog.Any("error", err))
 		return 0, fmt.Errorf("failed to process rows: %w", err)
@@ -270,6 +267,7 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 }
 
 func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
+	ctx context.Context,
 	query string,
 	args ...interface{},
 ) (*model.QRecordBatch, error) {
@@ -280,7 +278,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	// must wait on errors to close before returning to maintain qe.conn exclusion
 	go func() {
 		defer close(errors)
-		_, err := qe.ExecuteAndProcessQueryStream(stream, query, args...)
+		_, err := qe.ExecuteAndProcessQueryStream(ctx, stream, query, args...)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to execute and process query stream", slog.Any("error", err))
 			errors <- err
@@ -314,6 +312,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 }
 
 func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
+	ctx context.Context,
 	stream *model.QRecordStream,
 	query string,
 	args ...interface{},
@@ -321,7 +320,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	qe.logger.Info("Executing and processing query stream", slog.String("query", query))
 	defer close(stream.Records)
 
-	tx, err := qe.conn.BeginTx(qe.ctx, pgx.TxOptions{
+	tx, err := qe.conn.BeginTx(ctx, pgx.TxOptions{
 		AccessMode: pgx.ReadOnly,
 		IsoLevel:   pgx.RepeatableRead,
 	})
@@ -330,11 +329,12 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 		return 0, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 	}
 
-	totalRecordsFetched, err := qe.ExecuteAndProcessQueryStreamWithTx(tx, stream, query, args...)
+	totalRecordsFetched, err := qe.ExecuteAndProcessQueryStreamWithTx(ctx, tx, stream, query, args...)
 	return totalRecordsFetched, err
 }
 
 func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamGettingCurrentSnapshotXmin(
+	ctx context.Context,
 	stream *model.QRecordStream,
 	query string,
 	args ...interface{},
@@ -343,7 +343,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamGettingCurrentSnapshotX
 	qe.logger.Info("Executing and processing query stream", slog.String("query", query))
 	defer close(stream.Records)
 
-	tx, err := qe.conn.BeginTx(qe.ctx, pgx.TxOptions{
+	tx, err := qe.conn.BeginTx(ctx, pgx.TxOptions{
 		AccessMode: pgx.ReadOnly,
 		IsoLevel:   pgx.RepeatableRead,
 	})
@@ -352,17 +352,18 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamGettingCurrentSnapshotX
 		return 0, currentSnapshotXmin.Int64, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 	}
 
-	err = tx.QueryRow(qe.ctx, "select txid_snapshot_xmin(txid_current_snapshot())").Scan(&currentSnapshotXmin)
+	err = tx.QueryRow(ctx, "select txid_snapshot_xmin(txid_current_snapshot())").Scan(&currentSnapshotXmin)
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to get current snapshot xmin", slog.Any("error", err))
 		return 0, currentSnapshotXmin.Int64, err
 	}
 
-	totalRecordsFetched, err := qe.ExecuteAndProcessQueryStreamWithTx(tx, stream, query, args...)
+	totalRecordsFetched, err := qe.ExecuteAndProcessQueryStreamWithTx(ctx, tx, stream, query, args...)
 	return totalRecordsFetched, currentSnapshotXmin.Int64, err
 }
 
 func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
+	ctx context.Context,
 	tx pgx.Tx,
 	stream *model.QRecordStream,
 	query string,
@@ -371,14 +372,14 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
 	var err error
 
 	defer func() {
-		err := tx.Rollback(qe.ctx)
+		err := tx.Rollback(ctx)
 		if err != nil && err != pgx.ErrTxClosed {
 			qe.logger.Error("[pg_query_executor] failed to rollback transaction", slog.Any("error", err))
 		}
 	}()
 
 	if qe.snapshot != "" {
-		_, err = tx.Exec(qe.ctx, fmt.Sprintf("SET TRANSACTION SNAPSHOT %s", QuoteLiteral(qe.snapshot)))
+		_, err = tx.Exec(ctx, fmt.Sprintf("SET TRANSACTION SNAPSHOT %s", QuoteLiteral(qe.snapshot)))
 		if err != nil {
 			stream.Records <- model.QRecordOrError{
 				Err: fmt.Errorf("failed to set snapshot: %w", err),
@@ -402,7 +403,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
 	fetchSize := shared.FetchAndChannelSize
 	cursorQuery := fmt.Sprintf("DECLARE %s CURSOR FOR %s", cursorName, query)
 	qe.logger.Info(fmt.Sprintf("[pg_query_executor] executing cursor declaration for %v with args %v", cursorQuery, args))
-	_, err = tx.Exec(qe.ctx, cursorQuery, args...)
+	_, err = tx.Exec(ctx, cursorQuery, args...)
 	if err != nil {
 		stream.Records <- model.QRecordOrError{
 			Err: fmt.Errorf("failed to declare cursor: %w", err),
@@ -417,7 +418,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
 	totalRecordsFetched := 0
 	numFetchOpsComplete := 0
 	for {
-		numRows, err := qe.processFetchedRows(query, tx, cursorName, fetchSize, stream)
+		numRows, err := qe.processFetchedRows(ctx, query, tx, cursorName, fetchSize, stream)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to process fetched rows", slog.Any("error", err))
 			return 0, err
@@ -430,12 +431,12 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
 			break
 		}
 
-		numFetchOpsComplete++
-		qe.recordHeartbeat("#%d fetched %d rows", numFetchOpsComplete, numRows)
+		numFetchOpsComplete += 1
+		qe.recordHeartbeat(ctx, "#%d fetched %d rows", numFetchOpsComplete, numRows)
 	}
 
 	qe.logger.Info("Committing transaction")
-	err = tx.Commit(qe.ctx)
+	err = tx.Commit(ctx)
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to commit transaction", slog.Any("error", err))
 		stream.Records <- model.QRecordOrError{

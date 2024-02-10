@@ -30,7 +30,7 @@ func BenchmarkQRepQueryExecutor(b *testing.B) {
 		b.Logf("iteration %d", i)
 
 		// Execute the query and process the rows
-		_, err := qe.ExecuteAndProcessQuery(query)
+		_, err := qe.ExecuteAndProcessQuery(ctx, query)
 		if err != nil {
 			b.Fatalf("failed to execute query: %v", err)
 		}

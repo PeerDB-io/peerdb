@@ -70,7 +70,7 @@ func TestExecuteAndProcessQuery(t *testing.T) {
 	qe.SetTestEnv(true)
 
 	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
-	batch, err := qe.ExecuteAndProcessQuery(query)
+	batch, err := qe.ExecuteAndProcessQuery(context.Background(), query)
 	if err != nil {
 		t.Fatalf("error while executing and processing query: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestAllDataTypes(t *testing.T) {
 	qe := NewQRepQueryExecutor(conn, ctx, "test flow", "test part")
 	// Select the row back out of the table
 	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
-	rows, err := qe.ExecuteQuery(query)
+	rows, err := qe.ExecuteQuery(context.Background(), query)
 	if err != nil {
 		t.Fatalf("error while executing query: %v", err)
 	}

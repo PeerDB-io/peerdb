@@ -17,7 +17,6 @@ import (
 )
 
 type ClickhouseConnector struct {
-	ctx                context.Context
 	database           *sql.DB
 	pgMetadata         *metadataStore.PostgresMetadataStore
 	tableSchemaMapping map[string]*protos.TableSchema
@@ -51,7 +50,7 @@ func NewClickhouseConnector(
 		return nil, fmt.Errorf("failed to open connection to Clickhouse peer: %w", err)
 	}
 
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(logger)
+	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
 	if err != nil {
 		logger.Error("failed to create postgres metadata store", "error", err)
 		return nil, err
@@ -69,7 +68,6 @@ func NewClickhouseConnector(
 	}
 
 	return &ClickhouseConnector{
-		ctx:                ctx,
 		database:           database,
 		pgMetadata:         pgMetadata,
 		tableSchemaMapping: nil,
@@ -101,7 +99,7 @@ func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, err
 	return conn, nil
 }
 
-func (c *ClickhouseConnector) Close() error {
+func (c *ClickhouseConnector) Close(_ context.Context) error {
 	if c == nil || c.database == nil {
 		return nil
 	}
@@ -113,12 +111,12 @@ func (c *ClickhouseConnector) Close() error {
 	return nil
 }
 
-func (c *ClickhouseConnector) ConnectionActive() error {
+func (c *ClickhouseConnector) ConnectionActive(ctx context.Context) error {
 	if c == nil || c.database == nil {
 		return fmt.Errorf("ClickhouseConnector is nil")
 	}
 
 	// This also checks if database exists
-	err := c.database.PingContext(c.ctx)
+	err := c.database.PingContext(ctx)
 	return err
 }

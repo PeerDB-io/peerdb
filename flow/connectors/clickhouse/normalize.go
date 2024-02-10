@@ -1,6 +1,7 @@
 package connclickhouse
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strconv"
@@ -19,11 +20,12 @@ const (
 )
 
 func (c *ClickhouseConnector) SetupNormalizedTables(
+	ctx context.Context,
 	req *protos.SetupNormalizedTableBatchInput,
 ) (*protos.SetupNormalizedTableBatchOutput, error) {
 	tableExistsMapping := make(map[string]bool)
 	for tableIdentifier, tableSchema := range req.TableNameSchemaMapping {
-		tableAlreadyExists, err := c.checkIfTableExists(c.config.Database, tableIdentifier)
+		tableAlreadyExists, err := c.checkIfTableExists(ctx, c.config.Database, tableIdentifier)
 		if err != nil {
 			return nil, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
 		}
@@ -42,7 +44,7 @@ func (c *ClickhouseConnector) SetupNormalizedTables(
 			return nil, fmt.Errorf("error while generating create table sql for normalized table: %w", err)
 		}
 
-		_, err = c.database.ExecContext(c.ctx, normalizedTableCreateSQL)
+		_, err = c.database.ExecContext(ctx, normalizedTableCreateSQL)
 		if err != nil {
 			return nil, fmt.Errorf("[sf] error while creating normalized table: %w", err)
 		}
@@ -103,8 +105,8 @@ func generateCreateTableSQLForNormalizedTable(
 	return stmtBuilder.String(), nil
 }
 
-func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
-	normBatchID, err := c.GetLastNormalizeBatchID(req.FlowJobName)
+func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
+	normBatchID, err := c.GetLastNormalizeBatchID(ctx, req.FlowJobName)
 	if err != nil {
 		c.logger.Error("[clickhouse] error while getting last sync and normalize batch id", "error", err)
 		return nil, err
@@ -120,6 +122,7 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 	}
 
 	destinationTableNames, err := c.getDistinctTableNamesInBatch(
+		ctx,
 		req.FlowJobName,
 		req.SyncBatchID,
 		normBatchID,
@@ -192,14 +195,14 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 		q := insertIntoSelectQuery.String()
 		c.logger.Info(fmt.Sprintf("[clickhouse] insert into select query %s", q))
 
-		_, err = c.database.ExecContext(c.ctx, q)
+		_, err = c.database.ExecContext(ctx, q)
 		if err != nil {
 			return nil, fmt.Errorf("error while inserting into normalized table: %w", err)
 		}
 	}
 
 	endNormalizeBatchId := normBatchID + 1
-	err = c.pgMetadata.UpdateNormalizeBatchID(c.ctx, req.FlowJobName, endNormalizeBatchId)
+	err = c.pgMetadata.UpdateNormalizeBatchID(ctx, req.FlowJobName, endNormalizeBatchId)
 	if err != nil {
 		c.logger.Error("[clickhouse] error while updating normalize batch id", "error", err)
 		return nil, err
@@ -213,6 +216,7 @@ func (c *ClickhouseConnector) NormalizeRecords(req *model.NormalizeRecordsReques
 }
 
 func (c *ClickhouseConnector) getDistinctTableNamesInBatch(
+	ctx context.Context,
 	flowJobName string,
 	syncBatchID int64,
 	normalizeBatchID int64,
@@ -224,7 +228,7 @@ func (c *ClickhouseConnector) getDistinctTableNamesInBatch(
 		`SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d`,
 		rawTbl, normalizeBatchID, syncBatchID)
 
-	rows, err := c.database.QueryContext(c.ctx, q)
+	rows, err := c.database.QueryContext(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("error while querying raw table for distinct table names in batch: %w", err)
 	}
@@ -252,8 +256,8 @@ func (c *ClickhouseConnector) getDistinctTableNamesInBatch(
 	return tableNames, nil
 }
 
-func (c *ClickhouseConnector) GetLastNormalizeBatchID(flowJobName string) (int64, error) {
-	normalizeBatchID, err := c.pgMetadata.GetLastNormalizeBatchID(c.ctx, flowJobName)
+func (c *ClickhouseConnector) GetLastNormalizeBatchID(ctx context.Context, flowJobName string) (int64, error) {
+	normalizeBatchID, err := c.pgMetadata.GetLastNormalizeBatchID(ctx, flowJobName)
 	if err != nil {
 		return 0, fmt.Errorf("error while getting last normalize batch id: %w", err)
 	}

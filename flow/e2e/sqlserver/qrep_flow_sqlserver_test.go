@@ -103,6 +103,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) insertRowsIntoSQLServerTable(tableName st
 		params["status"] = 1
 
 		_, err := s.sqlsHelper.E.NamedExec(
+			context.Background(),
 			"INSERT INTO "+schemaQualified+" (id, card_id, v_from, price, status) VALUES (:id, :card_id, :v_from, :price, :status)",
 			params,
 		)

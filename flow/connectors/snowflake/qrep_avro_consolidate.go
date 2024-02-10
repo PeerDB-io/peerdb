@@ -39,7 +39,7 @@ func NewSnowflakeAvroConsolidateHandler(
 func (s *SnowflakeAvroConsolidateHandler) CopyStageToDestination(ctx context.Context) error {
 	s.connector.logger.Info("Copying stage to destination " + s.dstTableName)
 
-	colNames, colTypes, colsErr := s.connector.getColsFromTable(s.dstTableName)
+	colNames, colTypes, colsErr := s.connector.getColsFromTable(ctx, s.dstTableName)
 	if colsErr != nil {
 		return fmt.Errorf("failed to get columns from destination table: %w", colsErr)
 	}
@@ -228,7 +228,7 @@ func (s *SnowflakeAvroConsolidateHandler) handleUpsertMode(ctx context.Context) 
 	}
 	rowCount, err := rows.RowsAffected()
 	if err == nil {
-		totalRowsAtTarget, err := s.connector.getTableCounts([]string{s.dstTableName})
+		totalRowsAtTarget, err := s.connector.getTableCounts(ctx, []string{s.dstTableName})
 		if err != nil {
 			return err
 		}

@@ -85,7 +85,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 			req.FlowJobName, rawTableName, syncBatchID),
 	)
 
-	err = s.connector.ReplayTableSchemaDeltas(req.FlowJobName, req.Records.SchemaDeltas)
+	err = s.connector.ReplayTableSchemaDeltas(ctx, req.FlowJobName, req.Records.SchemaDeltas)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
@@ -487,7 +487,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	}
 	s.connector.logger.Info(fmt.Sprintf("Pushed from %s to BigQuery", avroFile.FilePath), idLog)
 
-	err = s.connector.waitForTableReady(stagingTable)
+	err = s.connector.waitForTableReady(ctx, stagingTable)
 	if err != nil {
 		return 0, fmt.Errorf("failed to wait for table to be ready: %w", err)
 	}

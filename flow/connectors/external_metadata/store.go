@@ -14,6 +14,7 @@ import (
 
 	cc "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 )
 
 const (
@@ -26,15 +27,15 @@ type PostgresMetadataStore struct {
 	logger log.Logger
 }
 
-func NewPostgresMetadataStore(logger log.Logger) (*PostgresMetadataStore, error) {
-	pool, err := cc.GetCatalogConnectionPoolFromEnv()
+func NewPostgresMetadataStore(ctx context.Context) (*PostgresMetadataStore, error) {
+	pool, err := cc.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create catalog connection pool: %w", err)
 	}
 
 	return &PostgresMetadataStore{
 		pool:   pool,
-		logger: logger,
+		logger: logger.LoggerFromCtx(ctx),
 	}, nil
 }
 

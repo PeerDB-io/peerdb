@@ -170,13 +170,12 @@ func TestGetQRepPartitions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			c := &PostgresConnector{
 				connStr: connStr,
-				ctx:     context.Background(),
 				config:  &protos.PostgresConfig{},
 				conn:    conn,
 				logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testGetQRepPartitions"))),
 			}
 
-			got, err := c.GetQRepPartitions(tc.config, tc.last)
+			got, err := c.GetQRepPartitions(context.Background(), tc.config, tc.last)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("GetQRepPartitions() error = %v, wantErr %v", err, tc.wantErr)
 			}

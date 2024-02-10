@@ -17,20 +17,20 @@ var (
 	pool      *pgxpool.Pool
 )
 
-func GetCatalogConnectionPoolFromEnv() (*pgxpool.Pool, error) {
+func GetCatalogConnectionPoolFromEnv(ctx context.Context) (*pgxpool.Pool, error) {
 	var err error
 
 	poolMutex.Lock()
 	defer poolMutex.Unlock()
 	if pool == nil {
 		catalogConnectionString := genCatalogConnectionString()
-		pool, err = pgxpool.New(context.Background(), catalogConnectionString)
+		pool, err = pgxpool.New(ctx, catalogConnectionString)
 		if err != nil {
 			return nil, fmt.Errorf("unable to establish connection with catalog: %w", err)
 		}
 	}
 
-	err = pool.Ping(context.Background())
+	err = pool.Ping(ctx)
 	if err != nil {
 		return pool, fmt.Errorf("unable to establish connection with catalog: %w", err)
 	}

@@ -32,7 +32,6 @@ import (
 
 // CheckConnectionResult is the result of a CheckConnection call.
 type CheckConnectionResult struct {
-	// True of metadata tables need to be set up.
 	NeedsSetupMetadataTables bool
 }
 
@@ -47,7 +46,6 @@ type FlowableActivity struct {
 	Alerter     *alerting.Alerter
 }
 
-// CheckConnection implements CheckConnection.
 func (a *FlowableActivity) CheckConnection(
 	ctx context.Context,
 	config *protos.SetupInput,
@@ -58,25 +56,24 @@ func (a *FlowableActivity) CheckConnection(
 		a.Alerter.LogFlowError(ctx, config.FlowName, err)
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
-	defer connectors.CloseConnector(dstConn)
+	defer connectors.CloseConnector(ctx, dstConn)
 
-	needsSetup := dstConn.NeedsSetupMetadataTables()
+	needsSetup := dstConn.NeedsSetupMetadataTables(ctx)
 
 	return &CheckConnectionResult{
 		NeedsSetupMetadataTables: needsSetup,
 	}, nil
 }
 
-// SetupMetadataTables implements SetupMetadataTables.
 func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *protos.SetupInput) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.Peer)
 	if err != nil {
 		return fmt.Errorf("failed to get connector: %w", err)
 	}
-	defer connectors.CloseConnector(dstConn)
+	defer connectors.CloseConnector(ctx, dstConn)
 
-	if err := dstConn.SetupMetadataTables(); err != nil {
+	if err := dstConn.SetupMetadataTables(ctx); err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowName, err)
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
@@ -84,7 +81,6 @@ func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *prot
 	return nil
 }
 
-// GetLastSyncedID implements GetLastSyncedID.
 func (a *FlowableActivity) GetLastSyncedID(
 	ctx context.Context,
 	config *protos.GetLastSyncedIDInput,
@@ -94,17 +90,16 @@ func (a *FlowableActivity) GetLastSyncedID(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
-	defer connectors.CloseConnector(dstConn)
+	defer connectors.CloseConnector(ctx, dstConn)
 
 	var lastOffset int64
-	lastOffset, err = dstConn.GetLastOffset(config.FlowJobName)
+	lastOffset, err = dstConn.GetLastOffset(ctx, config.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
 	return &protos.LastSyncState{Checkpoint: lastOffset}, nil
 }
 
-// EnsurePullability implements EnsurePullability.
 func (a *FlowableActivity) EnsurePullability(
 	ctx context.Context,
 	config *protos.EnsurePullabilityBatchInput,
@@ -114,9 +109,9 @@ func (a *FlowableActivity) EnsurePullability(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
-	defer connectors.CloseConnector(srcConn)
+	defer connectors.CloseConnector(ctx, srcConn)
 
-	output, err := srcConn.EnsurePullability(config)
+	output, err := srcConn.EnsurePullability(ctx, config)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return nil, fmt.Errorf("failed to ensure pullability: %w", err)
@@ -135,9 +130,9 @@ func (a *FlowableActivity) CreateRawTable(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
-	defer connectors.CloseConnector(dstConn)
+	defer connectors.CloseConnector(ctx, dstConn)
 
-	res, err := dstConn.CreateRawTable(config)
+	res, err := dstConn.CreateRawTable(ctx, config)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return nil, err
@@ -160,9 +155,9 @@ func (a *FlowableActivity) GetTableSchema(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
-	defer connectors.CloseConnector(srcConn)
+	defer connectors.CloseConnector(ctx, srcConn)
 
-	return srcConn.GetTableSchema(config)
+	return srcConn.GetTableSchema(ctx, config)
 }
 
 // CreateNormalizedTable creates a normalized table in the destination flowable.
@@ -175,9 +170,9 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
-	defer connectors.CloseConnector(conn)
+	defer connectors.CloseConnector(ctx, conn)
 
-	setupNormalizedTablesOutput, err := conn.SetupNormalizedTables(config)
+	setupNormalizedTablesOutput, err := conn.SetupNormalizedTables(ctx, config)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowName, err)
 		return nil, fmt.Errorf("failed to setup normalized tables: %w", err)
@@ -197,7 +192,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
 	}
-	defer connectors.CloseConnector(dstConn)
+	defer connectors.CloseConnector(ctx, dstConn)
 
 	logger.Info("pulling records...")
 	tblNameMapping := make(map[string]model.NameAndExclude, len(input.SyncFlowOptions.TableMappings))
@@ -210,7 +205,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to get source connector: %w", err)
 	}
-	defer connectors.CloseConnector(srcConn)
+	defer connectors.CloseConnector(ctx, srcConn)
 
 	slotNameForMetrics := fmt.Sprintf("peerflow_slot_%s", input.FlowConnectionConfigs.FlowJobName)
 	if input.FlowConnectionConfigs.ReplicationSlotName != "" {
@@ -235,7 +230,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	startTime := time.Now()
 	flowName := input.FlowConnectionConfigs.FlowJobName
 	errGroup.Go(func() error {
-		return srcConn.PullRecords(a.CatalogPool, &model.PullRecordsRequest{
+		return srcConn.PullRecords(ctx, a.CatalogPool, &model.PullRecordsRequest{
 			FlowJobName:           flowName,
 			SrcTableIDNameMapping: input.SrcTableIdNameMapping,
 			TableNameMapping:      tblNameMapping,
@@ -249,9 +244,6 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 			OverrideReplicationSlotName: input.FlowConnectionConfigs.ReplicationSlotName,
 			RelationMessageMapping:      input.RelationMessageMapping,
 			RecordStream:                recordBatch,
-			SetLastOffset: func(lastOffset int64) error {
-				return dstConn.SetLastOffset(flowName, lastOffset)
-			},
 		})
 	})
 
@@ -267,7 +259,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		}
 		logger.Info("no records to push")
 
-		err := dstConn.ReplayTableSchemaDeltas(flowName, recordBatch.SchemaDeltas)
+		err := dstConn.ReplayTableSchemaDeltas(ctx, flowName, recordBatch.SchemaDeltas)
 		if err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
@@ -279,7 +271,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		}, nil
 	}
 
-	syncBatchID, err := dstConn.GetLastSyncBatchID(flowName)
+	syncBatchID, err := dstConn.GetLastSyncBatchID(ctx, flowName)
 	if err != nil && config.Destination.Type != protos.DBType_EVENTHUB {
 		return nil, err
 	}
@@ -298,7 +290,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	}
 
 	syncStartTime := time.Now()
-	res, err := dstConn.SyncRecords(&model.SyncRecordsRequest{
+	res, err := dstConn.SyncRecords(ctx, &model.SyncRecordsRequest{
 		SyncBatchID:   syncBatchID,
 		Records:       recordBatch,
 		FlowJobName:   input.FlowConnectionConfigs.FlowJobName,
@@ -385,7 +377,7 @@ func (a *FlowableActivity) StartNormalize(
 		if err != nil {
 			return nil, fmt.Errorf("failed to get connector: %w", err)
 		}
-		defer connectors.CloseConnector(dstConn)
+		defer connectors.CloseConnector(ctx, dstConn)
 
 		err = monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName,
 			input.SyncBatchID)
@@ -393,14 +385,14 @@ func (a *FlowableActivity) StartNormalize(
 	} else if err != nil {
 		return nil, err
 	}
-	defer connectors.CloseConnector(dstConn)
+	defer connectors.CloseConnector(ctx, dstConn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("normalizing records from batch for job - %s", input.FlowConnectionConfigs.FlowJobName)
 	})
 	defer shutdown()
 
-	res, err := dstConn.NormalizeRecords(&model.NormalizeRecordsRequest{
+	res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
 		FlowJobName:            input.FlowConnectionConfigs.FlowJobName,
 		SyncBatchID:            input.SyncBatchID,
 		SoftDelete:             input.FlowConnectionConfigs.SoftDelete,
@@ -439,9 +431,9 @@ func (a *FlowableActivity) SetupQRepMetadataTables(ctx context.Context, config *
 	if err != nil {
 		return fmt.Errorf("failed to get connector: %w", err)
 	}
-	defer connectors.CloseConnector(conn)
+	defer connectors.CloseConnector(ctx, conn)
 
-	err = conn.SetupQRepMetadataTables(config)
+	err = conn.SetupQRepMetadataTables(ctx, config)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
@@ -461,14 +453,14 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to get qrep pull connector: %w", err)
 	}
-	defer connectors.CloseConnector(srcConn)
+	defer connectors.CloseConnector(ctx, srcConn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("getting partitions for job - %s", config.FlowJobName)
 	})
 	defer shutdown()
 
-	partitions, err := srcConn.GetQRepPartitions(config, last)
+	partitions, err := srcConn.GetQRepPartitions(ctx, config, last)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return nil, fmt.Errorf("failed to get partitions from source: %w", err)
@@ -546,14 +538,14 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return fmt.Errorf("failed to get qrep source connector: %w", err)
 	}
-	defer connectors.CloseConnector(srcConn)
+	defer connectors.CloseConnector(ctx, srcConn)
 
 	dstConn, err := connectors.GetQRepSyncConnector(ctx, config.DestinationPeer)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return fmt.Errorf("failed to get qrep destination connector: %w", err)
 	}
-	defer connectors.CloseConnector(dstConn)
+	defer connectors.CloseConnector(ctx, dstConn)
 
 	logger.Info(fmt.Sprintf("replicating partition %s", partition.PartitionId))
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
@@ -572,7 +564,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 
 		go func() {
 			pgConn := srcConn.(*connpostgres.PostgresConnector)
-			tmp, err := pgConn.PullQRepRecordStream(config, partition, stream)
+			tmp, err := pgConn.PullQRepRecordStream(ctx, config, partition, stream)
 			numRecords := int64(tmp)
 			if err != nil {
 				a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -589,7 +581,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 			wg.Done()
 		}()
 	} else {
-		recordBatch, err := srcConn.PullQRepRecords(config, partition)
+		recordBatch, err := srcConn.PullQRepRecords(ctx, config, partition)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return fmt.Errorf("failed to pull qrep records: %w", err)
@@ -608,7 +600,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		}
 	}
 
-	rowsSynced, err := dstConn.SyncQRepRecords(config, partition, stream)
+	rowsSynced, err := dstConn.SyncQRepRecords(ctx, config, partition, stream)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return fmt.Errorf("failed to sync records: %w", err)
@@ -645,14 +637,14 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	} else if err != nil {
 		return err
 	}
-	defer connectors.CloseConnector(dstConn)
+	defer connectors.CloseConnector(ctx, dstConn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("consolidating partitions for job - %s", config.FlowJobName)
 	})
 	defer shutdown()
 
-	err = dstConn.ConsolidateQRepPartitions(config)
+	err = dstConn.ConsolidateQRepPartitions(ctx, config)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return err
@@ -670,9 +662,9 @@ func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.Q
 		return err
 	}
 
-	defer dst.Close()
+	defer dst.Close(ctx)
 
-	return dst.CleanupQRepFlow(config)
+	return dst.CleanupQRepFlow(ctx, config)
 }
 
 func (a *FlowableActivity) DropFlowSource(ctx context.Context, config *protos.ShutdownRequest) error {
@@ -680,9 +672,9 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, config *protos.Sh
 	if err != nil {
 		return fmt.Errorf("failed to get source connector: %w", err)
 	}
-	defer connectors.CloseConnector(srcConn)
+	defer connectors.CloseConnector(ctx, srcConn)
 
-	return srcConn.PullFlowCleanup(config.FlowJobName)
+	return srcConn.PullFlowCleanup(ctx, config.FlowJobName)
 }
 
 func (a *FlowableActivity) DropFlowDestination(ctx context.Context, config *protos.ShutdownRequest) error {
@@ -690,9 +682,9 @@ func (a *FlowableActivity) DropFlowDestination(ctx context.Context, config *prot
 	if err != nil {
 		return fmt.Errorf("failed to get destination connector: %w", err)
 	}
-	defer connectors.CloseConnector(dstConn)
+	defer connectors.CloseConnector(ctx, dstConn)
 
-	return dstConn.SyncFlowCleanup(config.FlowJobName)
+	return dstConn.SyncFlowCleanup(ctx, config.FlowJobName)
 }
 
 func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*protos.Peer, error) {
@@ -802,7 +794,7 @@ func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return fmt.Errorf("failed to get qrep source connector: %w", err)
 	}
-	defer connectors.CloseConnector(srcConn)
+	defer connectors.CloseConnector(ctx, srcConn)
 	pgSrcConn := srcConn.(*connpostgres.PostgresConnector)
 	logger.Info(fmt.Sprintf("current last partition value is %v", last))
 	attemptCount := 1
@@ -824,7 +816,7 @@ func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
 			}
 		}
 
-		result, err := pgSrcConn.CheckForUpdatedMaxValue(config, last)
+		result, err := pgSrcConn.CheckForUpdatedMaxValue(ctx, config, last)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return fmt.Errorf("failed to check for new rows: %w", err)
@@ -848,7 +840,7 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
-	defer connectors.CloseConnector(dstConn)
+	defer connectors.CloseConnector(ctx, dstConn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("renaming tables for job - %s", config.FlowJobName)
@@ -861,14 +853,14 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return nil, fmt.Errorf("failed to cast connector to snowflake connector")
 		}
-		return sfConn.RenameTables(config)
+		return sfConn.RenameTables(ctx, config)
 	} else if config.Peer.Type == protos.DBType_BIGQUERY {
 		bqConn, ok := dstConn.(*connbigquery.BigQueryConnector)
 		if !ok {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return nil, fmt.Errorf("failed to cast connector to bigquery connector")
 		}
-		return bqConn.RenameTables(config)
+		return bqConn.RenameTables(ctx, config)
 	}
 	return nil, fmt.Errorf("rename tables is only supported on snowflake and bigquery")
 }
@@ -881,20 +873,20 @@ func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *pr
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
-	defer connectors.CloseConnector(dstConn)
+	defer connectors.CloseConnector(ctx, dstConn)
 
 	if req.Peer.Type == protos.DBType_SNOWFLAKE {
 		sfConn, ok := dstConn.(*connsnowflake.SnowflakeConnector)
 		if !ok {
 			return nil, fmt.Errorf("failed to cast connector to snowflake connector")
 		}
-		return sfConn.CreateTablesFromExisting(req)
+		return sfConn.CreateTablesFromExisting(ctx, req)
 	} else if req.Peer.Type == protos.DBType_BIGQUERY {
 		bqConn, ok := dstConn.(*connbigquery.BigQueryConnector)
 		if !ok {
 			return nil, fmt.Errorf("failed to cast connector to bigquery connector")
 		}
-		return bqConn.CreateTablesFromExisting(req)
+		return bqConn.CreateTablesFromExisting(ctx, req)
 	}
 	a.Alerter.LogFlowError(ctx, req.FlowJobName, err)
 	return nil, fmt.Errorf("create tables from existing is only supported on snowflake and bigquery")
@@ -914,13 +906,13 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	if err != nil {
 		return 0, fmt.Errorf("failed to get qrep source connector: %w", err)
 	}
-	defer connectors.CloseConnector(srcConn)
+	defer connectors.CloseConnector(ctx, srcConn)
 
 	dstConn, err := connectors.GetQRepSyncConnector(ctx, config.DestinationPeer)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get qrep destination connector: %w", err)
 	}
-	defer connectors.CloseConnector(dstConn)
+	defer connectors.CloseConnector(ctx, dstConn)
 
 	logger.Info("replicating xmin")
 
@@ -934,7 +926,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 		pgConn := srcConn.(*connpostgres.PostgresConnector)
 		var pullErr error
 		var numRecords int
-		numRecords, currentSnapshotXmin, pullErr = pgConn.PullXminRecordStream(config, partition, stream)
+		numRecords, currentSnapshotXmin, pullErr = pgConn.PullXminRecordStream(ctx, config, partition, stream)
 		if pullErr != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			logger.Warn(fmt.Sprintf("[xmin] failed to pull records: %v", err))
@@ -981,7 +973,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	})
 	defer shutdown()
 
-	rowsSynced, err := dstConn.SyncQRepRecords(config, partition, stream)
+	rowsSynced, err := dstConn.SyncQRepRecords(ctx, config, partition, stream)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return 0, fmt.Errorf("failed to sync records: %w", err)
@@ -1020,9 +1012,9 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 	if err != nil {
 		return fmt.Errorf("failed to get source connector: %w", err)
 	}
-	defer connectors.CloseConnector(srcConn)
+	defer connectors.CloseConnector(ctx, srcConn)
 
-	err = srcConn.AddTablesToPublication(&protos.AddTablesToPublicationInput{
+	err = srcConn.AddTablesToPublication(ctx, &protos.AddTablesToPublicationInput{
 		FlowJobName:      cfg.FlowJobName,
 		PublicationName:  cfg.PublicationName,
 		AdditionalTables: additionalTableMappings,
