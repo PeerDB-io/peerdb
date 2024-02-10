@@ -63,8 +63,8 @@ func (h *FlowRequestHandler) GetSchemas(
 	defer tunnel.Close()
 	defer peerConn.Close(ctx)
 
-	rows, err := peerConn.Query(ctx, "SELECT schema_name"+
-		" FROM information_schema.schemata WHERE schema_name !~ '^pg_' AND schema_name <> 'information_schema';")
+	rows, err := peerConn.Query(ctx, "SELECT nspname"+
+		" FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema';")
 	if err != nil {
 		return &protos.PeerSchemasResponse{Schemas: nil}, err
 	}
@@ -145,8 +145,10 @@ func (h *FlowRequestHandler) GetAllTables(
 	defer tunnel.Close()
 	defer peerConn.Close(ctx)
 
-	rows, err := peerConn.Query(ctx, "SELECT table_schema || '.' || table_name AS schema_table "+
-		"FROM information_schema.tables WHERE table_schema !~ '^pg_' AND table_schema <> 'information_schema'")
+	rows, err := peerConn.Query(ctx, "SELECT n.nspname || '.' || c.relname AS schema_table "+
+		"FROM pg_class c "+
+		"JOIN pg_namespace n ON c.relnamespace = n.oid "+
+		"WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' AND c.relkind = 'r';")
 	if err != nil {
 		return &protos.AllTablesResponse{Tables: nil}, err
 	}
@@ -178,26 +180,24 @@ func (h *FlowRequestHandler) GetColumns(
 
 	rows, err := peerConn.Query(ctx, `
 	SELECT
-    cols.column_name,
-    cols.data_type,
+    attname AS column_name,
+    format_type(atttypid, atttypmod) AS data_type,
     CASE
-        WHEN con.contype = 'p' AND cols.ordinal_position = ANY(con.conkey) THEN true
+        WHEN attnum = ANY(conkey) THEN true
         ELSE false
     END AS is_primary_key
 	FROM
-		information_schema.columns cols
+		pg_attribute
 	JOIN
-		pg_class tbl ON cols.table_name = tbl.relname
-	JOIN
-		pg_namespace n ON tbl.relnamespace = n.oid
+		pg_class ON pg_attribute.attrelid = pg_class.oid
 	LEFT JOIN
-		pg_constraint con ON con.conrelid = tbl.oid
-			AND con.contype = 'p'
+		pg_constraint ON pg_attribute.attrelid = pg_constraint.conrelid
+		AND pg_attribute.attnum = ANY(pg_constraint.conkey)
 	WHERE
-		n.nspname = $1
-		AND cols.table_name = $2
+		relname = $1
+		AND pg_attribute.attnum > 0
 	ORDER BY
-    cols.ordinal_position;
+    attnum;
 	`, req.SchemaName, req.TableName)
 	if err != nil {
 		return &protos.TableColumnsResponse{Columns: nil}, err
