@@ -106,11 +106,13 @@ message SyncFlowOptions {
   repeated TableMapping table_mappings = 6;
 }
 
+// deprecated, unused
 message LastSyncState {
   int64 checkpoint = 1;
 }
 
 message StartFlowInput {
+  // deprecated, unused
   LastSyncState last_sync_state = 1;
   FlowConnectionConfigs flow_connection_configs = 2;
   SyncFlowOptions sync_flow_options = 3;
@@ -123,11 +125,6 @@ message StartNormalizeInput {
   FlowConnectionConfigs flow_connection_configs = 1;
   map<string, TableSchema> table_name_schema_mapping = 2;
   int64 SyncBatchID = 3;
-}
-
-message GetLastSyncedIDInput {
-  peerdb_peers.Peer peer_connection_config = 1;
-  string flow_job_name = 2;
 }
 
 message EnsurePullabilityBatchInput {
