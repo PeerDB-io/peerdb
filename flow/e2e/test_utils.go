@@ -171,9 +171,13 @@ func EnvWaitForEqualTablesWithNames(
 func RequireEnvCanceled(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
 	t.Helper()
 	err := env.GetWorkflowError()
+	var panicErr *temporal.PanicError
+	var canceledErr *temporal.CanceledError
 	if err == nil {
 		t.Fatal("Expected workflow to be canceled, not completed")
-	} else if _, ok := errors.Unwrap(err).(*temporal.CanceledError); !ok {
+	} else if errors.As(err, &panicErr) {
+		t.Fatalf("Workflow panic: %s %s", panicErr.Error(), panicErr.StackTrace())
+	} else if !errors.As(err, &canceledErr) {
 		t.Fatalf("Expected workflow to be canceled, not %v", err)
 	}
 }

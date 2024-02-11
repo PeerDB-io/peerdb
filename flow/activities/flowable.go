@@ -200,8 +200,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
 	}
 
-	errGroup, errCtx := errgroup.WithContext(ctx)
-	srcConn, err := connectors.GetCDCPullConnector(errCtx, config.Source)
+	srcConn, err := connectors.GetCDCPullConnector(ctx, config.Source)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get source connector: %w", err)
 	}
@@ -212,13 +211,14 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		slotNameForMetrics = input.FlowConnectionConfigs.ReplicationSlotName
 	}
 
-	go a.recordSlotSizePeriodically(errCtx, srcConn, slotNameForMetrics, input.FlowConnectionConfigs.Source.Name)
-
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		jobName := input.FlowConnectionConfigs.FlowJobName
 		return fmt.Sprintf("transferring records for job - %s", jobName)
 	})
 	defer shutdown()
+
+	errGroup, errCtx := errgroup.WithContext(ctx)
+	go a.recordSlotSizePeriodically(errCtx, srcConn, slotNameForMetrics, input.FlowConnectionConfigs.Source.Name)
 
 	batchSize := input.SyncFlowOptions.BatchSize
 	if batchSize <= 0 {
@@ -271,13 +271,13 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		}, nil
 	}
 
-	syncBatchID, err := dstConn.GetLastSyncBatchID(ctx, flowName)
+	syncBatchID, err := dstConn.GetLastSyncBatchID(errCtx, flowName)
 	if err != nil && config.Destination.Type != protos.DBType_EVENTHUB {
 		return nil, err
 	}
 	syncBatchID += 1
 
-	err = monitoring.AddCDCBatchForFlow(ctx, a.CatalogPool, flowName,
+	err = monitoring.AddCDCBatchForFlow(errCtx, a.CatalogPool, flowName,
 		monitoring.CDCBatchInfo{
 			BatchID:     syncBatchID,
 			RowsInBatch: 0,
@@ -290,7 +290,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	}
 
 	syncStartTime := time.Now()
-	res, err := dstConn.SyncRecords(ctx, &model.SyncRecordsRequest{
+	res, err := dstConn.SyncRecords(errCtx, &model.SyncRecordsRequest{
 		SyncBatchID:   syncBatchID,
 		Records:       recordBatch,
 		FlowJobName:   input.FlowConnectionConfigs.FlowJobName,
