@@ -22,8 +22,6 @@ type QRecordBatch struct {
 func (q *QRecordBatch) ToQRecordStream(buffer int) (*QRecordStream, error) {
 	stream := NewQRecordStream(buffer)
 
-	slog.Info(fmt.Sprintf("Converting %d records to QRecordStream", len(q.Records)))
-
 	go func() {
 		err := stream.SetSchema(q.Schema)
 		if err != nil {

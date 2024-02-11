@@ -5,20 +5,20 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"go.temporal.io/sdk/log"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 )
 
 type SSHTunnel struct {
 	sshConfig *ssh.ClientConfig
 	sshServer string
-	once      sync.Once
 	sshClient *ssh.Client
 }
 
@@ -34,39 +34,30 @@ func NewSSHTunnel(
 		var err error
 		clientConfig, err = utils.GetSSHClientConfig(sshConfig)
 		if err != nil {
-			slog.Error("Failed to get SSH client config", slog.Any("error", err))
+			logger.LoggerFromCtx(ctx).Error("Failed to get SSH client config", "error", err)
 			return nil, err
 		}
 	}
 
-	pool := &SSHTunnel{
+	tunnel := &SSHTunnel{
 		sshConfig: clientConfig,
 		sshServer: sshServer,
 	}
 
-	err := pool.connect()
+	err := tunnel.setupSSH(logger.LoggerFromCtx(ctx))
 	if err != nil {
 		return nil, err
 	}
 
-	return pool, nil
+	return tunnel, nil
 }
 
-func (tunnel *SSHTunnel) connect() error {
-	var err error
-	tunnel.once.Do(func() {
-		err = tunnel.setupSSH()
-	})
-
-	return err
-}
-
-func (tunnel *SSHTunnel) setupSSH() error {
+func (tunnel *SSHTunnel) setupSSH(logger log.Logger) error {
 	if tunnel.sshConfig == nil {
 		return nil
 	}
 
-	slog.Info("Setting up SSH connection to " + tunnel.sshServer)
+	logger.Info("Setting up SSH connection to " + tunnel.sshServer)
 
 	var err error
 	tunnel.sshClient, err = ssh.Dial("tcp", tunnel.sshServer, tunnel.sshConfig)
@@ -112,24 +103,25 @@ func (tunnel *SSHTunnel) NewPostgresConnFromConfig(
 		}
 	}
 
+	logger := logger.LoggerFromCtx(ctx)
 	conn, err := pgx.ConnectConfig(ctx, connConfig)
 	if err != nil {
-		slog.Error("Failed to create pool:", slog.Any("error", err))
+		logger.Error("Failed to create pool:", slog.Any("error", err))
 		return nil, err
 	}
 
 	host := connConfig.Host
-	err = retryWithBackoff(func() error {
+	err = retryWithBackoff(logger, func() error {
 		err = conn.Ping(ctx)
 		if err != nil {
-			slog.Error("Failed to ping pool", slog.Any("error", err), slog.String("host", host))
+			logger.Error("Failed to ping pool", slog.Any("error", err), slog.String("host", host))
 			return err
 		}
 		return nil
 	}, 5, 5*time.Second)
 
 	if err != nil {
-		slog.Error("Failed to create pool", slog.Any("error", err), slog.String("host", host))
+		logger.Error("Failed to create pool", slog.Any("error", err), slog.String("host", host))
 		conn.Close(ctx)
 		return nil, err
 	}
@@ -139,7 +131,7 @@ func (tunnel *SSHTunnel) NewPostgresConnFromConfig(
 
 type retryFunc func() error
 
-func retryWithBackoff(fn retryFunc, maxRetries int, backoff time.Duration) error {
+func retryWithBackoff(logger log.Logger, fn retryFunc, maxRetries int, backoff time.Duration) error {
 	i := 0
 	for {
 		err := fn()
@@ -148,7 +140,7 @@ func retryWithBackoff(fn retryFunc, maxRetries int, backoff time.Duration) error
 		}
 		i += 1
 		if i < maxRetries {
-			slog.Info(fmt.Sprintf("Attempt #%d failed, retrying in %s", i+1, backoff))
+			logger.Info(fmt.Sprintf("Attempt #%d failed, retrying in %s", i+1, backoff))
 			time.Sleep(backoff)
 		} else {
 			return err

@@ -10,6 +10,7 @@ import (
 
 	azeventhubs "github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
 
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -105,8 +106,8 @@ func (h *HubBatches) sendBatch(
 		return err
 	}
 
-	slog.InfoContext(ctx, "sendBatch",
-		slog.Int("events sent", int(events.NumEvents())), slog.String("event hub topic ", tblName.ToString()))
+	logger.LoggerFromCtx(ctx).Info("sendBatch",
+		slog.Int("events sent", int(events.NumEvents())), slog.String("event hub topic", tblName.ToString()))
 	return nil
 }
 
@@ -114,8 +115,9 @@ func (h *HubBatches) flushAllBatches(
 	ctx context.Context,
 	flowName string,
 ) error {
+	logger := logger.LoggerFromCtx(ctx)
 	if h.Len() == 0 {
-		slog.Info("no events to send", slog.String(string(shared.FlowNameKey), flowName))
+		logger.Info("no events to send", slog.String(string(shared.FlowNameKey), flowName))
 		return nil
 	}
 
@@ -132,7 +134,7 @@ func (h *HubBatches) flushAllBatches(
 			}
 
 			numEventsPushed.Add(numEvents)
-			slog.Info("flushAllBatches",
+			logger.Info("flushAllBatches",
 				slog.String(string(shared.FlowNameKey), flowName),
 				slog.Int("events sent", int(numEvents)),
 				slog.String("event hub topic ", destination.ToString()))
@@ -144,7 +146,7 @@ func (h *HubBatches) flushAllBatches(
 	if err != nil {
 		return fmt.Errorf("failed to flushAllBatches: %v", err)
 	}
-	slog.Info("hub batches flush",
+	logger.Info("hub batches flush",
 		slog.String(string(shared.FlowNameKey), flowName),
 		slog.Int("events sent", int(numEventsPushed.Load())))
 

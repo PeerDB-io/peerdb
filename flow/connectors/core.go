@@ -16,6 +16,7 @@ import (
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared/alerting"
 )
@@ -285,6 +286,6 @@ func CloseConnector(ctx context.Context, conn Connector) {
 
 	err := conn.Close(ctx)
 	if err != nil {
-		slog.Error("error closing connector", slog.Any("error", err))
+		logger.LoggerFromCtx(ctx).Error("error closing connector", slog.Any("error", err))
 	}
 }

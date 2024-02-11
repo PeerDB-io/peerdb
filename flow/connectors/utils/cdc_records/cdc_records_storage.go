@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cockroachdb/pebble"
+	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
@@ -103,14 +104,14 @@ func (c *cdcRecordsStore) diskSpillThresholdsExceeded() bool {
 	return false
 }
 
-func (c *cdcRecordsStore) Set(key *model.TableWithPkey, rec model.Record) error {
+func (c *cdcRecordsStore) Set(logger log.Logger, key *model.TableWithPkey, rec model.Record) error {
 	if key != nil {
 		_, ok := c.inMemoryRecords[*key]
 		if ok || !c.diskSpillThresholdsExceeded() {
 			c.inMemoryRecords[*key] = rec
 		} else {
 			if c.pebbleDB == nil {
-				slog.Info(c.thresholdReason,
+				logger.Info(c.thresholdReason,
 					slog.String(string(shared.FlowNameKey), c.flowJobName))
 				err := c.initPebbleDB()
 				if err != nil {

@@ -17,6 +17,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 )
 
 type EventHubManager struct {
@@ -65,12 +66,13 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 		hubTmp := hub.(*azeventhubs.ProducerClient)
 		_, err := hubTmp.GetEventHubProperties(ctx, nil)
 		if err != nil {
-			slog.Info(fmt.Sprintf("eventhub %s", name)+
-				"not reachable. Will re-establish connection and re-create it.",
+			logger := logger.LoggerFromCtx(ctx)
+			logger.Info(
+				fmt.Sprintf("eventhub %s not reachable. Will re-establish connection and re-create it.", name),
 				slog.Any("error", err))
 			closeError := m.closeProducerClient(ctx, hubTmp)
 			if closeError != nil {
-				slog.Error("failed to close producer client", slog.Any("error", closeError))
+				logger.Error("failed to close producer client", slog.Any("error", closeError))
 			}
 			m.hubs.Delete(name)
 			hubConnectOK = false
@@ -116,7 +118,7 @@ func (m *EventHubManager) Close(ctx context.Context) error {
 		hub := value.(*azeventhubs.ProducerClient)
 		err := m.closeProducerClient(ctx, hub)
 		if err != nil {
-			slog.Error(fmt.Sprintf("failed to close eventhub client for %v", name), slog.Any("error", err))
+			logger.LoggerFromCtx(ctx).Error(fmt.Sprintf("failed to close eventhub client for %v", name), slog.Any("error", err))
 			allErrors = errors.Join(allErrors, err)
 		}
 		numHubsClosed.Add(1)
@@ -167,6 +169,7 @@ func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedE
 
 	partitionCount := int64(cfg.PartitionCount)
 	retention := int64(cfg.MessageRetentionInDays)
+	logger := logger.LoggerFromCtx(ctx)
 	if err != nil {
 		opts := armeventhub.Eventhub{
 			Properties: &armeventhub.Properties{
@@ -181,9 +184,9 @@ func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedE
 			return err
 		}
 
-		slog.Info("event hub created", slog.Any("name", name))
+		logger.Info("event hub created", slog.Any("name", name))
 	} else {
-		slog.Info("event hub exists already", slog.Any("name", name))
+		logger.Info("event hub exists already", slog.Any("name", name))
 	}
 
 	return nil

@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	partition_utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
@@ -290,7 +291,7 @@ func (c *PostgresConnector) CheckForUpdatedMaxValue(
 	defer func() {
 		deferErr := tx.Rollback(ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("error rolling back transaction for getting max value", slog.Any("error", err))
+			c.logger.Error("error rolling back transaction for getting max value", "error", err)
 		}
 	}()
 
@@ -362,7 +363,7 @@ func (c *PostgresConnector) PullQRepRecords(
 
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
-	query, err := BuildQuery(config.Query, config.FlowJobName)
+	query, err := BuildQuery(c.logger, config.Query, config.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
@@ -432,7 +433,7 @@ func (c *PostgresConnector) PullQRepRecordStream(
 
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
-	query, err := BuildQuery(config.Query, config.FlowJobName)
+	query, err := BuildQuery(c.logger, config.Query, config.FlowJobName)
 	if err != nil {
 		return 0, err
 	}
@@ -568,7 +569,7 @@ func (c *PostgresConnector) PullXminRecordStream(
 	return numRecords, currentSnapshotXmin, nil
 }
 
-func BuildQuery(query string, flowJobName string) (string, error) {
+func BuildQuery(logger log.Logger, query string, flowJobName string) (string, error) {
 	tmpl, err := template.New("query").Parse(query)
 	if err != nil {
 		return "", err
@@ -587,7 +588,7 @@ func BuildQuery(query string, flowJobName string) (string, error) {
 	}
 	res := buf.String()
 
-	slog.Info(fmt.Sprintf("templated query: %s", res))
+	logger.Info(fmt.Sprintf("templated query: %s", res))
 	return res, nil
 }
 
