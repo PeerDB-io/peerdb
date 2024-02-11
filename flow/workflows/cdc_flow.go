@@ -109,7 +109,6 @@ func (s *CDCFlowWorkflowState) TruncateProgress(logger log.Logger) {
 type CDCFlowWorkflowExecution struct {
 	flowExecutionID string
 	logger          log.Logger
-	ctx             workflow.Context
 }
 
 // NewCDCFlowWorkflowExecution creates a new instance of PeerFlowWorkflowExecution.
@@ -117,7 +116,6 @@ func NewCDCFlowWorkflowExecution(ctx workflow.Context) *CDCFlowWorkflowExecution
 	return &CDCFlowWorkflowExecution{
 		flowExecutionID: workflow.GetInfo(ctx).WorkflowExecution.ID,
 		logger:          workflow.GetLogger(ctx),
-		ctx:             ctx,
 	}
 }
 
