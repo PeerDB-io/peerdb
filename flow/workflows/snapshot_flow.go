@@ -85,8 +85,8 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 }
 
 func (s *SnapshotFlowExecution) cloneTable(
+	ctx workflow.Context,
 	boundSelector *concurrency.BoundSelector,
-	childCtx workflow.Context,
 	snapshotName string,
 	mapping *protos.TableMapping,
 ) error {
@@ -97,7 +97,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 
 	srcName := mapping.SourceTableIdentifier
 	dstName := mapping.DestinationTableIdentifier
-	childWorkflowIDSideEffect := workflow.SideEffect(childCtx, func(ctx workflow.Context) interface{} {
+	childWorkflowIDSideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
 		childWorkflowID := fmt.Sprintf("clone_%s_%s_%s", flowName, dstName, uuid.New().String())
 		reg := regexp.MustCompile("[^a-zA-Z0-9]+")
 		return reg.ReplaceAllString(childWorkflowID, "_")
@@ -118,7 +118,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		return queueErr
 	}
 
-	childCtx = workflow.WithChildOptions(childCtx, workflow.ChildWorkflowOptions{
+	childCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
 		WorkflowID:          childWorkflowID,
 		WorkflowTaskTimeout: 5 * time.Minute,
 		TaskQueue:           taskQueue,
@@ -200,7 +200,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 	s.logger.Info(fmt.Sprintf("cloning tables for slot name %s and snapshotName %s",
 		slotInfo.SlotName, slotInfo.SnapshotName))
 
-	boundSelector := concurrency.NewBoundSelector(maxParallelClones, ctx)
+	boundSelector := concurrency.NewBoundSelector(maxParallelClones)
 
 	for _, v := range s.config.TableMappings {
 		source := v.SourceTableIdentifier
@@ -211,14 +211,14 @@ func (s *SnapshotFlowExecution) cloneTables(
 			source, destination),
 			slog.String("snapshotName", snapshotName),
 		)
-		err := s.cloneTable(boundSelector, ctx, snapshotName, v)
+		err := s.cloneTable(ctx, boundSelector, snapshotName, v)
 		if err != nil {
 			s.logger.Error("failed to start clone child workflow: ", err)
 			continue
 		}
 	}
 
-	if err := boundSelector.Wait(); err != nil {
+	if err := boundSelector.Wait(ctx); err != nil {
 		s.logger.Error("failed to clone some tables", "error", err)
 		return err
 	}
