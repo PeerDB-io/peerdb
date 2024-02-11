@@ -20,6 +20,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils/cdc_records"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/geo"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -232,8 +233,9 @@ func (p *PostgresCDCSource) consumeStream(
 	standbyMessageTimeout := req.IdleTimeout
 	nextStandbyMessageDeadline := time.Now().Add(standbyMessageTimeout)
 
+	logger := logger.LoggerFromCtx(ctx)
 	addRecordWithKey := func(key *model.TableWithPkey, rec model.Record) error {
-		err := cdcRecordsStorage.Set(key, rec)
+		err := cdcRecordsStorage.Set(logger, key, rec)
 		if err != nil {
 			return err
 		}

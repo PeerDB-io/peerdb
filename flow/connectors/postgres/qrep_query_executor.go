@@ -145,7 +145,7 @@ func (qe *QRepQueryExecutor) ProcessRows(
 	qe.logger.Info("Processing rows")
 	// Iterate over the rows
 	for rows.Next() {
-		record, err := mapRowToQRecord(rows, fieldDescriptions, qe.customTypeMap)
+		record, err := mapRowToQRecord(qe.logger, rows, fieldDescriptions, qe.customTypeMap)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
 			return nil, fmt.Errorf("failed to map row to QRecord: %w", err)
@@ -186,7 +186,7 @@ func (qe *QRepQueryExecutor) processRowsStream(
 			return numRows, ctx.Err()
 		default:
 			// Process the row as before
-			record, err := mapRowToQRecord(rows, fieldDescriptions, qe.customTypeMap)
+			record, err := mapRowToQRecord(qe.logger, rows, fieldDescriptions, qe.customTypeMap)
 			if err != nil {
 				qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
 				stream.Records <- model.QRecordOrError{
@@ -450,7 +450,10 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
 	return totalRecordsFetched, nil
 }
 
-func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription,
+func mapRowToQRecord(
+	logger log.Logger,
+	row pgx.Rows,
+	fds []pgconn.FieldDescription,
 	customTypeMap map[uint32]string,
 ) ([]qvalue.QValue, error) {
 	// make vals an empty array of QValue of size len(fds)
@@ -458,7 +461,7 @@ func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription,
 
 	values, err := row.Values()
 	if err != nil {
-		slog.Error("[pg_query_executor] failed to get values from row", slog.Any("error", err))
+		logger.Error("[pg_query_executor] failed to get values from row", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to scan row: %w", err)
 	}
 
@@ -468,7 +471,7 @@ func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription,
 		if !ok {
 			tmp, err := parseFieldFromPostgresOID(fd.DataTypeOID, values[i])
 			if err != nil {
-				slog.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))
+				logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))
 				return nil, fmt.Errorf("failed to parse field: %w", err)
 			}
 			record[i] = tmp

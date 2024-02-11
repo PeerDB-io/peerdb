@@ -2,7 +2,6 @@ package dynamicconf
 
 import (
 	"context"
-	"log/slog"
 	"strconv"
 	"time"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
+	"github.com/PeerDB-io/peer-flow/logger"
 )
 
 func dynamicConfKeyExists(ctx context.Context, conn *pgxpool.Pool, key string) bool {
@@ -17,7 +17,7 @@ func dynamicConfKeyExists(ctx context.Context, conn *pgxpool.Pool, key string) b
 	query := "SELECT EXISTS(SELECT 1 FROM alerting_settings WHERE config_name = $1)"
 	err := conn.QueryRow(ctx, query, key).Scan(&exists)
 	if err != nil {
-		slog.Error("Failed to check if key exists: %v", err)
+		logger.LoggerFromCtx(ctx).Error("Failed to check if key exists: %v", err)
 		return false
 	}
 
@@ -27,7 +27,7 @@ func dynamicConfKeyExists(ctx context.Context, conn *pgxpool.Pool, key string) b
 func dynamicConfUint32(ctx context.Context, key string, defaultValue uint32) uint32 {
 	conn, err := utils.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
-		slog.Error("Failed to get catalog connection pool: %v", err)
+		logger.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool: %v", err)
 		return defaultValue
 	}
 
@@ -39,13 +39,13 @@ func dynamicConfUint32(ctx context.Context, key string, defaultValue uint32) uin
 	query := "SELECT config_value FROM alerting_settings WHERE config_name = $1"
 	err = conn.QueryRow(ctx, query, key).Scan(&value)
 	if err != nil {
-		slog.Error("Failed to get key: %v", err)
+		logger.LoggerFromCtx(ctx).Error("Failed to get key: %v", err)
 		return defaultValue
 	}
 
 	result, err := strconv.ParseUint(value.String, 10, 32)
 	if err != nil {
-		slog.Error("Failed to parse uint32: %v", err)
+		logger.LoggerFromCtx(ctx).Error("Failed to parse uint32: %v", err)
 		return defaultValue
 	}
 

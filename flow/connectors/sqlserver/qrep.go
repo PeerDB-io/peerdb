@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log/slog"
 	"text/template"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jmoiron/sqlx"
+	"go.temporal.io/sdk/log"
 
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -158,7 +158,7 @@ func (c *SQLServerConnector) PullQRepRecords(
 ) (*model.QRecordBatch, error) {
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
-	query, err := BuildQuery(config.Query)
+	query, err := BuildQuery(c.logger, config.Query)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +191,7 @@ func (c *SQLServerConnector) PullQRepRecords(
 	return c.NamedExecuteAndProcessQuery(ctx, query, rangeParams)
 }
 
-func BuildQuery(query string) (string, error) {
+func BuildQuery(logger log.Logger, query string) (string, error) {
 	tmpl, err := template.New("query").Parse(query)
 	if err != nil {
 		return "", err
@@ -210,6 +210,6 @@ func BuildQuery(query string) (string, error) {
 	}
 	res := buf.String()
 
-	slog.Info("templated query: " + res)
+	logger.Info("templated query: " + res)
 	return res, nil
 }

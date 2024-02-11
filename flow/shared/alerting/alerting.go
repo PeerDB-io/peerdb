@@ -11,12 +11,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/PeerDB-io/peer-flow/dynamicconf"
+	"github.com/PeerDB-io/peer-flow/logger"
 )
 
 // alerting service, no cool name :(
 type Alerter struct {
 	catalogPool *pgxpool.Pool
-	logger      *slog.Logger
 }
 
 func registerSendersFromPool(ctx context.Context, catalogPool *pgxpool.Pool) ([]*slackAlertSender, error) {
@@ -49,15 +49,12 @@ func registerSendersFromPool(ctx context.Context, catalogPool *pgxpool.Pool) ([]
 
 // doesn't take care of closing pool, needs to be done externally.
 func NewAlerter(catalogPool *pgxpool.Pool) (*Alerter, error) {
-	logger := slog.Default()
 	if catalogPool == nil {
-		logger.Error("catalog pool is nil for Alerter")
 		return nil, fmt.Errorf("catalog pool is nil for Alerter")
 	}
 
 	return &Alerter{
 		catalogPool: catalogPool,
-		logger:      logger,
 	}, nil
 }
 
@@ -66,7 +63,7 @@ func NewAlerter(catalogPool *pgxpool.Pool) (*Alerter, error) {
 func (a *Alerter) AlertIf(ctx context.Context, alertKey string, alertMessage string) {
 	dur := dynamicconf.PeerDBAlertingGapMinutesAsDuration(ctx)
 	if dur == 0 {
-		a.logger.WarnContext(ctx, "Alerting disabled via environment variable, returning")
+		logger.LoggerFromCtx(ctx).Warn("Alerting disabled via environment variable, returning")
 		return
 	}
 
@@ -78,7 +75,7 @@ func (a *Alerter) AlertIf(ctx context.Context, alertKey string, alertMessage str
 	var createdTimestamp time.Time
 	err = row.Scan(&createdTimestamp)
 	if err != nil && err != pgx.ErrNoRows {
-		a.logger.Warn("failed to send alert: ", slog.String("err", err.Error()))
+		logger.LoggerFromCtx(ctx).Warn("failed to send alert: ", slog.String("err", err.Error()))
 		return
 	}
 
@@ -91,7 +88,7 @@ func (a *Alerter) AlertIf(ctx context.Context, alertKey string, alertMessage str
 func (a *Alerter) AlertToSlack(ctx context.Context, alertKey string, alertMessage string) {
 	slackAlertSenders, err := registerSendersFromPool(ctx, a.catalogPool)
 	if err != nil {
-		a.logger.WarnContext(ctx, "failed to set Slack senders", slog.Any("error", err))
+		logger.LoggerFromCtx(ctx).Warn("failed to set Slack senders", slog.Any("error", err))
 		return
 	}
 
@@ -99,7 +96,7 @@ func (a *Alerter) AlertToSlack(ctx context.Context, alertKey string, alertMessag
 		err = slackAlertSender.sendAlert(ctx,
 			fmt.Sprintf(":rotating_light:Alert:rotating_light:: %s", alertKey), alertMessage)
 		if err != nil {
-			a.logger.WarnContext(ctx, "failed to send alert", slog.Any("error", err))
+			logger.LoggerFromCtx(ctx).Warn("failed to send alert", slog.Any("error", err))
 			return
 		}
 	}
@@ -110,7 +107,7 @@ func (a *Alerter) AddAlertToCatalog(ctx context.Context, alertKey string, alertM
 		"INSERT INTO peerdb_stats.alerts_v1(alert_key,alert_message) VALUES($1,$2)",
 		alertKey, alertMessage)
 	if err != nil {
-		a.logger.WarnContext(ctx, "failed to insert alert", slog.Any("error", err))
+		logger.LoggerFromCtx(ctx).Warn("failed to insert alert", slog.Any("error", err))
 		return
 	}
 }
@@ -121,7 +118,7 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 		"INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
 		flowName, errorWithStack, "error")
 	if err != nil {
-		a.logger.WarnContext(ctx, "failed to insert flow error", slog.Any("error", err))
+		logger.LoggerFromCtx(ctx).Warn("failed to insert flow error", slog.Any("error", err))
 		return
 	}
 }
@@ -131,7 +128,7 @@ func (a *Alerter) LogFlowInfo(ctx context.Context, flowName string, info string)
 		"INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
 		flowName, info, "info")
 	if err != nil {
-		a.logger.WarnContext(ctx, "failed to insert flow info", slog.Any("error", err))
+		logger.LoggerFromCtx(ctx).Warn("failed to insert flow info", slog.Any("error", err))
 		return
 	}
 }

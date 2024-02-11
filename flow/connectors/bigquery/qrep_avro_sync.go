@@ -106,7 +106,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	// drop the staging table
 	if err := bqClient.DatasetInProject(s.connector.projectID, datasetID).Table(stagingTable).Delete(ctx); err != nil {
 		// just log the error this isn't fatal.
-		slog.Error("failed to delete staging table "+stagingTable,
+		s.connector.logger.Warn("failed to delete staging table "+stagingTable,
 			slog.Any("error", err),
 			slog.Int64("syncBatchID", syncBatchID),
 			slog.String("destinationTable", rawTableName))
@@ -220,7 +220,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	if err := bqClient.DatasetInProject(s.connector.projectID, stagingDatasetTable.dataset).
 		Table(stagingDatasetTable.table).Delete(ctx); err != nil {
 		// just log the error this isn't fatal.
-		slog.Error("failed to delete staging table "+stagingDatasetTable.string(),
+		s.connector.logger.Warn("failed to delete staging table "+stagingDatasetTable.string(),
 			slog.Any("error", err),
 			flowLog)
 	}

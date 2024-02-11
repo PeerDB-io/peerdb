@@ -17,6 +17,7 @@ import (
 	"github.com/linkedin/goavro/v2"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
@@ -116,9 +117,10 @@ func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error
 }
 
 func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter *goavro.OCFWriter) (int, error) {
+	logger := logger.LoggerFromCtx(ctx)
 	schema, err := p.stream.Schema()
 	if err != nil {
-		slog.Error("failed to get schema from stream", slog.Any("error", err))
+		logger.Error("failed to get schema from stream", slog.Any("error", err))
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
@@ -136,7 +138,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 
 	for qRecordOrErr := range p.stream.Records {
 		if qRecordOrErr.Err != nil {
-			slog.Error("[avro] failed to get record from stream", slog.Any("error", qRecordOrErr.Err))
+			logger.Error("[avro] failed to get record from stream", slog.Any("error", qRecordOrErr.Err))
 			return 0, fmt.Errorf("[avro] failed to get record from stream: %w", qRecordOrErr.Err)
 		}
 
@@ -149,13 +151,13 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 
 		avroMap, err := avroConverter.Convert()
 		if err != nil {
-			slog.Error("failed to convert QRecord to Avro compatible map: ", slog.Any("error", err))
+			logger.Error("failed to convert QRecord to Avro compatible map: ", slog.Any("error", err))
 			return 0, fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
 		}
 
 		err = ocfWriter.Append([]interface{}{avroMap})
 		if err != nil {
-			slog.Error("failed to write record to OCF: ", slog.Any("error", err))
+			logger.Error("failed to write record to OCF: ", slog.Any("error", err))
 			return 0, fmt.Errorf("failed to write record to OCF: %w", err)
 		}
 
@@ -181,9 +183,10 @@ func (p *peerDBOCFWriter) WriteOCF(ctx context.Context, w io.Writer) (int, error
 }
 
 func (p *peerDBOCFWriter) WriteRecordsToS3(ctx context.Context, bucketName, key string, s3Creds utils.S3PeerCredentials) (*AvroFile, error) {
+	logger := logger.LoggerFromCtx(ctx)
 	s3svc, err := utils.CreateS3Client(s3Creds)
 	if err != nil {
-		slog.Error("failed to create S3 client: ", slog.Any("error", err))
+		logger.Error("failed to create S3 client: ", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create S3 client: %w", err)
 	}
 
@@ -205,7 +208,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(ctx context.Context, bucketName, key 
 	})
 	if err != nil {
 		s3Path := "s3://" + bucketName + "/" + key
-		slog.Error("failed to upload file: ", slog.Any("error", err), slog.Any("s3_path", s3Path))
+		logger.Error("failed to upload file: ", slog.Any("error", err), slog.Any("s3_path", s3Path))
 		return nil, fmt.Errorf("failed to upload file to path %s: %w", s3Path, err)
 	}
 

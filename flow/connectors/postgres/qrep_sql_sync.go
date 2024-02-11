@@ -12,6 +12,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -47,7 +48,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	startTime := time.Now()
 	schema, err := stream.Schema()
 	if err != nil {
-		slog.Error("failed to get schema from stream", slog.Any("error", err), syncLog)
+		logger.LoggerFromCtx(ctx).Error("failed to get schema from stream", slog.Any("error", err), syncLog)
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
@@ -71,7 +72,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	defer func() {
 		if err := tx.Rollback(context.Background()); err != nil {
 			if err != pgx.ErrTxClosed {
-				slog.Error("failed to rollback transaction tx2", slog.Any("error", err), syncLog)
+				logger.LoggerFromCtx(ctx).Error("failed to rollback transaction tx2", slog.Any("error", err), syncLog)
 			}
 		}
 	}()

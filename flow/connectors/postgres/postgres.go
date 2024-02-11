@@ -93,7 +93,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, error) {
 	conn, err := c.ssh.NewPostgresConnFromConfig(ctx, c.replConfig)
 	if err != nil {
-		slog.Error("failed to create replication connection", slog.Any("error", err))
+		logger.LoggerFromCtx(ctx).Error("failed to create replication connection", "error", err)
 		return nil, fmt.Errorf("failed to create replication connection: %w", err)
 	}
 
@@ -914,22 +914,24 @@ func (c *PostgresConnector) HandleSlotInfo(
 	slotName string,
 	peerName string,
 ) error {
+	logger := logger.LoggerFromCtx(ctx)
+
 	// must create new connection because HandleSlotInfo is threadsafe
 	conn, err := c.ssh.NewPostgresConnFromPostgresConfig(ctx, c.config)
 	if err != nil {
-		slog.WarnContext(ctx, "warning: failed to connect to get slot info", slog.Any("error", err))
+		logger.Warn("warning: failed to connect to get slot info", "error", err)
 		return err
 	}
 	defer conn.Close(ctx)
 
 	slotInfo, err := getSlotInfo(ctx, conn, slotName, c.config.Database)
 	if err != nil {
-		slog.WarnContext(ctx, "warning: failed to get slot info", slog.Any("error", err))
+		logger.Warn("warning: failed to get slot info", "error", err)
 		return err
 	}
 
 	if len(slotInfo) == 0 {
-		slog.WarnContext(ctx, "warning: unable to get slot info", slog.Any("slotName", slotName))
+		logger.Warn("warning: unable to get slot info", "slotName", slotName)
 		return nil
 	}
 
@@ -950,7 +952,7 @@ cc: <!channel>`,
 	maxOpenConnectionsThreshold := dynamicconf.PeerDBOpenConnectionsAlertThreshold(ctx)
 	res, err := getOpenConnectionsForUser(ctx, conn, c.config.User)
 	if err != nil {
-		slog.WarnContext(ctx, "warning: failed to get current open connections", slog.Any("error", err))
+		logger.Warn("warning: failed to get current open connections", "error", err)
 		return err
 	}
 	if (maxOpenConnectionsThreshold > 0) && (res.CurrentOpenConnections >= int64(maxOpenConnectionsThreshold)) {

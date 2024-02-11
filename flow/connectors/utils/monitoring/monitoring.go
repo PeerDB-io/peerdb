@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -115,7 +116,7 @@ func AddCDCBatchTablesForFlow(ctx context.Context, pool *pgxpool.Pool, flowJobNa
 	defer func() {
 		err = insertBatchTablesTx.Rollback(ctx)
 		if err != pgx.ErrTxClosed && err != nil {
-			slog.Error("error during transaction rollback",
+			logger.LoggerFromCtx(ctx).Error("error during transaction rollback",
 				slog.Any("error", err),
 				slog.String(string(shared.FlowNameKey), flowJobName))
 		}
@@ -225,7 +226,7 @@ func addPartitionToQRepRun(ctx context.Context, pool *pgxpool.Pool, flowJobName 
 	runUUID string, partition *protos.QRepPartition,
 ) error {
 	if partition.Range == nil && partition.FullTablePartition {
-		slog.Info("partition"+partition.PartitionId+
+		logger.LoggerFromCtx(ctx).Info("partition"+partition.PartitionId+
 			" is a full table partition. Metrics logging is skipped.",
 			slog.String(string(shared.FlowNameKey), flowJobName))
 		return nil
