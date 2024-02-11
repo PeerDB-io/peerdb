@@ -81,25 +81,6 @@ func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *prot
 	return nil
 }
 
-func (a *FlowableActivity) GetLastSyncedID(
-	ctx context.Context,
-	config *protos.GetLastSyncedIDInput,
-) (*protos.LastSyncState, error) {
-	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.PeerConnectionConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get connector: %w", err)
-	}
-	defer connectors.CloseConnector(ctx, dstConn)
-
-	var lastOffset int64
-	lastOffset, err = dstConn.GetLastOffset(ctx, config.FlowJobName)
-	if err != nil {
-		return nil, err
-	}
-	return &protos.LastSyncState{Checkpoint: lastOffset}, nil
-}
-
 func (a *FlowableActivity) EnsurePullability(
 	ctx context.Context,
 	config *protos.EnsurePullabilityBatchInput,
@@ -225,6 +206,11 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		batchSize = 1_000_000
 	}
 
+	lastOffset, err := dstConn.GetLastOffset(ctx, input.FlowConnectionConfigs.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+
 	// start a goroutine to pull records from the source
 	recordBatch := model.NewCDCRecordStream()
 	startTime := time.Now()
@@ -234,7 +220,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 			FlowJobName:           flowName,
 			SrcTableIDNameMapping: input.SrcTableIdNameMapping,
 			TableNameMapping:      tblNameMapping,
-			LastOffset:            input.LastSyncState.Checkpoint,
+			LastOffset:            lastOffset,
 			MaxBatchSize:          batchSize,
 			IdleTimeout: peerdbenv.PeerDBCDCIdleTimeoutSeconds(
 				int(input.SyncFlowOptions.IdleTimeoutSeconds),
