@@ -70,3 +70,7 @@ func prependUIDToTaskQueueName(taskQueueName string) string {
 	}
 	return fmt.Sprintf("%s-%s", deploymentUID, taskQueueName)
 }
+
+func GetDeploymentUID() string {
+	return peerdbenv.PeerDBDeploymentUID()
+}

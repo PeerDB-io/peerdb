@@ -78,30 +78,12 @@ export default function ClickhouseForm({ settings, setter }: ConfigProps) {
       >
         Transient S3 Stage
       </Label>
-      <Label>
-        Please provide an S3 object URL and access credentials to store our
-        intermediate staging files.
-      </Label>
       {settings
         .filter((setting) => S3Labels.includes(setting.label))
         .map((setting, id) => (
           <RowWithTextField
             key={id}
-            label={
-              <Label>
-                {setting.label}{' '}
-                {!setting.optional && (
-                  <Tooltip
-                    style={{ width: '100%' }}
-                    content={'This is a required field.'}
-                  >
-                    <Label colorName='lowContrast' colorSet='destructive'>
-                      *
-                    </Label>
-                  </Tooltip>
-                )}
-              </Label>
-            }
+            label={<Label>{setting.label} </Label>}
             action={
               <div
                 style={{
