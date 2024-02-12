@@ -218,6 +218,7 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 				return t.(int64), nil
 			}
 		}
+
 		if c.Nullable {
 			return goavro.Union("long.timestamp-micros", t.(int64)), nil
 		}
@@ -242,6 +243,17 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 				return t.(int64), nil
 			}
 		}
+
+		// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
+		// So, we make such timestamps as null
+		if c.TargetDWH == QDWHTypeBigQuery {
+			if t.(int64) < 0 || t.(int64) > 253402300799999999 {
+				slog.Info("Unlimited TimestampTZ value for BigQuery",
+					slog.Int64("timestamptz unix micro", t.(int64)))
+				return nil, nil
+			}
+		}
+
 		if c.Nullable {
 			return goavro.Union("long.timestamp-micros", t.(int64)), nil
 		}
@@ -386,7 +398,20 @@ func (c *QValueAvroConverter) processGoTimestampTZ() (interface{}, error) {
 	if c.TargetDWH == QDWHTypeSnowflake {
 		return t.Format("2006-01-02 15:04:05.999999-0700"), nil
 	}
-	return t.UnixMicro(), nil
+
+	tMicro := t.UnixMicro()
+	// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
+	// So, we make such timestamps as null
+	if c.TargetDWH == QDWHTypeBigQuery {
+		if tMicro < 0 || tMicro > 253402300799999999 {
+			slog.Info("Unlimited TimestampTZ value for BigQuery",
+				slog.String("timestamptz string", t.String()),
+				slog.Int64("timestamptz unix micro", tMicro))
+			return nil, nil
+		}
+	}
+
+	return tMicro, nil
 }
 
 func (c *QValueAvroConverter) processGoTimestamp() (interface{}, error) {
@@ -404,7 +429,19 @@ func (c *QValueAvroConverter) processGoTimestamp() (interface{}, error) {
 	if c.TargetDWH == QDWHTypeSnowflake {
 		return t.Format("2006-01-02 15:04:05.999999"), nil
 	}
-	return t.UnixMicro(), nil
+
+	tMicro := t.UnixMicro()
+	// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
+	// So, we make such timestamps as null
+	if c.TargetDWH == QDWHTypeBigQuery {
+		if tMicro < 0 || tMicro > 253402300799999999 {
+			slog.Info("Unlimited Timestamp value for BigQuery",
+				slog.String("timestamp string", t.String()),
+				slog.Int64("timestamp unix micro", tMicro))
+			return nil, nil
+		}
+	}
+	return tMicro, nil
 }
 
 func (c *QValueAvroConverter) processGoDate() (interface{}, error) {
