@@ -1245,7 +1245,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		workflowState := getWorkFlowState()
 		assert.EqualValues(s.t, 7, workflowState.SyncFlowOptions.IdleTimeoutSeconds)
 		assert.EqualValues(s.t, 6, workflowState.SyncFlowOptions.BatchSize)
-		assert.Len(s.t, workflowState.TableMappings, 2)
+		assert.Len(s.t, workflowState.TableMappings, 1)
 		assert.Len(s.t, workflowState.SrcTableIdNameMapping, 1)
 		assert.Len(s.t, workflowState.TableNameSchemaMapping, 1)
 		// we have limited batch size to 6, so atleast 3 syncs needed
