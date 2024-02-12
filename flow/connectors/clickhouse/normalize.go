@@ -161,7 +161,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.N
 				clickhouseType = "String"
 			}
 
-			projection.WriteString(fmt.Sprintf("JSONExtract(_peerdb_data, '%s', '%s') AS '%s', ", cn, clickhouseType, cn))
+			projection.WriteString(fmt.Sprintf("JSONExtract(_peerdb_data, '%s', '%s') AS %s, ", cn, clickhouseType, cn))
 		}
 
 		// add _peerdb_sign as _peerdb_record_type / 2
