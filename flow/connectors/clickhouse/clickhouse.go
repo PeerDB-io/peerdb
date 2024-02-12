@@ -2,10 +2,11 @@ package connclickhouse
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"fmt"
 
-	_ "github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"go.temporal.io/sdk/log"
 
@@ -78,22 +79,28 @@ func NewClickhouseConnector(
 }
 
 func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, error) {
-	dsn := fmt.Sprintf("tcp://%s:%d?username=%s&password=%s", // TODO &database=%s"
-		config.Host, config.Port, config.User, config.Password) // TODO , config.Database
-
-	conn, err := sql.Open("clickhouse", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open connection to Clickhouse peer: %w", err)
-	}
+	conn := clickhouse.OpenDB(&clickhouse.Options{
+		Addr: []string{fmt.Sprintf("%s:%d", config.Host, config.Port)},
+		Auth: clickhouse.Auth{
+			Database: config.Database,
+			Username: config.User,
+			Password: config.Password,
+		},
+		TLS:         &tls.Config{MinVersion: tls.VersionTLS13},
+		Compression: &clickhouse.Compression{Method: clickhouse.CompressionLZ4},
+		ClientInfo: clickhouse.ClientInfo{
+			Products: []struct {
+				Name    string
+				Version string
+			}{
+				{Name: "peerdb"},
+			},
+		},
+	})
 
 	if err := conn.PingContext(ctx); err != nil {
+		conn.Close()
 		return nil, fmt.Errorf("failed to ping to Clickhouse peer: %w", err)
-	}
-
-	// Execute USE database command to select a specific database
-	_, err = conn.Exec(fmt.Sprintf("USE %s", config.Database))
-	if err != nil {
-		return nil, fmt.Errorf("failed in selecting db in Clickhouse peer: %w", err)
 	}
 
 	return conn, nil
