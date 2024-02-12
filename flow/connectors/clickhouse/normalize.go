@@ -162,7 +162,11 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.N
 			}
 
 			if clickhouseType == "Date" {
-				projection.WriteString(fmt.Sprintf("toDate(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'))) AS `%s`,", cn, cn))
+				projection.WriteString(fmt.Sprintf(
+					"toDate(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'))) AS `%s`,",
+					cn,
+					cn,
+				))
 			} else {
 				projection.WriteString(fmt.Sprintf("JSONExtract(_peerdb_data, '%s', '%s') AS `%s`,", cn, clickhouseType, cn))
 			}
