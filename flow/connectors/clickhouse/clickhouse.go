@@ -86,8 +86,15 @@ func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, err
 			Username: config.User,
 			Password: config.Password,
 		},
-		TLS: &tls.Config{
-			InsecureSkipVerify: true,
+		TLS:         &tls.Config{},
+		Compression: &clickhouse.Compression{Method: clickhouse.CompressionLZ4},
+		ClientInfo: clickhouse.ClientInfo{
+			Products: []struct {
+				Name    string
+				Version string
+			}{
+				{Name: "peerdb"},
+			},
 		},
 	})
 
