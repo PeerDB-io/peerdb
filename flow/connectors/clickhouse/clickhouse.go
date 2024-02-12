@@ -86,7 +86,7 @@ func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, err
 			Username: config.User,
 			Password: config.Password,
 		},
-		TLS:         &tls.Config{},
+		TLS:         &tls.Config{MinVersion: tls.VersionTLS13},
 		Compression: &clickhouse.Compression{Method: clickhouse.CompressionLZ4},
 		ClientInfo: clickhouse.ClientInfo{
 			Products: []struct {
