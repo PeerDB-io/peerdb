@@ -10,7 +10,7 @@ jobs:
   build:
     strategy:
       matrix:
-        runner: [ubuntu-latest, ubicloud-standard-2-ubuntu-2204-arm]
+        runner: [ubuntu-latest]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
