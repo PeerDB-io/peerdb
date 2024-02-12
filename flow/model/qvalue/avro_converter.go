@@ -431,7 +431,7 @@ func (c *QValueAvroConverter) processGoDate() (interface{}, error) {
 
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-	if c.TargetDWH == QDWHTypeSnowflake {
+	if c.TargetDWH == QDWHTypeSnowflake || c.TargetDWH == QDWHTypeClickhouse {
 		return t.Format("2006-01-02"), nil
 	}
 	return t, nil
