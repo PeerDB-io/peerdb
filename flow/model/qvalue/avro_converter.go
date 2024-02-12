@@ -82,7 +82,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision 
 		}, nil
 	case QValueKindTime, QValueKindTimeTZ, QValueKindDate, QValueKindTimestamp, QValueKindTimestampTZ:
 		if targetDWH == QDWHTypeClickhouse {
-			if kind == QValueKindTime {
+			if kind == QValueKindTime || kind == QValueKindDate {
 				return "string", nil
 			}
 			return "long", nil
@@ -258,7 +258,8 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		if err != nil || t == nil {
 			return t, err
 		}
-		if c.TargetDWH == QDWHTypeSnowflake {
+
+		if c.TargetDWH == QDWHTypeSnowflake || c.TargetDWH == QDWHTypeClickhouse {
 			if c.Nullable {
 				return c.processNullableUnion("string", t.(string))
 			} else {
