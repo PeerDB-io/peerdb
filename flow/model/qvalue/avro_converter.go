@@ -82,7 +82,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision 
 		}, nil
 	case QValueKindTime, QValueKindTimeTZ, QValueKindDate, QValueKindTimestamp, QValueKindTimestampTZ:
 		if targetDWH == QDWHTypeClickhouse {
-			if kind == QValueKindTime || kind == QValueKindDate {
+			if kind == QValueKindTime {
 				return "string", nil
 			}
 			return "long", nil
@@ -259,7 +259,7 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 			return t, err
 		}
 
-		if c.TargetDWH == QDWHTypeSnowflake || c.TargetDWH == QDWHTypeClickhouse {
+		if c.TargetDWH == QDWHTypeSnowflake {
 			if c.Nullable {
 				return c.processNullableUnion("string", t.(string))
 			} else {
@@ -267,7 +267,7 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 			}
 		}
 
-		if c.Nullable {
+		if c.Nullable && c.TargetDWH == QDWHTypeBigQuery {
 			return goavro.Union("int.date", t), nil
 		}
 		return t, nil
@@ -431,7 +431,7 @@ func (c *QValueAvroConverter) processGoDate() (interface{}, error) {
 
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-	if c.TargetDWH == QDWHTypeSnowflake || c.TargetDWH == QDWHTypeClickhouse {
+	if c.TargetDWH == QDWHTypeSnowflake {
 		return t.Format("2006-01-02"), nil
 	}
 	return t, nil
