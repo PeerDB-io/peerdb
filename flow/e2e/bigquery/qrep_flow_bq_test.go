@@ -1,7 +1,9 @@
 package e2e_bigquery
 
 import (
+	"context"
 	"fmt"
+	"strings"
 
 	"github.com/stretchr/testify/require"
 
@@ -12,6 +14,34 @@ func (s PeerFlowE2ETestSuiteBQ) setupSourceTable(tableName string, rowCount int)
 	err := e2e.CreateTableForQRep(s.conn, s.bqSuffix, tableName)
 	require.NoError(s.t, err)
 	err = e2e.PopulateSourceTable(s.conn, s.bqSuffix, tableName, rowCount)
+	require.NoError(s.t, err)
+}
+
+func (s PeerFlowE2ETestSuiteBQ) setupTimeTable(tableName string) {
+	tblFields := []string{
+		"watermark_ts timestamp",
+		"mytimestamp timestamp",
+		"mytztimestamp timestamptz",
+	}
+	tblFieldStr := strings.Join(tblFields, ",")
+	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+			CREATE TABLE e2e_test_%s.%s (
+				%s
+			);`, s.bqSuffix, tableName, tblFieldStr))
+
+	require.NoError(s.t, err)
+
+	var rows []string
+	row := `(CURRENT_TIMESTAMP,'10001-03-14 23:05:52','50001-03-14 23:05:52.216809+00')`
+	rows = append(rows, row)
+
+	_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO e2e_test_%s.%s (
+					watermark_ts,
+					mytimestamp,
+					mytztimestamp
+			) VALUES %s;
+	`, s.bqSuffix, tableName, strings.Join(rows, ",")))
 	require.NoError(s.t, err)
 }
 
@@ -44,6 +74,42 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 	require.NoError(s.t, err)
 
 	e2e.RequireEqualTables(s, tblName, "*")
+}
+
+func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Timestamps_QRep() {
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+
+	tblName := "test_qrep_flow_avro_bq"
+	s.setupTimeTable(tblName)
+
+	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE watermark_ts BETWEEN {{.start}} AND {{.end}}",
+		s.bqSuffix, tblName)
+
+	qrepConfig, err := e2e.CreateQRepWorkflowConfig("test_qrep_flow_avro",
+		fmt.Sprintf("e2e_test_%s.%s", s.bqSuffix, tblName),
+		tblName,
+		query,
+		s.bqHelper.Peer,
+		"",
+		true,
+		"")
+	qrepConfig.WatermarkColumn = "watermark_ts"
+	require.NoError(s.t, err)
+	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+
+	// Verify workflow completes without error
+	require.True(s.t, env.IsWorkflowCompleted())
+
+	err = env.GetWorkflowError()
+	require.NoError(s.t, err)
+
+	ok, err := s.bqHelper.CheckNull(tblName, []string{"mytimestamp"})
+	require.NoError(s.t, err)
+	require.False(s.t, ok)
+
+	ok, err = s.bqHelper.CheckNull(tblName, []string{"mytztimestamp"})
+	require.NoError(s.t, err)
+	require.False(s.t, ok)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
