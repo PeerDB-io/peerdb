@@ -98,7 +98,8 @@ func NewClickhouseConnector(
 	bucketPathSuffix := fmt.Sprintf("%s/%s", deploymentUID, flowName)
 	// Get S3 credentials from environment
 	clickhouseS3Creds = utils.GetClickhouseAWSSecrets(bucketPathSuffix)
-	if clickhouseS3Creds.AccessKeyID == "" && clickhouseS3Creds.SecretAccessKey == "" && clickhouseS3Creds.Region == "" {
+	if clickhouseS3Creds.AccessKeyID == "" &&
+		clickhouseS3Creds.SecretAccessKey == "" && clickhouseS3Creds.Region == "" {
 		// Fallback: user provided S3 credentials
 		clickhouseS3Creds = &utils.ClickhouseS3Credentials{
 			AccessKeyID:     config.AccessKeyId,

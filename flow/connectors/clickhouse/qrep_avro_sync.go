@@ -40,14 +40,16 @@ func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 		return err
 	}
 
-	avroFileUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s3o.Bucket, s.connector.creds.Region, avroFile.FilePath)
+	avroFileUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s3o.Bucket,
+		s.connector.creds.Region, avroFile.FilePath)
 
 	if err != nil {
 		return err
 	}
 	//nolint:gosec
 	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM s3('%s','%s','%s', 'Avro')",
-		s.config.DestinationTableIdentifier, avroFileUrl, s.connector.creds.AccessKeyID, s.connector.creds.SecretAccessKey)
+		s.config.DestinationTableIdentifier, avroFileUrl,
+		s.connector.creds.AccessKeyID, s.connector.creds.SecretAccessKey)
 
 	_, err = s.connector.database.ExecContext(ctx, query)
 
@@ -119,7 +121,8 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 		return 0, err
 	}
 
-	avroFileUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s3o.Bucket, s.connector.creds.Region, avroFile.FilePath)
+	avroFileUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s3o.Bucket,
+		s.connector.creds.Region, avroFile.FilePath)
 
 	if err != nil {
 		return 0, err
@@ -127,7 +130,8 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	selector := strings.Join(schema.GetColumnNames(), ",")
 	//nolint:gosec
 	query := fmt.Sprintf("INSERT INTO %s (%s) SELECT * FROM s3('%s','%s','%s', 'Avro')",
-		config.DestinationTableIdentifier, selector, avroFileUrl, s.connector.creds.AccessKeyID, s.connector.creds.SecretAccessKey)
+		config.DestinationTableIdentifier, selector, avroFileUrl,
+		s.connector.creds.AccessKeyID, s.connector.creds.SecretAccessKey)
 
 	_, err = s.connector.database.ExecContext(ctx, query)
 
@@ -170,7 +174,7 @@ func (s *ClickhouseAvroSyncMethod) writeToAvroFile(
 		return nil, fmt.Errorf("failed to parse staging path: %w", err)
 	}
 
-	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, flowJobName, partitionID) // s.config.FlowJobName
+	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, flowJobName, partitionID)
 	s3AvroFileKey = strings.Trim(s3AvroFileKey, "/")
 
 	avroFile, err := ocfWriter.WriteRecordsToS3(ctx, s3o.Bucket, s3AvroFileKey, utils.S3PeerCredentials{

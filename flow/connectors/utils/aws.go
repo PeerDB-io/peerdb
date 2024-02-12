@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -85,7 +86,8 @@ func GetClickhouseAWSSecrets(bucketPathSuffix string) *ClickhouseS3Credentials {
 	awsSecret := os.Getenv("PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY")
 	awsBucketName := os.Getenv("PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
 
-	awsBucketPath := fmt.Sprintf("s3://%s/%s", awsBucketName, bucketPathSuffix)
+	escapedPathSuffix := url.PathEscape(bucketPathSuffix)
+	awsBucketPath := fmt.Sprintf("s3://%s/%s", awsBucketName, escapedPathSuffix)
 	return &ClickhouseS3Credentials{
 		AccessKeyID:     awsKey,
 		SecretAccessKey: awsSecret,
