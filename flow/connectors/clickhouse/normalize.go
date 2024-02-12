@@ -161,12 +161,16 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.N
 				clickhouseType = "String"
 			}
 
-			projection.WriteString(fmt.Sprintf("JSONExtract(_peerdb_data, '%s', '%s') AS `%s`,", cn, clickhouseType, cn))
+			if clickhouseType == "Date" {
+				projection.WriteString(fmt.Sprintf("toDate(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'))) AS `%s`,", cn, cn))
+			} else {
+				projection.WriteString(fmt.Sprintf("JSONExtract(_peerdb_data, '%s', '%s') AS `%s`,", cn, clickhouseType, cn))
+			}
 		}
 
 		// add _peerdb_sign as _peerdb_record_type / 2
 		projection.WriteString(fmt.Sprintf("intDiv(_peerdb_record_type, 2) AS `%s`,", signColName))
-		colSelector.WriteString(fmt.Sprintf("%s,", signColName))
+		colSelector.WriteString(fmt.Sprintf("`%s`,", signColName))
 
 		// add _peerdb_timestamp as _peerdb_version
 		projection.WriteString(fmt.Sprintf("_peerdb_timestamp AS `%s`", versionColName))
