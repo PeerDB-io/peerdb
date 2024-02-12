@@ -85,6 +85,13 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision 
 			if kind == QValueKindTime {
 				return "string", nil
 			}
+			if kind == QValueKindDate {
+				return AvroSchemaField{
+					Name:        "date",
+					Type:        "int",
+					LogicalType: "date",
+				}, nil
+			}
 			return "long", nil
 		}
 		return "string", nil
@@ -267,7 +274,7 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 			}
 		}
 
-		if c.Nullable && c.TargetDWH == QDWHTypeBigQuery {
+		if c.Nullable {
 			return goavro.Union("int.date", t), nil
 		}
 		return t, nil
