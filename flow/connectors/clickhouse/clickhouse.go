@@ -96,7 +96,8 @@ func NewClickhouseConnector(
 	var clickhouseS3Creds *utils.ClickhouseS3Credentials
 	deploymentUID := shared.GetDeploymentUID()
 	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
-	bucketPathSuffix := fmt.Sprintf("%s/%s", url.PathEscape(deploymentUID), flowName)
+	bucketPathSuffix := fmt.Sprintf("%s/%s",
+		url.PathEscape(deploymentUID), url.PathEscape(flowName))
 
 	// Get user provided S3 credentials
 	clickhouseS3Creds = &utils.ClickhouseS3Credentials{
