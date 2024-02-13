@@ -286,17 +286,21 @@ func (p *PostgresCDCSource) consumeStream(
 		// if we are past the next standby deadline (?)
 		if time.Now().After(nextStandbyMessageDeadline) {
 			if !cdcRecordsStorage.IsEmpty() {
-				p.logger.Info(fmt.Sprintf("[%s] standby deadline reached, have %d records, will return at next commit",
+				p.logger.Info(fmt.Sprintf("[%s] standby deadline reached, have %d records",
 					p.flowJobName,
 					cdcRecordsStorage.Len()),
 				)
 
 				if !p.commitLock {
-					// immediate return if we are not waiting for a commit
+					p.logger.Info(
+						fmt.Sprintf("no commit lock, returning currently accumulated records - %d",
+							cdcRecordsStorage.Len()))
 					return nil
+				} else {
+					p.logger.Info(fmt.Sprintf("commit lock, waiting for commit to return records - %d",
+						cdcRecordsStorage.Len()))
+					waitingForCommit = true
 				}
-
-				waitingForCommit = true
 			} else {
 				p.logger.Info(fmt.Sprintf("[%s] standby deadline reached, no records accumulated, continuing to wait",
 					p.flowJobName),

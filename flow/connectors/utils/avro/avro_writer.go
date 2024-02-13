@@ -6,11 +6,14 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"runtime/debug"
 	"sync/atomic"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/djherbis/buffer"
+	"github.com/djherbis/nio/v3"
 	"github.com/klauspost/compress/flate"
 	"github.com/klauspost/compress/snappy"
 	"github.com/klauspost/compress/zstd"
@@ -190,15 +193,23 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(ctx context.Context, bucketName, key 
 		return nil, fmt.Errorf("failed to create S3 client: %w", err)
 	}
 
-	r, w := io.Pipe()
+	buf := buffer.New(32 * 1024 * 1024) // 32MB in memory Buffer
+	r, w := nio.Pipe(buf)
+
 	defer r.Close()
 	var writeOcfError error
 	var numRows int
-	var noPanic bool
+
 	go func() {
-		defer w.Close()
+		defer func() {
+			if r := recover(); r != nil {
+				writeOcfError = fmt.Errorf("panic occurred during WriteOCF: %v", r)
+				stack := string(debug.Stack())
+				logger.Error("panic during WriteOCF", slog.Any("error", writeOcfError), slog.String("stack", stack))
+			}
+			w.Close()
+		}()
 		numRows, writeOcfError = p.WriteOCF(ctx, w)
-		noPanic = true
 	}()
 
 	_, err = manager.NewUploader(s3svc).Upload(ctx, &s3.PutObjectInput{
@@ -206,16 +217,15 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(ctx context.Context, bucketName, key 
 		Key:    aws.String(key),
 		Body:   r,
 	})
+
 	if err != nil {
 		s3Path := "s3://" + bucketName + "/" + key
 		logger.Error("failed to upload file: ", slog.Any("error", err), slog.Any("s3_path", s3Path))
 		return nil, fmt.Errorf("failed to upload file to path %s: %w", s3Path, err)
 	}
 
-	if !noPanic {
-		return nil, fmt.Errorf("WriteOCF panicked while writing avro to S3 %s/%s", bucketName, key)
-	}
 	if writeOcfError != nil {
+		logger.Error("failed to write records to OCF: ", slog.Any("error", writeOcfError))
 		return nil, writeOcfError
 	}
 
