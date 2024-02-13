@@ -208,14 +208,6 @@ func (c *S3Connector) ReplayTableSchemaDeltas(_ context.Context, flowJobName str
 	return nil
 }
 
-func (c *S3Connector) SetupNormalizedTables(_ context.Context, req *protos.SetupNormalizedTableBatchInput) (
-	*protos.SetupNormalizedTableBatchOutput,
-	error,
-) {
-	c.logger.Info("SetupNormalizedTables for S3 is a no-op")
-	return nil, nil
-}
-
 func (c *S3Connector) SyncFlowCleanup(ctx context.Context, jobName string) error {
 	return c.pgMetadata.DropMetadata(ctx, jobName)
 }

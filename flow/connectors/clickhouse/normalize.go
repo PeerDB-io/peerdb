@@ -19,41 +19,48 @@ const (
 	versionColType = "Int64"
 )
 
-func (c *ClickhouseConnector) SetupNormalizedTables(
+func (c *ClickhouseConnector) StartSetupNormalizedTables(_ context.Context) (interface{}, error) {
+	return nil, nil
+}
+
+func (c *ClickhouseConnector) FinishSetupNormalizedTables(_ context.Context) error {
+	return nil
+}
+
+func (c *ClickhouseConnector) AbortSetupNormalizedTables(_ context.Context, _ interface{}) {
+}
+
+func (c *ClickhouseConnector) SetupNormalizedTable(
 	ctx context.Context,
-	req *protos.SetupNormalizedTableBatchInput,
-) (*protos.SetupNormalizedTableBatchOutput, error) {
-	tableExistsMapping := make(map[string]bool)
-	for tableIdentifier, tableSchema := range req.TableNameSchemaMapping {
-		tableAlreadyExists, err := c.checkIfTableExists(ctx, c.config.Database, tableIdentifier)
-		if err != nil {
-			return nil, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
-		}
-		if tableAlreadyExists {
-			tableExistsMapping[tableIdentifier] = true
-			continue
-		}
-
-		normalizedTableCreateSQL, err := generateCreateTableSQLForNormalizedTable(
-			tableIdentifier,
-			tableSchema,
-			req.SoftDeleteColName,
-			req.SyncedAtColName,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error while generating create table sql for normalized table: %w", err)
-		}
-
-		_, err = c.database.ExecContext(ctx, normalizedTableCreateSQL)
-		if err != nil {
-			return nil, fmt.Errorf("[sf] error while creating normalized table: %w", err)
-		}
-		tableExistsMapping[tableIdentifier] = false
+	tx interface{},
+	tableIdentifier string,
+	tableSchema *protos.TableSchema,
+	softDeleteColName string,
+	syncedAtColName string,
+) (bool, error) {
+	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.config.Database, tableIdentifier)
+	if err != nil {
+		return false, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
+	}
+	if tableAlreadyExists {
+		return true, nil
 	}
 
-	return &protos.SetupNormalizedTableBatchOutput{
-		TableExistsMapping: tableExistsMapping,
-	}, nil
+	normalizedTableCreateSQL, err := generateCreateTableSQLForNormalizedTable(
+		tableIdentifier,
+		tableSchema,
+		softDeleteColName,
+		syncedAtColName,
+	)
+	if err != nil {
+		return false, fmt.Errorf("error while generating create table sql for normalized table: %w", err)
+	}
+
+	_, err = c.database.ExecContext(ctx, normalizedTableCreateSQL)
+	if err != nil {
+		return false, fmt.Errorf("[sf] error while creating normalized table: %w", err)
+	}
+	return false, nil
 }
 
 func generateCreateTableSQLForNormalizedTable(

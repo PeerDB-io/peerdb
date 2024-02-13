@@ -58,6 +58,30 @@ type CDCPullConnector interface {
 	AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error
 }
 
+type NormalizedTablesConnector interface {
+	Connector
+
+	// StartSetupNormalizedTables may be used to have SetupNormalizedTable calls run in a transaction.
+	StartSetupNormalizedTables(ctx context.Context) (interface{}, error)
+
+	// SetupNormalizedTable sets up the normalized table on the connector.
+	SetupNormalizedTable(
+		ctx context.Context,
+		tx interface{},
+		tableIdentifier string,
+		tableSchema *protos.TableSchema,
+		softDeleteColName string,
+		syncedAtColName string,
+	) (bool, error)
+
+	// AbortSetupNormalizedTables may be used to rollback transaction started by StartSetupNormalizedTables.
+	// Calling AbortSetupNormalizedTables after FinishSetupNormalizedTables must be a nop.
+	AbortSetupNormalizedTables(ctx context.Context, tx interface{})
+
+	// FinishSetupNormalizedTables may be used to finish transaction started by StartSetupNormalizedTables.
+	FinishSetupNormalizedTables(ctx context.Context, tx interface{}) error
+}
+
 type CDCSyncConnector interface {
 	Connector
 
@@ -83,10 +107,6 @@ type CDCSyncConnector interface {
 	// This could involve adding or dropping multiple columns.
 	// Connectors which are non-normalizing should implement this as a nop.
 	ReplayTableSchemaDeltas(ctx context.Context, flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error
-
-	// SetupNormalizedTables sets up the normalized table on the connector.
-	SetupNormalizedTables(ctx context.Context, req *protos.SetupNormalizedTableBatchInput) (
-		*protos.SetupNormalizedTableBatchOutput, error)
 
 	// SyncRecords pushes records to the destination peer and stores it in PeerDB specific tables.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
@@ -136,19 +156,8 @@ type QRepConsolidateConnector interface {
 	CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error
 }
 
-func GetCDCPullConnector(ctx context.Context, config *protos.Peer) (CDCPullConnector, error) {
-	inner := config.Config
-	switch inner.(type) {
-	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig())
-	default:
-		return nil, ErrUnsupportedFunctionality
-	}
-}
-
-func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConnector, error) {
-	inner := config.Config
-	switch inner.(type) {
+func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
+	switch config.Config.(type) {
 	case *protos.Peer_PostgresConfig:
 		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig())
 	case *protos.Peer_BigqueryConfig:
@@ -161,6 +170,8 @@ func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConne
 		return conneventhub.NewEventHubConnector(ctx, config.GetEventhubGroupConfig())
 	case *protos.Peer_S3Config:
 		return conns3.NewS3Connector(ctx, config.GetS3Config())
+	case *protos.Peer_SqlserverConfig:
+		return connsqlserver.NewSQLServerConnector(ctx, config.GetSqlserverConfig())
 	case *protos.Peer_ClickhouseConfig:
 		return connclickhouse.NewClickhouseConnector(ctx, config.GetClickhouseConfig())
 	default:
@@ -168,115 +179,42 @@ func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConne
 	}
 }
 
-func GetCDCNormalizeConnector(ctx context.Context,
-	config *protos.Peer,
-) (CDCNormalizeConnector, error) {
-	inner := config.Config
-	switch inner.(type) {
-	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig())
-	case *protos.Peer_BigqueryConfig:
-		return connbigquery.NewBigQueryConnector(ctx, config.GetBigqueryConfig())
-	case *protos.Peer_SnowflakeConfig:
-		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig())
-	case *protos.Peer_ClickhouseConfig:
-		return connclickhouse.NewClickhouseConnector(ctx, config.GetClickhouseConfig())
-	default:
-		return nil, ErrUnsupportedFunctionality
+func GetConnectorAs[T Connector](ctx context.Context, config *protos.Peer) (T, error) {
+	var none T
+	conn, err := GetConnector(ctx, config)
+	if err != nil {
+		return none, err
 	}
+
+	if conn, ok := conn.(T); ok {
+		return conn, nil
+	} else {
+		return none, ErrUnsupportedFunctionality
+	}
+}
+
+func GetCDCPullConnector(ctx context.Context, config *protos.Peer) (CDCPullConnector, error) {
+	return GetConnectorAs[CDCPullConnector](ctx, config)
+}
+
+func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConnector, error) {
+	return GetConnectorAs[CDCSyncConnector](ctx, config)
+}
+
+func GetCDCNormalizeConnector(ctx context.Context, config *protos.Peer) (CDCNormalizeConnector, error) {
+	return GetConnectorAs[CDCNormalizeConnector](ctx, config)
 }
 
 func GetQRepPullConnector(ctx context.Context, config *protos.Peer) (QRepPullConnector, error) {
-	inner := config.Config
-	switch inner.(type) {
-	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig())
-	case *protos.Peer_SqlserverConfig:
-		return connsqlserver.NewSQLServerConnector(ctx, config.GetSqlserverConfig())
-	default:
-		return nil, ErrUnsupportedFunctionality
-	}
+	return GetConnectorAs[QRepPullConnector](ctx, config)
 }
 
 func GetQRepSyncConnector(ctx context.Context, config *protos.Peer) (QRepSyncConnector, error) {
-	inner := config.Config
-	switch inner.(type) {
-	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig())
-	case *protos.Peer_BigqueryConfig:
-		return connbigquery.NewBigQueryConnector(ctx, config.GetBigqueryConfig())
-	case *protos.Peer_SnowflakeConfig:
-		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig())
-	case *protos.Peer_S3Config:
-		return conns3.NewS3Connector(ctx, config.GetS3Config())
-	case *protos.Peer_ClickhouseConfig:
-		return connclickhouse.NewClickhouseConnector(ctx, config.GetClickhouseConfig())
-	default:
-		return nil, ErrUnsupportedFunctionality
-	}
+	return GetConnectorAs[QRepSyncConnector](ctx, config)
 }
 
-func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
-	inner := peer.Type
-	switch inner {
-	case protos.DBType_POSTGRES:
-		pgConfig := peer.GetPostgresConfig()
-
-		if pgConfig == nil {
-			return nil, fmt.Errorf("missing postgres config for %s peer %s", peer.Type.String(), peer.Name)
-		}
-		// we can't decide if a PG peer should have replication permissions on it because we don't know
-		// what the user wants to do with it, so defaulting to being permissive.
-		// can be revisited in the future or we can use some UI wizardry.
-		return connpostgres.NewPostgresConnector(ctx, pgConfig)
-	case protos.DBType_BIGQUERY:
-		bqConfig := peer.GetBigqueryConfig()
-		if bqConfig == nil {
-			return nil, fmt.Errorf("missing bigquery config for %s peer %s", peer.Type.String(), peer.Name)
-		}
-		return connbigquery.NewBigQueryConnector(ctx, bqConfig)
-
-	case protos.DBType_SNOWFLAKE:
-		sfConfig := peer.GetSnowflakeConfig()
-		if sfConfig == nil {
-			return nil, fmt.Errorf("missing snowflake config for %s peer %s", peer.Type.String(), peer.Name)
-		}
-		return connsnowflake.NewSnowflakeConnector(ctx, sfConfig)
-	case protos.DBType_SQLSERVER:
-		sqlServerConfig := peer.GetSqlserverConfig()
-		if sqlServerConfig == nil {
-			return nil, fmt.Errorf("missing sqlserver config for %s peer %s", peer.Type.String(), peer.Name)
-		}
-		return connsqlserver.NewSQLServerConnector(ctx, sqlServerConfig)
-	case protos.DBType_S3:
-		s3Config := peer.GetS3Config()
-		if s3Config == nil {
-			return nil, fmt.Errorf("missing s3 config for %s peer %s", peer.Type.String(), peer.Name)
-		}
-		return conns3.NewS3Connector(ctx, s3Config)
-	case protos.DBType_CLICKHOUSE:
-		clickhouseConfig := peer.GetClickhouseConfig()
-		if clickhouseConfig == nil {
-			return nil, fmt.Errorf("missing clickhouse config for %s peer %s", peer.Type.String(), peer.Name)
-		}
-		return connclickhouse.NewClickhouseConnector(ctx, clickhouseConfig)
-	default:
-		return nil, fmt.Errorf("unsupported peer type %s", peer.Type.String())
-	}
-}
-
-func GetQRepConsolidateConnector(ctx context.Context,
-	config *protos.Peer,
-) (QRepConsolidateConnector, error) {
-	inner := config.Config
-	switch inner.(type) {
-	case *protos.Peer_SnowflakeConfig:
-		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig())
-	case *protos.Peer_ClickhouseConfig:
-		return connclickhouse.NewClickhouseConnector(ctx, config.GetClickhouseConfig())
-	default:
-		return nil, ErrUnsupportedFunctionality
-	}
+func GetQRepConsolidateConnector(ctx context.Context, config *protos.Peer) (QRepConsolidateConnector, error) {
+	return GetConnectorAs[QRepConsolidateConnector](ctx, config)
 }
 
 func CloseConnector(ctx context.Context, conn Connector) {

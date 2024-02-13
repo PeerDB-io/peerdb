@@ -329,38 +329,44 @@ func (c *SnowflakeConnector) getTableNameToUnchangedCols(
 	return resultMap, nil
 }
 
-func (c *SnowflakeConnector) SetupNormalizedTables(
-	ctx context.Context,
-	req *protos.SetupNormalizedTableBatchInput,
-) (*protos.SetupNormalizedTableBatchOutput, error) {
-	tableExistsMapping := make(map[string]bool)
-	for tableIdentifier, tableSchema := range req.TableNameSchemaMapping {
-		normalizedSchemaTable, err := utils.ParseSchemaTable(tableIdentifier)
-		if err != nil {
-			return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
-		}
-		tableAlreadyExists, err := c.checkIfTableExists(ctx, normalizedSchemaTable.Schema, normalizedSchemaTable.Table)
-		if err != nil {
-			return nil, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
-		}
-		if tableAlreadyExists {
-			tableExistsMapping[tableIdentifier] = true
-			continue
-		}
+func (c *SnowflakeConnector) StartSetupNormalizedTables(_ context.Context) (interface{}, error) {
+	return nil, nil
+}
 
-		normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
-			normalizedSchemaTable, tableSchema, req.SoftDeleteColName, req.SyncedAtColName)
-		_, err = c.database.ExecContext(ctx, normalizedTableCreateSQL)
-		if err != nil {
-			return nil, fmt.Errorf("[sf] error while creating normalized table: %w", err)
-		}
-		tableExistsMapping[tableIdentifier] = false
-		utils.RecordHeartbeat(ctx, fmt.Sprintf("created table %s", tableIdentifier))
+func (c *SnowflakeConnector) FinishSetupNormalizedTables(_ context.Context) error {
+	return nil
+}
+
+func (c *SnowflakeConnector) AbortSetupNormalizedTables(_ context.Context, _ interface{}) {
+}
+
+func (c *SnowflakeConnector) SetupNormalizedTable(
+	ctx context.Context,
+	tx interface{},
+	tableIdentifier string,
+	tableSchema *protos.TableSchema,
+	softDeleteColName string,
+	syncedAtColName string,
+) (bool, error) {
+	normalizedSchemaTable, err := utils.ParseSchemaTable(tableIdentifier)
+	if err != nil {
+		return false, fmt.Errorf("error while parsing table schema and name: %w", err)
+	}
+	tableAlreadyExists, err := c.checkIfTableExists(ctx, normalizedSchemaTable.Schema, normalizedSchemaTable.Table)
+	if err != nil {
+		return false, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
+	}
+	if tableAlreadyExists {
+		return true, nil
 	}
 
-	return &protos.SetupNormalizedTableBatchOutput{
-		TableExistsMapping: tableExistsMapping,
-	}, nil
+	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
+		normalizedSchemaTable, tableSchema, softDeleteColName, syncedAtColName)
+	_, err = c.database.ExecContext(ctx, normalizedTableCreateSQL)
+	if err != nil {
+		return false, fmt.Errorf("[sf] error while creating normalized table: %w", err)
+	}
+	return false, nil
 }
 
 // ReplayTableSchemaDeltas changes a destination table to match the schema at source

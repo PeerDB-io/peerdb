@@ -261,16 +261,6 @@ func (c *EventHubConnector) ReplayTableSchemaDeltas(_ context.Context, flowJobNa
 	return nil
 }
 
-func (c *EventHubConnector) SetupNormalizedTables(
-	_ context.Context,
-	req *protos.SetupNormalizedTableBatchInput,
-) (*protos.SetupNormalizedTableBatchOutput, error) {
-	c.logger.Info("normalization for event hub is a no-op")
-	return &protos.SetupNormalizedTableBatchOutput{
-		TableExistsMapping: nil,
-	}, nil
-}
-
 func (c *EventHubConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
 	return c.pgMetadata.DropMetadata(ctx, jobName)
 }
