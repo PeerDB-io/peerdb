@@ -652,7 +652,7 @@ func (c *BigQueryConnector) StartSetupNormalizedTables(_ context.Context) (inter
 	return make(map[datasetTable]struct{}), nil
 }
 
-func (c *BigQueryConnector) FinishSetupNormalizedTables(_ context.Context) error {
+func (c *BigQueryConnector) FinishSetupNormalizedTables(_ context.Context, _ interface{}) error {
 	return nil
 }
 

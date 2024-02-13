@@ -333,7 +333,7 @@ func (c *SnowflakeConnector) StartSetupNormalizedTables(_ context.Context) (inte
 	return nil, nil
 }
 
-func (c *SnowflakeConnector) FinishSetupNormalizedTables(_ context.Context) error {
+func (c *SnowflakeConnector) FinishSetupNormalizedTables(_ context.Context, _ interface{}) error {
 	return nil
 }
 

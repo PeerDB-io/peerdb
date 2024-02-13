@@ -244,6 +244,11 @@ var (
 	_ CDCNormalizeConnector = &connsnowflake.SnowflakeConnector{}
 	_ CDCNormalizeConnector = &connclickhouse.ClickhouseConnector{}
 
+	_ NormalizedTablesConnector = &connpostgres.PostgresConnector{}
+	_ NormalizedTablesConnector = &connbigquery.BigQueryConnector{}
+	_ NormalizedTablesConnector = &connsnowflake.SnowflakeConnector{}
+	_ NormalizedTablesConnector = &connclickhouse.ClickhouseConnector{}
+
 	_ QRepPullConnector = &connpostgres.PostgresConnector{}
 	_ QRepPullConnector = &connsqlserver.SQLServerConnector{}
 

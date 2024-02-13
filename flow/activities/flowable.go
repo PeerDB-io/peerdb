@@ -147,11 +147,12 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	ctx context.Context,
 	config *protos.SetupNormalizedTableBatchInput,
 ) (*protos.SetupNormalizedTableBatchOutput, error) {
+	logger := activity.GetLogger(ctx)
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
 	conn, err := connectors.GetConnectorAs[connectors.NormalizedTablesConnector](ctx, config.PeerConnectionConfig)
 	if err != nil {
 		if err == connectors.ErrUnsupportedFunctionality {
-			activity.GetLogger(ctx).Info("Connector does not implement normalized tables")
+			logger.Info("Connector does not implement normalized tables")
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -172,7 +173,6 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	})
 	defer shutdown()
 
-	logger := activity.GetLogger(ctx)
 	tableExistsMapping := make(map[string]bool)
 	for tableIdentifier, tableSchema := range config.TableNameSchemaMapping {
 		created, err := conn.SetupNormalizedTable(

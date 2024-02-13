@@ -23,7 +23,7 @@ func (c *ClickhouseConnector) StartSetupNormalizedTables(_ context.Context) (int
 	return nil, nil
 }
 
-func (c *ClickhouseConnector) FinishSetupNormalizedTables(_ context.Context) error {
+func (c *ClickhouseConnector) FinishSetupNormalizedTables(_ context.Context, _ interface{}) error {
 	return nil
 }
 
