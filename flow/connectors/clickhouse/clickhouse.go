@@ -2,6 +2,7 @@ package connclickhouse
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"fmt"
 	"net/url"
@@ -136,7 +137,7 @@ func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, err
 			Username: config.User,
 			Password: config.Password,
 		},
-		// TLS:         &tls.Config{MinVersion: tls.VersionTLS13},
+		TLS:         &tls.Config{MinVersion: tls.VersionTLS13},
 		Compression: &clickhouse.Compression{Method: clickhouse.CompressionLZ4},
 		ClientInfo: clickhouse.ClientInfo{
 			Products: []struct {
