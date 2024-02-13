@@ -831,7 +831,8 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 				}
 			}
 
-			allCols := allColsBuilder.String()
+			allColsWithoutAlias := strings.Join(columnNames, ",")
+			allColsWithAlias := allColsBuilder.String()
 
 			pkeyCols := strings.Join(renameRequest.TableSchema.PrimaryKeyColumns, ",")
 
@@ -840,8 +841,8 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 			activity.RecordHeartbeat(ctx, fmt.Sprintf("handling soft-deletes for table '%s'...", dstDatasetTable.string()))
 
 			q := fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s _pt WHERE (%s) NOT IN (SELECT %s FROM %s)",
-				srcDatasetTable.string(), fmt.Sprintf("%s,%s", allCols, *req.SoftDeleteColName),
-				allCols, *req.SoftDeleteColName, dstDatasetTable.string(),
+				srcDatasetTable.string(), fmt.Sprintf("%s,%s", allColsWithoutAlias, *req.SoftDeleteColName),
+				allColsWithAlias, *req.SoftDeleteColName, dstDatasetTable.string(),
 				pkeyCols, pkeyCols, srcDatasetTable.string())
 
 			c.logger.Info(q)
