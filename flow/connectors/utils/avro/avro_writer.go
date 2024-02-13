@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"runtime/debug"
 	"sync/atomic"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -203,7 +204,8 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(ctx context.Context, bucketName, key 
 		defer func() {
 			if r := recover(); r != nil {
 				writeOcfError = fmt.Errorf("panic occurred during WriteOCF: %v", r)
-				logger.Error("panic during WriteOCF", slog.Any("error", writeOcfError))
+				stack := string(debug.Stack())
+				logger.Error("panic during WriteOCF", slog.Any("error", writeOcfError), slog.String("stack", stack))
 			}
 			w.Close()
 		}()
