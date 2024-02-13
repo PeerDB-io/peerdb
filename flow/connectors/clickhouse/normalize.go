@@ -164,7 +164,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.N
 			if err != nil {
 				return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 			}
-			if clickhouseType == "DateTime64(6)" {
+			if clickhouseType == "DateTime64(6)" || clickhouseType == "UUID" {
 				clickhouseType = "String"
 			}
 
