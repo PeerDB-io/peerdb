@@ -17,12 +17,10 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
-	"github.com/PeerDB-io/peer-flow/dynamicconf"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared/alerting"
 )
 
@@ -928,33 +926,15 @@ func (c *PostgresConnector) HandleSlotInfo(
 		return nil
 	}
 
-	deploymentUIDPrefix := ""
-	if peerdbenv.PeerDBDeploymentUID() != "" {
-		deploymentUIDPrefix = fmt.Sprintf("[%s] ", peerdbenv.PeerDBDeploymentUID())
-	}
-
-	slotLagInMBThreshold := dynamicconf.PeerDBSlotLagMBAlertThreshold(ctx)
-	if (slotLagInMBThreshold > 0) && (slotInfo[0].LagInMb >= float32(slotLagInMBThreshold)) {
-		alerter.AlertIf(ctx, fmt.Sprintf("%s-slot-lag-threshold-exceeded", peerName),
-			fmt.Sprintf(`%sSlot `+"`%s`"+` on peer `+"`%s`"+` has exceeded threshold size of %dMB, currently at %.2fMB!
-cc: <!channel>`,
-				deploymentUIDPrefix, slotName, peerName, slotLagInMBThreshold, slotInfo[0].LagInMb))
-	}
+	alerter.AlertIfSlotLag(ctx, peerName, slotInfo[0])
 
 	// Also handles alerts for PeerDB user connections exceeding a given limit here
-	maxOpenConnectionsThreshold := dynamicconf.PeerDBOpenConnectionsAlertThreshold(ctx)
 	res, err := getOpenConnectionsForUser(ctx, conn, c.config.User)
 	if err != nil {
 		logger.Warn("warning: failed to get current open connections", "error", err)
 		return err
 	}
-	if (maxOpenConnectionsThreshold > 0) && (res.CurrentOpenConnections >= int64(maxOpenConnectionsThreshold)) {
-		alerter.AlertIf(ctx, fmt.Sprintf("%s-max-open-connections-threshold-exceeded", peerName),
-			fmt.Sprintf(`%sOpen connections from PeerDB user `+"`%s`"+` on peer `+"`%s`"+
-				` has exceeded threshold size of %d connections, currently at %d connections!
-cc: <!channel>`,
-				deploymentUIDPrefix, res.UserName, peerName, maxOpenConnectionsThreshold, res.CurrentOpenConnections))
-	}
+	alerter.AlertIfOpenConnections(ctx, peerName, res)
 
 	if len(slotInfo) != 0 {
 		return monitoring.AppendSlotSizeInfo(ctx, catalogPool, peerName, slotInfo[0])
