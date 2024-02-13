@@ -25,8 +25,10 @@ const NewAlertConfig = () => {
   const [serviceType, setServiceType] = useState<string>();
   const [authToken, setAuthToken] = useState<string>();
   const [channelIdString, setChannelIdString] = useState<string>();
-  const [slotLagMBAlertThreshold, setSlotLagMBAlertThreshold] = useState<number>();
-  const [openConnectionsAlertThreshold, setOpenConnectionsAlertThreshold] = useState<number>();
+  const [slotLagMBAlertThreshold, setSlotLagMBAlertThreshold] =
+    useState<number>();
+  const [openConnectionsAlertThreshold, setOpenConnectionsAlertThreshold] =
+    useState<number>();
   const [loading, setLoading] = useState(false);
   const handleAdd = async () => {
     if (serviceType !== 'slack') {
@@ -130,7 +132,9 @@ const NewAlertConfig = () => {
           type={'number'}
           placeholder='optional'
           value={openConnectionsAlertThreshold}
-          onChange={(e) => setOpenConnectionsAlertThreshold(e.target.valueAsNumber)}
+          onChange={(e) =>
+            setOpenConnectionsAlertThreshold(e.target.valueAsNumber)
+          }
         />
       </div>
 
