@@ -822,22 +822,30 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 		}
 
 		if req.SoftDeleteColName != nil {
-			allCols := strings.Join(columnNames, ",")
+			allColsBuilder := strings.Builder{}
+			for idx, col := range columnNames {
+				allColsBuilder.WriteString("_pt.")
+				allColsBuilder.WriteString(col)
+				if idx < len(columnNames)-1 {
+					allColsBuilder.WriteString(",")
+				}
+			}
+
+			allCols := allColsBuilder.String()
+
 			pkeyCols := strings.Join(renameRequest.TableSchema.PrimaryKeyColumns, ",")
 
 			c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dstDatasetTable.string()))
 
 			activity.RecordHeartbeat(ctx, fmt.Sprintf("handling soft-deletes for table '%s'...", dstDatasetTable.string()))
 
-			c.logger.Info(fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
+			q := fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s _pt WHERE (%s) NOT IN (SELECT %s FROM %s)",
 				srcDatasetTable.string(), fmt.Sprintf("%s,%s", allCols, *req.SoftDeleteColName),
 				allCols, *req.SoftDeleteColName, dstDatasetTable.string(),
-				pkeyCols, pkeyCols, srcDatasetTable.string()))
-			query := c.client.Query(
-				fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
-					srcDatasetTable.string(), fmt.Sprintf("%s,%s", allCols, *req.SoftDeleteColName),
-					allCols, *req.SoftDeleteColName, dstDatasetTable.string(),
-					pkeyCols, pkeyCols, srcDatasetTable.string()))
+				pkeyCols, pkeyCols, srcDatasetTable.string())
+
+			c.logger.Info(q)
+			query := c.client.Query(q)
 
 			query.DefaultProjectID = c.projectID
 			query.DefaultDatasetID = c.datasetID
