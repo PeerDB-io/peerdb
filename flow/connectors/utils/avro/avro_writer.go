@@ -198,12 +198,16 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(ctx context.Context, bucketName, key 
 	defer r.Close()
 	var writeOcfError error
 	var numRows int
-	var noPanic bool
 
 	go func() {
 		defer w.Close()
+		defer func() {
+			if r := recover(); r != nil {
+				writeOcfError = fmt.Errorf("panic occurred during WriteOCF: %v", r)
+				logger.Error("panic during WriteOCF", slog.Any("error", writeOcfError))
+			}
+		}()
 		numRows, writeOcfError = p.WriteOCF(ctx, w)
-		noPanic = true
 	}()
 
 	_, err = manager.NewUploader(s3svc).Upload(ctx, &s3.PutObjectInput{
@@ -216,11 +220,6 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(ctx context.Context, bucketName, key 
 		s3Path := "s3://" + bucketName + "/" + key
 		logger.Error("failed to upload file: ", slog.Any("error", err), slog.Any("s3_path", s3Path))
 		return nil, fmt.Errorf("failed to upload file to path %s: %w", s3Path, err)
-	}
-
-	if !noPanic {
-		logger.Error("WriteOCF panicked while writing avro to S3", slog.Any("bucket", bucketName), slog.Any("key", key))
-		return nil, fmt.Errorf("WriteOCF panicked while writing avro to S3 %s/%s", bucketName, key)
 	}
 
 	if writeOcfError != nil {
