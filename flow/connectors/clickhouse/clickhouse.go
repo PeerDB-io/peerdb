@@ -2,7 +2,6 @@ package connclickhouse
 
 import (
 	"context"
-	"crypto/tls"
 	"database/sql"
 	"fmt"
 	"net/url"
@@ -94,11 +93,6 @@ func NewClickhouseConnector(
 	}
 
 	var clickhouseS3Creds *utils.ClickhouseS3Credentials
-	deploymentUID := shared.GetDeploymentUID()
-	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
-	bucketPathSuffix := fmt.Sprintf("%s/%s",
-		url.PathEscape(deploymentUID), url.PathEscape(flowName))
-
 	// Get user provided S3 credentials
 	clickhouseS3Creds = &utils.ClickhouseS3Credentials{
 		AccessKeyID:     config.AccessKeyId,
@@ -110,6 +104,11 @@ func NewClickhouseConnector(
 	if clickhouseS3Creds.AccessKeyID == "" &&
 		clickhouseS3Creds.SecretAccessKey == "" && clickhouseS3Creds.Region == "" &&
 		clickhouseS3Creds.BucketPath == "" {
+		deploymentUID := shared.GetDeploymentUID()
+		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
+		bucketPathSuffix := fmt.Sprintf("%s/%s",
+			url.PathEscape(deploymentUID), url.PathEscape(flowName))
+
 		// Fallback: Get S3 credentials from environment
 		clickhouseS3Creds = utils.GetClickhouseAWSSecrets(bucketPathSuffix)
 	}
@@ -137,7 +136,7 @@ func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, err
 			Username: config.User,
 			Password: config.Password,
 		},
-		TLS:         &tls.Config{MinVersion: tls.VersionTLS13},
+		// TLS:         &tls.Config{MinVersion: tls.VersionTLS13},
 		Compression: &clickhouse.Compression{Method: clickhouse.CompressionLZ4},
 		ClientInfo: clickhouse.ClientInfo{
 			Products: []struct {
