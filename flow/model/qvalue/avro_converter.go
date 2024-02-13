@@ -37,6 +37,11 @@ type AvroSchemaRecord struct {
 	Fields []AvroSchemaField `json:"fields"`
 }
 
+type AvroSchemaLogical struct {
+	Type        string `json:"type"`
+	LogicalType string `json:"logicalType,omitempty"`
+}
+
 type AvroSchemaField struct {
 	Name        string      `json:"name"`
 	Type        interface{} `json:"type"`
@@ -59,8 +64,13 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision 
 	}
 
 	switch kind {
-	case QValueKindString, QValueKindUUID:
+	case QValueKindString:
 		return "string", nil
+	case QValueKindUUID:
+		return AvroSchemaLogical{
+			Type:        "string",
+			LogicalType: "uuid",
+		}, nil
 	case QValueKindGeometry, QValueKindGeography, QValueKindPoint:
 		return "string", nil
 	case QValueKindInt16, QValueKindInt32, QValueKindInt64:
@@ -86,8 +96,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision 
 				return "string", nil
 			}
 			if kind == QValueKindDate {
-				return AvroSchemaField{
-					Name:        "date",
+				return AvroSchemaLogical{
 					Type:        "int",
 					LogicalType: "date",
 				}, nil

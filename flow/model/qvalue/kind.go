@@ -110,7 +110,7 @@ var QValueKindToClickhouseTypeMap = map[QValueKind]string{
 	QValueKindBit:         "Boolean",
 	QValueKindBytes:       "String",
 	QValueKindStruct:      "String",
-	QValueKindUUID:        "String",
+	QValueKindUUID:        "UUID",
 	QValueKindTimeTZ:      "String",
 	QValueKindInvalid:     "String",
 	QValueKindHStore:      "String",

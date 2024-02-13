@@ -23,6 +23,7 @@ var clickhouseTypeToQValueKindMap = map[string]qvalue.QValueKind{
 	"TIMESTAMP_NTZ":  qvalue.QValueKindTimestamp,
 	"TIMESTAMP_TZ":   qvalue.QValueKindTimestampTZ,
 	"TIME":           qvalue.QValueKindTime,
+	"UUID":           qvalue.QValueKindUUID,
 	"DATE":           qvalue.QValueKindDate,
 	"BLOB":           qvalue.QValueKindBytes,
 	"BYTEA":          qvalue.QValueKindBytes,
