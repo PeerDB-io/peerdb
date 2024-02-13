@@ -380,7 +380,11 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		case []interface{}:
 			int32Array := make([]int32, len(v))
 			for i, val := range v {
-				int32Array[i] = val.(int32)
+				if val == nil {
+					int32Array[i] = 0
+				} else {
+					int32Array[i] = val.(int32)
+				}
 			}
 			val = qvalue.QValue{Kind: qvalue.QValueKindArrayInt32, Value: int32Array}
 		default:
