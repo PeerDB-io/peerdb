@@ -656,7 +656,7 @@ func (c *BigQueryConnector) FinishSetupNormalizedTables(_ context.Context, _ int
 	return nil
 }
 
-func (c *BigQueryConnector) AbortSetupNormalizedTables(_ context.Context, _ interface{}) {
+func (c *BigQueryConnector) CleanupSetupNormalizedTables(_ context.Context, _ interface{}) {
 }
 
 // This runs CREATE TABLE IF NOT EXISTS on bigquery, using the schema and table name provided.

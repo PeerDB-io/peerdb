@@ -644,7 +644,7 @@ func (c *PostgresConnector) StartSetupNormalizedTables(ctx context.Context) (int
 	return c.conn.Begin(ctx)
 }
 
-func (c *PostgresConnector) AbortSetupNormalizedTables(ctx context.Context, tx interface{}) {
+func (c *PostgresConnector) CleanupSetupNormalizedTables(ctx context.Context, tx interface{}) {
 	err := tx.(pgx.Tx).Rollback(ctx)
 	if err != pgx.ErrTxClosed && err != nil {
 		c.logger.Error("error rolling back transaction for creating raw table", slog.Any("error", err))

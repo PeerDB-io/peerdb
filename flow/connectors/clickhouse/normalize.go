@@ -27,7 +27,7 @@ func (c *ClickhouseConnector) FinishSetupNormalizedTables(_ context.Context, _ i
 	return nil
 }
 
-func (c *ClickhouseConnector) AbortSetupNormalizedTables(_ context.Context, _ interface{}) {
+func (c *ClickhouseConnector) CleanupSetupNormalizedTables(_ context.Context, _ interface{}) {
 }
 
 func (c *ClickhouseConnector) SetupNormalizedTable(

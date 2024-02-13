@@ -163,7 +163,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup normalized tables tx: %w", err)
 	}
-	defer conn.AbortSetupNormalizedTables(ctx, tx)
+	defer conn.CleanupSetupNormalizedTables(ctx, tx)
 
 	numTablesSetup := atomic.Uint32{}
 	totalTables := uint32(len(config.TableNameSchemaMapping))

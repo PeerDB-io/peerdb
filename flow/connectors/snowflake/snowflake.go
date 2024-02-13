@@ -337,7 +337,7 @@ func (c *SnowflakeConnector) FinishSetupNormalizedTables(_ context.Context, _ in
 	return nil
 }
 
-func (c *SnowflakeConnector) AbortSetupNormalizedTables(_ context.Context, _ interface{}) {
+func (c *SnowflakeConnector) CleanupSetupNormalizedTables(_ context.Context, _ interface{}) {
 }
 
 func (c *SnowflakeConnector) SetupNormalizedTable(

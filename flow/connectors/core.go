@@ -74,9 +74,9 @@ type NormalizedTablesConnector interface {
 		syncedAtColName string,
 	) (bool, error)
 
-	// AbortSetupNormalizedTables may be used to rollback transaction started by StartSetupNormalizedTables.
-	// Calling AbortSetupNormalizedTables after FinishSetupNormalizedTables must be a nop.
-	AbortSetupNormalizedTables(ctx context.Context, tx interface{})
+	// CleanupSetupNormalizedTables may be used to rollback transaction started by StartSetupNormalizedTables.
+	// Calling CleanupSetupNormalizedTables after FinishSetupNormalizedTables must be a nop.
+	CleanupSetupNormalizedTables(ctx context.Context, tx interface{})
 
 	// FinishSetupNormalizedTables may be used to finish transaction started by StartSetupNormalizedTables.
 	FinishSetupNormalizedTables(ctx context.Context, tx interface{}) error
