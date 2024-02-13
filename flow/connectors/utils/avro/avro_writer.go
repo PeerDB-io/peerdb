@@ -200,12 +200,12 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(ctx context.Context, bucketName, key 
 	var numRows int
 
 	go func() {
-		defer w.Close()
 		defer func() {
 			if r := recover(); r != nil {
 				writeOcfError = fmt.Errorf("panic occurred during WriteOCF: %v", r)
 				logger.Error("panic during WriteOCF", slog.Any("error", writeOcfError))
 			}
+			w.Close()
 		}()
 		numRows, writeOcfError = p.WriteOCF(ctx, w)
 	}()
