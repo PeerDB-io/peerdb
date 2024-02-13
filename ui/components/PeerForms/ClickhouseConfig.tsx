@@ -83,7 +83,7 @@ export default function ClickhouseForm({ settings, setter }: ConfigProps) {
         .map((setting, id) => (
           <RowWithTextField
             key={id}
-            label={<Label>{setting.label} </Label>}
+            label={<Label>{setting.label}</Label>}
             action={
               <div
                 style={{

@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"database/sql"
 	"fmt"
+	"net/url"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -95,18 +96,21 @@ func NewClickhouseConnector(
 	var clickhouseS3Creds *utils.ClickhouseS3Credentials
 	deploymentUID := shared.GetDeploymentUID()
 	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
-	bucketPathSuffix := fmt.Sprintf("%s/%s", deploymentUID, flowName)
-	// Get S3 credentials from environment
-	clickhouseS3Creds = utils.GetClickhouseAWSSecrets(bucketPathSuffix)
+	bucketPathSuffix := fmt.Sprintf("%s/%s", url.PathEscape(deploymentUID), flowName)
+
+	// Get user provided S3 credentials
+	clickhouseS3Creds = &utils.ClickhouseS3Credentials{
+		AccessKeyID:     config.AccessKeyId,
+		SecretAccessKey: config.SecretAccessKey,
+		Region:          config.Region,
+		BucketPath:      config.S3Path,
+	}
+
 	if clickhouseS3Creds.AccessKeyID == "" &&
-		clickhouseS3Creds.SecretAccessKey == "" && clickhouseS3Creds.Region == "" {
-		// Fallback: user provided S3 credentials
-		clickhouseS3Creds = &utils.ClickhouseS3Credentials{
-			AccessKeyID:     config.AccessKeyId,
-			SecretAccessKey: config.SecretAccessKey,
-			Region:          config.Region,
-			BucketPath:      config.S3Path,
-		}
+		clickhouseS3Creds.SecretAccessKey == "" && clickhouseS3Creds.Region == "" &&
+		clickhouseS3Creds.BucketPath == "" {
+		// Fallback: Get S3 credentials from environment
+		clickhouseS3Creds = utils.GetClickhouseAWSSecrets(bucketPathSuffix)
 	}
 
 	validateErr := ValidateS3(ctx, clickhouseS3Creds)
