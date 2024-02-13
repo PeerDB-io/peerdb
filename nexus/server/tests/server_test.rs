@@ -17,7 +17,7 @@ fn input_files() -> Vec<String> {
                     .path()
                     .file_name()
                     .and_then(|n| n.to_str().map(String::from))
-                    .filter(|n| n.contains(".sql"))
+                    .filter(|n| n.ends_with(".sql"))
             })
         })
         .collect::<Vec<String>>()
