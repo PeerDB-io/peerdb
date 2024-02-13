@@ -58,6 +58,30 @@ type CDCPullConnector interface {
 	AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error
 }
 
+type NormalizedTablesConnector interface {
+	Connector
+
+	// StartSetupNormalizedTables may be used to have SetupNormalizedTable calls run in a transaction.
+	StartSetupNormalizedTables(ctx context.Context) (interface{}, error)
+
+	// SetupNormalizedTable sets up the normalized table on the connector.
+	SetupNormalizedTable(
+		ctx context.Context,
+		tx interface{},
+		tableIdentifier string,
+		tableSchema *protos.TableSchema,
+		softDeleteColName string,
+		syncedAtColName string,
+	) (bool, error)
+
+	// CleanupSetupNormalizedTables may be used to rollback transaction started by StartSetupNormalizedTables.
+	// Calling CleanupSetupNormalizedTables after FinishSetupNormalizedTables must be a nop.
+	CleanupSetupNormalizedTables(ctx context.Context, tx interface{})
+
+	// FinishSetupNormalizedTables may be used to finish transaction started by StartSetupNormalizedTables.
+	FinishSetupNormalizedTables(ctx context.Context, tx interface{}) error
+}
+
 type CDCSyncConnector interface {
 	Connector
 
@@ -83,10 +107,6 @@ type CDCSyncConnector interface {
 	// This could involve adding or dropping multiple columns.
 	// Connectors which are non-normalizing should implement this as a nop.
 	ReplayTableSchemaDeltas(ctx context.Context, flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error
-
-	// SetupNormalizedTables sets up the normalized table on the connector.
-	SetupNormalizedTables(ctx context.Context, req *protos.SetupNormalizedTableBatchInput) (
-		*protos.SetupNormalizedTableBatchOutput, error)
 
 	// SyncRecords pushes records to the destination peer and stores it in PeerDB specific tables.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
@@ -223,6 +243,11 @@ var (
 	_ CDCNormalizeConnector = &connbigquery.BigQueryConnector{}
 	_ CDCNormalizeConnector = &connsnowflake.SnowflakeConnector{}
 	_ CDCNormalizeConnector = &connclickhouse.ClickhouseConnector{}
+
+	_ NormalizedTablesConnector = &connpostgres.PostgresConnector{}
+	_ NormalizedTablesConnector = &connbigquery.BigQueryConnector{}
+	_ NormalizedTablesConnector = &connsnowflake.SnowflakeConnector{}
+	_ NormalizedTablesConnector = &connclickhouse.ClickhouseConnector{}
 
 	_ QRepPullConnector = &connpostgres.PostgresConnector{}
 	_ QRepPullConnector = &connsqlserver.SQLServerConnector{}

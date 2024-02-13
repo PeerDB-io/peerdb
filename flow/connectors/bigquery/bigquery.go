@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"cloud.google.com/go/bigquery"
@@ -521,7 +520,7 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 		unchangedToastColumns := tableNametoUnchangedToastCols[tableName]
 		dstDatasetTable, _ := c.convertToDatasetTable(tableName)
 		mergeGen := &mergeStmtGenerator{
-			rawDatasetTable: &datasetTable{
+			rawDatasetTable: datasetTable{
 				project: c.projectID,
 				dataset: c.datasetID,
 				table:   rawTableName,
@@ -648,138 +647,131 @@ func (c *BigQueryConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 	}, nil
 }
 
-// SetupNormalizedTables sets up normalized tables, implementing the Connector interface.
+func (c *BigQueryConnector) StartSetupNormalizedTables(_ context.Context) (interface{}, error) {
+	// needed since CreateNormalizedTable duplicate check isn't accurate enough
+	return make(map[datasetTable]struct{}), nil
+}
+
+func (c *BigQueryConnector) FinishSetupNormalizedTables(_ context.Context, _ interface{}) error {
+	return nil
+}
+
+func (c *BigQueryConnector) CleanupSetupNormalizedTables(_ context.Context, _ interface{}) {
+}
+
 // This runs CREATE TABLE IF NOT EXISTS on bigquery, using the schema and table name provided.
-func (c *BigQueryConnector) SetupNormalizedTables(
+func (c *BigQueryConnector) SetupNormalizedTable(
 	ctx context.Context,
-	req *protos.SetupNormalizedTableBatchInput,
-) (*protos.SetupNormalizedTableBatchOutput, error) {
-	numTablesSetup := atomic.Uint32{}
-	totalTables := uint32(len(req.TableNameSchemaMapping))
+	tx interface{},
+	tableIdentifier string,
+	tableSchema *protos.TableSchema,
+	softDeleteColName string,
+	syncedAtColName string,
+) (bool, error) {
+	datasetTablesSet := tx.(map[datasetTable]struct{})
 
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("setting up normalized tables - %d of %d done",
-			numTablesSetup.Load(), totalTables)
-	})
-	defer shutdown()
-
-	tableExistsMapping := make(map[string]bool)
-	datasetTablesSet := make(map[datasetTable]struct{})
-	for tableIdentifier, tableSchema := range req.TableNameSchemaMapping {
-		// only place where we check for parsing errors
-		datasetTable, err := c.convertToDatasetTable(tableIdentifier)
+	// only place where we check for parsing errors
+	datasetTable, err := c.convertToDatasetTable(tableIdentifier)
+	if err != nil {
+		return false, err
+	}
+	_, ok := datasetTablesSet[datasetTable]
+	if ok {
+		return false, fmt.Errorf("invalid mirror: two tables mirror to the same BigQuery table %s",
+			datasetTable.string())
+	}
+	datasetTablesSet[datasetTable] = struct{}{}
+	dataset := c.client.DatasetInProject(c.projectID, datasetTable.dataset)
+	_, err = dataset.Metadata(ctx)
+	// just assume this means dataset don't exist, and create it
+	if err != nil {
+		// if err message does not contain `notFound`, then other error happened.
+		if !strings.Contains(err.Error(), "notFound") {
+			return false, fmt.Errorf("error while checking metadata for BigQuery dataset %s: %w",
+				datasetTable.dataset, err)
+		}
+		c.logger.Info(fmt.Sprintf("creating dataset %s...", dataset.DatasetID))
+		err = dataset.Create(ctx, nil)
 		if err != nil {
-			return nil, err
+			return false, fmt.Errorf("failed to create BigQuery dataset %s: %w", dataset.DatasetID, err)
 		}
-		_, ok := datasetTablesSet[*datasetTable]
-		if ok {
-			return nil, fmt.Errorf("invalid mirror: two tables mirror to the same BigQuery table %s",
-				datasetTable.string())
-		}
-		dataset := c.client.DatasetInProject(c.projectID, datasetTable.dataset)
-		_, err = dataset.Metadata(ctx)
-		// just assume this means dataset don't exist, and create it
-		if err != nil {
-			// if err message does not contain `notFound`, then other error happened.
-			if !strings.Contains(err.Error(), "notFound") {
-				return nil, fmt.Errorf("error while checking metadata for BigQuery dataset %s: %w",
-					datasetTable.dataset, err)
-			}
-			c.logger.Info(fmt.Sprintf("creating dataset %s...", dataset.DatasetID))
-			err = dataset.Create(ctx, nil)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create BigQuery dataset %s: %w", dataset.DatasetID, err)
-			}
-		}
-		table := dataset.Table(datasetTable.table)
+	}
+	table := dataset.Table(datasetTable.table)
 
-		// check if the table exists
-		_, err = table.Metadata(ctx)
-		if err == nil {
-			// table exists, go to next table
-			tableExistsMapping[tableIdentifier] = true
-			datasetTablesSet[*datasetTable] = struct{}{}
-
-			c.logger.Info(fmt.Sprintf("table already exists %s", tableIdentifier))
-			numTablesSetup.Add(1)
-			continue
-		}
-
-		// convert the column names and types to bigquery types
-		columns := make([]*bigquery.FieldSchema, 0, len(tableSchema.Columns)+2)
-		for _, column := range tableSchema.Columns {
-			genericColType := column.Type
-			if genericColType == "numeric" {
-				precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
-				if column.TypeModifier == -1 || precision > 38 || scale > 37 {
-					precision = numeric.PeerDBNumericPrecision
-					scale = numeric.PeerDBNumericScale
-				}
-				columns = append(columns, &bigquery.FieldSchema{
-					Name:      column.Name,
-					Type:      bigquery.BigNumericFieldType,
-					Repeated:  qvalue.QValueKind(genericColType).IsArray(),
-					Precision: int64(precision),
-					Scale:     int64(scale),
-				})
-			} else {
-				columns = append(columns, &bigquery.FieldSchema{
-					Name:     column.Name,
-					Type:     qValueKindToBigQueryType(genericColType),
-					Repeated: qvalue.QValueKind(genericColType).IsArray(),
-				})
-			}
-		}
-
-		if req.SoftDeleteColName != "" {
-			columns = append(columns, &bigquery.FieldSchema{
-				Name:     req.SoftDeleteColName,
-				Type:     bigquery.BooleanFieldType,
-				Repeated: false,
-			})
-		}
-
-		if req.SyncedAtColName != "" {
-			columns = append(columns, &bigquery.FieldSchema{
-				Name:     req.SyncedAtColName,
-				Type:     bigquery.TimestampFieldType,
-				Repeated: false,
-			})
-		}
-
-		// create the table using the columns
-		schema := bigquery.Schema(columns)
-
-		// cluster by the primary key if < 4 columns.
-		var clustering *bigquery.Clustering
-		numPkeyCols := len(tableSchema.PrimaryKeyColumns)
-		if numPkeyCols > 0 && numPkeyCols < 4 {
-			clustering = &bigquery.Clustering{
-				Fields: tableSchema.PrimaryKeyColumns,
-			}
-		}
-
-		metadata := &bigquery.TableMetadata{
-			Schema:     schema,
-			Name:       datasetTable.table,
-			Clustering: clustering,
-		}
-
-		err = table.Create(ctx, metadata)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create table %s: %w", tableIdentifier, err)
-		}
-
-		tableExistsMapping[tableIdentifier] = false
-		datasetTablesSet[*datasetTable] = struct{}{}
-		// log that table was created
-		c.logger.Info(fmt.Sprintf("created table %s", tableIdentifier))
-		numTablesSetup.Add(1)
+	// check if the table exists
+	_, err = table.Metadata(ctx)
+	if err == nil {
+		// table exists, go to next table
+		return true, nil
 	}
 
-	return &protos.SetupNormalizedTableBatchOutput{
-		TableExistsMapping: tableExistsMapping,
-	}, nil
+	// convert the column names and types to bigquery types
+	columns := make([]*bigquery.FieldSchema, 0, len(tableSchema.Columns)+2)
+	for _, column := range tableSchema.Columns {
+		genericColType := column.Type
+		if genericColType == "numeric" {
+			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
+			if column.TypeModifier == -1 || precision > 38 || scale > 37 {
+				precision = numeric.PeerDBNumericPrecision
+				scale = numeric.PeerDBNumericScale
+			}
+			columns = append(columns, &bigquery.FieldSchema{
+				Name:      column.Name,
+				Type:      bigquery.BigNumericFieldType,
+				Repeated:  qvalue.QValueKind(genericColType).IsArray(),
+				Precision: int64(precision),
+				Scale:     int64(scale),
+			})
+		} else {
+			columns = append(columns, &bigquery.FieldSchema{
+				Name:     column.Name,
+				Type:     qValueKindToBigQueryType(genericColType),
+				Repeated: qvalue.QValueKind(genericColType).IsArray(),
+			})
+		}
+	}
+
+	if softDeleteColName != "" {
+		columns = append(columns, &bigquery.FieldSchema{
+			Name:     softDeleteColName,
+			Type:     bigquery.BooleanFieldType,
+			Repeated: false,
+		})
+	}
+
+	if syncedAtColName != "" {
+		columns = append(columns, &bigquery.FieldSchema{
+			Name:     syncedAtColName,
+			Type:     bigquery.TimestampFieldType,
+			Repeated: false,
+		})
+	}
+
+	// create the table using the columns
+	schema := bigquery.Schema(columns)
+
+	// cluster by the primary key if < 4 columns.
+	var clustering *bigquery.Clustering
+	numPkeyCols := len(tableSchema.PrimaryKeyColumns)
+	if numPkeyCols > 0 && numPkeyCols < 4 {
+		clustering = &bigquery.Clustering{
+			Fields: tableSchema.PrimaryKeyColumns,
+		}
+	}
+
+	metadata := &bigquery.TableMetadata{
+		Schema:     schema,
+		Name:       datasetTable.table,
+		Clustering: clustering,
+	}
+
+	err = table.Create(ctx, metadata)
+	if err != nil {
+		return false, fmt.Errorf("failed to create table %s: %w", tableIdentifier, err)
+	}
+
+	datasetTablesSet[datasetTable] = struct{}{}
+	return false, nil
 }
 
 func (c *BigQueryConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
@@ -982,25 +974,25 @@ func (d *datasetTable) string() string {
 	return fmt.Sprintf("%s.%s.%s", d.project, d.dataset, d.table)
 }
 
-func (c *BigQueryConnector) convertToDatasetTable(tableName string) (*datasetTable, error) {
+func (c *BigQueryConnector) convertToDatasetTable(tableName string) (datasetTable, error) {
 	parts := strings.Split(tableName, ".")
 	if len(parts) == 1 {
-		return &datasetTable{
+		return datasetTable{
 			dataset: c.datasetID,
 			table:   parts[0],
 		}, nil
 	} else if len(parts) == 2 {
-		return &datasetTable{
+		return datasetTable{
 			dataset: parts[0],
 			table:   parts[1],
 		}, nil
 	} else if len(parts) == 3 {
-		return &datasetTable{
+		return datasetTable{
 			project: parts[0],
 			dataset: parts[1],
 			table:   parts[2],
 		}, nil
 	} else {
-		return nil, fmt.Errorf("invalid BigQuery table name: %s", tableName)
+		return datasetTable{}, fmt.Errorf("invalid BigQuery table name: %s", tableName)
 	}
 }

@@ -639,60 +639,53 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	}, nil
 }
 
-// SetupNormalizedTable sets up a normalized table, implementing the Connector interface.
-func (c *PostgresConnector) SetupNormalizedTables(
-	ctx context.Context,
-	req *protos.SetupNormalizedTableBatchInput,
-) (*protos.SetupNormalizedTableBatchOutput, error) {
-	tableExistsMapping := make(map[string]bool)
+func (c *PostgresConnector) StartSetupNormalizedTables(ctx context.Context) (interface{}, error) {
 	// Postgres is cool and supports transactional DDL. So we use a transaction.
-	createNormalizedTablesTx, err := c.conn.Begin(ctx)
+	return c.conn.Begin(ctx)
+}
+
+func (c *PostgresConnector) CleanupSetupNormalizedTables(ctx context.Context, tx interface{}) {
+	err := tx.(pgx.Tx).Rollback(ctx)
+	if err != pgx.ErrTxClosed && err != nil {
+		c.logger.Error("error rolling back transaction for creating raw table", slog.Any("error", err))
+	}
+}
+
+func (c *PostgresConnector) FinishSetupNormalizedTables(ctx context.Context, tx interface{}) error {
+	return tx.(pgx.Tx).Commit(ctx)
+}
+
+func (c *PostgresConnector) SetupNormalizedTable(
+	ctx context.Context,
+	tx interface{},
+	tableIdentifier string,
+	tableSchema *protos.TableSchema,
+	softDeleteColName string,
+	syncedAtColName string,
+) (bool, error) {
+	createNormalizedTablesTx := tx.(pgx.Tx)
+
+	parsedNormalizedTable, err := utils.ParseSchemaTable(tableIdentifier)
 	if err != nil {
-		return nil, fmt.Errorf("error starting transaction for creating raw table: %w", err)
+		return false, fmt.Errorf("error while parsing table schema and name: %w", err)
 	}
-
-	defer func() {
-		deferErr := createNormalizedTablesTx.Rollback(ctx)
-		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("error rolling back transaction for creating raw table", slog.Any("error", err))
-		}
-	}()
-
-	for tableIdentifier, tableSchema := range req.TableNameSchemaMapping {
-		parsedNormalizedTable, err := utils.ParseSchemaTable(tableIdentifier)
-		if err != nil {
-			return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
-		}
-		tableAlreadyExists, err := c.tableExists(ctx, parsedNormalizedTable)
-		if err != nil {
-			return nil, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
-		}
-		if tableAlreadyExists {
-			tableExistsMapping[tableIdentifier] = true
-			continue
-		}
-
-		// convert the column names and types to Postgres types
-		normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
-			parsedNormalizedTable.String(), tableSchema, req.SoftDeleteColName, req.SyncedAtColName)
-		_, err = createNormalizedTablesTx.Exec(ctx, normalizedTableCreateSQL)
-		if err != nil {
-			return nil, fmt.Errorf("error while creating normalized table: %w", err)
-		}
-
-		tableExistsMapping[tableIdentifier] = false
-		c.logger.Info(fmt.Sprintf("created table %s", tableIdentifier))
-		utils.RecordHeartbeat(ctx, fmt.Sprintf("created table %s", tableIdentifier))
-	}
-
-	err = createNormalizedTablesTx.Commit(ctx)
+	tableAlreadyExists, err := c.tableExists(ctx, parsedNormalizedTable)
 	if err != nil {
-		return nil, fmt.Errorf("error committing transaction for creating normalized tables: %w", err)
+		return false, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
+	}
+	if tableAlreadyExists {
+		return true, nil
 	}
 
-	return &protos.SetupNormalizedTableBatchOutput{
-		TableExistsMapping: tableExistsMapping,
-	}, nil
+	// convert the column names and types to Postgres types
+	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
+		parsedNormalizedTable.String(), tableSchema, softDeleteColName, syncedAtColName)
+	_, err = createNormalizedTablesTx.Exec(ctx, normalizedTableCreateSQL)
+	if err != nil {
+		return false, fmt.Errorf("error while creating normalized table: %w", err)
+	}
+
+	return false, nil
 }
 
 // ReplayTableSchemaDelta changes a destination table to match the schema at source

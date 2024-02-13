@@ -13,11 +13,11 @@ import (
 
 type mergeStmtGenerator struct {
 	// dataset + raw table
-	rawDatasetTable *datasetTable
+	rawDatasetTable datasetTable
 	// destination table name, used to retrieve records from raw table
 	dstTableName string
 	// dataset + destination table
-	dstDatasetTable *datasetTable
+	dstDatasetTable datasetTable
 	// last synced batchID.
 	syncBatchID int64
 	// last normalized batchID.

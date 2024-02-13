@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pglogrepl"
@@ -141,25 +142,69 @@ func (a *FlowableActivity) GetTableSchema(
 	return srcConn.GetTableSchema(ctx, config)
 }
 
-// CreateNormalizedTable creates a normalized table in the destination flowable.
+// CreateNormalizedTable creates normalized tables in destination.
 func (a *FlowableActivity) CreateNormalizedTable(
 	ctx context.Context,
 	config *protos.SetupNormalizedTableBatchInput,
 ) (*protos.SetupNormalizedTableBatchOutput, error) {
+	logger := activity.GetLogger(ctx)
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
-	conn, err := connectors.GetCDCSyncConnector(ctx, config.PeerConnectionConfig)
+	conn, err := connectors.GetConnectorAs[connectors.NormalizedTablesConnector](ctx, config.PeerConnectionConfig)
 	if err != nil {
+		if err == connectors.ErrUnsupportedFunctionality {
+			logger.Info("Connector does not implement normalized tables")
+			return nil, nil
+		}
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, conn)
 
-	setupNormalizedTablesOutput, err := conn.SetupNormalizedTables(ctx, config)
+	tx, err := conn.StartSetupNormalizedTables(ctx)
 	if err != nil {
-		a.Alerter.LogFlowError(ctx, config.FlowName, err)
-		return nil, fmt.Errorf("failed to setup normalized tables: %w", err)
+		return nil, fmt.Errorf("failed to setup normalized tables tx: %w", err)
+	}
+	defer conn.CleanupSetupNormalizedTables(ctx, tx)
+
+	numTablesSetup := atomic.Uint32{}
+	totalTables := uint32(len(config.TableNameSchemaMapping))
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
+		return fmt.Sprintf("setting up normalized tables - %d of %d done",
+			numTablesSetup.Load(), totalTables)
+	})
+	defer shutdown()
+
+	tableExistsMapping := make(map[string]bool)
+	for tableIdentifier, tableSchema := range config.TableNameSchemaMapping {
+		created, err := conn.SetupNormalizedTable(
+			ctx,
+			tx,
+			tableIdentifier,
+			tableSchema,
+			config.SoftDeleteColName,
+			config.SyncedAtColName,
+		)
+		if err != nil {
+			a.Alerter.LogFlowError(ctx, config.FlowName, err)
+			return nil, fmt.Errorf("failed to setup normalized table %s: %w", tableIdentifier, err)
+		}
+		tableExistsMapping[tableIdentifier] = created
+
+		numTablesSetup.Add(1)
+		if created {
+			logger.Info(fmt.Sprintf("created table %s", tableIdentifier))
+		} else {
+			logger.Info(fmt.Sprintf("table already exists %s", tableIdentifier))
+		}
 	}
 
-	return setupNormalizedTablesOutput, nil
+	err = conn.FinishSetupNormalizedTables(ctx, tx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to commit normalized tables tx: %w", err)
+	}
+
+	return &protos.SetupNormalizedTableBatchOutput{
+		TableExistsMapping: tableExistsMapping,
+	}, nil
 }
 
 func (a *FlowableActivity) StartFlow(ctx context.Context,

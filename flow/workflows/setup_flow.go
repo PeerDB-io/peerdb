@@ -239,8 +239,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	}
 
 	future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
-	var createNormalizedTablesOutput *protos.SetupNormalizedTableBatchOutput
-	if err := future.Get(ctx, &createNormalizedTablesOutput); err != nil {
+	if err := future.Get(ctx, nil); err != nil {
 		s.logger.Error("failed to create normalized tables: ", err)
 		return nil, fmt.Errorf("failed to create normalized tables: %w", err)
 	}
