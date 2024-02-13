@@ -29,6 +29,13 @@ type S3PeerCredentials struct {
 	Endpoint        string `json:"endpoint"`
 }
 
+type ClickhouseS3Credentials struct {
+	AccessKeyID     string `json:"accessKeyId"`
+	SecretAccessKey string `json:"secretAccessKey"`
+	Region          string `json:"region"`
+	BucketPath      string `json:"bucketPath"`
+}
+
 func GetAWSSecrets(creds S3PeerCredentials) (*AWSSecrets, error) {
 	awsRegion := creds.Region
 	if awsRegion == "" {
@@ -70,6 +77,21 @@ func GetAWSSecrets(creds S3PeerCredentials) (*AWSSecrets, error) {
 		Region:          awsRegion,
 		Endpoint:        awsEndpoint,
 	}, nil
+}
+
+func GetClickhouseAWSSecrets(bucketPathSuffix string) *ClickhouseS3Credentials {
+	awsRegion := os.Getenv("PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION")
+	awsKey := os.Getenv("PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID")
+	awsSecret := os.Getenv("PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY")
+	awsBucketName := os.Getenv("PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
+
+	awsBucketPath := fmt.Sprintf("s3://%s/%s", awsBucketName, bucketPathSuffix)
+	return &ClickhouseS3Credentials{
+		AccessKeyID:     awsKey,
+		SecretAccessKey: awsSecret,
+		Region:          awsRegion,
+		BucketPath:      awsBucketPath,
+	}
 }
 
 type S3BucketAndPrefix struct {
