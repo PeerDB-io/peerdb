@@ -83,11 +83,8 @@ func (a *Alerter) AlertIfSlotLag(ctx context.Context, peerName string, slotInfo 
 	}
 
 	alertKey := peerName + "-slot-lag-threshold-exceeded"
-	alertMessageTemplate := fmt.Sprintf(`%sSlot `+"`%s`"+` on peer `+"`%s`"+` has exceeded threshold size of `,
-		deploymentUIDPrefix, slotInfo.SlotName, peerName) +
-		"%d" +
-		fmt.Sprintf(`MB, currently at %.2fMB!
-		cc: <!channel>`, slotInfo.LagInMb)
+	alertMessageTemplate := fmt.Sprintf(`%sSlot %%s on peer %%s has exceeded threshold size of %%dMB, currently at %.2fMB!
+		cc: <!channel>`, deploymentUIDPrefix, slotInfo.SlotName, peerName, slotInfo.LagInMb)
 
 	if slotInfo.LagInMb > float32(lowestSlotLagMBAlertThreshold) &&
 		a.checkAndAddAlertToCatalog(ctx, alertKey, fmt.Sprintf(alertMessageTemplate, lowestSlotLagMBAlertThreshold)) {
@@ -131,11 +128,9 @@ func (a *Alerter) AlertIfOpenConnections(ctx context.Context, peerName string,
 	}
 
 	alertKey := peerName + "-max-open-connections-threshold-exceeded"
-	alertMessageTemplate := fmt.Sprintf(`%sOpen connections from PeerDB user `+"`%s`"+` on peer `+"`%s`"+
-		" has exceeded threshold size of ", deploymentUIDPrefix, openConnections.UserName, peerName) +
-		"%d" +
-		fmt.Sprintf(` connections, currently at %d connections!
-		cc: <!channel>`, openConnections.CurrentOpenConnections)
+	alertMessageTemplate := fmt.Sprintf(`%sOpen connections from PeerDB user %%s on peer %%s"+
+		" has exceeded threshold size of %%d connections, currently at %d connections!
+		cc: <!channel>`, deploymentUIDPrefix, openConnections.UserName, peerName, openConnections.CurrentOpenConnections)
 
 	if openConnections.CurrentOpenConnections > int64(lowestOpenConnectionsThreshold) &&
 		a.checkAndAddAlertToCatalog(ctx, alertKey, fmt.Sprintf(alertMessageTemplate, lowestOpenConnectionsThreshold)) {
