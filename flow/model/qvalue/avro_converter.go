@@ -64,7 +64,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision 
 	}
 
 	switch kind {
-	case QValueKindString:
+	case QValueKindString, QValueKindQChar:
 		return "string", nil
 	case QValueKindUUID:
 		return AvroSchemaLogical{
@@ -169,6 +169,10 @@ func NewQValueAvroConverter(value QValue, targetDWH QDWHType, nullable bool) *QV
 }
 
 func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
+	if c.Nullable && c.Value.Value == nil {
+		return nil, nil
+	}
+
 	switch c.Value.Kind {
 	case QValueKindInvalid:
 		// we will attempt to convert invalid to a string
@@ -180,7 +184,7 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		}
 		if c.TargetDWH == QDWHTypeSnowflake {
 			if c.Nullable {
-				return c.processNullableUnion("string", t.(string))
+				return c.processNullableUnion("string", t)
 			} else {
 				return t.(string), nil
 			}
@@ -188,13 +192,13 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 
 		if c.TargetDWH == QDWHTypeClickhouse {
 			if c.Nullable {
-				return c.processNullableUnion("string", t.(string))
+				return c.processNullableUnion("string", t)
 			} else {
 				return t.(string), nil
 			}
 		}
 		if c.Nullable {
-			return goavro.Union("long.time-micros", t.(int64)), nil
+			return goavro.Union("long.time-micros", t), nil
 		}
 		return t.(int64), nil
 	case QValueKindTimeTZ:
@@ -204,7 +208,7 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		}
 		if c.TargetDWH == QDWHTypeSnowflake {
 			if c.Nullable {
-				return c.processNullableUnion("string", t.(string))
+				return c.processNullableUnion("string", t)
 			} else {
 				return t.(string), nil
 			}
@@ -212,13 +216,13 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 
 		if c.TargetDWH == QDWHTypeClickhouse {
 			if c.Nullable {
-				return c.processNullableUnion("long", t.(int64))
+				return c.processNullableUnion("long", t)
 			} else {
 				return t.(int64), nil
 			}
 		}
 		if c.Nullable {
-			return goavro.Union("long.time-micros", t.(int64)), nil
+			return goavro.Union("long.time-micros", t), nil
 		}
 		return t.(int64), nil
 	case QValueKindTimestamp:
@@ -228,7 +232,7 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		}
 		if c.TargetDWH == QDWHTypeSnowflake {
 			if c.Nullable {
-				return c.processNullableUnion("string", t.(string))
+				return c.processNullableUnion("string", t)
 			} else {
 				return t.(string), nil
 			}
@@ -236,13 +240,13 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 
 		if c.TargetDWH == QDWHTypeClickhouse {
 			if c.Nullable {
-				return c.processNullableUnion("long", t.(int64))
+				return c.processNullableUnion("long", t)
 			} else {
 				return t.(int64), nil
 			}
 		}
 		if c.Nullable {
-			return goavro.Union("long.timestamp-micros", t.(int64)), nil
+			return goavro.Union("long.timestamp-micros", t), nil
 		}
 		return t.(int64), nil
 	case QValueKindTimestampTZ:
@@ -252,7 +256,7 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		}
 		if c.TargetDWH == QDWHTypeSnowflake {
 			if c.Nullable {
-				return c.processNullableUnion("string", t.(string))
+				return c.processNullableUnion("string", t)
 			} else {
 				return t.(string), nil
 			}
@@ -260,13 +264,13 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 
 		if c.TargetDWH == QDWHTypeClickhouse {
 			if c.Nullable {
-				return c.processNullableUnion("long", t.(int64))
+				return c.processNullableUnion("long", t)
 			} else {
 				return t.(int64), nil
 			}
 		}
 		if c.Nullable {
-			return goavro.Union("long.timestamp-micros", t.(int64)), nil
+			return goavro.Union("long.timestamp-micros", t), nil
 		}
 		return t.(int64), nil
 	case QValueKindDate:
@@ -277,7 +281,7 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 
 		if c.TargetDWH == QDWHTypeSnowflake {
 			if c.Nullable {
-				return c.processNullableUnion("string", t.(string))
+				return c.processNullableUnion("string", t)
 			} else {
 				return t.(string), nil
 			}
@@ -287,7 +291,8 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 			return goavro.Union("int.date", t), nil
 		}
 		return t, nil
-
+	case QValueKindQChar:
+		return c.processNullableUnion("string", string(c.Value.Value.(uint8)))
 	case QValueKindString, QValueKindCIDR, QValueKindINET, QValueKindMacaddr:
 		if c.TargetDWH == QDWHTypeSnowflake && c.Value.Value != nil &&
 			(len(c.Value.Value.(string)) > 15*1024*1024) {
@@ -457,11 +462,11 @@ func (c *QValueAvroConverter) processNullableUnion(
 	avroType string,
 	value interface{},
 ) (interface{}, error) {
-	if value == nil && c.Nullable {
-		return nil, nil
-	}
-
 	if c.Nullable {
+		if value == nil {
+			return nil, nil
+		}
+
 		return goavro.Union(avroType, value), nil
 	}
 

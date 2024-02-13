@@ -158,7 +158,13 @@ func (r *RecordItems) toMap(hstoreAsJSON bool) (map[string]interface{}, error) {
 			}
 
 			jsonStruct[col] = binStr
+		case qvalue.QValueKindQChar:
+			ch, ok := v.Value.(uint8)
+			if !ok {
+				return nil, fmt.Errorf("expected \"char\" value for column %s for %T", col, v.Value)
+			}
 
+			jsonStruct[col] = string(ch)
 		case qvalue.QValueKindString, qvalue.QValueKindJSON:
 			strVal, ok := v.Value.(string)
 			if !ok {

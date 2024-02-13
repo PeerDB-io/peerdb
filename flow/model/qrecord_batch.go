@@ -137,6 +137,14 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			}
 			values[i] = v
 
+		case qvalue.QValueKindQChar:
+			v, ok := qValue.Value.(uint8)
+			if !ok {
+				src.err = fmt.Errorf("invalid \"char\" value")
+				return nil, src.err
+			}
+			values[i] = rune(v)
+
 		case qvalue.QValueKindString:
 			v, ok := qValue.Value.(string)
 			if !ok {
@@ -173,11 +181,6 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			values[i] = timestampTZ
 
 		case qvalue.QValueKindUUID:
-			if qValue.Value == nil {
-				values[i] = nil
-				break
-			}
-
 			v, ok := qValue.Value.([16]byte) // treat it as byte slice
 			if !ok {
 				src.err = fmt.Errorf("invalid UUID value %v", qValue.Value)
