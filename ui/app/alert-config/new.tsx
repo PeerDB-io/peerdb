@@ -25,17 +25,25 @@ const NewAlertConfig = () => {
   const [serviceType, setServiceType] = useState<string>();
   const [authToken, setAuthToken] = useState<string>();
   const [channelIdString, setChannelIdString] = useState<string>();
+  const [slotLagMBAlertThreshold, setSlotLagMBAlertThreshold] =
+    useState<number>();
+  const [openConnectionsAlertThreshold, setOpenConnectionsAlertThreshold] =
+    useState<number>();
   const [loading, setLoading] = useState(false);
   const handleAdd = async () => {
     if (serviceType !== 'slack') {
       notifyErr('Service Type must be selected');
       return;
     }
+    console.log(slotLagMBAlertThreshold);
+    console.log(openConnectionsAlertThreshold);
     const alertConfigReq: alertConfigType = {
       serviceType: serviceType,
       serviceConfig: {
         auth_token: authToken ?? '',
         channel_ids: channelIdString?.split(',')!,
+        slot_lag_mb_alert_threshold: slotLagMBAlertThreshold || 0,
+        open_connections_alert_threshold: openConnectionsAlertThreshold || 0,
       },
     };
     const alertReqValidity = alertConfigReqSchema.safeParse(alertConfigReq);
@@ -101,6 +109,32 @@ const NewAlertConfig = () => {
           placeholder='Comma separated'
           value={channelIdString}
           onChange={(e) => setChannelIdString(e.target.value)}
+        />
+      </div>
+
+      <div>
+        <p>Slot Lag Alert Threshold (in MB)</p>
+        <TextField
+          style={{ height: '2.5rem', marginTop: '0.5rem' }}
+          variant='simple'
+          type={'number'}
+          placeholder='optional'
+          value={slotLagMBAlertThreshold}
+          onChange={(e) => setSlotLagMBAlertThreshold(e.target.valueAsNumber)}
+        />
+      </div>
+
+      <div>
+        <p>Open Connections Alert Threshold</p>
+        <TextField
+          style={{ height: '2.5rem', marginTop: '0.5rem' }}
+          variant='simple'
+          type={'number'}
+          placeholder='optional'
+          value={openConnectionsAlertThreshold}
+          onChange={(e) =>
+            setOpenConnectionsAlertThreshold(e.target.valueAsNumber)
+          }
         />
       </div>
 
