@@ -207,3 +207,31 @@ func CloseConnector(ctx context.Context, conn Connector) {
 		logger.LoggerFromCtx(ctx).Error("error closing connector", slog.Any("error", err))
 	}
 }
+
+// create type assertions to cause compile time error if connector interface not implemented
+var (
+	_ CDCPullConnector = &connpostgres.PostgresConnector{}
+
+	_ CDCSyncConnector = &connpostgres.PostgresConnector{}
+	_ CDCSyncConnector = &connbigquery.BigQueryConnector{}
+	_ CDCSyncConnector = &connsnowflake.SnowflakeConnector{}
+	_ CDCSyncConnector = &conneventhub.EventHubConnector{}
+	_ CDCSyncConnector = &conns3.S3Connector{}
+	_ CDCSyncConnector = &connclickhouse.ClickhouseConnector{}
+
+	_ CDCNormalizeConnector = &connpostgres.PostgresConnector{}
+	_ CDCNormalizeConnector = &connbigquery.BigQueryConnector{}
+	_ CDCNormalizeConnector = &connsnowflake.SnowflakeConnector{}
+	_ CDCNormalizeConnector = &connclickhouse.ClickhouseConnector{}
+
+	_ QRepPullConnector = &connpostgres.PostgresConnector{}
+	_ QRepPullConnector = &connsqlserver.SQLServerConnector{}
+
+	_ QRepSyncConnector = &connpostgres.PostgresConnector{}
+	_ QRepSyncConnector = &connbigquery.BigQueryConnector{}
+	_ QRepSyncConnector = &connsnowflake.SnowflakeConnector{}
+	_ QRepSyncConnector = &connclickhouse.ClickhouseConnector{}
+
+	_ QRepConsolidateConnector = &connsnowflake.SnowflakeConnector{}
+	_ QRepConsolidateConnector = &connclickhouse.ClickhouseConnector{}
+)
