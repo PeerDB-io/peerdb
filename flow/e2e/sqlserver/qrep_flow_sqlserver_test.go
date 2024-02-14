@@ -14,6 +14,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -25,7 +26,7 @@ import (
 type PeerFlowE2ETestSuiteSQLServer struct {
 	t *testing.T
 
-	conn       *pgx.Conn
+	conn       *connpostgres.PostgresConnector
 	sqlsHelper *SQLServerHelper
 	suffix     string
 }
@@ -35,6 +36,10 @@ func (s PeerFlowE2ETestSuiteSQLServer) T() *testing.T {
 }
 
 func (s PeerFlowE2ETestSuiteSQLServer) Conn() *pgx.Conn {
+	return s.conn.Conn()
+}
+
+func (s PeerFlowE2ETestSuiteSQLServer) Connector() *connpostgres.PostgresConnector {
 	return s.conn
 }
 
@@ -115,10 +120,10 @@ func (s PeerFlowE2ETestSuiteSQLServer) insertRowsIntoSQLServerTable(tableName st
 func (s PeerFlowE2ETestSuiteSQLServer) setupPGDestinationTable(tableName string) {
 	ctx := context.Background()
 
-	_, err := s.conn.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS e2e_test_%s.%s", s.suffix, tableName))
+	_, err := s.Conn().Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS e2e_test_%s.%s", s.suffix, tableName))
 	require.NoError(s.t, err)
 
-	_, err = s.conn.Exec(ctx,
+	_, err = s.Conn().Exec(ctx,
 		fmt.Sprintf("CREATE TABLE e2e_test_%s.%s (id TEXT, card_id TEXT, v_from TIMESTAMP, price NUMERIC, status INT)",
 			s.suffix, tableName))
 	require.NoError(s.t, err)
@@ -183,7 +188,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 	// Verify that the destination table has the same number of rows as the source table
 	var numRowsInDest pgtype.Int8
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s", dstTableName)
-	err = s.conn.QueryRow(context.Background(), countQuery).Scan(&numRowsInDest)
+	err = s.Conn().QueryRow(context.Background(), countQuery).Scan(&numRowsInDest)
 	require.NoError(s.t, err)
 
 	require.Equal(s.t, numRows, int(numRowsInDest.Int64))

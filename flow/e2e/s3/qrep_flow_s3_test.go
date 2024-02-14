@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
 
+	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -19,7 +19,7 @@ import (
 type PeerFlowE2ETestSuiteS3 struct {
 	t *testing.T
 
-	conn     *pgx.Conn
+	conn     *connpostgres.PostgresConnector
 	s3Helper *S3TestHelper
 	suffix   string
 }
@@ -28,7 +28,7 @@ func (s PeerFlowE2ETestSuiteS3) T() *testing.T {
 	return s.t
 }
 
-func (s PeerFlowE2ETestSuiteS3) Conn() *pgx.Conn {
+func (s PeerFlowE2ETestSuiteS3) Connector() *connpostgres.PostgresConnector {
 	return s.conn
 }
 
@@ -54,9 +54,9 @@ func TestPeerFlowE2ETestSuiteGCS(t *testing.T) {
 }
 
 func (s PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int) {
-	err := e2e.CreateTableForQRep(s.conn, s.suffix, tableName)
+	err := e2e.CreateTableForQRep(s.conn.Conn(), s.suffix, tableName)
 	require.NoError(s.t, err)
-	err = e2e.PopulateSourceTable(s.conn, s.suffix, tableName, rowCount)
+	err = e2e.PopulateSourceTable(s.conn.Conn(), s.suffix, tableName, rowCount)
 	require.NoError(s.t, err)
 }
 

@@ -4,24 +4,28 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
 func BenchmarkQRepQueryExecutor(b *testing.B) {
-	connectionString := "postgres://postgres:postgres@localhost:7132/postgres"
 	query := "SELECT * FROM bench.large_table"
 
 	ctx := context.Background()
-
-	// Create a separate connection for non-replication queries
-	conn, err := pgx.Connect(ctx, connectionString)
+	connector, err := NewPostgresConnector(ctx,
+		&protos.PostgresConfig{
+			Host:     "localhost",
+			Port:     7132,
+			User:     "postgres",
+			Password: "postgres",
+			Database: "postgres",
+		})
 	if err != nil {
 		b.Fatalf("failed to create connection: %v", err)
 	}
-	defer conn.Close(context.Background())
+	defer connector.Close(ctx)
 
 	// Create a new QRepQueryExecutor instance
-	qe := NewQRepQueryExecutor(conn, context.Background(), "test flow", "test part")
+	qe := connector.NewQRepQueryExecutor("test flow", "test part")
 
 	// Run the benchmark
 	b.ResetTimer()

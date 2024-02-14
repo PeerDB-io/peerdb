@@ -22,10 +22,9 @@ import (
 type PeerFlowE2ETestSuitePG struct {
 	t *testing.T
 
-	conn      *pgx.Conn
-	peer      *protos.Peer
-	connector *connpostgres.PostgresConnector
-	suffix    string
+	conn   *connpostgres.PostgresConnector
+	peer   *protos.Peer
+	suffix string
 }
 
 func (s PeerFlowE2ETestSuitePG) T() *testing.T {
@@ -33,6 +32,10 @@ func (s PeerFlowE2ETestSuitePG) T() *testing.T {
 }
 
 func (s PeerFlowE2ETestSuitePG) Conn() *pgx.Conn {
+	return s.conn.Conn()
+}
+
+func (s PeerFlowE2ETestSuitePG) Connector() *connpostgres.PostgresConnector {
 	return s.conn
 }
 
@@ -58,33 +61,20 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuitePG {
 
 	suffix := "pg_" + strings.ToLower(shared.RandomString(8))
 	conn, err := e2e.SetupPostgres(t, suffix)
-	if err != nil {
-		require.Fail(t, "failed to setup postgres", err)
-	}
-
-	connector, err := connpostgres.NewPostgresConnector(context.Background(),
-		&protos.PostgresConfig{
-			Host:     "localhost",
-			Port:     7132,
-			User:     "postgres",
-			Password: "postgres",
-			Database: "postgres",
-		})
-	require.NoError(t, err)
+	require.NoError(t, err, "failed to setup postgres")
 
 	return PeerFlowE2ETestSuitePG{
-		t:         t,
-		conn:      conn,
-		peer:      generatePGPeer(e2e.GetTestPostgresConf()),
-		connector: connector,
-		suffix:    suffix,
+		t:      t,
+		conn:   conn,
+		peer:   generatePGPeer(e2e.GetTestPostgresConf()),
+		suffix: suffix,
 	}
 }
 
 func (s PeerFlowE2ETestSuitePG) setupSourceTable(tableName string, rowCount int) {
-	err := e2e.CreateTableForQRep(s.conn, s.suffix, tableName)
+	err := e2e.CreateTableForQRep(s.Conn(), s.suffix, tableName)
 	require.NoError(s.t, err)
-	err = e2e.PopulateSourceTable(s.conn, s.suffix, tableName, rowCount)
+	err = e2e.PopulateSourceTable(s.Conn(), s.suffix, tableName, rowCount)
 	require.NoError(s.t, err)
 }
 
@@ -108,7 +98,7 @@ func (s PeerFlowE2ETestSuitePG) checkEnums(srcSchemaQualified, dstSchemaQualifie
 		"SELECT 1 FROM %s dst "+
 		"WHERE src.my_mood::text = dst.my_mood::text)) LIMIT 1;", srcSchemaQualified,
 		dstSchemaQualified)
-	err := s.conn.QueryRow(context.Background(), query).Scan(&exists)
+	err := s.Conn().QueryRow(context.Background(), query).Scan(&exists)
 	if err != nil {
 		return err
 	}
@@ -122,7 +112,7 @@ func (s PeerFlowE2ETestSuitePG) checkEnums(srcSchemaQualified, dstSchemaQualifie
 func (s PeerFlowE2ETestSuitePG) compareQuery(srcSchemaQualified, dstSchemaQualified, selector string) error {
 	query := fmt.Sprintf("SELECT %s FROM %s EXCEPT SELECT %s FROM %s", selector, srcSchemaQualified,
 		selector, dstSchemaQualified)
-	rows, err := s.conn.Query(context.Background(), query, pgx.QueryExecModeExec)
+	rows, err := s.Conn().Query(context.Background(), query, pgx.QueryExecModeExec)
 	if err != nil {
 		return err
 	}
@@ -156,7 +146,7 @@ func (s PeerFlowE2ETestSuitePG) compareQuery(srcSchemaQualified, dstSchemaQualif
 func (s PeerFlowE2ETestSuitePG) checkSyncedAt(dstSchemaQualified string) error {
 	query := fmt.Sprintf(`SELECT "_PEERDB_SYNCED_AT" FROM %s`, dstSchemaQualified)
 
-	rows, _ := s.conn.Query(context.Background(), query)
+	rows, _ := s.Conn().Query(context.Background(), query)
 
 	defer rows.Close()
 	for rows.Next() {
@@ -176,12 +166,12 @@ func (s PeerFlowE2ETestSuitePG) checkSyncedAt(dstSchemaQualified string) error {
 
 func (s PeerFlowE2ETestSuitePG) RunInt64Query(query string) (int64, error) {
 	var count pgtype.Int8
-	err := s.conn.QueryRow(context.Background(), query).Scan(&count)
+	err := s.Conn().QueryRow(context.Background(), query).Scan(&count)
 	return count.Int64, err
 }
 
 func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
-	setupTx, err := s.conn.Begin(context.Background())
+	setupTx, err := s.Conn().Begin(context.Background())
 	require.NoError(s.t, err)
 	// setup 3 tables in pgpeer_repl_test schema
 	// test_1, test_2, test_3, all have 5 columns all text, c1, c2, c3, c4, c5
@@ -207,7 +197,7 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 
 	setupError := make(chan error)
 	go func() {
-		setupError <- s.connector.SetupReplication(context.Background(), signal, setupReplicationInput)
+		setupError <- s.conn.SetupReplication(context.Background(), signal, setupReplicationInput)
 	}()
 
 	s.t.Log("waiting for slot creation to complete: ", flowJobName)
@@ -230,7 +220,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 
 	dstTable := "test_qrep_flow_avro_pg_2"
 
-	err := e2e.CreateTableForQRep(s.conn, s.suffix, dstTable)
+	err := e2e.CreateTableForQRep(s.Conn(), s.suffix, dstTable)
 	require.NoError(s.t, err)
 
 	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)

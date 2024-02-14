@@ -324,12 +324,8 @@ func (c *PostgresConnector) PullQRepRecords(
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
-		executor, err := NewQRepQueryExecutorSnapshot(ctx,
-			c.conn, c.config.TransactionSnapshot,
+		executor := c.NewQRepQueryExecutorSnapshot(c.config.TransactionSnapshot,
 			config.FlowJobName, partition.PartitionId)
-		if err != nil {
-			return nil, err
-		}
 		query := config.Query
 		return executor.ExecuteAndProcessQuery(ctx, query)
 	}
@@ -368,12 +364,8 @@ func (c *PostgresConnector) PullQRepRecords(
 		return nil, err
 	}
 
-	executor, err := NewQRepQueryExecutorSnapshot(
-		ctx, c.conn, c.config.TransactionSnapshot,
+	executor := c.NewQRepQueryExecutorSnapshot(c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
-	if err != nil {
-		return nil, err
-	}
 
 	records, err := executor.ExecuteAndProcessQuery(ctx, query, rangeStart, rangeEnd)
 	if err != nil {
@@ -392,15 +384,11 @@ func (c *PostgresConnector) PullQRepRecordStream(
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
-		executor, err := NewQRepQueryExecutorSnapshot(
-			ctx, c.conn, c.config.TransactionSnapshot,
+		executor := c.NewQRepQueryExecutorSnapshot(c.config.TransactionSnapshot,
 			config.FlowJobName, partition.PartitionId)
-		if err != nil {
-			return 0, err
-		}
 
 		query := config.Query
-		_, err = executor.ExecuteAndProcessQueryStream(ctx, stream, query)
+		_, err := executor.ExecuteAndProcessQueryStream(ctx, stream, query)
 		return 0, err
 	}
 	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
@@ -438,12 +426,8 @@ func (c *PostgresConnector) PullQRepRecordStream(
 		return 0, err
 	}
 
-	executor, err := NewQRepQueryExecutorSnapshot(
-		ctx, c.conn, c.config.TransactionSnapshot,
+	executor := c.NewQRepQueryExecutorSnapshot(c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
-	if err != nil {
-		return 0, err
-	}
 
 	numRecords, err := executor.ExecuteAndProcessQueryStream(ctx, stream, query, rangeStart, rangeEnd)
 	if err != nil {
@@ -539,13 +523,10 @@ func (c *PostgresConnector) PullXminRecordStream(
 		query += " WHERE age(xmin) > 0 AND age(xmin) <= age($1::xid)"
 	}
 
-	executor, err := NewQRepQueryExecutorSnapshot(
-		ctx, c.conn, c.config.TransactionSnapshot,
+	executor := c.NewQRepQueryExecutorSnapshot(c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
-	if err != nil {
-		return 0, currentSnapshotXmin, err
-	}
 
+	var err error
 	var numRecords int
 	if partition.Range != nil {
 		numRecords, currentSnapshotXmin, err = executor.ExecuteAndProcessQueryStreamGettingCurrentSnapshotXmin(

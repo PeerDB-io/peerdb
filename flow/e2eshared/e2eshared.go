@@ -8,22 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
-
-type Suite interface {
-	T() *testing.T
-	Conn() *pgx.Conn
-	Suffix() string
-}
-
-type RowSource interface {
-	Suite
-	GetRows(table, cols string) (*model.QRecordBatch, error)
-}
 
 func RunSuite[T any](t *testing.T, setup func(t *testing.T) T, teardown func(T)) {
 	t.Helper()
@@ -80,7 +67,7 @@ func CheckQRecordEquality(t *testing.T, q []qvalue.QValue, other []qvalue.QValue
 	for i, entry := range q {
 		otherEntry := other[i]
 		if !entry.Equals(otherEntry) {
-			t.Logf("entry %d: %v != %v", i, entry, otherEntry)
+			t.Logf("entry %d: %T %v != %T %v", i, entry.Value, entry, otherEntry.Value, otherEntry)
 			return false
 		}
 	}

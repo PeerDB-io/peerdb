@@ -11,9 +11,9 @@ import (
 )
 
 func (s PeerFlowE2ETestSuiteBQ) setupSourceTable(tableName string, rowCount int) {
-	err := e2e.CreateTableForQRep(s.conn, s.bqSuffix, tableName)
+	err := e2e.CreateTableForQRep(s.Conn(), s.bqSuffix, tableName)
 	require.NoError(s.t, err)
-	err = e2e.PopulateSourceTable(s.conn, s.bqSuffix, tableName, rowCount)
+	err = e2e.PopulateSourceTable(s.Conn(), s.bqSuffix, tableName, rowCount)
 	require.NoError(s.t, err)
 }
 
@@ -24,7 +24,7 @@ func (s PeerFlowE2ETestSuiteBQ) setupTimeTable(tableName string) {
 		"mytztimestamp timestamptz",
 	}
 	tblFieldStr := strings.Join(tblFields, ",")
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			CREATE TABLE e2e_test_%s.%s (
 				%s
 			);`, s.bqSuffix, tableName, tblFieldStr))
@@ -35,7 +35,7 @@ func (s PeerFlowE2ETestSuiteBQ) setupTimeTable(tableName string) {
 	row := `(CURRENT_TIMESTAMP,'10001-03-14 23:05:52','50001-03-14 23:05:52.216809+00')`
 	rows = append(rows, row)
 
-	_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO e2e_test_%s.%s (
 					watermark_ts,
 					mytimestamp,

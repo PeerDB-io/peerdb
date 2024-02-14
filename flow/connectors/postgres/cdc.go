@@ -23,10 +23,10 @@ import (
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type PostgresCDCSource struct {
+	*PostgresConnector
 	replConn               *pgx.Conn
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]model.NameAndExclude
@@ -35,11 +35,9 @@ type PostgresCDCSource struct {
 	relationMessageMapping model.RelationMessageMapping
 	typeMap                *pgtype.Map
 	commitLock             bool
-	customTypeMapping      map[uint32]string
 
 	// for partitioned tables, maps child relid to parent relid
 	childToParentRelIDMapping map[uint32]uint32
-	logger                    slog.Logger
 
 	// for storing chema delta audit logs to catalog
 	catalogPool *pgxpool.Pool
@@ -64,14 +62,14 @@ type startReplicationOpts struct {
 }
 
 // Create a new PostgresCDCSource
-func NewPostgresCDCSource(ctx context.Context, cdcConfig *PostgresCDCConfig, customTypeMap map[uint32]string) (*PostgresCDCSource, error) {
+func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig *PostgresCDCConfig) (*PostgresCDCSource, error) {
 	childToParentRelIDMap, err := getChildToParentRelIDMap(ctx, cdcConfig.Connection)
 	if err != nil {
 		return nil, fmt.Errorf("error getting child to parent relid map: %w", err)
 	}
 
-	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &PostgresCDCSource{
+		PostgresConnector:         c,
 		replConn:                  cdcConfig.Connection,
 		SrcTableIDNameMapping:     cdcConfig.SrcTableIDNameMapping,
 		TableNameMapping:          cdcConfig.TableNameMapping,
@@ -81,8 +79,6 @@ func NewPostgresCDCSource(ctx context.Context, cdcConfig *PostgresCDCConfig, cus
 		typeMap:                   pgtype.NewMap(),
 		childToParentRelIDMapping: childToParentRelIDMap,
 		commitLock:                false,
-		customTypeMapping:         customTypeMap,
-		logger:                    *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 		catalogPool:               cdcConfig.CatalogPool,
 		flowJobName:               cdcConfig.FlowJobName,
 	}, nil
@@ -731,20 +727,20 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 			}
 			return qvalue.QValue{}, err
 		}
-		retVal, err := parseFieldFromPostgresOID(dataType, parsedData)
+		retVal, err := p.parseFieldFromPostgresOID(dataType, parsedData)
 		if err != nil {
 			return qvalue.QValue{}, err
 		}
 		return retVal, nil
 	} else if dataType == uint32(oid.T_timetz) { // ugly TIMETZ workaround for CDC decoding.
-		retVal, err := parseFieldFromPostgresOID(dataType, string(data))
+		retVal, err := p.parseFieldFromPostgresOID(dataType, string(data))
 		if err != nil {
 			return qvalue.QValue{}, err
 		}
 		return retVal, nil
 	}
 
-	typeName, ok := p.customTypeMapping[dataType]
+	typeName, ok := p.customTypesMapping[dataType]
 	if ok {
 		customQKind := customTypeToQKind(typeName)
 		if customQKind == qvalue.QValueKindGeography || customQKind == qvalue.QValueKindGeometry {
@@ -835,9 +831,9 @@ func (p *PostgresCDCSource) processRelationMessage(
 	for _, column := range currRel.Columns {
 		// not present in previous relation message, but in current one, so added.
 		if prevRelMap[column.Name] == nil {
-			qKind := postgresOIDToQValueKind(column.DataType)
+			qKind := p.postgresOIDToQValueKind(column.DataType)
 			if qKind == qvalue.QValueKindInvalid {
-				typeName, ok := p.customTypeMapping[column.DataType]
+				typeName, ok := p.customTypesMapping[column.DataType]
 				if ok {
 					qKind = customTypeToQKind(typeName)
 				}

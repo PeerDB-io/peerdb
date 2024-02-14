@@ -43,18 +43,3 @@ func GeoToWKB(wkt string) ([]byte, error) {
 
 	return geometryObject.ToWKB(), nil
 }
-
-// compares WKTs
-func GeoCompare(wkt1, wkt2 string) bool {
-	geom1, geoErr := geom.NewGeomFromWKT(wkt1)
-	if geoErr != nil {
-		return false
-	}
-
-	geom2, geoErr := geom.NewGeomFromWKT(wkt2)
-	if geoErr != nil {
-		return false
-	}
-
-	return geom1.Equals(geom2)
-}

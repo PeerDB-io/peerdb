@@ -25,7 +25,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 	srcTableName := s.attachSchemaSuffix("test_simple_flow_s3")
 	dstTableName := fmt.Sprintf("%s.%s", "peerdb_test_s3", "test_simple_flow_s3")
 	flowJobName := s.attachSuffix("test_simple_flow_s3")
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.conn.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE %s (
 			id SERIAL PRIMARY KEY,
 			key TEXT NOT NULL,
@@ -49,7 +49,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 		for i := 1; i <= 20; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
-			_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+			_, err = s.conn.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s (key, value) VALUES ($1, $2)
 		`, srcTableName), testKey, testValue)
 			e2e.EnvNoError(s.t, env, err)
