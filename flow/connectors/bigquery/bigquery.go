@@ -636,7 +636,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	for _, tableName := range distinctTableNames {
 		normalizeTableSchema := req.TableNameSchemaMapping[tableName]
 		if len(normalizeTableSchema.PrimaryKeyColumns) == 0 {
-			c.logger.Info(fmt.Sprintf("skipping merge for table %s as it has no primary key", tableName))
+			c.logger.Error(fmt.Sprintf("skipping merge for table %s as it has no primary key", tableName))
 			continue
 		}
 		unchangedToastColumns := tableNametoUnchangedToastCols[tableName]
