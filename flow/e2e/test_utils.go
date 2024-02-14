@@ -517,7 +517,7 @@ func GetOwnersSelectorStringsSF() [2]string {
 	sfFields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
 		pgFields = append(pgFields, fmt.Sprintf(`"%s"`, field.Name))
-		if strings.Contains(field.Name, "geo") {
+		if strings.HasPrefix(field.Name, "geo") {
 			colName := connsnowflake.SnowflakeIdentifierNormalize(field.Name)
 
 			// Have to apply a WKT transformation here,
