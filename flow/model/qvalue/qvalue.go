@@ -29,7 +29,8 @@ func (q QValue) Equals(other QValue) bool {
 		return true // TODO fix
 	} else if q.Value == nil && other.Value == nil {
 		return true
-	} else if (q.Value == nil) != (other.Value == nil) {
+	} else if !q.Kind.IsArray() && q.Kind != QValueKindBytes &&
+		(q.Value == nil) != (other.Value == nil) {
 		return false
 	}
 
@@ -232,7 +233,7 @@ func compareBytes(value1, value2 interface{}) bool {
 	bytes1, ok1 := getBytes(value1)
 	bytes2, ok2 := getBytes(value2)
 
-	return ok1 && ok2 && (len(bytes1) == len(bytes2) || bytes.Equal(bytes1, bytes2))
+	return ok1 && ok2 && bytes.Equal(bytes1, bytes2)
 }
 
 func compareNumeric(value1, value2 interface{}) bool {
@@ -340,7 +341,7 @@ func compareBit(value1, value2 interface{}) bool {
 		return false
 	}
 
-	return bit1^bit2 == 0
+	return bit1 == bit2
 }
 
 func compareNumericArrays(value1, value2 interface{}) bool {
