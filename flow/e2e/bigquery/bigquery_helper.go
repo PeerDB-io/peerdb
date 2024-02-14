@@ -377,7 +377,7 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 	}, nil
 }
 
-// returns whether the function errors or there are nulls
+// returns whether the function errors or there are no nulls
 func (b *BigQueryTestHelper) CheckNull(tableName string, colName []string) (bool, error) {
 	if len(colName) == 0 {
 		return true, nil

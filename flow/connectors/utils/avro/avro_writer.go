@@ -150,6 +150,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 			p.targetDWH,
 			p.avroSchema.NullableFields,
 			colNames,
+			logger,
 		)
 
 		avroMap, err := avroConverter.Convert()

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"go.temporal.io/sdk/log"
+
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
@@ -12,6 +14,7 @@ type QRecordAvroConverter struct {
 	TargetDWH      qvalue.QDWHType
 	NullableFields map[string]struct{}
 	ColNames       []string
+	logger         log.Logger
 }
 
 func NewQRecordAvroConverter(
@@ -19,12 +22,14 @@ func NewQRecordAvroConverter(
 	targetDWH qvalue.QDWHType,
 	nullableFields map[string]struct{},
 	colNames []string,
+	logger log.Logger,
 ) *QRecordAvroConverter {
 	return &QRecordAvroConverter{
 		QRecord:        q,
 		TargetDWH:      targetDWH,
 		NullableFields: nullableFields,
 		ColNames:       colNames,
+		logger:         logger,
 	}
 }
 
@@ -39,7 +44,9 @@ func (qac *QRecordAvroConverter) Convert() (map[string]interface{}, error) {
 			val,
 			qac.TargetDWH,
 			nullable,
+			qac.logger,
 		)
+
 		avroVal, err := avroConverter.ToAvroValue()
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert QValue to Avro-compatible value: %w", err)

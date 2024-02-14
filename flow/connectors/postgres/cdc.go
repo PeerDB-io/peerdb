@@ -720,6 +720,15 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 			parsedData, err = dt.Codec.DecodeValue(p.typeMap, dataType, formatCode, data)
 		}
 		if err != nil {
+			if dt.Name == "time" || dt.Name == "timetz" ||
+				dt.Name == "timestamp" || dt.Name == "timestamptz" {
+				// indicates year is more than 4 digits or something similar,
+				// which you can insert into postgres,
+				// but not representable by time.Time
+				p.logger.Warn(fmt.Sprintf("Invalidated and hence nulled %s data: %s",
+					dt.Name, string(data)))
+				return qvalue.QValue{}, nil
+			}
 			return qvalue.QValue{}, err
 		}
 		retVal, err := parseFieldFromPostgresOID(dataType, parsedData)
