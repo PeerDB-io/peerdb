@@ -466,10 +466,8 @@ func (c *QValueAvroConverter) processNullableUnion(
 		if value == nil {
 			return nil, nil
 		}
-
 		return goavro.Union(avroType, value), nil
 	}
-
 	return value, nil
 }
 
