@@ -41,9 +41,8 @@ const (
 	//   sync_batch_id INTEGER NOT NULL
 	//   normalize_batch_id INTEGER
 	// )
-	MirrorJobsTable       = "peerdb_mirror_jobs"
-	SyncRecordsBatchSize  = 1024
-	NoPrimaryKeyMergeCase = "no_primary_key"
+	MirrorJobsTable      = "peerdb_mirror_jobs"
+	SyncRecordsBatchSize = 1024
 )
 
 type BigQueryServiceAccount struct {
@@ -659,10 +658,6 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		// normalize anything between last normalized batch id to last sync batchid
 		mergeStmts := mergeGen.generateMergeStmts(unchangedToastColumns)
 		for i, mergeStmt := range mergeStmts {
-			if mergeStmt == NoPrimaryKeyMergeCase {
-				c.logger.Info(fmt.Sprintf("no primary key found for table %s, skipping merge statement", tableName))
-				continue
-			}
 			c.logger.Info(fmt.Sprintf("running merge statement [%d/%d] for table %s..",
 				i+1, len(mergeStmts), tableName))
 			q := c.client.Query(mergeStmt)
