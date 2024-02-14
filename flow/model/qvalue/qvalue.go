@@ -232,7 +232,7 @@ func compareBytes(value1, value2 interface{}) bool {
 	bytes1, ok1 := getBytes(value1)
 	bytes2, ok2 := getBytes(value2)
 
-	return ok1 && ok2 && bytes.Equal(bytes1, bytes2)
+	return ok1 && ok2 && (len(bytes1) == len(bytes2) || bytes.Equal(bytes1, bytes2))
 }
 
 func compareNumeric(value1, value2 interface{}) bool {
@@ -587,8 +587,7 @@ func getBytes(v interface{}) ([]byte, bool) {
 	case string:
 		return []byte(value), true
 	case nil:
-		// return empty byte array
-		return []byte{}, true
+		return nil, true
 	default:
 		return nil, false
 	}
