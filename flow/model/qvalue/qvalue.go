@@ -42,6 +42,12 @@ func (q QValue) Equals(other QValue) bool {
 		return compareBoolean(q.Value, other.Value)
 	case QValueKindStruct:
 		return compareStruct(q.Value, other.Value)
+	case QValueKindQChar:
+		if (q.Value == nil) == (other.Value == nil) {
+			return q.Value == nil || q.Value.(uint8) == other.Value.(uint8)
+		} else {
+			return false
+		}
 	case QValueKindString:
 		return compareString(q.Value, other.Value)
 	// all internally represented as a Golang time.Time

@@ -31,6 +31,8 @@ func (c *PostgresConnector) postgresOIDToQValueKind(recvOID uint32) qvalue.QValu
 		return qvalue.QValueKindFloat32
 	case pgtype.Float8OID:
 		return qvalue.QValueKindFloat64
+	case pgtype.QCharOID:
+		return qvalue.QValueKindQChar
 	case pgtype.TextOID, pgtype.VarcharOID, pgtype.BPCharOID:
 		return qvalue.QValueKindString
 	case pgtype.ByteaOID:
@@ -125,6 +127,8 @@ func qValueKindToPostgresType(colTypeStr string) string {
 		return "REAL"
 	case qvalue.QValueKindFloat64:
 		return "DOUBLE PRECISION"
+	case qvalue.QValueKindQChar:
+		return "\"char\""
 	case qvalue.QValueKindString:
 		return "TEXT"
 	case qvalue.QValueKindBytes:
@@ -280,6 +284,8 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 	case qvalue.QValueKindFloat64:
 		floatVal := value.(float64)
 		val = qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: floatVal}
+	case qvalue.QValueKindQChar:
+		val = qvalue.QValue{Kind: qvalue.QValueKindQChar, Value: uint8(value.(rune))}
 	case qvalue.QValueKindString:
 		// handling all unsupported types with strings as well for now.
 		val = qvalue.QValue{Kind: qvalue.QValueKindString, Value: fmt.Sprint(value)}

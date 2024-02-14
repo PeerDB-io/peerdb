@@ -40,6 +40,8 @@ func createQValue(t *testing.T, kind qvalue.QValueKind, placeHolder int) qvalue.
 		value = big.NewRat(int64(placeHolder), 1)
 	case qvalue.QValueKindUUID:
 		value = uuid.New() // assuming you have the github.com/google/uuid package
+	case qvalue.QValueKindQChar:
+		value = uint8(48)
 	// case qvalue.QValueKindArray:
 	// 	value = []int{1, 2, 3} // placeholder array, replace with actual logic
 	// case qvalue.QValueKindStruct:
@@ -85,6 +87,7 @@ func generateRecords(
 		qvalue.QValueKindNumeric,
 		qvalue.QValueKindBytes,
 		qvalue.QValueKindUUID,
+		qvalue.QValueKindQChar,
 		// qvalue.QValueKindJSON,
 		qvalue.QValueKindBit,
 	}

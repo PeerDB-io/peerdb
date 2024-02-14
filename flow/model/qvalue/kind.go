@@ -17,6 +17,7 @@ const (
 	QValueKindInt64       QValueKind = "int64"
 	QValueKindBoolean     QValueKind = "bool"
 	QValueKindStruct      QValueKind = "struct"
+	QValueKindQChar       QValueKind = "qchar"
 	QValueKindString      QValueKind = "string"
 	QValueKindTimestamp   QValueKind = "timestamp"
 	QValueKindTimestampTZ QValueKind = "timestamptz"
@@ -63,6 +64,7 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindFloat32:     "FLOAT",
 	QValueKindFloat64:     "FLOAT",
 	QValueKindNumeric:     "NUMBER(38, 9)",
+	QValueKindQChar:       "CHAR",
 	QValueKindString:      "STRING",
 	QValueKindJSON:        "VARIANT",
 	QValueKindTimestamp:   "TIMESTAMP_NTZ",
@@ -101,6 +103,7 @@ var QValueKindToClickhouseTypeMap = map[QValueKind]string{
 	QValueKindFloat32:     "Float32",
 	QValueKindFloat64:     "Float64",
 	QValueKindNumeric:     "Decimal128(9)",
+	QValueKindQChar:       "FixedString(1)",
 	QValueKindString:      "String",
 	QValueKindJSON:        "String",
 	QValueKindTimestamp:   "DateTime64(6)",

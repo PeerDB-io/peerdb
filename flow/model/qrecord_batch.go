@@ -137,6 +137,14 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			}
 			values[i] = v
 
+		case qvalue.QValueKindQChar:
+			v, ok := qValue.Value.(uint8)
+			if !ok {
+				src.err = fmt.Errorf("invalid \"char\" value")
+				return nil, src.err
+			}
+			values[i] = rune(v)
+
 		case qvalue.QValueKindString:
 			v, ok := qValue.Value.(string)
 			if !ok {
