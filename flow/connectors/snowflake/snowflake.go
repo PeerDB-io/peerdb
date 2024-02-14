@@ -724,7 +724,7 @@ func generateCreateTableSQLForNormalizedTable(
 }
 
 func getRawTableIdentifier(jobName string) string {
-	jobName = regexp.MustCompile("[^a-zA-Z0-9]+").ReplaceAllString(jobName, "_")
+	jobName = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(jobName, "_")
 	return fmt.Sprintf("%s_%s", rawTablePrefix, jobName)
 }
 

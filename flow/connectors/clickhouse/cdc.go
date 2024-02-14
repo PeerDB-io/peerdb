@@ -24,7 +24,7 @@ const (
 // getRawTableName returns the raw table name for the given table identifier.
 func (c *ClickhouseConnector) getRawTableName(flowJobName string) string {
 	// replace all non-alphanumeric characters with _
-	flowJobName = regexp.MustCompile("[^a-zA-Z0-9]+").ReplaceAllString(flowJobName, "_")
+	flowJobName = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(flowJobName, "_")
 	return fmt.Sprintf("_peerdb_raw_%s", flowJobName)
 }
 
