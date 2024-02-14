@@ -72,9 +72,9 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuitePG {
 }
 
 func (s PeerFlowE2ETestSuitePG) setupSourceTable(tableName string, rowCount int) {
-	err := e2e.CreateTableForQRep(s.conn.Conn(), s.suffix, tableName)
+	err := e2e.CreateTableForQRep(s.Conn(), s.suffix, tableName)
 	require.NoError(s.t, err)
-	err = e2e.PopulateSourceTable(s.conn.Conn(), s.suffix, tableName, rowCount)
+	err = e2e.PopulateSourceTable(s.Conn(), s.suffix, tableName, rowCount)
 	require.NoError(s.t, err)
 }
 
@@ -98,7 +98,7 @@ func (s PeerFlowE2ETestSuitePG) checkEnums(srcSchemaQualified, dstSchemaQualifie
 		"SELECT 1 FROM %s dst "+
 		"WHERE src.my_mood::text = dst.my_mood::text)) LIMIT 1;", srcSchemaQualified,
 		dstSchemaQualified)
-	err := s.conn.Conn().QueryRow(context.Background(), query).Scan(&exists)
+	err := s.Conn().QueryRow(context.Background(), query).Scan(&exists)
 	if err != nil {
 		return err
 	}
@@ -112,7 +112,7 @@ func (s PeerFlowE2ETestSuitePG) checkEnums(srcSchemaQualified, dstSchemaQualifie
 func (s PeerFlowE2ETestSuitePG) compareQuery(srcSchemaQualified, dstSchemaQualified, selector string) error {
 	query := fmt.Sprintf("SELECT %s FROM %s EXCEPT SELECT %s FROM %s", selector, srcSchemaQualified,
 		selector, dstSchemaQualified)
-	rows, err := s.conn.Conn().Query(context.Background(), query, pgx.QueryExecModeExec)
+	rows, err := s.Conn().Query(context.Background(), query, pgx.QueryExecModeExec)
 	if err != nil {
 		return err
 	}
@@ -146,7 +146,7 @@ func (s PeerFlowE2ETestSuitePG) compareQuery(srcSchemaQualified, dstSchemaQualif
 func (s PeerFlowE2ETestSuitePG) checkSyncedAt(dstSchemaQualified string) error {
 	query := fmt.Sprintf(`SELECT "_PEERDB_SYNCED_AT" FROM %s`, dstSchemaQualified)
 
-	rows, _ := s.conn.Conn().Query(context.Background(), query)
+	rows, _ := s.Conn().Query(context.Background(), query)
 
 	defer rows.Close()
 	for rows.Next() {
@@ -166,12 +166,12 @@ func (s PeerFlowE2ETestSuitePG) checkSyncedAt(dstSchemaQualified string) error {
 
 func (s PeerFlowE2ETestSuitePG) RunInt64Query(query string) (int64, error) {
 	var count pgtype.Int8
-	err := s.conn.Conn().QueryRow(context.Background(), query).Scan(&count)
+	err := s.Conn().QueryRow(context.Background(), query).Scan(&count)
 	return count.Int64, err
 }
 
 func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
-	setupTx, err := s.conn.Conn().Begin(context.Background())
+	setupTx, err := s.Conn().Begin(context.Background())
 	require.NoError(s.t, err)
 	// setup 3 tables in pgpeer_repl_test schema
 	// test_1, test_2, test_3, all have 5 columns all text, c1, c2, c3, c4, c5
@@ -220,7 +220,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 
 	dstTable := "test_qrep_flow_avro_pg_2"
 
-	err := e2e.CreateTableForQRep(s.conn.Conn(), s.suffix, dstTable)
+	err := e2e.CreateTableForQRep(s.Conn(), s.suffix, dstTable)
 	require.NoError(s.t, err)
 
 	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)

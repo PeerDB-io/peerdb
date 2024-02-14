@@ -2,6 +2,7 @@ package qvalue
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/big"
@@ -11,9 +12,8 @@ import (
 
 	"cloud.google.com/go/civil"
 	"github.com/google/uuid"
-
-	"github.com/PeerDB-io/peer-flow/geo"
-	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
+	"github.com/jackc/pgx/v5/pgtype"
+	geom "github.com/twpayne/go-geos"
 )
 
 // if new types are added, register them in gob - cdc_records_storage.go
@@ -23,6 +23,12 @@ type QValue struct {
 }
 
 func (q QValue) Equals(other QValue) bool {
+	if q.Value == nil && other.Value == nil {
+		return true
+	} else if (q.Value == nil) != (other.Value == nil) {
+		return false
+	}
+
 	switch q.Kind {
 	case QValueKindEmpty:
 		return other.Kind == QValueKindEmpty
@@ -66,6 +72,10 @@ func (q QValue) Equals(other QValue) bool {
 		return compareJSON(q.Value, other.Value)
 	case QValueKindBit:
 		return compareBit(q.Value, other.Value)
+	case QValueKindGeometry:
+		return compareGeometry(q.Value, other.Value)
+	case QValueKindHStore:
+		return compareHstore(q.Value, other.Value)
 	case QValueKindArrayFloat32:
 		return compareNumericArrays(q.Value, other.Value)
 	case QValueKindArrayFloat64:
@@ -82,9 +92,9 @@ func (q QValue) Equals(other QValue) bool {
 		return compareBoolArrays(q.Value, other.Value)
 	case QValueKindArrayString:
 		return compareArrayString(q.Value, other.Value)
+	default:
+		return false
 	}
-
-	return false
 }
 
 func (q QValue) GoTimeConvert() (string, error) {
@@ -250,20 +260,26 @@ func compareString(value1, value2 interface{}) bool {
 	if !ok1 || !ok2 {
 		return false
 	}
-	if str1 == str2 {
-		return true
+	return str1 == str2
+}
+
+func compareHstore(value1, value2 interface{}) bool {
+	bytes, err := json.Marshal(value1.(pgtype.Hstore))
+	if err != nil {
+		panic(err)
+	}
+	return string(bytes) == value2.(string)
+}
+
+func compareGeometry(value1, value2 interface{}) bool {
+	geo1 := value1.(*geom.Geom)
+
+	geo2, err := geom.NewGeomFromWKT(value2.(string))
+	if err != nil {
+		panic(err)
 	}
 
-	// Catch matching HStore
-	parsedHstore1, err := hstore_util.ParseHstore(str1)
-	if err == nil && parsedHstore1 == str2 {
-		return true
-	}
-
-	// Catch matching WKB(in Postgres)-WKT(in destination) geo values
-	geoConvertedWKT, err := geo.GeoValidate(str1)
-
-	return err == nil && geo.GeoCompare(geoConvertedWKT, str2)
+	return geo1.Equals(geo2)
 }
 
 func compareStruct(value1, value2 interface{}) bool {
