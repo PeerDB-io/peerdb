@@ -169,6 +169,10 @@ func NewQValueAvroConverter(value QValue, targetDWH QDWHType, nullable bool) *QV
 }
 
 func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
+	if c.Nullable && c.Value.Value == nil {
+		return nil, nil
+	}
+
 	switch c.Value.Kind {
 	case QValueKindInvalid:
 		// we will attempt to convert invalid to a string
@@ -457,14 +461,12 @@ func (c *QValueAvroConverter) processNullableUnion(
 	avroType string,
 	value interface{},
 ) (interface{}, error) {
-	if value == nil && c.Nullable {
-		return nil, nil
-	}
-
 	if c.Nullable {
+		if value == nil {
+			return nil, nil
+		}
 		return goavro.Union(avroType, value), nil
 	}
-
 	return value, nil
 }
 

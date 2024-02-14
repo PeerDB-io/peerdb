@@ -173,11 +173,6 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			values[i] = timestampTZ
 
 		case qvalue.QValueKindUUID:
-			if qValue.Value == nil {
-				values[i] = nil
-				break
-			}
-
 			v, ok := qValue.Value.([16]byte) // treat it as byte slice
 			if !ok {
 				src.err = fmt.Errorf("invalid UUID value %v", qValue.Value)
