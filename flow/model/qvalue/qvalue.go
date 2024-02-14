@@ -29,9 +29,6 @@ func (q QValue) Equals(other QValue) bool {
 		return true // TODO fix
 	} else if q.Value == nil && other.Value == nil {
 		return true
-	} else if !q.Kind.IsArray() && q.Kind != QValueKindBytes &&
-		(q.Value == nil) != (other.Value == nil) {
-		return false
 	}
 
 	switch q.Kind {
@@ -237,10 +234,6 @@ func compareBytes(value1, value2 interface{}) bool {
 }
 
 func compareNumeric(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
 	rat1, ok1 := getRat(value1)
 	rat2, ok2 := getRat(value2)
 
