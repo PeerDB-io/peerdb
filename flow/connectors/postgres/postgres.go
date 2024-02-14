@@ -995,7 +995,7 @@ func (c *PostgresConnector) AddTablesToPublication(req *protos.AddTablesToPublic
 	// just check if we have all the tables already in the publication
 	if req.PublicationName != "" {
 		rows, err := c.conn.Query(c.ctx,
-			"SELECT tablename FROM pg_publication_tables WHERE pubname=$1", req.PublicationName)
+			"SELECT schemaname || '.' || tablename FROM pg_publication_tables WHERE pubname=$1", req.PublicationName)
 		if err != nil {
 			return fmt.Errorf("failed to check tables in publication: %w", err)
 		}
@@ -1004,18 +1004,29 @@ func (c *PostgresConnector) AddTablesToPublication(req *protos.AddTablesToPublic
 		if err != nil {
 			return fmt.Errorf("failed to check tables in publication: %w", err)
 		}
-		notPresentTables := utils.ArrayMinus(tableNames, additionalSrcTables)
+		notPresentTables := utils.ArrayMinus(additionalSrcTables, tableNames)
 		if len(notPresentTables) > 0 {
 			return fmt.Errorf("some additional tables not present in custom publication: %s",
 				strings.Join(notPresentTables, ", "))
 		}
+	} else {
+		for _, additionalSrcTable := range additionalSrcTables {
+			schemaTable, err := utils.ParseSchemaTable(additionalSrcTable)
+			if err != nil {
+				return err
+			}
+			_, err = c.conn.Exec(c.ctx, fmt.Sprintf("ALTER PUBLICATION %s ADD TABLE %s",
+				utils.QuoteIdentifier(c.getDefaultPublicationName(req.FlowJobName)),
+				schemaTable.String()))
+			// don't error out if table is already added to our publication
+			if err != nil && !strings.Contains(err.Error(), "SQLSTATE 42710") {
+				return fmt.Errorf("failed to alter publication: %w", err)
+			}
+			c.logger.Info("added table to publication",
+				slog.String("publication", c.getDefaultPublicationName(req.FlowJobName)),
+				slog.String("table", additionalSrcTable))
+		}
 	}
 
-	additionalSrcTablesString := strings.Join(additionalSrcTables, ",")
-	_, err := c.conn.Exec(c.ctx, fmt.Sprintf("ALTER PUBLICATION %s ADD TABLE %s",
-		c.getDefaultPublicationName(req.FlowJobName), additionalSrcTablesString))
-	if err != nil {
-		return fmt.Errorf("failed to alter publication: %w", err)
-	}
 	return nil
 }
