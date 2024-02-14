@@ -421,16 +421,13 @@ func (c *QValueAvroConverter) processGoTimestampTZ() (interface{}, error) {
 		return t.Format("2006-01-02 15:04:05.999999-0700"), nil
 	}
 
-	tMicro := t.UnixMicro()
 	// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
 	// So make such timestamps null
-	if c.TargetDWH == QDWHTypeBigQuery {
-		if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
-			return nil, nil
-		}
+	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
+		return nil, nil
 	}
 
-	return tMicro, nil
+	return t.UnixMicro(), nil
 }
 
 func (c *QValueAvroConverter) processGoTimestamp() (interface{}, error) {
@@ -449,15 +446,13 @@ func (c *QValueAvroConverter) processGoTimestamp() (interface{}, error) {
 		return t.Format("2006-01-02 15:04:05.999999"), nil
 	}
 
-	tMicro := t.UnixMicro()
 	// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
 	// So make such timestamps null
-	if c.TargetDWH == QDWHTypeBigQuery {
-		if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
-			return nil, nil
-		}
+	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
+		return nil, nil
 	}
-	return tMicro, nil
+
+	return t.UnixMicro(), nil
 }
 
 func (c *QValueAvroConverter) processGoDate() (interface{}, error) {
