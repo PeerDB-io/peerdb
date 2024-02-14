@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"go.temporal.io/sdk/log"
+
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 type QRecordAvroConverter struct {

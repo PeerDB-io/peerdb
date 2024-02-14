@@ -1,6 +1,7 @@
 package qvalue
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -318,7 +319,7 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 	case QValueKindBoolean:
 		return c.processNullableUnion("boolean", c.Value.Value)
 	case QValueKindStruct:
-		return nil, fmt.Errorf("QValueKindStruct not supported")
+		return nil, errors.New("QValueKindStruct not supported")
 	case QValueKindNumeric:
 		return c.processNumeric()
 	case QValueKindBytes, QValueKindBit:
@@ -371,7 +372,7 @@ func (c *QValueAvroConverter) processGoTimeTZ() (interface{}, error) {
 
 	t, ok := c.Value.Value.(time.Time)
 	if !ok {
-		return nil, fmt.Errorf("invalid TimeTZ value")
+		return nil, errors.New("invalid TimeTZ value")
 	}
 
 	// Snowflake has issues with avro timestamp types, returning as string form
@@ -389,7 +390,7 @@ func (c *QValueAvroConverter) processGoTime() (interface{}, error) {
 
 	t, ok := c.Value.Value.(time.Time)
 	if !ok {
-		return nil, fmt.Errorf("invalid Time value")
+		return nil, errors.New("invalid Time value")
 	}
 
 	// Snowflake has issues with avro timestamp types, returning as string form
@@ -411,7 +412,7 @@ func (c *QValueAvroConverter) processGoTimestampTZ() (interface{}, error) {
 
 	t, ok := c.Value.Value.(time.Time)
 	if !ok {
-		return nil, fmt.Errorf("invalid TimestampTZ value")
+		return nil, errors.New("invalid TimestampTZ value")
 	}
 
 	// Snowflake has issues with avro timestamp types, returning as string form
@@ -439,7 +440,7 @@ func (c *QValueAvroConverter) processGoTimestamp() (interface{}, error) {
 
 	t, ok := c.Value.Value.(time.Time)
 	if !ok {
-		return nil, fmt.Errorf("invalid Timestamp value")
+		return nil, errors.New("invalid Timestamp value")
 	}
 
 	// Snowflake has issues with avro timestamp types, returning as string form
@@ -466,7 +467,7 @@ func (c *QValueAvroConverter) processGoDate() (interface{}, error) {
 
 	t, ok := c.Value.Value.(time.Time)
 	if !ok {
-		return nil, fmt.Errorf("invalid Time value for Date")
+		return nil, errors.New("invalid Time value for Date")
 	}
 
 	// Snowflake has issues with avro timestamp types, returning as string form
@@ -534,7 +535,7 @@ func (c *QValueAvroConverter) processBytes() (interface{}, error) {
 
 	byteData, ok := c.Value.Value.([]byte)
 	if !ok {
-		return nil, fmt.Errorf("invalid Bytes value")
+		return nil, errors.New("invalid Bytes value")
 	}
 
 	if c.Nullable {
@@ -578,7 +579,7 @@ func (c *QValueAvroConverter) processArrayBoolean() (interface{}, error) {
 
 	arrayData, ok := c.Value.Value.([]bool)
 	if !ok {
-		return nil, fmt.Errorf("invalid Boolean array value")
+		return nil, errors.New("invalid Boolean array value")
 	}
 
 	if c.Nullable {
@@ -595,7 +596,7 @@ func (c *QValueAvroConverter) processArrayTime() (interface{}, error) {
 
 	arrayTime, ok := c.Value.Value.([]time.Time)
 	if !ok {
-		return nil, fmt.Errorf("invalid Timestamp array value")
+		return nil, errors.New("invalid Timestamp array value")
 	}
 
 	transformedTimeArr := make([]interface{}, 0, len(arrayTime))
@@ -623,7 +624,7 @@ func (c *QValueAvroConverter) processArrayDate() (interface{}, error) {
 
 	arrayDate, ok := c.Value.Value.([]time.Time)
 	if !ok {
-		return nil, fmt.Errorf("invalid Date array value")
+		return nil, errors.New("invalid Date array value")
 	}
 
 	transformedTimeArr := make([]interface{}, 0, len(arrayDate))
@@ -725,7 +726,7 @@ func (c *QValueAvroConverter) processArrayInt16() (interface{}, error) {
 
 	arrayData, ok := c.Value.Value.([]int16)
 	if !ok {
-		return nil, fmt.Errorf("invalid Int16 array value")
+		return nil, errors.New("invalid Int16 array value")
 	}
 
 	// cast to int32
@@ -748,7 +749,7 @@ func (c *QValueAvroConverter) processArrayInt32() (interface{}, error) {
 
 	arrayData, ok := c.Value.Value.([]int32)
 	if !ok {
-		return nil, fmt.Errorf("invalid Int32 array value")
+		return nil, errors.New("invalid Int32 array value")
 	}
 
 	if c.Nullable {
@@ -765,7 +766,7 @@ func (c *QValueAvroConverter) processArrayInt64() (interface{}, error) {
 
 	arrayData, ok := c.Value.Value.([]int64)
 	if !ok {
-		return nil, fmt.Errorf("invalid Int64 array value")
+		return nil, errors.New("invalid Int64 array value")
 	}
 
 	if c.Nullable {
@@ -782,7 +783,7 @@ func (c *QValueAvroConverter) processArrayFloat32() (interface{}, error) {
 
 	arrayData, ok := c.Value.Value.([]float32)
 	if !ok {
-		return nil, fmt.Errorf("invalid Float32 array value")
+		return nil, errors.New("invalid Float32 array value")
 	}
 
 	if c.Nullable {
@@ -799,7 +800,7 @@ func (c *QValueAvroConverter) processArrayFloat64() (interface{}, error) {
 
 	arrayData, ok := c.Value.Value.([]float64)
 	if !ok {
-		return nil, fmt.Errorf("invalid Float64 array value")
+		return nil, errors.New("invalid Float64 array value")
 	}
 
 	if c.Nullable {
@@ -816,7 +817,7 @@ func (c *QValueAvroConverter) processArrayString() (interface{}, error) {
 
 	arrayData, ok := c.Value.Value.([]string)
 	if !ok {
-		return nil, fmt.Errorf("invalid String array value")
+		return nil, errors.New("invalid String array value")
 	}
 
 	if c.Nullable {
