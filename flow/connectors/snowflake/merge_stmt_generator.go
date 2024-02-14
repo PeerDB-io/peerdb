@@ -40,7 +40,7 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 		}
 
 		targetColumnName := SnowflakeIdentifierNormalize(column.Name)
-		switch qvalue.QValueKind(genericColumnType) {
+		switch qvKind {
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:\"%s\") "+
 				"AS %s", toVariantColumnName, column.Name, targetColumnName))
@@ -61,21 +61,19 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 		// 	flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("TIME_FROM_PARTS(0,0,0,%s:%s:"+
 		// 		"Microseconds*1000) "+
 		// 		"AS %s", toVariantColumnName, columnName, columnName))
-		default:
-			if qvKind == qvalue.QValueKindNumeric {
-				precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
-				if column.TypeModifier == -1 || precision > 38 || scale > 37 {
-					precision = numeric.PeerDBNumericPrecision
-					scale = numeric.PeerDBNumericScale
-				}
-				numericType := fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
-				flattenedCastsSQLArray = append(flattenedCastsSQLArray,
-					fmt.Sprintf("TRY_CAST((%s:\"%s\")::text AS %s) AS %s",
-						toVariantColumnName, column.Name, numericType, targetColumnName))
-			} else {
-				flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:\"%s\" AS %s) AS %s",
-					toVariantColumnName, column.Name, sfType, targetColumnName))
+		case qvalue.QValueKindNumeric:
+			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
+			if column.TypeModifier == -1 || precision > 38 || scale > 37 {
+				precision = numeric.PeerDBNumericPrecision
+				scale = numeric.PeerDBNumericScale
 			}
+			numericType := fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
+				fmt.Sprintf("TRY_CAST((%s:\"%s\")::text AS %s) AS %s",
+					toVariantColumnName, column.Name, numericType, targetColumnName))
+		default:
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:\"%s\" AS %s) AS %s",
+				toVariantColumnName, column.Name, sfType, targetColumnName))
 		}
 	}
 	flattenedCastsSQL := strings.Join(flattenedCastsSQLArray, ",")

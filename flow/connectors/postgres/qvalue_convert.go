@@ -501,10 +501,9 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		}
 	default:
 		textVal, ok := value.(string)
-		if !ok {
-			return qvalue.QValue{}, fmt.Errorf("failed to parse value %v into QValueKind %v", value, qvalueKind)
+		if ok {
+			val = qvalue.QValue{Kind: qvalue.QValueKindString, Value: textVal}
 		}
-		val = qvalue.QValue{Kind: qvalue.QValueKindString, Value: textVal}
 	}
 
 	// parsing into pgtype failed.

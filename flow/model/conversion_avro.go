@@ -29,7 +29,7 @@ func NewQRecordAvroConverter(
 }
 
 func (qac *QRecordAvroConverter) Convert() (map[string]interface{}, error) {
-	m := map[string]interface{}{}
+	m := make(map[string]interface{}, len(qac.QRecord))
 
 	for idx, val := range qac.QRecord {
 		key := qac.ColNames[idx]
