@@ -288,14 +288,23 @@ func compareHstore(value1, value2 interface{}) bool {
 }
 
 func compareGeometry(value1, value2 interface{}) bool {
-	geo1 := value1.(*geom.Geom)
-
 	geo2, err := geom.NewGeomFromWKT(value2.(string))
 	if err != nil {
 		panic(err)
 	}
 
-	return geo1.Equals(geo2)
+	switch v1 := value1.(type) {
+	case *geom.Geom:
+		return v1.Equals(geo2)
+	case string:
+		geo1, err := geom.NewGeomFromWKT(v1)
+		if err != nil {
+			panic(err)
+		}
+		return geo1.Equals(geo2)
+	default:
+		panic(fmt.Sprintf("invalid geometry value type %T: %v", value1, value1))
+	}
 }
 
 func compareStruct(value1, value2 interface{}) bool {
