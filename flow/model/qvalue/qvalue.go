@@ -76,7 +76,7 @@ func (q QValue) Equals(other QValue) bool {
 		return compareJSON(q.Value, other.Value)
 	case QValueKindBit:
 		return compareBit(q.Value, other.Value)
-	case QValueKindGeometry:
+	case QValueKindGeometry, QValueKindGeography:
 		return compareGeometry(q.Value, other.Value)
 	case QValueKindHStore:
 		return compareHstore(q.Value, other.Value)
