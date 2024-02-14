@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/civil"
+	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	geom "github.com/twpayne/go-geos"
@@ -264,11 +265,17 @@ func compareString(value1, value2 interface{}) bool {
 }
 
 func compareHstore(value1, value2 interface{}) bool {
+	var parsedHStore1 string
 	bytes, err := json.Marshal(value1.(pgtype.Hstore))
 	if err != nil {
-		panic(err)
+		parsedHStore1 = string(bytes)
+	} else {
+		parsedHStore1, err = hstore_util.ParseHstore(value1.(string))
+		if err != nil {
+			panic(err)
+		}
 	}
-	return string(bytes) == value2.(string)
+	return parsedHStore1 == value2.(string)
 }
 
 func compareGeometry(value1, value2 interface{}) bool {
