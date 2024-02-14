@@ -42,6 +42,8 @@ type SlotSnapshotSignal struct {
 type FlowableActivity struct {
 	CatalogPool *pgxpool.Pool
 	Alerter     *alerting.Alerter
+	CdcCacheRw  sync.RWMutex
+	CdcCache    map[string]connectors.CDCPullConnector
 }
 
 func (a *FlowableActivity) CheckConnection(
@@ -204,10 +206,71 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	}, nil
 }
 
+func (a *FlowableActivity) MaintainPull(
+	ctx context.Context,
+	config *protos.FlowConnectionConfigs,
+	sessionID string,
+) error {
+	srcConn, err := connectors.GetCDCPullConnector(ctx, config.Source)
+	if err != nil {
+		return err
+	}
+	defer connectors.CloseConnector(ctx, srcConn)
+
+	if err := srcConn.SetupReplConn(ctx); err != nil {
+		return err
+	}
+
+	a.CdcCacheRw.Lock()
+	a.CdcCache[sessionID] = srcConn
+	a.CdcCacheRw.Unlock()
+
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			activity.RecordHeartbeat(ctx, "keep session alive")
+			if err := srcConn.ReplPing(ctx); err != nil {
+				activity.GetLogger(ctx).Error("Failed to send keep alive ping to replication connection", slog.Any("error", err))
+			}
+		case <-ctx.Done():
+			a.CdcCacheRw.Lock()
+			delete(a.CdcCache, sessionID)
+			a.CdcCacheRw.Unlock()
+			return nil
+		}
+	}
+}
+
+func (a *FlowableActivity) WaitForSourceConnector(ctx context.Context, sessionID string) error {
+	logger := activity.GetLogger(ctx)
+	attempt := 0
+	for {
+		a.CdcCacheRw.RLock()
+		_, ok := a.CdcCache[sessionID]
+		a.CdcCacheRw.RUnlock()
+		if ok {
+			return nil
+		}
+		activity.RecordHeartbeat(ctx, "wait another second for source connector")
+		attempt += 1
+		if attempt > 2 {
+			logger.Info("waiting on source connector setup", slog.Int("attempt", attempt))
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		time.Sleep(time.Second)
+	}
+}
+
 func (a *FlowableActivity) SyncFlow(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
+	sessionID string,
 ) (*model.SyncResponse, error) {
 	flowName := config.FlowJobName
 	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
@@ -225,11 +288,15 @@ func (a *FlowableActivity) SyncFlow(
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
 	}
 
-	srcConn, err := connectors.GetCDCPullConnector(ctx, config.Source)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get source connector: %w", err)
+	a.CdcCacheRw.RLock()
+	srcConn, ok := a.CdcCache[sessionID]
+	a.CdcCacheRw.RUnlock()
+	if !ok {
+		return nil, errors.New("source connector missing from CdcCache")
 	}
-	defer connectors.CloseConnector(ctx, srcConn)
+	if err := srcConn.ConnectionActive(ctx); err != nil {
+		return nil, err
+	}
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("transferring records for job - %s", flowName)

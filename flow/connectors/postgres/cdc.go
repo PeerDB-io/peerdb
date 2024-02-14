@@ -3,7 +3,6 @@ package connpostgres
 import (
 	"context"
 	"crypto/sha256"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -28,7 +27,6 @@ import (
 
 type PostgresCDCSource struct {
 	*PostgresConnector
-	replConn               *pgx.Conn
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]model.NameAndExclude
 	slot                   string
@@ -46,7 +44,6 @@ type PostgresCDCSource struct {
 }
 
 type PostgresCDCConfig struct {
-	Connection             *pgx.Conn
 	Slot                   string
 	Publication            string
 	SrcTableIDNameMapping  map[uint32]string
@@ -67,21 +64,20 @@ type startReplicationOpts struct {
 func (c *PostgresConnector) NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) *PostgresCDCSource {
 	return &PostgresCDCSource{
 		PostgresConnector:         c,
-		replConn:                  cdcConfig.Connection,
 		SrcTableIDNameMapping:     cdcConfig.SrcTableIDNameMapping,
 		TableNameMapping:          cdcConfig.TableNameMapping,
 		slot:                      cdcConfig.Slot,
 		publication:               cdcConfig.Publication,
 		relationMessageMapping:    cdcConfig.RelationMessageMapping,
-		typeMap:                   pgtype.NewMap(),
 		childToParentRelIDMapping: cdcConfig.ChildToParentRelIDMap,
+		typeMap:                   pgtype.NewMap(),
 		commitLock:                false,
 		catalogPool:               cdcConfig.CatalogPool,
 		flowJobName:               cdcConfig.FlowJobName,
 	}
 }
 
-func getChildToParentRelIDMap(ctx context.Context, conn *pgx.Conn) (map[uint32]uint32, error) {
+func GetChildToParentRelIDMap(ctx context.Context, conn *pgx.Conn) (map[uint32]uint32, error) {
 	query := `
 		SELECT parent.oid AS parentrelid, child.oid AS childrelid
 		FROM pg_inherits
@@ -94,7 +90,6 @@ func getChildToParentRelIDMap(ctx context.Context, conn *pgx.Conn) (map[uint32]u
 	if err != nil {
 		return nil, fmt.Errorf("error querying for child to parent relid map: %w", err)
 	}
-
 	defer rows.Close()
 
 	childToParentRelIDMap := make(map[uint32]uint32)
@@ -113,85 +108,14 @@ func getChildToParentRelIDMap(ctx context.Context, conn *pgx.Conn) (map[uint32]u
 
 // PullRecords pulls records from the cdc stream
 func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullRecordsRequest) error {
-	replicationOpts, err := p.replicationOptions()
-	if err != nil {
-		return fmt.Errorf("error getting replication options: %w", err)
-	}
-
-	pgConn := p.replConn.PgConn()
-
-	// start replication
-	var clientXLogPos, startLSN pglogrepl.LSN
-	if req.LastOffset > 0 {
-		p.logger.Info("starting replication from last sync state", slog.Int64("last checkpoint", req.LastOffset))
-		clientXLogPos = pglogrepl.LSN(req.LastOffset)
-		startLSN = clientXLogPos + 1
-	}
-
-	opts := startReplicationOpts{
-		conn:            pgConn,
-		startLSN:        startLSN,
-		replicationOpts: *replicationOpts,
-	}
-
-	err = p.startReplication(ctx, opts)
-	if err != nil {
-		return fmt.Errorf("error starting replication: %w", err)
-	}
-
-	p.logger.Info(fmt.Sprintf("started replication on slot %s at startLSN: %d", p.slot, startLSN))
-
-	return p.consumeStream(ctx, pgConn, req, clientXLogPos, req.RecordStream)
-}
-
-func (p *PostgresCDCSource) startReplication(ctx context.Context, opts startReplicationOpts) error {
-	err := pglogrepl.StartReplication(ctx, opts.conn, p.slot, opts.startLSN, opts.replicationOpts)
-	if err != nil {
-		p.logger.Error("error starting replication", slog.Any("error", err))
-		return fmt.Errorf("error starting replication at startLsn - %d: %w", opts.startLSN, err)
-	}
-
-	p.logger.Info(fmt.Sprintf("started replication on slot %s at startLSN: %d", p.slot, opts.startLSN))
-	return nil
-}
-
-func (p *PostgresCDCSource) replicationOptions() (*pglogrepl.StartReplicationOptions, error) {
-	pluginArguments := []string{
-		"proto_version '1'",
-	}
-
-	if p.publication != "" {
-		pubOpt := fmt.Sprintf("publication_names '%s'", p.publication)
-		pluginArguments = append(pluginArguments, pubOpt)
-	} else {
-		return nil, errors.New("publication name is not set")
-	}
-
-	return &pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments}, nil
-}
-
-// start consuming the cdc stream
-func (p *PostgresCDCSource) consumeStream(
-	ctx context.Context,
-	conn *pgconn.PgConn,
-	req *model.PullRecordsRequest,
-	clientXLogPos pglogrepl.LSN,
-	records *model.CDCRecordStream,
-) error {
-	defer func() {
-		timeout, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
-		err := conn.Close(timeout)
-		if err != nil {
-			p.logger.Error("error closing replication connection", slog.Any("error", err))
-		}
-		cancel()
-	}()
-
+	conn := p.replConn.PgConn()
+	records := req.RecordStream
 	// clientXLogPos is the last checkpoint id, we need to ack that we have processed
 	// until clientXLogPos each time we send a standby status update.
 	// consumedXLogPos is the lsn that has been committed on the destination.
-	consumedXLogPos := pglogrepl.LSN(0)
-	if clientXLogPos > 0 {
+	var clientXLogPos, consumedXLogPos pglogrepl.LSN
+	if req.LastOffset > 0 {
+		clientXLogPos = pglogrepl.LSN(req.LastOffset)
 		consumedXLogPos = clientXLogPos
 
 		err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
@@ -300,7 +224,6 @@ func (p *PostgresCDCSource) consumeStream(
 
 		var receiveCtx context.Context
 		var cancel context.CancelFunc
-
 		if cdcRecordsStorage.IsEmpty() {
 			receiveCtx, cancel = context.WithCancel(ctx)
 		} else {

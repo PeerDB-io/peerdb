@@ -165,10 +165,10 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 			return err
 		}
 
-		additionalTablesWorkflowCfg := proto.Clone(cfg).(*protos.FlowConnectionConfigs)
-		additionalTablesWorkflowCfg.DoInitialSnapshot = true
-		additionalTablesWorkflowCfg.InitialSnapshotOnly = true
-		additionalTablesWorkflowCfg.TableMappings = flowConfigUpdate.AdditionalTables
+		additionalTablesCfg := proto.Clone(cfg).(*protos.FlowConnectionConfigs)
+		additionalTablesCfg.DoInitialSnapshot = true
+		additionalTablesCfg.InitialSnapshotOnly = true
+		additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
 
 		// execute the sync flow as a child workflow
 		childAdditionalTablesCDCFlowOpts := workflow.ChildWorkflowOptions{
@@ -184,7 +184,7 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 		childAdditionalTablesCDCFlowFuture := workflow.ExecuteChildWorkflow(
 			childAdditionalTablesCDCFlowCtx,
 			CDCFlowWorkflowWithConfig,
-			additionalTablesWorkflowCfg,
+			additionalTablesCfg,
 			nil,
 		)
 		var res *CDCFlowWorkflowResult
@@ -266,6 +266,7 @@ func CDCFlowWorkflowWithConfig(
 		// start the SetupFlow workflow as a child workflow, and wait for it to complete
 		// it should return the table schema for the source peer
 		setupFlowID := GetChildWorkflowID("setup-flow", cfg.FlowJobName, originalRunID)
+
 		childSetupFlowOpts := workflow.ChildWorkflowOptions{
 			WorkflowID:        setupFlowID,
 			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
@@ -352,6 +353,55 @@ func CDCFlowWorkflowWithConfig(
 		}
 	}
 
+	sessionOptions := &workflow.SessionOptions{
+		CreationTimeout:  5 * time.Minute,
+		ExecutionTimeout: 144 * time.Hour,
+		HeartbeatTimeout: time.Minute,
+	}
+	syncSessionCtx, err := workflow.CreateSession(ctx, sessionOptions)
+	if err != nil {
+		return nil, err
+	}
+	defer workflow.CompleteSession(syncSessionCtx)
+	sessionInfo := workflow.GetSessionInfo(syncSessionCtx)
+
+	syncCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
+		StartToCloseTimeout: 72 * time.Hour,
+		HeartbeatTimeout:    time.Minute,
+		WaitForCancellation: true,
+	})
+	fMaintain := workflow.ExecuteActivity(
+		syncCtx,
+		flowable.MaintainPull,
+		cfg,
+		sessionInfo.SessionID,
+	)
+	fSessionSetup := workflow.ExecuteActivity(
+		syncCtx,
+		flowable.WaitForSourceConnector,
+		sessionInfo.SessionID,
+	)
+
+	var sessionError error
+	sessionSelector := workflow.NewNamedSelector(ctx, "Session Setup")
+	sessionSelector.AddFuture(fMaintain, func(f workflow.Future) {
+		// MaintainPull should never exit without an error before this point
+		sessionError = f.Get(syncCtx, nil)
+	})
+	sessionSelector.AddFuture(fSessionSetup, func(f workflow.Future) {
+		// Happy path is waiting for this to return without error
+		sessionError = f.Get(syncCtx, nil)
+	})
+	sessionSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
+		sessionError = ctx.Err()
+	})
+	sessionSelector.Select(ctx)
+	if sessionError != nil {
+		state.SyncFlowErrors = append(state.SyncFlowErrors, sessionError.Error())
+		state.TruncateProgress(w.logger)
+		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, state)
+	}
+
 	currentSyncFlowNum := 0
 	totalRecordsSynced := int64(0)
 
@@ -366,6 +416,7 @@ func CDCFlowWorkflowWithConfig(
 		WaitForCancellation: true,
 	}
 	normCtx := workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
+
 	childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(
 		normCtx,
 		NormalizeFlowWorkflow,
@@ -397,12 +448,12 @@ func CDCFlowWorkflowWithConfig(
 	}
 
 	var canceled bool
-	signalChan := workflow.GetSignalChannel(ctx, shared.FlowSignalName)
-	mainLoopSelector := workflow.NewSelector(ctx)
+	flowSignalChan := workflow.GetSignalChannel(ctx, shared.FlowSignalName)
+	mainLoopSelector := workflow.NewNamedSelector(ctx, "Main Loop")
 	mainLoopSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
 		canceled = true
 	})
-	mainLoopSelector.AddReceive(signalChan, func(c workflow.ReceiveChannel, _ bool) {
+	mainLoopSelector.AddReceive(flowSignalChan, func(c workflow.ReceiveChannel, _ bool) {
 		var signalVal shared.CDCFlowSignal
 		c.ReceiveAsync(&signalVal)
 		state.ActiveSignal = shared.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
@@ -466,7 +517,8 @@ func CDCFlowWorkflowWithConfig(
 				" limit on the number of syncflows to be executed: ", currentSyncFlowNum)
 			break
 		}
-		currentSyncFlowNum++
+		currentSyncFlowNum += 1
+		w.logger.Info("executing sync flow", slog.Int("count", currentSyncFlowNum), slog.String("flowName", cfg.FlowJobName))
 
 		// execute the sync flow
 		syncFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -476,9 +528,9 @@ func CDCFlowWorkflowWithConfig(
 		})
 
 		w.logger.Info("executing sync flow", slog.String("flowName", cfg.FlowJobName))
-		syncFlowFuture := workflow.ExecuteActivity(syncFlowCtx, flowable.SyncFlow, cfg, state.SyncFlowOptions)
+		syncFlowFuture := workflow.ExecuteActivity(syncFlowCtx, flowable.SyncFlow, cfg, state.SyncFlowOptions, sessionInfo.SessionID)
 
-		var syncDone bool
+		var syncDone, syncErr bool
 		var normalizeSignalError error
 		normDone := normWaitChan == nil
 		mainLoopSelector.AddFuture(syncFlowFuture, func(f workflow.Future) {
@@ -486,8 +538,9 @@ func CDCFlowWorkflowWithConfig(
 
 			var childSyncFlowRes *model.SyncResponse
 			if err := f.Get(ctx, &childSyncFlowRes); err != nil {
-				w.logger.Error("failed to execute sync flow: ", err)
+				w.logger.Error("failed to execute sync flow", slog.Any("error", err))
 				state.SyncFlowErrors = append(state.SyncFlowErrors, err.Error())
+				syncErr = true
 			} else if childSyncFlowRes != nil {
 				state.SyncFlowStatuses = append(state.SyncFlowStatuses, childSyncFlowRes)
 				state.SyncFlowOptions.RelationMessageMapping = childSyncFlowRes.RelationMessageMapping
@@ -547,8 +600,14 @@ func CDCFlowWorkflowWithConfig(
 		if canceled {
 			break
 		}
+		if syncErr {
+			state.TruncateProgress(w.logger)
+			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, state)
+		}
 		if normalizeSignalError != nil {
-			return state, normalizeSignalError
+			state.NormalizeFlowErrors = append(state.NormalizeFlowErrors, normalizeSignalError.Error())
+			state.TruncateProgress(w.logger)
+			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, state)
 		}
 		if !normDone {
 			normWaitChan.Receive(ctx, nil)

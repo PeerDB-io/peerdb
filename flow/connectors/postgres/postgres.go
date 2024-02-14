@@ -7,9 +7,11 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -31,10 +33,19 @@ type PostgresConnector struct {
 	ssh                *SSHTunnel
 	conn               *pgx.Conn
 	replConfig         *pgx.ConnConfig
+	replConn           *pgx.Conn
+	replState          *ReplState
+	replLock           sync.Mutex
 	customTypesMapping map[uint32]string
 	metadataSchema     string
 	hushWarnOID        map[uint32]struct{}
 	logger             log.Logger
+}
+
+type ReplState struct {
+	Slot        string
+	Publication string
+	Offset      int64
 }
 
 func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
@@ -82,6 +93,8 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		ssh:                tunnel,
 		conn:               conn,
 		replConfig:         replConfig,
+		replState:          nil,
+		replLock:           sync.Mutex{},
 		customTypesMapping: customTypeMap,
 		metadataSchema:     metadataSchema,
 		hushWarnOID:        make(map[uint32]struct{}),
@@ -95,19 +108,124 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 		logger.LoggerFromCtx(ctx).Error("failed to create replication connection", "error", err)
 		return nil, fmt.Errorf("failed to create replication connection: %w", err)
 	}
-
 	return conn, nil
+}
+
+func (c *PostgresConnector) SetupReplConn(ctx context.Context) error {
+	conn, err := c.CreateReplConn(ctx)
+	if err != nil {
+		return err
+	}
+	c.replConn = conn
+	return nil
+}
+
+// To keep connection alive between sync batches.
+// By default postgres drops connection after 1 minute of inactivity.
+func (c *PostgresConnector) ReplPing(ctx context.Context) error {
+	if c.replLock.TryLock() {
+		defer c.replLock.Unlock()
+		if c.replState != nil {
+			return pglogrepl.SendStandbyStatusUpdate(
+				ctx,
+				c.replConn.PgConn(),
+				pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(c.replState.Offset)},
+			)
+		}
+	}
+	return nil
+}
+
+func (c *PostgresConnector) MaybeStartReplication(
+	ctx context.Context,
+	slotName string,
+	publicationName string,
+	req *model.PullRecordsRequest,
+) error {
+	if c.replState != nil && (c.replState.Offset != req.LastOffset ||
+		c.replState.Slot != slotName ||
+		c.replState.Publication != publicationName) {
+		return fmt.Errorf("replState changed, reset connector. slot name: old=%s new=%s, publication: old=%s new=%s, offset: old=%d new=%d",
+			c.replState.Slot, slotName, c.replState.Publication, publicationName, c.replState.Offset, req.LastOffset,
+		)
+	}
+
+	if c.replState == nil {
+		replicationOpts, err := c.replicationOptions(publicationName)
+		if err != nil {
+			return fmt.Errorf("error getting replication options: %w", err)
+		}
+
+		var startLSN pglogrepl.LSN
+		if req.LastOffset > 0 {
+			c.logger.Info("starting replication from last sync state", slog.Int64("last checkpoint", req.LastOffset))
+			startLSN = pglogrepl.LSN(req.LastOffset + 1)
+		}
+
+		opts := startReplicationOpts{
+			conn:            c.replConn.PgConn(),
+			startLSN:        startLSN,
+			replicationOpts: *replicationOpts,
+		}
+
+		err = c.startReplication(ctx, slotName, opts)
+		if err != nil {
+			return fmt.Errorf("error starting replication: %w", err)
+		}
+
+		c.logger.Info(fmt.Sprintf("started replication on slot %s at startLSN: %d", slotName, startLSN))
+		c.replState = &ReplState{
+			Slot:        slotName,
+			Publication: publicationName,
+			Offset:      req.LastOffset,
+		}
+	}
+	return nil
+}
+
+func (c *PostgresConnector) startReplication(ctx context.Context, slotName string, opts startReplicationOpts) error {
+	err := pglogrepl.StartReplication(ctx, opts.conn, slotName, opts.startLSN, opts.replicationOpts)
+	if err != nil {
+		c.logger.Error("error starting replication", slog.Any("error", err))
+		return fmt.Errorf("error starting replication at startLsn - %d: %w", opts.startLSN, err)
+	}
+
+	c.logger.Info(fmt.Sprintf("started replication on slot %s at startLSN: %d", slotName, opts.startLSN))
+	return nil
+}
+
+func (c *PostgresConnector) replicationOptions(publicationName string) (*pglogrepl.StartReplicationOptions, error) {
+	pluginArguments := []string{
+		"proto_version '1'",
+	}
+
+	if publicationName != "" {
+		pubOpt := fmt.Sprintf("publication_names %s", QuoteLiteral(publicationName))
+		pluginArguments = append(pluginArguments, pubOpt)
+	} else {
+		return nil, errors.New("publication name is not set")
+	}
+
+	return &pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments}, nil
 }
 
 // Close closes all connections.
 func (c *PostgresConnector) Close() error {
+	var connerr, replerr error
 	if c != nil {
-		timeout, cancel := context.WithTimeout(context.Background(), time.Minute)
+		timeout, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		c.conn.Close(timeout)
+		connerr = c.conn.Close(timeout)
+
+		if c.replConn != nil {
+			timeout, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			replerr = c.replConn.Close(timeout)
+		}
+
 		c.ssh.Close()
 	}
-	return nil
+	return errors.Join(connerr, replerr)
 }
 
 func (c *PostgresConnector) Conn() *pgx.Conn {
@@ -215,19 +333,20 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 
 	c.logger.Info("PullRecords: performed checks for slot and publication")
 
-	replConn, err := c.CreateReplConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer replConn.Close(ctx)
-
-	childToParentRelIDMap, err := getChildToParentRelIDMap(ctx, replConn)
+	childToParentRelIDMap, err := GetChildToParentRelIDMap(ctx, c.conn)
 	if err != nil {
 		return fmt.Errorf("error getting child to parent relid map: %w", err)
 	}
 
+	c.replLock.Lock()
+	defer c.replLock.Unlock()
+
+	err = c.MaybeStartReplication(ctx, slotName, publicationName, req)
+	if err != nil {
+		return err
+	}
+
 	cdc := c.NewPostgresCDCSource(&PostgresCDCConfig{
-		Connection:             replConn,
 		SrcTableIDNameMapping:  req.SrcTableIDNameMapping,
 		Slot:                   slotName,
 		Publication:            publicationName,
@@ -243,10 +362,14 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 		return err
 	}
 
+	req.RecordStream.Close()
+	c.replState.Offset = req.RecordStream.GetLastCheckpoint()
+
 	latestLSN, err := c.getCurrentLSN(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get current LSN: %w", err)
 	}
+
 	err = monitoring.UpdateLatestLSNAtSourceForCDCFlow(ctx, catalogPool, req.FlowJobName, int64(latestLSN))
 	if err != nil {
 		return fmt.Errorf("failed to update latest LSN at source for CDC flow: %w", err)
