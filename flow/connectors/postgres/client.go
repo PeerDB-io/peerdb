@@ -629,7 +629,7 @@ func (c *PostgresConnector) getDefaultPublicationName(jobName string) string {
 
 func (c *PostgresConnector) CheckSourceTables(ctx context.Context, tableNames []string, pubName string) error {
 	if c.conn == nil {
-		return fmt.Errorf("check tables: conn is nil")
+		return errors.New("check tables: conn is nil")
 	}
 
 	// Check that we can select from all tables
@@ -649,11 +649,20 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context, tableNames []
 		}
 	}
 
-	// Check if tables belong to publication
 	tableStr := strings.Join(tableArr, ",")
 	if pubName != "" {
+		// Check if publication exists
+		err := c.conn.QueryRow(ctx, "SELECT pubname FROM pg_publication WHERE pubname=$1", pubName).Scan(nil)
+		if err != nil {
+			if err == pgx.ErrNoRows {
+				return fmt.Errorf("publication does not exist: %s", pubName)
+			}
+			return fmt.Errorf("error while checking for publication existence: %w", err)
+		}
+
+		// Check if tables belong to publication
 		var pubTableCount int
-		err := c.conn.QueryRow(ctx, fmt.Sprintf(`
+		err = c.conn.QueryRow(ctx, fmt.Sprintf(`
 		with source_table_components (sname, tname) as (values %s)
 		select COUNT(DISTINCT(schemaname,tablename)) from pg_publication_tables
 		INNER JOIN source_table_components stc
@@ -663,7 +672,7 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context, tableNames []
 		}
 
 		if pubTableCount != len(tableNames) {
-			return fmt.Errorf("not all tables belong to publication")
+			return errors.New("not all tables belong to publication")
 		}
 	}
 
