@@ -52,3 +52,16 @@ func ArraysHaveOverlap[T comparable](first, second []T) bool {
 
 	return false
 }
+
+func ArrayCastElements[T any](arr []any) []T {
+	res := make([]T, 0, len(arr))
+	for _, val := range arr {
+		if v, ok := val.(T); ok {
+			res = append(res, v)
+		} else {
+			var none T
+			res = append(res, none)
+		}
+	}
+	return res
+}
