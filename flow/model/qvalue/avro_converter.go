@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/linkedin/goavro/v2"
+	"go.temporal.io/sdk/log"
 
 	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
 	"github.com/PeerDB-io/peer-flow/model/numeric"
@@ -158,13 +159,15 @@ type QValueAvroConverter struct {
 	Value     QValue
 	TargetDWH QDWHType
 	Nullable  bool
+	logger    log.Logger
 }
 
-func NewQValueAvroConverter(value QValue, targetDWH QDWHType, nullable bool) *QValueAvroConverter {
+func NewQValueAvroConverter(value QValue, targetDWH QDWHType, nullable bool, logger log.Logger) *QValueAvroConverter {
 	return &QValueAvroConverter{
 		Value:     value,
 		TargetDWH: targetDWH,
 		Nullable:  nullable,
+		logger:    logger,
 	}
 }
 
@@ -264,16 +267,6 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 				return c.processNullableUnion("long", t.(int64))
 			} else {
 				return t.(int64), nil
-			}
-		}
-
-		// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
-		// So, we make such timestamps as null
-		if c.TargetDWH == QDWHTypeBigQuery {
-			if t.(int64) < 0 || t.(int64) > 253402300799999999 {
-				slog.Info("Unlimited TimestampTZ value for BigQuery",
-					slog.Int64("timestamptz unix micro", t.(int64)))
-				return nil, nil
 			}
 		}
 
@@ -429,12 +422,9 @@ func (c *QValueAvroConverter) processGoTimestampTZ() (interface{}, error) {
 
 	tMicro := t.UnixMicro()
 	// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
-	// So, we make such timestamps as null
+	// So make such timestamps null
 	if c.TargetDWH == QDWHTypeBigQuery {
-		if tMicro < 0 || tMicro > 253402300799999999 {
-			slog.Info("Unlimited TimestampTZ value for BigQuery",
-				slog.String("timestamptz string", t.String()),
-				slog.Int64("timestamptz unix micro", tMicro))
+		if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
 			return nil, nil
 		}
 	}
@@ -460,12 +450,9 @@ func (c *QValueAvroConverter) processGoTimestamp() (interface{}, error) {
 
 	tMicro := t.UnixMicro()
 	// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
-	// So, we make such timestamps as null
+	// So make such timestamps null
 	if c.TargetDWH == QDWHTypeBigQuery {
-		if tMicro < 0 || tMicro > 253402300799999999 {
-			slog.Info("Unlimited Timestamp value for BigQuery",
-				slog.String("timestamp string", t.String()),
-				slog.Int64("timestamp unix micro", tMicro))
+		if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
 			return nil, nil
 		}
 	}
