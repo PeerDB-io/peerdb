@@ -1,7 +1,6 @@
 package connbigquery
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -11,8 +10,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
-
-var ErrNoPrimaryKey error = errors.New("no primary key found")
 
 type mergeStmtGenerator struct {
 	// dataset + raw table
