@@ -268,17 +268,23 @@ func compareString(value1, value2 interface{}) bool {
 }
 
 func compareHstore(value1, value2 interface{}) bool {
-	var parsedHStore1 string
-	bytes, err := json.Marshal(value1.(pgtype.Hstore))
-	if err != nil {
-		parsedHStore1 = string(bytes)
-	} else {
-		parsedHStore1, err = hstore_util.ParseHstore(value1.(string))
+	str2 := value2.(string)
+	switch v1 := value1.(type) {
+	case pgtype.Hstore:
+		bytes, err := json.Marshal(v1)
 		if err != nil {
 			panic(err)
 		}
+		return string(bytes) == str2
+	case string:
+		parsedHStore1, err := hstore_util.ParseHstore(v1)
+		if err != nil {
+			panic(err)
+		}
+		return parsedHStore1 == str2
+	default:
+		panic(fmt.Sprintf("invalid hstore value type %T: %v", value1, value1))
 	}
-	return parsedHStore1 == value2.(string)
 }
 
 func compareGeometry(value1, value2 interface{}) bool {
