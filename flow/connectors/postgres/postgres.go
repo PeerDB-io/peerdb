@@ -973,7 +973,7 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 	// just check if we have all the tables already in the publication for custom publications
 	if req.PublicationName != "" {
 		rows, err := c.conn.Query(ctx,
-			"SELECT tablename FROM pg_publication_tables WHERE pubname=$1", req.PublicationName)
+			"SELECT schemaname || '.' || tablename FROM pg_publication_tables WHERE pubname=$1", req.PublicationName)
 		if err != nil {
 			return fmt.Errorf("failed to check tables in publication: %w", err)
 		}
@@ -982,7 +982,7 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 		if err != nil {
 			return fmt.Errorf("failed to check tables in publication: %w", err)
 		}
-		notPresentTables := utils.ArrayMinus(tableNames, additionalSrcTables)
+		notPresentTables := utils.ArrayMinus(additionalSrcTables, tableNames)
 		if len(notPresentTables) > 0 {
 			return fmt.Errorf("some additional tables not present in custom publication: %s",
 				strings.Join(notPresentTables, ", "))
