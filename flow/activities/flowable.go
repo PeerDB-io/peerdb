@@ -207,6 +207,50 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	}, nil
 }
 
+func (a *FlowableActivity) fetchPeerConfig(
+	ctx context.Context,
+	peerName string,
+) (*protos.Peer, error) {
+	var bytes []byte
+	err := a.CatalogPool.QueryRow(ctx, `SELECT options FROM peers WHERE name = $1`, peerName).Scan(&bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get peer config: %w", err)
+	}
+
+	var peerConfig *protos.Peer
+	err = proto.Unmarshal(bytes, peerConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal peer config: %w", err)
+	}
+
+	return peerConfig, nil
+}
+
+func (a *FlowableActivity) FetchSourceAndDestinationConfigs(
+	ctx context.Context,
+	input *protos.FetchSourceAndDestinationConfigsInput,
+) (*protos.FetchSourceAndDestinationConfigsOutput, error) {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, input.FlowJobName)
+	logger := activity.GetLogger(ctx)
+
+	srcConfig, err := a.fetchPeerConfig(ctx, input.SourcePeerName)
+	if err != nil {
+		logger.Error("failed to fetch source config", slog.Any("error", err))
+		return nil, fmt.Errorf("failed to fetch source config: %w", err)
+	}
+
+	dstConfig, err := a.fetchPeerConfig(ctx, input.DestinationPeerName)
+	if err != nil {
+		logger.Error("failed to fetch destination config", slog.Any("error", err))
+		return nil, fmt.Errorf("failed to fetch destination config: %w", err)
+	}
+
+	return &protos.FetchSourceAndDestinationConfigsOutput{
+		SourcePeer:      srcConfig,
+		DestinationPeer: dstConfig,
+	}, nil
+}
+
 func (a *FlowableActivity) StartFlow(ctx context.Context,
 	input *protos.StartFlowInput,
 ) (*model.SyncResponse, error) {

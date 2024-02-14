@@ -401,3 +401,14 @@ message AddTablesToPublicationInput{
   repeated TableMapping additional_tables = 3;
 }
 
+message FetchSourceAndDestinationConfigsInput {
+  string source_peer_name = 1;
+  string destination_peer_name = 2;
+  string flow_job_name = 3;
+}
+
+message FetchSourceAndDestinationConfigsOutput {
+  peerdb_peers.Peer source_peer = 1;
+  peerdb_peers.Peer destination_peer = 2;
+}
+

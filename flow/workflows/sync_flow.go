@@ -41,6 +41,19 @@ func (s *SyncFlowExecution) executeSyncFlow(
 ) (*model.SyncResponse, error) {
 	s.logger.Info("executing sync flow", slog.String("flowName", s.CDCFlowName))
 
+	fetchPeerConfigsCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
+		StartToCloseTimeout: 1 * time.Hour,
+	})
+	var peerConfigs *protos.FetchSourceAndDestinationConfigsOutput
+	if err := workflow.ExecuteLocalActivity(
+		fetchPeerConfigsCtx, flowable.FetchSourceAndDestinationConfigs,
+	).Get(ctx, &peerConfigs); err != nil {
+		return nil, fmt.Errorf("failed to fetch peer configs: %w", err)
+	}
+
+	config.Source = peerConfigs.SourcePeer
+	config.Destination = peerConfigs.DestinationPeer
+
 	startFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 72 * time.Hour,
 		HeartbeatTimeout:    time.Minute,

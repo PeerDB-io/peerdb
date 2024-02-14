@@ -1,6 +1,7 @@
 package peerflow
 
 import (
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -16,6 +17,19 @@ func NormalizeFlowWorkflow(ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
 ) (*model.NormalizeFlowResponse, error) {
 	logger := workflow.GetLogger(ctx)
+
+	fetchPeerConfigsCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
+		StartToCloseTimeout: 1 * time.Hour,
+	})
+	var peerConfigs *protos.FetchSourceAndDestinationConfigsOutput
+	if err := workflow.ExecuteLocalActivity(
+		fetchPeerConfigsCtx, flowable.FetchSourceAndDestinationConfigs,
+	).Get(ctx, &peerConfigs); err != nil {
+		return nil, fmt.Errorf("failed to fetch peer configs: %w", err)
+	}
+
+	config.Source = peerConfigs.SourcePeer
+	config.Destination = peerConfigs.DestinationPeer
 
 	normalizeFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 7 * 24 * time.Hour,
