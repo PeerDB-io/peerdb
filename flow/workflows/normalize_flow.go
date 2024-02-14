@@ -24,6 +24,11 @@ func NormalizeFlowWorkflow(ctx workflow.Context,
 	var peerConfigs *protos.FetchSourceAndDestinationConfigsOutput
 	if err := workflow.ExecuteLocalActivity(
 		fetchPeerConfigsCtx, flowable.FetchSourceAndDestinationConfigs,
+		&protos.FetchSourceAndDestinationConfigsInput{
+			FlowJobName:         config.FlowJobName,
+			SourcePeerName:      config.Source.Name,
+			DestinationPeerName: config.Destination.Name,
+		},
 	).Get(ctx, &peerConfigs); err != nil {
 		return nil, fmt.Errorf("failed to fetch peer configs: %w", err)
 	}
