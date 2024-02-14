@@ -9,16 +9,23 @@ import {
 import { Button } from '@/lib/Button';
 import { Label } from '@/lib/Label';
 import { RowWithTextField } from '@/lib/Layout';
+import { ProgressCircle } from '@/lib/ProgressCircle';
 import { TextField } from '@/lib/TextField';
-import { ProgressCircle } from '@tremor/react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ToastContainer, toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 import TableMapping from '../../create/cdc/tablemapping';
 import { reformattedTableMapping } from '../../create/handlers';
 import { blankCDCSetting } from '../../create/helpers/common';
-
 type EditMirrorProps = {
   params: { mirrorId: string };
+};
+
+const notifyErr = (errMsg: string) => {
+  toast.error(errMsg, {
+    position: 'bottom-center',
+  });
 };
 
 const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
@@ -26,6 +33,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
   const defaultIdleTimeout = blankCDCSetting.idleTimeoutSeconds;
 
   const [rows, setRows] = useState<TableMapRow[]>([]);
+  const [loading, setLoading] = useState(false);
   const [mirrorState, setMirrorState] = useState<MirrorStatusResponse>();
   const [config, setConfig] = useState<CDCFlowConfigUpdate>({
     batchSize: defaultBatchSize,
@@ -79,10 +87,11 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
   }, [rows]);
 
   if (!mirrorState) {
-    return <ProgressCircle />;
+    return <ProgressCircle variant='determinate_progress_circle' />;
   }
 
   const sendFlowStateChangeRequest = async () => {
+    setLoading(true);
     const req: FlowStateChangeRequest = {
       flowJobName: mirrorId,
       sourcePeer: mirrorState.cdcStatus?.config?.source,
@@ -92,12 +101,17 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
         cdcFlowConfigUpdate: { ...config, additionalTables },
       },
     };
-    await fetch(`/api/mirrors/state_change`, {
+    const res = await fetch(`/api/mirrors/state_chage`, {
       method: 'POST',
       body: JSON.stringify(req),
       cache: 'no-store',
     });
-    push(`/mirrors/${mirrorId}`);
+    if (res.ok) {
+      push(`/mirrors/${mirrorId}`);
+    } else {
+      notifyErr(`Something went wrong: ${res.statusText}`);
+      setLoading(false);
+    }
   };
 
   return (
@@ -163,6 +177,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
         setRows={setRows}
         omitAdditionalTablesMapping={omitAdditionalTablesMapping}
       />
+
       <div style={{ display: 'flex' }}>
         <Button
           style={{
@@ -173,13 +188,18 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
           }}
           variant='normalSolid'
           disabled={
-            additionalTables.length > 0 &&
-            mirrorState.currentFlowState.toString() !==
-              FlowStatus[FlowStatus.STATUS_PAUSED]
+            loading ||
+            (additionalTables.length > 0 &&
+              mirrorState.currentFlowState.toString() !==
+                FlowStatus[FlowStatus.STATUS_PAUSED])
           }
           onClick={sendFlowStateChangeRequest}
         >
-          Edit Mirror
+          {loading ? (
+            <ProgressCircle variant='determinate_progress_circle' />
+          ) : (
+            'Edit Mirror'
+          )}
         </Button>
         <Button
           style={{ marginTop: '1rem', width: '8%', height: '2.5rem' }}
@@ -190,6 +210,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
           Back
         </Button>
       </div>
+      <ToastContainer />
     </div>
   );
 };

@@ -245,17 +245,20 @@ export const fetchSchemas = async (peerName: string) => {
 };
 
 const getDefaultDestinationTable = (
-  peerType: DBType | undefined,
+  peerType: DBType,
   schemaName: string,
   tableName: string
 ) => {
-  if (!peerType) {
-    return `${schemaName}.${tableName}`;
-  }
-  if (dBTypeToJSON(peerType) == 'BIGQUERY') {
+  if (
+    peerType.toString() == 'BIGQUERY' ||
+    dBTypeToJSON(peerType) == 'BIGQUERY'
+  ) {
     return tableName;
   }
-  if (dBTypeToJSON(peerType) == 'CLICKHOUSE') {
+  if (
+    peerType.toString() == 'CLICKHOUSE' ||
+    dBTypeToJSON(peerType) == 'CLICKHOUSE'
+  ) {
     return `${schemaName}_${tableName}`;
   }
   return `${schemaName}.${tableName}`;
@@ -283,7 +286,7 @@ export const fetchTables = async (
       // setting defaults:
       // for bigquery, tables are not schema-qualified
       const dstName = getDefaultDestinationTable(
-        peerType,
+        peerType!,
         schemaName,
         tableObject.tableName
       );
