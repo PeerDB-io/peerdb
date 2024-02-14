@@ -722,10 +722,11 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 		if err != nil {
 			if dt.Name == "time" || dt.Name == "timetz" ||
 				dt.Name == "timestamp" || dt.Name == "timestamptz" {
-				p.logger.Info(fmt.Sprintf("Invalidated and hence nulled %s data: %s",
+				// indicates year is more than 4 digits or something similar,
+				// which you can insert into postgres,
+				// but not representable by time.Time
+				p.logger.Warn(fmt.Sprintf("Invalidated and hence nulled %s data: %s",
 					dt.Name, string(data)))
-				// indicates year is more than 4 digits,
-				// or a malformed time string in general
 				return qvalue.QValue{}, nil
 			}
 			return qvalue.QValue{}, err
