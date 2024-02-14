@@ -8,22 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
-
-type Suite interface {
-	T() *testing.T
-	Conn() *pgx.Conn
-	Suffix() string
-}
-
-type RowSource interface {
-	Suite
-	GetRows(table, cols string) (*model.QRecordBatch, error)
-}
 
 func RunSuite[T any](t *testing.T, setup func(t *testing.T) T, teardown func(T)) {
 	t.Helper()

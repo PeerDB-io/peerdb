@@ -35,6 +35,17 @@ import (
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
 
+type Suite interface {
+	T() *testing.T
+	Connector() *connpostgres.PostgresConnector
+	Suffix() string
+}
+
+type RowSource interface {
+	Suite
+	GetRows(table, cols string) (*model.QRecordBatch, error)
+}
+
 func RegisterWorkflowsAndActivities(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
 	t.Helper()
 
@@ -93,21 +104,21 @@ func EnvTrue(t *testing.T, env *testsuite.TestWorkflowEnvironment, val bool) {
 	}
 }
 
-func GetPgRows(conn *pgx.Conn, suffix string, table string, cols string) (*model.QRecordBatch, error) {
-	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(conn, context.Background(), "testflow", "testpart")
+func GetPgRows(conn *connpostgres.PostgresConnector, suffix string, table string, cols string) (*model.QRecordBatch, error) {
+	pgQueryExecutor := conn.NewQRepQueryExecutor("testflow", "testpart")
 	pgQueryExecutor.SetTestEnv(true)
 
 	return pgQueryExecutor.ExecuteAndProcessQuery(
 		context.Background(),
-		fmt.Sprintf(`SELECT %s FROM e2e_test_%s."%s" ORDER BY id`, cols, suffix, table),
+		fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY id`, cols, suffix, connpostgres.QuoteIdentifier(table)),
 	)
 }
 
-func RequireEqualTables(suite e2eshared.RowSource, table string, cols string) {
+func RequireEqualTables(suite RowSource, table string, cols string) {
 	t := suite.T()
 	t.Helper()
 
-	pgRows, err := GetPgRows(suite.Conn(), suite.Suffix(), table, cols)
+	pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), table, cols)
 	require.NoError(t, err)
 
 	rows, err := suite.GetRows(table, cols)
@@ -116,11 +127,11 @@ func RequireEqualTables(suite e2eshared.RowSource, table string, cols string) {
 	require.True(t, e2eshared.CheckEqualRecordBatches(t, pgRows, rows))
 }
 
-func EnvEqualTables(env *testsuite.TestWorkflowEnvironment, suite e2eshared.RowSource, table string, cols string) {
+func EnvEqualTables(env *testsuite.TestWorkflowEnvironment, suite RowSource, table string, cols string) {
 	t := suite.T()
 	t.Helper()
 
-	pgRows, err := GetPgRows(suite.Conn(), suite.Suffix(), table, cols)
+	pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), table, cols)
 	EnvNoError(t, env, err)
 
 	rows, err := suite.GetRows(table, cols)
@@ -131,7 +142,7 @@ func EnvEqualTables(env *testsuite.TestWorkflowEnvironment, suite e2eshared.RowS
 
 func EnvWaitForEqualTables(
 	env *testsuite.TestWorkflowEnvironment,
-	suite e2eshared.RowSource,
+	suite RowSource,
 	reason string,
 	table string,
 	cols string,
@@ -142,7 +153,7 @@ func EnvWaitForEqualTables(
 
 func EnvWaitForEqualTablesWithNames(
 	env *testsuite.TestWorkflowEnvironment,
-	suite e2eshared.RowSource,
+	suite RowSource,
 	reason string,
 	srcTable string,
 	dstTable string,
@@ -154,7 +165,7 @@ func EnvWaitForEqualTablesWithNames(
 	EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
 		t.Helper()
 
-		pgRows, err := GetPgRows(suite.Conn(), suite.Suffix(), srcTable, cols)
+		pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), srcTable, cols)
 		if err != nil {
 			return false
 		}

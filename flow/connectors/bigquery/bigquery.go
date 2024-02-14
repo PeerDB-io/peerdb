@@ -47,7 +47,6 @@ type BigQueryServiceAccount struct {
 	ClientX509CertURL       string `json:"client_x509_cert_url"`
 }
 
-// BigQueryConnector is a Connector implementation for BigQuery.
 type BigQueryConnector struct {
 	bqConfig      *protos.BigqueryConfig
 	client        *bigquery.Client
@@ -59,7 +58,6 @@ type BigQueryConnector struct {
 	logger        log.Logger
 }
 
-// Create BigQueryServiceAccount from BigqueryConfig
 func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*BigQueryServiceAccount, error) {
 	var serviceAccount BigQueryServiceAccount
 	serviceAccount.Type = bqConfig.AuthType
@@ -178,7 +176,6 @@ func TableCheck(ctx context.Context, client *bigquery.Client, dataset string, pr
 	return nil
 }
 
-// NewBigQueryConnector creates a new BigQueryConnector from a PeerConnectionConfig.
 func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*BigQueryConnector, error) {
 	logger := logger.LoggerFromCtx(ctx)
 
@@ -246,7 +243,7 @@ func (c *BigQueryConnector) Close(_ context.Context) error {
 	return c.client.Close()
 }
 
-// ConnectionActive returns true if the connection is active.
+// ConnectionActive returns nil if the connection is active.
 func (c *BigQueryConnector) ConnectionActive(ctx context.Context) error {
 	_, err := c.client.DatasetInProject(c.projectID, c.datasetID).Metadata(ctx)
 	if err != nil {

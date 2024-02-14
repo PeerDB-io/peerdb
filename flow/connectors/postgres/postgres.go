@@ -24,7 +24,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared/alerting"
 )
 
-// PostgresConnector is a Connector implementation for Postgres.
 type PostgresConnector struct {
 	connStr            string
 	config             *protos.PostgresConfig
@@ -33,10 +32,10 @@ type PostgresConnector struct {
 	replConfig         *pgx.ConnConfig
 	customTypesMapping map[uint32]string
 	metadataSchema     string
+	hushWarnOID        map[uint32]struct{}
 	logger             log.Logger
 }
 
-// NewPostgresConnector creates a new instance of PostgresConnector.
 func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
 	connectionString := utils.GetPGConnectionString(pgConfig)
 
@@ -84,6 +83,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		replConfig:         replConfig,
 		customTypesMapping: customTypeMap,
 		metadataSchema:     metadataSchema,
+		hushWarnOID:        make(map[uint32]struct{}),
 		logger:             logger.LoggerFromCtx(ctx),
 	}, nil
 }
@@ -107,7 +107,11 @@ func (c *PostgresConnector) Close(ctx context.Context) error {
 	return nil
 }
 
-// ConnectionActive returns true if the connection is active.
+func (c *PostgresConnector) Conn() *pgx.Conn {
+	return c.conn
+}
+
+// ConnectionActive returns nil if the connection is active.
 func (c *PostgresConnector) ConnectionActive(ctx context.Context) error {
 	if c.conn == nil {
 		return fmt.Errorf("connection is nil")
@@ -214,7 +218,7 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 	}
 	defer replConn.Close(ctx)
 
-	cdc, err := NewPostgresCDCSource(ctx, &PostgresCDCConfig{
+	cdc, err := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
 		Connection:             replConn,
 		SrcTableIDNameMapping:  req.SrcTableIDNameMapping,
 		Slot:                   slotName,
@@ -223,7 +227,7 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 		RelationMessageMapping: req.RelationMessageMapping,
 		CatalogPool:            catalogPool,
 		FlowJobName:            req.FlowJobName,
-	}, c.customTypesMapping)
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create cdc source: %w", err)
 	}
@@ -603,7 +607,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	columnNames := make([]string, 0, len(fields))
 	columns := make([]*protos.FieldDescription, 0, len(fields))
 	for _, fieldDescription := range fields {
-		genericColType := postgresOIDToQValueKind(fieldDescription.DataTypeOID)
+		genericColType := c.postgresOIDToQValueKind(fieldDescription.DataTypeOID)
 		if genericColType == qvalue.QValueKindInvalid {
 			typeName, ok := c.customTypesMapping[fieldDescription.DataTypeOID]
 			if ok {

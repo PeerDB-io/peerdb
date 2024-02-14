@@ -13,7 +13,6 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/geo"
-	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -21,48 +20,32 @@ import (
 )
 
 type QRepQueryExecutor struct {
-	conn          *pgx.Conn
-	snapshot      string
-	testEnv       bool
-	flowJobName   string
-	partitionID   string
-	customTypeMap map[uint32]string
-	logger        log.Logger
+	*PostgresConnector
+	snapshot    string
+	testEnv     bool
+	flowJobName string
+	partitionID string
+	logger      log.Logger
 }
 
-func NewQRepQueryExecutor(conn *pgx.Conn, ctx context.Context,
-	flowJobName string, partitionID string,
-) *QRepQueryExecutor {
+func (c *PostgresConnector) NewQRepQueryExecutor(flowJobName string, partitionID string) *QRepQueryExecutor {
 	return &QRepQueryExecutor{
-		conn:        conn,
-		snapshot:    "",
-		flowJobName: flowJobName,
-		partitionID: partitionID,
-		logger: log.With(
-			logger.LoggerFromCtx(ctx),
-			slog.String(string(shared.PartitionIDKey), partitionID),
-		),
+		PostgresConnector: c,
+		snapshot:          "",
+		flowJobName:       flowJobName,
+		partitionID:       partitionID,
+		logger:            log.With(c.logger, slog.String(string(shared.PartitionIDKey), partitionID)),
 	}
 }
 
-func NewQRepQueryExecutorSnapshot(ctx context.Context, conn *pgx.Conn, snapshot string,
-	flowJobName string, partitionID string,
-) (*QRepQueryExecutor, error) {
-	CustomTypeMap, err := utils.GetCustomDataTypes(ctx, conn)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get custom data types: %w", err)
-	}
+func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(snapshot string, flowJobName string, partitionID string) *QRepQueryExecutor {
 	return &QRepQueryExecutor{
-		conn:          conn,
-		snapshot:      snapshot,
-		flowJobName:   flowJobName,
-		partitionID:   partitionID,
-		customTypeMap: CustomTypeMap,
-		logger: log.With(
-			logger.LoggerFromCtx(ctx),
-			slog.String(string(shared.PartitionIDKey), partitionID),
-		),
-	}, nil
+		PostgresConnector: c,
+		snapshot:          snapshot,
+		flowJobName:       flowJobName,
+		partitionID:       partitionID,
+		logger:            log.With(c.logger, slog.String(string(shared.PartitionIDKey), partitionID)),
+	}
 }
 
 func (qe *QRepQueryExecutor) SetTestEnv(testEnv bool) {
@@ -104,9 +87,9 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 	qfields := make([]model.QField, len(fds))
 	for i, fd := range fds {
 		cname := fd.Name
-		ctype := postgresOIDToQValueKind(fd.DataTypeOID)
+		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID)
 		if ctype == qvalue.QValueKindInvalid {
-			typeName, ok := qe.customTypeMap[fd.DataTypeOID]
+			typeName, ok := qe.customTypesMapping[fd.DataTypeOID]
 			if ok {
 				ctype = customTypeToQKind(typeName)
 			} else {
@@ -145,7 +128,7 @@ func (qe *QRepQueryExecutor) ProcessRows(
 	qe.logger.Info("Processing rows")
 	// Iterate over the rows
 	for rows.Next() {
-		record, err := mapRowToQRecord(qe.logger, rows, fieldDescriptions, qe.customTypeMap)
+		record, err := qe.mapRowToQRecord(rows, fieldDescriptions)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
 			return nil, fmt.Errorf("failed to map row to QRecord: %w", err)
@@ -186,7 +169,7 @@ func (qe *QRepQueryExecutor) processRowsStream(
 			return numRows, ctx.Err()
 		default:
 			// Process the row as before
-			record, err := mapRowToQRecord(qe.logger, rows, fieldDescriptions, qe.customTypeMap)
+			record, err := qe.mapRowToQRecord(rows, fieldDescriptions)
 			if err != nil {
 				qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
 				stream.Records <- model.QRecordOrError{
@@ -450,28 +433,26 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
 	return totalRecordsFetched, nil
 }
 
-func mapRowToQRecord(
-	logger log.Logger,
+func (qe *QRepQueryExecutor) mapRowToQRecord(
 	row pgx.Rows,
 	fds []pgconn.FieldDescription,
-	customTypeMap map[uint32]string,
 ) ([]qvalue.QValue, error) {
 	// make vals an empty array of QValue of size len(fds)
 	record := make([]qvalue.QValue, len(fds))
 
 	values, err := row.Values()
 	if err != nil {
-		logger.Error("[pg_query_executor] failed to get values from row", slog.Any("error", err))
+		qe.logger.Error("[pg_query_executor] failed to get values from row", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to scan row: %w", err)
 	}
 
 	for i, fd := range fds {
 		// Check if it's a custom type first
-		typeName, ok := customTypeMap[fd.DataTypeOID]
+		typeName, ok := qe.customTypesMapping[fd.DataTypeOID]
 		if !ok {
-			tmp, err := parseFieldFromPostgresOID(fd.DataTypeOID, values[i])
+			tmp, err := qe.parseFieldFromPostgresOID(fd.DataTypeOID, values[i])
 			if err != nil {
-				logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))
+				qe.logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))
 				return nil, fmt.Errorf("failed to parse field: %w", err)
 			}
 			record[i] = tmp

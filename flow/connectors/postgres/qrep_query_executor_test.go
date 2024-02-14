@@ -10,31 +10,35 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
-func setupDB(t *testing.T) (*pgx.Conn, string) {
+func setupDB(t *testing.T) (*PostgresConnector, string) {
 	t.Helper()
 
-	config, err := pgx.ParseConfig("postgres://postgres:postgres@localhost:7132/postgres")
+	connector, err := NewPostgresConnector(context.Background(),
+		&protos.PostgresConfig{
+			Host:     "localhost",
+			Port:     7132,
+			User:     "postgres",
+			Password: "postgres",
+			Database: "postgres",
+		})
 	if err != nil {
-		t.Fatalf("unable to parse config: %v", err)
-	}
-
-	conn, err := pgx.ConnectConfig(context.Background(), config)
-	if err != nil {
-		t.Fatalf("unable to connect to database: %v", err)
+		t.Fatalf("unable to create connector: %v", err)
 	}
 
 	// Create unique schema name using current time
 	schemaName := fmt.Sprintf("schema_%d", time.Now().Unix())
 
 	// Create the schema
-	_, err = conn.Exec(context.Background(), fmt.Sprintf("CREATE SCHEMA %s;", schemaName))
+	_, err = connector.conn.Exec(context.Background(), fmt.Sprintf("CREATE SCHEMA %s;", schemaName))
 	if err != nil {
 		t.Fatalf("unable to create schema: %v", err)
 	}
 
-	return conn, schemaName
+	return connector, schemaName
 }
 
 func teardownDB(t *testing.T, conn *pgx.Conn, schemaName string) {
@@ -47,12 +51,11 @@ func teardownDB(t *testing.T, conn *pgx.Conn, schemaName string) {
 }
 
 func TestExecuteAndProcessQuery(t *testing.T) {
-	conn, schemaName := setupDB(t)
-	defer conn.Close(context.Background())
-
-	defer teardownDB(t, conn, schemaName)
-
 	ctx := context.Background()
+	connector, schemaName := setupDB(t)
+	conn := connector.conn
+	defer connector.Close(ctx)
+	defer teardownDB(t, conn, schemaName)
 
 	query := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.test(id SERIAL PRIMARY KEY, data TEXT);", schemaName)
 	_, err := conn.Exec(ctx, query)
@@ -66,7 +69,7 @@ func TestExecuteAndProcessQuery(t *testing.T) {
 		t.Fatalf("error while inserting into test table: %v", err)
 	}
 
-	qe := NewQRepQueryExecutor(conn, ctx, "test flow", "test part")
+	qe := connector.NewQRepQueryExecutor("test flow", "test part")
 	qe.SetTestEnv(true)
 
 	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
@@ -85,13 +88,11 @@ func TestExecuteAndProcessQuery(t *testing.T) {
 }
 
 func TestAllDataTypes(t *testing.T) {
-	conn, schemaName := setupDB(t)
-	defer conn.Close(context.Background())
-
-	// Call teardownDB function after test
-	defer teardownDB(t, conn, schemaName)
-
 	ctx := context.Background()
+	connector, schemaName := setupDB(t)
+	conn := connector.conn
+	defer conn.Close(ctx)
+	defer teardownDB(t, conn, schemaName)
 
 	// Create a table that contains every data type we want to test
 	query := fmt.Sprintf(`
@@ -170,7 +171,7 @@ func TestAllDataTypes(t *testing.T) {
 		t.Fatalf("error while inserting into test table: %v", err)
 	}
 
-	qe := NewQRepQueryExecutor(conn, ctx, "test flow", "test part")
+	qe := connector.NewQRepQueryExecutor("test flow", "test part")
 	// Select the row back out of the table
 	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
 	rows, err := qe.ExecuteQuery(context.Background(), query)

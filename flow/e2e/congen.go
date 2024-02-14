@@ -9,8 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/e2eshared"
+	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
@@ -120,34 +119,35 @@ func setupPostgresSchema(t *testing.T, conn *pgx.Conn, suffix string) error {
 }
 
 // SetupPostgres sets up the postgres connection.
-func SetupPostgres(t *testing.T, suffix string) (*pgx.Conn, error) {
+func SetupPostgres(t *testing.T, suffix string) (*connpostgres.PostgresConnector, error) {
 	t.Helper()
 
-	conn, err := pgx.Connect(context.Background(), utils.GetPGConnectionString(GetTestPostgresConf()))
+	connector, err := connpostgres.NewPostgresConnector(context.Background(), GetTestPostgresConf())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres connection: %w", err)
 	}
+	conn := connector.Conn()
 
 	err = cleanPostgres(conn, suffix)
 	if err != nil {
-		conn.Close(context.Background())
+		connector.Close(context.Background())
 		return nil, err
 	}
 
 	err = setupPostgresSchema(t, conn, suffix)
 	if err != nil {
-		conn.Close(context.Background())
+		connector.Close(context.Background())
 		return nil, err
 	}
 
-	return conn, nil
+	return connector, nil
 }
 
-func TearDownPostgres[T e2eshared.Suite](s T) {
+func TearDownPostgres[T Suite](s T) {
 	t := s.T()
 	t.Helper()
 
-	conn := s.Conn()
+	conn := s.Connector().Conn()
 	if conn != nil {
 		suffix := s.Suffix()
 		t.Log("begin tearing down postgres schema", suffix)

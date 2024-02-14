@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"math/big"
 	"strings"
 	"time"
@@ -18,7 +17,7 @@ import (
 
 var big10 = big.NewInt(10)
 
-func postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
+func (c *PostgresConnector) postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
 	switch recvOID {
 	case pgtype.BoolOID:
 		return qvalue.QValueKindBoolean
@@ -102,7 +101,11 @@ func postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
 
 			return qvalue.QValueKindInvalid
 		} else {
-			slog.Warn(fmt.Sprintf("unsupported field type: %v - type name - %s; returning as string", recvOID, typeName.Name))
+			_, warned := c.hushWarnOID[recvOID]
+			if !warned {
+				c.logger.Warn(fmt.Sprintf("unsupported field type: %d - type name - %s; returning as string", recvOID, typeName.Name))
+				c.hushWarnOID[recvOID] = struct{}{}
+			}
 			return qvalue.QValueKindString
 		}
 	}
@@ -370,8 +373,8 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 	return val, nil
 }
 
-func parseFieldFromPostgresOID(oid uint32, value interface{}) (qvalue.QValue, error) {
-	return parseFieldFromQValueKind(postgresOIDToQValueKind(oid), value)
+func (c *PostgresConnector) parseFieldFromPostgresOID(oid uint32, value interface{}) (qvalue.QValue, error) {
+	return parseFieldFromQValueKind(c.postgresOIDToQValueKind(oid), value)
 }
 
 func numericToRat(numVal *pgtype.Numeric) (*big.Rat, error) {

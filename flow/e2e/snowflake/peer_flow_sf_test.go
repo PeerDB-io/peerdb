@@ -14,6 +14,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
 
+	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2e"
@@ -29,7 +30,7 @@ type PeerFlowE2ETestSuiteSF struct {
 	t *testing.T
 
 	pgSuffix  string
-	conn      *pgx.Conn
+	conn      *connpostgres.PostgresConnector
 	sfHelper  *SnowflakeTestHelper
 	connector *connsnowflake.SnowflakeConnector
 }
@@ -38,8 +39,12 @@ func (s PeerFlowE2ETestSuiteSF) T() *testing.T {
 	return s.t
 }
 
-func (s PeerFlowE2ETestSuiteSF) Conn() *pgx.Conn {
+func (s PeerFlowE2ETestSuiteSF) Connector() *connpostgres.PostgresConnector {
 	return s.conn
+}
+
+func (s PeerFlowE2ETestSuiteSF) Conn() *pgx.Conn {
+	return s.Connector().Conn()
 }
 
 func (s PeerFlowE2ETestSuiteSF) Suffix() string {
@@ -128,7 +133,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 	srcTableName := s.attachSchemaSuffix(tableName)
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
 
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			key TEXT NOT NULL,
@@ -155,7 +160,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 		for i := 0; i < 20; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
-			_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s (key, value) VALUES ($1, $2)
 		`, srcTableName), testKey, testValue)
 			e2e.EnvNoError(s.t, env, err)
@@ -187,7 +192,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_replica_identity_no_pkey")
 
 	// Create a table without a primary key and create a named unique index
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL,
 			key TEXT NOT NULL,
@@ -216,7 +221,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 		for i := 0; i < 20; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
-			_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s (id, key, value) VALUES ($1, $2, $3)
 		`, srcTableName), i, testKey, testValue)
 			e2e.EnvNoError(s.t, env, err)
@@ -241,7 +246,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	srcTableName := s.attachSchemaSuffix(tableName)
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_invalid_geo_sf_avro_cdc")
 
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			line GEOMETRY(LINESTRING) NOT NULL,
@@ -266,7 +271,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		// insert 4 invalid shapes and 6 valid shapes into the source table
 		for i := 0; i < 4; i++ {
-			_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s (line,poly) VALUES ($1,$2)
 		`, srcTableName), "010200000001000000000000000000F03F0000000000000040",
 				"0103000020e6100000010000000c0000001a8361d35dc64140afdb8d2b1bc3c9bf1b8ed4685fc641405ba64c"+
@@ -278,7 +283,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 		}
 		s.t.Log("Inserted 4 invalid geography rows into the source table")
 		for i := 4; i < 10; i++ {
-			_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s (line,poly) VALUES ($1,$2)
 		`, srcTableName), "010200000002000000000000000000F03F000000000000004000000000000008400000000000001040",
 				"010300000001000000050000000000000000000000000000000000000000000000"+
@@ -321,7 +326,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 	srcTableName := s.attachSchemaSuffix("test_toast_sf_1")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_1")
 
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			t1 text,
@@ -351,7 +356,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 			2. changes no toast column
 			2. changes 1 toast column
 		*/
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			BEGIN;
 			INSERT INTO %s (t1,t2,k) SELECT random_string(9000),random_string(9000),
 			1 FROM generate_series(1,2);
@@ -375,7 +380,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 	srcTableName := s.attachSchemaSuffix("test_toast_sf_3")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_3")
 
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			t1 text,
@@ -400,7 +405,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		// complex transaction with random DMLs on a table with toast columns
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			BEGIN;
 			INSERT INTO %s (t1,t2,k) SELECT random_string(9000),random_string(9000),
 			1 FROM generate_series(1,2);
@@ -435,7 +440,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 	srcTableName := s.attachSchemaSuffix("test_toast_sf_4")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_4")
 
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			t1 text,
@@ -459,7 +464,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		// complex transaction with random DMLs on a table with toast columns
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			BEGIN;
 			INSERT INTO %s (t1,k) SELECT random_string(9000),
 			1 FROM generate_series(1,1);
@@ -488,7 +493,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 	srcTableName := s.attachSchemaSuffix("test_toast_sf_5")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_5")
 
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 	CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			t1 text,
@@ -516,7 +521,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 			transaction updating a single row
 			multiple times with changed/unchanged toast columns
 		*/
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			BEGIN;
 			INSERT INTO %s (t1,t2,k) SELECT random_string(9000),random_string(9000),
 			1 FROM generate_series(1,1);
@@ -543,11 +548,11 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_types_sf")
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
 	var pgErr *pgconn.PgError
-	_, enumErr := s.conn.Exec(context.Background(), createMoodEnum)
+	_, enumErr := s.Conn().Exec(context.Background(), createMoodEnum)
 	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !utils.IsUniqueError(pgErr) {
 		require.NoError(s.t, enumErr)
 	}
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 	CREATE TABLE IF NOT EXISTS %s (id serial PRIMARY KEY,c1 BIGINT,c2 BIT,c3 VARBIT,c4 BOOLEAN,
 		c6 BYTEA,c7 CHARACTER,c8 varchar,c9 CIDR,c11 DATE,c12 FLOAT,c13 DOUBLE PRECISION,
 		c14 INET,c15 INTEGER,c16 INTERVAL,c17 JSON,c18 JSONB,c21 MACADDR,c22 MONEY,
@@ -574,7 +579,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		/* test inserting various types*/
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s SELECT 2,2,b'1',b'101',
 		true,random_bytea(32),'s','test','1.1.10.2'::cidr,
 		CURRENT_DATE,1.23,1.234,'192.168.1.5'::inet,1,
@@ -640,7 +645,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 	dstTable1Name := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test1_sf")
 	dstTable2Name := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test2_sf")
 
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 	CREATE TABLE IF NOT EXISTS %s (id serial primary key, c1 int, c2 text);
 	CREATE TABLE IF NOT EXISTS %s (id serial primary key, c1 int, c2 text);
 	`, srcTable1Name, srcTable2Name))
@@ -661,7 +666,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		/* inserting across multiple tables*/
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s (c1,c2) VALUES (1,'dummy_1');
 		INSERT INTO %s (c1,c2) VALUES (-1,'dummy_-1');
 		`, srcTable1Name, srcTable2Name))
@@ -693,7 +698,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 	srcTableName := s.attachSchemaSuffix("test_simple_schema_changes")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_simple_schema_changes")
 
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
 			c1 BIGINT
@@ -715,7 +720,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 	// and then insert and mutate schema repeatedly.
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1) VALUES ($1)`, srcTableName), 1)
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Inserted initial row in the source table")
@@ -754,11 +759,11 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		e2e.EnvTrue(s.t, env, e2e.CompareTableSchemas(expectedTableSchema, output.TableNameSchemaMapping[dstTableName]))
 
 		// alter source table, add column c2 and insert another row.
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		ALTER TABLE %s ADD COLUMN c2 BIGINT`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Altered source table, added column c2")
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1,c2) VALUES ($1,$2)`, srcTableName), 2, 2)
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Inserted row with added c2 in the source table")
@@ -798,11 +803,11 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		e2e.EnvEqualTables(env, s, "test_simple_schema_changes", "id,c1,c2")
 
 		// alter source table, add column c3, drop column c2 and insert another row.
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		ALTER TABLE %s DROP COLUMN c2, ADD COLUMN c3 BIGINT`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Altered source table, dropped column c2 and added column c3")
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1,c3) VALUES ($1,$2)`, srcTableName), 3, 3)
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Inserted row with added c3 in the source table")
@@ -847,11 +852,11 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		e2e.EnvEqualTables(env, s, "test_simple_schema_changes", "id,c1,c3")
 
 		// alter source table, drop column c3 and insert another row.
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		ALTER TABLE %s DROP COLUMN c3`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Altered source table, dropped column c3")
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1) VALUES ($1)`, srcTableName), 4)
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Inserted row after dropping all columns in the source table")
@@ -908,7 +913,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 	srcTableName := s.attachSchemaSuffix("test_simple_cpkey")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_simple_cpkey")
 
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id INT GENERATED ALWAYS AS IDENTITY,
 			c1 INT GENERATED BY DEFAULT AS IDENTITY,
@@ -936,7 +941,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 		// insert 10 rows into the source table
 		for i := 0; i < 10; i++ {
 			testValue := fmt.Sprintf("test_value_%d", i)
-			_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c2,t) VALUES ($1,$2)
 		`, srcTableName), i, testValue)
 			e2e.EnvNoError(s.t, env, err)
@@ -945,10 +950,10 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 
 		e2e.EnvWaitForEqualTables(env, s, "normalize table", "test_simple_cpkey", "id,c1,c2,t")
 
-		_, err := s.conn.Exec(context.Background(),
+		_, err := s.Conn().Exec(context.Background(),
 			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=$1`, srcTableName), 1)
 		e2e.EnvNoError(s.t, env, err)
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
 		e2e.EnvNoError(s.t, env, err)
 		e2e.EnvWaitForEqualTables(env, s, "normalize update/delete", "test_simple_cpkey", "id,c1,c2,t")
 
@@ -965,7 +970,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast1")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_cpkey_toast1")
 
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id INT GENERATED ALWAYS AS IDENTITY,
 			c1 INT GENERATED BY DEFAULT AS IDENTITY,
@@ -991,7 +996,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 	// and then insert, update and delete rows in the table.
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
-		rowsTx, err := s.conn.Begin(context.Background())
+		rowsTx, err := s.Conn().Begin(context.Background())
 		e2e.EnvNoError(s.t, env, err)
 
 		// insert 10 rows into the source table
@@ -1028,7 +1033,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 	srcTableName := s.attachSchemaSuffix(tableName)
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
 
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id INT GENERATED ALWAYS AS IDENTITY,
 			c1 INT GENERATED BY DEFAULT AS IDENTITY,
@@ -1058,7 +1063,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 		// insert 10 rows into the source table
 		for i := 0; i < 10; i++ {
 			testValue := fmt.Sprintf("test_value_%d", i)
-			_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,random_string(9000))
 		`, srcTableName), i, testValue)
 			e2e.EnvNoError(s.t, env, err)
@@ -1066,10 +1071,10 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 		s.t.Log("Inserted 10 rows into the source table")
 
 		e2e.EnvWaitForEqualTables(env, s, "normalize table", tableName, "id,c2,t,t2")
-		_, err = s.conn.Exec(context.Background(),
+		_, err = s.Conn().Exec(context.Background(),
 			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=$1`, srcTableName), 1)
 		e2e.EnvNoError(s.t, env, err)
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
 		e2e.EnvNoError(s.t, env, err)
 		e2e.EnvWaitForEqualTables(env, s, "normalize update/delete", tableName, "id,c2,t,t2")
 
@@ -1087,7 +1092,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 	srcTableName := s.attachSchemaSuffix(tableName)
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
 
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id INT GENERATED ALWAYS AS IDENTITY,
 			c1 INT GENERATED BY DEFAULT AS IDENTITY,
@@ -1127,7 +1132,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 		// insert 10 rows into the source table
 		for i := 0; i < 10; i++ {
 			testValue := fmt.Sprintf("test_value_%d", i)
-			_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,random_string(100))
 		`, srcTableName), i, testValue)
 			e2e.EnvNoError(s.t, env, err)
@@ -1135,10 +1140,10 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 		s.t.Log("Inserted 10 rows into the source table")
 
 		e2e.EnvWaitForEqualTables(env, s, "normalize table", tableName, "id,c1,t,t2")
-		_, err = s.conn.Exec(context.Background(),
+		_, err = s.Conn().Exec(context.Background(),
 			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=1`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=0`, srcTableName))
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=0`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		e2e.EnvWaitForEqualTables(env, s, "normalize update/delete", tableName, "id,c1,t,t2")
 
@@ -1165,7 +1170,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 	srcTableName := s.attachSchemaSuffix(tableName)
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, dstName)
 
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
 			c1 INT,
@@ -1201,15 +1206,15 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize row", tableName, dstName, "id,c1,c2,t")
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			UPDATE %s SET c1=c1+4 WHERE id=1`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize update", tableName, dstName, "id,c1,c2,t")
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			DELETE FROM %s WHERE id=1`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		e2e.EnvWaitForEqualTablesWithNames(
@@ -1241,7 +1246,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_softdel_iud")
 
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
 			c1 INT,
@@ -1277,7 +1282,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 
-		insertTx, err := s.conn.Begin(context.Background())
+		insertTx, err := s.Conn().Begin(context.Background())
 		e2e.EnvNoError(s.t, env, err)
 
 		_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
@@ -1320,7 +1325,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 	srcTableName := s.attachSchemaSuffix(tableName)
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, dstName)
 
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
 			c1 INT,
@@ -1356,12 +1361,12 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize insert", tableName, dstName, "id,c1,c2,t")
 
-		insertTx, err := s.conn.Begin(context.Background())
+		insertTx, err := s.Conn().Begin(context.Background())
 		e2e.EnvNoError(s.t, env, err)
 		_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
 			UPDATE %s SET t=random_string(10000) WHERE id=1`, srcTableName))
@@ -1404,7 +1409,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 	srcTableName := s.attachSchemaSuffix(tableName)
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
 
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id INT PRIMARY KEY GENERATED BY DEFAULT AS IDENTITY,
 			c1 INT,
@@ -1440,11 +1445,11 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		e2e.EnvWaitForEqualTables(env, s, "normalize row", tableName, "id,c1,c2,t")
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			DELETE FROM %s WHERE id=1`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		e2e.EnvWaitForEqualTablesWithNames(
@@ -1456,7 +1461,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 			"id,c1,c2,t",
 		)
 
-		_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(id,c1,c2,t) VALUES (1,3,4,random_string(10000))`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		e2e.EnvWaitForEqualTables(env, s, "normalize reinsert", tableName, "id,c1,c2,t")
@@ -1480,7 +1485,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 	srcTableName := s.attachSchemaSuffix("testMixedCase")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "testMixedCase")
 
-	_, err := s.conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS e2e_test_%s."%s" (
 			"pulseArmor" SERIAL PRIMARY KEY,
 			"highGold" TEXT NOT NULL,
@@ -1508,7 +1513,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 		for i := 0; i < 20; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
-			_, err = s.conn.Exec(context.Background(), fmt.Sprintf(`
+			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO e2e_test_%s."%s"("highGold","eVe") VALUES ($1, $2)
 		`, s.pgSuffix, "testMixedCase"), testKey, testValue)
 			e2e.EnvNoError(s.t, env, err)
