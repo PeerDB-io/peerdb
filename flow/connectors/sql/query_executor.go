@@ -308,6 +308,9 @@ func (g *GenericSQLQueryExecutor) CheckNull(ctx context.Context, schema string, 
 }
 
 func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
+	if val == nil {
+		return qvalue.QValue{Kind: kind, Value: nil}, nil
+	}
 	switch kind {
 	case qvalue.QValueKindInt32:
 		if v, ok := val.(*sql.NullInt32); ok {
@@ -340,6 +343,10 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 			} else {
 				return qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: nil}, nil
 			}
+		}
+	case qvalue.QValueKindQChar:
+		if v, ok := val.(uint8); ok {
+			return qvalue.QValue{Kind: qvalue.QValueKindQChar, Value: v}, nil
 		}
 	case qvalue.QValueKindString:
 		if v, ok := val.(*sql.NullString); ok {

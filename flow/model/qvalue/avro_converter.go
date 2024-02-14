@@ -64,7 +64,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision 
 	}
 
 	switch kind {
-	case QValueKindString:
+	case QValueKindString, QValueKindQChar:
 		return "string", nil
 	case QValueKindUUID:
 		return AvroSchemaLogical{
@@ -291,7 +291,8 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 			return goavro.Union("int.date", t), nil
 		}
 		return t, nil
-
+	case QValueKindQChar:
+		return c.processNullableUnion("string", string(c.Value.Value.(uint8)))
 	case QValueKindString, QValueKindCIDR, QValueKindINET, QValueKindMacaddr:
 		if c.TargetDWH == QDWHTypeSnowflake && c.Value.Value != nil &&
 			(len(c.Value.Value.(string)) > 15*1024*1024) {

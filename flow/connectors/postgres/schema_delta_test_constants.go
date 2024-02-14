@@ -19,6 +19,7 @@ var AddAllColumnTypes = []string{
 	string(qvalue.QValueKindJSON),
 	string(qvalue.QValueKindNumeric),
 	string(qvalue.QValueKindString),
+	string(qvalue.QValueKindQChar),
 	string(qvalue.QValueKindTime),
 	string(qvalue.QValueKindTimestamp),
 	string(qvalue.QValueKindTimestampTZ),
@@ -93,21 +94,26 @@ var AddAllColumnTypesFields = []*protos.FieldDescription{
 	},
 	{
 		Name:         "c13",
-		Type:         string(qvalue.QValueKindTime),
+		Type:         string(qvalue.QValueKindQChar),
 		TypeModifier: -1,
 	},
 	{
 		Name:         "c14",
-		Type:         string(qvalue.QValueKindTimestamp),
+		Type:         string(qvalue.QValueKindTime),
 		TypeModifier: -1,
 	},
 	{
 		Name:         "c15",
-		Type:         string(qvalue.QValueKindTimestampTZ),
+		Type:         string(qvalue.QValueKindTimestamp),
 		TypeModifier: -1,
 	},
 	{
 		Name:         "c16",
+		Type:         string(qvalue.QValueKindTimestampTZ),
+		TypeModifier: -1,
+	},
+	{
+		Name:         "c17",
 		Type:         string(qvalue.QValueKindUUID),
 		TypeModifier: -1,
 	},
