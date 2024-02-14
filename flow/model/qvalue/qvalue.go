@@ -295,13 +295,13 @@ func compareGeometry(value1, value2 interface{}) bool {
 
 	switch v1 := value1.(type) {
 	case *geom.Geom:
-		return v1.Equals(geo2)
+		return v1.EqualsExact(geo2, 0.0001)
 	case string:
 		geo1, err := geom.NewGeomFromWKT(v1)
 		if err != nil {
 			panic(err)
 		}
-		return geo1.Equals(geo2)
+		return geo1.EqualsExact(geo2, 0.0001)
 	default:
 		panic(fmt.Sprintf("invalid geometry value type %T: %v", value1, value1))
 	}
