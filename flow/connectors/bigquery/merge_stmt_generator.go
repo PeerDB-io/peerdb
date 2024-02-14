@@ -158,6 +158,9 @@ func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) s
 	}
 	// t.<pkey1> = d.<pkey1> AND t.<pkey2> = d.<pkey2> ...
 	pkeySelectSQL := strings.Join(pkeySelectSQLArray, " AND ")
+	if pkeySelectSQL == "" {
+		return NoPrimaryKeyMergeCase
+	}
 
 	deletePart := "DELETE"
 	if m.peerdbCols.SoftDelete {
