@@ -3,7 +3,6 @@ package connbigquery
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"cloud.google.com/go/bigquery"
@@ -126,7 +125,7 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 }
 
 // generateMergeStmt generates a merge statement.
-func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) (string, error) {
+func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) string {
 	// comma separated list of column names
 	columnCount := len(m.normalizedTableSchema.ColumnNames)
 	backtickColNames := make([]string, 0, columnCount)
@@ -162,9 +161,6 @@ func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) (
 	}
 	// t.<pkey1> = d.<pkey1> AND t.<pkey2> = d.<pkey2> ...
 	pkeySelectSQL := strings.Join(pkeySelectSQLArray, " AND ")
-	if pkeySelectSQL == "" {
-		return "", ErrNoPrimaryKey
-	}
 
 	deletePart := "DELETE"
 	if m.peerdbCols.SoftDelete {
@@ -181,7 +177,7 @@ func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) (
 		"INSERT (%s) VALUES(%s) "+
 		"%s WHEN MATCHED AND _d._rt=2 THEN %s;",
 		m.dstDatasetTable.table, m.generateFlattenedCTE(), m.generateDeDupedCTE(),
-		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart), nil
+		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
 }
 
 func (m *mergeStmtGenerator) generateMergeStmts(allUnchangedToastColas []string) []string {
@@ -192,13 +188,7 @@ func (m *mergeStmtGenerator) generateMergeStmts(allUnchangedToastColas []string)
 
 	mergeStmts := make([]string, 0, len(partitions))
 	for _, partition := range partitions {
-		mergeStmt, err := m.generateMergeStmt(partition)
-		if err == ErrNoPrimaryKey {
-			slog.Warn("No primary key found for a table. Skipping it.",
-				slog.String("table", m.dstTableName))
-			continue
-		}
-		mergeStmts = append(mergeStmts, mergeStmt)
+		mergeStmts = append(mergeStmts, m.generateMergeStmt(partition))
 	}
 
 	return mergeStmts
