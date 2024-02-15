@@ -111,43 +111,6 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 	return nil
 }
 
-func (c *PostgresConnector) CheckPublicationPermission(ctx context.Context, tableNames []*utils.SchemaTable) error {
-	var hasSuper bool
-	var canCreateDatabase bool
-	queryErr := c.conn.QueryRow(ctx, fmt.Sprintf(`
-	SELECT
-	rolsuper,
-	has_database_privilege(rolname, current_database(), 'CREATE') AS can_create_database
-	FROM pg_roles
-	WHERE rolname = %s;
-	`, QuoteLiteral(c.config.User))).Scan(&hasSuper, &canCreateDatabase)
-	if queryErr != nil {
-		return fmt.Errorf("error while checking user privileges: %w", queryErr)
-	}
-
-	if !hasSuper && !canCreateDatabase {
-		return errors.New("user does not have superuser or create database privileges")
-	}
-
-	if !hasSuper {
-		// for each table, check if the user is an owner
-		for _, table := range tableNames {
-			var owner string
-			err := c.conn.QueryRow(ctx, fmt.Sprintf("SELECT tableowner FROM pg_tables WHERE schemaname=%s AND tablename=%s",
-				QuoteLiteral(table.Schema), QuoteLiteral(table.Table))).Scan(&owner)
-			if err != nil {
-				return fmt.Errorf("error while checking table owner: %w", err)
-			}
-
-			if owner != c.config.User {
-				return fmt.Errorf("user %s is not the owner of table %s", c.config.User, table.String())
-			}
-		}
-	}
-
-	return nil
-}
-
 func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context) error {
 	// Check if we can create a replication connection
 	conn, err := c.CreateReplConn(ctx)
