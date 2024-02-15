@@ -32,6 +32,14 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	}
 	defer pgPeer.Close(ctx)
 
+	// Check replication connectivity
+	err = pgPeer.CheckReplicationConnectivity(ctx)
+	if err != nil {
+		return &protos.ValidateCDCMirrorResponse{
+			Ok: false,
+		}, fmt.Errorf("unable to establish replication connectivity: %v", err)
+	}
+
 	// Check permissions of postgres peer
 	err = pgPeer.CheckReplicationPermissions(ctx, sourcePeerConfig.User)
 	if err != nil {
