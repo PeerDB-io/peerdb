@@ -129,17 +129,19 @@ func (c *PostgresConnector) CheckPublicationPermission(ctx context.Context, tabl
 		return errors.New("user does not have superuser or create database privileges")
 	}
 
-	// for each table, check if the user is an owner
-	for _, table := range tableNames {
-		var owner string
-		err := c.conn.QueryRow(ctx, fmt.Sprintf("SELECT tableowner FROM pg_tables WHERE schemaname=%s AND tablename=%s",
-			QuoteLiteral(table.Schema), QuoteLiteral(table.Table))).Scan(&owner)
-		if err != nil {
-			return fmt.Errorf("error while checking table owner: %w", err)
-		}
+	if !hasSuper {
+		// for each table, check if the user is an owner
+		for _, table := range tableNames {
+			var owner string
+			err := c.conn.QueryRow(ctx, fmt.Sprintf("SELECT tableowner FROM pg_tables WHERE schemaname=%s AND tablename=%s",
+				QuoteLiteral(table.Schema), QuoteLiteral(table.Table))).Scan(&owner)
+			if err != nil {
+				return fmt.Errorf("error while checking table owner: %w", err)
+			}
 
-		if owner != c.config.User {
-			return fmt.Errorf("user %s is not the owner of table %s", c.config.User, table.String())
+			if owner != c.config.User {
+				return fmt.Errorf("user %s is not the owner of table %s", c.config.User, table.String())
+			}
 		}
 	}
 
