@@ -127,7 +127,6 @@ func (c *PostgresConnector) CheckPublicationPermission(ctx context.Context, tabl
 	if err != nil {
 		return fmt.Errorf("error starting transaction: %w", err)
 	}
-	defer tx.Conn().Close(ctx)
 	defer func() {
 		err := tx.Rollback(ctx)
 		if err != nil && err != pgx.ErrTxClosed {
