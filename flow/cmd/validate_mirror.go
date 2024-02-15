@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
@@ -49,16 +51,38 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	}
 
 	// Check source tables
-	sourceTables := make([]string, 0, len(req.ConnectionConfigs.TableMappings))
+	sourceTables := make([]*utils.SchemaTable, 0, len(req.ConnectionConfigs.TableMappings))
 	for _, tableMapping := range req.ConnectionConfigs.TableMappings {
-		sourceTables = append(sourceTables, tableMapping.SourceTableIdentifier)
+		parsedTable, parseErr := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
+		if parseErr != nil {
+			return &protos.ValidateCDCMirrorResponse{
+				Ok: false,
+			}, fmt.Errorf("invalid source table identifier: %s", tableMapping.SourceTableIdentifier)
+		}
+
+		sourceTables = append(sourceTables, parsedTable)
 	}
 
-	err = pgPeer.CheckSourceTables(ctx, sourceTables, req.ConnectionConfigs.PublicationName)
-	if err != nil {
-		return &protos.ValidateCDCMirrorResponse{
-			Ok: false,
-		}, fmt.Errorf("provided source tables invalidated: %v", err)
+	pubName := req.ConnectionConfigs.PublicationName
+	if pubName == "" {
+		pubTables := make([]string, 0, len(sourceTables))
+		for _, table := range sourceTables {
+			pubTables = append(pubTables, table.String())
+		}
+		pubTableStr := strings.Join(pubTables, ", ")
+		pubErr := pgPeer.CheckPublicationPermission(ctx, pubTableStr)
+		if pubErr != nil {
+			return &protos.ValidateCDCMirrorResponse{
+				Ok: false,
+			}, fmt.Errorf("failed to check publication permission: %v", pubErr)
+		}
+	} else {
+		err = pgPeer.CheckSourceTables(ctx, sourceTables, req.ConnectionConfigs.PublicationName)
+		if err != nil {
+			return &protos.ValidateCDCMirrorResponse{
+				Ok: false,
+			}, fmt.Errorf("provided source tables invalidated: %v", err)
+		}
 	}
 
 	return &protos.ValidateCDCMirrorResponse{
