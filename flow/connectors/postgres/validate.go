@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
@@ -112,49 +111,38 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 	return nil
 }
 
-func (c *PostgresConnector) CheckPublicationPermission(ctx context.Context, tableNameString string) error {
-	publication := "_PEERDB_DUMMY_PUBLICATION_" + shared.RandomString(4)
-	// check and enable publish_via_partition_root
-	supportsPubViaRoot, _, err := c.MajorVersionCheck(ctx, POSTGRES_13)
-	if err != nil {
-		return fmt.Errorf("error checking Postgres version: %w", err)
+func (c *PostgresConnector) CheckPublicationPermission(ctx context.Context, tableNames []*utils.SchemaTable) error {
+	var hasSuper bool
+	var canCreateDatabase bool
+	queryErr := c.conn.QueryRow(ctx, fmt.Sprintf(`
+	SELECT
+	rolsuper,
+	has_database_privilege(rolname, current_database(), 'CREATE') AS can_create_database
+	FROM pg_roles
+	WHERE rolname = %s;
+	`, QuoteLiteral(c.config.User))).Scan(&hasSuper, &canCreateDatabase)
+	if queryErr != nil {
+		return fmt.Errorf("error while checking user privileges: %w", queryErr)
 	}
-	var pubViaRootString string
-	if supportsPubViaRoot {
-		pubViaRootString = "WITH(publish_via_partition_root=true)"
+
+	if !hasSuper && !canCreateDatabase {
+		return errors.New("user does not have superuser or create database privileges")
 	}
-	tx, err := c.conn.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("error starting transaction: %w", err)
-	}
-	defer func() {
-		err := tx.Rollback(ctx)
-		if err != nil && err != pgx.ErrTxClosed {
-			c.logger.Error("[validate publication create] failed to rollback transaction", "error", err)
+
+	// for each table, check if the user is an owner
+	for _, table := range tableNames {
+		var owner string
+		err := c.conn.QueryRow(ctx, fmt.Sprintf("SELECT tableowner FROM pg_tables WHERE schemaname=%s AND tablename=%s",
+			QuoteLiteral(table.Schema), QuoteLiteral(table.Table))).Scan(&owner)
+		if err != nil {
+			return fmt.Errorf("error while checking table owner: %w", err)
 		}
-	}()
 
-	// Create the publication
-	createStmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s %s",
-		publication, tableNameString, pubViaRootString)
-	_, err = tx.Exec(ctx, createStmt)
-	if err != nil {
-		return fmt.Errorf("it will not be possible to create a publication for selected tables: %w", err)
+		if owner != c.config.User {
+			return fmt.Errorf("user %s is not the owner of table %s", c.config.User, table.String())
+		}
 	}
 
-	// Drop the publication
-	dropStmt := "DROP PUBLICATION IF EXISTS " + publication
-	_, err = tx.Exec(ctx, dropStmt)
-	if err != nil {
-		return fmt.Errorf("it will not be possible to drop the publication created for this mirror: %w",
-			err)
-	}
-
-	// commit transaction
-	err = tx.Commit(ctx)
-	if err != nil {
-		return fmt.Errorf("unable to validate publication create permission: %w", err)
-	}
 	return nil
 }
 
@@ -166,12 +154,6 @@ func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context) er
 	}
 
 	defer conn.Close(ctx)
-
-	var one int
-	queryErr := conn.QueryRow(ctx, "SELECT 1").Scan(&one)
-	if queryErr != nil {
-		return fmt.Errorf("failed to query replication connection: %v", queryErr)
-	}
 
 	return nil
 }

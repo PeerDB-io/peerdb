@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -65,12 +64,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 
 	pubName := req.ConnectionConfigs.PublicationName
 	if pubName == "" {
-		pubTables := make([]string, 0, len(sourceTables))
-		for _, table := range sourceTables {
-			pubTables = append(pubTables, table.String())
-		}
-		pubTableStr := strings.Join(pubTables, ", ")
-		pubErr := pgPeer.CheckPublicationPermission(ctx, pubTableStr)
+		pubErr := pgPeer.CheckPublicationPermission(ctx, sourceTables)
 		if pubErr != nil {
 			return &protos.ValidateCDCMirrorResponse{
 				Ok: false,
