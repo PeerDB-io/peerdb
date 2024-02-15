@@ -260,9 +260,9 @@ func (c *PostgresConnector) checkSlotAndPublication(ctx context.Context, slot st
 func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database string) ([]*protos.SlotInfo, error) {
 	var whereClause string
 	if slotName != "" {
-		whereClause = fmt.Sprintf("WHERE slot_name=%s", QuoteLiteral(slotName))
+		whereClause = "WHERE slot_name=" + QuoteLiteral(slotName)
 	} else {
-		whereClause = fmt.Sprintf("WHERE database=%s", QuoteLiteral(database))
+		whereClause = "WHERE database=" + QuoteLiteral(database)
 	}
 
 	hasWALStatus, _, err := majorVersionCheck(ctx, conn, POSTGRES_13)
@@ -449,12 +449,12 @@ func generateCreateTableSQLForNormalizedTable(
 
 	if softDeleteColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf(`%s BOOL DEFAULT FALSE`, QuoteIdentifier(softDeleteColName)))
+			QuoteIdentifier(softDeleteColName)+` BOOL DEFAULT FALSE`)
 	}
 
 	if syncedAtColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf(`%s TIMESTAMP DEFAULT CURRENT_TIMESTAMP`, QuoteIdentifier(syncedAtColName)))
+			QuoteIdentifier(syncedAtColName)+` TIMESTAMP DEFAULT CURRENT_TIMESTAMP`)
 	}
 
 	// add composite primary key to the table
@@ -623,5 +623,5 @@ func (c *PostgresConnector) getCurrentLSN(ctx context.Context) (pglogrepl.LSN, e
 }
 
 func (c *PostgresConnector) getDefaultPublicationName(jobName string) string {
-	return fmt.Sprintf("peerflow_pub_%s", jobName)
+	return "peerflow_pub_" + jobName
 }
