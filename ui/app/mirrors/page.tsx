@@ -50,7 +50,7 @@ export default function Mirrors() {
         <Header
           variant='title2'
           slot={
-            <Button as={Link} href={'/mirrors/create'} variant='normalSolid'>
+            <Button as={Link} href='/mirrors/create' variant='normalSolid'>
               <div
                 style={{
                   display: 'flex',
