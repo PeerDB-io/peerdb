@@ -72,7 +72,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 func (c *PostgresConnector) setTransactionSnapshot(ctx context.Context, tx pgx.Tx) error {
 	snapshot := c.config.TransactionSnapshot
 	if snapshot != "" {
-		if _, err := tx.Exec(ctx, fmt.Sprintf("SET TRANSACTION SNAPSHOT %s", QuoteLiteral(snapshot))); err != nil {
+		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+QuoteLiteral(snapshot)); err != nil {
 			return fmt.Errorf("failed to set transaction snapshot: %w", err)
 		}
 	}
@@ -151,7 +151,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			quotedWatermarkColumn,
 			parsedWatermarkTable.String(),
 		)
-		c.logger.Info(fmt.Sprintf("[row_based_next] partitions query: %s", partitionsQuery))
+		c.logger.Info("[row_based_next] partitions query: " + partitionsQuery)
 		rows, err = tx.Query(ctx, partitionsQuery, minVal)
 	} else {
 		partitionsQuery := fmt.Sprintf(
@@ -166,7 +166,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			quotedWatermarkColumn,
 			parsedWatermarkTable.String(),
 		)
-		c.logger.Info(fmt.Sprintf("[row_based] partitions query: %s", partitionsQuery))
+		c.logger.Info("[row_based] partitions query: " + partitionsQuery)
 		rows, err = tx.Query(ctx, partitionsQuery)
 	}
 	if err != nil {
@@ -500,7 +500,7 @@ func (c *PostgresConnector) SetupQRepMetadataTables(ctx context.Context, config 
 	if config.WriteMode != nil &&
 		config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
 		_, err = c.conn.Exec(ctx,
-			fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
+			"TRUNCATE TABLE "+config.DestinationTableIdentifier)
 		if err != nil {
 			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
 		}
@@ -569,7 +569,7 @@ func BuildQuery(logger log.Logger, query string, flowJobName string) (string, er
 	}
 	res := buf.String()
 
-	logger.Info(fmt.Sprintf("templated query: %s", res))
+	logger.Info("templated query: " + res)
 	return res, nil
 }
 

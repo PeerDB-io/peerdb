@@ -3,6 +3,7 @@ package connpostgres
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -169,7 +170,7 @@ func (p *PostgresCDCSource) replicationOptions() (*pglogrepl.StartReplicationOpt
 		pubOpt := fmt.Sprintf("publication_names '%s'", p.publication)
 		pluginArguments = append(pluginArguments, pubOpt)
 	} else {
-		return nil, fmt.Errorf("publication name is not set")
+		return nil, errors.New("publication name is not set")
 	}
 
 	return &pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments}, nil
@@ -259,7 +260,7 @@ func (p *PostgresCDCSource) consumeStream(
 
 			if time.Since(standByLastLogged) > 10*time.Second {
 				numRowsProcessedMessage := fmt.Sprintf("processed %d rows", cdcRecordsStorage.Len())
-				p.logger.Info(fmt.Sprintf("Sent Standby status message. %s", numRowsProcessedMessage))
+				p.logger.Info("Sent Standby status message. " + numRowsProcessedMessage)
 				standByLastLogged = time.Now()
 			}
 		}

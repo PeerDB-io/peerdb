@@ -109,7 +109,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		}
 	} else {
 		// Step 2.1: Create a temp staging table
-		stagingTableName := fmt.Sprintf("_peerdb_staging_%s", shared.RandomString(8))
+		stagingTableName := "_peerdb_staging_" + shared.RandomString(8)
 		stagingTableIdentifier := pgx.Identifier{s.connector.metadataSchema, stagingTableName}
 		dstTableIdentifier := pgx.Identifier{dstTableName.Schema, dstTableName.Table}
 
@@ -122,7 +122,6 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		s.connector.logger.Info(fmt.Sprintf("Creating staging table %s - '%s'",
 			stagingTableName, createStagingTableStmt), syncLog)
 		_, err = tx.Exec(context.Background(), createStagingTableStmt)
-
 		if err != nil {
 			return -1, fmt.Errorf("failed to create staging table: %v", err)
 		}
@@ -156,7 +155,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 			selectStrArray = append(selectStrArray, quotedCol)
 		}
 		setClauseArray = append(setClauseArray,
-			fmt.Sprintf(`%s = CURRENT_TIMESTAMP`, QuoteIdentifier(syncedAtCol)))
+			QuoteIdentifier(syncedAtCol)+`= CURRENT_TIMESTAMP`)
 		setClause := strings.Join(setClauseArray, ",")
 		selectSQL := strings.Join(selectStrArray, ",")
 

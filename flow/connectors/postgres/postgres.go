@@ -2,6 +2,7 @@ package connpostgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -114,7 +115,7 @@ func (c *PostgresConnector) Conn() *pgx.Conn {
 // ConnectionActive returns nil if the connection is active.
 func (c *PostgresConnector) ConnectionActive(ctx context.Context) error {
 	if c.conn == nil {
-		return fmt.Errorf("connection is nil")
+		return errors.New("connection is nil")
 	}
 	pingErr := c.conn.Ping(ctx)
 	return pingErr
@@ -184,7 +185,7 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 	}()
 
 	// Slotname would be the job name prefixed with "peerflow_slot_"
-	slotName := fmt.Sprintf("peerflow_slot_%s", req.FlowJobName)
+	slotName := "peerflow_slot_" + req.FlowJobName
 	if req.OverrideReplicationSlotName != "" {
 		slotName = req.OverrideReplicationSlotName
 	}
@@ -567,8 +568,8 @@ func (c *PostgresConnector) GetTableSchema(
 			return nil, err
 		}
 		res[tableName] = tableSchema
-		utils.RecordHeartbeat(ctx, fmt.Sprintf("fetched schema for table %s", tableName))
-		c.logger.Info(fmt.Sprintf("fetched schema for table %s", tableName))
+		utils.RecordHeartbeat(ctx, "fetched schema for table "+tableName)
+		c.logger.Info("fetched schema for table " + tableName)
 	}
 
 	return &protos.GetTableSchemaBatchOutput{
@@ -768,7 +769,7 @@ func (c *PostgresConnector) EnsurePullability(
 		}
 
 		if !req.CheckConstraints {
-			msg := fmt.Sprintf("[no-constraints] ensured pullability table %s", tableName)
+			msg := "[no-constraints] ensured pullability table " + tableName
 			utils.RecordHeartbeat(ctx, msg)
 			continue
 		}
@@ -789,7 +790,7 @@ func (c *PostgresConnector) EnsurePullability(
 			return nil, fmt.Errorf("table %s has no primary keys and does not have REPLICA IDENTITY FULL", schemaTable)
 		}
 
-		utils.RecordHeartbeat(ctx, fmt.Sprintf("ensured pullability table %s", tableName))
+		utils.RecordHeartbeat(ctx, "ensured pullability table "+tableName)
 	}
 
 	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil
@@ -804,7 +805,7 @@ func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSig
 	}
 
 	// Slotname would be the job name prefixed with "peerflow_slot_"
-	slotName := fmt.Sprintf("peerflow_slot_%s", req.FlowJobName)
+	slotName := "peerflow_slot_" + req.FlowJobName
 	if req.ExistingReplicationSlotName != "" {
 		slotName = req.ExistingReplicationSlotName
 	}
@@ -839,7 +840,7 @@ func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSig
 
 func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
 	// Slotname would be the job name prefixed with "peerflow_slot_"
-	slotName := fmt.Sprintf("peerflow_slot_%s", jobName)
+	slotName := "peerflow_slot_%s" + jobName
 
 	publicationName := c.getDefaultPublicationName(jobName)
 
@@ -854,7 +855,7 @@ func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string)
 		}
 	}()
 
-	_, err = pullFlowCleanupTx.Exec(ctx, fmt.Sprintf("DROP PUBLICATION IF EXISTS %s", publicationName))
+	_, err = pullFlowCleanupTx.Exec(ctx, "DROP PUBLICATION IF EXISTS "+publicationName)
 	if err != nil {
 		return fmt.Errorf("error dropping publication: %w", err)
 	}
