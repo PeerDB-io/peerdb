@@ -45,7 +45,7 @@ func SetupSuite(t *testing.T) PostgresSchemaDeltaTestSuite {
 	_, err = setupTx.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE",
 		schema))
 	require.NoError(t, err)
-	_, err = setupTx.Exec(context.Background(), fmt.Sprintf("CREATE SCHEMA %s", schema))
+	_, err = setupTx.Exec(context.Background(), "CREATE SCHEMA "+schema)
 	require.NoError(t, err)
 	err = setupTx.Commit(context.Background())
 	require.NoError(t, err)
@@ -58,7 +58,7 @@ func SetupSuite(t *testing.T) PostgresSchemaDeltaTestSuite {
 }
 
 func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
-	tableName := fmt.Sprintf("%s.simple_add_column", s.schema)
+	tableName := s.schema + ".simple_add_column"
 	_, err := s.connector.conn.Exec(context.Background(),
 		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
 	require.NoError(s.t, err)
@@ -96,7 +96,7 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 }
 
 func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
-	tableName := fmt.Sprintf("%s.add_drop_all_column_types", s.schema)
+	tableName := s.schema + ".add_drop_all_column_types"
 	_, err := s.connector.conn.Exec(context.Background(),
 		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
 	require.NoError(s.t, err)
@@ -131,7 +131,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 }
 
 func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
-	tableName := fmt.Sprintf("%s.add_drop_tricky_column_names", s.schema)
+	tableName := s.schema + ".add_drop_tricky_column_names"
 	_, err := s.connector.conn.Exec(context.Background(),
 		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
 	require.NoError(s.t, err)
@@ -166,7 +166,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 }
 
 func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
-	tableName := fmt.Sprintf("%s.add_drop_whitespace_column_names", s.schema)
+	tableName := s.schema + ".add_drop_whitespace_column_names"
 	_, err := s.connector.conn.Exec(context.Background(),
 		fmt.Sprintf("CREATE TABLE %s(\" \" INT PRIMARY KEY)", tableName))
 	require.NoError(s.t, err)

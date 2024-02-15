@@ -137,7 +137,7 @@ func (n *normalizeStmtGenerator) generateMergeStatement() string {
 	flattenedCastsSQL := strings.Join(flattenedCastsSQLArray, ",")
 	insertValuesSQLArray := make([]string, 0, columnCount+2)
 	for _, quotedCol := range quotedColumnNames {
-		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("src.%s", quotedCol))
+		insertValuesSQLArray = append(insertValuesSQLArray, "src."+quotedCol)
 	}
 
 	updateStatementsforToastCols := n.generateUpdateStatements(quotedColumnNames)
@@ -208,13 +208,11 @@ func (n *normalizeStmtGenerator) generateUpdateStatements(quotedCols []string) [
 		}
 		// set the synced at column to the current timestamp
 		if n.peerdbCols.SyncedAtColName != "" {
-			tmpArray = append(tmpArray, fmt.Sprintf(`%s=CURRENT_TIMESTAMP`,
-				QuoteIdentifier(n.peerdbCols.SyncedAtColName)))
+			tmpArray = append(tmpArray, QuoteIdentifier(n.peerdbCols.SyncedAtColName)+`=CURRENT_TIMESTAMP`)
 		}
 		// set soft-deleted to false, tackles insert after soft-delete
 		if handleSoftDelete {
-			tmpArray = append(tmpArray, fmt.Sprintf(`%s=FALSE`,
-				QuoteIdentifier(n.peerdbCols.SoftDeleteColName)))
+			tmpArray = append(tmpArray, QuoteIdentifier(n.peerdbCols.SoftDeleteColName)+`=FALSE`)
 		}
 
 		quotedCols := QuoteLiteral(cols)
@@ -228,7 +226,7 @@ func (n *normalizeStmtGenerator) generateUpdateStatements(quotedCols []string) [
 		// the backfill has happened from the pull side already, so treat the DeleteRecord as an update
 		// and then set soft-delete to true.
 		if handleSoftDelete {
-			tmpArray[len(tmpArray)-1] = fmt.Sprintf(`%s=TRUE`, QuoteIdentifier(n.peerdbCols.SoftDeleteColName))
+			tmpArray[len(tmpArray)-1] = QuoteIdentifier(n.peerdbCols.SoftDeleteColName) + `=TRUE`
 			ssep := strings.Join(tmpArray, ", ")
 			updateStmt := fmt.Sprintf(`WHEN MATCHED AND
 			src._peerdb_record_type=2 AND _peerdb_unchanged_toast_columns=%s

@@ -25,7 +25,7 @@ type testCase struct {
 }
 
 func newTestCaseForNumRows(schema string, name string, rows uint32, expectedNum int) *testCase {
-	schemaQualifiedTable := fmt.Sprintf("%s.test", schema)
+	schemaQualifiedTable := schema + ".test"
 	query := fmt.Sprintf(
 		`SELECT * FROM %s WHERE "from" >= {{.start}} AND "from" < {{.end}}`,
 		schemaQualifiedTable)
@@ -44,7 +44,7 @@ func newTestCaseForNumRows(schema string, name string, rows uint32, expectedNum 
 }
 
 func newTestCaseForCTID(schema string, name string, rows uint32, expectedNum int) *testCase {
-	schemaQualifiedTable := fmt.Sprintf("%s.test", schema)
+	schemaQualifiedTable := schema + ".test"
 	query := fmt.Sprintf(
 		`SELECT * FROM %s WHERE "from" >= {{.start}} AND "from" < {{.end}}`,
 		schemaQualifiedTable)

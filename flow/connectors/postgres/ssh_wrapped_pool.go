@@ -119,7 +119,6 @@ func (tunnel *SSHTunnel) NewPostgresConnFromConfig(
 		}
 		return nil
 	}, 5, 5*time.Second)
-
 	if err != nil {
 		logger.Error("Failed to create pool", slog.Any("error", err), slog.String("host", host))
 		conn.Close(ctx)
