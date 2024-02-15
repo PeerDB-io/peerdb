@@ -451,7 +451,7 @@ func generateCreateTableSQLForNormalizedTable(
 
 	if softDeleteColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			QuoteIdentifier(softDeleteColName)+`%s BOOL DEFAULT FALSE`)
+			QuoteIdentifier(softDeleteColName)+` BOOL DEFAULT FALSE`)
 	}
 
 	if syncedAtColName != "" {
