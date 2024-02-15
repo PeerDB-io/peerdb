@@ -154,6 +154,4 @@ func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context) er
 	}
 
 	return conn.Close(ctx)
-
-	return nil
 }
