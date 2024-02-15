@@ -506,8 +506,7 @@ func CDCFlowWorkflowWithConfig(
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
-			SearchAttributes:    mirrorNameSearch,
-			WaitForCancellation: true,
+			SearchAttributes: mirrorNameSearch,
 		}
 		syncCtx := workflow.WithChildOptions(ctx, childSyncFlowOpts)
 		state.SyncFlowOptions.RelationMessageMapping = state.RelationMessageMapping
