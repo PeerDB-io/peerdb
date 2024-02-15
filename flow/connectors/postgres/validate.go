@@ -119,6 +119,8 @@ func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context) er
 		return fmt.Errorf("failed to create replication connection: %v", err)
 	}
 
+	defer conn.Close(ctx)
+
 	var one int
 	queryErr := conn.QueryRow(ctx, "SELECT 1").Scan(&one)
 	if queryErr != nil {
