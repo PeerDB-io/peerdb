@@ -153,7 +153,7 @@ func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context) er
 		return fmt.Errorf("failed to create replication connection: %v", err)
 	}
 
-	defer conn.Close(ctx)
+	return conn.Close(ctx)
 
 	return nil
 }
