@@ -198,7 +198,7 @@ func (h *FlowRequestHandler) GetColumns(
 		AND
 		relname = $2
 		AND pg_attribute.attnum > 0
-		AND attname NOT LIKE '%........pg.dropped.%'
+		AND NOT attisdropped
 	ORDER BY
     attnum;
 	`, req.SchemaName, req.TableName)
