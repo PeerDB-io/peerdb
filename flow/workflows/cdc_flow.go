@@ -152,18 +152,6 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 			continue
 		}
 
-		alterPublicationAddAdditionalTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-			StartToCloseTimeout: 5 * time.Minute,
-		})
-		alterPublicationAddAdditionalTablesFuture := workflow.ExecuteActivity(
-			alterPublicationAddAdditionalTablesCtx,
-			flowable.AddTablesToPublication,
-			cfg, flowConfigUpdate.AdditionalTables)
-		if err := alterPublicationAddAdditionalTablesFuture.Get(ctx, nil); err != nil {
-			w.logger.Error("failed to alter publication for additional tables: ", err)
-			return err
-		}
-
 		ensurePullabilityCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 5 * time.Minute,
 		})
@@ -184,6 +172,18 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 			})
 		if err := ensurePullabilityFuture.Get(ctx, nil); err != nil {
 			w.logger.Error("failed to ensure pullability for additional tables: ", err)
+			return err
+		}
+
+		alterPublicationAddAdditionalTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 5 * time.Minute,
+		})
+		alterPublicationAddAdditionalTablesFuture := workflow.ExecuteActivity(
+			alterPublicationAddAdditionalTablesCtx,
+			flowable.AddTablesToPublication,
+			cfg, flowConfigUpdate.AdditionalTables)
+		if err := alterPublicationAddAdditionalTablesFuture.Get(ctx, nil); err != nil {
+			w.logger.Error("failed to alter publication for additional tables: ", err)
 			return err
 		}
 
