@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -17,12 +18,12 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		slog.Error("/validatecdc connection configs is nil")
 		return &protos.ValidateCDCMirrorResponse{
 			Ok: false,
-		}, fmt.Errorf("connection configs is nil")
+		}, errors.New("connection configs is nil")
 	}
 	sourcePeerConfig := req.ConnectionConfigs.Source.GetPostgresConfig()
 	if sourcePeerConfig == nil {
 		slog.Error("/validatecdc source peer config is nil", slog.Any("peer", req.ConnectionConfigs.Source))
-		return nil, fmt.Errorf("source peer config is nil")
+		return nil, errors.New("source peer config is nil")
 	}
 
 	pgPeer, err := connpostgres.NewPostgresConnector(ctx, sourcePeerConfig)
@@ -63,15 +64,8 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	}
 
 	pubName := req.ConnectionConfigs.PublicationName
-	if pubName == "" {
-		pubErr := pgPeer.CheckPublicationPermission(ctx, sourceTables)
-		if pubErr != nil {
-			return &protos.ValidateCDCMirrorResponse{
-				Ok: false,
-			}, fmt.Errorf("failed to check publication permission: %v", pubErr)
-		}
-	} else {
-		err = pgPeer.CheckSourceTables(ctx, sourceTables, req.ConnectionConfigs.PublicationName)
+	if pubName != "" {
+		err = pgPeer.CheckSourceTables(ctx, sourceTables, pubName)
 		if err != nil {
 			return &protos.ValidateCDCMirrorResponse{
 				Ok: false,
