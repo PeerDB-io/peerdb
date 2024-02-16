@@ -850,9 +850,9 @@ func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string)
 		return fmt.Errorf("error dropping publication: %w", err)
 	}
 
-	err = c.conn.QueryRow(ctx, `SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots
-	 WHERE slot_name=$1`, slotName).Scan(nil)
-	if err != nil && err != pgx.ErrNoRows {
+	_, err = c.conn.Exec(ctx, `SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots
+	 WHERE slot_name=$1`, slotName)
+	if err != nil {
 		return fmt.Errorf("error dropping replication slot: %w", err)
 	}
 
