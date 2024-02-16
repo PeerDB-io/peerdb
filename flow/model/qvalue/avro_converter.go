@@ -58,13 +58,6 @@ type AvroSchemaField struct {
 // For example, QValueKindInt64 would return an AvroLogicalSchema of "long". Unsupported QValueKinds
 // will return an error.
 func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision int16, scale int16) (interface{}, error) {
-	avroNumericPrecision := precision
-	avroNumericScale := scale
-	if precision > 38 || precision <= 0 || scale > 37 || scale < 0 {
-		avroNumericPrecision = numeric.PeerDBNumericPrecision
-		avroNumericScale = numeric.PeerDBNumericScale
-	}
-
 	switch kind {
 	case QValueKindString, QValueKindQChar:
 		return "string", nil
@@ -86,6 +79,8 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision 
 	case QValueKindBytes, QValueKindBit:
 		return "bytes", nil
 	case QValueKindNumeric:
+		avroNumericPrecision, avroNumericScale := numeric.DetermineNumericSettingForDWH(
+			precision, scale, targetDWH == QDWHTypeClickhouse)
 		return AvroSchemaNumeric{
 			Type:        "bytes",
 			LogicalType: "decimal",

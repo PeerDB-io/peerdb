@@ -9,6 +9,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
@@ -79,7 +80,18 @@ func generateCreateTableSQLForNormalizedTable(
 		if err != nil {
 			return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 		}
-		stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", colName, clickhouseType))
+
+		if column.Type == "numeric" {
+			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
+			if column.TypeModifier == -1 || precision > 76 || scale > precision {
+				precision = numeric.PeerDBClickhousePrecision
+				scale = numeric.PeerDBClickhouseScale
+			}
+			stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ",
+				colName, precision, scale))
+		} else {
+			stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", colName, clickhouseType))
+		}
 	}
 
 	// TODO support soft delete

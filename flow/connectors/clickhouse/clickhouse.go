@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"database/sql"
 	"fmt"
-	"log/slog"
 	"net/url"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -45,7 +44,6 @@ func ValidateS3(ctx context.Context, creds *utils.ClickhouseS3Credentials) error
 		return fmt.Errorf("failed to create S3 bucket and prefix: %w", err)
 	}
 
-	slog.Info(fmt.Sprintf("Validating S3 bucke: %s", object.Bucket))
 	_, listErr := s3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 		Bucket: &object.Bucket,
 	},
@@ -59,7 +57,7 @@ func ValidateS3(ctx context.Context, creds *utils.ClickhouseS3Credentials) error
 
 // Creates and drops a dummy table to validate the peer
 func ValidateClickhouse(ctx context.Context, conn *sql.DB) error {
-	validateDummyTableName := fmt.Sprintf("peerdb_validation_%s", shared.RandomString(4))
+	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
 	// create a table
 	_, err := conn.ExecContext(ctx, fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id UInt64) ENGINE = Memory",
 		validateDummyTableName))
@@ -74,7 +72,7 @@ func ValidateClickhouse(ctx context.Context, conn *sql.DB) error {
 	}
 
 	// drop the table
-	_, err = conn.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", validateDummyTableName))
+	_, err = conn.ExecContext(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName)
 	if err != nil {
 		return fmt.Errorf("failed to drop validation table %s: %w", validateDummyTableName, err)
 	}
