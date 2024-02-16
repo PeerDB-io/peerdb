@@ -179,10 +179,12 @@ func (p *PostgresCDCSource) consumeStream(
 	records *model.CDCRecordStream,
 ) error {
 	defer func() {
-		err := conn.Close(ctx)
+		timeout, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+		err := conn.Close(timeout)
 		if err != nil {
 			p.logger.Error("error closing replication connection", slog.Any("error", err))
 		}
+		cancel()
 	}()
 
 	// clientXLogPos is the last checkpoint id, we need to ack that we have processed
