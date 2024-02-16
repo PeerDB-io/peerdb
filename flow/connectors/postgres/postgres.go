@@ -100,9 +100,11 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 }
 
 // Close closes all connections.
-func (c *PostgresConnector) Close(ctx context.Context) error {
+func (c *PostgresConnector) Close() error {
 	if c != nil {
-		c.conn.Close(ctx)
+		timeout, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		c.conn.Close(timeout)
 		c.ssh.Close()
 	}
 	return nil

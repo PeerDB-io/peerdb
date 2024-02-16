@@ -70,7 +70,7 @@ func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
 			}
 		}
 
-		err := s.connector.Close(context.Background())
+		err := s.connector.Close()
 		if err != nil {
 			s.t.Fatalf("failed to close Snowflake connector: %v", err)
 		}

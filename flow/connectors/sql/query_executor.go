@@ -21,7 +21,7 @@ import (
 
 type SQLQueryExecutor interface {
 	ConnectionActive(context.Context) error
-	Close(context.Context) error
+	Close() error
 
 	CreateSchema(ctx context.Context, schemaName string) error
 	DropSchema(ctx context.Context, schemaName string) error

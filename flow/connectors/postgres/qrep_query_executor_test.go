@@ -54,7 +54,7 @@ func TestExecuteAndProcessQuery(t *testing.T) {
 	ctx := context.Background()
 	connector, schemaName := setupDB(t)
 	conn := connector.conn
-	defer connector.Close(ctx)
+	defer connector.Close()
 	defer teardownDB(t, conn, schemaName)
 
 	query := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.test(id SERIAL PRIMARY KEY, data TEXT);", schemaName)

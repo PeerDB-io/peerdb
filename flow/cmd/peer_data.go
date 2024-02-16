@@ -236,7 +236,7 @@ func (h *FlowRequestHandler) GetSlotInfo(
 		slog.Error("Failed to create postgres connector", slog.Any("error", err))
 		return &protos.PeerSlotResponse{SlotData: nil}, err
 	}
-	defer pgConnector.Close(ctx)
+	defer pgConnector.Close()
 
 	slotInfo, err := pgConnector.GetSlotInfo(ctx, "")
 	if err != nil {

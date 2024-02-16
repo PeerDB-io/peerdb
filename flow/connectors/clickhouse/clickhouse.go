@@ -167,24 +167,17 @@ func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, err
 	return conn, nil
 }
 
-func (c *ClickhouseConnector) Close(_ context.Context) error {
-	if c == nil || c.database == nil {
-		return nil
-	}
-
-	err := c.database.Close()
-	if err != nil {
-		return fmt.Errorf("error while closing connection to Clickhouse peer: %w", err)
+func (c *ClickhouseConnector) Close() error {
+	if c != nil {
+		err := c.database.Close()
+		if err != nil {
+			return fmt.Errorf("error while closing connection to Clickhouse peer: %w", err)
+		}
 	}
 	return nil
 }
 
 func (c *ClickhouseConnector) ConnectionActive(ctx context.Context) error {
-	if c == nil || c.database == nil {
-		return fmt.Errorf("ClickhouseConnector is nil")
-	}
-
 	// This also checks if database exists
-	err := c.database.PingContext(ctx)
-	return err
+	return c.database.PingContext(ctx)
 }

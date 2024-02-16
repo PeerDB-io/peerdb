@@ -58,7 +58,7 @@ func (c *ClickhouseConnector) SetupNormalizedTable(
 
 	_, err = c.database.ExecContext(ctx, normalizedTableCreateSQL)
 	if err != nil {
-		return false, fmt.Errorf("[sf] error while creating normalized table: %w", err)
+		return false, fmt.Errorf("[ch] error while creating normalized table: %w", err)
 	}
 	return false, nil
 }

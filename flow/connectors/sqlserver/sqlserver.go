@@ -50,8 +50,8 @@ func NewSQLServerConnector(ctx context.Context, config *protos.SqlServerConfig) 
 }
 
 // Close closes the database connection
-func (c *SQLServerConnector) Close(_ context.Context) error {
-	if c.db != nil {
+func (c *SQLServerConnector) Close() error {
+	if c != nil {
 		return c.db.Close()
 	}
 	return nil

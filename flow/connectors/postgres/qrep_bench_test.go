@@ -22,7 +22,7 @@ func BenchmarkQRepQueryExecutor(b *testing.B) {
 	if err != nil {
 		b.Fatalf("failed to create connection: %v", err)
 	}
-	defer connector.Close(ctx)
+	defer connector.Close()
 
 	// Create a new QRepQueryExecutor instance
 	qe := connector.NewQRepQueryExecutor("test flow", "test part")

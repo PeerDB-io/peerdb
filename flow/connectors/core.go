@@ -24,7 +24,7 @@ import (
 var ErrUnsupportedFunctionality = errors.New("requested connector does not support functionality")
 
 type Connector interface {
-	Close(context.Context) error
+	Close() error
 	ConnectionActive(context.Context) error
 }
 
@@ -218,11 +218,7 @@ func GetQRepConsolidateConnector(ctx context.Context, config *protos.Peer) (QRep
 }
 
 func CloseConnector(ctx context.Context, conn Connector) {
-	if conn == nil {
-		return
-	}
-
-	err := conn.Close(ctx)
+	err := conn.Close()
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Error("error closing connector", slog.Any("error", err))
 	}

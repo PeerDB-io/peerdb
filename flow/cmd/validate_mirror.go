@@ -32,7 +32,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 			Ok: false,
 		}, fmt.Errorf("failed to create postgres connector: %v", err)
 	}
-	defer pgPeer.Close(ctx)
+	defer pgPeer.Close()
 
 	// Check replication connectivity
 	err = pgPeer.CheckReplicationConnectivity(ctx)

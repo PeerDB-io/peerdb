@@ -37,7 +37,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 		}, nil
 	}
 
-	defer conn.Close(ctx)
+	defer conn.Close()
 
 	if req.Peer.Type == protos.DBType_POSTGRES {
 		isValid, version, err := conn.(*connpostgres.PostgresConnector).MajorVersionCheck(ctx, connpostgres.POSTGRES_12)

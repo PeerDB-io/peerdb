@@ -410,12 +410,6 @@ func (a *FlowableActivity) StartNormalize(
 
 	dstConn, err := connectors.GetCDCNormalizeConnector(ctx, conn.Destination)
 	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
-		dstConn, err := connectors.GetCDCSyncConnector(ctx, conn.Destination)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get connector: %w", err)
-		}
-		defer connectors.CloseConnector(ctx, dstConn)
-
 		err = monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName,
 			input.SyncBatchID)
 		return nil, err
@@ -698,8 +692,7 @@ func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.Q
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return err
 	}
-
-	defer dst.Close(ctx)
+	defer dst.Close()
 
 	return dst.CleanupQRepFlow(ctx, config)
 }
