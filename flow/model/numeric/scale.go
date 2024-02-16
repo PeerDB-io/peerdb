@@ -1,8 +1,10 @@
 package numeric
 
 const (
-	PeerDBNumericPrecision = 38
-	PeerDBNumericScale     = 20
+	PeerDBNumericPrecision    = 38
+	PeerDBNumericScale        = 20
+	PeerDBClickhousePrecision = 76
+	PeerDBClickhouseScale     = 38
 )
 
 // This is to reverse what make_numeric_typmod of Postgres does:
