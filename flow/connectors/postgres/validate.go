@@ -36,7 +36,7 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 
 	tableStr := strings.Join(tableArr, ",")
 	// Check if publication exists
-	err := c.conn.QueryRow(ctx, "SELECT pubname FROM pg_publication WHERE pubname="+QuoteLiteral(pubName)).Scan(nil)
+	err := c.conn.QueryRow(ctx, "SELECT pubname FROM pg_publication WHERE pubname=$1", pubName).Scan(nil)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return fmt.Errorf("publication does not exist: %s", pubName)
