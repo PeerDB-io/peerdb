@@ -174,7 +174,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 	tableExistsMapping := make(map[string]bool)
 	for tableIdentifier, tableSchema := range config.TableNameSchemaMapping {
-		created, err := conn.SetupNormalizedTable(
+		existing, err := conn.SetupNormalizedTable(
 			ctx,
 			tx,
 			tableIdentifier,
@@ -186,10 +186,10 @@ func (a *FlowableActivity) CreateNormalizedTable(
 			a.Alerter.LogFlowError(ctx, config.FlowName, err)
 			return nil, fmt.Errorf("failed to setup normalized table %s: %w", tableIdentifier, err)
 		}
-		tableExistsMapping[tableIdentifier] = created
+		tableExistsMapping[tableIdentifier] = existing
 
 		numTablesSetup.Add(1)
-		if created {
+		if !existing {
 			logger.Info(fmt.Sprintf("created table %s", tableIdentifier))
 		} else {
 			logger.Info(fmt.Sprintf("table already exists %s", tableIdentifier))
