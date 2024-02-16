@@ -356,15 +356,30 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		errChan <- dropFlowHandle.Get(cancelCtx, nil)
 	}()
 
-	if err := <-errChan; err != nil {
-		slog.Error("DropFlow workflow did not execute successfully",
-			logs,
-			slog.Any("error", err),
-		)
-		return &protos.ShutdownResponse{
-			Ok:           false,
-			ErrorMessage: fmt.Sprintf("DropFlow workflow did not execute successfully: %v", err),
-		}, fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
+	select {
+	case err := <-errChan:
+		if err != nil {
+			slog.Error("DropFlow workflow did not execute successfully",
+				logs,
+				slog.Any("error", err),
+			)
+			return &protos.ShutdownResponse{
+				Ok:           false,
+				ErrorMessage: fmt.Sprintf("DropFlow workflow did not execute successfully: %v", err),
+			}, fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
+		}
+	case <-time.After(5 * time.Minute):
+		err := h.handleCancelWorkflow(ctx, workflowID, "")
+		if err != nil {
+			slog.Error("unable to wait for DropFlow workflow to close",
+				logs,
+				slog.Any("error", err),
+			)
+			return &protos.ShutdownResponse{
+				Ok:           false,
+				ErrorMessage: fmt.Sprintf("unable to wait for DropFlow workflow to close: %v", err),
+			}, fmt.Errorf("unable to wait for DropFlow workflow to close: %w", err)
+		}
 	}
 
 	if req.RemoveFlowEntry {
