@@ -52,6 +52,7 @@ type PostgresCDCConfig struct {
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]model.NameAndExclude
 	RelationMessageMapping model.RelationMessageMapping
+	ChildToParentRelIDMap  map[uint32]uint32
 	CatalogPool            *pgxpool.Pool
 	FlowJobName            string
 }
@@ -63,12 +64,7 @@ type startReplicationOpts struct {
 }
 
 // Create a new PostgresCDCSource
-func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig *PostgresCDCConfig) (*PostgresCDCSource, error) {
-	childToParentRelIDMap, err := getChildToParentRelIDMap(ctx, cdcConfig.Connection)
-	if err != nil {
-		return nil, fmt.Errorf("error getting child to parent relid map: %w", err)
-	}
-
+func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig *PostgresCDCConfig) *PostgresCDCSource {
 	return &PostgresCDCSource{
 		PostgresConnector:         c,
 		replConn:                  cdcConfig.Connection,
@@ -78,21 +74,19 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		publication:               cdcConfig.Publication,
 		relationMessageMapping:    cdcConfig.RelationMessageMapping,
 		typeMap:                   pgtype.NewMap(),
-		childToParentRelIDMapping: childToParentRelIDMap,
+		childToParentRelIDMapping: cdcConfig.ChildToParentRelIDMap,
 		commitLock:                false,
 		catalogPool:               cdcConfig.CatalogPool,
 		flowJobName:               cdcConfig.FlowJobName,
-	}, nil
+	}
 }
 
 func getChildToParentRelIDMap(ctx context.Context, conn *pgx.Conn) (map[uint32]uint32, error) {
 	query := `
-		SELECT
-				parent.oid AS parentrelid,
-				child.oid AS childrelid
+		SELECT parent.oid AS parentrelid, child.oid AS childrelid
 		FROM pg_inherits
-				JOIN pg_class parent            ON pg_inherits.inhparent = parent.oid
-				JOIN pg_class child             ON pg_inherits.inhrelid   = child.oid
+		JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
+		JOIN pg_class child  ON pg_inherits.inhrelid = child.oid
 		WHERE parent.relkind='p';
 	`
 

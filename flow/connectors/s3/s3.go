@@ -184,11 +184,7 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 	}
 	c.logger.Info(fmt.Sprintf("Synced %d records", numRecords))
 
-	lastCheckpoint, err := req.Records.GetLastCheckpoint()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get last checkpoint: %w", err)
-	}
-
+	lastCheckpoint := req.Records.GetLastCheckpoint()
 	err = c.pgMetadata.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
 	if err != nil {
 		c.logger.Error("failed to increment id", "error", err)

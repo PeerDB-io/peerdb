@@ -10,7 +10,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -352,11 +351,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	logger.Info(fmt.Sprintf("pushed %d records in %d seconds", numRecords, int(syncDuration.Seconds())))
 
-	lastCheckpoint, err := recordBatch.GetLastCheckpoint()
-	if err != nil {
-		a.Alerter.LogFlowError(ctx, flowName, err)
-		return nil, fmt.Errorf("failed to get last checkpoint: %w", err)
-	}
+	lastCheckpoint := recordBatch.GetLastCheckpoint()
 
 	err = monitoring.UpdateNumRowsAndEndLSNForCDCBatch(
 		ctx,
@@ -364,7 +359,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		input.FlowConnectionConfigs.FlowJobName,
 		res.CurrentSyncBatchID,
 		uint32(numRecords),
-		pglogrepl.LSN(lastCheckpoint),
+		lastCheckpoint,
 	)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
@@ -375,7 +370,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		ctx,
 		a.CatalogPool,
 		input.FlowConnectionConfigs.FlowJobName,
-		pglogrepl.LSN(lastCheckpoint),
+		lastCheckpoint,
 	)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)

@@ -219,19 +219,22 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 	}
 	defer replConn.Close(ctx)
 
-	cdc, err := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
+	childToParentRelIDMap, err := getChildToParentRelIDMap(ctx, replConn)
+	if err != nil {
+		return fmt.Errorf("error getting child to parent relid map: %w", err)
+	}
+
+	cdc := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
 		Connection:             replConn,
 		SrcTableIDNameMapping:  req.SrcTableIDNameMapping,
 		Slot:                   slotName,
 		Publication:            publicationName,
 		TableNameMapping:       req.TableNameMapping,
 		RelationMessageMapping: req.RelationMessageMapping,
+		ChildToParentRelIDMap:  childToParentRelIDMap,
 		CatalogPool:            catalogPool,
 		FlowJobName:            req.FlowJobName,
 	})
-	if err != nil {
-		return fmt.Errorf("failed to create cdc source: %w", err)
-	}
 
 	err = cdc.PullRecords(ctx, req)
 	if err != nil {
@@ -242,7 +245,7 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 	if err != nil {
 		return fmt.Errorf("failed to get current LSN: %w", err)
 	}
-	err = monitoring.UpdateLatestLSNAtSourceForCDCFlow(ctx, catalogPool, req.FlowJobName, latestLSN)
+	err = monitoring.UpdateLatestLSNAtSourceForCDCFlow(ctx, catalogPool, req.FlowJobName, int64(latestLSN))
 	if err != nil {
 		return fmt.Errorf("failed to update latest LSN at source for CDC flow: %w", err)
 	}
@@ -373,12 +376,8 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 	c.logger.Info(fmt.Sprintf("synced %d records to Postgres table %s via COPY",
 		syncedRecordsCount, rawTableIdentifier))
 
-	lastCP, err := req.Records.GetLastCheckpoint()
-	if err != nil {
-		return nil, fmt.Errorf("error getting last checkpoint: %w", err)
-	}
-
 	// updating metadata with new offset and syncBatchID
+	lastCP := req.Records.GetLastCheckpoint()
 	err = c.updateSyncMetadata(ctx, req.FlowJobName, lastCP, req.SyncBatchID, syncRecordsTx)
 	if err != nil {
 		return nil, err
