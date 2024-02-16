@@ -22,7 +22,7 @@ func DetermineNumericSettingForDWH(precision int16, scale int16, isClickhouse bo
 			return PeerDBClickhousePrecision, PeerDBClickhouseScale
 		}
 	} else {
-		if precision > 38 || precision <= 0 || scale > precision || scale < 0 {
+		if precision > 38 || precision <= 0 || scale > 9 || scale < 0 {
 			return PeerDBNumericPrecision, PeerDBNumericScale
 		}
 	}
