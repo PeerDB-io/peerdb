@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strconv"
 	"strings"
 
@@ -72,7 +71,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			c.logger.Warn("No rows in pg_roles for user. Skipping rolereplication check",
-				slog.String("username", username))
+				"username", username)
 		} else {
 			return err
 		}
