@@ -16,7 +16,7 @@ func DropFlowWorkflow(ctx workflow.Context, req *protos.ShutdownRequest) error {
 	logger.Info("performing cleanup for flow ", req.FlowJobName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 1 * time.Minute,
+		StartToCloseTimeout: 5 * time.Minute,
 	})
 
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
