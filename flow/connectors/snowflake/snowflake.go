@@ -478,13 +478,8 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
-	lastCheckpoint, err := req.Records.GetLastCheckpoint()
-	if err != nil {
-		return nil, err
-	}
-
 	return &model.SyncResponse{
-		LastSyncedCheckpointID: lastCheckpoint,
+		LastSyncedCheckpointID: req.Records.GetLastCheckpoint(),
 		NumRecordsSynced:       int64(numRecords),
 		CurrentSyncBatchID:     syncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,

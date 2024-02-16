@@ -107,13 +107,8 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
-	lastCheckpoint, err := req.Records.GetLastCheckpoint()
-	if err != nil {
-		return nil, err
-	}
-
 	return &model.SyncResponse{
-		LastSyncedCheckpointID: lastCheckpoint,
+		LastSyncedCheckpointID: req.Records.GetLastCheckpoint(),
 		NumRecordsSynced:       int64(numRecords),
 		CurrentSyncBatchID:     syncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,
@@ -130,12 +125,7 @@ func (c *ClickhouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 		return nil, err
 	}
 
-	lastCheckpoint, err := req.Records.GetLastCheckpoint()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get last checkpoint: %w", err)
-	}
-
-	err = c.pgMetadata.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
+	err = c.pgMetadata.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpointID)
 	if err != nil {
 		c.logger.Error("failed to increment id", slog.Any("error", err))
 		return nil, err

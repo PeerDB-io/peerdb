@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,7 +20,7 @@ import (
 type CDCBatchInfo struct {
 	BatchID     int64
 	RowsInBatch uint32
-	BatchEndlSN pglogrepl.LSN
+	BatchEndlSN int64
 	StartTime   time.Time
 }
 
@@ -36,7 +35,7 @@ func InitializeCDCFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName stri
 }
 
 func UpdateLatestLSNAtSourceForCDCFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName string,
-	latestLSNAtSource pglogrepl.LSN,
+	latestLSNAtSource int64,
 ) error {
 	_, err := pool.Exec(ctx,
 		"UPDATE peerdb_stats.cdc_flows SET latest_lsn_at_source=$1 WHERE flow_name=$2",
@@ -48,7 +47,7 @@ func UpdateLatestLSNAtSourceForCDCFlow(ctx context.Context, pool *pgxpool.Pool, 
 }
 
 func UpdateLatestLSNAtTargetForCDCFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName string,
-	latestLSNAtTarget pglogrepl.LSN,
+	latestLSNAtTarget int64,
 ) error {
 	_, err := pool.Exec(ctx,
 		"UPDATE peerdb_stats.cdc_flows SET latest_lsn_at_target=$1 WHERE flow_name=$2",
@@ -80,7 +79,7 @@ func UpdateNumRowsAndEndLSNForCDCBatch(
 	flowJobName string,
 	batchID int64,
 	numRows uint32,
-	batchEndLSN pglogrepl.LSN,
+	batchEndLSN int64,
 ) error {
 	_, err := pool.Exec(ctx,
 		"UPDATE peerdb_stats.cdc_batches SET rows_in_batch=$1,batch_end_lsn=$2 WHERE flow_name=$3 AND batch_id=$4",

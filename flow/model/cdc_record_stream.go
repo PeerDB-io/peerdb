@@ -1,7 +1,6 @@
 package model
 
 import (
-	"errors"
 	"sync/atomic"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -41,11 +40,11 @@ func (r *CDCRecordStream) UpdateLatestCheckpoint(val int64) {
 	}
 }
 
-func (r *CDCRecordStream) GetLastCheckpoint() (int64, error) {
+func (r *CDCRecordStream) GetLastCheckpoint() int64 {
 	if !r.lastCheckpointSet {
-		return 0, errors.New("last checkpoint not set, stream is still active")
+		panic("last checkpoint not set, stream is still active")
 	}
-	return r.lastCheckpointID.Load(), nil
+	return r.lastCheckpointID.Load()
 }
 
 func (r *CDCRecordStream) AddRecord(record Record) {
@@ -66,9 +65,11 @@ func (r *CDCRecordStream) WaitAndCheckEmpty() bool {
 }
 
 func (r *CDCRecordStream) Close() {
-	close(r.emptySignal)
-	close(r.records)
-	r.lastCheckpointSet = true
+	if !r.lastCheckpointSet {
+		close(r.emptySignal)
+		close(r.records)
+		r.lastCheckpointSet = true
+	}
 }
 
 func (r *CDCRecordStream) GetRecords() <-chan Record {

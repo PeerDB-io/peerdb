@@ -74,11 +74,6 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	insertStmt := fmt.Sprintf("INSERT INTO `%s` SELECT * FROM `%s`;",
 		rawTableName, stagingTable)
 
-	lastCP, err := req.Records.GetLastCheckpoint()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get last checkpoint: %w", err)
-	}
-
 	activity.RecordHeartbeat(ctx,
 		fmt.Sprintf("Flow job %s: performing insert and update transaction"+
 			" for destination table %s and sync batch ID %d",
@@ -98,6 +93,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		return nil, fmt.Errorf("failed to execute statements in a transaction: %w", err)
 	}
 
+	lastCP := req.Records.GetLastCheckpoint()
 	err = s.connector.pgMetadata.FinishBatch(ctx, req.FlowJobName, syncBatchID, lastCP)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update metadata: %w", err)

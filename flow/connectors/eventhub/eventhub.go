@@ -208,12 +208,7 @@ func (c *EventHubConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 		return nil, err
 	}
 
-	lastCheckpoint, err := req.Records.GetLastCheckpoint()
-	if err != nil {
-		c.logger.Error("failed to get last checkpoint", slog.Any("error", err))
-		return nil, err
-	}
-
+	lastCheckpoint := req.Records.GetLastCheckpoint()
 	err = c.pgMetadata.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
 	if err != nil {
 		c.logger.Error("failed to increment id", slog.Any("error", err))
