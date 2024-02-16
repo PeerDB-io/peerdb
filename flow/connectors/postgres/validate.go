@@ -77,7 +77,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 		// RDS case: check pg_settings for rds.logical_replication
 		var setting string
 		err := c.conn.QueryRow(ctx, "SELECT setting FROM pg_settings WHERE name = 'rds.logical_replication'").Scan(&setting)
-		if err != nil || setting != "on" {
+		if (err != nil && err != pgx.ErrNoRows) || setting != "on" {
 			return errors.New("postgres user does not have replication role")
 		}
 	}
