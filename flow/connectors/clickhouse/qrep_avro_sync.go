@@ -127,7 +127,8 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	selector := make([]string, 0, len(dstTableSchema))
 	for _, col := range dstTableSchema {
 		colName := col.Name()
-		if strings.Contains(colName, "_peerdb_") {
+		if colName == config.SoftDeleteColName || colName == config.SyncedAtColName ||
+			colName == versionColName {
 			continue
 		}
 
