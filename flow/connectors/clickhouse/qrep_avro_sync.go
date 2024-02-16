@@ -127,14 +127,14 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	selector := make([]string, 0, len(dstTableSchema))
 	for _, col := range dstTableSchema {
 		colName := col.Name()
-		if colName == config.SoftDeleteColName || colName == config.SyncedAtColName ||
-			colName == versionColName {
+		if strings.EqualFold(colName, config.SoftDeleteColName) ||
+			strings.EqualFold(colName, config.SyncedAtColName) ||
+			strings.EqualFold(colName, versionColName) {
 			continue
 		}
 
-		selector = append(selector, col.Name())
+		selector = append(selector, colName)
 	}
-
 	selectorStr := strings.Join(selector, ",")
 	//nolint:gosec
 	query := fmt.Sprintf("INSERT INTO %s(%s) SELECT * FROM s3('%s','%s','%s', 'Avro')",
