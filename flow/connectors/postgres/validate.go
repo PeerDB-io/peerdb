@@ -71,7 +71,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 	err := c.conn.QueryRow(ctx, "SELECT rolreplication FROM pg_roles WHERE rolname = "+
 		QuoteLiteral(username)).Scan(&replicationRes)
 	if err != nil {
-		if err != pgx.ErrNoRows {
+		if err == pgx.ErrNoRows {
 			c.logger.Warn("No rows in pg_roles for user. Skipping rolereplication check",
 				slog.String("username", username))
 		} else {
