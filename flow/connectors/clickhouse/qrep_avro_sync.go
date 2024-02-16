@@ -124,13 +124,21 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	avroFileUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s3o.Bucket,
 		s.connector.creds.Region, avroFile.FilePath)
 
-	if err != nil {
-		return 0, err
+	selector := make([]string, 0, len(dstTableSchema))
+	for _, col := range dstTableSchema {
+		colName := col.Name()
+		if colName == config.SoftDeleteColName || colName == config.SyncedAtColName ||
+			colName == versionColName {
+			continue
+		}
+
+		selector = append(selector, col.Name())
 	}
-	selector := strings.Join(schema.GetColumnNames(), ",")
+
+	selectorStr := strings.Join(selector, ",")
 	//nolint:gosec
-	query := fmt.Sprintf("INSERT INTO %s (%s) SELECT * FROM s3('%s','%s','%s', 'Avro')",
-		config.DestinationTableIdentifier, selector, avroFileUrl,
+	query := fmt.Sprintf("INSERT INTO %s(%s) SELECT * FROM s3('%s','%s','%s', 'Avro')",
+		config.DestinationTableIdentifier, selectorStr, avroFileUrl,
 		s.connector.creds.AccessKeyID, s.connector.creds.SecretAccessKey)
 
 	_, err = s.connector.database.ExecContext(ctx, query)
