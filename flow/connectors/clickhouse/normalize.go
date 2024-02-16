@@ -81,7 +81,7 @@ func generateCreateTableSQLForNormalizedTable(
 			return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 		}
 
-		if column.Type == "numeric" {
+		if colType == qvalue.QValueKindNumeric {
 			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
 			if column.TypeModifier == -1 || precision > 76 || scale > precision {
 				precision = numeric.PeerDBClickhousePrecision

@@ -12,7 +12,6 @@ import (
 	"go.temporal.io/sdk/log"
 
 	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
-	"github.com/PeerDB-io/peer-flow/model/numeric"
 )
 
 // https://avro.apache.org/docs/1.11.0/spec.html
@@ -79,8 +78,8 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision 
 	case QValueKindBytes, QValueKindBit:
 		return "bytes", nil
 	case QValueKindNumeric:
-		avroNumericPrecision, avroNumericScale := numeric.DetermineNumericSettingForDWH(
-			precision, scale, targetDWH == QDWHTypeClickhouse)
+		avroNumericPrecision, avroNumericScale := DetermineNumericSettingForDWH(
+			precision, scale, targetDWH)
 		return AvroSchemaNumeric{
 			Type:        "bytes",
 			LogicalType: "decimal",
