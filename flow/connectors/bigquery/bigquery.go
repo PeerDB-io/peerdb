@@ -236,11 +236,11 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 }
 
 // Close closes the BigQuery driver.
-func (c *BigQueryConnector) Close(_ context.Context) error {
-	if c == nil || c.client == nil {
-		return nil
+func (c *BigQueryConnector) Close() error {
+	if c != nil {
+		return c.client.Close()
 	}
-	return c.client.Close()
+	return nil
 }
 
 // ConnectionActive returns nil if the connection is active.
@@ -250,9 +250,6 @@ func (c *BigQueryConnector) ConnectionActive(ctx context.Context) error {
 		return fmt.Errorf("failed to get dataset metadata: %v", err)
 	}
 
-	if c.client == nil {
-		return fmt.Errorf("BigQuery client is nil")
-	}
 	return nil
 }
 

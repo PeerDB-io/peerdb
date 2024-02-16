@@ -219,26 +219,19 @@ func NewSnowflakeConnector(
 	}, nil
 }
 
-func (c *SnowflakeConnector) Close(_ context.Context) error {
-	if c == nil || c.database == nil {
-		return nil
-	}
-
-	err := c.database.Close()
-	if err != nil {
-		return fmt.Errorf("error while closing connection to Snowflake peer: %w", err)
+func (c *SnowflakeConnector) Close() error {
+	if c != nil {
+		err := c.database.Close()
+		if err != nil {
+			return fmt.Errorf("error while closing connection to Snowflake peer: %w", err)
+		}
 	}
 	return nil
 }
 
 func (c *SnowflakeConnector) ConnectionActive(ctx context.Context) error {
-	if c == nil || c.database == nil {
-		return fmt.Errorf("SnowflakeConnector is nil")
-	}
-
 	// This also checks if database exists
-	err := c.database.PingContext(ctx)
-	return err
+	return c.database.PingContext(ctx)
 }
 
 func (c *SnowflakeConnector) NeedsSetupMetadataTables(_ context.Context) bool {

@@ -53,11 +53,15 @@ func NewEventHubConnector(
 	}, nil
 }
 
-func (c *EventHubConnector) Close(ctx context.Context) error {
-	err := c.hubManager.Close(ctx)
-	if err != nil {
-		c.logger.Error("failed to close event hub manager", slog.Any("error", err))
-		return err
+func (c *EventHubConnector) Close() error {
+	if c != nil {
+		timeout, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		err := c.hubManager.Close(timeout)
+		if err != nil {
+			c.logger.Error("failed to close event hub manager", slog.Any("error", err))
+			return err
+		}
 	}
 
 	return nil

@@ -307,6 +307,6 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 func TestSnowflakeSchemaDeltaTestSuite(t *testing.T) {
 	e2eshared.RunSuite(t, setupSchemaDeltaSuite, func(s SnowflakeSchemaDeltaTestSuite) {
 		require.NoError(s.t, s.sfTestHelper.Cleanup())
-		require.NoError(s.t, s.connector.Close(context.Background()))
+		require.NoError(s.t, s.connector.Close())
 	})
 }

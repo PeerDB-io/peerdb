@@ -130,13 +130,13 @@ func SetupPostgres(t *testing.T, suffix string) (*connpostgres.PostgresConnector
 
 	err = cleanPostgres(conn, suffix)
 	if err != nil {
-		connector.Close(context.Background())
+		connector.Close()
 		return nil, err
 	}
 
 	err = setupPostgresSchema(t, conn, suffix)
 	if err != nil {
-		connector.Close(context.Background())
+		connector.Close()
 		return nil, err
 	}
 

@@ -85,7 +85,7 @@ func (c *S3Connector) CreateRawTable(_ context.Context, req *protos.CreateRawTab
 	return nil, nil
 }
 
-func (c *S3Connector) Close(_ context.Context) error {
+func (c *S3Connector) Close() error {
 	return nil
 }
 

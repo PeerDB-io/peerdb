@@ -217,8 +217,7 @@ func TestPostgresSchemaDeltaTestSuite(t *testing.T) {
 		require.NoError(s.t, err)
 
 		require.NoError(s.t, s.connector.ConnectionActive(context.Background()))
-		err = s.connector.Close(context.Background())
-		require.NoError(s.t, err)
+		require.NoError(s.t, s.connector.Close())
 		require.Error(s.t, s.connector.ConnectionActive(context.Background()))
 	})
 }
