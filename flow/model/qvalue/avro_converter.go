@@ -78,8 +78,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision 
 	case QValueKindBytes, QValueKindBit:
 		return "bytes", nil
 	case QValueKindNumeric:
-		avroNumericPrecision, avroNumericScale := DetermineNumericSettingForDWH(
-			precision, scale, targetDWH)
+		avroNumericPrecision, avroNumericScale := DetermineNumericSettingForDWH(precision, scale, targetDWH)
 		return AvroSchemaNumeric{
 			Type:        "bytes",
 			LogicalType: "decimal",
