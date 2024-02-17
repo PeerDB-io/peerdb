@@ -1,5 +1,5 @@
-#!/bin/bash
-set -Eeuo pipefail
+#!/bin/sh
+set -Eeu
 
 # install the protobuf compiler
 PROTOBUF_MAJOR_VERSION=3
@@ -21,12 +21,12 @@ PROTOBUF_ARCHIVE="protoc-$PROTOBUF_MINOR_VERSION-linux-$ARCH.zip"
 PROTOBUF_URL="https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOBUF_MINOR_VERSION/$PROTOBUF_ARCHIVE"
 
 mkdir -p /tmp/protoc-install
-pushd /tmp/protoc-install
 
-curl -L "$PROTOBUF_URL" -O
-unzip "$PROTOBUF_ARCHIVE" -d protoc3
+(
+  cd /tmp/protoc-install
+  curl -L "$PROTOBUF_URL" -O
+  unzip "$PROTOBUF_ARCHIVE" -d protoc3
 
-mv protoc3/bin/* /usr/local/bin/
-mv protoc3/include/* /usr/local/include/
-
-popd
+  mv protoc3/bin/* /usr/local/bin/
+  mv protoc3/include/* /usr/local/include/
+)

@@ -17,9 +17,7 @@ jobs:
       - uses: bufbuild/buf-setup-action@v1.28.1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-      - name: setup protos
-        run: |
-          ./generate_protos.sh
+      - run: buf generate protos
       - name: install lib-geos
         run: |
           sudo apt-get update
