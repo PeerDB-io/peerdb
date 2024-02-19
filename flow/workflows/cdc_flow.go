@@ -152,6 +152,11 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 			continue
 		}
 
+		additionalSourceTables := make([]string, 0, len(flowConfigUpdate.AdditionalTables))
+		for _, additionalSourceTable := range flowConfigUpdate.AdditionalTables {
+			additionalSourceTables = append(additionalSourceTables, additionalSourceTable.SourceTableIdentifier)
+		}
+
 		ensurePullabilityCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 5 * time.Minute,
 		})
@@ -159,20 +164,20 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 			ensurePullabilityCtx,
 			flowable.EnsurePullability,
 			&protos.EnsurePullabilityBatchInput{
-				PeerConnectionConfig: cfg.Source,
-				FlowJobName:          cfg.FlowJobName,
-				SourceTableIdentifiers: func() []string {
-					additionalSourceTables := make([]string, 0, len(flowConfigUpdate.AdditionalTables))
-					for _, additionalSourceTable := range flowConfigUpdate.AdditionalTables {
-						additionalSourceTables = append(additionalSourceTables, additionalSourceTable.SourceTableIdentifier)
-					}
-					return additionalSourceTables
-				}(),
-				CheckConstraints: true,
+				PeerConnectionConfig:       cfg.Source,
+				FlowJobName:                cfg.FlowJobName,
+				SourceTableIdentifiers:     additionalSourceTables,
+				CheckConstraints:           true,
+				OnlyAlertOnConstraintsFail: true,
 			})
-		if err := ensurePullabilityFuture.Get(ctx, nil); err != nil {
+		var ensurePullabilityOutput *protos.EnsurePullabilityBatchOutput
+		if err := ensurePullabilityFuture.Get(ctx, &ensurePullabilityOutput); err != nil {
 			w.logger.Error("failed to ensure pullability for additional tables: ", err)
 			return err
+		}
+		// if err == nil and output == nil, constraints failed, so ignore batch
+		if ensurePullabilityOutput == nil {
+			continue
 		}
 
 		alterPublicationAddAdditionalTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{

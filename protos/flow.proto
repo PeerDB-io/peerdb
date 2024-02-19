@@ -132,6 +132,7 @@ message EnsurePullabilityBatchInput {
   string flow_job_name = 2;
   repeated string source_table_identifiers = 3;
   bool check_constraints = 4;
+  bool only_alert_on_constraints_fail = 5;
 }
 
 message PostgresTableIdentifier {

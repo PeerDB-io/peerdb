@@ -84,20 +84,20 @@ func (a *Alerter) AlertIfSlotLag(ctx context.Context, peerName string, slotInfo 
 
 	alertKey := peerName + "-slot-lag-threshold-exceeded"
 	alertMessageTemplate := fmt.Sprintf("%sSlot `%s` on peer `%s` has exceeded threshold size of %%dMB, "+
-		`currently at %.2fMB!
-		cc: <!channel>`, deploymentUIDPrefix, slotInfo.SlotName, peerName, slotInfo.LagInMb)
+		"currently at %.2fMB!",
+		deploymentUIDPrefix, slotInfo.SlotName, peerName, slotInfo.LagInMb)
 
 	if slotInfo.LagInMb > float32(lowestSlotLagMBAlertThreshold) &&
 		a.checkAndAddAlertToCatalog(ctx, alertKey, fmt.Sprintf(alertMessageTemplate, lowestSlotLagMBAlertThreshold)) {
 		for _, slackAlertSender := range slackAlertSenders {
 			if slackAlertSender.slotLagMBAlertThreshold > 0 {
 				if slotInfo.LagInMb > float32(slackAlertSender.slotLagMBAlertThreshold) {
-					a.alertToSlack(ctx, slackAlertSender, alertKey,
+					a.alertToSpecificSlackSender(ctx, slackAlertSender, alertKey,
 						fmt.Sprintf(alertMessageTemplate, slackAlertSender.slotLagMBAlertThreshold))
 				}
 			} else {
 				if slotInfo.LagInMb > float32(defaultSlotLagMBAlertThreshold) {
-					a.alertToSlack(ctx, slackAlertSender, alertKey,
+					a.alertToSpecificSlackSender(ctx, slackAlertSender, alertKey,
 						fmt.Sprintf(alertMessageTemplate, defaultSlotLagMBAlertThreshold))
 				}
 			}
@@ -130,20 +130,20 @@ func (a *Alerter) AlertIfOpenConnections(ctx context.Context, peerName string,
 
 	alertKey := peerName + "-max-open-connections-threshold-exceeded"
 	alertMessageTemplate := fmt.Sprintf("%sOpen connections from PeerDB user `%s` on peer `%s`"+
-		` has exceeded threshold size of %%d connections, currently at %d connections!
-		cc: <!channel>`, deploymentUIDPrefix, openConnections.UserName, peerName, openConnections.CurrentOpenConnections)
+		" has exceeded threshold size of %%d connections, currently at %d connections!",
+		deploymentUIDPrefix, openConnections.UserName, peerName, openConnections.CurrentOpenConnections)
 
 	if openConnections.CurrentOpenConnections > int64(lowestOpenConnectionsThreshold) &&
 		a.checkAndAddAlertToCatalog(ctx, alertKey, fmt.Sprintf(alertMessageTemplate, lowestOpenConnectionsThreshold)) {
 		for _, slackAlertSender := range slackAlertSenders {
 			if slackAlertSender.openConnectionsAlertThreshold > 0 {
 				if openConnections.CurrentOpenConnections > int64(slackAlertSender.openConnectionsAlertThreshold) {
-					a.alertToSlack(ctx, slackAlertSender, alertKey,
+					a.alertToSpecificSlackSender(ctx, slackAlertSender, alertKey,
 						fmt.Sprintf(alertMessageTemplate, slackAlertSender.openConnectionsAlertThreshold))
 				}
 			} else {
 				if openConnections.CurrentOpenConnections > int64(defaultOpenConnectionsThreshold) {
-					a.alertToSlack(ctx, slackAlertSender, alertKey,
+					a.alertToSpecificSlackSender(ctx, slackAlertSender, alertKey,
 						fmt.Sprintf(alertMessageTemplate, defaultOpenConnectionsThreshold))
 				}
 			}
@@ -151,9 +151,26 @@ func (a *Alerter) AlertIfOpenConnections(ctx context.Context, peerName string,
 	}
 }
 
-func (a *Alerter) alertToSlack(ctx context.Context, slackAlertSender *slackAlertSender, alertKey string, alertMessage string) {
+func (a *Alerter) AlertGeneric(ctx context.Context, alertKey string, alertMessage string) {
+	if a.checkAndAddAlertToCatalog(ctx, alertKey, alertMessage) {
+		slackAlertSenders, err := a.registerSendersFromPool(ctx)
+		if err != nil {
+			logger.LoggerFromCtx(ctx).Warn("failed to set Slack senders", slog.Any("error", err))
+			return
+		}
+
+		for _, slackAlertSender := range slackAlertSenders {
+			a.alertToSpecificSlackSender(ctx, slackAlertSender, alertKey, alertMessage)
+		}
+	}
+}
+
+func (a *Alerter) alertToSpecificSlackSender(ctx context.Context, slackAlertSender *slackAlertSender,
+	alertKey string, alertMessage string,
+) {
 	err := slackAlertSender.sendAlert(ctx,
-		":rotating_light:Alert:rotating_light:: "+alertKey, alertMessage)
+		":rotating_light:Alert:rotating_light:: "+alertKey, alertMessage+`
+cc: <!channel>`)
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Warn("failed to send alert", slog.Any("error", err))
 		return
