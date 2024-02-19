@@ -198,7 +198,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	go a.recordSlotSizePeriodically(errCtx, srcConn, slotNameForMetrics, input.FlowConnectionConfigs.Source.Name)
 
-	shutdown := utils.HeartbeatRoutine(ctx, 10*time.Second, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		jobName := input.FlowConnectionConfigs.FlowJobName
 		return fmt.Sprintf("transferring records for job - %s", jobName)
 	})
@@ -383,7 +383,7 @@ func (a *FlowableActivity) StartNormalize(
 	}
 	defer connectors.CloseConnector(dstConn)
 
-	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("normalizing records from batch for job - %s", input.FlowConnectionConfigs.FlowJobName)
 	})
 	defer shutdown()
@@ -452,7 +452,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	}
 	defer connectors.CloseConnector(srcConn)
 
-	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("getting partitions for job - %s", config.FlowJobName)
 	})
 	defer shutdown()
@@ -590,7 +590,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		}
 	}
 
-	shutdown := utils.HeartbeatRoutine(ctx, 1*time.Minute, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("syncing partition - %s: %d of %d total.", partition.PartitionId, idx, total)
 	})
 	defer shutdown()
@@ -633,7 +633,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 		return err
 	}
 
-	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("consolidating partitions for job - %s", config.FlowJobName)
 	})
 	defer shutdown()
@@ -942,7 +942,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 		return nil
 	})
 
-	shutdown := utils.HeartbeatRoutine(ctx, 5*time.Minute, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return "syncing xmin."
 	})
 	defer shutdown()

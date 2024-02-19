@@ -578,7 +578,7 @@ func (c *PostgresConnector) GetTableSchema(
 			return nil, err
 		}
 		res[tableName] = tableSchema
-		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("fetched schema for table %s", tableName))
+		utils.RecordHeartbeat(c.ctx, fmt.Sprintf("fetched schema for table %s", tableName))
 		c.logger.Info(fmt.Sprintf("fetched schema for table %s", tableName))
 	}
 
@@ -695,7 +695,7 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 
 		tableExistsMapping[tableIdentifier] = false
 		c.logger.Info(fmt.Sprintf("created table %s", tableIdentifier))
-		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("created table %s", tableIdentifier))
+		utils.RecordHeartbeat(c.ctx, fmt.Sprintf("created table %s", tableIdentifier))
 	}
 
 	err = createNormalizedTablesTx.Commit(c.ctx)
@@ -800,7 +800,7 @@ func (c *PostgresConnector) EnsurePullability(
 				},
 			},
 		}
-		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("ensured pullability table %s", tableName))
+		utils.RecordHeartbeat(c.ctx, fmt.Sprintf("ensured pullability table %s", tableName))
 	}
 
 	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil
