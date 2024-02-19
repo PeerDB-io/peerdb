@@ -380,7 +380,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	stream *model.QRecordStream,
 	flowName string,
 ) (int, error) {
-	shutdown := utils.HeartbeatRoutine(s.connector.ctx, time.Minute,
+	shutdown := utils.HeartbeatRoutine(s.connector.ctx,
 		func() string {
 			return fmt.Sprintf("writing to avro stage for objectFolder %s and staging table %s",
 				objectFolder, stagingTable)

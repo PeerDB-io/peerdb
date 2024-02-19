@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -82,7 +83,7 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 
 	var hubConnectOK bool
 	var hub any
-	hub, hubConnectOK = m.hubs.Load(name)
+	hub, hubConnectOK = m.hubs.Load(name.Eventhub)
 	if hubConnectOK {
 		hubTmp := hub.(*azeventhubs.ProducerClient)
 		_, err := hubTmp.GetEventHubProperties(ctx, nil)
@@ -94,7 +95,7 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 			if closeError != nil {
 				slog.Error("failed to close producer client", slog.Any("error", closeError))
 			}
-			m.hubs.Delete(name)
+			m.hubs.Delete(name.Eventhub)
 			hubConnectOK = false
 		}
 	}
@@ -111,7 +112,7 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 		if err != nil {
 			return nil, fmt.Errorf("failed to create eventhub client: %v", err)
 		}
-		m.hubs.Store(name, hub)
+		m.hubs.Store(name.Eventhub, hub)
 		return hub, nil
 	}
 
@@ -127,17 +128,27 @@ func (m *EventHubManager) closeProducerClient(ctx context.Context, pc *azeventhu
 
 func (m *EventHubManager) Close(ctx context.Context) error {
 	var allErrors error
-
+	numHubsClosed := atomic.Uint32{}
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
+		return fmt.Sprintf("closed %d eventhub clients", numHubsClosed.Load())
+	})
+	defer shutdown()
 	m.hubs.Range(func(key any, value any) bool {
-		name := key.(ScopedEventhub)
-		hub := value.(*azeventhubs.ProducerClient)
-		err := m.closeProducerClient(ctx, hub)
+		slog.InfoContext(ctx, "closing eventhub client",
+			slog.Uint64("numClosed", uint64(numHubsClosed.Load())),
+			slog.String("Currently closing", fmt.Sprintf("%v", key)))
+		client := value.(*azeventhubs.ProducerClient)
+		err := m.closeProducerClient(ctx, client)
 		if err != nil {
-			slog.Error(fmt.Sprintf("failed to close eventhub client for %v", name), slog.Any("error", err))
+			slog.Error(fmt.Sprintf("failed to close eventhub client for %v", key), slog.Any("error", err))
 			allErrors = errors.Join(allErrors, err)
 		}
+
+		numHubsClosed.Add(1)
 		return true
 	})
+
+	slog.InfoContext(ctx, "closed all eventhub clients", slog.Any("numClosed", numHubsClosed.Load()))
 
 	return allErrors
 }

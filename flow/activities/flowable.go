@@ -83,26 +83,6 @@ func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *prot
 	return nil
 }
 
-// GetLastSyncedID implements GetLastSyncedID.
-func (a *FlowableActivity) GetLastSyncedID(
-	ctx context.Context,
-	config *protos.GetLastSyncedIDInput,
-) (*protos.LastSyncState, error) {
-	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.PeerConnectionConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get connector: %w", err)
-	}
-	defer connectors.CloseConnector(dstConn)
-
-	var lastOffset int64
-	lastOffset, err = dstConn.GetLastOffset(config.FlowJobName)
-	if err != nil {
-		return nil, err
-	}
-	return &protos.LastSyncState{Checkpoint: lastOffset}, nil
-}
-
 // EnsurePullability implements EnsurePullability.
 func (a *FlowableActivity) EnsurePullability(
 	ctx context.Context,
@@ -218,12 +198,21 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	go a.recordSlotSizePeriodically(errCtx, srcConn, slotNameForMetrics, input.FlowConnectionConfigs.Source.Name)
 
-	shutdown := utils.HeartbeatRoutine(ctx, 10*time.Second, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		jobName := input.FlowConnectionConfigs.FlowJobName
 		return fmt.Sprintf("transferring records for job - %s", jobName)
 	})
 	defer shutdown()
 
+	slog.InfoContext(ctx, "getting last offset from destination peer")
+	// Get the last offset from the destination
+	lastOffset, getLastOffsetErr := dstConn.GetLastOffset(input.FlowConnectionConfigs.FlowJobName)
+	if getLastOffsetErr != nil {
+		return nil, getLastOffsetErr
+	}
+
+	msg := fmt.Sprintf("last synced ID from destination peer - %d\n", lastOffset)
+	slog.InfoContext(ctx, msg)
 	// start a goroutine to pull records from the source
 	recordBatch := model.NewCDCRecordStream()
 	startTime := time.Now()
@@ -233,7 +222,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 			FlowJobName:           flowName,
 			SrcTableIDNameMapping: input.FlowConnectionConfigs.SrcTableIdNameMapping,
 			TableNameMapping:      tblNameMapping,
-			LastOffset:            input.LastSyncState.Checkpoint,
+			LastOffset:            lastOffset,
 			MaxBatchSize:          uint32(input.SyncFlowOptions.BatchSize),
 			IdleTimeout: peerdbenv.PeerDBCDCIdleTimeoutSeconds(
 				int(input.FlowConnectionConfigs.IdleTimeoutSeconds),
@@ -394,7 +383,7 @@ func (a *FlowableActivity) StartNormalize(
 	}
 	defer connectors.CloseConnector(dstConn)
 
-	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("normalizing records from batch for job - %s", input.FlowConnectionConfigs.FlowJobName)
 	})
 	defer shutdown()
@@ -463,7 +452,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	}
 	defer connectors.CloseConnector(srcConn)
 
-	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("getting partitions for job - %s", config.FlowJobName)
 	})
 	defer shutdown()
@@ -601,7 +590,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		}
 	}
 
-	shutdown := utils.HeartbeatRoutine(ctx, 1*time.Minute, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("syncing partition - %s: %d of %d total.", partition.PartitionId, idx, total)
 	})
 	defer shutdown()
@@ -644,7 +633,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 		return err
 	}
 
-	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("consolidating partitions for job - %s", config.FlowJobName)
 	})
 	defer shutdown()
@@ -953,7 +942,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 		return nil
 	})
 
-	shutdown := utils.HeartbeatRoutine(ctx, 5*time.Minute, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return "syncing xmin."
 	})
 	defer shutdown()

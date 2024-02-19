@@ -69,7 +69,7 @@ func (c *EventHubConnector) Close() error {
 		allErrors = errors.Join(allErrors, err)
 	}
 
-	err = c.hubManager.Close(context.Background())
+	err = c.hubManager.Close(c.ctx)
 	if err != nil {
 		c.logger.Error("failed to close event hub manager", slog.Any("error", err))
 		allErrors = errors.Join(allErrors, err)
@@ -132,7 +132,7 @@ func (c *EventHubConnector) processBatch(
 	lastUpdatedOffset := int64(0)
 
 	numRecords := atomic.Uint32{}
-	shutdown := utils.HeartbeatRoutine(c.ctx, 10*time.Second, func() string {
+	shutdown := utils.HeartbeatRoutine(c.ctx, func() string {
 		return fmt.Sprintf(
 			"processed %d records for flow %s",
 			numRecords.Load(), flowJobName,
@@ -201,7 +201,7 @@ func (c *EventHubConnector) processBatch(
 			}
 
 			curNumRecords := numRecords.Load()
-			if curNumRecords%1000 == 0 {
+			if curNumRecords%10000 == 0 {
 				c.logger.Info("processBatch", slog.Int("number of records processed for sending", int(curNumRecords)))
 			}
 
