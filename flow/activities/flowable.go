@@ -204,7 +204,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	})
 	defer shutdown()
 
-	slog.Info("getting last offset from destination peer")
+	slog.InfoContext(ctx, "getting last offset from destination peer")
 	// Get the last offset from the destination
 	lastOffset, getLastOffsetErr := dstConn.GetLastOffset(input.FlowConnectionConfigs.FlowJobName)
 	if getLastOffsetErr != nil {
