@@ -107,7 +107,7 @@ var QValueKindToClickhouseTypeMap = map[QValueKind]string{
 	QValueKindString:      "String",
 	QValueKindJSON:        "String",
 	QValueKindTimestamp:   "DateTime64(6)",
-	QValueKindTimestampTZ: "TIMESTAMP",
+	QValueKindTimestampTZ: "DateTime64(6)",
 	QValueKindTime:        "String",
 	QValueKindDate:        "Date",
 	QValueKindBit:         "Boolean",
@@ -117,10 +117,6 @@ var QValueKindToClickhouseTypeMap = map[QValueKind]string{
 	QValueKindTimeTZ:      "String",
 	QValueKindInvalid:     "String",
 	QValueKindHStore:      "String",
-	QValueKindGeography:   "GEOGRAPHY",
-	QValueKindGeometry:    "GEOMETRY",
-	QValueKindPoint:       "GEOMETRY",
-
 	// array types will be mapped to VARIANT
 	QValueKindArrayFloat32: "Array(Float32)",
 	QValueKindArrayFloat64: "Array(Float64)",

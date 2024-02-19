@@ -3,6 +3,7 @@ package connclickhouse
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -71,7 +72,7 @@ func generateCreateTableSQLForNormalizedTable(
 	syncedAtColName string,
 ) (string, error) {
 	var stmtBuilder strings.Builder
-	stmtBuilder.WriteString(fmt.Sprintf("CREATE TABLE `%s` (", normalizedTable))
+	stmtBuilder.WriteString(fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s` (", normalizedTable))
 
 	for _, column := range tableSchema.Columns {
 		colName := column.Name
@@ -81,7 +82,8 @@ func generateCreateTableSQLForNormalizedTable(
 			return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 		}
 
-		if colType == qvalue.QValueKindNumeric {
+		switch colType {
+		case qvalue.QValueKindNumeric:
 			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
 			if column.TypeModifier == -1 || precision > 76 || scale > precision {
 				precision = numeric.PeerDBClickhousePrecision
@@ -89,13 +91,14 @@ func generateCreateTableSQLForNormalizedTable(
 			}
 			stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ",
 				colName, precision, scale))
-		} else {
+		case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindDate:
+			// 1st Jan 1970 is not a sane default which clickhouse sets, so we use nullable
+			stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(%s), ", colName, clickhouseType))
+		default:
 			stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", colName, clickhouseType))
 		}
 	}
-
 	// TODO support soft delete
-
 	// synced at column will be added to all normalized tables
 	if syncedAtColName != "" {
 		colName := strings.ToLower(syncedAtColName)
@@ -176,17 +179,21 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.N
 			if err != nil {
 				return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 			}
-			if clickhouseType == "DateTime64(6)" || clickhouseType == "UUID" {
-				clickhouseType = "String"
-			}
 
-			if clickhouseType == "Date" {
+			switch clickhouseType {
+			case "Date":
 				projection.WriteString(fmt.Sprintf(
 					"toDate(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'))) AS `%s`,",
 					cn,
 					cn,
 				))
-			} else {
+			case "DateTime64(6)":
+				projection.WriteString(fmt.Sprintf(
+					"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s')) AS `%s`,",
+					cn,
+					cn,
+				))
+			default:
 				projection.WriteString(fmt.Sprintf("JSONExtract(_peerdb_data, '%s', '%s') AS `%s`,", cn, clickhouseType, cn))
 			}
 		}
@@ -220,7 +227,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.N
 		insertIntoSelectQuery.WriteString(selectQuery.String())
 
 		q := insertIntoSelectQuery.String()
-		c.logger.Info(fmt.Sprintf("[clickhouse] insert into select query %s", q))
+		c.logger.Info("[clickhouse] insert into select query " + q)
 
 		_, err = c.database.ExecContext(ctx, q)
 		if err != nil {
@@ -269,7 +276,7 @@ func (c *ClickhouseConnector) getDistinctTableNamesInBatch(
 		}
 
 		if !tableName.Valid {
-			return nil, fmt.Errorf("table name is not valid")
+			return nil, errors.New("table name is not valid")
 		}
 
 		tableNames = append(tableNames, tableName.String)

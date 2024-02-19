@@ -85,7 +85,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision 
 			Precision:   avroNumericPrecision,
 			Scale:       avroNumericScale,
 		}, nil
-	case QValueKindTime, QValueKindTimeTZ, QValueKindDate, QValueKindTimestamp, QValueKindTimestampTZ:
+	case QValueKindTime, QValueKindTimeTZ, QValueKindDate:
 		if targetDWH == QDWHTypeClickhouse {
 			if kind == QValueKindTime {
 				return "string", nil
@@ -97,6 +97,14 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision 
 				}, nil
 			}
 			return "long", nil
+		}
+		return "string", nil
+	case QValueKindTimestamp, QValueKindTimestampTZ:
+		if targetDWH == QDWHTypeClickhouse {
+			return AvroSchemaLogical{
+				Type:        "long",
+				LogicalType: "timestamp-micros",
+			}, nil
 		}
 		return "string", nil
 	case QValueKindHStore, QValueKindJSON, QValueKindStruct:
@@ -179,6 +187,7 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		if err != nil || t == nil {
 			return t, err
 		}
+
 		if c.TargetDWH == QDWHTypeSnowflake {
 			if c.Nullable {
 				return c.processNullableUnion("string", t.(string))
@@ -235,14 +244,6 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 			}
 		}
 
-		if c.TargetDWH == QDWHTypeClickhouse {
-			if c.Nullable {
-				return c.processNullableUnion("long", t.(int64))
-			} else {
-				return t.(int64), nil
-			}
-		}
-
 		if c.Nullable {
 			return goavro.Union("long.timestamp-micros", t.(int64)), nil
 		}
@@ -257,14 +258,6 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 				return c.processNullableUnion("string", t.(string))
 			} else {
 				return t.(string), nil
-			}
-		}
-
-		if c.TargetDWH == QDWHTypeClickhouse {
-			if c.Nullable {
-				return c.processNullableUnion("long", t.(int64))
-			} else {
-				return t.(int64), nil
 			}
 		}
 
@@ -396,10 +389,10 @@ func (c *QValueAvroConverter) processGoTime() (interface{}, error) {
 	if c.TargetDWH == QDWHTypeSnowflake {
 		return t.Format("15:04:05.999999"), nil
 	}
-
 	if c.TargetDWH == QDWHTypeClickhouse {
 		return t.Format("15:04:05.999999"), nil
 	}
+
 	return t.UnixMicro(), nil
 }
 
