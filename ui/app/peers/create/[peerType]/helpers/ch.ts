@@ -6,15 +6,15 @@ export const clickhouseSetting: PeerSetting[] = [
     label: 'Host',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, host: value as string })),
-    tips: 'Specifies the IP host name or address on which postgres is to listen for TCP/IP connections from client applications. Ensure that this host has us whitelisted so we can connect to it.',
+    tips: 'Specifies the IP host name or address on which Clickhouse is listening for TCP/IP connections from client applications.',
   },
   {
     label: 'Port',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, port: parseInt(value as string, 10) })),
     type: 'number', // type for textfield
-    default: 5432,
-    tips: 'Specifies the TCP/IP port or local Unix domain socket file extension on which postgres is listening for connections from client applications.',
+    default: 9000,
+    tips: 'Specifies the TCP/IP port or local Unix domain socket file extension on which Clickhouse is listening for connections from client applications.',
   },
   {
     label: 'User',
@@ -44,7 +44,7 @@ export const clickhouseSetting: PeerSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, disableTls: value as boolean })),
     type: 'switch',
-    tips: 'If you are using a non-TLS connection, check this box.',
+    tips: 'If you are using a non-TLS connection for Clickhouse server, check this box.',
   },
   {
     label: 'S3 Path',
@@ -78,7 +78,7 @@ export const clickhouseSetting: PeerSetting[] = [
 
 export const blankClickhouseSetting: ClickhouseConfig = {
   host: '',
-  port: 5432,
+  port: 9000,
   user: '',
   password: '',
   database: '',
@@ -86,4 +86,5 @@ export const blankClickhouseSetting: ClickhouseConfig = {
   accessKeyId: '',
   secretAccessKey: '',
   region: '',
+  disableTls: false,
 };
