@@ -3,6 +3,7 @@ package connclickhouse
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -178,9 +179,6 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.N
 			if err != nil {
 				return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 			}
-			if clickhouseType == "UUID" {
-				clickhouseType = "String"
-			}
 
 			switch clickhouseType {
 			case "Date":
@@ -229,7 +227,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.N
 		insertIntoSelectQuery.WriteString(selectQuery.String())
 
 		q := insertIntoSelectQuery.String()
-		c.logger.Info(fmt.Sprintf("[clickhouse] insert into select query %s", q))
+		c.logger.Info("[clickhouse] insert into select query " + q)
 
 		_, err = c.database.ExecContext(ctx, q)
 		if err != nil {
@@ -278,7 +276,7 @@ func (c *ClickhouseConnector) getDistinctTableNamesInBatch(
 		}
 
 		if !tableName.Valid {
-			return nil, fmt.Errorf("table name is not valid")
+			return nil, errors.New("table name is not valid")
 		}
 
 		tableNames = append(tableNames, tableName.String)
