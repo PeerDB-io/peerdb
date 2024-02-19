@@ -344,8 +344,6 @@ func (p *PostgresCDCSource) consumeStream(
 		}
 		rawMsg, err := conn.ReceiveMessage(ctx)
 		cancel()
-
-		utils.RecordHeartbeatWithRecover(p.ctx, "consumeStream ReceiveMessage")
 		ctxErr := p.ctx.Err()
 		if ctxErr != nil {
 			return fmt.Errorf("consumeStream preempted: %w", ctxErr)
