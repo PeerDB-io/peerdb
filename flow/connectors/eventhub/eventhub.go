@@ -201,7 +201,7 @@ func (c *EventHubConnector) processBatch(
 			}
 
 			curNumRecords := numRecords.Load()
-			if curNumRecords%1000 == 0 {
+			if curNumRecords%10000 == 0 {
 				c.logger.Info("processBatch", slog.Int("number of records processed for sending", int(curNumRecords)))
 			}
 
