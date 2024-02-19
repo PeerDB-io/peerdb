@@ -13,7 +13,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -123,7 +122,7 @@ func (c *EventHubConnector) processBatch(
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns)
 
-	eventHubFlushTimeout := peerdbenv.PeerDBEventhubFlushTimeoutSeconds()
+	eventHubFlushTimeout := 10 * time.Second
 
 	ticker := time.NewTicker(eventHubFlushTimeout)
 	defer ticker.Stop()

@@ -39,30 +39,6 @@ func (s *SyncFlowExecution) executeSyncFlow(
 ) (*model.SyncResponse, error) {
 	s.logger.Info("executing sync flow - ", s.CDCFlowName)
 
-	syncMetaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 1 * time.Minute,
-		WaitForCancellation: true,
-	})
-
-	// execute GetLastSyncedID on destination peer
-	lastSyncInput := &protos.GetLastSyncedIDInput{
-		PeerConnectionConfig: config.Destination,
-		FlowJobName:          s.CDCFlowName,
-	}
-
-	lastSyncFuture := workflow.ExecuteActivity(syncMetaCtx, flowable.GetLastSyncedID, lastSyncInput)
-	var dstSyncState *protos.LastSyncState
-	if err := lastSyncFuture.Get(syncMetaCtx, &dstSyncState); err != nil {
-		return nil, fmt.Errorf("failed to get last synced ID from destination peer: %w", err)
-	}
-
-	if dstSyncState != nil {
-		msg := fmt.Sprintf("last synced ID from destination peer - %d\n", dstSyncState.Checkpoint)
-		s.logger.Info(msg)
-	} else {
-		s.logger.Info("no last synced ID from destination peer")
-	}
-
 	startFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 72 * time.Hour,
 		HeartbeatTimeout:    30 * time.Second,
@@ -72,7 +48,6 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	// execute StartFlow on the peers to start the flow
 	startFlowInput := &protos.StartFlowInput{
 		FlowConnectionConfigs:  config,
-		LastSyncState:          dstSyncState,
 		SyncFlowOptions:        opts,
 		RelationMessageMapping: relationMessageMapping,
 	}
