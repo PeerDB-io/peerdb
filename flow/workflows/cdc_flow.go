@@ -152,6 +152,34 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 			continue
 		}
 
+		additionalSourceTables := make([]string, 0, len(flowConfigUpdate.AdditionalTables))
+		for _, additionalSourceTable := range flowConfigUpdate.AdditionalTables {
+			additionalSourceTables = append(additionalSourceTables, additionalSourceTable.SourceTableIdentifier)
+		}
+
+		ensurePullabilityCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 5 * time.Minute,
+		})
+		ensurePullabilityFuture := workflow.ExecuteActivity(
+			ensurePullabilityCtx,
+			flowable.EnsurePullability,
+			&protos.EnsurePullabilityBatchInput{
+				PeerConnectionConfig:       cfg.Source,
+				FlowJobName:                cfg.FlowJobName,
+				SourceTableIdentifiers:     additionalSourceTables,
+				CheckConstraints:           true,
+				OnlyAlertOnConstraintsFail: true,
+			})
+		var ensurePullabilityOutput *protos.EnsurePullabilityBatchOutput
+		if err := ensurePullabilityFuture.Get(ctx, &ensurePullabilityOutput); err != nil {
+			w.logger.Error("failed to ensure pullability for additional tables: ", err)
+			return err
+		}
+		// if err == nil and output == nil, constraints failed, so ignore batch
+		if ensurePullabilityOutput == nil {
+			continue
+		}
+
 		alterPublicationAddAdditionalTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 5 * time.Minute,
 		})
@@ -217,7 +245,7 @@ func CDCFlowWorkflowWithConfig(
 	state *CDCFlowWorkflowState,
 ) (*CDCFlowWorkflowResult, error) {
 	if cfg == nil {
-		return nil, fmt.Errorf("invalid connection configs")
+		return nil, errors.New("invalid connection configs")
 	}
 	if state == nil {
 		state = NewCDCFlowWorkflowState(cfg.TableMappings)
@@ -471,6 +499,7 @@ func CDCFlowWorkflowWithConfig(
 				// only place we block on receive, so signal processing is immediate
 				mainLoopSelector.Select(ctx)
 				if state.ActiveSignal == shared.NoopSignal {
+					state.CurrentFlowStatus = protos.FlowStatus_STATUS_SNAPSHOT
 					err = w.processCDCFlowConfigUpdates(ctx, cfg, state, mirrorNameSearch)
 					if err != nil {
 						return state, err

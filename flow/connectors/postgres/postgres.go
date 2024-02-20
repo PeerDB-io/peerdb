@@ -37,6 +37,8 @@ type PostgresConnector struct {
 	logger             log.Logger
 }
 
+var ErrCDCNotSupportedForTable = errors.New("table has no primary keys and does not have REPLICA IDENTITY FULL")
+
 func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
 	connectionString := utils.GetPGConnectionString(pgConfig)
 
@@ -515,7 +517,9 @@ type SlotCheckResult struct {
 }
 
 // CreateRawTable creates a raw table, implementing the Connector interface.
-func (c *PostgresConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
+func (c *PostgresConnector) CreateRawTable(ctx context.Context,
+	req *protos.CreateRawTableInput,
+) (*protos.CreateRawTableOutput, error) {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 
 	err := c.createMetadataSchema(ctx)
@@ -788,7 +792,7 @@ func (c *PostgresConnector) EnsurePullability(
 		// we only allow no primary key if the table has REPLICA IDENTITY FULL
 		// this is ok for replica identity index as we populate the primary key columns
 		if len(pKeyCols) == 0 && replicaIdentity != ReplicaIdentityFull {
-			return nil, fmt.Errorf("table %s has no primary keys and does not have REPLICA IDENTITY FULL", schemaTable)
+			return nil, fmt.Errorf("%w: %s", ErrCDCNotSupportedForTable, schemaTable.String())
 		}
 
 		utils.RecordHeartbeat(ctx, "ensured pullability table "+tableName)
