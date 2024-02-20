@@ -543,9 +543,8 @@ func NewTemporalTestWorkflowEnvironment(t *testing.T) *testsuite.TestWorkflowEnv
 			&slog.HandlerOptions{Level: slog.LevelWarn},
 		),
 	))
-	tLogger := TStructuredLogger{logger: logger}
+	testSuite.SetLogger(&TStructuredLogger{logger: logger})
 
-	testSuite.SetLogger(&tLogger)
 	env := testSuite.NewTestWorkflowEnvironment()
 	RegisterWorkflowsAndActivities(t, env)
 	env.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)

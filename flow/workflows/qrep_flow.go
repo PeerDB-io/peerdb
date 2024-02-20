@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
@@ -202,16 +201,12 @@ func (q *QRepPartitionFlowExecution) ReplicatePartitions(ctx workflow.Context,
 
 // getPartitionWorkflowID returns the child workflow ID for a new sync flow.
 func (q *QRepFlowExecution) getPartitionWorkflowID(ctx workflow.Context) (string, error) {
-	childWorkflowIDSideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
-		return fmt.Sprintf("qrep-part-%s-%s", q.config.FlowJobName, uuid.New().String())
-	})
-
-	var childWorkflowID string
-	if err := childWorkflowIDSideEffect.Get(&childWorkflowID); err != nil {
+	id, err := GetUUID(ctx)
+	if err != nil {
 		return "", fmt.Errorf("failed to get child workflow ID: %w", err)
 	}
 
-	return childWorkflowID, nil
+	return fmt.Sprintf("qrep-part-%s-%s", q.config.FlowJobName, id), nil
 }
 
 // startChildWorkflow starts a single child workflow.
@@ -433,6 +428,7 @@ func QRepFlowWorkflow(
 	//	 4. Wait for all the workflows to complete.
 	//   5. Sleep for a while and repeat the loop.
 
+	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := workflow.GetLogger(ctx)
 
@@ -455,17 +451,7 @@ func QRepFlowWorkflow(
 		return fmt.Errorf("failed to register query handler: %w", err)
 	}
 
-	// get qrep run uuid via side-effect
-	runUUIDSideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
-		return uuid.New().String()
-	})
-
-	var runUUID string
-	if err := runUUIDSideEffect.Get(&runUUID); err != nil {
-		return fmt.Errorf("failed to get run uuid: %w", err)
-	}
-
-	q := NewQRepFlowExecution(ctx, config, runUUID)
+	q := NewQRepFlowExecution(ctx, config, originalRunID)
 
 	err = q.SetupWatermarkTableOnDestination(ctx)
 	if err != nil {

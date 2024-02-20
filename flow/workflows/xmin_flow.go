@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/google/uuid"
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -18,6 +17,7 @@ func XminFlowWorkflow(
 	config *protos.QRepConfig,
 	state *protos.QRepFlowState,
 ) error {
+	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	// Support a Query for the current state of the xmin flow.
 	err := setWorkflowQueries(ctx, state)
@@ -25,16 +25,7 @@ func XminFlowWorkflow(
 		return err
 	}
 
-	// get xmin run uuid via side-effect
-	runUUIDSideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
-		return uuid.New().String()
-	})
-	var runUUID string
-	if err := runUUIDSideEffect.Get(&runUUID); err != nil {
-		return fmt.Errorf("failed to get run uuid: %w", err)
-	}
-
-	q := NewQRepFlowExecution(ctx, config, runUUID)
+	q := NewQRepFlowExecution(ctx, config, originalRunID)
 
 	err = q.SetupWatermarkTableOnDestination(ctx)
 	if err != nil {

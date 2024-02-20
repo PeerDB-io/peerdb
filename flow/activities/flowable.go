@@ -235,8 +235,6 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	})
 	defer shutdown()
 
-	errGroup, errCtx := errgroup.WithContext(ctx)
-
 	batchSize := input.SyncFlowOptions.BatchSize
 	if batchSize <= 0 {
 		batchSize = 1_000_000
@@ -251,6 +249,8 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	recordBatch := model.NewCDCRecordStream()
 	startTime := time.Now()
 	flowName := input.FlowConnectionConfigs.FlowJobName
+
+	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
 		return srcConn.PullRecords(errCtx, a.CatalogPool, &model.PullRecordsRequest{
 			FlowJobName:           flowName,

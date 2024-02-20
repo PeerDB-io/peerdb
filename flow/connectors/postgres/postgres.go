@@ -226,7 +226,7 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 		return fmt.Errorf("error getting child to parent relid map: %w", err)
 	}
 
-	cdc := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
+	cdc := c.NewPostgresCDCSource(&PostgresCDCConfig{
 		Connection:             replConn,
 		SrcTableIDNameMapping:  req.SrcTableIDNameMapping,
 		Slot:                   slotName,
@@ -922,7 +922,6 @@ func (c *PostgresConnector) HandleSlotInfo(
 	return monitoring.AppendSlotSizeInfo(ctx, catalogPool, peerName, slotInfo[0])
 }
 
-// GetLastOffset returns the last synced offset for a job.
 func getOpenConnectionsForUser(ctx context.Context, conn *pgx.Conn, user string) (*protos.GetOpenConnectionsForUserResult, error) {
 	row := conn.QueryRow(ctx, getNumConnectionsForUser, user)
 
