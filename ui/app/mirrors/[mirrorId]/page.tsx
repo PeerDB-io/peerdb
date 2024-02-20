@@ -91,14 +91,16 @@ export default async function ViewMirror({
     const dbType = mirrorConfig.destination!.type;
     const canResync =
       dbType.valueOf() === DBType.BIGQUERY.valueOf() ||
-      dbType.valueOf() === DBType.CLICKHOUSE.valueOf();
-    resyncComponent = (
-      <ResyncDialog
-        mirrorConfig={mirrorConfig}
-        workflowId={mirrorInfo.workflow_id || ''}
-        disabled={!canResync}
-      />
-    );
+      dbType.valueOf() === DBType.SNOWFLAKE.valueOf();
+    if (canResync) {
+      resyncComponent = (
+        <ResyncDialog
+          mirrorConfig={mirrorConfig}
+          workflowId={mirrorInfo.workflow_id || ''}
+        />
+      );
+    }
+
     syncStatusChild = (
       <SyncStatus rowsSynced={rowsSynced} rows={rows} flowJobName={mirrorId} />
     );

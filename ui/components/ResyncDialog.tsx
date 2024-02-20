@@ -11,11 +11,9 @@ import { handleDropMirror } from './DropDialog';
 export const ResyncDialog = ({
   mirrorConfig,
   workflowId,
-  disabled,
 }: {
   mirrorConfig: CDCConfig;
   workflowId: string;
-  disabled: boolean;
 }) => {
   const [syncing, setSyncing] = useState(false);
   const [dropping, setDropping] = useState(false);
@@ -64,11 +62,7 @@ export const ResyncDialog = ({
       noInteract={true}
       size='xLarge'
       triggerButton={
-        <Button
-          variant='normalSolid'
-          style={{ height: '2em', width: '8em' }}
-          disabled={disabled}
-        >
+        <Button variant='normalSolid' style={{ height: '2em', width: '8em' }}>
           Resync
         </Button>
       }
