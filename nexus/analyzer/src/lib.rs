@@ -814,6 +814,9 @@ fn parse_db_options(
                     .get("region")
                     .context("no region specified")?
                     .to_string(),
+                disable_tls: opts
+                    .get("disable_tls")
+                    .map(|s| s.parse::<bool>().unwrap_or_default())
             };
             let config = Config::ClickhouseConfig(clickhouse_config);
             Some(config)

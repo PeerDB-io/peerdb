@@ -97,6 +97,7 @@ message ClickhouseConfig{
   string access_key_id = 7;
   string secret_access_key = 8;
   string region = 9;
+  optional bool disable_tls = 10;
 }
 
 message SqlServerConfig {
