@@ -816,7 +816,8 @@ fn parse_db_options(
                     .to_string(),
                 disable_tls: opts
                     .get("disable_tls")
-                    .map(|s| s.parse::<bool>().unwrap_or_default())
+                    .and_then(|s| s.parse::<bool>().ok())
+                    .unwrap_or_default()
             };
             let config = Config::ClickhouseConfig(clickhouse_config);
             Some(config)
