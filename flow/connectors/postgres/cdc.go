@@ -520,11 +520,7 @@ func (p *PostgresCDCSource) processMessage(
 		p.logger.Debug(fmt.Sprintf("RelationMessage => RelationID: %d, Namespace: %s, RelationName: %s, Columns: %v",
 			msg.RelationID, msg.Namespace, msg.RelationName, msg.Columns))
 
-		if p.relationMessageMapping == nil {
-			p.relationMessageMapping = map[uint32]*protos.RelationMessage{
-				msg.RelationID: convertRelationMessageToProto(msg),
-			}
-		} else if p.relationMessageMapping[msg.RelationID] == nil {
+		if p.relationMessageMapping[msg.RelationID] == nil {
 			p.relationMessageMapping[msg.RelationID] = convertRelationMessageToProto(msg)
 		} else {
 			// RelationMessages don't contain an LSN, so we use current clientXlogPos instead.
@@ -855,11 +851,7 @@ func (p *PostgresCDCSource) processRelationMessage(
 		}
 	}
 
-	if p.relationMessageMapping == nil {
-		p.relationMessageMapping = map[uint32]*protos.RelationMessage{currRel.RelationId: currRel}
-	} else {
-		p.relationMessageMapping[currRel.RelationId] = currRel
-	}
+	p.relationMessageMapping[currRel.RelationId] = currRel
 	rec := &model.RelationRecord{
 		TableSchemaDelta: schemaDelta,
 		CheckpointID:     int64(lsn),

@@ -252,6 +252,10 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
+		if input.RelationMessageMapping == nil {
+			input.RelationMessageMapping = make(map[uint32]*protos.RelationMessage)
+		}
+
 		return srcConn.PullRecords(errCtx, a.CatalogPool, &model.PullRecordsRequest{
 			FlowJobName:           flowName,
 			SrcTableIDNameMapping: input.SrcTableIdNameMapping,
