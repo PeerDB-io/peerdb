@@ -128,15 +128,7 @@ func WorkerMain(opts *WorkerOptions) error {
 	}
 
 	w := worker.New(c, taskQueue, worker.Options{})
-	w.RegisterWorkflow(peerflow.CDCFlowWorkflowWithConfig)
-	w.RegisterWorkflow(peerflow.SyncFlowWorkflow)
-	w.RegisterWorkflow(peerflow.SetupFlowWorkflow)
-	w.RegisterWorkflow(peerflow.NormalizeFlowWorkflow)
-	w.RegisterWorkflow(peerflow.QRepFlowWorkflow)
-	w.RegisterWorkflow(peerflow.QRepPartitionWorkflow)
-	w.RegisterWorkflow(peerflow.XminFlowWorkflow)
-	w.RegisterWorkflow(peerflow.DropFlowWorkflow)
-	w.RegisterWorkflow(peerflow.HeartbeatFlowWorkflow)
+	peerflow.RegisterFlowWorkerWorkflows(w)
 
 	alerter, err := alerting.NewAlerter(conn)
 	if err != nil {

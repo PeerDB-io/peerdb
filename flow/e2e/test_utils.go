@@ -57,14 +57,7 @@ func RegisterWorkflowsAndActivities(t *testing.T, env *testsuite.TestWorkflowEnv
 	// set a 5 minute timeout for the workflow to execute a few runs.
 	env.SetTestTimeout(5 * time.Minute)
 
-	env.RegisterWorkflow(peerflow.CDCFlowWorkflowWithConfig)
-	env.RegisterWorkflow(peerflow.SyncFlowWorkflow)
-	env.RegisterWorkflow(peerflow.SetupFlowWorkflow)
-	env.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
-	env.RegisterWorkflow(peerflow.NormalizeFlowWorkflow)
-	env.RegisterWorkflow(peerflow.QRepFlowWorkflow)
-	env.RegisterWorkflow(peerflow.XminFlowWorkflow)
-	env.RegisterWorkflow(peerflow.QRepPartitionWorkflow)
+	peerflow.RegisterFlowWorkerWorkflows(env)
 
 	alerter, err := alerting.NewAlerter(conn)
 	if err != nil {
