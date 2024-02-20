@@ -2,7 +2,6 @@ package activities
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/activity"
 	"golang.org/x/sync/errgroup"
@@ -231,11 +229,6 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	slotNameForMetrics := fmt.Sprintf("peerflow_slot_%s", input.FlowConnectionConfigs.FlowJobName)
-	if input.FlowConnectionConfigs.ReplicationSlotName != "" {
-		slotNameForMetrics = input.FlowConnectionConfigs.ReplicationSlotName
-	}
-
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		jobName := input.FlowConnectionConfigs.FlowJobName
 		return fmt.Sprintf("transferring records for job - %s", jobName)
@@ -243,7 +236,6 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	defer shutdown()
 
 	errGroup, errCtx := errgroup.WithContext(ctx)
-	go a.recordSlotSizePeriodically(errCtx, srcConn, slotNameForMetrics, input.FlowConnectionConfigs.Source.Name)
 
 	batchSize := input.SyncFlowOptions.BatchSize
 	if batchSize <= 0 {
@@ -721,11 +713,10 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 	if err != nil {
 		return nil, err
 	}
-	defer optionRows.Close()
-	var peerName pgtype.Text
-	var postgresPeers []*protos.Peer
-	var peerOptions sql.RawBytes
-	for optionRows.Next() {
+
+	return pgx.CollectRows(optionRows, func(row pgx.CollectableRow) (*protos.Peer, error) {
+		var peerName string
+		var peerOptions []byte
 		err := optionRows.Scan(&peerName, &peerOptions)
 		if err != nil {
 			return nil, err
@@ -735,13 +726,12 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 		if unmarshalErr != nil {
 			return nil, unmarshalErr
 		}
-		postgresPeers = append(postgresPeers, &protos.Peer{
-			Name:   peerName.String,
+		return &protos.Peer{
+			Name:   peerName,
 			Type:   protos.DBType_POSTGRES,
 			Config: &protos.Peer_PostgresConfig{PostgresConfig: &pgPeerConfig},
-		})
-	}
-	return postgresPeers, nil
+		}, nil
+	})
 }
 
 func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
@@ -751,53 +741,108 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 		return nil
 	}
 
-	ticker := time.NewTicker(10 * time.Minute)
-	defer ticker.Stop()
+	pgPeers, err := a.getPostgresPeerConfigs(ctx)
+	if err != nil {
+		logger.Warn("[sendwalheartbeat] unable to fetch peers. " +
+			"Skipping walheartbeat send. Error: " + err.Error())
+		return err
+	}
 
-	activity.RecordHeartbeat(ctx, "sending walheartbeat every 10 minutes")
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Info("context is done, exiting wal heartbeat send loop")
+	command := `
+		BEGIN;
+		DROP AGGREGATE IF EXISTS PEERDB_EPHEMERAL_HEARTBEAT(float4);
+		CREATE AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4) (SFUNC = float4pl, STYPE = float4);
+		DROP AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4);
+		END;
+		`
+	// run above command for each Postgres peer
+	for _, pgPeer := range pgPeers {
+		activity.RecordHeartbeat(ctx, pgPeer.Name)
+		if ctx.Err() != nil {
 			return nil
-		case <-ticker.C:
-			pgPeers, err := a.getPostgresPeerConfigs(ctx)
+		}
+
+		func() {
+			pgConfig := pgPeer.GetPostgresConfig()
+			peerConn, peerErr := pgx.Connect(ctx, utils.GetPGConnectionString(pgConfig))
+			if peerErr != nil {
+				logger.Error(fmt.Sprintf("error creating pool for postgres peer %v with host %v: %v",
+					pgPeer.Name, pgConfig.Host, peerErr))
+				return
+			}
+			defer peerConn.Close(ctx)
+
+			_, err := peerConn.Exec(ctx, command)
 			if err != nil {
-				logger.Warn("[sendwalheartbeat] unable to fetch peers. " +
-					"Skipping walheartbeat send. Error: " + err.Error())
-				continue
+				logger.Warn(fmt.Sprintf("could not send walheartbeat to peer %v: %v", pgPeer.Name, err))
 			}
 
-			command := `
-				BEGIN;
-				DROP aggregate IF EXISTS PEERDB_EPHEMERAL_HEARTBEAT(float4);
-				CREATE AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4) (SFUNC = float4pl, STYPE = float4);
-				DROP aggregate PEERDB_EPHEMERAL_HEARTBEAT(float4);
-				END;
-				`
-			// run above command for each Postgres peer
-			for _, pgPeer := range pgPeers {
-				pgConfig := pgPeer.GetPostgresConfig()
-				peerConn, peerErr := pgx.Connect(ctx, utils.GetPGConnectionString(pgConfig))
-				if peerErr != nil {
-					return fmt.Errorf("error creating pool for postgres peer %v with host %v: %w",
-						pgPeer.Name, pgConfig.Host, peerErr)
-				}
+			logger.Info(fmt.Sprintf("sent walheartbeat to peer %v", pgPeer.Name))
+		}()
+	}
 
-				_, err := peerConn.Exec(ctx, command)
-				if err != nil {
-					logger.Warn(fmt.Sprintf("could not send walheartbeat to peer %v: %v", pgPeer.Name, err))
-				}
+	return nil
+}
 
-				closeErr := peerConn.Close(ctx)
-				if closeErr != nil {
-					return fmt.Errorf("error closing postgres connection for peer %v with host %v: %w",
-						pgPeer.Name, pgConfig.Host, closeErr)
+func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
+	rows, err := a.CatalogPool.Query(ctx, "SELECT flows.name, flows.config_proto FROM flows")
+	if err != nil {
+		return err
+	}
+
+	configs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.FlowConnectionConfigs, error) {
+		var flowName string
+		var configProto []byte
+		err := rows.Scan(&flowName, &configProto)
+		if err != nil {
+			return nil, err
+		}
+
+		var config protos.FlowConnectionConfigs
+		err = proto.Unmarshal(configProto, &config)
+		if err != nil {
+			return nil, err
+		}
+
+		return &config, nil
+	})
+	if err != nil {
+		return err
+	}
+
+	logger := activity.GetLogger(ctx)
+	for _, config := range configs {
+		func() {
+			srcConn, err := connectors.GetCDCPullConnector(ctx, config.Source)
+			if err != nil {
+				if err != connectors.ErrUnsupportedFunctionality {
+					logger.Error("Failed to create connector to handle slot info", slog.Any("error", err))
 				}
-				logger.Info(fmt.Sprintf("sent walheartbeat to peer %v", pgPeer.Name))
+				return
 			}
+			defer connectors.CloseConnector(ctx, srcConn)
+
+			slotName := fmt.Sprintf("peerflow_slot_%s", config.FlowJobName)
+			if config.ReplicationSlotName != "" {
+				slotName = config.ReplicationSlotName
+			}
+			peerName := config.Source.Name
+
+			activity.RecordHeartbeat(ctx, fmt.Sprintf("checking %s on %s", slotName, peerName))
+			if ctx.Err() != nil {
+				return
+			}
+			err = srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, slotName, peerName)
+			if err != nil {
+				logger.Error("Failed to handle slot info", slog.Any("error", err))
+			}
+		}()
+		if ctx.Err() != nil {
+			return nil
 		}
 	}
+
+	return nil
 }
 
 func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,

@@ -128,16 +128,10 @@ func (h *FlowRequestHandler) cloneTableSummary(
 		COUNT(CASE WHEN qp.end_time IS NOT NULL THEN 1 END) AS NumPartitionsCompleted,
 		SUM(qp.rows_in_partition) FILTER (WHERE qp.end_time IS NOT NULL) AS NumRowsSynced,
 		AVG(EXTRACT(EPOCH FROM (qp.end_time - qp.start_time)) * 1000) FILTER (WHERE qp.end_time IS NOT NULL) AS AvgTimePerPartitionMs
-	FROM
-		peerdb_stats.qrep_partitions qp
-	JOIN
-		peerdb_stats.qrep_runs qr
-	ON
-		qp.flow_name = qr.flow_name
-	WHERE
-		qp.flow_name ILIKE $1
-	GROUP BY
-		qp.flow_name, qr.config_proto;
+	FROM peerdb_stats.qrep_partitions qp
+	JOIN peerdb_stats.qrep_runs qr ON qp.flow_name = qr.flow_name
+	WHERE qp.flow_name ILIKE $1
+	GROUP BY qp.flow_name, qr.config_proto;
 	`
 
 	var flowName pgtype.Text

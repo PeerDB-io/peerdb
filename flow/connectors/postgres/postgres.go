@@ -897,15 +897,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 ) error {
 	logger := logger.LoggerFromCtx(ctx)
 
-	// must create new connection because HandleSlotInfo is threadsafe
-	conn, err := c.ssh.NewPostgresConnFromPostgresConfig(ctx, c.config)
-	if err != nil {
-		logger.Warn("warning: failed to connect to get slot info", "error", err)
-		return err
-	}
-	defer conn.Close(ctx)
-
-	slotInfo, err := getSlotInfo(ctx, conn, slotName, c.config.Database)
+	slotInfo, err := getSlotInfo(ctx, c.conn, slotName, c.config.Database)
 	if err != nil {
 		logger.Warn("warning: failed to get slot info", "error", err)
 		return err
@@ -916,20 +908,18 @@ func (c *PostgresConnector) HandleSlotInfo(
 		return nil
 	}
 
+	logger.Info(fmt.Sprintf("Checking %s lag for %s", slotName, peerName), slog.Float64("LagInMB", float64(slotInfo[0].LagInMb)))
 	alerter.AlertIfSlotLag(ctx, peerName, slotInfo[0])
 
 	// Also handles alerts for PeerDB user connections exceeding a given limit here
-	res, err := getOpenConnectionsForUser(ctx, conn, c.config.User)
+	res, err := getOpenConnectionsForUser(ctx, c.conn, c.config.User)
 	if err != nil {
 		logger.Warn("warning: failed to get current open connections", "error", err)
 		return err
 	}
 	alerter.AlertIfOpenConnections(ctx, peerName, res)
 
-	if len(slotInfo) != 0 {
-		return monitoring.AppendSlotSizeInfo(ctx, catalogPool, peerName, slotInfo[0])
-	}
-	return nil
+	return monitoring.AppendSlotSizeInfo(ctx, catalogPool, peerName, slotInfo[0])
 }
 
 // GetLastOffset returns the last synced offset for a job.

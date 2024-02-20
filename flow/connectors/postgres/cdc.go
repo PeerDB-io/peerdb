@@ -215,9 +215,8 @@ func (p *PostgresCDCSource) consumeStream(
 	}()
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		jobName := p.flowJobName
 		currRecords := cdcRecordsStorage.Len()
-		msg := fmt.Sprintf("pulling records for job - %s, currently have %d records", jobName, currRecords)
+		msg := fmt.Sprintf("pulling records, currently have %d records", currRecords)
 		p.logger.Info(msg)
 		return msg
 	})
@@ -279,10 +278,7 @@ func (p *PostgresCDCSource) consumeStream(
 		// if we are past the next standby deadline (?)
 		if time.Now().After(nextStandbyMessageDeadline) {
 			if !cdcRecordsStorage.IsEmpty() {
-				p.logger.Info(fmt.Sprintf("[%s] standby deadline reached, have %d records",
-					p.flowJobName,
-					cdcRecordsStorage.Len()),
-				)
+				p.logger.Info(fmt.Sprintf("standby deadline reached, have %d records", cdcRecordsStorage.Len()))
 
 				if !p.commitLock {
 					p.logger.Info(
