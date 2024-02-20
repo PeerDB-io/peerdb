@@ -39,7 +39,7 @@ type CDCFlowWorkflowState struct {
 	RelationMessageMapping model.RelationMessageMapping
 	CurrentFlowStatus      protos.FlowStatus
 	// flow config update request, set to nil after processed
-	FlowConfigUpdates []*protos.CDCFlowConfigUpdate
+	FlowConfigUpdate *protos.CDCFlowConfigUpdate
 	// options passed to all SyncFlows
 	SyncFlowOptions *protos.SyncFlowOptions
 }
@@ -59,7 +59,7 @@ func NewCDCFlowWorkflowState(cfg *protos.FlowConnectionConfigs) *CDCFlowWorkflow
 		SyncFlowErrors:        nil,
 		NormalizeFlowErrors:   nil,
 		CurrentFlowStatus:     protos.FlowStatus_STATUS_SETUP,
-		FlowConfigUpdates:     nil,
+		FlowConfigUpdate:      nil,
 		SyncFlowOptions: &protos.SyncFlowOptions{
 			BatchSize:          cfg.MaxBatchSize,
 			IdleTimeoutSeconds: cfg.IdleTimeoutSeconds,
@@ -144,17 +144,18 @@ const (
 	maxSyncsPerCdcFlow = 60
 )
 
-func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Context,
+func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdate(ctx workflow.Context,
 	cfg *protos.FlowConnectionConfigs, state *CDCFlowWorkflowState,
 	mirrorNameSearch map[string]interface{},
 ) error {
-	for _, flowConfigUpdate := range state.FlowConfigUpdates {
+	flowConfigUpdate := state.FlowConfigUpdate
+	if flowConfigUpdate != nil {
 		if len(flowConfigUpdate.AdditionalTables) == 0 {
-			continue
+			return nil
 		}
 		if shared.AdditionalTablesHasOverlap(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables) {
 			w.logger.Warn("duplicate source/destination tables found in additionalTables")
-			continue
+			return nil
 		}
 
 		alterPublicationAddAdditionalTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -200,12 +201,12 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 
 		maps.Copy(state.SyncFlowOptions.SrcTableIdNameMapping, res.SyncFlowOptions.SrcTableIdNameMapping)
 		maps.Copy(state.SyncFlowOptions.TableNameSchemaMapping, res.SyncFlowOptions.TableNameSchemaMapping)
-		maps.Copy(state.SyncFlowOptions.RelationMessageMapping, res.SyncFlowOptions.RelationMessageMapping)
 
 		state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
+
+		// finished processing, wipe it
+		state.FlowConfigUpdate = nil
 	}
-	// finished processing, wipe it
-	state.FlowConfigUpdates = nil
 	return nil
 }
 
@@ -223,9 +224,8 @@ func (w *CDCFlowWorkflowExecution) addCdcPropertiesSignalListener(
 		if cdcConfigUpdate.IdleTimeout > 0 {
 			state.SyncFlowOptions.IdleTimeoutSeconds = cdcConfigUpdate.IdleTimeout
 		}
-		if len(cdcConfigUpdate.AdditionalTables) > 0 {
-			state.FlowConfigUpdates = append(state.FlowConfigUpdates, cdcConfigUpdate)
-		}
+		// do this irrespective of additional tables being present, for auto unpausing
+		state.FlowConfigUpdate = cdcConfigUpdate
 
 		if w.syncFlowFuture != nil {
 			_ = model.SyncOptionsSignal.SignalChildWorkflow(ctx, w.syncFlowFuture, state.SyncFlowOptions).Get(ctx, nil)
@@ -307,9 +307,12 @@ func CDCFlowWorkflow(
 				return state, err
 			}
 
-			err = w.processCDCFlowConfigUpdates(ctx, cfg, state, mirrorNameSearch)
-			if err != nil {
-				return state, err
+			if state.FlowConfigUpdate != nil {
+				err = w.processCDCFlowConfigUpdate(ctx, cfg, state, mirrorNameSearch)
+				if err != nil {
+					return state, err
+				}
+				state.ActiveSignal = model.NoopSignal
 			}
 		}
 
