@@ -3,6 +3,7 @@ import prisma from '@/app/utils/prisma';
 import EditButton from '@/components/EditButton';
 import { ResyncDialog } from '@/components/ResyncDialog';
 import { FlowConnectionConfigs } from '@/grpc_generated/flow';
+import { DBType } from '@/grpc_generated/peers';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { Header } from '@/lib/Header';
 import { LayoutMain } from '@/lib/Layout';
@@ -87,10 +88,15 @@ export default async function ViewMirror({
       return acc;
     }, 0);
     const mirrorConfig = FlowConnectionConfigs.decode(mirrorInfo.config_proto!);
+    const dbType = mirrorConfig.destination!.type;
+    const canResync =
+      dbType.valueOf() === DBType.BIGQUERY.valueOf() ||
+      dbType.valueOf() === DBType.CLICKHOUSE.valueOf();
     resyncComponent = (
       <ResyncDialog
         mirrorConfig={mirrorConfig}
         workflowId={mirrorInfo.workflow_id || ''}
+        disabled={!canResync}
       />
     );
     syncStatusChild = (
