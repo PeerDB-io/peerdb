@@ -6,7 +6,13 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-const EditButton = ({ toLink, disabled }: { toLink: string, disabled: boolean }) => {
+const EditButton = ({
+  toLink,
+  disabled,
+}: {
+  toLink: string;
+  disabled: boolean;
+}) => {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
