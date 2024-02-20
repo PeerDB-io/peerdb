@@ -12,7 +12,8 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-func NormalizeFlowWorkflow(ctx workflow.Context,
+func NormalizeFlowWorkflow(
+	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
 ) (*model.NormalizeFlowResponse, error) {
 	logger := workflow.GetLogger(ctx)
@@ -25,10 +26,10 @@ func NormalizeFlowWorkflow(ctx workflow.Context,
 	results := make([]model.NormalizeResponse, 0, 4)
 	errors := make([]string, 0)
 	syncChan := workflow.GetSignalChannel(ctx, shared.NormalizeSyncSignalName)
-	var tableNameSchemaMapping map[string]*protos.TableSchema
 
 	var stopLoop, canceled bool
 	var lastSyncBatchID, syncBatchID int64
+	var tableNameSchemaMapping map[string]*protos.TableSchema
 	lastSyncBatchID = -1
 	syncBatchID = -1
 	selector := workflow.NewNamedSelector(ctx, config.FlowJobName+"-normalize")

@@ -95,12 +95,12 @@ func (s *CDCFlowWorkflowState) TruncateProgress(logger log.Logger) {
 	}
 
 	if s.SyncFlowErrors != nil {
-		logger.Warn("SyncFlowErrors: ", s.SyncFlowErrors)
+		logger.Warn("SyncFlowErrors", slog.Any("errors", s.SyncFlowErrors))
 		s.SyncFlowErrors = nil
 	}
 
 	if s.NormalizeFlowErrors != nil {
-		logger.Warn("NormalizeFlowErrors: ", s.NormalizeFlowErrors)
+		logger.Warn("NormalizeFlowErrors", slog.Any("errors", s.NormalizeFlowErrors))
 		s.NormalizeFlowErrors = nil
 	}
 }
@@ -119,21 +119,24 @@ func NewCDCFlowWorkflowExecution(ctx workflow.Context) *CDCFlowWorkflowExecution
 	}
 }
 
-func GetChildWorkflowID(
-	ctx workflow.Context,
-	prefix string,
-	peerFlowName string,
-) (string, error) {
-	childWorkflowIDSideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
-		return fmt.Sprintf("%s-%s-%s", prefix, peerFlowName, uuid.New().String())
+func GetUUID(ctx workflow.Context) (string, error) {
+	uuidSideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
+		return uuid.New().String()
 	})
 
-	var childWorkflowID string
-	if err := childWorkflowIDSideEffect.Get(&childWorkflowID); err != nil {
-		return "", fmt.Errorf("failed to get child workflow ID: %w", err)
+	var uuidString string
+	if err := uuidSideEffect.Get(&uuidString); err != nil {
+		return "", fmt.Errorf("failed to generate UUID: %w", err)
 	}
+	return uuidString, nil
+}
 
-	return childWorkflowID, nil
+func GetChildWorkflowID(
+	prefix string,
+	peerFlowName string,
+	uuid string,
+) string {
+	return fmt.Sprintf("%s-%s-%s", prefix, peerFlowName, uuid)
 }
 
 // CDCFlowWorkflowResult is the result of the PeerFlowWorkflow.
@@ -164,16 +167,19 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 			return err
 		}
 
+		additionalTablesUUID, err := GetUUID(ctx)
+		if err != nil {
+			return err
+		}
+		childAdditionalTablesCDCFlowID := GetChildWorkflowID("additional-cdc-flow", cfg.FlowJobName, additionalTablesUUID)
+		if err != nil {
+			return err
+		}
+
 		additionalTablesWorkflowCfg := proto.Clone(cfg).(*protos.FlowConnectionConfigs)
 		additionalTablesWorkflowCfg.DoInitialSnapshot = true
 		additionalTablesWorkflowCfg.InitialSnapshotOnly = true
 		additionalTablesWorkflowCfg.TableMappings = flowConfigUpdate.AdditionalTables
-
-		childAdditionalTablesCDCFlowID,
-			err := GetChildWorkflowID(ctx, "additional-cdc-flow", additionalTablesWorkflowCfg.FlowJobName)
-		if err != nil {
-			return err
-		}
 
 		// execute the sync flow as a child workflow
 		childAdditionalTablesCDCFlowOpts := workflow.ChildWorkflowOptions{
@@ -248,6 +254,8 @@ func CDCFlowWorkflowWithConfig(
 		shared.MirrorNameSearchAttribute: cfg.FlowJobName,
 	}
 
+	originalRunID := workflow.GetInfo(ctx).OriginalRunID
+
 	// we cannot skip SetupFlow if SnapshotFlow did not complete in cases where Resync is enabled
 	// because Resync modifies TableMappings before Setup and also before Snapshot
 	// for safety, rely on the idempotency of SetupFlow instead
@@ -268,10 +276,7 @@ func CDCFlowWorkflowWithConfig(
 
 		// start the SetupFlow workflow as a child workflow, and wait for it to complete
 		// it should return the table schema for the source peer
-		setupFlowID, err := GetChildWorkflowID(ctx, "setup-flow", cfg.FlowJobName)
-		if err != nil {
-			return state, err
-		}
+		setupFlowID := GetChildWorkflowID("setup-flow", cfg.FlowJobName, originalRunID)
 		childSetupFlowOpts := workflow.ChildWorkflowOptions{
 			WorkflowID:        setupFlowID,
 			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
@@ -292,10 +297,7 @@ func CDCFlowWorkflowWithConfig(
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_SNAPSHOT
 
 		// next part of the setup is to snapshot-initial-copy and setup replication slots.
-		snapshotFlowID, err := GetChildWorkflowID(ctx, "snapshot-flow", cfg.FlowJobName)
-		if err != nil {
-			return state, err
-		}
+		snapshotFlowID := GetChildWorkflowID("snapshot-flow", cfg.FlowJobName, originalRunID)
 
 		taskQueue, err := shared.GetPeerFlowTaskQueueName(shared.SnapshotFlowTaskQueueID)
 		if err != nil {
@@ -376,11 +378,7 @@ func CDCFlowWorkflowWithConfig(
 	currentSyncFlowNum := 0
 	totalRecordsSynced := int64(0)
 
-	normalizeFlowID, err := GetChildWorkflowID(ctx, "normalize-flow", cfg.FlowJobName)
-	if err != nil {
-		return state, err
-	}
-
+	normalizeFlowID := GetChildWorkflowID("normalize-flow", cfg.FlowJobName, originalRunID)
 	childNormalizeFlowOpts := workflow.ChildWorkflowOptions{
 		WorkflowID:        normalizeFlowID,
 		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
@@ -493,11 +491,12 @@ func CDCFlowWorkflowWithConfig(
 		}
 		currentSyncFlowNum++
 
-		syncFlowID, err := GetChildWorkflowID(ctx, "sync-flow", cfg.FlowJobName)
+		syncFlowUUID, err := GetUUID(ctx)
 		if err != nil {
 			finishNormalize()
 			return state, err
 		}
+		syncFlowID := GetChildWorkflowID("sync-flow", cfg.FlowJobName, syncFlowUUID)
 
 		// execute the sync flow as a child workflow
 		childSyncFlowOpts := workflow.ChildWorkflowOptions{

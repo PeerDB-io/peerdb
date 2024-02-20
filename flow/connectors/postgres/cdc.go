@@ -64,7 +64,7 @@ type startReplicationOpts struct {
 }
 
 // Create a new PostgresCDCSource
-func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig *PostgresCDCConfig) *PostgresCDCSource {
+func (c *PostgresConnector) NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) *PostgresCDCSource {
 	return &PostgresCDCSource{
 		PostgresConnector:         c,
 		replConn:                  cdcConfig.Connection,
@@ -86,7 +86,7 @@ func getChildToParentRelIDMap(ctx context.Context, conn *pgx.Conn) (map[uint32]u
 		SELECT parent.oid AS parentrelid, child.oid AS childrelid
 		FROM pg_inherits
 		JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
-		JOIN pg_class child  ON pg_inherits.inhrelid = child.oid
+		JOIN pg_class child ON pg_inherits.inhrelid = child.oid
 		WHERE parent.relkind='p';
 	`
 

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -97,18 +96,11 @@ func (s *SnapshotFlowExecution) cloneTable(
 
 	srcName := mapping.SourceTableIdentifier
 	dstName := mapping.DestinationTableIdentifier
-	childWorkflowIDSideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
-		childWorkflowID := fmt.Sprintf("clone_%s_%s_%s", flowName, dstName, uuid.New().String())
-		reg := regexp.MustCompile("[^a-zA-Z0-9]+")
-		return reg.ReplaceAllString(childWorkflowID, "_")
-	})
+	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 
-	var childWorkflowID string
-	if err := childWorkflowIDSideEffect.Get(&childWorkflowID); err != nil {
-		s.logger.Error(fmt.Sprintf("failed to get child id for source table %s and destination table %s",
-			srcName, dstName), slog.Any("error", err), cloneLog)
-		return fmt.Errorf("failed to get child workflow ID: %w", err)
-	}
+	childWorkflowID := fmt.Sprintf("clone_%s_%s_%s", flowName, dstName, originalRunID)
+	reg := regexp.MustCompile("[^a-zA-Z0-9_]+")
+	childWorkflowID = reg.ReplaceAllString(childWorkflowID, "_")
 
 	s.logger.Info(fmt.Sprintf("Obtained child id %s for source table %s and destination table %s",
 		childWorkflowID, srcName, dstName), cloneLog)
