@@ -138,9 +138,9 @@ func NewClickhouseConnector(
 }
 
 func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, error) {
-	tlsSetting := &tls.Config{MinVersion: tls.VersionTLS13}
-	if config.DisableTls != nil && *config.DisableTls {
-		tlsSetting = nil
+	var tlsSetting *tls.Config
+	if !config.DisableTls {
+		tlsSetting = &tls.Config{MinVersion: tls.VersionTLS13}
 	}
 	conn := clickhouse.OpenDB(&clickhouse.Options{
 		Addr: []string{fmt.Sprintf("%s:%d", config.Host, config.Port)},
