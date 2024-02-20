@@ -40,10 +40,9 @@ func withCronOptions(ctx workflow.Context, workflowID string, cron string) workf
 func GlobalScheduleManagerWorkflow(ctx workflow.Context) error {
 	info := workflow.GetInfo(ctx)
 
-	// 13 to never overlap with a multiple of 5
 	heartbeatCtx := withCronOptions(ctx,
 		fmt.Sprintf("wal-heartbeat-%s", info.OriginalRunID),
-		"*/13 * * * *")
+		"*/12 * * * *")
 	workflow.ExecuteChildWorkflow(
 		heartbeatCtx,
 		HeartbeatFlowWorkflow,
