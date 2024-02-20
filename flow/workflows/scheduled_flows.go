@@ -35,7 +35,6 @@ func withCronOptions(ctx workflow.Context, workflowID string, cron string) workf
 			CronSchedule:        cron,
 		},
 	)
-
 }
 
 func GlobalScheduleManagerWorkflow(ctx workflow.Context) error {
