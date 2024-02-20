@@ -2,7 +2,6 @@ package activities
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/activity"
 	"golang.org/x/sync/errgroup"
@@ -716,9 +714,9 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 		return nil, err
 	}
 
-	var peerName pgtype.Text
-	var peerOptions sql.RawBytes
 	return pgx.CollectRows(optionRows, func(row pgx.CollectableRow) (*protos.Peer, error) {
+		var peerName string
+		var peerOptions []byte
 		err := optionRows.Scan(&peerName, &peerOptions)
 		if err != nil {
 			return nil, err
@@ -729,7 +727,7 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 			return nil, unmarshalErr
 		}
 		return &protos.Peer{
-			Name:   peerName.String,
+			Name:   peerName,
 			Type:   protos.DBType_POSTGRES,
 			Config: &protos.Peer_PostgresConfig{PostgresConfig: &pgPeerConfig},
 		}, nil
@@ -794,7 +792,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 
 	configs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.FlowConnectionConfigs, error) {
 		var flowName string
-		var configProto sql.RawBytes
+		var configProto []byte
 		err := rows.Scan(&flowName, configProto)
 		if err != nil {
 			return nil, err
