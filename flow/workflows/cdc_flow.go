@@ -492,6 +492,7 @@ func CDCFlowWorkflowWithConfig(
 			WaitForCancellation: true,
 		})
 
+		state.SyncFlowOptions.RelationMessageMapping = state.RelationMessageMapping
 		startFlowInput := &protos.StartFlowInput{
 			FlowConnectionConfigs:  cfg,
 			SyncFlowOptions:        state.SyncFlowOptions,
@@ -501,7 +502,6 @@ func CDCFlowWorkflowWithConfig(
 		}
 		w.logger.Info("executing sync flow", slog.String("flowName", cfg.FlowJobName))
 		fStartFlow := workflow.ExecuteActivity(startFlowCtx, flowable.StartFlow, startFlowInput)
-		state.SyncFlowOptions.RelationMessageMapping = state.RelationMessageMapping
 
 		var syncDone bool
 		var normalizeSignalError error
