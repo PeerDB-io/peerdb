@@ -548,6 +548,7 @@ func NewTemporalTestWorkflowEnvironment(t *testing.T) *testsuite.TestWorkflowEnv
 	testSuite.SetLogger(&tLogger)
 	env := testSuite.NewTestWorkflowEnvironment()
 	RegisterWorkflowsAndActivities(t, env)
+	env.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
 	return env
 }
 
