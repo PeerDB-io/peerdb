@@ -61,18 +61,12 @@ func NewCDCFlowWorkflowState(cfgTableMappings []*protos.TableMapping) *CDCFlowWo
 	return &CDCFlowWorkflowState{
 		Progress: []string{"started"},
 		// 1 more than the limit of 10
-		SyncFlowStatuses:      make([]*model.SyncResponse, 0, 11),
-		NormalizeFlowStatuses: nil,
-		ActiveSignal:          shared.NoopSignal,
-		SyncFlowErrors:        nil,
-		NormalizeFlowErrors:   nil,
-		// WORKAROUND: empty maps are protobufed into nil maps for reasons beyond me
-		RelationMessageMapping: model.RelationMessageMapping{
-			0: &protos.RelationMessage{
-				RelationId:   0,
-				RelationName: "protobuf_workaround",
-			},
-		},
+		SyncFlowStatuses:       make([]*model.SyncResponse, 0, 11),
+		NormalizeFlowStatuses:  nil,
+		ActiveSignal:           shared.NoopSignal,
+		SyncFlowErrors:         nil,
+		NormalizeFlowErrors:    nil,
+		RelationMessageMapping: nil,
 		CurrentFlowStatus:      protos.FlowStatus_STATUS_SETUP,
 		SrcTableIdNameMapping:  nil,
 		TableNameSchemaMapping: nil,
@@ -491,40 +485,32 @@ func CDCFlowWorkflowWithConfig(
 		}
 		currentSyncFlowNum++
 
-		syncFlowUUID, err := GetUUID(ctx)
-		if err != nil {
-			finishNormalize()
-			return state, err
-		}
-		syncFlowID := GetChildWorkflowID("sync-flow", cfg.FlowJobName, syncFlowUUID)
-
-		// execute the sync flow as a child workflow
-		childSyncFlowOpts := workflow.ChildWorkflowOptions{
-			WorkflowID:        syncFlowID,
-			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-			RetryPolicy: &temporal.RetryPolicy{
-				MaximumAttempts: 20,
-			},
-			SearchAttributes:    mirrorNameSearch,
+		// execute the sync flow
+		startFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 72 * time.Hour,
+			HeartbeatTimeout:    time.Minute,
 			WaitForCancellation: true,
+		})
+
+		startFlowInput := &protos.StartFlowInput{
+			FlowConnectionConfigs:  cfg,
+			SyncFlowOptions:        state.SyncFlowOptions,
+			RelationMessageMapping: state.SyncFlowOptions.RelationMessageMapping,
+			SrcTableIdNameMapping:  state.SyncFlowOptions.SrcTableIdNameMapping,
+			TableNameSchemaMapping: state.SyncFlowOptions.TableNameSchemaMapping,
 		}
-		syncCtx := workflow.WithChildOptions(ctx, childSyncFlowOpts)
+		w.logger.Info("executing sync flow", slog.String("flowName", cfg.FlowJobName))
+		fStartFlow := workflow.ExecuteActivity(startFlowCtx, flowable.StartFlow, startFlowInput)
 		state.SyncFlowOptions.RelationMessageMapping = state.RelationMessageMapping
-		childSyncFlowFuture := workflow.ExecuteChildWorkflow(
-			syncCtx,
-			SyncFlowWorkflow,
-			cfg,
-			state.SyncFlowOptions,
-		)
 
 		var syncDone bool
 		var normalizeSignalError error
 		normDone := normWaitChan == nil
-		mainLoopSelector.AddFuture(childSyncFlowFuture, func(f workflow.Future) {
+		mainLoopSelector.AddFuture(fStartFlow, func(f workflow.Future) {
 			syncDone = true
 
 			var childSyncFlowRes *model.SyncResponse
-			if err := f.Get(syncCtx, &childSyncFlowRes); err != nil {
+			if err := f.Get(ctx, &childSyncFlowRes); err != nil {
 				w.logger.Error("failed to execute sync flow: ", err)
 				state.SyncFlowErrors = append(state.SyncFlowErrors, err.Error())
 			} else if childSyncFlowRes != nil {
