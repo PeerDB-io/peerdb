@@ -15,17 +15,10 @@ import (
 )
 
 func main() {
-	appCtx, appCancel := context.WithCancel(context.Background())
-	slog.SetDefault(slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))))
-	// setup shutdown handling
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	appCtx, appClose := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer appClose()
 
-	// cancel the context when we receive a shutdown signal
-	go func() {
-		<-quit
-		appCancel()
-	}()
+	slog.SetDefault(slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))))
 
 	temporalHostPortFlag := &cli.StringFlag{
 		Name:    "temporal-host-port",
@@ -144,6 +137,6 @@ func main() {
 	}
 
 	if err := app.Run(appCtx, os.Args); err != nil {
-		log.Fatalf("error running app: %v", err)
+		log.Printf("error running app: %+v", err)
 	}
 }
