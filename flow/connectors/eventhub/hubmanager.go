@@ -108,7 +108,7 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 				MaxRetryDelay: 16 * time.Second,
 			},
 		}
-		hub, err := azeventhubs.NewProducerClient(namespace, name.ToString(), m.creds, opts)
+		hub, err := azeventhubs.NewProducerClient(namespace, name.Eventhub, m.creds, opts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create eventhub client: %v", err)
 		}
