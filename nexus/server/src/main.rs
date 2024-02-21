@@ -398,22 +398,12 @@ impl NexusBackend {
                         let table_mappings_count = flow_job.table_mappings.len();
                         if table_mappings_count > 1 {
                             let mut sources = HashSet::with_capacity(table_mappings_count);
-                            let mut destinations = HashSet::with_capacity(table_mappings_count);
                             for tm in flow_job.table_mappings.iter() {
                                 if !sources.insert(tm.source_table_identifier.as_str()) {
                                     return Err(PgWireError::ApiError(
                                         format!(
                                             "Duplicate source table identifier {}",
                                             tm.source_table_identifier
-                                        )
-                                        .into(),
-                                    ));
-                                }
-                                if !destinations.insert(tm.destination_table_identifier.as_str()) {
-                                    return Err(PgWireError::ApiError(
-                                        format!(
-                                            "Duplicate destination table identifier {}",
-                                            tm.destination_table_identifier
                                         )
                                         .into(),
                                     ));

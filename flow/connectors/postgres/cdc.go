@@ -868,6 +868,7 @@ func (p *PostgresCDCSource) recToTablePKey(req *model.PullRecordsRequest,
 	for _, pkeyCol := range req.TableNameSchemaMapping[tableName].PrimaryKeyColumns {
 		pkeyColVal, err := rec.GetItems().GetValueByColName(pkeyCol)
 		if err != nil {
+			p.logger.Error(fmt.Sprintf("error getting pkey column value: %v. Record: %v, items: %v", err, rec, rec.GetItems()))
 			return nil, fmt.Errorf("error getting pkey column value: %w", err)
 		}
 		pkeyColsMerged = append(pkeyColsMerged, []byte(fmt.Sprint(pkeyColVal.Value))...)
