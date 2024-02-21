@@ -106,21 +106,6 @@ message SyncFlowOptions {
   repeated TableMapping table_mappings = 6;
 }
 
-// deprecated, unused
-message LastSyncState {
-  int64 checkpoint = 1;
-}
-
-message StartFlowInput {
-  // deprecated, unused
-  LastSyncState last_sync_state = 1;
-  FlowConnectionConfigs flow_connection_configs = 2;
-  SyncFlowOptions sync_flow_options = 3;
-  map<uint32, RelationMessage> relation_message_mapping = 4;
-  map<uint32, string> src_table_id_name_mapping = 5;
-  map<string, TableSchema> table_name_schema_mapping = 6;
-}
-
 message StartNormalizeInput {
   FlowConnectionConfigs flow_connection_configs = 1;
   map<string, TableSchema> table_name_schema_mapping = 2;

@@ -204,13 +204,15 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	}, nil
 }
 
-func (a *FlowableActivity) StartFlow(ctx context.Context,
-	input *protos.StartFlowInput,
+func (a *FlowableActivity) SyncFlow(
+	ctx context.Context,
+	config *protos.FlowConnectionConfigs,
+	options *protos.SyncFlowOptions,
 ) (*model.SyncResponse, error) {
-	ctx = context.WithValue(ctx, shared.FlowNameKey, input.FlowConnectionConfigs.FlowJobName)
+	flowName := config.FlowJobName
+	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
 	logger := activity.GetLogger(ctx)
 	activity.RecordHeartbeat(ctx, "starting flow...")
-	config := input.FlowConnectionConfigs
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.Destination)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
@@ -218,8 +220,8 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	defer connectors.CloseConnector(ctx, dstConn)
 
 	logger.Info("pulling records...")
-	tblNameMapping := make(map[string]model.NameAndExclude, len(input.SyncFlowOptions.TableMappings))
-	for _, v := range input.SyncFlowOptions.TableMappings {
+	tblNameMapping := make(map[string]model.NameAndExclude, len(options.TableMappings))
+	for _, v := range options.TableMappings {
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
 	}
 
@@ -230,17 +232,16 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	defer connectors.CloseConnector(ctx, srcConn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		jobName := input.FlowConnectionConfigs.FlowJobName
-		return fmt.Sprintf("transferring records for job - %s", jobName)
+		return fmt.Sprintf("transferring records for job - %s", flowName)
 	})
 	defer shutdown()
 
-	batchSize := input.SyncFlowOptions.BatchSize
+	batchSize := options.BatchSize
 	if batchSize <= 0 {
 		batchSize = 1_000_000
 	}
 
-	lastOffset, err := dstConn.GetLastOffset(ctx, input.FlowConnectionConfigs.FlowJobName)
+	lastOffset, err := dstConn.GetLastOffset(ctx, config.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
@@ -248,27 +249,26 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	// start a goroutine to pull records from the source
 	recordBatch := model.NewCDCRecordStream()
 	startTime := time.Now()
-	flowName := input.FlowConnectionConfigs.FlowJobName
 
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
-		if input.RelationMessageMapping == nil {
-			input.RelationMessageMapping = make(map[uint32]*protos.RelationMessage)
+		if options.RelationMessageMapping == nil {
+			options.RelationMessageMapping = make(map[uint32]*protos.RelationMessage)
 		}
 
 		return srcConn.PullRecords(errCtx, a.CatalogPool, &model.PullRecordsRequest{
 			FlowJobName:           flowName,
-			SrcTableIDNameMapping: input.SrcTableIdNameMapping,
+			SrcTableIDNameMapping: options.SrcTableIdNameMapping,
 			TableNameMapping:      tblNameMapping,
 			LastOffset:            lastOffset,
 			MaxBatchSize:          batchSize,
 			IdleTimeout: peerdbenv.PeerDBCDCIdleTimeoutSeconds(
-				int(input.SyncFlowOptions.IdleTimeoutSeconds),
+				int(options.IdleTimeoutSeconds),
 			),
-			TableNameSchemaMapping:      input.TableNameSchemaMapping,
-			OverridePublicationName:     input.FlowConnectionConfigs.PublicationName,
-			OverrideReplicationSlotName: input.FlowConnectionConfigs.ReplicationSlotName,
-			RelationMessageMapping:      input.RelationMessageMapping,
+			TableNameSchemaMapping:      options.TableNameSchemaMapping,
+			OverridePublicationName:     config.PublicationName,
+			OverrideReplicationSlotName: config.ReplicationSlotName,
+			RelationMessageMapping:      options.RelationMessageMapping,
 			RecordStream:                recordBatch,
 		})
 	})
@@ -293,7 +293,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		return &model.SyncResponse{
 			CurrentSyncBatchID:     -1,
 			TableSchemaDeltas:      recordBatch.SchemaDeltas,
-			RelationMessageMapping: input.RelationMessageMapping,
+			RelationMessageMapping: options.RelationMessageMapping,
 		}, nil
 	}
 
@@ -322,16 +322,16 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		res, err = dstConn.SyncRecords(errCtx, &model.SyncRecordsRequest{
 			SyncBatchID:   syncBatchID,
 			Records:       recordBatch,
-			FlowJobName:   input.FlowConnectionConfigs.FlowJobName,
-			TableMappings: input.SyncFlowOptions.TableMappings,
-			StagingPath:   input.FlowConnectionConfigs.CdcStagingPath,
+			FlowJobName:   flowName,
+			TableMappings: options.TableMappings,
+			StagingPath:   config.CdcStagingPath,
 		})
 		if err != nil {
 			logger.Warn("failed to push records", slog.Any("error", err))
 			a.Alerter.LogFlowError(ctx, flowName, err)
 			return fmt.Errorf("failed to push records: %w", err)
 		}
-		res.RelationMessageMapping = input.RelationMessageMapping
+		res.RelationMessageMapping = options.RelationMessageMapping
 
 		return nil
 	})
@@ -352,7 +352,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	err = monitoring.UpdateNumRowsAndEndLSNForCDCBatch(
 		ctx,
 		a.CatalogPool,
-		input.FlowConnectionConfigs.FlowJobName,
+		flowName,
 		res.CurrentSyncBatchID,
 		uint32(numRecords),
 		lastCheckpoint,
@@ -362,18 +362,13 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		return nil, err
 	}
 
-	err = monitoring.UpdateLatestLSNAtTargetForCDCFlow(
-		ctx,
-		a.CatalogPool,
-		input.FlowConnectionConfigs.FlowJobName,
-		lastCheckpoint,
-	)
+	err = monitoring.UpdateLatestLSNAtTargetForCDCFlow(ctx, a.CatalogPool, flowName, lastCheckpoint)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, err
 	}
 	if res.TableNameRowsMapping != nil {
-		err = monitoring.AddCDCBatchTablesForFlow(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName,
+		err = monitoring.AddCDCBatchTablesForFlow(ctx, a.CatalogPool, flowName,
 			res.CurrentSyncBatchID, res.TableNameRowsMapping)
 		if err != nil {
 			return nil, err
