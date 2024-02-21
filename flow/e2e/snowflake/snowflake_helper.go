@@ -60,7 +60,10 @@ func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Snowflake client: %w", err)
 	}
-	err = adminClient.ExecuteQuery(context.Background(), fmt.Sprintf("CREATE DATABASE %s", testDatabaseName))
+	err = adminClient.ExecuteQuery(
+		context.Background(),
+		fmt.Sprintf("CREATE TRANSIENT DATABASE %s DATA_RETENTION_TIME_IN_DAYS = 0", testDatabaseName),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Snowflake test database: %w", err)
 	}
