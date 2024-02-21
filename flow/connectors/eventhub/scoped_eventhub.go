@@ -47,5 +47,5 @@ func (s ScopedEventhub) Equals(other ScopedEventhub) bool {
 
 // ToString returns the string representation of the ScopedEventhub
 func (s ScopedEventhub) ToString() string {
-	return fmt.Sprintf("%s.%s.%s.%s", s.PeerName, s.Eventhub, s.PartitionKeyColumn, s.PartitionKeyValue)
+	return fmt.Sprintf("%s.%s", s.PeerName, s.Eventhub)
 }
