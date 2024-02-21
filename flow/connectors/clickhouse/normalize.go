@@ -91,9 +91,6 @@ func generateCreateTableSQLForNormalizedTable(
 			}
 			stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ",
 				colName, precision, scale))
-		case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindDate:
-			// 1st Jan 1970 is not a sane default which clickhouse sets, so we use nullable
-			stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(%s), ", colName, clickhouseType))
 		default:
 			stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", colName, clickhouseType))
 		}

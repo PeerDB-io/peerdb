@@ -199,9 +199,9 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 			state.SyncFlowOptions.TableNameSchemaMapping[tableName] = tableSchema
 		}
 		state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
-		// finished processing, wipe it
-		state.FlowConfigUpdates = nil
 	}
+	// finished processing, wipe it
+	state.FlowConfigUpdates = nil
 	return nil
 }
 
