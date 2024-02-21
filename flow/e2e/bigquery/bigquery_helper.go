@@ -92,8 +92,7 @@ func generateBQPeer(bigQueryConfig *protos.BigqueryConfig) *protos.Peer {
 }
 
 // datasetExists checks if the dataset exists.
-func (b *BigQueryTestHelper) datasetExists(datasetName string) (bool, error) {
-	dataset := b.client.Dataset(datasetName)
+func (b *BigQueryTestHelper) datasetExists(dataset *bigquery.Dataset) (bool, error) {
 	meta, err := dataset.Metadata(context.Background())
 	if err != nil {
 		// if err message contains `notFound` then dataset does not exist.
@@ -113,12 +112,13 @@ func (b *BigQueryTestHelper) datasetExists(datasetName string) (bool, error) {
 
 // RecreateDataset recreates the dataset, i.e, deletes it if exists and creates it again.
 func (b *BigQueryTestHelper) RecreateDataset() error {
-	exists, err := b.datasetExists(b.Config.DatasetId)
+	dataset := b.client.Dataset(b.Config.DatasetId)
+
+	exists, err := b.datasetExists(dataset)
 	if err != nil {
 		return fmt.Errorf("failed to check if dataset %s exists: %w", b.Config.DatasetId, err)
 	}
 
-	dataset := b.client.Dataset(b.Config.DatasetId)
 	if exists {
 		err := dataset.DeleteWithContents(context.Background())
 		if err != nil {
@@ -126,7 +126,10 @@ func (b *BigQueryTestHelper) RecreateDataset() error {
 		}
 	}
 
-	err = dataset.Create(context.Background(), nil)
+	err = dataset.Create(context.Background(), &bigquery.DatasetMetadata{
+		DefaultTableExpiration:     time.Hour,
+		DefaultPartitionExpiration: time.Hour,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create dataset: %w", err)
 	}
@@ -136,19 +139,17 @@ func (b *BigQueryTestHelper) RecreateDataset() error {
 
 // DropDataset drops the dataset.
 func (b *BigQueryTestHelper) DropDataset(datasetName string) error {
-	exists, err := b.datasetExists(datasetName)
+	dataset := b.client.Dataset(datasetName)
+	exists, err := b.datasetExists(dataset)
 	if err != nil {
 		return fmt.Errorf("failed to check if dataset %s exists: %w", b.Config.DatasetId, err)
 	}
 
-	if !exists {
-		return nil
-	}
-
-	dataset := b.client.Dataset(datasetName)
-	err = dataset.DeleteWithContents(context.Background())
-	if err != nil {
-		return fmt.Errorf("failed to delete dataset: %w", err)
+	if exists {
+		err = dataset.DeleteWithContents(context.Background())
+		if err != nil {
+			return fmt.Errorf("failed to delete dataset: %w", err)
+		}
 	}
 
 	return nil
