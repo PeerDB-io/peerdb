@@ -83,7 +83,7 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 
 	var hubConnectOK bool
 	var hub any
-	hub, hubConnectOK = m.hubs.Load(name.Eventhub)
+	hub, hubConnectOK = m.hubs.Load(name.ToString())
 	if hubConnectOK {
 		hubTmp := hub.(*azeventhubs.ProducerClient)
 		_, err := hubTmp.GetEventHubProperties(ctx, nil)
@@ -95,7 +95,7 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 			if closeError != nil {
 				slog.Error("failed to close producer client", slog.Any("error", closeError))
 			}
-			m.hubs.Delete(name.Eventhub)
+			m.hubs.Delete(name.ToString())
 			hubConnectOK = false
 		}
 	}
@@ -108,11 +108,11 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 				MaxRetryDelay: 16 * time.Second,
 			},
 		}
-		hub, err := azeventhubs.NewProducerClient(namespace, name.Eventhub, m.creds, opts)
+		hub, err := azeventhubs.NewProducerClient(namespace, name.ToString(), m.creds, opts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create eventhub client: %v", err)
 		}
-		m.hubs.Store(name.Eventhub, hub)
+		m.hubs.Store(name.ToString(), hub)
 		return hub, nil
 	}
 
