@@ -95,7 +95,7 @@ func (h *FlowRequestHandler) CDCFlowStatus(
 	if state.SyncFlowOptions != nil {
 		config.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
 		config.MaxBatchSize = state.SyncFlowOptions.BatchSize
-		config.TableMappings = state.TableMappings
+		config.TableMappings = state.SyncFlowOptions.TableMappings
 	}
 
 	var initialCopyStatus *protos.SnapshotStatus
