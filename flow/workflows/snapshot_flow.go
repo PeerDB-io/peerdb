@@ -39,7 +39,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 		},
 	})
 
-	tblNameMapping := make(map[string]string)
+	tblNameMapping := make(map[string]string, len(s.config.TableMappings))
 	for _, v := range s.config.TableMappings {
 		tblNameMapping[v.SourceTableIdentifier] = v.DestinationTableIdentifier
 	}
@@ -265,17 +265,6 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 		return nil
 	}
 
-	if config.InitialSnapshotOnly {
-		slotInfo := &protos.SetupReplicationOutput{
-			SlotName:     "peerdb_initial_copy_only",
-			SnapshotName: "", // empty snapshot name indicates that we should not use a snapshot
-		}
-		if err := se.cloneTables(ctx, slotInfo, int(config.SnapshotNumTablesInParallel)); err != nil {
-			return fmt.Errorf("failed to clone tables: %w", err)
-		}
-		return nil
-	}
-
 	sessionOpts := &workflow.SessionOptions{
 		CreationTimeout:  5 * time.Minute,
 		ExecutionTimeout: time.Hour * 24 * 365 * 100, // 100 years
@@ -288,7 +277,55 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 	}
 	defer workflow.CompleteSession(sessionCtx)
 
-	if err := se.cloneTablesWithSlot(ctx, sessionCtx, numTablesInParallel); err != nil {
+	if config.InitialSnapshotOnly {
+		sessionInfo := workflow.GetSessionInfo(sessionCtx)
+
+		exportCtx := workflow.WithActivityOptions(sessionCtx, workflow.ActivityOptions{
+			StartToCloseTimeout: sessionOpts.ExecutionTimeout,
+			HeartbeatTimeout:    10 * time.Minute,
+			WaitForCancellation: true,
+		})
+
+		fMaintain := workflow.ExecuteActivity(
+			exportCtx,
+			snapshot.MaintainTx,
+			sessionInfo.SessionID,
+			config.Source,
+		)
+
+		fExportSnapshot := workflow.ExecuteActivity(
+			exportCtx,
+			snapshot.WaitForExportSnapshot,
+			sessionInfo.SessionID,
+		)
+
+		var sessionError error
+		var snapshotName string
+		sessionSelector := workflow.NewNamedSelector(ctx, "Export Snapshot Setup")
+		sessionSelector.AddFuture(fMaintain, func(f workflow.Future) {
+			// MaintainTx should never exit without an error before this point
+			sessionError = f.Get(exportCtx, nil)
+		})
+		sessionSelector.AddFuture(fExportSnapshot, func(f workflow.Future) {
+			// Happy path is waiting for this to return without error
+			sessionError = f.Get(exportCtx, &snapshotName)
+		})
+		sessionSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
+			sessionError = ctx.Err()
+		})
+		sessionSelector.Select(ctx)
+		if sessionError != nil {
+			return sessionError
+		}
+
+		slotInfo := &protos.SetupReplicationOutput{
+			SlotName:     "peerdb_initial_copy_only",
+			SnapshotName: snapshotName,
+		}
+		if err := se.cloneTables(ctx, slotInfo, int(config.SnapshotNumTablesInParallel)); err != nil {
+			return fmt.Errorf("failed to clone tables: %w", err)
+		}
+	} else if err := se.cloneTablesWithSlot(ctx, sessionCtx, numTablesInParallel); err != nil {
 		return fmt.Errorf("failed to clone slots and create replication slot: %w", err)
 	}
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
+	"time"
 
 	"go.temporal.io/sdk/activity"
 
@@ -15,19 +17,20 @@ import (
 )
 
 type SnapshotActivity struct {
-	SnapshotConnections map[string]SlotSnapshotSignal
-	Alerter             *alerting.Alerter
+	SnapshotConnectionsMutex sync.Mutex
+	SnapshotConnections      map[string]SlotSnapshotSignal
+	Alerter                  *alerting.Alerter
 }
 
 // closes the slot signal
 func (a *SnapshotActivity) CloseSlotKeepAlive(ctx context.Context, flowJobName string) error {
-	if a.SnapshotConnections == nil {
-		return nil
-	}
+	a.SnapshotConnectionsMutex.Lock()
+	defer a.SnapshotConnectionsMutex.Unlock()
 
 	if s, ok := a.SnapshotConnections[flowJobName]; ok {
 		close(s.signal.CloneComplete)
 		connectors.CloseConnector(ctx, s.connector)
+		delete(a.SnapshotConnections, flowJobName)
 	}
 
 	return nil
@@ -89,9 +92,8 @@ func (a *SnapshotActivity) SetupReplication(
 		return nil, fmt.Errorf("slot error: %w", slotInfo.Err)
 	}
 
-	if a.SnapshotConnections == nil {
-		a.SnapshotConnections = make(map[string]SlotSnapshotSignal)
-	}
+	a.SnapshotConnectionsMutex.Lock()
+	defer a.SnapshotConnectionsMutex.Unlock()
 
 	a.SnapshotConnections[config.FlowJobName] = SlotSnapshotSignal{
 		signal:       slotSignal,
@@ -103,4 +105,55 @@ func (a *SnapshotActivity) SetupReplication(
 		SlotName:     slotInfo.SlotName,
 		SnapshotName: slotInfo.SnapshotName,
 	}, nil
+}
+
+func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, peer *protos.Peer) error {
+	conn, err := connectors.GetCDCPullConnector(ctx, peer)
+	if err != nil {
+		return err
+	}
+	defer connectors.CloseConnector(ctx, conn)
+
+	snapshotName, tx, err := conn.ExportSnapshot(ctx)
+	if err != nil {
+		return err
+	}
+
+	sss := SlotSnapshotSignal{snapshotName: snapshotName}
+	a.SnapshotConnectionsMutex.Lock()
+	a.SnapshotConnections[sessionID] = sss
+	a.SnapshotConnectionsMutex.Unlock()
+
+	for {
+		activity.RecordHeartbeat(ctx, "maintaining export snapshot transaction")
+		if ctx.Err() != nil {
+			a.SnapshotConnectionsMutex.Lock()
+			delete(a.SnapshotConnections, sessionID)
+			a.SnapshotConnectionsMutex.Unlock()
+			return conn.FinishExport(tx)
+		}
+		time.Sleep(time.Minute)
+	}
+}
+
+func (a *SnapshotActivity) WaitForExportSnapshot(ctx context.Context, sessionID string) (string, error) {
+	logger := activity.GetLogger(ctx)
+	attempt := 0
+	for {
+		a.SnapshotConnectionsMutex.Lock()
+		sss, ok := a.SnapshotConnections[sessionID]
+		a.SnapshotConnectionsMutex.Unlock()
+		if ok {
+			return sss.snapshotName, nil
+		}
+		activity.RecordHeartbeat(ctx, "wait another second for snapshot export")
+		attempt += 1
+		if attempt > 2 {
+			logger.Info("waiting on snapshot export", slog.Int("attempt", attempt))
+		}
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		time.Sleep(time.Second)
+	}
 }

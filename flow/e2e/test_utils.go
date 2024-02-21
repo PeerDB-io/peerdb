@@ -60,6 +60,7 @@ func RegisterWorkflowsAndActivities(t *testing.T, env *testsuite.TestWorkflowEnv
 	env.SetTestTimeout(5 * time.Minute)
 
 	peerflow.RegisterFlowWorkerWorkflows(env)
+	env.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
 
 	alerter, err := alerting.NewAlerter(conn)
 	if err != nil {
@@ -72,7 +73,8 @@ func RegisterWorkflowsAndActivities(t *testing.T, env *testsuite.TestWorkflowEnv
 		CdcCache:    make(map[string]connectors.CDCPullConnector),
 	})
 	env.RegisterActivity(&activities.SnapshotActivity{
-		Alerter: alerter,
+		SnapshotConnections: make(map[string]activities.SlotSnapshotSignal),
+		Alerter:             alerter,
 	})
 }
 
@@ -551,7 +553,6 @@ func NewTemporalTestWorkflowEnvironment(t *testing.T) *testsuite.TestWorkflowEnv
 	env := testSuite.NewTestWorkflowEnvironment()
 	env.SetWorkerOptions(worker.Options{EnableSessionWorker: true})
 	RegisterWorkflowsAndActivities(t, env)
-	env.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
 	return env
 }
 
