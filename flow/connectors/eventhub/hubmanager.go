@@ -80,7 +80,7 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 	// if the namespace isn't fully qualified, add the `.servicebus.windows.net`
 	// check by counting the number of '.' in the namespace
 	if strings.Count(namespace, ".") < 2 {
-		namespace = fmt.Sprintf("%s.servicebus.windows.net", namespace)
+		namespace += ".servicebus.windows.net"
 	}
 
 	var hubConnectOK bool
@@ -130,18 +130,13 @@ func (m *EventHubManager) closeProducerClient(ctx context.Context, pc *azeventhu
 }
 
 func (m *EventHubManager) Close(ctx context.Context) error {
-	numHubsClosed := atomic.Uint32{}
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("closed %d eventhub clients", numHubsClosed.Load())
-	})
-	defer shutdown()
-
 	var allErrors error
 	numHubsClosed := atomic.Uint32{}
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("closed %d eventhub clients", numHubsClosed.Load())
 	})
 	defer shutdown()
+
 	m.hubs.Range(func(key any, value any) bool {
 		slog.InfoContext(ctx, "closing eventhub client",
 			slog.Uint64("numClosed", uint64(numHubsClosed.Load())),
@@ -149,7 +144,8 @@ func (m *EventHubManager) Close(ctx context.Context) error {
 		client := value.(*azeventhubs.ProducerClient)
 		err := m.closeProducerClient(ctx, client)
 		if err != nil {
-			logger.LoggerFromCtx(ctx).Error(fmt.Sprintf("failed to close eventhub client for %v", name), slog.Any("error", err))
+			logger.LoggerFromCtx(ctx).Error(fmt.Sprintf("failed to close eventhub client for %v", key),
+				slog.Any("error", err))
 			allErrors = errors.Join(allErrors, err)
 		}
 		numHubsClosed.Add(1)
@@ -157,7 +153,6 @@ func (m *EventHubManager) Close(ctx context.Context) error {
 	})
 
 	slog.InfoContext(ctx, "closed all eventhub clients", slog.Any("numClosed", numHubsClosed.Load()))
-
 	return allErrors
 }
 

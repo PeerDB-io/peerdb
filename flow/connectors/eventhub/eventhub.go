@@ -2,7 +2,6 @@ package conneventhub
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync/atomic"
@@ -55,19 +54,10 @@ func NewEventHubConnector(
 }
 
 func (c *EventHubConnector) Close() error {
-	var allErrors error
-
-	// close the postgres metadata store.
-	err := c.pgMetadata.Close()
-	if err != nil {
-		c.logger.Error(fmt.Sprintf("failed to close postgres metadata store: %v", err))
-		allErrors = errors.Join(allErrors, err)
-	}
-
-	err = c.hubManager.Close(c.ctx)
+	err := c.hubManager.Close(context.Background())
 	if err != nil {
 		c.logger.Error("failed to close event hub manager", slog.Any("error", err))
-		allErrors = errors.Join(allErrors, err)
+		return err
 	}
 
 	return nil
