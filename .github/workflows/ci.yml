@@ -41,7 +41,7 @@ jobs:
 
       - name: setup gcp service account
         id: gcp-service-account
-        uses: jsdaniell/create-json@v1.2.2
+        uses: jsdaniell/create-json@v1.2.3
         with:
           name: "bq_service_account.json"
           json: ${{ secrets.GCP_GH_CI_PKEY }}
@@ -49,7 +49,7 @@ jobs:
 
       - name: setup snowflake credentials
         id: sf-credentials
-        uses: jsdaniell/create-json@v1.2.2
+        uses: jsdaniell/create-json@v1.2.3
         with:
           name: "snowflake_creds.json"
           json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
