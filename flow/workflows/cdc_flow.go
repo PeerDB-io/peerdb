@@ -369,7 +369,7 @@ func CDCFlowWorkflowWithConfig(
 		syncCtx,
 		SyncFlowWorkflow,
 		cfg,
-		normalizeFlowID,
+		state.SyncFlowOptions,
 	)
 
 	normalizeFlowOpts := workflow.ChildWorkflowOptions{
@@ -386,7 +386,6 @@ func CDCFlowWorkflowWithConfig(
 		normCtx,
 		NormalizeFlowWorkflow,
 		cfg,
-		syncFlowID,
 	)
 
 	finishSync := func() {
