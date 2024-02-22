@@ -191,7 +191,7 @@ type SyncResponse struct {
 	RelationMessageMapping RelationMessageMapping
 }
 
-type NormalizeSignal struct {
+type NormalizePayload struct {
 	Done                   bool
 	SyncBatchID            int64
 	TableNameSchemaMapping map[string]*protos.TableSchema

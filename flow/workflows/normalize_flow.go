@@ -26,7 +26,7 @@ func NormalizeFlowWorkflow(
 
 	results := make([]model.NormalizeResponse, 0, 4)
 	errors := make([]string, 0)
-	syncChan := workflow.GetSignalChannel(ctx, shared.NormalizeSyncSignalName)
+	syncChan := model.NormalizeSyncSignal.GetSignalChannel(ctx)
 
 	var stopLoop, canceled bool
 	var lastSyncBatchID, syncBatchID int64
@@ -37,9 +37,7 @@ func NormalizeFlowWorkflow(
 	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
 		canceled = true
 	})
-	selector.AddReceive(syncChan, func(c workflow.ReceiveChannel, _ bool) {
-		var s model.NormalizeSignal
-		c.ReceiveAsync(&s)
+	syncChan.AddToSelector(selector, func(s model.NormalizePayload, _ bool) {
 		if s.Done {
 			stopLoop = true
 		}
@@ -82,11 +80,10 @@ func NormalizeFlowWorkflow(
 
 		if !peerdbenv.PeerDBEnableParallelSyncNormalize() {
 			parent := workflow.GetInfo(ctx).ParentWorkflowExecution
-			workflow.SignalExternalWorkflow(
+			model.NormalizeSyncDoneSignal.SignalExternalWorkflow(
 				ctx,
 				parent.ID,
 				parent.RunID,
-				shared.NormalizeSyncDoneSignalName,
 				struct{}{},
 			)
 		}

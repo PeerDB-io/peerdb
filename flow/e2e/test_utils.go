@@ -78,6 +78,10 @@ func RegisterWorkflowsAndActivities(t *testing.T, env *testsuite.TestWorkflowEnv
 	})
 }
 
+func EnvSignalWorkflow[T any](env *testsuite.TestWorkflowEnvironment, signal model.TypedSignal[T], value T) {
+	env.SignalWorkflow(signal.Name, value)
+}
+
 // Helper function to assert errors in go routines running concurrent to workflows
 // This achieves two goals:
 // 1. cancel workflow to avoid waiting on goroutine which has failed

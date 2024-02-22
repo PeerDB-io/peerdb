@@ -9,6 +9,7 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -85,19 +86,18 @@ func XminFlowWorkflow(
 
 	// here, we handle signals after the end of the flow because a new workflow does not inherit the signals
 	// and the chance of missing a signal is much higher if the check is before the time consuming parts run
-	signalChan := workflow.GetSignalChannel(ctx, shared.FlowSignalName)
+	signalChan := model.FlowSignal.GetSignalChannel(ctx)
 	q.receiveAndHandleSignalAsync(signalChan)
-	if q.activeSignal == shared.PauseSignal {
+	if q.activeSignal == model.PauseSignal {
 		startTime := time.Now()
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
-		var signalVal shared.CDCFlowSignal
 
-		for q.activeSignal == shared.PauseSignal {
+		for q.activeSignal == model.PauseSignal {
 			logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
 			// only place we block on receive, so signal processing is immediate
-			ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute, &signalVal)
+			val, ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute)
 			if ok {
-				q.activeSignal = shared.FlowSignalHandler(q.activeSignal, signalVal, logger)
+				q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, logger)
 			} else if err := ctx.Err(); err != nil {
 				return err
 			}

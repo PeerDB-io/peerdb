@@ -11,12 +11,6 @@ const (
 	peerFlowTaskQueue     = "peer-flow-task-queue"
 	snapshotFlowTaskQueue = "snapshot-flow-task-queue"
 
-	// Signals
-	FlowSignalName                 = "peer-flow-signal"
-	CDCDynamicPropertiesSignalName = "cdc-dynamic-properties"
-	NormalizeSyncSignalName        = "normalize-sync"
-	NormalizeSyncDoneSignalName    = "normalize-sync-done"
-
 	// Queries
 	CDCFlowStateQuery  = "q-cdc-flow-state"
 	QRepFlowStateQuery = "q-qrep-flow-state"
@@ -29,15 +23,10 @@ const (
 const MirrorNameSearchAttribute = "MirrorName"
 
 type (
-	CDCFlowSignal int64
-	ContextKey    string
+	ContextKey string
 )
 
 const (
-	NoopSignal CDCFlowSignal = iota
-	_
-	PauseSignal
-
 	FlowNameKey      ContextKey = "flowName"
 	PartitionIDKey   ContextKey = "partitionId"
 	DeploymentUIDKey ContextKey = "deploymentUid"
