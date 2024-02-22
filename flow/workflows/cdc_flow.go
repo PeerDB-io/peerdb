@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"strings"
 	"time"
 
@@ -192,12 +193,10 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 			return err
 		}
 
-		for tableID, tableName := range res.SyncFlowOptions.SrcTableIdNameMapping {
-			state.SyncFlowOptions.SrcTableIdNameMapping[tableID] = tableName
-		}
-		for tableName, tableSchema := range res.SyncFlowOptions.TableNameSchemaMapping {
-			state.SyncFlowOptions.TableNameSchemaMapping[tableName] = tableSchema
-		}
+		maps.Copy(state.SyncFlowOptions.SrcTableIdNameMapping, res.SyncFlowOptions.SrcTableIdNameMapping)
+		maps.Copy(state.SyncFlowOptions.TableNameSchemaMapping, res.SyncFlowOptions.TableNameSchemaMapping)
+		maps.Copy(state.SyncFlowOptions.RelationMessageMapping, res.SyncFlowOptions.RelationMessageMapping)
+
 		state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
 	}
 	// finished processing, wipe it
