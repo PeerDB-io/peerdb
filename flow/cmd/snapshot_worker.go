@@ -73,7 +73,10 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) error {
 	}
 
 	w.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
-	w.RegisterActivity(&activities.SnapshotActivity{Alerter: alerter})
+	w.RegisterActivity(&activities.SnapshotActivity{
+		SnapshotConnections: make(map[string]activities.SlotSnapshotSignal),
+		Alerter:             alerter,
+	})
 
 	err = w.Run(worker.InterruptCh())
 	if err != nil {

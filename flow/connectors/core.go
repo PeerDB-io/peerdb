@@ -38,6 +38,13 @@ type CDCPullConnector interface {
 	EnsurePullability(ctx context.Context, req *protos.EnsurePullabilityBatchInput) (
 		*protos.EnsurePullabilityBatchOutput, error)
 
+	// For InitialSnapshotOnly correctness without replication slot
+	// `any` is for returning transaction if necessary
+	ExportSnapshot(context.Context) (string, any, error)
+
+	// `any` from ExportSnapshot passed here when done, allowing transaction to commit
+	FinishExport(any) error
+
 	// Methods related to retrieving and pushing records for this connector as a source and destination.
 	SetupReplConn(context.Context) error
 
@@ -65,12 +72,12 @@ type NormalizedTablesConnector interface {
 	Connector
 
 	// StartSetupNormalizedTables may be used to have SetupNormalizedTable calls run in a transaction.
-	StartSetupNormalizedTables(ctx context.Context) (interface{}, error)
+	StartSetupNormalizedTables(ctx context.Context) (any, error)
 
 	// SetupNormalizedTable sets up the normalized table on the connector.
 	SetupNormalizedTable(
 		ctx context.Context,
-		tx interface{},
+		tx any,
 		tableIdentifier string,
 		tableSchema *protos.TableSchema,
 		softDeleteColName string,
@@ -79,10 +86,10 @@ type NormalizedTablesConnector interface {
 
 	// CleanupSetupNormalizedTables may be used to rollback transaction started by StartSetupNormalizedTables.
 	// Calling CleanupSetupNormalizedTables after FinishSetupNormalizedTables must be a nop.
-	CleanupSetupNormalizedTables(ctx context.Context, tx interface{})
+	CleanupSetupNormalizedTables(ctx context.Context, tx any)
 
 	// FinishSetupNormalizedTables may be used to finish transaction started by StartSetupNormalizedTables.
-	FinishSetupNormalizedTables(ctx context.Context, tx interface{}) error
+	FinishSetupNormalizedTables(ctx context.Context, tx any) error
 }
 
 type CDCSyncConnector interface {

@@ -768,25 +768,25 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	}, nil
 }
 
-func (c *PostgresConnector) StartSetupNormalizedTables(ctx context.Context) (interface{}, error) {
+func (c *PostgresConnector) StartSetupNormalizedTables(ctx context.Context) (any, error) {
 	// Postgres is cool and supports transactional DDL. So we use a transaction.
 	return c.conn.Begin(ctx)
 }
 
-func (c *PostgresConnector) CleanupSetupNormalizedTables(ctx context.Context, tx interface{}) {
+func (c *PostgresConnector) CleanupSetupNormalizedTables(ctx context.Context, tx any) {
 	err := tx.(pgx.Tx).Rollback(ctx)
 	if err != pgx.ErrTxClosed && err != nil {
 		c.logger.Error("error rolling back transaction for creating raw table", slog.Any("error", err))
 	}
 }
 
-func (c *PostgresConnector) FinishSetupNormalizedTables(ctx context.Context, tx interface{}) error {
+func (c *PostgresConnector) FinishSetupNormalizedTables(ctx context.Context, tx any) error {
 	return tx.(pgx.Tx).Commit(ctx)
 }
 
 func (c *PostgresConnector) SetupNormalizedTable(
 	ctx context.Context,
-	tx interface{},
+	tx any,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
 	softDeleteColName string,
@@ -920,6 +920,39 @@ func (c *PostgresConnector) EnsurePullability(
 	}
 
 	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil
+}
+
+func (c *PostgresConnector) ExportSnapshot(ctx context.Context) (string, any, error) {
+	var snapshotName string
+	tx, err := c.conn.Begin(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+
+	_, err = tx.Exec(ctx, "SET idle_in_transaction_session_timeout = 0")
+	if err != nil {
+		return "", nil, fmt.Errorf("[export-snapshot] error setting idle_in_transaction_session_timeout: %w", err)
+	}
+
+	_, err = tx.Exec(ctx, "SET lock_timeout = 0")
+	if err != nil {
+		return "", nil, fmt.Errorf("[export-snapshot] error setting lock_timeout: %w", err)
+	}
+
+	err = tx.QueryRow(ctx, "select pg_export_snapshot()").Scan(&snapshotName)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		return "", nil, err
+	}
+
+	return snapshotName, tx, err
+}
+
+func (c *PostgresConnector) FinishExport(tx any) error {
+	pgtx := tx.(pgx.Tx)
+	timeout, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	return pgtx.Commit(timeout)
 }
 
 // SetupReplication sets up replication for the source connector.
