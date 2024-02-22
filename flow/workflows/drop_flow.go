@@ -3,6 +3,7 @@ package peerflow
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"go.temporal.io/sdk/workflow"
@@ -12,8 +13,7 @@ import (
 )
 
 func DropFlowWorkflow(ctx workflow.Context, req *protos.ShutdownRequest) error {
-	logger := workflow.GetLogger(ctx)
-	logger.Info("performing cleanup for flow ", req.FlowJobName)
+	workflow.GetLogger(ctx).Info("performing cleanup for flow", slog.String(string(shared.FlowNameKey), req.FlowJobName))
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,

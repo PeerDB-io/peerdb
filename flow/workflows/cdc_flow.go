@@ -102,10 +102,10 @@ type CDCFlowWorkflowExecution struct {
 }
 
 // NewCDCFlowWorkflowExecution creates a new instance of PeerFlowWorkflowExecution.
-func NewCDCFlowWorkflowExecution(ctx workflow.Context) *CDCFlowWorkflowExecution {
+func NewCDCFlowWorkflowExecution(ctx workflow.Context, flowName string) *CDCFlowWorkflowExecution {
 	return &CDCFlowWorkflowExecution{
 		flowExecutionID: workflow.GetInfo(ctx).WorkflowExecution.ID,
-		logger:          workflow.GetLogger(ctx),
+		logger:          log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), flowName)),
 	}
 }
 
@@ -217,7 +217,7 @@ func CDCFlowWorkflowWithConfig(
 		state = NewCDCFlowWorkflowState(cfg)
 	}
 
-	w := NewCDCFlowWorkflowExecution(ctx)
+	w := NewCDCFlowWorkflowExecution(ctx, cfg.FlowJobName)
 
 	err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (CDCFlowWorkflowState, error) {
 		return *state, nil
@@ -518,7 +518,7 @@ func CDCFlowWorkflowWithConfig(
 			break
 		}
 		currentSyncFlowNum += 1
-		w.logger.Info("executing sync flow", slog.Int("count", currentSyncFlowNum), slog.String("flowName", cfg.FlowJobName))
+		w.logger.Info("executing sync flow", slog.Int("count", currentSyncFlowNum))
 
 		// execute the sync flow
 		syncFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -527,7 +527,7 @@ func CDCFlowWorkflowWithConfig(
 			WaitForCancellation: true,
 		})
 
-		w.logger.Info("executing sync flow", slog.String("flowName", cfg.FlowJobName))
+		w.logger.Info("executing sync flow")
 		syncFlowFuture := workflow.ExecuteActivity(syncFlowCtx, flowable.SyncFlow, cfg, state.SyncFlowOptions, sessionInfo.SessionID)
 
 		var syncDone, syncErr bool

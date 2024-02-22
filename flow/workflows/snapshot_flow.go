@@ -243,11 +243,9 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 }
 
 func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionConfigs) error {
-	logger := workflow.GetLogger(ctx)
-
 	se := &SnapshotFlowExecution{
 		config: config,
-		logger: logger,
+		logger: log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName)),
 	}
 
 	numTablesInParallel := int(max(config.SnapshotNumTablesInParallel, 1))
