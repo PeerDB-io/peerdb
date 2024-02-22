@@ -17,6 +17,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -445,6 +446,14 @@ func CDCFlowWorkflowWithConfig(
 	normResultChan.AddToSelector(mainLoopSelector, func(result model.NormalizeResponse, _ bool) {
 		state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, result)
 	})
+
+	if !peerdbenv.PeerDBEnableParallelSyncNormalize() {
+		// TODO passing workflow ids to each other, sync/norm could signal this directly
+		normDoneChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
+		normDoneChan.AddToSelector(mainLoopSelector, func(_ struct{}, _ bool) {
+			model.NormalizeDoneSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{})
+		})
+	}
 
 	// add a signal to change CDC properties
 	cdcPropertiesSignalChan := model.CDCDynamicPropertiesSignal.GetSignalChannel(ctx)
