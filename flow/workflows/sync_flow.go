@@ -179,12 +179,6 @@ func SyncFlowWorkflow(
 					}
 				}
 
-				model.SyncErrorSignal.SignalExternalWorkflow(
-					ctx,
-					parent.ID,
-					parent.RunID,
-					err.Error(),
-				)
 				signalFuture := model.NormalizeSignal.SignalExternalWorkflow(
 					ctx,
 					parent.ID,

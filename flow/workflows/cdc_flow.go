@@ -382,7 +382,7 @@ func CDCFlowWorkflowWithConfig(
 		WaitForCancellation: true,
 	}
 	normCtx := workflow.WithChildOptions(ctx, normalizeFlowOpts)
-	normalizeFlowFuture := workflow.ExecuteChildWorkflow(
+	normFlowFuture := workflow.ExecuteChildWorkflow(
 		normCtx,
 		NormalizeFlowWorkflow,
 		cfg,
@@ -402,11 +402,11 @@ func CDCFlowWorkflowWithConfig(
 	}
 
 	finishNormalize := func() {
-		model.NormalizeSignal.SignalChildWorkflow(ctx, normalizeFlowFuture, model.NormalizePayload{
+		model.NormalizeSignal.SignalChildWorkflow(ctx, normFlowFuture, model.NormalizePayload{
 			Done:        true,
 			SyncBatchID: -1,
 		})
-		if err := normalizeFlowFuture.Get(ctx, nil); err != nil {
+		if err := normFlowFuture.Get(ctx, nil); err != nil {
 			w.logger.Error("failed to execute normalize flow: ", err)
 			var panicErr *temporal.PanicError
 			if errors.As(err, &panicErr) {
@@ -447,8 +447,13 @@ func CDCFlowWorkflowWithConfig(
 		state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, result)
 	})
 
+	normChan := model.NormalizeSignal.GetSignalChannel(ctx)
+	normChan.AddToSelector(mainLoopSelector, func(payload model.NormalizePayload, _ bool) {
+		model.NormalizeSignal.SignalChildWorkflow(ctx, normFlowFuture, payload)
+		maps.Copy(state.SyncFlowOptions.TableNameSchemaMapping, payload.TableNameSchemaMapping)
+	})
+
 	if !peerdbenv.PeerDBEnableParallelSyncNormalize() {
-		// TODO passing workflow ids to each other, sync/norm could signal this directly
 		normDoneChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
 		normDoneChan.AddToSelector(mainLoopSelector, func(_ struct{}, _ bool) {
 			model.NormalizeDoneSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{})
