@@ -366,7 +366,7 @@ func CDCFlowWorkflowWithConfig(
 	sessionInfo := workflow.GetSessionInfo(syncSessionCtx)
 
 	syncCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
-		StartToCloseTimeout: 72 * time.Hour,
+		StartToCloseTimeout: 14 * 24 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
 		WaitForCancellation: true,
 	})
