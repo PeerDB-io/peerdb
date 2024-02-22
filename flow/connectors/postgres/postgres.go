@@ -345,6 +345,7 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 
 	err = c.MaybeStartReplication(ctx, slotName, publicationName, req)
 	if err != nil {
+		c.logger.Error("error starting replication", slog.Any("error", err))
 		return err
 	}
 
@@ -361,6 +362,7 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 
 	err = cdc.PullRecords(ctx, req)
 	if err != nil {
+		c.logger.Error("error pulling records", slog.Any("error", err))
 		return err
 	}
 
@@ -369,11 +371,13 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 
 	latestLSN, err := c.getCurrentLSN(ctx)
 	if err != nil {
+		c.logger.Error("error getting current LSN", slog.Any("error", err))
 		return fmt.Errorf("failed to get current LSN: %w", err)
 	}
 
 	err = monitoring.UpdateLatestLSNAtSourceForCDCFlow(ctx, catalogPool, req.FlowJobName, int64(latestLSN))
 	if err != nil {
+		c.logger.Error("error updating latest LSN at source for CDC flow", slog.Any("error", err))
 		return fmt.Errorf("failed to update latest LSN at source for CDC flow: %w", err)
 	}
 
