@@ -83,7 +83,7 @@ func killExistingScheduleFlows(
 		err := tc.CancelWorkflow(ctx,
 			workflow.Execution.WorkflowId, workflow.Execution.RunId)
 		if err != nil && err.Error() != "workflow execution already completed" {
-			return fmt.Errorf("unable to terminate workflow: %w", err)
+			return fmt.Errorf("unable to cancel workflow: %w", err)
 		}
 	}
 	return nil

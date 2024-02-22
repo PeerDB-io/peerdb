@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"time"
 
+	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -16,7 +17,7 @@ func NormalizeFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
 ) (*model.NormalizeFlowResponse, error) {
-	logger := workflow.GetLogger(ctx)
+	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
 	normalizeFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 7 * 24 * time.Hour,
@@ -54,16 +55,16 @@ func NormalizeFlowWorkflow(
 		}
 		if canceled || (stopLoop && lastSyncBatchID == syncBatchID) {
 			if canceled {
-				logger.Info("normalize canceled - ", config.FlowJobName)
+				logger.Info("normalize canceled")
 			} else {
-				logger.Info("normalize finished - ", config.FlowJobName)
+				logger.Info("normalize finished")
 			}
 			break
 		}
 		if lastSyncBatchID != syncBatchID {
 			lastSyncBatchID = syncBatchID
 
-			logger.Info("executing normalize", slog.String("flowName", config.FlowJobName))
+			logger.Info("executing normalize")
 			startNormalizeInput := &protos.StartNormalizeInput{
 				FlowConnectionConfigs:  config,
 				TableNameSchemaMapping: tableNameSchemaMapping,

@@ -65,7 +65,7 @@ func NewQRepFlowExecution(ctx workflow.Context, config *protos.QRepConfig, runUU
 	return &QRepFlowExecution{
 		config:                  config,
 		flowExecutionID:         workflow.GetInfo(ctx).WorkflowExecution.ID,
-		logger:                  workflow.GetLogger(ctx),
+		logger:                  log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName)),
 		runUUID:                 runUUID,
 		childPartitionWorkflows: nil,
 		activeSignal:            shared.NoopSignal,
@@ -79,14 +79,14 @@ func NewQRepPartitionFlowExecution(ctx workflow.Context,
 	return &QRepPartitionFlowExecution{
 		config:          config,
 		flowExecutionID: workflow.GetInfo(ctx).WorkflowExecution.ID,
-		logger:          workflow.GetLogger(ctx),
+		logger:          log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName)),
 		runUUID:         runUUID,
 	}
 }
 
 // SetupMetadataTables creates the metadata tables for query based replication.
 func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
-	q.logger.Info("setting up metadata tables for qrep flow - ", q.config.FlowJobName)
+	q.logger.Info("setting up metadata tables for qrep flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
@@ -96,7 +96,7 @@ func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
 
-	q.logger.Info("metadata tables setup for qrep flow - ", q.config.FlowJobName)
+	q.logger.Info("metadata tables setup for qrep flow")
 	return nil
 }
 
@@ -125,7 +125,7 @@ func (q *QRepFlowExecution) getTableSchema(ctx workflow.Context, tableName strin
 
 func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Context) error {
 	if q.config.SetupWatermarkTableOnDestination {
-		q.logger.Info("setting up watermark table on destination for qrep flow: ", q.config.FlowJobName)
+		q.logger.Info("setting up watermark table on destination for qrep flow")
 
 		ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 5 * time.Minute,
@@ -153,7 +153,7 @@ func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Contex
 			q.logger.Error("failed to create watermark table: ", err)
 			return fmt.Errorf("failed to create watermark table: %w", err)
 		}
-		q.logger.Info("finished setting up watermark table for qrep flow: ", q.config.FlowJobName)
+		q.logger.Info("finished setting up watermark table for qrep flow")
 	}
 	return nil
 }
@@ -163,7 +163,7 @@ func (q *QRepFlowExecution) GetPartitions(
 	ctx workflow.Context,
 	last *protos.QRepPartition,
 ) (*protos.QRepParitionResult, error) {
-	q.logger.Info("fetching partitions to replicate for peer flow - ", q.config.FlowJobName)
+	q.logger.Info("fetching partitions to replicate for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Hour,
@@ -430,7 +430,6 @@ func QRepFlowWorkflow(
 
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	logger := workflow.GetLogger(ctx)
 
 	maxParallelWorkers := 16
 	if config.MaxParallelWorkers > 0 {
@@ -452,6 +451,7 @@ func QRepFlowWorkflow(
 	}
 
 	q := NewQRepFlowExecution(ctx, config, originalRunID)
+	logger := q.logger
 
 	err = q.SetupWatermarkTableOnDestination(ctx)
 	if err != nil {
@@ -462,7 +462,7 @@ func QRepFlowWorkflow(
 	if err != nil {
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
-	q.logger.Info("metadata tables setup for peer flow - ", config.FlowJobName)
+	logger.Info("metadata tables setup for peer flow - ", config.FlowJobName)
 
 	err = q.handleTableCreationForResync(ctx, state)
 	if err != nil {
@@ -480,13 +480,13 @@ func QRepFlowWorkflow(
 		return err
 	}
 
-	logger.Info("consolidating partitions for peer flow - ", slog.String("flowName", config.FlowJobName))
+	logger.Info("consolidating partitions for peer flow")
 	if err := q.consolidatePartitions(ctx); err != nil {
 		return err
 	}
 
 	if config.InitialCopyOnly {
-		q.logger.Info("initial copy completed for peer flow - ", config.FlowJobName)
+		logger.Info("initial copy completed for peer flow - ", config.FlowJobName)
 		return nil
 	}
 
@@ -495,7 +495,7 @@ func QRepFlowWorkflow(
 		return err
 	}
 
-	q.logger.Info("partitions processed - ", len(partitions.Partitions))
+	logger.Info("partitions processed - ", len(partitions.Partitions))
 	state.NumPartitionsProcessed += uint64(len(partitions.Partitions))
 
 	if len(partitions.Partitions) > 0 {
@@ -510,7 +510,7 @@ func QRepFlowWorkflow(
 		}
 	}
 
-	workflow.GetLogger(ctx).Info("Continuing as new workflow",
+	logger.Info("Continuing as new workflow",
 		"Last Partition", state.LastPartition,
 		"Number of Partitions Processed", state.NumPartitionsProcessed)
 
@@ -524,7 +524,7 @@ func QRepFlowWorkflow(
 		var signalVal shared.CDCFlowSignal
 
 		for q.activeSignal == shared.PauseSignal {
-			q.logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
+			logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
 			// only place we block on receive, so signal processing is immediate
 			ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute, &signalVal)
 			if ok {

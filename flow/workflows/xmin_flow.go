@@ -26,6 +26,7 @@ func XminFlowWorkflow(
 	}
 
 	q := NewQRepFlowExecution(ctx, config, originalRunID)
+	logger := q.logger
 
 	err = q.SetupWatermarkTableOnDestination(ctx)
 	if err != nil {
@@ -36,7 +37,7 @@ func XminFlowWorkflow(
 	if err != nil {
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
-	q.logger.Info("metadata tables setup for peer flow - ", config.FlowJobName)
+	logger.Info("metadata tables setup for peer flow - ", config.FlowJobName)
 
 	err = q.handleTableCreationForResync(ctx, state)
 	if err != nil {
@@ -64,7 +65,7 @@ func XminFlowWorkflow(
 	}
 
 	if config.InitialCopyOnly {
-		q.logger.Info("initial copy completed for peer flow - ", config.FlowJobName)
+		logger.Info("initial copy completed for peer flow - ", config.FlowJobName)
 		return nil
 	}
 
@@ -78,7 +79,7 @@ func XminFlowWorkflow(
 		Range:       &protos.PartitionRange{Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: lastPartition}}},
 	}
 
-	workflow.GetLogger(ctx).Info("Continuing as new workflow",
+	logger.Info("Continuing as new workflow",
 		"Last Partition", state.LastPartition,
 		"Number of Partitions Processed", state.NumPartitionsProcessed)
 
@@ -92,11 +93,11 @@ func XminFlowWorkflow(
 		var signalVal shared.CDCFlowSignal
 
 		for q.activeSignal == shared.PauseSignal {
-			q.logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
+			logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
 			// only place we block on receive, so signal processing is immediate
 			ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute, &signalVal)
 			if ok {
-				q.activeSignal = shared.FlowSignalHandler(q.activeSignal, signalVal, q.logger)
+				q.activeSignal = shared.FlowSignalHandler(q.activeSignal, signalVal, logger)
 			} else if err := ctx.Err(); err != nil {
 				return err
 			}
