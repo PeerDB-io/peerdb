@@ -145,9 +145,11 @@ func (c *PostgresConnector) MaybeStartReplication(
 	if c.replState != nil && (c.replState.Offset != req.LastOffset ||
 		c.replState.Slot != slotName ||
 		c.replState.Publication != publicationName) {
-		return fmt.Errorf("replState changed, reset connector. slot name: old=%s new=%s, publication: old=%s new=%s, offset: old=%d new=%d",
+		msg := fmt.Sprintf("replState changed, reset connector. slot name: old=%s new=%s, publication: old=%s new=%s, offset: old=%d new=%d",
 			c.replState.Slot, slotName, c.replState.Publication, publicationName, c.replState.Offset, req.LastOffset,
 		)
+		c.logger.Info(msg)
+		return errors.New(msg)
 	}
 
 	if c.replState == nil {
