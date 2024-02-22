@@ -18,6 +18,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
@@ -1192,7 +1193,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	// too short of a gap between signals also causes issues
 	// might have something to do with how test workflows handle fast-forwarding time.
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(shared.FlowSignalName, shared.PauseSignal)
+		e2e.EnvSignalWorkflow(env, model.FlowSignal, model.PauseSignal)
 		s.t.Log("Sent pause signal")
 		sentPause = true
 	}, 28*time.Second)
@@ -1204,7 +1205,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 				return false
 			}
 			isPaused = true
-			env.SignalWorkflow(shared.CDCDynamicPropertiesSignalName, &protos.CDCFlowConfigUpdate{
+			e2e.EnvSignalWorkflow(env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 				IdleTimeout: 14,
 				BatchSize:   12,
 				AdditionalTables: []*protos.TableMapping{
@@ -1224,7 +1225,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 			if !sentUpdate {
 				return false
 			}
-			env.SignalWorkflow(shared.FlowSignalName, shared.NoopSignal)
+			e2e.EnvSignalWorkflow(env, model.FlowSignal, model.NoopSignal)
 			s.t.Log("Sent resume signal")
 			return true
 		})

@@ -13,6 +13,7 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -24,7 +25,7 @@ type QRepFlowExecution struct {
 	// being tracked for future workflow signalling
 	childPartitionWorkflows []workflow.ChildWorkflowFuture
 	// Current signalled state of the peer flow.
-	activeSignal shared.CDCFlowSignal
+	activeSignal model.CDCFlowSignal
 }
 
 type QRepPartitionFlowExecution struct {
@@ -68,7 +69,7 @@ func NewQRepFlowExecution(ctx workflow.Context, config *protos.QRepConfig, runUU
 		logger:                  log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName)),
 		runUUID:                 runUUID,
 		childPartitionWorkflows: nil,
-		activeSignal:            shared.NoopSignal,
+		activeSignal:            model.NoopSignal,
 	}
 }
 
@@ -380,11 +381,10 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 	return nil
 }
 
-func (q *QRepFlowExecution) receiveAndHandleSignalAsync(signalChan workflow.ReceiveChannel) {
-	var signalVal shared.CDCFlowSignal
-	ok := signalChan.ReceiveAsync(&signalVal)
+func (q *QRepFlowExecution) receiveAndHandleSignalAsync(signalChan model.TypedReceiveChannel[model.CDCFlowSignal]) {
+	val, ok := signalChan.ReceiveAsync()
 	if ok {
-		q.activeSignal = shared.FlowSignalHandler(q.activeSignal, signalVal, q.logger)
+		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
 	}
 }
 
@@ -516,19 +516,18 @@ func QRepFlowWorkflow(
 
 	// here, we handle signals after the end of the flow because a new workflow does not inherit the signals
 	// and the chance of missing a signal is much higher if the check is before the time consuming parts run
-	signalChan := workflow.GetSignalChannel(ctx, shared.FlowSignalName)
+	signalChan := model.FlowSignal.GetSignalChannel(ctx)
 	q.receiveAndHandleSignalAsync(signalChan)
-	if q.activeSignal == shared.PauseSignal {
+	if q.activeSignal == model.PauseSignal {
 		startTime := time.Now()
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
-		var signalVal shared.CDCFlowSignal
 
-		for q.activeSignal == shared.PauseSignal {
+		for q.activeSignal == model.PauseSignal {
 			logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
 			// only place we block on receive, so signal processing is immediate
-			ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute, &signalVal)
+			val, ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute)
 			if ok {
-				q.activeSignal = shared.FlowSignalHandler(q.activeSignal, signalVal, q.logger)
+				q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
 			} else if err := ctx.Err(); err != nil {
 				return err
 			}

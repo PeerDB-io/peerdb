@@ -15,6 +15,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
@@ -415,11 +416,11 @@ func (h *FlowRequestHandler) FlowStateChange(
 	}
 
 	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil {
-		err = h.temporalClient.SignalWorkflow(
+		err = model.CDCDynamicPropertiesSignal.SignalClientWorkflow(
 			ctx,
+			h.temporalClient,
 			workflowID,
 			"",
-			shared.CDCDynamicPropertiesSignalName,
 			req.FlowConfigUpdate.GetCdcFlowConfigUpdate(),
 		)
 		if err != nil {
@@ -435,21 +436,21 @@ func (h *FlowRequestHandler) FlowStateChange(
 			if err != nil {
 				return nil, err
 			}
-			err = h.temporalClient.SignalWorkflow(
+			err = model.FlowSignal.SignalClientWorkflow(
 				ctx,
+				h.temporalClient,
 				workflowID,
 				"",
-				shared.FlowSignalName,
-				shared.PauseSignal,
+				model.PauseSignal,
 			)
 		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_RUNNING &&
 			currState == protos.FlowStatus_STATUS_PAUSED {
-			err = h.temporalClient.SignalWorkflow(
+			err = model.FlowSignal.SignalClientWorkflow(
 				ctx,
+				h.temporalClient,
 				workflowID,
 				"",
-				shared.FlowSignalName,
-				shared.NoopSignal,
+				model.NoopSignal,
 			)
 		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED &&
 			(currState != protos.FlowStatus_STATUS_TERMINATED) {
