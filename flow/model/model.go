@@ -197,11 +197,6 @@ type NormalizePayload struct {
 	TableNameSchemaMapping map[string]*protos.TableSchema
 }
 
-type NormalizeFlowResponse struct {
-	Results []NormalizeResponse
-	Errors  []string
-}
-
 type NormalizeResponse struct {
 	// Flag to depict if normalization is done
 	Done         bool

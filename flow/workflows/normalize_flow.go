@@ -16,7 +16,8 @@ import (
 func NormalizeFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
-) (*model.NormalizeFlowResponse, error) {
+) error {
+	parent := workflow.GetInfo(ctx).ParentWorkflowExecution
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
 	normalizeFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -24,9 +25,7 @@ func NormalizeFlowWorkflow(
 		HeartbeatTimeout:    time.Minute,
 	})
 
-	results := make([]model.NormalizeResponse, 0, 4)
-	errors := make([]string, 0)
-	syncChan := model.NormalizeSyncSignal.GetSignalChannel(ctx)
+	syncChan := model.NormalizeSignal.GetSignalChannel(ctx)
 
 	var stopLoop, canceled bool
 	var lastSyncBatchID, syncBatchID int64
@@ -46,6 +45,7 @@ func NormalizeFlowWorkflow(
 		}
 		tableNameSchemaMapping = s.TableNameSchemaMapping
 	})
+
 	for !stopLoop {
 		selector.Select(ctx)
 		for !canceled && selector.HasPending() {
@@ -72,15 +72,24 @@ func NormalizeFlowWorkflow(
 
 			var normalizeResponse *model.NormalizeResponse
 			if err := fStartNormalize.Get(normalizeFlowCtx, &normalizeResponse); err != nil {
-				errors = append(errors, err.Error())
+				model.NormalizeErrorSignal.SignalExternalWorkflow(
+					ctx,
+					parent.ID,
+					parent.RunID,
+					err.Error(),
+				)
 			} else if normalizeResponse != nil {
-				results = append(results, *normalizeResponse)
+				model.NormalizeResultSignal.SignalExternalWorkflow(
+					ctx,
+					parent.ID,
+					parent.RunID,
+					*normalizeResponse,
+				)
 			}
 		}
 
 		if !peerdbenv.PeerDBEnableParallelSyncNormalize() {
-			parent := workflow.GetInfo(ctx).ParentWorkflowExecution
-			model.NormalizeSyncDoneSignal.SignalExternalWorkflow(
+			model.NormalizeDoneSignal.SignalExternalWorkflow(
 				ctx,
 				parent.ID,
 				parent.RunID,
@@ -89,8 +98,5 @@ func NormalizeFlowWorkflow(
 		}
 	}
 
-	return &model.NormalizeFlowResponse{
-		Results: results,
-		Errors:  errors,
-	}, nil
+	return nil
 }
