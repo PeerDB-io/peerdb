@@ -20,8 +20,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
+	"go.temporal.io/sdk/worker"
 
 	"github.com/PeerDB-io/peer-flow/activities"
+	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -67,6 +69,7 @@ func RegisterWorkflowsAndActivities(t *testing.T, env *testsuite.TestWorkflowEnv
 	env.RegisterActivity(&activities.FlowableActivity{
 		CatalogPool: conn,
 		Alerter:     alerter,
+		CdcCache:    make(map[string]connectors.CDCPullConnector),
 	})
 	env.RegisterActivity(&activities.SnapshotActivity{
 		Alerter: alerter,
@@ -546,6 +549,7 @@ func NewTemporalTestWorkflowEnvironment(t *testing.T) *testsuite.TestWorkflowEnv
 	testSuite.SetLogger(&TStructuredLogger{logger: logger})
 
 	env := testSuite.NewTestWorkflowEnvironment()
+	env.SetWorkerOptions(worker.Options{EnableSessionWorker: true})
 	RegisterWorkflowsAndActivities(t, env)
 	env.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
 	return env

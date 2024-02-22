@@ -16,6 +16,7 @@ import (
 	"go.temporal.io/sdk/worker"
 
 	"github.com/PeerDB-io/peer-flow/activities"
+	"github.com/PeerDB-io/peer-flow/connectors"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -127,7 +128,9 @@ func WorkerMain(opts *WorkerOptions) error {
 		return queueErr
 	}
 
-	w := worker.New(c, taskQueue, worker.Options{})
+	w := worker.New(c, taskQueue, worker.Options{
+		EnableSessionWorker: true,
+	})
 	peerflow.RegisterFlowWorkerWorkflows(w)
 
 	alerter, err := alerting.NewAlerter(conn)
@@ -138,6 +141,7 @@ func WorkerMain(opts *WorkerOptions) error {
 	w.RegisterActivity(&activities.FlowableActivity{
 		CatalogPool: conn,
 		Alerter:     alerter,
+		CdcCache:    make(map[string]connectors.CDCPullConnector),
 	})
 
 	err = w.Run(worker.InterruptCh())

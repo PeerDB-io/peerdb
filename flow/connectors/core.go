@@ -39,6 +39,10 @@ type CDCPullConnector interface {
 		*protos.EnsurePullabilityBatchOutput, error)
 
 	// Methods related to retrieving and pushing records for this connector as a source and destination.
+	SetupReplConn(context.Context) error
+
+	// Ping source to keep connection alive. Can be called concurrently with PullRecords; skips ping in that case.
+	ReplPing(context.Context) error
 
 	// PullRecords pulls records from the source, and returns a RecordBatch.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
