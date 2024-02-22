@@ -150,7 +150,7 @@ func CleanupSF(ctx context.Context) {
 	}
 	defer database.Close()
 
-	rows, err := database.QueryContext(ctx, "SHOW DATABASES STARTS WITH 'e2e_test_'")
+	rows, err := database.QueryContext(ctx, "SHOW DATABASES STARTS WITH 'E2E_TEST_'")
 	if err != nil {
 		panic(err)
 	}
