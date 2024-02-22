@@ -124,8 +124,12 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, pee
 	a.SnapshotConnections[sessionID] = sss
 	a.SnapshotConnectionsMutex.Unlock()
 
+	logger := activity.GetLogger(ctx)
+	start := time.Now()
 	for {
-		activity.RecordHeartbeat(ctx, "maintaining export snapshot transaction")
+		msg := fmt.Sprintf("maintaining export snapshot transaction %s", time.Since(start).Round(time.Second))
+		logger.Info(msg)
+		activity.RecordHeartbeat(ctx, msg)
 		if ctx.Err() != nil {
 			a.SnapshotConnectionsMutex.Lock()
 			delete(a.SnapshotConnections, sessionID)
