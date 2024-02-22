@@ -185,7 +185,7 @@ type SyncResponse struct {
 	CurrentSyncBatchID int64
 	// TableNameRowsMapping tells how many records need to be synced to each destination table.
 	TableNameRowsMapping map[string]uint32
-	// to be carried to parent WorkFlow
+	// to be carried to parent Workflow
 	TableSchemaDeltas []*protos.TableSchemaDelta
 	// to be stored in state for future PullFlows
 	RelationMessageMapping RelationMessageMapping
