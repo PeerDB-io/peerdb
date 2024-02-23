@@ -194,7 +194,7 @@ func SyncFlowWorkflow(
 			}
 		})
 
-		for ctx.Err() == nil && !syncDone && !selector.HasPending() {
+		for ctx.Err() == nil && !syncDone && selector.HasPending() {
 			selector.Select(ctx)
 		}
 		if ctx.Err() != nil {
@@ -206,7 +206,7 @@ func SyncFlowWorkflow(
 			waitChan.Receive(ctx)
 			if restart {
 				// must flush selector for signals received while waiting
-				for ctx.Err() == nil && !selector.HasPending() {
+				for ctx.Err() == nil && selector.HasPending() {
 					selector.Select(ctx)
 				}
 				break
