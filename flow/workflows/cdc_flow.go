@@ -386,6 +386,7 @@ func CDCFlowWorkflowWithConfig(
 		normCtx,
 		NormalizeFlowWorkflow,
 		cfg,
+		nil,
 	)
 
 	finishSync := func() {
