@@ -401,7 +401,7 @@ func (c *SnowflakeConnector) processRowsStream(
 			// Process the row as before
 			record, err := c.mapRowToQRecord(rows, columnTypes)
 			if err != nil {
-				c.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
+				c.logger.Error("failed to map row to QRecord", slog.Any("error", err))
 				stream.Records <- model.QRecordOrError{
 					Err: fmt.Errorf("failed to map row to QRecord: %w", err),
 				}
