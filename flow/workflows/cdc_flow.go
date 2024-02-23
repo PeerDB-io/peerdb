@@ -75,13 +75,16 @@ func NewCDCFlowWorkflowState(cfg *protos.FlowConnectionConfigs) *CDCFlowWorkflow
 // truncate the progress and other arrays to a max of 10 elements
 func (s *CDCFlowWorkflowState) TruncateProgress(logger log.Logger) {
 	if len(s.Progress) > 10 {
-		s.Progress = s.Progress[len(s.Progress)-10:]
+		copy(s.Progress, s.Progress[len(s.Progress)-10:])
+		s.Progress = s.Progress[:10]
 	}
 	if len(s.SyncFlowStatuses) > 10 {
-		s.SyncFlowStatuses = s.SyncFlowStatuses[len(s.SyncFlowStatuses)-10:]
+		copy(s.SyncFlowStatuses, s.SyncFlowStatuses[len(s.SyncFlowStatuses)-10:])
+		s.SyncFlowStatuses = s.SyncFlowStatuses[:10]
 	}
 	if len(s.NormalizeFlowStatuses) > 10 {
-		s.NormalizeFlowStatuses = s.NormalizeFlowStatuses[len(s.NormalizeFlowStatuses)-10:]
+		copy(s.NormalizeFlowStatuses, s.NormalizeFlowStatuses[len(s.NormalizeFlowStatuses)-10:])
+		s.NormalizeFlowStatuses = s.NormalizeFlowStatuses[:10]
 	}
 
 	if s.SyncFlowErrors != nil {
