@@ -99,14 +99,14 @@ func NormalizeFlowWorkflow(
 			model.NormalizeErrorSignal.SignalExternalWorkflow(
 				ctx,
 				parent.ID,
-				parent.RunID,
+				"",
 				err.Error(),
 			)
 		} else if normalizeResponse != nil {
 			model.NormalizeResultSignal.SignalExternalWorkflow(
 				ctx,
 				parent.ID,
-				parent.RunID,
+				"",
 				*normalizeResponse,
 			)
 		}
@@ -116,7 +116,7 @@ func NormalizeFlowWorkflow(
 		model.NormalizeDoneSignal.SignalExternalWorkflow(
 			ctx,
 			parent.ID,
-			parent.RunID,
+			"",
 			struct{}{},
 		)
 	}

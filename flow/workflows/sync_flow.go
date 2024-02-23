@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	maxSyncsPerFlow = 32
+	maxSyncsPerSyncFlow = 2
 )
 
 func SyncFlowWorkflow(
@@ -82,21 +82,14 @@ func SyncFlowWorkflow(
 		waitChan = model.NormalizeDoneSignal.GetSignalChannel(ctx)
 	}
 
-	var stopLoop, canceled bool
+	var stopLoop bool
 	currentSyncFlowNum := 0
 	totalRecordsSynced := int64(0)
 
 	selector := workflow.NewNamedSelector(ctx, "Sync Loop")
-	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
-		canceled = true
-	})
+	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 
-	for !stopLoop {
-		if ctx.Err() != nil {
-			canceled = true
-			break
-		}
-
+	for !stopLoop && ctx.Err() == nil {
 		var syncDone, syncErr bool
 		mustWait := waitChan.Chan != nil
 
@@ -120,7 +113,7 @@ func SyncFlowWorkflow(
 				model.SyncErrorSignal.SignalExternalWorkflow(
 					ctx,
 					parent.ID,
-					parent.RunID,
+					"",
 					err.Error(),
 				)
 				syncErr = true
@@ -128,7 +121,7 @@ func SyncFlowWorkflow(
 				model.SyncResultSignal.SignalExternalWorkflow(
 					ctx,
 					parent.ID,
-					parent.RunID,
+					"",
 					*childSyncFlowRes,
 				)
 				options.RelationMessageMapping = childSyncFlowRes.RelationMessageMapping
@@ -165,7 +158,7 @@ func SyncFlowWorkflow(
 						model.SyncErrorSignal.SignalExternalWorkflow(
 							ctx,
 							parent.ID,
-							parent.RunID,
+							"",
 							err.Error(),
 						)
 					} else {
@@ -179,7 +172,7 @@ func SyncFlowWorkflow(
 				signalFuture := model.NormalizeSignal.SignalExternalWorkflow(
 					ctx,
 					parent.ID,
-					parent.RunID,
+					"",
 					model.NormalizePayload{
 						Done:                   false,
 						SyncBatchID:            childSyncFlowRes.CurrentSyncBatchID,
@@ -196,19 +189,19 @@ func SyncFlowWorkflow(
 			}
 		})
 
-		for !canceled && !syncDone && !selector.HasPending() {
+		for ctx.Err() == nil && !syncDone && !selector.HasPending() {
 			selector.Select(ctx)
 		}
-		if canceled {
+		if ctx.Err() != nil {
 			break
 		}
 
-		restart := currentSyncFlowNum == maxSyncsPerFlow || syncErr
+		restart := currentSyncFlowNum >= maxSyncsPerSyncFlow || syncErr
 		if mustWait {
 			waitChan.Receive(ctx)
 			if restart {
 				// must flush selector for signals received while waiting
-				for !canceled && !selector.HasPending() {
+				for ctx.Err() == nil && !selector.HasPending() {
 					selector.Select(ctx)
 				}
 				break
@@ -217,9 +210,9 @@ func SyncFlowWorkflow(
 			break
 		}
 	}
-	if canceled {
-		logger.Info("sync canceled")
-		return ctx.Err()
+	if err := ctx.Err(); err != nil {
+		logger.Info("sync canceled: %v", err)
+		return err
 	}
 	return workflow.NewContinueAsNewError(ctx, SyncFlowWorkflow, config, options)
 }
