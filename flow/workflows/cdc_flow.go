@@ -394,6 +394,7 @@ func CDCFlowWorkflowWithConfig(
 	)
 
 	finishSyncNormalize := func() {
+		model.SyncStopSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{})
 		if err := syncFlowFuture.Get(ctx, nil); err != nil {
 			w.logger.Error("error finishing sync flow", slog.Any("error", err))
 			var panicErr *temporal.PanicError
@@ -407,7 +408,6 @@ func CDCFlowWorkflowWithConfig(
 			Done:        true,
 			SyncBatchID: -1,
 		})
-
 		if err := normFlowFuture.Get(ctx, nil); err != nil {
 			w.logger.Error("error finishing normalize flow", slog.Any("error", err))
 			var panicErr *temporal.PanicError
@@ -427,9 +427,6 @@ func CDCFlowWorkflowWithConfig(
 	flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
 	flowSignalChan.AddToSelector(mainLoopSelector, func(val model.CDCFlowSignal, _ bool) {
 		state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, w.logger)
-		if state.ActiveSignal == model.PauseSignal {
-			model.SyncStopSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{})
-		}
 	})
 
 	syncErrorChan := model.SyncErrorSignal.GetSignalChannel(ctx)
@@ -500,7 +497,6 @@ func CDCFlowWorkflowWithConfig(
 			mainLoopSelector.Select(ctx)
 		}
 		if err := ctx.Err(); err != nil {
-			model.SyncStopSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{})
 			finishSyncNormalize()
 			return state, err
 		}

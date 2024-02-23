@@ -77,14 +77,6 @@ func SyncFlowWorkflow(
 		return workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, config, options)
 	}
 
-	var waitSelector workflow.Selector
-	if !peerdbenv.PeerDBEnableParallelSyncNormalize() {
-		waitSelector = workflow.NewNamedSelector(ctx, "NormalizeWait")
-		waitSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
-		waitChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
-		waitChan.AddToSelector(waitSelector, func(_ struct{}, _ bool) {})
-	}
-
 	var stop bool
 	currentSyncFlowNum := 0
 	totalRecordsSynced := int64(0)
@@ -96,6 +88,17 @@ func SyncFlowWorkflow(
 	stopChan.AddToSelector(selector, func(_ struct{}, _ bool) {
 		stop = true
 	})
+
+	var waitSelector workflow.Selector
+	if !peerdbenv.PeerDBEnableParallelSyncNormalize() {
+		waitSelector = workflow.NewNamedSelector(ctx, "NormalizeWait")
+		waitSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+		waitChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
+		waitChan.AddToSelector(waitSelector, func(_ struct{}, _ bool) {})
+		stopChan.AddToSelector(waitSelector, func(_ struct{}, _ bool) {
+			stop = true
+		})
+	}
 
 	for !stop && ctx.Err() == nil {
 		var syncDone, syncErr bool
