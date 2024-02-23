@@ -143,6 +143,21 @@ func (a *FlowableActivity) GetTableSchema(
 	return srcConn.GetTableSchema(ctx, config)
 }
 
+// GetTableSchema returns the schema of a table.
+func (a *FlowableActivity) GetTableSchemaQRep(
+	ctx context.Context,
+	config *protos.GetTableSchemaBatchInput,
+) (*protos.GetTableSchemaBatchOutput, error) {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
+	srcConn, err := connectors.GetQRepPullConnector(ctx, config.PeerConnectionConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get connector: %w", err)
+	}
+	defer connectors.CloseConnector(ctx, srcConn)
+
+	return srcConn.GetTableSchema(ctx, config)
+}
+
 // CreateNormalizedTable creates normalized tables in destination.
 func (a *FlowableActivity) CreateNormalizedTable(
 	ctx context.Context,
@@ -644,64 +659,39 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 
 	var rowsSynced int
 	bufferSize := shared.FetchAndChannelSize
-	if config.SourcePeer.Type == protos.DBType_POSTGRES {
-		errGroup, errCtx := errgroup.WithContext(ctx)
-		stream := model.NewQRecordStream(bufferSize)
-		errGroup.Go(func() error {
-			pgConn := srcConn.(*connpostgres.PostgresConnector)
-			tmp, err := pgConn.PullQRepRecordStream(errCtx, config, partition, stream)
-			numRecords := int64(tmp)
+
+	errGroup, errCtx := errgroup.WithContext(ctx)
+	stream := model.NewQRecordStream(bufferSize)
+	errGroup.Go(func() error {
+		pgConn := srcConn.(*connpostgres.PostgresConnector)
+		tmp, err := pgConn.PullQRepRecordStream(errCtx, config, partition, stream)
+		numRecords := int64(tmp)
+		if err != nil {
+			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+			return fmt.Errorf("failed to pull records: %w", err)
+		} else {
+			err = monitoring.UpdatePullEndTimeAndRowsForPartition(errCtx,
+				a.CatalogPool, runUUID, partition, numRecords)
 			if err != nil {
-				a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-				return fmt.Errorf("failed to pull records: %w", err)
-			} else {
-				err = monitoring.UpdatePullEndTimeAndRowsForPartition(errCtx,
-					a.CatalogPool, runUUID, partition, numRecords)
-				if err != nil {
-					logger.Error(err.Error())
-				}
+				logger.Error(err.Error())
 			}
-			return nil
-		})
-
-		errGroup.Go(func() error {
-			rowsSynced, err = dstConn.SyncQRepRecords(errCtx, config, partition, stream)
-			if err != nil {
-				a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-				return fmt.Errorf("failed to sync records: %w", err)
-			}
-			return context.Canceled
-		})
-
-		err = errGroup.Wait()
-		if err != nil && err != context.Canceled {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return err
 		}
-	} else {
-		recordBatch, err := srcConn.PullQRepRecords(ctx, config, partition)
-		if err != nil {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return fmt.Errorf("failed to pull qrep records: %w", err)
-		}
-		logger.Info(fmt.Sprintf("pulled %d records", len(recordBatch.Records)))
+		return nil
+	})
 
-		err = monitoring.UpdatePullEndTimeAndRowsForPartition(ctx, a.CatalogPool, runUUID, partition, int64(len(recordBatch.Records)))
-		if err != nil {
-			return err
-		}
-
-		stream, err := recordBatch.ToQRecordStream(bufferSize)
-		if err != nil {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return fmt.Errorf("failed to convert to qrecord stream: %w", err)
-		}
-
-		rowsSynced, err = dstConn.SyncQRepRecords(ctx, config, partition, stream)
+	errGroup.Go(func() error {
+		rowsSynced, err = dstConn.SyncQRepRecords(errCtx, config, partition, stream)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return fmt.Errorf("failed to sync records: %w", err)
 		}
+		return context.Canceled
+	})
+
+	err = errGroup.Wait()
+	if err != nil && err != context.Canceled {
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		return err
 	}
 
 	if rowsSynced > 0 {

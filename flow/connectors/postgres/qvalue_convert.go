@@ -213,7 +213,7 @@ func convertToArray[T any](kind qvalue.QValueKind, value interface{}) (qvalue.QV
 	return qvalue.QValue{}, fmt.Errorf("failed to parse array %s from %T: %v", kind, value, value)
 }
 
-func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (qvalue.QValue, error) {
+func ParseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value any) (qvalue.QValue, error) {
 	val := qvalue.QValue{}
 
 	if value == nil {
@@ -339,14 +339,24 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 			val = qvalue.QValue{Kind: qvalue.QValueKindBit, Value: bitsVal.Bytes}
 		}
 	case qvalue.QValueKindNumeric:
-		numVal := value.(pgtype.Numeric)
-		if numVal.Valid {
-			rat, err := numericToRat(&numVal)
-			if err != nil {
-				return qvalue.QValue{}, fmt.Errorf("failed to convert numeric [%v] to rat: %w", value, err)
+		switch numVal := value.(type) {
+		case pgtype.Numeric:
+			if numVal.Valid {
+				rat, err := numericToRat(&numVal)
+				if err != nil {
+					return qvalue.QValue{}, fmt.Errorf("failed to convert numeric [%v] to rat: %w", value, err)
+				}
+				val = qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: rat}
+			}
+		case string:
+			rat := new(big.Rat)
+			rat, ok := rat.SetString(numVal)
+			if !ok {
+				return qvalue.QValue{}, fmt.Errorf("failed to convert string [%v] to rat", value)
 			}
 			val = qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: rat}
 		}
+
 	case qvalue.QValueKindArrayFloat32:
 		return convertToArray[float32](qvalueKind, value)
 	case qvalue.QValueKindArrayFloat64:
@@ -385,7 +395,7 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 }
 
 func (c *PostgresConnector) parseFieldFromPostgresOID(oid uint32, value interface{}) (qvalue.QValue, error) {
-	return parseFieldFromQValueKind(c.postgresOIDToQValueKind(oid), value)
+	return ParseFieldFromQValueKind(c.postgresOIDToQValueKind(oid), value)
 }
 
 func numericToRat(numVal *pgtype.Numeric) (*big.Rat, error) {

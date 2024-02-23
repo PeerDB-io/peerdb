@@ -82,8 +82,9 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 
 	var numRowsSynced int64
 
+	// both overwrite and append
 	if writeMode == nil ||
-		writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_APPEND {
+		writeMode.WriteType != protos.QRepWriteType_QREP_WRITE_MODE_UPSERT {
 		// Perform the COPY FROM operation
 		numRowsSynced, err = tx.CopyFrom(
 			context.Background(),

@@ -98,7 +98,7 @@ func (q *QRepFlowExecution) getTableSchema(ctx workflow.Context, tableName strin
 		FlowName:             q.config.FlowJobName,
 	}
 
-	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
+	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchemaQRep, tableSchemaInput)
 
 	var tblSchemaOutput *protos.GetTableSchemaBatchOutput
 	if err := future.Get(ctx, &tblSchemaOutput); err != nil {
