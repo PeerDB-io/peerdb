@@ -82,14 +82,19 @@ func SyncFlowWorkflow(
 		waitChan = model.NormalizeDoneSignal.GetSignalChannel(ctx)
 	}
 
-	var stopLoop bool
+	var stop bool
 	currentSyncFlowNum := 0
 	totalRecordsSynced := int64(0)
 
 	selector := workflow.NewNamedSelector(ctx, "Sync Loop")
 	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 
-	for !stopLoop && ctx.Err() == nil {
+	stopChan := model.SyncStopSignal.GetSignalChannel(ctx)
+	stopChan.AddToSelector(selector, func(_ struct{}, _ bool) {
+		stop = true
+	})
+
+	for !stop && ctx.Err() == nil {
 		var syncDone, syncErr bool
 		mustWait := waitChan.Chan != nil
 
@@ -213,6 +218,9 @@ func SyncFlowWorkflow(
 	if err := ctx.Err(); err != nil {
 		logger.Info("sync canceled: %v", err)
 		return err
+	}
+	if stop {
+		return nil
 	}
 	return workflow.NewContinueAsNewError(ctx, SyncFlowWorkflow, config, options)
 }

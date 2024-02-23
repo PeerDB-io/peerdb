@@ -428,7 +428,7 @@ func CDCFlowWorkflowWithConfig(
 	flowSignalChan.AddToSelector(mainLoopSelector, func(val model.CDCFlowSignal, _ bool) {
 		state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, w.logger)
 		if state.ActiveSignal == model.PauseSignal {
-			model.SyncSignal.SignalChildWorkflow(ctx, syncFlowFuture, true)
+			model.SyncStopSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{})
 		}
 	})
 
@@ -466,8 +466,8 @@ func CDCFlowWorkflowWithConfig(
 
 	if !peerdbenv.PeerDBEnableParallelSyncNormalize() {
 		normDoneChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
-		normDoneChan.AddToSelector(mainLoopSelector, func(_ struct{}, _ bool) {
-			model.NormalizeDoneSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{})
+		normDoneChan.AddToSelector(mainLoopSelector, func(x struct{}, _ bool) {
+			model.NormalizeDoneSignal.SignalChildWorkflow(ctx, syncFlowFuture, x)
 		})
 	}
 
@@ -500,7 +500,7 @@ func CDCFlowWorkflowWithConfig(
 			mainLoopSelector.Select(ctx)
 		}
 		if err := ctx.Err(); err != nil {
-			model.SyncSignal.SignalChildWorkflow(ctx, syncFlowFuture, true)
+			model.SyncStopSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{})
 			finishSyncNormalize()
 			return state, err
 		}
