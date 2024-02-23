@@ -3,17 +3,23 @@ package connsnowflake
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jmoiron/sqlx"
+	"go.temporal.io/sdk/activity"
 
+	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -281,4 +287,175 @@ func (c *SnowflakeConnector) dropStage(ctx context.Context, stagingPath string, 
 
 func (c *SnowflakeConnector) getStageNameForJob(job string) string {
 	return fmt.Sprintf("%s.peerdb_stage_%s", c.rawSchema, job)
+}
+
+func (c *SnowflakeConnector) GetQRepPartitions(
+	ctx context.Context,
+	config *protos.QRepConfig,
+	last *protos.QRepPartition,
+) ([]*protos.QRepPartition, error) {
+	// we only support full snapshots for now, return a single partition
+	partition := &protos.QRepPartition{
+		PartitionId:        uuid.New().String(),
+		FullTablePartition: true,
+		Range:              nil,
+	}
+	return []*protos.QRepPartition{partition}, nil
+}
+
+func (c *SnowflakeConnector) columnTypesToQRecordSchema(columnTypes []*sql.ColumnType) (*model.QRecordSchema, error) {
+	qfields := make([]model.QField, len(columnTypes))
+	for i, columnType := range columnTypes {
+		cname := columnType.Name()
+		ctype, err := snowflakeTypeToQValueKind(columnType.DatabaseTypeName())
+		if err != nil {
+			return nil, err
+		}
+
+		// TODO: double check if .Nullable() and .DecimalSize() work
+		cnullable, _ := columnType.Nullable()
+		if ctype == qvalue.QValueKindNumeric {
+			precision, scale, _ := columnType.DecimalSize()
+			qfields[i] = model.QField{
+				Name:      cname,
+				Type:      ctype,
+				Nullable:  cnullable,
+				Precision: int16(precision),
+				Scale:     int16(scale),
+			}
+		} else {
+			qfields[i] = model.QField{
+				Name:     cname,
+				Type:     ctype,
+				Nullable: cnullable,
+			}
+		}
+	}
+	return model.NewQRecordSchema(qfields), nil
+}
+
+func (c *SnowflakeConnector) mapRowToQRecord(
+	rows *sqlx.Rows,
+	columnTypes []*sql.ColumnType,
+) ([]qvalue.QValue, error) {
+	// make vals an empty array of QValue of size len(fds)
+	scanRes, err := rows.SliceScan()
+	if err != nil {
+		c.logger.Error("failed to get values from row", slog.Any("error", err))
+		return nil, fmt.Errorf("failed to scan row: %w", err)
+	}
+	record := make([]qvalue.QValue, len(columnTypes))
+
+	for i, columnType := range columnTypes {
+		kind, err := snowflakeTypeToQValueKind(columnType.DatabaseTypeName())
+		if err != nil {
+			return nil, err
+		}
+		tmp, err := connpostgres.ParseFieldFromQValueKind(kind, scanRes[i])
+		if err != nil {
+			c.logger.Error("failed to parse field", slog.Any("error", err))
+			return nil, fmt.Errorf("failed to parse field: %w", err)
+		}
+		record[i] = tmp
+	}
+
+	return record, nil
+}
+
+func (c *SnowflakeConnector) processRowsStream(
+	ctx context.Context,
+	stream *model.QRecordStream,
+	rows *sqlx.Rows,
+) (int, error) {
+	numRows := 0
+	const heartBeatNumRows = 5000
+	columnTypes, err := rows.ColumnTypes()
+	if err != nil {
+		c.logger.Error("failed to get column types", slog.Any("error", err))
+		return 0, fmt.Errorf("failed to get column types: %w", err)
+	}
+
+	defer func() {
+		rows.Close()
+
+		// description of .Close() says it should only be called once rows are closed
+		if rows.Err() != nil {
+			stream.Records <- model.QRecordOrError{
+				Err: rows.Err(),
+			}
+			c.logger.Error("row iteration failed", slog.Any("error", rows.Err()))
+		}
+	}()
+
+	// Iterate over the rows
+	for rows.Next() {
+		select {
+		case <-ctx.Done():
+			c.logger.Info("Context canceled, exiting processRowsStream early")
+			return numRows, ctx.Err()
+		default:
+			// Process the row as before
+			record, err := c.mapRowToQRecord(rows, columnTypes)
+			if err != nil {
+				c.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
+				stream.Records <- model.QRecordOrError{
+					Err: fmt.Errorf("failed to map row to QRecord: %w", err),
+				}
+				return 0, fmt.Errorf("failed to map row to QRecord: %w", err)
+			}
+
+			stream.Records <- model.QRecordOrError{
+				Record: record,
+				Err:    nil,
+			}
+
+			if numRows%heartBeatNumRows == 0 {
+				activity.RecordHeartbeat(ctx, fmt.Sprintf("fetched %d records", numRows))
+			}
+
+			numRows++
+		}
+	}
+
+	activity.RecordHeartbeat(ctx, fmt.Sprintf("fetch completed - %d records", numRows))
+	c.logger.Info("processed row stream")
+	return numRows, nil
+}
+
+func (c *SnowflakeConnector) PullQRepRecordStream(ctx context.Context, config *protos.QRepConfig,
+	partition *protos.QRepPartition, stream *model.QRecordStream) (int, error) {
+	if !partition.FullTablePartition {
+		return 0, errors.New("only full table partitions are supported")
+	}
+	defer close(stream.Records)
+
+	rows, err := c.database.QueryxContext(ctx, config.Query)
+	if err != nil {
+		c.logger.Error("failed to fetch rows",
+			slog.String("query", config.Query), slog.Any("error", err))
+		stream.Records <- model.QRecordOrError{
+			Err: fmt.Errorf("failed to fetch rows: %w", err),
+		}
+		return 0, err
+	}
+
+	columnTypes, err := rows.ColumnTypes()
+	if err != nil {
+		c.logger.Error("failed to get column types", slog.Any("error", err))
+		stream.Records <- model.QRecordOrError{
+			Err: fmt.Errorf("failed to get column types: %w", err),
+		}
+		return 0, fmt.Errorf("failed to get column types: %w", err)
+	}
+	schema, err := c.columnTypesToQRecordSchema(columnTypes)
+	if err != nil {
+		c.logger.Error("error generating schema from Snowflake", slog.Any("error", err))
+		stream.Records <- model.QRecordOrError{
+			Err: fmt.Errorf("error generating schema from Snowflake: %w", err),
+		}
+		return 0, fmt.Errorf("error generating schema from Snowflake: %w", err)
+	}
+	_ = stream.SetSchema(schema)
+
+	return c.processRowsStream(ctx, stream, rows)
 }

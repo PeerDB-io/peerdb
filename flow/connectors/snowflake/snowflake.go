@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jmoiron/sqlx"
 	"github.com/snowflakedb/gosnowflake"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
@@ -75,7 +76,7 @@ const (
 )
 
 type SnowflakeConnector struct {
-	database   *sql.DB
+	database   *sqlx.DB
 	pgMetadata *metadataStore.PostgresMetadataStore
 	rawSchema  string
 	logger     log.Logger
@@ -100,7 +101,7 @@ type UnchangedToastColumnResult struct {
 	UnchangedToastColumns ArrayString
 }
 
-func TableCheck(ctx context.Context, database *sql.DB) error {
+func tableCheck(ctx context.Context, database *sqlx.DB) error {
 	dummySchema := "PEERDB_DUMMY_SCHEMA_" + shared.RandomString(4)
 	dummyTable := "PEERDB_DUMMY_TABLE_" + shared.RandomString(4)
 
@@ -185,7 +186,7 @@ func NewSnowflakeConnector(
 		return nil, fmt.Errorf("failed to get DSN from Snowflake config: %w", err)
 	}
 
-	database, err := sql.Open("snowflake", snowflakeConfigDSN)
+	database, err := sqlx.Open("snowflake", snowflakeConfigDSN)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
 	}
@@ -196,7 +197,7 @@ func NewSnowflakeConnector(
 		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
 	}
 
-	err = TableCheck(ctx, database)
+	err = tableCheck(ctx, database)
 	if err != nil {
 		return nil, fmt.Errorf("could not validate snowflake peer: %w", err)
 	}
@@ -838,5 +839,52 @@ func (c *SnowflakeConnector) CreateTablesFromExisting(ctx context.Context, req *
 
 	return &protos.CreateTablesFromExistingOutput{
 		FlowJobName: req.FlowJobName,
+	}, nil
+}
+
+func (c *SnowflakeConnector) getTableSchemaForTable(ctx context.Context, tableName string) (*protos.TableSchema, error) {
+	colNames, colTypes, err := c.getColsFromTable(ctx, tableName)
+	if err != nil {
+		return nil, err
+	}
+
+	colFields := make([]*protos.FieldDescription, 0, len(colNames))
+	for i, sfType := range colTypes {
+		genericColType, err := snowflakeTypeToQValueKind(sfType)
+		if err != nil {
+			// we use string for invalid types
+			genericColType = qvalue.QValueKindString
+		}
+		colTypes[i] = string(genericColType)
+		colFields = append(colFields, &protos.FieldDescription{
+			Name:         colNames[i],
+			Type:         colTypes[i],
+			TypeModifier: -1,
+		})
+	}
+
+	return &protos.TableSchema{
+		TableIdentifier: tableName,
+		Columns:         colFields,
+	}, nil
+}
+
+// doesn't return info about pkey or ReplicaIdentity [which is PG specific anyway].
+func (c *SnowflakeConnector) GetTableSchema(
+	ctx context.Context,
+	req *protos.GetTableSchemaBatchInput,
+) (*protos.GetTableSchemaBatchOutput, error) {
+	res := make(map[string]*protos.TableSchema, len(req.TableIdentifiers))
+	for _, tableName := range req.TableIdentifiers {
+		tableSchema, err := c.getTableSchemaForTable(ctx, tableName)
+		if err != nil {
+			return nil, err
+		}
+		res[tableName] = tableSchema
+		utils.RecordHeartbeat(ctx, fmt.Sprintf("fetched schema for table %s", tableName))
+	}
+
+	return &protos.GetTableSchemaBatchOutput{
+		TableNameSchemaMapping: res,
 	}, nil
 }

@@ -83,7 +83,7 @@ func (qe *QRepQueryExecutor) executeQueryInTx(ctx context.Context, tx pgx.Tx, cu
 }
 
 // FieldDescriptionsToSchema converts a slice of pgconn.FieldDescription to a QRecordSchema.
-func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) *model.QRecordSchema {
+func (qe *QRepQueryExecutor) fieldDescriptionsToQRecordSchema(fds []pgconn.FieldDescription) *model.QRecordSchema {
 	qfields := make([]model.QField, len(fds))
 	for i, fd := range fds {
 		cname := fd.Name
@@ -143,7 +143,7 @@ func (qe *QRepQueryExecutor) ProcessRows(
 
 	batch := &model.QRecordBatch{
 		Records: records,
-		Schema:  qe.fieldDescriptionsToSchema(fieldDescriptions),
+		Schema:  qe.fieldDescriptionsToQRecordSchema(fieldDescriptions),
 	}
 
 	qe.logger.Info(fmt.Sprintf("[postgres] pulled %d records", len(batch.Records)))
@@ -156,9 +156,9 @@ func (qe *QRepQueryExecutor) processRowsStream(
 	cursorName string,
 	stream *model.QRecordStream,
 	rows pgx.Rows,
-	fieldDescriptions []pgconn.FieldDescription,
 ) (int, error) {
 	numRows := 0
+	fieldDescriptions := rows.FieldDescriptions()
 	const heartBeatNumRows = 5000
 
 	// Iterate over the rows
@@ -223,27 +223,29 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 		return 0, fmt.Errorf("[pg_query_executor] failed to execute query in tx: %w", err)
 	}
 
-	defer rows.Close()
+	defer func() {
+		rows.Close()
+
+		// description of .Close() says it should only be called once rows are closed
+		if rows.Err() != nil {
+			stream.Records <- model.QRecordOrError{
+				Err: rows.Err(),
+			}
+			qe.logger.Error("[pg_query_executor] row iteration failed",
+				slog.String("query", query), slog.Any("error", rows.Err()))
+		}
+	}()
 
 	fieldDescriptions := rows.FieldDescriptions()
 	if !stream.IsSchemaSet() {
-		schema := qe.fieldDescriptionsToSchema(fieldDescriptions)
+		schema := qe.fieldDescriptionsToQRecordSchema(fieldDescriptions)
 		_ = stream.SetSchema(schema)
 	}
 
-	numRows, err := qe.processRowsStream(ctx, cursorName, stream, rows, fieldDescriptions)
+	numRows, err := qe.processRowsStream(ctx, cursorName, stream, rows)
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to process rows", slog.Any("error", err))
 		return 0, fmt.Errorf("failed to process rows: %w", err)
-	}
-
-	if rows.Err() != nil {
-		stream.Records <- model.QRecordOrError{
-			Err: rows.Err(),
-		}
-		qe.logger.Error("[pg_query_executor] row iteration failed",
-			slog.String("query", query), slog.Any("error", rows.Err()))
-		return 0, fmt.Errorf("[pg_query_executor] row iteration failed '%s': %w", query, rows.Err())
 	}
 
 	return numRows, nil

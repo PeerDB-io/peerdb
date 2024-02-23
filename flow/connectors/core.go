@@ -136,11 +136,15 @@ type CDCNormalizeConnector interface {
 type QRepPullConnector interface {
 	Connector
 
+	// GetTableSchema returns the schema of a table.
+	GetTableSchema(ctx context.Context, req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error)
+
 	// GetQRepPartitions returns the partitions for a given table that haven't been synced yet.
 	GetQRepPartitions(ctx context.Context, config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error)
 
 	// PullQRepRecords returns the records for a given partition.
-	PullQRepRecords(ctx context.Context, config *protos.QRepConfig, partition *protos.QRepPartition) (*model.QRecordBatch, error)
+	PullQRepRecordStream(ctx context.Context, config *protos.QRepConfig,
+		partition *protos.QRepPartition, stream *model.QRecordStream) (int, error)
 }
 
 type QRepSyncConnector interface {
@@ -255,7 +259,8 @@ var (
 	_ NormalizedTablesConnector = &connclickhouse.ClickhouseConnector{}
 
 	_ QRepPullConnector = &connpostgres.PostgresConnector{}
-	_ QRepPullConnector = &connsqlserver.SQLServerConnector{}
+	// _ QRepPullConnector = &connsqlserver.SQLServerConnector{}
+	_ QRepPullConnector = &connsnowflake.SnowflakeConnector{}
 
 	_ QRepSyncConnector = &connpostgres.PostgresConnector{}
 	_ QRepSyncConnector = &connbigquery.BigQueryConnector{}
