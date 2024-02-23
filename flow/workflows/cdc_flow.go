@@ -394,7 +394,7 @@ func CDCFlowWorkflowWithConfig(
 	)
 
 	finishSyncNormalize := func() {
-		model.SyncStopSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{})
+		model.SyncStopSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{}).Get(ctx, nil)
 		if err := syncFlowFuture.Get(ctx, nil); err != nil {
 			w.logger.Error("error finishing sync flow", slog.Any("error", err))
 			var panicErr *temporal.PanicError
@@ -407,7 +407,7 @@ func CDCFlowWorkflowWithConfig(
 		model.NormalizeSignal.SignalChildWorkflow(ctx, normFlowFuture, model.NormalizePayload{
 			Done:        true,
 			SyncBatchID: -1,
-		})
+		}).Get(ctx, nil)
 		if err := normFlowFuture.Get(ctx, nil); err != nil {
 			w.logger.Error("error finishing normalize flow", slog.Any("error", err))
 			var panicErr *temporal.PanicError
@@ -457,14 +457,14 @@ func CDCFlowWorkflowWithConfig(
 
 	normChan := model.NormalizeSignal.GetSignalChannel(ctx)
 	normChan.AddToSelector(mainLoopSelector, func(payload model.NormalizePayload, _ bool) {
-		model.NormalizeSignal.SignalChildWorkflow(ctx, normFlowFuture, payload)
+		model.NormalizeSignal.SignalChildWorkflow(ctx, normFlowFuture, payload).Get(ctx, nil)
 		maps.Copy(state.SyncFlowOptions.TableNameSchemaMapping, payload.TableNameSchemaMapping)
 	})
 
 	if !peerdbenv.PeerDBEnableParallelSyncNormalize() {
 		normDoneChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
 		normDoneChan.AddToSelector(mainLoopSelector, func(x struct{}, _ bool) {
-			model.NormalizeDoneSignal.SignalChildWorkflow(ctx, syncFlowFuture, x)
+			model.NormalizeDoneSignal.SignalChildWorkflow(ctx, syncFlowFuture, x).Get(ctx, nil)
 		})
 	}
 
@@ -482,7 +482,7 @@ func CDCFlowWorkflowWithConfig(
 			state.FlowConfigUpdates = append(state.FlowConfigUpdates, cdcConfigUpdate)
 		}
 
-		model.SyncOptionsSignal.SignalChildWorkflow(ctx, syncFlowFuture, state.SyncFlowOptions)
+		model.SyncOptionsSignal.SignalChildWorkflow(ctx, syncFlowFuture, state.SyncFlowOptions).Get(ctx, nil)
 
 		w.logger.Info("CDC Signal received. Parameters on signal reception:",
 			slog.Int("BatchSize", int(state.SyncFlowOptions.BatchSize)),

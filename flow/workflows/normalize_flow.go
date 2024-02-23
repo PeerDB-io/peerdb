@@ -102,14 +102,14 @@ func NormalizeFlowWorkflow(
 				parent.ID,
 				"",
 				err.Error(),
-			)
+			).Get(ctx, nil)
 		} else if normalizeResponse != nil {
 			model.NormalizeResultSignal.SignalExternalWorkflow(
 				ctx,
 				parent.ID,
 				"",
 				*normalizeResponse,
-			)
+			).Get(ctx, nil)
 		}
 	}
 
@@ -119,7 +119,7 @@ func NormalizeFlowWorkflow(
 			parent.ID,
 			"",
 			struct{}{},
-		)
+		).Get(ctx, nil)
 	}
 
 	state.Wait = true

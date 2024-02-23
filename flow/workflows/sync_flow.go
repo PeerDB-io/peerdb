@@ -126,7 +126,7 @@ func SyncFlowWorkflow(
 					parent.ID,
 					"",
 					err.Error(),
-				)
+				).Get(ctx, nil)
 				syncErr = true
 			} else if childSyncFlowRes != nil {
 				model.SyncResultSignal.SignalExternalWorkflow(
@@ -134,7 +134,7 @@ func SyncFlowWorkflow(
 					parent.ID,
 					"",
 					*childSyncFlowRes,
-				)
+				).Get(ctx, nil)
 				options.RelationMessageMapping = childSyncFlowRes.RelationMessageMapping
 				totalRecordsSynced += childSyncFlowRes.NumRecordsSynced
 				logger.Info("Total records synced: ",
@@ -171,7 +171,7 @@ func SyncFlowWorkflow(
 							parent.ID,
 							"",
 							err.Error(),
-						)
+						).Get(ctx, nil)
 					} else {
 						for i, srcTable := range modifiedSrcTables {
 							dstTable := modifiedDstTables[i]
@@ -180,7 +180,7 @@ func SyncFlowWorkflow(
 					}
 				}
 
-				signalFuture := model.NormalizeSignal.SignalExternalWorkflow(
+				err := model.NormalizeSignal.SignalExternalWorkflow(
 					ctx,
 					parent.ID,
 					"",
@@ -189,10 +189,9 @@ func SyncFlowWorkflow(
 						SyncBatchID:            childSyncFlowRes.CurrentSyncBatchID,
 						TableNameSchemaMapping: options.TableNameSchemaMapping,
 					},
-				)
-				err = signalFuture.Get(ctx, nil)
+				).Get(ctx, nil)
 				if err != nil {
-					logger.Error("failed to trigger normalize, next sync", slog.Any("error", err))
+					logger.Error("failed to trigger normalize, so skip wait", slog.Any("error", err))
 					mustWait = false
 				}
 			} else {
