@@ -207,7 +207,7 @@ func SyncFlowWorkflow(
 		}
 
 		restart := currentSyncFlowNum >= maxSyncsPerSyncFlow || syncErr
-		if mustWait {
+		if !stop && mustWait {
 			waitSelector.Select(ctx)
 			if restart {
 				// must flush selector for signals received while waiting
