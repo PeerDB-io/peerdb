@@ -113,12 +113,16 @@ func NormalizeFlowWorkflow(
 	}
 
 	if !peerdbenv.PeerDBEnableParallelSyncNormalize() {
-		model.NormalizeDoneSignal.SignalExternalWorkflow(
+		err := model.NormalizeDoneSignal.SignalExternalWorkflow(
 			ctx,
 			parent.ID,
 			"",
 			struct{}{},
-		)
+		).Get(ctx, nil)
+		if err != nil {
+			logger.Error("Failed to signal completion", slog.Any("error", err))
+			return err
+		}
 	}
 
 	state.Wait = true
