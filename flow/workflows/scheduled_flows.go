@@ -10,6 +10,9 @@ import (
 
 // RecordSlotSizeWorkflow monitors replication slot size
 func RecordSlotSizeWorkflow(ctx workflow.Context) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: time.Hour,
 	})
@@ -19,6 +22,9 @@ func RecordSlotSizeWorkflow(ctx workflow.Context) error {
 
 // HeartbeatFlowWorkflow sends WAL heartbeats
 func HeartbeatFlowWorkflow(ctx workflow.Context) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: time.Hour,
 	})
