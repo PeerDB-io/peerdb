@@ -6,6 +6,30 @@ export async function GET(
   request: NextRequest,
   context: { params: { name: string } }
 ) {
+  const timeSince = request.nextUrl.searchParams.get('timeSince');
+  console.log('timeSince', timeSince);
+  let forThePastThisMuchTime: number;
+  switch (timeSince) {
+    case 'day':
+      forThePastThisMuchTime = 86400000;
+      break;
+    case 'month':
+      forThePastThisMuchTime = 2592000000;
+      break;
+    case '15min':
+      forThePastThisMuchTime = 900000;
+      break;
+    case '5min':
+      forThePastThisMuchTime = 300000;
+      break;
+    case '1min':
+      forThePastThisMuchTime = 60000;
+      break;
+    default:
+      forThePastThisMuchTime = 3600000;
+      break;
+  }
+  console.log('forThePastThisMuchTime', forThePastThisMuchTime);
   const lagPoints = await prisma.peer_slot_size.findMany({
     select: {
       updated_at: true,
@@ -14,6 +38,9 @@ export async function GET(
     },
     where: {
       slot_name: context.params.name,
+      updated_at: {
+        gte: new Date(Date.now() - forThePastThisMuchTime),
+      },
     },
   });
 
@@ -29,6 +56,8 @@ export async function GET(
       walStatus: lagPoint.wal_status,
     };
   });
+
+  console.log('stringedLagPoints', stringedLagPoints);
 
   return NextResponse.json(stringedLagPoints);
 }
