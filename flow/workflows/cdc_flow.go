@@ -495,6 +495,7 @@ func CDCFlowWorkflowWithConfig(
 
 	state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 	for {
+		mainLoopSelector.Select(ctx)
 		for ctx.Err() == nil && mainLoopSelector.HasPending() {
 			mainLoopSelector.Select(ctx)
 		}
