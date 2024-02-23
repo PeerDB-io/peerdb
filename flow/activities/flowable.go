@@ -851,7 +851,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 }
 
 func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
-	rows, err := a.CatalogPool.Query(ctx, "SELECT flows.name, flows.config_proto FROM flows")
+	rows, err := a.CatalogPool.Query(ctx, "SELECT flows.name, flows.config_proto FROM flows WHERE query_string IS NULL")
 	if err != nil {
 		return err
 	}
