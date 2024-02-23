@@ -77,9 +77,12 @@ func SyncFlowWorkflow(
 		return workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, config, options)
 	}
 
-	var waitChan model.TypedReceiveChannel[struct{}]
+	var waitSelector workflow.Selector
 	if !peerdbenv.PeerDBEnableParallelSyncNormalize() {
-		waitChan = model.NormalizeDoneSignal.GetSignalChannel(ctx)
+		waitSelector = workflow.NewNamedSelector(ctx, "NormalizeWait")
+		waitSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+		waitChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
+		waitChan.AddToSelector(waitSelector, func(_ struct{}, _ bool) {})
 	}
 
 	var stop bool
@@ -96,7 +99,7 @@ func SyncFlowWorkflow(
 
 	for !stop && ctx.Err() == nil {
 		var syncDone, syncErr bool
-		mustWait := waitChan.Chan != nil
+		mustWait := waitSelector != nil
 
 		// execute the sync flow
 		currentSyncFlowNum += 1
@@ -203,7 +206,7 @@ func SyncFlowWorkflow(
 
 		restart := currentSyncFlowNum >= maxSyncsPerSyncFlow || syncErr
 		if mustWait {
-			waitChan.Receive(ctx)
+			waitSelector.Select(ctx)
 			if restart {
 				// must flush selector for signals received while waiting
 				for ctx.Err() == nil && selector.HasPending() {
