@@ -7,7 +7,7 @@ export async function GET(
   context: { params: { name: string } }
 ) {
   const timeSince = request.nextUrl.searchParams.get('timeSince');
-  console.log('timeSince', timeSince);
+
   let forThePastThisMuchTime: number;
   switch (timeSince) {
     case 'day':
@@ -29,7 +29,7 @@ export async function GET(
       forThePastThisMuchTime = 3600000;
       break;
   }
-  console.log('forThePastThisMuchTime', forThePastThisMuchTime);
+
   const lagPoints = await prisma.peer_slot_size.findMany({
     select: {
       updated_at: true,
@@ -56,8 +56,6 @@ export async function GET(
       walStatus: lagPoint.wal_status,
     };
   });
-
-  console.log('stringedLagPoints', stringedLagPoints);
 
   return NextResponse.json(stringedLagPoints);
 }
