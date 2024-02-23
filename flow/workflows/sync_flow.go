@@ -55,7 +55,7 @@ func SyncFlowWorkflow(
 	)
 
 	var sessionError error
-	sessionSelector := workflow.NewNamedSelector(ctx, "Session Setup")
+	sessionSelector := workflow.NewNamedSelector(ctx, "SessionSetup")
 	sessionSelector.AddFuture(fMaintain, func(f workflow.Future) {
 		// MaintainPull should never exit without an error before this point
 		sessionError = f.Get(syncCtx, nil)
@@ -86,7 +86,7 @@ func SyncFlowWorkflow(
 	currentSyncFlowNum := 0
 	totalRecordsSynced := int64(0)
 
-	selector := workflow.NewNamedSelector(ctx, "Sync Loop")
+	selector := workflow.NewNamedSelector(ctx, "SyncLoop")
 	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 
 	stopChan := model.SyncStopSignal.GetSignalChannel(ctx)

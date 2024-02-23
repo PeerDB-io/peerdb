@@ -421,7 +421,7 @@ func CDCFlowWorkflowWithConfig(
 	}
 
 	syncCount := 0
-	mainLoopSelector := workflow.NewNamedSelector(ctx, "Main Loop")
+	mainLoopSelector := workflow.NewNamedSelector(ctx, "MainLoop")
 	mainLoopSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 
 	flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
@@ -531,9 +531,17 @@ func CDCFlowWorkflowWithConfig(
 			w.logger.Info("mirror has been resumed after ", time.Since(startTime))
 			state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 			restart = true
+		} else if restart {
+			finishSyncNormalize()
 		}
 
 		if restart {
+			for ctx.Err() == nil && mainLoopSelector.HasPending() {
+				mainLoopSelector.Select(ctx)
+			}
+			if err := ctx.Err(); err != nil {
+				return state, err
+			}
 			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, state)
 		}
 	}
