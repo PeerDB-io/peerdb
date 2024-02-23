@@ -432,7 +432,11 @@ func CDCFlowWorkflowWithConfig(
 	})
 	syncResultChan := model.SyncResultSignal.GetSignalChannel(ctx)
 	syncResultChan.AddToSelector(mainLoopSelector, func(result model.SyncResponse, _ bool) {
-		maps.Copy(state.SyncFlowOptions.RelationMessageMapping, result.RelationMessageMapping)
+		if state.SyncFlowOptions.RelationMessageMapping == nil {
+			state.SyncFlowOptions.RelationMessageMapping = result.RelationMessageMapping
+		} else {
+			maps.Copy(state.SyncFlowOptions.RelationMessageMapping, result.RelationMessageMapping)
+		}
 		state.SyncFlowStatuses = append(state.SyncFlowStatuses, result)
 	})
 
