@@ -536,6 +536,7 @@ func CDCFlowWorkflowWithConfig(
 				mainLoopSelector.Select(ctx)
 			}
 			if err := ctx.Err(); err != nil {
+				w.logger.Info("mirror canceled: %v", err)
 				return state, err
 			}
 			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, state)
