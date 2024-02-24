@@ -369,12 +369,6 @@ func CDCFlowWorkflowWithConfig(
 		WaitForCancellation: true,
 	}
 	syncCtx := workflow.WithChildOptions(ctx, syncFlowOpts)
-	syncFlowFuture := workflow.ExecuteChildWorkflow(
-		syncCtx,
-		SyncFlowWorkflow,
-		cfg,
-		state.SyncFlowOptions,
-	)
 
 	normalizeFlowOpts := workflow.ChildWorkflowOptions{
 		WorkflowID:        normalizeFlowID,
@@ -386,12 +380,24 @@ func CDCFlowWorkflowWithConfig(
 		WaitForCancellation: true,
 	}
 	normCtx := workflow.WithChildOptions(ctx, normalizeFlowOpts)
-	normFlowFuture := workflow.ExecuteChildWorkflow(
-		normCtx,
-		NormalizeFlowWorkflow,
-		cfg,
-		nil,
-	)
+
+	var syncFlowFuture, normFlowFuture workflow.ChildWorkflowFuture
+	startSyncFlow := func() {
+		syncFlowFuture = workflow.ExecuteChildWorkflow(
+			syncCtx,
+			SyncFlowWorkflow,
+			cfg,
+			state.SyncFlowOptions,
+		)
+	}
+	startNormFlow := func() {
+		normFlowFuture = workflow.ExecuteChildWorkflow(
+			normCtx,
+			NormalizeFlowWorkflow,
+			cfg,
+			nil,
+		)
+	}
 
 	finishSyncNormalize := func() {
 		model.SyncStopSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{}).Get(ctx, nil)
@@ -423,6 +429,36 @@ func CDCFlowWorkflowWithConfig(
 	syncCount := 0
 	mainLoopSelector := workflow.NewNamedSelector(ctx, "MainLoop")
 	mainLoopSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+
+	var handleNormFlow, handleSyncFlow func(workflow.Future)
+	handleSyncFlow = func(f workflow.Future) {
+		err := f.Get(ctx, nil)
+		if err != nil {
+			state.SyncFlowErrors = append(state.SyncFlowErrors, err.Error())
+		}
+
+		w.logger.Warn("sync flow ended, restarting", slog.Any("error", err))
+		state.TruncateProgress(w.logger)
+		startSyncFlow()
+		mainLoopSelector.AddFuture(syncFlowFuture, handleSyncFlow)
+	}
+	handleNormFlow = func(f workflow.Future) {
+		err := f.Get(ctx, nil)
+		if err != nil {
+			state.SyncFlowErrors = append(state.SyncFlowErrors, err.Error())
+		}
+
+		w.logger.Warn("sync flow ended, restarting", slog.Any("error", err))
+		state.TruncateProgress(w.logger)
+		startSyncFlow()
+		mainLoopSelector.AddFuture(normFlowFuture, handleNormFlow)
+	}
+
+	startSyncFlow()
+	mainLoopSelector.AddFuture(syncFlowFuture, handleSyncFlow)
+
+	startNormFlow()
+	mainLoopSelector.AddFuture(normFlowFuture, handleNormFlow)
 
 	flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
 	flowSignalChan.AddToSelector(mainLoopSelector, func(val model.CDCFlowSignal, _ bool) {

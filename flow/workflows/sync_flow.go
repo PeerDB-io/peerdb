@@ -74,8 +74,6 @@ func SyncFlowWorkflow(
 		}
 		logger.Error("error starting session, retry in 1 second", slog.Any("error", sessionError))
 		_ = workflow.Sleep(ctx, time.Second)
-		// TODO need to flush signals
-		// probably easier to explicitly loop
 		return workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, config, options)
 	}
 
