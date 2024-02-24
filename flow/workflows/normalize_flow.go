@@ -15,7 +15,7 @@ import (
 
 type NormalizeState struct {
 	Wait                   bool
-	StopLoop               bool
+	Stop                   bool
 	LastSyncBatchID        int64
 	SyncBatchID            int64
 	TableNameSchemaMapping map[string]*protos.TableSchema
@@ -32,7 +32,7 @@ func ProcessLoop(ctx workflow.Context, logger log.Logger, selector workflow.Sele
 
 	if canceled {
 		return "normalize canceled"
-	} else if state.StopLoop && state.LastSyncBatchID == state.SyncBatchID {
+	} else if state.Stop && state.LastSyncBatchID == state.SyncBatchID {
 		return "normalize finished"
 	}
 	return ""
@@ -49,7 +49,7 @@ func NormalizeFlowWorkflow(
 	if state == nil {
 		state = &NormalizeState{
 			Wait:                   true,
-			StopLoop:               false,
+			Stop:                   false,
 			LastSyncBatchID:        -1,
 			SyncBatchID:            -1,
 			TableNameSchemaMapping: nil,
@@ -67,7 +67,7 @@ func NormalizeFlowWorkflow(
 	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 	syncChan.AddToSelector(selector, func(s model.NormalizePayload, _ bool) {
 		if s.Done {
-			state.StopLoop = true
+			state.Stop = true
 		}
 		if s.SyncBatchID > state.SyncBatchID {
 			state.SyncBatchID = s.SyncBatchID
@@ -113,7 +113,7 @@ func NormalizeFlowWorkflow(
 		}
 	}
 
-	if !peerdbenv.PeerDBEnableParallelSyncNormalize() {
+	if !state.Stop && !peerdbenv.PeerDBEnableParallelSyncNormalize() {
 		model.NormalizeDoneSignal.SignalExternalWorkflow(
 			ctx,
 			parent.ID,

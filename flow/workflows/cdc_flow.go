@@ -187,7 +187,7 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 		childAdditionalTablesCDCFlowCtx := workflow.WithChildOptions(ctx, childAdditionalTablesCDCFlowOpts)
 		childAdditionalTablesCDCFlowFuture := workflow.ExecuteChildWorkflow(
 			childAdditionalTablesCDCFlowCtx,
-			CDCFlowWorkflowWithConfig,
+			CDCFlowWorkflow,
 			additionalTablesCfg,
 			nil,
 		)
@@ -207,7 +207,7 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 	return nil
 }
 
-func CDCFlowWorkflowWithConfig(
+func CDCFlowWorkflow(
 	ctx workflow.Context,
 	cfg *protos.FlowConnectionConfigs,
 	state *CDCFlowWorkflowState,
@@ -359,6 +359,9 @@ func CDCFlowWorkflowWithConfig(
 	syncFlowID := GetChildWorkflowID("sync-flow", cfg.FlowJobName, originalRunID)
 	normalizeFlowID := GetChildWorkflowID("normalize-flow", cfg.FlowJobName, originalRunID)
 
+	var restart bool
+	syncCount := 0
+
 	syncFlowOpts := workflow.ChildWorkflowOptions{
 		WorkflowID:        syncFlowID,
 		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
@@ -398,35 +401,26 @@ func CDCFlowWorkflowWithConfig(
 			nil,
 		)
 	}
+	handleError := func(name string, err error) {
+		w.logger.Error("error finishing sync flow", slog.Any("error", err))
+		var panicErr *temporal.PanicError
+		if errors.As(err, &panicErr) {
+			w.logger.Error("PANIC", panicErr.Error(), panicErr.StackTrace())
+		}
+	}
 
 	finishSyncNormalize := func() {
+		restart = true
 		model.SyncStopSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{}).Get(ctx, nil)
-		if err := syncFlowFuture.Get(ctx, nil); err != nil {
-			w.logger.Error("error finishing sync flow", slog.Any("error", err))
-			var panicErr *temporal.PanicError
-			if errors.As(err, &panicErr) {
-				w.logger.Error("PANIC", panicErr.Error(), panicErr.StackTrace())
-			}
-			state.SyncFlowErrors = append(state.SyncFlowErrors, err.Error())
-		}
 
 		model.NormalizeSignal.SignalChildWorkflow(ctx, normFlowFuture, model.NormalizePayload{
 			Done:        true,
 			SyncBatchID: -1,
 		}).Get(ctx, nil)
-		if err := normFlowFuture.Get(ctx, nil); err != nil {
-			w.logger.Error("error finishing normalize flow", slog.Any("error", err))
-			var panicErr *temporal.PanicError
-			if errors.As(err, &panicErr) {
-				w.logger.Error("PANIC", panicErr.Error(), panicErr.StackTrace())
-			}
-			state.NormalizeFlowErrors = append(state.NormalizeFlowErrors, err.Error())
-		}
 
 		state.TruncateProgress(w.logger)
 	}
 
-	syncCount := 0
 	mainLoopSelector := workflow.NewNamedSelector(ctx, "MainLoop")
 	mainLoopSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 
@@ -434,6 +428,7 @@ func CDCFlowWorkflowWithConfig(
 	handleSyncFlow = func(f workflow.Future) {
 		err := f.Get(ctx, nil)
 		if err != nil {
+			handleError("sync", err)
 			state.SyncFlowErrors = append(state.SyncFlowErrors, err.Error())
 		}
 
@@ -445,12 +440,13 @@ func CDCFlowWorkflowWithConfig(
 	handleNormFlow = func(f workflow.Future) {
 		err := f.Get(ctx, nil)
 		if err != nil {
-			state.SyncFlowErrors = append(state.SyncFlowErrors, err.Error())
+			handleError("normalize", err)
+			state.NormalizeFlowErrors = append(state.NormalizeFlowErrors, err.Error())
 		}
 
-		w.logger.Warn("sync flow ended, restarting", slog.Any("error", err))
+		w.logger.Warn("normalize flow ended, restarting", slog.Any("error", err))
 		state.TruncateProgress(w.logger)
-		startSyncFlow()
+		startNormFlow()
 		mainLoopSelector.AddFuture(normFlowFuture, handleNormFlow)
 	}
 
@@ -533,11 +529,9 @@ func CDCFlowWorkflowWithConfig(
 			mainLoopSelector.Select(ctx)
 		}
 		if err := ctx.Err(); err != nil {
-			finishSyncNormalize()
 			return state, err
 		}
 
-		restart := syncCount >= maxSyncsPerCdcFlow
 		if state.ActiveSignal == model.PauseSignal {
 			finishSyncNormalize()
 
@@ -562,8 +556,7 @@ func CDCFlowWorkflowWithConfig(
 
 			w.logger.Info("mirror has been resumed after ", time.Since(startTime))
 			state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
-			restart = true
-		} else if restart {
+		} else if syncCount >= maxSyncsPerCdcFlow {
 			finishSyncNormalize()
 		}
 
@@ -575,7 +568,7 @@ func CDCFlowWorkflowWithConfig(
 				w.logger.Info("mirror canceled: %v", err)
 				return state, err
 			}
-			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, state)
+			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 		}
 	}
 }

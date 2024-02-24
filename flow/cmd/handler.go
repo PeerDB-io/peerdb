@@ -166,11 +166,11 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	}
 
 	_, err = h.temporalClient.ExecuteWorkflow(
-		ctx,                                // context
-		workflowOptions,                    // workflow start options
-		peerflow.CDCFlowWorkflowWithConfig, // workflow function
-		cfg,                                // workflow input
-		nil,                                // workflow state
+		ctx,
+		workflowOptions,
+		peerflow.CDCFlowWorkflow,
+		cfg,
+		nil,
 	)
 	if err != nil {
 		slog.Error("unable to start PeerFlow workflow", slog.Any("error", err))
