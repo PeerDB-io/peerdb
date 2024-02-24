@@ -488,7 +488,7 @@ func CDCFlowWorkflowWithConfig(
 		}
 
 		if state.ActiveSignal == model.PauseSignal {
-			startTime := time.Now()
+			startTime := workflow.Now(ctx)
 			state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
 
 			for state.ActiveSignal == model.PauseSignal {
