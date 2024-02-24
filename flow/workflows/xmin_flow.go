@@ -89,7 +89,7 @@ func XminFlowWorkflow(
 	signalChan := model.FlowSignal.GetSignalChannel(ctx)
 	q.receiveAndHandleSignalAsync(signalChan)
 	if q.activeSignal == model.PauseSignal {
-		startTime := time.Now()
+		startTime := workflow.Now(ctx)
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
 
 		for q.activeSignal == model.PauseSignal {
