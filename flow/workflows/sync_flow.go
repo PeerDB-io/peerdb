@@ -121,7 +121,7 @@ func SyncFlowWorkflow(
 			var childSyncFlowRes *model.SyncResponse
 			if err := f.Get(ctx, &childSyncFlowRes); err != nil {
 				logger.Error("failed to execute sync flow", slog.Any("error", err))
-				model.SyncErrorSignal.SignalExternalWorkflow(
+				_ = model.SyncErrorSignal.SignalExternalWorkflow(
 					ctx,
 					parent.ID,
 					"",
@@ -129,7 +129,7 @@ func SyncFlowWorkflow(
 				).Get(ctx, nil)
 				syncErr = true
 			} else if childSyncFlowRes != nil {
-				model.SyncResultSignal.SignalExternalWorkflow(
+				_ = model.SyncResultSignal.SignalExternalWorkflow(
 					ctx,
 					parent.ID,
 					"",
@@ -166,7 +166,7 @@ func SyncFlowWorkflow(
 					var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
 					if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {
 						logger.Error("failed to execute schema update at source: ", err)
-						model.SyncErrorSignal.SignalExternalWorkflow(
+						_ = model.SyncErrorSignal.SignalExternalWorkflow(
 							ctx,
 							parent.ID,
 							"",

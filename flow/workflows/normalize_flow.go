@@ -97,14 +97,14 @@ func NormalizeFlowWorkflow(
 
 		var normalizeResponse *model.NormalizeResponse
 		if err := fStartNormalize.Get(normalizeFlowCtx, &normalizeResponse); err != nil {
-			model.NormalizeErrorSignal.SignalExternalWorkflow(
+			_ = model.NormalizeErrorSignal.SignalExternalWorkflow(
 				ctx,
 				parent.ID,
 				"",
 				err.Error(),
 			).Get(ctx, nil)
 		} else if normalizeResponse != nil {
-			model.NormalizeResultSignal.SignalExternalWorkflow(
+			_ = model.NormalizeResultSignal.SignalExternalWorkflow(
 				ctx,
 				parent.ID,
 				"",
@@ -114,7 +114,7 @@ func NormalizeFlowWorkflow(
 	}
 
 	if !state.Stop && !peerdbenv.PeerDBEnableParallelSyncNormalize() {
-		model.NormalizeDoneSignal.SignalExternalWorkflow(
+		_ = model.NormalizeDoneSignal.SignalExternalWorkflow(
 			ctx,
 			parent.ID,
 			"",

@@ -508,7 +508,7 @@ func CDCFlowWorkflow(
 	if !peerdbenv.PeerDBEnableParallelSyncNormalize() {
 		normDoneChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
 		normDoneChan.AddToSelector(mainLoopSelector, func(x struct{}, _ bool) {
-			model.NormalizeDoneSignal.SignalChildWorkflow(ctx, syncFlowFuture, x).Get(ctx, nil)
+			_ = model.NormalizeDoneSignal.SignalChildWorkflow(ctx, syncFlowFuture, x).Get(ctx, nil)
 		})
 	}
 
@@ -526,7 +526,7 @@ func CDCFlowWorkflow(
 			state.FlowConfigUpdates = append(state.FlowConfigUpdates, cdcConfigUpdate)
 		}
 
-		model.SyncOptionsSignal.SignalChildWorkflow(ctx, syncFlowFuture, state.SyncFlowOptions).Get(ctx, nil)
+		_ = model.SyncOptionsSignal.SignalChildWorkflow(ctx, syncFlowFuture, state.SyncFlowOptions).Get(ctx, nil)
 
 		w.logger.Info("CDC Signal received. Parameters on signal reception:",
 			slog.Int("BatchSize", int(state.SyncFlowOptions.BatchSize)),
