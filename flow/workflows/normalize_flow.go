@@ -46,6 +46,11 @@ func NormalizeFlowWorkflow(
 		}
 		tableNameSchemaMapping = s.TableNameSchemaMapping
 	})
+
+	parallel, _ := GetSideEffect(ctx, func(_ workflow.Context) bool {
+		return peerdbenv.PeerDBEnableParallelSyncNormalize()
+	})
+
 	for !stopLoop {
 		selector.Select(ctx)
 		for !canceled && selector.HasPending() {
@@ -78,7 +83,7 @@ func NormalizeFlowWorkflow(
 			}
 		}
 
-		if !peerdbenv.PeerDBEnableParallelSyncNormalize() {
+		if !parallel {
 			parent := workflow.GetInfo(ctx).ParentWorkflowExecution
 			model.NormalizeSyncDoneSignal.SignalExternalWorkflow(
 				ctx,
