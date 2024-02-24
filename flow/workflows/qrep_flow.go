@@ -382,15 +382,27 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 }
 
 func (q *QRepFlowExecution) receiveAndHandleSignalAsync(signalChan model.TypedReceiveChannel[model.CDCFlowSignal]) {
-	val, ok := signalChan.ReceiveAsync()
-	if ok {
+	for {
+		val, ok := signalChan.ReceiveAsync()
+		if !ok {
+			break
+		}
 		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
 	}
 }
 
 func setWorkflowQueries(ctx workflow.Context, state *protos.QRepFlowState) error {
+	// Support an Update for the current status of the qrep flow.
+	err := workflow.SetUpdateHandler(ctx, shared.FlowStatusUpdate, func(status *protos.FlowStatus) error {
+		state.CurrentFlowStatus = *status
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to register query handler: %w", err)
+	}
+
 	// Support a Query for the current state of the qrep flow.
-	err := workflow.SetQueryHandler(ctx, shared.QRepFlowStateQuery, func() (*protos.QRepFlowState, error) {
+	err = workflow.SetQueryHandler(ctx, shared.QRepFlowStateQuery, func() (*protos.QRepFlowState, error) {
 		return state, nil
 	})
 	if err != nil {
@@ -431,27 +443,36 @@ func QRepFlowWorkflow(
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 
-	maxParallelWorkers := 16
-	if config.MaxParallelWorkers > 0 {
-		maxParallelWorkers = int(config.MaxParallelWorkers)
-	}
-
 	err := setWorkflowQueries(ctx, state)
 	if err != nil {
 		return err
 	}
 
-	// Support an Update for the current status of the qrep flow.
-	err = workflow.SetUpdateHandler(ctx, shared.FlowStatusUpdate, func(status *protos.FlowStatus) error {
-		state.CurrentFlowStatus = *status
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("failed to register query handler: %w", err)
-	}
+	signalChan := model.FlowSignal.GetSignalChannel(ctx)
 
 	q := NewQRepFlowExecution(ctx, config, originalRunID)
 	logger := q.logger
+
+	if q.activeSignal == model.PauseSignal {
+		startTime := workflow.Now(ctx)
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+
+		for q.activeSignal == model.PauseSignal {
+			logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
+			// only place we block on receive, so signal processing is immediate
+			val, ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute)
+			if ok {
+				q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
+			} else if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+	}
+
+	maxParallelWorkers := 16
+	if config.MaxParallelWorkers > 0 {
+		maxParallelWorkers = int(config.MaxParallelWorkers)
+	}
 
 	err = q.SetupWatermarkTableOnDestination(ctx)
 	if err != nil {
@@ -514,25 +535,7 @@ func QRepFlowWorkflow(
 		"Last Partition", state.LastPartition,
 		"Number of Partitions Processed", state.NumPartitionsProcessed)
 
-	// here, we handle signals after the end of the flow because a new workflow does not inherit the signals
-	// and the chance of missing a signal is much higher if the check is before the time consuming parts run
-	signalChan := model.FlowSignal.GetSignalChannel(ctx)
 	q.receiveAndHandleSignalAsync(signalChan)
-	if q.activeSignal == model.PauseSignal {
-		startTime := workflow.Now(ctx)
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
-
-		for q.activeSignal == model.PauseSignal {
-			logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
-			// only place we block on receive, so signal processing is immediate
-			val, ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute)
-			if ok {
-				q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
-			} else if err := ctx.Err(); err != nil {
-				return err
-			}
-		}
-	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
