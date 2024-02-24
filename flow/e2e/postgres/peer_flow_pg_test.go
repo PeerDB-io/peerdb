@@ -1168,7 +1168,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		s.t.Logf("Inserted %d rows into the source table", numRows)
 	}
 
-	getWorkFlowState := func() peerflow.CDCFlowWorkflowState {
+	getWorkflowState := func() peerflow.CDCFlowWorkflowState {
 		var workflowState peerflow.CDCFlowWorkflowState
 		val, err := env.QueryWorkflow(shared.CDCFlowStateQuery)
 		e2e.EnvNoError(s.t, env, err)
@@ -1243,7 +1243,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 			return s.comparePGTables(srcTable1Name, dstTable1Name, "id,t") == nil
 		})
 
-		workflowState := getWorkFlowState()
+		workflowState := getWorkflowState()
 		assert.EqualValues(s.t, 7, workflowState.SyncFlowOptions.IdleTimeoutSeconds)
 		assert.EqualValues(s.t, 6, workflowState.SyncFlowOptions.BatchSize)
 		assert.Len(s.t, workflowState.SyncFlowOptions.TableMappings, 1)
@@ -1271,12 +1271,10 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 			e2e.EnvWaitFor(s.t, env, 1*time.Minute, "sent updates signal", func() bool {
 				return sentUpdate
 			})
-		}
 
-		// add rows to both tables before resuming - should handle
-		addRows(18)
+			// add rows to both tables before resuming - should handle
+			addRows(18)
 
-		if !s.t.Failed() {
 			e2e.EnvWaitFor(s.t, env, 1*time.Minute, "resumed workflow", func() bool {
 				return getFlowStatus() == protos.FlowStatus_STATUS_RUNNING
 			})
@@ -1286,10 +1284,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 			e2e.EnvWaitFor(s.t, env, 1*time.Minute, "initial load + normalize 18 records - second table", func() bool {
 				return s.comparePGTables(srcTable2Name, dstTable2Name, "id,t") == nil
 			})
-		}
 
-		if !s.t.Failed() {
-			workflowState = getWorkFlowState()
+			workflowState = getWorkflowState()
 			assert.EqualValues(s.t, 14, workflowState.SyncFlowOptions.IdleTimeoutSeconds)
 			assert.EqualValues(s.t, 12, workflowState.SyncFlowOptions.BatchSize)
 			assert.Len(s.t, workflowState.SyncFlowOptions.TableMappings, 2)
