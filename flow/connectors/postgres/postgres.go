@@ -240,7 +240,7 @@ func (c *PostgresConnector) ConnectionActive(ctx context.Context) error {
 	if c.conn == nil {
 		return errors.New("connection is nil")
 	}
-	pingErr := c.conn.Ping(ctx)
+	_, pingErr := c.conn.Exec(ctx, "SELECT 1")
 	return pingErr
 }
 
