@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/temporal"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
@@ -149,7 +150,7 @@ func (c *PostgresConnector) MaybeStartReplication(
 			c.replState.Slot, slotName, c.replState.Publication, publicationName, c.replState.Offset, req.LastOffset,
 		)
 		c.logger.Info(msg)
-		return errors.New(msg)
+		return temporal.NewNonRetryableApplicationError(msg, "desync", nil)
 	}
 
 	if c.replState == nil {

@@ -539,9 +539,7 @@ func CDCFlowWorkflowWithConfig(
 				totalRecordsSynced += childSyncFlowRes.NumRecordsSynced
 				w.logger.Info("Total records synced: ",
 					slog.Int64("totalRecordsSynced", totalRecordsSynced))
-			}
 
-			if childSyncFlowRes != nil {
 				tableSchemaDeltasCount := len(childSyncFlowRes.TableSchemaDeltas)
 
 				// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
