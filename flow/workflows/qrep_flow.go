@@ -177,7 +177,7 @@ func (q *QRepFlowExecution) GetPartitions(
 		return nil, fmt.Errorf("failed to fetch partitions to replicate: %w", err)
 	}
 
-	q.logger.Info("partitions to replicate - ", len(partitions.Partitions))
+	q.logger.Info("partitions to replicate - ", slog.Int("num_partitions", len(partitions.Partitions)))
 	return partitions, nil
 }
 
@@ -242,11 +242,7 @@ func (q *QRepFlowExecution) processPartitions(
 	maxParallelWorkers int,
 	partitions []*protos.QRepPartition,
 ) error {
-	chunkSize := len(partitions) / maxParallelWorkers
-	if chunkSize == 0 {
-		chunkSize = 1
-	}
-
+	chunkSize := shared.DivCeil(len(partitions), maxParallelWorkers)
 	batches := make([][]*protos.QRepPartition, 0, len(partitions)/chunkSize+1)
 	for i := 0; i < len(partitions); i += chunkSize {
 		end := min(i+chunkSize, len(partitions))
