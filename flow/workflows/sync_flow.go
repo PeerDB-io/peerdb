@@ -48,41 +48,20 @@ func SyncFlowWorkflow(
 		config,
 		sessionInfo.SessionID,
 	)
-	fSessionSetup := workflow.ExecuteActivity(
-		syncCtx,
-		flowable.WaitForSourceConnector,
-		sessionInfo.SessionID,
-	)
 
-	var sessionError error
-	sessionSelector := workflow.NewNamedSelector(ctx, "SessionSetup")
-	sessionSelector.AddFuture(fMaintain, func(f workflow.Future) {
-		// MaintainPull should never exit without an error before this point
-		sessionError = f.Get(syncCtx, nil)
-	})
-	sessionSelector.AddFuture(fSessionSetup, func(f workflow.Future) {
-		// Happy path is waiting for this to return without error
-		sessionError = f.Get(syncCtx, nil)
-	})
-	sessionSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
-		sessionError = ctx.Err()
-	})
-	sessionSelector.Select(ctx)
-	if sessionError != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		logger.Error("error starting session, retry in 1 second", slog.Any("error", sessionError))
-		_ = workflow.Sleep(ctx, time.Second)
-		return workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, config, options)
-	}
-
-	var stop bool
+	var stop, syncErr bool
 	currentSyncFlowNum := 0
 	totalRecordsSynced := int64(0)
 
 	selector := workflow.NewNamedSelector(ctx, "SyncLoop")
 	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+	selector.AddFuture(fMaintain, func(f workflow.Future) {
+		err := f.Get(ctx, nil)
+		if err != nil {
+			logger.Error("MaintainPull failed", slog.Any("error", err))
+			syncErr = true
+		}
+	})
 
 	stopChan := model.SyncStopSignal.GetSignalChannel(ctx)
 	stopChan.AddToSelector(selector, func(_ struct{}, _ bool) {
@@ -104,7 +83,7 @@ func SyncFlowWorkflow(
 	}
 
 	for !stop && ctx.Err() == nil {
-		var syncDone, syncErr bool
+		var syncDone bool
 		mustWait := waitSelector != nil
 
 		// execute the sync flow
