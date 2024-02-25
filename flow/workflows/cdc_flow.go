@@ -98,6 +98,8 @@ func (s *CDCFlowWorkflowState) TruncateProgress(logger log.Logger) {
 type CDCFlowWorkflowExecution struct {
 	flowExecutionID string
 	logger          log.Logger
+	syncFlowFuture  workflow.ChildWorkflowFuture
+	normFlowFuture  workflow.ChildWorkflowFuture
 }
 
 // NewCDCFlowWorkflowExecution creates a new instance of PeerFlowWorkflowExecution.
@@ -215,6 +217,54 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 	return nil
 }
 
+func (w *CDCFlowWorkflowExecution) addCdcPropertiesSignalListener(
+	ctx workflow.Context,
+	selector workflow.Selector,
+	state *CDCFlowWorkflowState,
+) {
+	// add a signal to change CDC properties
+	cdcPropertiesSignalChan := model.CDCDynamicPropertiesSignal.GetSignalChannel(ctx)
+	cdcPropertiesSignalChan.AddToSelector(selector, func(cdcConfigUpdate *protos.CDCFlowConfigUpdate, more bool) {
+		// only modify for options since SyncFlow uses it
+		if cdcConfigUpdate.BatchSize > 0 {
+			state.SyncFlowOptions.BatchSize = cdcConfigUpdate.BatchSize
+		}
+		if cdcConfigUpdate.IdleTimeout > 0 {
+			state.SyncFlowOptions.IdleTimeoutSeconds = cdcConfigUpdate.IdleTimeout
+		}
+		if len(cdcConfigUpdate.AdditionalTables) > 0 {
+			state.FlowConfigUpdates = append(state.FlowConfigUpdates, cdcConfigUpdate)
+		}
+
+		if w.syncFlowFuture != nil {
+			_ = model.SyncOptionsSignal.SignalChildWorkflow(ctx, w.syncFlowFuture, state.SyncFlowOptions).Get(ctx, nil)
+		}
+
+		w.logger.Info("CDC Signal received. Parameters on signal reception:",
+			slog.Int("BatchSize", int(state.SyncFlowOptions.BatchSize)),
+			slog.Int("IdleTimeout", int(state.SyncFlowOptions.IdleTimeoutSeconds)),
+			slog.Any("AdditionalTables", cdcConfigUpdate.AdditionalTables))
+	})
+}
+
+func (w *CDCFlowWorkflowExecution) startSyncFlow(ctx workflow.Context, config *protos.FlowConnectionConfigs, options *protos.SyncFlowOptions) {
+	w.syncFlowFuture = workflow.ExecuteChildWorkflow(
+		ctx,
+		SyncFlowWorkflow,
+		config,
+		options,
+	)
+}
+
+func (w *CDCFlowWorkflowExecution) startNormFlow(ctx workflow.Context, config *protos.FlowConnectionConfigs) {
+	w.normFlowFuture = workflow.ExecuteChildWorkflow(
+		ctx,
+		NormalizeFlowWorkflow,
+		config,
+		nil,
+	)
+}
+
 func CDCFlowWorkflow(
 	ctx workflow.Context,
 	cfg *protos.FlowConnectionConfigs,
@@ -229,6 +279,7 @@ func CDCFlowWorkflow(
 	}
 
 	w := NewCDCFlowWorkflowExecution(ctx, cfg.FlowJobName)
+	flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
 
 	err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (CDCFlowWorkflowState, error) {
 		return *state, nil
@@ -249,8 +300,40 @@ func CDCFlowWorkflow(
 	if err != nil {
 		return state, fmt.Errorf("failed to set `%s` update handler: %w", shared.FlowStatusUpdate, err)
 	}
+
 	mirrorNameSearch := map[string]interface{}{
 		shared.MirrorNameSearchAttribute: cfg.FlowJobName,
+	}
+
+	if state.ActiveSignal == model.PauseSignal {
+		selector := workflow.NewNamedSelector(ctx, "PauseLoop")
+		selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+		flowSignalChan.AddToSelector(selector, func(val model.CDCFlowSignal, _ bool) {
+			state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, w.logger)
+		})
+		w.addCdcPropertiesSignalListener(ctx, selector, state)
+
+		startTime := workflow.Now(ctx)
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+
+		for state.ActiveSignal == model.PauseSignal {
+			// only place we block on receive, so signal processing is immediate
+			for state.ActiveSignal == model.PauseSignal && ctx.Err() == nil {
+				w.logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
+				selector.Select(ctx)
+			}
+			if err := ctx.Err(); err != nil {
+				return state, err
+			}
+
+			err = w.processCDCFlowConfigUpdates(ctx, cfg, state, mirrorNameSearch)
+			if err != nil {
+				return state, err
+			}
+		}
+
+		w.logger.Info("mirror has been resumed after ", time.Since(startTime))
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 	}
 
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
@@ -392,23 +475,6 @@ func CDCFlowWorkflow(
 	}
 	normCtx := workflow.WithChildOptions(ctx, normalizeFlowOpts)
 
-	var syncFlowFuture, normFlowFuture workflow.ChildWorkflowFuture
-	startSyncFlow := func() {
-		syncFlowFuture = workflow.ExecuteChildWorkflow(
-			syncCtx,
-			SyncFlowWorkflow,
-			cfg,
-			state.SyncFlowOptions,
-		)
-	}
-	startNormFlow := func() {
-		normFlowFuture = workflow.ExecuteChildWorkflow(
-			normCtx,
-			NormalizeFlowWorkflow,
-			cfg,
-			nil,
-		)
-	}
 	handleError := func(name string, err error) {
 		var panicErr *temporal.PanicError
 		if errors.As(err, &panicErr) {
@@ -425,7 +491,7 @@ func CDCFlowWorkflow(
 
 	finishSyncNormalize := func() {
 		restart = true
-		_ = model.SyncStopSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{}).Get(ctx, nil)
+		_ = model.SyncStopSignal.SignalChildWorkflow(ctx, w.syncFlowFuture, struct{}{}).Get(ctx, nil)
 	}
 
 	mainLoopSelector := workflow.NewNamedSelector(ctx, "MainLoop")
@@ -441,15 +507,15 @@ func CDCFlowWorkflow(
 
 		if restart {
 			w.logger.Info("sync finished, finishing normalize")
-			_ = model.NormalizeSignal.SignalChildWorkflow(ctx, normFlowFuture, model.NormalizePayload{
+			_ = model.NormalizeSignal.SignalChildWorkflow(ctx, w.normFlowFuture, model.NormalizePayload{
 				Done:        true,
 				SyncBatchID: -1,
 			}).Get(ctx, nil)
 		} else {
 			w.logger.Warn("sync flow ended, restarting", slog.Any("error", err))
 			state.TruncateProgress(w.logger)
-			startSyncFlow()
-			mainLoopSelector.AddFuture(syncFlowFuture, handleSyncFlow)
+			w.startSyncFlow(syncCtx, cfg, state.SyncFlowOptions)
+			mainLoopSelector.AddFuture(w.syncFlowFuture, handleSyncFlow)
 		}
 	}
 	handleNormFlow = func(f workflow.Future) {
@@ -465,18 +531,17 @@ func CDCFlowWorkflow(
 		} else {
 			w.logger.Warn("normalize flow ended, restarting", slog.Any("error", err))
 			state.TruncateProgress(w.logger)
-			startNormFlow()
-			mainLoopSelector.AddFuture(normFlowFuture, handleNormFlow)
+			w.startNormFlow(normCtx, cfg)
+			mainLoopSelector.AddFuture(w.normFlowFuture, handleNormFlow)
 		}
 	}
 
-	startSyncFlow()
-	mainLoopSelector.AddFuture(syncFlowFuture, handleSyncFlow)
+	w.startSyncFlow(syncCtx, cfg, state.SyncFlowOptions)
+	mainLoopSelector.AddFuture(w.syncFlowFuture, handleSyncFlow)
 
-	startNormFlow()
-	mainLoopSelector.AddFuture(normFlowFuture, handleNormFlow)
+	w.startNormFlow(normCtx, cfg)
+	mainLoopSelector.AddFuture(w.normFlowFuture, handleNormFlow)
 
-	flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
 	flowSignalChan.AddToSelector(mainLoopSelector, func(val model.CDCFlowSignal, _ bool) {
 		state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, w.logger)
 	})
@@ -509,38 +574,18 @@ func CDCFlowWorkflow(
 
 	normChan := model.NormalizeSignal.GetSignalChannel(ctx)
 	normChan.AddToSelector(mainLoopSelector, func(payload model.NormalizePayload, _ bool) {
-		_ = model.NormalizeSignal.SignalChildWorkflow(ctx, normFlowFuture, payload).Get(ctx, nil)
+		_ = model.NormalizeSignal.SignalChildWorkflow(ctx, w.normFlowFuture, payload).Get(ctx, nil)
 		maps.Copy(state.SyncFlowOptions.TableNameSchemaMapping, payload.TableNameSchemaMapping)
 	})
 
 	if !peerdbenv.PeerDBEnableParallelSyncNormalize() {
 		normDoneChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
 		normDoneChan.AddToSelector(mainLoopSelector, func(x struct{}, _ bool) {
-			_ = model.NormalizeDoneSignal.SignalChildWorkflow(ctx, syncFlowFuture, x).Get(ctx, nil)
+			_ = model.NormalizeDoneSignal.SignalChildWorkflow(ctx, w.syncFlowFuture, x).Get(ctx, nil)
 		})
 	}
 
-	// add a signal to change CDC properties
-	cdcPropertiesSignalChan := model.CDCDynamicPropertiesSignal.GetSignalChannel(ctx)
-	cdcPropertiesSignalChan.AddToSelector(mainLoopSelector, func(cdcConfigUpdate *protos.CDCFlowConfigUpdate, more bool) {
-		// only modify for options since SyncFlow uses it
-		if cdcConfigUpdate.BatchSize > 0 {
-			state.SyncFlowOptions.BatchSize = cdcConfigUpdate.BatchSize
-		}
-		if cdcConfigUpdate.IdleTimeout > 0 {
-			state.SyncFlowOptions.IdleTimeoutSeconds = cdcConfigUpdate.IdleTimeout
-		}
-		if len(cdcConfigUpdate.AdditionalTables) > 0 {
-			state.FlowConfigUpdates = append(state.FlowConfigUpdates, cdcConfigUpdate)
-		}
-
-		_ = model.SyncOptionsSignal.SignalChildWorkflow(ctx, syncFlowFuture, state.SyncFlowOptions).Get(ctx, nil)
-
-		w.logger.Info("CDC Signal received. Parameters on signal reception:",
-			slog.Int("BatchSize", int(state.SyncFlowOptions.BatchSize)),
-			slog.Int("IdleTimeout", int(state.SyncFlowOptions.IdleTimeoutSeconds)),
-			slog.Any("AdditionalTables", cdcConfigUpdate.AdditionalTables))
-	})
+	w.addCdcPropertiesSignalListener(ctx, mainLoopSelector, state)
 
 	state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 	for {
@@ -553,31 +598,7 @@ func CDCFlowWorkflow(
 			return state, err
 		}
 
-		if state.ActiveSignal == model.PauseSignal {
-			finishSyncNormalize()
-
-			startTime := workflow.Now(ctx)
-			state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
-
-			for state.ActiveSignal == model.PauseSignal {
-				// only place we block on receive, so signal processing is immediate
-				for state.ActiveSignal == model.PauseSignal && ctx.Err() == nil {
-					w.logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
-					mainLoopSelector.Select(ctx)
-				}
-				if err := ctx.Err(); err != nil {
-					return state, err
-				}
-
-				err = w.processCDCFlowConfigUpdates(ctx, cfg, state, mirrorNameSearch)
-				if err != nil {
-					return state, err
-				}
-			}
-
-			w.logger.Info("mirror has been resumed after ", time.Since(startTime))
-			state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
-		} else if syncCount >= maxSyncsPerCdcFlow {
+		if state.ActiveSignal == model.PauseSignal || syncCount >= maxSyncsPerCdcFlow {
 			finishSyncNormalize()
 		}
 
