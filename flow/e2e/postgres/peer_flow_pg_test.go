@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/worker"
+	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2e"
@@ -1120,7 +1121,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	dstTable1Name := s.attachSchemaSuffix("test_dynconfig_1_dst")
 	dstTable2Name := s.attachSchemaSuffix("test_dynconfig_2_dst")
 	sentPause := false
-	isPaused := false
 	sentUpdate := false
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -1168,14 +1168,15 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		s.t.Logf("Inserted %d rows into the source table", numRows)
 	}
 
+	var workflowState peerflow.CDCFlowWorkflowState
 	getWorkflowState := func() peerflow.CDCFlowWorkflowState {
-		var workflowState peerflow.CDCFlowWorkflowState
+		var state peerflow.CDCFlowWorkflowState
 		val, err := env.QueryWorkflow(shared.CDCFlowStateQuery)
 		e2e.EnvNoError(s.t, env, err)
-		err = val.Get(&workflowState)
+		err = val.Get(&state)
 		e2e.EnvNoError(s.t, env, err)
 
-		return workflowState
+		return state
 	}
 
 	getFlowStatus := func() protos.FlowStatus {
@@ -1193,10 +1194,49 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	// too short of a gap between signals also causes issues
 	// might have something to do with how test workflows handle fast-forwarding time.
 	env.RegisterDelayedCallback(func() {
+		workflowState = getWorkflowState()
 		e2e.EnvSignalWorkflow(env, model.FlowSignal, model.PauseSignal)
 		s.t.Log("Sent pause signal")
 		sentPause = true
 	}, 28*time.Second)
+
+	// add before to test initial load too.
+	addRows(18)
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+		// insert 18 rows into the source tables, exactly 3 batches
+		addRows(18)
+
+		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "normalize 18 records - first table", func() bool {
+			return s.comparePGTables(srcTable1Name, dstTable1Name, "id,t") == nil
+		})
+
+		workflowState = getWorkflowState()
+		assert.EqualValues(s.t, 7, workflowState.SyncFlowOptions.IdleTimeoutSeconds)
+		assert.EqualValues(s.t, 6, workflowState.SyncFlowOptions.BatchSize)
+		assert.Len(s.t, workflowState.SyncFlowOptions.TableMappings, 1)
+		assert.Len(s.t, workflowState.SyncFlowOptions.SrcTableIdNameMapping, 1)
+		assert.Len(s.t, workflowState.SyncFlowOptions.TableNameSchemaMapping, 1)
+		// we have limited batch size to 6, so atleast 3 syncs needed
+		assert.GreaterOrEqual(s.t, len(workflowState.SyncFlowStatuses), 3)
+
+		if !s.t.Failed() {
+			// wait for first RegisterDelayedCallback to hit.
+			e2e.EnvWaitFor(s.t, env, 1*time.Minute, "sent pause signal", func() bool {
+				return sentPause
+			})
+
+			// keep adding 1 more row - guarantee finishing another sync
+			addRows(1)
+		} else {
+			env.CancelWorkflow()
+		}
+	}()
+
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, nil)
+	require.True(s.t, workflow.IsContinueAsNewError(env.GetWorkflowError()))
+	workflowState.ActiveSignal = model.PauseSignal
+
 	// this signal being sent also unblocks another WaitFor
 	env.RegisterDelayedCallback(func() {
 		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "send update signal after pause confirmed", func() bool {
@@ -1204,7 +1244,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 			if flowStatus != protos.FlowStatus_STATUS_PAUSED {
 				return false
 			}
-			isPaused = true
 			e2e.EnvSignalWorkflow(env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 				IdleTimeout: 14,
 				BatchSize:   12,
@@ -1219,7 +1258,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 			sentUpdate = true
 			return true
 		})
-	}, 56*time.Second)
+	}, 28*time.Second)
 	env.RegisterDelayedCallback(func() {
 		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "send resume signal after update confirmed", func() bool {
 			if !sentUpdate {
@@ -1229,75 +1268,43 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 			s.t.Log("Sent resume signal")
 			return true
 		})
-	}, 84*time.Second)
+	}, 56*time.Second)
 
-	// add before to test initial load too.
-	addRows(18)
 	go func() {
-		defer env.CancelWorkflow()
-		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
-		// insert 18 rows into the source tables, exactly 3 batches
-		addRows(18)
-
-		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "normalize 18 records - first table", func() bool {
+		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "normalize 1 record - first table", func() bool {
 			return s.comparePGTables(srcTable1Name, dstTable1Name, "id,t") == nil
 		})
 
-		workflowState := getWorkflowState()
-		assert.EqualValues(s.t, 7, workflowState.SyncFlowOptions.IdleTimeoutSeconds)
-		assert.EqualValues(s.t, 6, workflowState.SyncFlowOptions.BatchSize)
-		assert.Len(s.t, workflowState.SyncFlowOptions.TableMappings, 1)
-		assert.Len(s.t, workflowState.SyncFlowOptions.SrcTableIdNameMapping, 1)
-		assert.Len(s.t, workflowState.SyncFlowOptions.TableNameSchemaMapping, 1)
-		// we have limited batch size to 6, so atleast 3 syncs needed
-		assert.GreaterOrEqual(s.t, len(workflowState.SyncFlowStatuses), 3)
+		// we have a paused mirror, wait for second signal to hit.
+		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "sent updates signal", func() bool {
+			return sentUpdate
+		})
 
-		if !s.t.Failed() {
-			// wait for first RegisterDelayedCallback to hit.
-			e2e.EnvWaitFor(s.t, env, 1*time.Minute, "sent pause signal", func() bool {
-				return sentPause
-			})
-			e2e.EnvWaitFor(s.t, env, 1*time.Minute, "paused workflow", func() bool {
-				// keep adding 1 more row - guarantee finishing another sync
-				addRows(1)
-				// isPaused - set from the WaitFor that sends update signal
-				return isPaused
-			})
-			e2e.EnvWaitFor(s.t, env, 1*time.Minute, "normalize 1 record - first table", func() bool {
-				return s.comparePGTables(srcTable1Name, dstTable1Name, "id,t") == nil
-			})
+		// add rows to both tables before resuming - should handle
+		addRows(18)
 
-			// we have a paused mirror, wait for second signal to hit.
-			e2e.EnvWaitFor(s.t, env, 1*time.Minute, "sent updates signal", func() bool {
-				return sentUpdate
-			})
+		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "resumed workflow", func() bool {
+			return getFlowStatus() == protos.FlowStatus_STATUS_RUNNING
+		})
+		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "normalize 18 records - first table", func() bool {
+			return s.comparePGTables(srcTable1Name, dstTable1Name, "id,t") == nil
+		})
+		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "initial load + normalize 18 records - second table", func() bool {
+			return s.comparePGTables(srcTable2Name, dstTable2Name, "id,t") == nil
+		})
 
-			// add rows to both tables before resuming - should handle
-			addRows(18)
-
-			e2e.EnvWaitFor(s.t, env, 1*time.Minute, "resumed workflow", func() bool {
-				return getFlowStatus() == protos.FlowStatus_STATUS_RUNNING
-			})
-			e2e.EnvWaitFor(s.t, env, 1*time.Minute, "normalize 18 records - first table", func() bool {
-				return s.comparePGTables(srcTable1Name, dstTable1Name, "id,t") == nil
-			})
-			e2e.EnvWaitFor(s.t, env, 1*time.Minute, "initial load + normalize 18 records - second table", func() bool {
-				return s.comparePGTables(srcTable2Name, dstTable2Name, "id,t") == nil
-			})
-
-			workflowState = getWorkflowState()
-			assert.EqualValues(s.t, 14, workflowState.SyncFlowOptions.IdleTimeoutSeconds)
-			assert.EqualValues(s.t, 12, workflowState.SyncFlowOptions.BatchSize)
-			assert.Len(s.t, workflowState.SyncFlowOptions.TableMappings, 2)
-			assert.Len(s.t, workflowState.SyncFlowOptions.SrcTableIdNameMapping, 2)
-			assert.Len(s.t, workflowState.SyncFlowOptions.TableNameSchemaMapping, 2)
-			// 3 from first insert of 18 rows in 1 table
-			// 1 from pre-pause
-			// 3 from second insert of 18 rows in 2 tables, batch size updated
-			assert.GreaterOrEqual(s.t, len(workflowState.SyncFlowStatuses), 3+1+3)
-		}
+		workflowState = getWorkflowState()
+		assert.EqualValues(s.t, 14, workflowState.SyncFlowOptions.IdleTimeoutSeconds)
+		assert.EqualValues(s.t, 12, workflowState.SyncFlowOptions.BatchSize)
+		assert.Len(s.t, workflowState.SyncFlowOptions.TableMappings, 2)
+		assert.Len(s.t, workflowState.SyncFlowOptions.SrcTableIdNameMapping, 2)
+		assert.Len(s.t, workflowState.SyncFlowOptions.TableNameSchemaMapping, 2)
+		// 3 from first insert of 18 rows in 1 table
+		// 1 from pre-pause
+		// 3 from second insert of 18 rows in 2 tables, batch size updated
+		assert.GreaterOrEqual(s.t, len(workflowState.SyncFlowStatuses), 3+1+3)
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, workflowState)
 	e2e.RequireEnvCanceled(s.t, env)
 }
