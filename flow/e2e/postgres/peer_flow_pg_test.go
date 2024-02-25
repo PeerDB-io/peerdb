@@ -1168,7 +1168,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		s.t.Logf("Inserted %d rows into the source table", numRows)
 	}
 
-	var workflowState peerflow.CDCFlowWorkflowState
 	getWorkflowState := func() peerflow.CDCFlowWorkflowState {
 		var state peerflow.CDCFlowWorkflowState
 		val, err := env.QueryWorkflow(shared.CDCFlowStateQuery)
@@ -1188,6 +1187,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 
 		return flowStatus
 	}
+
+	var workflowState peerflow.CDCFlowWorkflowState
 
 	// signals in tests are weird, you need to register them before starting the workflow
 	// otherwise you guessed it, errors out. really don't like this.
@@ -1234,7 +1235,11 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, nil)
-	require.True(s.t, workflow.IsContinueAsNewError(env.GetWorkflowError()))
+	err = env.GetWorkflowError()
+	if !workflow.IsContinueAsNewError(err) {
+		require.NoError(s.t, err)
+		require.NotNil(s.t, err)
+	}
 	workflowState.ActiveSignal = model.PauseSignal
 
 	// this signal being sent also unblocks another WaitFor
