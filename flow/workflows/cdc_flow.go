@@ -387,31 +387,6 @@ func CDCFlowWorkflowWithConfig(
 		cfg,
 		sessionInfo.SessionID,
 	)
-	fSessionSetup := workflow.ExecuteActivity(
-		syncCtx,
-		flowable.WaitForSourceConnector,
-		sessionInfo.SessionID,
-	)
-
-	var sessionError error
-	sessionSelector := workflow.NewNamedSelector(ctx, "Session Setup")
-	sessionSelector.AddFuture(fMaintain, func(f workflow.Future) {
-		// MaintainPull should never exit without an error before this point
-		sessionError = f.Get(syncCtx, nil)
-	})
-	sessionSelector.AddFuture(fSessionSetup, func(f workflow.Future) {
-		// Happy path is waiting for this to return without error
-		sessionError = f.Get(syncCtx, nil)
-	})
-	sessionSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
-		sessionError = ctx.Err()
-	})
-	sessionSelector.Select(ctx)
-	if sessionError != nil {
-		state.SyncFlowErrors = append(state.SyncFlowErrors, sessionError.Error())
-		state.TruncateProgress(w.logger)
-		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, state)
-	}
 
 	currentSyncFlowNum := 0
 	totalRecordsSynced := int64(0)
@@ -466,6 +441,13 @@ func CDCFlowWorkflowWithConfig(
 	mainLoopSelector := workflow.NewNamedSelector(ctx, "Main Loop")
 	mainLoopSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
 		canceled = true
+	})
+	mainLoopSelector.AddFuture(fMaintain, func(f workflow.Future) {
+		err := f.Get(ctx, nil)
+		if err != nil {
+			w.logger.Error("MaintainPull failed", slog.Any("error", err))
+			canceled = true
+		}
 	})
 	flowSignalChan.AddToSelector(mainLoopSelector, func(val model.CDCFlowSignal, _ bool) {
 		state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, w.logger)

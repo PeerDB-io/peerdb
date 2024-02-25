@@ -244,15 +244,15 @@ func (a *FlowableActivity) MaintainPull(
 	}
 }
 
-func (a *FlowableActivity) WaitForSourceConnector(ctx context.Context, sessionID string) error {
+func (a *FlowableActivity) waitForCdcCache(ctx context.Context, sessionID string) (connectors.CDCPullConnector, error) {
 	logger := activity.GetLogger(ctx)
 	attempt := 0
 	for {
 		a.CdcCacheRw.RLock()
-		_, ok := a.CdcCache[sessionID]
+		conn, ok := a.CdcCache[sessionID]
 		a.CdcCacheRw.RUnlock()
 		if ok {
-			return nil
+			return conn, nil
 		}
 		activity.RecordHeartbeat(ctx, "wait another second for source connector")
 		attempt += 1
@@ -260,7 +260,7 @@ func (a *FlowableActivity) WaitForSourceConnector(ctx context.Context, sessionID
 			logger.Info("waiting on source connector setup", slog.Int("attempt", attempt))
 		}
 		if err := ctx.Err(); err != nil {
-			return err
+			return nil, err
 		}
 		time.Sleep(time.Second)
 	}
@@ -288,11 +288,9 @@ func (a *FlowableActivity) SyncFlow(
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
 	}
 
-	a.CdcCacheRw.RLock()
-	srcConn, ok := a.CdcCache[sessionID]
-	a.CdcCacheRw.RUnlock()
-	if !ok {
-		return nil, errors.New("source connector missing from CdcCache")
+	srcConn, err := a.waitForCdcCache(ctx, sessionID)
+	if err != nil {
+		return nil, err
 	}
 	if err := srcConn.ConnectionActive(ctx); err != nil {
 		return nil, err
