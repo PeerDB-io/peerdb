@@ -112,7 +112,7 @@ func (tunnel *SSHTunnel) NewPostgresConnFromConfig(
 
 	host := connConfig.Host
 	err = retryWithBackoff(logger, func() error {
-		err = conn.Ping(ctx)
+		_, err := conn.Exec(ctx, "SELECT 1;")
 		if err != nil {
 			logger.Error("Failed to ping pool", slog.Any("error", err), slog.String("host", host))
 			return err
