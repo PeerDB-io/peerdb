@@ -128,6 +128,7 @@ func SyncFlowWorkflow(
 					err.Error(),
 				).Get(ctx, nil)
 				syncErr = true
+				mustWait = false
 			} else if childSyncFlowRes != nil {
 				_ = model.SyncResultSignal.SignalExternalWorkflow(
 					ctx,
@@ -139,9 +140,7 @@ func SyncFlowWorkflow(
 				totalRecordsSynced += childSyncFlowRes.NumRecordsSynced
 				logger.Info("Total records synced: ",
 					slog.Int64("totalRecordsSynced", totalRecordsSynced))
-			}
 
-			if childSyncFlowRes != nil {
 				tableSchemaDeltasCount := len(childSyncFlowRes.TableSchemaDeltas)
 
 				// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
