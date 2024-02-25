@@ -118,7 +118,7 @@ func NormalizeFlowWorkflow(
 			return peerdbenv.PeerDBEnableParallelSyncNormalize()
 		})
 
-		if parallel {
+		if !parallel {
 			_ = model.NormalizeDoneSignal.SignalExternalWorkflow(
 				ctx,
 				parent.ID,
