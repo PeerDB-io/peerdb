@@ -90,7 +90,10 @@ func SyncFlowWorkflow(
 	})
 
 	var waitSelector workflow.Selector
-	if !peerdbenv.PeerDBEnableParallelSyncNormalize() {
+	parallel, _ := GetSideEffect(ctx, func(_ workflow.Context) bool {
+		return peerdbenv.PeerDBEnableParallelSyncNormalize()
+	})
+	if !parallel {
 		waitSelector = workflow.NewNamedSelector(ctx, "NormalizeWait")
 		waitSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 		waitChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)

@@ -108,16 +108,24 @@ func NewCDCFlowWorkflowExecution(ctx workflow.Context, flowName string) *CDCFlow
 	}
 }
 
-func GetUUID(ctx workflow.Context) (string, error) {
-	uuidSideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
-		return uuid.New().String()
+func GetSideEffect[T any](ctx workflow.Context, f func(workflow.Context) T) (T, error) {
+	sideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
+		return f(ctx)
 	})
 
-	var uuidString string
-	if err := uuidSideEffect.Get(&uuidString); err != nil {
+	var result T
+	err := sideEffect.Get(&result)
+	return result, err
+}
+
+func GetUUID(ctx workflow.Context) (string, error) {
+	uuid, err := GetSideEffect(ctx, func(_ workflow.Context) string {
+		return uuid.New().String()
+	})
+	if err != nil {
 		return "", fmt.Errorf("failed to generate UUID: %w", err)
 	}
-	return uuidString, nil
+	return uuid, nil
 }
 
 func GetChildWorkflowID(

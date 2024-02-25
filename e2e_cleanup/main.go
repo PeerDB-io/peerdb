@@ -149,29 +149,16 @@ func CleanupSF(ctx context.Context) {
 		panic(err)
 	}
 	defer database.Close()
-
-	rows, err := database.QueryContext(ctx, "SHOW DATABASES STARTS WITH 'E2E_TEST_'")
+	_, err = database.ExecContext(ctx, `DECLARE c CURSOR FOR
+SELECT database_name FROM INFORMATION_SCHEMA.DATABASES
+WHERE database_name ILIKE 'E2E_TEST_%' AND created < timeadd('hour', -2, CURRENT_DATE);
+BEGIN
+  FOR record IN c DO
+	EXECUTE IMMEDIATE 'DROP DATABASE ' || record.database_name;
+  END FOR;
+END;`)
 	if err != nil {
 		panic(err)
-	}
-	var del []string
-	for rows.Next() {
-		var createdOn time.Time
-		var name string
-		rows.Scan(&createdOn, &name)
-		if createdOn.Before(time.Now().AddDate(0, 0, -1)) {
-			del = append(del, name)
-		}
-	}
-	if err := rows.Close(); err != nil {
-		panic(err)
-	}
-	for _, name := range del {
-		fmt.Printf("Deleting %s\n", name)
-		_, err = database.ExecContext(ctx, fmt.Sprintf("DROP DATABASE %s", name))
-		if err != nil {
-			panic(err)
-		}
 	}
 }
 

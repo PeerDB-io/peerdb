@@ -113,13 +113,19 @@ func NormalizeFlowWorkflow(
 		}
 	}
 
-	if !state.Stop && !peerdbenv.PeerDBEnableParallelSyncNormalize() {
-		_ = model.NormalizeDoneSignal.SignalExternalWorkflow(
-			ctx,
-			parent.ID,
-			"",
-			struct{}{},
-		).Get(ctx, nil)
+	if !state.Stop {
+		parallel, _ := GetSideEffect(ctx, func(_ workflow.Context) bool {
+			return peerdbenv.PeerDBEnableParallelSyncNormalize()
+		})
+
+		if parallel {
+			_ = model.NormalizeDoneSignal.SignalExternalWorkflow(
+				ctx,
+				parent.ID,
+				"",
+				struct{}{},
+			).Get(ctx, nil)
+		}
 	}
 
 	state.Wait = true
