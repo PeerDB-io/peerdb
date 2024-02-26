@@ -355,7 +355,7 @@ func (a *FlowableActivity) SyncFlow(
 
 		dstConnForSchemaChange, connErr := connectors.GetCDCSyncConnector(ctx, config.Destination)
 		if connErr != nil {
-			return nil, fmt.Errorf("failed to get destination connector for last offset fetch: %w", connErr)
+			return nil, fmt.Errorf("failed to get destination connector for schema changes: %w", connErr)
 		}
 		defer connectors.CloseConnector(ctx, dstConnForSchemaChange)
 		err := dstConnForSchemaChange.ReplayTableSchemaDeltas(ctx, flowName, recordBatch.SchemaDeltas)
