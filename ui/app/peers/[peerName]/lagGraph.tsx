@@ -79,10 +79,12 @@ function LagGraph({ slotNames }: { slotNames: string[] }) {
           className='w-1/4'
           placeholder='Select a replication slot'
           options={
-            slotNames.map((slotName) => ({
-              label: slotName,
-              value: slotName,
-            })) ?? undefined
+            slotNames.length === 0
+              ? undefined
+              : slotNames.map((slotName) => ({
+                  label: slotName,
+                  value: slotName,
+                }))
           }
           onChange={(val, _) => val && handleChange(val.value)}
           defaultValue={
