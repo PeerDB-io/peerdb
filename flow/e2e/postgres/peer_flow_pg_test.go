@@ -126,7 +126,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -170,7 +170,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Geospatial_PG() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -234,7 +234,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -282,7 +282,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -466,7 +466,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -526,7 +526,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -594,7 +594,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -661,7 +661,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -714,7 +714,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -788,7 +788,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Basic() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 
 	// verify our updates and delete happened
@@ -879,7 +879,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_IUD_Same_Batch() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -954,7 +954,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 
 	// verify our updates and delete happened
@@ -1032,7 +1032,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Insert_After_Delete() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 
 	softDeleteQuery := fmt.Sprintf(`
@@ -1102,7 +1102,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Supported_Mixed_Case_Table() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, nil)
 }
 
 // test don't work, make it work later
@@ -1302,6 +1302,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		}
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
