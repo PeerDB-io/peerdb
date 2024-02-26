@@ -5,26 +5,27 @@ import { NextRequest, NextResponse, userAgent } from 'next/server';
 const authMiddleware = withAuth({});
 
 export default async function middleware(req: NextRequest, resp: NextResponse) {
+  const accessLogUUID = crypto.randomUUID();
   const agent = userAgent(req);
   const xForwardedFor = req.headers.get('x-forwarded-for');
   console.log(
-    `[${new Date().toISOString()}] [${req.method} ${req.url}] [${req.ip} ${xForwardedFor}] (${JSON.stringify(agent.device)} ${JSON.stringify(agent.os)} ${JSON.stringify(agent.browser)})`
+    `[${accessLogUUID}] [${req.method} ${req.url}] [${req.ip} ${xForwardedFor}] (${JSON.stringify(agent.device)} ${JSON.stringify(agent.os)} ${JSON.stringify(agent.browser)})`
   );
 
   if (Configuration.authentication.PEERDB_PASSWORD) {
     const authRes = await (authMiddleware as any)(req);
 
-    const authResJson = NextResponse.next()
+    const authResJson = NextResponse.next();
     console.log(
-      `[${new Date().toISOString()}] [${req.method} ${req.url}] [${req.ip} ${xForwardedFor}] (${JSON.stringify(agent.device)} ${JSON.stringify(agent.os)} ${JSON.stringify(agent.browser)}) ${authResJson.status}`
+      `[${accessLogUUID}] [${req.method} ${req.url}] [${req.ip} ${xForwardedFor}] (${JSON.stringify(agent.device)} ${JSON.stringify(agent.os)} ${JSON.stringify(agent.browser)}) ${authResJson.status}`
     );
 
     return authRes;
   }
 
-  const res = NextResponse.next()
+  const res = NextResponse.next();
   console.log(
-    `[${new Date().toISOString()}] [${req.method} ${req.url}] [${req.ip} ${xForwardedFor}] (${JSON.stringify(agent.device)} ${JSON.stringify(agent.os)} ${JSON.stringify(agent.browser)}) ${res.status}`
+    `[${accessLogUUID}] [${req.method} ${req.url}] [${req.ip} ${xForwardedFor}] (${JSON.stringify(agent.device)} ${JSON.stringify(agent.os)} ${JSON.stringify(agent.browser)}) ${res.status}`
   );
 }
 
