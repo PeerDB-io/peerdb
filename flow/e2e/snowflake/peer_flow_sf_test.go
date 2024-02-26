@@ -171,7 +171,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 
 	// check the number of rows where _PEERDB_SYNCED_AT is newer than 5 mins ago
@@ -235,7 +235,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -316,7 +316,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -370,7 +370,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -430,7 +430,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -483,7 +483,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -537,7 +537,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -633,7 +633,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -688,7 +688,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -903,7 +903,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -960,7 +960,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -1022,7 +1022,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -1081,7 +1081,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -1150,7 +1150,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 
 	sfRows, err := s.GetRows(tableName, "*")
@@ -1229,7 +1229,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 
 	newerSyncedAtQuery := fmt.Sprintf(`
@@ -1313,7 +1313,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -1398,7 +1398,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -1469,7 +1469,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 
 	newerSyncedAtQuery := fmt.Sprintf(`
@@ -1531,6 +1531,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }

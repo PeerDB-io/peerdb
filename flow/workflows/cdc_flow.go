@@ -187,7 +187,7 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 		childAdditionalTablesCDCFlowCtx := workflow.WithChildOptions(ctx, childAdditionalTablesCDCFlowOpts)
 		childAdditionalTablesCDCFlowFuture := workflow.ExecuteChildWorkflow(
 			childAdditionalTablesCDCFlowCtx,
-			CDCFlowWorkflowWithConfig,
+			CDCFlowWorkflow,
 			additionalTablesCfg,
 			nil,
 		)
@@ -207,7 +207,7 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 	return nil
 }
 
-func CDCFlowWorkflowWithConfig(
+func CDCFlowWorkflow(
 	ctx workflow.Context,
 	cfg *protos.FlowConnectionConfigs,
 	state *CDCFlowWorkflowState,
@@ -584,12 +584,12 @@ func CDCFlowWorkflowWithConfig(
 		}
 		if syncErr {
 			state.TruncateProgress(w.logger)
-			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, state)
+			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 		}
 		if normalizeSignalError != nil {
 			state.NormalizeFlowErrors = append(state.NormalizeFlowErrors, normalizeSignalError.Error())
 			state.TruncateProgress(w.logger)
-			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, state)
+			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 		}
 		if !normDone {
 			normWaitChan.Receive(ctx)
@@ -602,5 +602,5 @@ func CDCFlowWorkflowWithConfig(
 		return nil, err
 	}
 
-	return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, state)
+	return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 }

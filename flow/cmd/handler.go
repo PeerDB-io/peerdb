@@ -165,13 +165,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
 
-	_, err = h.temporalClient.ExecuteWorkflow(
-		ctx,                                // context
-		workflowOptions,                    // workflow start options
-		peerflow.CDCFlowWorkflowWithConfig, // workflow function
-		cfg,                                // workflow input
-		nil,                                // workflow state
-	)
+	_, err = h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg, nil)
 	if err != nil {
 		slog.Error("unable to start PeerFlow workflow", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
@@ -333,12 +327,7 @@ func (h *FlowRequestHandler) ShutdownFlow(
 			shared.MirrorNameSearchAttribute: req.FlowJobName,
 		},
 	}
-	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(
-		ctx,                       // context
-		workflowOptions,           // workflow start options
-		peerflow.DropFlowWorkflow, // workflow function
-		req,                       // workflow input
-	)
+	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.DropFlowWorkflow, req)
 	if err != nil {
 		slog.Error("unable to start DropFlow workflow",
 			logs,
