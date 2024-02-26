@@ -31,7 +31,7 @@ import { blankCDCSetting } from './helpers/common';
 import { qrepSettings } from './helpers/qrep';
 import MirrorCards from './mirrorcards';
 import QRepConfigForm from './qrep/qrep';
-import QRepQuery from './qrep/query';
+import SnowflakeQRepForm from './qrep/snowflakeQrep';
 import * as styles from './styles';
 
 function getPeerValue(peer: Peer) {
@@ -75,11 +75,6 @@ export default function CreateMirrors() {
   const [config, setConfig] = useState<CDCConfig | QRepConfig>(blankCDCSetting);
   const [peers, setPeers] = useState<Peer[]>([]);
   const [rows, setRows] = useState<TableMapRow[]>([]);
-  const [qrepQuery, setQrepQuery] =
-    useState<string>(`-- Here's a sample template:
-    SELECT * FROM <table_name>
-    WHERE <watermark_column>
-    BETWEEN {{.start}} AND {{.end}}`);
 
   useEffect(() => {
     fetch('/api/peers', { cache: 'no-store' })
@@ -191,10 +186,6 @@ export default function CreateMirrors() {
 
         <Divider style={{ marginTop: '1rem', marginBottom: '1rem' }} />
 
-        {mirrorType === 'Query Replication' && (
-          <QRepQuery query={qrepQuery} setter={setQrepQuery} />
-        )}
-
         {mirrorType && (
           <Label
             as='label'
@@ -214,6 +205,11 @@ export default function CreateMirrors() {
             setter={setConfig}
             rows={rows}
             setRows={setRows}
+          />
+        ) : (config as QRepConfig).sourcePeer?.type == DBType.SNOWFLAKE ? (
+          <SnowflakeQRepForm
+            mirrorConfig={config as QRepConfig}
+            setter={setConfig}
           />
         ) : (
           <QRepConfigForm
@@ -267,7 +263,6 @@ export default function CreateMirrors() {
                     )
                   : handleCreateQRep(
                       mirrorName,
-                      qrepQuery,
                       config as QRepConfig,
                       notifyErr,
                       setCreating,

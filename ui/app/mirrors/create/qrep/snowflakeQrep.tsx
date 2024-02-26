@@ -1,56 +1,39 @@
 'use client';
-import SelectTheme from '@/app/styles/select';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepConfig, QRepWriteType } from '@/grpc_generated/flow';
-import { DBType } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import ReactSelect from 'react-select';
 import { InfoPopover } from '../../../../components/InfoPopover';
-import { MirrorSetter } from '../../../dto/MirrorsDTO';
-import { defaultSyncMode } from '../cdc/cdc';
-import { fetchAllTables, fetchColumns } from '../handlers';
-import { MirrorSetting, blankQRepSetting } from '../helpers/common';
+import { MirrorSetter } from '../../types';
+import { MirrorSetting, blankSnowflakeQRepSetting } from '../helpers/common';
+import { snowflakeQRepSettings } from '../helpers/qrep';
 import QRepQuery from './query';
-import UpsertColsDisplay from './upsertcols';
 
-interface QRepConfigProps {
-  settings: MirrorSetting[];
+interface SnowflakeQRepProps {
   mirrorConfig: QRepConfig;
   setter: MirrorSetter;
-  xmin?: boolean;
 }
 
-const WriteModes = ['Append', 'Upsert', 'Overwrite'].map((value) => ({
-  label: value,
-  value,
-}));
-
-export default function QRepConfigForm({
-  settings,
+export default function SnowflakeQRepForm({
   mirrorConfig,
   setter,
-  xmin,
-}: QRepConfigProps) {
-  const [sourceTables, setSourceTables] = useState<
-    { value: string; label: string }[]
-  >([]);
-  const [watermarkColumns, setWatermarkColumns] = useState<
-    { value: string; label: string }[]
-  >([]);
-
-  const [loading, setLoading] = useState(false);
+}: SnowflakeQRepProps) {
+  const WriteModes = ['Append', 'Overwrite'].map((value) => ({
+    label: value,
+    value,
+  }));
 
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
     let stateVal: string | boolean | QRepWriteType | string[] = val;
     if (setting.label.includes('Write Type')) {
       switch (val) {
-        case 'Upsert':
-          stateVal = QRepWriteType.QREP_WRITE_MODE_UPSERT;
+        case 'Append':
+          stateVal = QRepWriteType.QREP_WRITE_MODE_APPEND;
           break;
         case 'Overwrite':
           stateVal = QRepWriteType.QREP_WRITE_MODE_OVERWRITE;
@@ -59,9 +42,6 @@ export default function QRepConfigForm({
           stateVal = QRepWriteType.QREP_WRITE_MODE_APPEND;
           break;
       }
-    } else if (setting.label === 'Upsert Key Columns') {
-      const columns = val as string;
-      stateVal = columns.split(',').map((item) => item.trim());
     }
     setting.stateHandler(stateVal, setter);
   };
@@ -69,72 +49,25 @@ export default function QRepConfigForm({
   const paramDisplayCondition = (setting: MirrorSetting) => {
     const label = setting.label.toLowerCase();
     if (
-      (label.includes('upsert') &&
-        mirrorConfig.writeMode?.writeType !=
-          QRepWriteType.QREP_WRITE_MODE_UPSERT) ||
-      (label.includes('staging') &&
-        defaultSyncMode(mirrorConfig.destinationPeer?.type) !== 'AVRO') ||
-      (label.includes('watermark column') && xmin) ||
-      (label.includes('initial copy') && xmin)
+      setting.label === 'Upsert Key Columns' ||
+      setting.label === 'Watermark Column'
     ) {
       return false;
     }
     return true;
   };
 
-  const loadColumnOptions = (tableIdentifier: string) => {
-    const schema = tableIdentifier.split('.')[0];
-    const table = tableIdentifier.split('.')[1];
-    fetchColumns(
-      mirrorConfig.sourcePeer?.name ?? '',
-      schema,
-      table,
-      setLoading
-    ).then((cols) =>
-      setWatermarkColumns(
-        cols?.map((col) => ({
-          value: col.split(':')[0],
-          label: `${col.split(':')[0]} (${col.split(':')[1]})`,
-        }))
-      )
-    );
-  };
-
-  const handleSourceChange = (
-    val: string | undefined,
-    setting: MirrorSetting
-  ) => {
-    if (val) {
-      if (setting.label === 'Table') {
-        if (mirrorConfig.destinationPeer?.type === DBType.BIGQUERY) {
-          setter((curr) => ({
-            ...curr,
-            destinationTableIdentifier: val.split('.')[1],
-          }));
-        } else {
-          setter((curr) => ({
-            ...curr,
-            destinationTableIdentifier: val,
-          }));
-        }
-        loadColumnOptions(val);
-      }
-      handleChange(val, setting);
-    }
-  };
-
-  useEffect(() => {
-    fetchAllTables(mirrorConfig.sourcePeer?.name ?? '').then((tables) =>
-      setSourceTables(tables?.map((table) => ({ value: table, label: table })))
-    );
-  }, [mirrorConfig.sourcePeer]);
-
   useEffect(() => {
     // set defaults
-    setter((curr) => ({ ...curr, ...blankQRepSetting }));
+    setter((curr) => ({ ...curr, ...blankSnowflakeQRepSetting }));
   }, [setter]);
   return (
     <>
+      <Label>
+        Snowflake to PostgreSQL Query Replication currently only supports
+        append-only, full-table streaming replication. More features coming
+        soon!
+      </Label>
       <QRepQuery
         query={mirrorConfig.query}
         setter={(val: string) => {
@@ -145,7 +78,7 @@ export default function QRepConfigForm({
         }}
       />
       {mirrorConfig.sourcePeer?.name ? (
-        settings.map((setting, id) => {
+        snowflakeQRepSettings.map((setting, id) => {
           return (
             paramDisplayCondition(setting) &&
             (setting.type === 'switch' ? (
@@ -161,13 +94,7 @@ export default function QRepConfigForm({
                     }}
                   >
                     <Switch
-                      checked={
-                        setting.label === 'Create Destination Table'
-                          ? mirrorConfig.setupWatermarkTableOnDestination
-                          : setting.label === 'Initial Copy Only'
-                            ? mirrorConfig.initialCopyOnly
-                            : mirrorConfig.dstTableFullResync
-                      }
+                      checked={mirrorConfig.setupWatermarkTableOnDestination}
                       onCheckedChange={(state: boolean) =>
                         handleChange(state, setting)
                       }
@@ -199,42 +126,15 @@ export default function QRepConfigForm({
                     }}
                   >
                     <div style={{ width: '100%' }}>
-                      {setting.label.includes('Write') ? (
-                        <ReactSelect
-                          placeholder='Select a write mode'
-                          onChange={(val) =>
-                            val && handleChange(val.value, setting)
-                          }
-                          options={WriteModes}
-                          theme={SelectTheme}
-                        />
-                      ) : setting.label === 'Upsert Key Columns' ? (
-                        <UpsertColsDisplay
-                          columns={watermarkColumns}
-                          loading={loading}
-                          setter={setter}
-                          setting={setting}
-                        />
-                      ) : (
-                        <ReactSelect
-                          placeholder={
-                            setting.label.includes('Column')
-                              ? 'Select a column'
-                              : 'Select a table'
-                          }
-                          onChange={(val, action) =>
-                            handleSourceChange(val?.value, setting)
-                          }
-                          isLoading={loading}
-                          options={
-                            setting.label.includes('Column')
-                              ? watermarkColumns
-                              : sourceTables
-                          }
-                          theme={SelectTheme}
-                        />
-                      )}
+                      <ReactSelect
+                        placeholder='Select a write mode'
+                        onChange={(val) =>
+                          val && handleChange(val.value, setting)
+                        }
+                        options={WriteModes}
+                      />
                     </div>
+
                     {setting.tips && (
                       <InfoPopover
                         tips={setting.tips}

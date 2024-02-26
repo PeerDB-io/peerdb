@@ -1,5 +1,5 @@
+import { Label } from '@/lib/Label';
 import Editor from '@monaco-editor/react';
-import { Dispatch, SetStateAction } from 'react';
 const options = {
   readOnly: false,
   minimap: { enabled: false },
@@ -7,19 +7,24 @@ const options = {
 };
 
 interface QueryProps {
-  setter: Dispatch<SetStateAction<string>>;
+  setter: (val: string) => void;
   query: string;
 }
 const QRepQuery = (props: QueryProps) => {
   return (
-    <Editor
-      options={options}
-      height='10vh'
-      value={props.query}
-      defaultLanguage='pgsql'
-      defaultValue='-- Query for QRep Mirror'
-      onChange={(value) => props.setter(value as string)}
-    />
+    <>
+      <Label as='label' style={{ marginTop: '1rem', marginBottom: '1rem' }}>
+        Replication Query
+      </Label>
+      <Editor
+        options={options}
+        height='10vh'
+        value={props.query}
+        defaultLanguage='pgsql'
+        defaultValue='-- Query for QRep Mirror'
+        onChange={(value) => props.setter(value as string)}
+      />
+    </>
   );
 };
 
