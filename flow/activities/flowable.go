@@ -276,11 +276,6 @@ func (a *FlowableActivity) SyncFlow(
 	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
 	logger := activity.GetLogger(ctx)
 	activity.RecordHeartbeat(ctx, "starting flow...")
-	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.Destination)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get destination connector: %w", err)
-	}
-	defer connectors.CloseConnector(ctx, dstConn)
 
 	logger.Info("pulling records...")
 	tblNameMapping := make(map[string]model.NameAndExclude, len(options.TableMappings))
@@ -306,10 +301,18 @@ func (a *FlowableActivity) SyncFlow(
 		batchSize = 1_000_000
 	}
 
-	lastOffset, err := dstConn.GetLastOffset(ctx, config.FlowJobName)
+	dstConnForLastOffset, err := connectors.GetCDCSyncConnector(ctx, config.Destination)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get destination connector for last offset fetch: %w", err)
+	}
+	defer connectors.CloseConnector(ctx, dstConnForLastOffset)
+
+	lastOffset, err := dstConnForLastOffset.GetLastOffset(ctx, config.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
+
+	connectors.CloseConnector(ctx, dstConnForLastOffset)
 
 	// start a goroutine to pull records from the source
 	recordBatch := model.NewCDCRecordStream()
@@ -350,7 +353,7 @@ func (a *FlowableActivity) SyncFlow(
 		}
 		logger.Info("no records to push")
 
-		err := dstConn.ReplayTableSchemaDeltas(ctx, flowName, recordBatch.SchemaDeltas)
+		err := dstConnForLastOffset.ReplayTableSchemaDeltas(ctx, flowName, recordBatch.SchemaDeltas)
 		if err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
@@ -362,10 +365,16 @@ func (a *FlowableActivity) SyncFlow(
 		}, nil
 	}
 
+	dstConnForSync, err := connectors.GetCDCSyncConnector(ctx, config.Destination)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get destination connector for sync records: %w", err)
+	}
+	defer connectors.CloseConnector(ctx, dstConnForSync)
+
 	var syncStartTime time.Time
 	var res *model.SyncResponse
 	errGroup.Go(func() error {
-		syncBatchID, err := dstConn.GetLastSyncBatchID(errCtx, flowName)
+		syncBatchID, err := dstConnForLastOffset.GetLastSyncBatchID(errCtx, flowName)
 		if err != nil && config.Destination.Type != protos.DBType_EVENTHUB {
 			return err
 		}
@@ -384,7 +393,7 @@ func (a *FlowableActivity) SyncFlow(
 		}
 
 		syncStartTime = time.Now()
-		res, err = dstConn.SyncRecords(errCtx, &model.SyncRecordsRequest{
+		res, err = dstConnForLastOffset.SyncRecords(errCtx, &model.SyncRecordsRequest{
 			SyncBatchID:   syncBatchID,
 			Records:       recordBatch,
 			FlowJobName:   flowName,
