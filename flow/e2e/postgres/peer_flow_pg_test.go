@@ -1224,11 +1224,11 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		if !s.t.Failed() {
 			// wait for first RegisterDelayedCallback to hit.
 			e2e.EnvWaitFor(s.t, env, 1*time.Minute, "sent pause signal", func() bool {
+				// adding 1 more row while pausing - guarantee finishing another sync
+				addRows(1)
+
 				return sentPause
 			})
-
-			// keep adding 1 more row - guarantee finishing another sync
-			addRows(1)
 		} else {
 			env.CancelWorkflow()
 		}
