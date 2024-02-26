@@ -3,11 +3,11 @@ import {
   ValidateCDCMirrorResponse,
 } from '@/grpc_generated/route';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
+import { NextRequest } from 'next/server';
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   const body = await request.json();
   const { config } = body;
-  console.log('/mirrors/cdc/validate config: ', config);
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
   const req: CreateCDCFlowRequest = {
     connectionConfigs: config,
