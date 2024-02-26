@@ -1238,7 +1238,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	err = env.GetWorkflowError()
 	if !workflow.IsContinueAsNewError(err) {
 		require.NoError(s.t, err)
-		require.NotNil(s.t, err)
+		require.Error(s.t, err)
 	}
 	workflowState.ActiveSignal = model.PauseSignal
 
@@ -1310,6 +1310,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		assert.GreaterOrEqual(s.t, len(workflowState.SyncFlowStatuses), 3+1+3)
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, workflowState)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, &workflowState)
 	e2e.RequireEnvCanceled(s.t, env)
 }
