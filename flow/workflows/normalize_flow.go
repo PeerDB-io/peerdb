@@ -13,89 +13,126 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
+type NormalizeState struct {
+	Wait                   bool
+	Stop                   bool
+	LastSyncBatchID        int64
+	SyncBatchID            int64
+	TableNameSchemaMapping map[string]*protos.TableSchema
+}
+
+func NewNormalizeState() *NormalizeState {
+	return &NormalizeState{
+		Wait:                   true,
+		Stop:                   false,
+		LastSyncBatchID:        -1,
+		SyncBatchID:            -1,
+		TableNameSchemaMapping: nil,
+	}
+}
+
+// returns whether workflow should finish
+// signals are flushed when ProcessLoop returns
+func ProcessLoop(ctx workflow.Context, logger log.Logger, selector workflow.Selector, state *NormalizeState) bool {
+	for ctx.Err() == nil && selector.HasPending() {
+		selector.Select(ctx)
+	}
+
+	if ctx.Err() != nil {
+		logger.Info("normalize canceled")
+		return true
+	} else if state.Stop && state.LastSyncBatchID == state.SyncBatchID {
+		logger.Info("normalize finished")
+		return true
+	}
+	return false
+}
+
 func NormalizeFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
-) (*model.NormalizeFlowResponse, error) {
+	state *NormalizeState,
+) error {
+	parent := workflow.GetInfo(ctx).ParentWorkflowExecution
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
+
+	if state == nil {
+		state = NewNormalizeState()
+	}
 
 	normalizeFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 7 * 24 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
 	})
 
-	results := make([]model.NormalizeResponse, 0, 4)
-	errors := make([]string, 0)
-	syncChan := model.NormalizeSyncSignal.GetSignalChannel(ctx)
-
-	var stopLoop, canceled bool
-	var lastSyncBatchID, syncBatchID int64
-	var tableNameSchemaMapping map[string]*protos.TableSchema
-	lastSyncBatchID = -1
-	syncBatchID = -1
-	selector := workflow.NewNamedSelector(ctx, config.FlowJobName+"-normalize")
-	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
-		canceled = true
-	})
-	syncChan.AddToSelector(selector, func(s model.NormalizePayload, _ bool) {
+	selector := workflow.NewNamedSelector(ctx, "NormalizeLoop")
+	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+	model.NormalizeSignal.GetSignalChannel(ctx).AddToSelector(selector, func(s model.NormalizePayload, _ bool) {
 		if s.Done {
-			stopLoop = true
+			state.Stop = true
 		}
-		if s.SyncBatchID > syncBatchID {
-			syncBatchID = s.SyncBatchID
+		if s.SyncBatchID > state.SyncBatchID {
+			state.SyncBatchID = s.SyncBatchID
 		}
-		tableNameSchemaMapping = s.TableNameSchemaMapping
+		state.TableNameSchemaMapping = s.TableNameSchemaMapping
+		state.Wait = false
 	})
 
-	parallel := GetSideEffect(ctx, func(_ workflow.Context) bool {
-		return peerdbenv.PeerDBEnableParallelSyncNormalize()
-	})
-
-	for !stopLoop {
-		selector.Select(ctx)
-		for !canceled && selector.HasPending() {
+	for {
+		for state.Wait && ctx.Err() == nil {
 			selector.Select(ctx)
 		}
-		if canceled || (stopLoop && lastSyncBatchID == syncBatchID) {
-			if canceled {
-				logger.Info("normalize canceled")
-			} else {
-				logger.Info("normalize finished")
-			}
-			break
+		if ProcessLoop(ctx, logger, selector, state) {
+			return ctx.Err()
 		}
-		if lastSyncBatchID != syncBatchID {
-			lastSyncBatchID = syncBatchID
+
+		if state.LastSyncBatchID != state.SyncBatchID {
+			state.LastSyncBatchID = state.SyncBatchID
 
 			logger.Info("executing normalize")
 			startNormalizeInput := &protos.StartNormalizeInput{
 				FlowConnectionConfigs:  config,
-				TableNameSchemaMapping: tableNameSchemaMapping,
-				SyncBatchID:            syncBatchID,
+				TableNameSchemaMapping: state.TableNameSchemaMapping,
+				SyncBatchID:            state.SyncBatchID,
 			}
 			fStartNormalize := workflow.ExecuteActivity(normalizeFlowCtx, flowable.StartNormalize, startNormalizeInput)
 
 			var normalizeResponse *model.NormalizeResponse
 			if err := fStartNormalize.Get(normalizeFlowCtx, &normalizeResponse); err != nil {
-				errors = append(errors, err.Error())
+				_ = model.NormalizeErrorSignal.SignalExternalWorkflow(
+					ctx,
+					parent.ID,
+					"",
+					err.Error(),
+				).Get(ctx, nil)
 			} else if normalizeResponse != nil {
-				results = append(results, *normalizeResponse)
+				_ = model.NormalizeResultSignal.SignalExternalWorkflow(
+					ctx,
+					parent.ID,
+					"",
+					*normalizeResponse,
+				).Get(ctx, nil)
 			}
 		}
 
-		if !parallel {
-			parent := workflow.GetInfo(ctx).ParentWorkflowExecution
-			model.NormalizeSyncDoneSignal.SignalExternalWorkflow(
-				ctx,
-				parent.ID,
-				parent.RunID,
-				struct{}{},
-			)
+		if !state.Stop {
+			parallel := GetSideEffect(ctx, func(_ workflow.Context) bool {
+				return peerdbenv.PeerDBEnableParallelSyncNormalize()
+			})
+
+			if !parallel {
+				_ = model.NormalizeDoneSignal.SignalExternalWorkflow(
+					ctx,
+					parent.ID,
+					"",
+					struct{}{},
+				).Get(ctx, nil)
+			}
+		}
+
+		state.Wait = true
+		if ProcessLoop(ctx, logger, selector, state) {
+			return ctx.Err()
 		}
 	}
-
-	return &model.NormalizeFlowResponse{
-		Results: results,
-		Errors:  errors,
-	}, nil
 }
