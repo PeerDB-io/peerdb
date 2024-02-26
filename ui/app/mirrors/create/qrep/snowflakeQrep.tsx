@@ -23,7 +23,7 @@ export default function SnowflakeQRepForm({
   mirrorConfig,
   setter,
 }: SnowflakeQRepProps) {
-  const WriteModes = ['Append', 'Overwrite'].map((value) => ({
+  const WriteModes = ['Overwrite'].map((value) => ({
     label: value,
     value,
   }));
@@ -65,8 +65,8 @@ export default function SnowflakeQRepForm({
     <>
       <Label>
         Snowflake to PostgreSQL Query Replication currently only supports
-        append-only, full-table streaming replication. More features coming
-        soon!
+        full-table streaming replication with overwrite mode. More features
+        coming soon!
       </Label>
       <QRepQuery
         query={mirrorConfig.query}
@@ -127,11 +127,9 @@ export default function SnowflakeQRepForm({
                   >
                     <div style={{ width: '100%' }}>
                       <ReactSelect
+                        isDisabled={true}
                         placeholder='Select a write mode'
-                        onChange={(val) =>
-                          val && handleChange(val.value, setting)
-                        }
-                        options={WriteModes}
+                        value={{ value: 'Overwrite', label: 'Overwrite' }}
                       />
                     </div>
 
