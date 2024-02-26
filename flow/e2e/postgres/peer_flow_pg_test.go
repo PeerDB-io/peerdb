@@ -1241,6 +1241,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		require.Error(s.t, err)
 	}
 	workflowState.ActiveSignal = model.PauseSignal
+	env = e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	// this signal being sent also unblocks another WaitFor
 	env.RegisterDelayedCallback(func() {
