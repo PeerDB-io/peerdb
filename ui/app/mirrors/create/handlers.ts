@@ -175,7 +175,6 @@ const quotedWatermarkTable = (watermarkTable: string): string => {
 
 export const handleCreateQRep = async (
   flowJobName: string,
-  query: string,
   config: QRepConfig,
   notify: (msg: string) => void,
   setLoading: Dispatch<SetStateAction<boolean>>,
@@ -194,7 +193,6 @@ export const handleCreateQRep = async (
     config.query = `SELECT * FROM ${quotedWatermarkTable(
       config.watermarkTable
     )}`;
-    query = config.query;
     config.initialCopyOnly = false;
   }
 
@@ -206,14 +204,28 @@ export const handleCreateQRep = async (
     notify('For upsert mode, unique key columns cannot be empty.');
     return;
   }
-  const fieldErr = validateQRepFields(query, config);
-  if (fieldErr) {
-    notify(fieldErr);
-    return;
+
+  if (config.sourcePeer?.snowflakeConfig) {
+    if (config.query.includes('<table_name>')) {
+      notify('Please fill in the query correctly');
+      return;
+    }
+    if (config.watermarkTable == '') {
+      notify('Please fill in the source table');
+      return;
+    }
+    if (config.destinationTableIdentifier == '') {
+      notify('Please fill in the destination table');
+      return;
+    }
+  } else {
+    const fieldErr = validateQRepFields(config.query, config);
+    if (fieldErr) {
+      notify(fieldErr);
+      return;
+    }
   }
   config.flowJobName = flowJobName;
-  config.query = query;
-
   setLoading(true);
   const statusMessage: UCreateMirrorResponse = await fetch(
     '/api/mirrors/qrep',

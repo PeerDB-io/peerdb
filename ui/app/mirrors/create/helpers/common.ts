@@ -40,18 +40,32 @@ export const blankCDCSetting: FlowConnectionConfigs = {
 
 export const blankQRepSetting = {
   destinationTableIdentifier: '',
-  query: '',
+  query: `-- Here's a sample template:
+  SELECT * FROM <table_name>
+  WHERE <watermark_column>
+  BETWEEN {{.start}} AND {{.end}}`,
   watermarkTable: '',
   watermarkColumn: '',
   initialCopyOnly: false,
-  syncMode: 0,
-  batchSizeInt: 0,
-  batchDurationSeconds: 0,
   maxParallelWorkers: 4,
   waitBetweenBatchesSeconds: 30,
   writeMode: undefined,
   stagingPath: '',
   numRowsPerPartition: 100000,
   setupWatermarkTableOnDestination: false,
-  dstTableFullResync: false,
+};
+
+export const blankSnowflakeQRepSetting = {
+  destinationTableIdentifier: '',
+  query: `-- Here's a sample template you can fill in:
+  SELECT * FROM <table_name>`,
+  watermarkTable: '',
+  watermarkColumn: '',
+  maxParallelWorkers: 4,
+  waitBetweenBatchesSeconds: 30,
+  writeMode: undefined,
+  stagingPath: '',
+  numRowsPerPartition: 100000,
+  setupWatermarkTableOnDestination: false,
+  initialCopyOnly: true,
 };

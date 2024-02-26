@@ -137,14 +137,54 @@ export const qrepSettings: MirrorSetting[] = [
     default: 30,
     type: 'number',
   },
-  // {
-  //   label: 'Resync Destination Table',
-  //   stateHandler: (value, setter) =>
-  //     setter((curr: QRepConfig) => ({
-  //       ...curr,
-  //       dstTableFullResync:value as boolean
-  //     })),
-  //   tips: 'Perform a resync of the provided destination table',
-  //   type: 'switch',
-  // },
+];
+
+export const snowflakeQRepSettings: MirrorSetting[] = [
+  {
+    label: 'Table',
+    stateHandler: (value, setter) =>
+      setter((curr: QRepConfig) => ({
+        ...curr,
+        watermarkTable: (value as string) || '',
+      })),
+    type: 'text',
+    tips: 'The source table of the replication and the table to which the watermark column belongs.',
+    required: true,
+  },
+  {
+    label: 'Create Destination Table',
+    stateHandler: (value, setter) =>
+      setter((curr: QRepConfig) => ({
+        ...curr,
+        setupWatermarkTableOnDestination: (value as boolean) || false,
+      })),
+    tips: 'Specify if you want to create the watermark table on the destination as-is, can be used for some queries.',
+    type: 'switch',
+  },
+  {
+    label: 'Destination Table Name',
+    stateHandler: (value, setter) =>
+      setter((curr: QRepConfig) => ({
+        ...curr,
+        destinationTableIdentifier: value as string,
+      })),
+    tips: 'Name of the destination. For any destination peer apart from BigQuery, this must be schema-qualified. Example: public.users',
+    required: true,
+  },
+  {
+    label: 'Write Type',
+    stateHandler: (value, setter) =>
+      setter((curr: QRepConfig) => {
+        let currWriteMode = curr.writeMode || { writeType: undefined };
+        currWriteMode.writeType = value as QRepWriteType;
+        return {
+          ...curr,
+          writeMode: currWriteMode,
+        };
+      }),
+    tips: `Specify whether you want the write mode to be via APPEND, UPSERT or OVERWRITE.
+    Append mode is for insert-only workloads. Upsert mode is append mode but also supports updates.
+    Overwrite mode overwrites the destination table data every sync.`,
+    type: 'select',
+  },
 ];
