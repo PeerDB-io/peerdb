@@ -112,24 +112,23 @@ func NewCDCFlowWorkflowExecution(ctx workflow.Context, flowName string) *CDCFlow
 	}
 }
 
-func GetSideEffect[T any](ctx workflow.Context, f func(workflow.Context) T) (T, error) {
+func GetSideEffect[T any](ctx workflow.Context, f func(workflow.Context) T) T {
 	sideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
 		return f(ctx)
 	})
 
 	var result T
 	err := sideEffect.Get(&result)
-	return result, err
+	if err != nil {
+		panic(err)
+	}
+	return result
 }
 
-func GetUUID(ctx workflow.Context) (string, error) {
-	uuid, err := GetSideEffect(ctx, func(_ workflow.Context) string {
+func GetUUID(ctx workflow.Context) string {
+	return GetSideEffect(ctx, func(_ workflow.Context) string {
 		return uuid.New().String()
 	})
-	if err != nil {
-		return "", fmt.Errorf("failed to generate UUID: %w", err)
-	}
-	return uuid, nil
 }
 
 func GetChildWorkflowID(
@@ -168,15 +167,8 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 			return err
 		}
 
-		additionalTablesUUID, err := GetUUID(ctx)
-		if err != nil {
-			return err
-		}
+		additionalTablesUUID := GetUUID(ctx)
 		childAdditionalTablesCDCFlowID := GetChildWorkflowID("additional-cdc-flow", cfg.FlowJobName, additionalTablesUUID)
-		if err != nil {
-			return err
-		}
-
 		additionalTablesCfg := proto.Clone(cfg).(*protos.FlowConnectionConfigs)
 		additionalTablesCfg.DoInitialSnapshot = true
 		additionalTablesCfg.InitialSnapshotOnly = true
@@ -410,7 +402,7 @@ func CDCFlowWorkflowWithConfig(
 	)
 
 	var normWaitChan model.TypedReceiveChannel[struct{}]
-	parallel, _ := GetSideEffect(ctx, func(_ workflow.Context) bool {
+	parallel := GetSideEffect(ctx, func(_ workflow.Context) bool {
 		return peerdbenv.PeerDBEnableParallelSyncNormalize()
 	})
 	if !parallel {

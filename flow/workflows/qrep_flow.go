@@ -201,24 +201,17 @@ func (q *QRepPartitionFlowExecution) ReplicatePartitions(ctx workflow.Context,
 }
 
 // getPartitionWorkflowID returns the child workflow ID for a new sync flow.
-func (q *QRepFlowExecution) getPartitionWorkflowID(ctx workflow.Context) (string, error) {
-	id, err := GetUUID(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to get child workflow ID: %w", err)
-	}
-
-	return fmt.Sprintf("qrep-part-%s-%s", q.config.FlowJobName, id), nil
+func (q *QRepFlowExecution) getPartitionWorkflowID(ctx workflow.Context) string {
+	id := GetUUID(ctx)
+	return fmt.Sprintf("qrep-part-%s-%s", q.config.FlowJobName, id)
 }
 
 // startChildWorkflow starts a single child workflow.
 func (q *QRepFlowExecution) startChildWorkflow(
 	ctx workflow.Context,
 	partitions *protos.QRepPartitionBatch,
-) (workflow.ChildWorkflowFuture, error) {
-	wid, err := q.getPartitionWorkflowID(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get child workflow ID: %w", err)
-	}
+) workflow.ChildWorkflowFuture {
+	wid := q.getPartitionWorkflowID(ctx)
 	partFlowCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
 		WorkflowID:        wid,
 		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
@@ -230,10 +223,7 @@ func (q *QRepFlowExecution) startChildWorkflow(
 		},
 	})
 
-	future := workflow.ExecuteChildWorkflow(
-		partFlowCtx, QRepPartitionWorkflow, q.config, partitions, q.runUUID)
-
-	return future, nil
+	return workflow.ExecuteChildWorkflow(partFlowCtx, QRepPartitionWorkflow, q.config, partitions, q.runUUID)
 }
 
 // processPartitions handles the logic for processing the partitions.
@@ -256,11 +246,7 @@ func (q *QRepFlowExecution) processPartitions(
 			Partitions: parts,
 			BatchId:    int32(i + 1),
 		}
-		future, err := q.startChildWorkflow(ctx, batch)
-		if err != nil {
-			return fmt.Errorf("failed to start child workflow: %w", err)
-		}
-
+		future := q.startChildWorkflow(ctx, batch)
 		q.childPartitionWorkflows = append(q.childPartitionWorkflows, future)
 	}
 
