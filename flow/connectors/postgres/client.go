@@ -276,7 +276,7 @@ func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database 
 	rows, err := conn.Query(ctx, fmt.Sprintf(`SELECT slot_name, redo_lsn::Text,restart_lsn::text,%s,
 		confirmed_flush_lsn::text,active,
 		round((CASE WHEN pg_is_in_recovery() THEN pg_last_wal_receive_lsn() ELSE pg_current_wal_lsn() END
-		- confirmed_flush_lsn) / 1024 / 1024) AS MB_Behind
+		- restart_lsn) / 1024 / 1024) AS MB_Behind
 		FROM pg_control_checkpoint(),pg_replication_slots %s`, walStatusSelector, whereClause))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read information for slots: %w", err)
