@@ -69,7 +69,7 @@ func SyncFlowWorkflow(
 	})
 
 	var waitSelector workflow.Selector
-	parallel, _ := GetSideEffect(ctx, func(_ workflow.Context) bool {
+	parallel := GetSideEffect(ctx, func(_ workflow.Context) bool {
 		return peerdbenv.PeerDBEnableParallelSyncNormalize()
 	})
 	if !parallel {
