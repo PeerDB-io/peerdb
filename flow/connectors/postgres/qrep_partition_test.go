@@ -197,8 +197,8 @@ func TestGetQRepPartitions(t *testing.T) {
 			expected := tc.want
 			assert.Equal(t, len(expected), len(got))
 
-			for i := 0; i < len(expected); i++ {
-				er := expected[i].Range.Range.(*protos.PartitionRange_TimestampRange).TimestampRange
+			for i, val := range expected {
+				er := val.Range.Range.(*protos.PartitionRange_TimestampRange).TimestampRange
 				gotr := got[i].Range.Range.(*protos.PartitionRange_TimestampRange).TimestampRange
 				assert.Equal(t, er.Start.AsTime(), gotr.Start.AsTime())
 				assert.Equal(t, er.End.AsTime(), gotr.End.AsTime())

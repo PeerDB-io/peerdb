@@ -307,7 +307,7 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 
 func generate20MBJson() ([]byte, error) {
 	xn := make(map[string]interface{}, 215000)
-	for i := 0; i < 215000; i++ {
+	for range 215000 {
 		xn[uuid.New().String()] = uuid.New().String()
 	}
 
@@ -320,11 +320,13 @@ func generate20MBJson() ([]byte, error) {
 }
 
 func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCount int) error {
-	var ids []string
-	var rows []string
-	for i := 0; i < rowCount-1; i++ {
+	var id0 string
+	rows := make([]string, 0, rowCount)
+	for i := range rowCount - 1 {
 		id := uuid.New().String()
-		ids = append(ids, id)
+		if i == 0 {
+			id0 = id
+		}
 		row := fmt.Sprintf(`
 					(
 						'%s', '%s', CURRENT_TIMESTAMP, 3.86487206688919, CURRENT_TIMESTAMP,
@@ -390,14 +392,14 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 		return err
 	}
 
-	// generate a 20 MB json and update id[0]'s col f5 to it
+	// generate a 20 MB json and update id0's col f5 to it
 	v, err := generate20MBJson()
 	if err != nil {
 		return err
 	}
 	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
 		UPDATE e2e_test_%s.%s SET f5 = $1 WHERE id = $2;
-	`, suffix, tableName), v, ids[0])
+	`, suffix, tableName), v, id0)
 	if err != nil {
 		return err
 	}
@@ -405,7 +407,7 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 	// update my_date to a date before 1970
 	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
 		UPDATE e2e_test_%s.%s SET old_date = '1950-01-01' WHERE id = $1;
-	`, suffix, tableName), ids[0])
+	`, suffix, tableName), id0)
 	if err != nil {
 		return err
 	}

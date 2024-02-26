@@ -81,7 +81,7 @@ func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*BigQueryServic
 // Validate validates a BigQueryServiceAccount, that none of the fields are empty.
 func (bqsa *BigQueryServiceAccount) Validate() error {
 	v := reflect.ValueOf(*bqsa)
-	for i := 0; i < v.NumField(); i++ {
+	for i := range v.NumField() {
 		if v.Field(i).String() == "" {
 			return fmt.Errorf("field %s is empty", v.Type().Field(i).Name)
 		}
