@@ -1,4 +1,8 @@
-import { FlowConnectionConfigs, QRepWriteType } from '@/grpc_generated/flow';
+import {
+  FlowConnectionConfigs,
+  QRepWriteMode,
+  QRepWriteType,
+} from '@/grpc_generated/flow';
 import { Peer } from '@/grpc_generated/peers';
 
 export interface MirrorSetting {
@@ -62,7 +66,9 @@ export const blankSnowflakeQRepSetting = {
   watermarkColumn: '',
   maxParallelWorkers: 4,
   waitBetweenBatchesSeconds: 30,
-  writeMode: undefined,
+  writeMode: {
+    writeType: QRepWriteType.QREP_WRITE_MODE_OVERWRITE,
+  } as QRepWriteMode,
   stagingPath: '',
   numRowsPerPartition: 100000,
   setupWatermarkTableOnDestination: false,

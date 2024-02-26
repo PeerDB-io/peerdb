@@ -182,9 +182,7 @@ export const snowflakeQRepSettings: MirrorSetting[] = [
           writeMode: currWriteMode,
         };
       }),
-    tips: `Specify whether you want the write mode to be via APPEND, UPSERT or OVERWRITE.
-    Append mode is for insert-only workloads. Upsert mode is append mode but also supports updates.
-    Overwrite mode overwrites the destination table data every sync.`,
+    tips: `Overwrite mode overwrites the destination table data every sync.`,
     type: 'select',
   },
 ];
