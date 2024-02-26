@@ -1309,6 +1309,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		// 1 from pre-pause
 		// 3 from second insert of 18 rows in 2 tables, batch size updated
 		assert.GreaterOrEqual(s.t, len(workflowState.SyncFlowStatuses), 3+1+3)
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, &workflowState)
