@@ -117,8 +117,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 			newColumns = append(newColumns, fmt.Sprintf("%s %s", QuoteIdentifier(field.Name),
 				qValueKindToPostgresType(string(field.Type))))
 		}
-		newColumns = append(newColumns, fmt.Sprintf("%s TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-			QuoteIdentifier(syncedAtCol)))
+		newColumns = append(newColumns, QuoteIdentifier(syncedAtCol)+" TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
 		_, err := tx.Exec(ctx, fmt.Sprintf("CREATE UNLOGGED TABLE %s (%s);",
 			overwriteTempTableIdentifier,
 			strings.Join(newColumns, ", "),
