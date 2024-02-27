@@ -22,8 +22,6 @@ type QRepFlowExecution struct {
 	flowExecutionID string
 	logger          log.Logger
 	runUUID         string
-	// being tracked for future workflow signalling
-	childPartitionWorkflows []workflow.ChildWorkflowFuture
 	// Current signalled state of the peer flow.
 	activeSignal model.CDCFlowSignal
 }
@@ -64,12 +62,11 @@ func NewQRepFlowStateForTesting() *protos.QRepFlowState {
 // NewQRepFlowExecution creates a new instance of QRepFlowExecution.
 func NewQRepFlowExecution(ctx workflow.Context, config *protos.QRepConfig, runUUID string) *QRepFlowExecution {
 	return &QRepFlowExecution{
-		config:                  config,
-		flowExecutionID:         workflow.GetInfo(ctx).WorkflowExecution.ID,
-		logger:                  log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName)),
-		runUUID:                 runUUID,
-		childPartitionWorkflows: nil,
-		activeSignal:            model.NoopSignal,
+		config:          config,
+		flowExecutionID: workflow.GetInfo(ctx).WorkflowExecution.ID,
+		logger:          log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName)),
+		runUUID:         runUUID,
+		activeSignal:    model.NoopSignal,
 	}
 }
 
@@ -241,23 +238,23 @@ func (q *QRepFlowExecution) processPartitions(
 
 	q.logger.Info("processing partitions in batches", "num batches", len(batches))
 
+	partitionWorkflows := make([]workflow.Future, 0, len(batches))
 	for i, parts := range batches {
 		batch := &protos.QRepPartitionBatch{
 			Partitions: parts,
 			BatchId:    int32(i + 1),
 		}
 		future := q.startChildWorkflow(ctx, batch)
-		q.childPartitionWorkflows = append(q.childPartitionWorkflows, future)
+		partitionWorkflows = append(partitionWorkflows, future)
 	}
 
 	// wait for all the child workflows to complete
-	for _, future := range q.childPartitionWorkflows {
+	for _, future := range partitionWorkflows {
 		if err := future.Get(ctx, nil); err != nil {
 			return fmt.Errorf("failed to wait for child workflow: %w", err)
 		}
 	}
 
-	q.childPartitionWorkflows = nil
 	q.logger.Info("all partitions in batch processed")
 	return nil
 }
@@ -364,15 +361,27 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 }
 
 func (q *QRepFlowExecution) receiveAndHandleSignalAsync(signalChan model.TypedReceiveChannel[model.CDCFlowSignal]) {
-	val, ok := signalChan.ReceiveAsync()
-	if ok {
+	for {
+		val, ok := signalChan.ReceiveAsync()
+		if !ok {
+			break
+		}
 		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
 	}
 }
 
 func setWorkflowQueries(ctx workflow.Context, state *protos.QRepFlowState) error {
+	// Support an Update for the current status of the qrep flow.
+	err := workflow.SetUpdateHandler(ctx, shared.FlowStatusUpdate, func(status *protos.FlowStatus) error {
+		state.CurrentFlowStatus = *status
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to register query handler: %w", err)
+	}
+
 	// Support a Query for the current state of the qrep flow.
-	err := workflow.SetQueryHandler(ctx, shared.QRepFlowStateQuery, func() (*protos.QRepFlowState, error) {
+	err = workflow.SetQueryHandler(ctx, shared.QRepFlowStateQuery, func() (*protos.QRepFlowState, error) {
 		return state, nil
 	})
 	if err != nil {
@@ -413,27 +422,38 @@ func QRepFlowWorkflow(
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 
-	maxParallelWorkers := 16
-	if config.MaxParallelWorkers > 0 {
-		maxParallelWorkers = int(config.MaxParallelWorkers)
-	}
-
 	err := setWorkflowQueries(ctx, state)
 	if err != nil {
 		return err
 	}
 
-	// Support an Update for the current status of the qrep flow.
-	err = workflow.SetUpdateHandler(ctx, shared.FlowStatusUpdate, func(status *protos.FlowStatus) error {
-		state.CurrentFlowStatus = *status
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("failed to register query handler: %w", err)
-	}
+	signalChan := model.FlowSignal.GetSignalChannel(ctx)
 
 	q := NewQRepFlowExecution(ctx, config, originalRunID)
 	logger := q.logger
+
+	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSING ||
+		state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSED {
+		startTime := workflow.Now(ctx)
+		q.activeSignal = model.PauseSignal
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+
+		for q.activeSignal == model.PauseSignal {
+			logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
+			// only place we block on receive, so signal processing is immediate
+			val, ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute)
+			if ok {
+				q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
+			} else if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+	}
+
+	maxParallelWorkers := 16
+	if config.MaxParallelWorkers > 0 {
+		maxParallelWorkers = int(config.MaxParallelWorkers)
+	}
 
 	err = q.SetupWatermarkTableOnDestination(ctx)
 	if err != nil {
@@ -444,7 +464,7 @@ func QRepFlowWorkflow(
 	if err != nil {
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
-	logger.Info("metadata tables setup for peer flow - ", config.FlowJobName)
+	logger.Info("metadata tables setup for peer flow")
 
 	err = q.handleTableCreationForResync(ctx, state)
 	if err != nil {
@@ -468,7 +488,7 @@ func QRepFlowWorkflow(
 	}
 
 	if config.InitialCopyOnly {
-		logger.Info("initial copy completed for peer flow - ", config.FlowJobName)
+		logger.Info("initial copy completed for peer flow")
 		return nil
 	}
 
@@ -493,32 +513,16 @@ func QRepFlowWorkflow(
 	}
 
 	logger.Info("Continuing as new workflow",
-		"Last Partition", state.LastPartition,
-		"Number of Partitions Processed", state.NumPartitionsProcessed)
+		slog.Any("Last Partition", state.LastPartition),
+		slog.Any("Number of Partitions Processed", state.NumPartitionsProcessed))
 
-	// here, we handle signals after the end of the flow because a new workflow does not inherit the signals
-	// and the chance of missing a signal is much higher if the check is before the time consuming parts run
-	signalChan := model.FlowSignal.GetSignalChannel(ctx)
 	q.receiveAndHandleSignalAsync(signalChan)
-	if q.activeSignal == model.PauseSignal {
-		startTime := workflow.Now(ctx)
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
-
-		for q.activeSignal == model.PauseSignal {
-			logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
-			// only place we block on receive, so signal processing is immediate
-			val, ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute)
-			if ok {
-				q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
-			} else if err := ctx.Err(); err != nil {
-				return err
-			}
-		}
-	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	// Continue the workflow with new state
+	if q.activeSignal == model.PauseSignal {
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+	}
 	return workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
 }
 
