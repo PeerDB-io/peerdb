@@ -6,10 +6,11 @@ import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
 import { InfoPopover } from '../../../../components/InfoPopover';
 import { MirrorSetter } from '../../types';
+import { fetchAllTables } from '../handlers';
 import { MirrorSetting, blankSnowflakeQRepSetting } from '../helpers/common';
 import { snowflakeQRepSettings } from '../helpers/qrep';
 import QRepQuery from './query';
@@ -23,11 +24,10 @@ export default function SnowflakeQRepForm({
   mirrorConfig,
   setter,
 }: SnowflakeQRepProps) {
-  const WriteModes = ['Overwrite'].map((value) => ({
-    label: value,
-    value,
-  }));
-
+  const [sourceTables, setSourceTables] = useState<
+    { value: string; label: string }[]
+  >([]);
+  const [loading, setLoading] = useState(false);
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
     let stateVal: string | boolean | QRepWriteType | string[] = val;
     if (setting.label.includes('Write Type')) {
@@ -46,6 +46,14 @@ export default function SnowflakeQRepForm({
     setting.stateHandler(stateVal, setter);
   };
 
+  const handleSourceChange = (val: string, setting: MirrorSetting) => {
+    setter((curr) => ({
+      ...curr,
+      destinationTableIdentifier: val.toLowerCase(),
+    }));
+    handleChange(val, setting);
+  };
+
   const paramDisplayCondition = (setting: MirrorSetting) => {
     const label = setting.label.toLowerCase();
     if (
@@ -56,6 +64,17 @@ export default function SnowflakeQRepForm({
     }
     return true;
   };
+
+  useEffect(() => {
+    setLoading(true);
+    fetchAllTables(
+      mirrorConfig.sourcePeer?.name ?? '',
+      mirrorConfig.sourcePeer?.type
+    ).then((tables) => {
+      setSourceTables(tables?.map((table) => ({ value: table, label: table })));
+      setLoading(false);
+    });
+  }, [mirrorConfig.sourcePeer]);
 
   useEffect(() => {
     // set defaults
@@ -126,11 +145,22 @@ export default function SnowflakeQRepForm({
                     }}
                   >
                     <div style={{ width: '100%' }}>
-                      <ReactSelect
-                        isDisabled={true}
-                        placeholder='Select a write mode'
-                        value={{ value: 'Overwrite', label: 'Overwrite' }}
-                      />
+                      {setting.label.includes('Write') ? (
+                        <ReactSelect
+                          isDisabled={true}
+                          placeholder='Select a write mode'
+                          value={{ value: 'Overwrite', label: 'Overwrite' }}
+                        />
+                      ) : (
+                        <ReactSelect
+                          placeholder={'Select a table'}
+                          onChange={(val, action) =>
+                            val && handleSourceChange(val.value, setting)
+                          }
+                          isLoading={loading}
+                          options={sourceTables}
+                        />
+                      )}
                     </div>
 
                     {setting.tips && (
@@ -171,7 +201,11 @@ export default function SnowflakeQRepForm({
                     <TextField
                       variant='simple'
                       type={setting.type}
-                      defaultValue={setting.default as string}
+                      defaultValue={
+                        setting.label === 'Destination Table Name'
+                          ? mirrorConfig.destinationTableIdentifier
+                          : (setting.default as string)
+                      }
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                         handleChange(e.target.value, setting)
                       }

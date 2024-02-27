@@ -147,7 +147,7 @@ export const snowflakeQRepSettings: MirrorSetting[] = [
         ...curr,
         watermarkTable: (value as string) || '',
       })),
-    type: 'text',
+    type: 'select',
     tips: 'The source table of the replication and the table to which the watermark column belongs.',
     required: true,
   },

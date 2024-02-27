@@ -124,7 +124,10 @@ export default function QRepConfigForm({
   };
 
   useEffect(() => {
-    fetchAllTables(mirrorConfig.sourcePeer?.name ?? '').then((tables) =>
+    fetchAllTables(
+      mirrorConfig.sourcePeer?.name ?? '',
+      mirrorConfig.sourcePeer?.type
+    ).then((tables) =>
       setSourceTables(tables?.map((table) => ({ value: table, label: table })))
     );
   }, [mirrorConfig.sourcePeer]);

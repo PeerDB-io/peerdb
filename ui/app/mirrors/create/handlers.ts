@@ -339,12 +339,13 @@ export const fetchColumns = async (
   return columnsRes.columns;
 };
 
-export const fetchAllTables = async (peerName: string) => {
+export const fetchAllTables = async (peerName: string, peerType?: DBType) => {
   if (peerName?.length === 0) return [];
   const tablesRes: UTablesAllResponse = await fetch('/api/peers/tables/all', {
     method: 'POST',
     body: JSON.stringify({
       peerName,
+      peerType,
     }),
     cache: 'no-store',
   }).then((res) => res.json());
