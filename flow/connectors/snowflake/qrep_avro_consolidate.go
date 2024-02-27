@@ -203,8 +203,6 @@ func (s *SnowflakeAvroConsolidateHandler) handleUpsertMode(ctx context.Context) 
 	}
 
 	tempTableName := fmt.Sprintf("%s_temp_%d", s.dstTableName, runID)
-
-	//nolint:gosec
 	createTempTableCmd := fmt.Sprintf("CREATE TEMPORARY TABLE %s AS SELECT * FROM %s LIMIT 0",
 		tempTableName, s.dstTableName)
 	if _, err := s.connector.database.ExecContext(ctx, createTempTableCmd); err != nil {

@@ -521,14 +521,15 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 			return nil, fmt.Errorf("canceled while normalizing records: %w", err)
 		}
 
+		table := tableName
 		g.Go(func() error {
 			mergeGen := &mergeStmtGenerator{
 				rawTableName:          getRawTableIdentifier(req.FlowJobName),
-				dstTableName:          tableName,
+				dstTableName:          table,
 				syncBatchID:           req.SyncBatchID,
 				normalizeBatchID:      normBatchID,
-				normalizedTableSchema: req.TableNameSchemaMapping[tableName],
-				unchangedToastColumns: tableNameToUnchangedToastCols[tableName],
+				normalizedTableSchema: req.TableNameSchemaMapping[table],
+				unchangedToastColumns: tableNameToUnchangedToastCols[table],
 				peerdbCols: &protos.PeerDBColumns{
 					SoftDelete:        req.SoftDelete,
 					SoftDeleteColName: req.SoftDeleteColName,
@@ -541,12 +542,12 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 			}
 
 			startTime := time.Now()
-			c.logger.Info("[merge] merging records...", "destTable", tableName)
+			c.logger.Info("[merge] merging records...", "destTable", table)
 
-			result, err := c.database.ExecContext(gCtx, mergeStatement, tableName)
+			result, err := c.database.ExecContext(gCtx, mergeStatement, table)
 			if err != nil {
 				return fmt.Errorf("failed to merge records into %s (statement: %s): %w",
-					tableName, mergeStatement, err)
+					table, mergeStatement, err)
 			}
 
 			endTime := time.Now()
@@ -555,7 +556,7 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 
 			rowsAffected, err := result.RowsAffected()
 			if err != nil {
-				return fmt.Errorf("failed to get rows affected by merge statement for table %s: %w", tableName, err)
+				return fmt.Errorf("failed to get rows affected by merge statement for table %s: %w", table, err)
 			}
 
 			atomic.AddInt64(&totalRowsAffected, rowsAffected)
@@ -881,7 +882,7 @@ func (c *SnowflakeConnector) GetTableSchema(
 			return nil, err
 		}
 		res[tableName] = tableSchema
-		utils.RecordHeartbeat(ctx, fmt.Sprintf("fetched schema for table %s", tableName))
+		utils.RecordHeartbeat(ctx, "fetched schema for table "+tableName)
 	}
 
 	return &protos.GetTableSchemaBatchOutput{
