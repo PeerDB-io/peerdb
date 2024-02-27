@@ -206,10 +206,6 @@ export const handleCreateQRep = async (
   }
 
   if (config.sourcePeer?.snowflakeConfig) {
-    if (config.query.includes('<table_name>')) {
-      notify('Please fill in the query correctly');
-      return;
-    }
     if (config.watermarkTable == '') {
       notify('Please fill in the source table');
       return;
