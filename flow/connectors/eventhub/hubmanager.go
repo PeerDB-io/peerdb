@@ -56,7 +56,7 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 	// if the namespace isn't fully qualified, add the `.servicebus.windows.net`
 	// check by counting the number of '.' in the namespace
 	if strings.Count(namespace, ".") < 2 {
-		namespace = fmt.Sprintf("%s.servicebus.windows.net", namespace)
+		namespace += ".servicebus.windows.net"
 	}
 
 	var hubConnectOK bool

@@ -3,6 +3,7 @@ package e2e_bigquery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -42,7 +43,7 @@ func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 
 	jsonPath := os.Getenv("TEST_BQ_CREDS")
 	if jsonPath == "" {
-		return nil, fmt.Errorf("TEST_BQ_CREDS env var not set")
+		return nil, errors.New("TEST_BQ_CREDS env var not set")
 	}
 
 	content, err := e2eshared.ReadFileToBytes(jsonPath)
@@ -175,8 +176,8 @@ func (b *BigQueryTestHelper) countRows(tableName string) (int, error) {
 func (b *BigQueryTestHelper) countRowsWithDataset(dataset, tableName string, nonNullCol string) (int, error) {
 	command := fmt.Sprintf("SELECT COUNT(*) FROM `%s.%s`", dataset, tableName)
 	if nonNullCol != "" {
-		command = fmt.Sprintf("SELECT COUNT(CASE WHEN " + nonNullCol +
-			" IS NOT NULL THEN 1 END) AS non_null_count FROM `" + dataset + "." + tableName + "`;")
+		command = "SELECT COUNT(CASE WHEN " + nonNullCol +
+			" IS NOT NULL THEN 1 END) AS non_null_count FROM `" + dataset + "." + tableName + "`;"
 	}
 	q := b.client.Query(command)
 	q.DisableQueryCache = true
@@ -198,7 +199,7 @@ func (b *BigQueryTestHelper) countRowsWithDataset(dataset, tableName string, non
 
 	cntI64, ok := row[0].(int64)
 	if !ok {
-		return 0, fmt.Errorf("failed to convert row count to int64")
+		return 0, errors.New("failed to convert row count to int64")
 	}
 
 	return int(cntI64), nil
@@ -406,7 +407,7 @@ func (b *BigQueryTestHelper) CheckNull(tableName string, colName []string) (bool
 
 	cntI64, ok := row[0].(int64)
 	if !ok {
-		return false, fmt.Errorf("failed to convert row count to int64")
+		return false, errors.New("failed to convert row count to int64")
 	}
 	if cntI64 > 0 {
 		return false, nil

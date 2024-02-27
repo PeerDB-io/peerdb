@@ -16,10 +16,9 @@ func RunSuite[T any](t *testing.T, setup func(t *testing.T) T, teardown func(T))
 	t.Helper()
 	t.Parallel()
 
-	// can be replaced with reflect.TypeFor[T]() in go 1.22
-	typ := reflect.TypeOf((*T)(nil)).Elem()
+	typ := reflect.TypeFor[T]()
 	mcount := typ.NumMethod()
-	for i := 0; i < mcount; i++ {
+	for i := range mcount {
 		m := typ.Method(i)
 		if strings.HasPrefix(m.Name, "Test") {
 			if m.Type.NumIn() == 1 && m.Type.NumOut() == 0 {

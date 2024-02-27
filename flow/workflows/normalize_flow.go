@@ -21,21 +21,31 @@ type NormalizeState struct {
 	TableNameSchemaMapping map[string]*protos.TableSchema
 }
 
-// returns reason string when workflow should exit
+func NewNormalizeState() *NormalizeState {
+	return &NormalizeState{
+		Wait:                   true,
+		Stop:                   false,
+		LastSyncBatchID:        -1,
+		SyncBatchID:            -1,
+		TableNameSchemaMapping: nil,
+	}
+}
+
+// returns whether workflow should finish
 // signals are flushed when ProcessLoop returns
-func ProcessLoop(ctx workflow.Context, logger log.Logger, selector workflow.Selector, state *NormalizeState) string {
-	canceled := ctx.Err() != nil
-	for !canceled && selector.HasPending() {
+func ProcessLoop(ctx workflow.Context, logger log.Logger, selector workflow.Selector, state *NormalizeState) bool {
+	for ctx.Err() == nil && selector.HasPending() {
 		selector.Select(ctx)
-		canceled = ctx.Err() != nil
 	}
 
-	if canceled {
-		return "normalize canceled"
+	if ctx.Err() != nil {
+		logger.Info("normalize canceled")
+		return true
 	} else if state.Stop && state.LastSyncBatchID == state.SyncBatchID {
-		return "normalize finished"
+		logger.Info("normalize finished")
+		return true
 	}
-	return ""
+	return false
 }
 
 func NormalizeFlowWorkflow(
@@ -47,13 +57,7 @@ func NormalizeFlowWorkflow(
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
 	if state == nil {
-		state = &NormalizeState{
-			Wait:                   true,
-			Stop:                   false,
-			LastSyncBatchID:        -1,
-			SyncBatchID:            -1,
-			TableNameSchemaMapping: nil,
-		}
+		state = NewNormalizeState()
 	}
 
 	normalizeFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -61,11 +65,9 @@ func NormalizeFlowWorkflow(
 		HeartbeatTimeout:    time.Minute,
 	})
 
-	syncChan := model.NormalizeSignal.GetSignalChannel(ctx)
-
 	selector := workflow.NewNamedSelector(ctx, "NormalizeLoop")
 	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
-	syncChan.AddToSelector(selector, func(s model.NormalizePayload, _ bool) {
+	model.NormalizeSignal.GetSignalChannel(ctx).AddToSelector(selector, func(s model.NormalizePayload, _ bool) {
 		if s.Done {
 			state.Stop = true
 		}
@@ -79,8 +81,7 @@ func NormalizeFlowWorkflow(
 	for state.Wait && ctx.Err() == nil {
 		selector.Select(ctx)
 	}
-	if exit := ProcessLoop(ctx, logger, selector, state); exit != "" {
-		logger.Info(exit)
+	if ProcessLoop(ctx, logger, selector, state) {
 		return ctx.Err()
 	}
 
@@ -129,8 +130,7 @@ func NormalizeFlowWorkflow(
 	}
 
 	state.Wait = true
-	if exit := ProcessLoop(ctx, logger, selector, state); exit != "" {
-		logger.Info(exit)
+	if ProcessLoop(ctx, logger, selector, state) {
 		return ctx.Err()
 	}
 	return workflow.NewContinueAsNewError(ctx, NormalizeFlowWorkflow, config, state)

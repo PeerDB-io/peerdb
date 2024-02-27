@@ -99,13 +99,14 @@ func (s PeerFlowE2ETestSuiteSQLServer) setupSQLServerTable(tableName string) {
 
 func (s PeerFlowE2ETestSuiteSQLServer) insertRowsIntoSQLServerTable(tableName string, numRows int) {
 	schemaQualified := fmt.Sprintf("%s.%s", s.sqlsHelper.SchemaName, tableName)
-	for i := 0; i < numRows; i++ {
-		params := make(map[string]interface{})
-		params["id"] = "test_id_" + strconv.Itoa(i)
-		params["card_id"] = "test_card_id_" + strconv.Itoa(i)
-		params["v_from"] = time.Now()
-		params["price"] = 100.00
-		params["status"] = 1
+	for i := range numRows {
+		params := map[string]interface{}{
+			"id":      "test_id_" + strconv.Itoa(i),
+			"card_id": "test_card_id_" + strconv.Itoa(i),
+			"v_from":  time.Now(),
+			"price":   100.00,
+			"status":  1,
+		}
 
 		_, err := s.sqlsHelper.E.NamedExec(
 			context.Background(),
@@ -187,7 +188,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 
 	// Verify that the destination table has the same number of rows as the source table
 	var numRowsInDest pgtype.Int8
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s", dstTableName)
+	countQuery := "SELECT COUNT(*) FROM " + dstTableName
 	err = s.Conn().QueryRow(context.Background(), countQuery).Scan(&numRowsInDest)
 	require.NoError(s.t, err)
 

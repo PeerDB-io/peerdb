@@ -142,7 +142,6 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 		s.connector.creds.AccessKeyID, s.connector.creds.SecretAccessKey)
 
 	_, err = s.connector.database.ExecContext(ctx, query)
-
 	if err != nil {
 		return 0, err
 	}

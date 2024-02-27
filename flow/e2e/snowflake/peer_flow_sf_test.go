@@ -157,7 +157,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		// insert 20 rows into the source table
-		for i := 0; i < 20; i++ {
+		for i := range 20 {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -218,7 +218,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		// insert 20 rows into the source table
-		for i := 0; i < 20; i++ {
+		for i := range 20 {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -270,7 +270,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		// insert 4 invalid shapes and 6 valid shapes into the source table
-		for i := 0; i < 4; i++ {
+		for range 4 {
 			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s (line,poly) VALUES ($1,$2)
 		`, srcTableName), "010200000001000000000000000000F03F0000000000000040",
@@ -282,7 +282,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 			e2e.EnvNoError(s.t, env, err)
 		}
 		s.t.Log("Inserted 4 invalid geography rows into the source table")
-		for i := 4; i < 10; i++ {
+		for range 6 {
 			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s (line,poly) VALUES ($1,$2)
 		`, srcTableName), "010200000002000000000000000000F03F000000000000004000000000000008400000000000001040",
@@ -939,7 +939,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		// insert 10 rows into the source table
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c2,t) VALUES ($1,$2)
@@ -1000,7 +1000,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 		e2e.EnvNoError(s.t, env, err)
 
 		// insert 10 rows into the source table
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = rowsTx.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,random_string(9000))
@@ -1061,7 +1061,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 
 		// insert 10 rows into the source table
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,random_string(9000))
@@ -1130,7 +1130,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 
 		// insert 10 rows into the source table
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,random_string(100))
@@ -1243,7 +1243,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel_iud")
-	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
+	srcTableName := cmpTableName + "_src"
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_softdel_iud")
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -1510,7 +1510,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		// insert 20 rows into the source table
-		for i := 0; i < 20; i++ {
+		for i := range 20 {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`

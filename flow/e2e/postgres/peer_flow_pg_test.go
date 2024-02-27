@@ -44,11 +44,11 @@ func (s PeerFlowE2ETestSuitePG) checkPeerdbColumns(dstSchemaQualified string, ro
 	}
 
 	if !isDeleted.Bool {
-		return fmt.Errorf("isDeleted is not true")
+		return errors.New("isDeleted is not true")
 	}
 
 	if !syncedAt.Valid {
-		return fmt.Errorf("syncedAt is not valid")
+		return errors.New("syncedAt is not valid")
 	}
 
 	return nil
@@ -111,7 +111,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		// insert 10 rows into the source table
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -503,7 +503,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		// insert 10 rows into the source table
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c2,t) VALUES ($1,$2)
@@ -571,7 +571,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 		e2e.EnvNoError(s.t, env, err)
 
 		// insert 10 rows into the source table
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = rowsTx.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,%s(9000))
@@ -637,7 +637,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 
 		// insert 10 rows into the source table
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,%s(9000))
@@ -723,7 +723,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Basic() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel")
-	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
+	srcTableName := cmpTableName + "_src"
 	dstTableName := s.attachSchemaSuffix("test_softdel_dst")
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -809,7 +809,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_IUD_Same_Batch() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel_iud")
-	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
+	srcTableName := cmpTableName + "_src"
 	dstTableName := s.attachSchemaSuffix("test_softdel_iud_dst")
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -888,7 +888,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel_ud")
-	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
+	srcTableName := cmpTableName + "_src"
 	dstTableName := s.attachSchemaSuffix("test_softdel_ud_dst")
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -1085,7 +1085,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Supported_Mixed_Case_Table() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		// insert 20 rows into the source table
-		for i := 0; i < 20; i++ {
+		for i := range 10 {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -1157,7 +1157,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	}
 
 	addRows := func(numRows int) {
-		for i := 0; i < numRows; i++ {
+		for range numRows {
 			_, err = s.Conn().Exec(context.Background(),
 				fmt.Sprintf(`INSERT INTO %s DEFAULT VALUES`, srcTable1Name))
 			e2e.EnvNoError(s.t, env, err)

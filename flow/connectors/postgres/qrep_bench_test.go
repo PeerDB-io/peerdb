@@ -29,7 +29,7 @@ func BenchmarkQRepQueryExecutor(b *testing.B) {
 
 	// Run the benchmark
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := range b.N {
 		// log the iteration
 		b.Logf("iteration %d", i)
 

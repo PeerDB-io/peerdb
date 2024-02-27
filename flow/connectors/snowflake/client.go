@@ -73,7 +73,8 @@ func (c *SnowflakeConnector) getTableCounts(ctx context.Context, tables []string
 		if err != nil {
 			return 0, fmt.Errorf("failed to parse table name %s: %w", table, err)
 		}
-		row := c.database.QueryRowContext(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s", table))
+		//nolint:gosec
+		row := c.database.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table)
 		var count pgtype.Int8
 		err = row.Scan(&count)
 		if err != nil {

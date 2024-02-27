@@ -263,7 +263,7 @@ func CDCFlowWorkflow(
 	state *CDCFlowWorkflowState,
 ) (*CDCFlowWorkflowResult, error) {
 	if cfg == nil {
-		return nil, fmt.Errorf("invalid connection configs")
+		return nil, errors.New("invalid connection configs")
 	}
 
 	if state == nil {
@@ -365,7 +365,7 @@ func CDCFlowWorkflow(
 		setupFlowFuture := workflow.ExecuteChildWorkflow(setupFlowCtx, SetupFlowWorkflow, cfg)
 		var setupFlowOutput *protos.SetupFlowOutput
 		if err := setupFlowFuture.Get(setupFlowCtx, &setupFlowOutput); err != nil {
-			return state, fmt.Errorf("failed to execute child workflow: %w", err)
+			return state, fmt.Errorf("failed to execute setup workflow: %w", err)
 		}
 		state.SyncFlowOptions.SrcTableIdNameMapping = setupFlowOutput.SrcTableIdNameMapping
 		state.SyncFlowOptions.TableNameSchemaMapping = setupFlowOutput.TableNameSchemaMapping
@@ -393,7 +393,7 @@ func CDCFlowWorkflow(
 		snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)
 		if err := snapshotFlowFuture.Get(snapshotFlowCtx, nil); err != nil {
 			w.logger.Error("snapshot flow failed", slog.Any("error", err))
-			return state, fmt.Errorf("failed to execute child workflow: %w", err)
+			return state, fmt.Errorf("failed to execute snapshot workflow: %w", err)
 		}
 
 		if cfg.Resync {

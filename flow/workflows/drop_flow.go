@@ -2,7 +2,6 @@ package peerflow
 
 import (
 	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -23,7 +22,7 @@ func DropFlowWorkflow(ctx workflow.Context, req *protos.ShutdownRequest) error {
 
 	var sourceError, destinationError error
 	var sourceOk, destinationOk, canceled bool
-	selector := workflow.NewNamedSelector(ctx, fmt.Sprintf("%s-drop", req.FlowJobName))
+	selector := workflow.NewNamedSelector(ctx, req.FlowJobName+"-drop")
 	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
 		canceled = true
 	})

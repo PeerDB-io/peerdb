@@ -94,7 +94,7 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 	insertValuesSQLArray := make([]string, 0, len(columns))
 	for _, column := range columns {
 		normalizedColName := SnowflakeIdentifierNormalize(column.Name)
-		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("SOURCE.%s", normalizedColName))
+		insertValuesSQLArray = append(insertValuesSQLArray, "SOURCE."+normalizedColName)
 	}
 	// fill in synced_at column
 	insertValuesSQLArray = append(insertValuesSQLArray, "CURRENT_TIMESTAMP")

@@ -32,7 +32,7 @@ jobs:
       - name: checkout sources
         uses: actions/checkout@v4
 
-      - uses: bufbuild/buf-setup-action@v1.28.1
+      - uses: bufbuild/buf-setup-action@v1.29.0-1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 

@@ -190,9 +190,9 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 		numTablesSetup.Add(1)
 		if !existing {
-			logger.Info(fmt.Sprintf("created table %s", tableIdentifier))
+			logger.Info("created table " + tableIdentifier)
 		} else {
-			logger.Info(fmt.Sprintf("table already exists %s", tableIdentifier))
+			logger.Info("table already exists " + tableIdentifier)
 		}
 	}
 
@@ -297,7 +297,7 @@ func (a *FlowableActivity) SyncFlow(
 	}
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("transferring records for job - %s", flowName)
+		return "transferring records for job - " + flowName
 	})
 	defer shutdown()
 
@@ -470,7 +470,7 @@ func (a *FlowableActivity) StartNormalize(
 	defer connectors.CloseConnector(ctx, dstConn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("normalizing records from batch for job - %s", input.FlowConnectionConfigs.FlowJobName)
+		return "normalizing records from batch for job - " + input.FlowConnectionConfigs.FlowJobName
 	})
 	defer shutdown()
 
@@ -538,7 +538,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	defer connectors.CloseConnector(ctx, srcConn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("getting partitions for job - %s", config.FlowJobName)
+		return "getting partitions for job - " + config.FlowJobName
 	})
 	defer shutdown()
 
@@ -629,7 +629,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
-	logger.Info(fmt.Sprintf("replicating partition %s", partition.PartitionId))
+	logger.Info("replicating partition " + partition.PartitionId)
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("syncing partition - %s: %d of %d total.", partition.PartitionId, idx, total)
 	})
@@ -689,7 +689,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	}
 
 	if rowsSynced == 0 {
-		logger.Info(fmt.Sprintf("no records to push for partition %s", partition.PartitionId))
+		logger.Info("no records to push for partition " + partition.PartitionId)
 		pullCancel()
 	} else {
 		wg.Wait()
@@ -722,7 +722,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	defer connectors.CloseConnector(ctx, dstConn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("consolidating partitions for job - %s", config.FlowJobName)
+		return "consolidating partitions for job - " + config.FlowJobName
 	})
 	defer shutdown()
 
@@ -886,7 +886,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			}
 			defer connectors.CloseConnector(ctx, srcConn)
 
-			slotName := fmt.Sprintf("peerflow_slot_%s", config.FlowJobName)
+			slotName := "peerflow_slot_" + config.FlowJobName
 			if config.ReplicationSlotName != "" {
 				slotName = config.ReplicationSlotName
 			}
@@ -977,7 +977,7 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	defer connectors.CloseConnector(ctx, dstConn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("renaming tables for job - %s", config.FlowJobName)
+		return "renaming tables for job - " + config.FlowJobName
 	})
 	defer shutdown()
 
@@ -985,18 +985,18 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 		sfConn, ok := dstConn.(*connsnowflake.SnowflakeConnector)
 		if !ok {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return nil, fmt.Errorf("failed to cast connector to snowflake connector")
+			return nil, errors.New("failed to cast connector to snowflake connector")
 		}
 		return sfConn.RenameTables(ctx, config)
 	} else if config.Peer.Type == protos.DBType_BIGQUERY {
 		bqConn, ok := dstConn.(*connbigquery.BigQueryConnector)
 		if !ok {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return nil, fmt.Errorf("failed to cast connector to bigquery connector")
+			return nil, errors.New("failed to cast connector to bigquery connector")
 		}
 		return bqConn.RenameTables(ctx, config)
 	}
-	return nil, fmt.Errorf("rename tables is only supported on snowflake and bigquery")
+	return nil, errors.New("rename tables is only supported on snowflake and bigquery")
 }
 
 func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *protos.CreateTablesFromExistingInput) (
@@ -1012,18 +1012,18 @@ func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *pr
 	if req.Peer.Type == protos.DBType_SNOWFLAKE {
 		sfConn, ok := dstConn.(*connsnowflake.SnowflakeConnector)
 		if !ok {
-			return nil, fmt.Errorf("failed to cast connector to snowflake connector")
+			return nil, errors.New("failed to cast connector to snowflake connector")
 		}
 		return sfConn.CreateTablesFromExisting(ctx, req)
 	} else if req.Peer.Type == protos.DBType_BIGQUERY {
 		bqConn, ok := dstConn.(*connbigquery.BigQueryConnector)
 		if !ok {
-			return nil, fmt.Errorf("failed to cast connector to bigquery connector")
+			return nil, errors.New("failed to cast connector to bigquery connector")
 		}
 		return bqConn.CreateTablesFromExisting(ctx, req)
 	}
 	a.Alerter.LogFlowError(ctx, req.FlowJobName, err)
-	return nil, fmt.Errorf("create tables from existing is only supported on snowflake and bigquery")
+	return nil, errors.New("create tables from existing is only supported on snowflake and bigquery")
 }
 
 // ReplicateXminPartition replicates a XminPartition from the source to the destination.
