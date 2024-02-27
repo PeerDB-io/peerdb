@@ -174,7 +174,7 @@ func (q *QRepFlowExecution) GetPartitions(
 		return nil, fmt.Errorf("failed to fetch partitions to replicate: %w", err)
 	}
 
-	q.logger.Info("partitions to replicate - ", len(partitions.Partitions))
+	q.logger.Info("partitions to replicate - ", slog.Int("num_partitions", len(partitions.Partitions)))
 	return partitions, nil
 }
 
@@ -198,24 +198,17 @@ func (q *QRepPartitionFlowExecution) ReplicatePartitions(ctx workflow.Context,
 }
 
 // getPartitionWorkflowID returns the child workflow ID for a new sync flow.
-func (q *QRepFlowExecution) getPartitionWorkflowID(ctx workflow.Context) (string, error) {
-	id, err := GetUUID(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to get child workflow ID: %w", err)
-	}
-
-	return fmt.Sprintf("qrep-part-%s-%s", q.config.FlowJobName, id), nil
+func (q *QRepFlowExecution) getPartitionWorkflowID(ctx workflow.Context) string {
+	id := GetUUID(ctx)
+	return fmt.Sprintf("qrep-part-%s-%s", q.config.FlowJobName, id)
 }
 
 // startChildWorkflow starts a single child workflow.
 func (q *QRepFlowExecution) startChildWorkflow(
 	ctx workflow.Context,
 	partitions *protos.QRepPartitionBatch,
-) (workflow.ChildWorkflowFuture, error) {
-	wid, err := q.getPartitionWorkflowID(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get child workflow ID: %w", err)
-	}
+) workflow.ChildWorkflowFuture {
+	wid := q.getPartitionWorkflowID(ctx)
 	partFlowCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
 		WorkflowID:        wid,
 		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
@@ -227,10 +220,7 @@ func (q *QRepFlowExecution) startChildWorkflow(
 		},
 	})
 
-	future := workflow.ExecuteChildWorkflow(
-		partFlowCtx, QRepPartitionWorkflow, q.config, partitions, q.runUUID)
-
-	return future, nil
+	return workflow.ExecuteChildWorkflow(partFlowCtx, QRepPartitionWorkflow, q.config, partitions, q.runUUID)
 }
 
 // processPartitions handles the logic for processing the partitions.
@@ -239,11 +229,7 @@ func (q *QRepFlowExecution) processPartitions(
 	maxParallelWorkers int,
 	partitions []*protos.QRepPartition,
 ) error {
-	chunkSize := len(partitions) / maxParallelWorkers
-	if chunkSize == 0 {
-		chunkSize = 1
-	}
-
+	chunkSize := shared.DivCeil(len(partitions), maxParallelWorkers)
 	batches := make([][]*protos.QRepPartition, 0, len(partitions)/chunkSize+1)
 	for i := 0; i < len(partitions); i += chunkSize {
 		end := min(i+chunkSize, len(partitions))
@@ -258,11 +244,7 @@ func (q *QRepFlowExecution) processPartitions(
 			Partitions: parts,
 			BatchId:    int32(i + 1),
 		}
-		future, err := q.startChildWorkflow(ctx, batch)
-		if err != nil {
-			return fmt.Errorf("failed to start child workflow: %w", err)
-		}
-
+		future := q.startChildWorkflow(ctx, batch)
 		partitionWorkflows = append(partitionWorkflows, future)
 	}
 
@@ -323,7 +305,7 @@ func (q *QRepFlowExecution) waitForNewRows(ctx workflow.Context, lastPartition *
 
 func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, state *protos.QRepFlowState) error {
 	if state.NeedsResync && q.config.DstTableFullResync {
-		renamedTableIdentifier := fmt.Sprintf("%s_peerdb_resync", q.config.DestinationTableIdentifier)
+		renamedTableIdentifier := q.config.DestinationTableIdentifier + "_peerdb_resync"
 		createTablesFromExistingCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 10 * time.Minute,
 			HeartbeatTimeout:    time.Minute,

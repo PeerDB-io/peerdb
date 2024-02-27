@@ -124,7 +124,7 @@ func (s *PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, softDel
 			if entry.Kind == qvalue.QValueKindBoolean {
 				isDeleteVal, ok := entry.Value.(bool)
 				if !(ok && isDeleteVal) {
-					return fmt.Errorf("peerdb column failed: _PEERDB_IS_DELETED is not true")
+					return errors.New("peerdb column failed: _PEERDB_IS_DELETED is not true")
 				}
 				recordCount += 1
 			}
@@ -132,7 +132,7 @@ func (s *PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, softDel
 			if entry.Kind == qvalue.QValueKindTimestamp {
 				_, ok := entry.Value.(time.Time)
 				if !ok {
-					return fmt.Errorf("peerdb column failed: _PEERDB_SYNCED_AT is not valid")
+					return errors.New("peerdb column failed: _PEERDB_SYNCED_AT is not valid")
 				}
 
 				recordCount += 1
@@ -141,7 +141,7 @@ func (s *PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, softDel
 	}
 
 	if recordCount == 0 {
-		return fmt.Errorf("peerdb column check failed: no records found")
+		return errors.New("peerdb column check failed: no records found")
 	}
 
 	return nil
@@ -196,7 +196,7 @@ func setupSuite(t *testing.T) PeerFlowE2ETestSuiteBQ {
 func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Connection_Config() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, nil, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, nil, nil)
 
 	// Verify workflow completes
 	require.True(s.t, env.IsWorkflowCompleted())
@@ -238,7 +238,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -274,7 +274,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -310,7 +310,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		// insert 10 rows into the source table
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -324,7 +324,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -380,7 +380,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -442,7 +442,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -496,7 +496,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -550,7 +550,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -647,7 +647,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -689,7 +689,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles_BQ() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -724,7 +724,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		// insert 4 invalid shapes and 6 valid shapes into the source table
-		for i := 0; i < 4; i++ {
+		for range 4 {
 			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s (line,"polyPoly") VALUES ($1,$2)
 		`, srcTableName), "010200000001000000000000000000F03F0000000000000040",
@@ -736,7 +736,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 			e2e.EnvNoError(s.t, env, err)
 		}
 		s.t.Log("Inserted 4 invalid geography rows into the source table")
-		for i := 4; i < 10; i++ {
+		for range 6 {
 			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s (line,"polyPoly") VALUES ($1,$2)
 		`, srcTableName), "010200000002000000000000000000F03F000000000000004000000000000008400000000000001040",
@@ -771,7 +771,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -828,7 +828,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -912,7 +912,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -949,7 +949,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		// insert 10 rows into the source table
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c2,t) VALUES ($1,$2)
@@ -972,7 +972,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -1013,7 +1013,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 		e2e.EnvNoError(s.t, env, err)
 
 		// insert 10 rows into the source table
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = rowsTx.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,random_string(9000))
@@ -1034,7 +1034,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -1073,7 +1073,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
 		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 
 		// insert 10 rows into the source table
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,random_string(9000))
@@ -1093,7 +1093,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -1144,7 +1144,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Columns_BQ() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -1153,7 +1153,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
 
 	srcTable1Name := s.attachSchemaSuffix("test1_bq")
 	dstTable1Name := "test1_bq"
-	secondDataset := fmt.Sprintf("%s_2", s.bqHelper.Config.DatasetId)
+	secondDataset := s.bqHelper.Config.DatasetId + "_2"
 	srcTable2Name := s.attachSchemaSuffix("test2_bq")
 	dstTable2Name := "test2_bq"
 
@@ -1204,7 +1204,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 
 	require.NoError(s.t, s.bqHelper.DropDataset(secondDataset))
@@ -1279,7 +1279,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 
 	newerSyncedAtQuery := fmt.Sprintf(
@@ -1294,7 +1294,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel_iud")
-	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
+	srcTableName := cmpTableName + "_src"
 	dstTableName := "test_softdel_iud"
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -1364,7 +1364,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -1442,7 +1442,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 
 	newerSyncedAtQuery := fmt.Sprintf(
@@ -1521,7 +1521,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 		env.CancelWorkflow()
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflow, config, nil)
 	e2e.RequireEnvCanceled(s.t, env)
 
 	newerSyncedAtQuery := fmt.Sprintf(

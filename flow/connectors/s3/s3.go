@@ -173,7 +173,7 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 	recordStream := streamRes.Stream
 	qrepConfig := &protos.QRepConfig{
 		FlowJobName:                req.FlowJobName,
-		DestinationTableIdentifier: fmt.Sprintf("raw_table_%s", req.FlowJobName),
+		DestinationTableIdentifier: "raw_table_" + req.FlowJobName,
 	}
 	partition := &protos.QRepPartition{
 		PartitionId: strconv.FormatInt(req.SyncBatchID, 10),

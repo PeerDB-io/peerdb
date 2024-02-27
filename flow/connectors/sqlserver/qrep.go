@@ -3,6 +3,7 @@ package connsqlserver
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"text/template"
 
@@ -30,7 +31,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 	}
 
 	if config.NumRowsPerPartition <= 0 {
-		return nil, fmt.Errorf("num rows per partition must be greater than 0 for sql server")
+		return nil, errors.New("num rows per partition must be greater than 0 for sql server")
 	}
 
 	var err error
@@ -58,17 +59,23 @@ func (c *SQLServerConnector) GetQRepPartitions(
 			"minVal": minVal,
 		}
 
-		rows, err := c.db.NamedQuery(countQuery, params)
+		err := func() error {
+			//nolint:sqlclosecheck
+			rows, err := c.db.NamedQuery(countQuery, params)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+
+			if rows.Next() {
+				if err := rows.Scan(&totalRows); err != nil {
+					return err
+				}
+			}
+			return rows.Err()
+		}()
 		if err != nil {
 			return nil, fmt.Errorf("failed to query for total rows: %w", err)
-		}
-
-		defer rows.Close()
-
-		if rows.Next() {
-			if err = rows.Scan(&totalRows); err != nil {
-				return nil, fmt.Errorf("failed to query for total rows: %w", err)
-			}
 		}
 	} else {
 		row := c.db.QueryRowContext(ctx, countQuery)

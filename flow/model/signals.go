@@ -102,22 +102,6 @@ const (
 	PauseSignal
 )
 
-var FlowSignal = TypedSignal[CDCFlowSignal]{
-	Name: "peer-flow-signal",
-}
-
-var CDCDynamicPropertiesSignal = TypedSignal[*protos.CDCFlowConfigUpdate]{
-	Name: "cdc-dynamic-properties",
-}
-
-var NormalizeSyncSignal = TypedSignal[NormalizePayload]{
-	Name: "normalize-sync",
-}
-
-var NormalizeSyncDoneSignal = TypedSignal[struct{}]{
-	Name: "normalize-sync-done",
-}
-
 func FlowSignalHandler(activeSignal CDCFlowSignal,
 	v CDCFlowSignal, logger log.Logger,
 ) CDCFlowSignal {
@@ -136,4 +120,28 @@ func FlowSignalHandler(activeSignal CDCFlowSignal,
 		}
 	}
 	return activeSignal
+}
+
+var FlowSignal = TypedSignal[CDCFlowSignal]{
+	Name: "peer-flow-signal",
+}
+
+var CDCDynamicPropertiesSignal = TypedSignal[*protos.CDCFlowConfigUpdate]{
+	Name: "cdc-dynamic-properties",
+}
+
+var NormalizeSignal = TypedSignal[NormalizePayload]{
+	Name: "normalize",
+}
+
+var NormalizeErrorSignal = TypedSignal[string]{
+	Name: "normalize-error",
+}
+
+var NormalizeResultSignal = TypedSignal[NormalizeResponse]{
+	Name: "normalize-result",
+}
+
+var NormalizeDoneSignal = TypedSignal[struct{}]{
+	Name: "normalize-done",
 }

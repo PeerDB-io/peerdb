@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/temporal"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
@@ -149,7 +150,7 @@ func (c *PostgresConnector) MaybeStartReplication(
 			c.replState.Slot, slotName, c.replState.Publication, publicationName, c.replState.Offset, req.LastOffset,
 		)
 		c.logger.Info(msg)
-		return errors.New(msg)
+		return temporal.NewNonRetryableApplicationError(msg, "desync", nil)
 	}
 
 	if c.replState == nil {
@@ -202,7 +203,7 @@ func (c *PostgresConnector) replicationOptions(publicationName string) (*pglogre
 	}
 
 	if publicationName != "" {
-		pubOpt := fmt.Sprintf("publication_names %s", QuoteLiteral(publicationName))
+		pubOpt := "publication_names " + QuoteLiteral(publicationName)
 		pluginArguments = append(pluginArguments, pubOpt)
 	} else {
 		return nil, errors.New("publication name is not set")
@@ -239,7 +240,7 @@ func (c *PostgresConnector) ConnectionActive(ctx context.Context) error {
 	if c.conn == nil {
 		return errors.New("connection is nil")
 	}
-	pingErr := c.conn.Ping(ctx)
+	_, pingErr := c.conn.Exec(ctx, "SELECT 1")
 	return pingErr
 }
 

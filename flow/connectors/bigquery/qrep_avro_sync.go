@@ -221,7 +221,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 			flowLog)
 	}
 
-	s.connector.logger.Info(fmt.Sprintf("loaded stage into %s", dstTableName), flowLog)
+	s.connector.logger.Info("loaded stage into "+dstTableName, flowLog)
 	return numRecords, nil
 }
 

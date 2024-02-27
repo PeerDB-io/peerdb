@@ -86,7 +86,7 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(ctx context.Context, config
 	}
 
 	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		_, err = c.database.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
+		_, err = c.database.ExecContext(ctx, "TRUNCATE TABLE "+config.DestinationTableIdentifier)
 		if err != nil {
 			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
 		}
@@ -114,11 +114,11 @@ func (c *SnowflakeConnector) createStage(ctx context.Context, stageName string, 
 	// Execute the query
 	_, err := c.database.ExecContext(ctx, createStageStmt)
 	if err != nil {
-		c.logger.Error(fmt.Sprintf("failed to create stage %s", stageName), slog.Any("error", err))
+		c.logger.Error("failed to create stage "+stageName, slog.Any("error", err))
 		return fmt.Errorf("failed to create stage %s: %w", stageName, err)
 	}
 
-	c.logger.Info(fmt.Sprintf("Created stage %s", stageName))
+	c.logger.Info("Created stage " + stageName)
 	return nil
 }
 
@@ -224,7 +224,7 @@ func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName str
 // dropStage drops the stage for the given job.
 func (c *SnowflakeConnector) dropStage(ctx context.Context, stagingPath string, job string) error {
 	stageName := c.getStageNameForJob(job)
-	stmt := fmt.Sprintf("DROP STAGE IF EXISTS %s", stageName)
+	stmt := "DROP STAGE IF EXISTS " + stageName
 
 	_, err := c.database.ExecContext(ctx, stmt)
 	if err != nil {
@@ -275,7 +275,7 @@ func (c *SnowflakeConnector) dropStage(ctx context.Context, stagingPath string, 
 		c.logger.Info(fmt.Sprintf("Deleted contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job))
 	}
 
-	c.logger.Info(fmt.Sprintf("Dropped stage %s", stageName))
+	c.logger.Info("Dropped stage " + stageName)
 	return nil
 }
 

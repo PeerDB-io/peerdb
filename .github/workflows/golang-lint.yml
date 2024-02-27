@@ -14,7 +14,7 @@ jobs:
     runs-on: [ubicloud-standard-4-ubuntu-2204-arm]
     steps:
       - uses: actions/checkout@v4
-      - uses: bufbuild/buf-setup-action@v1.28.1
+      - uses: bufbuild/buf-setup-action@v1.29.0-1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
       - run: buf generate protos
@@ -29,6 +29,6 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:
-          version: v1.55
+          version: v1.56
           working-directory: ./flow
           args: --timeout=10m

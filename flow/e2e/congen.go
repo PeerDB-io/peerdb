@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -42,7 +43,7 @@ func cleanPostgres(conn *pgx.Conn, suffix string) error {
 	_, err = conn.Exec(
 		context.Background(),
 		"SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name LIKE $1",
-		fmt.Sprintf("%%_%s", suffix),
+		"%_"+suffix,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to drop replication slots: %w", err)
@@ -51,7 +52,7 @@ func cleanPostgres(conn *pgx.Conn, suffix string) error {
 	// list all publications from pg_publication table
 	rows, err := conn.Query(context.Background(),
 		"SELECT pubname FROM pg_publication WHERE pubname LIKE $1",
-		fmt.Sprintf("%%_%s", suffix),
+		"%_"+suffix,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to list publications: %w", err)
@@ -62,7 +63,7 @@ func cleanPostgres(conn *pgx.Conn, suffix string) error {
 	}
 
 	for _, pubName := range publications {
-		_, err = conn.Exec(context.Background(), fmt.Sprintf("DROP PUBLICATION %s", pubName))
+		_, err = conn.Exec(context.Background(), "DROP PUBLICATION "+pubName)
 		if err != nil {
 			return fmt.Errorf("failed to drop publication %s: %w", pubName, err)
 		}
@@ -76,7 +77,7 @@ func setupPostgresSchema(t *testing.T, conn *pgx.Conn, suffix string) error {
 
 	setupTx, err := conn.Begin(context.Background())
 	if err != nil {
-		return fmt.Errorf("failed to start setup transaction")
+		return errors.New("failed to start setup transaction")
 	}
 
 	// create an e2e_test schema
@@ -92,7 +93,7 @@ func setupPostgresSchema(t *testing.T, conn *pgx.Conn, suffix string) error {
 	}()
 
 	// create an e2e_test schema
-	_, err = setupTx.Exec(context.Background(), fmt.Sprintf("CREATE SCHEMA e2e_test_%s", suffix))
+	_, err = setupTx.Exec(context.Background(), "CREATE SCHEMA e2e_test_"+suffix)
 	if err != nil {
 		return fmt.Errorf("failed to create e2e_test schema: %w", err)
 	}
