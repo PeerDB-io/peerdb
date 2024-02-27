@@ -51,9 +51,7 @@ func (c *SnowflakeConnector) getTableSchema(ctx context.Context, tableName strin
 		return nil, fmt.Errorf("failed to parse table '%s'", tableName)
 	}
 
-	//nolint:gosec
 	queryString := fmt.Sprintf("SELECT * FROM %s LIMIT 0", snowflakeSchemaTableNormalize(schematable))
-
 	//nolint:rowserrcheck
 	rows, err := c.database.QueryContext(ctx, queryString)
 	if err != nil {
@@ -426,8 +424,11 @@ func (c *SnowflakeConnector) processRowsStream(
 	return numRows, nil
 }
 
-func (c *SnowflakeConnector) PullQRepRecordStream(ctx context.Context, config *protos.QRepConfig,
-	partition *protos.QRepPartition, stream *model.QRecordStream,
+func (c *SnowflakeConnector) PullQRepRecordStream(
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	stream *model.QRecordStream,
 ) (int, error) {
 	if !partition.FullTablePartition {
 		return 0, errors.New("only full table partitions are supported")

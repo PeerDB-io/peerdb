@@ -558,6 +558,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 			break
 		}
 
+		table := tableName
 		g.Go(func() error {
 			mergeGen := &mergeStmtGenerator{
 				rawTableName:          getRawTableIdentifier(flowName),
@@ -575,10 +576,10 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 			startTime := time.Now()
 			c.logger.Info("[merge] merging records...", "destTable", tableName, "batchId", batchId)
 
-			result, err := c.database.ExecContext(gCtx, mergeStatement, tableName)
+			result, err := c.database.ExecContext(gCtx, mergeStatement, table)
 			if err != nil {
 				return fmt.Errorf("failed to merge records into %s (statement: %s): %w",
-					tableName, mergeStatement, err)
+					table, mergeStatement, err)
 			}
 
 			endTime := time.Now()
@@ -587,7 +588,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 
 			rowsAffected, err := result.RowsAffected()
 			if err != nil {
-				return fmt.Errorf("failed to get rows affected by merge statement for table %s: %w", tableName, err)
+				return fmt.Errorf("failed to get rows affected by merge statement for table %s: %w", table, err)
 			}
 
 			atomic.AddInt64(&totalRowsAffected, rowsAffected)
@@ -915,7 +916,7 @@ func (c *SnowflakeConnector) GetTableSchema(
 			return nil, err
 		}
 		res[tableName] = tableSchema
-		utils.RecordHeartbeat(ctx, fmt.Sprintf("fetched schema for table %s", tableName))
+		utils.RecordHeartbeat(ctx, "fetched schema for table "+tableName)
 	}
 
 	return &protos.GetTableSchemaBatchOutput{
