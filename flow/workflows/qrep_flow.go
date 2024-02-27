@@ -22,8 +22,6 @@ type QRepFlowExecution struct {
 	flowExecutionID string
 	logger          log.Logger
 	runUUID         string
-	// being tracked for future workflow signalling
-	childPartitionWorkflows []workflow.ChildWorkflowFuture
 	// Current signalled state of the peer flow.
 	activeSignal model.CDCFlowSignal
 }
@@ -64,12 +62,11 @@ func NewQRepFlowStateForTesting() *protos.QRepFlowState {
 // NewQRepFlowExecution creates a new instance of QRepFlowExecution.
 func NewQRepFlowExecution(ctx workflow.Context, config *protos.QRepConfig, runUUID string) *QRepFlowExecution {
 	return &QRepFlowExecution{
-		config:                  config,
-		flowExecutionID:         workflow.GetInfo(ctx).WorkflowExecution.ID,
-		logger:                  log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName)),
-		runUUID:                 runUUID,
-		childPartitionWorkflows: nil,
-		activeSignal:            model.NoopSignal,
+		config:          config,
+		flowExecutionID: workflow.GetInfo(ctx).WorkflowExecution.ID,
+		logger:          log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName)),
+		runUUID:         runUUID,
+		activeSignal:    model.NoopSignal,
 	}
 }
 
@@ -255,6 +252,7 @@ func (q *QRepFlowExecution) processPartitions(
 
 	q.logger.Info("processing partitions in batches", "num batches", len(batches))
 
+	partitionWorkflows := make([]workflow.Future, 0, len(batches))
 	for i, parts := range batches {
 		batch := &protos.QRepPartitionBatch{
 			Partitions: parts,
@@ -265,17 +263,16 @@ func (q *QRepFlowExecution) processPartitions(
 			return fmt.Errorf("failed to start child workflow: %w", err)
 		}
 
-		q.childPartitionWorkflows = append(q.childPartitionWorkflows, future)
+		partitionWorkflows = append(partitionWorkflows, future)
 	}
 
 	// wait for all the child workflows to complete
-	for _, future := range q.childPartitionWorkflows {
+	for _, future := range partitionWorkflows {
 		if err := future.Get(ctx, nil); err != nil {
 			return fmt.Errorf("failed to wait for child workflow: %w", err)
 		}
 	}
 
-	q.childPartitionWorkflows = nil
 	q.logger.Info("all partitions in batch processed")
 	return nil
 }
@@ -453,8 +450,10 @@ func QRepFlowWorkflow(
 	q := NewQRepFlowExecution(ctx, config, originalRunID)
 	logger := q.logger
 
-	if q.activeSignal == model.PauseSignal {
+	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSING ||
+		state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSED {
 		startTime := workflow.Now(ctx)
+		q.activeSignal = model.PauseSignal
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
 
 		for q.activeSignal == model.PauseSignal {
@@ -483,7 +482,7 @@ func QRepFlowWorkflow(
 	if err != nil {
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
-	logger.Info("metadata tables setup for peer flow - ", config.FlowJobName)
+	logger.Info("metadata tables setup for peer flow")
 
 	err = q.handleTableCreationForResync(ctx, state)
 	if err != nil {
@@ -507,7 +506,7 @@ func QRepFlowWorkflow(
 	}
 
 	if config.InitialCopyOnly {
-		logger.Info("initial copy completed for peer flow - ", config.FlowJobName)
+		logger.Info("initial copy completed for peer flow")
 		return nil
 	}
 
@@ -532,14 +531,16 @@ func QRepFlowWorkflow(
 	}
 
 	logger.Info("Continuing as new workflow",
-		"Last Partition", state.LastPartition,
-		"Number of Partitions Processed", state.NumPartitionsProcessed)
+		slog.Any("Last Partition", state.LastPartition),
+		slog.Any("Number of Partitions Processed", state.NumPartitionsProcessed))
 
 	q.receiveAndHandleSignalAsync(signalChan)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	// Continue the workflow with new state
+	if q.activeSignal == model.PauseSignal {
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+	}
 	return workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
 }
 

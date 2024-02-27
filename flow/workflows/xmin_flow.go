@@ -31,8 +31,10 @@ func XminFlowWorkflow(
 	q := NewQRepFlowExecution(ctx, config, originalRunID)
 	logger := q.logger
 
-	if q.activeSignal == model.PauseSignal {
+	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSING ||
+		state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSED {
 		startTime := workflow.Now(ctx)
+		q.activeSignal = model.PauseSignal
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
 
 		for q.activeSignal == model.PauseSignal {
@@ -56,7 +58,7 @@ func XminFlowWorkflow(
 	if err != nil {
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
-	logger.Info("metadata tables setup for peer flow - ", config.FlowJobName)
+	logger.Info("metadata tables setup for peer flow")
 
 	err = q.handleTableCreationForResync(ctx, state)
 	if err != nil {
@@ -84,7 +86,7 @@ func XminFlowWorkflow(
 	}
 
 	if config.InitialCopyOnly {
-		logger.Info("initial copy completed for peer flow - ", config.FlowJobName)
+		logger.Info("initial copy completed for peer flow")
 		return nil
 	}
 
@@ -99,14 +101,15 @@ func XminFlowWorkflow(
 	}
 
 	logger.Info("Continuing as new workflow",
-		"Last Partition", state.LastPartition,
-		"Number of Partitions Processed", state.NumPartitionsProcessed)
+		slog.Any("Last Partition", state.LastPartition),
+		slog.Any("Number of Partitions Processed", state.NumPartitionsProcessed))
 
 	q.receiveAndHandleSignalAsync(signalChan)
-
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	// Continue the workflow with new state
+	if q.activeSignal == model.PauseSignal {
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+	}
 	return workflow.NewContinueAsNewError(ctx, XminFlowWorkflow, config, state)
 }
