@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.temporal.io/sdk/log"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -63,7 +64,7 @@ func newTestCaseForCTID(schema string, name string, rows uint32, expectedNum int
 }
 
 func TestGetQRepPartitions(t *testing.T) {
-	const connStr = "postgres://postgres:postgres@localhost:7132/postgres"
+	connStr := utils.GetCatalogConnectionStringFromEnv()
 
 	// Setup the DB
 	config, err := pgx.ParseConfig(connStr)
