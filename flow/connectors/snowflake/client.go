@@ -85,6 +85,33 @@ func (c *SnowflakeConnector) getTableCounts(ctx context.Context, tables []string
 	return totalRecords, nil
 }
 
+func (c *SnowflakeConnector) GetAllTables(ctx context.Context) ([]string, error) {
+	// return all tables in database in schema.table form
+	// get it from information schema columns
+	rows, err := c.database.QueryContext(ctx, `
+	SELECT table_schema, table_name 
+	FROM information_schema.tables 
+	WHERE table_type = 'BASE TABLE';`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tables from Snowflake: %w", err)
+	}
+	defer rows.Close()
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to get tables from Snowflake: %w", rows.Err())
+	}
+	var tables []string
+	for rows.Next() {
+		var schema, table string
+		err := rows.Scan(&schema, &table)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan table from Snowflake: %w", err)
+		}
+		tables = append(tables, fmt.Sprintf(`%s.%s`, schema, table))
+	}
+
+	return tables, nil
+}
+
 func SnowflakeIdentifierNormalize(identifier string) string {
 	// https://www.alberton.info/dbms_identifiers_and_case_sensitivity.html
 	// Snowflake follows the SQL standard, but Postgres does the opposite.
