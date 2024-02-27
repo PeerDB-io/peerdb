@@ -86,8 +86,6 @@ func (c *SnowflakeConnector) getTableCounts(ctx context.Context, tables []string
 }
 
 func (c *SnowflakeConnector) GetAllTables(ctx context.Context) ([]string, error) {
-	// return all tables in database in schema.table form
-	// get it from information schema columns
 	rows, err := c.database.QueryContext(ctx, `
 	SELECT table_schema, table_name 
 	FROM information_schema.tables 
