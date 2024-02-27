@@ -11,26 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
-
-const (
-	postgresHost     = "localhost"
-	postgresUser     = "postgres"
-	postgresPassword = "postgres"
-	postgresDatabase = "postgres"
-	PostgresPort     = 7132
-)
-
-func GetTestPostgresConf() *protos.PostgresConfig {
-	return &protos.PostgresConfig{
-		Host:     postgresHost,
-		Port:     uint32(PostgresPort),
-		User:     postgresUser,
-		Password: postgresPassword,
-		Database: postgresDatabase,
-	}
-}
 
 func cleanPostgres(conn *pgx.Conn, suffix string) error {
 	// drop the e2e_test schema with the given suffix if it exists
@@ -123,7 +106,7 @@ func setupPostgresSchema(t *testing.T, conn *pgx.Conn, suffix string) error {
 func SetupPostgres(t *testing.T, suffix string) (*connpostgres.PostgresConnector, error) {
 	t.Helper()
 
-	connector, err := connpostgres.NewPostgresConnector(context.Background(), GetTestPostgresConf())
+	connector, err := connpostgres.NewPostgresConnector(context.Background(), utils.GetCatalogPostgresConfigFromEnv())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres connection: %w", err)
 	}
@@ -167,28 +150,19 @@ func TearDownPostgres[T Suite](s T) {
 }
 
 // GeneratePostgresPeer generates a postgres peer config for testing.
-func GeneratePostgresPeer(postgresPort int) *protos.Peer {
-	ret := &protos.Peer{}
-	ret.Name = "test_postgres_peer"
-	ret.Type = protos.DBType_POSTGRES
-
-	ret.Config = &protos.Peer_PostgresConfig{
-		PostgresConfig: &protos.PostgresConfig{
-			Host:     "localhost",
-			Port:     uint32(postgresPort),
-			User:     "postgres",
-			Password: "postgres",
-			Database: "postgres",
+func GeneratePostgresPeer() *protos.Peer {
+	return &protos.Peer{
+		Name: "test_postgres_peer",
+		Type: protos.DBType_POSTGRES,
+		Config: &protos.Peer_PostgresConfig{
+			PostgresConfig: utils.GetCatalogPostgresConfigFromEnv(),
 		},
 	}
-
-	return ret
 }
 
 type FlowConnectionGenerationConfig struct {
 	FlowJobName      string
 	TableNameMapping map[string]string
-	PostgresPort     int
 	Destination      *protos.Peer
 	CdcStagingPath   string
 	SoftDelete       bool
@@ -219,7 +193,7 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() *protos
 	ret := &protos.FlowConnectionConfigs{
 		FlowJobName:        c.FlowJobName,
 		TableMappings:      tblMappings,
-		Source:             GeneratePostgresPeer(c.PostgresPort),
+		Source:             GeneratePostgresPeer(),
 		Destination:        c.Destination,
 		CdcStagingPath:     c.CdcStagingPath,
 		SoftDelete:         c.SoftDelete,
@@ -250,7 +224,7 @@ func (c *QRepFlowConnectionGenerationConfig) GenerateQRepConfig(
 	ret.WatermarkTable = c.WatermarkTable
 	ret.DestinationTableIdentifier = c.DestinationTableIdentifier
 
-	postgresPeer := GeneratePostgresPeer(c.PostgresPort)
+	postgresPeer := GeneratePostgresPeer()
 	ret.SourcePeer = postgresPeer
 
 	ret.DestinationPeer = c.Destination

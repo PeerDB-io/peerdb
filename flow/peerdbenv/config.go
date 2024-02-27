@@ -62,8 +62,8 @@ func PeerDBCatalogHost() string {
 }
 
 // PEERDB_CATALOG_PORT
-func PeerDBCatalogPort() uint32 {
-	return getEnvUint[uint32]("PEERDB_CATALOG_PORT", 5432)
+func PeerDBCatalogPort() uint16 {
+	return getEnvUint[uint16]("PEERDB_CATALOG_PORT", 5432)
 }
 
 // PEERDB_CATALOG_USER

@@ -27,6 +27,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	catalog "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
@@ -51,7 +52,7 @@ type RowSource interface {
 func RegisterWorkflowsAndActivities(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
 	t.Helper()
 
-	conn, err := pgxpool.New(context.Background(), utils.GetPGConnectionString(GetTestPostgresConf()))
+	conn, err := pgxpool.New(context.Background(), catalog.GetCatalogConnectionStringFromEnv())
 	if err != nil {
 		t.Fatalf("unable to create catalog connection pool: %v", err)
 	}
@@ -429,7 +430,6 @@ func CreateQRepWorkflowConfig(
 		FlowJobName:                flowJobName,
 		WatermarkTable:             sourceTable,
 		DestinationTableIdentifier: dstTable,
-		PostgresPort:               PostgresPort,
 		Destination:                dest,
 		StagingPath:                stagingPath,
 	}

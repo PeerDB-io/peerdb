@@ -67,7 +67,7 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuitePG {
 	return PeerFlowE2ETestSuitePG{
 		t:      t,
 		conn:   conn,
-		peer:   generatePGPeer(e2e.GetTestPostgresConf()),
+		peer:   e2e.GeneratePostgresPeer(),
 		suffix: suffix,
 	}
 }
@@ -230,7 +230,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	postgresPeer := e2e.GeneratePostgresPeer(e2e.PostgresPort)
+	postgresPeer := e2e.GeneratePostgresPeer()
 
 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
 		"test_qrep_flow_avro_pg",
@@ -272,7 +272,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Setup_Destination_And_PeerDB_Columns_QRep_P
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	postgresPeer := e2e.GeneratePostgresPeer(e2e.PostgresPort)
+	postgresPeer := e2e.GeneratePostgresPeer()
 
 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
 		"test_qrep_columns_pg",
