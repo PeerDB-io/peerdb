@@ -1,7 +1,6 @@
 package peerflow
 
 import (
-	"fmt"
 	"time"
 
 	"go.temporal.io/api/enums/v1"
@@ -53,7 +52,7 @@ func GlobalScheduleManagerWorkflow(ctx workflow.Context) error {
 	})
 	if walHeartbeatEnabled {
 		heartbeatCtx := withCronOptions(ctx,
-			fmt.Sprintf("wal-heartbeat-%s", info.OriginalRunID),
+			"wal-heartbeat-"+info.OriginalRunID,
 			"*/12 * * * *")
 		workflow.ExecuteChildWorkflow(
 			heartbeatCtx,
@@ -62,7 +61,7 @@ func GlobalScheduleManagerWorkflow(ctx workflow.Context) error {
 	}
 
 	slotSizeCtx := withCronOptions(ctx,
-		fmt.Sprintf("record-slot-size-%s", info.OriginalRunID),
+		"record-slot-size-"+info.OriginalRunID,
 		"*/5 * * * *")
 	workflow.ExecuteChildWorkflow(slotSizeCtx, RecordSlotSizeWorkflow)
 

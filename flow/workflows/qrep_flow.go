@@ -308,7 +308,7 @@ func (q *QRepFlowExecution) waitForNewRows(ctx workflow.Context, lastPartition *
 
 func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, state *protos.QRepFlowState) error {
 	if state.NeedsResync && q.config.DstTableFullResync {
-		renamedTableIdentifier := fmt.Sprintf("%s_peerdb_resync", q.config.DestinationTableIdentifier)
+		renamedTableIdentifier := q.config.DestinationTableIdentifier + "_peerdb_resync"
 		createTablesFromExistingCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 10 * time.Minute,
 			HeartbeatTimeout:    time.Minute,

@@ -124,7 +124,7 @@ func (s *PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, softDel
 			if entry.Kind == qvalue.QValueKindBoolean {
 				isDeleteVal, ok := entry.Value.(bool)
 				if !(ok && isDeleteVal) {
-					return fmt.Errorf("peerdb column failed: _PEERDB_IS_DELETED is not true")
+					return errors.New("peerdb column failed: _PEERDB_IS_DELETED is not true")
 				}
 				recordCount += 1
 			}
@@ -132,7 +132,7 @@ func (s *PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, softDel
 			if entry.Kind == qvalue.QValueKindTimestamp {
 				_, ok := entry.Value.(time.Time)
 				if !ok {
-					return fmt.Errorf("peerdb column failed: _PEERDB_SYNCED_AT is not valid")
+					return errors.New("peerdb column failed: _PEERDB_SYNCED_AT is not valid")
 				}
 
 				recordCount += 1
@@ -141,7 +141,7 @@ func (s *PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, softDel
 	}
 
 	if recordCount == 0 {
-		return fmt.Errorf("peerdb column check failed: no records found")
+		return errors.New("peerdb column check failed: no records found")
 	}
 
 	return nil
@@ -1153,7 +1153,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
 
 	srcTable1Name := s.attachSchemaSuffix("test1_bq")
 	dstTable1Name := "test1_bq"
-	secondDataset := fmt.Sprintf("%s_2", s.bqHelper.Config.DatasetId)
+	secondDataset := s.bqHelper.Config.DatasetId + "_2"
 	srcTable2Name := s.attachSchemaSuffix("test2_bq")
 	dstTable2Name := "test2_bq"
 
@@ -1294,7 +1294,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel_iud")
-	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
+	srcTableName := cmpTableName + "_src"
 	dstTableName := "test_softdel_iud"
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`

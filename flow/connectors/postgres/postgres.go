@@ -203,7 +203,7 @@ func (c *PostgresConnector) replicationOptions(publicationName string) (*pglogre
 	}
 
 	if publicationName != "" {
-		pubOpt := fmt.Sprintf("publication_names %s", QuoteLiteral(publicationName))
+		pubOpt := "publication_names " + QuoteLiteral(publicationName)
 		pluginArguments = append(pluginArguments, pubOpt)
 	} else {
 		return nil, errors.New("publication name is not set")

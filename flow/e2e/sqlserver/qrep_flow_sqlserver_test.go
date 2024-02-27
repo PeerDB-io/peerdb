@@ -187,7 +187,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 
 	// Verify that the destination table has the same number of rows as the source table
 	var numRowsInDest pgtype.Int8
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s", dstTableName)
+	countQuery := "SELECT COUNT(*) FROM " + dstTableName
 	err = s.Conn().QueryRow(context.Background(), countQuery).Scan(&numRowsInDest)
 	require.NoError(s.t, err)
 

@@ -77,7 +77,7 @@ func getTransformSQL(colNames []string, colTypes []string, syncedAtCol string) (
 		normalizedColName := SnowflakeIdentifierNormalize(avroColName)
 		columnOrder = append(columnOrder, normalizedColName)
 		if avroColName == syncedAtCol {
-			transformations = append(transformations, fmt.Sprintf("CURRENT_TIMESTAMP AS %s", normalizedColName))
+			transformations = append(transformations, "CURRENT_TIMESTAMP AS "+normalizedColName)
 			continue
 		}
 
@@ -172,7 +172,7 @@ func (s *SnowflakeAvroConsolidateHandler) generateUpsertMergeCommand(
 		quotedColumn := utils.QuoteIdentifier(column)
 		updateSetClauses = append(updateSetClauses, fmt.Sprintf("%s = src.%s", quotedColumn, quotedColumn))
 		insertColumnsClauses = append(insertColumnsClauses, quotedColumn)
-		insertValuesClauses = append(insertValuesClauses, fmt.Sprintf("src.%s", quotedColumn))
+		insertValuesClauses = append(insertValuesClauses, "src."+quotedColumn)
 	}
 	updateSetClause := strings.Join(updateSetClauses, ", ")
 	insertColumnsClause := strings.Join(insertColumnsClauses, ", ")
