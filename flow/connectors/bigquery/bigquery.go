@@ -788,7 +788,7 @@ func (c *BigQueryConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 func (c *BigQueryConnector) getRawTableName(flowJobName string) string {
 	// replace all non-alphanumeric characters with _
 	flowJobName = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(flowJobName, "_")
-	return fmt.Sprintf("_peerdb_raw_%s", flowJobName)
+	return "_peerdb_raw_" + flowJobName
 }
 
 func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
@@ -892,11 +892,9 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 			}
 		}
 
-		c.logger.Info(fmt.Sprintf("DROP TABLE IF EXISTS %s",
-			dstDatasetTable.string()))
+		c.logger.Info("DROP TABLE IF EXISTS " + dstDatasetTable.string())
 		// drop the dst table if exists
-		dropQuery := c.client.Query(fmt.Sprintf("DROP TABLE IF EXISTS %s",
-			dstDatasetTable.string()))
+		dropQuery := c.client.Query("DROP TABLE IF EXISTS " + dstDatasetTable.string())
 		dropQuery.DefaultProjectID = c.projectID
 		dropQuery.DefaultDatasetID = c.datasetID
 		_, err = dropQuery.Read(ctx)

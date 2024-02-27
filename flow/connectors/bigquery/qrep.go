@@ -100,7 +100,7 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 
 func (c *BigQueryConnector) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {
 	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		query := c.client.Query(fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
+		query := c.client.Query("TRUNCATE TABLE " + config.DestinationTableIdentifier)
 		query.DefaultDatasetID = c.datasetID
 		query.DefaultProjectID = c.projectID
 		_, err := query.Read(ctx)

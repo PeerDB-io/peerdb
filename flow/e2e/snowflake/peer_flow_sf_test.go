@@ -1243,7 +1243,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel_iud")
-	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
+	srcTableName := cmpTableName + "_src"
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_softdel_iud")
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`

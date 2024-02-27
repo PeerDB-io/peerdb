@@ -213,7 +213,7 @@ func CDCFlowWorkflow(
 	state *CDCFlowWorkflowState,
 ) (*CDCFlowWorkflowResult, error) {
 	if cfg == nil {
-		return nil, fmt.Errorf("invalid connection configs")
+		return nil, errors.New("invalid connection configs")
 	}
 
 	if state == nil {

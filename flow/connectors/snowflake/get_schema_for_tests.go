@@ -2,7 +2,6 @@ package connsnowflake
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -48,7 +47,7 @@ func (c *SnowflakeConnector) GetTableSchema(
 			return nil, err
 		}
 		res[tableName] = tableSchema
-		utils.RecordHeartbeat(ctx, fmt.Sprintf("fetched schema for table %s", tableName))
+		utils.RecordHeartbeat(ctx, "fetched schema for table "+tableName)
 	}
 
 	return &protos.GetTableSchemaBatchOutput{

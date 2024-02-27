@@ -116,7 +116,7 @@ func (c *ClickhouseConnector) SetupQRepMetadataTables(ctx context.Context, confi
 	}
 
 	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		_, err = c.database.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
+		_, err = c.database.ExecContext(ctx, "TRUNCATE TABLE "+config.DestinationTableIdentifier)
 		if err != nil {
 			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
 		}
@@ -140,12 +140,12 @@ func (c *ClickhouseConnector) createQRepMetadataTable(ctx context.Context) error
 	queryString := fmt.Sprintf(schemaStatement, qRepMetadataTableName)
 	_, err := c.database.ExecContext(ctx, queryString)
 	if err != nil {
-		c.logger.Error(fmt.Sprintf("failed to create table %s", qRepMetadataTableName),
+		c.logger.Error("failed to create table "+qRepMetadataTableName,
 			slog.Any("error", err))
 
 		return fmt.Errorf("failed to create table %s: %w", qRepMetadataTableName, err)
 	}
-	c.logger.Info(fmt.Sprintf("Created table %s", qRepMetadataTableName))
+	c.logger.Info("Created table " + qRepMetadataTableName)
 	return nil
 }
 
@@ -206,6 +206,6 @@ func (c *ClickhouseConnector) dropStage(ctx context.Context, stagingPath string,
 		c.logger.Info(fmt.Sprintf("Deleted contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job))
 	}
 
-	c.logger.Info(fmt.Sprintf("Dropped stage %s", stagingPath))
+	c.logger.Info("Dropped stage " + stagingPath)
 	return nil
 }

@@ -2,6 +2,7 @@ package e2e_postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -104,7 +105,7 @@ func (s PeerFlowE2ETestSuitePG) checkEnums(srcSchemaQualified, dstSchemaQualifie
 	}
 
 	if exists.Bool {
-		return fmt.Errorf("enum comparison failed: rows are not equal")
+		return errors.New("enum comparison failed: rows are not equal")
 	}
 	return nil
 }
@@ -144,7 +145,7 @@ func (s PeerFlowE2ETestSuitePG) compareQuery(srcSchemaQualified, dstSchemaQualif
 }
 
 func (s PeerFlowE2ETestSuitePG) checkSyncedAt(dstSchemaQualified string) error {
-	query := fmt.Sprintf(`SELECT "_PEERDB_SYNCED_AT" FROM %s`, dstSchemaQualified)
+	query := `SELECT "_PEERDB_SYNCED_AT" FROM ` + dstSchemaQualified
 
 	rows, _ := s.Conn().Query(context.Background(), query)
 
@@ -157,7 +158,7 @@ func (s PeerFlowE2ETestSuitePG) checkSyncedAt(dstSchemaQualified string) error {
 		}
 
 		if !syncedAt.Valid {
-			return fmt.Errorf("synced_at is not valid")
+			return errors.New("synced_at is not valid")
 		}
 	}
 

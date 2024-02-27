@@ -421,7 +421,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 
 func (c *SnowflakeConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
-	c.logger.Info(fmt.Sprintf("pushing records to Snowflake table %s", rawTableIdentifier))
+	c.logger.Info("pushing records to Snowflake table " + rawTableIdentifier)
 
 	res, err := c.syncRecordsViaAvro(ctx, req, rawTableIdentifier, req.SyncBatchID)
 	if err != nil {
@@ -684,16 +684,14 @@ func generateCreateTableSQLForNormalizedTable(
 	// add a _peerdb_is_deleted column to the normalized table
 	// this is boolean default false, and is used to mark records as deleted
 	if softDeleteColName != "" {
-		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf(`%s BOOLEAN DEFAULT FALSE`, softDeleteColName))
+		createTableSQLArray = append(createTableSQLArray, softDeleteColName+" BOOLEAN DEFAULT FALSE")
 	}
 
 	// add a _peerdb_synced column to the normalized table
 	// this is a timestamp column that is used to mark records as synced
 	// default value is the current timestamp (snowflake)
 	if syncedAtColName != "" {
-		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf(`%s TIMESTAMP DEFAULT CURRENT_TIMESTAMP`, syncedAtColName))
+		createTableSQLArray = append(createTableSQLArray, syncedAtColName+" TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
 	}
 
 	// add composite primary key to the table
@@ -782,7 +780,7 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 		activity.RecordHeartbeat(ctx, fmt.Sprintf("renaming table '%s' to '%s'...", src, dst))
 
 		// drop the dst table if exists
-		_, err = renameTablesTx.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", dst))
+		_, err = renameTablesTx.ExecContext(ctx, "DROP TABLE IF EXISTS "+dst)
 		if err != nil {
 			return nil, fmt.Errorf("unable to drop table %s: %w", dst, err)
 		}

@@ -3,6 +3,7 @@ package e2e_snowflake
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -34,7 +35,7 @@ type SnowflakeTestHelper struct {
 func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
 	jsonPath := os.Getenv("TEST_SF_CREDS")
 	if jsonPath == "" {
-		return nil, fmt.Errorf("TEST_SF_CREDS env var not set")
+		return nil, errors.New("TEST_SF_CREDS env var not set")
 	}
 
 	content, err := e2eshared.ReadFileToBytes(jsonPath)
@@ -102,7 +103,7 @@ func (s *SnowflakeTestHelper) Cleanup() error {
 	if err != nil {
 		return err
 	}
-	err = s.adminClient.ExecuteQuery(context.Background(), fmt.Sprintf("DROP DATABASE %s", s.testDatabaseName))
+	err = s.adminClient.ExecuteQuery(context.Background(), "DROP DATABASE "+s.testDatabaseName)
 	if err != nil {
 		return err
 	}
@@ -190,11 +191,11 @@ func (s *SnowflakeTestHelper) checkSyncedAt(query string) error {
 	for _, record := range recordBatch.Records {
 		for _, entry := range record {
 			if entry.Kind != qvalue.QValueKindTimestamp {
-				return fmt.Errorf("synced_at column check failed: _PEERDB_SYNCED_AT is not timestamp")
+				return errors.New("synced_at column check failed: _PEERDB_SYNCED_AT is not timestamp")
 			}
 			_, ok := entry.Value.(time.Time)
 			if !ok {
-				return fmt.Errorf("synced_at column failed: _PEERDB_SYNCED_AT is not valid")
+				return errors.New("synced_at column failed: _PEERDB_SYNCED_AT is not valid")
 			}
 		}
 	}

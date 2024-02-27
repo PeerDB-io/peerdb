@@ -43,11 +43,11 @@ func (s PeerFlowE2ETestSuitePG) checkPeerdbColumns(dstSchemaQualified string, ro
 	}
 
 	if !isDeleted.Bool {
-		return fmt.Errorf("isDeleted is not true")
+		return errors.New("isDeleted is not true")
 	}
 
 	if !syncedAt.Valid {
-		return fmt.Errorf("syncedAt is not valid")
+		return errors.New("syncedAt is not valid")
 	}
 
 	return nil
@@ -722,7 +722,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Basic() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel")
-	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
+	srcTableName := cmpTableName + "_src"
 	dstTableName := s.attachSchemaSuffix("test_softdel_dst")
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -808,7 +808,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_IUD_Same_Batch() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel_iud")
-	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
+	srcTableName := cmpTableName + "_src"
 	dstTableName := s.attachSchemaSuffix("test_softdel_iud_dst")
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -887,7 +887,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel_ud")
-	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
+	srcTableName := cmpTableName + "_src"
 	dstTableName := s.attachSchemaSuffix("test_softdel_ud_dst")
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
