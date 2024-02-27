@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/jackc/pglogrepl"
@@ -786,19 +787,19 @@ func (p *PostgresCDCSource) recToTablePKey(req *model.PullRecordsRequest,
 	rec model.Record,
 ) (*model.TableWithPkey, error) {
 	tableName := rec.GetDestinationTableName()
-	pkeyColsMerged := make([]byte, 0)
+	pkeyColsMerged := make([][]byte, 0, len(req.TableNameSchemaMapping[tableName].PrimaryKeyColumns))
 
 	for _, pkeyCol := range req.TableNameSchemaMapping[tableName].PrimaryKeyColumns {
 		pkeyColVal, err := rec.GetItems().GetValueByColName(pkeyCol)
 		if err != nil {
 			return nil, fmt.Errorf("error getting pkey column value: %w", err)
 		}
-		pkeyColsMerged = append(pkeyColsMerged, []byte(fmt.Sprint(pkeyColVal.Value))...)
+		pkeyColsMerged = append(pkeyColsMerged, []byte(fmt.Sprint(pkeyColVal.Value)))
 	}
 
 	return &model.TableWithPkey{
 		TableName:  tableName,
-		PkeyColVal: sha256.Sum256(pkeyColsMerged),
+		PkeyColVal: sha256.Sum256(slices.Concat(pkeyColsMerged...)),
 	}, nil
 }
 

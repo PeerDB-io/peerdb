@@ -515,9 +515,7 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 	g, gCtx := errgroup.WithContext(ctx)
 	g.SetLimit(8) // limit parallel merges to 8
 
-	for _, destinationTableName := range destinationTableNames {
-		tableName := destinationTableName // local variable for the closure
-
+	for _, tableName := range destinationTableNames {
 		g.Go(func() error {
 			mergeGen := &mergeStmtGenerator{
 				rawTableName:          getRawTableIdentifier(req.FlowJobName),
