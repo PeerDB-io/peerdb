@@ -90,7 +90,7 @@ func (c *EventHubConnector) GetLastOffset(ctx context.Context, jobName string) (
 func (c *EventHubConnector) SetLastOffset(ctx context.Context, jobName string, offset int64) error {
 	err := c.pgMetadata.UpdateLastOffset(ctx, jobName, offset)
 	if err != nil {
-		c.logger.Error(fmt.Sprintf("failed to update last offset: %v", err))
+		c.logger.Error("failed to update last offset", slog.Any("error", err))
 		return err
 	}
 
@@ -143,7 +143,7 @@ func (c *EventHubConnector) processBatch(
 
 			json, err := record.GetItems().ToJSONWithOpts(toJSONOpts)
 			if err != nil {
-				c.logger.Info("failed to convert record to json: %v", err)
+				c.logger.Info("failed to convert record to json", slog.Any("error", err))
 				return 0, err
 			}
 
