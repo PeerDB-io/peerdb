@@ -145,7 +145,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(tableName),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
 
@@ -206,7 +205,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(tableName),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
 
@@ -258,7 +256,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(tableName),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
 
@@ -339,7 +336,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_sf_1"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
 
@@ -393,7 +389,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_sf_3"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
 
@@ -452,7 +447,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_sf_4"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
 
@@ -506,7 +500,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_sf_5"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
 
@@ -567,7 +560,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_types_sf"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
 
@@ -654,7 +646,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_multi_table"),
 		TableNameMapping: map[string]string{srcTable1Name: dstTable1Name, srcTable2Name: dstTable2Name},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
 
@@ -709,7 +700,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_simple_schema_changes"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
 
@@ -927,7 +917,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_cpkey_flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
 
@@ -985,7 +974,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_cpkey_toast1_flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
 
@@ -1048,7 +1036,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(tableName),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
 
@@ -1118,7 +1105,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 				Exclude:                    []string{"c2"},
 			},
 		},
-		Source:          e2e.GeneratePostgresPeer(e2e.PostgresPort),
+		Source:          e2e.GeneratePostgresPeer(),
 		CdcStagingPath:  connectionGen.CdcStagingPath,
 		SyncedAtColName: "_PEERDB_SYNCED_AT",
 		MaxBatchSize:    100,
@@ -1193,7 +1180,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(e2e.PostgresPort),
+		Source:            e2e.GeneratePostgresPeer(),
 		CdcStagingPath:    connectionGen.CdcStagingPath,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
@@ -1269,7 +1256,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(e2e.PostgresPort),
+		Source:            e2e.GeneratePostgresPeer(),
 		CdcStagingPath:    connectionGen.CdcStagingPath,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
@@ -1348,7 +1335,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(e2e.PostgresPort),
+		Source:            e2e.GeneratePostgresPeer(),
 		CdcStagingPath:    connectionGen.CdcStagingPath,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
@@ -1432,7 +1419,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(e2e.PostgresPort),
+		Source:            e2e.GeneratePostgresPeer(),
 		CdcStagingPath:    connectionGen.CdcStagingPath,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
@@ -1498,7 +1485,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_mixed_case"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
 

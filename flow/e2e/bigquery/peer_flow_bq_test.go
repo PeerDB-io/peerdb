@@ -224,7 +224,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_complete_flow_no_data"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
 		CdcStagingPath:   "",
 	}
@@ -260,7 +259,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_char_table"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
 		CdcStagingPath:   "",
 	}
@@ -299,7 +297,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_complete_simple_flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
 		CdcStagingPath:   "",
 	}
@@ -347,7 +344,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_bq_1"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
 		CdcStagingPath:   "",
 	}
@@ -403,7 +399,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_bq_3"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
 		CdcStagingPath:   "",
 	}
@@ -464,7 +459,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_bq_4"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
 		CdcStagingPath:   "",
 	}
@@ -519,7 +513,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_bq_5"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
 		CdcStagingPath:   "",
 	}
@@ -580,7 +573,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_types_bq"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
 		CdcStagingPath:   "",
 	}
@@ -664,7 +656,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_nans_bq"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
 		CdcStagingPath:   "",
 	}
@@ -711,7 +702,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_invalid_geo_bq_avro_cdc"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
 		CdcStagingPath:   "",
 	}
@@ -792,7 +782,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_multi_table_bq"),
 		TableNameMapping: map[string]string{srcTable1Name: dstTable1Name, srcTable2Name: dstTable2Name},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
 		CdcStagingPath:   "",
 	}
@@ -850,7 +839,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(tableName),
 		TableNameMapping: map[string]string{srcTableName: tableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
 		CdcStagingPath:   "",
 	}
@@ -936,7 +924,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_cpkey_flow"),
 		TableNameMapping: map[string]string{srcTableName: tableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
 		CdcStagingPath:   "",
 	}
@@ -997,7 +984,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_cpkey_toast1_flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
 		CdcStagingPath:   "",
 	}
@@ -1059,7 +1045,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_cpkey_toast2_flow"),
 		TableNameMapping: map[string]string{srcTableName: tableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
 		CdcStagingPath:   "",
 	}
@@ -1114,7 +1099,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Columns_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_peerdb_cols_mirror"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
 		SoftDelete:       true,
 	}
@@ -1169,7 +1153,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
 			srcTable1Name: dstTable1Name,
 			srcTable2Name: fmt.Sprintf("%s.%s", secondDataset, dstTable2Name),
 		},
-		PostgresPort:   e2e.PostgresPort,
 		Destination:    s.bqHelper.Peer,
 		CdcStagingPath: "",
 	}
@@ -1240,7 +1223,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 				DestinationTableIdentifier: tableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(e2e.PostgresPort),
+		Source:            e2e.GeneratePostgresPeer(),
 		CdcStagingPath:    connectionGen.CdcStagingPath,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
@@ -1320,7 +1303,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(e2e.PostgresPort),
+		Source:            e2e.GeneratePostgresPeer(),
 		CdcStagingPath:    connectionGen.CdcStagingPath,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
@@ -1398,7 +1381,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 				DestinationTableIdentifier: dstName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(e2e.PostgresPort),
+		Source:            e2e.GeneratePostgresPeer(),
 		CdcStagingPath:    connectionGen.CdcStagingPath,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
@@ -1482,7 +1465,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 				DestinationTableIdentifier: tableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(e2e.PostgresPort),
+		Source:            e2e.GeneratePostgresPeer(),
 		CdcStagingPath:    connectionGen.CdcStagingPath,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
