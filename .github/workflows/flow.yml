@@ -13,21 +13,6 @@ jobs:
         runner: [ubicloud-standard-16-ubuntu-2204-arm]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
-    services:
-      pg_cdc:
-        image: imresamu/postgis:15-3.4-alpine
-        ports:
-          - 7132:5432
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        options: >-
-          --name pg_cdc
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - name: checkout sources
         uses: actions/checkout@v4
@@ -43,18 +28,14 @@ jobs:
           go-version: "1.22"
           cache-dependency-path: flow/go.sum
 
-      - name: install gotestsum
-        run: |
-          go install gotest.tools/gotestsum@latest
+      - run: go install gotest.tools/gotestsum@latest
 
       - name: install lib-geos
         run: |
           sudo apt-get update
           sudo apt-get install libgeos-dev
 
-      - name: download go modules
-        run: |
-          go mod download
+      - run: go mod download
         working-directory: ./flow
 
       - name: setup gcp service account
@@ -85,23 +66,26 @@ jobs:
           name: "gcs_creds.json"
           json: ${{ secrets.GCS_CREDS }}
 
+      - run: docker compose -f docker-compose-ci.yml up -d
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+
       - name: create hstore extension, increase logical replication limits, and setup catalog database
         run: >
-          docker exec pg_cdc psql -h localhost -p 5432 -U postgres -c "CREATE EXTENSION hstore;"
+          docker exec catalog psql -U postgres -c "CREATE EXTENSION hstore;"
           -c "ALTER SYSTEM SET wal_level=logical;"
           -c "ALTER SYSTEM SET max_replication_slots=192;"
           -c "ALTER SYSTEM SET max_wal_senders=256;"
           -c "ALTER SYSTEM SET max_connections=2048;" &&
-          (cat ../nexus/catalog/migrations/V{?,??}__* | docker exec -i pg_cdc psql -h localhost -p 5432 -U postgres) &&
-          docker restart pg_cdc
-        working-directory: ./flow
+          (cat ./nexus/catalog/migrations/V{?,??}__* | docker exec -i catalog psql -U postgres) &&
+          docker restart catalog
         env:
-          PG_CDC: empty
           PGPASSWORD: postgres
 
       - name: run tests
-        run: |
-          gotestsum --format testname -- -p 24 ./... -timeout 1200s
+        run: gotestsum --format testname -- -p 60 ./... -timeout 1200s
         working-directory: ./flow
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -122,7 +106,7 @@ jobs:
           SQLSERVER_PASSWORD: ${{ secrets.SQLSERVER_PASSWORD }}
           SQLSERVER_DB: ${{ secrets.SQLSERVER_DB }}
           PEERDB_CATALOG_HOST: localhost
-          PEERDB_CATALOG_PORT: 7132
+          PEERDB_CATALOG_PORT: 9901
           PEERDB_CATALOG_USER: postgres
           PEERDB_CATALOG_PASSWORD: postgres
           PEERDB_CATALOG_DATABASE: postgres

@@ -1,0 +1,97 @@
+version: "3.9"
+
+x-catalog-config: &catalog-config
+  PEERDB_CATALOG_HOST: catalog
+  PEERDB_CATALOG_PORT: 5432
+  PEERDB_CATALOG_USER: postgres
+  PEERDB_CATALOG_PASSWORD: postgres
+  PEERDB_CATALOG_DATABASE: postgres
+
+x-flow-worker-env: &flow-worker-env
+  TEMPORAL_HOST_PORT: temporal:7233
+  TEMPORAL_CLIENT_CERT:
+  TEMPORAL_CLIENT_KEY:
+  PEERDB_TEMPORAL_NAMESPACE: default
+  # For GCS, these will be your HMAC keys instead
+  # For more information:
+  # https://cloud.google.com/storage/docs/authentication/managing-hmackeys
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  # For GCS, set this to "auto" without the quotes
+  AWS_REGION: ${AWS_REGION:-}
+  # For GCS, set this as: https://storage.googleapis.com
+  AWS_ENDPOINT: ${AWS_ENDPOINT:-}
+
+services:
+  catalog:
+    container_name: catalog
+    image: imresamu/postgis:15-3.4-alpine
+    ports:
+      - 9901:5432
+    environment:
+      PGUSER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-d", "postgres", "-U", "postgres"]
+      interval: 10s
+      timeout: 30s
+      retries: 5
+      start_period: 60s
+
+  temporal:
+    container_name: temporal
+    depends_on:
+      catalog:
+        condition: service_healthy
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PWD=postgres
+      - POSTGRES_SEEDS=catalog
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+    image: temporalio/auto-setup:1.22
+    ports:
+      - 7233:7233
+    volumes:
+      - ./temporal-dynamicconfig:/etc/temporal/config/dynamicconfig
+    labels:
+      kompose.volume.type: configMap
+
+  flow-api:
+    container_name: flow_api
+    build:
+      context: .
+      dockerfile: stacks/flow.Dockerfile
+      target: flow-api
+      args:
+        PEERDB_VERSION_SHA_SHORT: ${PEERDB_VERSION_SHA_SHORT:-}
+    ports:
+      - 8112:8112
+      - 8113:8113
+    environment:
+      <<: [*catalog-config, *flow-worker-env]
+    depends_on: ["temporal"]
+
+  flow-snapshot-worker:
+    container_name: flow-snapshot-worker
+    build:
+      context: .
+      dockerfile: stacks/flow.Dockerfile
+      target: flow-snapshot-worker
+    environment:
+      <<: [*catalog-config, *flow-worker-env]
+    depends_on: ["temporal"]
+
+  flow-worker:
+    container_name: flow-worker
+    build:
+      context: .
+      dockerfile: stacks/flow.Dockerfile
+      target: flow-worker
+    environment:
+      <<: [*catalog-config, *flow-worker-env]
+    depends_on: ["temporal"]
