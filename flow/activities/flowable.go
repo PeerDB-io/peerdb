@@ -613,9 +613,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		return fmt.Errorf("failed to update start time for partition: %w", err)
 	}
 
-	pullCtx, pullCancel := context.WithCancel(ctx)
-	defer pullCancel()
-	srcConn, err := connectors.GetQRepPullConnector(pullCtx, config.SourcePeer)
+	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return fmt.Errorf("failed to get qrep source connector: %w", err)
@@ -638,6 +636,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	var stream *model.QRecordStream
 	bufferSize := shared.FetchAndChannelSize
 	errGroup, errCtx := errgroup.WithContext(ctx)
+	var rowsSynced int
 	if config.SourcePeer.Type == protos.DBType_POSTGRES {
 		stream = model.NewQRecordStream(bufferSize)
 		errGroup.Go(func() error {
@@ -656,6 +655,21 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 			}
 			return nil
 		})
+
+		errGroup.Go(func() error {
+			rowsSynced, err = dstConn.SyncQRepRecords(ctx, config, partition, stream)
+			if err != nil {
+				a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+				return fmt.Errorf("failed to sync records: %w", err)
+			}
+			return nil
+		})
+
+		err = errGroup.Wait()
+		if err != nil {
+			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+			return err
+		}
 	} else {
 		recordBatch, err := srcConn.PullQRepRecords(ctx, config, partition)
 		if err != nil {
@@ -674,30 +688,31 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return fmt.Errorf("failed to convert to qrecord stream: %w", err)
 		}
-	}
 
-	rowsSynced, err := dstConn.SyncQRepRecords(ctx, config, partition, stream)
-	if err != nil {
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return fmt.Errorf("failed to sync records: %w", err)
-	}
-
-	if rowsSynced == 0 {
-		logger.Info("no records to push for partition " + partition.PartitionId)
-		pullCancel()
-	} else {
-		err = errGroup.Wait()
+		rowsSynced, err = dstConn.SyncQRepRecords(ctx, config, partition, stream)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return err
+			return fmt.Errorf("failed to sync records: %w", err)
 		}
 
+		if rowsSynced == 0 {
+			logger.Info("no records to push for partition " + partition.PartitionId)
+		} else {
+			err = errGroup.Wait()
+			if err != nil {
+				a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+				return err
+			}
+		}
+	}
+
+	logger.Info(fmt.Sprintf("pushed %d records", rowsSynced))
+
+	if rowsSynced > 0 {
 		err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition)
 		if err != nil {
 			return err
 		}
-
-		logger.Info(fmt.Sprintf("pushed %d records", rowsSynced))
 	}
 
 	err = monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition)
