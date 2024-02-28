@@ -21,65 +21,6 @@ x-flow-worker-env: &flow-worker-env
   AWS_ENDPOINT: ${AWS_ENDPOINT:-}
 
 services:
-  catalog:
-    container_name: catalog
-    image: imresamu/postgis:15-3.4-alpine
-    ports:
-      - 9901:5432
-    environment:
-      PGUSER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: postgres
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    healthcheck:
-      test: ["CMD", "pg_isready", "-d", "postgres", "-U", "postgres"]
-      interval: 10s
-      timeout: 30s
-      retries: 5
-      start_period: 60s
-
-  temporal:
-    container_name: temporal
-    depends_on:
-      catalog:
-        condition: service_healthy
-    environment:
-      - DB=postgresql
-      - DB_PORT=5432
-      - POSTGRES_USER=postgres
-      - POSTGRES_PWD=postgres
-      - POSTGRES_SEEDS=catalog
-      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    image: temporalio/auto-setup:1.22
-    ports:
-      - 7233:7233
-    volumes:
-      - ./temporal-dynamicconfig:/etc/temporal/config/dynamicconfig
-    labels:
-      kompose.volume.type: configMap
-
-  temporal-admin-tools:
-    container_name: temporal-admin-tools
-    depends_on:
-      - temporal
-    environment:
-      - TEMPORAL_ADDRESS=temporal:7233
-      - TEMPORAL_CLI_ADDRESS=temporal:7233
-      - TEMPORAL_CLI_SHOW_STACKS=1
-    image: temporalio/admin-tools:1.22
-    stdin_open: true
-    tty: true
-    entrypoint: /etc/temporal/entrypoint.sh
-    restart: on-failure
-    healthcheck:
-      test: ["CMD", "tctl", "workflow", "list"]
-      interval: 1s
-      timeout: 5s
-      retries: 30
-    volumes:
-      - ./scripts/mirror-name-search.sh:/etc/temporal/entrypoint.sh
-
   flow-api:
     container_name: flow_api
     build:
