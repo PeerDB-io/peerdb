@@ -634,11 +634,10 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	defer shutdown()
 
 	var rowsSynced int
-	var stream *model.QRecordStream
 	bufferSize := shared.FetchAndChannelSize
 	if config.SourcePeer.Type == protos.DBType_POSTGRES {
 		errGroup, errCtx := errgroup.WithContext(ctx)
-		stream = model.NewQRecordStream(bufferSize)
+		stream := model.NewQRecordStream(bufferSize)
 		errGroup.Go(func() error {
 			pgConn := srcConn.(*connpostgres.PostgresConnector)
 			tmp, err := pgConn.PullQRepRecordStream(errCtx, config, partition, stream)
@@ -683,7 +682,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 			return err
 		}
 
-		stream, err = recordBatch.ToQRecordStream(bufferSize)
+		stream, err := recordBatch.ToQRecordStream(bufferSize)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return fmt.Errorf("failed to convert to qrecord stream: %w", err)
