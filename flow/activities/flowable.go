@@ -633,11 +633,11 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	})
 	defer shutdown()
 
+	var rowsSynced int
 	var stream *model.QRecordStream
 	bufferSize := shared.FetchAndChannelSize
-	errGroup, errCtx := errgroup.WithContext(ctx)
-	var rowsSynced int
 	if config.SourcePeer.Type == protos.DBType_POSTGRES {
+		errGroup, errCtx := errgroup.WithContext(ctx)
 		stream = model.NewQRecordStream(bufferSize)
 		errGroup.Go(func() error {
 			pgConn := srcConn.(*connpostgres.PostgresConnector)
@@ -694,25 +694,16 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return fmt.Errorf("failed to sync records: %w", err)
 		}
-
-		if rowsSynced == 0 {
-			logger.Info("no records to push for partition " + partition.PartitionId)
-		} else {
-			err = errGroup.Wait()
-			if err != nil {
-				a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-				return err
-			}
-		}
 	}
 
-	logger.Info(fmt.Sprintf("pushed %d records", rowsSynced))
-
 	if rowsSynced > 0 {
+		logger.Info(fmt.Sprintf("pushed %d records", rowsSynced))
 		err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition)
 		if err != nil {
 			return err
 		}
+	} else {
+		logger.Info("no records to push for partition " + partition.PartitionId)
 	}
 
 	err = monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition)
