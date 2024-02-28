@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
@@ -559,9 +560,11 @@ func ExecuteWorkflow(tc client.Client, taskQueueID shared.TaskQueueID, wf interf
 }
 
 func (env WorkflowRun) Finished() bool {
-	_, err := env.c.DescribeWorkflowExecution(context.Background(), env.GetID(), "")
-	var notFound serviceerror.NotFound
-	return errors.Is(err, &notFound)
+	desc, err := env.c.DescribeWorkflowExecution(context.Background(), env.GetID(), "")
+	if err != nil {
+		return false
+	}
+	return desc.GetWorkflowExecutionInfo().GetStatus() != enums.WORKFLOW_EXECUTION_STATUS_RUNNING
 }
 
 func (env WorkflowRun) Error() error {
