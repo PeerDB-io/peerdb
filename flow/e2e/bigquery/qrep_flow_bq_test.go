@@ -46,7 +46,7 @@ func (s PeerFlowE2ETestSuiteBQ) setupTimeTable(tableName string) {
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	tc := e2e.NewTemporalClient(s.t)
 
 	numRows := 10
 
@@ -65,19 +65,19 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 		true,
 		"")
 	require.NoError(s.t, err)
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	require.True(s.t, env.Finished())
 
-	err = env.GetWorkflowError()
+	err = env.Error()
 	require.NoError(s.t, err)
 
 	e2e.RequireEqualTables(s, tblName, "*")
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Timestamps_QRep() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	tc := e2e.NewTemporalClient(s.t)
 
 	tblName := "test_qrep_flow_avro_bq"
 	s.setupTimeTable(tblName)
@@ -95,12 +95,12 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Timestamps_QRep() {
 		"")
 	qrepConfig.WatermarkColumn = "watermark_ts"
 	require.NoError(s.t, err)
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	require.True(s.t, env.Finished())
 
-	err = env.GetWorkflowError()
+	err = env.Error()
 	require.NoError(s.t, err)
 
 	ok, err := s.bqHelper.CheckNull(tblName, []string{"mytimestamp"})
@@ -113,7 +113,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Timestamps_QRep() {
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	tc := e2e.NewTemporalClient(s.t)
 
 	numRows := 10
 
@@ -132,12 +132,12 @@ func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
 		true,
 		"_PEERDB_SYNCED_AT")
 	require.NoError(s.t, err)
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	require.True(s.t, env.Finished())
 
-	err = env.GetWorkflowError()
+	err = env.Error()
 	require.NoError(s.t, err)
 
 	err = s.checkPeerdbColumns(tblName, false)

@@ -147,7 +147,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 		s.t.Skip("Skipping SQL Server test")
 	}
 
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	tc := e2e.NewTemporalClient(s.t)
 
 	numRows := 10
 	tblName := "test_qrep_flow_avro_ss_append"
@@ -178,12 +178,12 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 		WaitBetweenBatchesSeconds:  5,
 	}
 
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	require.True(s.t, env.Finished())
 
-	err := env.GetWorkflowError()
+	err := env.Error()
 	require.NoError(s.t, err)
 
 	// Verify that the destination table has the same number of rows as the source table

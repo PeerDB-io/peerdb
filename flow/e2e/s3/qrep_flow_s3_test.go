@@ -104,7 +104,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 		s.t.Skip("Skipping S3 test")
 	}
 
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	tc := e2e.NewTemporalClient(s.t)
 
 	jobName := "test_complete_flow_s3"
 	schemaQualifiedName := fmt.Sprintf("e2e_test_%s.%s", s.suffix, jobName)
@@ -125,11 +125,11 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 	require.NoError(s.t, err)
 	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
 
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
+	require.True(s.t, env.Finished())
+	err = env.Error()
 
 	require.NoError(s.t, err)
 
@@ -150,7 +150,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 		s.t.Skip("Skipping S3 test")
 	}
 
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	tc := e2e.NewTemporalClient(s.t)
 
 	jobName := "test_complete_flow_s3_ctid"
 	schemaQualifiedName := fmt.Sprintf("e2e_test_%s.%s", s.suffix, jobName)
@@ -173,11 +173,11 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 	qrepConfig.InitialCopyOnly = true
 	qrepConfig.WatermarkColumn = "ctid"
 
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
+	require.True(s.t, env.Finished())
+	err = env.Error()
 
 	require.NoError(s.t, err)
 
