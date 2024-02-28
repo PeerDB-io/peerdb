@@ -10,7 +10,7 @@ import (
 func TestMain(m *testing.M) {
 	//nolint:errcheck
 	go cmd.WorkerMain(&cmd.WorkerOptions{
-		TemporalHostPort:  "localhost:7233",
+		TemporalHostPort:  "temporal:7233",
 		EnableProfiling:   false,
 		PyroscopeServer:   "",
 		TemporalNamespace: "default",
@@ -19,7 +19,7 @@ func TestMain(m *testing.M) {
 	})
 	//nolint:errcheck
 	go cmd.SnapshotWorkerMain(&cmd.SnapshotWorkerOptions{
-		TemporalHostPort:  "localhost:7233",
+		TemporalHostPort:  "temporal:7233",
 		TemporalNamespace: "default",
 		TemporalCert:      "",
 		TemporalKey:       "",
