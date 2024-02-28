@@ -456,6 +456,12 @@ func (c *QValueAvroConverter) processGoDate() (interface{}, error) {
 		return nil, errors.New("invalid Time value for Date")
 	}
 
+	// Bigquery will not allow Date if it is less than 1AD and more than 9999AD
+	// So make such Dates null
+	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
+		return nil, nil
+	}
+
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == QDWHTypeSnowflake {
