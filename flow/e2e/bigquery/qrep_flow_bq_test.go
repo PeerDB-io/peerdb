@@ -22,6 +22,7 @@ func (s PeerFlowE2ETestSuiteBQ) setupTimeTable(tableName string) {
 		"watermark_ts timestamp",
 		"mytimestamp timestamp",
 		"mytztimestamp timestamptz",
+		"medieval timestamptz",
 		"mybaddate date",
 		"mydate date",
 	}
@@ -37,6 +38,7 @@ func (s PeerFlowE2ETestSuiteBQ) setupTimeTable(tableName string) {
 	row := `(CURRENT_TIMESTAMP,
 			'10001-03-14 23:05:52',
 			'50001-03-14 23:05:52.216809+00'
+			'1534-03-14 23:05:52.216809+00',
 			'10000-03-14',
 			CURRENT_TIMESTAMP)`
 	rows = append(rows, row)
@@ -46,6 +48,7 @@ func (s PeerFlowE2ETestSuiteBQ) setupTimeTable(tableName string) {
 					watermark_ts,
 					mytimestamp,
 					mytztimestamp,
+					medieval,
 					mybaddate,
 					mydate
 			) VALUES %s;
@@ -112,7 +115,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Timestamps_And_Date_QRep() {
 	require.NoError(s.t, err)
 
 	goodValues := []string{"watermark_ts", "mydate"}
-	badValues := []string{"mytimestamp", "mytztimestamp", "mybaddate"}
+	badValues := []string{"mytimestamp", "mytztimestamp", "medieval", "mybaddate"}
 
 	for _, col := range goodValues {
 		ok, err := s.bqHelper.CheckNull(tblName, []string{col})
