@@ -7,6 +7,17 @@ import { PulseLoader } from 'react-spinners';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { alertConfigReqSchema, alertConfigType } from './validation';
+
+export interface AlertConfigProps {
+  id?: bigint;
+  serviceType: string;
+  authToken: string;
+  channelIdString: string;
+  slotLagMBAlertThreshold: number;
+  openConnectionsAlertThreshold: number;
+  forEdit?: boolean;
+}
+
 const notifyErr = (errMsg: string) => {
   toast.error(errMsg, {
     position: 'bottom-center',
@@ -21,29 +32,30 @@ function ConfigLabel() {
   );
 }
 
-const NewAlertConfig = () => {
-  const [serviceType, setServiceType] = useState<string>();
-  const [authToken, setAuthToken] = useState<string>();
-  const [channelIdString, setChannelIdString] = useState<string>();
+const NewAlertConfig = (alertProps: AlertConfigProps) => {
+  const [serviceType, setServiceType] = useState<string>('slack');
+  const [authToken, setAuthToken] = useState<string>(alertProps.authToken);
+  const [channelIdString, setChannelIdString] = useState<string>(
+    alertProps.channelIdString
+  );
   const [slotLagMBAlertThreshold, setSlotLagMBAlertThreshold] =
-    useState<number>();
+    useState<number>(alertProps.slotLagMBAlertThreshold);
   const [openConnectionsAlertThreshold, setOpenConnectionsAlertThreshold] =
-    useState<number>();
+    useState<number>(alertProps.openConnectionsAlertThreshold);
   const [loading, setLoading] = useState(false);
   const handleAdd = async () => {
     if (serviceType !== 'slack') {
       notifyErr('Service Type must be selected');
       return;
     }
-    console.log(slotLagMBAlertThreshold);
-    console.log(openConnectionsAlertThreshold);
+
     const alertConfigReq: alertConfigType = {
       serviceType: serviceType,
       serviceConfig: {
         auth_token: authToken ?? '',
         channel_ids: channelIdString?.split(',')!,
-        slot_lag_mb_alert_threshold: slotLagMBAlertThreshold || 0,
-        open_connections_alert_threshold: openConnectionsAlertThreshold || 0,
+        slot_lag_mb_alert_threshold: slotLagMBAlertThreshold || 5000,
+        open_connections_alert_threshold: openConnectionsAlertThreshold || 5,
       },
     };
     const alertReqValidity = alertConfigReqSchema.safeParse(alertConfigReq);
@@ -52,8 +64,11 @@ const NewAlertConfig = () => {
       return;
     }
     setLoading(true);
+    if (alertProps.forEdit) {
+      alertConfigReq.id = Number(alertProps.id);
+    }
     const createRes = await fetch('/api/alert-config', {
-      method: 'POST',
+      method: alertProps.forEdit ? 'PUT' : 'POST',
       body: JSON.stringify(alertConfigReq),
     });
     const createStatus = await createRes.text();
@@ -86,6 +101,10 @@ const NewAlertConfig = () => {
             },
           ]}
           placeholder='Select provider'
+          defaultValue={{
+            value: 'slack',
+            label: 'Slack',
+          }}
           formatOptionLabel={ConfigLabel}
           onChange={(val, _) => val && setServiceType(val.value)}
         />
@@ -143,7 +162,13 @@ const NewAlertConfig = () => {
         onClick={handleAdd}
         variant='normalSolid'
       >
-        {loading ? <PulseLoader color='white' size={10} /> : 'Create'}
+        {loading ? (
+          <PulseLoader color='white' size={10} />
+        ) : alertProps.forEdit ? (
+          'Update'
+        ) : (
+          'Create'
+        )}
       </Button>
       <ToastContainer />
     </div>
