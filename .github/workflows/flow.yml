@@ -15,16 +15,13 @@ jobs:
     timeout-minutes: 30
     services:
       catalog:
-        container_name: catalog
         image: imresamu/postgis:15-3.4-alpine
         ports:
           - 9901:5432
-        environment:
+        env:
           PGUSER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
-        extra_hosts:
-          - "host.docker.internal:host-gateway"
         healthcheck:
           test: ["CMD", "pg_isready", "-d", "postgres", "-U", "postgres"]
           interval: 10s
@@ -33,11 +30,9 @@ jobs:
           start_period: 60s
 
       temporal:
-        container_name: temporal
         depends_on:
-          catalog:
-            condition: service_healthy
-        environment:
+          - catalog
+        env:
           - DB=postgresql
           - DB_PORT=5432
           - POSTGRES_USER=postgres
@@ -53,10 +48,9 @@ jobs:
           kompose.volume.type: configMap
 
       temporal-admin-tools:
-        container_name: temporal-admin-tools
         depends_on:
           - temporal
-        environment:
+        env:
           - TEMPORAL_ADDRESS=temporal:7233
           - TEMPORAL_CLI_ADDRESS=temporal:7233
           - TEMPORAL_CLI_SHOW_STACKS=1

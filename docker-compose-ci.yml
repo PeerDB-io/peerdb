@@ -21,23 +21,6 @@ x-flow-worker-env: &flow-worker-env
   AWS_ENDPOINT: ${AWS_ENDPOINT:-}
 
 services:
-  flow-api:
-    container_name: flow_api
-    build:
-      context: .
-      dockerfile: stacks/flow.Dockerfile
-      target: flow-api
-      args:
-        PEERDB_VERSION_SHA_SHORT: ${PEERDB_VERSION_SHA_SHORT:-}
-    ports:
-      - 8112:8112
-      - 8113:8113
-    environment:
-      <<: [*catalog-config, *flow-worker-env]
-    depends_on:
-      temporal-admin-tools:
-        condition: service_healthy
-
   flow-snapshot-worker:
     container_name: flow-snapshot-worker
     build:
