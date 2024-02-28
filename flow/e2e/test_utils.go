@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -53,9 +52,8 @@ func EnvNoError(t *testing.T, env WorkflowRun, err error) {
 	t.Helper()
 
 	if err != nil {
-		t.Error("UNEXPECTED ERROR", err.Error())
 		env.Cancel()
-		runtime.Goexit()
+		t.Fatal("UNEXPECTED ERROR", err.Error())
 	}
 }
 
@@ -63,9 +61,8 @@ func EnvTrue(t *testing.T, env WorkflowRun, val bool) {
 	t.Helper()
 
 	if !val {
-		t.Error("UNEXPECTED FALSE")
 		env.Cancel()
-		runtime.Goexit()
+		t.Fatal("UNEXPECTED FALSE")
 	}
 }
 
@@ -179,9 +176,8 @@ func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, connectionGen FlowCo
 				return
 			}
 		} else if counter > 15 {
-			t.Error("UNEXPECTED SETUP CDC TIMEOUT", err.Error())
 			env.Cancel()
-			runtime.Goexit()
+			t.Fatal("UNEXPECTED SETUP CDC TIMEOUT", err.Error())
 		} else if counter > 5 {
 			// log the error for informational purposes
 			t.Log(err.Error())
@@ -633,9 +629,8 @@ func EnvWaitFor(t *testing.T, env WorkflowRun, timeout time.Duration, reason str
 	deadline := time.Now().Add(timeout)
 	for !f() {
 		if time.Now().After(deadline) {
-			t.Error("UNEXPECTED TIMEOUT", reason, time.Now())
 			env.Cancel()
-			runtime.Goexit()
+			t.Fatal("UNEXPECTED TIMEOUT", reason, time.Now())
 		}
 		time.Sleep(time.Second)
 	}
