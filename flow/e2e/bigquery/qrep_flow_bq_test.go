@@ -114,8 +114,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Timestamps_And_Date_QRep() {
 	err = env.GetWorkflowError()
 	require.NoError(s.t, err)
 
-	goodValues := []string{"watermark_ts", "mydate"}
-	badValues := []string{"mytimestamp", "mytztimestamp", "medieval", "mybaddate"}
+	goodValues := []string{"watermark_ts", "mydate", "medieval"}
+	badValues := []string{"mytimestamp", "mytztimestamp", "mybaddate"}
 
 	for _, col := range goodValues {
 		ok, err := s.bqHelper.CheckNull(tblName, []string{col})
