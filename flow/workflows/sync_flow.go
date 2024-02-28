@@ -37,13 +37,13 @@ func SyncFlowWorkflow(
 	defer workflow.CompleteSession(syncSessionCtx)
 	sessionInfo := workflow.GetSessionInfo(syncSessionCtx)
 
-	syncCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
+	maintainCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
 		StartToCloseTimeout: 14 * 24 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
 		WaitForCancellation: true,
 	})
 	fMaintain := workflow.ExecuteActivity(
-		syncCtx,
+		maintainCtx,
 		flowable.MaintainPull,
 		config,
 		sessionInfo.SessionID,
