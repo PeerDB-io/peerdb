@@ -43,7 +43,6 @@ jobs:
           TEMPORAL_CLI_ADDRESS: temporal:7233
           TEMPORAL_CLI_SHOW_STACKS: 1
         image: temporalio/admin-tools:1.22
-        restart: on-failure
 
     steps:
       - name: checkout sources
