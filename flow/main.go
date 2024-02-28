@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/urfave/cli/v3"
+	"go.temporal.io/sdk/worker"
 	_ "go.uber.org/automaxprocs"
 
 	"github.com/PeerDB-io/peer-flow/cmd"
@@ -67,7 +68,7 @@ func main() {
 				Name: "worker",
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
-					return cmd.WorkerMain(&cmd.WorkerOptions{
+					return cmd.WorkerMain(worker.InterruptCh(), &cmd.WorkerOptions{
 						TemporalHostPort:  temporalHostPort,
 						EnableProfiling:   clicmd.Bool("enable-profiling"),
 						PyroscopeServer:   clicmd.String("pyroscope-server-address"),
@@ -89,7 +90,7 @@ func main() {
 				Name: "snapshot-worker",
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
-					return cmd.SnapshotWorkerMain(&cmd.SnapshotWorkerOptions{
+					return cmd.SnapshotWorkerMain(worker.InterruptCh(), &cmd.SnapshotWorkerOptions{
 						TemporalHostPort:  temporalHostPort,
 						TemporalNamespace: clicmd.String("temporal-namespace"),
 						TemporalCert:      clicmd.String("temporal-cert"),

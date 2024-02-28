@@ -30,12 +30,12 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PWD: postgres
           POSTGRES_SEEDS: catalog
-          DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+          DYNAMIC_CONFIG_FILE_PATH: temporal-dynamicconfig/development-sql.yaml
         image: temporalio/auto-setup:1.22
         ports:
           - 7233:7233
         volumes:
-          - ./temporal-dynamicconfig:/etc/temporal/config/dynamicconfig
+          - ./temporal-dynamicconfig:./temporal-dynamicconfig
 
       temporal-admin-tools:
         env:

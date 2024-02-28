@@ -25,7 +25,7 @@ type SnapshotWorkerOptions struct {
 	TemporalKey       string
 }
 
-func SnapshotWorkerMain(opts *SnapshotWorkerOptions) error {
+func SnapshotWorkerMain(end <-chan interface{}, opts *SnapshotWorkerOptions) error {
 	clientOptions := client.Options{
 		HostPort:  opts.TemporalHostPort,
 		Namespace: opts.TemporalNamespace,

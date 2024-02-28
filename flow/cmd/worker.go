@@ -74,7 +74,7 @@ func setupPyroscope(opts *WorkerOptions) {
 	}
 }
 
-func WorkerMain(opts *WorkerOptions) error {
+func WorkerMain(end <-chan interface{}, opts *WorkerOptions) error {
 	if opts.EnableProfiling {
 		setupPyroscope(opts)
 	}
@@ -144,7 +144,7 @@ func WorkerMain(opts *WorkerOptions) error {
 		CdcCache:    make(map[string]connectors.CDCPullConnector),
 	})
 
-	err = w.Run(worker.InterruptCh())
+	err = w.Run(end)
 	if err != nil {
 		return fmt.Errorf("worker run error: %w", err)
 	}
