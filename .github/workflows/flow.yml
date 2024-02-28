@@ -26,12 +26,12 @@ jobs:
       temporal:
         depends_on: catalog
         env:
-          - DB=postgresql
-          - DB_PORT=5432
-          - POSTGRES_USER=postgres
-          - POSTGRES_PWD=postgres
-          - POSTGRES_SEEDS=catalog
-          - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+          DB: postgresql
+          DB_PORT: 5432
+          POSTGRES_USER: postgres
+          POSTGRES_PWD: postgres
+          POSTGRES_SEEDS: catalog
+          DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
         image: temporalio/auto-setup:1.22
         ports:
           - 7233:7233
@@ -43,9 +43,9 @@ jobs:
       temporal-admin-tools:
         depends_on: temporal
         env:
-          - TEMPORAL_ADDRESS=temporal:7233
-          - TEMPORAL_CLI_ADDRESS=temporal:7233
-          - TEMPORAL_CLI_SHOW_STACKS=1
+          TEMPORAL_ADDRESS: temporal:7233
+          TEMPORAL_CLI_ADDRESS: temporal:7233
+          TEMPORAL_CLI_SHOW_STACKS: 1
         image: temporalio/admin-tools:1.22
         stdin_open: true
         tty: true
