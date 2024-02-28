@@ -229,6 +229,10 @@ func (q *QRepFlowExecution) processPartitions(
 	maxParallelWorkers int,
 	partitions []*protos.QRepPartition,
 ) error {
+	if len(partitions) == 0 {
+		q.logger.Info("no partitions to process")
+		return nil
+	}
 	chunkSize := shared.DivCeil(len(partitions), maxParallelWorkers)
 	batches := make([][]*protos.QRepPartition, 0, len(partitions)/chunkSize+1)
 	for i := 0; i < len(partitions); i += chunkSize {
