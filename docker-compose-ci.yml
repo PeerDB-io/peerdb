@@ -9,8 +9,6 @@ x-catalog-config: &catalog-config
 
 x-flow-worker-env: &flow-worker-env
   TEMPORAL_HOST_PORT: temporal:7233
-  TEMPORAL_CLIENT_CERT:
-  TEMPORAL_CLIENT_KEY:
   PEERDB_TEMPORAL_NAMESPACE: default
   # For GCS, these will be your HMAC keys instead
   # For more information:
@@ -61,6 +59,27 @@ services:
     labels:
       kompose.volume.type: configMap
 
+  temporal-admin-tools:
+    container_name: temporal-admin-tools
+    depends_on:
+      - temporal
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CLI_ADDRESS=temporal:7233
+      - TEMPORAL_CLI_SHOW_STACKS=1
+    image: temporalio/admin-tools:1.22
+    stdin_open: true
+    tty: true
+    entrypoint: /etc/temporal/entrypoint.sh
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "tctl", "workflow", "list"]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - ./scripts/mirror-name-search.sh:/etc/temporal/entrypoint.sh
+
   flow-api:
     container_name: flow_api
     build:
@@ -74,7 +93,9 @@ services:
       - 8113:8113
     environment:
       <<: [*catalog-config, *flow-worker-env]
-    depends_on: ["temporal"]
+    depends_on:
+      temporal-admin-tools:
+        condition: service_healthy
 
   flow-snapshot-worker:
     container_name: flow-snapshot-worker
@@ -84,7 +105,9 @@ services:
       target: flow-snapshot-worker
     environment:
       <<: [*catalog-config, *flow-worker-env]
-    depends_on: ["temporal"]
+    depends_on:
+      temporal-admin-tools:
+        condition: service_healthy
 
   flow-worker:
     container_name: flow-worker
@@ -94,4 +117,6 @@ services:
       target: flow-worker
     environment:
       <<: [*catalog-config, *flow-worker-env]
-    depends_on: ["temporal"]
+    depends_on:
+      temporal-admin-tools:
+        condition: service_healthy
