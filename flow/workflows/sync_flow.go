@@ -110,7 +110,6 @@ func SyncFlowWorkflow(
 					err.Error(),
 				).Get(ctx, nil)
 				syncErr = true
-				mustWait = false
 			} else if childSyncFlowRes != nil {
 				_ = model.SyncResultSignal.SignalExternalWorkflow(
 					ctx,
@@ -180,7 +179,7 @@ func SyncFlowWorkflow(
 			}
 		})
 
-		for ctx.Err() == nil && (!syncDone || selector.HasPending()) {
+		for ctx.Err() == nil && (syncErr || !syncDone || selector.HasPending()) {
 			selector.Select(ctx)
 		}
 		if ctx.Err() != nil {
@@ -188,7 +187,7 @@ func SyncFlowWorkflow(
 		}
 
 		restart := currentSyncFlowNum >= maxSyncsPerSyncFlow || syncErr
-		if !stop && mustWait {
+		if !stop && !syncErr && mustWait {
 			waitSelector.Select(ctx)
 			if restart {
 				// must flush selector for signals received while waiting
