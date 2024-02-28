@@ -8,7 +8,7 @@ x-catalog-config: &catalog-config
   PEERDB_CATALOG_DATABASE: postgres
 
 x-flow-worker-env: &flow-worker-env
-  TEMPORAL_HOST_PORT: temporal:7233
+  TEMPORAL_HOST_PORT: localhost:7233
   PEERDB_TEMPORAL_NAMESPACE: default
   # For GCS, these will be your HMAC keys instead
   # For more information:
@@ -29,9 +29,6 @@ services:
       target: flow-snapshot-worker
     environment:
       <<: [*catalog-config, *flow-worker-env]
-    depends_on:
-      temporal-admin-tools:
-        condition: service_healthy
 
   flow-worker:
     container_name: flow-worker
@@ -41,6 +38,3 @@ services:
       target: flow-worker
     environment:
       <<: [*catalog-config, *flow-worker-env]
-    depends_on:
-      temporal-admin-tools:
-        condition: service_healthy
