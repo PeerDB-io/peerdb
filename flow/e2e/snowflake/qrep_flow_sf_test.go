@@ -2,6 +2,7 @@ package e2e_snowflake
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -72,12 +73,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 	require.NoError(s.t, err)
 
 	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.Finished())
-
-	err = env.Error()
-	require.NoError(s.t, err)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "finish", env.Finished)
+	require.NoError(s.t, env.Error())
 
 	sel := e2e.GetOwnersSelectorStringsSF()
 	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
@@ -117,12 +114,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() 
 	require.NoError(s.t, err)
 
 	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.Finished())
-
-	err = env.Error()
-	require.NoError(s.t, err)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "finish", env.Finished)
+	require.NoError(s.t, env.Error())
 
 	sel := e2e.GetOwnersSelectorStringsSF()
 	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
@@ -156,12 +149,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
 	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.Finished())
-
-	err = env.Error()
-	require.NoError(s.t, err)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "finish", env.Finished)
+	require.NoError(s.t, env.Error())
 
 	sel := e2e.GetOwnersSelectorStringsSF()
 	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
@@ -199,12 +188,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 	require.NoError(s.t, err)
 
 	env := e2e.RunXminFlowWorkflow(tc, qrepConfig)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.Finished())
-
-	err = env.Error()
-	require.NoError(s.t, err)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "finish", env.Finished)
+	require.NoError(s.t, env.Error())
 
 	sel := e2e.GetOwnersSelectorStringsSF()
 	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
@@ -241,12 +226,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
 	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.Finished())
-
-	err = env.Error()
-	require.NoError(s.t, err)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "finish", env.Finished)
+	require.NoError(s.t, env.Error())
 
 	sel := e2e.GetOwnersSelectorStringsSF()
 	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
@@ -283,12 +264,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
 	require.NoError(s.t, err)
 
 	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.Finished())
-
-	err = env.Error()
-	require.NoError(s.t, err)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "finish", env.Finished)
+	require.NoError(s.t, env.Error())
 
 	err = s.sfHelper.checkSyncedAt(fmt.Sprintf(`SELECT "_PEERDB_SYNCED_AT" FROM %s.%s`,
 		s.sfHelper.testSchemaName, tblName))

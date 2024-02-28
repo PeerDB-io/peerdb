@@ -197,13 +197,11 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Connection_Config() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, nil, nil)
-
-	// Verify workflow completes
-	require.True(s.t, env.Finished())
-	err := env.Error()
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "finish", env.Finished)
+	require.Error(s.t, env.Error())
 
 	// assert that error contains "invalid connection configs"
-	require.Contains(s.t, err.Error(), "invalid connection configs")
+	require.Contains(s.t, env.Error(), "invalid connection configs")
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {

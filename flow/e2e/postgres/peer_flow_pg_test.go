@@ -1118,13 +1118,13 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	}
 
 	getWorkflowState := func() peerflow.CDCFlowWorkflowState {
-		var workflowState peerflow.CDCFlowWorkflowState
+		var state peerflow.CDCFlowWorkflowState
 		val, err := env.Query(shared.CDCFlowStateQuery)
 		e2e.EnvNoError(s.t, env, err)
-		err = val.Get(&workflowState)
+		err = val.Get(&state)
 		e2e.EnvNoError(s.t, env, err)
 
-		return workflowState
+		return state
 	}
 
 	getFlowStatus := func() protos.FlowStatus {

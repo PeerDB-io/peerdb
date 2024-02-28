@@ -128,7 +128,7 @@ const SchemaBox = ({
     const newRows = [...rows];
     for (let i = 0; i < newRows.length; i++) {
       const row = newRows[i];
-      if (row.schema === schemaName) {
+      if (row.schema === schemaName && row.canMirror) {
         newRows[i] = { ...row, selected: e.currentTarget.checked };
         if (e.currentTarget.checked) addTableColumns(row.source);
         else removeTableColumns(row.source);

@@ -122,7 +122,7 @@ export const reformattedTableMapping = (
   tableMapping: TableMapRow[]
 ): TableMapping[] => {
   const mapping = tableMapping
-    .filter((row) => row?.selected === true)
+    .filter((row) => row?.selected === true && row?.canMirror === true)
     .map((row) => ({
       sourceTableIdentifier: row.source,
       destinationTableIdentifier: row.destination,
