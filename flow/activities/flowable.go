@@ -645,7 +645,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 			numRecords := int64(tmp)
 			if err != nil {
 				a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-				return fmt.Errorf("failed to pull records: %v", err)
+				return fmt.Errorf("failed to pull records: %w", err)
 			} else {
 				err = monitoring.UpdatePullEndTimeAndRowsForPartition(errCtx,
 					a.CatalogPool, runUUID, partition, numRecords)
