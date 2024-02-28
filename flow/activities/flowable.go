@@ -237,7 +237,7 @@ func (a *FlowableActivity) MaintainPull(
 				a.CdcCacheRw.Lock()
 				delete(a.CdcCache, sessionID)
 				a.CdcCacheRw.Unlock()
-				return err
+				return temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", err)
 			}
 		case <-ctx.Done():
 			a.CdcCacheRw.Lock()
