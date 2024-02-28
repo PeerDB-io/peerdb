@@ -36,8 +36,6 @@ jobs:
           - 7233:7233
         volumes:
           - ./temporal-dynamicconfig:/etc/temporal/config/dynamicconfig
-        labels:
-          kompose.volume.type: configMap
 
       temporal-admin-tools:
         env:
