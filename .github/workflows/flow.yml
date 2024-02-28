@@ -17,17 +17,11 @@ jobs:
       catalog:
         image: imresamu/postgis:15-3.4-alpine
         ports:
-          - 9901:5432
+          - 5432:5432
         env:
           PGUSER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
-        healthcheck:
-          test: ["CMD", "pg_isready", "-d", "postgres", "-U", "postgres"]
-          interval: 10s
-          timeout: 30s
-          retries: 5
-          start_period: 60s
 
       temporal:
         depends_on:
@@ -59,11 +53,6 @@ jobs:
         tty: true
         entrypoint: /etc/temporal/entrypoint.sh
         restart: on-failure
-        healthcheck:
-          test: ["CMD", "tctl", "workflow", "list"]
-          interval: 1s
-          timeout: 5s
-          retries: 30
         volumes:
           - ./scripts/mirror-name-search.sh:/etc/temporal/entrypoint.sh
 
@@ -160,7 +149,7 @@ jobs:
           SQLSERVER_PASSWORD: ${{ secrets.SQLSERVER_PASSWORD }}
           SQLSERVER_DB: ${{ secrets.SQLSERVER_DB }}
           PEERDB_CATALOG_HOST: localhost
-          PEERDB_CATALOG_PORT: 9901
+          PEERDB_CATALOG_PORT: 5432
           PEERDB_CATALOG_USER: postgres
           PEERDB_CATALOG_PASSWORD: postgres
           PEERDB_CATALOG_DATABASE: postgres
