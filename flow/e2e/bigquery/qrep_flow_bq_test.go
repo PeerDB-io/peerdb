@@ -103,7 +103,11 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Timestamps_QRep() {
 	err = env.GetWorkflowError()
 	require.NoError(s.t, err)
 
-	ok, err := s.bqHelper.CheckNull(tblName, []string{"mytimestamp"})
+	ok, err := s.bqHelper.CheckNull(tblName, []string{"watermark_ts"})
+	require.NoError(s.t, err)
+	require.True(s.t, ok)
+
+	ok, err = s.bqHelper.CheckNull(tblName, []string{"mytimestamp"})
 	require.NoError(s.t, err)
 	require.False(s.t, ok)
 
