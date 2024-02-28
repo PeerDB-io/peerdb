@@ -130,6 +130,22 @@ var CDCDynamicPropertiesSignal = TypedSignal[*protos.CDCFlowConfigUpdate]{
 	Name: "cdc-dynamic-properties",
 }
 
+var SyncStopSignal = TypedSignal[struct{}]{
+	Name: "sync-stop",
+}
+
+var SyncErrorSignal = TypedSignal[string]{
+	Name: "sync-error",
+}
+
+var SyncResultSignal = TypedSignal[SyncResponse]{
+	Name: "sync-result",
+}
+
+var SyncOptionsSignal = TypedSignal[*protos.SyncFlowOptions]{
+	Name: "sync-options",
+}
+
 var NormalizeSignal = TypedSignal[NormalizePayload]{
 	Name: "normalize",
 }

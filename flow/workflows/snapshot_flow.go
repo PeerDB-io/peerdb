@@ -299,7 +299,7 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 
 		var sessionError error
 		var snapshotName string
-		sessionSelector := workflow.NewNamedSelector(ctx, "Export Snapshot Setup")
+		sessionSelector := workflow.NewNamedSelector(ctx, "ExportSnapshotSetup")
 		sessionSelector.AddFuture(fMaintain, func(f workflow.Future) {
 			// MaintainTx should never exit without an error before this point
 			sessionError = f.Get(exportCtx, nil)
