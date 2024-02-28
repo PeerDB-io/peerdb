@@ -43,12 +43,7 @@ jobs:
           TEMPORAL_CLI_ADDRESS: temporal:7233
           TEMPORAL_CLI_SHOW_STACKS: 1
         image: temporalio/admin-tools:1.22
-        stdin_open: true
-        tty: true
-        entrypoint: /etc/temporal/entrypoint.sh
         restart: on-failure
-        volumes:
-          - ./scripts/mirror-name-search.sh:/etc/temporal/entrypoint.sh
 
     steps:
       - name: checkout sources
