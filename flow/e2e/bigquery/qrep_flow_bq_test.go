@@ -37,7 +37,7 @@ func (s PeerFlowE2ETestSuiteBQ) setupTimeTable(tableName string) {
 	var rows []string
 	row := `(CURRENT_TIMESTAMP,
 			'10001-03-14 23:05:52',
-			'50001-03-14 23:05:52.216809+00'
+			'50001-03-14 23:05:52.216809+00',
 			'1534-03-14 23:05:52.216809+00',
 			'10000-03-14',
 			CURRENT_TIMESTAMP)`
