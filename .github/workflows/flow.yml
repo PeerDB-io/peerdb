@@ -23,27 +23,6 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
 
-      temporal:
-        env:
-          DB: postgresql
-          DB_PORT: 5432
-          POSTGRES_USER: postgres
-          POSTGRES_PWD: postgres
-          POSTGRES_SEEDS: catalog
-          DYNAMIC_CONFIG_FILE_PATH: /etc/temporal-dynamicconfig/development-sql.yaml
-        image: temporalio/auto-setup:1.22
-        ports:
-          - 7233:7233
-        volumes:
-          - ./temporal-dynamicconfig:/etc/temporal-dynamicconfig
-
-      temporal-admin-tools:
-        env:
-          TEMPORAL_ADDRESS: temporal:7233
-          TEMPORAL_CLI_ADDRESS: temporal:7233
-          TEMPORAL_CLI_SHOW_STACKS: 1
-        image: temporalio/admin-tools:1.22
-
     steps:
       - name: checkout sources
         uses: actions/checkout@v4
@@ -108,6 +87,12 @@ jobs:
           docker restart "${{ job.services.catalog.id }}"
         env:
           PGPASSWORD: postgres
+
+      - name: Install Temporal CLI
+        uses: temporalio/setup-temporal@v0
+
+      - name: Start a local Temporal server
+        run: temporal server start-dev --headless &
 
       - name: run tests
         run: gotestsum --format testname -- -p 60 ./... -timeout 1200s
