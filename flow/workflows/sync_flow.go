@@ -179,7 +179,7 @@ func SyncFlowWorkflow(
 			}
 		})
 
-		for ctx.Err() == nil && (syncErr || !syncDone || selector.HasPending()) {
+		for ctx.Err() == nil && ((!syncDone && !syncErr) || selector.HasPending()) {
 			selector.Select(ctx)
 		}
 		if ctx.Err() != nil {
