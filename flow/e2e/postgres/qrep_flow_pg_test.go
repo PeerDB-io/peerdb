@@ -75,8 +75,11 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuitePG {
 func (s PeerFlowE2ETestSuitePG) setupSourceTable(tableName string, rowCount int) {
 	err := e2e.CreateTableForQRep(s.Conn(), s.suffix, tableName)
 	require.NoError(s.t, err)
-	err = e2e.PopulateSourceTable(s.Conn(), s.suffix, tableName, rowCount)
-	require.NoError(s.t, err)
+
+	if rowCount > 0 {
+		err = e2e.PopulateSourceTable(s.Conn(), s.suffix, tableName, rowCount)
+		require.NoError(s.t, err)
+	}
 }
 
 func (s PeerFlowE2ETestSuitePG) comparePGTables(srcSchemaQualified, dstSchemaQualified, selector string) error {
@@ -256,7 +259,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	require.NoError(s.t, err)
 }
 
-func (s PeerFlowE2ETestSuitePG) Test_Setup_Destination_And_PeerDB_Columns_QRep_PG() {
+func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns_QRep_PG() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 
 	numRows := 10
@@ -295,5 +298,44 @@ func (s PeerFlowE2ETestSuitePG) Test_Setup_Destination_And_PeerDB_Columns_QRep_P
 	require.NoError(s.t, err)
 
 	err = s.checkSyncedAt(dstSchemaQualified)
+	require.NoError(s.t, err)
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_No_Rows_QRep_PG() {
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+
+	numRows := 0
+
+	srcTable := "test_no_rows_qrep_pg_1"
+	s.setupSourceTable(srcTable, numRows)
+
+	dstTable := "test_no_rows_qrep_pg_2"
+
+	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)
+	dstSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, dstTable)
+
+	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
+		s.suffix, srcTable)
+
+	postgresPeer := e2e.GeneratePostgresPeer()
+
+	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+		"test_no_rows_qrep_pg",
+		srcSchemaQualified,
+		dstSchemaQualified,
+		query,
+		postgresPeer,
+		"",
+		true,
+		"_PEERDB_SYNCED_AT",
+	)
+	require.NoError(s.t, err)
+
+	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+
+	// Verify workflow completes without error
+	require.True(s.t, env.IsWorkflowCompleted())
+
+	err = env.GetWorkflowError()
 	require.NoError(s.t, err)
 }
