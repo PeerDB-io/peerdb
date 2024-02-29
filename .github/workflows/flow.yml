@@ -38,8 +38,6 @@ jobs:
           go-version: "1.22"
           cache-dependency-path: flow/go.sum
 
-      - run: go install gotest.tools/gotestsum@latest
-
       - name: install lib-geos
         run: |
           sudo apt-get update
@@ -95,7 +93,7 @@ jobs:
         run: temporal server start-dev --headless & (sleep 1; temporal operator search-attribute create --name MirrorName --type Text --namespace default)
 
       - name: run tests
-        run: gotestsum --format testname -- -p 60 ./... -timeout 1200s
+        run: go test -v -p 60 ./... -timeout 1200s
         working-directory: ./flow
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
