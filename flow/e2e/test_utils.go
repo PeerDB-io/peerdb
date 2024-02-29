@@ -143,7 +143,7 @@ func EnvWaitForEqualTablesWithNames(
 
 func RequireEnvCanceled(t *testing.T, env WorkflowRun) {
 	t.Helper()
-	EnvWaitFor(t, env, time.Minute, "canceling", env.Finished)
+	EnvWaitForFinished(t, env, time.Minute)
 	err := env.Error()
 	var panicErr *temporal.PanicError
 	var canceledErr *temporal.CanceledError
@@ -637,7 +637,9 @@ func EnvWaitForFinished(t *testing.T, env WorkflowRun, timeout time.Duration) {
 	t.Helper()
 
 	EnvWaitFor(t, env, timeout, "finish", func() bool {
-		desc, err := env.c.DescribeWorkflowExecution(context.Background(), env.GetID(), "")
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		desc, err := env.c.DescribeWorkflowExecution(ctx, env.GetID(), "")
 		if err != nil {
 			t.Log("Not finished", err)
 			return false
