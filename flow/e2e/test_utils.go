@@ -163,10 +163,7 @@ func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, connectionGen FlowCo
 	for {
 		time.Sleep(time.Second)
 		counter++
-		response, err := env.Query(
-			shared.CDCFlowStateQuery,
-			connectionGen.FlowJobName,
-		)
+		response, err := env.Query(shared.CDCFlowStateQuery, connectionGen.FlowJobName)
 		if err == nil {
 			var state peerflow.CDCFlowWorkflowState
 			err = response.Get(&state)

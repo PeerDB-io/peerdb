@@ -16,7 +16,7 @@ func TestMain(m *testing.M) {
 	group, _ := errgroup.WithContext(context.Background())
 	group.Go(func() error {
 		return cmd.WorkerMain(end, &cmd.WorkerOptions{
-			TemporalHostPort:  "temporal:7233",
+			TemporalHostPort:  "localhost:7233",
 			EnableProfiling:   false,
 			PyroscopeServer:   "",
 			TemporalNamespace: "default",
@@ -26,7 +26,7 @@ func TestMain(m *testing.M) {
 	})
 	group.Go(func() error {
 		return cmd.SnapshotWorkerMain(end, &cmd.SnapshotWorkerOptions{
-			TemporalHostPort:  "temporal:7233",
+			TemporalHostPort:  "localhost:7233",
 			TemporalNamespace: "default",
 			TemporalCert:      "",
 			TemporalKey:       "",
