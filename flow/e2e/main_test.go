@@ -1,13 +1,10 @@
 package e2e
 
 import (
-	"os"
-	"testing"
-
 	"github.com/PeerDB-io/peer-flow/cmd"
 )
 
-func TestMain(m *testing.M) {
+func init() {
 	peerWorker, peerErr := cmd.WorkerMain(&cmd.WorkerOptions{
 		TemporalHostPort:  "localhost:7233",
 		EnableProfiling:   false,
@@ -33,6 +30,4 @@ func TestMain(m *testing.M) {
 	} else if err := snapWorker.Start(); err != nil {
 		panic(err)
 	}
-
-	os.Exit(m.Run())
 }
