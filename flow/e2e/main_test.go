@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/PeerDB-io/peer-flow/cmd"
-	"golang.org/x/sync/errgroup"
 )
 
 func TestMain(m *testing.M) {
 	end := make(chan interface{})
-	group, _ := errgroup.WithContext(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	group, _ := errgroup.WithContext(ctx)
 	group.Go(func() error {
 		return cmd.WorkerMain(end, &cmd.WorkerOptions{
 			TemporalHostPort:  "localhost:7233",
@@ -32,8 +35,10 @@ func TestMain(m *testing.M) {
 		})
 	})
 	exitcode := m.Run()
+	end <- os.Interrupt
 	close(end)
 	err := group.Wait()
+	cancel()
 	if err != nil {
 		//nolint:forbidigo
 		fmt.Printf("%+v\n", err)
