@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	maxSyncsPerSyncFlow = 72
+	maxSyncsPerSyncFlow = 64
 )
 
 func SyncFlowWorkflow(
@@ -37,13 +37,13 @@ func SyncFlowWorkflow(
 	defer workflow.CompleteSession(syncSessionCtx)
 	sessionInfo := workflow.GetSessionInfo(syncSessionCtx)
 
-	syncCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
+	maintainCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
 		StartToCloseTimeout: 14 * 24 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
 		WaitForCancellation: true,
 	})
 	fMaintain := workflow.ExecuteActivity(
-		syncCtx,
+		maintainCtx,
 		flowable.MaintainPull,
 		config,
 		sessionInfo.SessionID,
@@ -110,7 +110,6 @@ func SyncFlowWorkflow(
 					err.Error(),
 				).Get(ctx, nil)
 				syncErr = true
-				mustWait = false
 			} else if childSyncFlowRes != nil {
 				_ = model.SyncResultSignal.SignalExternalWorkflow(
 					ctx,
@@ -180,7 +179,7 @@ func SyncFlowWorkflow(
 			}
 		})
 
-		for ctx.Err() == nil && (!syncDone || selector.HasPending()) {
+		for ctx.Err() == nil && ((!syncDone && !syncErr) || selector.HasPending()) {
 			selector.Select(ctx)
 		}
 		if ctx.Err() != nil {
@@ -188,7 +187,7 @@ func SyncFlowWorkflow(
 		}
 
 		restart := currentSyncFlowNum >= maxSyncsPerSyncFlow || syncErr
-		if !stop && mustWait {
+		if !stop && !syncErr && mustWait {
 			waitSelector.Select(ctx)
 			if restart {
 				// must flush selector for signals received while waiting

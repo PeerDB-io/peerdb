@@ -114,6 +114,10 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
     }
   };
 
+  const isNotPaused =
+    mirrorState.currentFlowState.toString() !==
+    FlowStatus[FlowStatus.STATUS_PAUSED];
+
   return (
     <div>
       <Label variant='title3'>Edit {mirrorId}</Label>
@@ -178,6 +182,11 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
         omitAdditionalTablesMapping={omitAdditionalTablesMapping}
       />
 
+      {isNotPaused ? (
+        <Label>Mirror can only be edited while paused.</Label>
+      ) : (
+        <Label>Editing mirror will automatically unpause it.</Label>
+      )}
       <div style={{ display: 'flex' }}>
         <Button
           style={{
@@ -187,12 +196,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
             height: '2.5rem',
           }}
           variant='normalSolid'
-          disabled={
-            loading ||
-            (additionalTables.length > 0 &&
-              mirrorState.currentFlowState.toString() !==
-                FlowStatus[FlowStatus.STATUS_PAUSED])
-          }
+          disabled={loading || isNotPaused}
           onClick={sendFlowStateChangeRequest}
         >
           {loading ? (
