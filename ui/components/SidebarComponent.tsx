@@ -4,6 +4,7 @@ import { UVersionResponse } from '@/app/dto/VersionDTO';
 import { fetcher } from '@/app/utils/swr';
 import Logout from '@/components/Logout';
 import { BrandLogo } from '@/lib/BrandLogo';
+import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { RowWithSelect } from '@/lib/Layout';
@@ -21,33 +22,63 @@ const centerFlexStyle = {
   marginBottom: '0.5rem',
 };
 
-export default function SidebarComponent(props: {}) {
+export default function SidebarComponent() {
   const timezones = ['UTC', 'Local', 'Relative'];
   const [zone, setZone] = useLocalStorage('timezone-ui', '');
 
   const {
     data: version,
-    error,
     isLoading,
   }: { data: UVersionResponse; error: any; isLoading: boolean } = useSWR(
     '/api/version',
     fetcher
   );
 
+  const [sidebarState, setSidebarState] = useLocalStorage(
+    'peerdb-sidebar',
+    'open'
+  );
   return (
     <SessionProvider>
       <Sidebar
+        style={{ width: sidebarState == 'closed' ? 'fit-content' : 'auto' }}
         topTitle={
-          <Label as={Link} href='/'>
-            <div className='cursor-pointer'>
-              <BrandLogo />
-            </div>
-          </Label>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              width: '100%',
+            }}
+          >
+            {sidebarState == 'closed' ? (
+              <></>
+            ) : (
+              <Label as={Link} href='/'>
+                <div className='cursor-pointer'>
+                  <BrandLogo />
+                </div>
+              </Label>
+            )}
+            <Button
+              variant='normalBorderless'
+              aria-label='iconButton'
+              onClick={() =>
+                setSidebarState(sidebarState == 'open' ? 'closed' : 'open')
+              }
+            >
+              <Icon
+                name={
+                  sidebarState == 'closed' ? 'chevron_right' : 'chevron_left'
+                }
+              />
+            </Button>
+          </div>
         }
         bottomRow={
-          <>
-            <div style={centerFlexStyle}>
-              <div style={{ width: '80%' }}>
+          sidebarState == 'open' ? (
+            <>
+              <div style={centerFlexStyle}>
                 <RowWithSelect
                   label={<Label>Timezone:</Label>}
                   action={
@@ -73,18 +104,24 @@ export default function SidebarComponent(props: {}) {
                   }
                 />
               </div>
-            </div>
-            <Logout />
-          </>
+              <Logout />
+            </>
+          ) : (
+            <></>
+          )
         }
         bottomLabel={
-          <div style={centerFlexStyle}>
-            <Label as='label' style={{ textAlign: 'center', fontSize: 15 }}>
-              {' '}
-              <b>Version: </b>
-              {isLoading ? 'Loading...' : version?.version}
-            </Label>
-          </div>
+          sidebarState == 'open' ? (
+            <div style={centerFlexStyle}>
+              <Label as='label' style={{ textAlign: 'center', fontSize: 15 }}>
+                {' '}
+                <b>Version: </b>
+                {isLoading ? 'Loading...' : version?.version}
+              </Label>
+            </div>
+          ) : (
+            <></>
+          )
         }
       >
         <SidebarItem
@@ -92,21 +129,21 @@ export default function SidebarComponent(props: {}) {
           href={'/peers'}
           leadingIcon={<Icon name='cable' />}
         >
-          Peers
+          {sidebarState == 'open' && 'Peers'}
         </SidebarItem>
         <SidebarItem
           as={Link}
           href={'/mirrors'}
           leadingIcon={<Icon name='compare_arrows' />}
         >
-          Mirrors
+          {sidebarState == 'open' && 'Mirrors'}
         </SidebarItem>
         <SidebarItem
           as={Link}
           href={'/alert-config'}
           leadingIcon={<Icon name='notifications' />}
         >
-          Alert Configuration
+          {sidebarState == 'open' && 'Alert Configuration'}
         </SidebarItem>
       </Sidebar>
     </SessionProvider>

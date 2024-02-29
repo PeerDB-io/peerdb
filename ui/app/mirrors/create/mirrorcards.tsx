@@ -46,7 +46,6 @@ const MirrorCards = ({
               style={{
                 padding: '0.5rem',
                 width: '35%',
-                minHeight: '22vh',
                 marginRight:
                   card.title === 'Query Replication' ? '0.5rem' : 'auto',
                 marginLeft:

@@ -1,5 +1,6 @@
 'use client';
 import { SlotLagPoint } from '@/app/dto/PeersDTO';
+import SelectTheme from '@/app/styles/select';
 import { formatGraphLabel, timeOptions } from '@/app/utils/graph';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle/ProgressCircle';
@@ -92,6 +93,7 @@ function LagGraph({ slotNames }: { slotNames: string[] }) {
               ? { value: selectedSlot, label: selectedSlot }
               : undefined
           }
+          theme={SelectTheme}
         />
 
         <ReactSelect
@@ -100,6 +102,7 @@ function LagGraph({ slotNames }: { slotNames: string[] }) {
           options={timeOptions}
           defaultValue={{ label: 'hour', value: 'hour' }}
           onChange={(val, _) => val && setTimeSince(val.value)}
+          theme={SelectTheme}
         />
       </div>
       <LineChart

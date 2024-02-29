@@ -1,5 +1,6 @@
 'use client';
 import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
+import SelectTheme from '@/app/styles/select';
 import TimeLabel from '@/components/TimeComponent';
 import {
   CloneTableSummary,
@@ -153,6 +154,7 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
                     value: 'cloneStartTime',
                     label: 'Start Time',
                   }}
+                  theme={SelectTheme}
                 />
               </div>
               <button
