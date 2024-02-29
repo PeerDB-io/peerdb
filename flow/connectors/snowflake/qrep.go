@@ -287,6 +287,7 @@ func (c *SnowflakeConnector) getStageNameForJob(job string) string {
 }
 
 func (c *SnowflakeConnector) IsQRepPartitionSynced(ctx context.Context,
-	req *protos.IsQRepPartitionSyncedInput) (bool, error) {
+	req *protos.IsQRepPartitionSyncedInput,
+) (bool, error) {
 	return c.pgMetadata.IsQrepPartitionSynced(ctx, req.FlowJobName, req.PartitionId)
 }

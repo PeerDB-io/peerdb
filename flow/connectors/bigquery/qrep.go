@@ -116,6 +116,7 @@ func (c *BigQueryConnector) SetupQRepMetadataTables(ctx context.Context, config 
 }
 
 func (c *BigQueryConnector) IsQRepPartitionSynced(ctx context.Context,
-	req *protos.IsQRepPartitionSyncedInput) (bool, error) {
+	req *protos.IsQRepPartitionSyncedInput,
+) (bool, error) {
 	return c.pgMetadata.IsQrepPartitionSynced(ctx, req.FlowJobName, req.PartitionId)
 }

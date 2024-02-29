@@ -100,7 +100,8 @@ func (c *ClickhouseConnector) getTableSchema(tableName string) ([]*sql.ColumnTyp
 }
 
 func (c *ClickhouseConnector) IsQRepPartitionSynced(ctx context.Context,
-	req *protos.IsQRepPartitionSyncedInput) (bool, error) {
+	req *protos.IsQRepPartitionSyncedInput,
+) (bool, error) {
 	//nolint:gosec
 	queryString := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE partitionID = '%s'`, qRepMetadataTableName, req.PartitionId)
 
