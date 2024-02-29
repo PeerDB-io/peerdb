@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/PeerDB-io/peer-flow/shared/telemetry"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -18,7 +20,8 @@ import (
 
 // alerting service, no cool name :(
 type Alerter struct {
-	catalogPool *pgxpool.Pool
+	catalogPool     *pgxpool.Pool
+	telemetrySender telemetry.Sender
 }
 
 func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]*slackAlertSender, error) {
@@ -54,9 +57,20 @@ func NewAlerter(catalogPool *pgxpool.Pool) *Alerter {
 	if catalogPool == nil {
 		panic("catalog pool is nil for Alerter")
 	}
-
+	snsTopic := os.Getenv("TELEMETRY_AWS_SNS_TOPIC_ARN")
+	var snsMessageSender telemetry.Sender
+	if snsTopic != "" {
+		var err error
+		snsMessageSender, err = telemetry.NewSNSMessageSenderWithNewClient(context.TODO(), &telemetry.SNSMessageSenderConfig{
+			Topic: snsTopic,
+		})
+		if err != nil {
+			panic(fmt.Sprintf("unable to setup telemetry is nil for Alerter %+v", err))
+		}
+	}
 	return &Alerter{
-		catalogPool: catalogPool,
+		catalogPool:     catalogPool,
+		telemetrySender: snsMessageSender,
 	}
 }
 
@@ -193,6 +207,28 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertKey string
 	return false
 }
 
+func (a *Alerter) sendTelemetryMessage(ctx context.Context, flowName string, more any, level telemetry.Level) {
+	if a.telemetrySender != nil {
+		deployUuidPrefix := ""
+		deployUuid := peerdbenv.PeerDBDeploymentUID()
+		if deployUuid != "" {
+			deployUuidPrefix = fmt.Sprintf("[%s] ", deployUuid)
+		}
+
+		details := fmt.Sprintf("%s[%s] %s", deployUuidPrefix, flowName, more)
+		_, err := a.telemetrySender.SendMessage(ctx, details, details, telemetry.Attributes{
+			Level:         level,
+			DeploymentUID: deployUuid,
+			Tags:          []string{flowName},
+			Type:          flowName,
+		})
+		if err != nil {
+			logger.LoggerFromCtx(ctx).Warn("failed to send message to telemetrySender", slog.Any("error", err))
+			return
+		}
+	}
+}
+
 func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) {
 	errorWithStack := fmt.Sprintf("%+v", err)
 	_, err = a.catalogPool.Exec(ctx,
@@ -202,6 +238,12 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 		logger.LoggerFromCtx(ctx).Warn("failed to insert flow error", slog.Any("error", err))
 		return
 	}
+	a.sendTelemetryMessage(ctx, flowName, err, telemetry.ERROR)
+}
+
+func (a *Alerter) LogFlowStart(ctx context.Context, flowName string, info string) {
+	a.sendTelemetryMessage(ctx, flowName, info, telemetry.INFO)
+
 }
 
 func (a *Alerter) LogFlowInfo(ctx context.Context, flowName string, info string) {
@@ -212,4 +254,7 @@ func (a *Alerter) LogFlowInfo(ctx context.Context, flowName string, info string)
 		logger.LoggerFromCtx(ctx).Warn("failed to insert flow info", slog.Any("error", err))
 		return
 	}
+	// TODO Maybe too much noise here
+	//a.sendTelemetryMessage(ctx, flowName, info, INFO)
+
 }

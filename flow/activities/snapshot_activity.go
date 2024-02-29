@@ -49,6 +49,8 @@ func (a *SnapshotActivity) SetupReplication(
 		return nil, nil
 	}
 
+	a.Alerter.LogFlowStart(ctx, config.FlowJobName, fmt.Sprintf("Started Snapshot Flow Job - %s", config.FlowJobName))
+
 	conn, err := connectors.GetCDCPullConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
