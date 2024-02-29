@@ -201,7 +201,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Connection_Config() {
 	require.Error(s.t, env.Error())
 
 	// assert that error contains "invalid connection configs"
-	require.Contains(s.t, env.Error(), "invalid connection configs")
+	require.Contains(s.t, env.Error().Error(), "invalid connection configs")
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
