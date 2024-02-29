@@ -11,7 +11,6 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	os.Exit(0)
 	end := make(chan interface{})
 	group, _ := errgroup.WithContext(context.Background())
 	group.Go(func() error {
