@@ -25,7 +25,7 @@ type SnapshotWorkerOptions struct {
 	TemporalKey       string
 }
 
-func SnapshotWorkerMain(end <-chan interface{}, opts *SnapshotWorkerOptions) error {
+func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (worker.Worker, error) {
 	clientOptions := client.Options{
 		HostPort:  opts.TemporalHostPort,
 		Namespace: opts.TemporalNamespace,
@@ -35,7 +35,7 @@ func SnapshotWorkerMain(end <-chan interface{}, opts *SnapshotWorkerOptions) err
 	if opts.TemporalCert != "" && opts.TemporalKey != "" {
 		certs, err := Base64DecodeCertAndKey(opts.TemporalCert, opts.TemporalKey)
 		if err != nil {
-			return fmt.Errorf("unable to process certificate and key: %w", err)
+			return nil, fmt.Errorf("unable to process certificate and key: %w", err)
 		}
 
 		connOptions := client.ConnectionOptions{
@@ -49,13 +49,13 @@ func SnapshotWorkerMain(end <-chan interface{}, opts *SnapshotWorkerOptions) err
 
 	c, err := client.Dial(clientOptions)
 	if err != nil {
-		return fmt.Errorf("unable to create Temporal client: %w", err)
+		return nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 	defer c.Close()
 
 	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.SnapshotFlowTaskQueueID)
 	if queueErr != nil {
-		return queueErr
+		return nil, queueErr
 	}
 
 	w := worker.New(c, taskQueue, worker.Options{
@@ -64,12 +64,12 @@ func SnapshotWorkerMain(end <-chan interface{}, opts *SnapshotWorkerOptions) err
 
 	conn, err := utils.GetCatalogConnectionPoolFromEnv(context.Background())
 	if err != nil {
-		return fmt.Errorf("unable to create catalog connection pool: %w", err)
+		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
 
 	alerter, err := alerting.NewAlerter(conn)
 	if err != nil {
-		return fmt.Errorf("unable to create alerter: %w", err)
+		return nil, fmt.Errorf("unable to create alerter: %w", err)
 	}
 
 	w.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
@@ -78,10 +78,5 @@ func SnapshotWorkerMain(end <-chan interface{}, opts *SnapshotWorkerOptions) err
 		Alerter:             alerter,
 	})
 
-	err = w.Run(worker.InterruptCh())
-	if err != nil {
-		return fmt.Errorf("worker run error: %w", err)
-	}
-
-	return nil
+	return w, nil
 }

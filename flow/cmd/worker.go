@@ -7,9 +7,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
-	"os/signal"
 	"runtime"
-	"syscall"
 
 	"github.com/grafana/pyroscope-go"
 	"go.temporal.io/sdk/client"
@@ -74,21 +72,10 @@ func setupPyroscope(opts *WorkerOptions) {
 	}
 }
 
-func WorkerMain(end <-chan interface{}, opts *WorkerOptions) error {
+func WorkerMain(opts *WorkerOptions) (worker.Worker, error) {
 	if opts.EnableProfiling {
 		setupPyroscope(opts)
 	}
-
-	go func() {
-		sigs := make(chan os.Signal, 1)
-		signal.Notify(sigs, syscall.SIGQUIT)
-		buf := make([]byte, 1<<20)
-		for {
-			<-sigs
-			stacklen := runtime.Stack(buf, true)
-			log.Printf("=== received SIGQUIT ===\n*** goroutine dump...\n%s\n*** end\n", buf[:stacklen])
-		}
-	}()
 
 	clientOptions := client.Options{
 		HostPort:  opts.TemporalHostPort,
@@ -100,7 +87,7 @@ func WorkerMain(end <-chan interface{}, opts *WorkerOptions) error {
 		slog.Info("Using temporal certificate/key for authentication")
 		certs, err := Base64DecodeCertAndKey(opts.TemporalCert, opts.TemporalKey)
 		if err != nil {
-			return fmt.Errorf("unable to process certificate and key: %w", err)
+			return nil, fmt.Errorf("unable to process certificate and key: %w", err)
 		}
 		connOptions := client.ConnectionOptions{
 			TLS: &tls.Config{
@@ -113,19 +100,19 @@ func WorkerMain(end <-chan interface{}, opts *WorkerOptions) error {
 
 	conn, err := utils.GetCatalogConnectionPoolFromEnv(context.Background())
 	if err != nil {
-		return fmt.Errorf("unable to create catalog connection pool: %w", err)
+		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
 
 	c, err := client.Dial(clientOptions)
 	if err != nil {
-		return fmt.Errorf("unable to create Temporal client: %w", err)
+		return nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 	slog.Info("Created temporal client")
 	defer c.Close()
 
 	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
 	if queueErr != nil {
-		return queueErr
+		return nil, queueErr
 	}
 
 	w := worker.New(c, taskQueue, worker.Options{
@@ -135,7 +122,7 @@ func WorkerMain(end <-chan interface{}, opts *WorkerOptions) error {
 
 	alerter, err := alerting.NewAlerter(conn)
 	if err != nil {
-		return fmt.Errorf("unable to create alerter: %w", err)
+		return nil, fmt.Errorf("unable to create alerter: %w", err)
 	}
 
 	w.RegisterActivity(&activities.FlowableActivity{
@@ -144,10 +131,5 @@ func WorkerMain(end <-chan interface{}, opts *WorkerOptions) error {
 		CdcCache:    make(map[string]connectors.CDCPullConnector),
 	})
 
-	err = w.Run(end)
-	if err != nil {
-		return fmt.Errorf("worker run error: %w", err)
-	}
-
-	return nil
+	return w, nil
 }

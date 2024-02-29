@@ -1,50 +1,38 @@
 package e2e
 
 import (
-	"context"
-	"fmt"
 	"os"
 	"testing"
-	"time"
-
-	"golang.org/x/sync/errgroup"
 
 	"github.com/PeerDB-io/peer-flow/cmd"
 )
 
 func TestMain(m *testing.M) {
-	end := make(chan interface{})
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	group, _ := errgroup.WithContext(ctx)
-	group.Go(func() error {
-		return cmd.WorkerMain(end, &cmd.WorkerOptions{
-			TemporalHostPort:  "localhost:7233",
-			EnableProfiling:   false,
-			PyroscopeServer:   "",
-			TemporalNamespace: "default",
-			TemporalCert:      "",
-			TemporalKey:       "",
-		})
+	peerWorker, peerErr := cmd.WorkerMain(&cmd.WorkerOptions{
+		TemporalHostPort:  "localhost:7233",
+		EnableProfiling:   false,
+		PyroscopeServer:   "",
+		TemporalNamespace: "default",
+		TemporalCert:      "",
+		TemporalKey:       "",
 	})
-	group.Go(func() error {
-		return cmd.SnapshotWorkerMain(end, &cmd.SnapshotWorkerOptions{
-			TemporalHostPort:  "localhost:7233",
-			TemporalNamespace: "default",
-			TemporalCert:      "",
-			TemporalKey:       "",
-		})
+	if peerErr != nil {
+		panic(peerErr)
+	} else if err := peerWorker.Start(); err != nil {
+		panic(err)
+	}
+
+	snapWorker, snapErr := cmd.SnapshotWorkerMain(&cmd.SnapshotWorkerOptions{
+		TemporalHostPort:  "localhost:7233",
+		TemporalNamespace: "default",
+		TemporalCert:      "",
+		TemporalKey:       "",
 	})
-	exitcode := m.Run()
-	end <- os.Interrupt
-	close(end)
-	go func() {
-		err := group.Wait()
-		if err != nil {
-			//nolint:forbidigo
-			fmt.Printf("%+v\n", err)
-		}
-	}()
-	time.Sleep(time.Second)
-	cancel()
-	os.Exit(exitcode)
+	if snapErr != nil {
+		panic(snapErr)
+	} else if err := snapWorker.Start(); err != nil {
+		panic(err)
+	}
+
+	os.Exit(m.Run())
 }

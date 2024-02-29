@@ -93,8 +93,6 @@ jobs:
 
       - name: Start a local Temporal server
         run: temporal server start-dev --headless &
-        env:
-          TEMPORAL_CONTEXT_TIMEOUT: 300
 
       - name: run tests
         run: gotestsum --format testname -- -p 60 ./... -timeout 1200s

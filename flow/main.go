@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 
 	"github.com/urfave/cli/v3"
@@ -68,7 +69,7 @@ func main() {
 				Name: "worker",
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
-					return cmd.WorkerMain(worker.InterruptCh(), &cmd.WorkerOptions{
+					w, err := cmd.WorkerMain(&cmd.WorkerOptions{
 						TemporalHostPort:  temporalHostPort,
 						EnableProfiling:   clicmd.Bool("enable-profiling"),
 						PyroscopeServer:   clicmd.String("pyroscope-server-address"),
@@ -76,6 +77,10 @@ func main() {
 						TemporalCert:      clicmd.String("temporal-cert"),
 						TemporalKey:       clicmd.String("temporal-key"),
 					})
+					if err != nil {
+						return err
+					}
+					return w.Run(worker.InterruptCh())
 				},
 				Flags: []cli.Flag{
 					temporalHostPortFlag,
@@ -90,12 +95,16 @@ func main() {
 				Name: "snapshot-worker",
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
-					return cmd.SnapshotWorkerMain(worker.InterruptCh(), &cmd.SnapshotWorkerOptions{
+					w, err := cmd.SnapshotWorkerMain(&cmd.SnapshotWorkerOptions{
 						TemporalHostPort:  temporalHostPort,
 						TemporalNamespace: clicmd.String("temporal-namespace"),
 						TemporalCert:      clicmd.String("temporal-cert"),
 						TemporalKey:       clicmd.String("temporal-key"),
 					})
+					if err != nil {
+						return err
+					}
+					return w.Run(worker.InterruptCh())
 				},
 				Flags: []cli.Flag{
 					temporalHostPortFlag,
@@ -137,6 +146,17 @@ func main() {
 			},
 		},
 	}
+
+	go func() {
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGQUIT)
+		buf := make([]byte, 1<<20)
+		for {
+			<-sigs
+			stacklen := runtime.Stack(buf, true)
+			log.Printf("=== received SIGQUIT ===\n*** goroutine dump...\n%s\n*** end\n", buf[:stacklen])
+		}
+	}()
 
 	if err := app.Run(appCtx, os.Args); err != nil {
 		log.Printf("error running app: %+v", err)
