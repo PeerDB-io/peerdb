@@ -141,7 +141,7 @@ func GetChildWorkflowID(
 type CDCFlowWorkflowResult = CDCFlowWorkflowState
 
 const (
-	maxSyncsPerCdcFlow = 60
+	maxSyncsPerCdcFlow = 32
 )
 
 func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdate(ctx workflow.Context,
@@ -598,13 +598,21 @@ func CDCFlowWorkflow(
 		}
 
 		if restart {
+			if state.ActiveSignal == model.PauseSignal {
+				finished = true
+			}
+
 			for ctx.Err() == nil && (!finished || mainLoopSelector.HasPending()) {
 				mainLoopSelector.Select(ctx)
 			}
+
 			if err := ctx.Err(); err != nil {
 				w.logger.Info("mirror canceled", slog.Any("error", err))
-				return state, err
+				return nil, err
 			}
+
+			// important to control the size of inputs.
+			state.TruncateProgress(w.logger)
 			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 		}
 	}
