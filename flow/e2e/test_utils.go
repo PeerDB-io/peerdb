@@ -647,7 +647,10 @@ func EnvWaitForFinished(t *testing.T, env WorkflowRun, timeout time.Duration) {
 			return false
 		}
 		status := desc.GetWorkflowExecutionInfo().GetStatus()
-		t.Log("Finished Status", status)
-		return status != enums.WORKFLOW_EXECUTION_STATUS_RUNNING
+		if status != enums.WORKFLOW_EXECUTION_STATUS_RUNNING {
+			t.Log("Finished Status", status)
+			return true
+		}
+		return false
 	})
 }
