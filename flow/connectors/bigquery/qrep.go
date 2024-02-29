@@ -30,7 +30,10 @@ func (c *BigQueryConnector) SyncQRepRecords(
 		return 0, err
 	}
 
-	done, err := c.pgMetadata.IsQrepPartitionSynced(ctx, config.FlowJobName, partition.PartitionId)
+	done, err := c.IsQRepPartitionSynced(ctx, &protos.IsQRepPartitionSyncedInput{
+		FlowJobName: config.FlowJobName,
+		PartitionId: partition.PartitionId,
+	})
 	if err != nil {
 		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
 	}
@@ -110,4 +113,9 @@ func (c *BigQueryConnector) SetupQRepMetadataTables(ctx context.Context, config 
 	}
 
 	return nil
+}
+
+func (c *BigQueryConnector) IsQRepPartitionSynced(ctx context.Context,
+	req *protos.IsQRepPartitionSyncedInput) (bool, error) {
+	return c.pgMetadata.IsQrepPartitionSynced(ctx, req.FlowJobName, req.PartitionId)
 }
