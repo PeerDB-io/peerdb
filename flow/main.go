@@ -69,7 +69,7 @@ func main() {
 				Name: "worker",
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
-					w, err := cmd.WorkerMain(&cmd.WorkerOptions{
+					c, w, err := cmd.WorkerMain(&cmd.WorkerOptions{
 						TemporalHostPort:  temporalHostPort,
 						EnableProfiling:   clicmd.Bool("enable-profiling"),
 						PyroscopeServer:   clicmd.String("pyroscope-server-address"),
@@ -80,6 +80,7 @@ func main() {
 					if err != nil {
 						return err
 					}
+					defer c.Close()
 					return w.Run(worker.InterruptCh())
 				},
 				Flags: []cli.Flag{
@@ -95,7 +96,7 @@ func main() {
 				Name: "snapshot-worker",
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
-					w, err := cmd.SnapshotWorkerMain(&cmd.SnapshotWorkerOptions{
+					c, w, err := cmd.SnapshotWorkerMain(&cmd.SnapshotWorkerOptions{
 						TemporalHostPort:  temporalHostPort,
 						TemporalNamespace: clicmd.String("temporal-namespace"),
 						TemporalCert:      clicmd.String("temporal-cert"),
@@ -104,6 +105,7 @@ func main() {
 					if err != nil {
 						return err
 					}
+					defer c.Close()
 					return w.Run(worker.InterruptCh())
 				},
 				Flags: []cli.Flag{

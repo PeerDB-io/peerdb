@@ -5,7 +5,7 @@ import (
 )
 
 func init() {
-	peerWorker, peerErr := cmd.WorkerMain(&cmd.WorkerOptions{
+	_, peerWorker, peerErr := cmd.WorkerMain(&cmd.WorkerOptions{
 		TemporalHostPort:  "localhost:7233",
 		EnableProfiling:   false,
 		PyroscopeServer:   "",
@@ -19,7 +19,7 @@ func init() {
 		panic(err)
 	}
 
-	snapWorker, snapErr := cmd.SnapshotWorkerMain(&cmd.SnapshotWorkerOptions{
+	_, snapWorker, snapErr := cmd.SnapshotWorkerMain(&cmd.SnapshotWorkerOptions{
 		TemporalHostPort:  "localhost:7233",
 		TemporalNamespace: "default",
 		TemporalCert:      "",

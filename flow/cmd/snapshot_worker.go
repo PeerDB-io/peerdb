@@ -25,7 +25,7 @@ type SnapshotWorkerOptions struct {
 	TemporalKey       string
 }
 
-func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (worker.Worker, error) {
+func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (client.Client, worker.Worker, error) {
 	clientOptions := client.Options{
 		HostPort:  opts.TemporalHostPort,
 		Namespace: opts.TemporalNamespace,
@@ -35,7 +35,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (worker.Worker, error) {
 	if opts.TemporalCert != "" && opts.TemporalKey != "" {
 		certs, err := Base64DecodeCertAndKey(opts.TemporalCert, opts.TemporalKey)
 		if err != nil {
-			return nil, fmt.Errorf("unable to process certificate and key: %w", err)
+			return nil, nil, fmt.Errorf("unable to process certificate and key: %w", err)
 		}
 
 		connOptions := client.ConnectionOptions{
@@ -47,36 +47,30 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (worker.Worker, error) {
 		clientOptions.ConnectionOptions = connOptions
 	}
 
-	c, err := client.Dial(clientOptions)
+	conn, err := utils.GetCatalogConnectionPoolFromEnv(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("unable to create Temporal client: %w", err)
+		return nil, nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
-	defer c.Close()
 
 	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.SnapshotFlowTaskQueueID)
 	if queueErr != nil {
-		return nil, queueErr
+		return nil, nil, queueErr
+	}
+
+	c, err := client.Dial(clientOptions)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 
 	w := worker.New(c, taskQueue, worker.Options{
 		EnableSessionWorker: true,
 	})
 
-	conn, err := utils.GetCatalogConnectionPoolFromEnv(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
-	}
-
-	alerter, err := alerting.NewAlerter(conn)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create alerter: %w", err)
-	}
-
 	w.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
 	w.RegisterActivity(&activities.SnapshotActivity{
 		SnapshotConnections: make(map[string]activities.SlotSnapshotSignal),
-		Alerter:             alerter,
+		Alerter:             alerting.NewAlerter(conn),
 	})
 
-	return w, nil
+	return c, w, nil
 }
