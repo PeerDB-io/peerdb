@@ -1255,16 +1255,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 			sentUpdate = true
 			return true
 		})
-	}, 28*time.Second)
-	env.RegisterDelayedCallback(func() {
-		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "send resume signal after update confirmed", func() bool {
-			if !sentUpdate {
-				return false
-			}
-			e2e.EnvSignalWorkflow(env, model.FlowSignal, model.NoopSignal)
-			s.t.Log("Sent resume signal")
-			return true
-		})
 	}, 56*time.Second)
 
 	go func() {
