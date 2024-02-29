@@ -204,6 +204,10 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdate(ctx workflow.Conte
 
 		state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
 
+		if w.syncFlowFuture != nil {
+			_ = model.SyncOptionsSignal.SignalChildWorkflow(ctx, w.syncFlowFuture, state.SyncFlowOptions).Get(ctx, nil)
+		}
+
 		// finished processing, wipe it
 		state.FlowConfigUpdate = nil
 	}
@@ -299,7 +303,7 @@ func CDCFlowWorkflow(
 
 		for state.ActiveSignal == model.PauseSignal {
 			// only place we block on receive, so signal processing is immediate
-			for state.ActiveSignal == model.PauseSignal && ctx.Err() == nil {
+			for state.ActiveSignal == model.PauseSignal && state.FlowConfigUpdate == nil && ctx.Err() == nil {
 				w.logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
 				selector.Select(ctx)
 			}
