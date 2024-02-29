@@ -37,11 +37,14 @@ func TestMain(m *testing.M) {
 	exitcode := m.Run()
 	end <- os.Interrupt
 	close(end)
-	err := group.Wait()
+	go func() {
+		err := group.Wait()
+		if err != nil {
+			//nolint:forbidigo
+			fmt.Printf("%+v\n", err)
+		}
+	}()
+	time.Sleep(time.Second)
 	cancel()
-	if err != nil {
-		//nolint:forbidigo
-		fmt.Printf("%+v\n", err)
-	}
 	os.Exit(exitcode)
 }
