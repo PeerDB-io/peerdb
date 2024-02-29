@@ -848,8 +848,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_IUD_Same_Batch() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
-	tc := e2e.NewTemporalClient(s.t)
-
 	cmpTableName := s.attachSchemaSuffix("test_softdel_ud")
 	srcTableName := cmpTableName + "_src"
 	dstTableName := s.attachSchemaSuffix("test_softdel_ud_dst")
@@ -887,6 +885,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
 
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
+	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, config, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 

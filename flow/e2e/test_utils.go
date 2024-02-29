@@ -168,7 +168,7 @@ func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, connectionGen FlowCo
 			var state peerflow.CDCFlowWorkflowState
 			err = response.Get(&state)
 			if err != nil {
-				t.Log(err.Error())
+				t.Fatal(err)
 			} else if state.CurrentFlowStatus == protos.FlowStatus_STATUS_RUNNING {
 				return
 			}
