@@ -660,16 +660,16 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		})
 
 		errGroup.Go(func() error {
-			rowsSynced, err = dstConn.SyncQRepRecords(ctx, config, partition, stream)
+			rowsSynced, err = dstConn.SyncQRepRecords(errCtx, config, partition, stream)
 			if err != nil {
 				a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 				return fmt.Errorf("failed to sync records: %w", err)
 			}
-			return nil
+			return context.Canceled
 		})
 
 		err = errGroup.Wait()
-		if err != nil {
+		if err != nil && err != context.Canceled {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return err
 		}

@@ -2,7 +2,7 @@ import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import prisma from '@/app/utils/prisma';
 import EditButton from '@/components/EditButton';
 import { ResyncDialog } from '@/components/ResyncDialog';
-import { FlowConnectionConfigs } from '@/grpc_generated/flow';
+import { FlowConnectionConfigs, FlowStatus } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { Header } from '@/lib/Header';
@@ -104,9 +104,15 @@ export default async function ViewMirror({
     syncStatusChild = (
       <SyncStatus rowsSynced={rowsSynced} rows={rows} flowJobName={mirrorId} />
     );
+    const isNotPaused =
+      mirrorStatus.currentFlowState.toString() !==
+      FlowStatus[FlowStatus.STATUS_PAUSED];
     editButtonHTML = (
       <div style={{ display: 'flex', alignItems: 'center' }}>
-        <EditButton toLink={`/mirrors/${mirrorId}/edit`} />
+        <EditButton
+          toLink={`/mirrors/${mirrorId}/edit`}
+          disabled={isNotPaused}
+        />
       </div>
     );
   } else {
