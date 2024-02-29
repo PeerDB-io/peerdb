@@ -81,3 +81,10 @@ func (c *S3Connector) SetupQRepMetadataTables(_ context.Context, config *protos.
 	c.logger.Info("QRep metadata setup not needed for S3.")
 	return nil
 }
+
+// S3 doesn't appear to check if the partition already exists
+func (c *S3Connector) IsQRepPartitionSynced(_ context.Context,
+	config *protos.IsQRepPartitionSyncedInput,
+) (bool, error) {
+	return false, nil
+}

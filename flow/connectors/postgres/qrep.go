@@ -578,7 +578,8 @@ func BuildQuery(logger log.Logger, query string, flowJobName string) (string, er
 
 // IsQRepPartitionSynced checks whether a specific partition is synced
 func (c *PostgresConnector) IsQRepPartitionSynced(ctx context.Context,
-	req *protos.IsQRepPartitionSyncedInput) (bool, error) {
+	req *protos.IsQRepPartitionSyncedInput,
+) (bool, error) {
 	// setup the query string
 	metadataTableIdentifier := pgx.Identifier{c.metadataSchema, qRepMetadataTableName}
 	queryString := fmt.Sprintf(
