@@ -641,17 +641,16 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	bufferSize := shared.FetchAndChannelSize
 	if config.SourcePeer.Type == protos.DBType_POSTGRES {
 		errGroup, errCtx := errgroup.WithContext(ctx)
-		taskCtx, taskCancel := context.WithCancel(errCtx)
 		stream := model.NewQRecordStream(bufferSize)
 		errGroup.Go(func() error {
 			pgConn := srcConn.(*connpostgres.PostgresConnector)
-			tmp, err := pgConn.PullQRepRecordStream(taskCtx, config, partition, stream)
+			tmp, err := pgConn.PullQRepRecordStream(errCtx, config, partition, stream)
 			numRecords := int64(tmp)
 			if err != nil {
 				a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 				return fmt.Errorf("failed to pull records: %w", err)
 			} else {
-				err = monitoring.UpdatePullEndTimeAndRowsForPartition(taskCtx,
+				err = monitoring.UpdatePullEndTimeAndRowsForPartition(errCtx,
 					a.CatalogPool, runUUID, partition, numRecords)
 				if err != nil {
 					logger.Error(err.Error())
@@ -661,13 +660,12 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		})
 
 		errGroup.Go(func() error {
-			rowsSynced, err = dstConn.SyncQRepRecords(taskCtx, config, partition, stream)
+			rowsSynced, err = dstConn.SyncQRepRecords(errCtx, config, partition, stream)
 			if err != nil {
 				a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 				return fmt.Errorf("failed to sync records: %w", err)
 			}
-			taskCancel()
-			return nil
+			return context.Canceled
 		})
 
 		err = errGroup.Wait()
