@@ -141,7 +141,7 @@ func GetChildWorkflowID(
 type CDCFlowWorkflowResult = CDCFlowWorkflowState
 
 const (
-	maxSyncsPerCdcFlow = 60
+	maxSyncsPerCdcFlow = 32
 )
 
 func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdate(ctx workflow.Context,

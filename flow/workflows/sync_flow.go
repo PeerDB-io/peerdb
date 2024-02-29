@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	maxSyncsPerSyncFlow = 36
+	maxSyncsPerSyncFlow = 64
 )
 
 func SyncFlowWorkflow(
