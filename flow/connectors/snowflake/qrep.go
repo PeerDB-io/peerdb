@@ -35,19 +35,6 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	}
 	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
 
-	done, err := c.IsQRepPartitionSynced(ctx, &protos.IsQRepPartitionSyncedInput{
-		FlowJobName: config.FlowJobName,
-		PartitionId: partition.PartitionId,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
-	}
-
-	if done {
-		c.logger.Info("Partition has already been synced", flowLog)
-		return 0, nil
-	}
-
 	avroSync := NewSnowflakeAvroSyncHandler(config, c)
 	return avroSync.SyncQRepRecords(ctx, config, partition, tblSchema, stream)
 }

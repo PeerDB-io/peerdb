@@ -458,18 +458,6 @@ func (c *PostgresConnector) SyncQRepRecords(
 		return 0, fmt.Errorf("table %s does not exist, used schema: %s", dstTable.Table, dstTable.Schema)
 	}
 
-	done, err := c.IsQRepPartitionSynced(ctx, &protos.IsQRepPartitionSyncedInput{
-		FlowJobName: config.FlowJobName,
-		PartitionId: partition.PartitionId,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("failed to check if partition is synced: %w", err)
-	}
-
-	if done {
-		c.logger.Info(fmt.Sprintf("partition %s already synced", partition.PartitionId))
-		return 0, nil
-	}
 	c.logger.Info("SyncRecords called and initial checks complete.")
 
 	stagingTableSync := &QRepStagingTableSync{connector: c}

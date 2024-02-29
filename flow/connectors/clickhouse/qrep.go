@@ -33,19 +33,6 @@ func (c *ClickhouseConnector) SyncQRepRecords(
 		slog.String("destinationTable", destTable),
 	)
 
-	done, err := c.IsQRepPartitionSynced(ctx, &protos.IsQRepPartitionSyncedInput{
-		FlowJobName: config.FlowJobName,
-		PartitionId: partition.PartitionId,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
-	}
-
-	if done {
-		c.logger.Info("Partition has already been synced", flowLog)
-		return 0, nil
-	}
-
 	tblSchema, err := c.getTableSchema(destTable)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
