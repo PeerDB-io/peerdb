@@ -632,3 +632,20 @@ func EnvWaitFor(t *testing.T, env WorkflowRun, timeout time.Duration, reason str
 		time.Sleep(time.Second)
 	}
 }
+
+func EnvWaitForFinished(t *testing.T, env WorkflowRun, timeout time.Duration) {
+	t.Helper()
+
+	EnvWaitFor(t, env, timeout, "finish", func() bool {
+		desc, err := env.c.DescribeWorkflowExecution(context.Background(), env.GetID(), "")
+		if err != nil {
+			t.Log("Not finished", err)
+			return false
+		}
+		status := desc.GetWorkflowExecutionInfo().GetStatus()
+		if status != enums.WORKFLOW_EXECUTION_STATUS_RUNNING {
+			t.Log("Not finished", status)
+		}
+		return status != enums.WORKFLOW_EXECUTION_STATUS_RUNNING
+	})
+}

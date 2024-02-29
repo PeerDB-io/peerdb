@@ -126,7 +126,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
 
 	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "finish", env.Finished)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 
 	// Verify destination has 1 file
@@ -170,7 +170,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 	qrepConfig.WatermarkColumn = "ctid"
 
 	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "finish", env.Finished)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 
 	// Verify destination has 1 file

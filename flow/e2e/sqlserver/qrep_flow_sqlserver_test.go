@@ -179,7 +179,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 	}
 
 	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "finish", env.Finished)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 
 	// Verify that the destination table has the same number of rows as the source table
