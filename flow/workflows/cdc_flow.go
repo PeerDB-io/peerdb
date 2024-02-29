@@ -157,6 +157,7 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdate(ctx workflow.Conte
 			w.logger.Warn("duplicate source/destination tables found in additionalTables")
 			return nil
 		}
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_SNAPSHOT
 
 		alterPublicationAddAdditionalTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 5 * time.Minute,
