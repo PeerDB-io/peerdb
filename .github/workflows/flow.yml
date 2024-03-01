@@ -12,7 +12,7 @@ jobs:
       matrix:
         runner: [ubicloud-standard-16-ubuntu-2204-arm]
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 40
     services:
       catalog:
         image: imresamu/postgis:15-3.4-alpine
@@ -93,7 +93,7 @@ jobs:
         run: temporal server start-dev --headless & (sleep 1; temporal operator search-attribute create --name MirrorName --type Text --namespace default)
 
       - name: run tests
-        run: go test -v -p 60 ./... -timeout 1200s
+        run: go test -v -p 12 ./... -timeout 1800s
         working-directory: ./flow
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
