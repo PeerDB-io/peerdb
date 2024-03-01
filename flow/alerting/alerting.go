@@ -208,10 +208,10 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertKey string
 	return false
 }
 
-func (a *Alerter) sendTelemetryMessage(ctx context.Context, flowName string, more any, level telemetry.Level) {
+func (a *Alerter) sendTelemetryMessage(ctx context.Context, flowName string, more string, level telemetry.Level) {
 	if a.telemetrySender != nil {
 		details := fmt.Sprintf("[%s] %s", flowName, more)
-		_, err := a.telemetrySender.SendMessage(ctx, details, details, telemetry.Attributes{
+		_, err := a.telemetrySender.SendMessage(ctx, details, fmt.Sprintf("%s\n%+v", details, ctx), telemetry.Attributes{
 			Level:         level,
 			DeploymentUID: peerdbenv.PeerDBDeploymentUID(),
 			Tags:          []string{flowName},
@@ -233,7 +233,7 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 		logger.LoggerFromCtx(ctx).Warn("failed to insert flow error", slog.Any("error", err))
 		return
 	}
-	a.sendTelemetryMessage(ctx, flowName, err, telemetry.ERROR)
+	a.sendTelemetryMessage(ctx, flowName, errorWithStack, telemetry.ERROR)
 }
 
 func (a *Alerter) LogFlowEvent(ctx context.Context, flowName string, info string) {
