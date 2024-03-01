@@ -101,20 +101,19 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 		m.syncBatchID, m.dstTableName)
 }
 
-func (m *mergeStmtGenerator) transformedPkeyStrings() []string {
-	pkeys := make([]string, 0, len(m.normalizedTableSchema.PrimaryKeyColumns))
+// Ex: JSON columns which we set as primary key for replica identity full tables,
+// is not supported because bigquery cannot perform equality comparison between JSONs
+func (m *mergeStmtGenerator) isPkeyUnsupportedForMerge(pkey string) bool {
 	for _, col := range m.normalizedTableSchema.Columns {
-		if slices.Contains(m.normalizedTableSchema.PrimaryKeyColumns, col.Name) {
-			pkeyCol := col.Name
-			switch qvalue.QValueKind(col.Type) {
-			case qvalue.QValueKindJSON:
-				pkeys = append(pkeys, fmt.Sprintf("TO_JSON_STRING(%s)", m.shortColumn[pkeyCol]))
-			default:
-				pkeys = append(pkeys, m.shortColumn[pkeyCol])
+		if slices.Contains(
+			m.normalizedTableSchema.PrimaryKeyColumns,
+			col.Name) && col.Name == pkey {
+			if qvalue.QValueKind(col.Type) == qvalue.QValueKindJSON {
+				return true
 			}
 		}
 	}
-	return pkeys
+	return false
 }
 
 // generateDeDupedCTE generates a de-duped CTE.
@@ -128,7 +127,13 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 			WHERE _peerdb_rank=1
 	) SELECT * FROM _dd`
 
-	shortPkeys := m.transformedPkeyStrings()
+	shortPkeys := make([]string, 0, len(m.normalizedTableSchema.PrimaryKeyColumns))
+	for _, pkeyCol := range m.normalizedTableSchema.PrimaryKeyColumns {
+		if m.isPkeyUnsupportedForMerge(pkeyCol) {
+			continue
+		}
+		shortPkeys = append(shortPkeys, m.shortColumn[pkeyCol])
+	}
 	pkeyColsStr := fmt.Sprintf("(CONCAT(%s))", strings.Join(shortPkeys,
 		", '_peerdb_concat_', "))
 	return fmt.Sprintf(cte, pkeyColsStr)
@@ -166,6 +171,9 @@ func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) s
 
 	pkeySelectSQLArray := make([]string, 0, len(m.normalizedTableSchema.PrimaryKeyColumns))
 	for _, pkeyColName := range m.normalizedTableSchema.PrimaryKeyColumns {
+		if m.isPkeyUnsupportedForMerge(pkeyColName) {
+			continue
+		}
 		pkeySelectSQLArray = append(pkeySelectSQLArray, fmt.Sprintf("_t.%s=_d.%s",
 			pkeyColName, m.shortColumn[pkeyColName]))
 	}
