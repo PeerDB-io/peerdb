@@ -1,11 +1,17 @@
 package e2e
 
 import (
+	"log/slog"
+	"os"
+
 	"github.com/PeerDB-io/peer-flow/cmd"
+	"github.com/PeerDB-io/peer-flow/logger"
 )
 
 // TestMain would require merging all tests into e2e package
 func init() {
+	slog.SetDefault(slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))))
+
 	_, peerWorker, peerErr := cmd.WorkerMain(&cmd.WorkerOptions{
 		TemporalHostPort:  "localhost:7233",
 		EnableProfiling:   false,
