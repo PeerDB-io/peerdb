@@ -2,6 +2,7 @@ package connbigquery
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"cloud.google.com/go/bigquery"
@@ -100,6 +101,22 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 		m.syncBatchID, m.dstTableName)
 }
 
+func (m *mergeStmtGenerator) transformedPkeyStrings() []string {
+	pkeys := make([]string, 0, len(m.normalizedTableSchema.PrimaryKeyColumns))
+	for _, col := range m.normalizedTableSchema.Columns {
+		if slices.Contains(m.normalizedTableSchema.PrimaryKeyColumns, col.Name) {
+			pkeyCol := col.Name
+			switch qvalue.QValueKind(col.Type) {
+			case qvalue.QValueKindJSON:
+				pkeys = append(pkeys, fmt.Sprintf("TO_JSON_STRING(%s)", m.shortColumn[pkeyCol]))
+			default:
+				pkeys = append(pkeys, m.shortColumn[pkeyCol])
+			}
+		}
+	}
+	return pkeys
+}
+
 // generateDeDupedCTE generates a de-duped CTE.
 func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 	const cte = `_dd AS (
@@ -111,11 +128,7 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 			WHERE _peerdb_rank=1
 	) SELECT * FROM _dd`
 
-	shortPkeys := make([]string, 0, len(m.normalizedTableSchema.PrimaryKeyColumns))
-	for _, pkeyCol := range m.normalizedTableSchema.PrimaryKeyColumns {
-		shortPkeys = append(shortPkeys, m.shortColumn[pkeyCol])
-	}
-
+	shortPkeys := m.transformedPkeyStrings()
 	pkeyColsStr := fmt.Sprintf("(CONCAT(%s))", strings.Join(shortPkeys,
 		", '_peerdb_concat_', "))
 	return fmt.Sprintf(cte, pkeyColsStr)
