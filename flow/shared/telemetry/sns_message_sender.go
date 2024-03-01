@@ -2,6 +2,8 @@ package telemetry
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -26,6 +28,11 @@ type SNSMessageSenderConfig struct {
 }
 
 func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, body string, attributes Attributes) (*string, error) {
+	deduplicationString := fmt.Sprintf("[%s] - [%s] - [Window: %s]", attributes.DeploymentUID, subject, time.Now().Truncate(30*time.Minute))
+	h := sha256.New()
+	h.Write([]byte(deduplicationString))
+	deduplicationHash := hex.EncodeToString(h.Sum(nil))
+
 	publish, err := s.client.Publish(ctx, &sns.PublishInput{
 		Message: aws.String(body),
 		MessageAttributes: map[string]types.MessageAttributeValue{
@@ -51,7 +58,7 @@ func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, 
 			},
 			"alias": { // This will act as a de-duplication ID
 				DataType:    aws.String("String"),
-				StringValue: aws.String(fmt.Sprintf("[%s] - [%s] - [Window: %s]", attributes.DeploymentUID, subject, time.Now().Truncate(30*time.Minute))),
+				StringValue: aws.String(deduplicationHash),
 			},
 		},
 		Subject:  aws.String(subject[:100]),
