@@ -530,14 +530,11 @@ type WorkflowRun struct {
 }
 
 func ExecutePeerflow(tc client.Client, wf interface{}, args ...interface{}) WorkflowRun {
-	return ExecuteWorkflow(tc, shared.PeerFlowTaskQueueID, wf, args...)
+	return ExecuteWorkflow(tc, shared.PeerFlowTaskQueue, wf, args...)
 }
 
 func ExecuteWorkflow(tc client.Client, taskQueueID shared.TaskQueueID, wf interface{}, args ...interface{}) WorkflowRun {
-	taskQueue, err := shared.GetPeerFlowTaskQueueName(taskQueueID)
-	if err != nil {
-		panic(err)
-	}
+	taskQueue := shared.GetPeerFlowTaskQueueName(taskQueueID)
 
 	wr, err := tc.ExecuteWorkflow(
 		context.Background(),
