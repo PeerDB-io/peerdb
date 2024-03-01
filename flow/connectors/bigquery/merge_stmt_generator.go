@@ -139,7 +139,7 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 	) SELECT * FROM _dd`
 
 	shortPkeys := m.transformedPkeyStrings(true)
-	pkeyColsStr := strings.Join(shortPkeys, ", '_peerdb_concat_' ")
+	pkeyColsStr := strings.Join(shortPkeys, ",")
 	return fmt.Sprintf(cte, pkeyColsStr)
 }
 
