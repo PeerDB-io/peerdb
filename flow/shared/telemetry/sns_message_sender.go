@@ -58,7 +58,9 @@ func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, 
 }
 
 func NewSNSMessageSenderWithNewClient(ctx context.Context, config *SNSMessageSenderConfig) (SNSMessageSender, error) {
-	client, err := newSnsClient(ctx)
+	// Topic Region must match client region
+	region := strings.Split(strings.TrimPrefix(config.Topic, "arn:aws:sns:"), ":")[0]
+	client, err := newSnsClient(ctx, &region)
 	if err != nil {
 		return nil, err
 	}
@@ -75,8 +77,12 @@ func NewSNSMessageSender(client *sns.Client, config *SNSMessageSenderConfig) SNS
 	}
 }
 
-func newSnsClient(ctx context.Context) (*sns.Client, error) {
-	sdkConfig, err := config.LoadDefaultConfig(ctx)
+func newSnsClient(ctx context.Context, region *string) (*sns.Client, error) {
+	sdkConfig, err := config.LoadDefaultConfig(ctx, func(options *config.LoadOptions) error {
+		if region != nil {
+			options.Region = *region
+		}
+	})
 	if err != nil {
 		return nil, err
 	}
