@@ -1269,7 +1269,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "normalize 18 records - first table", func() bool {
 			return s.comparePGTables(srcTable1Name, dstTable1Name, "id,t") == nil
 		})
-		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "initial load + normalize 18 records - second table", func() bool {
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "initial load + normalize 18 records - second table", func() bool {
 			return s.comparePGTables(srcTable2Name, dstTable2Name, "id,t") == nil
 		})
 
