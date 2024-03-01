@@ -1,4 +1,4 @@
-package e2e
+package e2e_postgres
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
+	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -45,7 +46,7 @@ func (s PeerFlowE2ETestSuitePG) Suffix() string {
 
 func TestPeerFlowE2ETestSuitePG(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSuite, func(s PeerFlowE2ETestSuitePG) {
-		TearDownPostgres(s)
+		e2e.TearDownPostgres(s)
 	})
 }
 
@@ -60,23 +61,23 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuitePG {
 	}
 
 	suffix := "pg_" + strings.ToLower(shared.RandomString(8))
-	conn, err := SetupPostgres(t, suffix)
+	conn, err := e2e.SetupPostgres(t, suffix)
 	require.NoError(t, err, "failed to setup postgres")
 
 	return PeerFlowE2ETestSuitePG{
 		t:      t,
 		conn:   conn,
-		peer:   GeneratePostgresPeer(),
+		peer:   e2e.GeneratePostgresPeer(),
 		suffix: suffix,
 	}
 }
 
 func (s PeerFlowE2ETestSuitePG) setupSourceTable(tableName string, rowCount int) {
-	err := CreateTableForQRep(s.Conn(), s.suffix, tableName)
+	err := e2e.CreateTableForQRep(s.Conn(), s.suffix, tableName)
 	require.NoError(s.t, err)
 
 	if rowCount > 0 {
-		err = PopulateSourceTable(s.Conn(), s.suffix, tableName, rowCount)
+		err = e2e.PopulateSourceTable(s.Conn(), s.suffix, tableName, rowCount)
 		require.NoError(s.t, err)
 	}
 }
@@ -221,7 +222,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 
 	dstTable := "test_qrep_flow_avro_pg_2"
 
-	err := CreateTableForQRep(s.Conn(), s.suffix, dstTable)
+	err := e2e.CreateTableForQRep(s.Conn(), s.suffix, dstTable)
 	require.NoError(s.t, err)
 
 	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)
@@ -230,9 +231,9 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	postgresPeer := GeneratePostgresPeer()
+	postgresPeer := e2e.GeneratePostgresPeer()
 
-	qrepConfig, err := CreateQRepWorkflowConfig(
+	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
 		"test_qrep_flow_avro_pg",
 		srcSchemaQualified,
 		dstSchemaQualified,
@@ -244,9 +245,9 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	)
 	require.NoError(s.t, err)
 
-	tc := NewTemporalClient(s.t)
-	env := RunQrepFlowWorkflow(tc, qrepConfig)
-	EnvWaitForFinished(s.t, env, 3*time.Minute)
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 
 	err = s.comparePGTables(srcSchemaQualified, dstSchemaQualified, "*")
@@ -267,9 +268,9 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns_QRep_PG() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	postgresPeer := GeneratePostgresPeer()
+	postgresPeer := e2e.GeneratePostgresPeer()
 
-	qrepConfig, err := CreateQRepWorkflowConfig(
+	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
 		"test_qrep_columns_pg",
 		srcSchemaQualified,
 		dstSchemaQualified,
@@ -281,9 +282,9 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns_QRep_PG() {
 	)
 	require.NoError(s.t, err)
 
-	tc := NewTemporalClient(s.t)
-	env := RunQrepFlowWorkflow(tc, qrepConfig)
-	EnvWaitForFinished(s.t, env, 3*time.Minute)
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 
 	err = s.checkSyncedAt(dstSchemaQualified)
@@ -304,9 +305,9 @@ func (s PeerFlowE2ETestSuitePG) Test_No_Rows_QRep_PG() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	postgresPeer := GeneratePostgresPeer()
+	postgresPeer := e2e.GeneratePostgresPeer()
 
-	qrepConfig, err := CreateQRepWorkflowConfig(
+	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
 		"test_no_rows_qrep_pg",
 		srcSchemaQualified,
 		dstSchemaQualified,
@@ -318,8 +319,8 @@ func (s PeerFlowE2ETestSuitePG) Test_No_Rows_QRep_PG() {
 	)
 	require.NoError(s.t, err)
 
-	tc := NewTemporalClient(s.t)
-	env := RunQrepFlowWorkflow(tc, qrepConfig)
-	EnvWaitForFinished(s.t, env, 3*time.Minute)
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 }
