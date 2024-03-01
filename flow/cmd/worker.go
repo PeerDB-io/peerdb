@@ -116,6 +116,9 @@ func WorkerMain(opts *WorkerOptions) (client.Client, worker.Worker, error) {
 
 	w := worker.New(c, taskQueue, worker.Options{
 		EnableSessionWorker: true,
+		OnFatalError: func(err error) {
+			slog.Error("Peerflow Worker failed", slog.Any("error", err))
+		},
 	})
 	peerflow.RegisterFlowWorkerWorkflows(w)
 

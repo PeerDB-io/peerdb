@@ -64,6 +64,9 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (client.Client, worker.Work
 
 	w := worker.New(c, taskQueue, worker.Options{
 		EnableSessionWorker: true,
+		OnFatalError: func(err error) {
+			slog.Error("Snapshot Worker failed", slog.Any("error", err))
+		},
 	})
 
 	w.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
