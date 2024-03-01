@@ -154,6 +154,14 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			}
 			values[i] = v
 
+		case qvalue.QValueKindCIDR, qvalue.QValueKindINET:
+			v, ok := qValue.Value.(string)
+			if !ok {
+				src.err = errors.New("invalid INET/CIDR value")
+				return nil, src.err
+			}
+			values[i] = v
+
 		case qvalue.QValueKindTime:
 			t, ok := qValue.Value.(time.Time)
 			if !ok {
