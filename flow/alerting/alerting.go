@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go.temporal.io/sdk/activity"
 	"log/slog"
 	"os"
 	"time"
@@ -211,7 +212,7 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertKey string
 func (a *Alerter) sendTelemetryMessage(ctx context.Context, flowName string, more string, level telemetry.Level) {
 	if a.telemetrySender != nil {
 		details := fmt.Sprintf("[%s] %s", flowName, more)
-		_, err := a.telemetrySender.SendMessage(ctx, details, fmt.Sprintf("%s\n%+v", details, ctx), telemetry.Attributes{
+		_, err := a.telemetrySender.SendMessage(ctx, details, fmt.Sprintf("%s\n%+v", details, activity.GetInfo(ctx)), telemetry.Attributes{
 			Level:         level,
 			DeploymentUID: peerdbenv.PeerDBDeploymentUID(),
 			Tags:          []string{flowName},
