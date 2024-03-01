@@ -19,7 +19,7 @@ type Level string
 
 const (
 	INFO     Level = "INFO"
-	WARN           = "WARN"
-	ERROR          = "ERROR"
-	CRITICAL       = "CRITICAL"
+	WARN     Level = "WARN"
+	ERROR    Level = "ERROR"
+	CRITICAL Level = "CRITICAL"
 )

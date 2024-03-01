@@ -32,7 +32,7 @@ func (a *SnapshotActivity) CloseSlotKeepAlive(ctx context.Context, flowJobName s
 		connectors.CloseConnector(ctx, s.connector)
 		delete(a.SnapshotConnections, flowJobName)
 	}
-	a.Alerter.LogFlowEvent(ctx, flowJobName, fmt.Sprintf("Ended Snapshot Flow Job - %s", flowJobName))
+	a.Alerter.LogFlowEvent(ctx, flowJobName, "Ended Snapshot Flow Job - "+flowJobName)
 
 	return nil
 }
@@ -50,7 +50,7 @@ func (a *SnapshotActivity) SetupReplication(
 		return nil, nil
 	}
 
-	a.Alerter.LogFlowEvent(ctx, config.FlowJobName, fmt.Sprintf("Started Snapshot Flow Job - %s", config.FlowJobName))
+	a.Alerter.LogFlowEvent(ctx, config.FlowJobName, "Started Snapshot Flow Job - "+config.FlowJobName)
 
 	conn, err := connectors.GetCDCPullConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {

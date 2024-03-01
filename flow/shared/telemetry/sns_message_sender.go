@@ -2,11 +2,12 @@ package telemetry
 
 import (
 	"context"
+	"strings"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/aws/aws-sdk-go-v2/service/sns/types"
-	"strings"
 )
 
 type SNSMessageSender interface {
@@ -22,8 +23,8 @@ type SNSMessageSenderConfig struct {
 	Topic string `json:"topic"`
 }
 
-func (S *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, body string, attributes Attributes) (*string, error) {
-	publish, err := S.client.Publish(ctx, &sns.PublishInput{
+func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, body string, attributes Attributes) (*string, error) {
+	publish, err := s.client.Publish(ctx, &sns.PublishInput{
 		Message: aws.String(body),
 		MessageAttributes: map[string]types.MessageAttributeValue{
 			"level": {
@@ -36,19 +37,19 @@ func (S *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, 
 			},
 			"deploymentUUID": {
 				DataType:    aws.String("String"),
-				StringValue: aws.String(string(attributes.DeploymentUID)),
+				StringValue: aws.String(attributes.DeploymentUID),
 			},
 			"entity": {
 				DataType:    aws.String("String"),
-				StringValue: aws.String(string(attributes.DeploymentUID)),
+				StringValue: aws.String(attributes.DeploymentUID),
 			},
 			"type": {
 				DataType:    aws.String("String"),
-				StringValue: aws.String(string(attributes.Type)),
+				StringValue: aws.String(attributes.Type),
 			},
 		},
 		Subject:  aws.String(subject),
-		TopicArn: aws.String(S.topic),
+		TopicArn: aws.String(s.topic),
 	})
 	if err != nil {
 		return nil, err

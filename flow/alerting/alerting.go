@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/PeerDB-io/peer-flow/shared/telemetry"
 	"log/slog"
 	"os"
 	"time"
@@ -16,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/shared/telemetry"
 )
 
 // alerting service, no cool name :(
@@ -248,7 +248,4 @@ func (a *Alerter) LogFlowInfo(ctx context.Context, flowName string, info string)
 		logger.LoggerFromCtx(ctx).Warn("failed to insert flow info", slog.Any("error", err))
 		return
 	}
-	// TODO Maybe too much noise here
-	//a.sendTelemetryMessage(ctx, flowName, info, INFO)
-
 }
