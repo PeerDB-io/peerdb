@@ -1270,7 +1270,9 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 			return s.comparePGTables(srcTable1Name, dstTable1Name, "id,t") == nil
 		})
 		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "initial load + normalize 18 records - second table", func() bool {
-			return s.comparePGTables(srcTable2Name, dstTable2Name, "id,t") == nil
+			err := s.comparePGTables(srcTable2Name, dstTable2Name, "id,t")
+			s.t.Log("TEST", err)
+			return err == nil
 		})
 
 		workflowState = getWorkflowState()
