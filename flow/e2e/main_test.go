@@ -4,6 +4,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/cmd"
 )
 
+// TestMain would require merging all tests into e2e package
 func init() {
 	_, peerWorker, peerErr := cmd.WorkerMain(&cmd.WorkerOptions{
 		TemporalHostPort:  "localhost:7233",
