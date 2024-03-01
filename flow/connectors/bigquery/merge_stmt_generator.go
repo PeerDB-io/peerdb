@@ -100,6 +100,44 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 		m.syncBatchID, m.dstTableName)
 }
 
+// This function is to support datatypes like JSON which cannot be partitioned by or compared by BigQuery
+func (m *mergeStmtGenerator) transformedPkeyStrings(forPartition bool) []string {
+	pkeys := make([]string, 0, len(m.normalizedTableSchema.PrimaryKeyColumns))
+	columnNameTypeMap := make(map[string]qvalue.QValueKind, len(m.normalizedTableSchema.Columns))
+	for _, col := range m.normalizedTableSchema.Columns {
+		columnNameTypeMap[col.Name] = qvalue.QValueKind(col.Type)
+	}
+
+	for _, pkeyCol := range m.normalizedTableSchema.PrimaryKeyColumns {
+		pkeyColType, ok := columnNameTypeMap[pkeyCol]
+		if !ok {
+			continue
+		}
+		switch pkeyColType {
+		case qvalue.QValueKindJSON:
+			if forPartition {
+				pkeys = append(pkeys, fmt.Sprintf("TO_JSON_STRING(%s)", m.shortColumn[pkeyCol]))
+			} else {
+				pkeys = append(pkeys, fmt.Sprintf("TO_JSON_STRING(_t.`%s`)=TO_JSON_STRING(_d.%s)",
+					pkeyCol, m.shortColumn[pkeyCol]))
+			}
+		case qvalue.QValueKindFloat32, qvalue.QValueKindFloat64:
+			if forPartition {
+				pkeys = append(pkeys, fmt.Sprintf("CAST(%s as STRING)", m.shortColumn[pkeyCol]))
+			} else {
+				pkeys = append(pkeys, fmt.Sprintf("_t.`%s`=_d.%s", pkeyCol, m.shortColumn[pkeyCol]))
+			}
+		default:
+			if forPartition {
+				pkeys = append(pkeys, m.shortColumn[pkeyCol])
+			} else {
+				pkeys = append(pkeys, fmt.Sprintf("_t.`%s`=_d.%s", pkeyCol, m.shortColumn[pkeyCol]))
+			}
+		}
+	}
+	return pkeys
+}
+
 // generateDeDupedCTE generates a de-duped CTE.
 func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 	const cte = `_dd AS (
@@ -111,13 +149,8 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 			WHERE _peerdb_rank=1
 	) SELECT * FROM _dd`
 
-	shortPkeys := make([]string, 0, len(m.normalizedTableSchema.PrimaryKeyColumns))
-	for _, pkeyCol := range m.normalizedTableSchema.PrimaryKeyColumns {
-		shortPkeys = append(shortPkeys, m.shortColumn[pkeyCol])
-	}
-
-	pkeyColsStr := fmt.Sprintf("(CONCAT(%s))", strings.Join(shortPkeys,
-		", '_peerdb_concat_', "))
+	shortPkeys := m.transformedPkeyStrings(true)
+	pkeyColsStr := strings.Join(shortPkeys, ",")
 	return fmt.Sprintf(cte, pkeyColsStr)
 }
 
@@ -151,11 +184,7 @@ func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) s
 	}
 	updateStringToastCols := strings.Join(updateStatementsforToastCols, " ")
 
-	pkeySelectSQLArray := make([]string, 0, len(m.normalizedTableSchema.PrimaryKeyColumns))
-	for _, pkeyColName := range m.normalizedTableSchema.PrimaryKeyColumns {
-		pkeySelectSQLArray = append(pkeySelectSQLArray, fmt.Sprintf("_t.%s=_d.%s",
-			pkeyColName, m.shortColumn[pkeyColName]))
-	}
+	pkeySelectSQLArray := m.transformedPkeyStrings(false)
 	// t.<pkey1> = d.<pkey1> AND t.<pkey2> = d.<pkey2> ...
 	pkeySelectSQL := strings.Join(pkeySelectSQLArray, " AND ")
 
