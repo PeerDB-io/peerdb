@@ -101,7 +101,7 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 		m.syncBatchID, m.dstTableName)
 }
 
-// This function is to handle
+// This function is to support datatypes like JSON which cannot be compared by BigQuery
 func (m *mergeStmtGenerator) transformedPkeyStrings(forPartition bool) []string {
 	pkeys := make([]string, 0, len(m.normalizedTableSchema.PrimaryKeyColumns))
 	for _, col := range m.normalizedTableSchema.Columns {
