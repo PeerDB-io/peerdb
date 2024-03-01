@@ -82,6 +82,7 @@ func newSnsClient(ctx context.Context, region *string) (*sns.Client, error) {
 		if region != nil {
 			options.Region = *region
 		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
