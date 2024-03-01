@@ -201,7 +201,7 @@ func SyncFlowWorkflow(
 		}
 	}
 	if err := ctx.Err(); err != nil {
-		logger.Info("sync canceled: %v", err)
+		logger.Info("sync canceled", slog.Any("error", err))
 		return err
 	} else if stop {
 		return nil

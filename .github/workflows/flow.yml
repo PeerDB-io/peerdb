@@ -89,11 +89,10 @@ jobs:
       - name: Install Temporal CLI
         uses: temporalio/setup-temporal@v0
 
-      - name: Start a local Temporal server
-        run: temporal server start-dev --headless & (sleep 1; temporal operator search-attribute create --name MirrorName --type Text --namespace default)
-
       - name: run tests
-        run: go test -p 30 ./... -timeout 1200s
+        run: |
+          temporal server start-dev --headless & (sleep 1; temporal operator search-attribute create --name MirrorName --type Text --namespace default)
+          go test -p 30 ./... -timeout 1200s
         working-directory: ./flow
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
