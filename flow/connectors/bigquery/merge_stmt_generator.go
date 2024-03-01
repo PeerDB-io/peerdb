@@ -112,7 +112,7 @@ func (m *mergeStmtGenerator) transformedPkeyStrings(forPartition bool) []string 
 				if forPartition {
 					pkeys = append(pkeys, fmt.Sprintf("TO_JSON_STRING(%s)", m.shortColumn[pkeyCol]))
 				} else {
-					pkeys = append(pkeys, fmt.Sprintf("TO_JSON_STRING(_t.%s)=TO_JSON_STRING(_d.%s)",
+					pkeys = append(pkeys, fmt.Sprintf("TO_JSON_STRING(_t.`%s`)=TO_JSON_STRING(_d.%s)",
 						pkeyCol, m.shortColumn[pkeyCol]))
 				}
 			case qvalue.QValueKindFloat32, qvalue.QValueKindFloat64:
