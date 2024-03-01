@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -299,20 +300,24 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 			return qvalue.QValue{}, fmt.Errorf("failed to parse UUID: %v", value)
 		}
 	case qvalue.QValueKindINET:
-		switch value.(type) {
+		switch v := value.(type) {
 		case string:
 			val = qvalue.QValue{Kind: qvalue.QValueKindINET, Value: value}
 		case [16]byte:
 			val = qvalue.QValue{Kind: qvalue.QValueKindINET, Value: value}
+		case netip.Prefix:
+			val = qvalue.QValue{Kind: qvalue.QValueKindINET, Value: v.String()}
 		default:
-			return qvalue.QValue{}, fmt.Errorf("failed to parse INET: %v", value)
+			return qvalue.QValue{}, fmt.Errorf("failed to parse INET: %v", v)
 		}
 	case qvalue.QValueKindCIDR:
-		switch value.(type) {
+		switch v := value.(type) {
 		case string:
 			val = qvalue.QValue{Kind: qvalue.QValueKindCIDR, Value: value}
 		case [16]byte:
 			val = qvalue.QValue{Kind: qvalue.QValueKindCIDR, Value: value}
+		case netip.Prefix:
+			val = qvalue.QValue{Kind: qvalue.QValueKindCIDR, Value: v.String()}
 		default:
 			return qvalue.QValue{}, fmt.Errorf("failed to parse CIDR: %v", value)
 		}

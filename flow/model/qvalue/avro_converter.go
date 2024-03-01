@@ -58,7 +58,7 @@ type AvroSchemaField struct {
 // will return an error.
 func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision int16, scale int16) (interface{}, error) {
 	switch kind {
-	case QValueKindString, QValueKindQChar:
+	case QValueKindString, QValueKindQChar, QValueKindCIDR, QValueKindINET:
 		return "string", nil
 	case QValueKindUUID:
 		return AvroSchemaLogical{
