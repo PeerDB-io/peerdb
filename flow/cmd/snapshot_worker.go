@@ -52,16 +52,12 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (client.Client, worker.Work
 		return nil, nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
 
-	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.SnapshotFlowTaskQueueID)
-	if queueErr != nil {
-		return nil, nil, queueErr
-	}
-
 	c, err := client.Dial(clientOptions)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 
+	taskQueue := shared.GetPeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue)
 	w := worker.New(c, taskQueue, worker.Options{
 		EnableSessionWorker: true,
 		OnFatalError: func(err error) {

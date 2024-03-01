@@ -103,17 +103,13 @@ func WorkerMain(opts *WorkerOptions) (client.Client, worker.Worker, error) {
 		return nil, nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
 
-	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
-	if queueErr != nil {
-		return nil, nil, queueErr
-	}
-
 	c, err := client.Dial(clientOptions)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 	slog.Info("Created temporal client")
 
+	taskQueue := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
 	w := worker.New(c, taskQueue, worker.Options{
 		EnableSessionWorker: true,
 		OnFatalError: func(err error) {

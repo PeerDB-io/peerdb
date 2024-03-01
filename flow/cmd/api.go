@@ -124,11 +124,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		return fmt.Errorf("unable to get catalog connection pool: %w", err)
 	}
 
-	taskQueue, err := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
-	if err != nil {
-		return err
-	}
-
+	taskQueue := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
 	flowHandler := NewFlowRequestHandler(tc, catalogConn, taskQueue)
 
 	err = killExistingScheduleFlows(ctx, tc, args.TemporalNamespace, taskQueue)
