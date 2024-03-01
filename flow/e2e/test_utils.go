@@ -288,6 +288,8 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 		"myreal REAL",
 		"myreal2 REAL",
 		"myreal3 REAL",
+		"myinet INET",
+		"mycidr CIDR",
 	}
 	tblFieldStr := strings.Join(tblFields, ",")
 	var pgErr *pgconn.PgError
@@ -351,7 +353,9 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 						'NaN',
 						3.14159,
 						1,
-						1.0
+						1.0,
+						'10.0.0.0/32',
+						'1.1.10.2'::cidr
 					)`,
 			id, uuid.New().String(), uuid.New().String(),
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String())
@@ -372,7 +376,9 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 					nannu,
 					myreal,
 					myreal2,
-					myreal3
+					myreal3,
+					myinet,
+					mycidr
 			) VALUES %s;
 	`, suffix, tableName, strings.Join(rows, ",")))
 	if err != nil {

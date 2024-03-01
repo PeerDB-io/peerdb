@@ -56,7 +56,7 @@ func (q QValue) Equals(other QValue) bool {
 		} else {
 			return false
 		}
-	case QValueKindString:
+	case QValueKindString, QValueKindINET, QValueKindCIDR:
 		return compareString(q.Value, other.Value)
 	// all internally represented as a Golang time.Time
 	case QValueKindDate,
