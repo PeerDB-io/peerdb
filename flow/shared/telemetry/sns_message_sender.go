@@ -48,7 +48,7 @@ func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, 
 				StringValue: aws.String(attributes.Type),
 			},
 		},
-		Subject:  aws.String(subject),
+		Subject:  aws.String(subject[:100]),
 		TopicArn: aws.String(s.topic),
 	})
 	if err != nil {
