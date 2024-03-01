@@ -120,7 +120,7 @@ func WorkerMain(opts *WorkerOptions) (client.Client, worker.Worker, error) {
 
 	w.RegisterActivity(&activities.FlowableActivity{
 		CatalogPool: conn,
-		Alerter:     alerting.NewAlerter(conn),
+		Alerter:     alerting.NewAlerter(context.Background(), conn),
 		CdcCache:    make(map[string]connectors.CDCPullConnector),
 	})
 

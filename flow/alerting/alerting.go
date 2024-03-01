@@ -53,7 +53,7 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]*slackAlertSen
 }
 
 // doesn't take care of closing pool, needs to be done externally.
-func NewAlerter(catalogPool *pgxpool.Pool) *Alerter {
+func NewAlerter(ctx context.Context, catalogPool *pgxpool.Pool) *Alerter {
 	if catalogPool == nil {
 		panic("catalog pool is nil for Alerter")
 	}
@@ -61,9 +61,10 @@ func NewAlerter(catalogPool *pgxpool.Pool) *Alerter {
 	var snsMessageSender telemetry.Sender
 	if snsTopic != "" {
 		var err error
-		snsMessageSender, err = telemetry.NewSNSMessageSenderWithNewClient(context.TODO(), &telemetry.SNSMessageSenderConfig{
+		snsMessageSender, err = telemetry.NewSNSMessageSenderWithNewClient(ctx, &telemetry.SNSMessageSenderConfig{
 			Topic: snsTopic,
 		})
+		logger.LoggerFromCtx(ctx).Info("Successfully registered telemetry sender")
 		if err != nil {
 			panic(fmt.Sprintf("unable to setup telemetry is nil for Alerter %+v", err))
 		}
@@ -209,16 +210,10 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertKey string
 
 func (a *Alerter) sendTelemetryMessage(ctx context.Context, flowName string, more any, level telemetry.Level) {
 	if a.telemetrySender != nil {
-		deployUuidPrefix := ""
-		deployUuid := peerdbenv.PeerDBDeploymentUID()
-		if deployUuid != "" {
-			deployUuidPrefix = fmt.Sprintf("[%s] ", deployUuid)
-		}
-
-		details := fmt.Sprintf("%s[%s] %s", deployUuidPrefix, flowName, more)
+		details := fmt.Sprintf("[%s] %s", flowName, more)
 		_, err := a.telemetrySender.SendMessage(ctx, details, details, telemetry.Attributes{
 			Level:         level,
-			DeploymentUID: deployUuid,
+			DeploymentUID: peerdbenv.PeerDBDeploymentUID(),
 			Tags:          []string{flowName},
 			Type:          flowName,
 		})
@@ -241,9 +236,8 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 	a.sendTelemetryMessage(ctx, flowName, err, telemetry.ERROR)
 }
 
-func (a *Alerter) LogFlowStart(ctx context.Context, flowName string, info string) {
+func (a *Alerter) LogFlowEvent(ctx context.Context, flowName string, info string) {
 	a.sendTelemetryMessage(ctx, flowName, info, telemetry.INFO)
-
 }
 
 func (a *Alerter) LogFlowInfo(ctx context.Context, flowName string, info string) {
