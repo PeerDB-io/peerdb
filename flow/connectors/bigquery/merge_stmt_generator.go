@@ -101,27 +101,32 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 		m.syncBatchID, m.dstTableName)
 }
 
-// This function is to support datatypes like JSON which either cannot be partitoned by or compared by BigQuery
+// This function is to support datatypes like JSON which cannot be partitioned by or compared by BigQuery
 func (m *mergeStmtGenerator) transformedPkeyStrings(forPartition bool) []string {
 	pkeys := make([]string, 0, len(m.normalizedTableSchema.PrimaryKeyColumns))
-	transformations := map[qvalue.QValueKind]string{
-		qvalue.QValueKindJSON:    "TO_JSON_STRING(%s)",
-		qvalue.QValueKindFloat32: "CAST(%s as STRING)",
-		qvalue.QValueKindFloat64: "CAST(%s as STRING)",
-	}
-
 	for _, col := range m.normalizedTableSchema.Columns {
 		if slices.Contains(m.normalizedTableSchema.PrimaryKeyColumns, col.Name) {
 			pkeyCol := col.Name
-			transformation, exists := transformations[qvalue.QValueKind(col.Type)]
-			if !exists {
-				transformation = "%s"
-			}
-			if forPartition {
-				pkeys = append(pkeys, fmt.Sprintf(transformation, m.shortColumn[pkeyCol]))
-			} else {
-				pkeys = append(pkeys, fmt.Sprintf(transformation+"="+transformation,
-					"_t.`"+pkeyCol+"`", "_d."+m.shortColumn[pkeyCol]))
+			switch qvalue.QValueKind(col.Type) {
+			case qvalue.QValueKindJSON:
+				if forPartition {
+					pkeys = append(pkeys, fmt.Sprintf("TO_JSON_STRING(%s)", m.shortColumn[pkeyCol]))
+				} else {
+					pkeys = append(pkeys, fmt.Sprintf("TO_JSON_STRING(_t.%s)=TO_JSON_STRING(_d.%s)",
+						pkeyCol, m.shortColumn[pkeyCol]))
+				}
+			case qvalue.QValueKindFloat32, qvalue.QValueKindFloat64:
+				if forPartition {
+					pkeys = append(pkeys, fmt.Sprintf("CAST(%s as STRING)", m.shortColumn[pkeyCol]))
+				} else {
+					pkeys = append(pkeys, fmt.Sprintf("_t.`%s`=_d.%s", pkeyCol, m.shortColumn[pkeyCol]))
+				}
+			default:
+				if forPartition {
+					pkeys = append(pkeys, m.shortColumn[pkeyCol])
+				} else {
+					pkeys = append(pkeys, fmt.Sprintf("_t.`%s`=_d.%s", pkeyCol, m.shortColumn[pkeyCol]))
+				}
 			}
 		}
 	}
