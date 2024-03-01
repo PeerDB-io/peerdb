@@ -2,7 +2,9 @@ package telemetry
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -46,6 +48,10 @@ func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, 
 			"type": {
 				DataType:    aws.String("String"),
 				StringValue: aws.String(attributes.Type),
+			},
+			"alias": { // This will act as a de-duplication ID
+				DataType:    aws.String("String"),
+				StringValue: aws.String(fmt.Sprintf("[%s] - [%s] - [Window: %s]", attributes.DeploymentUID, subject, time.Now().Truncate(30*time.Minute))),
 			},
 		},
 		Subject:  aws.String(subject[:100]),
