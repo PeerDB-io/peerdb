@@ -8,6 +8,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type mergeStmtGenerator struct {
@@ -178,7 +179,7 @@ func (m *mergeStmtGenerator) generateUpdateStatements(allCols []string) []string
 
 	for _, cols := range m.unchangedToastColumns {
 		unchangedColsArray := strings.Split(cols, ",")
-		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
+		otherCols := shared.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0, len(otherCols)+2)
 		for _, colName := range otherCols {
 			normalizedColName := SnowflakeIdentifierNormalize(colName)

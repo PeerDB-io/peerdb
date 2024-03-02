@@ -9,11 +9,11 @@ import (
 
 	"go.temporal.io/sdk/activity"
 
+	"github.com/PeerDB-io/peer-flow/alerting"
 	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/PeerDB-io/peer-flow/shared/alerting"
 )
 
 type SnapshotActivity struct {

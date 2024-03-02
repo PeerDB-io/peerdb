@@ -11,10 +11,10 @@ import (
 	"go.temporal.io/sdk/worker"
 
 	"github.com/PeerDB-io/peer-flow/activities"
+	"github.com/PeerDB-io/peer-flow/alerting"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/PeerDB-io/peer-flow/shared/alerting"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
 
