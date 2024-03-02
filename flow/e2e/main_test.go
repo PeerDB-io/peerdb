@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 
@@ -10,6 +11,7 @@ import (
 
 // TestMain would require merging all tests into e2e package
 func init() {
+	fmt.Println("INIT BEGIN")
 	slog.SetDefault(slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))))
 
 	_, peerWorker, peerErr := cmd.WorkerMain(&cmd.WorkerOptions{
@@ -25,6 +27,7 @@ func init() {
 	} else if err := peerWorker.Start(); err != nil {
 		panic(err)
 	}
+	fmt.Println("INIT PEERFLOW DONE")
 
 	_, snapWorker, snapErr := cmd.SnapshotWorkerMain(&cmd.SnapshotWorkerOptions{
 		TemporalHostPort:  "localhost:7233",
@@ -37,4 +40,5 @@ func init() {
 	} else if err := snapWorker.Start(); err != nil {
 		panic(err)
 	}
+	fmt.Println("INIT SNAPSHOT DONE")
 }
