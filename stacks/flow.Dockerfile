@@ -13,8 +13,8 @@ RUN go mod download
 # Copy all the code
 COPY flow .
 
-# build the binary from cmd folder
-WORKDIR /root/flow/cmd
+# build the binary from flow folder
+WORKDIR /root/flow
 ENV CGO_ENABLED=1
 RUN go build -ldflags="-s -w" -o /root/peer-flow .
 

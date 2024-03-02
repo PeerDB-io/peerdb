@@ -91,8 +91,11 @@ jobs:
 
       - name: run tests
         run: |
-          temporal server start-dev --namespace default --headless & sleep 1
+          temporal server start-dev --namespace default --headless
+          go build -ldflags="-s -w" -o peer-flow .
           temporal operator search-attribute create --name MirrorName --type Text --namespace default
+          ./peer-flow worker &
+          ./peer-flow snapshot-worker &
           (
             while :
             do sleep 10
@@ -101,7 +104,7 @@ jobs:
               temporal workflow list
             done
           )&
-          go test -v -p 24 ./... -timeout 1200s
+          go test -p 24 ./... -timeout 1200s
         working-directory: ./flow
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
