@@ -238,10 +238,15 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 	return nil
 }
 
-func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionConfigs) error {
+func SnapshotFlowWorkflow(
+	ctx workflow.Context,
+	config *protos.FlowConnectionConfigs,
+	tableNameSchemaMapping map[string]*protos.TableSchema,
+) error {
 	se := &SnapshotFlowExecution{
-		config: config,
-		logger: log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName)),
+		config:                 config,
+		tableNameSchemaMapping: tableNameSchemaMapping,
+		logger:                 log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName)),
 	}
 
 	numTablesInParallel := int(max(config.SnapshotNumTablesInParallel, 1))

@@ -383,7 +383,12 @@ func CDCFlowWorkflow(
 			WaitForCancellation: true,
 		}
 		snapshotFlowCtx := workflow.WithChildOptions(ctx, childSnapshotFlowOpts)
-		snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)
+		snapshotFlowFuture := workflow.ExecuteChildWorkflow(
+			snapshotFlowCtx,
+			SnapshotFlowWorkflow,
+			cfg,
+			state.SyncFlowOptions.TableNameSchemaMapping,
+		)
 		if err := snapshotFlowFuture.Get(snapshotFlowCtx, nil); err != nil {
 			w.logger.Error("snapshot flow failed", slog.Any("error", err))
 			return state, fmt.Errorf("failed to execute snapshot workflow: %w", err)
