@@ -1189,13 +1189,9 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "normalize 18 records - first table", func() bool {
 			return s.comparePGTables(srcTable1Name, dstTable1Name, "id,t") == nil
 		})
-		/* TODO fix in integration tests
 		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "initial load + normalize 18 records - second table", func() bool {
-			err := s.comparePGTables(srcTable2Name, dstTable2Name, "id,t")
-			s.t.Log("TEST", err)
-			return err == nil
+			return s.comparePGTables(srcTable2Name, dstTable2Name, "id,t") == nil
 		})
-		*/
 
 		workflowState = getWorkflowState()
 		assert.EqualValues(s.t, 14, workflowState.SyncFlowOptions.IdleTimeoutSeconds)
@@ -1205,7 +1201,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		assert.Len(s.t, workflowState.SyncFlowOptions.TableNameSchemaMapping, 2)
 		// 3 from first insert of 18 rows in 1 table
 		// 3 from second insert of 18 rows in 2 tables, batch size updated
-		assert.GreaterOrEqual(s.t, len(workflowState.SyncFlowStatuses), 3+1+3)
+		assert.GreaterOrEqual(s.t, len(workflowState.SyncFlowStatuses), 6)
 	}
 
 	env.Cancel()

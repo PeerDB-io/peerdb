@@ -89,50 +89,14 @@ jobs:
       - name: Install Temporal CLI
         uses: temporalio/setup-temporal@v0
 
-      - run: temporal server start-dev --namespace default --headless &
-
-      - run: go build -ldflags="-s -w" -o peer-flow .
-        working-directory: ./flow
-
-      - run: ./peer-flow worker &
-        working-directory: ./flow
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
-          PEERDB_CATALOG_HOST: localhost
-          PEERDB_CATALOG_PORT: 5432
-          PEERDB_CATALOG_USER: postgres
-          PEERDB_CATALOG_PASSWORD: postgres
-          PEERDB_CATALOG_DATABASE: postgres
-
-      - run: ./peer-flow snapshot-worker &
-        working-directory: ./flow
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
-          PEERDB_CATALOG_HOST: localhost
-          PEERDB_CATALOG_PORT: 5432
-          PEERDB_CATALOG_USER: postgres
-          PEERDB_CATALOG_PASSWORD: postgres
-          PEERDB_CATALOG_DATABASE: postgres
-
-      - name: temporal monitoring
-        run: |
-          (
-            while :
-            do sleep 10
-              temporal task-queue describe --task-queue=peer-flow-task-queue
-              temporal task-queue list-partition --task-queue=peer-flow-task-queue
-              temporal workflow list
-            done
-          )&
-
       - name: run tests
         run: |
+          temporal server start-dev --namespace default --headless &
+          go build -ldflags="-s -w" -o peer-flow
           temporal operator search-attribute create --name MirrorName --type Text --namespace default
-          go test -p 24 ./... -timeout 1200s
+          ./peer-flow worker &
+          ./peer-flow snapshot-worker &
+          go test -p 32 ./... -timeout 1200s
         working-directory: ./flow
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
