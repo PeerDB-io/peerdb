@@ -91,7 +91,7 @@ jobs:
 
       - name: run tests
         run: |
-          temporal server start-dev --headless & sleep 1
+          temporal server start-dev --namespace default --headless & sleep 1
           temporal operator search-attribute create --name MirrorName --type Text --namespace default
           (
             while :
