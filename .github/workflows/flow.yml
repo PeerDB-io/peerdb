@@ -95,7 +95,7 @@ jobs:
           temporal operator search-attribute create --name MirrorName --type Text --namespace default
           (
             while :
-            do sleep 10;temporal task-queue list-partitions --task-queue=peer-flow-task-queue
+            do sleep 10;temporal task-queue list-partition --task-queue=peer-flow-task-queue
             done
           )&
           (
