@@ -95,15 +95,13 @@ jobs:
           temporal operator search-attribute create --name MirrorName --type Text --namespace default
           (
             while :
-            do sleep 10;temporal task-queue list-partition --task-queue=peer-flow-task-queue
+            do sleep 10
+              temporal task-queue describe --task-queue=peer-flow-task-queue
+              temporal task-queue list-partition --task-queue=peer-flow-task-queue
+              temporal workflow list
             done
           )&
-          (
-            while :
-            do sleep 10;temporal task-queue describe --task-queue=peer-flow-task-queue
-            done
-          )&
-          go test -v -p 30 ./... -timeout 1200s
+          go test -v -p 24 ./... -timeout 1200s
         working-directory: ./flow
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
