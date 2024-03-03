@@ -134,11 +134,7 @@ var SyncStopSignal = TypedSignal[struct{}]{
 	Name: "sync-stop",
 }
 
-var SyncErrorSignal = TypedSignal[string]{
-	Name: "sync-error",
-}
-
-var SyncResultSignal = TypedSignal[SyncResponse]{
+var SyncResultSignal = TypedSignal[*SyncResponse]{
 	Name: "sync-result",
 }
 
@@ -148,14 +144,6 @@ var SyncOptionsSignal = TypedSignal[*protos.SyncFlowOptions]{
 
 var NormalizeSignal = TypedSignal[NormalizePayload]{
 	Name: "normalize",
-}
-
-var NormalizeErrorSignal = TypedSignal[string]{
-	Name: "normalize-error",
-}
-
-var NormalizeResultSignal = TypedSignal[NormalizeResponse]{
-	Name: "normalize-result",
 }
 
 var NormalizeDoneSignal = TypedSignal[struct{}]{
