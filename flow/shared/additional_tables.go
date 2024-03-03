@@ -1,7 +1,6 @@
 package shared
 
 import (
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
@@ -22,6 +21,6 @@ func AdditionalTablesHasOverlap(currentTableMappings []*protos.TableMapping,
 		additionalDstTables = append(additionalDstTables, additionalTableMapping.DestinationTableIdentifier)
 	}
 
-	return utils.ArraysHaveOverlap(currentSrcTables, additionalSrcTables) ||
-		utils.ArraysHaveOverlap(currentDstTables, additionalDstTables)
+	return ArraysHaveOverlap(currentSrcTables, additionalSrcTables) ||
+		ArraysHaveOverlap(currentDstTables, additionalDstTables)
 }

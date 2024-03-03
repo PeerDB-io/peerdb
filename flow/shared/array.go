@@ -1,4 +1,4 @@
-package utils
+package shared
 
 // first - second
 func ArrayMinus[T comparable](first, second []T) []T {

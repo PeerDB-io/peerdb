@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq/oid"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 var big10 = big.NewInt(10)
@@ -208,7 +208,7 @@ func convertToArray[T any](kind qvalue.QValueKind, value interface{}) (qvalue.QV
 	case []T:
 		return qvalue.QValue{Kind: kind, Value: v}, nil
 	case []interface{}:
-		return qvalue.QValue{Kind: kind, Value: utils.ArrayCastElements[T](v)}, nil
+		return qvalue.QValue{Kind: kind, Value: shared.ArrayCastElements[T](v)}, nil
 	}
 	return qvalue.QValue{}, fmt.Errorf("failed to parse array %s from %T: %v", kind, value, value)
 }
