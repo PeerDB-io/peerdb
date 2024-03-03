@@ -537,7 +537,7 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 		// doesn't exceed the limit. We should make this configurable.
 		const batchSize = 8
 		stmtNum := 0
-		err = utils.ArrayIterChunks(unchangedToastColumns, batchSize, func(chunk []string) error {
+		err = shared.ArrayIterChunks(unchangedToastColumns, batchSize, func(chunk []string) error {
 			stmtNum += 1
 			mergeStmt := mergeGen.generateMergeStmt(chunk)
 			c.logger.Info(fmt.Sprintf("running merge statement %d for table %s..",
