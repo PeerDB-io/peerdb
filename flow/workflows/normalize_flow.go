@@ -98,19 +98,9 @@ func NormalizeFlowWorkflow(
 
 		var normalizeResponse *model.NormalizeResponse
 		if err := fStartNormalize.Get(normalizeFlowCtx, &normalizeResponse); err != nil {
-			_ = model.NormalizeErrorSignal.SignalExternalWorkflow(
-				ctx,
-				parent.ID,
-				"",
-				err.Error(),
-			).Get(ctx, nil)
+			logger.Info("Normalize errored", slog.Any("error", err))
 		} else if normalizeResponse != nil {
-			_ = model.NormalizeResultSignal.SignalExternalWorkflow(
-				ctx,
-				parent.ID,
-				"",
-				*normalizeResponse,
-			).Get(ctx, nil)
+			logger.Info("Normalize finished", slog.Any("result", normalizeResponse))
 		}
 	}
 

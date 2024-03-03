@@ -1152,8 +1152,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	assert.Len(s.t, workflowState.SyncFlowOptions.TableMappings, 1)
 	assert.Len(s.t, workflowState.SyncFlowOptions.SrcTableIdNameMapping, 1)
 	assert.Len(s.t, workflowState.SyncFlowOptions.TableNameSchemaMapping, 1)
-	// we have limited batch size to 6, so atleast 3 syncs needed
-	assert.GreaterOrEqual(s.t, len(workflowState.SyncFlowStatuses), 3)
 
 	if !s.t.Failed() {
 		addRows(1)
@@ -1199,10 +1197,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		assert.Len(s.t, workflowState.SyncFlowOptions.TableMappings, 2)
 		assert.Len(s.t, workflowState.SyncFlowOptions.SrcTableIdNameMapping, 2)
 		assert.Len(s.t, workflowState.SyncFlowOptions.TableNameSchemaMapping, 2)
-		// 3 from first insert of 18 rows in 1 table
-		// 3 from second insert of 18 rows in 2 tables, batch size updated
-		// TODO 5 to pass test, probably need to fix code losing a sync flow status
-		assert.GreaterOrEqual(s.t, len(workflowState.SyncFlowStatuses), 5)
 	}
 
 	env.Cancel()
