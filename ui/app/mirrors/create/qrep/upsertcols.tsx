@@ -1,4 +1,5 @@
 'use client';
+import SelectTheme from '@/app/styles/select';
 import {
   QRepConfig,
   QRepWriteMode,
@@ -69,6 +70,7 @@ const UpsertColsDisplay = ({
         }}
         isLoading={loading}
         options={columns}
+        theme={SelectTheme}
       />
       <div
         style={{ display: 'flex', marginTop: '0.5rem', alignItems: 'center' }}

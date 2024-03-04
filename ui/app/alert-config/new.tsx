@@ -6,6 +6,7 @@ import ReactSelect from 'react-select';
 import { PulseLoader } from 'react-spinners';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import SelectTheme from '../styles/select';
 import { alertConfigReqSchema, alertConfigType } from './validation';
 
 export interface AlertConfigProps {
@@ -107,6 +108,7 @@ const NewAlertConfig = (alertProps: AlertConfigProps) => {
           }}
           formatOptionLabel={ConfigLabel}
           onChange={(val, _) => val && setServiceType(val.value)}
+          theme={SelectTheme}
         />
       </div>
       <div>

@@ -46,7 +46,6 @@ const MirrorCards = ({
               style={{
                 padding: '0.5rem',
                 width: '35%',
-                minHeight: '22vh',
                 marginRight:
                   card.title === 'Query Replication' ? '0.5rem' : 'auto',
                 marginLeft:
@@ -71,14 +70,17 @@ const MirrorCards = ({
                   <div style={{ fontSize: 14 }}>{card.description}</div>
                 </Label>
               </div>
-              <Label
-                as={Link}
+              <Link
                 target='_blank'
-                style={{ color: 'teal', cursor: 'pointer' }}
+                style={{
+                  color: 'teal',
+                  cursor: 'pointer',
+                  width: 'fit-content',
+                }}
                 href={card.link}
               >
                 Learn more
-              </Label>
+              </Link>
             </label>
           );
         })}

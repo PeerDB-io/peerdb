@@ -1,11 +1,14 @@
 'use client';
+import { tableStyle } from '@/app/peers/[peerName]/style';
 import { TableMapping } from '@/grpc_generated/flow';
 import { SearchField } from '@/lib/SearchField';
+import { Table, TableCell } from '@/lib/Table';
+import { TableRow } from '@tremor/react';
 import { useMemo, useState } from 'react';
 
 const TablePairs = ({ tables }: { tables?: TableMapping[] }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const shownTables = useMemo(() => {
+  const shownTables: TableMapping[] | undefined = useMemo(() => {
     const shownTables = tables?.filter(
       (table: TableMapping) =>
         table.sourceTableIdentifier.includes(searchQuery) ||
@@ -24,65 +27,26 @@ const TablePairs = ({ tables }: { tables?: TableMapping[] }) => {
             }}
           />
         </div>
-        <div
-          style={{
-            maxHeight: '80%',
-            overflow: 'scroll',
-            marginTop: '1rem',
-          }}
-        >
-          <table
-            style={{
-              marginTop: '1rem',
-              width: '100%',
-              border: '1px solid #ddd',
-              fontSize: 15,
-              overflow: 'scroll',
-            }}
+        <div style={{ ...tableStyle, maxHeight: '40vh', marginTop: '1rem' }}>
+          <Table
+            header={
+              <TableRow>
+                <TableCell>Source Table</TableCell>
+                <TableCell>Destination Table</TableCell>
+              </TableRow>
+            }
           >
-            <thead style={{ position: 'sticky', top: 0 }}>
-              <tr
-                style={{
-                  borderBottom: '1px solid #ddd',
-                  backgroundColor: '#f9f9f9',
-                }}
+            {shownTables?.map((table) => (
+              <TableRow
+                key={`${table.sourceTableIdentifier}.${table.destinationTableIdentifier}`}
               >
-                <th
-                  style={{
-                    textAlign: 'left',
-                    padding: '0.5rem',
-                    fontWeight: 'bold',
-                  }}
-                >
-                  Source Table
-                </th>
-                <th
-                  style={{
-                    textAlign: 'left',
-                    padding: '0.5rem',
-                    fontWeight: 'bold',
-                  }}
-                >
-                  Destination Table
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {shownTables?.map((table) => (
-                <tr
-                  key={`${table.sourceTableIdentifier}.${table.destinationTableIdentifier}`}
-                  style={{ borderBottom: '1px solid #ddd' }}
-                >
-                  <td style={{ padding: '0.5rem' }}>
-                    {table.sourceTableIdentifier}
-                  </td>
-                  <td style={{ padding: '0.5rem' }}>
-                    {table.destinationTableIdentifier}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                <TableCell>{table.sourceTableIdentifier}</TableCell>
+                <TableCell style={{ padding: '0.5rem' }}>
+                  {table.destinationTableIdentifier}
+                </TableCell>
+              </TableRow>
+            ))}
+          </Table>
         </div>
       </div>
     );

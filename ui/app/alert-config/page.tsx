@@ -10,6 +10,7 @@ import React, { useState } from 'react';
 import { PulseLoader } from 'react-spinners';
 import useSWR from 'swr';
 import { UAlertConfigResponse } from '../dto/AlertDTO';
+import { tableStyle } from '../peers/[peerName]/style';
 import { fetcher } from '../utils/swr';
 import NewAlertConfig, { AlertConfigProps } from './new';
 const ServiceIcon = (serviceType: string) => {
@@ -73,9 +74,7 @@ const AlertConfigPage: React.FC = () => {
               alerts.
             </Label>
           </div>
-          <div
-            style={{ marginTop: '2rem', maxHeight: '25em', overflow: 'scroll' }}
-          >
+          <div style={{ ...tableStyle, marginTop: '2rem', maxHeight: '25em' }}>
             <Table>
               {alerts?.length ? (
                 alerts.map((alertConfig: UAlertConfigResponse, index) => (

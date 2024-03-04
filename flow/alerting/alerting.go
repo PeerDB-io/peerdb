@@ -14,11 +14,13 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/shared/telemetry"
 )
 
 // alerting service, no cool name :(
 type Alerter struct {
-	catalogPool *pgxpool.Pool
+	catalogPool     *pgxpool.Pool
+	telemetrySender telemetry.Sender
 }
 
 func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]*slackAlertSender, error) {
@@ -50,13 +52,25 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]*slackAlertSen
 }
 
 // doesn't take care of closing pool, needs to be done externally.
-func NewAlerter(catalogPool *pgxpool.Pool) *Alerter {
+func NewAlerter(ctx context.Context, catalogPool *pgxpool.Pool) *Alerter {
 	if catalogPool == nil {
 		panic("catalog pool is nil for Alerter")
 	}
-
+	snsTopic := peerdbenv.PeerDBTelemetryAWSSNSTopicArn()
+	var snsMessageSender telemetry.Sender
+	if snsTopic != "" {
+		var err error
+		snsMessageSender, err = telemetry.NewSNSMessageSenderWithNewClient(ctx, &telemetry.SNSMessageSenderConfig{
+			Topic: snsTopic,
+		})
+		logger.LoggerFromCtx(ctx).Info("Successfully registered telemetry sender")
+		if err != nil {
+			panic(fmt.Sprintf("unable to setup telemetry is nil for Alerter %+v", err))
+		}
+	}
 	return &Alerter{
-		catalogPool: catalogPool,
+		catalogPool:     catalogPool,
+		telemetrySender: snsMessageSender,
 	}
 }
 
@@ -193,6 +207,22 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertKey string
 	return false
 }
 
+func (a *Alerter) sendTelemetryMessage(ctx context.Context, flowName string, more string, level telemetry.Level) {
+	if a.telemetrySender != nil {
+		details := fmt.Sprintf("[%s] %s", flowName, more)
+		_, err := a.telemetrySender.SendMessage(ctx, details, details, telemetry.Attributes{
+			Level:         level,
+			DeploymentUID: peerdbenv.PeerDBDeploymentUID(),
+			Tags:          []string{flowName},
+			Type:          flowName,
+		})
+		if err != nil {
+			logger.LoggerFromCtx(ctx).Warn("failed to send message to telemetrySender", slog.Any("error", err))
+			return
+		}
+	}
+}
+
 func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) {
 	errorWithStack := fmt.Sprintf("%+v", err)
 	_, err = a.catalogPool.Exec(ctx,
@@ -202,6 +232,11 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 		logger.LoggerFromCtx(ctx).Warn("failed to insert flow error", slog.Any("error", err))
 		return
 	}
+	a.sendTelemetryMessage(ctx, flowName, errorWithStack, telemetry.ERROR)
+}
+
+func (a *Alerter) LogFlowEvent(ctx context.Context, flowName string, info string) {
+	a.sendTelemetryMessage(ctx, flowName, info, telemetry.INFO)
 }
 
 func (a *Alerter) LogFlowInfo(ctx context.Context, flowName string, info string) {

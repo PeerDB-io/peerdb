@@ -1,4 +1,5 @@
 'use client';
+import SelectTheme from '@/app/styles/select';
 import { DBType } from '@/grpc_generated/peers';
 import Image from 'next/image';
 import { Dispatch, SetStateAction } from 'react';
@@ -44,6 +45,7 @@ export default function SelectSource({
       defaultValue={dbTypes.find((opt) => opt.value === peerType)}
       onChange={(val, _) => val && setPeerType(val.value)}
       formatOptionLabel={SourceLabel}
+      theme={SelectTheme}
     />
   );
 }
