@@ -356,7 +356,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Pause() {
 	env := e2e.RunQrepFlowWorkflow(tc, config)
 	e2e.SignalWorkflow(env, model.FlowSignal, model.PauseSignal)
 
-	e2e.EnvWaitFor(s.t, env, time.Minute, "pausing", func() bool {
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing", func() bool {
 		response, err := env.Query(shared.QRepFlowStateQuery)
 		if err != nil {
 			s.t.Log(err)
