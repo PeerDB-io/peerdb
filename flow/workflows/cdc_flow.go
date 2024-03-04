@@ -164,10 +164,6 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdate(ctx workflow.Conte
 
 		state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
 
-		if w.syncFlowFuture != nil {
-			_ = model.SyncOptionsSignal.SignalChildWorkflow(ctx, w.syncFlowFuture, state.SyncFlowOptions).Get(ctx, nil)
-		}
-
 		// finished processing, wipe it
 		state.FlowConfigUpdate = nil
 	}
@@ -190,10 +186,6 @@ func (w *CDCFlowWorkflowExecution) addCdcPropertiesSignalListener(
 		}
 		// do this irrespective of additional tables being present, for auto unpausing
 		state.FlowConfigUpdate = cdcConfigUpdate
-
-		if w.syncFlowFuture != nil {
-			_ = model.SyncOptionsSignal.SignalChildWorkflow(ctx, w.syncFlowFuture, state.SyncFlowOptions).Get(ctx, nil)
-		}
 
 		w.logger.Info("CDC Signal received. Parameters on signal reception:",
 			slog.Int("BatchSize", int(state.SyncFlowOptions.BatchSize)),
