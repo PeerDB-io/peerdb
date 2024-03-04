@@ -40,3 +40,21 @@ export async function DELETE(request: Request) {
 
   return new Response(deleteStatus);
 }
+
+export async function PUT(request: Request) {
+  const alertConfigReq: alertConfigType = await request.json();
+  const editRes = await prisma.alerting_config.update({
+    data: {
+      service_type: alertConfigReq.serviceType,
+      service_config: alertConfigReq.serviceConfig,
+    },
+    where: {
+      id: alertConfigReq.id,
+    },
+  });
+  let editStatus: 'success' | 'error' = 'error';
+  if (editRes.id) {
+    editStatus = 'success';
+  }
+  return new Response(editStatus);
+}
