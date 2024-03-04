@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -16,19 +15,15 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/api/enums/v1"
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/temporal"
-	"go.temporal.io/sdk/testsuite"
-	"go.temporal.io/sdk/worker"
 
-	"github.com/PeerDB-io/peer-flow/activities"
-	"github.com/PeerDB-io/peer-flow/alerting"
-	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	catalog "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
@@ -49,61 +44,25 @@ type RowSource interface {
 	GetRows(table, cols string) (*model.QRecordBatch, error)
 }
 
-func RegisterWorkflowsAndActivities(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
-	t.Helper()
-
-	conn, err := pgxpool.New(context.Background(), catalog.GetCatalogConnectionStringFromEnv())
-	if err != nil {
-		t.Fatalf("unable to create catalog connection pool: %v", err)
-	}
-
-	// set a 5 minute timeout for the workflow to execute a few runs.
-	env.SetTestTimeout(5 * time.Minute)
-
-	peerflow.RegisterFlowWorkerWorkflows(env)
-	env.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
-
-	alerter, err := alerting.NewAlerter(conn)
-	if err != nil {
-		t.Fatalf("unable to create alerter: %v", err)
-	}
-
-	env.RegisterActivity(&activities.FlowableActivity{
-		CatalogPool: conn,
-		Alerter:     alerter,
-		CdcCache:    make(map[string]connectors.CDCPullConnector),
-	})
-	env.RegisterActivity(&activities.SnapshotActivity{
-		SnapshotConnections: make(map[string]activities.SlotSnapshotSignal),
-		Alerter:             alerter,
-	})
-}
-
-func EnvSignalWorkflow[T any](env *testsuite.TestWorkflowEnvironment, signal model.TypedSignal[T], value T) {
-	env.SignalWorkflow(signal.Name, value)
-}
-
 // Helper function to assert errors in go routines running concurrent to workflows
 // This achieves two goals:
 // 1. cancel workflow to avoid waiting on goroutine which has failed
 // 2. get around t.FailNow being incorrect when called from non initial goroutine
-func EnvNoError(t *testing.T, env *testsuite.TestWorkflowEnvironment, err error) {
+func EnvNoError(t *testing.T, env WorkflowRun, err error) {
 	t.Helper()
 
 	if err != nil {
-		t.Error("UNEXPECTED ERROR", err.Error())
-		env.CancelWorkflow()
-		runtime.Goexit()
+		env.Cancel()
+		t.Fatal("UNEXPECTED ERROR", err.Error())
 	}
 }
 
-func EnvTrue(t *testing.T, env *testsuite.TestWorkflowEnvironment, val bool) {
+func EnvTrue(t *testing.T, env WorkflowRun, val bool) {
 	t.Helper()
 
 	if !val {
-		t.Error("UNEXPECTED FALSE")
-		env.CancelWorkflow()
-		runtime.Goexit()
+		env.Cancel()
+		t.Fatal("UNEXPECTED FALSE")
 	}
 }
 
@@ -130,7 +89,7 @@ func RequireEqualTables(suite RowSource, table string, cols string) {
 	require.True(t, e2eshared.CheckEqualRecordBatches(t, pgRows, rows))
 }
 
-func EnvEqualTables(env *testsuite.TestWorkflowEnvironment, suite RowSource, table string, cols string) {
+func EnvEqualTables(env WorkflowRun, suite RowSource, table string, cols string) {
 	t := suite.T()
 	t.Helper()
 
@@ -144,7 +103,7 @@ func EnvEqualTables(env *testsuite.TestWorkflowEnvironment, suite RowSource, tab
 }
 
 func EnvWaitForEqualTables(
-	env *testsuite.TestWorkflowEnvironment,
+	env WorkflowRun,
 	suite RowSource,
 	reason string,
 	table string,
@@ -155,7 +114,7 @@ func EnvWaitForEqualTables(
 }
 
 func EnvWaitForEqualTablesWithNames(
-	env *testsuite.TestWorkflowEnvironment,
+	env WorkflowRun,
 	suite RowSource,
 	reason string,
 	srcTable string,
@@ -182,9 +141,10 @@ func EnvWaitForEqualTablesWithNames(
 	})
 }
 
-func RequireEnvCanceled(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
+func RequireEnvCanceled(t *testing.T, env WorkflowRun) {
 	t.Helper()
-	err := env.GetWorkflowError()
+	EnvWaitForFinished(t, env, time.Minute)
+	err := env.Error()
 	var panicErr *temporal.PanicError
 	var canceledErr *temporal.CanceledError
 	if err == nil {
@@ -196,31 +156,25 @@ func RequireEnvCanceled(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
 	}
 }
 
-func SetupCDCFlowStatusQuery(t *testing.T, env *testsuite.TestWorkflowEnvironment,
-	connectionGen FlowConnectionGenerationConfig,
-) {
+func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, connectionGen FlowConnectionGenerationConfig) {
 	t.Helper()
 	// errors expected while PeerFlowStatusQuery is setup
 	counter := 0
 	for {
 		time.Sleep(time.Second)
 		counter++
-		response, err := env.QueryWorkflow(
-			shared.CDCFlowStateQuery,
-			connectionGen.FlowJobName,
-		)
+		response, err := env.Query(shared.CDCFlowStateQuery, connectionGen.FlowJobName)
 		if err == nil {
 			var state peerflow.CDCFlowWorkflowState
 			err = response.Get(&state)
 			if err != nil {
-				t.Log(err.Error())
+				t.Fatal(err)
 			} else if state.CurrentFlowStatus == protos.FlowStatus_STATUS_RUNNING {
 				return
 			}
 		} else if counter > 15 {
-			t.Error("UNEXPECTED SETUP CDC TIMEOUT", err.Error())
-			env.CancelWorkflow()
-			runtime.Goexit()
+			env.Cancel()
+			t.Fatal("UNEXPECTED SETUP CDC TIMEOUT", err.Error())
 		} else if counter > 5 {
 			// log the error for informational purposes
 			t.Log(err.Error())
@@ -453,15 +407,15 @@ func CreateQRepWorkflowConfig(
 	return qrepConfig, nil
 }
 
-func RunQrepFlowWorkflow(env *testsuite.TestWorkflowEnvironment, config *protos.QRepConfig) {
+func RunQrepFlowWorkflow(tc client.Client, config *protos.QRepConfig) WorkflowRun {
 	state := peerflow.NewQRepFlowState()
-	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, config, state)
+	return ExecutePeerflow(tc, peerflow.QRepFlowWorkflow, config, state)
 }
 
-func RunXminFlowWorkflow(env *testsuite.TestWorkflowEnvironment, config *protos.QRepConfig) {
+func RunXminFlowWorkflow(tc client.Client, config *protos.QRepConfig) WorkflowRun {
 	state := peerflow.NewQRepFlowState()
 	state.LastPartition.PartitionId = uuid.New().String()
-	env.ExecuteWorkflow(peerflow.XminFlowWorkflow, config, state)
+	return ExecutePeerflow(tc, peerflow.XminFlowWorkflow, config, state)
 }
 
 func GetOwnersSchema() *model.QRecordSchema {
@@ -550,9 +504,8 @@ func (tw *testWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func NewTemporalTestWorkflowEnvironment(t *testing.T) *testsuite.TestWorkflowEnvironment {
+func NewTemporalClient(t *testing.T) client.Client {
 	t.Helper()
-	testSuite := &testsuite.WorkflowTestSuite{}
 
 	logger := slog.New(logger.NewHandler(
 		slog.NewJSONHandler(
@@ -560,36 +513,76 @@ func NewTemporalTestWorkflowEnvironment(t *testing.T) *testsuite.TestWorkflowEnv
 			&slog.HandlerOptions{Level: slog.LevelWarn},
 		),
 	))
-	testSuite.SetLogger(&TStructuredLogger{logger: logger})
 
-	env := testSuite.NewTestWorkflowEnvironment()
-	env.SetWorkerOptions(worker.Options{EnableSessionWorker: true})
-	RegisterWorkflowsAndActivities(t, env)
-	return env
+	tc, err := client.Dial(client.Options{
+		HostPort: "localhost:7233",
+		Logger:   logger,
+	})
+	if err != nil {
+		t.Fatalf("Failed to connect temporal client: %v", err)
+	}
+	return tc
 }
 
-type TStructuredLogger struct {
-	logger *slog.Logger
+type WorkflowRun struct {
+	client.WorkflowRun
+	c client.Client
 }
 
-func (l *TStructuredLogger) keyvalsToFields(keyvals []interface{}) slog.Attr {
-	return slog.Group("test-log", keyvals...)
+func ExecutePeerflow(tc client.Client, wf interface{}, args ...interface{}) WorkflowRun {
+	return ExecuteWorkflow(tc, shared.PeerFlowTaskQueue, wf, args...)
 }
 
-func (l *TStructuredLogger) Debug(msg string, keyvals ...interface{}) {
-	l.logger.With(l.keyvalsToFields(keyvals)).Debug(msg)
+func ExecuteWorkflow(tc client.Client, taskQueueID shared.TaskQueueID, wf interface{}, args ...interface{}) WorkflowRun {
+	taskQueue := shared.GetPeerFlowTaskQueueName(taskQueueID)
+
+	wr, err := tc.ExecuteWorkflow(
+		context.Background(),
+		client.StartWorkflowOptions{
+			TaskQueue:                taskQueue,
+			WorkflowExecutionTimeout: 5 * time.Minute,
+		},
+		wf,
+		args...,
+	)
+	if err != nil {
+		panic(err)
+	}
+	return WorkflowRun{
+		WorkflowRun: wr,
+		c:           tc,
+	}
 }
 
-func (l *TStructuredLogger) Info(msg string, keyvals ...interface{}) {
-	l.logger.With(l.keyvalsToFields(keyvals)).Info(msg)
+func (env WorkflowRun) Finished() bool {
+	desc, err := env.c.DescribeWorkflowExecution(context.Background(), env.GetID(), "")
+	if err != nil {
+		return false
+	}
+	return desc.GetWorkflowExecutionInfo().GetStatus() != enums.WORKFLOW_EXECUTION_STATUS_RUNNING
 }
 
-func (l *TStructuredLogger) Warn(msg string, keyvals ...interface{}) {
-	l.logger.With(l.keyvalsToFields(keyvals)).Warn(msg)
+func (env WorkflowRun) Error() error {
+	if env.Finished() {
+		return env.Get(context.Background(), nil)
+	} else {
+		return nil
+	}
 }
 
-func (l *TStructuredLogger) Error(msg string, keyvals ...interface{}) {
-	l.logger.With(l.keyvalsToFields(keyvals)).Error(msg)
+func (env WorkflowRun) Cancel() {
+	_ = env.c.CancelWorkflow(context.Background(), env.GetID(), "")
+}
+
+func (env WorkflowRun) Query(queryType string, args ...interface{}) (converter.EncodedValue, error) {
+	return env.c.QueryWorkflow(context.Background(), env.GetID(), "", queryType, args...)
+}
+
+func SignalWorkflow[T any](env WorkflowRun, signal model.TypedSignal[T], value T) {
+	err := env.c.SignalWorkflow(context.Background(), env.GetID(), "", signal.Name, value)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func CompareTableSchemas(x *protos.TableSchema, y *protos.TableSchema) bool {
@@ -624,22 +617,43 @@ func RequireEqualRecordBatches(t *testing.T, q *model.QRecordBatch, other *model
 	require.True(t, e2eshared.CheckEqualRecordBatches(t, q, other))
 }
 
-func EnvEqualRecordBatches(t *testing.T, env *testsuite.TestWorkflowEnvironment, q *model.QRecordBatch, other *model.QRecordBatch) {
+func EnvEqualRecordBatches(t *testing.T, env WorkflowRun, q *model.QRecordBatch, other *model.QRecordBatch) {
 	t.Helper()
 	EnvTrue(t, env, e2eshared.CheckEqualRecordBatches(t, q, other))
 }
 
-func EnvWaitFor(t *testing.T, env *testsuite.TestWorkflowEnvironment, timeout time.Duration, reason string, f func() bool) {
+func EnvWaitFor(t *testing.T, env WorkflowRun, timeout time.Duration, reason string, f func() bool) {
 	t.Helper()
 	t.Log("WaitFor", reason, time.Now())
 
 	deadline := time.Now().Add(timeout)
 	for !f() {
 		if time.Now().After(deadline) {
-			t.Error("UNEXPECTED TIMEOUT", reason, time.Now())
-			env.CancelWorkflow()
-			runtime.Goexit()
+			env.Cancel()
+			t.Fatal("UNEXPECTED TIMEOUT", reason, time.Now())
 		}
 		time.Sleep(time.Second)
 	}
+}
+
+func EnvWaitForFinished(t *testing.T, env WorkflowRun, timeout time.Duration) {
+	t.Helper()
+
+	EnvWaitFor(t, env, timeout, "finish", func() bool {
+		t.Helper()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		desc, err := env.c.DescribeWorkflowExecution(ctx, env.GetID(), "")
+		if err != nil {
+			t.Log("Not finished", err)
+			return false
+		}
+		status := desc.GetWorkflowExecutionInfo().GetStatus()
+		if status != enums.WORKFLOW_EXECUTION_STATUS_RUNNING {
+			t.Log("Finished Status", status)
+			return true
+		}
+		return false
+	})
 }

@@ -215,8 +215,6 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-
 	numRows := 10
 
 	srcTable := "test_qrep_flow_avro_pg_1"
@@ -247,21 +245,16 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	)
 	require.NoError(s.t, err)
 
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-
-	err = env.GetWorkflowError()
-	require.NoError(s.t, err)
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.NoError(s.t, env.Error())
 
 	err = s.comparePGTables(srcSchemaQualified, dstSchemaQualified, "*")
 	require.NoError(s.t, err)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns_QRep_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-
 	numRows := 10
 
 	srcTable := "test_qrep_columns_pg_1"
@@ -289,21 +282,16 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns_QRep_PG() {
 	)
 	require.NoError(s.t, err)
 
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-
-	err = env.GetWorkflowError()
-	require.NoError(s.t, err)
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.NoError(s.t, env.Error())
 
 	err = s.checkSyncedAt(dstSchemaQualified)
 	require.NoError(s.t, err)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_No_Rows_QRep_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-
 	numRows := 0
 
 	srcTable := "test_no_rows_qrep_pg_1"
@@ -331,11 +319,8 @@ func (s PeerFlowE2ETestSuitePG) Test_No_Rows_QRep_PG() {
 	)
 	require.NoError(s.t, err)
 
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-
-	err = env.GetWorkflowError()
-	require.NoError(s.t, err)
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.NoError(s.t, env.Error())
 }

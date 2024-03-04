@@ -6,11 +6,14 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 
 	"github.com/urfave/cli/v3"
+	"go.temporal.io/sdk/worker"
 	_ "go.uber.org/automaxprocs"
 
+	"github.com/PeerDB-io/peer-flow/cmd"
 	"github.com/PeerDB-io/peer-flow/logger"
 )
 
@@ -64,16 +67,21 @@ func main() {
 		Commands: []*cli.Command{
 			{
 				Name: "worker",
-				Action: func(ctx context.Context, cmd *cli.Command) error {
-					temporalHostPort := cmd.String("temporal-host-port")
-					return WorkerMain(&WorkerOptions{
+				Action: func(ctx context.Context, clicmd *cli.Command) error {
+					temporalHostPort := clicmd.String("temporal-host-port")
+					c, w, err := cmd.WorkerMain(&cmd.WorkerOptions{
 						TemporalHostPort:  temporalHostPort,
-						EnableProfiling:   cmd.Bool("enable-profiling"),
-						PyroscopeServer:   cmd.String("pyroscope-server-address"),
-						TemporalNamespace: cmd.String("temporal-namespace"),
-						TemporalCert:      cmd.String("temporal-cert"),
-						TemporalKey:       cmd.String("temporal-key"),
+						EnableProfiling:   clicmd.Bool("enable-profiling"),
+						PyroscopeServer:   clicmd.String("pyroscope-server-address"),
+						TemporalNamespace: clicmd.String("temporal-namespace"),
+						TemporalCert:      clicmd.String("temporal-cert"),
+						TemporalKey:       clicmd.String("temporal-key"),
 					})
+					if err != nil {
+						return err
+					}
+					defer c.Close()
+					return w.Run(worker.InterruptCh())
 				},
 				Flags: []cli.Flag{
 					temporalHostPortFlag,
@@ -86,14 +94,19 @@ func main() {
 			},
 			{
 				Name: "snapshot-worker",
-				Action: func(ctx context.Context, cmd *cli.Command) error {
-					temporalHostPort := cmd.String("temporal-host-port")
-					return SnapshotWorkerMain(&SnapshotWorkerOptions{
+				Action: func(ctx context.Context, clicmd *cli.Command) error {
+					temporalHostPort := clicmd.String("temporal-host-port")
+					c, w, err := cmd.SnapshotWorkerMain(&cmd.SnapshotWorkerOptions{
 						TemporalHostPort:  temporalHostPort,
-						TemporalNamespace: cmd.String("temporal-namespace"),
-						TemporalCert:      cmd.String("temporal-cert"),
-						TemporalKey:       cmd.String("temporal-key"),
+						TemporalNamespace: clicmd.String("temporal-namespace"),
+						TemporalCert:      clicmd.String("temporal-cert"),
+						TemporalKey:       clicmd.String("temporal-key"),
 					})
+					if err != nil {
+						return err
+					}
+					defer c.Close()
+					return w.Run(worker.InterruptCh())
 				},
 				Flags: []cli.Flag{
 					temporalHostPortFlag,
@@ -120,21 +133,32 @@ func main() {
 					&temporalCertFlag,
 					&temporalKeyFlag,
 				},
-				Action: func(ctx context.Context, cmd *cli.Command) error {
-					temporalHostPort := cmd.String("temporal-host-port")
+				Action: func(ctx context.Context, clicmd *cli.Command) error {
+					temporalHostPort := clicmd.String("temporal-host-port")
 
-					return APIMain(ctx, &APIServerParams{
-						Port:              uint16(cmd.Uint("port")),
+					return cmd.APIMain(ctx, &cmd.APIServerParams{
+						Port:              uint16(clicmd.Uint("port")),
 						TemporalHostPort:  temporalHostPort,
-						GatewayPort:       uint16(cmd.Uint("gateway-port")),
-						TemporalNamespace: cmd.String("temporal-namespace"),
-						TemporalCert:      cmd.String("temporal-cert"),
-						TemporalKey:       cmd.String("temporal-key"),
+						GatewayPort:       uint16(clicmd.Uint("gateway-port")),
+						TemporalNamespace: clicmd.String("temporal-namespace"),
+						TemporalCert:      clicmd.String("temporal-cert"),
+						TemporalKey:       clicmd.String("temporal-key"),
 					})
 				},
 			},
 		},
 	}
+
+	go func() {
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGQUIT)
+		buf := make([]byte, 1<<20)
+		for {
+			<-sigs
+			stacklen := runtime.Stack(buf, true)
+			log.Printf("=== received SIGQUIT ===\n*** goroutine dump...\n%s\n*** end\n", buf[:stacklen])
+		}
+	}()
 
 	if err := app.Run(appCtx, os.Args); err != nil {
 		log.Printf("error running app: %+v", err)

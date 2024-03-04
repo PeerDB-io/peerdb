@@ -3,7 +3,6 @@ package alerting
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -51,14 +50,14 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]*slackAlertSen
 }
 
 // doesn't take care of closing pool, needs to be done externally.
-func NewAlerter(catalogPool *pgxpool.Pool) (*Alerter, error) {
+func NewAlerter(catalogPool *pgxpool.Pool) *Alerter {
 	if catalogPool == nil {
-		return nil, errors.New("catalog pool is nil for Alerter")
+		panic("catalog pool is nil for Alerter")
 	}
 
 	return &Alerter{
 		catalogPool: catalogPool,
-	}, nil
+	}
 }
 
 func (a *Alerter) AlertIfSlotLag(ctx context.Context, peerName string, slotInfo *protos.SlotInfo) {

@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"context"
@@ -25,7 +25,7 @@ type SnapshotWorkerOptions struct {
 	TemporalKey       string
 }
 
-func SnapshotWorkerMain(opts *SnapshotWorkerOptions) error {
+func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (client.Client, worker.Worker, error) {
 	clientOptions := client.Options{
 		HostPort:  opts.TemporalHostPort,
 		Namespace: opts.TemporalNamespace,
@@ -35,7 +35,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) error {
 	if opts.TemporalCert != "" && opts.TemporalKey != "" {
 		certs, err := Base64DecodeCertAndKey(opts.TemporalCert, opts.TemporalKey)
 		if err != nil {
-			return fmt.Errorf("unable to process certificate and key: %w", err)
+			return nil, nil, fmt.Errorf("unable to process certificate and key: %w", err)
 		}
 
 		connOptions := client.ConnectionOptions{
@@ -47,37 +47,29 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) error {
 		clientOptions.ConnectionOptions = connOptions
 	}
 
+	conn, err := utils.GetCatalogConnectionPoolFromEnv(context.Background())
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
+	}
+
 	c, err := client.Dial(clientOptions)
 	if err != nil {
-		return fmt.Errorf("unable to create Temporal client: %w", err)
+		return nil, nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
-	defer c.Close()
 
 	taskQueue := shared.GetPeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue)
 	w := worker.New(c, taskQueue, worker.Options{
 		EnableSessionWorker: true,
+		OnFatalError: func(err error) {
+			slog.Error("Snapshot Worker failed", slog.Any("error", err))
+		},
 	})
-
-	conn, err := utils.GetCatalogConnectionPoolFromEnv(context.Background())
-	if err != nil {
-		return fmt.Errorf("unable to create catalog connection pool: %w", err)
-	}
-
-	alerter, err := alerting.NewAlerter(conn)
-	if err != nil {
-		return fmt.Errorf("unable to create alerter: %w", err)
-	}
 
 	w.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
 	w.RegisterActivity(&activities.SnapshotActivity{
 		SnapshotConnections: make(map[string]activities.SlotSnapshotSignal),
-		Alerter:             alerter,
+		Alerter:             alerting.NewAlerter(conn),
 	})
 
-	err = w.Run(worker.InterruptCh())
-	if err != nil {
-		return fmt.Errorf("worker run error: %w", err)
-	}
-
-	return nil
+	return c, w, nil
 }
