@@ -19,7 +19,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
-	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
 
 type PeerFlowE2ETestSuitePG struct {
@@ -363,7 +362,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Pause() {
 			s.t.Log(err)
 			return false
 		}
-		var state peerflow.CDCFlowWorkflowState
+		var state *protos.QRepFlowState
 		err = response.Get(&state)
 		if err != nil {
 			s.t.Fatal("decode failed", err)
@@ -374,10 +373,9 @@ func (s PeerFlowE2ETestSuitePG) Test_Pause() {
 	e2e.EnvWaitFor(s.t, env, time.Minute, "unpausing", func() bool {
 		response, err := env.Query(shared.QRepFlowStateQuery)
 		if err != nil {
-			s.t.Log(err)
-			return false
+			s.t.Fatal(err)
 		}
-		var state peerflow.CDCFlowWorkflowState
+		var state *protos.QRepFlowState
 		err = response.Get(&state)
 		if err != nil {
 			s.t.Fatal("decode failed", err)
