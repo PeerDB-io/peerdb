@@ -51,9 +51,7 @@ export default function SidebarComponent() {
               width: '100%',
             }}
           >
-            {sidebarState == 'closed' ? (
-              <></>
-            ) : (
+            {sidebarState === 'open' && (
               <Label as={Link} href='/'>
                 <div className='cursor-pointer'>
                   <BrandLogo />
@@ -64,19 +62,19 @@ export default function SidebarComponent() {
               variant='normalBorderless'
               aria-label='iconButton'
               onClick={() =>
-                setSidebarState(sidebarState == 'open' ? 'closed' : 'open')
+                setSidebarState(sidebarState === 'open' ? 'closed' : 'open')
               }
             >
               <Icon
                 name={
-                  sidebarState == 'closed' ? 'chevron_right' : 'chevron_left'
+                  sidebarState === 'closed' ? 'chevron_right' : 'chevron_left'
                 }
               />
             </Button>
           </div>
         }
         bottomRow={
-          sidebarState == 'open' ? (
+          sidebarState === 'open' ? (
             <>
               <div style={centerFlexStyle}>
                 <RowWithSelect
@@ -111,7 +109,7 @@ export default function SidebarComponent() {
           )
         }
         bottomLabel={
-          sidebarState == 'open' ? (
+          sidebarState === 'open' ? (
             <div style={centerFlexStyle}>
               <Label as='label' style={{ textAlign: 'center', fontSize: 15 }}>
                 {' '}
@@ -129,21 +127,21 @@ export default function SidebarComponent() {
           href={'/peers'}
           leadingIcon={<Icon name='cable' />}
         >
-          {sidebarState == 'open' && 'Peers'}
+          {sidebarState === 'open' && 'Peers'}
         </SidebarItem>
         <SidebarItem
           as={Link}
           href={'/mirrors'}
           leadingIcon={<Icon name='compare_arrows' />}
         >
-          {sidebarState == 'open' && 'Mirrors'}
+          {sidebarState === 'open' && 'Mirrors'}
         </SidebarItem>
         <SidebarItem
           as={Link}
           href={'/alert-config'}
           leadingIcon={<Icon name='notifications' />}
         >
-          {sidebarState == 'open' && 'Alert Configuration'}
+          {sidebarState === 'open' && 'Alert Configuration'}
         </SidebarItem>
       </Sidebar>
     </SessionProvider>
