@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -24,13 +25,7 @@ type PostgresSchemaDeltaTestSuite struct {
 func SetupSuite(t *testing.T) PostgresSchemaDeltaTestSuite {
 	t.Helper()
 
-	connector, err := NewPostgresConnector(context.Background(), &protos.PostgresConfig{
-		Host:     "localhost",
-		Port:     7132,
-		User:     "postgres",
-		Password: "postgres",
-		Database: "postgres",
-	})
+	connector, err := NewPostgresConnector(context.Background(), utils.GetCatalogPostgresConfigFromEnv())
 	require.NoError(t, err)
 
 	setupTx, err := connector.conn.Begin(context.Background())

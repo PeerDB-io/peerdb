@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -57,7 +58,7 @@ func (s PeerFlowE2ETestSuiteBQ) setupTimeTable(tableName string) {
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	tc := e2e.NewTemporalClient(s.t)
 
 	numRows := 10
 
@@ -76,20 +77,15 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 		true,
 		"")
 	require.NoError(s.t, err)
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-
-	err = env.GetWorkflowError()
-	require.NoError(s.t, err)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.NoError(s.t, env.Error())
 
 	e2e.RequireEqualTables(s, tblName, "*")
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Timestamps_And_Date_QRep() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-
+	tc := e2e.NewTemporalClient(s.t)
 	tblName := "test_invalid_time_bq"
 	s.setupTimeTable(tblName)
 
@@ -106,13 +102,9 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Timestamps_And_Date_QRep() {
 		"")
 	qrepConfig.WatermarkColumn = "watermark_ts"
 	require.NoError(s.t, err)
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-
-	err = env.GetWorkflowError()
-	require.NoError(s.t, err)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.NoError(s.t, env.Error())
 
 	goodValues := []string{"watermark_ts", "mydate", "medieval"}
 	badValues := []string{"mytimestamp", "mytztimestamp", "mybaddate"}
@@ -131,7 +123,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Timestamps_And_Date_QRep() {
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	tc := e2e.NewTemporalClient(s.t)
 
 	numRows := 10
 
@@ -150,13 +142,9 @@ func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
 		true,
 		"_PEERDB_SYNCED_AT")
 	require.NoError(s.t, err)
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-
-	err = env.GetWorkflowError()
-	require.NoError(s.t, err)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.NoError(s.t, env.Error())
 
 	err = s.checkPeerdbColumns(tblName, false)
 	require.NoError(s.t, err)

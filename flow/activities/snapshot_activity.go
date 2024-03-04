@@ -9,11 +9,11 @@ import (
 
 	"go.temporal.io/sdk/activity"
 
+	"github.com/PeerDB-io/peer-flow/alerting"
 	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/PeerDB-io/peer-flow/shared/alerting"
 )
 
 type SnapshotActivity struct {
@@ -32,6 +32,7 @@ func (a *SnapshotActivity) CloseSlotKeepAlive(ctx context.Context, flowJobName s
 		connectors.CloseConnector(ctx, s.connector)
 		delete(a.SnapshotConnections, flowJobName)
 	}
+	a.Alerter.LogFlowEvent(ctx, flowJobName, "Ended Snapshot Flow Job - "+flowJobName)
 
 	return nil
 }
@@ -48,6 +49,8 @@ func (a *SnapshotActivity) SetupReplication(
 		logger.Info(fmt.Sprintf("setup replication is no-op for %s", dbType))
 		return nil, nil
 	}
+
+	a.Alerter.LogFlowEvent(ctx, config.FlowJobName, "Started Snapshot Flow Job - "+config.FlowJobName)
 
 	conn, err := connectors.GetCDCPullConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {

@@ -113,8 +113,14 @@ export const DropDialog = ({
       noInteract={true}
       size='large'
       triggerButton={
-        <Button variant='drop' style={{ color: 'black' }}>
-          <Icon name='delete' />
+        <Button variant='drop'>
+          {mode === 'ALERT' ? (
+            <Label as='label' style={{ color: 'coral' }}>
+              Delete
+            </Label>
+          ) : (
+            <Icon name='delete' />
+          )}
         </Button>
       }
     >

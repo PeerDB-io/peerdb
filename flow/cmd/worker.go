@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"context"
@@ -7,20 +7,18 @@ import (
 	"log"
 	"log/slog"
 	"os"
-	"os/signal"
 	"runtime"
-	"syscall"
 
 	"github.com/grafana/pyroscope-go"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 
 	"github.com/PeerDB-io/peer-flow/activities"
+	"github.com/PeerDB-io/peer-flow/alerting"
 	"github.com/PeerDB-io/peer-flow/connectors"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/PeerDB-io/peer-flow/shared/alerting"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
 
@@ -74,21 +72,10 @@ func setupPyroscope(opts *WorkerOptions) {
 	}
 }
 
-func WorkerMain(opts *WorkerOptions) error {
+func WorkerMain(opts *WorkerOptions) (client.Client, worker.Worker, error) {
 	if opts.EnableProfiling {
 		setupPyroscope(opts)
 	}
-
-	go func() {
-		sigs := make(chan os.Signal, 1)
-		signal.Notify(sigs, syscall.SIGQUIT)
-		buf := make([]byte, 1<<20)
-		for {
-			<-sigs
-			stacklen := runtime.Stack(buf, true)
-			log.Printf("=== received SIGQUIT ===\n*** goroutine dump...\n%s\n*** end\n", buf[:stacklen])
-		}
-	}()
 
 	clientOptions := client.Options{
 		HostPort:  opts.TemporalHostPort,
@@ -100,7 +87,7 @@ func WorkerMain(opts *WorkerOptions) error {
 		slog.Info("Using temporal certificate/key for authentication")
 		certs, err := Base64DecodeCertAndKey(opts.TemporalCert, opts.TemporalKey)
 		if err != nil {
-			return fmt.Errorf("unable to process certificate and key: %w", err)
+			return nil, nil, fmt.Errorf("unable to process certificate and key: %w", err)
 		}
 		connOptions := client.ConnectionOptions{
 			TLS: &tls.Config{
@@ -113,41 +100,29 @@ func WorkerMain(opts *WorkerOptions) error {
 
 	conn, err := utils.GetCatalogConnectionPoolFromEnv(context.Background())
 	if err != nil {
-		return fmt.Errorf("unable to create catalog connection pool: %w", err)
+		return nil, nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
 
 	c, err := client.Dial(clientOptions)
 	if err != nil {
-		return fmt.Errorf("unable to create Temporal client: %w", err)
+		return nil, nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 	slog.Info("Created temporal client")
-	defer c.Close()
 
-	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
-	if queueErr != nil {
-		return queueErr
-	}
-
+	taskQueue := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
 	w := worker.New(c, taskQueue, worker.Options{
 		EnableSessionWorker: true,
+		OnFatalError: func(err error) {
+			slog.Error("Peerflow Worker failed", slog.Any("error", err))
+		},
 	})
 	peerflow.RegisterFlowWorkerWorkflows(w)
 
-	alerter, err := alerting.NewAlerter(conn)
-	if err != nil {
-		return fmt.Errorf("unable to create alerter: %w", err)
-	}
-
 	w.RegisterActivity(&activities.FlowableActivity{
 		CatalogPool: conn,
-		Alerter:     alerter,
+		Alerter:     alerting.NewAlerter(context.Background(), conn),
 		CdcCache:    make(map[string]connectors.CDCPullConnector),
 	})
 
-	err = w.Run(worker.InterruptCh())
-	if err != nil {
-		return fmt.Errorf("worker run error: %w", err)
-	}
-
-	return nil
+	return c, w, nil
 }

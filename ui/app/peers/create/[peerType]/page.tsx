@@ -68,19 +68,20 @@ export default function CreateConfig({
       style={{
         display: 'flex',
         flexDirection: 'column',
-        alignSelf: 'center',
-        justifySelf: 'center',
-        width: '45%',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '100%',
+        height: '100%',
       }}
     >
-      <Panel>
-        <Label variant='title3'>
+      <Panel style={{ rowGap: '0.5rem' }}>
+        <Label variant='title3' as='label' style={{ marginBottom: '2rem' }}>
           Setup a new{' '}
           {dbType.charAt(0).toUpperCase() + dbType.slice(1).toLowerCase()} peer
         </Label>
-      </Panel>
-      <GuideForDestinationSetup dstPeerType={peerType} />
-      <Panel>
+
+        <GuideForDestinationSetup dstPeerType={peerType} />
+
         <RowWithTextField
           label={
             <Label>
@@ -111,8 +112,7 @@ export default function CreateConfig({
           Configuration
         </Label>
         {configComponentMap(dbType)}
-      </Panel>
-      <Panel>
+
         <ButtonGroup>
           <Button as={Link} href='/peers/create'>
             Back

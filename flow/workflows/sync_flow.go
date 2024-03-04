@@ -13,6 +13,9 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
+// For now cdc restarts sync flow whenever it itself restarts,
+// set this value high enough to never be met, relying on cdc restarts.
+// In the future cdc flow restarts could be decoupled from sync flow restarts.
 const (
 	maxSyncsPerSyncFlow = 64
 )
@@ -103,11 +106,11 @@ func SyncFlowWorkflow(
 			var childSyncFlowRes *model.SyncResponse
 			if err := f.Get(ctx, &childSyncFlowRes); err != nil {
 				logger.Error("failed to execute sync flow", slog.Any("error", err))
-				_ = model.SyncErrorSignal.SignalExternalWorkflow(
+				_ = model.SyncResultSignal.SignalExternalWorkflow(
 					ctx,
 					parent.ID,
 					"",
-					err.Error(),
+					nil,
 				).Get(ctx, nil)
 				syncErr = true
 			} else if childSyncFlowRes != nil {
@@ -115,7 +118,7 @@ func SyncFlowWorkflow(
 					ctx,
 					parent.ID,
 					"",
-					*childSyncFlowRes,
+					childSyncFlowRes,
 				).Get(ctx, nil)
 				options.RelationMessageMapping = childSyncFlowRes.RelationMessageMapping
 				totalRecordsSynced += childSyncFlowRes.NumRecordsSynced
@@ -145,12 +148,12 @@ func SyncFlowWorkflow(
 
 					var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
 					if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {
-						logger.Error("failed to execute schema update at source: ", err)
-						_ = model.SyncErrorSignal.SignalExternalWorkflow(
+						logger.Error("failed to execute schema update at source", slog.Any("error", err))
+						_ = model.SyncResultSignal.SignalExternalWorkflow(
 							ctx,
 							parent.ID,
 							"",
-							err.Error(),
+							nil,
 						).Get(ctx, nil)
 					} else {
 						for i, srcTable := range modifiedSrcTables {
@@ -201,7 +204,7 @@ func SyncFlowWorkflow(
 		}
 	}
 	if err := ctx.Err(); err != nil {
-		logger.Info("sync canceled: %v", err)
+		logger.Info("sync canceled", slog.Any("error", err))
 		return err
 	} else if stop {
 		return nil

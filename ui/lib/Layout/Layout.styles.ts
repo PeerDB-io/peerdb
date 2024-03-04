@@ -1,25 +1,17 @@
 import styled from 'styled-components';
 
 export const LayoutWrapper = styled.div`
-  display: grid;
-  grid-template-columns: 250px auto;
+  display: flex;
   background-color: ${({ theme }) => theme.colors.base.background.normal};
   min-height: 100vh;
+  width: 100vw;
 `;
 
-export type ContentWrapperProps = {
-  $fullWidth?: boolean;
-};
-
-export const ContentWrapper = styled.div<ContentWrapperProps>`
-  grid-column: ${({ $fullWidth = false }) =>
-    $fullWidth ? '1 / -1' : '2 / -1'};
+export const ContentWrapper = styled.div`
   background-color: ${({ theme }) => theme.colors.base.background.normal};
   padding: ${({ theme }) => theme.spacing.medium};
-  overflow-y: auto;
-
-  display: grid;
   height: 100vh;
+  width: 100%;
   overflow-y: auto;
 `;
 

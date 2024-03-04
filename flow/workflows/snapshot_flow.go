@@ -105,11 +105,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	s.logger.Info(fmt.Sprintf("Obtained child id %s for source table %s and destination table %s",
 		childWorkflowID, srcName, dstName), cloneLog)
 
-	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
-	if queueErr != nil {
-		return queueErr
-	}
-
+	taskQueue := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
 	childCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
 		WorkflowID:          childWorkflowID,
 		WorkflowTaskTimeout: 5 * time.Minute,
@@ -242,10 +238,15 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 	return nil
 }
 
-func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionConfigs) error {
+func SnapshotFlowWorkflow(
+	ctx workflow.Context,
+	config *protos.FlowConnectionConfigs,
+	tableNameSchemaMapping map[string]*protos.TableSchema,
+) error {
 	se := &SnapshotFlowExecution{
-		config: config,
-		logger: log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName)),
+		config:                 config,
+		tableNameSchemaMapping: tableNameSchemaMapping,
+		logger:                 log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName)),
 	}
 
 	numTablesInParallel := int(max(config.SnapshotNumTablesInParallel, 1))

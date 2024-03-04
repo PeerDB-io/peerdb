@@ -22,18 +22,8 @@ import (
 )
 
 type CDCFlowWorkflowState struct {
-	// Progress events for the peer flow.
-	Progress []string
-	// Accumulates status for sync flows spawned.
-	SyncFlowStatuses []model.SyncResponse
-	// Accumulates status for normalize flows spawned.
-	NormalizeFlowStatuses []model.NormalizeResponse
 	// Current signalled state of the peer flow.
 	ActiveSignal model.CDCFlowSignal
-	// Errors encountered during child sync flow executions.
-	SyncFlowErrors []string
-	// Errors encountered during child sync flow executions.
-	NormalizeFlowErrors []string
 	// Global mapping of relation IDs to RelationMessages sent as a part of logical replication.
 	// Needed to support schema changes.
 	RelationMessageMapping model.RelationMessageMapping
@@ -51,46 +41,15 @@ func NewCDCFlowWorkflowState(cfg *protos.FlowConnectionConfigs) *CDCFlowWorkflow
 		tableMappings = append(tableMappings, proto.Clone(tableMapping).(*protos.TableMapping))
 	}
 	return &CDCFlowWorkflowState{
-		Progress: []string{"started"},
 		// 1 more than the limit of 10
-		SyncFlowStatuses:      make([]model.SyncResponse, 0, 11),
-		NormalizeFlowStatuses: make([]model.NormalizeResponse, 0, 11),
-		ActiveSignal:          model.NoopSignal,
-		SyncFlowErrors:        nil,
-		NormalizeFlowErrors:   nil,
-		CurrentFlowStatus:     protos.FlowStatus_STATUS_SETUP,
-		FlowConfigUpdate:      nil,
+		ActiveSignal:      model.NoopSignal,
+		CurrentFlowStatus: protos.FlowStatus_STATUS_SETUP,
+		FlowConfigUpdate:  nil,
 		SyncFlowOptions: &protos.SyncFlowOptions{
 			BatchSize:          cfg.MaxBatchSize,
 			IdleTimeoutSeconds: cfg.IdleTimeoutSeconds,
 			TableMappings:      tableMappings,
 		},
-	}
-}
-
-// truncate the progress and other arrays to a max of 10 elements
-func (s *CDCFlowWorkflowState) TruncateProgress(logger log.Logger) {
-	if len(s.Progress) > 10 {
-		copy(s.Progress, s.Progress[len(s.Progress)-10:])
-		s.Progress = s.Progress[:10]
-	}
-	if len(s.SyncFlowStatuses) > 10 {
-		copy(s.SyncFlowStatuses, s.SyncFlowStatuses[len(s.SyncFlowStatuses)-10:])
-		s.SyncFlowStatuses = s.SyncFlowStatuses[:10]
-	}
-	if len(s.NormalizeFlowStatuses) > 10 {
-		copy(s.NormalizeFlowStatuses, s.NormalizeFlowStatuses[len(s.NormalizeFlowStatuses)-10:])
-		s.NormalizeFlowStatuses = s.NormalizeFlowStatuses[:10]
-	}
-
-	if s.SyncFlowErrors != nil {
-		logger.Warn("SyncFlowErrors", slog.Any("errors", s.SyncFlowErrors))
-		s.SyncFlowErrors = nil
-	}
-
-	if s.NormalizeFlowErrors != nil {
-		logger.Warn("NormalizeFlowErrors", slog.Any("errors", s.NormalizeFlowErrors))
-		s.NormalizeFlowErrors = nil
 	}
 }
 
@@ -157,6 +116,7 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdate(ctx workflow.Conte
 			w.logger.Warn("duplicate source/destination tables found in additionalTables")
 			return nil
 		}
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_SNAPSHOT
 
 		alterPublicationAddAdditionalTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 5 * time.Minute,
@@ -370,11 +330,7 @@ func CDCFlowWorkflow(
 		// next part of the setup is to snapshot-initial-copy and setup replication slots.
 		snapshotFlowID := GetChildWorkflowID("snapshot-flow", cfg.FlowJobName, originalRunID)
 
-		taskQueue, err := shared.GetPeerFlowTaskQueueName(shared.SnapshotFlowTaskQueueID)
-		if err != nil {
-			return state, err
-		}
-
+		taskQueue := shared.GetPeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue)
 		childSnapshotFlowOpts := workflow.ChildWorkflowOptions{
 			WorkflowID:        snapshotFlowID,
 			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
@@ -386,7 +342,12 @@ func CDCFlowWorkflow(
 			WaitForCancellation: true,
 		}
 		snapshotFlowCtx := workflow.WithChildOptions(ctx, childSnapshotFlowOpts)
-		snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)
+		snapshotFlowFuture := workflow.ExecuteChildWorkflow(
+			snapshotFlowCtx,
+			SnapshotFlowWorkflow,
+			cfg,
+			state.SyncFlowOptions.TableNameSchemaMapping,
+		)
 		if err := snapshotFlowFuture.Get(snapshotFlowCtx, nil); err != nil {
 			w.logger.Error("snapshot flow failed", slog.Any("error", err))
 			return state, fmt.Errorf("failed to execute snapshot workflow: %w", err)
@@ -427,7 +388,7 @@ func CDCFlowWorkflow(
 		}
 
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
-		state.Progress = append(state.Progress, "executed setup flow and snapshot flow")
+		w.logger.Info("executed setup flow and snapshot flow")
 
 		// if initial_copy_only is opted for, we end the flow here.
 		if cfg.InitialSnapshotOnly {
@@ -490,7 +451,6 @@ func CDCFlowWorkflow(
 		err := f.Get(ctx, nil)
 		if err != nil {
 			handleError("sync", err)
-			state.SyncFlowErrors = append(state.SyncFlowErrors, err.Error())
 		}
 
 		if restart {
@@ -502,7 +462,6 @@ func CDCFlowWorkflow(
 			}).Get(ctx, nil)
 		} else {
 			w.logger.Warn("sync flow ended, restarting", slog.Any("error", err))
-			state.TruncateProgress(w.logger)
 			w.startSyncFlow(syncCtx, cfg, state.SyncFlowOptions)
 			mainLoopSelector.AddFuture(w.syncFlowFuture, handleSyncFlow)
 		}
@@ -511,7 +470,6 @@ func CDCFlowWorkflow(
 		err := f.Get(ctx, nil)
 		if err != nil {
 			handleError("normalize", err)
-			state.NormalizeFlowErrors = append(state.NormalizeFlowErrors, err.Error())
 		}
 
 		if restart {
@@ -520,7 +478,6 @@ func CDCFlowWorkflow(
 			finished = true
 		} else {
 			w.logger.Warn("normalize flow ended, restarting", slog.Any("error", err))
-			state.TruncateProgress(w.logger)
 			w.startNormFlow(normCtx, cfg)
 			mainLoopSelector.AddFuture(w.normFlowFuture, handleNormFlow)
 		}
@@ -536,30 +493,16 @@ func CDCFlowWorkflow(
 		state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, w.logger)
 	})
 
-	syncErrorChan := model.SyncErrorSignal.GetSignalChannel(ctx)
-	syncErrorChan.AddToSelector(mainLoopSelector, func(err string, _ bool) {
-		syncCount += 1
-		state.SyncFlowErrors = append(state.SyncFlowErrors, err)
-	})
 	syncResultChan := model.SyncResultSignal.GetSignalChannel(ctx)
-	syncResultChan.AddToSelector(mainLoopSelector, func(result model.SyncResponse, _ bool) {
+	syncResultChan.AddToSelector(mainLoopSelector, func(result *model.SyncResponse, _ bool) {
 		syncCount += 1
-		if state.SyncFlowOptions.RelationMessageMapping == nil {
-			state.SyncFlowOptions.RelationMessageMapping = result.RelationMessageMapping
-		} else {
-			maps.Copy(state.SyncFlowOptions.RelationMessageMapping, result.RelationMessageMapping)
+		if result != nil {
+			if state.SyncFlowOptions.RelationMessageMapping == nil {
+				state.SyncFlowOptions.RelationMessageMapping = result.RelationMessageMapping
+			} else {
+				maps.Copy(state.SyncFlowOptions.RelationMessageMapping, result.RelationMessageMapping)
+			}
 		}
-		state.SyncFlowStatuses = append(state.SyncFlowStatuses, result)
-	})
-
-	normErrorChan := model.NormalizeErrorSignal.GetSignalChannel(ctx)
-	normErrorChan.AddToSelector(mainLoopSelector, func(err string, _ bool) {
-		state.NormalizeFlowErrors = append(state.NormalizeFlowErrors, err)
-	})
-
-	normResultChan := model.NormalizeResultSignal.GetSignalChannel(ctx)
-	normResultChan.AddToSelector(mainLoopSelector, func(result model.NormalizeResponse, _ bool) {
-		state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, result)
 	})
 
 	normChan := model.NormalizeSignal.GetSignalChannel(ctx)
@@ -611,8 +554,6 @@ func CDCFlowWorkflow(
 				return nil, err
 			}
 
-			// important to control the size of inputs.
-			state.TruncateProgress(w.logger)
 			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 		}
 	}

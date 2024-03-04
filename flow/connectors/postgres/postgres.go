@@ -19,13 +19,14 @@ import (
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 
+	"github.com/PeerDB-io/peer-flow/alerting"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared/alerting"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type PostgresConnector struct {
@@ -1124,7 +1125,7 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 		if err != nil {
 			return fmt.Errorf("failed to check tables in publication: %w", err)
 		}
-		notPresentTables := utils.ArrayMinus(additionalSrcTables, tableNames)
+		notPresentTables := shared.ArrayMinus(additionalSrcTables, tableNames)
 		if len(notPresentTables) > 0 {
 			return fmt.Errorf("some additional tables not present in custom publication: %s",
 				strings.Join(notPresentTables, ", "))

@@ -10,6 +10,7 @@ import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
+import SelectTheme from '../styles/select';
 
 function PeerRow({ peer }: { peer: Peer }) {
   return (
@@ -76,6 +77,7 @@ function PeersTable({ title, peers }: { title: string; peers: Peer[] }) {
                 setFilteredType(val?.value);
               }}
               defaultValue={allTypesOption}
+              theme={SelectTheme}
             />
             <SearchField
               placeholder='Search by peer name'
