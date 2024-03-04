@@ -95,3 +95,11 @@ func PeerDBEnableParallelSyncNormalize() bool {
 func PeerDBTelemetryAWSSNSTopicArn() string {
 	return getEnvString("PEERDB_TELEMETRY_AWS_SNS_TOPIC_ARN", "")
 }
+
+func PeerDBAlertingEmailSenderSourceEmail() string {
+	return getEnvString("PEERDB_ALERTING_EMAIL_SENDER_SOURCE_EMAIL", "")
+}
+
+func PeerDBAlertingEmailSenderConfigurationSet() string {
+	return getEnvString("PEERDB_ALERTING_EMAIL_SENDER_CONFIGURATION_SET", "")
+}

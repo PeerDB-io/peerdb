@@ -3,6 +3,7 @@ package alerting
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -23,32 +24,50 @@ type Alerter struct {
 	telemetrySender telemetry.Sender
 }
 
-func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]*slackAlertSender, error) {
+func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSender, error) {
 	rows, err := a.catalogPool.Query(ctx,
 		"SELECT service_type,service_config FROM peerdb_stats.alerting_config")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read alerter config from catalog: %w", err)
 	}
 
-	var slackAlertSenders []*slackAlertSender
-	var serviceType, serviceConfig string
+	var alertSenders []AlertSender
+	var serviceType ServiceType
+	var serviceConfig string
 	_, err = pgx.ForEachRow(rows, []any{&serviceType, &serviceConfig}, func() error {
 		switch serviceType {
-		case "slack":
+		case SLACK:
 			var slackServiceConfig slackAlertConfig
 			err = json.Unmarshal([]byte(serviceConfig), &slackServiceConfig)
 			if err != nil {
-				return fmt.Errorf("failed to unmarshal Slack service config: %w", err)
+				return fmt.Errorf("failed to unmarshal %s service config: %w", serviceType, err)
 			}
 
-			slackAlertSenders = append(slackAlertSenders, newSlackAlertSender(&slackServiceConfig))
+			alertSenders = append(alertSenders, newSlackAlertSender(&slackServiceConfig))
+		case EMAIL:
+			emailServiceConfig := EmailAlertSenderConfig{
+				sourceEmail:          peerdbenv.PeerDBAlertingEmailSenderSourceEmail(),
+				configurationSetName: peerdbenv.PeerDBAlertingEmailSenderConfigurationSet(),
+			}
+			if emailServiceConfig.sourceEmail == "" {
+				return errors.New("missing sourceEmail for Email alerting service")
+			}
+			err = json.Unmarshal([]byte(serviceConfig), &emailServiceConfig)
+			if err != nil {
+				return fmt.Errorf("failed to unmarshal %s service config: %w", serviceType, err)
+			}
+			alertSender, err2 := NewEmailAlertSenderWithNewClient(ctx, &emailServiceConfig)
+			if err2 != nil {
+				return fmt.Errorf("failed to initialize email alerter: %w", err2)
+			}
+			alertSenders = append(alertSenders, alertSender)
 		default:
 			return fmt.Errorf("unknown service type: %s", serviceType)
 		}
 		return nil
 	})
 
-	return slackAlertSenders, nil
+	return alertSenders, nil
 }
 
 // doesn't take care of closing pool, needs to be done externally.
@@ -75,9 +94,9 @@ func NewAlerter(ctx context.Context, catalogPool *pgxpool.Pool) *Alerter {
 }
 
 func (a *Alerter) AlertIfSlotLag(ctx context.Context, peerName string, slotInfo *protos.SlotInfo) {
-	slackAlertSenders, err := a.registerSendersFromPool(ctx)
+	alertSenders, err := a.registerSendersFromPool(ctx)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Warn("failed to set Slack senders", slog.Any("error", err))
+		logger.LoggerFromCtx(ctx).Warn("failed to set alert senders", slog.Any("error", err))
 		return
 	}
 
@@ -89,28 +108,27 @@ func (a *Alerter) AlertIfSlotLag(ctx context.Context, peerName string, slotInfo 
 	defaultSlotLagMBAlertThreshold := dynamicconf.PeerDBSlotLagMBAlertThreshold(ctx)
 	// catalog cannot use default threshold to space alerts properly, use the lowest set threshold instead
 	lowestSlotLagMBAlertThreshold := defaultSlotLagMBAlertThreshold
-	for _, slackAlertSender := range slackAlertSenders {
-		if slackAlertSender.slotLagMBAlertThreshold > 0 {
-			lowestSlotLagMBAlertThreshold = min(lowestSlotLagMBAlertThreshold, slackAlertSender.slotLagMBAlertThreshold)
+	for _, alertSender := range alertSenders {
+		if alertSender.getSlotLagMBAlertThreshold() > 0 {
+			lowestSlotLagMBAlertThreshold = min(lowestSlotLagMBAlertThreshold, alertSender.getSlotLagMBAlertThreshold())
 		}
 	}
 
 	alertKey := peerName + "-slot-lag-threshold-exceeded"
 	alertMessageTemplate := fmt.Sprintf("%sSlot `%s` on peer `%s` has exceeded threshold size of %%dMB, "+
-		`currently at %.2fMB!
-		cc: <!channel>`, deploymentUIDPrefix, slotInfo.SlotName, peerName, slotInfo.LagInMb)
+		`currently at %.2fMB!`, deploymentUIDPrefix, slotInfo.SlotName, peerName, slotInfo.LagInMb)
 
 	if slotInfo.LagInMb > float32(lowestSlotLagMBAlertThreshold) &&
 		a.checkAndAddAlertToCatalog(ctx, alertKey, fmt.Sprintf(alertMessageTemplate, lowestSlotLagMBAlertThreshold)) {
-		for _, slackAlertSender := range slackAlertSenders {
-			if slackAlertSender.slotLagMBAlertThreshold > 0 {
-				if slotInfo.LagInMb > float32(slackAlertSender.slotLagMBAlertThreshold) {
-					a.alertToSlack(ctx, slackAlertSender, alertKey,
-						fmt.Sprintf(alertMessageTemplate, slackAlertSender.slotLagMBAlertThreshold))
+		for _, alertSender := range alertSenders {
+			if alertSender.getSlotLagMBAlertThreshold() > 0 {
+				if slotInfo.LagInMb > float32(alertSender.getSlotLagMBAlertThreshold()) {
+					a.alertToProvider(ctx, alertSender, alertKey,
+						fmt.Sprintf(alertMessageTemplate, alertSender.getSlotLagMBAlertThreshold()))
 				}
 			} else {
 				if slotInfo.LagInMb > float32(defaultSlotLagMBAlertThreshold) {
-					a.alertToSlack(ctx, slackAlertSender, alertKey,
+					a.alertToProvider(ctx, alertSender, alertKey,
 						fmt.Sprintf(alertMessageTemplate, defaultSlotLagMBAlertThreshold))
 				}
 			}
@@ -121,7 +139,7 @@ func (a *Alerter) AlertIfSlotLag(ctx context.Context, peerName string, slotInfo 
 func (a *Alerter) AlertIfOpenConnections(ctx context.Context, peerName string,
 	openConnections *protos.GetOpenConnectionsForUserResult,
 ) {
-	slackAlertSenders, err := a.registerSendersFromPool(ctx)
+	alertSenders, err := a.registerSendersFromPool(ctx)
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Warn("failed to set Slack senders", slog.Any("error", err))
 		return
@@ -135,28 +153,28 @@ func (a *Alerter) AlertIfOpenConnections(ctx context.Context, peerName string,
 	// same as with slot lag, use lowest threshold for catalog
 	defaultOpenConnectionsThreshold := dynamicconf.PeerDBOpenConnectionsAlertThreshold(ctx)
 	lowestOpenConnectionsThreshold := defaultOpenConnectionsThreshold
-	for _, slackAlertSender := range slackAlertSenders {
-		if slackAlertSender.openConnectionsAlertThreshold > 0 {
-			lowestOpenConnectionsThreshold = min(lowestOpenConnectionsThreshold, slackAlertSender.openConnectionsAlertThreshold)
+	for _, alertSender := range alertSenders {
+		if alertSender.getOpenConnectionsAlertThreshold() > 0 {
+			lowestOpenConnectionsThreshold = min(lowestOpenConnectionsThreshold, alertSender.getOpenConnectionsAlertThreshold())
 		}
 	}
 
 	alertKey := peerName + "-max-open-connections-threshold-exceeded"
 	alertMessageTemplate := fmt.Sprintf("%sOpen connections from PeerDB user `%s` on peer `%s`"+
-		` has exceeded threshold size of %%d connections, currently at %d connections!
-		cc: <!channel>`, deploymentUIDPrefix, openConnections.UserName, peerName, openConnections.CurrentOpenConnections)
+		` has exceeded threshold size of %%d connections, currently at %d connections!`,
+		deploymentUIDPrefix, openConnections.UserName, peerName, openConnections.CurrentOpenConnections)
 
 	if openConnections.CurrentOpenConnections > int64(lowestOpenConnectionsThreshold) &&
 		a.checkAndAddAlertToCatalog(ctx, alertKey, fmt.Sprintf(alertMessageTemplate, lowestOpenConnectionsThreshold)) {
-		for _, slackAlertSender := range slackAlertSenders {
-			if slackAlertSender.openConnectionsAlertThreshold > 0 {
-				if openConnections.CurrentOpenConnections > int64(slackAlertSender.openConnectionsAlertThreshold) {
-					a.alertToSlack(ctx, slackAlertSender, alertKey,
-						fmt.Sprintf(alertMessageTemplate, slackAlertSender.openConnectionsAlertThreshold))
+		for _, alertSender := range alertSenders {
+			if alertSender.getOpenConnectionsAlertThreshold() > 0 {
+				if openConnections.CurrentOpenConnections > int64(alertSender.getOpenConnectionsAlertThreshold()) {
+					a.alertToProvider(ctx, alertSender, alertKey,
+						fmt.Sprintf(alertMessageTemplate, alertSender.getOpenConnectionsAlertThreshold()))
 				}
 			} else {
 				if openConnections.CurrentOpenConnections > int64(defaultOpenConnectionsThreshold) {
-					a.alertToSlack(ctx, slackAlertSender, alertKey,
+					a.alertToProvider(ctx, alertSender, alertKey,
 						fmt.Sprintf(alertMessageTemplate, defaultOpenConnectionsThreshold))
 				}
 			}
@@ -164,9 +182,8 @@ func (a *Alerter) AlertIfOpenConnections(ctx context.Context, peerName string,
 	}
 }
 
-func (a *Alerter) alertToSlack(ctx context.Context, slackAlertSender *slackAlertSender, alertKey string, alertMessage string) {
-	err := slackAlertSender.sendAlert(ctx,
-		":rotating_light:Alert:rotating_light:: "+alertKey, alertMessage)
+func (a *Alerter) alertToProvider(ctx context.Context, alertSender AlertSender, alertKey string, alertMessage string) {
+	err := alertSender.sendAlert(ctx, alertKey, alertMessage)
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Warn("failed to send alert", slog.Any("error", err))
 		return
