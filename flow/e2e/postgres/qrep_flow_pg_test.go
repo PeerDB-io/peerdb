@@ -341,7 +341,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Pause() {
 		s.suffix, srcTable)
 
 	config, err := e2e.CreateQRepWorkflowConfig(
-		"test_qrep_columns_pg",
+		"test_qrep_pause_pg",
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
