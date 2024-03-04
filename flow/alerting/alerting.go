@@ -7,15 +7,13 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"go.temporal.io/sdk/activity"
-
 	"github.com/PeerDB-io/peer-flow/dynamicconf"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared/telemetry"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // alerting service, no cool name :(
@@ -211,7 +209,7 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertKey string
 func (a *Alerter) sendTelemetryMessage(ctx context.Context, flowName string, more string, level telemetry.Level) {
 	if a.telemetrySender != nil {
 		details := fmt.Sprintf("[%s] %s", flowName, more)
-		_, err := a.telemetrySender.SendMessage(ctx, details, fmt.Sprintf("%s\n%+v", details, activity.GetInfo(ctx)), telemetry.Attributes{
+		_, err := a.telemetrySender.SendMessage(ctx, details, details, telemetry.Attributes{
 			Level:         level,
 			DeploymentUID: peerdbenv.PeerDBDeploymentUID(),
 			Tags:          []string{flowName},
