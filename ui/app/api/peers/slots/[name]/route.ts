@@ -34,7 +34,6 @@ export async function GET(
     select: {
       updated_at: true,
       slot_size: true,
-      wal_status: true,
     },
     where: {
       slot_name: context.params.name,
@@ -42,7 +41,6 @@ export async function GET(
         gte: new Date(Date.now() - forThePastThisMuchTime),
       },
     },
-    take: 100,
   });
 
   // convert slot_size to string
@@ -54,7 +52,6 @@ export async function GET(
         ' ' +
         lagPoint.updated_at.toLocaleTimeString(),
       slotSize: lagPoint.slot_size?.toString(),
-      walStatus: lagPoint.wal_status,
     };
   });
 
