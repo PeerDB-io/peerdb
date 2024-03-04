@@ -40,7 +40,7 @@ function LagGraph({ slotNames }: { slotNames: string[] }) {
     ]);
     return lagDataDot.map((data) => ({
       time: formatGraphLabel(new Date(data[0]!), timeSince),
-      'Lag in MB': data[1],
+      'Lag in GB': parseInt(data[1] || '0', 10) / 1000,
     }));
   }, [lagPoints, timeSince]);
 
@@ -108,8 +108,9 @@ function LagGraph({ slotNames }: { slotNames: string[] }) {
       <LineChart
         index='time'
         data={graphValues}
-        categories={['Lag in MB']}
+        categories={['Lag in GB']}
         colors={['rose']}
+        showXAxis={false}
       />
     </div>
   );
