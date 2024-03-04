@@ -360,21 +360,29 @@ func (s PeerFlowE2ETestSuitePG) Test_Pause() {
 	e2e.EnvWaitFor(s.t, env, time.Minute, "pausing", func() bool {
 		response, err := env.Query(shared.QRepFlowStateQuery)
 		if err != nil {
+			s.t.Log(err)
 			return false
 		}
 		var state peerflow.CDCFlowWorkflowState
 		err = response.Get(&state)
-		return err != nil && state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSED
+		if err != nil {
+			s.t.Fatal("decode failed", err)
+		}
+		return state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSED
 	})
 	e2e.SignalWorkflow(env, model.FlowSignal, model.NoopSignal)
 	e2e.EnvWaitFor(s.t, env, time.Minute, "unpausing", func() bool {
 		response, err := env.Query(shared.QRepFlowStateQuery)
 		if err != nil {
+			s.t.Log(err)
 			return false
 		}
 		var state peerflow.CDCFlowWorkflowState
 		err = response.Get(&state)
-		return err != nil && state.CurrentFlowStatus == protos.FlowStatus_STATUS_RUNNING
+		if err != nil {
+			s.t.Fatal("decode failed", err)
+		}
+		return state.CurrentFlowStatus == protos.FlowStatus_STATUS_RUNNING
 	})
 
 	env.Cancel()
