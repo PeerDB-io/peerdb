@@ -68,7 +68,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (client.Client, worker.Work
 	w.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
 	w.RegisterActivity(&activities.SnapshotActivity{
 		SnapshotConnections: make(map[string]activities.SlotSnapshotSignal),
-		Alerter:             alerting.NewAlerter(conn),
+		Alerter:             alerting.NewAlerter(context.Background(), conn),
 	})
 
 	return c, w, nil
