@@ -46,19 +46,6 @@ func NewQRepFlowState() *protos.QRepFlowState {
 	}
 }
 
-// returns a new empty QRepFlowState
-func NewQRepFlowStateForTesting() *protos.QRepFlowState {
-	return &protos.QRepFlowState{
-		LastPartition: &protos.QRepPartition{
-			PartitionId: "not-applicable-partition",
-			Range:       nil,
-		},
-		NumPartitionsProcessed: 0,
-		NeedsResync:            true,
-		DisableWaitForNewRows:  true,
-	}
-}
-
 // NewQRepFlowExecution creates a new instance of QRepFlowExecution.
 func NewQRepFlowExecution(ctx workflow.Context, config *protos.QRepConfig, runUUID string) *QRepFlowExecution {
 	return &QRepFlowExecution{
@@ -291,20 +278,39 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 	return nil
 }
 
-func (q *QRepFlowExecution) waitForNewRows(ctx workflow.Context, lastPartition *protos.QRepPartition) error {
+func (q *QRepFlowExecution) waitForNewRows(
+	ctx workflow.Context,
+	signalChan model.TypedReceiveChannel[model.CDCFlowSignal],
+	lastPartition *protos.QRepPartition,
+) error {
 	q.logger.Info("idling until new rows are detected")
+
+	var done bool
+	var doneErr error
+	selector := workflow.NewNamedSelector(ctx, "WaitForNewRows")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 16 * 365 * 24 * time.Hour, // 16 years
 		HeartbeatTimeout:    time.Minute,
 	})
+	fWait := workflow.ExecuteActivity(ctx, flowable.QRepWaitUntilNewRows, q.config, lastPartition)
+	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+	selector.AddFuture(fWait, func(f workflow.Future) {
+		doneErr = f.Get(ctx, nil)
+		done = true
+	})
+	signalChan.AddToSelector(selector, func(val model.CDCFlowSignal, _ bool) {
+		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
+	})
 
-	if err := workflow.ExecuteActivity(ctx, flowable.QRepWaitUntilNewRows, q.config,
-		lastPartition).Get(ctx, nil); err != nil {
-		return fmt.Errorf("failed while idling for new rows: %w", err)
+	for ctx.Err() != nil && ((!done && q.activeSignal != model.PauseSignal) || selector.HasPending()) {
+		selector.Select(ctx)
 	}
 
-	return nil
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return doneErr
 }
 
 func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, state *protos.QRepFlowState) error {
@@ -362,16 +368,6 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 	}
 	state.NeedsResync = false
 	return nil
-}
-
-func (q *QRepFlowExecution) receiveAndHandleSignalAsync(signalChan model.TypedReceiveChannel[model.CDCFlowSignal]) {
-	for {
-		val, ok := signalChan.ReceiveAsync()
-		if !ok {
-			break
-		}
-		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
-	}
 }
 
 func setWorkflowQueries(ctx workflow.Context, state *protos.QRepFlowState) error {
@@ -475,13 +471,13 @@ func QRepFlowWorkflow(
 		return err
 	}
 
-	logger.Info("fetching partitions to replicate for peer flow - ", config.FlowJobName)
+	logger.Info("fetching partitions to replicate for peer flow")
 	partitions, err := q.GetPartitions(ctx, state.LastPartition)
 	if err != nil {
 		return fmt.Errorf("failed to get partitions: %w", err)
 	}
 
-	logger.Info("partitions to replicate - ", len(partitions.Partitions))
+	logger.Info(fmt.Sprintf("%d partitions to replicate", len(partitions.Partitions)))
 	if err := q.processPartitions(ctx, maxParallelWorkers, partitions.Partitions); err != nil {
 		return err
 	}
@@ -501,29 +497,23 @@ func QRepFlowWorkflow(
 		return err
 	}
 
-	logger.Info("partitions processed - ", len(partitions.Partitions))
+	logger.Info(fmt.Sprintf("%d partitions processed", len(partitions.Partitions)))
 	state.NumPartitionsProcessed += uint64(len(partitions.Partitions))
 
 	if len(partitions.Partitions) > 0 {
 		state.LastPartition = partitions.Partitions[len(partitions.Partitions)-1]
 	}
 
-	if !state.DisableWaitForNewRows {
-		// sleep for a while and continue the workflow
-		err = q.waitForNewRows(ctx, state.LastPartition)
-		if err != nil {
-			return err
-		}
+	// sleep for a while and continue the workflow
+	err = q.waitForNewRows(ctx, signalChan, state.LastPartition)
+	if err != nil {
+		return err
 	}
 
 	logger.Info("Continuing as new workflow",
 		slog.Any("Last Partition", state.LastPartition),
 		slog.Any("Number of Partitions Processed", state.NumPartitionsProcessed))
 
-	q.receiveAndHandleSignalAsync(signalChan)
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	if q.activeSignal == model.PauseSignal {
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
 	}
