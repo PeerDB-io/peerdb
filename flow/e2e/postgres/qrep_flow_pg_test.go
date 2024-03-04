@@ -351,6 +351,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Pause() {
 		"_PEERDB_SYNCED_AT",
 	)
 	require.NoError(s.t, err)
+	config.InitialCopyOnly = false
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.RunQrepFlowWorkflow(tc, config)
