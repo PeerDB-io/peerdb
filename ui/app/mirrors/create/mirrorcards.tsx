@@ -70,14 +70,17 @@ const MirrorCards = ({
                   <div style={{ fontSize: 14 }}>{card.description}</div>
                 </Label>
               </div>
-              <Label
-                as={Link}
+              <Link
                 target='_blank'
-                style={{ color: 'teal', cursor: 'pointer' }}
+                style={{
+                  color: 'teal',
+                  cursor: 'pointer',
+                  width: 'fit-content',
+                }}
                 href={card.link}
               >
                 Learn more
-              </Label>
+              </Link>
             </label>
           );
         })}

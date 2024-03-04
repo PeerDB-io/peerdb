@@ -2,7 +2,7 @@
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 
-const ReloadButton = ({ reloadFunction }: { reloadFunction: () => void }) => {
+const ReloadButton = () => {
   return (
     <Button
       style={{ backgroundColor: '#30A46C', color: 'white', fontSize: 14 }}

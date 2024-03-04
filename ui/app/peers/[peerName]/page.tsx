@@ -57,7 +57,14 @@ const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
   const stats = await getStatData();
 
   return (
-    <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column' }}>
+    <div
+      style={{
+        padding: '2rem',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+      }}
+    >
       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
         <div
           style={{
