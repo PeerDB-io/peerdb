@@ -1,4 +1,5 @@
 'use client';
+import SelectTheme from '@/app/styles/select';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepConfig, QRepWriteType } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
@@ -202,6 +203,7 @@ export default function QRepConfigForm({
                             val && handleChange(val.value, setting)
                           }
                           options={WriteModes}
+                          theme={SelectTheme}
                         />
                       ) : setting.label === 'Upsert Key Columns' ? (
                         <UpsertColsDisplay
@@ -226,6 +228,7 @@ export default function QRepConfigForm({
                               ? watermarkColumns
                               : sourceTables
                           }
+                          theme={SelectTheme}
                         />
                       )}
                     </div>

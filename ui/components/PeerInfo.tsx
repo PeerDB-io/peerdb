@@ -26,10 +26,8 @@ export const PeerInfo = ({ peerName }: { peerName: string }) => {
       size='auto'
       style={{ width: '40rem' }}
       triggerButton={
-        <Button style={{ backgroundColor: 'white', border: '1px solid gray' }}>
-          <Label as='label' style={{ fontSize: 15 }}>
-            Details
-          </Label>
+        <Button variant='normalBorderless' aria-label='iconButton'>
+          <Icon name='info' />
         </Button>
       }
     >
