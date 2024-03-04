@@ -138,10 +138,6 @@ var SyncResultSignal = TypedSignal[*SyncResponse]{
 	Name: "sync-result",
 }
 
-var SyncOptionsSignal = TypedSignal[*protos.SyncFlowOptions]{
-	Name: "sync-options",
-}
-
 var NormalizeSignal = TypedSignal[NormalizePayload]{
 	Name: "normalize",
 }
