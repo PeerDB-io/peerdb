@@ -42,6 +42,7 @@ export async function GET(
         gte: new Date(Date.now() - forThePastThisMuchTime),
       },
     },
+    take: 100,
   });
 
   // convert slot_size to string
