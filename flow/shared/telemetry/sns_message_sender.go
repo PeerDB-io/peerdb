@@ -4,14 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/aws/aws-sdk-go-v2/service/sns/types"
+	"go.temporal.io/sdk/activity"
 )
 
 type SNSMessageSender interface {
@@ -28,7 +27,13 @@ type SNSMessageSenderConfig struct {
 }
 
 func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, body string, attributes Attributes) (*string, error) {
-	deduplicationString := fmt.Sprintf("[%s] - [%s] - [Window: %s]", attributes.DeploymentUID, subject, time.Now().Truncate(30*time.Minute))
+	activityInfo := activity.GetInfo(ctx)
+	deduplicationString := strings.Join([]string{
+		"deployID", attributes.DeploymentUID,
+		"subject", subject,
+		"runID", activityInfo.WorkflowExecution.RunID,
+		"activityName", activityInfo.ActivityType.Name,
+	}, " || ")
 	h := sha256.New()
 	h.Write([]byte(deduplicationString))
 	deduplicationHash := hex.EncodeToString(h.Sum(nil))

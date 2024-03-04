@@ -4,13 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"go.temporal.io/sdk/activity"
 	"log/slog"
-	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.temporal.io/sdk/activity"
 
 	"github.com/PeerDB-io/peer-flow/dynamicconf"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -58,7 +57,7 @@ func NewAlerter(ctx context.Context, catalogPool *pgxpool.Pool) *Alerter {
 	if catalogPool == nil {
 		panic("catalog pool is nil for Alerter")
 	}
-	snsTopic := os.Getenv("TELEMETRY_AWS_SNS_TOPIC_ARN")
+	snsTopic := peerdbenv.PeerDBTelemetryAWSSNSTopicArn()
 	var snsMessageSender telemetry.Sender
 	if snsTopic != "" {
 		var err error
