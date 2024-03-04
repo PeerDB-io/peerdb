@@ -90,3 +90,8 @@ func PeerDBEnableWALHeartbeat() bool {
 func PeerDBEnableParallelSyncNormalize() bool {
 	return getEnvBool("PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE", false)
 }
+
+// PEERDB_TELEMETRY_AWS_SNS_TOPIC_ARN
+func PeerDBTelemetryAWSSNSTopicArn() string {
+	return getEnvString("PEERDB_TELEMETRY_AWS_SNS_TOPIC_ARN", "")
+}
