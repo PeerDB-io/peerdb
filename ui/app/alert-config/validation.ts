@@ -1,6 +1,7 @@
 import z from 'zod';
 
 export const alertConfigReqSchema = z.object({
+  id: z.optional(z.number()),
   serviceType: z.enum(['slack'], {
     errorMap: (issue, ctx) => ({ message: 'Invalid service type' }),
   }),
