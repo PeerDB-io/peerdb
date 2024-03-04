@@ -13,7 +13,7 @@ export interface AlertConfigProps {
   serviceType: string;
   authToken: string;
   channelIdString: string;
-  slotLagMBAlertThreshold: number;
+  slotLagGBAlertThreshold: number;
   openConnectionsAlertThreshold: number;
   forEdit?: boolean;
 }
@@ -38,8 +38,8 @@ const NewAlertConfig = (alertProps: AlertConfigProps) => {
   const [channelIdString, setChannelIdString] = useState<string>(
     alertProps.channelIdString
   );
-  const [slotLagMBAlertThreshold, setSlotLagMBAlertThreshold] =
-    useState<number>(alertProps.slotLagMBAlertThreshold);
+  const [slotLagGBAlertThreshold, setSlotLagGBAlertThreshold] =
+    useState<number>(alertProps.slotLagGBAlertThreshold);
   const [openConnectionsAlertThreshold, setOpenConnectionsAlertThreshold] =
     useState<number>(alertProps.openConnectionsAlertThreshold);
   const [loading, setLoading] = useState(false);
@@ -54,7 +54,7 @@ const NewAlertConfig = (alertProps: AlertConfigProps) => {
       serviceConfig: {
         auth_token: authToken ?? '',
         channel_ids: channelIdString?.split(',')!,
-        slot_lag_mb_alert_threshold: slotLagMBAlertThreshold || 5000,
+        slot_lag_mb_alert_threshold: slotLagGBAlertThreshold * 1000 || 20000,
         open_connections_alert_threshold: openConnectionsAlertThreshold || 5,
       },
     };
@@ -132,14 +132,14 @@ const NewAlertConfig = (alertProps: AlertConfigProps) => {
       </div>
 
       <div>
-        <p>Slot Lag Alert Threshold (in MB)</p>
+        <p>Slot Lag Alert Threshold (in GB)</p>
         <TextField
           style={{ height: '2.5rem', marginTop: '0.5rem' }}
           variant='simple'
           type={'number'}
           placeholder='optional'
-          value={slotLagMBAlertThreshold}
-          onChange={(e) => setSlotLagMBAlertThreshold(e.target.valueAsNumber)}
+          value={slotLagGBAlertThreshold}
+          onChange={(e) => setSlotLagGBAlertThreshold(e.target.valueAsNumber)}
         />
       </div>
 

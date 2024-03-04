@@ -31,7 +31,7 @@ const AlertConfigPage: React.FC = () => {
     serviceType: '',
     authToken: '',
     channelIdString: '',
-    slotLagMBAlertThreshold: 5000,
+    slotLagGBAlertThreshold: 20,
     openConnectionsAlertThreshold: 5,
     forEdit: false,
   };
@@ -48,8 +48,8 @@ const AlertConfigPage: React.FC = () => {
       serviceType: alertConfig.service_type,
       authToken: JSON.parse(configJSON)?.auth_token,
       channelIdString: channelIds.join(','),
-      slotLagMBAlertThreshold:
-        JSON.parse(configJSON)?.slot_lag_mb_alert_threshold,
+      slotLagGBAlertThreshold:
+        (JSON.parse(configJSON)?.slot_lag_mb_alert_threshold as number) / 1000,
       openConnectionsAlertThreshold:
         JSON.parse(configJSON)?.open_connections_alert_threshold,
       forEdit: true,
