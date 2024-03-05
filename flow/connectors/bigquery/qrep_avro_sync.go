@@ -80,11 +80,6 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 			req.FlowJobName, rawTableName, syncBatchID),
 	)
 
-	err = s.connector.ReplayTableSchemaDeltas(ctx, req.FlowJobName, req.Records.SchemaDeltas)
-	if err != nil {
-		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
-	}
-
 	query := bqClient.Query(insertStmt)
 	query.DefaultDatasetID = s.connector.datasetID
 	query.DefaultProjectID = s.connector.projectID
@@ -111,6 +106,11 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	s.connector.logger.Info(fmt.Sprintf("loaded stage into %s.%s", datasetID, rawTableName),
 		slog.String(string(shared.FlowNameKey), req.FlowJobName),
 		slog.String("dstTableName", rawTableName))
+
+	err = s.connector.ReplayTableSchemaDeltas(ctx, req.FlowJobName, req.Records.SchemaDeltas)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
+	}
 
 	return &model.SyncResponse{
 		LastSyncedCheckpointID: lastCP,

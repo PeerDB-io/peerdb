@@ -356,7 +356,7 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 		Slot:                   slotName,
 		Publication:            publicationName,
 		TableNameMapping:       req.TableNameMapping,
-		RelationMessageMapping: req.RelationMessageMapping,
+		TableNameSchemaMapping: req.TableNameSchemaMapping,
 		ChildToParentRelIDMap:  childToParentRelIDMap,
 		CatalogPool:            catalogPool,
 		FlowJobName:            req.FlowJobName,
@@ -476,11 +476,6 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 		}
 	}
 
-	err := c.ReplayTableSchemaDeltas(ctx, req.FlowJobName, req.Records.SchemaDeltas)
-	if err != nil {
-		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
-	}
-
 	syncRecordsTx, err := c.conn.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error starting transaction for syncing records: %w", err)
@@ -519,6 +514,11 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 	err = syncRecordsTx.Commit(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	err = c.ReplayTableSchemaDeltas(ctx, req.FlowJobName, req.Records.SchemaDeltas)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
 	return &model.SyncResponse{

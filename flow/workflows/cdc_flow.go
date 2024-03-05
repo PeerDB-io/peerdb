@@ -23,11 +23,8 @@ import (
 
 type CDCFlowWorkflowState struct {
 	// Current signalled state of the peer flow.
-	ActiveSignal model.CDCFlowSignal
-	// Global mapping of relation IDs to RelationMessages sent as a part of logical replication.
-	// Needed to support schema changes.
-	RelationMessageMapping model.RelationMessageMapping
-	CurrentFlowStatus      protos.FlowStatus
+	ActiveSignal      model.CDCFlowSignal
+	CurrentFlowStatus protos.FlowStatus
 	// flow config update request, set to nil after processed
 	FlowConfigUpdate *protos.CDCFlowConfigUpdate
 	// options passed to all SyncFlows
@@ -458,13 +455,6 @@ func CDCFlowWorkflow(
 	syncResultChan := model.SyncResultSignal.GetSignalChannel(ctx)
 	syncResultChan.AddToSelector(mainLoopSelector, func(result *model.SyncResponse, _ bool) {
 		syncCount += 1
-		if result != nil {
-			if state.SyncFlowOptions.RelationMessageMapping == nil {
-				state.SyncFlowOptions.RelationMessageMapping = result.RelationMessageMapping
-			} else {
-				maps.Copy(state.SyncFlowOptions.RelationMessageMapping, result.RelationMessageMapping)
-			}
-		}
 	})
 
 	normChan := model.NormalizeSignal.GetSignalChannel(ctx)
