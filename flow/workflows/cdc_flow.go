@@ -435,11 +435,6 @@ func CDCFlowWorkflow(
 		}
 	}
 
-	finishSyncNormalize := func() {
-		restart = true
-		_ = model.SyncStopSignal.SignalChildWorkflow(ctx, w.syncFlowFuture, struct{}{}).Get(ctx, nil)
-	}
-
 	mainLoopSelector := workflow.NewNamedSelector(ctx, "MainLoop")
 	mainLoopSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 
@@ -470,7 +465,7 @@ func CDCFlowWorkflow(
 		}
 
 		if restart {
-			w.logger.Info("normalize finished")
+			w.logger.Info("normalize finished, finishing")
 			w.normFlowFuture = nil
 			finished = true
 		} else {
@@ -534,7 +529,8 @@ func CDCFlowWorkflow(
 		}
 
 		if state.ActiveSignal == model.PauseSignal || syncCount >= maxSyncsPerCdcFlow {
-			finishSyncNormalize()
+			restart = true
+			_ = model.SyncStopSignal.SignalChildWorkflow(ctx, w.syncFlowFuture, struct{}{}).Get(ctx, nil)
 		}
 
 		if restart {

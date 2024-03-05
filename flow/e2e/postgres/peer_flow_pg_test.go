@@ -1060,7 +1060,49 @@ func (s PeerFlowE2ETestSuitePG) Test_Supported_Mixed_Case_Table() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-// test don't work, make it work later
+func (s PeerFlowE2ETestSuitePG) Test_ContinueAsNew() {
+	srcTableName := s.attachSchemaSuffix("test_continueasnew")
+	dstTableName := s.attachSchemaSuffix("test_continueasnew_dst")
+
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			key TEXT NOT NULL,
+			value TEXT NOT NULL
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_simple_flow"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.peer,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig.MaxBatchSize = 2
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+
+	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	for i := range 180 {
+		testKey := fmt.Sprintf("test_key_%d", i)
+		testValue := fmt.Sprintf("test_value_%d", i)
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO %s(key, value) VALUES ($1, $2)
+		`, srcTableName), testKey, testValue)
+		e2e.EnvNoError(s.t, env, err)
+	}
+	s.t.Log("Inserted 180 rows into the source table")
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize 90 syncs", func() bool {
+		return s.comparePGTables(srcTableName, dstTableName, "id,key,value") == nil
+	})
+	env.Cancel()
+
+	e2e.RequireEnvCanceled(s.t, env)
+}
 
 func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	srcTable1Name := s.attachSchemaSuffix("test_dynconfig_1")
