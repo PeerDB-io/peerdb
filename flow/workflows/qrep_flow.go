@@ -86,7 +86,7 @@ func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
 }
 
 func (q *QRepFlowExecution) getTableSchema(ctx workflow.Context, tableName string) (*protos.TableSchema, error) {
-	q.logger.Info("fetching schema for table - ", tableName)
+	q.logger.Info("fetching schema for table", slog.String("table", tableName))
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
@@ -307,10 +307,6 @@ func (q *QRepFlowExecution) waitForNewRows(
 		selector.Select(ctx)
 	}
 
-	q.logger.Info("PauseSelector finished", slog.Bool("done", done),
-		slog.Any("activeSignal", q.activeSignal),
-		slog.Any("doneErr", doneErr),
-		slog.Any("ctxErr", ctx.Err()))
 	if err := ctx.Err(); err != nil {
 		return err
 	}

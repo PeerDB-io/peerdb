@@ -47,6 +47,7 @@ func XminFlowWorkflow(
 				return err
 			}
 		}
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 	}
 
 	err = q.SetupWatermarkTableOnDestination(ctx)
@@ -100,7 +101,6 @@ func XminFlowWorkflow(
 		Range:       &protos.PartitionRange{Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: lastPartition}}},
 	}
 
-	// sleep for a while and continue the workflow
 	err = q.waitForNewRows(ctx, signalChan, state.LastPartition)
 	if err != nil {
 		return err
@@ -108,7 +108,7 @@ func XminFlowWorkflow(
 
 	logger.Info("Continuing as new workflow",
 		slog.Any("Last Partition", state.LastPartition),
-		slog.Any("Number of Partitions Processed", state.NumPartitionsProcessed))
+		slog.Uint64("Number of Partitions Processed", state.NumPartitionsProcessed))
 
 	if q.activeSignal == model.PauseSignal {
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
