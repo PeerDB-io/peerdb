@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -323,4 +324,66 @@ func (s PeerFlowE2ETestSuitePG) Test_No_Rows_QRep_PG() {
 	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_Pause() {
+	numRows := 10
+
+	srcTable := "qrep_pause"
+	s.setupSourceTable(srcTable, numRows)
+
+	dstTable := "qrep_pause_dst"
+
+	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)
+	dstSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, dstTable)
+
+	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
+		s.suffix, srcTable)
+
+	config, err := e2e.CreateQRepWorkflowConfig(
+		"test_qrep_pause_pg",
+		srcSchemaQualified,
+		dstSchemaQualified,
+		query,
+		e2e.GeneratePostgresPeer(),
+		"",
+		true,
+		"_PEERDB_SYNCED_AT",
+	)
+	require.NoError(s.t, err)
+	config.InitialCopyOnly = false
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.RunQrepFlowWorkflow(tc, config)
+	e2e.SignalWorkflow(env, model.FlowSignal, model.PauseSignal)
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing", func() bool {
+		response, err := env.Query(shared.QRepFlowStateQuery)
+		if err != nil {
+			s.t.Log(err)
+			return false
+		}
+		var state *protos.QRepFlowState
+		err = response.Get(&state)
+		if err != nil {
+			s.t.Fatal("decode failed", err)
+		}
+		return state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSED
+	})
+	e2e.SignalWorkflow(env, model.FlowSignal, model.NoopSignal)
+	e2e.EnvWaitFor(s.t, env, time.Minute, "unpausing", func() bool {
+		response, err := env.Query(shared.QRepFlowStateQuery)
+		if err != nil {
+			s.t.Fatal(err)
+		}
+		var state *protos.QRepFlowState
+		err = response.Get(&state)
+		if err != nil {
+			s.t.Fatal("decode failed", err)
+		}
+		return state.CurrentFlowStatus == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
 }

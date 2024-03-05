@@ -49,7 +49,7 @@ services:
       catalog:
         condition: service_healthy
     environment:
-      - DB=postgres12
+      - DB=postgresql
       - DB_PORT=5432
       - POSTGRES_USER=postgres
       - POSTGRES_PWD=postgres

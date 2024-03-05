@@ -396,10 +396,7 @@ func CreateQRepWorkflowConfig(
 
 	watermark := "updated_at"
 
-	qrepConfig, err := connectionGen.GenerateQRepConfig(query, watermark)
-	if err != nil {
-		return nil, err
-	}
+	qrepConfig := connectionGen.GenerateQRepConfig(query, watermark)
 	qrepConfig.InitialCopyOnly = true
 	qrepConfig.SyncedAtColName = syncedAtCol
 	qrepConfig.SetupWatermarkTableOnDestination = setupDst
