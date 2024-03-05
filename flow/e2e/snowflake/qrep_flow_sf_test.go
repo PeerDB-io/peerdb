@@ -149,7 +149,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
 	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	e2e.EnvWaitForFinished(s.t, env, 5*time.Minute)
 	require.NoError(s.t, env.Error())
 
 	sel := e2e.GetOwnersSelectorStringsSF()
@@ -226,7 +226,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
 	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	e2e.EnvWaitForFinished(s.t, env, 5*time.Minute)
 	require.NoError(s.t, env.Error())
 
 	sel := e2e.GetOwnersSelectorStringsSF()

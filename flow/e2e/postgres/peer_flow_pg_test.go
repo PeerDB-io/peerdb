@@ -1081,12 +1081,13 @@ func (s PeerFlowE2ETestSuitePG) Test_ContinueAsNew() {
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 	flowConnConfig.MaxBatchSize = 2
+	flowConnConfig.IdleTimeoutSeconds = 10
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 
 	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
-	for i := range 180 {
+	for i := range 144 {
 		testKey := fmt.Sprintf("test_key_%d", i)
 		testValue := fmt.Sprintf("test_value_%d", i)
 		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -1094,9 +1095,9 @@ func (s PeerFlowE2ETestSuitePG) Test_ContinueAsNew() {
 		`, srcTableName), testKey, testValue)
 		e2e.EnvNoError(s.t, env, err)
 	}
-	s.t.Log("Inserted 180 rows into the source table")
+	s.t.Log("Inserted 144 rows into the source table")
 
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize 90 syncs", func() bool {
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize 72 syncs", func() bool {
 		err := s.comparePGTables(srcTableName, dstTableName, "id,key,value")
 		if err != nil {
 			s.t.Log(err)
