@@ -218,25 +218,19 @@ type QRepFlowConnectionGenerationConfig struct {
 // GenerateQRepConfig generates a qrep config for testing.
 func (c *QRepFlowConnectionGenerationConfig) GenerateQRepConfig(
 	query string, watermark string,
-) (*protos.QRepConfig, error) {
-	ret := &protos.QRepConfig{}
-	ret.FlowJobName = c.FlowJobName
-	ret.WatermarkTable = c.WatermarkTable
-	ret.DestinationTableIdentifier = c.DestinationTableIdentifier
-
-	postgresPeer := GeneratePostgresPeer()
-	ret.SourcePeer = postgresPeer
-
-	ret.DestinationPeer = c.Destination
-
-	ret.Query = query
-	ret.WatermarkColumn = watermark
-
-	ret.StagingPath = c.StagingPath
-	ret.WriteMode = &protos.QRepWriteMode{
-		WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
+) *protos.QRepConfig {
+	return &protos.QRepConfig{
+		FlowJobName:                c.FlowJobName,
+		WatermarkTable:             c.WatermarkTable,
+		DestinationTableIdentifier: c.DestinationTableIdentifier,
+		SourcePeer:                 GeneratePostgresPeer(),
+		DestinationPeer:            c.Destination,
+		Query:                      query,
+		WatermarkColumn:            watermark,
+		StagingPath:                c.StagingPath,
+		WriteMode: &protos.QRepWriteMode{
+			WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
+		},
+		NumRowsPerPartition: 1000,
 	}
-	ret.NumRowsPerPartition = 1000
-
-	return ret, nil
 }
