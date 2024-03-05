@@ -504,7 +504,6 @@ func QRepFlowWorkflow(
 		state.LastPartition = partitions.Partitions[len(partitions.Partitions)-1]
 	}
 
-	// sleep for a while and continue the workflow
 	err = q.waitForNewRows(ctx, signalChan, state.LastPartition)
 	if err != nil {
 		return err
