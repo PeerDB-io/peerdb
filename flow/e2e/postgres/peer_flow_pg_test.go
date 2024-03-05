@@ -1074,7 +1074,7 @@ func (s PeerFlowE2ETestSuitePG) Test_ContinueAsNew() {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_simple_flow"),
+		FlowJobName:      s.attachSuffix("test_continueasnew_flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.peer,
 	}
@@ -1097,7 +1097,12 @@ func (s PeerFlowE2ETestSuitePG) Test_ContinueAsNew() {
 	s.t.Log("Inserted 180 rows into the source table")
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize 90 syncs", func() bool {
-		return s.comparePGTables(srcTableName, dstTableName, "id,key,value") == nil
+		err := s.comparePGTables(srcTableName, dstTableName, "id,key,value")
+		if err != nil {
+			s.t.Log(err)
+			return false
+		}
+		return true
 	})
 	env.Cancel()
 
