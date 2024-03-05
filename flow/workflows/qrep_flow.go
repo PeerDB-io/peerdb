@@ -303,12 +303,12 @@ func (q *QRepFlowExecution) waitForNewRows(
 		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
 	})
 
-	for ctx.Err() != nil && ((!done && q.activeSignal != model.PauseSignal) || selector.HasPending()) {
+	for ctx.Err() == nil && ((!done && q.activeSignal != model.PauseSignal) || selector.HasPending()) {
 		selector.Select(ctx)
 	}
 
 	q.logger.Info("PauseSelector finished", slog.Bool("done", done),
-		slog.Any("activeSignal", model.FlowSignalHandler),
+		slog.Any("activeSignal", q.activeSignal),
 		slog.Any("doneErr", doneErr),
 		slog.Any("ctxErr", ctx.Err()))
 	if err := ctx.Err(); err != nil {
