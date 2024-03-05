@@ -101,9 +101,15 @@ func XminFlowWorkflow(
 		Range:       &protos.PartitionRange{Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: lastPartition}}},
 	}
 
-	err = q.waitForNewRows(ctx, signalChan, state.LastPartition)
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
+	}
+	for {
+		val, ok := signalChan.ReceiveAsync()
+		if !ok {
+			break
+		}
+		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
 	}
 
 	logger.Info("Continuing as new workflow",
