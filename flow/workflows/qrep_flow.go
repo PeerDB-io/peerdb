@@ -452,6 +452,7 @@ func QRepFlowWorkflow(
 				return err
 			}
 		}
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 	}
 
 	maxParallelWorkers := 16
