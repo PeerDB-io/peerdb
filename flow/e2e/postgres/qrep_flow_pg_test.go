@@ -347,7 +347,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Pause() {
 		query,
 		e2e.GeneratePostgresPeer(),
 		"",
-		true,
+		false,
 		"_PEERDB_SYNCED_AT",
 	)
 	require.NoError(s.t, err)

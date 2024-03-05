@@ -307,6 +307,10 @@ func (q *QRepFlowExecution) waitForNewRows(
 		selector.Select(ctx)
 	}
 
+	q.logger.Info("PauseSelector finished", slog.Bool("done", done),
+		slog.Any("activeSignal", model.FlowSignalHandler),
+		slog.Any("doneErr", doneErr),
+		slog.Any("ctxErr", ctx.Err()))
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -511,7 +515,7 @@ func QRepFlowWorkflow(
 
 	logger.Info("Continuing as new workflow",
 		slog.Any("Last Partition", state.LastPartition),
-		slog.Any("Number of Partitions Processed", state.NumPartitionsProcessed))
+		slog.Uint64("Number of Partitions Processed", state.NumPartitionsProcessed))
 
 	if q.activeSignal == model.PauseSignal {
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
