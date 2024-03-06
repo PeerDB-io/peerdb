@@ -41,7 +41,6 @@ func NewCDCFlowWorkflowState(cfg *protos.FlowConnectionConfigs) *CDCFlowWorkflow
 		tableMappings = append(tableMappings, proto.Clone(tableMapping).(*protos.TableMapping))
 	}
 	return &CDCFlowWorkflowState{
-		// 1 more than the limit of 10
 		ActiveSignal:      model.NoopSignal,
 		CurrentFlowStatus: protos.FlowStatus_STATUS_SETUP,
 		FlowConfigUpdate:  nil,

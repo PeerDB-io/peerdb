@@ -186,19 +186,6 @@ func TableMappings(s GenericSuite, tables ...string) []*protos.TableMapping {
 	return tableMappings
 }
 
-// GenerateSnowflakePeer generates a snowflake peer config for testing.
-func GenerateSnowflakePeer(snowflakeConfig *protos.SnowflakeConfig) (*protos.Peer, error) {
-	ret := &protos.Peer{}
-	ret.Name = "test_snowflake_peer"
-	ret.Type = protos.DBType_SNOWFLAKE
-
-	ret.Config = &protos.Peer_SnowflakeConfig{
-		SnowflakeConfig: snowflakeConfig,
-	}
-
-	return ret, nil
-}
-
 func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() *protos.FlowConnectionConfigs {
 	tblMappings := c.TableMappings
 	if tblMappings == nil {

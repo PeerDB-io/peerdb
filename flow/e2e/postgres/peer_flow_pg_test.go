@@ -92,9 +92,9 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_simple_flow"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.peer,
+		FlowJobName:   e2e.AddSuffix(s, "test_simple_flow"),
+		TableMappings: e2e.TableMappings(s, "test_simple_flow", "test_simple_flow_dst"),
+		Destination:   s.peer,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()

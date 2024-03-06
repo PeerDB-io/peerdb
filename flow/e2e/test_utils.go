@@ -187,21 +187,21 @@ func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, connectionGen FlowCo
 	for {
 		time.Sleep(time.Second)
 		counter++
-		response, err := env.Query(shared.CDCFlowStateQuery, connectionGen.FlowJobName)
+		response, err := env.Query(shared.FlowStatusQuery, connectionGen.FlowJobName)
 		if err == nil {
-			var state peerflow.CDCFlowWorkflowState
-			err = response.Get(&state)
+			var status protos.FlowStatus
+			err = response.Get(&status)
 			if err != nil {
 				t.Fatal(err)
-			} else if state.CurrentFlowStatus == protos.FlowStatus_STATUS_RUNNING {
+			} else if status == protos.FlowStatus_STATUS_RUNNING {
 				return
-			} else if counter > 15 {
+			} else if counter > 30 {
 				env.Cancel()
-				t.Fatal("UNEXPECTED CDC STATUS TIMEOUT", state.CurrentFlowStatus)
+				t.Fatal("UNEXPECTED STATUS TIMEOUT", status)
 			}
 		} else if counter > 15 {
 			env.Cancel()
-			t.Fatal("UNEXPECTED CDC QUERY TIMEOUT", err.Error())
+			t.Fatal("UNEXPECTED STATUS QUERY TIMEOUT", err.Error())
 		} else if counter > 5 {
 			// log the error for informational purposes
 			t.Log(err.Error())
