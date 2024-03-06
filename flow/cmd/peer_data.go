@@ -23,9 +23,9 @@ func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName strin
 		return nil, err
 	}
 
-	unmarshalErr := proto.Unmarshal(pgPeerOptions, &pgPeerConfig)
+	err = proto.Unmarshal(pgPeerOptions, &pgPeerConfig)
 	if err != nil {
-		return nil, unmarshalErr
+		return nil, err
 	}
 
 	return &pgPeerConfig, nil
