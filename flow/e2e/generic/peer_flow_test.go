@@ -12,14 +12,8 @@ import (
 	"github.com/PeerDB-io/peer-flow/e2e/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e/snowflake"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
-
-type GenericSuite interface {
-	e2e.RowSource
-	Peer() *protos.Peer
-}
 
 func TestGenericPG(t *testing.T) {
 	e2eshared.RunSuite(t, SetupGenericSuite(e2e_postgres.SetupSuite))
@@ -34,10 +28,10 @@ func TestGenericBQ(t *testing.T) {
 }
 
 type Generic struct {
-	GenericSuite
+	e2e.GenericSuite
 }
 
-func SetupGenericSuite[T GenericSuite](f func(t *testing.T) T) func(t *testing.T) Generic {
+func SetupGenericSuite[T e2e.GenericSuite](f func(t *testing.T) T) func(t *testing.T) Generic {
 	return func(t *testing.T) Generic {
 		t.Helper()
 		return Generic{f(t)}
@@ -61,9 +55,9 @@ func (s Generic) Test_Simple_Flow() {
 	require.NoError(t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      e2e.AddSuffix(s, "test_simple"),
-		TableNameMapping: map[string]string{srcSchemaTable: dstTable},
-		Destination:      s.Peer(),
+		FlowJobName:   e2e.AddSuffix(s, "test_simple"),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer(),
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()

@@ -47,6 +47,10 @@ func (s PeerFlowE2ETestSuiteSF) Peer() *protos.Peer {
 	return s.sfHelper.Peer
 }
 
+func (s PeerFlowE2ETestSuiteSF) DestinationTable(table string) string {
+	return e2e.AttachSchema(s, table)
+}
+
 func (s PeerFlowE2ETestSuiteSF) GetRows(tableName string, sfSelector string) (*model.QRecordBatch, error) {
 	s.t.Helper()
 	qualifiedTableName := fmt.Sprintf(`%s.%s.%s`, s.sfHelper.testDatabaseName, s.sfHelper.testSchemaName, tableName)

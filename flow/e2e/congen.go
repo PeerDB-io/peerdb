@@ -162,10 +162,28 @@ func GeneratePostgresPeer() *protos.Peer {
 
 type FlowConnectionGenerationConfig struct {
 	FlowJobName      string
+	TableMappings    []*protos.TableMapping
 	TableNameMapping map[string]string
 	Destination      *protos.Peer
 	CdcStagingPath   string
 	SoftDelete       bool
+}
+
+func TableMappings(s GenericSuite, tables ...string) []*protos.TableMapping {
+	if len(tables)&1 != 0 {
+		panic("must receive even number of table names")
+	}
+	tableMappings := make([]*protos.TableMapping, len(tables)/2)
+	for i := 0; i < len(tables); i += 2 {
+		tableMappings = append(
+			tableMappings,
+			&protos.TableMapping{
+				SourceTableIdentifier:      AttachSchema(s, tables[i]),
+				DestinationTableIdentifier: s.DestinationTable(tables[i+1]),
+			},
+		)
+	}
+	return tableMappings
 }
 
 // GenerateSnowflakePeer generates a snowflake peer config for testing.
@@ -182,12 +200,14 @@ func GenerateSnowflakePeer(snowflakeConfig *protos.SnowflakeConfig) (*protos.Pee
 }
 
 func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() *protos.FlowConnectionConfigs {
-	tblMappings := []*protos.TableMapping{}
-	for k, v := range c.TableNameMapping {
-		tblMappings = append(tblMappings, &protos.TableMapping{
-			SourceTableIdentifier:      k,
-			DestinationTableIdentifier: v,
-		})
+	tblMappings := c.TableMappings
+	if tblMappings == nil {
+		for k, v := range c.TableNameMapping {
+			tblMappings = append(tblMappings, &protos.TableMapping{
+				SourceTableIdentifier:      k,
+				DestinationTableIdentifier: v,
+			})
+		}
 	}
 
 	ret := &protos.FlowConnectionConfigs{

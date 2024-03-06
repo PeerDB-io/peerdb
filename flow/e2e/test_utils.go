@@ -52,6 +52,12 @@ type RowSource interface {
 	GetRows(table, cols string) (*model.QRecordBatch, error)
 }
 
+type GenericSuite interface {
+	RowSource
+	Peer() *protos.Peer
+	DestinationTable(table string) string
+}
+
 func AttachSchema(s Suite, table string) string {
 	return fmt.Sprintf("e2e_test_%s.%s", s.Suffix(), table)
 }

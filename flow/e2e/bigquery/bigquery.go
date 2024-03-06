@@ -43,6 +43,10 @@ func (s PeerFlowE2ETestSuiteBQ) Peer() *protos.Peer {
 	return s.bqHelper.Peer
 }
 
+func (s PeerFlowE2ETestSuiteBQ) DestinationTable(table string) string {
+	return table
+}
+
 func (s PeerFlowE2ETestSuiteBQ) GetRows(tableName string, colsString string) (*model.QRecordBatch, error) {
 	s.t.Helper()
 	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, tableName)

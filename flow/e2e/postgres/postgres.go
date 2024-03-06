@@ -44,6 +44,10 @@ func (s PeerFlowE2ETestSuitePG) Peer() *protos.Peer {
 	return s.peer
 }
 
+func (s PeerFlowE2ETestSuitePG) DestinationTable(table string) string {
+	return e2e.AttachSchema(s, table)
+}
+
 func (s PeerFlowE2ETestSuitePG) GetRows(table string, cols string) (*model.QRecordBatch, error) {
 	s.t.Helper()
 	pgQueryExecutor := s.conn.NewQRepQueryExecutor("testflow", "testpart")
