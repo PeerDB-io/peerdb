@@ -373,8 +373,8 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	}
 
 	if req.RemoveFlowEntry {
-		delErr := h.removeFlowEntryInCatalog(ctx, req.FlowJobName)
-		if delErr != nil {
+		err := h.removeFlowEntryInCatalog(ctx, req.FlowJobName)
+		if err != nil {
 			slog.Error("unable to remove flow job entry",
 				slog.String(string(shared.FlowNameKey), req.FlowJobName),
 				slog.Any("error", err),

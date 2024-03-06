@@ -57,6 +57,11 @@ linters-settings:
     settings:
       hugeParam:
         sizeThreshold: 512
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment
+      - shadow
   stylecheck:
     checks:
       - all
