@@ -42,8 +42,8 @@ func (h *FlowRequestHandler) getSFPeerConfig(ctx context.Context, peerName strin
 	}
 
 	unmarshalErr := proto.Unmarshal(sfPeerOptions, &sfPeerConfig)
-	if err != nil {
-		return nil, unmarshalErr
+	if unmarshalErr != nil {
+		return nil, fmt.Errorf("failed to unmarshal protobuf: %w", unmarshalErr)
 	}
 
 	return &sfPeerConfig, nil
