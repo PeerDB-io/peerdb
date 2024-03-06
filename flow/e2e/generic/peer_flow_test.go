@@ -59,7 +59,6 @@ func (s Generic) Test_Simple_Flow() {
 		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer(),
 	}
-
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	tc := e2e.NewTemporalClient(t)

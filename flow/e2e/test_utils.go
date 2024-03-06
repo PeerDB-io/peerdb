@@ -195,10 +195,13 @@ func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, connectionGen FlowCo
 				t.Fatal(err)
 			} else if state.CurrentFlowStatus == protos.FlowStatus_STATUS_RUNNING {
 				return
+			} else if counter > 15 {
+				env.Cancel()
+				t.Fatal("UNEXPECTED CDC STATUS TIMEOUT", state.CurrentFlowStatus)
 			}
 		} else if counter > 15 {
 			env.Cancel()
-			t.Fatal("UNEXPECTED SETUP CDC TIMEOUT", err.Error())
+			t.Fatal("UNEXPECTED CDC QUERY TIMEOUT", err.Error())
 		} else if counter > 5 {
 			// log the error for informational purposes
 			t.Log(err.Error())
