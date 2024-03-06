@@ -42,7 +42,7 @@ func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, 
 	messageSubject := strings.TrimFunc(subject, func(r rune) bool {
 		return !unicode.IsPrint(r)
 	})
-	if len(messageSubject) > 100 {
+	if len(messageSubject) >= 100 {
 		messageSubject = messageSubject[:99]
 	}
 	publish, err := s.client.Publish(ctx, &sns.PublishInput{
