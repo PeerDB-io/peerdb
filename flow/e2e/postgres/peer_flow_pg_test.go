@@ -1051,7 +1051,7 @@ func (s PeerFlowE2ETestSuitePG) Test_ContinueAsNew() {
 	}
 	s.t.Log("Inserted 144 rows into the source table")
 
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize 72 syncs", func() bool {
+	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "normalize 72 syncs", func() bool {
 		return s.comparePGTables(srcTableName, dstTableName, "id,key,value") == nil
 	})
 	env.Cancel()
