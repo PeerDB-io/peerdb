@@ -3,8 +3,9 @@ package model
 import (
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pglogrepl"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
 type NameAndExclude struct {

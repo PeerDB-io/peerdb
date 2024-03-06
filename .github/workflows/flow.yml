@@ -97,7 +97,7 @@ jobs:
           ./peer-flow worker &
           ./peer-flow snapshot-worker &
           go test -p 32 ./... -timeout 1200s
-        working-directory: ./flow
+        working-directory: ./flow/e2e/postgres
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
