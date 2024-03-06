@@ -98,6 +98,10 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	for _, tm := range flowConnConfig.TableMappings {
+		s.t.Log(tm.SourceTableIdentifier, tm.DestinationTableIdentifier)
+		s.t.Log(s.attachSchemaSuffix("test_simple_flow"), s.attachSchemaSuffix("test_simple_flow_dst"))
+	}
 	flowConnConfig.MaxBatchSize = 100
 
 	tc := e2e.NewTemporalClient(s.t)

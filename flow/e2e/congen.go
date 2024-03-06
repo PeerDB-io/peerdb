@@ -173,17 +173,14 @@ func TableMappings(s GenericSuite, tables ...string) []*protos.TableMapping {
 	if len(tables)&1 != 0 {
 		panic("must receive even number of table names")
 	}
-	tableMappings := make([]*protos.TableMapping, len(tables)/2)
+	tm := make([]*protos.TableMapping, len(tables)/2)
 	for i := 0; i < len(tables); i += 2 {
-		tableMappings = append(
-			tableMappings,
-			&protos.TableMapping{
-				SourceTableIdentifier:      AttachSchema(s, tables[i]),
-				DestinationTableIdentifier: s.DestinationTable(tables[i+1]),
-			},
-		)
+		tm = append(tm, &protos.TableMapping{
+			SourceTableIdentifier:      AttachSchema(s, tables[i]),
+			DestinationTableIdentifier: s.DestinationTable(tables[i+1]),
+		})
 	}
-	return tableMappings
+	return tm
 }
 
 func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() *protos.FlowConnectionConfigs {
