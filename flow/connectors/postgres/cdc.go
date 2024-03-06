@@ -31,7 +31,6 @@ type PostgresCDCSource struct {
 	srcTableIDNameMapping  map[uint32]string
 	tableNameMapping       map[string]model.NameAndExclude
 	tableNameSchemaMapping map[string]*protos.TableSchema
-	// relationMessageMapping is not an input, but populated by RelationMessages received here.
 	relationMessageMapping model.RelationMessageMapping
 	slot                   string
 	publication            string
@@ -55,6 +54,7 @@ type PostgresCDCConfig struct {
 	ChildToParentRelIDMap  map[uint32]uint32
 	CatalogPool            *pgxpool.Pool
 	FlowJobName            string
+	RelationMessageMapping model.RelationMessageMapping
 }
 
 type startReplicationOpts struct {
@@ -70,7 +70,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) *
 		srcTableIDNameMapping:     cdcConfig.SrcTableIDNameMapping,
 		tableNameMapping:          cdcConfig.TableNameMapping,
 		tableNameSchemaMapping:    cdcConfig.TableNameSchemaMapping,
-		relationMessageMapping:    make(model.RelationMessageMapping),
+		relationMessageMapping:    cdcConfig.RelationMessageMapping,
 		slot:                      cdcConfig.Slot,
 		publication:               cdcConfig.Publication,
 		childToParentRelIDMapping: cdcConfig.ChildToParentRelIDMap,

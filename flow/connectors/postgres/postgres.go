@@ -30,18 +30,19 @@ import (
 )
 
 type PostgresConnector struct {
-	connStr            string
-	config             *protos.PostgresConfig
-	ssh                *SSHTunnel
-	conn               *pgx.Conn
-	replConfig         *pgx.ConnConfig
-	replConn           *pgx.Conn
-	replState          *ReplState
-	replLock           sync.Mutex
-	customTypesMapping map[uint32]string
-	metadataSchema     string
-	hushWarnOID        map[uint32]struct{}
-	logger             log.Logger
+	connStr                string
+	config                 *protos.PostgresConfig
+	ssh                    *SSHTunnel
+	conn                   *pgx.Conn
+	replConfig             *pgx.ConnConfig
+	replConn               *pgx.Conn
+	replState              *ReplState
+	replLock               sync.Mutex
+	customTypesMapping     map[uint32]string
+	metadataSchema         string
+	hushWarnOID            map[uint32]struct{}
+	logger                 log.Logger
+	relationMessageMapping model.RelationMessageMapping
 }
 
 type ReplState struct {
@@ -90,17 +91,18 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	}
 
 	return &PostgresConnector{
-		connStr:            connectionString,
-		config:             pgConfig,
-		ssh:                tunnel,
-		conn:               conn,
-		replConfig:         replConfig,
-		replState:          nil,
-		replLock:           sync.Mutex{},
-		customTypesMapping: customTypeMap,
-		metadataSchema:     metadataSchema,
-		hushWarnOID:        make(map[uint32]struct{}),
-		logger:             logger.LoggerFromCtx(ctx),
+		connStr:                connectionString,
+		config:                 pgConfig,
+		ssh:                    tunnel,
+		conn:                   conn,
+		replConfig:             replConfig,
+		replState:              nil,
+		replLock:               sync.Mutex{},
+		customTypesMapping:     customTypeMap,
+		metadataSchema:         metadataSchema,
+		hushWarnOID:            make(map[uint32]struct{}),
+		logger:                 logger.LoggerFromCtx(ctx),
+		relationMessageMapping: make(model.RelationMessageMapping),
 	}, nil
 }
 
@@ -360,6 +362,7 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 		ChildToParentRelIDMap:  childToParentRelIDMap,
 		CatalogPool:            catalogPool,
 		FlowJobName:            req.FlowJobName,
+		RelationMessageMapping: c.relationMessageMapping,
 	})
 
 	err = cdc.PullRecords(ctx, req)
