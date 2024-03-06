@@ -226,7 +226,7 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 	defer func() {
 		rows.Close()
 
-		// description of .Close() says it should only be called once rows are closed
+		// description of .Err() says it should only be called once rows are closed
 		if rows.Err() != nil {
 			stream.Records <- model.QRecordOrError{
 				Err: rows.Err(),

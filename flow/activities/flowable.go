@@ -663,8 +663,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	stream := model.NewQRecordStream(bufferSize)
 	errGroup.Go(func() error {
-		pgConn := srcConn.(*connpostgres.PostgresConnector)
-		tmp, err := pgConn.PullQRepRecordStream(errCtx, config, partition, stream)
+		tmp, err := srcConn.PullQRepRecordStream(errCtx, config, partition, stream)
 		numRecords := int64(tmp)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
