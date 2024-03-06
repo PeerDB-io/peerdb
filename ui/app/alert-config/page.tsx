@@ -12,7 +12,7 @@ import useSWR from 'swr';
 import { UAlertConfigResponse } from '../dto/AlertDTO';
 import { tableStyle } from '../peers/[peerName]/style';
 import { fetcher } from '../utils/swr';
-import NewAlertConfig, { AlertConfigProps } from './new';
+import { AlertConfigProps, AlertConfigProps2, NewConfig } from './new';
 const ServiceIcon = (serviceType: string) => {
   switch (serviceType.toLowerCase()) {
     default:
@@ -36,10 +36,22 @@ const AlertConfigPage: React.FC = () => {
     openConnectionsAlertThreshold: 5,
     forEdit: false,
   };
+  const blankAlert2: AlertConfigProps2 = {
+    serviceType: 'slack',
+    alertConfig: {
+      email_addresses: [''],
+      auth_token: '',
+      channel_ids: [''],
+      open_connections_alert_threshold: 20,
+      slot_lag_mb_alert_threshold: 5,
+    },
+    forEdit: false,
+  };
   const [inEditOrAddMode, setInEditOrAddMode] = useState(false);
   const [editAlertConfig, setEditAlertConfig] =
     useState<AlertConfigProps>(blankAlert);
-
+  const [editAlertConfig2, setEditAlertConfig2] =
+    useState<AlertConfigProps2>(blankAlert2);
   const onEdit = (alertConfig: UAlertConfigResponse, id: bigint) => {
     setInEditOrAddMode(true);
     const configJSON = JSON.stringify(alertConfig.service_config);
@@ -54,6 +66,11 @@ const AlertConfigPage: React.FC = () => {
       openConnectionsAlertThreshold:
         JSON.parse(configJSON)?.open_connections_alert_threshold,
       forEdit: true,
+    });
+    setEditAlertConfig2({
+      id,
+      serviceType: alertConfig.service_type,
+      alertConfig: alertConfig.service_config,
     });
   };
   return (
@@ -141,7 +158,8 @@ const AlertConfigPage: React.FC = () => {
           {inEditOrAddMode ? 'Cancel' : 'Add Configuration'}
         </Label>
       </Button>
-      {inEditOrAddMode && <NewAlertConfig {...editAlertConfig} />}
+      {/*{inEditOrAddMode && <NewAlertConfig {...editAlertConfig} />}*/}
+      {inEditOrAddMode && <NewConfig {...editAlertConfig2} />}
     </div>
   );
 };
