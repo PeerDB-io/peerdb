@@ -161,7 +161,7 @@ func (q *QRepFlowExecution) GetPartitions(
 		return nil, fmt.Errorf("failed to fetch partitions to replicate: %w", err)
 	}
 
-	q.logger.Info("partitions to replicate - ", slog.Int("num_partitions", len(partitions.Partitions)))
+	q.logger.Info("partitions to replicate", slog.Int("num_partitions", len(partitions.Partitions)))
 	return partitions, nil
 }
 

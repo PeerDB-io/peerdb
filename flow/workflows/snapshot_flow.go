@@ -30,7 +30,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 	ctx workflow.Context,
 ) (*protos.SetupReplicationOutput, error) {
 	flowName := s.config.FlowJobName
-	s.logger.Info("setting up replication on source for peer flow - ", flowName)
+	s.logger.Info("setting up replication on source for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 4 * time.Hour,
@@ -59,7 +59,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 		return nil, fmt.Errorf("failed to setup replication on source peer: %w", err)
 	}
 
-	s.logger.Info("replication slot live for on source for peer flow - ", flowName)
+	s.logger.Info("replication slot live for on source for peer flow")
 
 	return res, nil
 }
@@ -68,7 +68,7 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 	ctx workflow.Context,
 ) error {
 	flowName := s.config.FlowJobName
-	s.logger.Info("closing slot keep alive for peer flow - ", flowName)
+	s.logger.Info("closing slot keep alive for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 15 * time.Minute,
@@ -78,7 +78,7 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 		return fmt.Errorf("failed to close slot keep alive for peer flow: %w", err)
 	}
 
-	s.logger.Info("closed slot keep alive for peer flow - ", flowName)
+	s.logger.Info("closed slot keep alive for peer flow")
 
 	return nil
 }
