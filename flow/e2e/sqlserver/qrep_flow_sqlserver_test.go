@@ -11,7 +11,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peer-flow/connectors/postgres"
@@ -48,25 +47,20 @@ func (s PeerFlowE2ETestSuiteSQLServer) Suffix() string {
 }
 
 func TestCDCFlowE2ETestSuiteSQLServer(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSuite, func(s PeerFlowE2ETestSuiteSQLServer) {
-		e2e.TearDownPostgres(s)
+	e2eshared.RunSuite(t, SetupSuite)
+}
 
-		if s.sqlsHelper != nil {
-			err := s.sqlsHelper.CleanUp()
-			require.NoError(s.t, err)
-		}
-	})
+func (s PeerFlowE2ETestSuiteSQLServer) Teardown() {
+	e2e.TearDownPostgres(s)
+
+	if s.sqlsHelper != nil {
+		err := s.sqlsHelper.CleanUp()
+		require.NoError(s.t, err)
+	}
 }
 
 func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSQLServer {
 	t.Helper()
-
-	err := godotenv.Load()
-	if err != nil {
-		// it's okay if the .env file is not present
-		// we will use the default values
-		t.Log("Unable to load .env file, using default values from env")
-	}
 
 	suffix := "sqls_" + strings.ToLower(shared.RandomString(8))
 	conn, err := e2e.SetupPostgres(t, suffix)

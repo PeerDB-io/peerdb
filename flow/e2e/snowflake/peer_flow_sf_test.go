@@ -9,121 +9,27 @@ import (
 	"time"
 
 	"github.com/jackc/pgerrcode"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
 
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
 
-type PeerFlowE2ETestSuiteSF struct {
-	t *testing.T
-
-	pgSuffix  string
-	conn      *connpostgres.PostgresConnector
-	sfHelper  *SnowflakeTestHelper
-	connector *connsnowflake.SnowflakeConnector
-}
-
-func (s PeerFlowE2ETestSuiteSF) T() *testing.T {
-	return s.t
-}
-
-func (s PeerFlowE2ETestSuiteSF) Connector() *connpostgres.PostgresConnector {
-	return s.conn
-}
-
-func (s PeerFlowE2ETestSuiteSF) Conn() *pgx.Conn {
-	return s.Connector().Conn()
-}
-
-func (s PeerFlowE2ETestSuiteSF) Suffix() string {
-	return s.pgSuffix
-}
-
-func (s PeerFlowE2ETestSuiteSF) GetRows(tableName string, sfSelector string) (*model.QRecordBatch, error) {
-	s.t.Helper()
-	qualifiedTableName := fmt.Sprintf(`%s.%s.%s`, s.sfHelper.testDatabaseName, s.sfHelper.testSchemaName, tableName)
-	sfSelQuery := fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, sfSelector, qualifiedTableName)
-	s.t.Logf("running query on snowflake: %s", sfSelQuery)
-	return s.sfHelper.ExecuteAndProcessQuery(sfSelQuery)
-}
-
 func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSuite, func(s PeerFlowE2ETestSuiteSF) {
-		e2e.TearDownPostgres(s)
-
-		if s.sfHelper != nil {
-			err := s.sfHelper.Cleanup()
-			if err != nil {
-				s.t.Fatalf("failed to tear down Snowflake: %v", err)
-			}
-		}
-
-		err := s.connector.Close()
-		if err != nil {
-			s.t.Fatalf("failed to close Snowflake connector: %v", err)
-		}
-	})
+	e2eshared.RunSuite(t, SetupSuite)
 }
 
 func (s PeerFlowE2ETestSuiteSF) attachSchemaSuffix(tableName string) string {
-	return fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tableName)
+	return e2e.AttachSchema(s, tableName)
 }
 
 func (s PeerFlowE2ETestSuiteSF) attachSuffix(input string) string {
-	return fmt.Sprintf("%s_%s", input, s.pgSuffix)
-}
-
-func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSF {
-	t.Helper()
-
-	err := godotenv.Load()
-	if err != nil {
-		// it's okay if the .env file is not present
-		// we will use the default values
-		t.Log("Unable to load .env file, using default values from env")
-	}
-
-	suffix := shared.RandomString(8)
-	tsSuffix := time.Now().Format("20060102150405")
-	pgSuffix := fmt.Sprintf("sf_%s_%s", strings.ToLower(suffix), tsSuffix)
-
-	conn, err := e2e.SetupPostgres(t, pgSuffix)
-	if err != nil || conn == nil {
-		t.Fatalf("failed to setup Postgres: %v", err)
-	}
-
-	sfHelper, err := NewSnowflakeTestHelper()
-	if err != nil {
-		t.Fatalf("failed to setup Snowflake: %v", err)
-	}
-
-	connector, err := connsnowflake.NewSnowflakeConnector(
-		context.Background(),
-		sfHelper.Config,
-	)
-	require.NoError(t, err)
-
-	suite := PeerFlowE2ETestSuiteSF{
-		t:         t,
-		pgSuffix:  pgSuffix,
-		conn:      conn,
-		sfHelper:  sfHelper,
-		connector: connector,
-	}
-
-	return suite
+	return e2e.AddSuffix(s, input)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {

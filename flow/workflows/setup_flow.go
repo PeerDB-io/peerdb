@@ -227,7 +227,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		}
 		normalizedTableMapping[normalizedTableName] = tableSchema
 
-		s.logger.Info("normalized table schema: ", normalizedTableName, " -> ", tableSchema)
+		s.logger.Info("normalized table schema", slog.String("table", normalizedTableName), slog.Any("schema", tableSchema))
 	}
 
 	// now setup the normalized tables on the destination peer

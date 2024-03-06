@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
@@ -33,7 +34,14 @@ import (
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
 
+func init() {
+	// it's okay if the .env file is not present
+	// we will use the default values
+	_ = godotenv.Load()
+}
+
 type Suite interface {
+	e2eshared.Suite
 	T() *testing.T
 	Connector() *connpostgres.PostgresConnector
 	Suffix() string
@@ -42,6 +50,14 @@ type Suite interface {
 type RowSource interface {
 	Suite
 	GetRows(table, cols string) (*model.QRecordBatch, error)
+}
+
+func AttachSchema(s Suite, table string) string {
+	return fmt.Sprintf("e2e_test_%s.%s", s.Suffix(), table)
+}
+
+func AddSuffix(s Suite, str string) string {
+	return fmt.Sprintf("%s_%s", str, s.Suffix())
 }
 
 // Helper function to assert errors in go routines running concurrent to workflows
@@ -129,11 +145,13 @@ func EnvWaitForEqualTablesWithNames(
 
 		pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), srcTable, cols)
 		if err != nil {
+			t.Log(err)
 			return false
 		}
 
 		rows, err := suite.GetRows(dstTable, cols)
 		if err != nil {
+			t.Log(err)
 			return false
 		}
 

@@ -271,6 +271,9 @@ func compareHstore(value1, value2 interface{}) bool {
 		}
 		return string(bytes) == str2
 	case string:
+		if v1 == str2 {
+			return true
+		}
 		parsedHStore1, err := hstore_util.ParseHstore(v1)
 		if err != nil {
 			panic(err)
