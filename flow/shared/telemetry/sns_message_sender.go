@@ -39,15 +39,17 @@ func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, 
 	h.Write([]byte(deduplicationString))
 	deduplicationHash := hex.EncodeToString(h.Sum(nil))
 	// AWS SNS Subject constraints
-	messageSubject := ""
-	for _, char := range subject {
-		if unicode.IsPrint(char) {
-			messageSubject += string(char)
-		}
-	}
+	var messageSubjectBuilder strings.Builder
 	maxSubjectSize := 99
-	if len(messageSubject) > maxSubjectSize {
-		messageSubject = messageSubject[:maxSubjectSize]
+	for currentLength, char := range subject {
+		if unicode.IsPrint(char) {
+			messageSubjectBuilder.WriteRune(char)
+		} else {
+			messageSubjectBuilder.WriteRune(' ')
+		}
+		if currentLength > maxSubjectSize {
+			break
+		}
 	}
 	publish, err := s.client.Publish(ctx, &sns.PublishInput{
 		Message: aws.String(body),
@@ -77,7 +79,7 @@ func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, 
 				StringValue: aws.String(deduplicationHash),
 			},
 		},
-		Subject:  aws.String(messageSubject),
+		Subject:  aws.String(messageSubjectBuilder.String()),
 		TopicArn: aws.String(s.topic),
 	})
 	if err != nil {
