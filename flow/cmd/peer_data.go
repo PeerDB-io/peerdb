@@ -201,17 +201,11 @@ func (h *FlowRequestHandler) GetAllTables(
 		if err != nil {
 			return &protos.AllTablesResponse{Tables: nil}, err
 		}
-
 		defer rows.Close()
-		var tables []string
-		for rows.Next() {
-			var table pgtype.Text
-			err := rows.Scan(&table)
-			if err != nil {
-				return &protos.AllTablesResponse{Tables: nil}, err
-			}
 
-			tables = append(tables, table.String)
+		tables, err := pgx.CollectRows[string](rows, pgx.RowTo)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch all tables: %w", err)
 		}
 		return &protos.AllTablesResponse{Tables: tables}, nil
 	}
