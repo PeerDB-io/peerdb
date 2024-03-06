@@ -279,7 +279,7 @@ func compareHstore(value1, value2 interface{}) bool {
 		if err != nil {
 			panic(err)
 		}
-		return parsedHStore1 == strings.ReplaceAll(str2, ": ", ":")
+		return parsedHStore1 == strings.ReplaceAll(strings.ReplaceAll(str2, " ", ""), "\n", "")
 	default:
 		panic(fmt.Sprintf("invalid hstore value type %T: %v", value1, value1))
 	}
