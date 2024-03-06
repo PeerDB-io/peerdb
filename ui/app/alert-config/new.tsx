@@ -71,10 +71,10 @@ function getSlackProps(
           placeholder='Auth Token'
           value={config.auth_token}
           onChange={(e) => {
-            setConfig((value) => {
-              value.auth_token = e.target.value;
-              return value;
-            });
+            setConfig((previous) => ({
+              ...previous,
+              auth_token: e.target.value,
+            }));
           }}
         />
       </div>
@@ -86,10 +86,10 @@ function getSlackProps(
           placeholder='Comma separated'
           value={config.channel_ids?.join(',')}
           onChange={(e) => {
-            setConfig((value) => {
-              value.channel_ids = e.target.value.split(',');
-              return value;
-            });
+            setConfig((previous) => ({
+              ...previous,
+              channel_ids: e.target.value.split(','),
+            }));
           }}
         />
       </div>
@@ -111,10 +111,10 @@ function getEmailProps(
           placeholder='Comma separated'
           value={config.email_addresses?.join(',')}
           onChange={(e) => {
-            setConfig((value) => {
-              value.email_addresses = e.target.value.split(',');
-              return value;
-            });
+            setConfig((previous) => ({
+              ...previous,
+              email_addresses: e.target.value.split(','),
+            }));
           }}
         />
       </div>
