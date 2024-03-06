@@ -48,7 +48,7 @@ func (s PeerFlowE2ETestSuiteSF) Peer() *protos.Peer {
 }
 
 func (s PeerFlowE2ETestSuiteSF) DestinationTable(table string) string {
-	return e2e.AttachSchema(s, table)
+	return fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, table)
 }
 
 func (s PeerFlowE2ETestSuiteSF) GetRows(tableName string, sfSelector string) (*model.QRecordBatch, error) {

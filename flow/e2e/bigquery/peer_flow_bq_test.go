@@ -169,54 +169,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-// Test_Complete_Simple_Flow_BQ tests a complete flow with data in the source table.
-// The test inserts 10 rows into the source table and verifies that the data is
-// correctly synced to the destination table after sync flow completes.
-func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
-	tc := e2e.NewTemporalClient(s.t)
-
-	srcTableName := s.attachSchemaSuffix("test_simple_flow_bq")
-	dstTableName := "test_simple_flow_bq"
-
-	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (
-			id SERIAL PRIMARY KEY,
-			key TEXT NOT NULL,
-			value TEXT NOT NULL
-		);
-	`, srcTableName))
-	require.NoError(s.t, err)
-
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_complete_simple_flow"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.bqHelper.Peer,
-		CdcStagingPath:   "",
-	}
-
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-	flowConnConfig.MaxBatchSize = 100
-
-	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
-
-	// insert 10 rows into the source table
-	for i := range 10 {
-		testKey := fmt.Sprintf("test_key_%d", i)
-		testValue := fmt.Sprintf("test_value_%d", i)
-		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s(key, value) VALUES ($1, $2)
-		`, srcTableName), testKey, testValue)
-		e2e.EnvNoError(s.t, env, err)
-	}
-	s.t.Log("Inserted 10 rows into the source table")
-
-	e2e.EnvWaitForEqualTables(env, s, "normalize inserts", dstTableName, "id,key,value")
-
-	env.Cancel()
-	e2e.RequireEnvCanceled(s.t, env)
-}
-
 func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 	tc := e2e.NewTemporalClient(s.t)
 

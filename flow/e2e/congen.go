@@ -173,7 +173,7 @@ func TableMappings(s GenericSuite, tables ...string) []*protos.TableMapping {
 	if len(tables)&1 != 0 {
 		panic("must receive even number of table names")
 	}
-	tm := make([]*protos.TableMapping, len(tables)/2)
+	tm := make([]*protos.TableMapping, 0, len(tables)/2)
 	for i := 0; i < len(tables); i += 2 {
 		tm = append(tm, &protos.TableMapping{
 			SourceTableIdentifier:      AttachSchema(s, tables[i]),

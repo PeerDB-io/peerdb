@@ -32,61 +32,6 @@ func (s PeerFlowE2ETestSuiteSF) attachSuffix(input string) string {
 	return e2e.AddSuffix(s, input)
 }
 
-func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
-	tc := e2e.NewTemporalClient(s.t)
-
-	tableName := "test_simple_flow_sf"
-	srcTableName := s.attachSchemaSuffix(tableName)
-	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
-
-	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (
-			id SERIAL PRIMARY KEY,
-			key TEXT NOT NULL,
-			value TEXT NOT NULL
-		);
-	`, srcTableName))
-	require.NoError(s.t, err)
-
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix(tableName),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.sfHelper.Peer,
-	}
-
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-	flowConnConfig.MaxBatchSize = 100
-
-	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	// wait for PeerFlowStatusQuery to finish setup
-	// and then insert 20 rows into the source table
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
-	// insert 20 rows into the source table
-	for i := range 20 {
-		testKey := fmt.Sprintf("test_key_%d", i)
-		testValue := fmt.Sprintf("test_value_%d", i)
-		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		INSERT INTO %s (key, value) VALUES ($1, $2)
-	`, srcTableName), testKey, testValue)
-		e2e.EnvNoError(s.t, env, err)
-	}
-	s.t.Log("Inserted 20 rows into the source table")
-	e2e.EnvWaitForEqualTables(env, s, "normalize table", tableName, "id,key,value")
-
-	env.Cancel()
-
-	e2e.RequireEnvCanceled(s.t, env)
-
-	// check the number of rows where _PEERDB_SYNCED_AT is newer than 5 mins ago
-	// it should match the count.
-	newerSyncedAtQuery := fmt.Sprintf(`
-		SELECT COUNT(*) FROM %s WHERE _PEERDB_SYNCED_AT > CURRENT_TIMESTAMP() - INTERVAL '30 MINUTE'
-	`, dstTableName)
-	numNewRows, err := s.sfHelper.RunIntQuery(newerSyncedAtQuery)
-	require.NoError(s.t, err)
-	require.Equal(s.t, 20, numNewRows)
-}
-
 func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 	tc := e2e.NewTemporalClient(s.t)
 
