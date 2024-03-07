@@ -82,17 +82,6 @@ export default function CreateMirrors() {
       .then((res) => {
         setPeers(res);
       });
-
-    if (mirrorType === 'Query Replication' || mirrorType === 'XMIN') {
-      if (mirrorType === 'XMIN') {
-        setConfig((curr) => {
-          return { ...curr, setupWatermarkTableOnDestination: true };
-        });
-      } else
-        setConfig((curr) => {
-          return { ...curr, setupWatermarkTableOnDestination: false };
-        });
-    }
   }, [mirrorType]);
 
   let listMirrorsPage = () => {

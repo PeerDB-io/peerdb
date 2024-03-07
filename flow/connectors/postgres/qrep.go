@@ -489,7 +489,8 @@ func (c *PostgresConnector) SetupQRepMetadataTables(ctx context.Context, config 
 	c.logger.Info("Setup metadata table.")
 
 	if config.WriteMode != nil &&
-		config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
+		config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE &&
+		config.SourcePeer.Type != protos.DBType_SNOWFLAKE {
 		_, err = c.conn.Exec(ctx,
 			"TRUNCATE TABLE "+config.DestinationTableIdentifier)
 		if err != nil {

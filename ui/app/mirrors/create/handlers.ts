@@ -206,6 +206,7 @@ export const handleCreateQRep = async (
   }
 
   if (config.sourcePeer?.snowflakeConfig) {
+    config.query = 'SELECT * FROM ' + config.watermarkTable;
     if (config.watermarkTable == '') {
       notify('Please fill in the source table');
       return;

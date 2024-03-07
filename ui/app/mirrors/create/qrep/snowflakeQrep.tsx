@@ -13,7 +13,6 @@ import { MirrorSetter } from '../../types';
 import { fetchAllTables } from '../handlers';
 import { MirrorSetting, blankSnowflakeQRepSetting } from '../helpers/common';
 import { snowflakeQRepSettings } from '../helpers/qrep';
-import QRepQuery from './query';
 
 interface SnowflakeQRepProps {
   mirrorConfig: QRepConfig;
@@ -82,20 +81,6 @@ export default function SnowflakeQRepForm({
   }, [setter]);
   return (
     <>
-      <Label>
-        Snowflake to PostgreSQL Query Replication currently only supports
-        full-table streaming replication with overwrite mode. More features
-        coming soon!
-      </Label>
-      <QRepQuery
-        query={mirrorConfig.query}
-        setter={(val: string) => {
-          setter((curr) => ({
-            ...curr,
-            query: val,
-          }));
-        }}
-      />
       {mirrorConfig.sourcePeer?.name ? (
         snowflakeQRepSettings.map((setting, id) => {
           return (
