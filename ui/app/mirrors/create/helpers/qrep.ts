@@ -32,7 +32,7 @@ export const qrepSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({
         ...curr,
-        setupWatermarkTableOnDestination: (value as boolean) || false,
+        setupWatermarkTableOnDestination: (value as boolean) || true,
       })),
     tips: 'Specify if you want to create the watermark table on the destination as-is, can be used for some queries.',
     type: 'switch',
