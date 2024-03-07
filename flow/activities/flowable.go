@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
@@ -575,9 +576,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	partitions *protos.QRepPartitionBatch,
 	runUUID string,
 ) error {
-	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	logger := activity.GetLogger(ctx)
-
+	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 	err := monitoring.UpdateStartTimeForQRepRun(ctx, a.CatalogPool, runUUID)
 	if err != nil {
 		return fmt.Errorf("failed to update start time for qrep run: %w", err)
@@ -608,8 +607,12 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) error {
-	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	logger := activity.GetLogger(ctx)
+	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
+	err := monitoring.UpdateStartTimeForPartition(ctx, a.CatalogPool, runUUID, partition, time.Now())
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		return fmt.Errorf("failed to update start time for partition: %w", err)
+	}
 
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {
@@ -926,8 +929,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
 	config *protos.QRepConfig, last *protos.QRepPartition,
 ) error {
-	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	logger := activity.GetLogger(ctx)
+	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
 	if config.SourcePeer.Type != protos.DBType_POSTGRES || last.Range == nil {
 		return nil
