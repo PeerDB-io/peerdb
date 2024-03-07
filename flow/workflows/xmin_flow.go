@@ -38,7 +38,7 @@ func XminFlowWorkflow(
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
 
 		for q.activeSignal == model.PauseSignal {
-			logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
+			logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
 			// only place we block on receive, so signal processing is immediate
 			val, ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute)
 			if ok {
@@ -47,6 +47,7 @@ func XminFlowWorkflow(
 				return err
 			}
 		}
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 	}
 
 	err = q.SetupWatermarkTableOnDestination(ctx)
@@ -100,14 +101,21 @@ func XminFlowWorkflow(
 		Range:       &protos.PartitionRange{Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: lastPartition}}},
 	}
 
-	logger.Info("Continuing as new workflow",
-		slog.Any("Last Partition", state.LastPartition),
-		slog.Any("Number of Partitions Processed", state.NumPartitionsProcessed))
-
-	q.receiveAndHandleSignalAsync(signalChan)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	for {
+		val, ok := signalChan.ReceiveAsync()
+		if !ok {
+			break
+		}
+		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
+	}
+
+	logger.Info("Continuing as new workflow",
+		slog.Any("Last Partition", state.LastPartition),
+		slog.Uint64("Number of Partitions Processed", state.NumPartitionsProcessed))
+
 	if q.activeSignal == model.PauseSignal {
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
 	}

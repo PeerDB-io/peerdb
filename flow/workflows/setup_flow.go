@@ -192,7 +192,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 
 	var tblSchemaOutput *protos.GetTableSchemaBatchOutput
 	if err := future.Get(ctx, &tblSchemaOutput); err != nil {
-		s.logger.Error("failed to fetch schema for source tables: ", err)
+		s.logger.Error("failed to fetch schema for source tables", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to fetch schema for source table %s: %w", sourceTables, err)
 	}
 
@@ -227,7 +227,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		}
 		normalizedTableMapping[normalizedTableName] = tableSchema
 
-		s.logger.Info("normalized table schema: ", normalizedTableName, " -> ", tableSchema)
+		s.logger.Info("normalized table schema", slog.String("table", normalizedTableName), slog.Any("schema", tableSchema))
 	}
 
 	// now setup the normalized tables on the destination peer

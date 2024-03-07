@@ -33,16 +33,6 @@ func (c *ClickhouseConnector) SyncQRepRecords(
 		slog.String("destinationTable", destTable),
 	)
 
-	done, err := c.isPartitionSynced(ctx, partition.PartitionId)
-	if err != nil {
-		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
-	}
-
-	if done {
-		c.logger.Info("Partition has already been synced", flowLog)
-		return 0, nil
-	}
-
 	tblSchema, err := c.getTableSchema(destTable)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
@@ -96,9 +86,11 @@ func (c *ClickhouseConnector) getTableSchema(tableName string) ([]*sql.ColumnTyp
 	return columnTypes, nil
 }
 
-func (c *ClickhouseConnector) isPartitionSynced(ctx context.Context, partitionID string) (bool, error) {
+func (c *ClickhouseConnector) IsQRepPartitionSynced(ctx context.Context,
+	req *protos.IsQRepPartitionSyncedInput,
+) (bool, error) {
 	//nolint:gosec
-	queryString := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE partitionID = '%s'`, qRepMetadataTableName, partitionID)
+	queryString := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE partitionID = '%s'`, qRepMetadataTableName, req.PartitionId)
 
 	row := c.database.QueryRowContext(ctx, queryString)
 

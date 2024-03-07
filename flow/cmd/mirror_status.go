@@ -144,7 +144,8 @@ func (h *FlowRequestHandler) cloneTableSummary(
 
 	rows, err := h.pool.Query(ctx, q, "clone_"+flowJobName+"_%")
 	if err != nil {
-		slog.Error("unable to query initial load partition - "+flowJobName, slog.Any("error", err))
+		slog.Error("unable to query initial load partition",
+			slog.String(string(shared.FlowNameKey), flowJobName), slog.Any("error", err))
 		return nil, fmt.Errorf("unable to query initial load partition - %s: %w", flowJobName, err)
 	}
 

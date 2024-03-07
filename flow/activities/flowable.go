@@ -301,7 +301,7 @@ func (a *FlowableActivity) SyncFlow(
 	}
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return "transferring records for job - " + flowName
+		return "transferring records for job"
 	})
 	defer shutdown()
 
@@ -474,7 +474,7 @@ func (a *FlowableActivity) StartNormalize(
 	defer connectors.CloseConnector(ctx, dstConn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return "normalizing records from batch for job - " + input.FlowConnectionConfigs.FlowJobName
+		return "normalizing records from batch for job"
 	})
 	defer shutdown()
 
@@ -542,7 +542,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	defer connectors.CloseConnector(ctx, srcConn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return "getting partitions for job - " + config.FlowJobName
+		return "getting partitions for job"
 	})
 	defer shutdown()
 
@@ -611,12 +611,6 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := activity.GetLogger(ctx)
 
-	err := monitoring.UpdateStartTimeForPartition(ctx, a.CatalogPool, runUUID, partition, time.Now())
-	if err != nil {
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return fmt.Errorf("failed to update start time for partition: %w", err)
-	}
-
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -630,6 +624,25 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		return fmt.Errorf("failed to get qrep destination connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
+
+	done, err := dstConn.IsQRepPartitionSynced(ctx, &protos.IsQRepPartitionSyncedInput{
+		FlowJobName: config.FlowJobName,
+		PartitionId: partition.PartitionId,
+	})
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		return fmt.Errorf("failed to get fetch status of partition: %w", err)
+	}
+	if done {
+		logger.Info("no records to push for partition " + partition.PartitionId)
+		return nil
+	}
+
+	err = monitoring.UpdateStartTimeForPartition(ctx, a.CatalogPool, runUUID, partition, time.Now())
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		return fmt.Errorf("failed to update start time for partition: %w", err)
+	}
 
 	logger.Info("replicating partition " + partition.PartitionId)
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
@@ -705,8 +718,6 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		if err != nil {
 			return err
 		}
-	} else {
-		logger.Info("no records to push for partition " + partition.PartitionId)
 	}
 
 	err = monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition)
@@ -725,7 +736,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	defer connectors.CloseConnector(ctx, dstConn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return "consolidating partitions for job - " + config.FlowJobName
+		return "consolidating partitions for job"
 	})
 	defer shutdown()
 
@@ -980,7 +991,7 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	defer connectors.CloseConnector(ctx, dstConn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return "renaming tables for job - " + config.FlowJobName
+		return "renaming tables for job"
 	})
 	defer shutdown()
 

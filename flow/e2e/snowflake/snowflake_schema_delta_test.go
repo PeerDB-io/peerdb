@@ -304,9 +304,11 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 	require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
+func (s SnowflakeSchemaDeltaTestSuite) Teardown() {
+	require.NoError(s.t, s.sfTestHelper.Cleanup())
+	require.NoError(s.t, s.connector.Close())
+}
+
 func TestSnowflakeSchemaDeltaTestSuite(t *testing.T) {
-	e2eshared.RunSuite(t, setupSchemaDeltaSuite, func(s SnowflakeSchemaDeltaTestSuite) {
-		require.NoError(s.t, s.sfTestHelper.Cleanup())
-		require.NoError(s.t, s.connector.Close())
-	})
+	e2eshared.RunSuite(t, setupSchemaDeltaSuite)
 }

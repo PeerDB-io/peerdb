@@ -12,7 +12,11 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
-func RunSuite[T any](t *testing.T, setup func(t *testing.T) T, teardown func(T)) {
+type Suite interface {
+	Teardown()
+}
+
+func RunSuite[T Suite](t *testing.T, setup func(t *testing.T) T) {
 	t.Helper()
 	t.Parallel()
 
@@ -26,7 +30,7 @@ func RunSuite[T any](t *testing.T, setup func(t *testing.T) T, teardown func(T))
 					subtest.Parallel()
 					suite := setup(subtest)
 					subtest.Cleanup(func() {
-						teardown(suite)
+						suite.Teardown()
 					})
 					m.Func.Call([]reflect.Value{reflect.ValueOf(suite)})
 				})

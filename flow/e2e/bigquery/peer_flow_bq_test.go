@@ -4,76 +4,23 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgerrcode"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
 
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
 
-type PeerFlowE2ETestSuiteBQ struct {
-	t *testing.T
-
-	bqSuffix string
-	conn     *connpostgres.PostgresConnector
-	bqHelper *BigQueryTestHelper
-}
-
-func (s PeerFlowE2ETestSuiteBQ) T() *testing.T {
-	return s.t
-}
-
-func (s PeerFlowE2ETestSuiteBQ) Conn() *pgx.Conn {
-	return s.conn.Conn()
-}
-
-func (s PeerFlowE2ETestSuiteBQ) Connector() *connpostgres.PostgresConnector {
-	return s.conn
-}
-
-func (s PeerFlowE2ETestSuiteBQ) Suffix() string {
-	return s.bqSuffix
-}
-
-func (s PeerFlowE2ETestSuiteBQ) GetRows(tableName string, colsString string) (*model.QRecordBatch, error) {
-	s.t.Helper()
-	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, tableName)
-	bqSelQuery := fmt.Sprintf("SELECT %s FROM %s ORDER BY id", colsString, qualifiedTableName)
-	s.t.Logf("running query on bigquery: %s", bqSelQuery)
-	return s.bqHelper.ExecuteAndProcessQuery(bqSelQuery)
-}
-
-func (s PeerFlowE2ETestSuiteBQ) GetRowsWhere(tableName string, colsString string, where string) (*model.QRecordBatch, error) {
-	s.t.Helper()
-	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, tableName)
-	bqSelQuery := fmt.Sprintf("SELECT %s FROM %s WHERE %s ORDER BY id", colsString, qualifiedTableName, where)
-	s.t.Logf("running query on bigquery: %s", bqSelQuery)
-	return s.bqHelper.ExecuteAndProcessQuery(bqSelQuery)
-}
-
 func TestPeerFlowE2ETestSuiteBQ(t *testing.T) {
-	e2eshared.RunSuite(t, setupSuite, func(s PeerFlowE2ETestSuiteBQ) {
-		e2e.TearDownPostgres(s)
-
-		err := s.bqHelper.DropDataset(s.bqHelper.Config.DatasetId)
-		if err != nil {
-			s.t.Fatalf("failed to tear down bigquery: %v", err)
-		}
-	})
+	e2eshared.RunSuite(t, SetupSuite)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) checkJSONValue(tableName, colName, fieldName, value string) error {
@@ -147,52 +94,6 @@ func (s *PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, softDel
 	return nil
 }
 
-// setupBigQuery sets up the bigquery connection.
-func setupBigQuery(t *testing.T) *BigQueryTestHelper {
-	t.Helper()
-
-	bqHelper, err := NewBigQueryTestHelper()
-	if err != nil {
-		t.Fatalf("Failed to create helper: %v", err)
-	}
-
-	err = bqHelper.RecreateDataset()
-	if err != nil {
-		t.Fatalf("Failed to recreate dataset: %v", err)
-	}
-
-	return bqHelper
-}
-
-// Implement SetupAllSuite interface to setup the test suite
-func setupSuite(t *testing.T) PeerFlowE2ETestSuiteBQ {
-	t.Helper()
-
-	err := godotenv.Load()
-	if err != nil {
-		// it's okay if the .env file is not present
-		// we will use the default values
-		t.Log("Unable to load .env file, using default values from env")
-	}
-
-	suffix := shared.RandomString(8)
-	tsSuffix := time.Now().Format("20060102150405")
-	bqSuffix := fmt.Sprintf("bq_%s_%s", strings.ToLower(suffix), tsSuffix)
-	conn, err := e2e.SetupPostgres(t, bqSuffix)
-	if err != nil || conn == nil {
-		t.Fatalf("failed to setup postgres: %v", err)
-	}
-
-	bq := setupBigQuery(t)
-
-	return PeerFlowE2ETestSuiteBQ{
-		t:        t,
-		bqSuffix: bqSuffix,
-		conn:     conn,
-		bqHelper: bq,
-	}
-}
-
 func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Connection_Config() {
 	tc := e2e.NewTemporalClient(s.t)
 
@@ -264,54 +165,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 	e2e.EnvWaitForEqualTables(env, s, "create table", dstTableName, "id,key,value")
-	env.Cancel()
-	e2e.RequireEnvCanceled(s.t, env)
-}
-
-// Test_Complete_Simple_Flow_BQ tests a complete flow with data in the source table.
-// The test inserts 10 rows into the source table and verifies that the data is
-// correctly synced to the destination table after sync flow completes.
-func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
-	tc := e2e.NewTemporalClient(s.t)
-
-	srcTableName := s.attachSchemaSuffix("test_simple_flow_bq")
-	dstTableName := "test_simple_flow_bq"
-
-	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (
-			id SERIAL PRIMARY KEY,
-			key TEXT NOT NULL,
-			value TEXT NOT NULL
-		);
-	`, srcTableName))
-	require.NoError(s.t, err)
-
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_complete_simple_flow"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.bqHelper.Peer,
-		CdcStagingPath:   "",
-	}
-
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-	flowConnConfig.MaxBatchSize = 100
-
-	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
-
-	// insert 10 rows into the source table
-	for i := range 10 {
-		testKey := fmt.Sprintf("test_key_%d", i)
-		testValue := fmt.Sprintf("test_value_%d", i)
-		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s(key, value) VALUES ($1, $2)
-		`, srcTableName), testKey, testValue)
-		e2e.EnvNoError(s.t, env, err)
-	}
-	s.t.Log("Inserted 10 rows into the source table")
-
-	e2e.EnvWaitForEqualTables(env, s, "normalize inserts", dstTableName, "id,key,value")
-
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
 }
