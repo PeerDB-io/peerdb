@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
@@ -33,7 +34,14 @@ import (
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
 
+func init() {
+	// it's okay if the .env file is not present
+	// we will use the default values
+	_ = godotenv.Load()
+}
+
 type Suite interface {
+	e2eshared.Suite
 	T() *testing.T
 	Connector() *connpostgres.PostgresConnector
 	Suffix() string
@@ -42,6 +50,20 @@ type Suite interface {
 type RowSource interface {
 	Suite
 	GetRows(table, cols string) (*model.QRecordBatch, error)
+}
+
+type GenericSuite interface {
+	RowSource
+	Peer() *protos.Peer
+	DestinationTable(table string) string
+}
+
+func AttachSchema(s Suite, table string) string {
+	return fmt.Sprintf("e2e_test_%s.%s", s.Suffix(), table)
+}
+
+func AddSuffix(s Suite, str string) string {
+	return fmt.Sprintf("%s_%s", str, s.Suffix())
 }
 
 // Helper function to assert errors in go routines running concurrent to workflows
@@ -129,11 +151,13 @@ func EnvWaitForEqualTablesWithNames(
 
 		pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), srcTable, cols)
 		if err != nil {
+			t.Log(err)
 			return false
 		}
 
 		rows, err := suite.GetRows(dstTable, cols)
 		if err != nil {
+			t.Log(err)
 			return false
 		}
 
@@ -163,18 +187,21 @@ func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, connectionGen FlowCo
 	for {
 		time.Sleep(time.Second)
 		counter++
-		response, err := env.Query(shared.CDCFlowStateQuery, connectionGen.FlowJobName)
+		response, err := env.Query(shared.FlowStatusQuery, connectionGen.FlowJobName)
 		if err == nil {
-			var state peerflow.CDCFlowWorkflowState
-			err = response.Get(&state)
+			var status protos.FlowStatus
+			err = response.Get(&status)
 			if err != nil {
 				t.Fatal(err)
-			} else if state.CurrentFlowStatus == protos.FlowStatus_STATUS_RUNNING {
+			} else if status == protos.FlowStatus_STATUS_RUNNING {
 				return
+			} else if counter > 30 {
+				env.Cancel()
+				t.Fatal("UNEXPECTED STATUS TIMEOUT", status)
 			}
 		} else if counter > 15 {
 			env.Cancel()
-			t.Fatal("UNEXPECTED SETUP CDC TIMEOUT", err.Error())
+			t.Fatal("UNEXPECTED STATUS QUERY TIMEOUT", err.Error())
 		} else if counter > 5 {
 			// log the error for informational purposes
 			t.Log(err.Error())
@@ -396,10 +423,7 @@ func CreateQRepWorkflowConfig(
 
 	watermark := "updated_at"
 
-	qrepConfig, err := connectionGen.GenerateQRepConfig(query, watermark)
-	if err != nil {
-		return nil, err
-	}
+	qrepConfig := connectionGen.GenerateQRepConfig(query, watermark)
 	qrepConfig.InitialCopyOnly = true
 	qrepConfig.SyncedAtColName = syncedAtCol
 	qrepConfig.SetupWatermarkTableOnDestination = setupDst

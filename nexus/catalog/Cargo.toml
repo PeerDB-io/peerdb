@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1"
 async-trait = "0.1"
-chrono = { version = "0.4.22", default-features = false }
+chrono.workspace = true
 prost = "0.12"
 peer-cursor = { path = "../peer-cursor" }
 peer-postgres = { path = "../peer-postgres" }

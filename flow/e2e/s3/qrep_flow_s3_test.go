@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
@@ -36,21 +35,12 @@ func (s PeerFlowE2ETestSuiteS3) Suffix() string {
 	return s.suffix
 }
 
-func tearDownSuite(s PeerFlowE2ETestSuiteS3) {
-	e2e.TearDownPostgres(s)
-
-	err := s.s3Helper.CleanUp(context.Background())
-	if err != nil {
-		require.Fail(s.t, "failed to clean up s3", err)
-	}
-}
-
 func TestPeerFlowE2ETestSuiteS3(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSuiteS3, tearDownSuite)
+	e2eshared.RunSuite(t, SetupSuiteS3)
 }
 
 func TestPeerFlowE2ETestSuiteGCS(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSuiteGCS, tearDownSuite)
+	e2eshared.RunSuite(t, SetupSuiteGCS)
 }
 
 func (s PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int) {
@@ -62,13 +52,6 @@ func (s PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int)
 
 func setupSuite(t *testing.T, gcs bool) PeerFlowE2ETestSuiteS3 {
 	t.Helper()
-
-	err := godotenv.Load()
-	if err != nil {
-		// it's okay if the .env file is not present
-		// we will use the default values
-		t.Log("Unable to load .env file, using default values from env")
-	}
 
 	suffix := "s3_" + strings.ToLower(shared.RandomString(8))
 	conn, err := e2e.SetupPostgres(t, suffix)
@@ -86,6 +69,15 @@ func setupSuite(t *testing.T, gcs bool) PeerFlowE2ETestSuiteS3 {
 		conn:     conn,
 		s3Helper: helper,
 		suffix:   suffix,
+	}
+}
+
+func (s PeerFlowE2ETestSuiteS3) Teardown() {
+	e2e.TearDownPostgres(s)
+
+	err := s.s3Helper.CleanUp(context.Background())
+	if err != nil {
+		require.Fail(s.t, "failed to clean up s3", err)
 	}
 }
 

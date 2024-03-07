@@ -162,32 +162,36 @@ func GeneratePostgresPeer() *protos.Peer {
 
 type FlowConnectionGenerationConfig struct {
 	FlowJobName      string
+	TableMappings    []*protos.TableMapping
 	TableNameMapping map[string]string
 	Destination      *protos.Peer
 	CdcStagingPath   string
 	SoftDelete       bool
 }
 
-// GenerateSnowflakePeer generates a snowflake peer config for testing.
-func GenerateSnowflakePeer(snowflakeConfig *protos.SnowflakeConfig) (*protos.Peer, error) {
-	ret := &protos.Peer{}
-	ret.Name = "test_snowflake_peer"
-	ret.Type = protos.DBType_SNOWFLAKE
-
-	ret.Config = &protos.Peer_SnowflakeConfig{
-		SnowflakeConfig: snowflakeConfig,
+func TableMappings(s GenericSuite, tables ...string) []*protos.TableMapping {
+	if len(tables)&1 != 0 {
+		panic("must receive even number of table names")
 	}
-
-	return ret, nil
+	tm := make([]*protos.TableMapping, 0, len(tables)/2)
+	for i := 0; i < len(tables); i += 2 {
+		tm = append(tm, &protos.TableMapping{
+			SourceTableIdentifier:      AttachSchema(s, tables[i]),
+			DestinationTableIdentifier: s.DestinationTable(tables[i+1]),
+		})
+	}
+	return tm
 }
 
 func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() *protos.FlowConnectionConfigs {
-	tblMappings := []*protos.TableMapping{}
-	for k, v := range c.TableNameMapping {
-		tblMappings = append(tblMappings, &protos.TableMapping{
-			SourceTableIdentifier:      k,
-			DestinationTableIdentifier: v,
-		})
+	tblMappings := c.TableMappings
+	if tblMappings == nil {
+		for k, v := range c.TableNameMapping {
+			tblMappings = append(tblMappings, &protos.TableMapping{
+				SourceTableIdentifier:      k,
+				DestinationTableIdentifier: v,
+			})
+		}
 	}
 
 	ret := &protos.FlowConnectionConfigs{
@@ -218,25 +222,19 @@ type QRepFlowConnectionGenerationConfig struct {
 // GenerateQRepConfig generates a qrep config for testing.
 func (c *QRepFlowConnectionGenerationConfig) GenerateQRepConfig(
 	query string, watermark string,
-) (*protos.QRepConfig, error) {
-	ret := &protos.QRepConfig{}
-	ret.FlowJobName = c.FlowJobName
-	ret.WatermarkTable = c.WatermarkTable
-	ret.DestinationTableIdentifier = c.DestinationTableIdentifier
-
-	postgresPeer := GeneratePostgresPeer()
-	ret.SourcePeer = postgresPeer
-
-	ret.DestinationPeer = c.Destination
-
-	ret.Query = query
-	ret.WatermarkColumn = watermark
-
-	ret.StagingPath = c.StagingPath
-	ret.WriteMode = &protos.QRepWriteMode{
-		WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
+) *protos.QRepConfig {
+	return &protos.QRepConfig{
+		FlowJobName:                c.FlowJobName,
+		WatermarkTable:             c.WatermarkTable,
+		DestinationTableIdentifier: c.DestinationTableIdentifier,
+		SourcePeer:                 GeneratePostgresPeer(),
+		DestinationPeer:            c.Destination,
+		Query:                      query,
+		WatermarkColumn:            watermark,
+		StagingPath:                c.StagingPath,
+		WriteMode: &protos.QRepWriteMode{
+			WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
+		},
+		NumRowsPerPartition: 1000,
 	}
-	ret.NumRowsPerPartition = 1000
-
-	return ret, nil
 }

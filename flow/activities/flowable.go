@@ -301,7 +301,7 @@ func (a *FlowableActivity) SyncFlow(
 	}
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return "transferring records for job - " + flowName
+		return "transferring records for job"
 	})
 	defer shutdown()
 
@@ -474,7 +474,7 @@ func (a *FlowableActivity) StartNormalize(
 	defer connectors.CloseConnector(ctx, dstConn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return "normalizing records from batch for job - " + input.FlowConnectionConfigs.FlowJobName
+		return "normalizing records from batch for job"
 	})
 	defer shutdown()
 
@@ -542,7 +542,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	defer connectors.CloseConnector(ctx, srcConn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return "getting partitions for job - " + config.FlowJobName
+		return "getting partitions for job"
 	})
 	defer shutdown()
 
@@ -736,7 +736,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	defer connectors.CloseConnector(ctx, dstConn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return "consolidating partitions for job - " + config.FlowJobName
+		return "consolidating partitions for job"
 	})
 	defer shutdown()
 
@@ -863,7 +863,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 }
 
 func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
-	rows, err := a.CatalogPool.Query(ctx, "SELECT flows.name, flows.config_proto FROM flows WHERE query_string IS NULL")
+	rows, err := a.CatalogPool.Query(ctx, "SELECT DISTINCT ON (name) name, config_proto FROM flows WHERE query_string IS NULL")
 	if err != nil {
 		return err
 	}
@@ -991,7 +991,7 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	defer connectors.CloseConnector(ctx, dstConn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return "renaming tables for job - " + config.FlowJobName
+		return "renaming tables for job"
 	})
 	defer shutdown()
 
