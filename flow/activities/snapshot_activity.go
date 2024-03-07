@@ -84,7 +84,7 @@ func (a *SnapshotActivity) SetupReplication(
 	var slotInfo connpostgres.SlotCreationResult
 	select {
 	case slotInfo = <-slotSignal.SlotCreated:
-		logger.Info("slot created", slotInfo.SlotName)
+		logger.Info("slot created", slog.String("SlotName", slotInfo.SlotName))
 	case err := <-replicationErr:
 		closeConnectionForError(err)
 		return nil, fmt.Errorf("failed to setup replication: %w", err)
