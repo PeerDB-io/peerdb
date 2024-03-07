@@ -45,14 +45,9 @@ func (s PeerFlowE2ETestSuiteBQ) setupTimeTable(tableName string) {
 	rows = append(rows, row)
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO e2e_test_%s.%s (
-					watermark_ts,
-					mytimestamp,
-					mytztimestamp,
-					medieval,
-					mybaddate,
-					mydate
-			) VALUES %s;
+		INSERT INTO e2e_test_%s.%s (
+			watermark_ts, mytimestamp, mytztimestamp, medieval, mybaddate, mydate
+		) VALUES %s;
 	`, s.bqSuffix, tableName, strings.Join(rows, ",")))
 	require.NoError(s.t, err)
 }

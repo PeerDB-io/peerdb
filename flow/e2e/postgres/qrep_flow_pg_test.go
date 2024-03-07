@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
@@ -21,56 +20,8 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-type PeerFlowE2ETestSuitePG struct {
-	t *testing.T
-
-	conn   *connpostgres.PostgresConnector
-	peer   *protos.Peer
-	suffix string
-}
-
-func (s PeerFlowE2ETestSuitePG) T() *testing.T {
-	return s.t
-}
-
-func (s PeerFlowE2ETestSuitePG) Conn() *pgx.Conn {
-	return s.conn.Conn()
-}
-
-func (s PeerFlowE2ETestSuitePG) Connector() *connpostgres.PostgresConnector {
-	return s.conn
-}
-
-func (s PeerFlowE2ETestSuitePG) Suffix() string {
-	return s.suffix
-}
-
 func TestPeerFlowE2ETestSuitePG(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSuite, func(s PeerFlowE2ETestSuitePG) {
-		e2e.TearDownPostgres(s)
-	})
-}
-
-func SetupSuite(t *testing.T) PeerFlowE2ETestSuitePG {
-	t.Helper()
-
-	err := godotenv.Load()
-	if err != nil {
-		// it's okay if the .env file is not present
-		// we will use the default values
-		t.Log("Unable to load .env file, using default values from env")
-	}
-
-	suffix := "pg_" + strings.ToLower(shared.RandomString(8))
-	conn, err := e2e.SetupPostgres(t, suffix)
-	require.NoError(t, err, "failed to setup postgres")
-
-	return PeerFlowE2ETestSuitePG{
-		t:      t,
-		conn:   conn,
-		peer:   e2e.GeneratePostgresPeer(),
-		suffix: suffix,
-	}
+	e2eshared.RunSuite(t, SetupSuite)
 }
 
 func (s PeerFlowE2ETestSuitePG) setupSourceTable(tableName string, rowCount int) {
