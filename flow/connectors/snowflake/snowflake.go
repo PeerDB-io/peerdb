@@ -65,6 +65,8 @@ const (
 
 	checkIfTableExistsSQL = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.TABLES
 	 WHERE TABLE_SCHEMA=? and TABLE_NAME=?`
+	checkIfSchemaExistsSQL = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA
+	 WHERE SCHEMA_NAME=?`
 	getLastOffsetSQL            = "SELECT OFFSET FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	setLastOffsetSQL            = "UPDATE %s.%s SET OFFSET=GREATEST(OFFSET, ?) WHERE MIRROR_JOB_NAME=?"
 	getLastSyncBatchID_SQL      = "SELECT SYNC_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
@@ -100,8 +102,15 @@ type UnchangedToastColumnResult struct {
 	UnchangedToastColumns ArrayString
 }
 
-func TableCheck(ctx context.Context, database *sql.DB) error {
-	dummySchema := "PEERDB_DUMMY_SCHEMA_" + shared.RandomString(4)
+func TableCheck(ctx context.Context, database *sql.DB, schemaName string) error {
+	// check if schema exists
+	var schemaExists pgtype.Bool
+	err := database.QueryRowContext(ctx, checkIfSchemaExistsSQL, schemaName).Scan(&schemaExists)
+	if err != nil {
+		return fmt.Errorf("error while checking if schema exists: %w", err)
+	}
+
+	dummySchema := schemaName
 	dummyTable := "PEERDB_DUMMY_TABLE_" + shared.RandomString(4)
 
 	// In a transaction, create a table, insert a row into the table and then drop the table
@@ -119,10 +128,12 @@ func TableCheck(ctx context.Context, database *sql.DB) error {
 		}
 	}()
 
-	// create schema
-	_, err = tx.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, dummySchema))
-	if err != nil {
-		return fmt.Errorf("failed to create schema: %w", err)
+	if !schemaExists.Bool {
+		// create schema
+		_, err = tx.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, dummySchema))
+		if err != nil {
+			return fmt.Errorf("failed to create schema: %w", err)
+		}
 	}
 
 	// create table
@@ -196,14 +207,14 @@ func NewSnowflakeConnector(
 		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
 	}
 
-	err = TableCheck(ctx, database)
-	if err != nil {
-		return nil, fmt.Errorf("could not validate snowflake peer: %w", err)
-	}
-
 	rawSchema := "_PEERDB_INTERNAL"
 	if snowflakeProtoConfig.MetadataSchema != nil {
 		rawSchema = *snowflakeProtoConfig.MetadataSchema
+	}
+
+	err = TableCheck(ctx, database, rawSchema)
+	if err != nil {
+		return nil, fmt.Errorf("could not validate snowflake peer: %w", err)
 	}
 
 	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
