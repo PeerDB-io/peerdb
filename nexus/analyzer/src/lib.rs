@@ -10,8 +10,8 @@ use anyhow::Context;
 use pt::{
     flow_model::{FlowJob, FlowJobTableMapping, QRepFlowJob},
     peerdb_peers::{
-        peer::Config, BigqueryConfig, ClickhouseConfig, DbType, EventHubConfig, MongoConfig, Peer,
-        PostgresConfig, S3Config, SnowflakeConfig, SqlServerConfig,
+        peer::Config, BigqueryConfig, ClickhouseConfig, DbType, EventHubConfig, KafkaConfig,
+        MongoConfig, Peer, PostgresConfig, S3Config, SnowflakeConfig, SqlServerConfig,
     },
 };
 use qrep::process_options;
@@ -812,6 +812,34 @@ fn parse_db_options(
                     .unwrap_or_default(),
             };
             Config::ClickhouseConfig(clickhouse_config)
+        }
+        DbType::Kafka => {
+            let kafka_config = KafkaConfig {
+                servers: opts
+                    .get("servers")
+                    .context("no servers specified")?
+                    .to_string()
+                    .split(',')
+                    .map(String::from)
+                    .collect::<Vec<_>>(),
+                username: opts
+                    .get("user")
+                    .context("no username specified")?
+                    .to_string(),
+                password: opts
+                    .get("password")
+                    .context("no password specified")?
+                    .to_string(),
+                sasl: opts
+                    .get("sasl_mechanism")
+                    .context("no sasl mechanism specified")?
+                    .to_string(),
+                disable_tls: opts
+                    .get("disable_tls")
+                    .and_then(|s| s.parse::<bool>().ok())
+                    .unwrap_or_default(),
+            };
+            Config::KafkaConfig(kafka_config)
         }
     }))
 }

@@ -11,6 +11,7 @@ import (
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	connclickhouse "github.com/PeerDB-io/peer-flow/connectors/clickhouse"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
+	connkafka "github.com/PeerDB-io/peer-flow/connectors/kafka"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	conns3 "github.com/PeerDB-io/peer-flow/connectors/s3"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
@@ -202,6 +203,8 @@ func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 		return connsqlserver.NewSQLServerConnector(ctx, inner.SqlserverConfig)
 	case *protos.Peer_ClickhouseConfig:
 		return connclickhouse.NewClickhouseConnector(ctx, inner.ClickhouseConfig)
+	case *protos.Peer_KafkaConfig:
+		return connkafka.NewKafkaConnector(ctx, inner.KafkaConfig)
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}
@@ -260,6 +263,7 @@ var (
 	_ CDCSyncConnector = &connbigquery.BigQueryConnector{}
 	_ CDCSyncConnector = &connsnowflake.SnowflakeConnector{}
 	_ CDCSyncConnector = &conneventhub.EventHubConnector{}
+	_ CDCSyncConnector = &connkafka.KafkaConnector{}
 	_ CDCSyncConnector = &conns3.S3Connector{}
 	_ CDCSyncConnector = &connclickhouse.ClickhouseConnector{}
 

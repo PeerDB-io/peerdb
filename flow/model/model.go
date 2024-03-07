@@ -14,9 +14,12 @@ type NameAndExclude struct {
 }
 
 func NewNameAndExclude(name string, exclude []string) NameAndExclude {
-	exset := make(map[string]struct{}, len(exclude))
-	for _, col := range exclude {
-		exset[col] = struct{}{}
+	var exset map[string]struct{}
+	if len(exclude) != 0 {
+		exset = make(map[string]struct{}, len(exclude))
+		for _, col := range exclude {
+			exset[col] = struct{}{}
+		}
 	}
 	return NameAndExclude{Name: name, Exclude: exset}
 }
@@ -45,10 +48,9 @@ type PullRecordsRequest struct {
 }
 
 type Record interface {
-	// GetCheckpointID returns the ID of the record.
 	GetCheckpointID() int64
-	// get table name
 	GetDestinationTableName() string
+	GetSourceTableName() string
 	// get columns and values for the record
 	GetItems() *RecordItems
 }
@@ -59,9 +61,12 @@ type ToJSONOptions struct {
 }
 
 func NewToJSONOptions(unnestCols []string, hstoreAsJSON bool) *ToJSONOptions {
-	unnestColumns := make(map[string]struct{}, len(unnestCols))
-	for _, col := range unnestCols {
-		unnestColumns[col] = struct{}{}
+	var unnestColumns map[string]struct{}
+	if len(unnestCols) != 0 {
+		unnestColumns = make(map[string]struct{}, len(unnestCols))
+		for _, col := range unnestCols {
+			unnestColumns[col] = struct{}{}
+		}
 	}
 	return &ToJSONOptions{
 		UnnestColumns: unnestColumns,
@@ -82,13 +87,16 @@ type InsertRecord struct {
 	Items *RecordItems
 }
 
-// Implement Record interface for InsertRecord.
 func (r *InsertRecord) GetCheckpointID() int64 {
 	return r.CheckpointID
 }
 
 func (r *InsertRecord) GetDestinationTableName() string {
 	return r.DestinationTableName
+}
+
+func (r *InsertRecord) GetSourceTableName() string {
+	return r.SourceTableName
 }
 
 func (r *InsertRecord) GetItems() *RecordItems {
@@ -110,14 +118,16 @@ type UpdateRecord struct {
 	UnchangedToastColumns map[string]struct{}
 }
 
-// Implement Record interface for UpdateRecord.
 func (r *UpdateRecord) GetCheckpointID() int64 {
 	return r.CheckpointID
 }
 
-// Implement Record interface for UpdateRecord.
 func (r *UpdateRecord) GetDestinationTableName() string {
 	return r.DestinationTableName
+}
+
+func (r *UpdateRecord) GetSourceTableName() string {
+	return r.SourceTableName
 }
 
 func (r *UpdateRecord) GetItems() *RecordItems {
@@ -137,13 +147,16 @@ type DeleteRecord struct {
 	UnchangedToastColumns map[string]struct{}
 }
 
-// Implement Record interface for DeleteRecord.
 func (r *DeleteRecord) GetCheckpointID() int64 {
 	return r.CheckpointID
 }
 
 func (r *DeleteRecord) GetDestinationTableName() string {
 	return r.DestinationTableName
+}
+
+func (r *DeleteRecord) GetSourceTableName() string {
+	return r.SourceTableName
 }
 
 func (r *DeleteRecord) GetItems() *RecordItems {
@@ -165,6 +178,8 @@ type SyncRecordsRequest struct {
 	TableMappings []*protos.TableMapping
 	// Staging path for AVRO files in CDC
 	StagingPath string
+	// Lua script
+	Script string
 }
 
 type NormalizeRecordsRequest struct {
@@ -208,13 +223,16 @@ type RelationRecord struct {
 	TableSchemaDelta *protos.TableSchemaDelta `json:"tableSchemaDelta"`
 }
 
-// Implement Record interface for RelationRecord.
 func (r *RelationRecord) GetCheckpointID() int64 {
 	return r.CheckpointID
 }
 
 func (r *RelationRecord) GetDestinationTableName() string {
 	return r.TableSchemaDelta.DstTableName
+}
+
+func (r *RelationRecord) GetSourceTableName() string {
+	return r.TableSchemaDelta.SrcTableName
 }
 
 func (r *RelationRecord) GetItems() *RecordItems {
