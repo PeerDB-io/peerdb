@@ -30,15 +30,6 @@ func (c *BigQueryConnector) SyncQRepRecords(
 		return 0, err
 	}
 
-	done, err := c.pgMetadata.IsQrepPartitionSynced(ctx, config.FlowJobName, partition.PartitionId)
-	if err != nil {
-		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
-	}
-
-	if done {
-		c.logger.Info(fmt.Sprintf("Partition %s has already been synced", partition.PartitionId))
-		return 0, nil
-	}
 	c.logger.Info(fmt.Sprintf("QRep sync function called and partition existence checked for"+
 		" partition %s of destination table %s",
 		partition.PartitionId, destTable))
@@ -110,4 +101,10 @@ func (c *BigQueryConnector) SetupQRepMetadataTables(ctx context.Context, config 
 	}
 
 	return nil
+}
+
+func (c *BigQueryConnector) IsQRepPartitionSynced(ctx context.Context,
+	req *protos.IsQRepPartitionSyncedInput,
+) (bool, error) {
+	return c.pgMetadata.IsQrepPartitionSynced(ctx, req.FlowJobName, req.PartitionId)
 }

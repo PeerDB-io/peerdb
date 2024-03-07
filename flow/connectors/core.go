@@ -146,6 +146,9 @@ type QRepPullConnector interface {
 type QRepSyncConnector interface {
 	Connector
 
+	// IsQRepPartitionSynced returns true if a partition has already been synced
+	IsQRepPartitionSynced(ctx context.Context, req *protos.IsQRepPartitionSyncedInput) (bool, error)
+
 	// SetupQRepMetadataTables sets up the metadata tables for QRep.
 	SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error
 
@@ -261,6 +264,7 @@ var (
 	_ QRepSyncConnector = &connbigquery.BigQueryConnector{}
 	_ QRepSyncConnector = &connsnowflake.SnowflakeConnector{}
 	_ QRepSyncConnector = &connclickhouse.ClickhouseConnector{}
+	_ QRepSyncConnector = &conns3.S3Connector{}
 
 	_ QRepConsolidateConnector = &connsnowflake.SnowflakeConnector{}
 	_ QRepConsolidateConnector = &connclickhouse.ClickhouseConnector{}
