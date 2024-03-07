@@ -100,6 +100,7 @@ impl Catalog {
                     eventhub_group_config.encode_to_vec()
                 }
                 Config::ClickhouseConfig(clickhouse_config) => clickhouse_config.encode_to_vec(),
+                Config::KafkaConfig(kafka_config) => kafka_config.encode_to_vec(),
             }
         };
 
@@ -305,6 +306,11 @@ impl Catalog {
                     let clickhouse_config =
                         pt::peerdb_peers::ClickhouseConfig::decode(options).with_context(err)?;
                     Config::ClickhouseConfig(clickhouse_config)
+                }
+                DbType::Kafka => {
+                    let kafka_config =
+                        pt::peerdb_peers::KafkaConfig::decode(options).with_context(err)?;
+                    Config::KafkaConfig(kafka_config)
                 }
             })
         } else {

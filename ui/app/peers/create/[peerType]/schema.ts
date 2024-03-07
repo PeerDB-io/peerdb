@@ -278,6 +278,17 @@ export const chSchema = z.object({
   region: z
     .string({ invalid_type_error: 'Region must be a string' })
     .optional(),
+  disableTls: z.boolean(),
+});
+
+export const kaSchema = z.object({
+  servers: z.array(z.string()),
+  username: z.string(),
+  password: z.string(),
+  sasl: z
+    .union([z.literal('SCRAM-SHA-256'), z.literal('SCRAM-SHA-512')])
+    .optional(),
+  disableTls: z.boolean(),
 });
 
 const urlSchema = z

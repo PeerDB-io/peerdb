@@ -88,13 +88,7 @@ func (c *EventHubConnector) GetLastOffset(ctx context.Context, jobName string) (
 }
 
 func (c *EventHubConnector) SetLastOffset(ctx context.Context, jobName string, offset int64) error {
-	err := c.pgMetadata.UpdateLastOffset(ctx, jobName, offset)
-	if err != nil {
-		c.logger.Error("failed to update last offset", slog.Any("error", err))
-		return err
-	}
-
-	return nil
+	return c.pgMetadata.UpdateLastOffset(ctx, jobName, offset)
 }
 
 // returns the number of records synced
@@ -204,9 +198,7 @@ func (c *EventHubConnector) processBatch(
 }
 
 func (c *EventHubConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	batch := req.Records
-
-	numRecords, err := c.processBatch(ctx, req.FlowJobName, batch)
+	numRecords, err := c.processBatch(ctx, req.FlowJobName, req.Records)
 	if err != nil {
 		c.logger.Error("failed to process batch", slog.Any("error", err))
 		return nil, err
