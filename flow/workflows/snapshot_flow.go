@@ -226,7 +226,7 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 		return fmt.Errorf("failed to setup replication: %w", err)
 	}
 
-	logger.Info("cloning tables in parallel: ", numTablesInParallel)
+	logger.Info(fmt.Sprintf("cloning %d tables in parallel", numTablesInParallel))
 	if err := s.cloneTables(ctx, slotInfo, numTablesInParallel); err != nil {
 		return fmt.Errorf("failed to clone tables: %w", err)
 	}

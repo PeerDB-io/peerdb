@@ -38,7 +38,7 @@ func XminFlowWorkflow(
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
 
 		for q.activeSignal == model.PauseSignal {
-			logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
+			logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
 			// only place we block on receive, so signal processing is immediate
 			val, ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute)
 			if ok {
