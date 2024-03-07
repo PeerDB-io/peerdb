@@ -32,6 +32,7 @@ var snowflakeTypeToQValueKindMap = map[string]qvalue.QValueKind{
 	"VARIANT":       qvalue.QValueKindJSON,
 	"GEOMETRY":      qvalue.QValueKindGeometry,
 	"GEOGRAPHY":     qvalue.QValueKindGeography,
+	"ARRAY":         qvalue.QValueKindString,
 }
 
 func qValueKindToSnowflakeType(colType qvalue.QValueKind) (string, error) {
