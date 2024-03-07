@@ -71,6 +71,6 @@ export const blankSnowflakeQRepSetting = {
   } as QRepWriteMode,
   stagingPath: '',
   numRowsPerPartition: 100000,
-  setupWatermarkTableOnDestination: false,
+  setupWatermarkTableOnDestination: true,
   initialCopyOnly: true,
 };
