@@ -497,15 +497,6 @@ func (c *PostgresConnector) SetupQRepMetadataTables(ctx context.Context, config 
 	}
 	c.logger.Info("Setup metadata table.")
 
-	if config.WriteMode != nil &&
-		config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		_, err = c.conn.Exec(ctx,
-			"TRUNCATE TABLE "+config.DestinationTableIdentifier)
-		if err != nil {
-			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
-		}
-	}
-
 	return nil
 }
 
