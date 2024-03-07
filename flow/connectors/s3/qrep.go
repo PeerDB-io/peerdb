@@ -82,7 +82,7 @@ func (c *S3Connector) SetupQRepMetadataTables(_ context.Context, config *protos.
 	return nil
 }
 
-// S3 doesn't appear to check if the partition already exists
+// S3 doesn't check if partition is already synced, but file with same name is overwritten
 func (c *S3Connector) IsQRepPartitionSynced(_ context.Context,
 	config *protos.IsQRepPartitionSyncedInput,
 ) (bool, error) {
