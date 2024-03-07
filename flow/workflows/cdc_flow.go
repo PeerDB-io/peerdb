@@ -236,7 +236,7 @@ func CDCFlowWorkflow(
 		for state.ActiveSignal == model.PauseSignal {
 			// only place we block on receive, so signal processing is immediate
 			for state.ActiveSignal == model.PauseSignal && state.FlowConfigUpdate == nil && ctx.Err() == nil {
-				logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
+				logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
 				selector.Select(ctx)
 			}
 			if err := ctx.Err(); err != nil {
@@ -255,7 +255,7 @@ func CDCFlowWorkflow(
 			}
 		}
 
-		logger.Info("mirror has been resumed after ", time.Since(startTime))
+		logger.Info(fmt.Sprintf("mirror has been resumed after %s", time.Since(startTime).Round(time.Second)))
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 	}
 
