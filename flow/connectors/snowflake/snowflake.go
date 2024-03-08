@@ -104,13 +104,27 @@ type UnchangedToastColumnResult struct {
 
 func TableCheck(ctx context.Context, database *sql.DB, schemaName string) error {
 	// check if schema exists
-	var schemaExists pgtype.Bool
+	var schemaExists sql.NullBool
 	err := database.QueryRowContext(ctx, checkIfSchemaExistsSQL, schemaName).Scan(&schemaExists)
 	if err != nil {
 		return fmt.Errorf("error while checking if schema exists: %w", err)
 	}
 
-	dummySchema := schemaName
+	rows, err := database.QueryContext(ctx, "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA;")
+	if err != nil {
+		return fmt.Errorf("error while checking if schema exists: %w", err)
+	}
+
+	for rows.Next() {
+		var schema string
+		err := rows.Scan(&schema)
+		if err != nil {
+			return fmt.Errorf("error getting schema")
+		}
+
+		slog.Info(schema)
+	}
+
 	dummyTable := "PEERDB_DUMMY_TABLE_" + shared.RandomString(4)
 
 	// In a transaction, create a table, insert a row into the table and then drop the table
@@ -128,36 +142,31 @@ func TableCheck(ctx context.Context, database *sql.DB, schemaName string) error 
 		}
 	}()
 
-	if !schemaExists.Bool {
+	if !schemaExists.Valid || !schemaExists.Bool {
+		slog.Info("Apparently schema " + schemaName + " doesn't exist")
 		// create schema
-		_, err = tx.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, dummySchema))
+		_, err = tx.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, schemaName))
 		if err != nil {
-			return fmt.Errorf("failed to create schema: %w", err)
+			return fmt.Errorf("failed to create schema %s: %w", schemaName, err)
 		}
 	}
 
 	// create table
-	_, err = tx.ExecContext(ctx, fmt.Sprintf(createDummyTableSQL, dummySchema, dummyTable))
+	_, err = tx.ExecContext(ctx, fmt.Sprintf(createDummyTableSQL, schemaName, dummyTable))
 	if err != nil {
 		return fmt.Errorf("failed to create table: %w", err)
 	}
 
 	// insert row
-	_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s.%s VALUES ('dummy')", dummySchema, dummyTable))
+	_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s.%s VALUES ('dummy')", schemaName, dummyTable))
 	if err != nil {
 		return fmt.Errorf("failed to insert row: %w", err)
 	}
 
 	// drop table
-	_, err = tx.ExecContext(ctx, fmt.Sprintf(dropTableIfExistsSQL, dummySchema, dummyTable))
+	_, err = tx.ExecContext(ctx, fmt.Sprintf(dropTableIfExistsSQL, schemaName, dummyTable))
 	if err != nil {
 		return fmt.Errorf("failed to drop table: %w", err)
-	}
-
-	// drop schema
-	_, err = tx.ExecContext(ctx, fmt.Sprintf(dropSchemaIfExistsSQL, dummySchema))
-	if err != nil {
-		return fmt.Errorf("failed to drop schema: %w", err)
 	}
 
 	// commit transaction
@@ -196,6 +205,7 @@ func NewSnowflakeConnector(
 		return nil, fmt.Errorf("failed to get DSN from Snowflake config: %w", err)
 	}
 
+	fmt.Println(snowflakeConfig)
 	database, err := sql.Open("snowflake", snowflakeConfigDSN)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
@@ -590,9 +600,17 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 }
 
 func (c *SnowflakeConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
-	_, err := c.database.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
+	var schemaExists sql.NullBool
+	err := c.database.QueryRowContext(ctx, checkIfSchemaExistsSQL, c.rawSchema).Scan(&schemaExists)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error while checking if schema %s for raw table exists: %w", c.rawSchema, err)
+	}
+
+	if !schemaExists.Valid || !schemaExists.Bool {
+		_, err := c.database.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	createRawTableTx, err := c.database.BeginTx(ctx, nil)
