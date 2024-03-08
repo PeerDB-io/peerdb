@@ -10,9 +10,10 @@ import SelectTheme from '../styles/select';
 import {
   alertConfigReqSchema,
   alertConfigType,
-  emailConfigType, serviceConfigType,
+  emailConfigType,
+  serviceConfigType,
   serviceTypeSchemaMap,
-  slackConfigType
+  slackConfigType,
 } from './validation';
 
 export type ServiceType = 'slack' | 'email';
@@ -151,14 +152,19 @@ export function NewConfig(alertProps: AlertConfigProps) {
       return;
     }
 
-    const serviceSchema = serviceTypeSchemaMap[serviceType]
-    const serviceValidity = serviceSchema.safeParse(config)
-    if(!serviceValidity?.success){
-      notifyErr("Invalid alert service configuration for "+ serviceType + ". " + serviceValidity.error.issues[0].message)
+    const serviceSchema = serviceTypeSchemaMap[serviceType];
+    const serviceValidity = serviceSchema.safeParse(config);
+    if (!serviceValidity?.success) {
+      notifyErr(
+        'Invalid alert service configuration for ' +
+          serviceType +
+          '. ' +
+          serviceValidity.error.issues[0].message
+      );
       return;
     }
 
-    const serviceConfig = serviceValidity.data
+    const serviceConfig = serviceValidity.data;
     const alertConfigReq: alertConfigType = {
       id: Number(alertProps.id || -1),
       serviceType: serviceType,

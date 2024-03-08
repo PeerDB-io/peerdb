@@ -22,9 +22,12 @@ export const slackServiceConfigSchema = z.intersection(
       .min(1, { message: 'Auth Token cannot be empty' })
       .max(256, { message: 'Auth Token is too long' }),
     channel_ids: z
-      .array(z.string().trim().min(1, { message: 'Channel IDs cannot be empty' }), {
-        required_error: 'We need a channel ID',
-      })
+      .array(
+        z.string().trim().min(1, { message: 'Channel IDs cannot be empty' }),
+        {
+          required_error: 'We need a channel ID',
+        }
+      )
       .min(1, { message: 'Atleast one channel ID is needed' }),
   })
 );
@@ -35,7 +38,8 @@ export const emailServiceConfigSchema = z.intersection(
     email_addresses: z
       .array(
         z
-          .string().trim()
+          .string()
+          .trim()
           .min(1, { message: 'Email Addresses cannot be empty' })
           .includes('@'),
         {
@@ -68,6 +72,6 @@ export type serviceConfigType = z.infer<typeof serviceConfigSchema>;
 export type alertConfigType = z.infer<typeof alertConfigReqSchema>;
 
 export const serviceTypeSchemaMap = {
-  'slack':slackServiceConfigSchema,
-  'email':emailServiceConfigSchema
-}
+  slack: slackServiceConfigSchema,
+  email: emailServiceConfigSchema,
+};

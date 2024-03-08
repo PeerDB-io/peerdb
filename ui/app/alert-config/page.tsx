@@ -14,8 +14,21 @@ import { tableStyle } from '../peers/[peerName]/style';
 import { fetcher } from '../utils/swr';
 import { AlertConfigProps, NewConfig, ServiceType } from './new';
 
-const ServiceIcon = ({serviceType, size}: {serviceType:string, size:number}) => {
-    return <Image src={`/images/${serviceType}.png`} height={size} width={size} alt={serviceType} />;
+const ServiceIcon = ({
+  serviceType,
+  size,
+}: {
+  serviceType: string;
+  size: number;
+}) => {
+  return (
+    <Image
+      src={`/images/${serviceType}.png`}
+      height={size}
+      width={size}
+      alt={serviceType}
+    />
+  );
 };
 
 const AlertConfigPage: React.FC = () => {
@@ -79,13 +92,31 @@ const AlertConfigPage: React.FC = () => {
               {alerts?.length ? (
                 alerts.map((alertConfig: UAlertConfigResponse, index) => (
                   <TableRow key={index}>
-                    <TableCell style={{ width:20 }}>
-                      <div style={{display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center'}}>
-                      <div style={{display:'flex', alignItems:'center', columnGap:'0.5rem'}}>
-                        <ServiceIcon serviceType={alertConfig.service_type} size={30}/>
-                        <Label>{alertConfig.service_type.charAt(0).toUpperCase() + alertConfig.service_type.slice(1)}</Label>
-                      </div>
-                      
+                    <TableCell style={{ width: 20 }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            columnGap: '0.5rem',
+                          }}
+                        >
+                          <ServiceIcon
+                            serviceType={alertConfig.service_type}
+                            size={30}
+                          />
+                          <Label>
+                            {alertConfig.service_type.charAt(0).toUpperCase() +
+                              alertConfig.service_type.slice(1)}
+                          </Label>
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>
