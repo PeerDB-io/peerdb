@@ -5,7 +5,6 @@ const baseServiceConfigSchema = z.object({
     .number({
       invalid_type_error: 'Slot threshold must be a number',
     })
-    .int({ message: 'Slot threshold must be a valid integer' })
     .min(0, 'Slot threshold must be non-negative'),
   open_connections_alert_threshold: z
     .number({
@@ -15,7 +14,7 @@ const baseServiceConfigSchema = z.object({
     .min(0, 'Connections threshold must be non-negative'),
 });
 
-const slackServiceConfigSchema = z.intersection(
+export const slackServiceConfigSchema = z.intersection(
   baseServiceConfigSchema,
   z.object({
     auth_token: z
@@ -23,20 +22,20 @@ const slackServiceConfigSchema = z.intersection(
       .min(1, { message: 'Auth Token cannot be empty' })
       .max(256, { message: 'Auth Token is too long' }),
     channel_ids: z
-      .array(z.string().min(1, { message: 'Channel IDs cannot be empty' }), {
+      .array(z.string().trim().min(1, { message: 'Channel IDs cannot be empty' }), {
         required_error: 'We need a channel ID',
       })
       .min(1, { message: 'Atleast one channel ID is needed' }),
   })
 );
 
-const emailServiceConfigSchema = z.intersection(
+export const emailServiceConfigSchema = z.intersection(
   baseServiceConfigSchema,
   z.object({
     email_addresses: z
       .array(
         z
-          .string()
+          .string().trim()
           .min(1, { message: 'Email Addresses cannot be empty' })
           .includes('@'),
         {
@@ -67,3 +66,8 @@ export type emailConfigType = z.infer<typeof emailServiceConfigSchema>;
 export type serviceConfigType = z.infer<typeof serviceConfigSchema>;
 
 export type alertConfigType = z.infer<typeof alertConfigReqSchema>;
+
+export const serviceTypeSchemaMap = {
+  'slack':slackServiceConfigSchema,
+  'email':emailServiceConfigSchema
+}

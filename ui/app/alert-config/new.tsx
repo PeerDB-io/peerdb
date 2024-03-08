@@ -10,9 +10,9 @@ import SelectTheme from '../styles/select';
 import {
   alertConfigReqSchema,
   alertConfigType,
-  emailConfigType,
-  serviceConfigType,
-  slackConfigType,
+  emailConfigType, serviceConfigType,
+  serviceTypeSchemaMap,
+  slackConfigType
 } from './validation';
 
 export type ServiceType = 'slack' | 'email';
@@ -56,6 +56,7 @@ function getSlackProps(
       <div>
         <p>Authorisation Token</p>
         <TextField
+          key={'auth_token'}
           style={{ height: '2.5rem', marginTop: '0.5rem' }}
           variant='simple'
           placeholder='Auth Token'
@@ -71,6 +72,7 @@ function getSlackProps(
       <div>
         <p>Channel IDs</p>
         <TextField
+          key={'channel_ids'}
           style={{ height: '2.5rem', marginTop: '0.5rem' }}
           variant='simple'
           placeholder='Comma separated'
@@ -96,6 +98,7 @@ function getEmailProps(
       <div>
         <p>Email Addresses</p>
         <TextField
+          key={'email_addresses'}
           style={{ height: '2.5rem', marginTop: '0.5rem' }}
           variant='simple'
           placeholder='Comma separated'
@@ -141,16 +144,25 @@ export function NewConfig(alertProps: AlertConfigProps) {
   );
 
   const [loading, setLoading] = useState(false);
+
   const handleAdd = async () => {
     if (!serviceType) {
       notifyErr('Service type must be selected');
       return;
     }
 
+    const serviceSchema = serviceTypeSchemaMap[serviceType]
+    const serviceValidity = serviceSchema.safeParse(config)
+    if(!serviceValidity?.success){
+      notifyErr("Invalid alert service configuration for "+ serviceType + ". " + serviceValidity.error.issues[0].message)
+      return;
+    }
+
+    const serviceConfig = serviceValidity.data
     const alertConfigReq: alertConfigType = {
       id: Number(alertProps.id || -1),
       serviceType: serviceType,
-      serviceConfig: config,
+      serviceConfig,
     };
 
     const alertReqValidity = alertConfigReqSchema.safeParse(alertConfigReq);
@@ -191,6 +203,7 @@ export function NewConfig(alertProps: AlertConfigProps) {
       <div style={{ width: '50%' }}>
         <p style={{ marginBottom: '0.5rem' }}>Alert Provider</p>
         <ReactSelect
+          key={'serviceType'}
           options={[
             {
               value: 'slack',
@@ -203,8 +216,8 @@ export function NewConfig(alertProps: AlertConfigProps) {
           ]}
           placeholder='Select provider'
           defaultValue={{
-            value: 'slack',
-            label: 'Slack',
+            value: serviceType,
+            label: serviceType.charAt(0).toUpperCase() + serviceType.slice(1),
           }}
           formatOptionLabel={ConfigLabel}
           onChange={(val, _) => val && setServiceType(val.value as ServiceType)}
@@ -214,6 +227,7 @@ export function NewConfig(alertProps: AlertConfigProps) {
       <div>
         <p>Slot Lag Alert Threshold (in GB)</p>
         <TextField
+          key={'slot_lag_mb_alert_threshold'}
           style={{ height: '2.5rem', marginTop: '0.5rem' }}
           variant='simple'
           type={'number'}
@@ -230,6 +244,7 @@ export function NewConfig(alertProps: AlertConfigProps) {
       <div>
         <p>Open Connections Alert Threshold</p>
         <TextField
+          key={'open_connections_alert_threshold'}
           style={{ height: '2.5rem', marginTop: '0.5rem' }}
           variant='simple'
           type={'number'}
