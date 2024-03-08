@@ -74,7 +74,10 @@ func NormalizeFlowWorkflow(
 		if s.SyncBatchID > state.SyncBatchID {
 			state.SyncBatchID = s.SyncBatchID
 		}
-		state.TableNameSchemaMapping = s.TableNameSchemaMapping
+		if s.TableNameSchemaMapping != nil {
+			state.TableNameSchemaMapping = s.TableNameSchemaMapping
+		}
+
 		state.Wait = false
 	})
 
