@@ -102,7 +102,7 @@ type UnchangedToastColumnResult struct {
 	UnchangedToastColumns ArrayString
 }
 
-func TableCheck(ctx context.Context, database *sql.DB, schemaName string) error {
+func ValidationCheck(ctx context.Context, database *sql.DB, schemaName string) error {
 	// check if schema exists
 	var schemaExists sql.NullBool
 	err := database.QueryRowContext(ctx, checkIfSchemaExistsSQL, schemaName).Scan(&schemaExists)
@@ -205,7 +205,7 @@ func NewSnowflakeConnector(
 		rawSchema = *snowflakeProtoConfig.MetadataSchema
 	}
 
-	err = TableCheck(ctx, database, rawSchema)
+	err = ValidationCheck(ctx, database, rawSchema)
 	if err != nil {
 		return nil, fmt.Errorf("could not validate snowflake peer: %w", err)
 	}
