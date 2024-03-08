@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"github.com/PeerDB-io/peer-flow/shared/aws_common"
 	"strings"
 	"unicode"
 
@@ -12,6 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/aws/aws-sdk-go-v2/service/sns/types"
 	"go.temporal.io/sdk/activity"
+
+	"github.com/PeerDB-io/peer-flow/shared/aws_common"
 )
 
 type SNSMessageSender interface {
