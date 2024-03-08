@@ -128,7 +128,6 @@ func TableCheck(ctx context.Context, database *sql.DB, schemaName string) error 
 	}()
 
 	if !schemaExists.Valid || !schemaExists.Bool {
-		slog.Info("Apparently schema " + schemaName + " doesn't exist")
 		// create schema
 		_, err = tx.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, schemaName))
 		if err != nil {
@@ -190,7 +189,6 @@ func NewSnowflakeConnector(
 		return nil, fmt.Errorf("failed to get DSN from Snowflake config: %w", err)
 	}
 
-	fmt.Println(snowflakeConfig)
 	database, err := sql.Open("snowflake", snowflakeConfigDSN)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
