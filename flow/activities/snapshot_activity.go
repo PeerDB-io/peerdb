@@ -32,7 +32,7 @@ func (a *SnapshotActivity) CloseSlotKeepAlive(ctx context.Context, flowJobName s
 		connectors.CloseConnector(ctx, s.connector)
 		delete(a.SnapshotConnections, flowJobName)
 	}
-	a.Alerter.LogFlowEvent(ctx, flowJobName, "Ended Snapshot Flow Job - "+flowJobName)
+	a.Alerter.LogFlowEvent(ctx, flowJobName, "Ended Snapshot Flow Job")
 
 	return nil
 }
@@ -50,7 +50,7 @@ func (a *SnapshotActivity) SetupReplication(
 		return nil, nil
 	}
 
-	a.Alerter.LogFlowEvent(ctx, config.FlowJobName, "Started Snapshot Flow Job - "+config.FlowJobName)
+	a.Alerter.LogFlowEvent(ctx, config.FlowJobName, "Started Snapshot Flow Job")
 
 	conn, err := connectors.GetCDCPullConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {
@@ -84,7 +84,7 @@ func (a *SnapshotActivity) SetupReplication(
 	var slotInfo connpostgres.SlotCreationResult
 	select {
 	case slotInfo = <-slotSignal.SlotCreated:
-		logger.Info("slot created", slotInfo.SlotName)
+		logger.Info("slot created", slog.String("SlotName", slotInfo.SlotName))
 	case err := <-replicationErr:
 		closeConnectionForError(err)
 		return nil, fmt.Errorf("failed to setup replication: %w", err)

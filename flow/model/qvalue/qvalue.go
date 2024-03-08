@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/civil"
@@ -271,11 +272,14 @@ func compareHstore(value1, value2 interface{}) bool {
 		}
 		return string(bytes) == str2
 	case string:
+		if v1 == str2 {
+			return true
+		}
 		parsedHStore1, err := hstore_util.ParseHstore(v1)
 		if err != nil {
 			panic(err)
 		}
-		return parsedHStore1 == str2
+		return parsedHStore1 == strings.ReplaceAll(strings.ReplaceAll(str2, " ", ""), "\n", "")
 	default:
 		panic(fmt.Sprintf("invalid hstore value type %T: %v", value1, value1))
 	}

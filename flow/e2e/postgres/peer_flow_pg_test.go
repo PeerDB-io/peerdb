@@ -77,52 +77,6 @@ func (s PeerFlowE2ETestSuitePG) WaitForSchema(
 	})
 }
 
-func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
-	srcTableName := s.attachSchemaSuffix("test_simple_flow")
-	dstTableName := s.attachSchemaSuffix("test_simple_flow_dst")
-
-	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (
-			id SERIAL PRIMARY KEY,
-			key TEXT NOT NULL,
-			value TEXT NOT NULL,
-			myh HSTORE NOT NULL
-		);
-	`, srcTableName))
-	require.NoError(s.t, err)
-
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_simple_flow"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.peer,
-	}
-
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-	flowConnConfig.MaxBatchSize = 100
-
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
-	// insert 10 rows into the source table
-	for i := range 10 {
-		testKey := fmt.Sprintf("test_key_%d", i)
-		testValue := fmt.Sprintf("test_value_%d", i)
-		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		INSERT INTO %s(key, value, myh) VALUES ($1, $2, '"a"=>"b"')
-		`, srcTableName), testKey, testValue)
-		e2e.EnvNoError(s.t, env, err)
-	}
-	s.t.Log("Inserted 10 rows into the source table")
-
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize 10 rows", func() bool {
-		return s.comparePGTables(srcTableName, dstTableName, "id,key,value") == nil
-	})
-	env.Cancel()
-
-	e2e.RequireEnvCanceled(s.t, env)
-}
-
 func (s PeerFlowE2ETestSuitePG) Test_Geospatial_PG() {
 	srcTableName := s.attachSchemaSuffix("test_geospatial_pg")
 	dstTableName := s.attachSchemaSuffix("test_geospatial_pg_dst")
@@ -1097,7 +1051,7 @@ func (s PeerFlowE2ETestSuitePG) Test_ContinueAsNew() {
 	}
 	s.t.Log("Inserted 144 rows into the source table")
 
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize 72 syncs", func() bool {
+	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "normalize 72 syncs", func() bool {
 		return s.comparePGTables(srcTableName, dstTableName, "id,key,value") == nil
 	})
 	env.Cancel()

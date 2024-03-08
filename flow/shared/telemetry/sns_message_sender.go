@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"strings"
+	"unicode"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -37,7 +38,19 @@ func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, 
 	h := sha256.New()
 	h.Write([]byte(deduplicationString))
 	deduplicationHash := hex.EncodeToString(h.Sum(nil))
-
+	// AWS SNS Subject constraints
+	var messageSubjectBuilder strings.Builder
+	maxSubjectSize := 99
+	for currentLength, char := range subject {
+		if unicode.IsPrint(char) {
+			messageSubjectBuilder.WriteRune(char)
+		} else {
+			messageSubjectBuilder.WriteRune(' ')
+		}
+		if currentLength > maxSubjectSize {
+			break
+		}
+	}
 	publish, err := s.client.Publish(ctx, &sns.PublishInput{
 		Message: aws.String(body),
 		MessageAttributes: map[string]types.MessageAttributeValue{
@@ -66,7 +79,7 @@ func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, 
 				StringValue: aws.String(deduplicationHash),
 			},
 		},
-		Subject:  aws.String(subject[:100]),
+		Subject:  aws.String(messageSubjectBuilder.String()),
 		TopicArn: aws.String(s.topic),
 	})
 	if err != nil {

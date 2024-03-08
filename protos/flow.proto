@@ -367,9 +367,14 @@ message SetupFlowOutput {
   map<string, TableSchema> table_name_schema_mapping = 2;
 }
 
-message AddTablesToPublicationInput{
+message AddTablesToPublicationInput {
   string flow_job_name = 1;
   string publication_name = 2;
   repeated TableMapping additional_tables = 3;
+}
+
+message IsQRepPartitionSyncedInput {
+  string flow_job_name = 1;
+  string partition_id = 2;
 }
 

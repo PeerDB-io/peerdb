@@ -35,16 +35,6 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	}
 	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
 
-	done, err := c.pgMetadata.IsQrepPartitionSynced(ctx, config.FlowJobName, partition.PartitionId)
-	if err != nil {
-		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
-	}
-
-	if done {
-		c.logger.Info("Partition has already been synced", flowLog)
-		return 0, nil
-	}
-
 	avroSync := NewSnowflakeAvroSyncHandler(config, c)
 	return avroSync.SyncQRepRecords(ctx, config, partition, tblSchema, stream)
 }
@@ -281,4 +271,10 @@ func (c *SnowflakeConnector) dropStage(ctx context.Context, stagingPath string, 
 
 func (c *SnowflakeConnector) getStageNameForJob(job string) string {
 	return fmt.Sprintf("%s.peerdb_stage_%s", c.rawSchema, job)
+}
+
+func (c *SnowflakeConnector) IsQRepPartitionSynced(ctx context.Context,
+	req *protos.IsQRepPartitionSyncedInput,
+) (bool, error) {
+	return c.pgMetadata.IsQrepPartitionSynced(ctx, req.FlowJobName, req.PartitionId)
 }

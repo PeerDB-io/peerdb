@@ -119,7 +119,7 @@ func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Contex
 		// fetch the schema for the watermark table
 		watermarkTableSchema, err := q.getTableSchema(ctx, q.config.WatermarkTable)
 		if err != nil {
-			q.logger.Error("failed to fetch schema for watermark table: ", err)
+			q.logger.Error("failed to fetch schema for watermark table", slog.Any("error", err))
 			return fmt.Errorf("failed to fetch schema for watermark table: %w", err)
 		}
 
@@ -161,7 +161,7 @@ func (q *QRepFlowExecution) GetPartitions(
 		return nil, fmt.Errorf("failed to fetch partitions to replicate: %w", err)
 	}
 
-	q.logger.Info("partitions to replicate - ", slog.Int("num_partitions", len(partitions.Partitions)))
+	q.logger.Info("partitions to replicate", slog.Int("num_partitions", len(partitions.Partitions)))
 	return partitions, nil
 }
 
@@ -439,7 +439,7 @@ func QRepFlowWorkflow(
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
 
 		for q.activeSignal == model.PauseSignal {
-			logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
+			logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
 			// only place we block on receive, so signal processing is immediate
 			val, ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute)
 			if ok {
