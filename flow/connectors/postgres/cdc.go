@@ -758,7 +758,7 @@ func (p *PostgresCDCSource) processRelationMessage(
 	}
 
 	p.relationMessageMapping[currRel.RelationID] = currRel
-	// only log audit if there is actually is an actionable delta
+	// only log audit if there is actionable delta
 	if len(schemaDelta.AddedColumns) > 0 {
 		rec := &model.RelationRecord{
 			TableSchemaDelta: schemaDelta,
