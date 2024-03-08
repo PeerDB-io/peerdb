@@ -65,6 +65,8 @@ const (
 
 	checkIfTableExistsSQL = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.TABLES
 	 WHERE TABLE_SCHEMA=? and TABLE_NAME=?`
+	checkIfSchemaExistsSQL = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA
+	 WHERE SCHEMA_NAME=?`
 	getLastOffsetSQL            = "SELECT OFFSET FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	setLastOffsetSQL            = "UPDATE %s.%s SET OFFSET=GREATEST(OFFSET, ?) WHERE MIRROR_JOB_NAME=?"
 	getLastSyncBatchID_SQL      = "SELECT SYNC_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
@@ -100,8 +102,14 @@ type UnchangedToastColumnResult struct {
 	UnchangedToastColumns ArrayString
 }
 
-func TableCheck(ctx context.Context, database *sql.DB) error {
-	dummySchema := "PEERDB_DUMMY_SCHEMA_" + shared.RandomString(4)
+func ValidationCheck(ctx context.Context, database *sql.DB, schemaName string) error {
+	// check if schema exists
+	var schemaExists sql.NullBool
+	err := database.QueryRowContext(ctx, checkIfSchemaExistsSQL, schemaName).Scan(&schemaExists)
+	if err != nil {
+		return fmt.Errorf("error while checking if schema exists: %w", err)
+	}
+
 	dummyTable := "PEERDB_DUMMY_TABLE_" + shared.RandomString(4)
 
 	// In a transaction, create a table, insert a row into the table and then drop the table
@@ -119,34 +127,30 @@ func TableCheck(ctx context.Context, database *sql.DB) error {
 		}
 	}()
 
-	// create schema
-	_, err = tx.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, dummySchema))
-	if err != nil {
-		return fmt.Errorf("failed to create schema: %w", err)
+	if !schemaExists.Valid || !schemaExists.Bool {
+		// create schema
+		_, err = tx.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, schemaName))
+		if err != nil {
+			return fmt.Errorf("failed to create schema %s: %w", schemaName, err)
+		}
 	}
 
 	// create table
-	_, err = tx.ExecContext(ctx, fmt.Sprintf(createDummyTableSQL, dummySchema, dummyTable))
+	_, err = tx.ExecContext(ctx, fmt.Sprintf(createDummyTableSQL, schemaName, dummyTable))
 	if err != nil {
 		return fmt.Errorf("failed to create table: %w", err)
 	}
 
 	// insert row
-	_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s.%s VALUES ('dummy')", dummySchema, dummyTable))
+	_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s.%s VALUES ('dummy')", schemaName, dummyTable))
 	if err != nil {
 		return fmt.Errorf("failed to insert row: %w", err)
 	}
 
 	// drop table
-	_, err = tx.ExecContext(ctx, fmt.Sprintf(dropTableIfExistsSQL, dummySchema, dummyTable))
+	_, err = tx.ExecContext(ctx, fmt.Sprintf(dropTableIfExistsSQL, schemaName, dummyTable))
 	if err != nil {
 		return fmt.Errorf("failed to drop table: %w", err)
-	}
-
-	// drop schema
-	_, err = tx.ExecContext(ctx, fmt.Sprintf(dropSchemaIfExistsSQL, dummySchema))
-	if err != nil {
-		return fmt.Errorf("failed to drop schema: %w", err)
 	}
 
 	// commit transaction
@@ -196,14 +200,14 @@ func NewSnowflakeConnector(
 		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
 	}
 
-	err = TableCheck(ctx, database)
-	if err != nil {
-		return nil, fmt.Errorf("could not validate snowflake peer: %w", err)
-	}
-
 	rawSchema := "_PEERDB_INTERNAL"
 	if snowflakeProtoConfig.MetadataSchema != nil {
 		rawSchema = *snowflakeProtoConfig.MetadataSchema
+	}
+
+	err = ValidationCheck(ctx, database, rawSchema)
+	if err != nil {
+		return nil, fmt.Errorf("could not validate snowflake peer: %w", err)
 	}
 
 	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
@@ -579,9 +583,17 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 }
 
 func (c *SnowflakeConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
-	_, err := c.database.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
+	var schemaExists sql.NullBool
+	err := c.database.QueryRowContext(ctx, checkIfSchemaExistsSQL, c.rawSchema).Scan(&schemaExists)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error while checking if schema %s for raw table exists: %w", c.rawSchema, err)
+	}
+
+	if !schemaExists.Valid || !schemaExists.Bool {
+		_, err := c.database.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	createRawTableTx, err := c.database.BeginTx(ctx, nil)
