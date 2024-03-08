@@ -114,7 +114,7 @@ func (a *Alerter) AlertIfSlotLag(ctx context.Context, peerName string, slotInfo 
 		}
 	}
 
-	alertKey := peerName + "-slot-lag-threshold-exceeded"
+	alertKey := fmt.Sprintf("%s Slot Lag Threshold Exceeded for Peer %s", deploymentUIDPrefix, peerName)
 	alertMessageTemplate := fmt.Sprintf("%sSlot `%s` on peer `%s` has exceeded threshold size of %%dMB, "+
 		`currently at %.2fMB!`, deploymentUIDPrefix, slotInfo.SlotName, peerName, slotInfo.LagInMb)
 
@@ -147,7 +147,7 @@ func (a *Alerter) AlertIfOpenConnections(ctx context.Context, peerName string,
 
 	deploymentUIDPrefix := ""
 	if peerdbenv.PeerDBDeploymentUID() != "" {
-		deploymentUIDPrefix = fmt.Sprintf("[%s] ", peerdbenv.PeerDBDeploymentUID())
+		deploymentUIDPrefix = fmt.Sprintf("[%s] - ", peerdbenv.PeerDBDeploymentUID())
 	}
 
 	// same as with slot lag, use lowest threshold for catalog
@@ -159,7 +159,7 @@ func (a *Alerter) AlertIfOpenConnections(ctx context.Context, peerName string,
 		}
 	}
 
-	alertKey := peerName + "-max-open-connections-threshold-exceeded"
+	alertKey := fmt.Sprintf("%s Max Open Connections Threshold Exceeded for Peer %s", deploymentUIDPrefix, peerName)
 	alertMessageTemplate := fmt.Sprintf("%sOpen connections from PeerDB user `%s` on peer `%s`"+
 		` has exceeded threshold size of %%d connections, currently at %d connections!`,
 		deploymentUIDPrefix, openConnections.UserName, peerName, openConnections.CurrentOpenConnections)

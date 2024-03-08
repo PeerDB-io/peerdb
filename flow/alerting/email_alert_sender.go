@@ -2,9 +2,9 @@ package alerting
 
 import (
 	"context"
+	"github.com/PeerDB-io/peer-flow/shared/aws_common"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ses"
 	"github.com/aws/aws-sdk-go-v2/service/ses/types"
 
@@ -89,15 +89,10 @@ func NewEmailAlertSender(client *ses.Client, config *EmailAlertSenderConfig) Ema
 }
 
 func newSesClient(ctx context.Context, region *string) (*ses.Client, error) {
-	sdkConfig, err := config.LoadDefaultConfig(ctx, func(options *config.LoadOptions) error {
-		if region != nil {
-			options.Region = *region
-		}
-		return nil
-	})
+	sdkConfig, err := aws_common.LoadSdkConfig(ctx, region)
 	if err != nil {
 		return nil, err
 	}
-	snsClient := ses.NewFromConfig(sdkConfig)
+	snsClient := ses.NewFromConfig(*sdkConfig)
 	return snsClient, nil
 }
