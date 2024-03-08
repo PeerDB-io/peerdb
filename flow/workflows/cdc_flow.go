@@ -479,6 +479,7 @@ func CDCFlowWorkflow(
 	})
 	if !parallel {
 		normDoneChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
+		normDoneChan.Drain()
 		normDoneChan.AddToSelector(mainLoopSelector, func(x struct{}, _ bool) {
 			if syncFlowFuture != nil {
 				_ = model.NormalizeDoneSignal.SignalChildWorkflow(ctx, syncFlowFuture, x).Get(ctx, nil)
