@@ -12,13 +12,19 @@ import useSWR from 'swr';
 import { UAlertConfigResponse } from '../dto/AlertDTO';
 import { tableStyle } from '../peers/[peerName]/style';
 import { fetcher } from '../utils/swr';
-import { AlertConfigProps, AlertConfigProps2, NewConfig } from './new';
+import { AlertConfigProps, NewConfig, ServiceType } from './new';
+
 const ServiceIcon = (serviceType: string) => {
-  switch (serviceType.toLowerCase()) {
+  switch (serviceType) {
+    case 'slack':
+      return <Image src='/images/slack.png' height={80} width={80} alt='alt' />;
+    case 'email':
+      return <Image src='/images/email.png' height={80} width={80} alt='alt' />;
     default:
       return <Image src='/images/slack.png' height={80} width={80} alt='alt' />;
   }
 };
+
 const AlertConfigPage: React.FC = () => {
   const {
     data: alerts,
@@ -28,51 +34,35 @@ const AlertConfigPage: React.FC = () => {
     error: any;
     isLoading: boolean;
   } = useSWR('/api/alert-config', fetcher);
+
   const blankAlert: AlertConfigProps = {
-    serviceType: '',
-    authToken: '',
-    channelIdString: '',
-    slotLagGBAlertThreshold: 20,
-    openConnectionsAlertThreshold: 5,
-    forEdit: false,
-  };
-  const blankAlert2: AlertConfigProps2 = {
     serviceType: 'slack',
     alertConfig: {
       email_addresses: [''],
       auth_token: '',
       channel_ids: [''],
       open_connections_alert_threshold: 20,
-      slot_lag_mb_alert_threshold: 5,
+      slot_lag_mb_alert_threshold: 5000,
     },
     forEdit: false,
   };
+
   const [inEditOrAddMode, setInEditOrAddMode] = useState(false);
   const [editAlertConfig, setEditAlertConfig] =
     useState<AlertConfigProps>(blankAlert);
-  const [editAlertConfig2, setEditAlertConfig2] =
-    useState<AlertConfigProps2>(blankAlert2);
+
   const onEdit = (alertConfig: UAlertConfigResponse, id: bigint) => {
     setInEditOrAddMode(true);
     const configJSON = JSON.stringify(alertConfig.service_config);
-    const channelIds: string[] = JSON.parse(configJSON)?.channel_ids;
+
     setEditAlertConfig({
       id,
-      serviceType: alertConfig.service_type,
-      authToken: JSON.parse(configJSON)?.auth_token,
-      channelIdString: channelIds.join(','),
-      slotLagGBAlertThreshold:
-        (JSON.parse(configJSON)?.slot_lag_mb_alert_threshold as number) / 1000,
-      openConnectionsAlertThreshold:
-        JSON.parse(configJSON)?.open_connections_alert_threshold,
+      serviceType: alertConfig.service_type as ServiceType,
+      alertConfig: JSON.parse(configJSON),
       forEdit: true,
     });
-    setEditAlertConfig2({
-      id,
-      serviceType: alertConfig.service_type,
-      alertConfig: alertConfig.service_config,
-    });
   };
+
   return (
     <div style={{ padding: '2rem' }}>
       <Label variant='title3'>Alert Configurations</Label>
@@ -96,9 +86,6 @@ const AlertConfigPage: React.FC = () => {
               {alerts?.length ? (
                 alerts.map((alertConfig: UAlertConfigResponse, index) => (
                   <TableRow key={index}>
-                    <TableCell style={{ width: '10%' }}>
-                      {alertConfig.id}
-                    </TableCell>
                     <TableCell style={{ width: '10%' }}>
                       {ServiceIcon(alertConfig.service_type)}
                     </TableCell>
@@ -158,8 +145,7 @@ const AlertConfigPage: React.FC = () => {
           {inEditOrAddMode ? 'Cancel' : 'Add Configuration'}
         </Label>
       </Button>
-      {/*{inEditOrAddMode && <NewAlertConfig {...editAlertConfig} />}*/}
-      {inEditOrAddMode && <NewConfig {...editAlertConfig2} />}
+      {inEditOrAddMode && <NewConfig {...editAlertConfig} />}
     </div>
   );
 };

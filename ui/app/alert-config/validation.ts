@@ -3,16 +3,16 @@ import z from 'zod';
 const baseServiceConfigSchema = z.object({
   slot_lag_mb_alert_threshold: z
     .number({
-      invalid_type_error: 'Threshold must be a number',
+      invalid_type_error: 'Slot threshold must be a number',
     })
-    .int()
-    .min(0, 'Threshold must be non-negative'),
+    .int({ message: 'Slot threshold must be a valid integer' })
+    .min(0, 'Slot threshold must be non-negative'),
   open_connections_alert_threshold: z
     .number({
       invalid_type_error: 'Threshold must be a number',
     })
-    .int()
-    .min(0, 'Threshold must be non-negative'),
+    .int({ message: 'Connections threshold must be a valid integer' })
+    .min(0, 'Connections threshold must be non-negative'),
 });
 
 const slackServiceConfigSchema = z.intersection(
@@ -52,7 +52,7 @@ export const serviceConfigSchema = z.union([
   emailServiceConfigSchema,
 ]);
 export const alertConfigReqSchema = z.object({
-  id: z.optional(z.number()),
+  id: z.optional(z.number({ invalid_type_error: 'ID must be a valid number' })),
   serviceType: z.enum(['slack', 'email'], {
     errorMap: (issue, ctx) => ({ message: 'Invalid service type' }),
   }),

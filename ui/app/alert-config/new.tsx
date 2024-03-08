@@ -15,21 +15,11 @@ import {
   slackConfigType,
 } from './validation';
 
+export type ServiceType = 'slack' | 'email';
+
 export interface AlertConfigProps {
   id?: bigint;
-  serviceType: string;
-  authToken: string;
-  channelIdString: string;
-  slotLagGBAlertThreshold: number;
-  openConnectionsAlertThreshold: number;
-  forEdit?: boolean;
-}
-
-export type serviceType2 = 'slack' | 'email';
-
-export interface AlertConfigProps2 {
-  id?: bigint;
-  serviceType: serviceType2;
+  serviceType: ServiceType;
   alertConfig: serviceConfigType;
   forEdit?: boolean;
 }
@@ -121,8 +111,8 @@ function getEmailProps(
     </>
   );
 }
-function getExtraProps<T extends serviceConfigType>(
-  serviceType: serviceType2,
+function getServiceFields<T extends serviceConfigType>(
+  serviceType: ServiceType,
   config: T,
   setConfig: Dispatch<SetStateAction<T>>
 ) {
@@ -141,34 +131,34 @@ function getExtraProps<T extends serviceConfigType>(
   }
 }
 
-export function NewConfig(alertProps: AlertConfigProps2) {
-  const [serviceType, setServiceType] = useState<serviceType2>(
+export function NewConfig(alertProps: AlertConfigProps) {
+  const [serviceType, setServiceType] = useState<ServiceType>(
     alertProps.serviceType
   );
 
   const [config, setConfig] = useState<serviceConfigType>(
     alertProps.alertConfig
   );
-  const [slotLagGBAlertThreshold, setSlotLagGBAlertThreshold] =
-    useState<number>(alertProps.alertConfig.slot_lag_mb_alert_threshold);
-  const [openConnectionsAlertThreshold, setOpenConnectionsAlertThreshold] =
-    useState<number>(alertProps.alertConfig.open_connections_alert_threshold);
+
   const [loading, setLoading] = useState(false);
   const handleAdd = async () => {
-    if (serviceType !== 'slack') {
-      notifyErr('Service Type must be selected');
+    if (!serviceType) {
+      notifyErr('Service type must be selected');
       return;
     }
 
     const alertConfigReq: alertConfigType = {
+      id: Number(alertProps.id || -1),
       serviceType: serviceType,
       serviceConfig: config,
     };
+
     const alertReqValidity = alertConfigReqSchema.safeParse(alertConfigReq);
     if (!alertReqValidity.success) {
       notifyErr(alertReqValidity.error.issues[0].message);
       return;
     }
+
     setLoading(true);
     if (alertProps.forEdit) {
       alertConfigReq.id = Number(alertProps.id);
@@ -177,6 +167,7 @@ export function NewConfig(alertProps: AlertConfigProps2) {
       method: alertProps.forEdit ? 'PUT' : 'POST',
       body: JSON.stringify(alertConfigReq),
     });
+
     const createStatus = await createRes.text();
     setLoading(false);
     if (createStatus !== 'success') {
@@ -186,143 +177,7 @@ export function NewConfig(alertProps: AlertConfigProps2) {
 
     window.location.reload();
   };
-  const extraProps = getExtraProps(serviceType, config, setConfig);
-  return (
-    <form onSubmit={handleAdd}>
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          rowGap: '2rem',
-          marginTop: '3rem',
-          width: '40%',
-        }}
-      >
-        <div style={{ width: '50%' }}>
-          <p style={{ marginBottom: '0.5rem' }}>Alert Provider</p>
-          <ReactSelect
-            options={[
-              {
-                value: 'slack',
-                label: 'Slack',
-              },
-              {
-                value: 'email',
-                label: 'Email',
-              },
-            ]}
-            placeholder='Select provider'
-            defaultValue={{
-              value: 'slack',
-              label: 'Slack',
-            }}
-            formatOptionLabel={ConfigLabel}
-            onChange={(val, _) => val && setServiceType(val.value)}
-            theme={SelectTheme}
-          />
-        </div>
-        <div>
-          <p>Slot Lag Alert Threshold (in GB)</p>
-          <TextField
-            style={{ height: '2.5rem', marginTop: '0.5rem' }}
-            variant='simple'
-            type={'number'}
-            placeholder='optional'
-            value={slotLagGBAlertThreshold}
-            onChange={(e) => setSlotLagGBAlertThreshold(e.target.valueAsNumber)}
-          />
-        </div>
-        <div>
-          <p>Open Connections Alert Threshold</p>
-          <TextField
-            style={{ height: '2.5rem', marginTop: '0.5rem' }}
-            variant='simple'
-            type={'number'}
-            placeholder='optional'
-            value={openConnectionsAlertThreshold}
-            onChange={(e) =>
-              setOpenConnectionsAlertThreshold(e.target.valueAsNumber)
-            }
-          />
-        </div>
-        {getExtraProps(serviceType, config, setConfig)}
-        <Button
-          style={{ marginTop: '1rem', width: '20%', height: '2.5rem' }}
-          onClick={handleAdd}
-          type={'submit'}
-          variant='normalSolid'
-        >
-          {loading ? (
-            <PulseLoader color='white' size={10} />
-          ) : alertProps.forEdit ? (
-            'Update'
-          ) : (
-            'Create'
-          )}
-        </Button>
-        <ToastContainer />
-      </div>
-    </form>
-  );
-}
-//
-export const NewAlertConfig = (alertProps: AlertConfigProps) => {
-  const [serviceType, setServiceType] = useState<string>('slack');
-  const [config, setConfig] = useState<serviceConfigType>({
-    auth_token: alertProps.authToken ?? '',
-    channel_ids: alertProps.channelIdString?.split(',')!,
-    slot_lag_mb_alert_threshold:
-      alertProps.slotLagGBAlertThreshold * 1000 || 20000,
-    open_connections_alert_threshold:
-      alertProps.openConnectionsAlertThreshold || 5,
-  });
-  const [authToken, setAuthToken] = useState<string>(alertProps.authToken);
-  const [channelIdString, setChannelIdString] = useState<string>(
-    alertProps.channelIdString
-  );
-  const [slotLagGBAlertThreshold, setSlotLagGBAlertThreshold] =
-    useState<number>(alertProps.slotLagGBAlertThreshold);
-  const [openConnectionsAlertThreshold, setOpenConnectionsAlertThreshold] =
-    useState<number>(alertProps.openConnectionsAlertThreshold);
-  const [loading, setLoading] = useState(false);
-  const handleAdd = async () => {
-    if (serviceType !== 'slack') {
-      notifyErr('Service Type must be selected');
-      return;
-    }
-
-    const alertConfigReq: alertConfigType = {
-      serviceType: serviceType,
-      serviceConfig: {
-        auth_token: authToken ?? '',
-        channel_ids: channelIdString?.split(',')!,
-        slot_lag_mb_alert_threshold: slotLagGBAlertThreshold * 1000 || 20000,
-        open_connections_alert_threshold: openConnectionsAlertThreshold || 5,
-      },
-    };
-    const alertReqValidity = alertConfigReqSchema.safeParse(alertConfigReq);
-    if (!alertReqValidity.success) {
-      notifyErr(alertReqValidity.error.issues[0].message);
-      return;
-    }
-    setLoading(true);
-    if (alertProps.forEdit) {
-      alertConfigReq.id = Number(alertProps.id);
-    }
-    const createRes = await fetch('/api/alert-config', {
-      method: alertProps.forEdit ? 'PUT' : 'POST',
-      body: JSON.stringify(alertConfigReq),
-    });
-    const createStatus = await createRes.text();
-    setLoading(false);
-    if (createStatus !== 'success') {
-      notifyErr('Something went wrong. Please try again');
-      return;
-    }
-
-    window.location.reload();
-  };
-
+  const ServiceFields = getServiceFields(serviceType, config, setConfig);
   return (
     <div
       style={{
@@ -341,6 +196,10 @@ export const NewAlertConfig = (alertProps: AlertConfigProps) => {
               value: 'slack',
               label: 'Slack',
             },
+            {
+              value: 'email',
+              label: 'Email',
+            },
           ]}
           placeholder='Select provider'
           defaultValue={{
@@ -348,32 +207,10 @@ export const NewAlertConfig = (alertProps: AlertConfigProps) => {
             label: 'Slack',
           }}
           formatOptionLabel={ConfigLabel}
-          onChange={(val, _) => val && setServiceType(val.value)}
+          onChange={(val, _) => val && setServiceType(val.value as ServiceType)}
           theme={SelectTheme}
         />
       </div>
-      <div>
-        <p>Authorisation Token</p>
-        <TextField
-          style={{ height: '2.5rem', marginTop: '0.5rem' }}
-          variant='simple'
-          placeholder='Auth Token'
-          value={authToken}
-          onChange={(e) => setAuthToken(e.target.value)}
-        />
-      </div>
-
-      <div>
-        <p>Channel IDs</p>
-        <TextField
-          style={{ height: '2.5rem', marginTop: '0.5rem' }}
-          variant='simple'
-          placeholder='Comma separated'
-          value={channelIdString}
-          onChange={(e) => setChannelIdString(e.target.value)}
-        />
-      </div>
-
       <div>
         <p>Slot Lag Alert Threshold (in GB)</p>
         <TextField
@@ -381,11 +218,15 @@ export const NewAlertConfig = (alertProps: AlertConfigProps) => {
           variant='simple'
           type={'number'}
           placeholder='optional'
-          value={slotLagGBAlertThreshold}
-          onChange={(e) => setSlotLagGBAlertThreshold(e.target.valueAsNumber)}
+          value={config.slot_lag_mb_alert_threshold / 1000}
+          onChange={(e) =>
+            setConfig((previous) => ({
+              ...previous,
+              slot_lag_mb_alert_threshold: e.target.valueAsNumber * 1000,
+            }))
+          }
         />
       </div>
-
       <div>
         <p>Open Connections Alert Threshold</p>
         <TextField
@@ -393,13 +234,16 @@ export const NewAlertConfig = (alertProps: AlertConfigProps) => {
           variant='simple'
           type={'number'}
           placeholder='optional'
-          value={openConnectionsAlertThreshold}
+          value={config.open_connections_alert_threshold}
           onChange={(e) =>
-            setOpenConnectionsAlertThreshold(e.target.valueAsNumber)
+            setConfig((previous) => ({
+              ...previous,
+              open_connections_alert_threshold: e.target.valueAsNumber,
+            }))
           }
         />
       </div>
-
+      {ServiceFields}
       <Button
         style={{ marginTop: '1rem', width: '20%', height: '2.5rem' }}
         onClick={handleAdd}
@@ -416,6 +260,6 @@ export const NewAlertConfig = (alertProps: AlertConfigProps) => {
       <ToastContainer />
     </div>
   );
-};
+}
 
 export default NewConfig;
