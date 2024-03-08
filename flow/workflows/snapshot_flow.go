@@ -188,7 +188,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 	s.logger.Info(fmt.Sprintf("cloning tables for slot name %s and snapshotName %s",
 		slotInfo.SlotName, slotInfo.SnapshotName))
 
-	boundSelector := concurrency.NewBoundSelector(maxParallelClones)
+	boundSelector := concurrency.NewBoundSelector(ctx, maxParallelClones)
 
 	for _, v := range s.config.TableMappings {
 		source := v.SourceTableIdentifier
