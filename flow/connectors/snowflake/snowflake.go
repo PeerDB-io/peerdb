@@ -110,21 +110,6 @@ func TableCheck(ctx context.Context, database *sql.DB, schemaName string) error 
 		return fmt.Errorf("error while checking if schema exists: %w", err)
 	}
 
-	rows, err := database.QueryContext(ctx, "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA;")
-	if err != nil {
-		return fmt.Errorf("error while checking if schema exists: %w", err)
-	}
-
-	for rows.Next() {
-		var schema string
-		err := rows.Scan(&schema)
-		if err != nil {
-			return fmt.Errorf("error getting schema")
-		}
-
-		slog.Info(schema)
-	}
-
 	dummyTable := "PEERDB_DUMMY_TABLE_" + shared.RandomString(4)
 
 	// In a transaction, create a table, insert a row into the table and then drop the table
