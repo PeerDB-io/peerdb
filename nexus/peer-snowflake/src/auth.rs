@@ -96,7 +96,6 @@ impl SnowflakeAuth {
             "SHA256:{}",
             BASE64_STANDARD.encode(Sha256::new_with_prefix(public_key.as_bytes()).finalize())
         );
-        println!("{}", res);
         Ok(res)
     }
 
