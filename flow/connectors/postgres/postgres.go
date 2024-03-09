@@ -30,18 +30,19 @@ import (
 )
 
 type PostgresConnector struct {
-	connStr            string
-	config             *protos.PostgresConfig
-	ssh                *SSHTunnel
-	conn               *pgx.Conn
-	replConfig         *pgx.ConnConfig
-	replConn           *pgx.Conn
-	replState          *ReplState
-	replLock           sync.Mutex
-	customTypesMapping map[uint32]string
-	metadataSchema     string
-	hushWarnOID        map[uint32]struct{}
-	logger             log.Logger
+	connStr                string
+	config                 *protos.PostgresConfig
+	ssh                    *SSHTunnel
+	conn                   *pgx.Conn
+	replConfig             *pgx.ConnConfig
+	replConn               *pgx.Conn
+	replState              *ReplState
+	replLock               sync.Mutex
+	customTypesMapping     map[uint32]string
+	metadataSchema         string
+	hushWarnOID            map[uint32]struct{}
+	logger                 log.Logger
+	relationMessageMapping model.RelationMessageMapping
 }
 
 type ReplState struct {
@@ -90,17 +91,18 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	}
 
 	return &PostgresConnector{
-		connStr:            connectionString,
-		config:             pgConfig,
-		ssh:                tunnel,
-		conn:               conn,
-		replConfig:         replConfig,
-		replState:          nil,
-		replLock:           sync.Mutex{},
-		customTypesMapping: customTypeMap,
-		metadataSchema:     metadataSchema,
-		hushWarnOID:        make(map[uint32]struct{}),
-		logger:             logger.LoggerFromCtx(ctx),
+		connStr:                connectionString,
+		config:                 pgConfig,
+		ssh:                    tunnel,
+		conn:                   conn,
+		replConfig:             replConfig,
+		replState:              nil,
+		replLock:               sync.Mutex{},
+		customTypesMapping:     customTypeMap,
+		metadataSchema:         metadataSchema,
+		hushWarnOID:            make(map[uint32]struct{}),
+		logger:                 logger.LoggerFromCtx(ctx),
+		relationMessageMapping: make(model.RelationMessageMapping),
 	}, nil
 }
 
@@ -356,10 +358,11 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 		Slot:                   slotName,
 		Publication:            publicationName,
 		TableNameMapping:       req.TableNameMapping,
-		RelationMessageMapping: req.RelationMessageMapping,
+		TableNameSchemaMapping: req.TableNameSchemaMapping,
 		ChildToParentRelIDMap:  childToParentRelIDMap,
 		CatalogPool:            catalogPool,
 		FlowJobName:            req.FlowJobName,
+		RelationMessageMapping: c.relationMessageMapping,
 	})
 
 	err = cdc.PullRecords(ctx, req)
@@ -476,11 +479,6 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 		}
 	}
 
-	err := c.ReplayTableSchemaDeltas(ctx, req.FlowJobName, req.Records.SchemaDeltas)
-	if err != nil {
-		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
-	}
-
 	syncRecordsTx, err := c.conn.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error starting transaction for syncing records: %w", err)
@@ -519,6 +517,11 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 	err = syncRecordsTx.Commit(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	err = c.ReplayTableSchemaDeltas(ctx, req.FlowJobName, req.Records.SchemaDeltas)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
 	return &model.SyncResponse{

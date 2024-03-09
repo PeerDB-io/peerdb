@@ -3,6 +3,8 @@ package model
 import (
 	"time"
 
+	"github.com/jackc/pglogrepl"
+
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
@@ -38,8 +40,6 @@ type PullRecordsRequest struct {
 	OverridePublicationName string
 	// override replication slot name
 	OverrideReplicationSlotName string
-	// for supporting schema changes
-	RelationMessageMapping RelationMessageMapping
 	// record batch for pushing changes into
 	RecordStream *CDCRecordStream
 }
@@ -187,8 +187,6 @@ type SyncResponse struct {
 	TableNameRowsMapping map[string]uint32
 	// to be carried to parent workflow
 	TableSchemaDeltas []*protos.TableSchemaDelta
-	// to be stored in state for future PullFlows
-	RelationMessageMapping RelationMessageMapping
 }
 
 type NormalizePayload struct {
@@ -223,4 +221,4 @@ func (r *RelationRecord) GetItems() *RecordItems {
 	return nil
 }
 
-type RelationMessageMapping map[uint32]*protos.RelationMessage
+type RelationMessageMapping map[uint32]*pglogrepl.RelationMessage

@@ -322,10 +322,6 @@ func (a *FlowableActivity) SyncFlow(
 
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
-		if options.RelationMessageMapping == nil {
-			options.RelationMessageMapping = make(map[uint32]*protos.RelationMessage)
-		}
-
 		return srcConn.PullRecords(errCtx, a.CatalogPool, &model.PullRecordsRequest{
 			FlowJobName:           flowName,
 			SrcTableIDNameMapping: options.SrcTableIdNameMapping,
@@ -338,7 +334,6 @@ func (a *FlowableActivity) SyncFlow(
 			TableNameSchemaMapping:      options.TableNameSchemaMapping,
 			OverridePublicationName:     config.PublicationName,
 			OverrideReplicationSlotName: config.ReplicationSlotName,
-			RelationMessageMapping:      options.RelationMessageMapping,
 			RecordStream:                recordBatch,
 		})
 	})
@@ -361,9 +356,8 @@ func (a *FlowableActivity) SyncFlow(
 		}
 
 		return &model.SyncResponse{
-			CurrentSyncBatchID:     -1,
-			TableSchemaDeltas:      recordBatch.SchemaDeltas,
-			RelationMessageMapping: options.RelationMessageMapping,
+			CurrentSyncBatchID: -1,
+			TableSchemaDeltas:  recordBatch.SchemaDeltas,
 		}, nil
 	}
 
@@ -401,7 +395,6 @@ func (a *FlowableActivity) SyncFlow(
 			a.Alerter.LogFlowError(ctx, flowName, err)
 			return fmt.Errorf("failed to push records: %w", err)
 		}
-		res.RelationMessageMapping = options.RelationMessageMapping
 
 		return nil
 	})

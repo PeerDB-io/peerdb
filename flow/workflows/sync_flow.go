@@ -121,7 +121,6 @@ func SyncFlowWorkflow(
 					"",
 					childSyncFlowRes,
 				).Get(ctx, nil)
-				options.RelationMessageMapping = childSyncFlowRes.RelationMessageMapping
 				totalRecordsSynced += childSyncFlowRes.NumRecordsSynced
 				logger.Info("Total records synced: ",
 					slog.Int64("totalRecordsSynced", totalRecordsSynced))
