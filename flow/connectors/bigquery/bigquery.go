@@ -486,7 +486,7 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 	}
 
 	for batchId := normBatchID + 1; batchId <= req.SyncBatchID; batchId++ {
-		mergeErr := c.MergeTablesInThisBatch(ctx, batchId,
+		mergeErr := c.mergeTablesInThisBatch(ctx, batchId,
 			req.FlowJobName, rawTableName, req.TableNameSchemaMapping,
 			&protos.PeerDBColumns{
 				SoftDeleteColName: req.SoftDeleteColName,
@@ -510,7 +510,7 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 	}, nil
 }
 
-func (c *BigQueryConnector) MergeTablesInThisBatch(
+func (c *BigQueryConnector) mergeTablesInThisBatch(
 	ctx context.Context,
 	batchId int64,
 	flowName string,
@@ -548,7 +548,7 @@ func (c *BigQueryConnector) MergeTablesInThisBatch(
 			dstTableName:          tableName,
 			dstDatasetTable:       dstDatasetTable,
 			normalizedTableSchema: tableToSchema[tableName],
-			batchIdForThisMerge:   batchId,
+			mergeBatchId:          batchId,
 			peerdbCols:            peerdbColumns,
 			shortColumn:           map[string]string{},
 		}
