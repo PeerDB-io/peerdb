@@ -79,6 +79,7 @@ func SyncFlowWorkflow(
 		waitSelector = workflow.NewNamedSelector(ctx, "NormalizeWait")
 		waitSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 		waitChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
+		waitChan.Drain()
 		waitChan.AddToSelector(waitSelector, func(_ struct{}, _ bool) {})
 		stopChan.AddToSelector(waitSelector, func(_ struct{}, _ bool) {
 			stop = true
