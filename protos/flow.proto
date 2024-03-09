@@ -10,6 +10,20 @@ message TableNameMapping {
   string destination_table_name = 2;
 }
 
+// deprecated
+message RelationMessageColumn {
+  uint32 flags = 1;
+  string name = 2;
+  uint32 data_type = 3;
+}
+
+// deprecated
+message RelationMessage {
+  uint32 relation_id = 1;
+  string relation_name = 2;
+  repeated RelationMessageColumn columns = 3;
+}
+
 message TableMapping {
   string source_table_identifier = 1;
   string destination_table_identifier = 2;
@@ -87,6 +101,8 @@ message CreateTablesFromExistingOutput {
 
 message SyncFlowOptions {
   uint32 batch_size = 1;
+  // deprecated field
+  map<uint32, RelationMessage> relation_message_mapping = 2;
   uint64 idle_timeout_seconds = 3;
   map<uint32, string> src_table_id_name_mapping = 4;
   map<string, TableSchema> table_name_schema_mapping = 5;
