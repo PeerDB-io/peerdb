@@ -497,7 +497,7 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 			return nil, err
 		}
 
-		err = c.pgMetadata.UpdateNormalizeBatchID(ctx, req.FlowJobName, req.SyncBatchID)
+		err = c.pgMetadata.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId)
 		if err != nil {
 			return nil, err
 		}
