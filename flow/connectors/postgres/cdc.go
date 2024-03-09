@@ -705,8 +705,9 @@ func (p *PostgresCDCSource) processRelationMessage(
 	currRel *pglogrepl.RelationMessage,
 ) (model.Record, error) {
 	// not present in tables to sync, return immediately
-	p.logger.Warn("hello!", slog.Any("mapping", p.srcTableIDNameMapping), slog.Any("currRel", currRel))
 	if _, ok := p.srcTableIDNameMapping[currRel.RelationID]; !ok {
+		p.logger.Info("relid not present in srcTableIDNameMapping, skipping relation message",
+			slog.Uint64("relId", uint64(currRel.RelationID)))
 		return nil, nil
 	}
 
