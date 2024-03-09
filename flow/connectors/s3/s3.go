@@ -90,11 +90,6 @@ func (c *S3Connector) Close() error {
 }
 
 func ValidCheck(ctx context.Context, s3Client *s3.Client, bucketURL string, metadataDB *metadataStore.PostgresMetadataStore) error {
-	_, listErr := s3Client.ListBuckets(ctx, nil)
-	if listErr != nil {
-		return fmt.Errorf("failed to list buckets: %w", listErr)
-	}
-
 	reader := strings.NewReader(time.Now().Format(time.RFC3339))
 
 	bucketPrefix, parseErr := utils.NewS3BucketAndPrefix(bucketURL)

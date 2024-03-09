@@ -64,9 +64,17 @@ func (c *SnowflakeConnector) getTableSchema(ctx context.Context, tableName strin
 }
 
 func (c *SnowflakeConnector) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {
-	_, err := c.database.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
+	var schemaExists sql.NullBool
+	err := c.database.QueryRowContext(ctx, checkIfSchemaExistsSQL, c.rawSchema).Scan(&schemaExists)
 	if err != nil {
-		return err
+		return fmt.Errorf("error while checking if schema %s for raw table exists: %w", c.rawSchema, err)
+	}
+
+	if !schemaExists.Valid || !schemaExists.Bool {
+		_, err := c.database.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
+		if err != nil {
+			return err
+		}
 	}
 
 	stageName := c.getStageNameForJob(config.FlowJobName)
