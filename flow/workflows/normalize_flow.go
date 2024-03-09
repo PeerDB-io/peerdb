@@ -104,7 +104,7 @@ func NormalizeFlowWorkflow(
 		}
 	}
 
-	if !state.Stop {
+	if ctx.Err() == nil && !state.Stop {
 		parallel := GetSideEffect(ctx, func(_ workflow.Context) bool {
 			return peerdbenv.PeerDBEnableParallelSyncNormalize()
 		})
