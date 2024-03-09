@@ -499,7 +499,7 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 	}
 
 	for batchId := normBatchID + 1; batchId <= req.SyncBatchID; batchId++ {
-		mergeErr := c.MergeTablesInBatch(ctx, batchId,
+		mergeErr := c.mergeTablesForBatch(ctx, batchId,
 			req.FlowJobName, req.TableNameSchemaMapping,
 			&protos.PeerDBColumns{
 				SoftDelete:        req.SoftDelete,
@@ -524,7 +524,7 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 	}, nil
 }
 
-func (c *SnowflakeConnector) MergeTablesInBatch(
+func (c *SnowflakeConnector) mergeTablesForBatch(
 	ctx context.Context,
 	batchId int64,
 	flowName string,
@@ -554,7 +554,7 @@ func (c *SnowflakeConnector) MergeTablesInBatch(
 			mergeGen := &mergeStmtGenerator{
 				rawTableName:          getRawTableIdentifier(flowName),
 				dstTableName:          tableName,
-				batchIdForThisMerge:   batchId,
+				mergeBatchId:          batchId,
 				normalizedTableSchema: tableToSchema[tableName],
 				unchangedToastColumns: tableNameToUnchangedToastCols[tableName],
 				peerdbCols:            peerdbCols,

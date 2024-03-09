@@ -16,7 +16,7 @@ type mergeStmtGenerator struct {
 	// destination table name, used to retrieve records from raw table
 	dstTableName string
 	// Id of the currently merging batch
-	batchIdForThisMerge int64
+	mergeBatchId int64
 	// the schema of the table to merge into
 	normalizedTableSchema *protos.TableSchema
 	// array of toast column combinations that are unchanged
@@ -134,7 +134,7 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 	}
 
 	mergeStatement := fmt.Sprintf(mergeStatementSQL, snowflakeSchemaTableNormalize(parsedDstTable),
-		toVariantColumnName, m.rawTableName, m.batchIdForThisMerge, flattenedCastsSQL,
+		toVariantColumnName, m.rawTableName, m.mergeBatchId, flattenedCastsSQL,
 		fmt.Sprintf("(%s)", strings.Join(normalizedpkeyColsArray, ",")),
 		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
 
