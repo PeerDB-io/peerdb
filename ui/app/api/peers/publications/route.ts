@@ -1,4 +1,5 @@
-import { USchemasResponse } from '@/app/dto/PeersDTO';
+import { UPublicationsResponse } from '@/app/dto/PeersDTO';
+import { PeerPublicationsResponse } from '@/grpc_generated/route';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 
 export async function POST(request: Request) {
@@ -6,13 +7,13 @@ export async function POST(request: Request) {
   const { peerName } = body;
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
   try {
-    const schemaList = await fetch(
-      `${flowServiceAddr}/v1/peers/schemas?peer_name=${peerName}`
+    const publicationList: PeerPublicationsResponse = await fetch(
+      `${flowServiceAddr}/v1/peers/publications?peer_name=${peerName}`
     ).then((res) => {
       return res.json();
     });
-    let response: USchemasResponse = {
-      schemas: schemaList.schemas,
+    let response: UPublicationsResponse = {
+      publicationNames: publicationList.publicationNames,
     };
     return new Response(JSON.stringify(response));
   } catch (e) {
