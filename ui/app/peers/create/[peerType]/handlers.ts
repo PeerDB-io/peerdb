@@ -71,7 +71,7 @@ const validateFields = (
 export const handleValidate = async (
   type: string,
   config: PeerConfig,
-  notify: (msg: string) => void,
+  notify: (msg: string, success?: boolean) => void,
   setLoading: Dispatch<SetStateAction<boolean>>,
   name?: string
 ) => {
@@ -93,7 +93,7 @@ export const handleValidate = async (
     setLoading(false);
     return;
   }
-  notify('Peer is valid');
+  notify('Peer is valid', true);
   setLoading(false);
 };
 

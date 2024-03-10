@@ -30,33 +30,48 @@ type CreateConfigProps = {
   params: { peerType: string };
 };
 
-const notifyErr = (errMsg: string) => {
-  toast.error(errMsg, {
-    position: 'bottom-center',
-  });
+const notify = (msg: string, success?: boolean) => {
+  if (success) {
+    toast.success(msg, {
+      position: 'bottom-center',
+      autoClose: 1000,
+    });
+  } else {
+    toast.error(msg, {
+      position: 'bottom-center',
+      autoClose: 1000,
+    });
+  }
 };
 
 export default function CreateConfig({
   params: { peerType },
 }: CreateConfigProps) {
   const router = useRouter();
-  const dbType = peerType;
-  const blankSetting = getBlankSetting(dbType);
+  const blankSetting = getBlankSetting(peerType);
   const [name, setName] = useState<string>('');
   const [config, setConfig] = useState<PeerConfig>(blankSetting);
   const [loading, setLoading] = useState<boolean>(false);
-  const configComponentMap = (dbType: string) => {
-    if (dbType.includes('POSTGRESQL')) {
+
+  const getDBType = () => {
+    if (peerType.includes('POSTGRESQL')) {
+      return 'POSTGRES';
+    }
+    return peerType;
+  };
+
+  const configComponentMap = (peerType: string) => {
+    if (peerType.includes('POSTGRESQL')) {
       return (
         <PostgresForm
           settings={postgresSetting}
           setter={setConfig}
-          type={dbType}
+          type={peerType}
         />
       );
     }
 
-    switch (dbType) {
+    switch (peerType) {
       case 'SNOWFLAKE':
         return <SnowflakeForm settings={snowflakeSetting} setter={setConfig} />;
       case 'BIGQUERY':
@@ -89,7 +104,7 @@ export default function CreateConfig({
     >
       <Panel style={{ rowGap: '0.5rem' }}>
         <Label variant='title3' as='label' style={{ marginBottom: '2rem' }}>
-          Setup a {TitleCase(dbType.toUpperCase().replace(/%20/g, ' '))} peer
+          Setup a {TitleCase(peerType.toUpperCase().replace(/%20/g, ' '))} peer
         </Label>
 
         <GuideForDestinationSetup createPeerType={peerType} />
@@ -123,7 +138,7 @@ export default function CreateConfig({
         <Label colorName='lowContrast' variant='subheadline'>
           Configuration
         </Label>
-        {configComponentMap(dbType)}
+        {configComponentMap(peerType)}
 
         <ButtonGroup>
           <Button as={Link} href='/peers/create'>
@@ -132,7 +147,7 @@ export default function CreateConfig({
           <Button
             style={{ backgroundColor: 'gold' }}
             onClick={() =>
-              handleValidate(dbType, config, notifyErr, setLoading, name)
+              handleValidate(getDBType(), config, notify, setLoading, name)
             }
           >
             Validate
@@ -141,9 +156,9 @@ export default function CreateConfig({
             variant='normalSolid'
             onClick={() =>
               handleCreate(
-                dbType,
+                getDBType(),
                 config,
-                notifyErr,
+                notify,
                 setLoading,
                 listPeersRoute,
                 name

@@ -8,7 +8,6 @@ const GuideForDestinationSetup = ({
   createPeerType: string;
 }) => {
   const linkForDst = () => {
-    console.log(peerType);
     switch (peerType.toUpperCase().replace(/%20/g, ' ')) {
       case 'SNOWFLAKE':
         return 'https://docs.peerdb.io/connect/snowflake';
