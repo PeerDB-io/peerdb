@@ -18,12 +18,12 @@ import { InfoPopover } from '../InfoPopover';
 interface ConfigProps {
   settings: PeerSetting[];
   setter: PeerSetter;
+  type: string;
 }
 
-export default function PostgresForm({ settings, setter }: ConfigProps) {
+export default function PostgresForm({ settings, setter, type }: ConfigProps) {
   const [showSSH, setShowSSH] = useState<boolean>(false);
   const [sshConfig, setSSHConfig] = useState<SSHConfig>(blankSSHConfig);
-
   const handleFile = (
     file: File,
     setFile: (value: string, configSetter: sshSetter) => void

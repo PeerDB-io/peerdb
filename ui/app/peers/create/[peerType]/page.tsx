@@ -7,6 +7,7 @@ import PostgresForm from '@/components/PeerForms/PostgresForm';
 import S3Form from '@/components/PeerForms/S3Form';
 import SnowflakeForm from '@/components/PeerForms/SnowflakeForm';
 
+import TitleCase from '@/app/utils/titlecase';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
 import { Label } from '@/lib/Label';
@@ -17,6 +18,8 @@ import { Tooltip } from '@/lib/Tooltip';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { ToastContainer, toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 import { handleCreate, handleValidate } from './handlers';
 import { clickhouseSetting } from './helpers/ch';
 import { getBlankSetting } from './helpers/common';
@@ -27,6 +30,12 @@ type CreateConfigProps = {
   params: { peerType: string };
 };
 
+const notifyErr = (errMsg: string) => {
+  toast.error(errMsg, {
+    position: 'bottom-center',
+  });
+};
+
 export default function CreateConfig({
   params: { peerType },
 }: CreateConfigProps) {
@@ -35,15 +44,19 @@ export default function CreateConfig({
   const blankSetting = getBlankSetting(dbType);
   const [name, setName] = useState<string>('');
   const [config, setConfig] = useState<PeerConfig>(blankSetting);
-  const [formMessage, setFormMessage] = useState<{ ok: boolean; msg: string }>({
-    ok: true,
-    msg: '',
-  });
   const [loading, setLoading] = useState<boolean>(false);
   const configComponentMap = (dbType: string) => {
+    if (dbType.includes('POSTGRESQL')) {
+      return (
+        <PostgresForm
+          settings={postgresSetting}
+          setter={setConfig}
+          type={dbType}
+        />
+      );
+    }
+
     switch (dbType) {
-      case 'POSTGRES':
-        return <PostgresForm settings={postgresSetting} setter={setConfig} />;
       case 'SNOWFLAKE':
         return <SnowflakeForm settings={snowflakeSetting} setter={setConfig} />;
       case 'BIGQUERY':
@@ -76,11 +89,10 @@ export default function CreateConfig({
     >
       <Panel style={{ rowGap: '0.5rem' }}>
         <Label variant='title3' as='label' style={{ marginBottom: '2rem' }}>
-          Setup a new{' '}
-          {dbType.charAt(0).toUpperCase() + dbType.slice(1).toLowerCase()} peer
+          Setup a {TitleCase(dbType.toUpperCase().replace(/%20/g, ' '))} peer
         </Label>
 
-        <GuideForDestinationSetup dstPeerType={peerType} />
+        <GuideForDestinationSetup createPeerType={peerType} />
 
         <RowWithTextField
           label={
@@ -120,7 +132,7 @@ export default function CreateConfig({
           <Button
             style={{ backgroundColor: 'gold' }}
             onClick={() =>
-              handleValidate(dbType, config, setFormMessage, setLoading, name)
+              handleValidate(dbType, config, notifyErr, setLoading, name)
             }
           >
             Validate
@@ -131,7 +143,7 @@ export default function CreateConfig({
               handleCreate(
                 dbType,
                 config,
-                setFormMessage,
+                notifyErr,
                 setLoading,
                 listPeersRoute,
                 name
@@ -151,15 +163,7 @@ export default function CreateConfig({
               Validating...
             </Label>
           )}
-          {!loading && formMessage.msg.length > 0 && (
-            <Label
-              colorName='lowContrast'
-              colorSet={formMessage.ok === true ? 'positive' : 'destructive'}
-              variant='subheadline'
-            >
-              {formMessage.msg}
-            </Label>
-          )}
+          <ToastContainer />
         </Panel>
       </Panel>
     </div>

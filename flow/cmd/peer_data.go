@@ -92,7 +92,8 @@ func (h *FlowRequestHandler) GetTablesInSchema(
     CASE
         WHEN con.contype = 'p' OR t.relreplident = 'i' OR t.relreplident = 'f' THEN true
         ELSE false
-    END AS can_mirror
+    END AS can_mirror,
+	pg_size_pretty(pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(t.relname))) :: text AS table_size
 	FROM
 		pg_class t
 	LEFT JOIN
@@ -108,6 +109,7 @@ func (h *FlowRequestHandler) GetTablesInSchema(
     can_mirror DESC;
 `, req.SchemaName)
 	if err != nil {
+		slog.Info("failed to fetch publications", slog.Any("error", err))
 		return &protos.SchemaTablesResponse{Tables: nil}, err
 	}
 
@@ -116,9 +118,14 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	for rows.Next() {
 		var table pgtype.Text
 		var hasPkeyOrReplica pgtype.Bool
-		err := rows.Scan(&table, &hasPkeyOrReplica)
+		var tableSize pgtype.Text
+		err := rows.Scan(&table, &hasPkeyOrReplica, &tableSize)
 		if err != nil {
 			return &protos.SchemaTablesResponse{Tables: nil}, err
+		}
+		var sizeOfTable string
+		if tableSize.Valid {
+			sizeOfTable = tableSize.String
 		}
 		canMirror := false
 		if hasPkeyOrReplica.Valid && hasPkeyOrReplica.Bool {
@@ -128,7 +135,13 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 		tables = append(tables, &protos.TableResponse{
 			TableName: table.String,
 			CanMirror: canMirror,
+			TableSize: sizeOfTable,
 		})
+	}
+
+	if err := rows.Err(); err != nil {
+		slog.Info("failed to fetch publications", slog.Any("error", err))
+		return &protos.SchemaTablesResponse{Tables: nil}, err
 	}
 	return &protos.SchemaTablesResponse{Tables: tables}, nil
 }
@@ -324,4 +337,27 @@ func (h *FlowRequestHandler) GetStatInfo(
 	return &protos.PeerStatResponse{
 		StatData: statInfoRows,
 	}, nil
+}
+
+func (h *FlowRequestHandler) GetPublications(
+	ctx context.Context,
+	req *protos.PostgresPeerActivityInfoRequest,
+) (*protos.PeerPublicationsResponse, error) {
+	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
+	if err != nil {
+		return &protos.PeerPublicationsResponse{PublicationNames: nil}, err
+	}
+	defer tunnel.Close()
+	defer peerConn.Close(ctx)
+
+	rows, err := peerConn.Query(ctx, "select pubname from pg_publication;")
+	if err != nil {
+		return &protos.PeerPublicationsResponse{PublicationNames: nil}, err
+	}
+
+	publications, err := pgx.CollectRows[string](rows, pgx.RowTo)
+	if err != nil {
+		return &protos.PeerPublicationsResponse{PublicationNames: nil}, err
+	}
+	return &protos.PeerPublicationsResponse{PublicationNames: publications}, nil
 }

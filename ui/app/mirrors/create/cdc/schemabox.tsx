@@ -237,6 +237,13 @@ const SchemaBox = ({
                             >
                               {row.source}
                             </Label>
+                            <Label
+                              as='label'
+                              colorName='lowContrast'
+                              style={{ fontSize: 13 }}
+                            >
+                              {row.tableSize}
+                            </Label>
                           </Tooltip>
                         }
                         action={
