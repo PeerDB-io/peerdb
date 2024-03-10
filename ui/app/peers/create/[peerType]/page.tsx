@@ -7,6 +7,7 @@ import PostgresForm from '@/components/PeerForms/PostgresForm';
 import S3Form from '@/components/PeerForms/S3Form';
 import SnowflakeForm from '@/components/PeerForms/SnowflakeForm';
 
+import TitleCase from '@/app/utils/titlecase';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
 import { Label } from '@/lib/Label';
@@ -45,9 +46,17 @@ export default function CreateConfig({
   const [config, setConfig] = useState<PeerConfig>(blankSetting);
   const [loading, setLoading] = useState<boolean>(false);
   const configComponentMap = (dbType: string) => {
+    if (dbType.includes('POSTGRESQL')) {
+      return (
+        <PostgresForm
+          settings={postgresSetting}
+          setter={setConfig}
+          type={dbType}
+        />
+      );
+    }
+
     switch (dbType) {
-      case 'POSTGRES':
-        return <PostgresForm settings={postgresSetting} setter={setConfig} />;
       case 'SNOWFLAKE':
         return <SnowflakeForm settings={snowflakeSetting} setter={setConfig} />;
       case 'BIGQUERY':
@@ -80,11 +89,10 @@ export default function CreateConfig({
     >
       <Panel style={{ rowGap: '0.5rem' }}>
         <Label variant='title3' as='label' style={{ marginBottom: '2rem' }}>
-          Setup a new{' '}
-          {dbType.charAt(0).toUpperCase() + dbType.slice(1).toLowerCase()} peer
+          Setup a {TitleCase(dbType.toUpperCase().replace(/%20/g, ' '))} peer
         </Label>
 
-        <GuideForDestinationSetup dstPeerType={peerType} />
+        <GuideForDestinationSetup createPeerType={peerType} />
 
         <RowWithTextField
           label={
