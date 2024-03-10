@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/aws/smithy-go/ptr"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/snowflakedb/gosnowflake"
 	"go.temporal.io/sdk/activity"
@@ -173,6 +174,9 @@ func NewSnowflakeConnector(
 		return nil, err
 	}
 
+	additionalParams := make(map[string]*string)
+	additionalParams["CLIENT_SESSION_KEEP_ALIVE"] = ptr.String("true")
+
 	snowflakeConfig := gosnowflake.Config{
 		Account:          snowflakeProtoConfig.AccountId,
 		User:             snowflakeProtoConfig.Username,
@@ -183,7 +187,9 @@ func NewSnowflakeConnector(
 		Role:             snowflakeProtoConfig.Role,
 		RequestTimeout:   time.Duration(snowflakeProtoConfig.QueryTimeout),
 		DisableTelemetry: true,
+		Params:           additionalParams,
 	}
+
 	snowflakeConfigDSN, err := gosnowflake.DSN(&snowflakeConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get DSN from Snowflake config: %w", err)
