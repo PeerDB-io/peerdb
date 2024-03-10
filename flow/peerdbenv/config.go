@@ -88,7 +88,8 @@ func PeerDBEnableWALHeartbeat() bool {
 
 // PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE
 func PeerDBEnableParallelSyncNormalize() bool {
-	return getEnvBool("PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE", false)
+	// temporarily enable parallel sync normalize by default
+	return getEnvBool("PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE", true)
 }
 
 // PEERDB_TELEMETRY_AWS_SNS_TOPIC_ARN
