@@ -58,15 +58,14 @@ export const cdcSchema = z.object({
   publicationName: z
     .string({
       invalid_type_error: 'Publication name must be a string',
-      required_error: 'Publication name must be selected.',
     })
-    .min(1, 'Publication name must not be empty')
-    .max(255, 'Publication name must be less than 255 characters'),
+    .max(255, 'Publication name must be less than 255 characters')
+    .optional(),
   replicationSlotName: z
     .string({
-      invalid_type_error: 'Replication slot name must be a string',
+      invalid_type_error: 'Publication name must be a string',
     })
-    .max(255, 'Replication slot name must be less than 255 characters')
+    .max(255, 'Publication name must be less than 255 characters')
     .optional(),
   snapshotNumRowsPerPartition: z
     .number({
@@ -77,10 +76,10 @@ export const cdcSchema = z.object({
     .optional(),
   snapshotMaxParallelWorkers: z
     .number({
-      invalid_type_error: 'Initial load parallelism must be a number',
+      invalid_type_error: 'Snapshot max workers must be a number',
     })
     .int()
-    .min(1, 'Initial load parallelism must be a positive integer')
+    .min(1, 'Snapshot max workers must be a positive integer')
     .optional(),
   snapshotNumTablesInParallel: z
     .number({

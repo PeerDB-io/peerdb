@@ -2,9 +2,8 @@
 import { DBType } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
-import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
+import { Dispatch, SetStateAction, useMemo, useState } from 'react';
 import { CDCConfig, MirrorSetter, TableMapRow } from '../../../dto/MirrorsDTO';
-import { fetchPublications } from '../handlers';
 import { MirrorSetting } from '../helpers/common';
 import CDCField from './fields';
 import TableMapping from './tablemapping';
@@ -37,7 +36,6 @@ export default function CDCConfigForm({
   rows,
   setRows,
 }: MirrorConfigProps) {
-  const [publications, setPublications] = useState<string[]>();
   const [show, setShow] = useState(false);
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
     let stateVal: string | boolean = val;
@@ -66,26 +64,7 @@ export default function CDCConfigForm({
     return true;
   };
 
-  const optionsForField = (setting: MirrorSetting) => {
-    switch (setting.label) {
-      case 'Publication Name':
-        return publications;
-      default:
-        return [];
-    }
-  };
-
-  useEffect(() => {
-    fetchPublications(mirrorConfig.source?.name || '').then((pubs) => {
-      setPublications(pubs);
-    });
-  }, [mirrorConfig.source?.name]);
-
-  if (
-    mirrorConfig.source != undefined &&
-    mirrorConfig.destination != undefined &&
-    publications != undefined
-  )
+  if (mirrorConfig.source != undefined && mirrorConfig.destination != undefined)
     return (
       <>
         {normalSettings.map((setting, id) => {
@@ -95,7 +74,6 @@ export default function CDCConfigForm({
                 key={id}
                 handleChange={handleChange}
                 setting={setting}
-                options={optionsForField(setting)}
               />
             )
           );
@@ -123,10 +101,9 @@ export default function CDCConfigForm({
           advancedSettings.map((setting, id) => {
             return (
               <CDCField
-                key={setting.label}
+                key={id}
                 handleChange={handleChange}
                 setting={setting}
-                options={optionsForField(setting)}
               />
             );
           })}

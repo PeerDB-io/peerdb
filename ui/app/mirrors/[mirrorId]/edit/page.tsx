@@ -11,7 +11,6 @@ import { Label } from '@/lib/Label';
 import { RowWithTextField } from '@/lib/Layout';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { TextField } from '@/lib/TextField';
-import { Callout } from '@tremor/react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ToastContainer, toast } from 'react-toastify';
@@ -19,7 +18,6 @@ import 'react-toastify/dist/ReactToastify.css';
 import TableMapping from '../../create/cdc/tablemapping';
 import { reformattedTableMapping } from '../../create/handlers';
 import { blankCDCSetting } from '../../create/helpers/common';
-import * as styles from '../../create/styles';
 type EditMirrorProps = {
   params: { mirrorId: string };
 };
@@ -122,6 +120,8 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
 
   return (
     <div>
+      <Label variant='title3'>Edit {mirrorId}</Label>
+
       <RowWithTextField
         key={1}
         label={<Label>{'Pull Batch Size'} </Label>}
@@ -174,22 +174,6 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
         }
       />
 
-      <Label variant='action' as='label' style={{ marginTop: '1rem' }}>
-        Adding Tables
-      </Label>
-      {!isNotPaused && rows.some((row) => row.selected === true) && (
-        <Callout
-          title='Note on adding tables'
-          color={'gray'}
-          style={{ marginTop: '1rem' }}
-        >
-          CDC will be put on hold until initial load for these added tables have
-          been completed.
-          <br></br>
-          The <b>replication slot will grow</b> during this period.
-        </Callout>
-      )}
-
       <TableMapping
         sourcePeerName={mirrorState.cdcStatus?.config?.source?.name || ''}
         peerType={mirrorState.cdcStatus?.config?.destination?.type}
@@ -198,23 +182,19 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
         omitAdditionalTablesMapping={omitAdditionalTablesMapping}
       />
 
-      {isNotPaused && (
-        <Callout title='' color={'rose'} style={{ marginTop: '1rem' }}>
-          Mirror can only be edited while paused.
-        </Callout>
+      {isNotPaused ? (
+        <Label>Mirror can only be edited while paused.</Label>
+      ) : (
+        <Label>Editing mirror will automatically unpause it.</Label>
       )}
-
-      <div style={styles.MirrorButtonContainer}>
+      <div style={{ display: 'flex' }}>
         <Button
-          style={styles.MirrorButtonStyle}
-          onClick={() => {
-            push(`/mirrors/${mirrorId}`);
+          style={{
+            marginTop: '1rem',
+            marginRight: '1rem',
+            width: '8%',
+            height: '2.5rem',
           }}
-        >
-          Back
-        </Button>
-        <Button
-          style={styles.MirrorButtonStyle}
           variant='normalSolid'
           disabled={loading || isNotPaused}
           onClick={sendFlowStateChangeRequest}
@@ -224,6 +204,14 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
           ) : (
             'Edit Mirror'
           )}
+        </Button>
+        <Button
+          style={{ marginTop: '1rem', width: '8%', height: '2.5rem' }}
+          onClick={() => {
+            push(`/mirrors/${mirrorId}`);
+          }}
+        >
+          Back
         </Button>
       </div>
       <ToastContainer />

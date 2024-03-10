@@ -56,7 +56,3 @@ export type SlotLagPoint = {
   updatedAt: string;
   slotSize?: string;
 };
-
-export type UPublicationsResponse = {
-  publicationNames: string[];
-};
