@@ -43,7 +43,7 @@ func PeerDBCDCIdleTimeoutSeconds(providedValue int) time.Duration {
 
 // PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD
 func PeerDBCDCDiskSpillRecordsThreshold() int {
-	return getEnvInt("PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD", 1_000_000)
+	return getEnvInt("PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD", 5_000_000)
 }
 
 // PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD, negative numbers means memory threshold disabled
