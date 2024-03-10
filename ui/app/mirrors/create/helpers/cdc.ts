@@ -11,7 +11,6 @@ export const cdcSettings: MirrorSetting[] = [
     tips: 'Specify if you want initial load to happen for your tables.',
     type: 'switch',
     default: true,
-    required: true,
   },
   {
     label: 'Pull Batch Size',
@@ -36,7 +35,6 @@ export const cdcSettings: MirrorSetting[] = [
     helpfulLink: 'https://docs.peerdb.io/metrics/important_cdc_configs',
     type: 'number',
     default: '60',
-    required: true,
   },
   {
     label: 'Publication Name',
@@ -45,11 +43,7 @@ export const cdcSettings: MirrorSetting[] = [
         ...curr,
         publicationName: (value as string) || '',
       })),
-    type: 'select',
-    tips: 'PeerDB requires a publication associated with the tables you wish to sync.',
-    helpfulLink:
-      'https://www.postgresql.org/docs/current/sql-createpublication.html',
-    required: true,
+    tips: 'If set, PeerDB will use this publication for the mirror.',
   },
   {
     label: 'Replication Slot Name',
@@ -65,36 +59,33 @@ export const cdcSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,
-        snapshotNumRowsPerPartition: parseInt(value as string, 10) || 1000000,
+        snapshotNumRowsPerPartition: parseInt(value as string, 10) || 500000,
       })),
-    tips: 'PeerDB splits up table data into partitions for increased performance. This setting controls the number of rows per partition. The default value is 1000000.',
-    default: '1000000',
+    tips: 'PeerDB splits up table data into partitions for increased performance. This setting controls the number of rows per partition. The default value is 500000.',
+    default: '500000',
     type: 'number',
-    advanced: true,
   },
   {
-    label: 'Parallelism for Initial Load',
+    label: 'Snapshot Maximum Parallel Workers',
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,
-        snapshotMaxParallelWorkers: parseInt(value as string, 10) || 4,
+        snapshotMaxParallelWorkers: parseInt(value as string, 10) || 1,
       })),
-    tips: 'PeerDB spins up parallel threads for each partition in initial load. This setting controls the number of partitions to sync in parallel. The default value is 4.',
-    default: '4',
+    tips: 'PeerDB spins up parallel threads for each partition. This setting controls the number of partitions to sync in parallel. The default value is 1.',
+    default: '1',
     type: 'number',
-    required: true,
   },
   {
     label: 'Snapshot Number of Tables In Parallel',
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,
-        snapshotNumTablesInParallel: parseInt(value as string, 10) || 1,
+        snapshotNumTablesInParallel: parseInt(value as string, 10) || 4,
       })),
-    tips: 'Specify the number of tables to sync perform initial load for, in parallel. The default value is 1.',
-    default: '1',
+    tips: 'Specify the number of tables to sync perform initial load for, in parallel. The default value is 4.',
+    default: '4',
     type: 'number',
-    advanced: true,
   },
   {
     label: 'Snapshot Staging Path',
@@ -104,7 +95,6 @@ export const cdcSettings: MirrorSetting[] = [
         snapshotStagingPath: value as string | '',
       })),
     tips: 'You can specify staging path for Snapshot sync mode AVRO. For Snowflake as destination peer, this must be either empty or an S3 bucket URL. For BigQuery, this must be either empty or an existing GCS bucket name. In both cases, if empty, the local filesystem will be used.',
-    advanced: true,
   },
   {
     label: 'CDC Staging Path',
@@ -114,19 +104,17 @@ export const cdcSettings: MirrorSetting[] = [
         cdcStagingPath: (value as string) || '',
       })),
     tips: 'You can specify staging path for CDC sync mode AVRO. For Snowflake as destination peer, this must be either empty or an S3 bucket URL. For BigQuery, this must be either empty or an existing GCS bucket name. In both cases, if empty, the local filesystem will be used.',
-    advanced: true,
   },
   {
     label: 'Soft Delete',
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,
-        softDelete: (value as boolean) || true,
+        softDelete: (value as boolean) || false,
       })),
     tips: 'Allows you to mark some records as deleted without actual erasure from the database',
-    default: true,
+    default: false,
     type: 'switch',
-    required: true,
   },
   {
     label: 'Initial Copy Only',

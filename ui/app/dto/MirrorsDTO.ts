@@ -26,7 +26,6 @@ export type TableMapRow = {
   exclude: Set<string>;
   selected: boolean;
   canMirror: boolean;
-  tableSize: string;
 };
 
 export type SyncStatusRow = {
