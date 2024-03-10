@@ -505,6 +505,7 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 	}
 
 	for batchId := normBatchID + 1; batchId <= req.SyncBatchID; batchId++ {
+		c.logger.Info(fmt.Sprintf("normalizing records for batch %d [of %d]", batchId, req.SyncBatchID))
 		mergeErr := c.mergeTablesForBatch(ctx, batchId,
 			req.FlowJobName, req.TableNameSchemaMapping,
 			&protos.PeerDBColumns{
@@ -571,7 +572,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 			}
 
 			startTime := time.Now()
-			c.logger.Info("[merge] merging records...", "destTable", tableName)
+			c.logger.Info("[merge] merging records...", "destTable", tableName, "batchId", batchId)
 
 			result, err := c.database.ExecContext(gCtx, mergeStatement, tableName)
 			if err != nil {
@@ -581,7 +582,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 
 			endTime := time.Now()
 			c.logger.Info(fmt.Sprintf("[merge] merged records into %s, took: %d seconds",
-				tableName, endTime.Sub(startTime)/time.Second))
+				tableName, endTime.Sub(startTime)/time.Second), "batchId", batchId)
 
 			rowsAffected, err := result.RowsAffected()
 			if err != nil {
