@@ -5,7 +5,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use chrono::{NaiveDateTime, TimeZone, Utc};
+use chrono::DateTime;
 use futures::Stream;
 use gcp_bigquery_client::model::{
     field_type::FieldType, query_response::ResultSet, table_field_schema::TableFieldSchema,
@@ -155,9 +155,9 @@ impl BqRecordStream {
                     FieldType::Timestamp => {
                         let timestamp = result_set.get_i64_by_name(field_name)?;
                         if let Some(ts) = timestamp {
-                            let naive_datetime = NaiveDateTime::from_timestamp_opt(ts, 0)
-                                .ok_or(anyhow::Error::msg("Invalid naive datetime"))?;
-                            Some(Value::Timestamp(Utc.from_utc_datetime(&naive_datetime)))
+                            let datetime = DateTime::from_timestamp(ts, 0)
+                                .ok_or(anyhow::Error::msg("Invalid datetime"))?;
+                            Some(Value::Timestamp(datetime))
                         } else {
                             None
                         }
