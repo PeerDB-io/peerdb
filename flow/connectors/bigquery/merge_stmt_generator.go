@@ -18,10 +18,8 @@ type mergeStmtGenerator struct {
 	dstTableName string
 	// dataset + destination table
 	dstDatasetTable datasetTable
-	// last synced batchID.
-	syncBatchID int64
-	// last normalized batchID.
-	normalizeBatchID int64
+	// batch id currently to be merged
+	mergeBatchId int64
 	// the schema of the table to merge into
 	normalizedTableSchema *protos.TableSchema
 	// _PEERDB_IS_DELETED and _SYNCED_AT columns
@@ -94,10 +92,9 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 
 	// normalize anything between last normalized batch id to last sync batchid
 	return fmt.Sprintf("WITH _f AS "+
-		"(SELECT %s FROM `%s` WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d AND "+
+		"(SELECT %s FROM `%s` WHERE _peerdb_batch_id=%d AND "+
 		"_peerdb_destination_table_name='%s')",
-		strings.Join(flattenedProjs, ","), m.rawDatasetTable.string(), m.normalizeBatchID,
-		m.syncBatchID, m.dstTableName)
+		strings.Join(flattenedProjs, ","), m.rawDatasetTable.string(), m.mergeBatchId, m.dstTableName)
 }
 
 // This function is to support datatypes like JSON which cannot be partitioned by or compared by BigQuery
