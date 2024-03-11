@@ -58,10 +58,9 @@ export const cdcSchema = z.object({
   publicationName: z
     .string({
       invalid_type_error: 'Publication name must be a string',
-      required_error: 'Publication name must be selected.',
     })
-    .min(1, 'Publication name must not be empty')
-    .max(255, 'Publication name must be less than 255 characters'),
+    .max(255, 'Publication name must be less than 255 characters')
+    .optional(),
   replicationSlotName: z
     .string({
       invalid_type_error: 'Replication slot name must be a string',

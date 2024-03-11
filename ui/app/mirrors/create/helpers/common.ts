@@ -13,6 +13,7 @@ export interface MirrorSetting {
   helpfulLink?: string;
   default?: string | number | boolean;
   advanced?: boolean; // whether it should come under an 'Advanced' section
+  command?: string;
 }
 
 export const blankCDCSetting: FlowConnectionConfigs = {

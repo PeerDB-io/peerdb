@@ -37,7 +37,11 @@ const CDCField = ({ setting, handleChange, options }: FieldProps) => {
             onCheckedChange={(state: boolean) => handleChange(state, setting)}
           />
           {setting.tips && (
-            <InfoPopover tips={setting.tips} link={setting.helpfulLink} />
+            <InfoPopover
+              tips={setting.tips}
+              link={setting.helpfulLink}
+              command={setting.command}
+            />
           )}
         </div>
       }
@@ -71,7 +75,11 @@ const CDCField = ({ setting, handleChange, options }: FieldProps) => {
             />
           </div>
           {setting.tips && (
-            <InfoPopover tips={setting.tips} link={setting.helpfulLink} />
+            <InfoPopover
+              tips={setting.tips}
+              link={setting.helpfulLink}
+              command={setting.command}
+            />
           )}
         </div>
       }
@@ -101,7 +109,11 @@ const CDCField = ({ setting, handleChange, options }: FieldProps) => {
             }
           />
           {setting.tips && (
-            <InfoPopover tips={setting.tips} link={setting.helpfulLink} />
+            <InfoPopover
+              tips={setting.tips}
+              link={setting.helpfulLink}
+              command={setting.command}
+            />
           )}
         </div>
       }

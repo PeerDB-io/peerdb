@@ -49,7 +49,7 @@ export const cdcSettings: MirrorSetting[] = [
     tips: 'PeerDB requires a publication associated with the tables you wish to sync.',
     helpfulLink:
       'https://www.postgresql.org/docs/current/sql-createpublication.html',
-    required: true,
+    command: 'CREATE PUBLICATION <publication_name> FOR ALL TABLES;',
   },
   {
     label: 'Replication Slot Name',
