@@ -391,7 +391,6 @@ func (a *FlowableActivity) SyncFlow(
 			StagingPath:   config.CdcStagingPath,
 		})
 		if err != nil {
-			logger.Warn("failed to push records", slog.Any("error", err))
 			a.Alerter.LogFlowError(ctx, flowName, err)
 			return fmt.Errorf("failed to push records: %w", err)
 		}
