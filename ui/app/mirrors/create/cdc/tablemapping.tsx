@@ -17,6 +17,7 @@ interface TableMappingProps {
   peerType?: DBType;
   // schema -> omitted source table mapping
   omitAdditionalTablesMapping: Map<string, string[]>;
+  disableColumnView?: boolean;
 }
 
 const TableMapping = ({
@@ -25,6 +26,7 @@ const TableMapping = ({
   setRows,
   peerType,
   omitAdditionalTablesMapping,
+  disableColumnView,
 }: TableMappingProps) => {
   const [allSchemas, setAllSchemas] = useState<string[]>();
   const [schemaQuery, setSchemaQuery] = useState('');
@@ -38,8 +40,8 @@ const TableMapping = ({
   }, [allSchemas, schemaQuery]);
 
   useEffect(() => {
-    fetchSchemas(sourcePeerName).then((res) => setAllSchemas(res));
-  }, [sourcePeerName]);
+    fetchSchemas(sourcePeerName, peerType).then((res) => setAllSchemas(res));
+  }, [sourcePeerName, peerType]);
 
   return (
     <div style={{ marginTop: '1rem' }}>
@@ -79,7 +81,7 @@ const TableMapping = ({
           />
         </div>
       </div>
-      <div style={{ maxHeight: '70vh', overflow: 'scroll' }}>
+      <div style={{ maxHeight: '70vh', overflow: 'auto' }}>
         {searchedSchemas ? (
           searchedSchemas.map((schema) => (
             <SchemaBox
@@ -92,6 +94,7 @@ const TableMapping = ({
               setTableColumns={setTableColumns}
               peerType={peerType}
               omitAdditionalTables={omitAdditionalTablesMapping.get(schema)}
+              disableColumnView={disableColumnView}
             />
           ))
         ) : (

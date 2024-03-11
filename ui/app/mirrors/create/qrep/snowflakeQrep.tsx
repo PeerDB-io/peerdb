@@ -1,80 +1,29 @@
 'use client';
-import { RequiredIndicator } from '@/components/RequiredIndicator';
-import { QRepConfig, QRepWriteType } from '@/grpc_generated/flow';
+import { TableMapRow } from '@/app/dto/MirrorsDTO';
+import { QRepConfig } from '@/grpc_generated/flow';
 import { Label } from '@/lib/Label';
-import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
-import { Switch } from '@/lib/Switch';
+import { RowWithTextField } from '@/lib/Layout';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
-import { useEffect, useState } from 'react';
-import ReactSelect from 'react-select';
-import { InfoPopover } from '../../../../components/InfoPopover';
+import { Callout } from '@tremor/react';
+import { Dispatch, SetStateAction, useEffect } from 'react';
 import { MirrorSetter } from '../../types';
-import { fetchAllTables } from '../handlers';
-import { MirrorSetting, blankSnowflakeQRepSetting } from '../helpers/common';
-import { snowflakeQRepSettings } from '../helpers/qrep';
+import TableMapping from '../cdc/tablemapping';
+import { blankSnowflakeQRepSetting } from '../helpers/common';
 
 interface SnowflakeQRepProps {
   mirrorConfig: QRepConfig;
   setter: MirrorSetter;
+  rows: TableMapRow[];
+  setRows: Dispatch<SetStateAction<TableMapRow[]>>;
 }
 
 export default function SnowflakeQRepForm({
   mirrorConfig,
   setter,
+  rows,
+  setRows,
 }: SnowflakeQRepProps) {
-  const [sourceTables, setSourceTables] = useState<
-    { value: string; label: string }[]
-  >([]);
-  const [loading, setLoading] = useState(false);
-  const handleChange = (val: string | boolean, setting: MirrorSetting) => {
-    let stateVal: string | boolean | QRepWriteType | string[] = val;
-    if (setting.label.includes('Write Type')) {
-      switch (val) {
-        case 'Append':
-          stateVal = QRepWriteType.QREP_WRITE_MODE_APPEND;
-          break;
-        case 'Overwrite':
-          stateVal = QRepWriteType.QREP_WRITE_MODE_OVERWRITE;
-          break;
-        default:
-          stateVal = QRepWriteType.QREP_WRITE_MODE_APPEND;
-          break;
-      }
-    }
-    setting.stateHandler(stateVal, setter);
-  };
-
-  const handleSourceChange = (val: string, setting: MirrorSetting) => {
-    setter((curr) => ({
-      ...curr,
-      destinationTableIdentifier: val.toLowerCase(),
-    }));
-    handleChange(val, setting);
-  };
-
-  const paramDisplayCondition = (setting: MirrorSetting) => {
-    const label = setting.label.toLowerCase();
-    if (
-      setting.label === 'Upsert Key Columns' ||
-      setting.label === 'Watermark Column'
-    ) {
-      return false;
-    }
-    return true;
-  };
-
-  useEffect(() => {
-    setLoading(true);
-    fetchAllTables(
-      mirrorConfig.sourcePeer?.name ?? '',
-      mirrorConfig.sourcePeer?.type
-    ).then((tables) => {
-      setSourceTables(tables?.map((table) => ({ value: table, label: table })));
-      setLoading(false);
-    });
-  }, [mirrorConfig.sourcePeer]);
-
   useEffect(() => {
     // set defaults
     setter((curr) => ({ ...curr, ...blankSnowflakeQRepSetting }));
@@ -82,134 +31,67 @@ export default function SnowflakeQRepForm({
   return (
     <>
       {mirrorConfig.sourcePeer?.name ? (
-        snowflakeQRepSettings.map((setting, id) => {
-          return (
-            paramDisplayCondition(setting) &&
-            (setting.type === 'switch' ? (
-              <RowWithSwitch
-                key={id}
-                label={<Label>{setting.label}</Label>}
-                action={
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                    }}
+        <div
+          style={{ display: 'flex', flexDirection: 'column', rowGap: '1rem' }}
+        >
+          <Callout title='Note' color='gray'>
+            Query replication mirrors with Snowflake source supports only
+            overwrite, full-refresh mode.
+          </Callout>
+          <div>
+            <Label>
+              Refresh interval is the time (in seconds) intervals at which new
+              rows will be pulled for replication.
+            </Label>
+            <RowWithTextField
+              label={
+                <Label>
+                  Refresh Interval
+                  <Tooltip
+                    style={{ width: '100%' }}
+                    content={'This is a required field.'}
                   >
-                    <Switch
-                      checked={mirrorConfig.setupWatermarkTableOnDestination}
-                      onCheckedChange={(state: boolean) =>
-                        handleChange(state, setting)
-                      }
-                    />
-                    {setting.tips && (
-                      <InfoPopover
-                        tips={setting.tips}
-                        link={setting.helpfulLink}
-                      />
-                    )}
-                  </div>
-                }
-              />
-            ) : setting.type === 'select' ? (
-              <RowWithSelect
-                key={id}
-                label={
-                  <Label>
-                    {setting.label}
-                    {RequiredIndicator(setting.required)}
-                  </Label>
-                }
-                action={
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <div style={{ width: '100%' }}>
-                      {setting.label.includes('Write') ? (
-                        <ReactSelect
-                          isDisabled={true}
-                          placeholder='Select a write mode'
-                          value={{ value: 'Overwrite', label: 'Overwrite' }}
-                        />
-                      ) : (
-                        <ReactSelect
-                          placeholder={'Select a table'}
-                          onChange={(val, action) =>
-                            val && handleSourceChange(val.value, setting)
-                          }
-                          isLoading={loading}
-                          options={sourceTables}
-                        />
-                      )}
-                    </div>
-
-                    {setting.tips && (
-                      <InfoPopover
-                        tips={setting.tips}
-                        link={setting.helpfulLink}
-                      />
-                    )}
-                  </div>
-                }
-              />
-            ) : (
-              <RowWithTextField
-                key={id}
-                label={
-                  <Label>
-                    {setting.label}
-                    {setting.required && (
-                      <Tooltip
-                        style={{ width: '100%' }}
-                        content={'This is a required field.'}
-                      >
-                        <Label colorName='lowContrast' colorSet='destructive'>
-                          *
-                        </Label>
-                      </Tooltip>
-                    )}
-                  </Label>
-                }
-                action={
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <TextField
-                      variant='simple'
-                      type={setting.type}
-                      defaultValue={
-                        setting.label === 'Destination Table Name'
-                          ? mirrorConfig.destinationTableIdentifier
-                          : (setting.default as string)
-                      }
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        handleChange(e.target.value, setting)
-                      }
-                    />
-                    {setting.tips && (
-                      <InfoPopover
-                        tips={setting.tips}
-                        link={setting.helpfulLink}
-                      />
-                    )}
-                  </div>
-                }
-              />
-            ))
-          );
-        })
+                    <Label colorName='lowContrast' colorSet='destructive'>
+                      *
+                    </Label>
+                  </Tooltip>
+                </Label>
+              }
+              action={
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                  }}
+                >
+                  <TextField
+                    variant='simple'
+                    type={'number'}
+                    defaultValue={mirrorConfig.waitBetweenBatchesSeconds}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setter((curr) => ({
+                        ...curr,
+                        waitBetweenBatchesSeconds: e.target.valueAsNumber,
+                      }))
+                    }
+                  />
+                </div>
+              }
+            />
+          </div>
+          <TableMapping
+            sourcePeerName={mirrorConfig.sourcePeer?.name}
+            rows={rows}
+            setRows={setRows}
+            omitAdditionalTablesMapping={new Map<string, string[]>()}
+            disableColumnView={true}
+            peerType={mirrorConfig.sourcePeer?.type}
+          />
+        </div>
       ) : (
         <Label as='label' style={{ color: 'gray', fontSize: 15 }}>
-          Please select a source peer
+          Please select a source and destination peer
         </Label>
       )}
     </>

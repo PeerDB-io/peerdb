@@ -89,38 +89,76 @@ func (h *FlowRequestHandler) GetSchemas(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerSchemasResponse, error) {
-	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
-	if err != nil {
-		return &protos.PeerSchemasResponse{Schemas: nil}, err
-	}
-	defer tunnel.Close()
-	defer peerConn.Close(ctx)
+	slog.Info("GET /schemas", slog.Any("req", req))
+	switch int32(req.PeerType) {
+	case int32(protos.DBType_SNOWFLAKE):
+		sfConn, err := h.getConnForSFPeer(ctx, req.PeerName)
+		if err != nil {
+			slog.Error("Failed to get snowflake client", slog.Any("error", err))
+			return &protos.PeerSchemasResponse{Schemas: nil}, err
+		}
+		defer sfConn.Close()
+		sfSchemas, err := sfConn.GetAllSchemas(ctx)
+		if err != nil {
+			slog.Error("Failed to get all Snowflake schemas", slog.Any("error", err))
+			return &protos.PeerSchemasResponse{Schemas: nil}, err
+		}
+		return &protos.PeerSchemasResponse{Schemas: sfSchemas}, nil
+	default:
+		tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
+		if err != nil {
+			return &protos.PeerSchemasResponse{Schemas: nil}, err
+		}
+		defer tunnel.Close()
+		defer peerConn.Close(ctx)
 
-	rows, err := peerConn.Query(ctx, "SELECT nspname"+
-		" FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema';")
-	if err != nil {
-		return &protos.PeerSchemasResponse{Schemas: nil}, err
-	}
+		rows, err := peerConn.Query(ctx, "SELECT nspname"+
+			" FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema';")
+		if err != nil {
+			return &protos.PeerSchemasResponse{Schemas: nil}, err
+		}
 
-	schemas, err := pgx.CollectRows[string](rows, pgx.RowTo)
-	if err != nil {
-		return &protos.PeerSchemasResponse{Schemas: nil}, err
+		schemas, err := pgx.CollectRows[string](rows, pgx.RowTo)
+		if err != nil {
+			return &protos.PeerSchemasResponse{Schemas: nil}, err
+		}
+		return &protos.PeerSchemasResponse{Schemas: schemas}, nil
 	}
-	return &protos.PeerSchemasResponse{Schemas: schemas}, nil
 }
 
 func (h *FlowRequestHandler) GetTablesInSchema(
 	ctx context.Context,
 	req *protos.SchemaTablesRequest,
 ) (*protos.SchemaTablesResponse, error) {
-	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
+	_, peerType, err := h.getPeerID(ctx, req.PeerName)
 	if err != nil {
-		return &protos.SchemaTablesResponse{Tables: nil}, err
+		slog.Info("failed to get peer type in /schema tables fetch", slog.Any("error", err))
+		return &protos.SchemaTablesResponse{Tables: nil}, nil
 	}
-	defer tunnel.Close()
-	defer peerConn.Close(ctx)
+	switch peerType {
+	case int32(protos.DBType_SNOWFLAKE):
+		sfConn, err := h.getConnForSFPeer(ctx, req.PeerName)
+		if err != nil {
+			slog.Error("Failed to get snowflake client", slog.Any("error", err))
+			return &protos.SchemaTablesResponse{Tables: nil}, err
+		}
+		defer sfConn.Close()
+		sfTables, err := sfConn.GetTablesInSchema(ctx, req.SchemaName)
+		if err != nil {
+			slog.Error("Failed to get Snowflake tables in schema "+req.SchemaName, slog.Any("error", err))
+			return &protos.SchemaTablesResponse{Tables: nil}, err
+		}
+		return &protos.SchemaTablesResponse{Tables: sfTables}, nil
 
-	rows, err := peerConn.Query(ctx, `SELECT DISTINCT ON (t.relname)
+	default:
+		tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
+		if err != nil {
+			return &protos.SchemaTablesResponse{Tables: nil}, err
+		}
+		defer tunnel.Close()
+		defer peerConn.Close(ctx)
+
+		rows, err := peerConn.Query(ctx, `SELECT DISTINCT ON (t.relname)
     t.relname,
     CASE
         WHEN con.contype = 'p' OR t.relreplident = 'i' OR t.relreplident = 'f' THEN true
@@ -140,30 +178,31 @@ func (h *FlowRequestHandler) GetTablesInSchema(
     t.relname,
     can_mirror DESC;
 `, req.SchemaName)
-	if err != nil {
-		return &protos.SchemaTablesResponse{Tables: nil}, err
-	}
-
-	defer rows.Close()
-	var tables []*protos.TableResponse
-	for rows.Next() {
-		var table pgtype.Text
-		var hasPkeyOrReplica pgtype.Bool
-		err := rows.Scan(&table, &hasPkeyOrReplica)
 		if err != nil {
 			return &protos.SchemaTablesResponse{Tables: nil}, err
 		}
-		canMirror := false
-		if hasPkeyOrReplica.Valid && hasPkeyOrReplica.Bool {
-			canMirror = true
-		}
 
-		tables = append(tables, &protos.TableResponse{
-			TableName: table.String,
-			CanMirror: canMirror,
-		})
+		defer rows.Close()
+		var tables []*protos.TableResponse
+		for rows.Next() {
+			var table pgtype.Text
+			var hasPkeyOrReplica pgtype.Bool
+			err := rows.Scan(&table, &hasPkeyOrReplica)
+			if err != nil {
+				return &protos.SchemaTablesResponse{Tables: nil}, err
+			}
+			canMirror := false
+			if hasPkeyOrReplica.Valid && hasPkeyOrReplica.Bool {
+				canMirror = true
+			}
+
+			tables = append(tables, &protos.TableResponse{
+				TableName: table.String,
+				CanMirror: canMirror,
+			})
+		}
+		return &protos.SchemaTablesResponse{Tables: tables}, nil
 	}
-	return &protos.SchemaTablesResponse{Tables: tables}, nil
 }
 
 // Returns list of tables across schema in schema.table format
@@ -171,44 +210,28 @@ func (h *FlowRequestHandler) GetAllTables(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.AllTablesResponse, error) {
-	switch req.PeerType {
-	case protos.DBType_SNOWFLAKE:
-		sfConn, err := h.getConnForSFPeer(ctx, req.PeerName)
-		if err != nil {
-			slog.Error("Failed to get snowflake client", slog.Any("error", err))
-			return &protos.AllTablesResponse{Tables: nil}, err
-		}
-		defer sfConn.Close()
-		sfTables, err := sfConn.GetAllTables(ctx)
-		if err != nil {
-			slog.Error("Failed to get all Snowflake tables", slog.Any("error", err))
-			return &protos.AllTablesResponse{Tables: nil}, err
-		}
-		return &protos.AllTablesResponse{Tables: sfTables}, nil
 
-	default:
-		tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
-		if err != nil {
-			return &protos.AllTablesResponse{Tables: nil}, err
-		}
-		defer tunnel.Close()
-		defer peerConn.Close(ctx)
-
-		rows, err := peerConn.Query(ctx, "SELECT n.nspname || '.' || c.relname AS schema_table "+
-			"FROM pg_class c "+
-			"JOIN pg_namespace n ON c.relnamespace = n.oid "+
-			"WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' AND c.relkind = 'r';")
-		if err != nil {
-			return &protos.AllTablesResponse{Tables: nil}, err
-		}
-		defer rows.Close()
-
-		tables, err := pgx.CollectRows[string](rows, pgx.RowTo)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch all tables: %w", err)
-		}
-		return &protos.AllTablesResponse{Tables: tables}, nil
+	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
+	if err != nil {
+		return &protos.AllTablesResponse{Tables: nil}, err
 	}
+	defer tunnel.Close()
+	defer peerConn.Close(ctx)
+
+	rows, err := peerConn.Query(ctx, "SELECT n.nspname || '.' || c.relname AS schema_table "+
+		"FROM pg_class c "+
+		"JOIN pg_namespace n ON c.relnamespace = n.oid "+
+		"WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' AND c.relkind = 'r';")
+	if err != nil {
+		return &protos.AllTablesResponse{Tables: nil}, err
+	}
+	defer rows.Close()
+
+	tables, err := pgx.CollectRows[string](rows, pgx.RowTo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch all tables: %w", err)
+	}
+	return &protos.AllTablesResponse{Tables: tables}, nil
 }
 
 func (h *FlowRequestHandler) GetColumns(
