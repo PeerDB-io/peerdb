@@ -511,7 +511,7 @@ fn parse_db_options(
         opts.insert(&opt.name.value, val);
     }
 
-    let config = match db_type {
+    Ok(Some(match db_type {
         DbType::Bigquery => {
             let pem_str = opts
                 .get("private_key")
@@ -565,8 +565,7 @@ fn parse_db_options(
                     .ok_or_else(|| anyhow::anyhow!("missing dataset_id in peer options"))?
                     .to_string(),
             };
-            let config = Config::BigqueryConfig(bq_config);
-            Some(config)
+            Config::BigqueryConfig(bq_config)
         }
         DbType::Snowflake => {
             let s3_int = opts
@@ -605,8 +604,7 @@ fn parse_db_options(
                 metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
                 s3_integration: s3_int,
             };
-            let config = Config::SnowflakeConfig(snowflake_config);
-            Some(config)
+            Config::SnowflakeConfig(snowflake_config)
         }
         DbType::Mongo => {
             let mongo_config = MongoConfig {
@@ -632,8 +630,7 @@ fn parse_db_options(
                     .parse::<i32>()
                     .context("unable to parse port as valid int")?,
             };
-            let config = Config::MongoConfig(mongo_config);
-            Some(config)
+            Config::MongoConfig(mongo_config)
         }
         DbType::Postgres => {
             let postgres_config = PostgresConfig {
@@ -659,8 +656,7 @@ fn parse_db_options(
                 transaction_snapshot: "".to_string(),
                 ssh_config: None,
             };
-            let config = Config::PostgresConfig(postgres_config);
-            Some(config)
+            Config::PostgresConfig(postgres_config)
         }
         DbType::Eventhub => {
             let subscription_id = opts
@@ -699,8 +695,7 @@ fn parse_db_options(
                 partition_count,
                 message_retention_in_days,
             };
-            let config = Config::EventhubConfig(eventhub_config);
-            Some(config)
+            Config::EventhubConfig(eventhub_config)
         }
         DbType::S3 => {
             let s3_config = S3Config {
@@ -714,8 +709,7 @@ fn parse_db_options(
                 role_arn: opts.get("role_arn").map(|s| s.to_string()),
                 endpoint: opts.get("endpoint").map(|s| s.to_string()),
             };
-            let config = Config::S3Config(s3_config);
-            Some(config)
+            Config::S3Config(s3_config)
         }
         DbType::Sqlserver => {
             let port_str = opts.get("port").context("port not specified")?;
@@ -736,8 +730,7 @@ fn parse_db_options(
                     .context("database is not specified")?
                     .to_string(),
             };
-            let config = Config::SqlserverConfig(sqlserver_config);
-            Some(config)
+            Config::SqlserverConfig(sqlserver_config)
         }
         DbType::EventhubGroup => {
             // split comma separated list of columns and trim
@@ -775,8 +768,7 @@ fn parse_db_options(
                 eventhubs,
                 unnest_columns,
             };
-            let config = Config::EventhubGroupConfig(eventhub_group_config);
-            Some(config)
+            Config::EventhubGroupConfig(eventhub_group_config)
         }
         DbType::Clickhouse => {
             let clickhouse_config = ClickhouseConfig {
@@ -817,12 +809,9 @@ fn parse_db_options(
                 disable_tls: opts
                     .get("disable_tls")
                     .and_then(|s| s.parse::<bool>().ok())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
             };
-            let config = Config::ClickhouseConfig(clickhouse_config);
-            Some(config)
+            Config::ClickhouseConfig(clickhouse_config)
         }
-    };
-
-    Ok(config)
+    }))
 }
