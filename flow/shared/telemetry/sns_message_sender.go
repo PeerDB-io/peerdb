@@ -42,13 +42,13 @@ func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, 
 	var messageSubjectBuilder strings.Builder
 	maxSubjectSize := 99
 	for currentLength, char := range subject {
+		if currentLength > maxSubjectSize {
+			break
+		}
 		if unicode.IsPrint(char) {
 			messageSubjectBuilder.WriteRune(char)
 		} else {
 			messageSubjectBuilder.WriteRune(' ')
-		}
-		if currentLength > maxSubjectSize {
-			break
 		}
 	}
 	publish, err := s.client.Publish(ctx, &sns.PublishInput{
