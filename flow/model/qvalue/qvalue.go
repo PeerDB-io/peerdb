@@ -606,10 +606,7 @@ func getUUID(v interface{}) (uuid.UUID, bool) {
 			return parsed, true
 		}
 	case [16]byte:
-		parsed, err := uuid.FromBytes(value[:])
-		if err == nil {
-			return parsed, true
-		}
+		return uuid.UUID(value), true
 	}
 
 	return uuid.UUID{}, false

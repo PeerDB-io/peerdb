@@ -1,15 +1,16 @@
 package connkafka
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 	"github.com/twmb/franz-go/plugin/kslog"
 	"github.com/yuin/gopher-lua"
@@ -44,11 +45,15 @@ func NewKafkaConnector(
 		optionalOpts = append(optionalOpts, kgo.DialTLSConfig(&tls.Config{MinVersion: tls.VersionTLS13}))
 	}
 	if config.Username != "" {
-		auth := scram.Auth{User: config.Username, Pass: config.Password}
 		switch config.Sasl {
+		case "PLAIN":
+			auth := plain.Auth{User: config.Username, Pass: config.Password}
+			optionalOpts = append(optionalOpts, kgo.SASL(auth.AsMechanism()))
 		case "SCRAM-SHA-256":
+			auth := scram.Auth{User: config.Username, Pass: config.Password}
 			optionalOpts = append(optionalOpts, kgo.SASL(auth.AsSha256Mechanism()))
 		case "SCRAM-SHA-512":
+			auth := scram.Auth{User: config.Username, Pass: config.Password}
 			optionalOpts = append(optionalOpts, kgo.SASL(auth.AsSha512Mechanism()))
 		default:
 			return nil, fmt.Errorf("unsupported SASL mechanism: %s", config.Sasl)
@@ -59,9 +64,15 @@ func NewKafkaConnector(
 		return nil, fmt.Errorf("failed to create kafka client: %w", err)
 	}
 
+	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	return &KafkaConnector{
-		client: client,
-		logger: logger.LoggerFromCtx(ctx),
+		client:     client,
+		pgMetadata: pgMetadata,
+		logger:     logger.LoggerFromCtx(ctx),
 	}, nil
 }
 
@@ -101,7 +112,6 @@ func (c *KafkaConnector) SetupMetadataTables(_ context.Context) error {
 }
 
 func (c *KafkaConnector) ReplayTableSchemaDeltas(_ context.Context, flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error {
-	c.logger.Info("ReplayTableSchemaDeltas for event hub is a no-op")
 	return nil
 }
 
@@ -110,10 +120,7 @@ func (c *KafkaConnector) SyncFlowCleanup(ctx context.Context, jobName string) er
 }
 
 func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	err := c.client.BeginTransaction()
-	if err != nil {
-		return nil, err
-	}
+	// TODO BeginTransaction if transactional
 
 	var wg sync.WaitGroup
 	wgCtx, wgErr := context.WithCancelCause(ctx)
@@ -152,15 +159,29 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 		}
 		ls.PreloadModule("flatbuffers", pua.FlatBuffers_Loader)
 		pua.RegisterTypes(ls)
-		err := ls.DoString(req.Script)
+		ls.Env.RawSetString("print", ls.NewFunction(func(ls *lua.LState) int {
+			top := ls.GetTop()
+			ss := make([]string, top)
+			for i := range top {
+				ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
+			}
+			_ = c.pgMetadata.LogFlowInfo(ctx, req.FlowJobName, strings.Join(ss, "\t"))
+			return 0
+		}))
+		err := ls.GPCall(pua.LoadPeerdbScript, lua.LString(req.Script))
 		if err != nil {
-			return nil, fmt.Errorf("error while executing script: %w", err)
+			return nil, fmt.Errorf("error loading script %s: %w", req.Script, err)
+		}
+		err = ls.PCall(0, 0, nil)
+		if err != nil {
+			return nil, fmt.Errorf("error executing script %s: %w", req.Script, err)
 		}
 
 		var ok bool
-		fn, ok = ls.GetGlobal("onRow").(*lua.LFunction)
+		lfn := ls.Env.RawGetString("onRecord")
+		fn, ok = lfn.(*lua.LFunction)
 		if !ok {
-			return nil, errors.New("script should define `onRow` function")
+			return nil, fmt.Errorf("script should define `onRecord` as function, not %s", lfn)
 		}
 	} else {
 		return nil, errors.New("kafka mirror must have script")
@@ -184,14 +205,13 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 				return nil, fmt.Errorf("script returned non-nil non-string: %v", value)
 			}
 			wg.Add(1)
-			c.client.Produce(wgCtx, &kgo.Record{Topic: topic, Value: bytes.Clone([]byte(lstr))}, produceCb)
+			c.client.Produce(wgCtx, &kgo.Record{Topic: topic, Value: []byte(lstr)}, produceCb)
 
 			numRecords += 1
 			tableNameRowsMapping[topic] += 1
 		}
 	}
 
-	// TODO handle
 	waitChan := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -207,12 +227,10 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 		return nil, fmt.Errorf("could not flush transaction: %w", err)
 	}
 
-	if err := c.client.EndTransaction(ctx, kgo.TryCommit); err != nil {
-		return nil, fmt.Errorf("could not commit transaction: %w", err)
-	}
+	// TODO EndTransaction if transactional
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
-	err = c.pgMetadata.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
+	err := c.pgMetadata.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
 	if err != nil {
 		return nil, err
 	}

@@ -533,9 +533,7 @@ func (h *FlowRequestHandler) CreatePeer(
 			return wrongConfigResponse, nil
 		}
 		pgConfig := pgConfigObject.PostgresConfig
-
 		encodedConfig, encodingErr = proto.Marshal(pgConfig)
-
 	case protos.DBType_SNOWFLAKE:
 		sfConfigObject, ok := config.(*protos.Peer_SnowflakeConfig)
 		if !ok {
@@ -566,13 +564,18 @@ func (h *FlowRequestHandler) CreatePeer(
 		encodedConfig, encodingErr = proto.Marshal(s3Config)
 	case protos.DBType_CLICKHOUSE:
 		chConfigObject, ok := config.(*protos.Peer_ClickhouseConfig)
-
 		if !ok {
 			return wrongConfigResponse, nil
 		}
-
 		chConfig := chConfigObject.ClickhouseConfig
 		encodedConfig, encodingErr = proto.Marshal(chConfig)
+	case protos.DBType_KAFKA:
+		kaConfigObject, ok := config.(*protos.Peer_KafkaConfig)
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+		kaConfig := kaConfigObject.KafkaConfig
+		encodedConfig, encodingErr = proto.Marshal(kaConfig)
 	default:
 		return wrongConfigResponse, nil
 	}

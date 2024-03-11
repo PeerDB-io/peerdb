@@ -27,7 +27,7 @@ func FlatBuffers_BinaryArray_Loader(ls *lua.LState) int {
 }
 
 func BinaryArrayNew(ls *lua.LState) int {
-	lval := ls.Get(-1)
+	lval := ls.Get(1)
 	var ba BinaryArray
 	switch val := lval.(type) {
 	case lua.LString:
@@ -85,17 +85,13 @@ func BinaryArraySlice(ls *lua.LState) int {
 	return 1
 }
 
-func (ba *BinaryArray) Grow(newsize int) {
-	newdata := make([]byte, newsize)
-	copy(newdata[newsize-len(ba.data):], ba.data)
-	ba.data = newdata
-}
-
 func BinaryArrayGrow(ls *lua.LState) int {
 	baud, ba := LuaBinaryArray.Check(ls, 1)
 	newsize := int(ls.CheckNumber(2))
 	if newsize > len(ba.data) {
-		ba.Grow(newsize)
+		newdata := make([]byte, newsize)
+		copy(newdata[newsize-len(ba.data):], ba.data)
+		ba.data = newdata
 		baud.Value = ba
 	}
 	return 0

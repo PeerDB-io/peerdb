@@ -290,11 +290,18 @@ export const kaSchema = z.object({
     .string({ required_error: 'Password is required' })
     .min(1, { message: 'Password cannot be empty' }),
   sasl: z
-    .union([z.literal('SCRAM-SHA-256'), z.literal('SCRAM-SHA-512')], {
-      errorMap: () => ({
-        message: 'Either SCRAM-SHA-256 or SCRAM-SHA-512 is required.',
-      }),
-    })
+    .union(
+      [
+        z.literal('PLAIN'),
+        z.literal('SCRAM-SHA-256'),
+        z.literal('SCRAM-SHA-512'),
+      ],
+      {
+        errorMap: () => ({
+          message: 'One of PLAIN, SCRAM-SHA-256, or SCRAM-SHA-512 is required.',
+        }),
+      }
+    )
     .optional(),
   disableTls: z.boolean().optional(),
 });

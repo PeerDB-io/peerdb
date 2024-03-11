@@ -251,8 +251,8 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                         let snapshot_staging_path = match raw_options
                             .remove("snapshot_staging_path")
                         {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
-                            _ => Some("".to_string()),
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => s.clone(),
+                            _ => String::new(),
                         };
 
                         let snapshot_max_parallel_workers: Option<u32> = match raw_options
@@ -311,6 +311,11 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             _ => false,
                         };
 
+                        let script = match raw_options.remove("script") {
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => s.clone(),
+                            _ => String::new(),
+                        };
+
                         let flow_job = FlowJob {
                             name: cdc.mirror_name.to_string().to_lowercase(),
                             source_peer: cdc.source_peer.to_string().to_lowercase(),
@@ -333,6 +338,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             soft_delete_col_name,
                             synced_at_col_name,
                             initial_snapshot_only: initial_copy_only,
+                            script,
                         };
 
                         if initial_copy_only && !do_initial_copy {

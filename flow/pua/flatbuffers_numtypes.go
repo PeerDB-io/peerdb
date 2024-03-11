@@ -59,10 +59,10 @@ func (n *N) Pack(ls *lua.LState, buf []byte, val lua.LValue) {
 		switch lv := val.(type) {
 		case *lua.LUserData:
 			switch v := lv.Value.(type) {
-			case NI64:
-				n.PackU64(buf, uint64(v.val))
-			case NU64:
-				n.PackU64(buf, v.val)
+			case int64:
+				n.PackU64(buf, uint64(v))
+			case uint64:
+				n.PackU64(buf, v)
 			default:
 				n.PackU64(buf, 0)
 			}
@@ -88,10 +88,10 @@ func (n *N) Pack(ls *lua.LState, buf []byte, val lua.LValue) {
 		switch lv := val.(type) {
 		case *lua.LUserData:
 			switch v := lv.Value.(type) {
-			case NI64:
-				n.PackU64(buf, math.Float64bits(float64(v.val)))
-			case NU64:
-				n.PackU64(buf, math.Float64bits(float64(v.val)))
+			case int64:
+				n.PackU64(buf, math.Float64bits(float64(v)))
+			case uint64:
+				n.PackU64(buf, math.Float64bits(float64(v)))
 			default:
 				n.PackU64(buf, 0)
 			}
@@ -146,9 +146,9 @@ func (n *N) Unpack(ls *lua.LState, buf []byte) lua.LValue {
 		case 8:
 			u64 := binary.LittleEndian.Uint64(buf)
 			if n.signed {
-				return LuaNI64.New(ls, NI64{int64(u64)})
+				return LuaI64.New(ls, int64(u64))
 			} else {
-				return LuaNU64.New(ls, NU64{u64})
+				return LuaU64.New(ls, u64)
 			}
 		}
 	case tyfloat:
@@ -165,16 +165,7 @@ func (n *N) Unpack(ls *lua.LState, buf []byte) lua.LValue {
 	panic("invalid numeric metatype")
 }
 
-type (
-	NI64 struct{ val int64 }
-	NU64 struct{ val uint64 }
-)
-
-var (
-	LuaN    = LuaUserDataType[N]{Name: "flatbuffers_n"}
-	LuaNI64 = LuaUserDataType[NI64]{Name: "flatbuffers_i64"}
-	LuaNU64 = LuaUserDataType[NU64]{Name: "flatbuffers_u64"}
-)
+var LuaN = LuaUserDataType[N]{Name: "flatbuffers_n"}
 
 func FlatBuffers_N_Loader(ls *lua.LState) int {
 	m := ls.NewTable()
