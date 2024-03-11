@@ -85,8 +85,8 @@ func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
 	return nil
 }
 
-func (q *QRepFlowExecution) getTableSchema(ctx workflow.Context, tableName string) (*protos.TableSchema, error) {
-	q.logger.Info("fetching schema for table", slog.String("table", tableName))
+func (q *QRepFlowExecution) getTableSchema(ctx workflow.Context, tables []string) (map[string]*protos.TableSchema, error) {
+	q.logger.Info("fetching schema for tables", slog.Any("tables", tables))
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
@@ -94,7 +94,7 @@ func (q *QRepFlowExecution) getTableSchema(ctx workflow.Context, tableName strin
 
 	tableSchemaInput := &protos.GetTableSchemaBatchInput{
 		PeerConnectionConfig: q.config.SourcePeer,
-		TableIdentifiers:     []string{tableName},
+		TableIdentifiers:     tables,
 		FlowName:             q.config.FlowJobName,
 	}
 
@@ -102,10 +102,10 @@ func (q *QRepFlowExecution) getTableSchema(ctx workflow.Context, tableName strin
 
 	var tblSchemaOutput *protos.GetTableSchemaBatchOutput
 	if err := future.Get(ctx, &tblSchemaOutput); err != nil {
-		return nil, fmt.Errorf("failed to fetch schema for table %s: %w", tableName, err)
+		return nil, fmt.Errorf("failed to fetch schema for tables: %w", err)
 	}
 
-	return tblSchemaOutput.TableNameSchemaMapping[tableName], nil
+	return tblSchemaOutput.TableNameSchemaMapping, nil
 }
 
 func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Context) error {
@@ -115,22 +115,27 @@ func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Contex
 		ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 5 * time.Minute,
 		})
+		watermarkTables := strings.Split(q.config.WatermarkTable, ";")
+		dstTables := strings.Split(q.config.DestinationTableIdentifier, ";")
 
 		// fetch the schema for the watermark table
-		watermarkTableSchema, err := q.getTableSchema(ctx, q.config.WatermarkTable)
+		watermarkTableNameSchemaMapping, err := q.getTableSchema(ctx, watermarkTables)
 		if err != nil {
 			q.logger.Error("failed to fetch schema for watermark table", slog.Any("error", err))
 			return fmt.Errorf("failed to fetch schema for watermark table: %w", err)
 		}
 
+		// remapping to destination table because that's what is expected
+		dstTableNameSchemaMapping := make(map[string]*protos.TableSchema)
+		for i, watermarkTable := range watermarkTables {
+			dstTableNameSchemaMapping[dstTables[i]] = watermarkTableNameSchemaMapping[watermarkTable]
+		}
 		// now setup the normalized tables on the destination peer
 		setupConfig := &protos.SetupNormalizedTableBatchInput{
-			PeerConnectionConfig: q.config.DestinationPeer,
-			TableNameSchemaMapping: map[string]*protos.TableSchema{
-				q.config.DestinationTableIdentifier: watermarkTableSchema,
-			},
-			SyncedAtColName: q.config.SyncedAtColName,
-			FlowName:        q.config.FlowJobName,
+			PeerConnectionConfig:   q.config.DestinationPeer,
+			TableNameSchemaMapping: dstTableNameSchemaMapping,
+			SyncedAtColName:        q.config.SyncedAtColName,
+			FlowName:               q.config.FlowJobName,
 		}
 
 		future := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
@@ -143,8 +148,8 @@ func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Contex
 	return nil
 }
 
-// GetPartitions returns the partitions to replicate.
-func (q *QRepFlowExecution) GetPartitions(
+// getPartitions returns the partitions to replicate.
+func (q *QRepFlowExecution) getPartitions(
 	ctx workflow.Context,
 	last *protos.QRepPartition,
 ) (*protos.QRepParitionResult, error) {
@@ -343,7 +348,8 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 		renameOpts.FlowJobName = q.config.FlowJobName
 		renameOpts.Peer = q.config.DestinationPeer
 
-		tblSchema, err := q.getTableSchema(ctx, q.config.DestinationTableIdentifier)
+		dstTables := strings.Split(q.config.DestinationTableIdentifier, ";")
+		tblSchema, err := q.getTableSchema(ctx, dstTables)
 		if err != nil {
 			return fmt.Errorf("failed to fetch schema for table %s: %w", q.config.DestinationTableIdentifier, err)
 		}
@@ -352,7 +358,7 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 			{
 				CurrentName: q.config.DestinationTableIdentifier,
 				NewName:     oldTableIdentifier,
-				TableSchema: tblSchema,
+				TableSchema: tblSchema[q.config.DestinationTableIdentifier],
 			},
 		}
 
@@ -473,7 +479,7 @@ func QRepFlowWorkflow(
 	}
 
 	logger.Info("fetching partitions to replicate for peer flow")
-	partitions, err := q.GetPartitions(ctx, state.LastPartition)
+	partitions, err := q.getPartitions(ctx, state.LastPartition)
 	if err != nil {
 		return fmt.Errorf("failed to get partitions: %w", err)
 	}
@@ -489,6 +495,12 @@ func QRepFlowWorkflow(
 	}
 
 	if config.InitialCopyOnly {
+		if config.SourcePeer.Type == protos.DBType_SNOWFLAKE && config.WaitBetweenBatchesSeconds > 0 {
+			logger.Info(fmt.Sprintf("copy completed, restarting workflow in %d seconds",
+				config.WaitBetweenBatchesSeconds))
+			workflow.Sleep(ctx, time.Duration(config.WaitBetweenBatchesSeconds)*time.Second)
+			return workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
+		}
 		logger.Info("initial copy completed for peer flow")
 		return nil
 	}

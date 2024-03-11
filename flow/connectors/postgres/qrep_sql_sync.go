@@ -64,7 +64,6 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		return 0, fmt.Errorf("failed to register hstore: %w", err)
 	}
 
-	// Second transaction - to handle rest of the processing
 	tx, err := txConn.Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to begin transaction: %w", err)
@@ -72,7 +71,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	defer func() {
 		if err := tx.Rollback(ctx); err != nil {
 			if err != pgx.ErrTxClosed {
-				logger.LoggerFromCtx(ctx).Error("failed to rollback transaction tx2", slog.Any("error", err), syncLog)
+				logger.LoggerFromCtx(ctx).Error("failed to rollback transaction tx", slog.Any("error", err), syncLog)
 			}
 		}
 	}()
@@ -109,51 +108,19 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 			}
 		}
 	} else if writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		dstTableIdentifier := pgx.Identifier{dstTableName.Schema, dstTableName.Table}.Sanitize()
-		overwriteTempTable := pgx.Identifier{dstTableName.Schema, dstTableName.Table + "_overwrite"}
-		overwriteTempTableIdentifier := overwriteTempTable.Sanitize()
-		newColumns := make([]string, 0, len(schema.Fields))
-		for _, field := range schema.Fields {
-			newColumns = append(newColumns, fmt.Sprintf("%s %s", QuoteIdentifier(field.Name),
-				qValueKindToPostgresType(string(field.Type))))
-		}
-		newColumns = append(newColumns, QuoteIdentifier(syncedAtCol)+" TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-		_, err := tx.Exec(ctx, fmt.Sprintf("CREATE UNLOGGED TABLE %s (%s);",
-			overwriteTempTableIdentifier,
-			strings.Join(newColumns, ", "),
+		dstTableIdentifier := pgx.Identifier{dstTableName.Schema, dstTableName.Table}
+		tempTableIdentifier := pgx.Identifier{dstTableName.Schema, dstTableName.Table + "_overwrite"}
+		_, err := tx.Exec(ctx, fmt.Sprintf("CREATE UNLOGGED TABLE %s(LIKE %s);",
+			tempTableIdentifier.Sanitize(),
+			dstTableIdentifier.Sanitize(),
 		))
 		if err != nil {
-			return -1, fmt.Errorf("failed to create %s: %v", overwriteTempTableIdentifier, err)
+			return -1, fmt.Errorf("failed to create %s: %v", tempTableIdentifier, err)
 		}
 
-		_, err = tx.CopyFrom(ctx, overwriteTempTable, schema.GetColumnNames(), copySource)
+		_, err = tx.CopyFrom(ctx, tempTableIdentifier, schema.GetColumnNames(), copySource)
 		if err != nil {
-			return -1, fmt.Errorf("failed to copy records into %s: %v", overwriteTempTableIdentifier, err)
-		}
-
-		_, err = tx.Exec(ctx, fmt.Sprintf("DROP TABLE %s;", dstTableIdentifier))
-		if err != nil {
-			return -1, fmt.Errorf("failed to drop %s: %v", dstTableIdentifier, err)
-		}
-
-		_, err = tx.Exec(ctx, fmt.Sprintf("ALTER TABLE %s RENAME TO %s;",
-			overwriteTempTableIdentifier, QuoteIdentifier(dstTableName.Table)))
-		if err != nil {
-			return -1, fmt.Errorf("failed to rename %s to %s: %v",
-				overwriteTempTableIdentifier, dstTableIdentifier, err)
-		}
-
-		if syncedAtCol != "" {
-			updateSyncedAtStmt := fmt.Sprintf(
-				`UPDATE %s SET %s = CURRENT_TIMESTAMP WHERE %s IS NULL;`,
-				dstTableIdentifier,
-				QuoteIdentifier(syncedAtCol),
-				QuoteIdentifier(syncedAtCol),
-			)
-			_, err = tx.Exec(ctx, updateSyncedAtStmt)
-			if err != nil {
-				return -1, fmt.Errorf("failed to update synced_at column: %v", err)
-			}
+			return -1, fmt.Errorf("failed to copy records into %s: %v", tempTableIdentifier, err)
 		}
 	} else {
 		// Step 2.1: Create a temp staging table

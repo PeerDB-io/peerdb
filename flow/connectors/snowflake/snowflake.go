@@ -878,23 +878,36 @@ func (c *SnowflakeConnector) CreateTablesFromExisting(ctx context.Context, req *
 }
 
 func (c *SnowflakeConnector) getTableSchemaForTable(ctx context.Context, tableName string) (*protos.TableSchema, error) {
-	colNames, colTypes, err := c.getColsFromTable(ctx, tableName)
+	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
 		return nil, err
 	}
 
-	colFields := make([]*protos.FieldDescription, 0, len(colNames))
-	for i, sfType := range colTypes {
-		genericColType, err := snowflakeTypeToQValueKind(sfType)
-		if err != nil {
-			// we use string for invalid types
-			genericColType = qvalue.QValueKindString
-		}
-		colTypes[i] = string(genericColType)
+	rows, err := c.database.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 0", snowflakeSchemaTableNormalize(schemaTable)))
+	if err != nil {
+		c.logger.Error("failed to fetch rows for table",
+			slog.String("table", snowflakeSchemaTableNormalize(schemaTable)),
+			slog.Any("error", err))
+		return nil, err
+	}
+
+	columnTypes, err := rows.ColumnTypes()
+	if err != nil {
+		c.logger.Error("failed to get column types", slog.Any("error", err))
+		return nil, fmt.Errorf("failed to get column types: %w", err)
+	}
+
+	qRecordSchema, err := c.columnTypesToQRecordSchema(columnTypes)
+	if err != nil {
+		return nil, err
+	}
+
+	colFields := make([]*protos.FieldDescription, 0, len(qRecordSchema.Fields))
+	for _, field := range qRecordSchema.Fields {
 		colFields = append(colFields, &protos.FieldDescription{
-			Name:         colNames[i],
-			Type:         colTypes[i],
-			TypeModifier: -1,
+			Name:         field.Name,
+			Type:         string(field.Type),
+			TypeModifier: numeric.MakeNumericTypmod(int32(field.Precision), int32(field.Scale)),
 		})
 	}
 
