@@ -18,6 +18,7 @@ import {
   cdcSchema,
   flowNameSchema,
   qrepSchema,
+  sfQrepSchema,
   tableMappingSchema,
 } from './schema';
 
@@ -206,16 +207,27 @@ export const handleCreateQRep = async (
     return;
   }
 
+  let tableMapping: TableMapping[] = [];
+  let reqBody: CreateQRepFlowRequest = {
+    qrepConfig: config,
+    createCatalogEntry: true,
+    tableMapping: tableMapping,
+  };
+
+  tableMapping = reformattedTableMapping(rows ?? []);
   if (config.sourcePeer?.snowflakeConfig) {
-    config.query = 'SELECT * FROM ' + config.watermarkTable;
-    if (config.watermarkTable == '') {
-      notify('Please fill in the source table');
+    const sfQRepFieldErr = sfQrepSchema.safeParse(config);
+    if (!sfQRepFieldErr.success) {
+      notify(sfQRepFieldErr.error.issues[0].message);
       return;
     }
-    if (config.destinationTableIdentifier == '') {
-      notify('Please fill in the destination table');
+
+    const tableValidity = tableMappingSchema.safeParse(tableMapping);
+    if (!tableValidity.success) {
+      notify(tableValidity.error.issues[0].message);
       return;
     }
+    reqBody.tableMapping = tableMapping;
   } else {
     const fieldErr = validateQRepFields(config.query, config);
     if (fieldErr) {
@@ -224,16 +236,6 @@ export const handleCreateQRep = async (
     }
   }
   config.flowJobName = flowJobName;
-  let reqBody: CreateQRepFlowRequest = {
-    qrepConfig: config,
-    createCatalogEntry: true,
-    tableMapping: [],
-  };
-  if (rows) {
-    const tableMapping = reformattedTableMapping(rows);
-    reqBody.tableMapping = tableMapping;
-  }
-
   setLoading(true);
   const statusMessage: UCreateMirrorResponse = await fetch(
     '/api/mirrors/qrep',

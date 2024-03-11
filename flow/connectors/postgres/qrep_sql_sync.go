@@ -108,16 +108,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 			}
 		}
 	} else if writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		dstTableIdentifier := pgx.Identifier{dstTableName.Schema, dstTableName.Table}
-		tempTableIdentifier := pgx.Identifier{dstTableName.Schema, dstTableName.Table + "_overwrite"}
-		_, err := tx.Exec(ctx, fmt.Sprintf("CREATE UNLOGGED TABLE %s(LIKE %s);",
-			tempTableIdentifier.Sanitize(),
-			dstTableIdentifier.Sanitize(),
-		))
-		if err != nil {
-			return -1, fmt.Errorf("failed to create %s: %v", tempTableIdentifier, err)
-		}
-
+		tempTableIdentifier := pgx.Identifier{dstTableName.Schema, dstTableName.Table}
 		_, err = tx.CopyFrom(ctx, tempTableIdentifier, schema.GetColumnNames(), copySource)
 		if err != nil {
 			return -1, fmt.Errorf("failed to copy records into %s: %v", tempTableIdentifier, err)

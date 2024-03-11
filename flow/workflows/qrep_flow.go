@@ -12,6 +12,8 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
+	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -462,6 +464,21 @@ func QRepFlowWorkflow(
 		maxParallelWorkers = int(config.MaxParallelWorkers)
 	}
 
+	oldDstTableIdentifier := config.DestinationTableIdentifier
+	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
+		dstTables := strings.Split(q.config.DestinationTableIdentifier, ";")
+		transformedTables := make([]string, 0, len(dstTables))
+		for _, table := range dstTables {
+			dstSchemaTable, err := utils.ParseSchemaTable(table)
+			if err != nil {
+				return fmt.Errorf("failed to parse table name %s: %w", table, err)
+			}
+			dstTransformedTable := dstSchemaTable.Schema + "." + connpostgres.QRepOverwriteTempTablePrefix + dstSchemaTable.Table
+			transformedTables = append(transformedTables, dstTransformedTable)
+		}
+		config.DestinationTableIdentifier = strings.Join(transformedTables, ";")
+	}
+
 	err = q.SetupWatermarkTableOnDestination(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to setup watermark table: %w", err)
@@ -489,6 +506,7 @@ func QRepFlowWorkflow(
 		return err
 	}
 
+	q.config.DestinationTableIdentifier = oldDstTableIdentifier
 	logger.Info("consolidating partitions for peer flow")
 	if err := q.consolidatePartitions(ctx); err != nil {
 		return err

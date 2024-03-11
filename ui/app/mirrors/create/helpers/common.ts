@@ -60,7 +60,7 @@ export const blankQRepSetting = {
 
 export const blankSnowflakeQRepSetting = {
   destinationTableIdentifier: '',
-  query: '',
+  query: '-- nothing',
   watermarkTable: '',
   watermarkColumn: '',
   maxParallelWorkers: 4,

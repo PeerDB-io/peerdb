@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
@@ -72,4 +73,16 @@ func RegisterHStore(ctx context.Context, conn *pgx.Conn) error {
 	conn.TypeMap().RegisterType(&pgtype.Type{Name: "hstore", OID: hstoreOID, Codec: pgtype.HstoreCodec{}})
 
 	return nil
+}
+
+func PostgresIdentifierNormalize(identifier string) string {
+	if IsUpper(identifier) {
+		return strings.ToLower(identifier)
+	}
+	return identifier
+}
+
+func PostgresSchemaTableNormalize(schemaTable *SchemaTable) string {
+	return fmt.Sprintf(`%s.%s`, PostgresIdentifierNormalize(schemaTable.Schema),
+		PostgresIdentifierNormalize(schemaTable.Table))
 }
