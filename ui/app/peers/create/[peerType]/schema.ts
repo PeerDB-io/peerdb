@@ -282,13 +282,21 @@ export const chSchema = z.object({
 });
 
 export const kaSchema = z.object({
-  servers: z.array(z.string()),
-  username: z.string(),
-  password: z.string(),
+  servers: z.array(z.string()).min(1, { message: 'Atleast 1 server required' }),
+  username: z
+    .string({ required_error: 'Username is required' })
+    .min(1, { message: 'Username cannot be empty' }),
+  password: z
+    .string({ required_error: 'Password is required' })
+    .min(1, { message: 'Password cannot be empty' }),
   sasl: z
-    .union([z.literal('SCRAM-SHA-256'), z.literal('SCRAM-SHA-512')])
+    .union([z.literal('SCRAM-SHA-256'), z.literal('SCRAM-SHA-512')], {
+      errorMap: () => ({
+        message: 'Either SCRAM-SHA-256 or SCRAM-SHA-512 is required.',
+      }),
+    })
     .optional(),
-  disableTls: z.boolean(),
+  disableTls: z.boolean().optional(),
 });
 
 const urlSchema = z
