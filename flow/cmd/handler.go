@@ -211,6 +211,7 @@ func (h *FlowRequestHandler) removeFlowEntryInCatalog(
 func (h *FlowRequestHandler) CreateQRepFlow(
 	ctx context.Context, req *protos.CreateQRepFlowRequest,
 ) (*protos.CreateQRepFlowResponse, error) {
+	slog.Info("QRep endpoint request", slog.Any("req", req))
 	cfg := req.QrepConfig
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
@@ -259,6 +260,18 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		// make them all uppercase
 		cfg.SyncedAtColName = strings.ToUpper(req.QrepConfig.SyncedAtColName)
 	}
+
+	if req.QrepConfig.SourcePeer.Type == protos.DBType_SNOWFLAKE {
+		sourceTables := make([]string, 0, len(req.TableMapping))
+		destinationTables := make([]string, 0, len(req.TableMapping))
+		for _, mapping := range req.TableMapping {
+			sourceTables = append(sourceTables, mapping.SourceTableIdentifier)
+			destinationTables = append(destinationTables, mapping.DestinationTableIdentifier)
+		}
+		cfg.WatermarkTable = strings.Join(sourceTables, ";")
+		cfg.DestinationTableIdentifier = strings.Join(destinationTables, ";")
+	}
+
 	_, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowFn, cfg, state)
 	if err != nil {
 		slog.Error("unable to start QRepFlow workflow",

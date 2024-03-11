@@ -207,6 +207,8 @@ export default function CreateMirrors() {
             <SnowflakeQRepForm
               mirrorConfig={config as QRepConfig}
               setter={setConfig}
+              rows={rows}
+              setRows={setRows}
             />
           ) : (
             <QRepConfigForm
@@ -264,7 +266,8 @@ export default function CreateMirrors() {
                         notifyErr,
                         setCreating,
                         listMirrorsPage,
-                        mirrorType === 'XMIN' // for handling xmin specific
+                        mirrorType === 'XMIN', // for handling xmin specific
+                        rows
                       )
                 }
               >

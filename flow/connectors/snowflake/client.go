@@ -85,11 +85,11 @@ func (c *SnowflakeConnector) getTableCounts(ctx context.Context, tables []string
 	return totalRecords, nil
 }
 
-func (c *SnowflakeConnector) GetAllTables(ctx context.Context) ([]string, error) {
+func (c *SnowflakeConnector) GetTablesInSchema(ctx context.Context, schemaName string) ([]*protos.TableResponse, error) {
 	rows, err := c.database.QueryContext(ctx, `
-	SELECT table_schema, table_name 
-	FROM information_schema.tables 
-	WHERE table_type = 'BASE TABLE';`)
+	SELECT table_name
+	FROM information_schema.tables
+	WHERE TABLE_SCHEMA=?;`, schemaName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tables from Snowflake: %w", err)
 	}
@@ -97,14 +97,41 @@ func (c *SnowflakeConnector) GetAllTables(ctx context.Context) ([]string, error)
 	if rows.Err() != nil {
 		return nil, fmt.Errorf("failed to get tables from Snowflake: %w", rows.Err())
 	}
-	var tables []string
+	var tables []*protos.TableResponse
 	for rows.Next() {
-		var schema, table string
-		err := rows.Scan(&schema, &table)
+		var table string
+		err := rows.Scan(&table)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan table from Snowflake: %w", err)
 		}
-		tables = append(tables, fmt.Sprintf(`%s.%s`, schema, table))
+		tables = append(tables, &protos.TableResponse{
+			TableName: table,
+			CanMirror: true,
+		})
+	}
+
+	return tables, nil
+}
+
+func (c *SnowflakeConnector) GetAllSchemas(ctx context.Context) ([]string, error) {
+	rows, err := c.database.QueryContext(ctx, `
+	SELECT SCHEMA_NAME
+	FROM INFORMATION_SCHEMA.SCHEMATA;`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get schemas from Snowflake: %w", err)
+	}
+	defer rows.Close()
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to get schemas from Snowflake: %w", rows.Err())
+	}
+	var tables []string
+	for rows.Next() {
+		var schema string
+		err := rows.Scan(&schema)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan schema from Snowflake: %w", err)
+		}
+		tables = append(tables, schema)
 	}
 
 	return tables, nil

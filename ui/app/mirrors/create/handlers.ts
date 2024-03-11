@@ -12,6 +12,7 @@ import {
   QRepWriteType,
 } from '@/grpc_generated/flow';
 import { DBType, Peer, dBTypeToJSON } from '@/grpc_generated/peers';
+import { CreateQRepFlowRequest } from '@/grpc_generated/route';
 import { Dispatch, SetStateAction } from 'react';
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 import {
@@ -179,7 +180,8 @@ export const handleCreateQRep = async (
   notify: (msg: string) => void,
   setLoading: Dispatch<SetStateAction<boolean>>,
   route: RouteCallback,
-  xmin?: boolean
+  xmin?: boolean,
+  rows?: TableMapRow[]
 ) => {
   const flowNameValid = flowNameSchema.safeParse(flowJobName);
   if (!flowNameValid.success) {
@@ -223,14 +225,22 @@ export const handleCreateQRep = async (
     }
   }
   config.flowJobName = flowJobName;
+  let reqBody: CreateQRepFlowRequest = {
+    qrepConfig: config,
+    createCatalogEntry: true,
+    tableMapping: [],
+  };
+  if (rows) {
+    const tableMapping = reformattedTableMapping(rows);
+    reqBody.tableMapping = tableMapping;
+  }
+
   setLoading(true);
   const statusMessage: UCreateMirrorResponse = await fetch(
     '/api/mirrors/qrep',
     {
       method: 'POST',
-      body: JSON.stringify({
-        config,
-      }),
+      body: JSON.stringify(reqBody),
     }
   ).then((res) => res.json());
   if (!statusMessage.created) {
@@ -243,11 +253,12 @@ export const handleCreateQRep = async (
   setLoading(false);
 };
 
-export const fetchSchemas = async (peerName: string) => {
+export const fetchSchemas = async (peerName: string, peerType?: DBType) => {
   const schemasRes: USchemasResponse = await fetch('/api/peers/schemas', {
     method: 'POST',
     body: JSON.stringify({
       peerName,
+      peerType,
     }),
     cache: 'no-store',
   }).then((res) => res.json());
