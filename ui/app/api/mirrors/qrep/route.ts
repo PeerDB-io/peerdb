@@ -7,14 +7,8 @@ import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { config, tableMapping } = body;
-
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
-  const req: CreateQRepFlowRequest = {
-    qrepConfig: config,
-    createCatalogEntry: true,
-    tableMapping: tableMapping,
-  };
+  const req: CreateQRepFlowRequest = body;
   try {
     const createStatus: CreateQRepFlowResponse = await fetch(
       `${flowServiceAddr}/v1/flows/qrep/create`,
@@ -31,6 +25,7 @@ export async function POST(request: Request) {
 
     return new Response(JSON.stringify(response));
   } catch (e) {
+    return new Response(JSON.stringify({ created: false }));
     console.log(e);
   }
 }
