@@ -63,7 +63,6 @@ func (a *SnapshotActivity) SetupReplication(
 	defer close(replicationErr)
 
 	closeConnectionForError := func(err error) {
-		logger.Error("failed to setup replication", slog.Any("error", err))
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		// it is important to close the connection here as it is not closed in CloseSlotKeepAlive
 		connectors.CloseConnector(ctx, conn)
