@@ -221,7 +221,7 @@ export const handleCreateQRep = async (
       notify(sfQRepFieldErr.error.issues[0].message);
       return;
     }
-    console.log('rows in handler:', rows);
+
     const tableValidity = tableMappingSchema.safeParse(tableMapping);
     if (!tableValidity.success) {
       notify(tableValidity.error.issues[0].message);
