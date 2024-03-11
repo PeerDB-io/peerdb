@@ -553,8 +553,8 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 	g.SetLimit(8) // limit parallel merges to 8
 
 	for _, tableName := range destinationTableNames {
-		if err := gCtx.Err(); err != nil {
-			return fmt.Errorf("canceled while normalizing records: %w", err)
+		if gCtx.Err() != nil {
+			break
 		}
 
 		g.Go(func() error {
@@ -596,6 +596,9 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("error while normalizing records: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("normalize canceled: %w", err)
 	}
 
 	return nil
