@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"text/template"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	partition_utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -444,7 +446,7 @@ func (c *PostgresConnector) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
-	dstTable, err := utils.ParseSchemaTable(config.DestinationTableIdentifier)
+	dstTable, err := utils.ParseSchemaTable(partition.TableNameMapping.DestinationTableName)
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse destination table identifier: %w", err)
 	}
@@ -579,7 +581,7 @@ func (c *PostgresConnector) isPartitionSynced(ctx context.Context, partitionID s
 	// setup the query string
 	metadataTableIdentifier := pgx.Identifier{c.metadataSchema, qRepMetadataTableName}
 	queryString := fmt.Sprintf(
-		"SELECT COUNT(*)>0 FROM %s WHERE partitionID = $1;",
+		"SELECT COUNT(*)>0 FROM %s WHERE partitionID=$1;",
 		metadataTableIdentifier.Sanitize(),
 	)
 
@@ -591,4 +593,91 @@ func (c *PostgresConnector) isPartitionSynced(ctx context.Context, partitionID s
 	}
 
 	return result, nil
+}
+
+func (c *PostgresConnector) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig) error {
+	destinationTables := strings.Split(config.DestinationTableIdentifier, ";")
+
+	constraintsHookExists := true
+	_, err := c.conn.Exec(ctx, fmt.Sprintf("SELECT '_peerdb_%s_constraints_hook()'::regprocedure",
+		config.FlowJobName))
+	if err != nil {
+		constraintsHookExists = false
+	}
+
+	tx, err := c.conn.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil {
+			if err != pgx.ErrTxClosed {
+				logger.LoggerFromCtx(ctx).Error("unexpected error during rollback transaction for consolidation tx",
+					slog.Any("error", err))
+			}
+		}
+	}()
+
+	for _, dstTableName := range destinationTables {
+		dstSchemaTable, err := utils.ParseSchemaTable(dstTableName)
+		if err != nil {
+			return fmt.Errorf("failed to parse destination table identifier: %w", err)
+		}
+		dstTableIdentifier := pgx.Identifier{dstSchemaTable.Schema, dstSchemaTable.Table}
+		tempTableIdentifier := pgx.Identifier{dstSchemaTable.Schema, dstSchemaTable.Table + "_overwrite"}
+
+		_, err = tx.Exec(ctx, fmt.Sprintf("DROP TABLE %s CASCADE", dstTableIdentifier.Sanitize()))
+		if err != nil {
+			return fmt.Errorf("failed to drop %s: %v", dstTableName, err)
+		}
+		_, err = tx.Exec(ctx, fmt.Sprintf("ALTER TABLE %s RENAME TO %s",
+			tempTableIdentifier.Sanitize(), QuoteIdentifier(dstSchemaTable.Table)))
+		if err != nil {
+			return fmt.Errorf("failed to rename %s to %s: %v",
+				tempTableIdentifier.Sanitize(), dstTableIdentifier.Sanitize(), err)
+		}
+
+		_, err = tx.Exec(ctx, fmt.Sprintf("ALTER TABLE %s SET LOGGED",
+			dstTableIdentifier.Sanitize()))
+		if err != nil {
+			return fmt.Errorf("failed to rename %s to %s: %v",
+				tempTableIdentifier.Sanitize(), dstTableIdentifier.Sanitize(), err)
+		}
+
+		if config.SyncedAtColName != "" {
+			updateSyncedAtStmt := fmt.Sprintf(
+				`UPDATE %s SET %s = CURRENT_TIMESTAMP`,
+				dstTableIdentifier.Sanitize(),
+				QuoteIdentifier(config.SyncedAtColName),
+			)
+			_, err = tx.Exec(ctx, updateSyncedAtStmt)
+			if err != nil {
+				return fmt.Errorf("failed to update synced_at column: %v", err)
+			}
+		}
+	}
+
+	if constraintsHookExists {
+		c.logger.Info("executing constraints hook", slog.String("procName",
+			fmt.Sprintf("_peerdb_%s_constraints_hook()", config.FlowJobName)))
+		_, err = tx.Exec(ctx, fmt.Sprintf("CALL _peerdb_%s_constraints_hook()", config.FlowJobName))
+		if err != nil {
+			return fmt.Errorf("failed to execute stored procedure for applying constraints: %w", err)
+		}
+	} else {
+		c.logger.Info("no constraints hook found", slog.String("procName",
+			fmt.Sprintf("_peerdb_%s_constraints_hook()", config.FlowJobName)))
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to commit transaction for consolidation: %w", err)
+	}
+
+	return nil
+}
+
+func (c *PostgresConnector) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {
+	// we don't need to clean anything
+	return nil
 }
