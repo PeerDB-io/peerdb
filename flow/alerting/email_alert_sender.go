@@ -69,8 +69,8 @@ func (e *emailAlertSenderImpl) sendAlert(ctx context.Context, alertTitle string,
 	return nil
 }
 
-func NewEmailAlertSenderWithNewClient(ctx context.Context, config *EmailAlertSenderConfig) (EmailAlertSender, error) {
-	client, err := newSesClient(ctx, nil)
+func NewEmailAlertSenderWithNewClient(ctx context.Context, region *string, config *EmailAlertSenderConfig) (EmailAlertSender, error) {
+	client, err := newSesClient(ctx, region)
 	if err != nil {
 		return nil, err
 	}

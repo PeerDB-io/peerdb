@@ -103,3 +103,7 @@ func PeerDBAlertingEmailSenderSourceEmail() string {
 func PeerDBAlertingEmailSenderConfigurationSet() string {
 	return getEnvString("PEERDB_ALERTING_EMAIL_SENDER_CONFIGURATION_SET", "")
 }
+
+func PeerDBAlertingEmailSenderRegion() string {
+	return getEnvString("PEERDB_ALERTING_EMAIL_SENDER_REGION", "")
+}

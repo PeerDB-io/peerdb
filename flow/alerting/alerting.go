@@ -56,7 +56,12 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSender, e
 			if err != nil {
 				return fmt.Errorf("failed to unmarshal %s service config: %w", serviceType, err)
 			}
-			alertSender, err2 := NewEmailAlertSenderWithNewClient(ctx, &emailServiceConfig)
+			var region *string
+			if envRegion := peerdbenv.PeerDBAlertingEmailSenderRegion(); envRegion != "" {
+				region = &envRegion
+			}
+
+			alertSender, err2 := NewEmailAlertSenderWithNewClient(ctx, region, &emailServiceConfig)
 			if err2 != nil {
 				return fmt.Errorf("failed to initialize email alerter: %w", err2)
 			}
