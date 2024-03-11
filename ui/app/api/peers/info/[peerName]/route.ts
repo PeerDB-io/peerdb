@@ -1,14 +1,16 @@
 import prisma from '@/app/utils/prisma';
-import {NextRequest, NextResponse} from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
-import {getTruePeer} from '../../getTruePeer';
+import { getTruePeer } from '../../getTruePeer';
 
-export async function GET(request: NextRequest,
-                          context: {params: {peerName: string}}) {
+export async function GET(
+  request: NextRequest,
+  context: { params: { peerName: string } }
+) {
   const peerName = context.params.peerName;
   const peer = await prisma.peers.findFirst({
-    where : {
-      name : peerName,
+    where: {
+      name: peerName,
     },
   });
   const peerConfig = getTruePeer(peer!);

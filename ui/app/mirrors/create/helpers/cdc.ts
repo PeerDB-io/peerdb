@@ -139,4 +139,14 @@ export const cdcSettings: MirrorSetting[] = [
     type: 'switch',
     advanced: true,
   },
+  {
+    label: 'Script',
+    stateHandler: (value, setter) =>
+      setter((curr: CDCConfig) => ({
+        ...curr,
+        script: (value as string) || '',
+      })),
+    tips: 'Associate PeerDB script with this mirror.',
+    advanced: true,
+  },
 ];

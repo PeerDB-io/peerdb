@@ -14,6 +14,7 @@ interface KafkaProps {
 }
 
 const saslOptions = [
+  { value: 'PLAIN', label: 'PLAIN' },
   { value: 'SCRAM-SHA-256', label: 'SCRAM-SHA-256' },
   { value: 'SCRAM-SHA-512', label: 'SCRAM-SHA-512' },
 ];

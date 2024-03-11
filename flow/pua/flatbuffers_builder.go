@@ -1,6 +1,8 @@
 package pua
 
 import (
+	"slices"
+
 	"github.com/yuin/gopher-lua"
 )
 
@@ -17,10 +19,12 @@ type Builder struct {
 	minalign  uint8
 }
 
-func (b *Builder) EndVector(vectorSize int) int {
+func (b *Builder) EndVector(ls *lua.LState, vectorSize int) int {
 	if !b.nested {
-		panic("EndVector called outside nested context")
+		ls.RaiseError("EndVector called outside nested context")
+		return 0
 	}
+	b.nested = false
 	b.PlaceU64(uint64(vectorSize), uint32n)
 	return b.Offset()
 }
@@ -51,17 +55,16 @@ func (b *Builder) Prep(width uint8, additional int) {
 		b.minalign = width
 	}
 	k := len(b.ba.data) - b.head + additional
-	alignsize := (^k + 1) & int(width-1)
-	desiredSize := alignsize + int(width) + additional
+	alignsize := -k & int(width-1)
 
-	for b.head < desiredSize {
-		oldBufSize := len(b.ba.data)
-		newBufSize := oldBufSize + 1
-		for newBufSize < desiredSize {
-			newBufSize *= 2
-		}
-		b.ba.Grow(newBufSize)
-		b.head += len(b.ba.data) - oldBufSize
+	space := alignsize + int(width) + additional
+
+	if b.head < space {
+		oldlen := len(b.ba.data)
+		newdata := slices.Grow(b.ba.data, space)
+		newdata = newdata[:cap(newdata)]
+		copy(newdata[:oldlen], newdata[len(newdata)-oldlen:])
+		b.head += len(newdata) - oldlen
 	}
 
 	b.Pad(alignsize)
@@ -78,10 +81,26 @@ func (b *Builder) PrependU64(n N, x uint64) {
 }
 
 func (b *Builder) PrependSlot(ls *lua.LState, n N, slotnum int, x lua.LValue, d lua.LValue) {
-	// TODO implement __eq for U64/I64
 	if !ls.Equal(x, d) {
+		if xud, ok := x.(*lua.LUserData); ok {
+			// Need to check int64/number because flatbuffers passes default as 0
+			// but Lua only calls __eq when both operands are same type
+			if dn, ok := d.(lua.LNumber); ok {
+				switch xv := xud.Value.(type) {
+				case int64:
+					if xv == int64(dn) {
+						return
+					}
+				case uint64:
+					if xv == uint64(dn) {
+						return
+					}
+				}
+			}
+		}
+
 		b.Prepend(ls, n, x)
-		b.Slot(slotnum)
+		b.Slot(ls, slotnum)
 	}
 }
 
@@ -108,12 +127,13 @@ func (b *Builder) PrependVOffsetT(off uint16) {
 	b.PlaceU64(uint64(off), uint16n)
 }
 
-func (b *Builder) Slot(slotnum int) {
+func (b *Builder) Slot(ls *lua.LState, slotnum int) {
 	if !b.nested {
-		panic("Slot called outside nested context")
+		ls.RaiseError("Slot called outside nested context")
+		return
 	}
-	for slotnum < len(b.currentVT) {
-		b.currentVT = append(b.currentVT, 0)
+	if slotnum >= len(b.currentVT) {
+		b.currentVT = slices.Grow(b.currentVT, slotnum-len(b.currentVT)+1)
 	}
 	b.currentVT[slotnum] = b.Offset()
 }
@@ -141,7 +161,7 @@ func (b *Builder) WriteVtable(ls *lua.LState) int {
 	}
 
 	var existingVtable int
-	for i := len(b.ba.data) - 1; i >= 0; i-- {
+	for i := len(b.vtables) - 1; i >= 0; i -= 1 {
 		vt2Offset := b.vtables[i]
 		vt2Start := len(b.ba.data) - vt2Offset
 		vt2Len := uint16n.UnpackU64(b.ba.data[vt2Start:])
@@ -157,7 +177,7 @@ func (b *Builder) WriteVtable(ls *lua.LState) int {
 	}
 
 	if existingVtable == 0 {
-		for i := len(b.currentVT) - 1; i >= 0; i-- {
+		for i := len(b.currentVT) - 1; i >= 0; i -= 1 {
 			var off uint16
 			if b.currentVT[i] != 0 {
 				off = uint16(objectOffset - b.currentVT[i])
@@ -191,9 +211,9 @@ var LuaBuilder = LuaUserDataType[*Builder]{Name: "flatbuffers_builder"}
 
 func FlatBuffers_Builder_Loader(ls *lua.LState) int {
 	m := ls.NewTable()
-	ls.SetField(m, "New", ls.NewFunction(BuilderNew))
+	m.RawSetString("New", ls.NewFunction(BuilderNew))
 
-	mt := LuaBinaryArray.NewMetatable(ls)
+	mt := LuaBuilder.NewMetatable(ls)
 	index := ls.SetFuncs(ls.NewTable(), map[string]lua.LGFunction{
 		"Clear":              BuilderClear,
 		"Output":             BuilderOutput,
@@ -300,11 +320,11 @@ func BuilderStartObject(ls *lua.LState) int {
 		ls.RaiseError("StartObject called inside nested context")
 		return 0
 	}
+	b.nested = true
 
 	numFields := int(ls.CheckNumber(2))
 	b.currentVT = make([]int, numFields)
 	b.objectEnd = b.Offset()
-	b.nested = true
 	return 0
 }
 
@@ -317,8 +337,10 @@ func BuilderWriteVtable(ls *lua.LState) int {
 func BuilderEndObject(ls *lua.LState) int {
 	b := LuaBuilder.StartMeta(ls)
 	if !b.nested {
-		panic("EndObject called outside nested context")
+		ls.RaiseError("EndObject called outside nested context")
+		return 0
 	}
+	b.nested = false
 	ls.Push(lua.LNumber(b.WriteVtable(ls)))
 	return 1
 }
@@ -380,12 +402,8 @@ func BuilderStartVector(ls *lua.LState) int {
 
 func BuilderEndVector(ls *lua.LState) int {
 	b := LuaBuilder.StartMeta(ls)
-	if !b.nested {
-		ls.RaiseError("EndVector called outside nested context")
-	}
-	b.nested = false
-	b.PlaceU64(uint64(ls.CheckNumber(2)), uint32n)
-	ls.Push(lua.LNumber(b.Offset()))
+	size := int(ls.CheckNumber(2))
+	ls.Push(lua.LNumber(b.EndVector(ls, size)))
 	return 1
 }
 
@@ -404,13 +422,14 @@ func BuilderCreateString(ls *lua.LState) int {
 	b.head -= lens
 	copy(b.ba.data[b.head:], s)
 
-	return b.EndVector(lens)
+	ls.Push(lua.LNumber(b.EndVector(ls, lens)))
+	return 1
 }
 
 func BuilderSlot(ls *lua.LState) int {
 	b := LuaBuilder.StartMeta(ls)
 	slotnum := int(ls.CheckNumber(2))
-	b.Slot(slotnum)
+	b.Slot(ls, slotnum)
 	return 0
 }
 
@@ -516,7 +535,7 @@ func BuilderPrependStructSlot(ls *lua.LState) int {
 		if x != b.Offset() {
 			ls.RaiseError("Tried to write a Struct at an Offset that is different from the current Offset of the Builder.")
 		} else {
-			b.Slot(int(ls.CheckNumber(2)))
+			b.Slot(ls, int(ls.CheckNumber(2)))
 		}
 	}
 	return 0
@@ -528,7 +547,7 @@ func BuilderPrependUOffsetTRelativeSlot(ls *lua.LState) int {
 	d := int(ls.CheckNumber(4))
 	if x != d {
 		b.PrependOffsetTRelative(ls, x, uint32n)
-		b.Slot(int(ls.CheckNumber(2)))
+		b.Slot(ls, int(ls.CheckNumber(2)))
 	}
 	return 0
 }

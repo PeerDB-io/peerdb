@@ -42,6 +42,6 @@ export const blankKaSetting: KafkaConfig = {
   servers: [],
   username: '',
   password: '',
-  sasl: 'SCRAM-SHA-512',
+  sasl: 'PLAIN',
   disableTls: false,
 };

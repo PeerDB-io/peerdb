@@ -55,6 +55,13 @@ func (p *PostgresMetadataStore) Ping(ctx context.Context) error {
 	return nil
 }
 
+func (p *PostgresMetadataStore) LogFlowInfo(ctx context.Context, flowName string, info string) error {
+	_, err := p.pool.Exec(ctx,
+		"INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
+		flowName, info, "info")
+	return err
+}
+
 func (p *PostgresMetadataStore) FetchLastOffset(ctx context.Context, jobName string) (int64, error) {
 	row := p.pool.QueryRow(ctx,
 		`SELECT last_offset FROM `+

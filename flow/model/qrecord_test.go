@@ -12,8 +12,8 @@ import (
 )
 
 func TestEquals(t *testing.T) {
-	uuidVal1, _ := uuid.NewRandom()
-	uuidVal2, _ := uuid.NewRandom()
+	uuidVal1 := uuid.New()
+	uuidVal2 := uuid.New()
 
 	tests := []struct {
 		name string
