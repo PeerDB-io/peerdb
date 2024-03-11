@@ -15,10 +15,10 @@ export const tableMappingSchema = z
   .array(
     z.object({
       sourceTableIdentifier: z
-        .string()
+        .string({ required_error: 'Source table name is required' })
         .min(1, 'source table names, if added, must be non-empty'),
       destinationTableIdentifier: z
-        .string()
+        .string({ required_error: 'Destination table name is required' })
         .min(1, 'destination table names, if added, must be non-empty'),
       exclude: z.array(z.string()).optional(),
       partitionKey: z.string().optional(),
@@ -173,6 +173,32 @@ export const qrepSchema = z.object({
       upsert_key_columns: z.array(z.string()).optional(),
     },
     { required_error: 'Write mode is required' }
+  ),
+  waitBetweenBatchesSeconds: z
+    .number({
+      invalid_type_error: 'Batch wait must be a number',
+    })
+    .int()
+    .min(1, 'Batch wait must be a non-negative integer')
+    .optional(),
+});
+
+export const sfQrepSchema = z.object({
+  sourcePeer: z.object(
+    {
+      name: z.string().min(1),
+      type: z.any(),
+      config: z.any(),
+    },
+    { required_error: 'Source peer is required' }
+  ),
+  destinationPeer: z.object(
+    {
+      name: z.string().min(1),
+      type: z.any(),
+      config: z.any(),
+    },
+    { required_error: 'Destination peer is required' }
   ),
   waitBetweenBatchesSeconds: z
     .number({

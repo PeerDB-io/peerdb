@@ -24,6 +24,7 @@ import (
 )
 
 const qRepMetadataTableName = "_peerdb_query_replication_metadata"
+const QRepOverwriteTempTablePrefix = "_peerdb_overwrite_"
 
 func (c *PostgresConnector) GetQRepPartitions(
 	ctx context.Context,
@@ -617,21 +618,14 @@ func (c *PostgresConnector) ConsolidateQRepPartitions(ctx context.Context, confi
 			return fmt.Errorf("failed to parse destination table identifier: %w", err)
 		}
 		dstTableIdentifier := pgx.Identifier{dstSchemaTable.Schema, dstSchemaTable.Table}
-		tempTableIdentifier := pgx.Identifier{dstSchemaTable.Schema, dstSchemaTable.Table + "_overwrite"}
+		tempTableIdentifier := pgx.Identifier{dstSchemaTable.Schema, QRepOverwriteTempTablePrefix + dstSchemaTable.Table}
 
-		_, err = tx.Exec(ctx, fmt.Sprintf("DROP TABLE %s CASCADE", dstTableIdentifier.Sanitize()))
+		_, err = tx.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE", dstTableIdentifier.Sanitize()))
 		if err != nil {
 			return fmt.Errorf("failed to drop %s: %v", dstTableName, err)
 		}
 		_, err = tx.Exec(ctx, fmt.Sprintf("ALTER TABLE %s RENAME TO %s",
 			tempTableIdentifier.Sanitize(), QuoteIdentifier(dstSchemaTable.Table)))
-		if err != nil {
-			return fmt.Errorf("failed to rename %s to %s: %v",
-				tempTableIdentifier.Sanitize(), dstTableIdentifier.Sanitize(), err)
-		}
-
-		_, err = tx.Exec(ctx, fmt.Sprintf("ALTER TABLE %s SET LOGGED",
-			dstTableIdentifier.Sanitize()))
 		if err != nil {
 			return fmt.Errorf("failed to rename %s to %s: %v",
 				tempTableIdentifier.Sanitize(), dstTableIdentifier.Sanitize(), err)

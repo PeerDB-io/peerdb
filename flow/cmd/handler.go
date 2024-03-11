@@ -14,6 +14,7 @@ import (
 	"go.temporal.io/sdk/client"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -211,7 +212,6 @@ func (h *FlowRequestHandler) removeFlowEntryInCatalog(
 func (h *FlowRequestHandler) CreateQRepFlow(
 	ctx context.Context, req *protos.CreateQRepFlowRequest,
 ) (*protos.CreateQRepFlowResponse, error) {
-	slog.Info("QRep endpoint request", slog.Any("req", req))
 	cfg := req.QrepConfig
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
@@ -265,8 +265,13 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		sourceTables := make([]string, 0, len(req.TableMapping))
 		destinationTables := make([]string, 0, len(req.TableMapping))
 		for _, mapping := range req.TableMapping {
+			destinationSchemaTable, err := utils.ParseSchemaTable(mapping.DestinationTableIdentifier)
+			if err != nil {
+				return nil, fmt.Errorf("unable to parse destination table identifier: %w", err)
+			}
+
 			sourceTables = append(sourceTables, mapping.SourceTableIdentifier)
-			destinationTables = append(destinationTables, mapping.DestinationTableIdentifier)
+			destinationTables = append(destinationTables, utils.PostgresSchemaTableNormalize(destinationSchemaTable))
 		}
 		cfg.WatermarkTable = strings.Join(sourceTables, ";")
 		cfg.DestinationTableIdentifier = strings.Join(destinationTables, ";")
