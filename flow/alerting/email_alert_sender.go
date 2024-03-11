@@ -19,6 +19,7 @@ type emailAlertSenderImpl struct {
 	client                        *ses.Client
 	sourceEmail                   string
 	configurationSetName          string
+	replyToAddresses              []string
 	slotLagMBAlertThreshold       uint32
 	openConnectionsAlertThreshold uint32
 	emailAddresses                []string
@@ -35,6 +36,7 @@ func (e *emailAlertSenderImpl) getOpenConnectionsAlertThreshold() uint32 {
 type EmailAlertSenderConfig struct {
 	sourceEmail                   string
 	configurationSetName          string
+	replyToAddresses              []string
 	SlotLagMBAlertThreshold       uint32   `json:"slot_lag_mb_alert_threshold"`
 	OpenConnectionsAlertThreshold uint32   `json:"open_connections_alert_threshold"`
 	EmailAddresses                []string `json:"email_addresses"`
@@ -59,6 +61,7 @@ func (e *emailAlertSenderImpl) sendAlert(ctx context.Context, alertTitle string,
 		},
 		Source:               aws.String(e.sourceEmail),
 		ConfigurationSetName: aws.String(e.configurationSetName),
+		ReplyToAddresses:     e.replyToAddresses,
 		Tags: []types.MessageTag{
 			{Name: aws.String("DeploymentUUID"), Value: aws.String(peerdbenv.PeerDBDeploymentUID())},
 		},
@@ -82,6 +85,7 @@ func NewEmailAlertSender(client *ses.Client, config *EmailAlertSenderConfig) Ema
 		client:                        client,
 		sourceEmail:                   config.sourceEmail,
 		configurationSetName:          config.configurationSetName,
+		replyToAddresses:              config.replyToAddresses,
 		slotLagMBAlertThreshold:       config.SlotLagMBAlertThreshold,
 		openConnectionsAlertThreshold: config.OpenConnectionsAlertThreshold,
 		emailAddresses:                config.EmailAddresses,

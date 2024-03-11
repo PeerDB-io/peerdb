@@ -107,3 +107,8 @@ func PeerDBAlertingEmailSenderConfigurationSet() string {
 func PeerDBAlertingEmailSenderRegion() string {
 	return getEnvString("PEERDB_ALERTING_EMAIL_SENDER_REGION", "")
 }
+
+// Comma-separated reply-to addresses
+func PeerDBAlertingEmailSenderReplyToAddresses() string {
+	return getEnvString("PEERDB_ALERTING_EMAIL_SENDER_REPLY_TO_ADDRESSES", "")
+}

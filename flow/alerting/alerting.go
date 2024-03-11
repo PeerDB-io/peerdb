@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -54,6 +55,7 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 			emailServiceConfig := EmailAlertSenderConfig{
 				sourceEmail:          peerdbenv.PeerDBAlertingEmailSenderSourceEmail(),
 				configurationSetName: peerdbenv.PeerDBAlertingEmailSenderConfigurationSet(),
+				replyToAddresses:     strings.Split(peerdbenv.PeerDBAlertingEmailSenderReplyToAddresses(), ","),
 			}
 			if emailServiceConfig.sourceEmail == "" {
 				return errors.New("missing sourceEmail for Email alerting service")
@@ -131,7 +133,8 @@ func (a *Alerter) AlertIfSlotLag(ctx context.Context, peerName string, slotInfo 
 
 	if slotInfo.LagInMb > float32(lowestSlotLagMBAlertThreshold) {
 		for _, alertSenderConfig := range alertSenderConfigs {
-			if a.checkAndAddAlertToCatalog(ctx, alertSenderConfig.Id, alertKey, fmt.Sprintf(alertMessageTemplate, lowestSlotLagMBAlertThreshold)) {
+			if a.checkAndAddAlertToCatalog(ctx,
+				alertSenderConfig.Id, alertKey, fmt.Sprintf(alertMessageTemplate, lowestSlotLagMBAlertThreshold)) {
 				if alertSenderConfig.Sender.getSlotLagMBAlertThreshold() > 0 {
 					if slotInfo.LagInMb > float32(alertSenderConfig.Sender.getSlotLagMBAlertThreshold()) {
 						a.alertToProvider(ctx, alertSenderConfig, alertKey,
@@ -178,7 +181,8 @@ func (a *Alerter) AlertIfOpenConnections(ctx context.Context, peerName string,
 
 	if openConnections.CurrentOpenConnections > int64(lowestOpenConnectionsThreshold) {
 		for _, alertSenderConfig := range alertSenderConfigs {
-			if a.checkAndAddAlertToCatalog(ctx, alertSenderConfig.Id, alertKey, fmt.Sprintf(alertMessageTemplate, lowestOpenConnectionsThreshold)) {
+			if a.checkAndAddAlertToCatalog(ctx,
+				alertSenderConfig.Id, alertKey, fmt.Sprintf(alertMessageTemplate, lowestOpenConnectionsThreshold)) {
 				if alertSenderConfig.Sender.getOpenConnectionsAlertThreshold() > 0 {
 					if openConnections.CurrentOpenConnections > int64(alertSenderConfig.Sender.getOpenConnectionsAlertThreshold()) {
 						a.alertToProvider(ctx, alertSenderConfig, alertKey,
