@@ -36,6 +36,7 @@ interface SchemaBoxProps {
   >;
   peerType?: DBType;
   omitAdditionalTables: string[] | undefined;
+  disableColumnView?: boolean;
 }
 const SchemaBox = ({
   sourcePeer,
@@ -46,6 +47,7 @@ const SchemaBox = ({
   tableColumns,
   setTableColumns,
   omitAdditionalTables,
+  disableColumnView,
 }: SchemaBoxProps) => {
   const [tablesLoading, setTablesLoading] = useState(false);
   const [columnsLoading, setColumnsLoading] = useState(false);
@@ -275,7 +277,7 @@ const SchemaBox = ({
                     </div>
 
                     {/* COLUMN BOX */}
-                    {row.selected && (
+                    {row.selected && !disableColumnView && (
                       <div className='ml-5' style={{ width: '100%' }}>
                         <Label
                           as='label'

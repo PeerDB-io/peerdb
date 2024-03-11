@@ -60,8 +60,7 @@ export const blankQRepSetting = {
 
 export const blankSnowflakeQRepSetting = {
   destinationTableIdentifier: '',
-  query: `-- Here's a sample template you can fill in:
-  SELECT * FROM <table_name>`,
+  query: '',
   watermarkTable: '',
   watermarkColumn: '',
   maxParallelWorkers: 4,

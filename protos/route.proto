@@ -20,6 +20,7 @@ message CreateCDCFlowResponse {
 message CreateQRepFlowRequest {
   peerdb_flow.QRepConfig qrep_config = 1;
   bool create_catalog_entry = 2;
+  repeated peerdb_flow.TableMapping table_mapping = 3;
 }
 
 message CreateQRepFlowResponse {
