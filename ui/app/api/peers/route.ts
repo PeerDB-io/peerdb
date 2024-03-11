@@ -10,6 +10,7 @@ import {
   BigqueryConfig,
   ClickhouseConfig,
   DBType,
+  KafkaConfig,
   Peer,
   PostgresConfig,
   S3Config,
@@ -62,6 +63,12 @@ const constructPeer = (
         name,
         type: DBType.S3,
         s3Config: config as S3Config,
+      };
+    case 'KAFKA':
+      return {
+        name,
+        type: DBType.KAFKA,
+        kafkaConfig: config as KafkaConfig,
       };
     default:
       return;

@@ -3,7 +3,7 @@ import { PeerConfig } from '@/app/dto/PeersDTO';
 import GuideForDestinationSetup from '@/app/mirrors/create/cdc/guide';
 import BigqueryForm from '@/components/PeerForms/BigqueryConfig';
 import ClickhouseForm from '@/components/PeerForms/ClickhouseConfig';
-import KafkaForm from '@/components/PeerForms/KafkaForm';
+import KafkaForm from '@/components/PeerForms/KafkaConfig';
 import PostgresForm from '@/components/PeerForms/PostgresForm';
 import S3Form from '@/components/PeerForms/S3Form';
 import SnowflakeForm from '@/components/PeerForms/SnowflakeForm';
