@@ -224,27 +224,32 @@ func (a *Alerter) sendTelemetryMessage(ctx context.Context, flowName string, mor
 }
 
 func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) {
+	logger := logger.LoggerFromCtx(ctx)
 	errorWithStack := fmt.Sprintf("%+v", err)
+	logger.Error(err.Error(), slog.Any("stack", errorWithStack))
 	_, err = a.catalogPool.Exec(ctx,
 		"INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
 		flowName, errorWithStack, "error")
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Warn("failed to insert flow error", slog.Any("error", err))
+		logger.Warn("failed to insert flow error", slog.Any("error", err))
 		return
 	}
 	a.sendTelemetryMessage(ctx, flowName, errorWithStack, telemetry.ERROR)
 }
 
 func (a *Alerter) LogFlowEvent(ctx context.Context, flowName string, info string) {
+	logger.LoggerFromCtx(ctx).Info(info)
 	a.sendTelemetryMessage(ctx, flowName, info, telemetry.INFO)
 }
 
 func (a *Alerter) LogFlowInfo(ctx context.Context, flowName string, info string) {
+	logger := logger.LoggerFromCtx(ctx)
+	logger.Info(info)
 	_, err := a.catalogPool.Exec(ctx,
 		"INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
 		flowName, info, "info")
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Warn("failed to insert flow info", slog.Any("error", err))
+		logger.Warn("failed to insert flow info", slog.Any("error", err))
 		return
 	}
 }
