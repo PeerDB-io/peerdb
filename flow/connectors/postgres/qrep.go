@@ -600,7 +600,7 @@ func (c *PostgresConnector) ConsolidateQRepPartitions(ctx context.Context, confi
 	destinationTables := strings.Split(config.DestinationTableIdentifier, ";")
 
 	constraintsHookExists := true
-	_, err := c.conn.Exec(ctx, fmt.Sprintf("SELECT '_peerdb_%s_constraints_hook()'::regprocedure",
+	_, err := c.conn.Exec(ctx, fmt.Sprintf("SELECT '_peerdb_post_run_hook_%s()'::regprocedure",
 		config.FlowJobName))
 	if err != nil {
 		constraintsHookExists = false
@@ -653,14 +653,14 @@ func (c *PostgresConnector) ConsolidateQRepPartitions(ctx context.Context, confi
 
 	if constraintsHookExists {
 		c.logger.Info("executing constraints hook", slog.String("procName",
-			fmt.Sprintf("_peerdb_%s_constraints_hook()", config.FlowJobName)))
-		_, err = tx.Exec(ctx, fmt.Sprintf("CALL _peerdb_%s_constraints_hook()", config.FlowJobName))
+			fmt.Sprintf("_peerdb_post_run_hook_%s()", config.FlowJobName)))
+		_, err = tx.Exec(ctx, fmt.Sprintf("CALL _peerdb_post_run_hook_%s()", config.FlowJobName))
 		if err != nil {
 			return fmt.Errorf("failed to execute stored procedure for applying constraints: %w", err)
 		}
 	} else {
 		c.logger.Info("no constraints hook found", slog.String("procName",
-			fmt.Sprintf("_peerdb_%s_constraints_hook()", config.FlowJobName)))
+			fmt.Sprintf("_peerdb_post_run_hook_%s()", config.FlowJobName)))
 	}
 
 	err = tx.Commit(ctx)
