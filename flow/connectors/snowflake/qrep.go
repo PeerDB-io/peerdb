@@ -292,13 +292,24 @@ func (c *SnowflakeConnector) GetQRepPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
-	// we only support full snapshots for now, return a single partition
-	partition := &protos.QRepPartition{
-		PartitionId:        uuid.New().String(),
-		FullTablePartition: true,
-		Range:              nil,
+	watermarkTables := strings.Split(config.WatermarkTable, ";")
+	destinationTables := strings.Split(config.DestinationTableIdentifier, ";")
+	var output []*protos.QRepPartition
+
+	for i, watermarkTable := range watermarkTables {
+		// we only support full snapshots for now, return a single partition per table
+		output = append(output, &protos.QRepPartition{
+			TableNameMapping: &protos.TableNameMapping{
+				SourceTableName:      watermarkTable,
+				DestinationTableName: destinationTables[i],
+			},
+			PartitionId:        uuid.New().String(),
+			FullTablePartition: true,
+			Range:              nil,
+		})
 	}
-	return []*protos.QRepPartition{partition}, nil
+
+	return output, nil
 }
 
 func (c *SnowflakeConnector) columnTypesToQRecordSchema(columnTypes []*sql.ColumnType) (*model.QRecordSchema, error) {
@@ -310,7 +321,6 @@ func (c *SnowflakeConnector) columnTypesToQRecordSchema(columnTypes []*sql.Colum
 			return nil, err
 		}
 
-		// TODO: double check if .Nullable() and .DecimalSize() work
 		cnullable, _ := columnType.Nullable()
 		if ctype == qvalue.QValueKindNumeric {
 			precision, scale, _ := columnType.DecimalSize()
@@ -427,11 +437,22 @@ func (c *SnowflakeConnector) PullQRepRecordStream(
 	stream *model.QRecordStream,
 ) (int, error) {
 	if !partition.FullTablePartition {
+		stream.Records <- model.QRecordOrError{
+			Err: errors.New("only full table partitions are supported"),
+		}
 		return 0, errors.New("only full table partitions are supported")
 	}
 	defer close(stream.Records)
 
-	rows, err := c.database.QueryxContext(ctx, config.Query)
+	srcSchemaTable, err := utils.ParseSchemaTable(partition.TableNameMapping.SourceTableName)
+	if err != nil {
+		stream.Records <- model.QRecordOrError{
+			Err: fmt.Errorf("failed to parse destination table identifier: %w", err),
+		}
+		return 0, fmt.Errorf("failed to parse destination table identifier: %w", err)
+	}
+
+	rows, err := c.database.QueryxContext(ctx, fmt.Sprintf("SELECT * FROM %s", snowflakeSchemaTableNormalize(srcSchemaTable)))
 	if err != nil {
 		c.logger.Error("failed to fetch rows",
 			slog.String("query", config.Query), slog.Any("error", err))
