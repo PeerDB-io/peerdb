@@ -69,9 +69,9 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 				region = &envRegion
 			}
 
-			alertSender, err2 := NewEmailAlertSenderWithNewClient(ctx, region, &emailServiceConfig)
-			if err2 != nil {
-				return fmt.Errorf("failed to initialize email alerter: %w", err2)
+			alertSender, alertSenderErr := NewEmailAlertSenderWithNewClient(ctx, region, &emailServiceConfig)
+			if alertSenderErr != nil {
+				return fmt.Errorf("failed to initialize email alerter: %w", alertSenderErr)
 			}
 			alertSenderConfigs = append(alertSenderConfigs, AlertSenderConfig{Id: id, Sender: alertSender})
 		default:

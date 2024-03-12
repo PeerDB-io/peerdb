@@ -7,22 +7,19 @@ import (
 	"github.com/slack-go/slack"
 )
 
-type SlackAlertSender interface {
+type SlackAlertSender struct {
 	AlertSender
-}
-
-type slackAlertSenderImpl struct {
 	client                        *slack.Client
 	channelIDs                    []string
 	slotLagMBAlertThreshold       uint32
 	openConnectionsAlertThreshold uint32
 }
 
-func (s *slackAlertSenderImpl) getSlotLagMBAlertThreshold() uint32 {
+func (s *SlackAlertSender) getSlotLagMBAlertThreshold() uint32 {
 	return s.slotLagMBAlertThreshold
 }
 
-func (s *slackAlertSenderImpl) getOpenConnectionsAlertThreshold() uint32 {
+func (s *SlackAlertSender) getOpenConnectionsAlertThreshold() uint32 {
 	return s.openConnectionsAlertThreshold
 }
 
@@ -33,8 +30,8 @@ type slackAlertConfig struct {
 	OpenConnectionsAlertThreshold uint32   `json:"open_connections_alert_threshold"`
 }
 
-func newSlackAlertSender(config *slackAlertConfig) SlackAlertSender {
-	return &slackAlertSenderImpl{
+func newSlackAlertSender(config *slackAlertConfig) *SlackAlertSender {
+	return &SlackAlertSender{
 		client:                        slack.New(config.AuthToken),
 		channelIDs:                    config.ChannelIDs,
 		slotLagMBAlertThreshold:       config.SlotLagMBAlertThreshold,
@@ -42,7 +39,7 @@ func newSlackAlertSender(config *slackAlertConfig) SlackAlertSender {
 	}
 }
 
-func (s *slackAlertSenderImpl) sendAlert(ctx context.Context, alertTitle string, alertMessage string) error {
+func (s *SlackAlertSender) sendAlert(ctx context.Context, alertTitle string, alertMessage string) error {
 	for _, channelID := range s.channelIDs {
 		_, _, _, err := s.client.SendMessageContext(ctx, channelID, slack.MsgOptionBlocks(
 			slack.NewHeaderBlock(slack.NewTextBlockObject("plain_text", ":rotating_light:Alert:rotating_light:: "+alertTitle, true, false)),

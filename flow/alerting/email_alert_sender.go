@@ -11,11 +11,8 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared/aws_common"
 )
 
-type EmailAlertSender interface {
+type EmailAlertSender struct {
 	AlertSender
-}
-
-type emailAlertSenderImpl struct {
 	client                        *ses.Client
 	sourceEmail                   string
 	configurationSetName          string
@@ -25,11 +22,11 @@ type emailAlertSenderImpl struct {
 	emailAddresses                []string
 }
 
-func (e *emailAlertSenderImpl) getSlotLagMBAlertThreshold() uint32 {
+func (e *EmailAlertSender) getSlotLagMBAlertThreshold() uint32 {
 	return e.slotLagMBAlertThreshold
 }
 
-func (e *emailAlertSenderImpl) getOpenConnectionsAlertThreshold() uint32 {
+func (e *EmailAlertSender) getOpenConnectionsAlertThreshold() uint32 {
 	return e.openConnectionsAlertThreshold
 }
 
@@ -42,7 +39,7 @@ type EmailAlertSenderConfig struct {
 	EmailAddresses                []string `json:"email_addresses"`
 }
 
-func (e *emailAlertSenderImpl) sendAlert(ctx context.Context, alertTitle string, alertMessage string) error {
+func (e *EmailAlertSender) sendAlert(ctx context.Context, alertTitle string, alertMessage string) error {
 	_, err := e.client.SendEmail(ctx, &ses.SendEmailInput{
 		Destination: &types.Destination{
 			ToAddresses: e.emailAddresses,
@@ -72,7 +69,7 @@ func (e *emailAlertSenderImpl) sendAlert(ctx context.Context, alertTitle string,
 	return nil
 }
 
-func NewEmailAlertSenderWithNewClient(ctx context.Context, region *string, config *EmailAlertSenderConfig) (EmailAlertSender, error) {
+func NewEmailAlertSenderWithNewClient(ctx context.Context, region *string, config *EmailAlertSenderConfig) (*EmailAlertSender, error) {
 	client, err := newSesClient(ctx, region)
 	if err != nil {
 		return nil, err
@@ -80,8 +77,8 @@ func NewEmailAlertSenderWithNewClient(ctx context.Context, region *string, confi
 	return NewEmailAlertSender(client, config), nil
 }
 
-func NewEmailAlertSender(client *ses.Client, config *EmailAlertSenderConfig) EmailAlertSender {
-	return &emailAlertSenderImpl{
+func NewEmailAlertSender(client *ses.Client, config *EmailAlertSenderConfig) *EmailAlertSender {
+	return &EmailAlertSender{
 		client:                        client,
 		sourceEmail:                   config.sourceEmail,
 		configurationSetName:          config.configurationSetName,
