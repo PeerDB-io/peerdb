@@ -12,13 +12,25 @@ import useSWR from 'swr';
 import { UAlertConfigResponse } from '../dto/AlertDTO';
 import { tableStyle } from '../peers/[peerName]/style';
 import { fetcher } from '../utils/swr';
-import NewAlertConfig, { AlertConfigProps } from './new';
-const ServiceIcon = (serviceType: string) => {
-  switch (serviceType.toLowerCase()) {
-    default:
-      return <Image src='/images/slack.png' height={80} width={80} alt='alt' />;
-  }
+import { AlertConfigProps, NewConfig, ServiceType } from './new';
+
+const ServiceIcon = ({
+  serviceType,
+  size,
+}: {
+  serviceType: string;
+  size: number;
+}) => {
+  return (
+    <Image
+      src={`/images/${serviceType}.png`}
+      height={size}
+      width={size}
+      alt={serviceType}
+    />
+  );
 };
+
 const AlertConfigPage: React.FC = () => {
   const {
     data: alerts,
@@ -28,14 +40,19 @@ const AlertConfigPage: React.FC = () => {
     error: any;
     isLoading: boolean;
   } = useSWR('/api/alert-config', fetcher);
+
   const blankAlert: AlertConfigProps = {
-    serviceType: '',
-    authToken: '',
-    channelIdString: '',
-    slotLagGBAlertThreshold: 20,
-    openConnectionsAlertThreshold: 5,
+    serviceType: 'slack',
+    alertConfig: {
+      email_addresses: [''],
+      auth_token: '',
+      channel_ids: [''],
+      open_connections_alert_threshold: 20,
+      slot_lag_mb_alert_threshold: 5000,
+    },
     forEdit: false,
   };
+
   const [inEditOrAddMode, setInEditOrAddMode] = useState(false);
   const [editAlertConfig, setEditAlertConfig] =
     useState<AlertConfigProps>(blankAlert);
@@ -43,19 +60,15 @@ const AlertConfigPage: React.FC = () => {
   const onEdit = (alertConfig: UAlertConfigResponse, id: bigint) => {
     setInEditOrAddMode(true);
     const configJSON = JSON.stringify(alertConfig.service_config);
-    const channelIds: string[] = JSON.parse(configJSON)?.channel_ids;
+
     setEditAlertConfig({
       id,
-      serviceType: alertConfig.service_type,
-      authToken: JSON.parse(configJSON)?.auth_token,
-      channelIdString: channelIds.join(','),
-      slotLagGBAlertThreshold:
-        (JSON.parse(configJSON)?.slot_lag_mb_alert_threshold as number) / 1000,
-      openConnectionsAlertThreshold:
-        JSON.parse(configJSON)?.open_connections_alert_threshold,
+      serviceType: alertConfig.service_type as ServiceType,
+      alertConfig: JSON.parse(configJSON),
       forEdit: true,
     });
   };
+
   return (
     <div style={{ padding: '2rem' }}>
       <Label variant='title3'>Alert Configurations</Label>
@@ -79,11 +92,32 @@ const AlertConfigPage: React.FC = () => {
               {alerts?.length ? (
                 alerts.map((alertConfig: UAlertConfigResponse, index) => (
                   <TableRow key={index}>
-                    <TableCell style={{ width: '10%' }}>
-                      {alertConfig.id}
-                    </TableCell>
-                    <TableCell style={{ width: '10%' }}>
-                      {ServiceIcon(alertConfig.service_type)}
+                    <TableCell style={{ width: 20 }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            columnGap: '0.5rem',
+                          }}
+                        >
+                          <ServiceIcon
+                            serviceType={alertConfig.service_type}
+                            size={30}
+                          />
+                          <Label>
+                            {alertConfig.service_type.charAt(0).toUpperCase() +
+                              alertConfig.service_type.slice(1)}
+                          </Label>
+                        </div>
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div style={{ height: '10em' }}>
@@ -141,7 +175,7 @@ const AlertConfigPage: React.FC = () => {
           {inEditOrAddMode ? 'Cancel' : 'Add Configuration'}
         </Label>
       </Button>
-      {inEditOrAddMode && <NewAlertConfig {...editAlertConfig} />}
+      {inEditOrAddMode && <NewConfig {...editAlertConfig} />}
     </div>
   );
 };
