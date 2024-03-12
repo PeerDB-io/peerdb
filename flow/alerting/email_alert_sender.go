@@ -83,11 +83,15 @@ func NewEmailAlertSenderWithNewClient(ctx context.Context, region *string, confi
 }
 
 func NewEmailAlertSender(client *ses.Client, config *EmailAlertSenderConfig) *EmailAlertSender {
+	replyToAddresses := config.replyToAddresses
+	if len(replyToAddresses) == 0 {
+		replyToAddresses = []string{config.sourceEmail}
+	}
 	return &EmailAlertSender{
 		client:                        client,
 		sourceEmail:                   config.sourceEmail,
 		configurationSetName:          config.configurationSetName,
-		replyToAddresses:              config.replyToAddresses,
+		replyToAddresses:              replyToAddresses,
 		slotLagMBAlertThreshold:       config.SlotLagMBAlertThreshold,
 		openConnectionsAlertThreshold: config.OpenConnectionsAlertThreshold,
 		emailAddresses:                config.EmailAddresses,

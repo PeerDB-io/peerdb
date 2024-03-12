@@ -52,17 +52,10 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 
 			alertSenderConfigs = append(alertSenderConfigs, AlertSenderConfig{Id: id, Sender: newSlackAlertSender(&slackServiceConfig)})
 		case EMAIL:
-			var replyToAddresses []string
-			if envReplyToAddresses := strings.Split(peerdbenv.PeerDBAlertingEmailSenderReplyToAddresses(), ","); len(envReplyToAddresses) != 0 {
-				// AWS SDK does not like empty slice
-				replyToAddresses = envReplyToAddresses
-			} else {
-				replyToAddresses = nil
-			}
 			emailServiceConfig := EmailAlertSenderConfig{
 				sourceEmail:          peerdbenv.PeerDBAlertingEmailSenderSourceEmail(),
 				configurationSetName: peerdbenv.PeerDBAlertingEmailSenderConfigurationSet(),
-				replyToAddresses:     replyToAddresses,
+				replyToAddresses:     strings.Split(peerdbenv.PeerDBAlertingEmailSenderReplyToAddresses(), ","),
 			}
 			if emailServiceConfig.sourceEmail == "" {
 				return errors.New("missing sourceEmail for Email alerting service")
@@ -247,7 +240,7 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId i
 	}
 
 	logger.LoggerFromCtx(ctx).Info(
-		fmt.Sprintf("Skipeed sending alerts: last alert was sent at %s, which was >=%s ago",
+		fmt.Sprintf("Skipped sending alerts: last alert was sent at %s, which was >=%s ago",
 			createdTimestamp.String(), dur.String()))
 	return false
 }
