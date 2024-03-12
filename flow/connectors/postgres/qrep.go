@@ -640,17 +640,17 @@ func (c *PostgresConnector) ConsolidateQRepPartitions(ctx context.Context, confi
 				tempTableIdentifier.Sanitize(), dstTableIdentifier.Sanitize(), err)
 		}
 
-		if config.SyncedAtColName != "" {
-			updateSyncedAtStmt := fmt.Sprintf(
-				`UPDATE %s SET %s = CURRENT_TIMESTAMP`,
-				dstTableIdentifier.Sanitize(),
-				QuoteIdentifier(config.SyncedAtColName),
-			)
-			_, err = tx.Exec(ctx, updateSyncedAtStmt)
-			if err != nil {
-				return fmt.Errorf("failed to update synced_at column: %v", err)
-			}
-		}
+		// if config.SyncedAtColName != "" {
+		// 	updateSyncedAtStmt := fmt.Sprintf(
+		// 		`UPDATE %s SET %s = CURRENT_TIMESTAMP`,
+		// 		dstTableIdentifier.Sanitize(),
+		// 		QuoteIdentifier(config.SyncedAtColName),
+		// 	)
+		// 	_, err = tx.Exec(ctx, updateSyncedAtStmt)
+		// 	if err != nil {
+		// 		return fmt.Errorf("failed to update synced_at column: %v", err)
+		// 	}
+		// }
 	}
 
 	if constraintsHookExists {
