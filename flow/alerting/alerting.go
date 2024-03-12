@@ -56,6 +56,8 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 			if envReplyToAddresses := strings.Split(peerdbenv.PeerDBAlertingEmailSenderReplyToAddresses(), ","); len(envReplyToAddresses) != 0 {
 				// AWS SDK does not like empty slice
 				replyToAddresses = envReplyToAddresses
+			} else {
+				replyToAddresses = nil
 			}
 			emailServiceConfig := EmailAlertSenderConfig{
 				sourceEmail:          peerdbenv.PeerDBAlertingEmailSenderSourceEmail(),
