@@ -5,7 +5,7 @@ export const s3Setting: PeerSetting[] = [
   {
     label: 'Bucket URL',
     stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, url: value })),
+      setter((curr) => ({ ...curr, url: value as string })),
     tips: 'The URL of your existing S3/GCS bucket along with a prefix of your choice. It begins with s3://',
     helpfulLink:
       'https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-bucket-intro.html#accessing-a-bucket-using-S3-format',
@@ -14,7 +14,7 @@ export const s3Setting: PeerSetting[] = [
   {
     label: 'Access Key ID',
     stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, accessKeyId: value })),
+      setter((curr) => ({ ...curr, accessKeyId: value as string })),
     tips: 'The AWS access key ID associated with your account. In case of GCS, this is the HMAC access key ID.',
     helpfulLink:
       'https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html',
@@ -22,7 +22,7 @@ export const s3Setting: PeerSetting[] = [
   {
     label: 'Secret Access Key',
     stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, secretAccessKey: value })),
+      setter((curr) => ({ ...curr, secretAccessKey: value as string })),
     tips: 'The AWS secret access key associated with your account. In case of GCS, this is the HMAC secret.',
     helpfulLink:
       'https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html',
@@ -30,13 +30,13 @@ export const s3Setting: PeerSetting[] = [
   {
     label: 'Region',
     stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, region: value })),
+      setter((curr) => ({ ...curr, region: value as string })),
     tips: 'The region where your bucket is located. For example, us-east-1. In case of GCS, this will be set to auto, which detects where your bucket it.',
   },
   {
     label: 'Role ARN',
     stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, roleArn: value })),
+      setter((curr) => ({ ...curr, roleArn: value as string })),
     type: 'password',
     tips: 'If set, the role ARN will be used to assume the role before accessing the bucket.',
     helpfulLink:
@@ -45,15 +45,6 @@ export const s3Setting: PeerSetting[] = [
   },
 ];
 
-export const blankMetadata = {
-  host: '',
-  port: 5432,
-  user: 'postgres',
-  password: '',
-  database: 'postgres',
-  transactionSnapshot: '',
-};
-
 export const blankS3Setting: S3Config = {
   url: 's3://<bucket_name>/<prefix_name>',
   accessKeyId: undefined,
@@ -61,7 +52,4 @@ export const blankS3Setting: S3Config = {
   roleArn: undefined,
   region: undefined,
   endpoint: '',
-  // For Storage peers created in UI
-  // we use catalog as the metadata DB
-  metadataDb: blankMetadata,
 };

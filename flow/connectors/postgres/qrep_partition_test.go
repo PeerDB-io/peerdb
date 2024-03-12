@@ -7,10 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/stretchr/testify/assert"
+	"go.temporal.io/sdk/log"
+
+	"github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/stretchr/testify/assert"
 )
 
 type testCase struct {
@@ -23,7 +26,7 @@ type testCase struct {
 }
 
 func newTestCaseForNumRows(schema string, name string, rows uint32, expectedNum int) *testCase {
-	schemaQualifiedTable := fmt.Sprintf("%s.test", schema)
+	schemaQualifiedTable := schema + ".test"
 	query := fmt.Sprintf(
 		`SELECT * FROM %s WHERE "from" >= {{.start}} AND "from" < {{.end}}`,
 		schemaQualifiedTable)
@@ -42,7 +45,7 @@ func newTestCaseForNumRows(schema string, name string, rows uint32, expectedNum 
 }
 
 func newTestCaseForCTID(schema string, name string, rows uint32, expectedNum int) *testCase {
-	schemaQualifiedTable := fmt.Sprintf("%s.test", schema)
+	schemaQualifiedTable := schema + ".test"
 	query := fmt.Sprintf(
 		`SELECT * FROM %s WHERE "from" >= {{.start}} AND "from" < {{.end}}`,
 		schemaQualifiedTable)
@@ -61,20 +64,25 @@ func newTestCaseForCTID(schema string, name string, rows uint32, expectedNum int
 }
 
 func TestGetQRepPartitions(t *testing.T) {
-	// log.SetLevel(log.DebugLevel)
-
-	const connStr = "postgres://postgres:postgres@localhost:7132/postgres"
+	connStr := utils.GetCatalogConnectionStringFromEnv()
 
 	// Setup the DB
-	config, err := pgxpool.ParseConfig(connStr)
+	config, err := pgx.ParseConfig(connStr)
 	if err != nil {
 		t.Fatalf("Failed to parse config: %v", err)
 	}
 
-	pool, err := NewSSHWrappedPostgresPool(context.Background(), config, nil)
+	tunnel, err := NewSSHTunnel(context.Background(), nil)
 	if err != nil {
-		t.Fatalf("Failed to create pool: %v", err)
+		t.Fatalf("Failed to create tunnel: %v", err)
 	}
+	defer tunnel.Close()
+
+	conn, err := tunnel.NewPostgresConnFromConfig(context.Background(), config)
+	if err != nil {
+		t.Fatalf("Failed to create connection: %v", err)
+	}
+	defer conn.Close(context.Background())
 
 	// Generate a random schema name
 	rndUint, err := shared.RandomUInt64()
@@ -84,13 +92,13 @@ func TestGetQRepPartitions(t *testing.T) {
 	schemaName := fmt.Sprintf("test_%d", rndUint)
 
 	// Create the schema
-	_, err = pool.Exec(context.Background(), fmt.Sprintf(`CREATE SCHEMA %s;`, schemaName))
+	_, err = conn.Exec(context.Background(), fmt.Sprintf(`CREATE SCHEMA %s;`, schemaName))
 	if err != nil {
 		t.Fatalf("Failed to create schema: %v", err)
 	}
 
 	// Create the table in the new schema
-	_, err = pool.Exec(context.Background(), fmt.Sprintf(`
+	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s.test (
 			id SERIAL PRIMARY KEY,
 			value INT NOT NULL,
@@ -102,10 +110,7 @@ func TestGetQRepPartitions(t *testing.T) {
 	}
 
 	// from 2010 Jan 1 10:00 AM UTC to 2010 Jan 30 10:00 AM UTC
-	numRows := prepareTestData(t, pool.Pool, schemaName)
-
-	secondsInADay := uint32(24 * time.Hour / time.Second)
-	fmt.Printf("secondsInADay: %d\n", secondsInADay)
+	numRows := prepareTestData(t, conn, schemaName)
 
 	// Define the test cases
 	testCases := []*testCase{
@@ -166,13 +171,12 @@ func TestGetQRepPartitions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			c := &PostgresConnector{
 				connStr: connStr,
-				ctx:     context.Background(),
 				config:  &protos.PostgresConfig{},
-				pool:    pool,
-				logger:  *slog.With(slog.String(string(shared.FlowNameKey), "testGetQRepPartitions")),
+				conn:    conn,
+				logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testGetQRepPartitions"))),
 			}
 
-			got, err := c.GetQRepPartitions(tc.config, tc.last)
+			got, err := c.GetQRepPartitions(context.Background(), tc.config, tc.last)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("GetQRepPartitions() error = %v, wantErr %v", err, tc.wantErr)
 			}
@@ -187,15 +191,15 @@ func TestGetQRepPartitions(t *testing.T) {
 			// for now, but ideally we should check that the partition ranges
 			// are correct as well.
 			if tc.expectedNumPartitions != 0 {
-				assert.Equal(t, tc.expectedNumPartitions, len(got))
+				assert.Len(t, got, tc.expectedNumPartitions)
 				return
 			}
 
 			expected := tc.want
 			assert.Equal(t, len(expected), len(got))
 
-			for i := 0; i < len(expected); i++ {
-				er := expected[i].Range.Range.(*protos.PartitionRange_TimestampRange).TimestampRange
+			for i, val := range expected {
+				er := val.Range.Range.(*protos.PartitionRange_TimestampRange).TimestampRange
 				gotr := got[i].Range.Range.(*protos.PartitionRange_TimestampRange).TimestampRange
 				assert.Equal(t, er.Start.AsTime(), gotr.Start.AsTime())
 				assert.Equal(t, er.End.AsTime(), gotr.End.AsTime())
@@ -204,33 +208,30 @@ func TestGetQRepPartitions(t *testing.T) {
 	}
 
 	// Drop the schema at the end
-	_, err = pool.Exec(context.Background(), fmt.Sprintf(`DROP SCHEMA %s CASCADE;`, schemaName))
+	_, err = conn.Exec(context.Background(), fmt.Sprintf(`DROP SCHEMA %s CASCADE;`, schemaName))
 	if err != nil {
 		t.Fatalf("Failed to drop schema: %v", err)
 	}
 }
 
 // returns the number of rows inserted
-func prepareTestData(test *testing.T, pool *pgxpool.Pool, schema string) int {
+func prepareTestData(t *testing.T, pool *pgx.Conn, schema string) int {
+	t.Helper()
+
 	// Define the start and end times
 	startTime := time.Date(2010, time.January, 1, 10, 0, 0, 0, time.UTC)
-	endTime := time.Date(2010, time.January, 30, 10, 0, 0, 0, time.UTC)
+	endTime := time.Date(2010, time.January, 31, 10, 0, 0, 0, time.UTC)
 
-	// Prepare the time range
-	var times []time.Time
-	for t := startTime; !t.After(endTime); t = t.Add(24 * time.Hour) {
-		times = append(times, t)
-	}
-
-	// Insert the test data
-	for i, t := range times {
+	times := 0
+	for tm := startTime; tm.Before(endTime); tm = tm.Add(24 * time.Hour) {
+		times += 1
 		_, err := pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s.test (value, "from") VALUES ($1, $2)
-		`, schema), i+1, t)
+		`, schema), times, tm)
 		if err != nil {
-			test.Fatalf("Failed to insert test data: %v", err)
+			t.Fatalf("Failed to insert test data: %v", err)
 		}
 	}
 
-	return len(times)
+	return times
 }

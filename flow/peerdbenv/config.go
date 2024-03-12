@@ -29,15 +29,31 @@ func PeerDBEventhubFlushTimeoutSeconds() time.Duration {
 	return time.Duration(x) * time.Second
 }
 
-// PEERDB_CDC_IDLE_TIMEOUT_SECONDS
-func PeerDBCDCIdleTimeoutSeconds() time.Duration {
-	x := getEnvInt("PEERDB_CDC_IDLE_TIMEOUT_SECONDS", 60)
+// env variable doesn't exist anymore, but tests appear to depend on this
+// in lieu of an actual value of IdleTimeoutSeconds
+func PeerDBCDCIdleTimeoutSeconds(providedValue int) time.Duration {
+	var x int
+	if providedValue > 0 {
+		x = providedValue
+	} else {
+		x = getEnvInt("", 10)
+	}
 	return time.Duration(x) * time.Second
 }
 
-// PEERDB_CDC_DISK_SPILL_THRESHOLD
-func PeerDBCDCDiskSpillThreshold() int {
-	return getEnvInt("PEERDB_CDC_DISK_SPILL_THRESHOLD", 1_000_000)
+// PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD
+func PeerDBCDCDiskSpillRecordsThreshold() int {
+	return getEnvInt("PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD", 1_000_000)
+}
+
+// PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD, negative numbers means memory threshold disabled
+func PeerDBCDCDiskSpillMemPercentThreshold() int {
+	return getEnvInt("PEERDB_CDC_DISK_SPILL_MEM_PERCENT_THRESHOLD", -1)
+}
+
+// GOMEMLIMIT is a variable internal to Golang itself, we use this for internal targets, 0 means no maximum
+func PeerDBFlowWorkerMaxMemBytes() uint64 {
+	return getEnvUint[uint64]("GOMEMLIMIT", 0)
 }
 
 // PEERDB_CATALOG_HOST
@@ -46,8 +62,8 @@ func PeerDBCatalogHost() string {
 }
 
 // PEERDB_CATALOG_PORT
-func PeerDBCatalogPort() uint32 {
-	return getEnvUint32("PEERDB_CATALOG_PORT", 5432)
+func PeerDBCatalogPort() uint16 {
+	return getEnvUint[uint16]("PEERDB_CATALOG_PORT", 5432)
 }
 
 // PEERDB_CATALOG_USER
@@ -65,23 +81,34 @@ func PeerDBCatalogDatabase() string {
 	return getEnvString("PEERDB_CATALOG_DATABASE", "")
 }
 
-// PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD, 0 disables slot lag alerting entirely
-func PeerDBSlotLagMBAlertThreshold() uint32 {
-	return getEnvUint32("PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD", 5000)
-}
-
-// PEERDB_ALERTING_GAP_MINUTES, 0 disables all alerting entirely
-func PeerDBAlertingGapMinutesAsDuration() time.Duration {
-	why := time.Duration(getEnvUint32("PEERDB_ALERTING_GAP_MINUTES", 15))
-	return why * time.Minute
-}
-
-// PEERDB_PGPEER_OPEN_CONNECTIONS_ALERT_THRESHOLD, 0 disables open connections alerting entirely
-func PeerDBOpenConnectionsAlertThreshold() uint32 {
-	return getEnvUint32("PEERDB_PGPEER_OPEN_CONNECTIONS_ALERT_THRESHOLD", 5)
-}
-
 // PEERDB_ENABLE_WAL_HEARTBEAT
 func PeerDBEnableWALHeartbeat() bool {
 	return getEnvBool("PEERDB_ENABLE_WAL_HEARTBEAT", false)
+}
+
+// PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE
+func PeerDBEnableParallelSyncNormalize() bool {
+	return getEnvBool("PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE", false)
+}
+
+// PEERDB_TELEMETRY_AWS_SNS_TOPIC_ARN
+func PeerDBTelemetryAWSSNSTopicArn() string {
+	return getEnvString("PEERDB_TELEMETRY_AWS_SNS_TOPIC_ARN", "")
+}
+
+func PeerDBAlertingEmailSenderSourceEmail() string {
+	return getEnvString("PEERDB_ALERTING_EMAIL_SENDER_SOURCE_EMAIL", "")
+}
+
+func PeerDBAlertingEmailSenderConfigurationSet() string {
+	return getEnvString("PEERDB_ALERTING_EMAIL_SENDER_CONFIGURATION_SET", "")
+}
+
+func PeerDBAlertingEmailSenderRegion() string {
+	return getEnvString("PEERDB_ALERTING_EMAIL_SENDER_REGION", "")
+}
+
+// Comma-separated reply-to addresses
+func PeerDBAlertingEmailSenderReplyToAddresses() string {
+	return getEnvString("PEERDB_ALERTING_EMAIL_SENDER_REPLY_TO_ADDRESSES", "")
 }

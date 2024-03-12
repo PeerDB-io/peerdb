@@ -7,6 +7,7 @@ import { Label } from '@/lib/Label';
 import { RowWithCheckbox } from '@/lib/Layout';
 import { SearchField } from '@/lib/SearchField';
 import { TextField } from '@/lib/TextField';
+import { Tooltip } from '@/lib/Tooltip';
 import {
   Dispatch,
   SetStateAction,
@@ -17,7 +18,12 @@ import {
 import { BarLoader } from 'react-spinners/';
 import { fetchColumns, fetchTables } from '../handlers';
 import ColumnBox from './columnbox';
-import { expandableStyle, schemaBoxStyle, tableBoxStyle } from './styles';
+import {
+  expandableStyle,
+  schemaBoxStyle,
+  tableBoxStyle,
+  tooltipStyle,
+} from './styles';
 
 interface SchemaBoxProps {
   sourcePeer: string;
@@ -29,6 +35,7 @@ interface SchemaBoxProps {
     SetStateAction<{ tableName: string; columns: string[] }[]>
   >;
   peerType?: DBType;
+  omitAdditionalTables: string[] | undefined;
 }
 const SchemaBox = ({
   sourcePeer,
@@ -38,24 +45,22 @@ const SchemaBox = ({
   setRows,
   tableColumns,
   setTableColumns,
+  omitAdditionalTables,
 }: SchemaBoxProps) => {
   const [tablesLoading, setTablesLoading] = useState(false);
   const [columnsLoading, setColumnsLoading] = useState(false);
   const [expandedSchemas, setExpandedSchemas] = useState<string[]>([]);
   const [tableQuery, setTableQuery] = useState<string>('');
-  const [schemaLoadedSet, setSchemaLoadedSet] = useState<Set<string>>(
-    new Set()
-  );
-
-  const [handlingAll, setHandlingAll] = useState(false);
 
   const searchedTables = useMemo(() => {
     const tableQueryLower = tableQuery.toLowerCase();
-    return rows.filter(
-      (row) =>
-        row.schema === schema &&
-        row.source.toLowerCase().includes(tableQueryLower)
-    );
+    return rows
+      .filter(
+        (row) =>
+          row.schema === schema &&
+          row.source.toLowerCase().includes(tableQueryLower)
+      )
+      .sort((a, b) => a.source.localeCompare(b.source));
   }, [schema, rows, tableQuery]);
 
   const schemaIsExpanded = useCallback(
@@ -120,27 +125,38 @@ const SchemaBox = ({
     e: React.MouseEvent<HTMLInputElement, MouseEvent>,
     schemaName: string
   ) => {
-    setHandlingAll(true);
     const newRows = [...rows];
-    for (const row of newRows) {
-      if (row.schema === schemaName) {
-        row.selected = e.currentTarget.checked;
+    for (let i = 0; i < newRows.length; i++) {
+      const row = newRows[i];
+      if (row.schema === schemaName && row.canMirror) {
+        newRows[i] = { ...row, selected: e.currentTarget.checked };
         if (e.currentTarget.checked) addTableColumns(row.source);
         else removeTableColumns(row.source);
       }
     }
     setRows(newRows);
-    setHandlingAll(false);
+  };
+
+  const rowsDoNotHaveSchemaTables = (schema: string) => {
+    return !rows.some((row) => row.schema === schema);
   };
 
   const handleSchemaClick = (schemaName: string) => {
     if (!schemaIsExpanded(schemaName)) {
       setExpandedSchemas((curr) => [...curr, schemaName]);
-      if (!schemaLoadedSet.has(schemaName)) {
+
+      if (rowsDoNotHaveSchemaTables(schemaName)) {
         setTablesLoading(true);
-        setSchemaLoadedSet((loaded) => new Set(loaded).add(schemaName));
-        fetchTables(sourcePeer, schemaName, peerType).then((tableRows) => {
-          setRows((value) => [...value, ...tableRows]);
+        fetchTables(sourcePeer, schemaName, peerType).then((newRows) => {
+          for (const row of newRows) {
+            if (omitAdditionalTables?.includes(row.source)) {
+              row.canMirror = false;
+            }
+          }
+          setRows((oldRows) => [
+            ...oldRows.filter((oldRow) => oldRow.schema !== schema),
+            ...newRows,
+          ]);
           setTablesLoading(false);
         });
       }
@@ -187,8 +203,7 @@ const SchemaBox = ({
           </div>
         </div>
         {/* TABLE BOX */}
-        {handlingAll && <BarLoader />}
-        {!handlingAll && schemaIsExpanded(schema) && (
+        {schemaIsExpanded(schema) && (
           <div className='ml-5 mt-3' style={{ width: '90%' }}>
             {searchedTables.length ? (
               searchedTables.map((row) => {
@@ -204,12 +219,36 @@ const SchemaBox = ({
                     >
                       <RowWithCheckbox
                         label={
-                          <Label as='label' style={{ fontSize: 13 }}>
-                            {row.source}
-                          </Label>
+                          <Tooltip
+                            style={{
+                              ...tooltipStyle,
+                              display: row.canMirror ? 'none' : 'block',
+                            }}
+                            content={
+                              'This table must have a primary key or replica identity to be mirrored.'
+                            }
+                          >
+                            <Label
+                              as='label'
+                              style={{
+                                fontSize: 13,
+                                color: row.canMirror ? 'black' : 'gray',
+                              }}
+                            >
+                              {row.source}
+                            </Label>
+                            <Label
+                              as='label'
+                              colorName='lowContrast'
+                              style={{ fontSize: 13 }}
+                            >
+                              {row.tableSize}
+                            </Label>
+                          </Tooltip>
                         }
                         action={
                           <Checkbox
+                            disabled={!row.canMirror}
                             checked={row.selected}
                             onCheckedChange={(state: boolean) =>
                               handleTableSelect(state, row.source)
@@ -217,7 +256,6 @@ const SchemaBox = ({
                           />
                         }
                       />
-
                       <div
                         style={{
                           width: '40%',

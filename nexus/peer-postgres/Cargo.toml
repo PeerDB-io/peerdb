@@ -10,19 +10,18 @@ anyhow = "1.0"
 async-trait = "0.1"
 rust_decimal = { version = "1.30.0", features = [ "tokio-pg" ] }
 bytes = "1.0"
-chrono = { version = "0.4", features = ["serde"] }
+chrono.workspace = true
 futures = "0.3"
 peer-cursor = { path = "../peer-cursor" }
 peer-connections = { path = "../peer-connections" }
-pgerror = { path = "../pgerror" }
-pgwire = "0.17"
+pgwire.workspace = true
 postgres-connection = { path = "../postgres-connection" }
 pt = { path = "../pt" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_bytes = "0.11"
 postgres-inet = "0.19.0"
-sqlparser = { git = "https://github.com/peerdb-io/sqlparser-rs.git" }
+sqlparser.workspace = true
 tokio = { version = "1.0", features = ["full"] }
 tokio-postgres = { version = "0.7.6", features = [
   "with-chrono-0_4",

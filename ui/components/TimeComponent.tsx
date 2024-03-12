@@ -1,7 +1,9 @@
 'use client';
-import useTZStore from '@/app/globalstate/time';
 import { Label } from '@/lib/Label';
+import { ProgressCircle } from '@/lib/ProgressCircle';
 import moment from 'moment-timezone';
+import { useEffect, useState } from 'react';
+import { useLocalStorage } from 'usehooks-ts';
 
 const TimeLabel = ({
   timeVal,
@@ -10,7 +12,11 @@ const TimeLabel = ({
   timeVal: Date | string;
   fontSize?: number;
 }) => {
-  const timezone = useTZStore((state) => state.timezone);
+  const [timezone] = useLocalStorage('timezone-ui', 'UTC'); // ['UTC', 'Local', 'Relative']
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const formattedTimestamp = (zone: string) => {
     switch (zone) {
       case 'Local':
@@ -23,6 +29,13 @@ const TimeLabel = ({
         return moment(timeVal).utc().format('YYYY-MM-DD HH:mm:ss');
     }
   };
+  if (!mounted) {
+    return (
+      <Label>
+        <ProgressCircle variant='determinate_progress_circle' />
+      </Label>
+    );
+  }
   return (
     <Label as='label' style={{ fontSize: fontSize }}>
       {formattedTimestamp(timezone)}

@@ -14,7 +14,7 @@ message CreateCDCFlowRequest {
 }
 
 message CreateCDCFlowResponse {
-  string worflow_id = 1;
+  string workflow_id = 1;
 }
 
 message CreateQRepFlowRequest {
@@ -23,7 +23,7 @@ message CreateQRepFlowRequest {
 }
 
 message CreateQRepFlowResponse {
-  string worflow_id = 1;
+  string workflow_id = 1;
 }
 
 message ShutdownRequest {
@@ -96,6 +96,7 @@ message QRepMirrorStatus {
   // or if we are in the continuous streaming mode.
 }
 
+// to be removed eventually
 message CDCSyncStatus {
   int64 start_lsn = 1;
   int64 end_lsn = 2;
@@ -108,13 +109,23 @@ message PeerSchemasResponse {
   repeated string schemas = 1;
 }
 
+message PeerPublicationsResponse {
+  repeated string publication_names = 1;
+}
+
 message SchemaTablesRequest {
   string peer_name = 1;
   string schema_name = 2;
 }
 
 message SchemaTablesResponse {
-  repeated string tables = 1;
+  repeated TableResponse tables = 1;
+}
+
+message TableResponse {
+  string table_name = 1;
+  bool can_mirror = 2;
+  string table_size = 3;
 }
 
 message AllTablesResponse {
@@ -162,8 +173,18 @@ message PeerStatResponse {
   repeated StatInfo stat_data = 1;
 }
 
+message CloneTableSummary {
+  string table_name = 1;
+  google.protobuf.Timestamp start_time = 2;
+  int32 num_partitions_completed = 3;
+  int32 num_partitions_total = 4;
+  int64 num_rows_synced = 5;
+  int64 avg_time_per_partition_ms = 6;
+  string flow_job_name = 7;
+}
+
 message SnapshotStatus {
-  repeated QRepMirrorStatus clones = 1;
+  repeated CloneTableSummary clones = 1;
 }
 
 message CDCMirrorStatus {
@@ -179,19 +200,20 @@ message MirrorStatusResponse {
     CDCMirrorStatus cdc_status = 3;
   }
   string error_message = 4;
+  peerdb_flow.FlowStatus current_flow_state = 5;
 }
 
-// in the future, consider moving DropFlow to this and reduce route surface
-enum FlowState {
-  STATE_UNKNOWN = 0;
-  STATE_RUNNING = 1;
-  STATE_PAUSED = 2;
+message ValidateCDCMirrorResponse{
+  bool ok = 1;
 }
 
 message FlowStateChangeRequest {
-  string workflow_id = 1;
-  string flow_job_name = 2;
-  FlowState requested_flow_state = 3;
+  string flow_job_name = 1;
+  peerdb_flow.FlowStatus requested_flow_state = 2;
+  peerdb_peers.Peer source_peer = 3;
+  peerdb_peers.Peer destination_peer = 4;
+  // only can be sent in certain situations
+  optional peerdb_flow.FlowConfigUpdate flow_config_update = 5;
 }
 
 message FlowStateChangeResponse {
@@ -210,6 +232,12 @@ service FlowService {
   rpc ValidatePeer(ValidatePeerRequest) returns (ValidatePeerResponse) {
     option (google.api.http) = {
       post: "/v1/peers/validate",
+      body: "*"
+     };
+  }
+    rpc ValidateCDCMirror(CreateCDCFlowRequest) returns (ValidateCDCMirrorResponse) {
+    option (google.api.http) = {
+      post: "/v1/mirrors/cdc/validate",
       body: "*"
      };
   }
@@ -242,6 +270,10 @@ service FlowService {
     option (google.api.http) = { get: "/v1/peers/schemas" };
   }
 
+  rpc GetPublications(PostgresPeerActivityInfoRequest) returns (PeerPublicationsResponse) {
+    option (google.api.http) = { get: "/v1/peers/publications" };
+  }
+
   rpc GetTablesInSchema(SchemaTablesRequest) returns (SchemaTablesResponse) {
     option (google.api.http) = { get: "/v1/peers/tables" };
   }
@@ -263,7 +295,9 @@ service FlowService {
   rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {
     option (google.api.http) = { post: "/v1/mirrors/drop", body: "*" };
   }
-  rpc FlowStateChange(FlowStateChangeRequest) returns (FlowStateChangeResponse) {}
+  rpc FlowStateChange(FlowStateChangeRequest) returns (FlowStateChangeResponse) {
+    option (google.api.http) = { post: "/v1/mirrors/state_change", body: "*" };
+  }
   rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {
     option (google.api.http) = { get: "/v1/mirrors/{flow_job_name}" };
   }

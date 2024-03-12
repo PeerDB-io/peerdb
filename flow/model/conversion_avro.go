@@ -4,45 +4,52 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"go.temporal.io/sdk/log"
+
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 type QRecordAvroConverter struct {
-	QRecord        QRecord
+	QRecord        []qvalue.QValue
 	TargetDWH      qvalue.QDWHType
 	NullableFields map[string]struct{}
 	ColNames       []string
+	logger         log.Logger
 }
 
 func NewQRecordAvroConverter(
-	q QRecord,
+	q []qvalue.QValue,
 	targetDWH qvalue.QDWHType,
 	nullableFields map[string]struct{},
 	colNames []string,
+	logger log.Logger,
 ) *QRecordAvroConverter {
 	return &QRecordAvroConverter{
 		QRecord:        q,
 		TargetDWH:      targetDWH,
 		NullableFields: nullableFields,
 		ColNames:       colNames,
+		logger:         logger,
 	}
 }
 
 func (qac *QRecordAvroConverter) Convert() (map[string]interface{}, error) {
-	m := map[string]interface{}{}
+	m := make(map[string]interface{}, len(qac.QRecord))
 
-	for idx := range qac.QRecord.Entries {
+	for idx, val := range qac.QRecord {
 		key := qac.ColNames[idx]
 		_, nullable := qac.NullableFields[key]
 
 		avroConverter := qvalue.NewQValueAvroConverter(
-			qac.QRecord.Entries[idx],
+			val,
 			qac.TargetDWH,
 			nullable,
+			qac.logger,
 		)
+
 		avroVal, err := avroConverter.ToAvroValue()
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert QValue to Avro-compatible value: %v", err)
+			return nil, fmt.Errorf("failed to convert QValue to Avro-compatible value: %w", err)
 		}
 
 		m[key] = avroVal
@@ -70,12 +77,13 @@ type QRecordAvroSchemaDefinition struct {
 func GetAvroSchemaDefinition(
 	dstTableName string,
 	qRecordSchema *QRecordSchema,
+	targetDWH qvalue.QDWHType,
 ) (*QRecordAvroSchemaDefinition, error) {
 	avroFields := make([]QRecordAvroField, 0, len(qRecordSchema.Fields))
 	nullableFields := make(map[string]struct{})
 
 	for _, qField := range qRecordSchema.Fields {
-		avroType, err := qvalue.GetAvroSchemaFromQValueKind(qField.Type)
+		avroType, err := qvalue.GetAvroSchemaFromQValueKind(qField.Type, targetDWH, qField.Precision, qField.Scale)
 		if err != nil {
 			return nil, err
 		}
@@ -99,7 +107,7 @@ func GetAvroSchemaDefinition(
 
 	avroSchemaJSON, err := json.Marshal(avroSchema)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal Avro schema to JSON: %v", err)
+		return nil, fmt.Errorf("failed to marshal Avro schema to JSON: %w", err)
 	}
 
 	return &QRecordAvroSchemaDefinition{

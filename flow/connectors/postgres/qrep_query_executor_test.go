@@ -9,80 +9,64 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 )
 
-func setupDB(t *testing.T) (*pgxpool.Pool, string) {
-	config, err := pgxpool.ParseConfig("postgres://postgres:postgres@localhost:7132/postgres")
-	if err != nil {
-		t.Fatalf("unable to parse config: %v", err)
-	}
+func setupDB(t *testing.T) (*PostgresConnector, string) {
+	t.Helper()
 
-	pool, err := pgxpool.NewWithConfig(context.Background(), config)
+	connector, err := NewPostgresConnector(context.Background(), utils.GetCatalogPostgresConfigFromEnv())
 	if err != nil {
-		t.Fatalf("unable to connect to database: %v", err)
+		t.Fatalf("unable to create connector: %v", err)
 	}
 
 	// Create unique schema name using current time
 	schemaName := fmt.Sprintf("schema_%d", time.Now().Unix())
 
 	// Create the schema
-	_, err = pool.Exec(context.Background(), fmt.Sprintf("CREATE SCHEMA %s;", schemaName))
+	_, err = connector.conn.Exec(context.Background(), fmt.Sprintf("CREATE SCHEMA %s;", schemaName))
 	if err != nil {
 		t.Fatalf("unable to create schema: %v", err)
 	}
 
-	return pool, schemaName
+	return connector, schemaName
 }
 
-func teardownDB(t *testing.T, pool *pgxpool.Pool, schemaName string) {
-	_, err := pool.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA %s CASCADE;", schemaName))
+func teardownDB(t *testing.T, conn *pgx.Conn, schemaName string) {
+	t.Helper()
+
+	_, err := conn.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA %s CASCADE;", schemaName))
 	if err != nil {
 		t.Fatalf("error while dropping schema: %v", err)
 	}
 }
 
-func TestNewQRepQueryExecutor(t *testing.T) {
-	pool, schema := setupDB(t)
-	defer pool.Close()
-
-	defer teardownDB(t, pool, schema)
-
-	ctx := context.Background()
-	qe := NewQRepQueryExecutor(pool, ctx, "test flow", "test part")
-
-	if qe == nil {
-		t.Fatalf("expected QRepQueryExecutor, got nil")
-	}
-}
-
 func TestExecuteAndProcessQuery(t *testing.T) {
-	pool, schemaName := setupDB(t)
-	defer pool.Close()
-
-	defer teardownDB(t, pool, schemaName)
-
 	ctx := context.Background()
-
-	qe := NewQRepQueryExecutor(pool, ctx, "test flow", "test part")
-	qe.SetTestEnv(true)
+	connector, schemaName := setupDB(t)
+	conn := connector.conn
+	defer connector.Close()
+	defer teardownDB(t, conn, schemaName)
 
 	query := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.test(id SERIAL PRIMARY KEY, data TEXT);", schemaName)
-	rows, err := qe.ExecuteQuery(query)
+	_, err := conn.Exec(ctx, query)
 	if err != nil {
 		t.Fatalf("error while creating test table: %v", err)
 	}
-	rows.Close()
 
 	query = fmt.Sprintf("INSERT INTO %s.test(data) VALUES('testdata');", schemaName)
-	rows, err = qe.ExecuteQuery(query)
+	_, err = conn.Exec(ctx, query)
 	if err != nil {
 		t.Fatalf("error while inserting into test table: %v", err)
 	}
-	rows.Close()
+
+	qe := connector.NewQRepQueryExecutor("test flow", "test part")
+	qe.SetTestEnv(true)
 
 	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
-	batch, err := qe.ExecuteAndProcessQuery(query)
+	batch, err := qe.ExecuteAndProcessQuery(context.Background(), query)
 	if err != nil {
 		t.Fatalf("error while executing and processing query: %v", err)
 	}
@@ -91,20 +75,17 @@ func TestExecuteAndProcessQuery(t *testing.T) {
 		t.Fatalf("expected 1 record, got %v", len(batch.Records))
 	}
 
-	if batch.Records[0].Entries[1].Value != "testdata" {
-		t.Fatalf("expected 'testdata', got %v", batch.Records[0].Entries[0].Value)
+	if batch.Records[0][1].Value != "testdata" {
+		t.Fatalf("expected 'testdata', got %v", batch.Records[0][0].Value)
 	}
 }
 
 func TestAllDataTypes(t *testing.T) {
-	pool, schemaName := setupDB(t)
-	defer pool.Close()
-
-	// Call teardownDB function after test
-	defer teardownDB(t, pool, schemaName)
-
 	ctx := context.Background()
-	qe := NewQRepQueryExecutor(pool, ctx, "test flow", "test part")
+	connector, schemaName := setupDB(t)
+	conn := connector.conn
+	defer conn.Close(ctx)
+	defer teardownDB(t, conn, schemaName)
 
 	// Create a table that contains every data type we want to test
 	query := fmt.Sprintf(`
@@ -127,11 +108,10 @@ func TestAllDataTypes(t *testing.T) {
 		col_date DATE
 	);`, schemaName)
 
-	rows, err := qe.ExecuteQuery(query)
+	_, err := conn.Exec(ctx, query)
 	if err != nil {
 		t.Fatalf("error while creating test table: %v", err)
 	}
-	rows.Close()
 
 	// Insert a row into the table
 	query = fmt.Sprintf(`
@@ -160,7 +140,7 @@ func TestAllDataTypes(t *testing.T) {
 	savedTime := time.Now()
 	savedUUID := uuid.New()
 
-	_, err = pool.Exec(
+	_, err = conn.Exec(
 		context.Background(),
 		query,
 		true,               // col_bool
@@ -184,11 +164,12 @@ func TestAllDataTypes(t *testing.T) {
 		t.Fatalf("error while inserting into test table: %v", err)
 	}
 
+	qe := connector.NewQRepQueryExecutor("test flow", "test part")
 	// Select the row back out of the table
 	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
-	rows, err = qe.ExecuteQuery(query)
+	rows, err := qe.ExecuteQuery(context.Background(), query)
 	if err != nil {
-		t.Fatalf("error while executing and processing query: %v", err)
+		t.Fatalf("error while executing query: %v", err)
 	}
 	defer rows.Close()
 
@@ -208,52 +189,52 @@ func TestAllDataTypes(t *testing.T) {
 	record := batch.Records[0]
 
 	expectedBool := true
-	if record.Entries[0].Value.(bool) != expectedBool {
-		t.Fatalf("expected %v, got %v", expectedBool, record.Entries[0].Value)
+	if record[0].Value.(bool) != expectedBool {
+		t.Fatalf("expected %v, got %v", expectedBool, record[0].Value)
 	}
 
 	expectedInt4 := int32(2)
-	if record.Entries[1].Value.(int32) != expectedInt4 {
-		t.Fatalf("expected %v, got %v", expectedInt4, record.Entries[1].Value)
+	if record[1].Value.(int32) != expectedInt4 {
+		t.Fatalf("expected %v, got %v", expectedInt4, record[1].Value)
 	}
 
 	expectedInt8 := int64(3)
-	if record.Entries[2].Value.(int64) != expectedInt8 {
-		t.Fatalf("expected %v, got %v", expectedInt8, record.Entries[2].Value)
+	if record[2].Value.(int64) != expectedInt8 {
+		t.Fatalf("expected %v, got %v", expectedInt8, record[2].Value)
 	}
 
 	expectedFloat4 := float32(1.1)
-	if record.Entries[3].Value.(float32) != expectedFloat4 {
-		t.Fatalf("expected %v, got %v", expectedFloat4, record.Entries[3].Value)
+	if record[3].Value.(float32) != expectedFloat4 {
+		t.Fatalf("expected %v, got %v", expectedFloat4, record[3].Value)
 	}
 
 	expectedFloat8 := float64(2.2)
-	if record.Entries[4].Value.(float64) != expectedFloat8 {
-		t.Fatalf("expected %v, got %v", expectedFloat8, record.Entries[4].Value)
+	if record[4].Value.(float64) != expectedFloat8 {
+		t.Fatalf("expected %v, got %v", expectedFloat8, record[4].Value)
 	}
 
 	expectedText := "text"
-	if record.Entries[5].Value.(string) != expectedText {
-		t.Fatalf("expected %v, got %v", expectedText, record.Entries[5].Value)
+	if record[5].Value.(string) != expectedText {
+		t.Fatalf("expected %v, got %v", expectedText, record[5].Value)
 	}
 
 	expectedBytea := []byte("bytea")
-	if !bytes.Equal(record.Entries[6].Value.([]byte), expectedBytea) {
-		t.Fatalf("expected %v, got %v", expectedBytea, record.Entries[6].Value)
+	if !bytes.Equal(record[6].Value.([]byte), expectedBytea) {
+		t.Fatalf("expected %v, got %v", expectedBytea, record[6].Value)
 	}
 
 	expectedJSON := `{"key":"value"}`
-	if record.Entries[7].Value.(string) != expectedJSON {
-		t.Fatalf("expected %v, got %v", expectedJSON, record.Entries[7].Value)
+	if record[7].Value.(string) != expectedJSON {
+		t.Fatalf("expected %v, got %v", expectedJSON, record[7].Value)
 	}
 
-	actualUUID := record.Entries[8].Value.([16]uint8)
+	actualUUID := record[8].Value.([16]uint8)
 	if !bytes.Equal(actualUUID[:], savedUUID[:]) {
 		t.Fatalf("expected %v, got %v", savedUUID, actualUUID)
 	}
 
 	expectedNumeric := "123.456"
-	actualNumeric := record.Entries[10].Value.(*big.Rat).FloatString(3)
+	actualNumeric := record[10].Value.(*big.Rat).FloatString(3)
 	if actualNumeric != expectedNumeric {
 		t.Fatalf("expected %v, got %v", expectedNumeric, actualNumeric)
 	}

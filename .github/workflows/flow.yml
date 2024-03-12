@@ -10,92 +10,93 @@ jobs:
   flow_test:
     strategy:
       matrix:
-        runner: [ubicloud-standard-8-ubuntu-2204-arm]
+        runner: [ubicloud-standard-16-ubuntu-2204-arm]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
-      pg_cdc:
+      catalog:
         image: imresamu/postgis:15-3.4-alpine
         ports:
-          - 7132:5432
+          - 5432:5432
         env:
-          POSTGRES_USER: postgres
+          PGUSER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
-        options: >-
-          --name pg_cdc
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+
     steps:
       - name: checkout sources
         uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v4
+      - uses: bufbuild/buf-setup-action@v1.29.0-1
         with:
-          go-version: ">=1.21.0"
-          cache-dependency-path: flow/go.sum
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: install gotestsum
-        run: |
-          go install gotest.tools/gotestsum@latest
+      - run: buf generate protos
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: flow/go.sum
 
       - name: install lib-geos
         run: |
           sudo apt-get update
           sudo apt-get install libgeos-dev
 
-      - name: download go modules
-        run: |
-          go mod download
+      - run: go mod download
         working-directory: ./flow
 
       - name: setup gcp service account
         id: gcp-service-account
-        uses: jsdaniell/create-json@v1.2.2
+        uses: jsdaniell/create-json@v1.2.3
         with:
           name: "bq_service_account.json"
           json: ${{ secrets.GCP_GH_CI_PKEY }}
 
       - name: setup snowflake credentials
         id: sf-credentials
-        uses: jsdaniell/create-json@v1.2.2
+        uses: jsdaniell/create-json@v1.2.3
         with:
           name: "snowflake_creds.json"
           json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
 
       - name: setup S3 credentials
         id: s3-credentials
-        uses: jsdaniell/create-json@v1.2.2
+        uses: jsdaniell/create-json@v1.2.3
         with:
           name: "s3_creds.json"
           json: ${{ secrets.S3_CREDS }}
 
       - name: setup GCS credentials
         id: gcs-credentials
-        uses: jsdaniell/create-json@v1.2.2
+        uses: jsdaniell/create-json@v1.2.3
         with:
           name: "gcs_creds.json"
           json: ${{ secrets.GCS_CREDS }}
 
       - name: create hstore extension, increase logical replication limits, and setup catalog database
         run: >
-          docker exec pg_cdc psql -h localhost -p 5432 -U postgres -c "CREATE EXTENSION hstore;"
+          docker exec "${{ job.services.catalog.id }}" psql -U postgres -c "CREATE EXTENSION hstore;"
           -c "ALTER SYSTEM SET wal_level=logical;"
           -c "ALTER SYSTEM SET max_replication_slots=192;"
           -c "ALTER SYSTEM SET max_wal_senders=256;"
           -c "ALTER SYSTEM SET max_connections=2048;" &&
-          (cat ../nexus/catalog/migrations/V{?,??}__* | docker exec -i pg_cdc psql -h localhost -p 5432 -U postgres) &&
-          docker restart pg_cdc
-        working-directory: ./flow
+          (cat ./nexus/catalog/migrations/V{?,??}__* | docker exec -i "${{ job.services.catalog.id }}" psql -U postgres) &&
+          docker restart "${{ job.services.catalog.id }}"
         env:
-          PG_CDC: empty
           PGPASSWORD: postgres
+
+      - name: Install Temporal CLI
+        uses: temporalio/setup-temporal@v0
 
       - name: run tests
         run: |
-          gotestsum --format testname -- -p 8 ./... -timeout 1200s
+          temporal server start-dev --namespace default --headless &
+          go build -ldflags="-s -w" -o peer-flow
+          temporal operator search-attribute create --name MirrorName --type Text --namespace default
+          ./peer-flow worker &
+          ./peer-flow snapshot-worker &
+          go test -p 32 ./... -timeout 900s
         working-directory: ./flow
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -116,8 +117,7 @@ jobs:
           SQLSERVER_PASSWORD: ${{ secrets.SQLSERVER_PASSWORD }}
           SQLSERVER_DB: ${{ secrets.SQLSERVER_DB }}
           PEERDB_CATALOG_HOST: localhost
-          PEERDB_CATALOG_PORT: 7132
+          PEERDB_CATALOG_PORT: 5432
           PEERDB_CATALOG_USER: postgres
           PEERDB_CATALOG_PASSWORD: postgres
           PEERDB_CATALOG_DATABASE: postgres
-          PEERDB_CDC_IDLE_TIMEOUT_SECONDS: 10

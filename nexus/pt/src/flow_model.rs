@@ -12,43 +12,6 @@ pub struct FlowJobTableMapping {
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
-pub enum FlowSyncMode {
-    Avro,
-    SQL,
-}
-
-impl FlowSyncMode {
-    pub fn parse_string(s: &str) -> Result<FlowSyncMode, String> {
-        match s {
-            "avro" => Ok(FlowSyncMode::Avro),
-            "sql" => Ok(FlowSyncMode::SQL),
-            _ => Err(format!("{} is not a valid FlowSyncMode", s)),
-        }
-    }
-}
-
-impl std::str::FromStr for FlowSyncMode {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "avro" => Ok(FlowSyncMode::Avro),
-            "default" => Ok(FlowSyncMode::SQL),
-            _ => Err(format!("{} is not a valid FlowSyncMode", s)),
-        }
-    }
-}
-
-impl ToString for FlowSyncMode {
-    fn to_string(&self) -> String {
-        match self {
-            FlowSyncMode::Avro => "avro".to_string(),
-            FlowSyncMode::SQL => "default".to_string(),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub struct FlowJob {
     pub name: String,
     pub source_peer: String,
@@ -70,7 +33,7 @@ pub struct FlowJob {
     pub resync: bool,
     pub soft_delete_col_name: Option<String>,
     pub synced_at_col_name: Option<String>,
-    pub initial_copy_only: bool,
+    pub initial_snapshot_only: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]

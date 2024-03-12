@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"context"
@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/proto"
+
+	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
 func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName string) (*protos.PostgresConfig, error) {
@@ -23,53 +23,55 @@ func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName strin
 		return nil, err
 	}
 
-	unmarshalErr := proto.Unmarshal(pgPeerOptions, &pgPeerConfig)
+	err = proto.Unmarshal(pgPeerOptions, &pgPeerConfig)
 	if err != nil {
-		return nil, unmarshalErr
+		return nil, err
 	}
 
 	return &pgPeerConfig, nil
 }
 
-func (h *FlowRequestHandler) getPoolForPGPeer(ctx context.Context, peerName string) (*pgxpool.Pool, string, error) {
+func (h *FlowRequestHandler) getConnForPGPeer(ctx context.Context, peerName string) (*connpostgres.SSHTunnel, *pgx.Conn, error) {
 	pgPeerConfig, err := h.getPGPeerConfig(ctx, peerName)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
-	connStr := utils.GetPGConnectionString(pgPeerConfig)
-	peerPool, err := pgxpool.New(ctx, connStr)
+
+	tunnel, err := connpostgres.NewSSHTunnel(ctx, pgPeerConfig.SshConfig)
 	if err != nil {
-		return nil, "", err
+		slog.Error("Failed to create postgres pool", slog.Any("error", err))
+		return nil, nil, err
 	}
-	return peerPool, pgPeerConfig.User, nil
+
+	conn, err := tunnel.NewPostgresConnFromPostgresConfig(ctx, pgPeerConfig)
+	if err != nil {
+		tunnel.Close()
+		return nil, nil, err
+	}
+
+	return tunnel, conn, nil
 }
 
 func (h *FlowRequestHandler) GetSchemas(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerSchemasResponse, error) {
-	peerPool, _, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
+	if err != nil {
+		return &protos.PeerSchemasResponse{Schemas: nil}, err
+	}
+	defer tunnel.Close()
+	defer peerConn.Close(ctx)
+
+	rows, err := peerConn.Query(ctx, "SELECT nspname"+
+		" FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema';")
 	if err != nil {
 		return &protos.PeerSchemasResponse{Schemas: nil}, err
 	}
 
-	defer peerPool.Close()
-	rows, err := peerPool.Query(ctx, "SELECT schema_name"+
-		" FROM information_schema.schemata WHERE schema_name !~ '^pg_' AND schema_name <> 'information_schema';")
+	schemas, err := pgx.CollectRows[string](rows, pgx.RowTo)
 	if err != nil {
 		return &protos.PeerSchemasResponse{Schemas: nil}, err
-	}
-
-	defer rows.Close()
-	var schemas []string
-	for rows.Next() {
-		var schema string
-		err := rows.Scan(&schema)
-		if err != nil {
-			return &protos.PeerSchemasResponse{Schemas: nil}, err
-		}
-
-		schemas = append(schemas, schema)
 	}
 	return &protos.PeerSchemasResponse{Schemas: schemas}, nil
 }
@@ -78,29 +80,68 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	ctx context.Context,
 	req *protos.SchemaTablesRequest,
 ) (*protos.SchemaTablesResponse, error) {
-	peerPool, _, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
 	if err != nil {
 		return &protos.SchemaTablesResponse{Tables: nil}, err
 	}
+	defer tunnel.Close()
+	defer peerConn.Close(ctx)
 
-	defer peerPool.Close()
-	rows, err := peerPool.Query(ctx, "SELECT table_name "+
-		"FROM information_schema.tables "+
-		"WHERE table_schema = $1 AND table_type = 'BASE TABLE';", req.SchemaName)
+	rows, err := peerConn.Query(ctx, `SELECT DISTINCT ON (t.relname)
+    t.relname,
+    CASE
+        WHEN con.contype = 'p' OR t.relreplident = 'i' OR t.relreplident = 'f' THEN true
+        ELSE false
+    END AS can_mirror,
+	pg_size_pretty(pg_total_relation_size(t.oid)) :: text AS table_size
+	FROM
+		pg_class t
+	LEFT JOIN
+		pg_namespace n ON t.relnamespace = n.oid
+	LEFT JOIN
+		pg_constraint con ON con.conrelid = t.oid AND con.contype = 'p'
+	WHERE
+		n.nspname = $1
+	AND
+		t.relkind = 'r'
+	ORDER BY
+    t.relname,
+    can_mirror DESC;
+`, req.SchemaName)
 	if err != nil {
+		slog.Info("failed to fetch publications", slog.Any("error", err))
 		return &protos.SchemaTablesResponse{Tables: nil}, err
 	}
 
 	defer rows.Close()
-	var tables []string
+	var tables []*protos.TableResponse
 	for rows.Next() {
 		var table pgtype.Text
-		err := rows.Scan(&table)
+		var hasPkeyOrReplica pgtype.Bool
+		var tableSize pgtype.Text
+		err := rows.Scan(&table, &hasPkeyOrReplica, &tableSize)
 		if err != nil {
 			return &protos.SchemaTablesResponse{Tables: nil}, err
 		}
+		var sizeOfTable string
+		if tableSize.Valid {
+			sizeOfTable = tableSize.String
+		}
+		canMirror := false
+		if hasPkeyOrReplica.Valid && hasPkeyOrReplica.Bool {
+			canMirror = true
+		}
 
-		tables = append(tables, table.String)
+		tables = append(tables, &protos.TableResponse{
+			TableName: table.String,
+			CanMirror: canMirror,
+			TableSize: sizeOfTable,
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		slog.Info("failed to fetch publications", slog.Any("error", err))
+		return &protos.SchemaTablesResponse{Tables: nil}, err
 	}
 	return &protos.SchemaTablesResponse{Tables: tables}, nil
 }
@@ -110,14 +151,17 @@ func (h *FlowRequestHandler) GetAllTables(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.AllTablesResponse, error) {
-	peerPool, _, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
 	if err != nil {
 		return &protos.AllTablesResponse{Tables: nil}, err
 	}
+	defer tunnel.Close()
+	defer peerConn.Close(ctx)
 
-	defer peerPool.Close()
-	rows, err := peerPool.Query(ctx, "SELECT table_schema || '.' || table_name AS schema_table "+
-		"FROM information_schema.tables WHERE table_schema !~ '^pg_' AND table_schema <> 'information_schema'")
+	rows, err := peerConn.Query(ctx, "SELECT n.nspname || '.' || c.relname AS schema_table "+
+		"FROM pg_class c "+
+		"JOIN pg_namespace n ON c.relnamespace = n.oid "+
+		"WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' AND c.relkind = 'r';")
 	if err != nil {
 		return &protos.AllTablesResponse{Tables: nil}, err
 	}
@@ -140,46 +184,37 @@ func (h *FlowRequestHandler) GetColumns(
 	ctx context.Context,
 	req *protos.TableColumnsRequest,
 ) (*protos.TableColumnsResponse, error) {
-	peerPool, _, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
 	if err != nil {
 		return &protos.TableColumnsResponse{Columns: nil}, err
 	}
+	defer tunnel.Close()
+	defer peerConn.Close(ctx)
 
-	defer peerPool.Close()
-	rows, err := peerPool.Query(ctx, `
-		SELECT
-			cols.column_name,
-			cols.data_type,
-			CASE
-				WHEN constraint_type = 'PRIMARY KEY' THEN true
-				ELSE false
-			END AS is_primary_key
-		FROM
-			information_schema.columns cols
-		LEFT JOIN
-			(
-				SELECT
-					kcu.column_name,
-					tc.constraint_type
-				FROM
-					information_schema.key_column_usage kcu
-				JOIN
-					information_schema.table_constraints tc
-				ON
-					kcu.constraint_name = tc.constraint_name
-					AND kcu.constraint_schema = tc.constraint_schema
-					AND kcu.constraint_name = tc.constraint_name
-				WHERE
-					tc.constraint_type = 'PRIMARY KEY'
-					AND kcu.table_schema = $1
-					AND kcu.table_name = $2
-			) AS pk
-		ON
-			cols.column_name = pk.column_name
-		WHERE
-			cols.table_schema = $3
-			AND cols.table_name = $4;
-	`, req.SchemaName, req.TableName, req.SchemaName, req.TableName)
+	rows, err := peerConn.Query(ctx, `
+	SELECT
+    attname AS column_name,
+    format_type(atttypid, atttypmod) AS data_type,
+    CASE
+        WHEN attnum = ANY(conkey) THEN true
+        ELSE false
+    END AS is_primary_key
+	FROM
+		pg_attribute
+	JOIN
+		pg_class ON pg_attribute.attrelid = pg_class.oid
+	LEFT JOIN
+		pg_constraint ON pg_attribute.attrelid = pg_constraint.conrelid
+		AND pg_attribute.attnum = ANY(pg_constraint.conkey)
+	WHERE
+		relnamespace::regnamespace::text = $1
+		AND
+		relname = $2
+		AND pg_attribute.attnum > 0
+		AND NOT attisdropped
+	ORDER BY
+    attnum;
+	`, req.SchemaName, req.TableName)
 	if err != nil {
 		return &protos.TableColumnsResponse{Columns: nil}, err
 	}
@@ -209,14 +244,14 @@ func (h *FlowRequestHandler) GetSlotInfo(
 		return &protos.PeerSlotResponse{SlotData: nil}, err
 	}
 
-	pgConnector, err := connpostgres.NewPostgresConnector(ctx, pgConfig, false)
+	pgConnector, err := connpostgres.NewPostgresConnector(ctx, pgConfig)
 	if err != nil {
 		slog.Error("Failed to create postgres connector", slog.Any("error", err))
 		return &protos.PeerSlotResponse{SlotData: nil}, err
 	}
 	defer pgConnector.Close()
 
-	slotInfo, err := pgConnector.GetSlotInfo("")
+	slotInfo, err := pgConnector.GetSlotInfo(ctx, "")
 	if err != nil {
 		slog.Error("Failed to get slot info", slog.Any("error", err))
 		return &protos.PeerSlotResponse{SlotData: nil}, err
@@ -231,22 +266,16 @@ func (h *FlowRequestHandler) GetStatInfo(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerStatResponse, error) {
-	pgConfig, err := h.getPGPeerConfig(ctx, req.PeerName)
+	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
 	if err != nil {
 		return &protos.PeerStatResponse{StatData: nil}, err
 	}
+	defer tunnel.Close()
+	defer peerConn.Close(ctx)
 
-	pgConnector, err := connpostgres.NewPostgresConnector(ctx, pgConfig, false)
-	if err != nil {
-		slog.Error("Failed to create postgres connector", slog.Any("error", err))
-		return &protos.PeerStatResponse{StatData: nil}, err
-	}
-	defer pgConnector.Close()
+	peerUser := peerConn.Config().User
 
-	peerPool := pgConnector.GetPool()
-	peerUser := pgConfig.User
-
-	rows, err := peerPool.Query(ctx, "SELECT pid, wait_event, wait_event_type, query_start::text, query,"+
+	rows, err := peerConn.Query(ctx, "SELECT pid, wait_event, wait_event_type, query_start::text, query,"+
 		"EXTRACT(epoch FROM(now()-query_start)) AS dur"+
 		" FROM pg_stat_activity WHERE "+
 		"usename=$1 AND state != 'idle';", peerUser)
@@ -308,4 +337,27 @@ func (h *FlowRequestHandler) GetStatInfo(
 	return &protos.PeerStatResponse{
 		StatData: statInfoRows,
 	}, nil
+}
+
+func (h *FlowRequestHandler) GetPublications(
+	ctx context.Context,
+	req *protos.PostgresPeerActivityInfoRequest,
+) (*protos.PeerPublicationsResponse, error) {
+	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
+	if err != nil {
+		return &protos.PeerPublicationsResponse{PublicationNames: nil}, err
+	}
+	defer tunnel.Close()
+	defer peerConn.Close(ctx)
+
+	rows, err := peerConn.Query(ctx, "select pubname from pg_publication;")
+	if err != nil {
+		return &protos.PeerPublicationsResponse{PublicationNames: nil}, err
+	}
+
+	publications, err := pgx.CollectRows[string](rows, pgx.RowTo)
+	if err != nil {
+		return &protos.PeerPublicationsResponse{PublicationNames: nil}, err
+	}
+	return &protos.PeerPublicationsResponse{PublicationNames: publications}, nil
 }

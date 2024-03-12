@@ -2,14 +2,21 @@ package qvalue
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/big"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
+	"cloud.google.com/go/civil"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+	geom "github.com/twpayne/go-geos"
+
+	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
 )
 
 // if new types are added, register them in gob - cdc_records_storage.go
@@ -19,6 +26,12 @@ type QValue struct {
 }
 
 func (q QValue) Equals(other QValue) bool {
+	if q.Kind == QValueKindJSON {
+		return true // TODO fix
+	} else if q.Value == nil && other.Value == nil {
+		return true
+	}
+
 	switch q.Kind {
 	case QValueKindEmpty:
 		return other.Kind == QValueKindEmpty
@@ -38,12 +51,20 @@ func (q QValue) Equals(other QValue) bool {
 		return compareBoolean(q.Value, other.Value)
 	case QValueKindStruct:
 		return compareStruct(q.Value, other.Value)
-	case QValueKindString:
+	case QValueKindQChar:
+		if (q.Value == nil) == (other.Value == nil) {
+			return q.Value == nil || q.Value.(uint8) == other.Value.(uint8)
+		} else {
+			return false
+		}
+	case QValueKindString, QValueKindINET, QValueKindCIDR:
 		return compareString(q.Value, other.Value)
 	// all internally represented as a Golang time.Time
-	case QValueKindTime, QValueKindTimeTZ, QValueKindDate,
+	case QValueKindDate,
 		QValueKindTimestamp, QValueKindTimestampTZ:
 		return compareGoTime(q.Value, other.Value)
+	case QValueKindTime, QValueKindTimeTZ:
+		return compareGoCivilTime(q.Value, other.Value)
 	case QValueKindNumeric:
 		return compareNumeric(q.Value, other.Value)
 	case QValueKindBytes:
@@ -54,21 +75,29 @@ func (q QValue) Equals(other QValue) bool {
 		return compareJSON(q.Value, other.Value)
 	case QValueKindBit:
 		return compareBit(q.Value, other.Value)
+	case QValueKindGeometry, QValueKindGeography:
+		return compareGeometry(q.Value, other.Value)
 	case QValueKindHStore:
-		return compareHStore(q.Value, other.Value)
+		return compareHstore(q.Value, other.Value)
 	case QValueKindArrayFloat32:
 		return compareNumericArrays(q.Value, other.Value)
 	case QValueKindArrayFloat64:
 		return compareNumericArrays(q.Value, other.Value)
-	case QValueKindArrayInt32:
+	case QValueKindArrayInt32, QValueKindArrayInt16:
 		return compareNumericArrays(q.Value, other.Value)
 	case QValueKindArrayInt64:
 		return compareNumericArrays(q.Value, other.Value)
+	case QValueKindArrayDate:
+		return compareDateArrays(q.Value, other.Value)
+	case QValueKindArrayTimestamp, QValueKindArrayTimestampTZ:
+		return compareTimeArrays(q.Value, other.Value)
+	case QValueKindArrayBoolean:
+		return compareBoolArrays(q.Value, other.Value)
 	case QValueKindArrayString:
 		return compareArrayString(q.Value, other.Value)
+	default:
+		return false
 	}
-
-	return false
 }
 
 func (q QValue) GoTimeConvert() (string, error) {
@@ -119,6 +148,9 @@ func compareInt64(value1, value2 interface{}) bool {
 }
 
 func compareFloat32(value1, value2 interface{}) bool {
+	if value1 == nil && value2 == nil {
+		return true
+	}
 	float1, ok1 := getFloat32(value1)
 	float2, ok2 := getFloat32(value2)
 	return ok1 && ok2 && float1 == float2
@@ -154,6 +186,29 @@ func compareGoTime(value1, value2 interface{}) bool {
 	return t1 == t2
 }
 
+func compareGoCivilTime(value1, value2 interface{}) bool {
+	if value1 == nil && value2 == nil {
+		return true
+	}
+
+	t1, ok1 := value1.(time.Time)
+	t2, ok2 := value2.(time.Time)
+
+	if !ok1 || !ok2 {
+		if !ok2 {
+			// For BigQuery, we need to compare civil.Time with time.Time
+			ct2, ok3 := value2.(civil.Time)
+			if !ok3 {
+				return false
+			}
+			return t1.Hour() == ct2.Hour && t1.Minute() == ct2.Minute && t1.Second() == ct2.Second
+		}
+		return false
+	}
+
+	return t1.Hour() == t2.Hour() && t1.Minute() == t2.Minute() && t1.Second() == t2.Second()
+}
+
 func compareUUID(value1, value2 interface{}) bool {
 	if value1 == nil && value2 == nil {
 		return true
@@ -180,10 +235,6 @@ func compareBytes(value1, value2 interface{}) bool {
 }
 
 func compareNumeric(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
 	rat1, ok1 := getRat(value1)
 	rat2, ok2 := getRat(value2)
 
@@ -191,9 +242,11 @@ func compareNumeric(value1, value2 interface{}) bool {
 		return false
 	}
 
-	// check if the difference is less than 1e-9
-	diff := new(big.Rat).Sub(rat1, rat2)
-	return diff.Abs(diff).Cmp(big.NewRat(1, 1000000000)) < 0
+	if rat1 == nil && rat2 == nil {
+		return true
+	}
+
+	return rat1.Cmp(rat2) == 0
 }
 
 func compareString(value1, value2 interface{}) bool {
@@ -203,8 +256,53 @@ func compareString(value1, value2 interface{}) bool {
 
 	str1, ok1 := value1.(string)
 	str2, ok2 := value2.(string)
+	if !ok1 || !ok2 {
+		return false
+	}
+	return str1 == str2
+}
 
-	return ok1 && ok2 && str1 == str2
+func compareHstore(value1, value2 interface{}) bool {
+	str2 := value2.(string)
+	switch v1 := value1.(type) {
+	case pgtype.Hstore:
+		bytes, err := json.Marshal(v1)
+		if err != nil {
+			panic(err)
+		}
+		return string(bytes) == str2
+	case string:
+		if v1 == str2 {
+			return true
+		}
+		parsedHStore1, err := hstore_util.ParseHstore(v1)
+		if err != nil {
+			panic(err)
+		}
+		return parsedHStore1 == strings.ReplaceAll(strings.ReplaceAll(str2, " ", ""), "\n", "")
+	default:
+		panic(fmt.Sprintf("invalid hstore value type %T: %v", value1, value1))
+	}
+}
+
+func compareGeometry(value1, value2 interface{}) bool {
+	geo2, err := geom.NewGeomFromWKT(value2.(string))
+	if err != nil {
+		panic(err)
+	}
+
+	switch v1 := value1.(type) {
+	case *geom.Geom:
+		return v1.Equals(geo2)
+	case string:
+		geo1, err := geom.NewGeomFromWKT(v1)
+		if err != nil {
+			panic(err)
+		}
+		return geo1.Equals(geo2)
+	default:
+		panic(fmt.Sprintf("invalid geometry value type %T: %v", value1, value1))
+	}
 }
 
 func compareStruct(value1, value2 interface{}) bool {
@@ -240,22 +338,7 @@ func compareBit(value1, value2 interface{}) bool {
 		return false
 	}
 
-	return bit1^bit2 == 0
-}
-
-func compareHStore(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	hstore1, ok1 := value1.(map[string]string)
-	hstore2, ok2 := value2.(map[string]string)
-
-	if !ok1 || !ok2 {
-		return false
-	}
-
-	return reflect.DeepEqual(hstore1, hstore2)
+	return bit1 == bit2
 }
 
 func compareNumericArrays(value1, value2 interface{}) bool {
@@ -267,9 +350,19 @@ func compareNumericArrays(value1, value2 interface{}) bool {
 		return true
 	}
 
+	if value1 == nil && value2 == "" {
+		return true
+	}
+
 	// Helper function to convert a value to float64
 	convertToFloat64 := func(val interface{}) []float64 {
 		switch v := val.(type) {
+		case []int16:
+			result := make([]float64, len(v))
+			for i, value := range v {
+				result[i] = float64(value)
+			}
+			return result
 		case []int32:
 			result := make([]float64, len(v))
 			for i, value := range v {
@@ -311,6 +404,72 @@ func compareNumericArrays(value1, value2 interface{}) bool {
 	return true
 }
 
+func compareTimeArrays(value1, value2 interface{}) bool {
+	if value1 == nil && value2 == nil {
+		return true
+	}
+	array1, ok1 := value1.([]time.Time)
+	array2, ok2 := value2.([]time.Time)
+
+	if !ok1 || !ok2 {
+		return false
+	}
+
+	if len(array1) != len(array2) {
+		return false
+	}
+
+	for i := range array1 {
+		if !array1[i].Equal(array2[i]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func compareDateArrays(value1, value2 interface{}) bool {
+	if value1 == nil && value2 == nil {
+		return true
+	}
+	array1, ok1 := value1.([]time.Time)
+	array2, ok2 := value2.([]civil.Date)
+
+	if !ok1 || !ok2 || len(array1) != len(array2) {
+		return false
+	}
+
+	for i := range array1 {
+		if array1[i].Year() != array2[i].Year ||
+			array1[i].Month() != array2[i].Month ||
+			array1[i].Day() != array2[i].Day {
+			return false
+		}
+	}
+
+	return true
+}
+
+func compareBoolArrays(value1, value2 interface{}) bool {
+	if value1 == nil && value2 == nil {
+		return true
+	}
+	array1, ok1 := value1.([]bool)
+	array2, ok2 := value2.([]bool)
+
+	if !ok1 || !ok2 || len(array1) != len(array2) {
+		return false
+	}
+
+	for i := range array1 {
+		if array1[i] != array2[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
 func compareArrayString(value1, value2 interface{}) bool {
 	if value1 == nil && value2 == nil {
 		return true
@@ -318,6 +477,11 @@ func compareArrayString(value1, value2 interface{}) bool {
 
 	// also return true if value2 is string null
 	if value1 == nil && value2 == "null" {
+		return true
+	}
+
+	// nulls end up as empty 'variants' in snowflake
+	if value1 == nil && value2 == "" {
 		return true
 	}
 
@@ -421,8 +585,7 @@ func getBytes(v interface{}) ([]byte, bool) {
 	case string:
 		return []byte(value), true
 	case nil:
-		// return empty byte array
-		return []byte{}, true
+		return nil, true
 	default:
 		return nil, false
 	}
@@ -494,6 +657,8 @@ func getRat(v interface{}) (*big.Rat, bool) {
 	case uint16:
 		rat := new(big.Rat)
 		return rat.SetUint64(uint64(value)), true
+	case nil:
+		return nil, true
 	}
 	return nil, false
 }

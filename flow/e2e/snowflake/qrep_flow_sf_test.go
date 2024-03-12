@@ -1,69 +1,58 @@
 package e2e_snowflake
 
 import (
-	"context"
 	"fmt"
-	"log/slog"
+	"time"
 
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
+	"github.com/PeerDB-io/peer-flow/e2e"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
+//nolint:unparam
 func (s PeerFlowE2ETestSuiteSF) setupSourceTable(tableName string, numRows int) {
-	err := e2e.CreateTableForQRep(s.pool, s.pgSuffix, tableName)
+	err := e2e.CreateTableForQRep(s.Conn(), s.pgSuffix, tableName)
 	require.NoError(s.t, err)
-	err = e2e.PopulateSourceTable(s.pool, s.pgSuffix, tableName, numRows)
+	err = e2e.PopulateSourceTable(s.Conn(), s.pgSuffix, tableName, numRows)
 	require.NoError(s.t, err)
 }
 
-func (s PeerFlowE2ETestSuiteSF) setupSFDestinationTable(dstTable string) {
-	schema := e2e.GetOwnersSchema()
-	err := s.sfHelper.CreateTable(dstTable, schema)
-	// fail if table creation fails
+func (s PeerFlowE2ETestSuiteSF) checkJSONValue(tableName, colName, fieldName, value string) error {
+	res, err := s.sfHelper.ExecuteAndProcessQuery(fmt.Sprintf("SELECT %s:%s FROM %s", colName, fieldName, tableName))
 	if err != nil {
-		require.FailNow(s.t, "unable to create table on snowflake", err)
+		return fmt.Errorf("json value check failed: %v", err)
 	}
 
-	slog.Info(fmt.Sprintf("created table on snowflake: %s.%s.", s.sfHelper.testSchemaName, dstTable))
+	if len(res.Records) == 0 {
+		return fmt.Errorf("bad json: empty result set from %s", tableName)
+	}
+
+	jsonVal := res.Records[0][0].Value
+	if jsonVal != value {
+		return fmt.Errorf("bad json value in field %s of column %s: %v. expected: %v", fieldName, colName, jsonVal, value)
+	}
+	return nil
 }
 
-func (s PeerFlowE2ETestSuiteSF) compareTableContentsSF(tableName string, selector string, caseSensitive bool) {
-	// read rows from source table
-	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background(), "testflow", "testpart")
-	pgQueryExecutor.SetTestEnv(true)
-	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
-		fmt.Sprintf("SELECT %s FROM e2e_test_%s.%s ORDER BY id", selector, s.pgSuffix, tableName),
-	)
+func (s PeerFlowE2ETestSuiteSF) compareTableContentsWithDiffSelectorsSF(tableName, pgSelector, sfSelector string) {
+	pgRows, err := e2e.GetPgRows(s.conn, s.pgSuffix, tableName, pgSelector)
 	require.NoError(s.t, err)
 
-	// read rows from destination table
-	qualifiedTableName := fmt.Sprintf("%s.%s.%s", s.sfHelper.testDatabaseName, s.sfHelper.testSchemaName, tableName)
-	var sfSelQuery string
-	if caseSensitive {
-		sfSelQuery = fmt.Sprintf(`SELECT %s FROM %s ORDER BY "id"`, selector, qualifiedTableName)
-	} else {
-		sfSelQuery = fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, selector, qualifiedTableName)
-	}
-	fmt.Printf("running query on snowflake: %s\n", sfSelQuery)
-
-	sfRows, err := s.sfHelper.ExecuteAndProcessQuery(sfSelQuery)
+	sfRows, err := s.GetRows(tableName, sfSelector)
 	require.NoError(s.t, err)
 
-	require.True(s.t, pgRows.Equals(sfRows), "rows from source and destination tables are not equal")
+	e2e.RequireEqualRecordBatches(s.t, pgRows, sfRows)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	tc := e2e.NewTemporalClient(s.t)
 
 	numRows := 10
 
 	tblName := "test_qrep_flow_avro_sf"
 	s.setupSourceTable(tblName, numRows)
-	s.setupSFDestinationTable(tblName)
 
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
@@ -80,31 +69,27 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 		false,
 		"",
 	)
+	qrepConfig.SetupWatermarkTableOnDestination = true
 	require.NoError(s.t, err)
 
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.NoError(s.t, env.Error())
 
-	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	sel := e2e.GetOwnersSelectorStringsSF()
+	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
 
-	err = env.GetWorkflowError()
+	err = s.checkJSONValue(dstSchemaQualified, "f7", "key", "\"value\"")
 	require.NoError(s.t, err)
-
-	sel := e2e.GetOwnersSelectorString()
-	s.compareTableContentsSF(tblName, sel, true)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	tc := e2e.NewTemporalClient(s.t)
 
 	numRows := 10
 
 	tblName := "test_qrep_flow_avro_sf_ups"
 	s.setupSourceTable(tblName, numRows)
-	s.setupSFDestinationTable(tblName)
 
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
@@ -125,31 +110,24 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() 
 		WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
 		UpsertKeyColumns: []string{"id"},
 	}
+	qrepConfig.SetupWatermarkTableOnDestination = true
 	require.NoError(s.t, err)
 
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.NoError(s.t, env.Error())
 
-	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
-
-	err = env.GetWorkflowError()
-	require.NoError(s.t, err)
-
-	sel := e2e.GetOwnersSelectorString()
-	s.compareTableContentsSF(tblName, sel, true)
-
-	env.AssertExpectations(s.t)
+	sel := e2e.GetOwnersSelectorStringsSF()
+	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	tc := e2e.NewTemporalClient(s.t)
 
 	numRows := 10
 
 	tblName := "test_qrep_flow_avro_sf_s3"
 	s.setupSourceTable(tblName, numRows)
-	s.setupSFDestinationTable(tblName)
 
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
@@ -168,30 +146,23 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	)
 	require.NoError(s.t, err)
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
+	qrepConfig.SetupWatermarkTableOnDestination = true
 
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitForFinished(s.t, env, 5*time.Minute)
+	require.NoError(s.t, env.Error())
 
-	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
-
-	err = env.GetWorkflowError()
-	require.NoError(s.t, err)
-
-	sel := e2e.GetOwnersSelectorString()
-	s.compareTableContentsSF(tblName, sel, true)
-
-	env.AssertExpectations(s.t)
+	sel := e2e.GetOwnersSelectorStringsSF()
+	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	tc := e2e.NewTemporalClient(s.t)
 
 	numRows := 10
 
 	tblName := "test_qrep_flow_avro_sf_ups_xmin"
 	s.setupSourceTable(tblName, numRows)
-	s.setupSFDestinationTable(tblName)
 
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
@@ -213,31 +184,24 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 		UpsertKeyColumns: []string{"id"},
 	}
 	qrepConfig.WatermarkColumn = "xmin"
+	qrepConfig.SetupWatermarkTableOnDestination = true
 	require.NoError(s.t, err)
 
-	e2e.RunXminFlowWorkflow(env, qrepConfig)
+	env := e2e.RunXminFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.NoError(s.t, env.Error())
 
-	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
-
-	err = env.GetWorkflowError()
-	require.NoError(s.t, err)
-
-	sel := e2e.GetOwnersSelectorString()
-	s.compareTableContentsSF(tblName, sel, true)
-
-	env.AssertExpectations(s.t)
+	sel := e2e.GetOwnersSelectorStringsSF()
+	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	tc := e2e.NewTemporalClient(s.t)
 
 	numRows := 10
 
 	tblName := "test_qrep_flow_avro_sf_s3_int"
 	s.setupSourceTable(tblName, numRows)
-	s.setupSFDestinationTable(tblName)
 
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
@@ -252,7 +216,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 		s.attachSchemaSuffix(tblName),
 		dstSchemaQualified,
 		query,
-
 		sfPeer,
 		"",
 		false,
@@ -260,24 +223,18 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 	)
 	require.NoError(s.t, err)
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
+	qrepConfig.SetupWatermarkTableOnDestination = true
 
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitForFinished(s.t, env, 5*time.Minute)
+	require.NoError(s.t, env.Error())
 
-	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
-
-	err = env.GetWorkflowError()
-	require.NoError(s.t, err)
-
-	sel := e2e.GetOwnersSelectorString()
-	s.compareTableContentsSF(tblName, sel, true)
-
-	env.AssertExpectations(s.t)
+	sel := e2e.GetOwnersSelectorStringsSF()
+	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	tc := e2e.NewTemporalClient(s.t)
 
 	numRows := 10
 
@@ -303,19 +260,14 @@ func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
 		WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
 		UpsertKeyColumns: []string{"id"},
 	}
+	qrepConfig.SetupWatermarkTableOnDestination = true
 	require.NoError(s.t, err)
 
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
-
-	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
-
-	err = env.GetWorkflowError()
-	require.NoError(s.t, err)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.NoError(s.t, env.Error())
 
 	err = s.sfHelper.checkSyncedAt(fmt.Sprintf(`SELECT "_PEERDB_SYNCED_AT" FROM %s.%s`,
 		s.sfHelper.testSchemaName, tblName))
 	require.NoError(s.t, err)
-
-	env.AssertExpectations(s.t)
 }

@@ -4,33 +4,30 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 )
 
 func BenchmarkQRepQueryExecutor(b *testing.B) {
-	connectionString := "postgres://postgres:postgres@localhost:7132/postgres"
 	query := "SELECT * FROM bench.large_table"
 
 	ctx := context.Background()
-
-	// Create a separate connection pool for non-replication queries
-	pool, err := pgxpool.New(ctx, connectionString)
+	connector, err := NewPostgresConnector(ctx, utils.GetCatalogPostgresConfigFromEnv())
 	if err != nil {
-		b.Fatalf("failed to create connection pool: %v", err)
+		b.Fatalf("failed to create connection: %v", err)
 	}
-	defer pool.Close()
+	defer connector.Close()
 
 	// Create a new QRepQueryExecutor instance
-	qe := NewQRepQueryExecutor(pool, context.Background(), "test flow", "test part")
+	qe := connector.NewQRepQueryExecutor("test flow", "test part")
 
 	// Run the benchmark
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := range b.N {
 		// log the iteration
 		b.Logf("iteration %d", i)
 
 		// Execute the query and process the rows
-		_, err := qe.ExecuteAndProcessQuery(query)
+		_, err := qe.ExecuteAndProcessQuery(ctx, query)
 		if err != nil {
 			b.Fatalf("failed to execute query: %v", err)
 		}

@@ -4,22 +4,23 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-
 	"google.golang.org/protobuf/proto"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type CDCBatchInfo struct {
 	BatchID     int64
 	RowsInBatch uint32
-	BatchEndlSN pglogrepl.LSN
+	BatchEndlSN int64
 	StartTime   time.Time
 }
 
@@ -34,7 +35,7 @@ func InitializeCDCFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName stri
 }
 
 func UpdateLatestLSNAtSourceForCDCFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName string,
-	latestLSNAtSource pglogrepl.LSN,
+	latestLSNAtSource int64,
 ) error {
 	_, err := pool.Exec(ctx,
 		"UPDATE peerdb_stats.cdc_flows SET latest_lsn_at_source=$1 WHERE flow_name=$2",
@@ -46,7 +47,7 @@ func UpdateLatestLSNAtSourceForCDCFlow(ctx context.Context, pool *pgxpool.Pool, 
 }
 
 func UpdateLatestLSNAtTargetForCDCFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName string,
-	latestLSNAtTarget pglogrepl.LSN,
+	latestLSNAtTarget int64,
 ) error {
 	_, err := pool.Exec(ctx,
 		"UPDATE peerdb_stats.cdc_flows SET latest_lsn_at_target=$1 WHERE flow_name=$2",
@@ -78,7 +79,7 @@ func UpdateNumRowsAndEndLSNForCDCBatch(
 	flowJobName string,
 	batchID int64,
 	numRows uint32,
-	batchEndLSN pglogrepl.LSN,
+	batchEndLSN int64,
 ) error {
 	_, err := pool.Exec(ctx,
 		"UPDATE peerdb_stats.cdc_batches SET rows_in_batch=$1,batch_end_lsn=$2 WHERE flow_name=$3 AND batch_id=$4",
@@ -114,7 +115,7 @@ func AddCDCBatchTablesForFlow(ctx context.Context, pool *pgxpool.Pool, flowJobNa
 	defer func() {
 		err = insertBatchTablesTx.Rollback(ctx)
 		if err != pgx.ErrTxClosed && err != nil {
-			slog.Error("error during transaction rollback",
+			logger.LoggerFromCtx(ctx).Error("error during transaction rollback",
 				slog.Any("error", err),
 				slog.String(string(shared.FlowNameKey), flowJobName))
 		}
@@ -224,7 +225,7 @@ func addPartitionToQRepRun(ctx context.Context, pool *pgxpool.Pool, flowJobName 
 	runUUID string, partition *protos.QRepPartition,
 ) error {
 	if partition.Range == nil && partition.FullTablePartition {
-		slog.Info("partition"+partition.PartitionId+
+		logger.LoggerFromCtx(ctx).Info("partition"+partition.PartitionId+
 			" is a full table partition. Metrics logging is skipped.",
 			slog.String(string(shared.FlowNameKey), flowJobName))
 		return nil
@@ -233,8 +234,8 @@ func addPartitionToQRepRun(ctx context.Context, pool *pgxpool.Pool, flowJobName 
 	var rangeStart, rangeEnd string
 	switch x := partition.Range.Range.(type) {
 	case *protos.PartitionRange_IntRange:
-		rangeStart = fmt.Sprint(x.IntRange.Start)
-		rangeEnd = fmt.Sprint(x.IntRange.End)
+		rangeStart = strconv.FormatInt(x.IntRange.Start, 10)
+		rangeEnd = strconv.FormatInt(x.IntRange.End, 10)
 	case *protos.PartitionRange_TimestampRange:
 		rangeStart = x.TimestampRange.Start.AsTime().String()
 		rangeEnd = x.TimestampRange.End.AsTime().String()

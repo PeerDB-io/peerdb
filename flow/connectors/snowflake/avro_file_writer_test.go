@@ -8,15 +8,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/require"
 )
 
 // createQValue creates a QValue of the appropriate kind for a given placeholder.
 func createQValue(t *testing.T, kind qvalue.QValueKind, placeHolder int) qvalue.QValue {
+	t.Helper()
+
 	var value interface{}
 	switch kind {
 	case qvalue.QValueKindInt16, qvalue.QValueKindInt32, qvalue.QValueKindInt64:
@@ -37,6 +40,8 @@ func createQValue(t *testing.T, kind qvalue.QValueKind, placeHolder int) qvalue.
 		value = big.NewRat(int64(placeHolder), 1)
 	case qvalue.QValueKindUUID:
 		value = uuid.New() // assuming you have the github.com/google/uuid package
+	case qvalue.QValueKindQChar:
+		value = uint8(48)
 	// case qvalue.QValueKindArray:
 	// 	value = []int{1, 2, 3} // placeholder array, replace with actual logic
 	// case qvalue.QValueKindStruct:
@@ -55,12 +60,15 @@ func createQValue(t *testing.T, kind qvalue.QValueKind, placeHolder int) qvalue.
 	}
 }
 
+//nolint:unparam
 func generateRecords(
 	t *testing.T,
 	nullable bool,
 	numRows uint32,
 	allnulls bool,
 ) (*model.QRecordStream, *model.QRecordSchema) {
+	t.Helper()
+
 	allQValueKinds := []qvalue.QValueKind{
 		qvalue.QValueKindFloat32,
 		qvalue.QValueKindFloat64,
@@ -79,6 +87,7 @@ func generateRecords(
 		qvalue.QValueKindNumeric,
 		qvalue.QValueKindBytes,
 		qvalue.QValueKindUUID,
+		qvalue.QValueKindQChar,
 		// qvalue.QValueKindJSON,
 		qvalue.QValueKindBit,
 	}
@@ -91,9 +100,8 @@ func generateRecords(
 
 	// Create sample records
 	records := &model.QRecordBatch{
-		NumRecords: numRows,
-		Records:    make([]model.QRecord, numRows),
-		Schema:     schema,
+		Records: make([][]qvalue.QValue, numRows),
+		Schema:  schema,
 	}
 
 	for i, kind := range allQValueKinds {
@@ -115,9 +123,7 @@ func generateRecords(
 			}
 		}
 
-		records.Records[row] = model.QRecord{
-			Entries: entries,
-		}
+		records.Records[row] = entries
 	}
 
 	stream, err := records.ToQRecordStream(1024)
@@ -137,15 +143,14 @@ func TestWriteRecordsToAvroFileHappyPath(t *testing.T) {
 	// Define sample data
 	records, schema := generateRecords(t, true, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema)
+	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema, qvalue.QDWHTypeSnowflake)
 	require.NoError(t, err)
 
-	fmt.Printf("[test] avroSchema: %v\n", avroSchema)
+	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
-	writer := avro.NewPeerDBOCFWriter(context.Background(),
-		records, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
-	_, err = writer.WriteRecordsToAvroFile(tmpfile.Name())
+	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
+	_, err = writer.WriteRecordsToAvroFile(context.Background(), tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -165,15 +170,14 @@ func TestWriteRecordsToZstdAvroFileHappyPath(t *testing.T) {
 	// Define sample data
 	records, schema := generateRecords(t, true, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema)
+	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema, qvalue.QDWHTypeSnowflake)
 	require.NoError(t, err)
 
-	fmt.Printf("[test] avroSchema: %v\n", avroSchema)
+	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
-	writer := avro.NewPeerDBOCFWriter(context.Background(),
-		records, avroSchema, avro.CompressZstd, qvalue.QDWHTypeSnowflake)
-	_, err = writer.WriteRecordsToAvroFile(tmpfile.Name())
+	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressZstd, qvalue.QDWHTypeSnowflake)
+	_, err = writer.WriteRecordsToAvroFile(context.Background(), tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -193,15 +197,14 @@ func TestWriteRecordsToDeflateAvroFileHappyPath(t *testing.T) {
 	// Define sample data
 	records, schema := generateRecords(t, true, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema)
+	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema, qvalue.QDWHTypeSnowflake)
 	require.NoError(t, err)
 
-	fmt.Printf("[test] avroSchema: %v\n", avroSchema)
+	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
-	writer := avro.NewPeerDBOCFWriter(context.Background(),
-		records, avroSchema, avro.CompressDeflate, qvalue.QDWHTypeSnowflake)
-	_, err = writer.WriteRecordsToAvroFile(tmpfile.Name())
+	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressDeflate, qvalue.QDWHTypeSnowflake)
+	_, err = writer.WriteRecordsToAvroFile(context.Background(), tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -220,15 +223,14 @@ func TestWriteRecordsToAvroFileNonNull(t *testing.T) {
 
 	records, schema := generateRecords(t, false, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema)
+	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema, qvalue.QDWHTypeSnowflake)
 	require.NoError(t, err)
 
-	fmt.Printf("[test] avroSchema: %v\n", avroSchema)
+	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
-	writer := avro.NewPeerDBOCFWriter(context.Background(),
-		records, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
-	_, err = writer.WriteRecordsToAvroFile(tmpfile.Name())
+	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
+	_, err = writer.WriteRecordsToAvroFile(context.Background(), tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -248,15 +250,14 @@ func TestWriteRecordsToAvroFileAllNulls(t *testing.T) {
 	// Define sample data
 	records, schema := generateRecords(t, true, 10, true)
 
-	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema)
+	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema, qvalue.QDWHTypeSnowflake)
 	require.NoError(t, err)
 
-	fmt.Printf("[test] avroSchema: %v\n", avroSchema)
+	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
-	writer := avro.NewPeerDBOCFWriter(context.Background(),
-		records, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
-	_, err = writer.WriteRecordsToAvroFile(tmpfile.Name())
+	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
+	_, err = writer.WriteRecordsToAvroFile(context.Background(), tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty

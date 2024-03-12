@@ -5,6 +5,11 @@ export type UCreateMirrorResponse = {
   created: boolean;
 };
 
+export type UValidateMirrorResponse = {
+  ok: boolean;
+  errorMessage: string;
+};
+
 export type UDropMirrorResponse = {
   dropped: boolean;
   errorMessage: string;
@@ -18,8 +23,10 @@ export type TableMapRow = {
   source: string;
   destination: string;
   partitionKey: string;
-  exclude: string[];
+  exclude: Set<string>;
   selected: boolean;
+  canMirror: boolean;
+  tableSize: string;
 };
 
 export type SyncStatusRow = {
@@ -27,13 +34,4 @@ export type SyncStatusRow = {
   startTime: Date;
   endTime: Date | null;
   numRows: number;
-};
-
-export type AlertErr = {
-  id: bigint;
-  flow_name: string;
-  error_message: string;
-  error_type: string;
-  error_timestamp: Date;
-  ack: boolean;
 };

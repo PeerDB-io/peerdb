@@ -2,7 +2,9 @@
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { PeerSetting } from '@/app/peers/create/[peerType]/helpers/common';
 import {
+  SSHSetting,
   blankSSHConfig,
+  sshSetter,
   sshSetting,
 } from '@/app/peers/create/[peerType]/helpers/pg';
 import { SSHConfig } from '@/grpc_generated/peers';
@@ -16,17 +18,49 @@ import { InfoPopover } from '../InfoPopover';
 interface ConfigProps {
   settings: PeerSetting[];
   setter: PeerSetter;
+  type: string;
 }
 
-export default function PostgresForm({ settings, setter }: ConfigProps) {
+export default function PostgresForm({ settings, setter, type }: ConfigProps) {
   const [showSSH, setShowSSH] = useState<boolean>(false);
   const [sshConfig, setSSHConfig] = useState<SSHConfig>(blankSSHConfig);
+  const handleFile = (
+    file: File,
+    setFile: (value: string, configSetter: sshSetter) => void
+  ) => {
+    if (file) {
+      const reader = new FileReader();
+      reader.readAsText(file);
+      reader.onload = () => {
+        const fileContents = reader.result as string;
+        const base64EncodedContents = Buffer.from(
+          fileContents,
+          'utf-8'
+        ).toString('base64');
+        setFile(base64EncodedContents, setSSHConfig);
+      };
+      reader.onerror = (error) => {
+        console.log(error);
+      };
+    }
+  };
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement>,
     setting: PeerSetting
   ) => {
     setting.stateHandler(e.target.value, setter);
+  };
+
+  const handleSSHParam = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    setting: SSHSetting
+  ) => {
+    if (setting.type === 'file') {
+      if (e.target.files) handleFile(e.target.files[0], setting.stateHandler);
+    } else {
+      setting.stateHandler(e.target.value, setSSHConfig);
+    }
   };
 
   useEffect(() => {
@@ -128,21 +162,22 @@ export default function PostgresForm({ settings, setter }: ConfigProps) {
                 }}
               >
                 <TextField
-                  variant='simple'
+                  variant={'simple'}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    sshParam.stateHandler(e.target.value, setSSHConfig)
+                    handleSSHParam(e, sshParam)
                   }
+                  style={{
+                    border: sshParam.type === 'file' ? 'none' : 'auto',
+                    height: sshParam.type === 'textarea' ? '15rem' : 'auto',
+                  }}
                   type={sshParam.type}
                   defaultValue={
                     (sshConfig as SSHConfig)[
-                      sshParam.label === 'BASE64 Private Key'
+                      sshParam.label === 'SSH Private Key'
                         ? 'privateKey'
-                        : (sshParam.label.toLowerCase() as
-                            | 'host'
-                            | 'port'
-                            | 'user'
-                            | 'password'
-                            | 'privateKey')
+                        : sshParam.label === "Host's Public Key"
+                          ? 'hostKey'
+                          : (sshParam.label.toLowerCase() as keyof SSHConfig)
                     ] || ''
                   }
                 />

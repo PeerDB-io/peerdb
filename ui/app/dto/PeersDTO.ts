@@ -1,9 +1,11 @@
 import {
   BigqueryConfig,
+  ClickhouseConfig,
   PostgresConfig,
   S3Config,
   SnowflakeConfig,
 } from '@/grpc_generated/peers';
+import { TableResponse } from '@/grpc_generated/route';
 
 export type UValidatePeerResponse = {
   valid: boolean;
@@ -20,6 +22,10 @@ export type USchemasResponse = {
 };
 
 export type UTablesResponse = {
+  tables: TableResponse[];
+};
+
+export type UTablesAllResponse = {
   tables: string[];
 };
 
@@ -36,6 +42,7 @@ export type PeerConfig =
   | PostgresConfig
   | SnowflakeConfig
   | BigqueryConfig
+  | ClickhouseConfig
   | S3Config;
 export type CatalogPeer = {
   id: number;
@@ -44,3 +51,12 @@ export type CatalogPeer = {
   options: Buffer;
 };
 export type PeerSetter = React.Dispatch<React.SetStateAction<PeerConfig>>;
+
+export type SlotLagPoint = {
+  updatedAt: number;
+  slotSize: number;
+};
+
+export type UPublicationsResponse = {
+  publicationNames: string[];
+};

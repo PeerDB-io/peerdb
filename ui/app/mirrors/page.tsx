@@ -10,10 +10,8 @@ import { Panel } from '@/lib/Panel';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import Link from 'next/link';
 import useSWR from 'swr';
+import { fetcher } from '../utils/swr';
 import { CDCFlows, QRepFlows } from './tables';
-export const dynamic = 'force-dynamic';
-
-const fetcher = (...args: [any]) => fetch(...args).then((res) => res.json());
 
 export default function Mirrors() {
   const {
@@ -52,7 +50,7 @@ export default function Mirrors() {
         <Header
           variant='title2'
           slot={
-            <Button as={Link} href={'/mirrors/create'} variant='normalSolid'>
+            <Button as={Link} href='/mirrors/create' variant='normalSolid'>
               <div
                 style={{
                   display: 'flex',

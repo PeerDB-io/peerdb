@@ -12,5 +12,5 @@ catalog = { path = "../catalog" }
 flow-rs = { path = "../flow-rs" }
 pem = "3.0"
 pt = { path = "../pt" }
-sqlparser = { git = "https://github.com/peerdb-io/sqlparser-rs.git", features = ["visitor"] }
+sqlparser.workspace = true
 serde_json = "1.0"

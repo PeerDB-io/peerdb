@@ -3,24 +3,69 @@ run:
     - generated
 linters:
   enable:
+    - containedctx
     - dogsled
-    - dupl
+    - durationcheck
+    - errcheck
+    - forbidigo
+    - gci
+    - gocritic
     - gofumpt
     - gosec
     - gosimple
+    - ineffassign
+    - lll
     - misspell
+    - musttag
     - nakedret
+    - nolintlint
+    - nonamedreturns
+    - perfsprint
+    - prealloc
+    - rowserrcheck
+    - staticcheck
     - stylecheck
+    - sqlclosecheck
+    - testifylint
+    - thelper
     - unconvert
     - unparam
-    - whitespace
-    - errcheck
-    - prealloc
-    - staticcheck
-    - ineffassign
+    - unparam
     - unused
-    - lll
+    - wastedassign
+    - whitespace
 linters-settings:
+  gci:
+    sections:
+      - standard
+      - 'prefix(github.com/PeerDB-io)'
+      - default
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+    disabled-checks:
+      - ifElseChain
+      - importShadow
+      - paramTypeCombine
+      - sprintfQuotedString
+      - unnamedResult
+      - whyNoLint
+    settings:
+      hugeParam:
+        sizeThreshold: 512
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment
+      - shadow
+  stylecheck:
+    checks:
+      - all
+      - '-ST1003'
   lll:
-    line-length: 120
+    line-length: 144
     tab-width: 4

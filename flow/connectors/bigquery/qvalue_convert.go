@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"cloud.google.com/go/bigquery"
+
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
@@ -19,13 +20,13 @@ func qValueKindToBigQueryType(colType string) bigquery.FieldType {
 	case qvalue.QValueKindFloat32, qvalue.QValueKindFloat64:
 		return bigquery.FloatFieldType
 	case qvalue.QValueKindNumeric:
-		return bigquery.NumericFieldType
+		return bigquery.BigNumericFieldType
 	// string related
 	case qvalue.QValueKindString:
 		return bigquery.StringFieldType
 	// json also is stored as string for now
-	case qvalue.QValueKindJSON:
-		return bigquery.StringFieldType
+	case qvalue.QValueKindJSON, qvalue.QValueKindHStore:
+		return bigquery.JSONFieldType
 	// time related
 	case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ:
 		return bigquery.TimestampFieldType
@@ -42,10 +43,18 @@ func qValueKindToBigQueryType(colType string) bigquery.FieldType {
 	// For Arrays we return the types of the individual elements,
 	// and wherever this function is called, the 'Repeated' attribute of
 	// FieldSchema must be set to true.
-	case qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64:
+	case qvalue.QValueKindArrayInt16, qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64:
 		return bigquery.IntegerFieldType
 	case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64:
 		return bigquery.FloatFieldType
+	case qvalue.QValueKindArrayBoolean:
+		return bigquery.BooleanFieldType
+	case qvalue.QValueKindArrayTimestamp, qvalue.QValueKindArrayTimestampTZ:
+		return bigquery.TimestampFieldType
+	case qvalue.QValueKindArrayDate:
+		return bigquery.DateFieldType
+	case qvalue.QValueKindGeography, qvalue.QValueKindGeometry, qvalue.QValueKindPoint:
+		return bigquery.GeographyFieldType
 	// rest will be strings
 	default:
 		return bigquery.StringFieldType
@@ -73,10 +82,12 @@ func BigQueryTypeToQValueKind(fieldType bigquery.FieldType) (qvalue.QValueKind, 
 		return qvalue.QValueKindTime, nil
 	case bigquery.RecordFieldType:
 		return qvalue.QValueKindStruct, nil
-	case bigquery.NumericFieldType:
+	case bigquery.NumericFieldType, bigquery.BigNumericFieldType:
 		return qvalue.QValueKindNumeric, nil
 	case bigquery.GeographyFieldType:
-		return qvalue.QValueKindString, nil
+		return qvalue.QValueKindGeography, nil
+	case bigquery.JSONFieldType:
+		return qvalue.QValueKindJSON, nil
 	default:
 		return "", fmt.Errorf("unsupported bigquery field type: %v", fieldType)
 	}

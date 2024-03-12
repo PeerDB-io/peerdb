@@ -18,7 +18,7 @@ const StatTable = ({ data }: { data: StatInfo[] }) => {
   }, [data, search]);
 
   return (
-    <div style={{ height: '50%' }}>
+    <div style={{ minHeight: '10%' }}>
       <Label
         as='label'
         variant='subheadline'

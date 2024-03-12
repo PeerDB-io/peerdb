@@ -1,16 +1,16 @@
 use std::{
     pin::Pin,
     str::FromStr,
+    sync::Arc,
     task::{Context, Poll},
 };
 
-use chrono::{NaiveDateTime, TimeZone, Utc};
+use chrono::DateTime;
 use futures::Stream;
 use gcp_bigquery_client::model::{
     field_type::FieldType, query_response::ResultSet, table_field_schema::TableFieldSchema,
 };
-use peer_cursor::{Record, RecordStream, Schema, SchemaRef};
-use pgerror::PgError;
+use peer_cursor::{Record, RecordStream, Schema};
 use pgwire::{
     api::{
         results::{FieldFormat, FieldInfo},
@@ -23,7 +23,7 @@ use value::Value;
 
 #[derive(Debug)]
 pub struct BqSchema {
-    schema: SchemaRef,
+    schema: Schema,
     fields: Vec<TableFieldSchema>,
 }
 
@@ -69,15 +69,15 @@ impl BqSchema {
             .as_ref()
             .expect("Schema fields are not present");
 
-        let schema = SchemaRef::new(Schema {
-            fields: fields
+        let schema = Arc::new(
+            fields
                 .iter()
                 .map(|field| {
                     let datatype = convert_field_type(&field.r#type);
                     FieldInfo::new(field.name.clone(), None, None, datatype, FieldFormat::Text)
                 })
                 .collect(),
-        });
+        );
 
         Self {
             schema,
@@ -85,7 +85,7 @@ impl BqSchema {
         }
     }
 
-    pub fn schema(&self) -> SchemaRef {
+    pub fn schema(&self) -> Schema {
         self.schema.clone()
     }
 }
@@ -155,9 +155,9 @@ impl BqRecordStream {
                     FieldType::Timestamp => {
                         let timestamp = result_set.get_i64_by_name(field_name)?;
                         if let Some(ts) = timestamp {
-                            let naive_datetime = NaiveDateTime::from_timestamp_opt(ts, 0)
-                                .ok_or(anyhow::Error::msg("Invalid naive datetime"))?;
-                            Some(Value::Timestamp(Utc.from_utc_datetime(&naive_datetime)))
+                            let datetime = DateTime::from_timestamp(ts, 0)
+                                .ok_or(anyhow::Error::msg("Invalid datetime"))?;
+                            Some(Value::Timestamp(datetime))
                         } else {
                             None
                         }
@@ -181,25 +181,19 @@ impl BqRecordStream {
 impl Stream for BqRecordStream {
     type Item = PgWireResult<Record>;
 
-    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-        match this.result_set.next_row() {
-            true => {
-                let record = this.convert_result_set_item(&this.result_set);
-                let result = record.map_err(|e| {
-                    PgWireError::ApiError(Box::new(PgError::Internal {
-                        err_msg: format!("error getting curent row: {}", e),
-                    }))
-                });
-                Poll::Ready(Some(result))
-            }
-            false => Poll::Ready(None),
+    fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if self.result_set.next_row() {
+            let record = self.convert_result_set_item(&self.result_set);
+            let result = record.map_err(|e| PgWireError::ApiError(e.into()));
+            Poll::Ready(Some(result))
+        } else {
+            Poll::Ready(None)
         }
     }
 }
 
 impl RecordStream for BqRecordStream {
-    fn schema(&self) -> SchemaRef {
+    fn schema(&self) -> Schema {
         self.schema.schema()
     }
 }

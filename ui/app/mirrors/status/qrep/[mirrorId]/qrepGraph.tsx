@@ -1,10 +1,11 @@
 'use client';
+import SelectTheme from '@/app/styles/select';
 import { formatGraphLabel, timeOptions } from '@/app/utils/graph';
 import { Label } from '@/lib/Label';
 import { BarChart } from '@tremor/react';
 import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
-import aggregateCountsByInterval from '../../../edit/[mirrorId]/aggregatedCountsByInterval';
+import aggregateCountsByInterval from '../../../[mirrorId]/aggregatedCountsByInterval';
 
 type QrepStatusRow = {
   partitionID: string;
@@ -39,6 +40,7 @@ function QrepGraph({ syncs }: { syncs: QrepStatusRow[] }) {
           options={timeOptions}
           defaultValue={{ label: 'hour', value: 'hour' }}
           onChange={(val, _) => val && setAggregateType(val.value)}
+          theme={SelectTheme}
         />
       </div>
       <div style={{ height: '3rem' }}>

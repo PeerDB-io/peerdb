@@ -1,12 +1,12 @@
 'use client';
-import { QRepSyncMode } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
-import { Dispatch, SetStateAction, useMemo, useState } from 'react';
+import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
 import { CDCConfig, MirrorSetter, TableMapRow } from '../../../dto/MirrorsDTO';
+import { fetchPublications } from '../handlers';
 import { MirrorSetting } from '../helpers/common';
-import CDCFields from './fields';
+import CDCField from './fields';
 import TableMapping from './tablemapping';
 
 interface MirrorConfigProps {
@@ -37,9 +37,10 @@ export default function CDCConfigForm({
   rows,
   setRows,
 }: MirrorConfigProps) {
+  const [publications, setPublications] = useState<string[]>();
   const [show, setShow] = useState(false);
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
-    let stateVal: string | boolean | QRepSyncMode = val;
+    let stateVal: string | boolean = val;
     setting.stateHandler(stateVal, setter);
   };
 
@@ -54,7 +55,9 @@ export default function CDCConfigForm({
   const paramDisplayCondition = (setting: MirrorSetting) => {
     const label = setting.label.toLowerCase();
     if (
-      (label.includes('snapshot') && mirrorConfig.doInitialCopy !== true) ||
+      (label.includes('snapshot') && mirrorConfig.doInitialSnapshot !== true) ||
+      (label === 'replication slot name' &&
+        mirrorConfig.doInitialSnapshot === true) ||
       (label.includes('staging path') &&
         defaultSyncMode(mirrorConfig.destination?.type) !== 'AVRO')
     ) {
@@ -63,16 +66,36 @@ export default function CDCConfigForm({
     return true;
   };
 
-  if (mirrorConfig.source != undefined && mirrorConfig.destination != undefined)
+  const optionsForField = (setting: MirrorSetting) => {
+    switch (setting.label) {
+      case 'Publication Name':
+        return publications;
+      default:
+        return [];
+    }
+  };
+
+  useEffect(() => {
+    fetchPublications(mirrorConfig.source?.name || '').then((pubs) => {
+      setPublications(pubs);
+    });
+  }, [mirrorConfig.source?.name]);
+
+  if (
+    mirrorConfig.source != undefined &&
+    mirrorConfig.destination != undefined &&
+    publications != undefined
+  )
     return (
       <>
         {normalSettings.map((setting, id) => {
           return (
             paramDisplayCondition(setting) && (
-              <CDCFields
+              <CDCField
                 key={id}
                 handleChange={handleChange}
                 setting={setting}
+                options={optionsForField(setting)}
               />
             )
           );
@@ -99,10 +122,11 @@ export default function CDCConfigForm({
         {show &&
           advancedSettings.map((setting, id) => {
             return (
-              <CDCFields
-                key={id}
+              <CDCField
+                key={setting.label}
                 handleChange={handleChange}
                 setting={setting}
+                options={optionsForField(setting)}
               />
             );
           })}
@@ -112,6 +136,7 @@ export default function CDCConfigForm({
           rows={rows}
           setRows={setRows}
           peerType={mirrorConfig.destination?.type}
+          omitAdditionalTablesMapping={new Map<string, string[]>()}
         />
       </>
     );

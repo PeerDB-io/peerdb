@@ -8,6 +8,7 @@ import {
 import prisma from '@/app/utils/prisma';
 import {
   BigqueryConfig,
+  ClickhouseConfig,
   DBType,
   Peer,
   PostgresConfig,
@@ -50,6 +51,12 @@ const constructPeer = (
         type: DBType.BIGQUERY,
         bigqueryConfig: config as BigqueryConfig,
       };
+    case 'CLICKHOUSE':
+      return {
+        name,
+        type: DBType.CLICKHOUSE,
+        clickhouseConfig: config as ClickhouseConfig,
+      };
     case 'S3':
       return {
         name,
@@ -65,7 +72,6 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
   const body = await request.json();
-  console.log('POST Validate Peer:', body);
   const { name, type, config, mode } = body;
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
   const peer = constructPeer(name, type, config);

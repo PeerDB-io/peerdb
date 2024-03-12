@@ -5,8 +5,6 @@ import QRepConfigViewer from './qrepConfigViewer';
 import QrepGraph from './qrepGraph';
 import QRepStatusTable, { QRepPartitionStatus } from './qrepStatusTable';
 
-export const dynamic = 'force-dynamic';
-
 type QRepMirrorStatusProps = {
   params: { mirrorId: string };
 };

@@ -20,6 +20,12 @@ jobs:
         with:
           submodules: recursive
 
+      - uses: bufbuild/buf-setup-action@v1.29.0-1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - run: buf generate protos
+
       - uses: depot/setup-action@v1
 
       - name: Login to GitHub Container Registry

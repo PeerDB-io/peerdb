@@ -2,51 +2,49 @@ package peerflow
 
 import (
 	"fmt"
+	"log/slog"
+	"slices"
 	"sort"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/activities"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"golang.org/x/exp/maps"
-
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
+	"golang.org/x/exp/maps"
+
+	"github.com/PeerDB-io/peer-flow/activities"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 // SetupFlow is the workflow that is responsible for ensuring all the
 // setup is done for a sync flow to execute.
 //
 // The setup flow is responsible for:
-//   1. Global:
+//  1. Global:
 //     - ensure that we are able to connect to the source and destination peers
-//   2. Source Peer:
-// 	   - setup the metadata table on the source peer
+//  2. Source Peer:
+//     - setup the metadata table on the source peer
 //     - initialize pullability on the source peer, as an example on postgres:
-//       - ensuring the required table exists on the source peer
-//	     - creating the slot and publication on the source peer
-//   3. Destination Peer:
-// 	   - setup the metadata table on the destination peer
+//     - ensuring the required table exists on the source peer
+//     - creating the slot and publication on the source peer
+//  3. Destination Peer:
+//     - setup the metadata table on the destination peer
 //     - creating the raw table on the destination peer
 //     - creating the normalized table on the destination peer
-
-type SetupFlowState struct {
-	tableNameMapping map[string]string
-	CDCFlowName      string
-	Progress         []string
-}
-
 type SetupFlowExecution struct {
-	SetupFlowState
-	executionID string
-	logger      log.Logger
+	tableNameMapping map[string]string
+	cdcFlowName      string
+	executionID      string
+	logger           log.Logger
 }
 
 // NewSetupFlowExecution creates a new instance of SetupFlowExecution.
-func NewSetupFlowExecution(ctx workflow.Context, state *SetupFlowState) *SetupFlowExecution {
+func NewSetupFlowExecution(ctx workflow.Context, tableNameMapping map[string]string, cdcFlowName string) *SetupFlowExecution {
 	return &SetupFlowExecution{
-		SetupFlowState: *state,
-		executionID:    workflow.GetInfo(ctx).WorkflowExecution.ID,
-		logger:         workflow.GetLogger(ctx),
+		tableNameMapping: tableNameMapping,
+		cdcFlowName:      cdcFlowName,
+		executionID:      workflow.GetInfo(ctx).WorkflowExecution.ID,
+		logger:           log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cdcFlowName)),
 	}
 }
 
@@ -56,32 +54,43 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
 ) error {
-	s.logger.Info("checking connections for CDC flow - ", s.CDCFlowName)
+	s.logger.Info("checking connections for CDC flow")
 
-	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 2 * time.Minute,
+	checkCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
+		StartToCloseTimeout: time.Minute,
 	})
 
 	// first check the source peer connection
-	srcConnStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckConnection, config.Source)
+	srcConnStatusFuture := workflow.ExecuteLocalActivity(checkCtx, flowable.CheckConnection, &protos.SetupInput{
+		Peer:     config.Source,
+		FlowName: config.FlowJobName,
+	})
 	var srcConnStatus activities.CheckConnectionResult
-	if err := srcConnStatusFuture.Get(ctx, &srcConnStatus); err != nil {
+	if err := srcConnStatusFuture.Get(checkCtx, &srcConnStatus); err != nil {
 		return fmt.Errorf("failed to check source peer connection: %w", err)
 	}
 
+	dstSetupInput := &protos.SetupInput{
+		Peer:     config.Destination,
+		FlowName: config.FlowJobName,
+	}
+
 	// then check the destination peer connection
-	destConnStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckConnection, config.Destination)
+	destConnStatusFuture := workflow.ExecuteLocalActivity(checkCtx, flowable.CheckConnection, dstSetupInput)
 	var destConnStatus activities.CheckConnectionResult
-	if err := destConnStatusFuture.Get(ctx, &destConnStatus); err != nil {
+	if err := destConnStatusFuture.Get(checkCtx, &destConnStatus); err != nil {
 		return fmt.Errorf("failed to check destination peer connection: %w", err)
 	}
 
-	s.logger.Info("ensuring metadata table exists - ", s.CDCFlowName)
+	s.logger.Info("ensuring metadata table exists")
 
 	// then setup the destination peer metadata tables
 	if destConnStatus.NeedsSetupMetadataTables {
-		fDst := workflow.ExecuteActivity(ctx, flowable.SetupMetadataTables, config.Destination)
-		if err := fDst.Get(ctx, nil); err != nil {
+		setupCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 2 * time.Minute,
+		})
+		fDst := workflow.ExecuteActivity(setupCtx, flowable.SetupMetadataTables, dstSetupInput)
+		if err := fDst.Get(setupCtx, nil); err != nil {
 			return fmt.Errorf("failed to setup destination peer metadata tables: %w", err)
 		}
 	} else {
@@ -95,13 +104,14 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 func (s *SetupFlowExecution) ensurePullability(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
-) error {
-	s.logger.Info("ensuring pullability for peer flow - ", s.CDCFlowName)
+	checkConstraints bool,
+) (map[uint32]string, error) {
+	s.logger.Info("ensuring pullability for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Minute,
+		StartToCloseTimeout: 4 * time.Hour,
 	})
-	tmpMap := make(map[uint32]string)
+	srcTableIdNameMapping := make(map[uint32]string)
 
 	srcTblIdentifiers := maps.Keys(s.tableNameMapping)
 	sort.Strings(srcTblIdentifiers)
@@ -109,15 +119,16 @@ func (s *SetupFlowExecution) ensurePullability(
 	// create EnsurePullabilityInput for the srcTableName
 	ensurePullabilityInput := &protos.EnsurePullabilityBatchInput{
 		PeerConnectionConfig:   config.Source,
-		FlowJobName:            s.CDCFlowName,
+		FlowJobName:            s.cdcFlowName,
 		SourceTableIdentifiers: srcTblIdentifiers,
+		CheckConstraints:       checkConstraints,
 	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.EnsurePullability, ensurePullabilityInput)
 	var ensurePullabilityOutput *protos.EnsurePullabilityBatchOutput
 	if err := future.Get(ctx, &ensurePullabilityOutput); err != nil {
 		s.logger.Error("failed to ensure pullability for tables: ", err)
-		return fmt.Errorf("failed to ensure pullability for tables: %w", err)
+		return nil, fmt.Errorf("failed to ensure pullability for tables: %w", err)
 	}
 
 	sortedTableNames := maps.Keys(ensurePullabilityOutput.TableIdentifierMapping)
@@ -125,14 +136,10 @@ func (s *SetupFlowExecution) ensurePullability(
 
 	for _, tableName := range sortedTableNames {
 		tableIdentifier := ensurePullabilityOutput.TableIdentifierMapping[tableName]
-		switch typedTableIdentifier := tableIdentifier.TableIdentifier.(type) {
-		case *protos.TableIdentifier_PostgresTableIdentifier:
-			tmpMap[typedTableIdentifier.PostgresTableIdentifier.RelId] = tableName
-		}
+		srcTableIdNameMapping[tableIdentifier.RelId] = tableName
 	}
 
-	config.SrcTableIdNameMapping = tmpMap
-	return nil
+	return srcTableIdNameMapping, nil
 }
 
 // createRawTable creates the raw table on the destination peer.
@@ -140,7 +147,7 @@ func (s *SetupFlowExecution) createRawTable(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
 ) error {
-	s.logger.Info("creating raw table on destination - ", s.CDCFlowName)
+	s.logger.Info("creating raw table on destination")
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
 	})
@@ -148,9 +155,8 @@ func (s *SetupFlowExecution) createRawTable(
 	// attempt to create the tables.
 	createRawTblInput := &protos.CreateRawTableInput{
 		PeerConnectionConfig: config.Destination,
-		FlowJobName:          s.CDCFlowName,
+		FlowJobName:          s.cdcFlowName,
 		TableNameMapping:     s.tableNameMapping,
-		CdcSyncMode:          config.CdcSyncMode,
 	}
 
 	rawTblFuture := workflow.ExecuteActivity(ctx, flowable.CreateRawTable, createRawTblInput)
@@ -166,11 +172,11 @@ func (s *SetupFlowExecution) createRawTable(
 func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	ctx workflow.Context, flowConnectionConfigs *protos.FlowConnectionConfigs,
 ) (map[string]*protos.TableSchema, error) {
-	s.logger.Info("fetching table schema for peer flow - ", s.CDCFlowName)
+	s.logger.Info("fetching table schema for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Hour,
-		HeartbeatTimeout:    5 * time.Minute,
+		HeartbeatTimeout:    time.Minute,
 	})
 
 	sourceTables := maps.Keys(s.tableNameMapping)
@@ -179,13 +185,14 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	tableSchemaInput := &protos.GetTableSchemaBatchInput{
 		PeerConnectionConfig: flowConnectionConfigs.Source,
 		TableIdentifiers:     sourceTables,
+		FlowName:             s.cdcFlowName,
 	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
 
 	var tblSchemaOutput *protos.GetTableSchemaBatchOutput
 	if err := future.Get(ctx, &tblSchemaOutput); err != nil {
-		s.logger.Error("failed to fetch schema for source tables: ", err)
+		s.logger.Error("failed to fetch schema for source tables", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to fetch schema for source table %s: %w", sourceTables, err)
 	}
 
@@ -193,7 +200,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	sortedSourceTables := maps.Keys(tableNameSchemaMapping)
 	sort.Strings(sortedSourceTables)
 
-	s.logger.Info("setting up normalized tables for peer flow - ", s.CDCFlowName)
+	s.logger.Info("setting up normalized tables for peer flow")
 	normalizedTableMapping := make(map[string]*protos.TableSchema)
 	for _, srcTableName := range sortedSourceTables {
 		tableSchema := tableNameSchemaMapping[srcTableName]
@@ -201,14 +208,18 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		for _, mapping := range flowConnectionConfigs.TableMappings {
 			if mapping.SourceTableIdentifier == srcTableName {
 				if len(mapping.Exclude) != 0 {
+					columnCount := len(tableSchema.Columns)
+					columns := make([]*protos.FieldDescription, 0, columnCount)
+					for _, column := range tableSchema.Columns {
+						if !slices.Contains(mapping.Exclude, column.Name) {
+							columns = append(columns, column)
+						}
+					}
 					tableSchema = &protos.TableSchema{
 						TableIdentifier:       tableSchema.TableIdentifier,
-						Columns:               maps.Clone(tableSchema.Columns),
 						PrimaryKeyColumns:     tableSchema.PrimaryKeyColumns,
 						IsReplicaIdentityFull: tableSchema.IsReplicaIdentityFull,
-					}
-					for _, exclude := range mapping.Exclude {
-						delete(tableSchema.Columns, exclude)
+						Columns:               columns,
 					}
 				}
 				break
@@ -216,7 +227,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		}
 		normalizedTableMapping[normalizedTableName] = tableSchema
 
-		s.logger.Info("normalized table schema: ", normalizedTableName, " -> ", tableSchema)
+		s.logger.Info("normalized table schema", slog.String("table", normalizedTableName), slog.Any("schema", tableSchema))
 	}
 
 	// now setup the normalized tables on the destination peer
@@ -225,16 +236,16 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		TableNameSchemaMapping: normalizedTableMapping,
 		SoftDeleteColName:      flowConnectionConfigs.SoftDeleteColName,
 		SyncedAtColName:        flowConnectionConfigs.SyncedAtColName,
+		FlowName:               flowConnectionConfigs.FlowJobName,
 	}
 
 	future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
-	var createNormalizedTablesOutput *protos.SetupNormalizedTableBatchOutput
-	if err := future.Get(ctx, &createNormalizedTablesOutput); err != nil {
+	if err := future.Get(ctx, nil); err != nil {
 		s.logger.Error("failed to create normalized tables: ", err)
 		return nil, fmt.Errorf("failed to create normalized tables: %w", err)
 	}
 
-	s.logger.Info("finished setting up normalized tables for peer flow - ", s.CDCFlowName)
+	s.logger.Info("finished setting up normalized tables for peer flow")
 	return normalizedTableMapping, nil
 }
 
@@ -242,57 +253,56 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 func (s *SetupFlowExecution) executeSetupFlow(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
-) (map[string]*protos.TableSchema, error) {
-	s.logger.Info("executing setup flow - ", s.CDCFlowName)
+) (*protos.SetupFlowOutput, error) {
+	s.logger.Info("executing setup flow")
 
 	// first check the connectionsAndSetupMetadataTables
 	if err := s.checkConnectionsAndSetupMetadataTables(ctx, config); err != nil {
 		return nil, fmt.Errorf("failed to check connections and setup metadata tables: %w", err)
 	}
 
-	// then ensure pullability
-	if err := s.ensurePullability(ctx, config); err != nil {
+	setupFlowOutput := protos.SetupFlowOutput{}
+	srcTableIdNameMapping, err := s.ensurePullability(ctx, config, !config.InitialSnapshotOnly)
+	if err != nil {
 		return nil, fmt.Errorf("failed to ensure pullability: %w", err)
 	}
+	setupFlowOutput.SrcTableIdNameMapping = srcTableIdNameMapping
 
-	// then create the raw table
-	if err := s.createRawTable(ctx, config); err != nil {
-		return nil, fmt.Errorf("failed to create raw table: %w", err)
+	// for initial copy only flows, we don't need to create the raw table
+	if !config.InitialSnapshotOnly {
+		// then create the raw table
+		if err := s.createRawTable(ctx, config); err != nil {
+			return nil, fmt.Errorf("failed to create raw table: %w", err)
+		}
 	}
 
 	// then fetch the table schema and setup the normalized tables
-	tableSchema, err := s.fetchTableSchemaAndSetupNormalizedTables(ctx, config)
+	tableNameSchemaMapping, err := s.fetchTableSchemaAndSetupNormalizedTables(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch table schema and setup normalized tables: %w", err)
 	}
+	setupFlowOutput.TableNameSchemaMapping = tableNameSchemaMapping
 
-	return tableSchema, nil
+	return &setupFlowOutput, nil
 }
 
 // SetupFlowWorkflow is the workflow that sets up the flow.
 func SetupFlowWorkflow(ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
-) (*protos.FlowConnectionConfigs, error) {
-	tblNameMapping := make(map[string]string)
+) (*protos.SetupFlowOutput, error) {
+	tblNameMapping := make(map[string]string, len(config.TableMappings))
 	for _, v := range config.TableMappings {
 		tblNameMapping[v.SourceTableIdentifier] = v.DestinationTableIdentifier
 	}
 
-	setupFlowState := &SetupFlowState{
-		tableNameMapping: tblNameMapping,
-		CDCFlowName:      config.FlowJobName,
-		Progress:         []string{},
-	}
-
 	// create the setup flow execution
-	setupFlowExecution := NewSetupFlowExecution(ctx, setupFlowState)
+	setupFlowExecution := NewSetupFlowExecution(ctx, tblNameMapping, config.FlowJobName)
 
 	// execute the setup flow
-	tableNameSchemaMapping, err := setupFlowExecution.executeSetupFlow(ctx, config)
+	setupFlowOutput, err := setupFlowExecution.executeSetupFlow(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute setup flow: %w", err)
 	}
-	config.TableNameSchemaMapping = tableNameSchemaMapping
 
-	return config, nil
+	return setupFlowOutput, nil
 }

@@ -1,18 +1,32 @@
-import type { NextRequest } from 'next/server';
-import { NextResponse } from 'next/server';
+import { Configuration } from '@/app/config/config';
+import { withAuth } from 'next-auth/middleware';
+import { NextRequest, NextResponse, userAgent } from 'next/server';
 
-export default function middleware(req: NextRequest) {
-  if (
-    req.nextUrl.pathname !== '/login' &&
-    req.nextUrl.pathname !== '/api/login' &&
-    req.nextUrl.pathname !== '/api/logout' &&
-    process.env.PEERDB_PASSWORD &&
-    req.cookies.get('auth')?.value !== process.env.PEERDB_PASSWORD
-  ) {
-    req.cookies.delete('auth');
-    return NextResponse.redirect(new URL('/login?reject', req.url));
+const authMiddleware = withAuth({});
+
+export default async function middleware(req: NextRequest, resp: NextResponse) {
+  const accessLogUUID = crypto.randomUUID();
+  const agent = userAgent(req);
+  const xForwardedFor = req.headers.get('x-forwarded-for');
+  console.log(
+    `[${accessLogUUID}] [${req.method} ${req.url}] [${req.ip} ${xForwardedFor}] (${JSON.stringify(agent.device)} ${JSON.stringify(agent.os)} ${JSON.stringify(agent.browser)})`
+  );
+
+  if (Configuration.authentication.PEERDB_PASSWORD) {
+    const authRes = await (authMiddleware as any)(req);
+
+    const authResJson = NextResponse.next();
+    console.log(
+      `[${accessLogUUID}] [${req.method} ${req.url}] [${req.ip} ${xForwardedFor}] (${JSON.stringify(agent.device)} ${JSON.stringify(agent.os)} ${JSON.stringify(agent.browser)}) ${authResJson.status}`
+    );
+
+    return authRes;
   }
-  return NextResponse.next();
+
+  const res = NextResponse.next();
+  console.log(
+    `[${accessLogUUID}] [${req.method} ${req.url}] [${req.ip} ${xForwardedFor}] (${JSON.stringify(agent.device)} ${JSON.stringify(agent.os)} ${JSON.stringify(agent.browser)}) ${res.status}`
+  );
 }
 
 export const config = {

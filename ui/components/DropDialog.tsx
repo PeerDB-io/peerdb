@@ -7,7 +7,7 @@ import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { Divider } from '@tremor/react';
-import { useState } from 'react';
+import { Dispatch, SetStateAction, useState } from 'react';
 import { BarLoader } from 'react-spinners';
 
 interface dropMirrorArgs {
@@ -15,43 +15,58 @@ interface dropMirrorArgs {
   flowJobName: string;
   sourcePeer: Peer;
   destinationPeer: Peer;
+  forResync?: boolean;
 }
 
 interface dropPeerArgs {
   peerName: string;
 }
 
+interface deleteAlertArgs {
+  id: number | bigint;
+}
+
+export const handleDropMirror = async (
+  dropArgs: dropMirrorArgs,
+  setLoading: Dispatch<SetStateAction<boolean>>,
+  setMsg: Dispatch<SetStateAction<string>>
+) => {
+  if (!dropArgs.workflowId) {
+    setMsg('Workflow ID not found for this mirror.');
+    return false;
+  }
+  setLoading(true);
+  const dropRes: UDropMirrorResponse = await fetch('/api/mirrors/drop', {
+    method: 'POST',
+    body: JSON.stringify(dropArgs),
+  }).then((res) => res.json());
+  setLoading(false);
+  if (dropRes.dropped !== true) {
+    setMsg(
+      `Unable to drop mirror ${dropArgs.flowJobName}. ${
+        dropRes.errorMessage ?? ''
+      }`
+    );
+    return false;
+  }
+
+  setMsg('Mirror dropped successfully.');
+  if (!dropArgs.forResync) {
+    window.location.reload();
+  }
+
+  return true;
+};
+
 export const DropDialog = ({
   mode,
   dropArgs,
 }: {
-  mode: 'PEER' | 'MIRROR';
-  dropArgs: dropMirrorArgs | dropPeerArgs;
+  mode: 'PEER' | 'MIRROR' | 'ALERT';
+  dropArgs: dropMirrorArgs | dropPeerArgs | deleteAlertArgs;
 }) => {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
-  const handleDropMirror = async (dropArgs: dropMirrorArgs) => {
-    if (!dropArgs.workflowId) {
-      setMsg('Workflow ID not found for this mirror.');
-      return;
-    }
-    setLoading(true);
-    const dropRes: UDropMirrorResponse = await fetch('api/mirrors/drop', {
-      method: 'POST',
-      body: JSON.stringify(dropArgs),
-    }).then((res) => res.json());
-    setLoading(false);
-    if (dropRes.dropped !== true)
-      setMsg(
-        `Unable to drop mirror ${dropArgs.flowJobName}. ${
-          dropRes.errorMessage ?? ''
-        }`
-      );
-    else {
-      setMsg('Mirror dropped successfully.');
-      window.location.reload();
-    }
-  };
 
   const handleDropPeer = async (dropArgs: dropPeerArgs) => {
     if (!dropArgs.peerName) {
@@ -77,23 +92,51 @@ export const DropDialog = ({
     }
   };
 
+  const handleDeleteAlert = async (dropArgs: deleteAlertArgs) => {
+    setLoading(true);
+    const deleteRes = await fetch('api/alert-config', {
+      method: 'DELETE',
+      body: JSON.stringify(dropArgs),
+    });
+    const deleteStatus = await deleteRes.text();
+    setLoading(false);
+    if (deleteStatus !== 'success')
+      setMsg(`Unable to delete alert configuration.`);
+    else {
+      setMsg(`Alert configuration deleted successfully.`);
+      window.location.reload();
+    }
+  };
+
   return (
     <Dialog
       noInteract={true}
       size='large'
       triggerButton={
-        <Button variant='drop' style={{ color: 'black' }}>
-          <Icon name='delete' />
+        <Button variant='drop'>
+          {mode === 'ALERT' ? (
+            <Label as='label' style={{ color: 'coral' }}>
+              Delete
+            </Label>
+          ) : (
+            <Icon name='delete' />
+          )}
         </Button>
       }
     >
       <div>
         <Label as='label' variant='action'>
-          Drop {mode === 'MIRROR' ? 'Mirror' : 'Peer'}
+          Delete{' '}
+          {mode === 'MIRROR' ? 'Mirror' : mode === 'PEER' ? 'Peer' : 'Alert'}
         </Label>
         <Divider style={{ margin: 0 }} />
         <Label as='label' variant='body' style={{ marginTop: '0.3rem' }}>
-          Are you sure you want to drop {mode === 'MIRROR' ? 'mirror' : 'peer'}{' '}
+          Are you sure you want to delete{' '}
+          {mode === 'MIRROR'
+            ? 'mirror'
+            : mode === 'PEER'
+              ? 'peer'
+              : 'this alert'}{' '}
           <b>
             {mode === 'MIRROR'
               ? (dropArgs as dropMirrorArgs).flowJobName
@@ -110,8 +153,14 @@ export const DropDialog = ({
           <Button
             onClick={() =>
               mode === 'MIRROR'
-                ? handleDropMirror(dropArgs as dropMirrorArgs)
-                : handleDropPeer(dropArgs as dropPeerArgs)
+                ? handleDropMirror(
+                    dropArgs as dropMirrorArgs,
+                    setLoading,
+                    setMsg
+                  )
+                : mode === 'PEER'
+                  ? handleDropPeer(dropArgs as dropPeerArgs)
+                  : handleDeleteAlert(dropArgs as deleteAlertArgs)
             }
             style={{
               marginLeft: '1rem',
@@ -119,7 +168,7 @@ export const DropDialog = ({
               color: 'white',
             }}
           >
-            {loading ? <BarLoader /> : 'Drop'}
+            {loading ? <BarLoader /> : 'Delete'}
           </Button>
         </div>
         {msg && (

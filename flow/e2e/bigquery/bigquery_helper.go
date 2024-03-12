@@ -3,6 +3,7 @@ package e2e_bigquery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -11,13 +12,14 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/civil"
+	"google.golang.org/api/iterator"
+
 	peer_bq "github.com/PeerDB-io/peer-flow/connectors/bigquery"
-	"github.com/PeerDB-io/peer-flow/e2e"
+	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"google.golang.org/api/iterator"
 )
 
 type BigQueryTestHelper struct {
@@ -29,8 +31,6 @@ type BigQueryTestHelper struct {
 	Peer *protos.Peer
 	// client to talk to BigQuery
 	client *bigquery.Client
-	// dataset to use for testing.
-	datasetName string
 }
 
 // NewBigQueryTestHelper creates a new BigQueryTestHelper.
@@ -43,15 +43,15 @@ func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 
 	jsonPath := os.Getenv("TEST_BQ_CREDS")
 	if jsonPath == "" {
-		return nil, fmt.Errorf("TEST_BQ_CREDS env var not set")
+		return nil, errors.New("TEST_BQ_CREDS env var not set")
 	}
 
-	content, err := e2e.ReadFileToBytes(jsonPath)
+	content, err := e2eshared.ReadFileToBytes(jsonPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	var config protos.BigqueryConfig
+	var config *protos.BigqueryConfig
 	err = json.Unmarshal(content, &config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal json: %w", err)
@@ -60,7 +60,7 @@ func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 	// suffix the dataset with the runID to namespace stateful schemas.
 	config.DatasetId = fmt.Sprintf("%s_%d", config.DatasetId, runID)
 
-	bqsa, err := peer_bq.NewBigQueryServiceAccount(&config)
+	bqsa, err := peer_bq.NewBigQueryServiceAccount(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create BigQueryServiceAccount: %v", err)
 	}
@@ -70,14 +70,13 @@ func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 		return nil, fmt.Errorf("failed to create helper BigQuery client: %v", err)
 	}
 
-	peer := generateBQPeer(&config)
+	peer := generateBQPeer(config)
 
 	return &BigQueryTestHelper{
-		runID:       runID,
-		Config:      &config,
-		client:      client,
-		datasetName: config.DatasetId,
-		Peer:        peer,
+		runID:  runID,
+		Config: config,
+		client: client,
+		Peer:   peer,
 	}, nil
 }
 
@@ -94,14 +93,11 @@ func generateBQPeer(bigQueryConfig *protos.BigqueryConfig) *protos.Peer {
 }
 
 // datasetExists checks if the dataset exists.
-func (b *BigQueryTestHelper) datasetExists() (bool, error) {
-	dataset := b.client.Dataset(b.Config.DatasetId)
+func (b *BigQueryTestHelper) datasetExists(dataset *bigquery.Dataset) (bool, error) {
 	meta, err := dataset.Metadata(context.Background())
 	if err != nil {
 		// if err message contains `notFound` then dataset does not exist.
-		// first we cast the error to a bigquery.Error
 		if strings.Contains(err.Error(), "notFound") {
-			fmt.Printf("dataset %s does not exist\n", b.Config.DatasetId)
 			return false, nil
 		}
 
@@ -117,12 +113,13 @@ func (b *BigQueryTestHelper) datasetExists() (bool, error) {
 
 // RecreateDataset recreates the dataset, i.e, deletes it if exists and creates it again.
 func (b *BigQueryTestHelper) RecreateDataset() error {
-	exists, err := b.datasetExists()
+	dataset := b.client.Dataset(b.Config.DatasetId)
+
+	exists, err := b.datasetExists(dataset)
 	if err != nil {
 		return fmt.Errorf("failed to check if dataset %s exists: %w", b.Config.DatasetId, err)
 	}
 
-	dataset := b.client.Dataset(b.Config.DatasetId)
 	if exists {
 		err := dataset.DeleteWithContents(context.Background())
 		if err != nil {
@@ -130,30 +127,30 @@ func (b *BigQueryTestHelper) RecreateDataset() error {
 		}
 	}
 
-	err = dataset.Create(context.Background(), nil)
+	err = dataset.Create(context.Background(), &bigquery.DatasetMetadata{
+		DefaultTableExpiration:     time.Hour,
+		DefaultPartitionExpiration: time.Hour,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create dataset: %w", err)
 	}
 
-	fmt.Printf("created dataset %s successfully\n", b.Config.DatasetId)
 	return nil
 }
 
 // DropDataset drops the dataset.
-func (b *BigQueryTestHelper) DropDataset() error {
-	exists, err := b.datasetExists()
+func (b *BigQueryTestHelper) DropDataset(datasetName string) error {
+	dataset := b.client.Dataset(datasetName)
+	exists, err := b.datasetExists(dataset)
 	if err != nil {
 		return fmt.Errorf("failed to check if dataset %s exists: %w", b.Config.DatasetId, err)
 	}
 
-	if !exists {
-		return nil
-	}
-
-	dataset := b.client.Dataset(b.Config.DatasetId)
-	err = dataset.DeleteWithContents(context.Background())
-	if err != nil {
-		return fmt.Errorf("failed to delete dataset: %w", err)
+	if exists {
+		err = dataset.DeleteWithContents(context.Background())
+		if err != nil {
+			return fmt.Errorf("failed to delete dataset: %w", err)
+		}
 	}
 
 	return nil
@@ -161,7 +158,9 @@ func (b *BigQueryTestHelper) DropDataset() error {
 
 // RunCommand runs the given command.
 func (b *BigQueryTestHelper) RunCommand(command string) error {
-	_, err := b.client.Query(command).Read(context.Background())
+	q := b.client.Query(command)
+	q.DisableQueryCache = true
+	_, err := q.Read(context.Background())
 	if err != nil {
 		return fmt.Errorf("failed to run command: %w", err)
 	}
@@ -171,8 +170,18 @@ func (b *BigQueryTestHelper) RunCommand(command string) error {
 
 // countRows(tableName) returns the number of rows in the given table.
 func (b *BigQueryTestHelper) countRows(tableName string) (int, error) {
-	command := fmt.Sprintf("SELECT COUNT(*) FROM `%s.%s`", b.Config.DatasetId, tableName)
-	it, err := b.client.Query(command).Read(context.Background())
+	return b.countRowsWithDataset(b.Config.DatasetId, tableName, "")
+}
+
+func (b *BigQueryTestHelper) countRowsWithDataset(dataset, tableName string, nonNullCol string) (int, error) {
+	command := fmt.Sprintf("SELECT COUNT(*) FROM `%s.%s`", dataset, tableName)
+	if nonNullCol != "" {
+		command = "SELECT COUNT(CASE WHEN " + nonNullCol +
+			" IS NOT NULL THEN 1 END) AS non_null_count FROM `" + dataset + "." + tableName + "`;"
+	}
+	q := b.client.Query(command)
+	q.DisableQueryCache = true
+	it, err := q.Read(context.Background())
 	if err != nil {
 		return 0, fmt.Errorf("failed to run command: %w", err)
 	}
@@ -190,7 +199,7 @@ func (b *BigQueryTestHelper) countRows(tableName string) (int, error) {
 
 	cntI64, ok := row[0].(int64)
 	if !ok {
-		return 0, fmt.Errorf("failed to convert row count to int64")
+		return 0, errors.New("failed to convert row count to int64")
 	}
 
 	return int(cntI64), nil
@@ -212,7 +221,9 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 	case bool:
 		return qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: v}, nil
 	case civil.Date:
-		return qvalue.QValue{Kind: qvalue.QValueKindDate, Value: bqValue.(civil.Date).In(time.UTC)}, nil
+		return qvalue.QValue{Kind: qvalue.QValueKindDate, Value: v.In(time.UTC)}, nil
+	case civil.Time:
+		return qvalue.QValue{Kind: qvalue.QValueKindTime, Value: v}, nil
 	case time.Time:
 		return qvalue.QValue{Kind: qvalue.QValueKindTimestamp, Value: v}, nil
 	case *big.Rat:
@@ -227,7 +238,7 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 		}
 
 		firstElement := v[0]
-		switch firstElement.(type) {
+		switch et := firstElement.(type) {
 		case int, int32:
 			var arr []int32
 			for _, val := range v {
@@ -258,10 +269,30 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 				arr = append(arr, val.(string))
 			}
 			return qvalue.QValue{Kind: qvalue.QValueKindArrayString, Value: arr}, nil
+		case time.Time:
+			var arr []time.Time
+			for _, val := range v {
+				arr = append(arr, val.(time.Time))
+			}
+			return qvalue.QValue{Kind: qvalue.QValueKindArrayTimestamp, Value: arr}, nil
+		case civil.Date:
+			var arr []civil.Date
+			for _, val := range v {
+				arr = append(arr, val.(civil.Date))
+			}
+			return qvalue.QValue{Kind: qvalue.QValueKindArrayDate, Value: arr}, nil
+		case bool:
+			var arr []bool
+
+			for _, val := range v {
+				arr = append(arr, val.(bool))
+			}
+			return qvalue.QValue{Kind: qvalue.QValueKindArrayBoolean, Value: arr}, nil
+		default:
+			// If type is unsupported, return error
+			return qvalue.QValue{}, fmt.Errorf("bqHelper unsupported type %T", et)
 		}
 
-		// If type is unsupported, return error
-		return qvalue.QValue{}, fmt.Errorf("bqHelper unsupported type %T", v)
 	case nil:
 		return qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}, nil
 	default:
@@ -300,13 +331,14 @@ func bqSchemaToQRecordSchema(schema bigquery.Schema) (*model.QRecordSchema, erro
 }
 
 func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecordBatch, error) {
-	it, err := b.client.Query(query).Read(context.Background())
+	q := b.client.Query(query)
+	q.DisableQueryCache = true
+	it, err := q.Read(context.Background())
 	if err != nil {
-		fmt.Printf("failed to run command: %v\n", err)
 		return nil, fmt.Errorf("failed to run command: %w", err)
 	}
 
-	var records []model.QRecord
+	var records [][]qvalue.QValue
 	for {
 		var row []bigquery.Value
 		err := it.Next(&row)
@@ -314,7 +346,6 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 			break
 		}
 		if err != nil {
-			fmt.Printf("failed to iterate over query results: %v\n", err)
 			return nil, fmt.Errorf("failed to iterate over query results: %w", err)
 		}
 
@@ -328,13 +359,7 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 			qValues[i] = qv
 		}
 
-		// Create a QRecord
-		record := model.NewQRecord(len(qValues))
-		for i, qv := range qValues {
-			record.Set(i, qv)
-		}
-
-		records = append(records, record)
+		records = append(records, qValues)
 	}
 
 	// Now you should fill the column names as well. Here we assume the schema is
@@ -349,24 +374,22 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 
 	// Return a QRecordBatch
 	return &model.QRecordBatch{
-		NumRecords: uint32(len(records)),
-		Records:    records,
-		Schema:     schema,
+		Records: records,
+		Schema:  schema,
 	}, nil
 }
 
-/*
-if the function errors or there are nulls, the function returns false
-else true
-*/
-func (b *BigQueryTestHelper) CheckNull(tableName string, ColName []string) (bool, error) {
-	if len(ColName) == 0 {
+// returns whether the function errors or there are no nulls
+func (b *BigQueryTestHelper) CheckNull(tableName string, colName []string) (bool, error) {
+	if len(colName) == 0 {
 		return true, nil
 	}
-	joinedString := strings.Join(ColName, " is null or ") + " is null"
+	joinedString := strings.Join(colName, " is null or ") + " is null"
 	command := fmt.Sprintf("SELECT COUNT(*) FROM `%s.%s` WHERE %s",
 		b.Config.DatasetId, tableName, joinedString)
-	it, err := b.client.Query(command).Read(context.Background())
+	q := b.client.Query(command)
+	q.DisableQueryCache = true
+	it, err := q.Read(context.Background())
 	if err != nil {
 		return false, fmt.Errorf("failed to run command: %w", err)
 	}
@@ -384,13 +407,47 @@ func (b *BigQueryTestHelper) CheckNull(tableName string, ColName []string) (bool
 
 	cntI64, ok := row[0].(int64)
 	if !ok {
-		return false, fmt.Errorf("failed to convert row count to int64")
+		return false, errors.New("failed to convert row count to int64")
 	}
 	if cntI64 > 0 {
 		return false, nil
 	} else {
 		return true, nil
 	}
+}
+
+// check if NaN, Inf double values are null
+func (b *BigQueryTestHelper) CheckDoubleValues(tableName string, c1 string, c2 string) (bool, error) {
+	command := fmt.Sprintf("SELECT %s, %s FROM `%s.%s`",
+		c1, c2, b.Config.DatasetId, tableName)
+	q := b.client.Query(command)
+	q.DisableQueryCache = true
+	it, err := q.Read(context.Background())
+	if err != nil {
+		return false, fmt.Errorf("failed to run command: %w", err)
+	}
+
+	var row []bigquery.Value
+	for {
+		err := it.Next(&row)
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return false, fmt.Errorf("failed to iterate over query results: %w", err)
+		}
+	}
+
+	if len(row) == 0 {
+		return false, nil
+	}
+
+	floatArr, _ := row[1].([]float64)
+	if row[0] != nil || len(floatArr) > 0 {
+		return false, nil
+	}
+
+	return true, nil
 }
 
 func qValueKindToBqColTypeString(val qvalue.QValueKind) (string, error) {
@@ -442,8 +499,7 @@ func (b *BigQueryTestHelper) CreateTable(tableName string, schema *model.QRecord
 		fields = append(fields, fmt.Sprintf("`%s` %s", field.Name, bqType))
 	}
 
-	command := fmt.Sprintf("CREATE TABLE %s.%s (%s)", b.datasetName, tableName, strings.Join(fields, ", "))
-	fmt.Printf("creating table %s with command %s\n", tableName, command)
+	command := fmt.Sprintf("CREATE TABLE %s.%s (%s)", b.Config.DatasetId, tableName, strings.Join(fields, ", "))
 
 	err := b.RunCommand(command)
 	if err != nil {
@@ -451,4 +507,16 @@ func (b *BigQueryTestHelper) CreateTable(tableName string, schema *model.QRecord
 	}
 
 	return nil
+}
+
+func (b *BigQueryTestHelper) RunInt64Query(query string) (int64, error) {
+	recordBatch, err := b.ExecuteAndProcessQuery(query)
+	if err != nil {
+		return 0, fmt.Errorf("could not execute query: %w", err)
+	}
+	if len(recordBatch.Records) != 1 {
+		return 0, fmt.Errorf("expected only 1 record, got %d", len(recordBatch.Records))
+	}
+
+	return recordBatch.Records[0][0].Value.(int64), nil
 }

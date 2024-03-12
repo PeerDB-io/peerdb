@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"context"
@@ -8,16 +8,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/connectors"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
-	peerflow "github.com/PeerDB-io/peer-flow/workflows"
-	backoff "github.com/cenkalti/backoff/v4"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/shared"
+	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
 
 // grpc server implementation
@@ -122,6 +122,12 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.CreateCDCFlowResponse, error) {
 	cfg := req.ConnectionConfigs
+	_, validateErr := h.ValidateCDCMirror(ctx, req)
+	if validateErr != nil {
+		slog.Error("validate mirror error", slog.Any("error", validateErr))
+		return nil, fmt.Errorf("invalid mirror: %w", validateErr)
+	}
+
 	workflowID := fmt.Sprintf("%s-peerflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
@@ -129,19 +135,6 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		SearchAttributes: map[string]interface{}{
 			shared.MirrorNameSearchAttribute: cfg.FlowJobName,
 		},
-	}
-
-	maxBatchSize := int(cfg.MaxBatchSize)
-	if maxBatchSize == 0 {
-		maxBatchSize = 1_000_000
-		cfg.MaxBatchSize = uint32(maxBatchSize)
-	}
-
-	limits := &peerflow.CDCFlowLimits{
-		TotalSyncFlows:      0,
-		ExitAfterRecords:    -1,
-		TotalNormalizeFlows: 0,
-		MaxBatchSize:        maxBatchSize,
 	}
 
 	if req.ConnectionConfigs.SoftDeleteColName == "" {
@@ -166,33 +159,25 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		}
 	}
 
-	var err error
-	err = h.updateFlowConfigInCatalog(cfg)
+	err := h.updateFlowConfigInCatalog(ctx, cfg)
 	if err != nil {
 		slog.Error("unable to update flow config in catalog", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
 
-	state := peerflow.NewCDCFlowWorkflowState()
-	_, err = h.temporalClient.ExecuteWorkflow(
-		ctx,                                // context
-		workflowOptions,                    // workflow start options
-		peerflow.CDCFlowWorkflowWithConfig, // workflow function
-		cfg,                                // workflow input
-		limits,                             // workflow limits
-		state,                              // workflow state
-	)
+	_, err = h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg, nil)
 	if err != nil {
 		slog.Error("unable to start PeerFlow workflow", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
 	}
 
 	return &protos.CreateCDCFlowResponse{
-		WorflowId: workflowID,
+		WorkflowId: workflowID,
 	}, nil
 }
 
 func (h *FlowRequestHandler) updateFlowConfigInCatalog(
+	ctx context.Context,
 	cfg *protos.FlowConnectionConfigs,
 ) error {
 	var cfgBytes []byte
@@ -203,9 +188,7 @@ func (h *FlowRequestHandler) updateFlowConfigInCatalog(
 		return fmt.Errorf("unable to marshal flow config: %w", err)
 	}
 
-	_, err = h.pool.Exec(context.Background(),
-		"UPDATE flows SET config_proto = $1 WHERE name = $2",
-		cfgBytes, cfg.FlowJobName)
+	_, err = h.pool.Exec(ctx, "UPDATE flows SET config_proto = $1 WHERE name = $2", cfgBytes, cfg.FlowJobName)
 	if err != nil {
 		return fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
@@ -214,11 +197,10 @@ func (h *FlowRequestHandler) updateFlowConfigInCatalog(
 }
 
 func (h *FlowRequestHandler) removeFlowEntryInCatalog(
+	ctx context.Context,
 	flowName string,
 ) error {
-	_, err := h.pool.Exec(context.Background(),
-		"DELETE FROM flows WHERE name = $1",
-		flowName)
+	_, err := h.pool.Exec(ctx, "DELETE FROM flows WHERE name = $1", flowName)
 	if err != nil {
 		return fmt.Errorf("unable to remove flow entry in catalog: %w", err)
 	}
@@ -261,7 +243,9 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 					slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 				return nil, fmt.Errorf("invalid xmin txid for xmin rep: %w", err)
 			}
-			state.LastPartition.Range = &protos.PartitionRange{Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: txid}}}
+			state.LastPartition.Range = &protos.PartitionRange{
+				Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: txid}},
+			}
 		}
 
 		workflowFn = peerflow.XminFlowWorkflow
@@ -282,7 +266,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		return nil, fmt.Errorf("unable to start QRepFlow workflow: %w", err)
 	}
 
-	err = h.updateQRepConfigInCatalog(cfg)
+	err = h.updateQRepConfigInCatalog(ctx, cfg)
 	if err != nil {
 		slog.Error("unable to update qrep config in catalog",
 			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
@@ -290,12 +274,13 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	}
 
 	return &protos.CreateQRepFlowResponse{
-		WorflowId: workflowID,
+		WorkflowId: workflowID,
 	}, nil
 }
 
 // updateQRepConfigInCatalog updates the qrep config in the catalog
 func (h *FlowRequestHandler) updateQRepConfigInCatalog(
+	ctx context.Context,
 	cfg *protos.QRepConfig,
 ) error {
 	var cfgBytes []byte
@@ -306,7 +291,7 @@ func (h *FlowRequestHandler) updateQRepConfigInCatalog(
 		return fmt.Errorf("unable to marshal qrep config: %w", err)
 	}
 
-	_, err = h.pool.Exec(context.Background(),
+	_, err = h.pool.Exec(ctx,
 		"UPDATE flows SET config_proto = $1 WHERE name = $2",
 		cfgBytes, cfg.FlowJobName)
 	if err != nil {
@@ -321,33 +306,13 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	req *protos.ShutdownRequest,
 ) (*protos.ShutdownResponse, error) {
 	logs := slog.Group("shutdown-log",
-		slog.String("flowName", req.FlowJobName),
+		slog.String(string(shared.FlowNameKey), req.FlowJobName),
 		slog.String("workflowId", req.WorkflowId),
 	)
-	err := h.temporalClient.SignalWorkflow(
-		ctx,
-		req.WorkflowId,
-		"",
-		shared.CDCFlowSignalName,
-		shared.ShutdownSignal,
-	)
-	if err != nil {
-		slog.Error("unable to signal PeerFlow workflow",
-			logs,
-			slog.Any("error", err),
-		)
-		return &protos.ShutdownResponse{
-			Ok:           false,
-			ErrorMessage: fmt.Sprintf("unable to signal PeerFlow workflow: %v", err),
-		}, fmt.Errorf("unable to signal PeerFlow workflow: %w", err)
-	}
 
-	err = h.waitForWorkflowClose(ctx, req.WorkflowId)
+	err := h.handleCancelWorkflow(ctx, req.WorkflowId, "")
 	if err != nil {
-		slog.Error("unable to wait for PeerFlow workflow to close",
-			logs,
-			slog.Any("error", err),
-		)
+		slog.Error("unable to cancel workflow", logs, slog.Any("error", err))
 		return &protos.ShutdownResponse{
 			Ok:           false,
 			ErrorMessage: fmt.Sprintf("unable to wait for PeerFlow workflow to close: %v", err),
@@ -362,12 +327,7 @@ func (h *FlowRequestHandler) ShutdownFlow(
 			shared.MirrorNameSearchAttribute: req.FlowJobName,
 		},
 	}
-	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(
-		ctx,                       // context
-		workflowOptions,           // workflow start options
-		peerflow.DropFlowWorkflow, // workflow function
-		req,                       // workflow input
-	)
+	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.DropFlowWorkflow, req)
 	if err != nil {
 		slog.Error("unable to start DropFlow workflow",
 			logs,
@@ -398,8 +358,8 @@ func (h *FlowRequestHandler) ShutdownFlow(
 				ErrorMessage: fmt.Sprintf("DropFlow workflow did not execute successfully: %v", err),
 			}, fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
 		}
-	case <-time.After(1 * time.Minute):
-		err := h.handleWorkflowNotClosed(ctx, workflowID, "")
+	case <-time.After(5 * time.Minute):
+		err := h.handleCancelWorkflow(ctx, workflowID, "")
 		if err != nil {
 			slog.Error("unable to wait for DropFlow workflow to close",
 				logs,
@@ -413,10 +373,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	}
 
 	if req.RemoveFlowEntry {
-		delErr := h.removeFlowEntryInCatalog(req.FlowJobName)
-		if delErr != nil {
+		err := h.removeFlowEntryInCatalog(ctx, req.FlowJobName)
+		if err != nil {
 			slog.Error("unable to remove flow job entry",
-				slog.String("flowName", req.FlowJobName),
+				slog.String(string(shared.FlowNameKey), req.FlowJobName),
 				slog.Any("error", err),
 				slog.String("workflowId", req.WorkflowId))
 			return &protos.ShutdownResponse{
@@ -435,26 +395,72 @@ func (h *FlowRequestHandler) FlowStateChange(
 	ctx context.Context,
 	req *protos.FlowStateChangeRequest,
 ) (*protos.FlowStateChangeResponse, error) {
-	var err error
-	if req.RequestedFlowState == protos.FlowState_STATE_PAUSED {
-		err = h.temporalClient.SignalWorkflow(
-			ctx,
-			req.WorkflowId,
-			"",
-			shared.CDCFlowSignalName,
-			shared.PauseSignal,
-		)
-	} else if req.RequestedFlowState == protos.FlowState_STATE_RUNNING {
-		err = h.temporalClient.SignalWorkflow(
-			ctx,
-			req.WorkflowId,
-			"",
-			shared.CDCFlowSignalName,
-			shared.NoopSignal,
-		)
-	}
+	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
-		return nil, fmt.Errorf("unable to signal PeerFlow workflow: %w", err)
+		return nil, err
+	}
+	currState, err := h.getWorkflowStatus(ctx, workflowID)
+	if err != nil {
+		return nil, err
+	}
+
+	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil {
+		err = model.CDCDynamicPropertiesSignal.SignalClientWorkflow(
+			ctx,
+			h.temporalClient,
+			workflowID,
+			"",
+			req.FlowConfigUpdate.GetCdcFlowConfigUpdate(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to signal workflow: %w", err)
+		}
+	}
+
+	// in case we only want to update properties without changing status
+	if req.RequestedFlowState != protos.FlowStatus_STATUS_UNKNOWN {
+		if req.RequestedFlowState == protos.FlowStatus_STATUS_PAUSED &&
+			currState == protos.FlowStatus_STATUS_RUNNING {
+			err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_PAUSING)
+			if err != nil {
+				return nil, err
+			}
+			err = model.FlowSignal.SignalClientWorkflow(
+				ctx,
+				h.temporalClient,
+				workflowID,
+				"",
+				model.PauseSignal,
+			)
+		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_RUNNING &&
+			currState == protos.FlowStatus_STATUS_PAUSED {
+			err = model.FlowSignal.SignalClientWorkflow(
+				ctx,
+				h.temporalClient,
+				workflowID,
+				"",
+				model.NoopSignal,
+			)
+		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED &&
+			(currState != protos.FlowStatus_STATUS_TERMINATED) {
+			err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_TERMINATING)
+			if err != nil {
+				return nil, err
+			}
+			_, err = h.ShutdownFlow(ctx, &protos.ShutdownRequest{
+				WorkflowId:      workflowID,
+				FlowJobName:     req.FlowJobName,
+				SourcePeer:      req.SourcePeer,
+				DestinationPeer: req.DestinationPeer,
+				RemoveFlowEntry: false,
+			})
+		} else if req.RequestedFlowState != currState {
+			return nil, fmt.Errorf("illegal state change requested: %v, current state is: %v",
+				req.RequestedFlowState, currState)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("unable to signal workflow: %w", err)
+		}
 	}
 
 	return &protos.FlowStateChangeResponse{
@@ -462,38 +468,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 	}, nil
 }
 
-func (h *FlowRequestHandler) waitForWorkflowClose(ctx context.Context, workflowID string) error {
-	expBackoff := backoff.NewExponentialBackOff()
-	expBackoff.InitialInterval = 3 * time.Second
-	expBackoff.MaxInterval = 10 * time.Second
-	expBackoff.MaxElapsedTime = 1 * time.Minute
-
-	// empty will terminate the latest run
-	runID := ""
-
-	operation := func() error {
-		workflowRes, err := h.temporalClient.DescribeWorkflowExecution(ctx, workflowID, runID)
-		if err != nil {
-			// Permanent error will stop the retries
-			return backoff.Permanent(fmt.Errorf("unable to describe PeerFlow workflow: %w", err))
-		}
-
-		if workflowRes.WorkflowExecutionInfo.CloseTime != nil {
-			return nil
-		}
-
-		return fmt.Errorf("workflow - %s not closed yet: %v", workflowID, workflowRes)
-	}
-
-	err := backoff.Retry(operation, expBackoff)
-	if err != nil {
-		return h.handleWorkflowNotClosed(ctx, workflowID, runID)
-	}
-
-	return nil
-}
-
-func (h *FlowRequestHandler) handleWorkflowNotClosed(ctx context.Context, workflowID, runID string) error {
+func (h *FlowRequestHandler) handleCancelWorkflow(ctx context.Context, workflowID, runID string) error {
 	errChan := make(chan error, 1)
 
 	// Create a new context with timeout for CancelWorkflow
@@ -525,50 +500,6 @@ func (h *FlowRequestHandler) handleWorkflowNotClosed(ctx context.Context, workfl
 	}
 
 	return nil
-}
-
-func (h *FlowRequestHandler) ValidatePeer(
-	ctx context.Context,
-	req *protos.ValidatePeerRequest,
-) (*protos.ValidatePeerResponse, error) {
-	if req.Peer == nil {
-		return &protos.ValidatePeerResponse{
-			Status:  protos.ValidatePeerStatus_INVALID,
-			Message: "no peer provided",
-		}, nil
-	}
-
-	if len(req.Peer.Name) == 0 {
-		return &protos.ValidatePeerResponse{
-			Status:  protos.ValidatePeerStatus_INVALID,
-			Message: "no peer name provided",
-		}, nil
-	}
-
-	conn, err := connectors.GetConnector(ctx, req.Peer)
-	if err != nil {
-		return &protos.ValidatePeerResponse{
-			Status: protos.ValidatePeerStatus_INVALID,
-			Message: fmt.Sprintf("peer type is missing or "+
-				"your requested configuration for %s peer %s was invalidated: %s",
-				req.Peer.Type, req.Peer.Name, err),
-		}, nil
-	}
-
-	connErr := conn.ConnectionActive()
-	if connErr != nil {
-		return &protos.ValidatePeerResponse{
-			Status: protos.ValidatePeerStatus_INVALID,
-			Message: fmt.Sprintf("failed to establish active connection to %s peer %s: %v",
-				req.Peer.Type, req.Peer.Name, connErr),
-		}, nil
-	}
-
-	return &protos.ValidatePeerResponse{
-		Status: protos.ValidatePeerStatus_VALID,
-		Message: fmt.Sprintf("%s peer %s is valid",
-			req.Peer.Type, req.Peer.Name),
-	}, nil
 }
 
 func (h *FlowRequestHandler) CreatePeer(
@@ -633,6 +564,15 @@ func (h *FlowRequestHandler) CreatePeer(
 		}
 		s3Config := s3ConfigObject.S3Config
 		encodedConfig, encodingErr = proto.Marshal(s3Config)
+	case protos.DBType_CLICKHOUSE:
+		chConfigObject, ok := config.(*protos.Peer_ClickhouseConfig)
+
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+
+		chConfig := chConfigObject.ClickhouseConfig
+		encodedConfig, encodingErr = proto.Marshal(chConfig)
 	default:
 		return wrongConfigResponse, nil
 	}
@@ -708,4 +648,15 @@ func (h *FlowRequestHandler) DropPeer(
 	return &protos.DropPeerResponse{
 		Ok: true,
 	}, nil
+}
+
+func (h *FlowRequestHandler) getWorkflowID(ctx context.Context, flowJobName string) (string, error) {
+	q := "SELECT workflow_id FROM flows WHERE name ILIKE $1"
+	row := h.pool.QueryRow(ctx, q, flowJobName)
+	var workflowID string
+	if err := row.Scan(&workflowID); err != nil {
+		return "", fmt.Errorf("unable to get workflowID for flow job %s: %w", flowJobName, err)
+	}
+
+	return workflowID, nil
 }

@@ -1,4 +1,3 @@
-//nolint:stylecheck
 package cdc_records
 
 import (
@@ -9,12 +8,16 @@ import (
 	"log/slog"
 	"math/big"
 	"os"
+	"runtime"
+	"sync/atomic"
 	"time"
+
+	"github.com/cockroachdb/pebble"
+	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/cockroachdb/pebble"
 )
 
 func encVal(val any) ([]byte, error) {
@@ -30,20 +33,32 @@ func encVal(val any) ([]byte, error) {
 type cdcRecordsStore struct {
 	inMemoryRecords           map[model.TableWithPkey]model.Record
 	pebbleDB                  *pebble.DB
-	numRecords                int
+	numRecords                atomic.Int32
 	flowJobName               string
 	dbFolderName              string
 	numRecordsSwitchThreshold int
+	memThresholdBytes         uint64
+	thresholdReason           string
+	memStats                  runtime.MemStats
 }
 
 func NewCDCRecordsStore(flowJobName string) *cdcRecordsStore {
 	return &cdcRecordsStore{
 		inMemoryRecords:           make(map[model.TableWithPkey]model.Record),
 		pebbleDB:                  nil,
-		numRecords:                0,
+		numRecords:                atomic.Int32{},
 		flowJobName:               flowJobName,
 		dbFolderName:              fmt.Sprintf("%s/%s_%s", os.TempDir(), flowJobName, shared.RandomString(8)),
-		numRecordsSwitchThreshold: peerdbenv.PeerDBCDCDiskSpillThreshold(),
+		numRecordsSwitchThreshold: peerdbenv.PeerDBCDCDiskSpillRecordsThreshold(),
+		memThresholdBytes: func() uint64 {
+			memPercent := peerdbenv.PeerDBCDCDiskSpillMemPercentThreshold()
+			maxMemBytes := peerdbenv.PeerDBFlowWorkerMaxMemBytes()
+			if memPercent > 0 && maxMemBytes > 0 {
+				return maxMemBytes * uint64(memPercent) / 100
+			}
+			return 0
+		}(),
+		thresholdReason: "",
 	}
 }
 
@@ -56,7 +71,7 @@ func (c *cdcRecordsStore) initPebbleDB() error {
 	gob.Register(&model.InsertRecord{})
 	gob.Register(&model.UpdateRecord{})
 	gob.Register(&model.DeleteRecord{})
-	gob.Register(&time.Time{})
+	gob.Register(time.Time{})
 	gob.Register(&big.Rat{})
 
 	var err error
@@ -72,40 +87,59 @@ func (c *cdcRecordsStore) initPebbleDB() error {
 	return nil
 }
 
-func (c *cdcRecordsStore) Set(key model.TableWithPkey, rec model.Record) error {
-	_, ok := c.inMemoryRecords[key]
-	if ok || len(c.inMemoryRecords) < c.numRecordsSwitchThreshold {
-		c.inMemoryRecords[key] = rec
-	} else {
-		if c.pebbleDB == nil {
-			slog.Info(fmt.Sprintf("more than %d primary keys read, spilling to disk",
-				c.numRecordsSwitchThreshold),
-				slog.String("flowName", c.flowJobName))
-			err := c.initPebbleDB()
+func (c *cdcRecordsStore) diskSpillThresholdsExceeded() bool {
+	if len(c.inMemoryRecords) >= c.numRecordsSwitchThreshold {
+		c.thresholdReason = fmt.Sprintf("more than %d primary keys read, spilling to disk",
+			c.numRecordsSwitchThreshold)
+		return true
+	}
+	if c.memThresholdBytes > 0 {
+		runtime.ReadMemStats(&c.memStats)
+
+		if c.memStats.Alloc >= c.memThresholdBytes {
+			c.thresholdReason = fmt.Sprintf("memalloc greater than %d bytes, spilling to disk",
+				c.memThresholdBytes)
+			return true
+		}
+	}
+	return false
+}
+
+func (c *cdcRecordsStore) Set(logger log.Logger, key *model.TableWithPkey, rec model.Record) error {
+	if key != nil {
+		_, ok := c.inMemoryRecords[*key]
+		if ok || !c.diskSpillThresholdsExceeded() {
+			c.inMemoryRecords[*key] = rec
+		} else {
+			if c.pebbleDB == nil {
+				logger.Info(c.thresholdReason,
+					slog.String(string(shared.FlowNameKey), c.flowJobName))
+				err := c.initPebbleDB()
+				if err != nil {
+					return err
+				}
+			}
+
+			encodedKey, err := encVal(key)
 			if err != nil {
 				return err
 			}
-		}
-
-		encodedKey, err := encVal(key)
-		if err != nil {
-			return err
-		}
-		// necessary to point pointer to interface so the interface is exposed
-		// instead of the underlying type
-		encodedRec, err := encVal(&rec)
-		if err != nil {
-			return err
-		}
-		// we're using Pebble as a cache, no need for durability here.
-		err = c.pebbleDB.Set(encodedKey, encodedRec, &pebble.WriteOptions{
-			Sync: false,
-		})
-		if err != nil {
-			return fmt.Errorf("unable to store value in Pebble: %w", err)
+			// necessary to point pointer to interface so the interface is exposed
+			// instead of the underlying type
+			encodedRec, err := encVal(&rec)
+			if err != nil {
+				return err
+			}
+			// we're using Pebble as a cache, no need for durability here.
+			err = c.pebbleDB.Set(encodedKey, encodedRec, &pebble.WriteOptions{
+				Sync: false,
+			})
+			if err != nil {
+				return fmt.Errorf("unable to store value in Pebble: %w", err)
+			}
 		}
 	}
-	c.numRecords++
+	c.numRecords.Add(1)
 	return nil
 }
 
@@ -148,12 +182,12 @@ func (c *cdcRecordsStore) Get(key model.TableWithPkey) (model.Record, bool, erro
 	return nil, false, nil
 }
 
-func (c *cdcRecordsStore) IsEmpty() bool {
-	return c.numRecords == 0
+func (c *cdcRecordsStore) Len() int {
+	return int(c.numRecords.Load())
 }
 
-func (c *cdcRecordsStore) Len() int {
-	return c.numRecords
+func (c *cdcRecordsStore) IsEmpty() bool {
+	return c.Len() == 0
 }
 
 func (c *cdcRecordsStore) Close() error {

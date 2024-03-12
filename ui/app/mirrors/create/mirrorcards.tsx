@@ -41,12 +41,11 @@ const MirrorCards = ({
       >
         {cards.map((card, index) => {
           return (
-            <div
+            <label
               key={index}
               style={{
                 padding: '0.5rem',
                 width: '35%',
-                height: '22vh',
                 marginRight:
                   card.title === 'Query Replication' ? '0.5rem' : 'auto',
                 marginLeft:
@@ -71,15 +70,18 @@ const MirrorCards = ({
                   <div style={{ fontSize: 14 }}>{card.description}</div>
                 </Label>
               </div>
-              <Label
-                as={Link}
+              <Link
                 target='_blank'
-                style={{ color: 'teal', cursor: 'pointer' }}
-                href='https://docs.peerdb.io/usecases/Real-time%20CDC/overview'
+                style={{
+                  color: 'teal',
+                  cursor: 'pointer',
+                  width: 'fit-content',
+                }}
+                href={card.link}
               >
                 Learn more
-              </Label>
-            </div>
+              </Link>
+            </label>
           );
         })}
       </div>

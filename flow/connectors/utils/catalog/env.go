@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
@@ -16,20 +17,20 @@ var (
 	pool      *pgxpool.Pool
 )
 
-func GetCatalogConnectionPoolFromEnv() (*pgxpool.Pool, error) {
+func GetCatalogConnectionPoolFromEnv(ctx context.Context) (*pgxpool.Pool, error) {
 	var err error
 
 	poolMutex.Lock()
 	defer poolMutex.Unlock()
 	if pool == nil {
-		catalogConnectionString := genCatalogConnectionString()
-		pool, err = pgxpool.New(context.Background(), catalogConnectionString)
+		catalogConnectionString := GetCatalogConnectionStringFromEnv()
+		pool, err = pgxpool.New(ctx, catalogConnectionString)
 		if err != nil {
 			return nil, fmt.Errorf("unable to establish connection with catalog: %w", err)
 		}
 	}
 
-	err = pool.Ping(context.Background())
+	err = pool.Ping(ctx)
 	if err != nil {
 		return pool, fmt.Errorf("unable to establish connection with catalog: %w", err)
 	}
@@ -37,12 +38,16 @@ func GetCatalogConnectionPoolFromEnv() (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-func genCatalogConnectionString() string {
-	return utils.GetPGConnectionString(&protos.PostgresConfig{
+func GetCatalogConnectionStringFromEnv() string {
+	return utils.GetPGConnectionString(GetCatalogPostgresConfigFromEnv())
+}
+
+func GetCatalogPostgresConfigFromEnv() *protos.PostgresConfig {
+	return &protos.PostgresConfig{
 		Host:     peerdbenv.PeerDBCatalogHost(),
-		Port:     peerdbenv.PeerDBCatalogPort(),
+		Port:     uint32(peerdbenv.PeerDBCatalogPort()),
 		User:     peerdbenv.PeerDBCatalogUser(),
 		Password: peerdbenv.PeerDBCatalogPassword(),
 		Database: peerdbenv.PeerDBCatalogDatabase(),
-	})
+	}
 }

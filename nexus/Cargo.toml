@@ -9,7 +9,6 @@ members = [
   "peer-cursor",
   "peer-postgres",
   "peer-snowflake",
-  "pgerror",
   "postgres-connection",
   "pt",
   "server",
@@ -17,3 +16,8 @@ members = [
 ]
 
 resolver = "2"
+
+[workspace.dependencies]
+chrono = { version = "0.4", default-features = false, features = ["serde", "std"] }
+sqlparser = { git = "https://github.com/peerdb-io/sqlparser-rs.git" }
+pgwire = "0.19"

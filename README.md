@@ -24,8 +24,12 @@ git clone --recursive git@github.com:PeerDB-io/peerdb.git
 cd peerdb
 
 # Run docker containers: postgres as catalog, temporal, PeerDB server, PeerDB flow API + workers, PeerDB UI
+# Requires docker and docker-compose installed: https://docs.docker.com/engine/install/
 bash ./run-peerdb.sh
-# OR for local development, images will be built locally:
+# OR for local development, images will be built locally.
+# Requires docker, docker-compose as well as the buf compiler for protobuf generation
+# https://buf.build/docs/installation
+bash ./generate-protos.sh
 bash ./dev-peerdb.sh
 
 # connect to peerdb and query away (Use psql version >=14.0)
@@ -69,4 +73,4 @@ We support multiple target connectors to move data from Postgres and a couple of
 
 ## License
 
-PeerDB is licensed under Elastic License 2.0 (ELv2). Please see the LICENSE file for additional information. If you have any licensing questions please email **<founders@peerdb.io>**
+PeerDB is licensed under Elastic License 2.0 (ELv2). Please see the LICENSE file for additional information. If you have any licensing questions please email **<contact@peerdb.io>**

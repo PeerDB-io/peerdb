@@ -1,4 +1,6 @@
 'use client';
+import SelectTheme from '@/app/styles/select';
+import TitleCase from '@/app/utils/titlecase';
 import { DBType } from '@/grpc_generated/peers';
 import Image from 'next/image';
 import { Dispatch, SetStateAction } from 'react';
@@ -10,12 +12,12 @@ interface SelectSourceProps {
   setPeerType: Dispatch<SetStateAction<string>>;
 }
 
-function SourceLabel({ value }: { value: string }) {
-  const peerLogo = DBTypeToImageMapping(value);
+function SourceLabel({ value, label }: { value: string; label: string }) {
+  const peerLogo = DBTypeToImageMapping(label);
   return (
     <div style={{ display: 'flex', alignItems: 'center' }}>
       <Image src={peerLogo} alt='peer' height={15} width={15} />
-      <div style={{ marginLeft: 10 }}>{value}</div>
+      <div style={{ marginLeft: 10 }}>{TitleCase(label)}</div>
     </div>
   );
 }
@@ -28,21 +30,29 @@ export default function SelectSource({
     .filter(
       (value): value is string =>
         typeof value === 'string' &&
-        (value === 'POSTGRES' ||
+        (value === 'POSTGRESQL' ||
           value === 'SNOWFLAKE' ||
           value === 'BIGQUERY' ||
-          value === 'S3')
+          value === 'S3' ||
+          value === 'CLICKHOUSE')
     )
     .map((value) => ({ label: value, value }));
 
+  dbTypes.push(
+    { value: 'POSTGRESQL', label: 'POSTGRESQL' },
+    { value: 'POSTGRESQL', label: 'RDS POSTGRESQL' },
+    { value: 'POSTGRESQL', label: 'GOOGLE CLOUD POSTGRESQL' },
+    { value: 'POSTGRESQL', label: 'AZURE FLEXIBLE POSTGRESQL' }
+  );
   return (
     <ReactSelect
-      className='w-1/2'
+      className='w-full'
       placeholder='Select a source'
       options={dbTypes}
-      defaultValue={dbTypes.find((opt) => opt.value === peerType)}
-      onChange={(val, _) => val && setPeerType(val.value)}
+      defaultValue={dbTypes.find((opt) => opt.label === peerType)}
+      onChange={(val, _) => val && setPeerType(val.label)}
       formatOptionLabel={SourceLabel}
+      theme={SelectTheme}
     />
   );
 }

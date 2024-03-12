@@ -1,9 +1,13 @@
 package model
 
-import "fmt"
+import (
+	"errors"
+
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
+)
 
 type QRecordOrError struct {
-	Record QRecord
+	Record []qvalue.QValue
 	Err    error
 }
 
@@ -20,13 +24,13 @@ type QRecordStream struct {
 }
 
 type RecordsToStreamRequest struct {
-	records      chan Record
+	records      <-chan Record
 	TableMapping map[string]uint32
 	BatchID      int64
 }
 
 func NewRecordsToStreamRequest(
-	records chan Record,
+	records <-chan Record,
 	tableMapping map[string]uint32,
 	batchID int64,
 ) *RecordsToStreamRequest {
@@ -37,7 +41,7 @@ func NewRecordsToStreamRequest(
 	}
 }
 
-func (r *RecordsToStreamRequest) GetRecords() chan Record {
+func (r *RecordsToStreamRequest) GetRecords() <-chan Record {
 	return r.records
 }
 
@@ -66,7 +70,7 @@ func (s *QRecordStream) Schema() (*QRecordSchema, error) {
 
 func (s *QRecordStream) SetSchema(schema *QRecordSchema) error {
 	if s.schemaSet {
-		return fmt.Errorf("Schema already set")
+		return errors.New("Schema already set")
 	}
 
 	s.schema <- QRecordSchemaOrError{
@@ -80,6 +84,6 @@ func (s *QRecordStream) IsSchemaSet() bool {
 	return s.schemaSet
 }
 
-func (s *QRecordStream) SchemaChan() chan QRecordSchemaOrError {
+func (s *QRecordStream) SchemaChan() <-chan QRecordSchemaOrError {
 	return s.schema
 }

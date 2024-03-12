@@ -2,20 +2,28 @@ package utils
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
-	"strings"
+
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func IsUniqueError(err error) bool {
+	var pgerr *pgconn.PgError
+	return errors.As(err, &pgerr) && pgerr.Code == pgerrcode.UniqueViolation
+}
 
 func GetPGConnectionString(pgConfig *protos.PostgresConfig) string {
 	passwordEscaped := url.QueryEscape(pgConfig.Password)
 	// for a url like postgres://user:password@host:port/dbname
 	connString := fmt.Sprintf(
-		"postgres://%s:%s@%s:%d/%s",
+		"postgres://%s:%s@%s:%d/%s?application_name=peerdb&client_encoding=UTF8",
 		pgConfig.User,
 		passwordEscaped,
 		pgConfig.Host,
@@ -25,8 +33,8 @@ func GetPGConnectionString(pgConfig *protos.PostgresConfig) string {
 	return connString
 }
 
-func GetCustomDataTypes(ctx context.Context, pool *pgxpool.Pool) (map[uint32]string, error) {
-	rows, err := pool.Query(ctx, `
+func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]string, error) {
+	rows, err := conn.Query(ctx, `
 		SELECT t.oid, t.typname as type
 		FROM pg_type t
 		LEFT JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
@@ -50,25 +58,18 @@ func GetCustomDataTypes(ctx context.Context, pool *pgxpool.Pool) (map[uint32]str
 	return customTypeMap, nil
 }
 
-// SchemaTable is a table in a schema.
-type SchemaTable struct {
-	Schema string
-	Table  string
-}
-
-func (t *SchemaTable) String() string {
-	return fmt.Sprintf(`"%s"."%s"`, t.Schema, t.Table)
-}
-
-// ParseSchemaTable parses a table name into schema and table name.
-func ParseSchemaTable(tableName string) (*SchemaTable, error) {
-	parts := strings.Split(tableName, ".")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid table name: %s", tableName)
+func RegisterHStore(ctx context.Context, conn *pgx.Conn) error {
+	var hstoreOID uint32
+	err := conn.QueryRow(context.Background(), `select oid from pg_type where typname = 'hstore'`).Scan(&hstoreOID)
+	if err != nil {
+		// hstore isn't present, just proceed
+		if err == pgx.ErrNoRows {
+			return nil
+		}
+		return err
 	}
 
-	return &SchemaTable{
-		Schema: parts[0],
-		Table:  parts[1],
-	}, nil
+	conn.TypeMap().RegisterType(&pgtype.Type{Name: "hstore", OID: hstoreOID, Codec: pgtype.HstoreCodec{}})
+
+	return nil
 }

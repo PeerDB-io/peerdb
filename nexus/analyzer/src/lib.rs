@@ -10,8 +10,8 @@ use anyhow::Context;
 use pt::{
     flow_model::{FlowJob, FlowJobTableMapping, QRepFlowJob},
     peerdb_peers::{
-        peer::Config, BigqueryConfig, DbType, EventHubConfig, MongoConfig, Peer, PostgresConfig,
-        S3Config, SnowflakeConfig, SqlServerConfig,
+        peer::Config, BigqueryConfig, ClickhouseConfig, DbType, EventHubConfig, MongoConfig, Peer,
+        PostgresConfig, S3Config, SnowflakeConfig, SqlServerConfig,
     },
 };
 use qrep::process_options;
@@ -176,11 +176,11 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                                 partition_key: table_mapping
                                     .partition_key
                                     .as_ref()
-                                    .map(|s| s.to_string()),
+                                    .map(|s| s.value.clone()),
                                 exclude: table_mapping
                                     .exclude
                                     .as_ref()
-                                    .map(|ss| ss.iter().map(|s| s.to_string()).collect())
+                                    .map(|ss| ss.iter().map(|s| s.value.clone()).collect())
                                     .unwrap_or_default(),
                             });
                         }
@@ -332,7 +332,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             resync,
                             soft_delete_col_name,
                             synced_at_col_name,
-                            initial_copy_only,
+                            initial_snapshot_only: initial_copy_only,
                         };
 
                         if initial_copy_only && !do_initial_copy {
@@ -511,7 +511,7 @@ fn parse_db_options(
         opts.insert(&opt.name.value, val);
     }
 
-    let config = match db_type {
+    Ok(Some(match db_type {
         DbType::Bigquery => {
             let pem_str = opts
                 .get("private_key")
@@ -565,8 +565,7 @@ fn parse_db_options(
                     .ok_or_else(|| anyhow::anyhow!("missing dataset_id in peer options"))?
                     .to_string(),
             };
-            let config = Config::BigqueryConfig(bq_config);
-            Some(config)
+            Config::BigqueryConfig(bq_config)
         }
         DbType::Snowflake => {
             let s3_int = opts
@@ -605,8 +604,7 @@ fn parse_db_options(
                 metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
                 s3_integration: s3_int,
             };
-            let config = Config::SnowflakeConfig(snowflake_config);
-            Some(config)
+            Config::SnowflakeConfig(snowflake_config)
         }
         DbType::Mongo => {
             let mongo_config = MongoConfig {
@@ -632,8 +630,7 @@ fn parse_db_options(
                     .parse::<i32>()
                     .context("unable to parse port as valid int")?,
             };
-            let config = Config::MongoConfig(mongo_config);
-            Some(config)
+            Config::MongoConfig(mongo_config)
         }
         DbType::Postgres => {
             let postgres_config = PostgresConfig {
@@ -659,15 +656,9 @@ fn parse_db_options(
                 transaction_snapshot: "".to_string(),
                 ssh_config: None,
             };
-            let config = Config::PostgresConfig(postgres_config);
-            Some(config)
+            Config::PostgresConfig(postgres_config)
         }
         DbType::Eventhub => {
-            let conn_str: String = opts
-                .get("metadata_db")
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-            let metadata_db = parse_metadata_db_info(&conn_str)?;
             let subscription_id = opts
                 .get("subscription_id")
                 .map(|s| s.to_string())
@@ -676,16 +667,14 @@ fn parse_db_options(
             // partition_count default to 3 if not set, parse as int
             let partition_count = opts
                 .get("partition_count")
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "3".to_string())
+                .unwrap_or(&"3")
                 .parse::<u32>()
                 .context("unable to parse partition_count as valid int")?;
 
             // message_retention_in_days default to 7 if not set, parse as int
             let message_retention_in_days = opts
                 .get("message_retention_in_days")
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "7".to_string())
+                .unwrap_or(&"7")
                 .parse::<u32>()
                 .context("unable to parse message_retention_in_days as valid int")?;
 
@@ -702,20 +691,13 @@ fn parse_db_options(
                     .get("location")
                     .context("location not specified")?
                     .to_string(),
-                metadata_db,
                 subscription_id,
                 partition_count,
                 message_retention_in_days,
             };
-            let config = Config::EventhubConfig(eventhub_config);
-            Some(config)
+            Config::EventhubConfig(eventhub_config)
         }
         DbType::S3 => {
-            let s3_conn_str: String = opts
-                .get("metadata_db")
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-            let metadata_db = parse_metadata_db_info(&s3_conn_str)?;
             let s3_config = S3Config {
                 url: opts
                     .get("url")
@@ -726,10 +708,8 @@ fn parse_db_options(
                 region: opts.get("region").map(|s| s.to_string()),
                 role_arn: opts.get("role_arn").map(|s| s.to_string()),
                 endpoint: opts.get("endpoint").map(|s| s.to_string()),
-                metadata_db,
             };
-            let config = Config::S3Config(s3_config);
-            Some(config)
+            Config::S3Config(s3_config)
         }
         DbType::Sqlserver => {
             let port_str = opts.get("port").context("port not specified")?;
@@ -750,20 +730,9 @@ fn parse_db_options(
                     .context("database is not specified")?
                     .to_string(),
             };
-            let config = Config::SqlserverConfig(sqlserver_config);
-            Some(config)
+            Config::SqlserverConfig(sqlserver_config)
         }
         DbType::EventhubGroup => {
-            let conn_str = opts
-                .get("metadata_db")
-                .context("no metadata db specified")?;
-            let metadata_db = parse_metadata_db_info(conn_str)?;
-
-            // metadata_db is required for eventhub group
-            if metadata_db.is_none() {
-                anyhow::bail!("metadata_db is required for eventhub group");
-            }
-
             // split comma separated list of columns and trim
             let unnest_columns = opts
                 .get("unnest_columns")
@@ -797,47 +766,52 @@ fn parse_db_options(
 
             let eventhub_group_config = pt::peerdb_peers::EventHubGroupConfig {
                 eventhubs,
-                metadata_db,
                 unnest_columns,
             };
-            let config = Config::EventhubGroupConfig(eventhub_group_config);
-            Some(config)
+            Config::EventhubGroupConfig(eventhub_group_config)
         }
-    };
-
-    Ok(config)
-}
-
-fn parse_metadata_db_info(conn_str: &str) -> anyhow::Result<Option<PostgresConfig>> {
-    if conn_str.is_empty() {
-        return Ok(None);
-    }
-
-    let mut metadata_db = PostgresConfig::default();
-    let param_pairs: Vec<&str> = conn_str.split_whitespace().collect();
-    match param_pairs.len() {
-                5 => Ok(true),
-                _ => Err(anyhow::Error::msg("Invalid connection string. Check formatting and if the required parameters have been specified.")),
-            }?;
-
-    for pair in param_pairs {
-        let key_value: Vec<&str> = pair.trim().split('=').collect();
-        match key_value.len() {
-            2 => Ok(true),
-            _ => Err(anyhow::Error::msg(
-                "Invalid config setting for PG. Check the formatting",
-            )),
-        }?;
-        let value = key_value[1].to_string();
-        match key_value[0] {
-            "host" => metadata_db.host = value,
-            "port" => metadata_db.port = value.parse().context("Invalid PG Port")?,
-            "database" => metadata_db.database = value,
-            "user" => metadata_db.user = value,
-            "password" => metadata_db.password = value,
-            _ => (),
-        };
-    }
-
-    Ok(Some(metadata_db))
+        DbType::Clickhouse => {
+            let clickhouse_config = ClickhouseConfig {
+                host: opts.get("host").context("no host specified")?.to_string(),
+                port: opts
+                    .get("port")
+                    .context("no port specified")?
+                    .parse::<u32>()
+                    .context("unable to parse port as valid int")?,
+                user: opts
+                    .get("user")
+                    .context("no username specified")?
+                    .to_string(),
+                password: opts
+                    .get("password")
+                    .context("no password specified")?
+                    .to_string(),
+                database: opts
+                    .get("database")
+                    .context("no default database specified")?
+                    .to_string(),
+                s3_path: opts
+                    .get("s3_path")
+                    .context("no s3 path specified")?
+                    .to_string(),
+                access_key_id: opts
+                    .get("access_key_id")
+                    .context("no access key id specified")?
+                    .to_string(),
+                secret_access_key: opts
+                    .get("secret_access_key")
+                    .context("no secret access key specified")?
+                    .to_string(),
+                region: opts
+                    .get("region")
+                    .context("no region specified")?
+                    .to_string(),
+                disable_tls: opts
+                    .get("disable_tls")
+                    .and_then(|s| s.parse::<bool>().ok())
+                    .unwrap_or_default(),
+            };
+            Config::ClickhouseConfig(clickhouse_config)
+        }
+    }))
 }

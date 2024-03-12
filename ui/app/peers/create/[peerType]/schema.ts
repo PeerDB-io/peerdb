@@ -226,49 +226,101 @@ export const bqSchema = z.object({
       required_error: 'Dataset ID is required',
     })
     .min(1, { message: 'Dataset ID must be non-empty' })
-    .max(1024, 'DatasetID must be less than 1025 characters')
-    .regex(
-      /^[\w]+$/,
-      'Dataset ID must only contain numbers, letters, and underscores'
-    ),
+    .max(1024, 'DatasetID must be less than 1025 characters'),
+});
+
+export const chSchema = z.object({
+  host: z
+    .string({
+      required_error: 'Host is required',
+      invalid_type_error: 'Host must be a string',
+    })
+    .min(1, { message: 'Host cannot be empty' })
+    .max(255, 'Host must be less than 255 characters'),
+  port: z
+    .number({
+      required_error: 'Port is required',
+      invalid_type_error: 'Port must be a number',
+    })
+    .int()
+    .min(1, 'Port must be a positive integer')
+    .max(65535, 'Port must be below 65535'),
+  database: z
+    .string({
+      required_error: 'Database is required',
+      invalid_type_error: 'Database must be a string',
+    })
+    .min(1, { message: 'Database name should be non-empty' })
+    .max(100, 'Database must be less than 100 characters'),
+  user: z
+    .string({
+      required_error: 'User is required',
+      invalid_type_error: 'User must be a string',
+    })
+    .min(1, 'User must be non-empty')
+    .max(64, 'User must be less than 64 characters'),
+  password: z
+    .string({
+      required_error: 'Password is required',
+      invalid_type_error: 'Password must be a string',
+    })
+    .min(1, 'Password must be non-empty')
+    .max(100, 'Password must be less than 100 characters'),
+  s3Path: z
+    .string({ invalid_type_error: 'S3 Path must be a string' })
+    .optional(),
+  accessKeyId: z
+    .string({ invalid_type_error: 'Access Key ID must be a string' })
+    .optional(),
+  secretAccessKey: z
+    .string({ invalid_type_error: 'Secret Access Key must be a string' })
+    .optional(),
+  region: z
+    .string({ invalid_type_error: 'Region must be a string' })
+    .optional(),
+});
+
+const urlSchema = z
+  .string({
+    invalid_type_error: 'URL must be a string',
+    required_error: 'URL is required',
+  })
+  .min(1, { message: 'URL must be non-empty' })
+  .refine((url) => url.startsWith('s3://'), {
+    message: 'URL must start with s3://',
+  });
+
+const accessKeySchema = z
+  .string({
+    invalid_type_error: 'Access Key ID must be a string',
+    required_error: 'Access Key ID is required',
+  })
+  .min(1, { message: 'Access Key ID must be non-empty' });
+
+const secretKeySchema = z
+  .string({
+    invalid_type_error: 'Secret Access Key must be a string',
+    required_error: 'Secret Access Key is required',
+  })
+  .min(1, { message: 'Secret Access Key must be non-empty' });
+
+const regionSchema = z.string({
+  invalid_type_error: 'Region must be a string',
 });
 
 export const s3Schema = z.object({
-  url: z
-    .string({
-      invalid_type_error: 'URL must be a string',
-      required_error: 'URL is required',
-    })
-    .min(1, { message: 'URL must be non-empty' })
-    .refine((url) => url.startsWith('s3://'), {
-      message: 'URL must start with s3://',
-    }),
-  accessKeyId: z
-    .string({
-      invalid_type_error: 'Access Key ID must be a string',
-      required_error: 'Access Key ID is required',
-    })
-    .min(1, { message: 'Access Key ID must be non-empty' }),
-  secretAccessKey: z
-    .string({
-      invalid_type_error: 'Secret Access Key must be a string',
-      required_error: 'Secret Access Key is required',
-    })
-    .min(1, { message: 'Secret Access Key must be non-empty' }),
+  url: urlSchema,
+  accessKeyId: accessKeySchema,
+  secretAccessKey: secretKeySchema,
   roleArn: z
     .string({
       invalid_type_error: 'Role ARN must be a string',
     })
     .optional(),
-  region: z
-    .string({
-      invalid_type_error: 'Region must be a string',
-    })
-    .optional(),
+  region: regionSchema.optional(),
   endpoint: z
     .string({
       invalid_type_error: 'Endpoint must be a string',
     })
     .optional(),
-  metadataDb: pgSchema.optional(),
 });

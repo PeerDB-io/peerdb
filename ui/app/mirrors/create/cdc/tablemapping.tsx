@@ -2,7 +2,8 @@
 import { DBType } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField';
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import Link from 'next/link';
+import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
 import { BarLoader } from 'react-spinners/';
 import { TableMapRow } from '../../../dto/MirrorsDTO';
 import { fetchSchemas } from '../handlers';
@@ -14,6 +15,8 @@ interface TableMappingProps {
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
   peerType?: DBType;
+  // schema -> omitted source table mapping
+  omitAdditionalTablesMapping: Map<string, string[]>;
 }
 
 const TableMapping = ({
@@ -21,20 +24,41 @@ const TableMapping = ({
   rows,
   setRows,
   peerType,
+  omitAdditionalTablesMapping,
 }: TableMappingProps) => {
   const [allSchemas, setAllSchemas] = useState<string[]>();
   const [schemaQuery, setSchemaQuery] = useState('');
   const [tableColumns, setTableColumns] = useState<
     { tableName: string; columns: string[] }[]
   >([]);
+  const searchedSchemas = useMemo(() => {
+    return allSchemas?.filter((schema) => {
+      return schema.toLowerCase().includes(schemaQuery.toLowerCase());
+    });
+  }, [allSchemas, schemaQuery]);
+
   useEffect(() => {
     fetchSchemas(sourcePeerName).then((res) => setAllSchemas(res));
   }, [sourcePeerName]);
 
   return (
     <div style={{ marginTop: '1rem' }}>
-      <Label as='label' colorName='lowContrast' style={{ fontSize: 14 }}>
+      <Label as='label' colorName='lowContrast' style={{ fontSize: 16 }}>
         Select tables to sync
+      </Label>
+      <br></br>
+      <Label as='label' style={{ fontSize: 15 }}>
+        Before selecting tables, please make sure that{' '}
+        <Link
+          style={{ color: 'teal' }}
+          target='_blank'
+          href={
+            'https://docs.peerdb.io/connect/rds_postgres#creating-peerdb-user-and-granting-permissions'
+          }
+        >
+          these permissions
+        </Link>{' '}
+        have been granted for your tables.
       </Label>
       <div
         style={{
@@ -56,23 +80,20 @@ const TableMapping = ({
         </div>
       </div>
       <div style={{ maxHeight: '70vh', overflow: 'scroll' }}>
-        {allSchemas ? (
-          allSchemas
-            ?.filter((schema) => {
-              return schema.toLowerCase().includes(schemaQuery.toLowerCase());
-            })
-            .map((schema) => (
-              <SchemaBox
-                key={schema}
-                schema={schema}
-                sourcePeer={sourcePeerName}
-                rows={rows}
-                setRows={setRows}
-                tableColumns={tableColumns}
-                setTableColumns={setTableColumns}
-                peerType={peerType}
-              />
-            ))
+        {searchedSchemas ? (
+          searchedSchemas.map((schema) => (
+            <SchemaBox
+              key={schema}
+              schema={schema}
+              sourcePeer={sourcePeerName}
+              rows={rows}
+              setRows={setRows}
+              tableColumns={tableColumns}
+              setTableColumns={setTableColumns}
+              peerType={peerType}
+              omitAdditionalTables={omitAdditionalTablesMapping.get(schema)}
+            />
+          ))
         ) : (
           <div style={loaderContainer}>
             <BarLoader color='#36d7b7' width='40%' />

@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/google/uuid"
 )
 
 func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.RecordsToStreamResponse, error) {
-	recordStream := model.NewQRecordStream(1 << 16)
+	recordStream := model.NewQRecordStream(1 << 17)
 	err := recordStream.SetSchema(&model.QRecordSchema{
 		Fields: []model.QField{
 			{
@@ -85,11 +86,6 @@ func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, recor
 			}
 		}
 
-		// add insert record to the raw table
-		entries[2] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: typedRecord.DestinationTableName,
-		}
 		entries[3] = qvalue.QValue{
 			Kind:  qvalue.QValueKindString,
 			Value: itemsJSON,
@@ -121,10 +117,6 @@ func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, recor
 			}
 		}
 
-		entries[2] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: typedRecord.DestinationTableName,
-		}
 		entries[3] = qvalue.QValue{
 			Kind:  qvalue.QValueKindString,
 			Value: newItemsJSON,
@@ -150,11 +142,6 @@ func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, recor
 			}
 		}
 
-		// append delete record to the raw table
-		entries[2] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: typedRecord.DestinationTableName,
-		}
 		entries[3] = qvalue.QValue{
 			Kind:  qvalue.QValueKindString,
 			Value: itemsJSON,
@@ -186,15 +173,16 @@ func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, recor
 		Kind:  qvalue.QValueKindInt64,
 		Value: time.Now().UnixNano(),
 	}
+	entries[2] = qvalue.QValue{
+		Kind:  qvalue.QValueKindString,
+		Value: record.GetDestinationTableName(),
+	}
 	entries[6] = qvalue.QValue{
 		Kind:  qvalue.QValueKindInt64,
 		Value: batchID,
 	}
 
 	return model.QRecordOrError{
-		Record: model.QRecord{
-			NumEntries: 8,
-			Entries:    entries[:],
-		},
+		Record: entries[:],
 	}
 }

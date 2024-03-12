@@ -8,6 +8,7 @@ message SSHConfig {
   string user = 3;
   string password = 4;
   string private_key = 5;
+  string host_key = 6;
 }
 
 message SnowflakeConfig {
@@ -63,7 +64,6 @@ message EventHubConfig {
   string namespace = 1;
   string resource_group = 2;
   string location = 3;
-  PostgresConfig metadata_db = 4;
   // if this is empty PeerDB uses `AZURE_SUBSCRIPTION_ID` environment variable.
   string subscription_id = 5;
   // defaults to 3
@@ -75,7 +75,6 @@ message EventHubConfig {
 message EventHubGroupConfig {
   // event hub peer name to event hub config
   map<string, EventHubConfig> eventhubs = 1;
-  PostgresConfig metadata_db = 2;
   repeated string unnest_columns = 3;
 }
 
@@ -86,7 +85,19 @@ message S3Config {
   optional string role_arn = 4;
   optional string region = 5;
   optional string endpoint = 6;
-  PostgresConfig metadata_db = 7;
+}
+
+message ClickhouseConfig{
+  string host = 1;
+  uint32 port = 2;
+  string user = 3;
+  string password = 4;
+  string database = 5;
+  string s3_path = 6; // path to S3 bucket which will store avro files
+  string access_key_id = 7;
+  string secret_access_key = 8;
+  string region = 9;
+  bool disable_tls = 10;
 }
 
 message SqlServerConfig {
@@ -106,6 +117,7 @@ enum DBType {
   S3 = 5;
   SQLSERVER = 6;
   EVENTHUB_GROUP = 7;
+  CLICKHOUSE = 8;
 }
 
 message Peer {
@@ -120,5 +132,6 @@ message Peer {
     S3Config s3_config = 8;
     SqlServerConfig sqlserver_config = 9;
     EventHubGroupConfig eventhub_group_config = 10;
+    ClickhouseConfig clickhouse_config = 11;
   }
 }

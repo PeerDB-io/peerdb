@@ -1,7 +1,5 @@
 import prisma from '@/app/utils/prisma';
 
-export const dynamic = 'force-dynamic';
-
 export async function POST(request: Request) {
   const { flowName } = await request.json();
   const errCount = await prisma.flow_errors.count({

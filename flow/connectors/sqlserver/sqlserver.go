@@ -3,22 +3,22 @@ package connsqlserver
 import (
 	"context"
 	"fmt"
-	"log/slog"
+
+	"github.com/jmoiron/sqlx"
+	_ "github.com/microsoft/go-mssqldb"
+	"go.temporal.io/sdk/log"
 
 	peersql "github.com/PeerDB-io/peer-flow/connectors/sql"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/jmoiron/sqlx"
-	_ "github.com/microsoft/go-mssqldb"
+	"github.com/PeerDB-io/peer-flow/logger"
 )
 
 type SQLServerConnector struct {
 	peersql.GenericSQLQueryExecutor
 
-	ctx    context.Context
 	config *protos.SqlServerConfig
 	db     *sqlx.DB
-	logger slog.Logger
+	logger log.Logger
 }
 
 // NewSQLServerConnector creates a new SQL Server connection
@@ -36,31 +36,30 @@ func NewSQLServerConnector(ctx context.Context, config *protos.SqlServerConfig) 
 		return nil, err
 	}
 
-	genericExecutor := *peersql.NewGenericSQLQueryExecutor(
-		ctx, db, sqlServerTypeToQValueKindMap, qValueKindToSQLServerTypeMap)
+	logger := logger.LoggerFromCtx(ctx)
 
-	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
+	genericExecutor := *peersql.NewGenericSQLQueryExecutor(
+		logger, db, sqlServerTypeToQValueKindMap, qValueKindToSQLServerTypeMap)
 
 	return &SQLServerConnector{
 		GenericSQLQueryExecutor: genericExecutor,
-		ctx:                     ctx,
 		config:                  config,
 		db:                      db,
-		logger:                  *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
+		logger:                  logger,
 	}, nil
 }
 
 // Close closes the database connection
 func (c *SQLServerConnector) Close() error {
-	if c.db != nil {
+	if c != nil {
 		return c.db.Close()
 	}
 	return nil
 }
 
 // ConnectionActive checks if the connection is still active
-func (c *SQLServerConnector) ConnectionActive() error {
-	if err := c.db.Ping(); err != nil {
+func (c *SQLServerConnector) ConnectionActive(ctx context.Context) error {
+	if err := c.db.PingContext(ctx); err != nil {
 		return err
 	}
 	return nil

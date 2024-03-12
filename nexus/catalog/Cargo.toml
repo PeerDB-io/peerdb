@@ -7,12 +7,16 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
-chrono = { version = "0.4.22", default-features = false }
+async-trait = "0.1"
+chrono.workspace = true
 prost = "0.12"
 peer-cursor = { path = "../peer-cursor" }
 peer-postgres = { path = "../peer-postgres" }
+pgwire.workspace = true
 pt = { path = "../pt" }
 refinery = { version = "0.8", features = ["tokio-postgres"] }
+serde_json = "1.0"
+sqlparser.workspace = true
 tokio = { version = "1.13.0", features = ["full"] }
 tokio-postgres = { version = "0.7.6", features = [
   "with-chrono-0_4",
@@ -20,5 +24,4 @@ tokio-postgres = { version = "0.7.6", features = [
   "with-uuid-1",
 ] }
 tracing = "0.1.29"
-serde_json = "1.0"
 postgres-connection = { path = "../postgres-connection" }

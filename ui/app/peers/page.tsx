@@ -12,15 +12,14 @@ export const dynamic = 'force-dynamic';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 
 import useSWR from 'swr';
-
-const fetcher = (...args: [any]) => fetch(...args).then((res) => res.json());
+import { fetcher } from '../utils/swr';
 
 export default function Peers() {
   const { data: peers, error, isLoading } = useSWR('/api/peers', fetcher);
 
   return (
-    <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
-      <Panel>
+    <LayoutMain alignSelf='flex-start' justifySelf='flex-start'>
+      <Panel style={{ width: '100%' }}>
         <Header
           variant='title2'
           slot={

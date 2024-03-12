@@ -23,18 +23,21 @@ export default function ColumnBox({
     include: boolean
   ) => {
     const currRows = [...rows];
-    const rowOfSource = currRows.find((row) => row.source === source);
-    if (rowOfSource) {
+    const rowIndex = currRows.findIndex((row) => row.source === source);
+    if (rowIndex !== -1) {
+      const sourceRow = currRows[rowIndex],
+        newExclude = new Set(sourceRow.exclude);
       if (include) {
-        const updatedExclude = rowOfSource.exclude.filter(
-          (col) => col !== column
-        );
-        rowOfSource.exclude = updatedExclude;
+        newExclude.delete(column);
       } else {
-        rowOfSource.exclude.push(column);
+        newExclude.add(column);
       }
+      currRows[rowIndex] = {
+        ...sourceRow,
+        exclude: newExclude,
+      };
+      setRows(currRows);
     }
-    setRows(currRows);
   };
 
   const columnExclusion = new Set(tableRow.exclude);

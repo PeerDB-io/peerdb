@@ -100,28 +100,27 @@ export default function QRepStatusTable({
   );
   const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
   const displayedPartitions = useMemo(() => {
-    let currentPartitions = [...visiblePartitions];
-    (currentPartitions = currentPartitions.filter(
+    const currentPartitions = visiblePartitions.filter(
       (partition: QRepPartitionStatus) => {
         return partition.partitionId
           .toLowerCase()
           .includes(searchQuery.toLowerCase());
       }
-    )),
-      currentPartitions.sort((a, b) => {
-        const aValue = a[sortField];
-        const bValue = b[sortField];
-        if (aValue === null || bValue === null) {
-          return 0;
-        }
-        if (aValue < bValue) {
-          return sortDir === 'dsc' ? 1 : -1;
-        } else if (aValue > bValue) {
-          return sortDir === 'dsc' ? -1 : 1;
-        } else {
-          return 0;
-        }
-      });
+    );
+    currentPartitions.sort((a, b) => {
+      const aValue = a[sortField];
+      const bValue = b[sortField];
+      if (aValue === null || bValue === null) {
+        return 0;
+      }
+      if (aValue < bValue) {
+        return sortDir === 'dsc' ? 1 : -1;
+      } else if (aValue > bValue) {
+        return sortDir === 'dsc' ? -1 : 1;
+      } else {
+        return 0;
+      }
+    });
     return currentPartitions;
   }, [visiblePartitions, searchQuery, sortField, sortDir]);
 
@@ -162,9 +161,6 @@ export default function QRepStatusTable({
               onClick={() => window.location.reload()}
             >
               <Icon name='refresh' />
-            </Button>
-            <Button variant='normalBorderless' disabled>
-              <Icon name='download' />
             </Button>
             <div style={{ minWidth: '10em' }}>
               <ReactSelect

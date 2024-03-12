@@ -1,13 +1,14 @@
 'use client';
 import { DropDialog } from '@/components/DropDialog';
+import MirrorLink from '@/components/MirrorLink';
 import PeerButton from '@/components/PeerComponent';
 import TimeLabel from '@/components/TimeComponent';
+import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
-import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
-import { MirrorError } from './mirror-status';
+import { tableStyle } from '../peers/[peerName]/style';
 
 export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -22,57 +23,32 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
   return (
     <>
       <Label variant='headline'>Change-data capture</Label>
-      <div
-        style={{
-          maxHeight: '35vh',
-          overflow: 'scroll',
-          width: '100%',
-          marginTop: '1rem',
-        }}
-      >
+      <div style={{ ...tableStyle, maxHeight: '35vh' }}>
         <Table
-          toolbar={{
-            left: <></>,
-            right: (
-              <SearchField
-                placeholder='Search by flow name'
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setSearchQuery(e.target.value)
-                }
-              />
-            ),
-          }}
           header={
             <TableRow>
-              {[
-                'Name',
-                'Source',
-                'Destination',
-                'Start Time',
-                'Status',
-                '',
-              ].map((heading, index) => (
-                <TableCell as='th' key={index}>
-                  <Label
-                    as='label'
-                    style={{
-                      fontWeight: 'bold',
-                      padding: heading === 'Status' ? 0 : 'auto',
-                    }}
-                  >
-                    {heading}
-                  </Label>
-                </TableCell>
-              ))}
+              {['Name', 'Source', 'Destination', 'Start Time', 'Logs', ''].map(
+                (heading, index) => (
+                  <TableCell as='th' key={index}>
+                    <Label
+                      as='label'
+                      style={{
+                        fontWeight: 'bold',
+                        padding: heading === 'Status' ? 0 : 'auto',
+                      }}
+                    >
+                      {heading}
+                    </Label>
+                  </TableCell>
+                )
+              )}
             </TableRow>
           }
         >
           {mirrors.map((flow: any) => (
             <TableRow key={flow.id}>
               <TableCell>
-                <Label as={Link} href={`/mirrors/edit/${flow.name}`}>
-                  <div className='cursor-pointer underline'>{flow.name}</div>
-                </Label>
+                <MirrorLink flowName={flow?.name} />
               </TableCell>
               <TableCell>
                 <PeerButton
@@ -90,7 +66,9 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
                 <TimeLabel timeVal={flow.created_at} />
               </TableCell>
               <TableCell>
-                <MirrorError flowName={flow.name} />
+                <Link href={`/mirrors/errors/${flow.name}`}>
+                  <Icon name='description' />
+                </Link>
               </TableCell>
               <TableCell>
                 <DropDialog
@@ -127,29 +105,16 @@ export function QRepFlows({
       }),
     [searchQuery, qrepFlows]
   );
+
+  if (mirrors.length === 0) {
+    return <Label variant='headline'>{title}: None</Label>;
+  }
+
   return (
     <>
       <Label variant='headline'>{title}</Label>
-      <div
-        style={{
-          maxHeight: '35vh',
-          overflow: 'scroll',
-          width: '100%',
-          marginTop: '1rem',
-        }}
-      >
+      <div style={{ ...tableStyle, maxHeight: '35vh' }}>
         <Table
-          toolbar={{
-            left: <></>,
-            right: (
-              <SearchField
-                placeholder='Search by flow name'
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setSearchQuery(e.target.value)
-                }
-              />
-            ),
-          }}
           header={
             <TableRow>
               {['Name', 'Source', 'Destination', 'Start Time', ''].map(
@@ -167,9 +132,7 @@ export function QRepFlows({
           {mirrors.map((flow: any) => (
             <TableRow key={flow.id}>
               <TableCell>
-                <Label as={Link} href={`/mirrors/edit/${flow.name}`}>
-                  <div className='cursor-pointer underline'>{flow.name}</div>
-                </Label>
+                <MirrorLink flowName={flow?.name} />
               </TableCell>
               <TableCell>
                 <PeerButton

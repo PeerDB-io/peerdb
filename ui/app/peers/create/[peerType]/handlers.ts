@@ -7,6 +7,7 @@ import { S3Config } from '@/grpc_generated/peers';
 import { Dispatch, SetStateAction } from 'react';
 import {
   bqSchema,
+  chSchema,
   peerNameSchema,
   pgSchema,
   s3Schema,
@@ -16,20 +17,20 @@ import {
 const validateFields = (
   type: string,
   config: PeerConfig,
-  setMessage: Dispatch<SetStateAction<{ ok: boolean; msg: string }>>,
+  notify: (msg: string) => void,
   name?: string
 ): boolean => {
   const peerNameValid = peerNameSchema.safeParse(name);
   if (!peerNameValid.success) {
     const peerNameErr = peerNameValid.error.issues[0].message;
-    setMessage({ ok: false, msg: peerNameErr });
+    notify(peerNameErr);
     return false;
   }
 
   if (type === 'S3') {
     const s3Valid = S3Validation(config as S3Config);
     if (s3Valid.length > 0) {
-      setMessage({ ok: false, msg: s3Valid });
+      notify(s3Valid);
       return false;
     }
   }
@@ -48,6 +49,10 @@ const validateFields = (
       const bqConfig = bqSchema.safeParse(config);
       if (!bqConfig.success) validationErr = bqConfig.error.issues[0].message;
       break;
+    case 'CLICKHOUSE':
+      const chConfig = chSchema.safeParse(config);
+      if (!chConfig.success) validationErr = chConfig.error.issues[0].message;
+      break;
     case 'S3':
       const s3Config = s3Schema.safeParse(config);
       if (!s3Config.success) validationErr = s3Config.error.issues[0].message;
@@ -56,9 +61,9 @@ const validateFields = (
       validationErr = 'Unsupported peer type ' + type;
   }
   if (validationErr) {
-    setMessage({ ok: false, msg: validationErr });
+    notify(validationErr);
     return false;
-  } else setMessage({ ok: true, msg: '' });
+  }
   return true;
 };
 
@@ -66,11 +71,11 @@ const validateFields = (
 export const handleValidate = async (
   type: string,
   config: PeerConfig,
-  setMessage: Dispatch<SetStateAction<{ ok: boolean; msg: string }>>,
+  notify: (msg: string, success?: boolean) => void,
   setLoading: Dispatch<SetStateAction<boolean>>,
   name?: string
 ) => {
-  const isValid = validateFields(type, config, setMessage, name);
+  const isValid = validateFields(type, config, notify, name);
   if (!isValid) return;
   setLoading(true);
   const valid: UValidatePeerResponse = await fetch('/api/peers/', {
@@ -81,13 +86,14 @@ export const handleValidate = async (
       config,
       mode: 'validate',
     }),
+    cache: 'no-store',
   }).then((res) => res.json());
   if (!valid.valid) {
-    setMessage({ ok: false, msg: valid.message });
+    notify(valid.message);
     setLoading(false);
     return;
   }
-  setMessage({ ok: true, msg: 'Peer is valid' });
+  notify('Peer is valid', true);
   setLoading(false);
 };
 
@@ -102,12 +108,12 @@ const S3Validation = (config: S3Config): string => {
 export const handleCreate = async (
   type: string,
   config: PeerConfig,
-  setMessage: Dispatch<SetStateAction<{ ok: boolean; msg: string }>>,
+  notify: (msg: string) => void,
   setLoading: Dispatch<SetStateAction<boolean>>,
   route: RouteCallback,
   name?: string
 ) => {
-  let isValid = validateFields(type, config, setMessage, name);
+  let isValid = validateFields(type, config, notify, name);
   if (!isValid) return;
   setLoading(true);
   const createdPeer: UCreatePeerResponse = await fetch('/api/peers/', {
@@ -118,13 +124,14 @@ export const handleCreate = async (
       config,
       mode: 'create',
     }),
+    cache: 'no-store',
   }).then((res) => res.json());
   if (!createdPeer.created) {
-    setMessage({ ok: false, msg: createdPeer.message });
+    notify(createdPeer.message);
     setLoading(false);
     return;
   }
-  setMessage({ ok: true, msg: 'Peer created successfully' });
+
   route();
   setLoading(false);
 };

@@ -51,7 +51,7 @@ impl FlowGrpcClient {
             create_catalog_entry: false,
         };
         let response = self.client.create_q_rep_flow(create_qrep_flow_req).await?;
-        let workflow_id = response.into_inner().worflow_id;
+        let workflow_id = response.into_inner().workflow_id;
         Ok(workflow_id)
     }
 
@@ -82,32 +82,8 @@ impl FlowGrpcClient {
             create_catalog_entry: false,
         };
         let response = self.client.create_cdc_flow(create_peer_flow_req).await?;
-        let workflow_id = response.into_inner().worflow_id;
+        let workflow_id = response.into_inner().workflow_id;
         Ok(workflow_id)
-    }
-
-    pub async fn shutdown_flow_job(
-        &mut self,
-        flow_job_name: &str,
-        workflow_details: WorkflowDetails,
-    ) -> anyhow::Result<()> {
-        let shutdown_flow_req = pt::peerdb_route::ShutdownRequest {
-            flow_job_name: flow_job_name.to_string(),
-            workflow_id: workflow_details.workflow_id,
-            source_peer: Some(workflow_details.source_peer),
-            destination_peer: Some(workflow_details.destination_peer),
-            remove_flow_entry: false,
-        };
-        let response = self.client.shutdown_flow(shutdown_flow_req).await?;
-        let shutdown_response = response.into_inner();
-        if shutdown_response.ok {
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!(format!(
-                "failed to shutdown flow job: {:?}",
-                shutdown_response.error_message
-            )))
-        }
     }
 
     pub async fn drop_peer(&mut self, peer_name: &str) -> anyhow::Result<()> {
@@ -129,25 +105,25 @@ impl FlowGrpcClient {
     pub async fn flow_state_change(
         &mut self,
         flow_job_name: &str,
-        workflow_id: &str,
-        pause: bool,
+        workflow_details: WorkflowDetails,
+        state: pt::peerdb_flow::FlowStatus,
+        flow_config_update: Option<pt::peerdb_flow::FlowConfigUpdate>,
     ) -> anyhow::Result<()> {
-        let pause_flow_req = pt::peerdb_route::FlowStateChangeRequest {
+        let state_change_req = pt::peerdb_route::FlowStateChangeRequest {
             flow_job_name: flow_job_name.to_owned(),
-            workflow_id: workflow_id.to_owned(),
-            requested_flow_state: match pause {
-                true => pt::peerdb_route::FlowState::StatePaused.into(),
-                false => pt::peerdb_route::FlowState::StateRunning.into(),
-            },
+            requested_flow_state: state.into(),
+            source_peer: Some(workflow_details.source_peer),
+            destination_peer: Some(workflow_details.destination_peer),
+            flow_config_update,
         };
-        let response = self.client.flow_state_change(pause_flow_req).await?;
-        let pause_response = response.into_inner();
-        if pause_response.ok {
+        let response = self.client.flow_state_change(state_change_req).await?;
+        let state_change_response = response.into_inner();
+        if state_change_response.ok {
             Ok(())
         } else {
             Err(anyhow::anyhow!(format!(
-                "failed to pause/unpause flow job: {:?}",
-                pause_response.error_message
+                "failed to change the state of flow job {}: {:?}",
+                flow_job_name, state_change_response.error_message
             )))
         }
     }
@@ -168,7 +144,7 @@ impl FlowGrpcClient {
             });
         });
 
-        let do_initial_copy = job.do_initial_copy;
+        let do_initial_snapshot = job.do_initial_copy;
         let publication_name = job.publication_name.clone();
         let replication_slot_name = job.replication_slot_name.clone();
         let snapshot_num_rows_per_partition = job.snapshot_num_rows_per_partition;
@@ -180,7 +156,7 @@ impl FlowGrpcClient {
             destination: Some(dst),
             flow_job_name: job.name.clone(),
             table_mappings,
-            do_initial_copy,
+            do_initial_snapshot,
             publication_name: publication_name.unwrap_or_default(),
             snapshot_num_rows_per_partition: snapshot_num_rows_per_partition.unwrap_or(0),
             snapshot_max_parallel_workers: snapshot_max_parallel_workers.unwrap_or(0),
@@ -189,13 +165,11 @@ impl FlowGrpcClient {
             cdc_staging_path: job.cdc_staging_path.clone().unwrap_or_default(),
             soft_delete: job.soft_delete,
             replication_slot_name: replication_slot_name.unwrap_or_default(),
-            push_batch_size: job.push_batch_size.unwrap_or_default(),
-            push_parallelism: job.push_parallelism.unwrap_or_default(),
             max_batch_size: job.max_batch_size.unwrap_or_default(),
             resync: job.resync,
             soft_delete_col_name: job.soft_delete_col_name.clone().unwrap_or_default(),
             synced_at_col_name: job.synced_at_col_name.clone().unwrap_or_default(),
-            initial_copy_only: job.initial_copy_only,
+            initial_snapshot_only: job.initial_snapshot_only,
             ..Default::default()
         };
 

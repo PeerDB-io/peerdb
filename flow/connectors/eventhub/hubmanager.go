@@ -7,14 +7,17 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub"
+	cmap "github.com/orcaman/concurrent-map/v2"
+
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	cmap "github.com/orcaman/concurrent-map/v2"
+	"github.com/PeerDB-io/peer-flow/logger"
 )
 
 type EventHubManager struct {
@@ -46,14 +49,14 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 ) {
 	ehConfig, ok := m.peerConfig.Get(name.PeerName)
 	if !ok {
-		return nil, fmt.Errorf("eventhub '%s' not configured", name)
+		return nil, fmt.Errorf("eventhub '%s' not configured", name.Eventhub)
 	}
 
 	namespace := ehConfig.Namespace
 	// if the namespace isn't fully qualified, add the `.servicebus.windows.net`
 	// check by counting the number of '.' in the namespace
 	if strings.Count(namespace, ".") < 2 {
-		namespace = fmt.Sprintf("%s.servicebus.windows.net", namespace)
+		namespace += ".servicebus.windows.net"
 	}
 
 	var hubConnectOK bool
@@ -63,12 +66,13 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 		hubTmp := hub.(*azeventhubs.ProducerClient)
 		_, err := hubTmp.GetEventHubProperties(ctx, nil)
 		if err != nil {
-			slog.Info(fmt.Sprintf("eventhub %s", name)+
-				"not reachable. Will re-establish connection and re-create it.",
+			logger := logger.LoggerFromCtx(ctx)
+			logger.Info(
+				fmt.Sprintf("eventhub %s not reachable. Will re-establish connection and re-create it.", name),
 				slog.Any("error", err))
 			closeError := m.closeProducerClient(ctx, hubTmp)
 			if closeError != nil {
-				slog.Error("failed to close producer client", slog.Any("error", closeError))
+				logger.Error("failed to close producer client", slog.Any("error", closeError))
 			}
 			m.hubs.Delete(name)
 			hubConnectOK = false
@@ -102,31 +106,42 @@ func (m *EventHubManager) closeProducerClient(ctx context.Context, pc *azeventhu
 }
 
 func (m *EventHubManager) Close(ctx context.Context) error {
-	var allErrors error
+	numHubsClosed := atomic.Uint32{}
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
+		return fmt.Sprintf("closed %d eventhub clients", numHubsClosed.Load())
+	})
+	defer shutdown()
 
+	var allErrors error
 	m.hubs.Range(func(key any, value any) bool {
 		name := key.(ScopedEventhub)
 		hub := value.(*azeventhubs.ProducerClient)
 		err := m.closeProducerClient(ctx, hub)
 		if err != nil {
-			slog.Error(fmt.Sprintf("failed to close eventhub client for %v", name), slog.Any("error", err))
+			logger.LoggerFromCtx(ctx).Error(fmt.Sprintf("failed to close eventhub client for %v", name), slog.Any("error", err))
 			allErrors = errors.Join(allErrors, err)
 		}
+		numHubsClosed.Add(1)
 		return true
 	})
 
 	return allErrors
 }
 
-func (m *EventHubManager) CreateEventDataBatch(ctx context.Context, name ScopedEventhub) (
+func (m *EventHubManager) CreateEventDataBatch(ctx context.Context, destination ScopedEventhub) (
 	*azeventhubs.EventDataBatch, error,
 ) {
-	hub, err := m.GetOrCreateHubClient(ctx, name)
+	hub, err := m.GetOrCreateHubClient(ctx, destination)
 	if err != nil {
 		return nil, err
 	}
 
-	opts := &azeventhubs.EventDataBatchOptions{}
+	opts := &azeventhubs.EventDataBatchOptions{
+		// Eventhubs internally does the routing
+		// to partition based on hash of the partition key.
+		// Same partition key is guaranteed to map to same partition.
+		PartitionKey: &destination.PartitionKeyValue,
+	}
 	batch, err := hub.NewEventDataBatch(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create event data batch: %v", err)
@@ -154,6 +169,7 @@ func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedE
 
 	partitionCount := int64(cfg.PartitionCount)
 	retention := int64(cfg.MessageRetentionInDays)
+	logger := logger.LoggerFromCtx(ctx)
 	if err != nil {
 		opts := armeventhub.Eventhub{
 			Properties: &armeventhub.Properties{
@@ -168,9 +184,9 @@ func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedE
 			return err
 		}
 
-		slog.Info("event hub created", slog.Any("name", name))
+		logger.Info("event hub created", slog.Any("name", name))
 	} else {
-		slog.Info("event hub exists already", slog.Any("name", name))
+		logger.Info("event hub exists already", slog.Any("name", name))
 	}
 
 	return nil

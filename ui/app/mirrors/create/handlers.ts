@@ -1,13 +1,14 @@
 import { UCreateMirrorResponse } from '@/app/dto/MirrorsDTO';
 import {
   UColumnsResponse,
+  UPublicationsResponse,
   USchemasResponse,
+  UTablesAllResponse,
   UTablesResponse,
 } from '@/app/dto/PeersDTO';
 import {
   FlowConnectionConfigs,
   QRepConfig,
-  QRepSyncMode,
   QRepWriteType,
 } from '@/grpc_generated/flow';
 import { DBType, Peer, dBTypeToJSON } from '@/grpc_generated/peers';
@@ -27,28 +28,6 @@ export const handlePeer = (
 ) => {
   if (!peer) return;
   if (peerEnd === 'dst') {
-    if (peer.type === DBType.POSTGRES) {
-      setConfig((curr) => {
-        return {
-          ...curr,
-          cdcSyncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
-          snapshotSyncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
-          syncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
-        };
-      });
-    } else if (
-      peer.type === DBType.SNOWFLAKE ||
-      peer.type === DBType.BIGQUERY
-    ) {
-      setConfig((curr) => {
-        return {
-          ...curr,
-          cdcSyncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
-          snapshotSyncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
-          syncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
-        };
-      });
-    }
     setConfig((curr) => ({
       ...curr,
       destination: peer,
@@ -61,6 +40,37 @@ export const handlePeer = (
       sourcePeer: peer,
     }));
   }
+};
+
+const CDCCheck = (
+  flowJobName: string,
+  rows: TableMapRow[],
+  config: CDCConfig
+) => {
+  const flowNameValid = flowNameSchema.safeParse(flowJobName);
+  if (!flowNameValid.success) {
+    const flowNameErr = flowNameValid.error.issues[0].message;
+    return flowNameErr;
+  }
+
+  const tableNameMapping = reformattedTableMapping(rows);
+  const fieldErr = validateCDCFields(tableNameMapping, config);
+  if (fieldErr) {
+    return fieldErr;
+  }
+
+  config['tableMappings'] = tableNameMapping as TableMapping[];
+  config['flowJobName'] = flowJobName;
+
+  if (config.doInitialSnapshot == false && config.initialSnapshotOnly == true) {
+    return 'Initial Snapshot Only cannot be true if Initial Snapshot is false.';
+  }
+
+  if (config.doInitialSnapshot == true && config.replicationSlotName !== '') {
+    config.replicationSlotName = '';
+  }
+
+  return '';
 };
 
 const validateCDCFields = (
@@ -80,6 +90,7 @@ const validateCDCFields = (
   if (!tablesValidity.success) {
     validationErr = tablesValidity.error.issues[0].message;
   }
+
   const configValidity = cdcSchema.safeParse(config);
   if (!configValidity.success) {
     validationErr = configValidity.error.issues[0].message;
@@ -108,19 +119,17 @@ interface TableMapping {
   partitionKey: string;
   exclude: string[];
 }
-const reformattedTableMapping = (tableMapping: TableMapRow[]) => {
+export const reformattedTableMapping = (
+  tableMapping: TableMapRow[]
+): TableMapping[] => {
   const mapping = tableMapping
-    .map((row) => {
-      if (row?.selected === true) {
-        return {
-          sourceTableIdentifier: row.source,
-          destinationTableIdentifier: row.destination,
-          partitionKey: row.partitionKey,
-          exclude: row.exclude,
-        };
-      }
-    })
-    .filter(Boolean);
+    .filter((row) => row?.selected === true && row?.canMirror === true)
+    .map((row) => ({
+      sourceTableIdentifier: row.source,
+      destinationTableIdentifier: row.destination,
+      partitionKey: row.partitionKey,
+      exclude: Array.from(row.exclude),
+    }));
   return mapping;
 };
 
@@ -128,53 +137,29 @@ export const handleCreateCDC = async (
   flowJobName: string,
   rows: TableMapRow[],
   config: CDCConfig,
-  notify: (msg: string) => void,
+  notify: (msg: string, ok?: boolean) => void,
   setLoading: Dispatch<SetStateAction<boolean>>,
   route: RouteCallback
 ) => {
-  const flowNameValid = flowNameSchema.safeParse(flowJobName);
-  if (!flowNameValid.success) {
-    const flowNameErr = flowNameValid.error.issues[0].message;
-    notify(flowNameErr);
-    return;
-  }
-
-  const tableNameMapping = reformattedTableMapping(rows);
-  const fieldErr = validateCDCFields(tableNameMapping, config);
-  if (fieldErr) {
-    notify(fieldErr);
-    return;
-  }
-
-  config['tableMappings'] = tableNameMapping as TableMapping[];
-  config['flowJobName'] = flowJobName;
-
-  if (config.destination?.type == DBType.POSTGRES) {
-    config.cdcSyncMode = QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT;
-    config.snapshotSyncMode = QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT;
-  } else {
-    config.cdcSyncMode = QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO;
-    config.snapshotSyncMode = QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO;
-  }
-
-  if (config.doInitialCopy == false && config.initialCopyOnly == true) {
-    notify('Initial Copy Only cannot be true if Initial Copy is false.');
+  const err = CDCCheck(flowJobName, rows, config);
+  if (err != '') {
+    notify(err);
     return;
   }
 
   setLoading(true);
-  const statusMessage: UCreateMirrorResponse = await fetch('/api/mirrors/cdc', {
+  const statusMessage = await fetch('/api/mirrors/cdc', {
     method: 'POST',
     body: JSON.stringify({
       config,
     }),
   }).then((res) => res.json());
   if (!statusMessage.created) {
-    notify('unable to create mirror.');
+    notify(statusMessage.message || 'Unable to create mirror.');
     setLoading(false);
     return;
   }
-  notify('CDC Mirror created successfully');
+  notify('CDC Mirror created successfully', true);
   route();
   setLoading(false);
 };
@@ -229,12 +214,6 @@ export const handleCreateQRep = async (
   config.flowJobName = flowJobName;
   config.query = query;
 
-  if (config.destinationPeer?.type == DBType.POSTGRES) {
-    config.syncMode = QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT;
-  } else {
-    config.syncMode = QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO;
-  }
-
   setLoading(true);
   const statusMessage: UCreateMirrorResponse = await fetch(
     '/api/mirrors/qrep',
@@ -261,8 +240,29 @@ export const fetchSchemas = async (peerName: string) => {
     body: JSON.stringify({
       peerName,
     }),
+    cache: 'no-store',
   }).then((res) => res.json());
   return schemasRes.schemas;
+};
+
+const getDefaultDestinationTable = (
+  peerType: DBType,
+  schemaName: string,
+  tableName: string
+) => {
+  if (
+    peerType.toString() == 'BIGQUERY' ||
+    dBTypeToJSON(peerType) == 'BIGQUERY'
+  ) {
+    return tableName;
+  }
+  if (
+    peerType.toString() == 'CLICKHOUSE' ||
+    dBTypeToJSON(peerType) == 'CLICKHOUSE'
+  ) {
+    return `${schemaName}_${tableName}`;
+  }
+  return `${schemaName}.${tableName}`;
 };
 
 export const fetchTables = async (
@@ -277,26 +277,29 @@ export const fetchTables = async (
       peerName,
       schemaName,
     }),
+    cache: 'no-store',
   }).then((res) => res.json());
 
-  let tables = [];
-  const tableNames = tablesRes.tables;
-  if (tableNames) {
-    for (const tableName of tableNames) {
+  let tables: TableMapRow[] = [];
+  const tableRes = tablesRes.tables;
+  if (tableRes) {
+    for (const tableObject of tableRes) {
       // setting defaults:
       // for bigquery, tables are not schema-qualified
-      const dstName =
-        peerType != undefined && dBTypeToJSON(peerType) == 'BIGQUERY'
-          ? tableName
-          : `${schemaName}.${tableName}`;
-
+      const dstName = getDefaultDestinationTable(
+        peerType!,
+        schemaName,
+        tableObject.tableName
+      );
       tables.push({
         schema: schemaName,
-        source: `${schemaName}.${tableName}`,
+        source: `${schemaName}.${tableObject.tableName}`,
         destination: dstName,
         partitionKey: '',
-        exclude: [],
+        exclude: new Set(),
         selected: false,
+        canMirror: tableObject.canMirror,
+        tableSize: tableObject.tableSize,
       });
     }
   }
@@ -318,6 +321,7 @@ export const fetchColumns = async (
       schemaName,
       tableName,
     }),
+    cache: 'no-store',
   }).then((res) => res.json());
   setLoading(false);
   return columnsRes.columns;
@@ -325,11 +329,57 @@ export const fetchColumns = async (
 
 export const fetchAllTables = async (peerName: string) => {
   if (peerName?.length === 0) return [];
-  const tablesRes: UTablesResponse = await fetch('/api/peers/tables/all', {
+  const tablesRes: UTablesAllResponse = await fetch('/api/peers/tables/all', {
     method: 'POST',
     body: JSON.stringify({
       peerName,
     }),
+    cache: 'no-store',
   }).then((res) => res.json());
   return tablesRes.tables;
+};
+
+export const handleValidateCDC = async (
+  flowJobName: string,
+  rows: TableMapRow[],
+  config: CDCConfig,
+  notify: (msg: string, ok?: boolean) => void,
+  setLoading: Dispatch<SetStateAction<boolean>>
+) => {
+  setLoading(true);
+  const err = CDCCheck(flowJobName, rows, config);
+  if (err != '') {
+    notify(err);
+    setLoading(false);
+    return;
+  }
+  const status = await fetch('/api/mirrors/cdc/validate', {
+    method: 'POST',
+    body: JSON.stringify({
+      config,
+    }),
+  })
+    .then((res) => res.json())
+    .catch((e) => console.log(e));
+  if (!status.ok) {
+    notify(status.message || 'Mirror is invalid');
+    setLoading(false);
+    return;
+  }
+  notify('CDC Mirror is valid', true);
+  setLoading(false);
+};
+
+export const fetchPublications = async (peerName: string) => {
+  const publicationsRes: UPublicationsResponse = await fetch(
+    '/api/peers/publications',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        peerName,
+      }),
+      cache: 'no-store',
+    }
+  ).then((res) => res.json());
+  return publicationsRes.publicationNames;
 };
