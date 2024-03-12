@@ -633,6 +633,19 @@ func (c *PostgresConnector) ConsolidateQRepPartitions(ctx context.Context, confi
 		if err != nil {
 			return fmt.Errorf("failed to drop %s: %v", dstTableName, err)
 		}
+
+		if config.SyncedAtColName != "" {
+			updateSyncedAtStmt := fmt.Sprintf(
+				`UPDATE %s SET %s = CURRENT_TIMESTAMP`,
+				tempTableIdentifier.Sanitize(),
+				QuoteIdentifier(config.SyncedAtColName),
+			)
+			_, err = tx.Exec(ctx, updateSyncedAtStmt)
+			if err != nil {
+				return fmt.Errorf("failed to update synced_at column: %v", err)
+			}
+		}
+
 		_, err = tx.Exec(ctx, fmt.Sprintf("ALTER TABLE %s RENAME TO %s",
 			tempTableIdentifier.Sanitize(), QuoteIdentifier(dstSchemaTable.Table)))
 		if err != nil {
@@ -640,17 +653,6 @@ func (c *PostgresConnector) ConsolidateQRepPartitions(ctx context.Context, confi
 				tempTableIdentifier.Sanitize(), dstTableIdentifier.Sanitize(), err)
 		}
 
-		// if config.SyncedAtColName != "" {
-		// 	updateSyncedAtStmt := fmt.Sprintf(
-		// 		`UPDATE %s SET %s = CURRENT_TIMESTAMP`,
-		// 		dstTableIdentifier.Sanitize(),
-		// 		QuoteIdentifier(config.SyncedAtColName),
-		// 	)
-		// 	_, err = tx.Exec(ctx, updateSyncedAtStmt)
-		// 	if err != nil {
-		// 		return fmt.Errorf("failed to update synced_at column: %v", err)
-		// 	}
-		// }
 	}
 
 	if constraintsHookExists {
