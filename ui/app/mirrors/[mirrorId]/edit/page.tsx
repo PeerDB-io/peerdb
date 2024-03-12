@@ -177,7 +177,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
       <Label variant='action' as='label' style={{ marginTop: '1rem' }}>
         Adding Tables
       </Label>
-      {!isNotPaused && rows.some((row) => row.selected === true) && (
+      {!isNotPaused && rows.some((row) => row.selected) && (
         <Callout
           title='Note on adding tables'
           color={'gray'}

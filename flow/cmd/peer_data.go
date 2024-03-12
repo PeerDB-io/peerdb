@@ -93,7 +93,7 @@ func (h *FlowRequestHandler) GetTablesInSchema(
         WHEN con.contype = 'p' OR t.relreplident = 'i' OR t.relreplident = 'f' THEN true
         ELSE false
     END AS can_mirror,
-	pg_size_pretty(pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(t.relname))) :: text AS table_size
+	pg_size_pretty(pg_total_relation_size(t.oid)) :: text AS table_size
 	FROM
 		pg_class t
 	LEFT JOIN

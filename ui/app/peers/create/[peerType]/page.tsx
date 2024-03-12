@@ -39,7 +39,6 @@ const notify = (msg: string, success?: boolean) => {
   } else {
     toast.error(msg, {
       position: 'bottom-center',
-      autoClose: 1000,
     });
   }
 };
@@ -52,7 +51,7 @@ export default function CreateConfig({
   const [name, setName] = useState<string>('');
   const [config, setConfig] = useState<PeerConfig>(blankSetting);
   const [loading, setLoading] = useState<boolean>(false);
-
+  const peerLabel = peerType.toUpperCase().replaceAll('%20', ' ');
   const getDBType = () => {
     if (peerType.includes('POSTGRESQL')) {
       return 'POSTGRES';
@@ -104,10 +103,10 @@ export default function CreateConfig({
     >
       <Panel style={{ rowGap: '0.5rem' }}>
         <Label variant='title3' as='label' style={{ marginBottom: '2rem' }}>
-          Setup a {TitleCase(peerType.toUpperCase().replace(/%20/g, ' '))} peer
+          Setup a {TitleCase(peerLabel)} peer
         </Label>
 
-        <GuideForDestinationSetup createPeerType={peerType} />
+        <GuideForDestinationSetup createPeerType={peerLabel} />
 
         <RowWithTextField
           label={
@@ -178,9 +177,9 @@ export default function CreateConfig({
               Validating...
             </Label>
           )}
-          <ToastContainer />
         </Panel>
       </Panel>
+      <ToastContainer style={{ minWidth: '20%' }} />
     </div>
   );
 }

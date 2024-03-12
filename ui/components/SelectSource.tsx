@@ -26,7 +26,7 @@ export default function SelectSource({
   peerType,
   setPeerType,
 }: SelectSourceProps) {
-  let dbTypes = Object.values(DBType)
+  const dbTypes = Object.values(DBType)
     .filter(
       (value): value is string =>
         typeof value === 'string' &&

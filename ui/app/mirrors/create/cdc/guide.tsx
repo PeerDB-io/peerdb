@@ -8,7 +8,7 @@ const GuideForDestinationSetup = ({
   createPeerType: string;
 }) => {
   const linkForDst = () => {
-    switch (peerType.toUpperCase().replace(/%20/g, ' ')) {
+    switch (peerType) {
       case 'SNOWFLAKE':
         return 'https://docs.peerdb.io/connect/snowflake';
       case 'BIGQUERY':
@@ -31,8 +31,7 @@ const GuideForDestinationSetup = ({
     <Label variant='body' as='label' style={{ marginBottom: '1rem' }}>
       We recommend going through our{' '}
       <Link style={{ color: 'teal' }} href={linkForDst()} target='_blank'>
-        setup guide for {TitleCase(peerType.toUpperCase().replace(/%20/g, ' '))}{' '}
-        destinations
+        setup guide for {TitleCase(peerType)} destinations
       </Link>
       .
     </Label>

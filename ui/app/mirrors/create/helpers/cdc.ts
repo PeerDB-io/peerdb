@@ -121,7 +121,7 @@ export const cdcSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,
-        softDelete: (value as boolean) || true,
+        softDelete: (value as boolean) ?? true,
       })),
     tips: 'Allows you to mark some records as deleted without actual erasure from the database',
     default: true,
@@ -133,7 +133,7 @@ export const cdcSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,
-        initialSnapshotOnly: (value as boolean) || false,
+        initialSnapshotOnly: (value as boolean) ?? false,
       })),
     tips: 'If set, PeerDB will only perform initial load and will not perform CDC sync.',
     type: 'switch',

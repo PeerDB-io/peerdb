@@ -1,12 +1,11 @@
 function TitleCase(input: string): string {
   return input
     .toLowerCase()
-    .replace(/(?:^|\s)\S/g, function (char) {
+    .replace(/\b\w/g, function (char) {
       return char.toUpperCase();
     })
-    .replace(/Postgresql/g, 'PostgreSQL')
-    .replace(/Postgresql/g, 'PostgreSQL')
-    .replace(/Rds/g, 'RDS');
+    .replaceAll('Postgresql', 'PostgreSQL')
+    .replaceAll('Rds', 'RDS');
 }
 
 export default TitleCase;
