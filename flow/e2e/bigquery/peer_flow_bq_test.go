@@ -643,7 +643,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-// TODO: not checking schema exactly, add later
+// TODO: not checking schema exactly
+// write a GetTableSchemaConnector for BQ to enable generic_test
 func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 	tc := e2e.NewTemporalClient(s.t)
 
