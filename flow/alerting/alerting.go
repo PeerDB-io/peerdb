@@ -52,10 +52,14 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 
 			alertSenderConfigs = append(alertSenderConfigs, AlertSenderConfig{Id: id, Sender: newSlackAlertSender(&slackServiceConfig)})
 		case EMAIL:
+			var replyToAddresses []string
+			if envString := strings.TrimSpace(peerdbenv.PeerDBAlertingEmailSenderReplyToAddresses()); len(envString) != 0 {
+				replyToAddresses = strings.Split(envString, ",")
+			}
 			emailServiceConfig := EmailAlertSenderConfig{
 				sourceEmail:          peerdbenv.PeerDBAlertingEmailSenderSourceEmail(),
 				configurationSetName: peerdbenv.PeerDBAlertingEmailSenderConfigurationSet(),
-				replyToAddresses:     strings.Split(peerdbenv.PeerDBAlertingEmailSenderReplyToAddresses(), ","),
+				replyToAddresses:     replyToAddresses,
 			}
 			if emailServiceConfig.sourceEmail == "" {
 				return errors.New("missing sourceEmail for Email alerting service")
