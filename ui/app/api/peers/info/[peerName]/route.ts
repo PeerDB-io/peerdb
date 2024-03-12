@@ -19,6 +19,7 @@ export async function GET(
   const s3Config = peerConfig.s3Config;
   const sfConfig = peerConfig.snowflakeConfig;
   const ehConfig = peerConfig.eventhubConfig;
+  const chConfig = peerConfig.clickhouseConfig;
   if (pgConfig) {
     pgConfig.password = '********';
     pgConfig.transactionSnapshot = '********';
@@ -36,6 +37,10 @@ export async function GET(
   }
   if (ehConfig) {
     ehConfig.subscriptionId = '********';
+  }
+  if (chConfig) {
+    chConfig.password = '********';
+    chConfig.secretAccessKey = '********';
   }
 
   return NextResponse.json(peerConfig);
