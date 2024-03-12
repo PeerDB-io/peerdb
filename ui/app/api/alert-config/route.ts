@@ -23,6 +23,7 @@ export async function POST(request: Request) {
   if (createRes.id) {
     createStatus = 'success';
   }
+
   return new Response(createStatus);
 }
 

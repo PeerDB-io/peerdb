@@ -8,10 +8,11 @@ import (
 	"unicode"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/aws/aws-sdk-go-v2/service/sns/types"
 	"go.temporal.io/sdk/activity"
+
+	"github.com/PeerDB-io/peer-flow/shared/aws_common"
 )
 
 type SNSMessageSender interface {
@@ -109,15 +110,10 @@ func NewSNSMessageSender(client *sns.Client, config *SNSMessageSenderConfig) SNS
 }
 
 func newSnsClient(ctx context.Context, region *string) (*sns.Client, error) {
-	sdkConfig, err := config.LoadDefaultConfig(ctx, func(options *config.LoadOptions) error {
-		if region != nil {
-			options.Region = *region
-		}
-		return nil
-	})
+	sdkConfig, err := aws_common.LoadSdkConfig(ctx, region)
 	if err != nil {
 		return nil, err
 	}
-	snsClient := sns.NewFromConfig(sdkConfig)
+	snsClient := sns.NewFromConfig(*sdkConfig)
 	return snsClient, nil
 }

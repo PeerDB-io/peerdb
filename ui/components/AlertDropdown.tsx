@@ -40,19 +40,16 @@ const AlertDropdown = ({
             borderRadius: '0.5rem',
           }}
         >
-          <DropdownMenu.Item>
-            <Button
-              variant='normalBorderless'
-              style={{ width: '100%', fontWeight: 'lighter' }}
-              onClick={onEdit}
-              disabled={disable}
-            >
-              Edit
-            </Button>
-          </DropdownMenu.Item>
-          <DropdownMenu.Item>
-            <DropDialog mode='ALERT' dropArgs={{ id: alertId }} />
-          </DropdownMenu.Item>
+          <Button
+            variant='normalBorderless'
+            style={{ width: '100%', fontWeight: 'lighter' }}
+            onClick={onEdit}
+            disabled={disable}
+          >
+            Edit
+          </Button>
+
+          <DropDialog mode='ALERT' dropArgs={{ id: alertId }} />
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
