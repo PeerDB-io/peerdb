@@ -607,7 +607,7 @@ func (c *PostgresConnector) ConsolidateQRepPartitions(ctx context.Context, confi
 	destinationTables := strings.Split(config.DestinationTableIdentifier, ";")
 
 	constraintsHookExists := true
-	_, err := c.conn.Exec(ctx, fmt.Sprintf("SELECT '_peerdb_post_run_hook_%s()'::regprocedure",
+	_, err := c.conn.Exec(ctx, fmt.Sprintf("SELECT '_peerdb_pre_run_hook_%s()'::regprocedure",
 		config.FlowJobName))
 	if err != nil {
 		constraintsHookExists = false
@@ -626,17 +626,29 @@ func (c *PostgresConnector) ConsolidateQRepPartitions(ctx context.Context, confi
 		}
 	}()
 
-	_, err = tx.Exec(ctx, "SET statement_timeout=0")
+	_, err = tx.Exec(ctx, "SET LOCAL statement_timeout=0")
 	if err != nil {
 		return fmt.Errorf("failed to set statement_timeout: %w", err)
 	}
-	_, err = tx.Exec(ctx, "SET idle_in_transaction_session_timeout=0")
+	_, err = tx.Exec(ctx, "SET LOCAL idle_in_transaction_session_timeout=0")
 	if err != nil {
 		return fmt.Errorf("failed to set idle_in_transaction_session_timeout: %w", err)
 	}
-	_, err = tx.Exec(ctx, "SET lock_timeout=0")
+	_, err = tx.Exec(ctx, "SET LOCAL lock_timeout='60s'")
 	if err != nil {
 		return fmt.Errorf("failed to set lock_timeout: %w", err)
+	}
+
+	if constraintsHookExists {
+		c.logger.Info("executing constraints hook", slog.String("procName",
+			fmt.Sprintf("_peerdb_pre_run_hook_%s()", config.FlowJobName)))
+		_, err = tx.Exec(ctx, fmt.Sprintf("SELECT _peerdb_pre_run_hook_%s()", config.FlowJobName))
+		if err != nil {
+			return fmt.Errorf("failed to execute stored procedure for applying constraints: %w", err)
+		}
+	} else {
+		c.logger.Info("no constraints hook found", slog.String("procName",
+			fmt.Sprintf("_peerdb_post_run_hook_%s()", config.FlowJobName)))
 	}
 
 	for _, dstTableName := range destinationTables {
@@ -651,38 +663,12 @@ func (c *PostgresConnector) ConsolidateQRepPartitions(ctx context.Context, confi
 		if err != nil {
 			return fmt.Errorf("failed to drop %s: %v", dstTableName, err)
 		}
-
-		if config.SyncedAtColName != "" {
-			updateSyncedAtStmt := fmt.Sprintf(
-				`UPDATE %s SET %s = CURRENT_TIMESTAMP`,
-				tempTableIdentifier.Sanitize(),
-				QuoteIdentifier(config.SyncedAtColName),
-			)
-			_, err = tx.Exec(ctx, updateSyncedAtStmt)
-			if err != nil {
-				return fmt.Errorf("failed to update synced_at column: %v", err)
-			}
-		}
-
 		_, err = tx.Exec(ctx, fmt.Sprintf("ALTER TABLE %s RENAME TO %s",
 			tempTableIdentifier.Sanitize(), QuoteIdentifier(dstSchemaTable.Table)))
 		if err != nil {
 			return fmt.Errorf("failed to rename %s to %s: %v",
 				tempTableIdentifier.Sanitize(), dstTableIdentifier.Sanitize(), err)
 		}
-
-	}
-
-	if constraintsHookExists {
-		c.logger.Info("executing constraints hook", slog.String("procName",
-			fmt.Sprintf("_peerdb_post_run_hook_%s()", config.FlowJobName)))
-		_, err = tx.Exec(ctx, fmt.Sprintf("SELECT _peerdb_post_run_hook_%s()", config.FlowJobName))
-		if err != nil {
-			return fmt.Errorf("failed to execute stored procedure for applying constraints: %w", err)
-		}
-	} else {
-		c.logger.Info("no constraints hook found", slog.String("procName",
-			fmt.Sprintf("_peerdb_post_run_hook_%s()", config.FlowJobName)))
 	}
 
 	err = tx.Commit(ctx)

@@ -138,6 +138,7 @@ func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Contex
 			TableNameSchemaMapping: dstTableNameSchemaMapping,
 			SyncedAtColName:        q.config.SyncedAtColName,
 			FlowName:               q.config.FlowJobName,
+			AttemptDrop:            true,
 		}
 
 		future := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)

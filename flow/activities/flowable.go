@@ -190,6 +190,16 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 	tableExistsMapping := make(map[string]bool)
 	for tableIdentifier, tableSchema := range config.TableNameSchemaMapping {
+		if config.AttemptDrop && config.PeerConnectionConfig.Type == protos.DBType_POSTGRES {
+			parsedNormalizedTable, err := utils.ParseSchemaTable(tableIdentifier)
+			if err != nil {
+				return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
+			}
+			_, err = tx.(pgx.Tx).Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", parsedNormalizedTable.String()))
+			if err != nil {
+				return nil, fmt.Errorf("error while attempting to drop normalized table: %w", err)
+			}
+		}
 		existing, err := conn.SetupNormalizedTable(
 			ctx,
 			tx,
