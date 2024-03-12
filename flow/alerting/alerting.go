@@ -243,6 +243,10 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId i
 		}
 		return true
 	}
+
+	logger.LoggerFromCtx(ctx).Info(
+		fmt.Sprintf("Skipeed sending alerts: last alert was sent at %s, which was >=%s ago",
+			createdTimestamp.String(), dur.String()))
 	return false
 }
 
