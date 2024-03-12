@@ -54,7 +54,7 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 		case EMAIL:
 			var replyToAddresses []string
 			if replyToEnvString := strings.TrimSpace(
-				peerdbenv.PeerDBAlertingEmailSenderReplyToAddresses()); len(replyToEnvString) != 0 {
+				peerdbenv.PeerDBAlertingEmailSenderReplyToAddresses()); replyToEnvString != "" {
 				replyToAddresses = strings.Split(replyToEnvString, ",")
 			}
 			emailServiceConfig := EmailAlertSenderConfig{
