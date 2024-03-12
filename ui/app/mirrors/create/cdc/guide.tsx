@@ -1,10 +1,11 @@
+import TitleCase from '@/app/utils/titlecase';
 import { Label } from '@/lib/Label';
 import Link from 'next/link';
 
 const GuideForDestinationSetup = ({
-  dstPeerType: peerType,
+  createPeerType: peerType,
 }: {
-  dstPeerType: string;
+  createPeerType: string;
 }) => {
   const linkForDst = () => {
     switch (peerType) {
@@ -12,18 +13,25 @@ const GuideForDestinationSetup = ({
         return 'https://docs.peerdb.io/connect/snowflake';
       case 'BIGQUERY':
         return 'https://docs.peerdb.io/connect/bigquery';
+      case 'RDS POSTGRESQL':
+      case 'POSTGRESQL':
+        return 'https://docs.peerdb.io/connect/rds_postgres';
+      case 'AZURE FLEXIBLE POSTGRESQL':
+        return 'https://docs.peerdb.io/connect/azure_flexible_server_postgres';
+      case 'GOOGLE CLOUD POSTGRESQL':
+        return 'https://docs.peerdb.io/connect/cloudsql_postgres';
       default:
-        return 'https://docs.peerdb.io/';
+        return '';
     }
   };
-  if (peerType != 'SNOWFLAKE' && peerType != 'BIGQUERY') {
+  if (linkForDst() == '') {
     return <></>;
   }
   return (
     <Label variant='body' as='label' style={{ marginBottom: '1rem' }}>
       We recommend going through our{' '}
       <Link style={{ color: 'teal' }} href={linkForDst()} target='_blank'>
-        setup guide for {peerType.toLowerCase()} destinations
+        setup guide for {TitleCase(peerType)} destinations
       </Link>
       .
     </Label>

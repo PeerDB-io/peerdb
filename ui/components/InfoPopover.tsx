@@ -3,9 +3,11 @@ import * as Popover from '@radix-ui/react-popover';
 export const InfoPopover = ({
   tips,
   link,
+  command,
 }: {
   tips: string;
   link?: string;
+  command?: string;
 }) => {
   return (
     <Popover.Root modal={true}>
@@ -31,7 +33,7 @@ export const InfoPopover = ({
             }}
           >
             {tips.split('.').map((sentence, index) => (
-              <p className='Text' style={{ fontSize: 13 }} key={index}>
+              <p className='Text' style={{ fontSize: 16 }} key={index}>
                 {sentence.trim()}
               </p>
             ))}
@@ -41,10 +43,28 @@ export const InfoPopover = ({
                 href={link}
                 rel='noreferrer'
                 target='_blank'
-                style={{ color: '#0070f3', fontSize: 13 }}
+                style={{ color: '#0070f3', fontSize: 16 }}
               >
                 Click here for more info.
               </a>
+            )}
+
+            {command && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  marginTop: '0.5rem',
+                }}
+              >
+                <p>
+                  You can use the below command to create a publication for all
+                  tables:
+                </p>
+                <pre style={{ fontSize: 16 }}>
+                  <code>{command}</code>
+                </pre>
+              </div>
             )}
           </div>
         </Popover.Content>
