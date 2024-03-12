@@ -62,7 +62,7 @@ export const ResyncDialog = ({
       noInteract={true}
       size='xLarge'
       triggerButton={
-        <Button variant='normalSolid' style={{ height: '2em', width: '8em' }}>
+        <Button variant='blue' style={{ height: '2em', width: '8em' }}>
           Resync
         </Button>
       }

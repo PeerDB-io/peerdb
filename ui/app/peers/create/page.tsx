@@ -38,6 +38,7 @@ export default function CreatePeer() {
           icon={<Icon name='help' />}
           href='https://docs.peerdb.io/sql/commands/create-peer'
           target='_blank'
+          style={{ width: 'fit-content' }}
         >
           Learn about peers
         </Action>
