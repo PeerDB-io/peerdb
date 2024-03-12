@@ -436,6 +436,7 @@ func generateCreateTableSQLForNormalizedTable(
 ) string {
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns)+2)
 	for _, column := range sourceTableSchema.Columns {
+		colName := utils.PostgresIdentifierNormalize(column.Name)
 		pgColumnType := qValueKindToPostgresType(column.Type)
 		if column.Type == "numeric" {
 			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
@@ -444,7 +445,7 @@ func generateCreateTableSQLForNormalizedTable(
 			}
 		}
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf("%s %s", QuoteIdentifier(column.Name), pgColumnType))
+			fmt.Sprintf("%s %s", QuoteIdentifier(colName), pgColumnType))
 	}
 
 	if softDeleteColName != "" {
@@ -461,7 +462,8 @@ func generateCreateTableSQLForNormalizedTable(
 	if len(sourceTableSchema.PrimaryKeyColumns) > 0 {
 		primaryKeyColsQuoted := make([]string, 0, len(sourceTableSchema.PrimaryKeyColumns))
 		for _, primaryKeyCol := range sourceTableSchema.PrimaryKeyColumns {
-			primaryKeyColsQuoted = append(primaryKeyColsQuoted, QuoteIdentifier(primaryKeyCol))
+			pkeyColName := utils.PostgresIdentifierNormalize(primaryKeyCol)
+			primaryKeyColsQuoted = append(primaryKeyColsQuoted, QuoteIdentifier(pkeyColName))
 		}
 		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s)",
 			strings.Join(primaryKeyColsQuoted, ",")))
