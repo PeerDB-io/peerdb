@@ -53,9 +53,9 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 			alertSenderConfigs = append(alertSenderConfigs, AlertSenderConfig{Id: id, Sender: newSlackAlertSender(&slackServiceConfig)})
 		case EMAIL:
 			var replyToAddresses []string
-			if envString := strings.TrimSpace(
-				peerdbenv.PeerDBAlertingEmailSenderReplyToAddresses()); len(envString) != 0 {
-				replyToAddresses = strings.Split(envString, ",")
+			if replyToEnvString := strings.TrimSpace(
+				peerdbenv.PeerDBAlertingEmailSenderReplyToAddresses()); len(replyToEnvString) != 0 {
+				replyToAddresses = strings.Split(replyToEnvString, ",")
 			}
 			emailServiceConfig := EmailAlertSenderConfig{
 				sourceEmail:          peerdbenv.PeerDBAlertingEmailSenderSourceEmail(),
