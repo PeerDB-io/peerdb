@@ -55,7 +55,9 @@ const TableMapping = ({
           style={{ color: 'teal' }}
           target='_blank'
           href={
-            'https://docs.peerdb.io/connect/rds_postgres#creating-peerdb-user-and-granting-permissions'
+            peerType?.valueOf() === DBType.SNOWFLAKE.valueOf()
+              ? 'https://docs.peerdb.io/connect/snowflake#setup-roles-and-permissions'
+              : 'https://docs.peerdb.io/connect/rds_postgres#creating-peerdb-user-and-granting-permissions'
           }
         >
           these permissions
