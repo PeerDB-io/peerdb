@@ -30,30 +30,22 @@ export async function GET(
       break;
   }
 
-  const lagPoints = await prisma.peer_slot_size.findMany({
-    select: {
-      updated_at: true,
-      slot_size: true,
-    },
-    where: {
-      slot_name: context.params.name,
-      updated_at: {
-        gte: new Date(Date.now() - forThePastThisMuchTime),
-      },
-    },
-  });
+  const lagPoints = await prisma.$queryRaw<
+    { updated_at: Date; slot_size: bigint }[]
+  >`
+    select updated_at, slot_size
+    from peerdb_stats.peer_slot_size
+    where slot_size is not null
+      and slot_name = ${context.params.name}
+      and updated_at > ${new Date(Date.now() - forThePastThisMuchTime)}
+    order by random()
+    limit 720
+  `;
 
-  // convert slot_size to string
-  const stringedLagPoints: SlotLagPoint[] = lagPoints.map((lagPoint) => {
-    return {
-      // human readable
-      updatedAt:
-        lagPoint.updated_at.toDateString() +
-        ' ' +
-        lagPoint.updated_at.toLocaleTimeString(),
-      slotSize: lagPoint.slot_size?.toString(),
-    };
-  });
+  const slotLagPoints: SlotLagPoint[] = lagPoints.map((lagPoint) => ({
+    updatedAt: +lagPoint.updated_at,
+    slotSize: Number(lagPoint.slot_size) / 1000,
+  }));
 
-  return NextResponse.json(stringedLagPoints);
+  return NextResponse.json(slotLagPoints);
 }
