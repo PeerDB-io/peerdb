@@ -905,7 +905,7 @@ func (c *SnowflakeConnector) getTableSchemaForTable(ctx context.Context, tableNa
 	colFields := make([]*protos.FieldDescription, 0, len(qRecordSchema.Fields))
 	for _, field := range qRecordSchema.Fields {
 		colFields = append(colFields, &protos.FieldDescription{
-			Name:         field.Name,
+			Name:         utils.PostgresIdentifierNormalize(field.Name),
 			Type:         string(field.Type),
 			TypeModifier: numeric.MakeNumericTypmod(int32(field.Precision), int32(field.Scale)),
 		})
