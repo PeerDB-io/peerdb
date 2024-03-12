@@ -52,10 +52,15 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 
 			alertSenderConfigs = append(alertSenderConfigs, AlertSenderConfig{Id: id, Sender: newSlackAlertSender(&slackServiceConfig)})
 		case EMAIL:
+			var replyToAddresses []string
+			if envReplyToAddresses := strings.Split(peerdbenv.PeerDBAlertingEmailSenderReplyToAddresses(), ","); len(envReplyToAddresses) != 0 {
+				// AWS SDK does not like empty slice
+				replyToAddresses = envReplyToAddresses
+			}
 			emailServiceConfig := EmailAlertSenderConfig{
 				sourceEmail:          peerdbenv.PeerDBAlertingEmailSenderSourceEmail(),
 				configurationSetName: peerdbenv.PeerDBAlertingEmailSenderConfigurationSet(),
-				replyToAddresses:     strings.Split(peerdbenv.PeerDBAlertingEmailSenderReplyToAddresses(), ","),
+				replyToAddresses:     replyToAddresses,
 			}
 			if emailServiceConfig.sourceEmail == "" {
 				return errors.New("missing sourceEmail for Email alerting service")
