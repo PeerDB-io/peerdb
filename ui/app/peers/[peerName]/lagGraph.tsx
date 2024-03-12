@@ -10,16 +10,20 @@ import ReactSelect from 'react-select';
 import { useLocalStorage } from 'usehooks-ts';
 
 function LagGraph({ slotNames }: { slotNames: string[] }) {
+  const [mounted, setMounted] = useState(false);
   const [lagPoints, setLagPoints] = useState<
     { time: string; 'Lag in GB': number }[]
   >([]);
   const [defaultSlot, setDefaultSlot] = useLocalStorage('defaultSlot', '');
   const [selectedSlot, setSelectedSlot] = useState<string>(defaultSlot);
+  const [loading, setLoading] = useState(false);
   let [timeSince, setTimeSince] = useState('hour');
   const fetchLagPoints = useCallback(async () => {
     if (selectedSlot == '') {
       return;
     }
+
+    setLoading(true);
     const pointsRes = await fetch(
       `/api/peers/slots/${selectedSlot}?timeSince=${timeSince}`,
       {
@@ -35,6 +39,7 @@ function LagGraph({ slotNames }: { slotNames: string[] }) {
           'Lag in GB': data.slotSize,
         }))
     );
+    setLoading(false);
   }, [selectedSlot, timeSince]);
 
   const handleChange = (val: string) => {
@@ -42,12 +47,8 @@ function LagGraph({ slotNames }: { slotNames: string[] }) {
     setSelectedSlot(val);
   };
 
-  const [mounted, setMounted] = useState(false);
   useEffect(() => {
     setMounted(true);
-  }, []);
-
-  useEffect(() => {
     fetchLagPoints();
   }, [fetchLagPoints]);
 
@@ -103,13 +104,20 @@ function LagGraph({ slotNames }: { slotNames: string[] }) {
           theme={SelectTheme}
         />
       </div>
-      <LineChart
-        index='time'
-        data={lagPoints}
-        categories={['Lag in GB']}
-        colors={['rose']}
-        showXAxis={false}
-      />
+      {loading ? (
+        <center>
+          <Label>Updating slot graph</Label>
+          <ProgressCircle variant='determinate_progress_circle' />
+        </center>
+      ) : (
+        <LineChart
+          index='time'
+          data={lagPoints}
+          categories={['Lag in GB']}
+          colors={['rose']}
+          showXAxis={false}
+        />
+      )}
     </div>
   );
 }
