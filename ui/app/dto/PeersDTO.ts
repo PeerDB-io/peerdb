@@ -53,8 +53,8 @@ export type CatalogPeer = {
 export type PeerSetter = React.Dispatch<React.SetStateAction<PeerConfig>>;
 
 export type SlotLagPoint = {
-  updatedAt: string;
-  slotSize?: string;
+  updatedAt: number;
+  slotSize: number;
 };
 
 export type UPublicationsResponse = {
