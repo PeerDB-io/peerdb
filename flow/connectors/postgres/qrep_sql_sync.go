@@ -109,7 +109,11 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		}
 	} else if writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
 		tempTableIdentifier := pgx.Identifier{dstTableName.Schema, dstTableName.Table}
-		_, err = tx.CopyFrom(ctx, tempTableIdentifier, schema.GetColumnNames(), copySource)
+		normalizedColNames := make([]string, 0, len(schema.GetColumnNames()))
+		for _, colName := range schema.GetColumnNames() {
+			normalizedColNames = append(normalizedColNames, utils.PostgresIdentifierNormalize(colName))
+		}
+		_, err = tx.CopyFrom(ctx, tempTableIdentifier, normalizedColNames, copySource)
 		if err != nil {
 			return -1, fmt.Errorf("failed to copy records into %s: %v", tempTableIdentifier, err)
 		}
