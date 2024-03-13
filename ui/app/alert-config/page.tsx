@@ -83,8 +83,8 @@ const AlertConfigPage: React.FC = () => {
           <div>
             <Label>
               PeerDB has a built-in alerting feature to update you on your
-              mirrors. Here you can configure your Slack for PeerDB to send
-              alerts.
+              mirrors. Here you can configure your Alert Provider for PeerDB to
+              send alerts.
             </Label>
           </div>
           <div style={{ ...tableStyle, marginTop: '2rem', maxHeight: '25em' }}>
