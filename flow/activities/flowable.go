@@ -410,6 +410,7 @@ func (a *FlowableActivity) SyncFlow(
 	logger.Info(fmt.Sprintf("pushed %d records in %d seconds", numRecords, int(syncDuration.Seconds())))
 
 	lastCheckpoint := recordBatch.GetLastCheckpoint()
+	srcConn.UpdateReplStateLastOffset(lastCheckpoint)
 
 	err = monitoring.UpdateNumRowsAndEndLSNForCDCBatch(
 		ctx,
