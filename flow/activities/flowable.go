@@ -346,7 +346,11 @@ func (a *FlowableActivity) SyncFlow(
 		err = errGroup.Wait()
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, flowName, err)
-			return nil, fmt.Errorf("failed in pull records when: %w", err)
+			if temporal.IsApplicationError(err) {
+				return nil, err
+			} else {
+				return nil, fmt.Errorf("failed in pull records when: %w", err)
+			}
 		}
 		logger.Info("no records to push")
 
@@ -401,7 +405,11 @@ func (a *FlowableActivity) SyncFlow(
 	err = errGroup.Wait()
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
-		return nil, fmt.Errorf("failed to pull records: %w", err)
+		if temporal.IsApplicationError(err) {
+			return nil, err
+		} else {
+			return nil, fmt.Errorf("failed to pull records: %w", err)
+		}
 	}
 
 	numRecords := res.NumRecordsSynced
