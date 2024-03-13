@@ -308,6 +308,7 @@ func (c *PostgresConnector) SetLastOffset(ctx context.Context, jobName string, l
 func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpool.Pool, req *model.PullRecordsRequest) error {
 	defer func() {
 		req.RecordStream.Close()
+		c.replState.Offset = req.RecordStream.GetLastCheckpoint()
 	}()
 
 	// Slotname would be the job name prefixed with "peerflow_slot_"
@@ -370,9 +371,6 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 		c.logger.Error("error pulling records", slog.Any("error", err))
 		return err
 	}
-
-	req.RecordStream.Close()
-	c.replState.Offset = req.RecordStream.GetLastCheckpoint()
 
 	latestLSN, err := c.getCurrentLSN(ctx)
 	if err != nil {
