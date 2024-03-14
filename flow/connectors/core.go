@@ -27,11 +27,16 @@ type Connector interface {
 	ConnectionActive(context.Context) error
 }
 
-type CDCPullConnector interface {
+type GetTableSchemaConnector interface {
 	Connector
 
 	// GetTableSchema returns the schema of a table.
 	GetTableSchema(ctx context.Context, req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error)
+}
+
+type CDCPullConnector interface {
+	Connector
+	GetTableSchemaConnector
 
 	// EnsurePullability ensures that the connector is pullable.
 	EnsurePullability(ctx context.Context, req *protos.EnsurePullabilityBatchInput) (
@@ -254,6 +259,9 @@ var (
 	_ CDCNormalizeConnector = &connbigquery.BigQueryConnector{}
 	_ CDCNormalizeConnector = &connsnowflake.SnowflakeConnector{}
 	_ CDCNormalizeConnector = &connclickhouse.ClickhouseConnector{}
+
+	_ GetTableSchemaConnector = &connpostgres.PostgresConnector{}
+	_ GetTableSchemaConnector = &connsnowflake.SnowflakeConnector{}
 
 	_ NormalizedTablesConnector = &connpostgres.PostgresConnector{}
 	_ NormalizedTablesConnector = &connbigquery.BigQueryConnector{}

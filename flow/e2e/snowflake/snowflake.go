@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/e2e"
@@ -33,6 +34,10 @@ func (s PeerFlowE2ETestSuiteSF) T() *testing.T {
 
 func (s PeerFlowE2ETestSuiteSF) Connector() *connpostgres.PostgresConnector {
 	return s.conn
+}
+
+func (s PeerFlowE2ETestSuiteSF) DestinationConnector() connectors.Connector {
+	return s.connector
 }
 
 func (s PeerFlowE2ETestSuiteSF) Conn() *pgx.Conn {
