@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -49,6 +50,7 @@ type ReplState struct {
 	Slot        string
 	Publication string
 	Offset      int64
+	LastOffset  atomic.Int64
 }
 
 func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
@@ -133,7 +135,7 @@ func (c *PostgresConnector) ReplPing(ctx context.Context) error {
 			return pglogrepl.SendStandbyStatusUpdate(
 				ctx,
 				c.replConn.PgConn(),
-				pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(c.replState.Offset)},
+				pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(c.replState.LastOffset.Load())},
 			)
 		}
 	}
@@ -184,7 +186,9 @@ func (c *PostgresConnector) MaybeStartReplication(
 			Slot:        slotName,
 			Publication: publicationName,
 			Offset:      req.LastOffset,
+			LastOffset:  atomic.Int64{},
 		}
+		c.replState.LastOffset.Store(req.LastOffset)
 	}
 	return nil
 }
@@ -308,6 +312,9 @@ func (c *PostgresConnector) SetLastOffset(ctx context.Context, jobName string, l
 func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpool.Pool, req *model.PullRecordsRequest) error {
 	defer func() {
 		req.RecordStream.Close()
+		if c.replState != nil {
+			c.replState.Offset = req.RecordStream.GetLastCheckpoint()
+		}
 	}()
 
 	// Slotname would be the job name prefixed with "peerflow_slot_"
@@ -371,9 +378,6 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 		return err
 	}
 
-	req.RecordStream.Close()
-	c.replState.Offset = req.RecordStream.GetLastCheckpoint()
-
 	latestLSN, err := c.getCurrentLSN(ctx)
 	if err != nil {
 		c.logger.Error("error getting current LSN", slog.Any("error", err))
@@ -387,6 +391,12 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 	}
 
 	return nil
+}
+
+func (c *PostgresConnector) UpdateReplStateLastOffset(lastOffset int64) {
+	if c.replState != nil {
+		c.replState.LastOffset.Store(lastOffset)
+	}
 }
 
 // SyncRecords pushes records to the destination.

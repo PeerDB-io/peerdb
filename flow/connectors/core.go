@@ -59,6 +59,9 @@ type CDCPullConnector interface {
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
 	PullRecords(ctx context.Context, catalogPool *pgxpool.Pool, req *model.PullRecordsRequest) error
 
+	// Called when offset has been confirmed to destination
+	UpdateReplStateLastOffset(lastOffset int64)
+
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(ctx context.Context, jobName string) error
 

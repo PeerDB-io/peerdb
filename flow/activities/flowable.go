@@ -287,7 +287,6 @@ func (a *FlowableActivity) SyncFlow(
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
-	logger.Info("pulling records...")
 	tblNameMapping := make(map[string]model.NameAndExclude, len(options.TableMappings))
 	for _, v := range options.TableMappings {
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
@@ -315,6 +314,7 @@ func (a *FlowableActivity) SyncFlow(
 	if err != nil {
 		return nil, err
 	}
+	logger.Info("pulling records...", slog.Int64("LastOffset", lastOffset))
 
 	// start a goroutine to pull records from the source
 	recordBatch := model.NewCDCRecordStream()
@@ -346,7 +346,11 @@ func (a *FlowableActivity) SyncFlow(
 		err = errGroup.Wait()
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, flowName, err)
-			return nil, fmt.Errorf("failed in pull records when: %w", err)
+			if temporal.IsApplicationError(err) {
+				return nil, err
+			} else {
+				return nil, fmt.Errorf("failed in pull records when: %w", err)
+			}
 		}
 		logger.Info("no records to push")
 
@@ -401,7 +405,11 @@ func (a *FlowableActivity) SyncFlow(
 	err = errGroup.Wait()
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
-		return nil, fmt.Errorf("failed to pull records: %w", err)
+		if temporal.IsApplicationError(err) {
+			return nil, err
+		} else {
+			return nil, fmt.Errorf("failed to pull records: %w", err)
+		}
 	}
 
 	numRecords := res.NumRecordsSynced
@@ -410,6 +418,7 @@ func (a *FlowableActivity) SyncFlow(
 	logger.Info(fmt.Sprintf("pushed %d records in %d seconds", numRecords, int(syncDuration.Seconds())))
 
 	lastCheckpoint := recordBatch.GetLastCheckpoint()
+	srcConn.UpdateReplStateLastOffset(lastCheckpoint)
 
 	err = monitoring.UpdateNumRowsAndEndLSNForCDCBatch(
 		ctx,
