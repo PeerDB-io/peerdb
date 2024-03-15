@@ -28,29 +28,33 @@ func SyncFlowWorkflow(
 	parent := workflow.GetInfo(ctx).ParentWorkflowExecution
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
-	sessionOptions := &workflow.SessionOptions{
-		CreationTimeout:  5 * time.Minute,
-		ExecutionTimeout: 144 * time.Hour,
-		HeartbeatTimeout: time.Minute,
-	}
-	syncSessionCtx, err := workflow.CreateSession(ctx, sessionOptions)
-	if err != nil {
-		return err
-	}
-	defer workflow.CompleteSession(syncSessionCtx)
-	sessionInfo := workflow.GetSessionInfo(syncSessionCtx)
+	var fMaintain workflow.Future
+	var sessionID string
+	if !peerdbenv.PeerDBDisableOneSync() {
+		sessionOptions := &workflow.SessionOptions{
+			CreationTimeout:  5 * time.Minute,
+			ExecutionTimeout: 144 * time.Hour,
+			HeartbeatTimeout: time.Minute,
+		}
+		syncSessionCtx, err := workflow.CreateSession(ctx, sessionOptions)
+		if err != nil {
+			return err
+		}
+		defer workflow.CompleteSession(syncSessionCtx)
+		sessionID = workflow.GetSessionInfo(syncSessionCtx).SessionID
 
-	maintainCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
-		StartToCloseTimeout: 14 * 24 * time.Hour,
-		HeartbeatTimeout:    time.Minute,
-		WaitForCancellation: true,
-	})
-	fMaintain := workflow.ExecuteActivity(
-		maintainCtx,
-		flowable.MaintainPull,
-		config,
-		sessionInfo.SessionID,
-	)
+		maintainCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
+			StartToCloseTimeout: 14 * 24 * time.Hour,
+			HeartbeatTimeout:    time.Minute,
+			WaitForCancellation: true,
+		})
+		fMaintain = workflow.ExecuteActivity(
+			maintainCtx,
+			flowable.MaintainPull,
+			config,
+			sessionID,
+		)
+	}
 
 	var stop, syncErr bool
 	currentSyncFlowNum := 0
@@ -58,13 +62,15 @@ func SyncFlowWorkflow(
 
 	selector := workflow.NewNamedSelector(ctx, "SyncLoop")
 	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
-	selector.AddFuture(fMaintain, func(f workflow.Future) {
-		err := f.Get(ctx, nil)
-		if err != nil {
-			logger.Error("MaintainPull failed", slog.Any("error", err))
-			syncErr = true
-		}
-	})
+	if fMaintain != nil {
+		selector.AddFuture(fMaintain, func(f workflow.Future) {
+			err := f.Get(ctx, nil)
+			if err != nil {
+				logger.Error("MaintainPull failed", slog.Any("error", err))
+				syncErr = true
+			}
+		})
+	}
 
 	stopChan := model.SyncStopSignal.GetSignalChannel(ctx)
 	stopChan.AddToSelector(selector, func(_ struct{}, _ bool) {
@@ -100,7 +106,7 @@ func SyncFlowWorkflow(
 			WaitForCancellation: true,
 		})
 
-		syncFlowFuture := workflow.ExecuteActivity(syncFlowCtx, flowable.SyncFlow, config, options, sessionInfo.SessionID)
+		syncFlowFuture := workflow.ExecuteActivity(syncFlowCtx, flowable.SyncFlow, config, options, sessionID)
 		selector.AddFuture(syncFlowFuture, func(f workflow.Future) {
 			syncDone = true
 

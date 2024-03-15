@@ -292,12 +292,21 @@ func (a *FlowableActivity) SyncFlow(
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
 	}
 
-	srcConn, err := a.waitForCdcCache(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	if err := srcConn.ConnectionActive(ctx); err != nil {
-		return nil, temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", nil)
+	var srcConn connectors.CDCPullConnector
+	if sessionID == "" {
+		srcConn, err = connectors.GetCDCPullConnector(ctx, config.Source)
+		if err != nil {
+			return nil, err
+		}
+		defer connectors.CloseConnector(ctx, srcConn)
+	} else {
+		srcConn, err = a.waitForCdcCache(ctx, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		if err := srcConn.ConnectionActive(ctx); err != nil {
+			return nil, temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", nil)
+		}
 	}
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
