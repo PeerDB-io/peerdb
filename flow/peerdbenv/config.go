@@ -91,6 +91,10 @@ func PeerDBEnableParallelSyncNormalize() bool {
 	return getEnvBool("PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE", false)
 }
 
+func PeerDBSnowflakeMergeParallelism() int {
+	return getEnvInt("PEERDB_SNOWFLAKE_MERGE_PARALLELISM", 8)
+}
+
 // PEERDB_TELEMETRY_AWS_SNS_TOPIC_ARN
 func PeerDBTelemetryAWSSNSTopicArn() string {
 	return getEnvString("PEERDB_TELEMETRY_AWS_SNS_TOPIC_ARN", "")
