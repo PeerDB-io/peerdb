@@ -299,6 +299,10 @@ func (a *FlowableActivity) SyncFlow(
 			return nil, err
 		}
 		defer connectors.CloseConnector(ctx, srcConn)
+
+		if err := srcConn.SetupReplConn(ctx); err != nil {
+			return nil, err
+		}
 	} else {
 		srcConn, err = a.waitForCdcCache(ctx, sessionID)
 		if err != nil {
