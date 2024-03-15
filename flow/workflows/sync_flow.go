@@ -28,9 +28,12 @@ func SyncFlowWorkflow(
 	parent := workflow.GetInfo(ctx).ParentWorkflowExecution
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
+	enableOneSync := GetSideEffect(ctx, func(_ workflow.Context) bool {
+		return !peerdbenv.PeerDBDisableOneSync()
+	})
 	var fMaintain workflow.Future
 	var sessionID string
-	if !peerdbenv.PeerDBDisableOneSync() {
+	if enableOneSync {
 		sessionOptions := &workflow.SessionOptions{
 			CreationTimeout:  5 * time.Minute,
 			ExecutionTimeout: 144 * time.Hour,
