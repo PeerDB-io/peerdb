@@ -118,14 +118,9 @@ func getTransformSQL(colNames []string, colTypes []string, syncedAtCol string) (
 
 // copy to either the actual destination table or a tempTable
 func (s *SnowflakeAvroConsolidateHandler) getCopyTransformation(copyDstTable string) string {
-	copyOpts := []string{
-		"FILE_FORMAT = (TYPE = AVRO)",
-		"PURGE = TRUE",
-		"ON_ERROR = 'CONTINUE'",
-	}
 	transformationSQL, columnsSQL := getTransformSQL(s.allColNames, s.allColTypes, s.config.SyncedAtColName)
-	return fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) %s",
-		copyDstTable, columnsSQL, transformationSQL, s.stage, strings.Join(copyOpts, ","))
+	return fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) FILE_FORMAT=(TYPE=AVRO), PURGE=TRUE",
+		copyDstTable, columnsSQL, transformationSQL, s.stage)
 }
 
 func (s *SnowflakeAvroConsolidateHandler) handleAppendMode(ctx context.Context) error {
