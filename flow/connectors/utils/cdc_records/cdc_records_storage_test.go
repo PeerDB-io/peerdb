@@ -3,10 +3,10 @@ package cdc_records
 import (
 	"crypto/rand"
 	"log/slog"
-	"math/big"
 	"testing"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peer-flow/model"
@@ -27,9 +27,9 @@ func getTimeForTesting(t *testing.T) time.Time {
 	return tv
 }
 
-func getRatForTesting(t *testing.T) *big.Rat {
+func getDecimalForTesting(t *testing.T) decimal.Decimal {
 	t.Helper()
-	return big.NewRat(123456789, 987654321)
+	return decimal.New(9876543210, 123)
 }
 
 func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record) {
@@ -40,7 +40,7 @@ func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record) {
 	require.NoError(t, err)
 
 	tv := getTimeForTesting(t)
-	rv := getRatForTesting(t)
+	rv := getDecimalForTesting(t)
 
 	key := model.TableWithPkey{
 		TableName:  "test_src_tbl",
@@ -126,7 +126,7 @@ func TestRecordsTillSpill(t *testing.T) {
 	require.NoError(t, cdcRecordsStore.Close())
 }
 
-func TestTimeAndRatEncoding(t *testing.T) {
+func TestTimeAndDecimalEncoding(t *testing.T) {
 	t.Parallel()
 
 	cdcRecordsStore := NewCDCRecordsStore("test_time_encoding")

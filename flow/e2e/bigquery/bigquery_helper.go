@@ -12,6 +12,7 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/civil"
+	"github.com/shopspring/decimal"
 	"google.golang.org/api/iterator"
 
 	peer_bq "github.com/PeerDB-io/peer-flow/connectors/bigquery"
@@ -227,7 +228,11 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 	case time.Time:
 		return qvalue.QValue{Kind: qvalue.QValueKindTimestamp, Value: v}, nil
 	case *big.Rat:
-		return qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: v}, nil
+		val, err := decimal.NewFromString(v.FloatString(32))
+		if err != nil {
+			return qvalue.QValue{}, fmt.Errorf("bqHelper failed to parse as decimal %v", v)
+		}
+		return qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: val}, nil
 	case []uint8:
 		return qvalue.QValue{Kind: qvalue.QValueKindBytes, Value: v}, nil
 	case []bigquery.Value:

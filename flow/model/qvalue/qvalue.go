@@ -14,6 +14,7 @@ import (
 	"cloud.google.com/go/civil"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/shopspring/decimal"
 	geom "github.com/twpayne/go-geos"
 
 	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
@@ -235,18 +236,14 @@ func compareBytes(value1, value2 interface{}) bool {
 }
 
 func compareNumeric(value1, value2 interface{}) bool {
-	rat1, ok1 := getRat(value1)
-	rat2, ok2 := getRat(value2)
+	num1, ok1 := getDecimal(value1)
+	num2, ok2 := getDecimal(value2)
 
 	if !ok1 || !ok2 {
 		return false
 	}
 
-	if rat1 == nil && rat2 == nil {
-		return true
-	}
-
-	return rat1.Cmp(rat2) == 0
+	return num1.Equal(num2)
 }
 
 func compareString(value1, value2 interface{}) bool {
@@ -503,8 +500,8 @@ func getInt16(v interface{}) (int16, bool) {
 		return int16(value), true
 	case int64:
 		return int16(value), true
-	case *big.Rat:
-		return int16(value.Num().Int64()), true
+	case decimal.Decimal:
+		return int16(value.IntPart()), true
 	case string:
 		parsed, err := strconv.ParseInt(value, 10, 16)
 		if err == nil {
@@ -520,8 +517,8 @@ func getInt32(v interface{}) (int32, bool) {
 		return value, true
 	case int64:
 		return int32(value), true
-	case *big.Rat:
-		return int32(value.Num().Int64()), true
+	case decimal.Decimal:
+		return int32(value.IntPart()), true
 	case string:
 		parsed, err := strconv.ParseInt(value, 10, 32)
 		if err == nil {
@@ -537,8 +534,8 @@ func getInt64(v interface{}) (int64, bool) {
 		return value, true
 	case int32:
 		return int64(value), true
-	case *big.Rat:
-		return value.Num().Int64(), true
+	case decimal.Decimal:
+		return value.IntPart(), true
 	case string:
 		parsed, err := strconv.ParseInt(value, 10, 64)
 		if err == nil {
@@ -610,55 +607,41 @@ func getUUID(v interface{}) (uuid.UUID, bool) {
 	return uuid.UUID{}, false
 }
 
-// getRat attempts to parse a big.Rat from an interface
-func getRat(v interface{}) (*big.Rat, bool) {
+// getDecimal attempts to parse a decimal from an interface
+func getDecimal(v interface{}) (decimal.Decimal, bool) {
 	switch value := v.(type) {
-	case *big.Rat:
+	case decimal.Decimal:
 		return value, true
 	case string:
-		//nolint:gosec
-		parsed, ok := new(big.Rat).SetString(value)
-		if ok {
-			return parsed, true
+		parsed, err := decimal.NewFromString(value)
+		if err != nil {
+			panic(err)
 		}
+		return parsed, true
 	case float64:
-		rat := new(big.Rat)
-		return rat.SetFloat64(value), true
+		return decimal.NewFromFloat(value), true
 	case int64:
-		rat := new(big.Rat)
-		return rat.SetInt64(value), true
+		return decimal.NewFromInt(value), true
 	case uint64:
-		rat := new(big.Rat)
-		return rat.SetUint64(value), true
+		return decimal.NewFromBigInt(new(big.Int).SetUint64(value), 0), true
 	case float32:
-		rat := new(big.Rat)
-		return rat.SetFloat64(float64(value)), true
+		return decimal.NewFromFloat32(value), true
 	case int32:
-		rat := new(big.Rat)
-		return rat.SetInt64(int64(value)), true
+		return decimal.NewFromInt(int64(value)), true
 	case uint32:
-		rat := new(big.Rat)
-		return rat.SetUint64(uint64(value)), true
+		return decimal.NewFromInt(int64(value)), true
 	case int:
-		rat := new(big.Rat)
-		return rat.SetInt64(int64(value)), true
+		return decimal.NewFromInt(int64(value)), true
 	case uint:
-		rat := new(big.Rat)
-		return rat.SetUint64(uint64(value)), true
+		return decimal.NewFromInt(int64(value)), true
 	case int8:
-		rat := new(big.Rat)
-		return rat.SetInt64(int64(value)), true
+		return decimal.NewFromInt(int64(value)), true
 	case uint8:
-		rat := new(big.Rat)
-		return rat.SetUint64(uint64(value)), true
+		return decimal.NewFromInt(int64(value)), true
 	case int16:
-		rat := new(big.Rat)
-		return rat.SetInt64(int64(value)), true
+		return decimal.NewFromInt(int64(value)), true
 	case uint16:
-		rat := new(big.Rat)
-		return rat.SetUint64(uint64(value)), true
-	case nil:
-		return nil, true
+		return decimal.NewFromInt(int64(value)), true
 	}
-	return nil, false
+	return decimal.Decimal{}, false
 }
