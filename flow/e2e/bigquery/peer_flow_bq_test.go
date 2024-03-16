@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/bigquery"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
@@ -478,7 +479,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles_BQ() {
 	srcTableName := s.attachSchemaSuffix("test_nans_bq")
 	dstTableName := "test_nans_bq"
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
-	CREATE TABLE IF NOT EXISTS %s (id serial PRIMARY KEY,c1 double precision,c2 double precision[]);
+	CREATE TABLE IF NOT EXISTS %s (id serial PRIMARY KEY,c1 double precision,c2 double precision[],c3 numeric);
 	`, srcTableName))
 	require.NoError(s.t, err)
 
@@ -499,13 +500,21 @@ func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles_BQ() {
 
 	// test inserting various types
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		INSERT INTO %s SELECT 2, 'NaN'::double precision, '{NaN, Infinity, -Infinity}';
-		`, srcTableName))
+	INSERT INTO %s SELECT 2, 'NaN'::double precision, '{NaN, Infinity, -Infinity}', 'NaN'::numeric;
+	`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 
 	e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize weird floats", func() bool {
-		good, err := s.bqHelper.CheckDoubleValues(dstTableName, "c1", "c2")
-		return err == nil && good
+		row, err := s.bqHelper.SelectRow(dstTableName, "c1", "c2", "c3")
+		if err != nil {
+			return false
+		}
+		if len(row) == 0 {
+			return false
+		}
+
+		floatArr, ok := row[1].([]bigquery.Value)
+		return ok && row[0] == nil && len(floatArr) == 0 && row[2] == nil
 	})
 
 	env.Cancel()
