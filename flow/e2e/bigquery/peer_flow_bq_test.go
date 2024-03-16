@@ -696,11 +696,11 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 
 	// alter source table, add column c3, drop column c2 and insert another row.
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		ALTER TABLE %s DROP COLUMN c2, ADD COLUMN c3 BIGINT`, srcTableName))
+		ALTER TABLE %s DROP COLUMN c2, ADD COLUMN c3 FLOAT`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	s.t.Log("Altered source table, dropped column c2 and added column c3")
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		INSERT INTO %s(c1,c3) VALUES (3,3)`, srcTableName))
+		INSERT INTO %s(c1,c3) VALUES (3,3.5)`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	s.t.Log("Inserted row with added c3 in the source table")
 
