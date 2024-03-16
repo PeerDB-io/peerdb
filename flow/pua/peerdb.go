@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/shopspring/decimal"
 	"github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
@@ -19,15 +20,15 @@ import (
 )
 
 var (
-	LuaRecord = LuaUserDataType[model.Record]{Name: "peerdb_record"}
-	LuaRow    = LuaUserDataType[*model.RecordItems]{Name: "peerdb_row"}
-	LuaQValue = LuaUserDataType[qvalue.QValue]{Name: "peerdb_value"}
-	LuaI64    = LuaUserDataType[int64]{Name: "flatbuffers_i64"}
-	LuaU64    = LuaUserDataType[uint64]{Name: "flatbuffers_u64"}
-	LuaTime   = LuaUserDataType[time.Time]{Name: "peerdb_time"}
-	LuaUuid   = LuaUserDataType[uuid.UUID]{Name: "peerdb_uuid"}
-	LuaBigInt = LuaUserDataType[*big.Int]{Name: "peerdb_bigint"}
-	LuaRat    = LuaUserDataType[*big.Rat]{Name: "peerdb_bigrat"}
+	LuaRecord  = LuaUserDataType[model.Record]{Name: "peerdb_record"}
+	LuaRow     = LuaUserDataType[*model.RecordItems]{Name: "peerdb_row"}
+	LuaQValue  = LuaUserDataType[qvalue.QValue]{Name: "peerdb_value"}
+	LuaI64     = LuaUserDataType[int64]{Name: "flatbuffers_i64"}
+	LuaU64     = LuaUserDataType[uint64]{Name: "flatbuffers_u64"}
+	LuaTime    = LuaUserDataType[time.Time]{Name: "peerdb_time"}
+	LuaUuid    = LuaUserDataType[uuid.UUID]{Name: "peerdb_uuid"}
+	LuaBigInt  = LuaUserDataType[*big.Int]{Name: "peerdb_bigint"}
+	LuaDecimal = LuaUserDataType[decimal.Decimal]{Name: "peerdb_bigrat"}
 )
 
 func RegisterTypes(ls *lua.LState) {
@@ -45,8 +46,8 @@ func RegisterTypes(ls *lua.LState) {
 
 	mt = LuaQValue.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaQValueIndex))
-	mt.RawSetString("__len", ls.NewFunction(LuaQValueLen))
 	mt.RawSetString("__tostring", ls.NewFunction(LuaQValueString))
+	mt.RawSetString("__len", ls.NewFunction(LuaQValueLen))
 
 	mt = LuaUuid.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaUuidIndex))
@@ -68,13 +69,16 @@ func RegisterTypes(ls *lua.LState) {
 
 	mt = LuaTime.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaTimeIndex))
+	mt.RawSetString("__tostring", ls.NewFunction(LuaTimeString))
 
 	mt = LuaBigInt.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaBigIntIndex))
+	mt.RawSetString("__tostring", ls.NewFunction(LuaBigIntString))
 	mt.RawSetString("__len", ls.NewFunction(LuaBigIntLen))
 
-	mt = LuaRat.NewMetatable(ls)
-	mt.RawSetString("__index", ls.NewFunction(LuaRatIndex))
+	mt = LuaDecimal.NewMetatable(ls)
+	mt.RawSetString("__index", ls.NewFunction(LuaDecimalIndex))
+	mt.RawSetString("__tostring", ls.NewFunction(LuaDecimalString))
 
 	peerdb := ls.NewTable()
 	peerdb.RawSetString("RowToJSON", ls.NewFunction(LuaRowToJSON))
@@ -259,8 +263,8 @@ func LuaQValueIndex(ls *lua.LState) int {
 			}
 		case time.Time:
 			ls.Push(LuaTime.New(ls, v))
-		case *big.Rat:
-			ls.Push(LuaRat.New(ls, v))
+		case decimal.Decimal:
+			ls.Push(LuaDecimal.New(ls, v))
 		case [16]byte:
 			ls.Push(LuaUuid.New(ls, uuid.UUID(v)))
 		case []byte:
@@ -540,6 +544,12 @@ func LuaTimeIndex(ls *lua.LState) int {
 	return 1
 }
 
+func LuaTimeString(ls *lua.LState) int {
+	tm := LuaTime.StartMeta(ls)
+	ls.Push(lua.LString(tm.String()))
+	return 1
+}
+
 func LuaBigIntIndex(ls *lua.LState) int {
 	_, bi := LuaBigInt.Check(ls, 1)
 	switch key := ls.Get(2).(type) {
@@ -558,24 +568,38 @@ func LuaBigIntIndex(ls *lua.LState) int {
 	return 1
 }
 
+func LuaBigIntString(ls *lua.LState) int {
+	bi := LuaBigInt.StartMeta(ls)
+	ls.Push(lua.LString(bi.String()))
+	return 1
+}
+
 func LuaBigIntLen(ls *lua.LState) int {
 	bi := LuaBigInt.StartMeta(ls)
 	ls.Push(lua.LNumber(len(bi.Bytes())))
 	return 1
 }
 
-func LuaRatIndex(ls *lua.LState) int {
-	rat, key := LuaRat.StartIndex(ls)
+func LuaDecimalIndex(ls *lua.LState) int {
+	num, key := LuaDecimal.StartIndex(ls)
 	switch key {
-	case "num":
-		ls.Push(LuaBigInt.New(ls, rat.Num()))
-	case "denom":
-		ls.Push(LuaBigInt.New(ls, rat.Denom()))
+	case "exponent":
+		ls.Push(lua.LNumber(num.Exponent()))
+	case "bigint":
+		ls.Push(LuaBigInt.New(ls, num.BigInt()))
+	case "int64":
+		ls.Push(LuaI64.New(ls, num.IntPart()))
 	case "float64":
-		f64, _ := rat.Float64()
+		f64, _ := num.Float64()
 		ls.Push(lua.LNumber(f64))
 	default:
 		return 0
 	}
+	return 1
+}
+
+func LuaDecimalString(ls *lua.LState) int {
+	num := LuaDecimal.StartMeta(ls)
+	ls.Push(lua.LString(num.String()))
 	return 1
 }
