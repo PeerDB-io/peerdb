@@ -422,37 +422,26 @@ func (b *BigQueryTestHelper) CheckNull(tableName string, colName []string) (bool
 }
 
 // check if NaN, Inf double values are null
-func (b *BigQueryTestHelper) CheckDoubleValues(tableName string, c1 string, c2 string) (bool, error) {
-	command := fmt.Sprintf("SELECT %s, %s FROM `%s.%s`",
-		c1, c2, b.Config.DatasetId, tableName)
+func (b *BigQueryTestHelper) SelectRow(tableName string, cols ...string) ([]bigquery.Value, error) {
+	command := fmt.Sprintf("SELECT %s FROM `%s.%s`",
+		strings.Join(cols, ","), b.Config.DatasetId, tableName)
 	q := b.client.Query(command)
 	q.DisableQueryCache = true
 	it, err := q.Read(context.Background())
 	if err != nil {
-		return false, fmt.Errorf("failed to run command: %w", err)
+		return nil, fmt.Errorf("failed to run command: %w", err)
 	}
 
 	var row []bigquery.Value
 	for {
 		err := it.Next(&row)
 		if err == iterator.Done {
-			break
+			return row, nil
 		}
 		if err != nil {
-			return false, fmt.Errorf("failed to iterate over query results: %w", err)
+			return nil, fmt.Errorf("failed to iterate over query results: %w", err)
 		}
 	}
-
-	if len(row) == 0 {
-		return false, nil
-	}
-
-	floatArr, _ := row[1].([]float64)
-	if row[0] != nil || len(floatArr) > 0 {
-		return false, nil
-	}
-
-	return true, nil
 }
 
 func qValueKindToBqColTypeString(val qvalue.QValueKind) (string, error) {

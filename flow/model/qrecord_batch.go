@@ -203,7 +203,7 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 				src.err = fmt.Errorf("invalid Numeric value %v", qValue.Value)
 				return nil, src.err
 			}
-			values[i] = v.String()
+			values[i] = v
 
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 			v, ok := qValue.Value.([]byte)
