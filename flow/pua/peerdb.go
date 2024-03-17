@@ -561,6 +561,10 @@ func LuaBigIntIndex(ls *lua.LState) int {
 			ls.Push(lua.LNumber(bi.Sign()))
 		case "bytes":
 			ls.Push(lua.LString(bi.Bytes()))
+		case "int64":
+			ls.Push(LuaI64.New(ls, bi.Int64()))
+		case "is64":
+			ls.Push(lua.LBool(bi.IsInt64()))
 		}
 	default:
 		ls.RaiseError("BigInt accessed with non number/string")
@@ -583,6 +587,10 @@ func LuaBigIntLen(ls *lua.LState) int {
 func LuaDecimalIndex(ls *lua.LState) int {
 	num, key := LuaDecimal.StartIndex(ls)
 	switch key {
+	case "coefficient":
+		ls.Push(LuaBigInt.New(ls, num.Coefficient()))
+	case "coefficient64":
+		ls.Push(LuaI64.New(ls, num.CoefficientInt64()))
 	case "exponent":
 		ls.Push(lua.LNumber(num.Exponent()))
 	case "bigint":
