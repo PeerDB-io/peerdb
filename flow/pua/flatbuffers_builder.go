@@ -227,7 +227,7 @@ func FlatBuffers_Builder_Loader(ls *lua.LState) int {
 		"StartVector":        BuilderStartVector,
 		"EndVector":          BuilderEndVector,
 		"CreateString":       BuilderCreateString,
-		"CreateByteVector":   BuilderCreateString,
+		"CreateByteVector":   BuilderCreateByteVector,
 		"Slot":               BuilderSlot,
 		"Finish":             BuilderFinish,
 		"FinishSizePrefixed": BuilderFinishSizePrefixed,
@@ -407,7 +407,7 @@ func BuilderEndVector(ls *lua.LState) int {
 	return 1
 }
 
-func BuilderCreateString(ls *lua.LState) int {
+func createBytesHelper(ls *lua.LState, addnul bool) int {
 	b := LuaBuilder.StartMeta(ls)
 	s := ls.CheckString(2)
 	if b.nested {
@@ -417,13 +417,25 @@ func BuilderCreateString(ls *lua.LState) int {
 	b.nested = true
 
 	lens := len(s)
-	b.Prep(4, lens+1)
-	b.PlaceU64(0, uint8n)
+	if addnul {
+		b.Prep(4, lens+1)
+		b.PlaceU64(0, uint8n)
+	} else {
+		b.Prep(4, lens)
+	}
 	b.head -= lens
 	copy(b.ba.data[b.head:], s)
 
 	ls.Push(lua.LNumber(b.EndVector(ls, lens)))
 	return 1
+}
+
+func BuilderCreateString(ls *lua.LState) int {
+	return createBytesHelper(ls, true)
+}
+
+func BuilderCreateByteVector(ls *lua.LState) int {
+	return createBytesHelper(ls, false)
 }
 
 func BuilderSlot(ls *lua.LState) int {
