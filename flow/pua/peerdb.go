@@ -85,6 +85,7 @@ func RegisterTypes(ls *lua.LState) {
 	peerdb.RawSetString("RowColumns", ls.NewFunction(LuaRowColumns))
 	peerdb.RawSetString("Now", ls.NewFunction(LuaNow))
 	peerdb.RawSetString("UUID", ls.NewFunction(LuaUUID))
+	peerdb.RawSetString("type", ls.NewFunction(LuaType))
 	ls.Env.RawSetString("peerdb", peerdb)
 }
 
@@ -357,6 +358,15 @@ func LuaNow(ls *lua.LState) int {
 func LuaUUID(ls *lua.LState) int {
 	ls.Push(LuaUuid.New(ls, uuid.New()))
 	return 1
+}
+
+func LuaType(ls *lua.LState) int {
+	val := ls.Get(1)
+	if ud, ok := val.(*lua.LUserData); ok {
+		ls.Push(lua.LString(fmt.Sprintf("%T", ud.Value)))
+		return 1
+	}
+	return 0
 }
 
 func Lua64Eq(ls *lua.LState) int {
