@@ -203,8 +203,8 @@ func (s *SnapshotFlowExecution) cloneTables(
 		s.logger.Info(fmt.Sprintf("cloning tables for slot name %s and snapshotName %s",
 			cloneTablesInput.slotName, cloneTablesInput.snapshotName))
 	} else if cloneTablesInput.snapshotType == SNAPSHOT_TYPE_TXN {
-		s.logger.Info(fmt.Sprintf("cloning tables in txn snapshot mode with snapshotName %s",
-			cloneTablesInput.snapshotName))
+		s.logger.Info("cloning tables in txn snapshot mode with snapshotName " +
+			cloneTablesInput.snapshotName)
 	}
 
 	boundSelector := concurrency.NewBoundSelector(cloneTablesInput.maxParallelClones)
