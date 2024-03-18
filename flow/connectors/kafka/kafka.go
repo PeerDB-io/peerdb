@@ -137,7 +137,7 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 	var fn *lua.LFunction
 	var ls *lua.LState
 	if req.Script != "" {
-		ls = lua.NewState(lua.Options{SkipOpenLibs: true})
+		ls = lua.NewState(lua.Options{SkipOpenLibs: true, IncludeGoStackTrace: true})
 		defer ls.Close()
 		ls.SetContext(wgCtx)
 		for _, pair := range []struct {
