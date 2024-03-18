@@ -147,7 +147,7 @@ func LuaRowColumns(ls *lua.LState) int {
 	_, row := LuaRow.Check(ls, 1)
 	tbl := ls.CreateTable(len(row.ColToValIdx), 0)
 	for col, idx := range row.ColToValIdx {
-		tbl.RawSetInt(idx, lua.LString(col))
+		tbl.RawSetInt(idx+1, lua.LString(col))
 	}
 	ls.Push(tbl)
 	return 1
@@ -507,8 +507,10 @@ func LuaTimeIndex(ls *lua.LState) int {
 		ls.Push(LuaI64.New(ls, tm.UnixMicro()))
 	case "unix_milli":
 		ls.Push(LuaI64.New(ls, tm.UnixMilli()))
-	case "unix":
+	case "unix_second":
 		ls.Push(LuaI64.New(ls, tm.Unix()))
+	case "unix":
+		ls.Push(lua.LNumber(float64(tm.Unix()) + float64(tm.Nanosecond())/1e9))
 	case "year":
 		ls.Push(lua.LNumber(tm.Year()))
 	case "month":
