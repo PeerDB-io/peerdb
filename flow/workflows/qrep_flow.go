@@ -517,7 +517,10 @@ func QRepFlowWorkflow(
 		if config.SourcePeer.Type == protos.DBType_SNOWFLAKE && config.WaitBetweenBatchesSeconds > 0 {
 			logger.Info(fmt.Sprintf("copy completed, restarting workflow in %d seconds",
 				config.WaitBetweenBatchesSeconds))
-			workflow.Sleep(ctx, time.Duration(config.WaitBetweenBatchesSeconds)*time.Second)
+			err := workflow.Sleep(ctx, time.Duration(config.WaitBetweenBatchesSeconds)*time.Second)
+			if err != nil {
+				return nil
+			}
 			return workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
 		}
 		logger.Info("initial copy completed for peer flow")

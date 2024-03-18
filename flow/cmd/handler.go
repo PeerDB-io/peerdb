@@ -337,56 +337,58 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		}, fmt.Errorf("unable to wait for PeerFlow workflow to close: %w", err)
 	}
 
-	workflowID := fmt.Sprintf("%s-dropflow-%s", req.FlowJobName, uuid.New())
-	workflowOptions := client.StartWorkflowOptions{
-		ID:        workflowID,
-		TaskQueue: h.peerflowTaskQueueID,
-		SearchAttributes: map[string]interface{}{
-			shared.MirrorNameSearchAttribute: req.FlowJobName,
-		},
-	}
-	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.DropFlowWorkflow, req)
-	if err != nil {
-		slog.Error("unable to start DropFlow workflow",
-			logs,
-			slog.Any("error", err))
-		return &protos.ShutdownResponse{
-			Ok:           false,
-			ErrorMessage: fmt.Sprintf("unable to start DropFlow workflow: %v", err),
-		}, fmt.Errorf("unable to start DropFlow workflow: %w", err)
-	}
-
-	cancelCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-
-	errChan := make(chan error, 1)
-	go func() {
-		errChan <- dropFlowHandle.Get(cancelCtx, nil)
-	}()
-
-	select {
-	case err := <-errChan:
-		if err != nil {
-			slog.Error("DropFlow workflow did not execute successfully",
-				logs,
-				slog.Any("error", err),
-			)
-			return &protos.ShutdownResponse{
-				Ok:           false,
-				ErrorMessage: fmt.Sprintf("DropFlow workflow did not execute successfully: %v", err),
-			}, fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
+	if req.SourcePeer.Type == protos.DBType_POSTGRES {
+		workflowID := fmt.Sprintf("%s-dropflow-%s", req.FlowJobName, uuid.New())
+		workflowOptions := client.StartWorkflowOptions{
+			ID:        workflowID,
+			TaskQueue: h.peerflowTaskQueueID,
+			SearchAttributes: map[string]interface{}{
+				shared.MirrorNameSearchAttribute: req.FlowJobName,
+			},
 		}
-	case <-time.After(5 * time.Minute):
-		err := h.handleCancelWorkflow(ctx, workflowID, "")
+		dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.DropFlowWorkflow, req)
 		if err != nil {
-			slog.Error("unable to wait for DropFlow workflow to close",
+			slog.Error("unable to start DropFlow workflow",
 				logs,
-				slog.Any("error", err),
-			)
+				slog.Any("error", err))
 			return &protos.ShutdownResponse{
 				Ok:           false,
-				ErrorMessage: fmt.Sprintf("unable to wait for DropFlow workflow to close: %v", err),
-			}, fmt.Errorf("unable to wait for DropFlow workflow to close: %w", err)
+				ErrorMessage: fmt.Sprintf("unable to start DropFlow workflow: %v", err),
+			}, fmt.Errorf("unable to start DropFlow workflow: %w", err)
+		}
+
+		cancelCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+
+		errChan := make(chan error, 1)
+		go func() {
+			errChan <- dropFlowHandle.Get(cancelCtx, nil)
+		}()
+
+		select {
+		case err := <-errChan:
+			if err != nil {
+				slog.Error("DropFlow workflow did not execute successfully",
+					logs,
+					slog.Any("error", err),
+				)
+				return &protos.ShutdownResponse{
+					Ok:           false,
+					ErrorMessage: fmt.Sprintf("DropFlow workflow did not execute successfully: %v", err),
+				}, fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
+			}
+		case <-time.After(5 * time.Minute):
+			err := h.handleCancelWorkflow(ctx, workflowID, "")
+			if err != nil {
+				slog.Error("unable to wait for DropFlow workflow to close",
+					logs,
+					slog.Any("error", err),
+				)
+				return &protos.ShutdownResponse{
+					Ok:           false,
+					ErrorMessage: fmt.Sprintf("unable to wait for DropFlow workflow to close: %v", err),
+				}, fmt.Errorf("unable to wait for DropFlow workflow to close: %w", err)
+			}
 		}
 	}
 
