@@ -1,15 +1,17 @@
-package pua
+package pua_flatbuffers
 
 import (
 	"slices"
 
 	"github.com/yuin/gopher-lua"
+
+	"github.com/PeerDB-io/peer-flow/pua"
 )
 
 const VtableMetadataFields int = 2
 
 type Builder struct {
-	ba        BinaryArray
+	ba        []byte
 	vtables   []int
 	currentVT []int
 	head      int
@@ -30,24 +32,24 @@ func (b *Builder) EndVector(ls *lua.LState, vectorSize int) int {
 }
 
 func (b *Builder) Offset() int {
-	return len(b.ba.data) - b.head
+	return len(b.ba) - b.head
 }
 
 func (b *Builder) Pad(pad int) {
 	if pad > 0 {
 		b.head -= pad
-		b.ba.Pad(pad, b.head)
+		Pad(b.ba, pad, b.head)
 	}
 }
 
 func (b *Builder) Place(ls *lua.LState, x lua.LValue, n N) {
 	b.head -= int(n.width)
-	n.Pack(ls, b.ba.data[b.head:], x)
+	n.Pack(ls, b.ba[b.head:], x)
 }
 
 func (b *Builder) PlaceU64(u64 uint64, n N) {
 	b.head -= int(n.width)
-	n.PackU64(b.ba.data[b.head:], u64)
+	n.PackU64(b.ba[b.head:], u64)
 }
 
 func (b *Builder) Prep(width uint8, additional int) {
@@ -60,12 +62,12 @@ func (b *Builder) Prep(width uint8, additional int) {
 	space := alignsize + int(width) + additional
 
 	if b.head < space {
-		oldlen := len(b.ba.data)
-		newdata := slices.Grow(b.ba.data, space)
+		oldlen := len(b.ba)
+		newdata := slices.Grow(b.ba, space)
 		newdata = newdata[:cap(newdata)]
 		copy(newdata[len(newdata)-oldlen:], newdata[:oldlen])
 		b.head += len(newdata) - oldlen
-		b.ba.data = newdata
+		b.ba = newdata
 	}
 
 	b.Pad(alignsize)
@@ -164,9 +166,9 @@ func (b *Builder) WriteVtable(ls *lua.LState) int {
 	var existingVtable int
 	for i := len(b.vtables) - 1; i >= 0; i -= 1 {
 		vt2Offset := b.vtables[i]
-		vt2Start := len(b.ba.data) - vt2Offset
-		vt2Len := uint16n.UnpackU64(b.ba.data[vt2Start:])
-		vt2 := b.ba.data[vt2Start+VtableMetadataFields*2 : vt2Start+int(vt2Len)]
+		vt2Start := len(b.ba) - vt2Offset
+		vt2Len := uint16n.UnpackU64(b.ba[vt2Start:])
+		vt2 := b.ba[vt2Start+VtableMetadataFields*2 : vt2Start+int(vt2Len)]
 		if vtableEqual(b.currentVT, objectOffset, vt2) {
 			existingVtable = vt2Offset
 			break
@@ -187,11 +189,11 @@ func (b *Builder) WriteVtable(ls *lua.LState) int {
 		b.PrependVOffsetT(uint16(len(b.currentVT)+VtableMetadataFields) * 2)
 
 		newOffset := b.Offset()
-		int32n.PackU64(b.ba.data[len(b.ba.data)-objectOffset:], uint64(newOffset-objectOffset))
+		int32n.PackU64(b.ba[len(b.ba)-objectOffset:], uint64(newOffset-objectOffset))
 		b.vtables = append(b.vtables, newOffset)
 	} else {
-		b.head = len(b.ba.data) - objectOffset
-		int32n.PackU64(b.ba.data[b.head:], uint64(existingVtable-objectOffset))
+		b.head = len(b.ba) - objectOffset
+		int32n.PackU64(b.ba[b.head:], uint64(existingVtable-objectOffset))
 	}
 
 	if len(b.currentVT) != 0 {
@@ -200,7 +202,7 @@ func (b *Builder) WriteVtable(ls *lua.LState) int {
 	return objectOffset
 }
 
-var LuaBuilder = LuaUserDataType[*Builder]{Name: "flatbuffers_builder"}
+var LuaBuilder = pua.LuaUserDataType[*Builder]{Name: "flatbuffers_builder"}
 
 func FlatBuffers_Builder_Loader(ls *lua.LState) int {
 	m := ls.NewTable()
@@ -269,7 +271,7 @@ func BuilderNew(ls *lua.LState) int {
 	initialSize := int(ls.CheckNumber(1))
 
 	ls.Push(LuaBuilder.New(ls, &Builder{
-		ba:        BinaryArray{data: make([]byte, initialSize)},
+		ba:        make([]byte, initialSize),
 		vtables:   make([]int, 0, 4),
 		currentVT: make([]int, 0, 4),
 		head:      initialSize,
@@ -291,16 +293,16 @@ func BuilderClear(ls *lua.LState) int {
 	}
 	b.currentVT = b.currentVT[:0]
 	b.objectEnd = 0
-	b.head = len(b.ba.data)
+	b.head = len(b.ba)
 	return 0
 }
 
 func BuilderOutput(ls *lua.LState) int {
 	b := LuaBuilder.StartMeta(ls)
 	if lua.LVIsFalse(ls.Get(2)) {
-		ls.Push(lua.LString(b.ba.data[b.head:]))
+		ls.Push(lua.LString(b.ba[b.head:]))
 	} else {
-		ls.Push(lua.LString(b.ba.data))
+		ls.Push(lua.LString(b.ba))
 	}
 	return 1
 }
@@ -419,7 +421,7 @@ func createBytesHelper(ls *lua.LState, addnul bool) int {
 		b.Prep(4, lens)
 	}
 	b.head -= lens
-	copy(b.ba.data[b.head:], s)
+	copy(b.ba[b.head:], s)
 
 	ls.Push(lua.LNumber(b.EndVector(ls, lens)))
 	return 1

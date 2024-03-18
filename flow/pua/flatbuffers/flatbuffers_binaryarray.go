@@ -1,14 +1,12 @@
-package pua
+package pua_flatbuffers
 
 import (
 	"github.com/yuin/gopher-lua"
+
+	"github.com/PeerDB-io/peer-flow/pua"
 )
 
-type BinaryArray struct {
-	data []byte
-}
-
-var LuaBinaryArray = LuaUserDataType[BinaryArray]{Name: "flatbuffers_binaryarray"}
+var LuaBinaryArray = pua.LuaUserDataType[[]byte]{Name: "flatbuffers_binaryarray"}
 
 func FlatBuffers_BinaryArray_Loader(ls *lua.LState) int {
 	m := ls.NewTable()
@@ -28,16 +26,12 @@ func FlatBuffers_BinaryArray_Loader(ls *lua.LState) int {
 
 func BinaryArrayNew(ls *lua.LState) int {
 	lval := ls.Get(1)
-	var ba BinaryArray
+	var ba []byte
 	switch val := lval.(type) {
 	case lua.LString:
-		ba = BinaryArray{
-			data: []byte(val),
-		}
+		ba = []byte(val)
 	case lua.LNumber:
-		ba = BinaryArray{
-			data: make([]byte, int(val)),
-		}
+		ba = make([]byte, int(val))
 	default:
 		ls.RaiseError("Expect a integer size value or string to construct a binary array")
 		return 0
@@ -48,7 +42,7 @@ func BinaryArrayNew(ls *lua.LState) int {
 
 func BinaryArrayLen(ls *lua.LState) int {
 	ba := LuaBinaryArray.StartMeta(ls)
-	ls.Push(lua.LNumber(len(ba.data)))
+	ls.Push(lua.LNumber(len(ba)))
 	return 1
 }
 
@@ -56,9 +50,9 @@ func BinaryArrayIndex(ls *lua.LState) int {
 	ba, key := LuaBinaryArray.StartIndex(ls)
 	switch key {
 	case "size":
-		ls.Push(lua.LNumber(len(ba.data)))
+		ls.Push(lua.LNumber(len(ba)))
 	case "str":
-		ls.Push(lua.LString(ba.data))
+		ls.Push(lua.LString(ba))
 	case "data":
 		ls.RaiseError("BinaryArray data property inaccessible")
 		return 0
@@ -77,29 +71,28 @@ func BinaryArraySlice(ls *lua.LState) int {
 		startPos = 0
 	}
 	if luaEndPos, ok := ls.Get(3).(lua.LNumber); ok {
-		endPos = min(int(luaEndPos), len(ba.data))
+		endPos = min(int(luaEndPos), len(ba))
 	} else {
-		endPos = len(ba.data)
+		endPos = len(ba)
 	}
-	ls.Push(lua.LString(ba.data[startPos:endPos]))
+	ls.Push(lua.LString(ba[startPos:endPos]))
 	return 1
 }
 
 func BinaryArrayGrow(ls *lua.LState) int {
 	baud, ba := LuaBinaryArray.Check(ls, 1)
 	newsize := int(ls.CheckNumber(2))
-	if newsize > len(ba.data) {
+	if newsize > len(ba) {
 		newdata := make([]byte, newsize)
-		copy(newdata[newsize-len(ba.data):], ba.data)
-		ba.data = newdata
-		baud.Value = ba
+		copy(newdata[newsize-len(ba):], ba)
+		baud.Value = newdata
 	}
 	return 0
 }
 
-func (ba *BinaryArray) Pad(n int, start int) {
+func Pad(ba []byte, n int, start int) {
 	for i := range n {
-		ba.data[start+i] = 0
+		ba[start+i] = 0
 	}
 }
 
@@ -107,7 +100,7 @@ func BinaryArrayPad(ls *lua.LState) int {
 	ba := LuaBinaryArray.StartMeta(ls)
 	n := int(ls.CheckNumber(2))
 	startPos := int(ls.CheckNumber(3))
-	ba.Pad(n, startPos)
+	Pad(ba, n, startPos)
 	return 0
 }
 
@@ -116,10 +109,10 @@ func BinaryArraySet(ls *lua.LState) int {
 	idx := int(ls.CheckNumber(3))
 	value := ls.Get(2)
 	if num, ok := value.(lua.LNumber); ok {
-		ba.data[idx] = byte(num)
+		ba[idx] = byte(num)
 	}
 	if str, ok := value.(lua.LString); ok {
-		ba.data[idx] = str[0]
+		ba[idx] = str[0]
 	}
 	return 0
 }

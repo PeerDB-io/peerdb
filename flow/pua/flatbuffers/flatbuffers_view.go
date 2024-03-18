@@ -1,24 +1,20 @@
-package pua
+package pua_flatbuffers
 
 import (
 	"github.com/yuin/gopher-lua"
+
+	"github.com/PeerDB-io/peer-flow/pua"
 )
 
 type View struct {
-	ba        BinaryArray
+	ba        []byte
 	pos       int // 0-based offset
 	vtable    int // 0-based offset
 	vtableEnd uint16
 	hasv      bool
 }
 
-/*
-func (view *View) Get(ls *lua.LState, n N, offset int) lua.LValue {
-	return n.Unpack(ls, view.ba.data[offset-1:])
-}
-*/
-
-var LuaView = LuaUserDataType[*View]{Name: "flatbuffers_view"}
+var LuaView = pua.LuaUserDataType[*View]{Name: "flatbuffers_view"}
 
 func CheckOffset(ls *lua.LState, idx int) int {
 	num := ls.CheckNumber(idx)
@@ -41,13 +37,13 @@ func FlatBuffers_View_Loader(ls *lua.LState) int {
 
 func ViewNew(ls *lua.LState) int {
 	buf := ls.Get(1)
-	var ba BinaryArray
+	var ba []byte
 	switch val := buf.(type) {
 	case lua.LString:
-		ba = BinaryArray{data: []byte(val)}
+		ba = []byte(val)
 	case *lua.LUserData:
 		var ok bool
-		ba, ok = val.Value.(BinaryArray)
+		ba, ok = val.Value.([]byte)
 		if !ok {
 			ls.RaiseError("invalid buf userdata passed to view.New")
 			return 0
@@ -96,12 +92,12 @@ func ViewIndex(ls *lua.LState) int {
 
 func (view *View) Offset(vtoff uint16) uint16 {
 	if !view.hasv {
-		view.vtable = view.pos - int(int32(int32n.UnpackU64(view.ba.data[view.pos:])))
-		view.vtableEnd = uint16(uint16n.UnpackU64(view.ba.data[view.vtable:]))
+		view.vtable = view.pos - int(int32(int32n.UnpackU64(view.ba[view.pos:])))
+		view.vtableEnd = uint16(uint16n.UnpackU64(view.ba[view.vtable:]))
 		view.hasv = true
 	}
 	if vtoff < view.vtableEnd {
-		return uint16(uint16n.UnpackU64(view.ba.data[view.vtable+int(vtoff):]))
+		return uint16(uint16n.UnpackU64(view.ba[view.vtable+int(vtoff):]))
 	} else {
 		return 0
 	}
@@ -109,12 +105,12 @@ func (view *View) Offset(vtoff uint16) uint16 {
 
 func (view *View) Vector(off int) int {
 	off += view.pos
-	return off + int(uint32n.UnpackU64(view.ba.data[off:])) + 4
+	return off + int(uint32n.UnpackU64(view.ba[off:])) + 4
 }
 
 func (view *View) VectorLen(off int) uint32 {
-	off += int(uint32n.UnpackU64(view.ba.data[view.pos+off:]))
-	return uint32(uint32n.UnpackU64(view.ba.data[off:]))
+	off += int(uint32n.UnpackU64(view.ba[view.pos+off:]))
+	return uint32(uint32n.UnpackU64(view.ba[off:]))
 }
 
 func ViewOffset(ls *lua.LState) int {
@@ -127,17 +123,17 @@ func ViewOffset(ls *lua.LState) int {
 func ViewIndirect(ls *lua.LState) int {
 	view := LuaView.StartMeta(ls)
 	off := CheckOffset(ls, 2)
-	ls.Push(lua.LNumber(off + int(uint32n.UnpackU64(view.ba.data[off:]))))
+	ls.Push(lua.LNumber(off + int(uint32n.UnpackU64(view.ba[off:]))))
 	return 1
 }
 
 func ViewString(ls *lua.LState) int {
 	view := LuaView.StartMeta(ls)
 	off := CheckOffset(ls, 2)
-	off += int(uint32n.UnpackU64(view.ba.data[off:]))
+	off += int(uint32n.UnpackU64(view.ba[off:]))
 	start := off + 4
-	length := int(uint32n.UnpackU64(view.ba.data[off:]))
-	ls.Push(lua.LString(view.ba.data[start : start+length]))
+	length := int(uint32n.UnpackU64(view.ba[off:]))
+	ls.Push(lua.LString(view.ba[start : start+length]))
 	return 1
 }
 
@@ -175,7 +171,7 @@ func ViewVectorAsString(ls *lua.LState) int {
 		stop = int(view.VectorLen(int(o)))
 	}
 	a := view.Vector(int(o)) + start
-	ls.Push(lua.LString(view.ba.data[a : a+stop-start]))
+	ls.Push(lua.LString(view.ba[a : a+stop-start]))
 	return 1
 }
 
@@ -184,7 +180,7 @@ func ViewUnion(ls *lua.LState) int {
 	t2ud, t2 := LuaView.Check(ls, 2)
 	off := CheckOffset(ls, 3)
 	off += view.pos
-	t2.pos = off + int(uint32n.UnpackU64(view.ba.data[off:]))
+	t2.pos = off + int(uint32n.UnpackU64(view.ba[off:]))
 	t2.ba = view.ba
 	t2ud.Value = t2
 	return 0
@@ -194,7 +190,7 @@ func ViewGet(ls *lua.LState) int {
 	view := LuaView.StartMeta(ls)
 	_, n := LuaN.Check(ls, 2)
 	off := CheckOffset(ls, 3)
-	ls.Push(n.Unpack(ls, view.ba.data[off-1:]))
+	ls.Push(n.Unpack(ls, view.ba[off-1:]))
 	return 1
 }
 
@@ -207,7 +203,7 @@ func ViewGetSlot(ls *lua.LState) int {
 		return 1
 	}
 	_, validatorFlags := LuaN.Check(ls, 4)
-	ls.Push(validatorFlags.Unpack(ls, view.ba.data[view.pos+int(off):]))
+	ls.Push(validatorFlags.Unpack(ls, view.ba[view.pos+int(off):]))
 	return 1
 }
 

@@ -1,4 +1,4 @@
-package pua
+package pua_flatbuffers
 
 import (
 	"encoding/binary"
@@ -6,6 +6,8 @@ import (
 	"strconv"
 
 	"github.com/yuin/gopher-lua"
+
+	"github.com/PeerDB-io/peer-flow/pua"
 )
 
 // Minimal API implemented for generated code
@@ -146,9 +148,9 @@ func (n *N) Unpack(ls *lua.LState, buf []byte) lua.LValue {
 		case 8:
 			u64 := binary.LittleEndian.Uint64(buf)
 			if n.signed {
-				return LuaI64.New(ls, int64(u64))
+				return pua.LuaI64.New(ls, int64(u64))
 			} else {
-				return LuaU64.New(ls, u64)
+				return pua.LuaU64.New(ls, u64)
 			}
 		}
 	case tyfloat:
@@ -165,62 +167,57 @@ func (n *N) Unpack(ls *lua.LState, buf []byte) lua.LValue {
 	panic("invalid numeric metatype")
 }
 
-var LuaN = LuaUserDataType[N]{Name: "flatbuffers_n"}
+var LuaN = pua.LuaUserDataType[N]{Name: "flatbuffers_n"}
 
 func FlatBuffers_N_Loader(ls *lua.LState) int {
-	m := ls.NewTable()
-
+	mtidx := ls.CreateTable(0, 1)
+	mtidx.RawSetString("Unpack", ls.NewFunction(NUnpack))
 	mt := LuaView.NewMetatable(ls)
-	ls.SetField(mt, "__index", ls.NewFunction(NIndex))
+	mt.RawSetString("__index", mtidx)
 
 	uint16ud := LuaN.New(ls, uint16n)
 	uint32ud := LuaN.New(ls, uint32n)
 	int32ud := LuaN.New(ls, int32n)
 
-	ls.SetField(m, "Uint8", LuaN.New(ls, uint8n))
-	ls.SetField(m, "Uint16", uint16ud)
-	ls.SetField(m, "Uint32", uint32ud)
-	ls.SetField(m, "Uint64", LuaN.New(ls, uint64n))
-	ls.SetField(m, "Int8", LuaN.New(ls, int8n))
-	ls.SetField(m, "Int16", LuaN.New(ls, int16n))
-	ls.SetField(m, "Int32", int32ud)
-	ls.SetField(m, "Int64", LuaN.New(ls, int64n))
-	ls.SetField(m, "Float32", LuaN.New(ls, float32n))
-	ls.SetField(m, "Float64", LuaN.New(ls, float64n))
-	ls.SetField(m, "Bool", LuaN.New(ls, booln))
+	m := ls.NewTable()
+	m.RawSetString("Uint8", LuaN.New(ls, uint8n))
+	m.RawSetString("Uint16", uint16ud)
+	m.RawSetString("Uint32", uint32ud)
+	m.RawSetString("Uint64", LuaN.New(ls, uint64n))
+	m.RawSetString("Int8", LuaN.New(ls, int8n))
+	m.RawSetString("Int16", LuaN.New(ls, int16n))
+	m.RawSetString("Int32", int32ud)
+	m.RawSetString("Int64", LuaN.New(ls, int64n))
+	m.RawSetString("Float32", LuaN.New(ls, float32n))
+	m.RawSetString("Float64", LuaN.New(ls, float64n))
+	m.RawSetString("Bool", LuaN.New(ls, booln))
 
-	ls.SetField(m, "UOffsetT", uint32ud)
-	ls.SetField(m, "VOffsetT", uint16ud)
-	ls.SetField(m, "SOffsetT", int32ud)
+	m.RawSetString("UOffsetT", uint32ud)
+	m.RawSetString("VOffsetT", uint16ud)
+	m.RawSetString("SOffsetT", int32ud)
 
 	ls.Push(m)
 	return 1
 }
 
-func NIndex(ls *lua.LState) int {
-	n, key := LuaN.StartIndex(ls)
-	if key == "Unpack" {
-		var buf []byte
-		switch v := ls.Get(1).(type) {
-		case lua.LString:
-			buf = []byte(v)
-		case *lua.LUserData:
-			ba, ok := v.Value.(BinaryArray)
-			if ok {
-				buf = ba.data
-			} else {
-				ls.RaiseError("Invalid buf userdata passed to unpack")
-				return 0
-			}
-		default:
-			ls.RaiseError("Invalid buf passed to unpack")
+func NUnpack(ls *lua.LState) int {
+	n := LuaN.StartMeta(ls)
+	pos := max(CheckOffset(ls, 2), 1)
+	var buf []byte
+	switch v := ls.Get(1).(type) {
+	case lua.LString:
+		buf = []byte(v[pos-1:])
+	case *lua.LUserData:
+		if ba, ok := v.Value.([]byte); ok {
+			buf = ba[pos-1:]
+		} else {
+			ls.RaiseError("Invalid buf userdata passed to unpack")
 			return 0
 		}
-		pos := max(CheckOffset(ls, 2), 1)
-		ls.Push(n.Unpack(ls, buf[pos-1:]))
-		return 1
-	} else {
-		ls.RaiseError("Unsupported field on N: " + key)
+	default:
+		ls.RaiseError("Invalid buf passed to unpack")
 		return 0
 	}
+	ls.Push(n.Unpack(ls, buf))
+	return 1
 }

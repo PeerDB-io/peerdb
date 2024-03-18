@@ -1,10 +1,10 @@
-package pua
+package pua_flatbuffers
 
 import (
 	"github.com/yuin/gopher-lua"
 )
 
-func FlatBuffers_Loader(ls *lua.LState) int {
+func Loader(ls *lua.LState) int {
 	ls.PreloadModule("flatbuffers.binaryarray", FlatBuffers_BinaryArray_Loader)
 	ls.PreloadModule("flatbuffers.builder", FlatBuffers_Builder_Loader)
 	ls.PreloadModule("flatbuffers.numTypes", FlatBuffers_N_Loader)
