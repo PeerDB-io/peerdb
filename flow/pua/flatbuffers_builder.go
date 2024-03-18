@@ -54,7 +54,7 @@ func (b *Builder) Prep(width uint8, additional int) {
 	if width > b.minalign {
 		b.minalign = width
 	}
-	k := len(b.ba.data) - b.head + additional
+	k := b.Offset() + additional
 	alignsize := -k & int(width-1)
 
 	space := alignsize + int(width) + additional
@@ -63,7 +63,7 @@ func (b *Builder) Prep(width uint8, additional int) {
 		oldlen := len(b.ba.data)
 		newdata := slices.Grow(b.ba.data, space)
 		newdata = newdata[:cap(newdata)]
-		copy(newdata[:oldlen], newdata[len(newdata)-oldlen:])
+		copy(newdata[len(newdata)-oldlen:], newdata[:oldlen])
 		b.head += len(newdata) - oldlen
 		b.ba.data = newdata
 	}
@@ -133,8 +133,8 @@ func (b *Builder) Slot(ls *lua.LState, slotnum int) {
 		ls.RaiseError("Slot called outside nested context")
 		return
 	}
-	if slotnum >= len(b.currentVT) {
-		b.currentVT = slices.Grow(b.currentVT, slotnum-len(b.currentVT)+1)
+	for slotnum >= len(b.currentVT) {
+		b.currentVT = append(b.currentVT, 0)
 	}
 	b.currentVT[slotnum] = b.Offset()
 }
@@ -145,7 +145,7 @@ func vtableEqual(a []int, objectStart int, b []byte) bool {
 	}
 
 	for i, ai := range a {
-		x := int16n.UnpackU64(b[i*2:])
+		x := uint16n.UnpackU64(b[i*2:])
 		if (x != 0 || ai != 0) && int(x) != objectStart-ai {
 			return false
 		}
@@ -157,8 +157,8 @@ func (b *Builder) WriteVtable(ls *lua.LState) int {
 	b.PrependSOffsetTRelative(ls, 0)
 	objectOffset := b.Offset()
 
-	for len(b.ba.data) > 0 && b.ba.data[len(b.ba.data)-1] == 0 {
-		b.ba.data = b.ba.data[:len(b.ba.data)-1]
+	for len(b.currentVT) > 0 && b.currentVT[len(b.currentVT)-1] == 0 {
+		b.currentVT = b.currentVT[:len(b.currentVT)-1]
 	}
 
 	var existingVtable int
@@ -166,11 +166,7 @@ func (b *Builder) WriteVtable(ls *lua.LState) int {
 		vt2Offset := b.vtables[i]
 		vt2Start := len(b.ba.data) - vt2Offset
 		vt2Len := uint16n.UnpackU64(b.ba.data[vt2Start:])
-
-		metadata := VtableMetadataFields * 2
-		vt2End := vt2Start + int(vt2Len)
-		vt2 := b.ba.data[vt2Start+metadata : vt2End]
-
+		vt2 := b.ba.data[vt2Start+VtableMetadataFields*2 : vt2Start+int(vt2Len)]
 		if vtableEqual(b.currentVT, objectOffset, vt2) {
 			existingVtable = vt2Offset
 			break
@@ -186,20 +182,16 @@ func (b *Builder) WriteVtable(ls *lua.LState) int {
 			b.PrependVOffsetT(off)
 		}
 
-		objectSize := uint16(objectOffset - b.objectEnd)
-		b.PrependVOffsetT(objectSize)
+		// end each vtable with object size & vtable size
+		b.PrependVOffsetT(uint16(objectOffset - b.objectEnd))
+		b.PrependVOffsetT(uint16(len(b.currentVT)+VtableMetadataFields) * 2)
 
-		vBytes := uint16(len(b.currentVT)+VtableMetadataFields) * 2
-		b.PrependVOffsetT(vBytes)
-
-		objectStart := len(b.ba.data) - objectOffset
 		newOffset := b.Offset()
-		int32n.PackU64(b.ba.data[newOffset-objectOffset:], uint64(objectStart))
-
+		int32n.PackU64(b.ba.data[len(b.ba.data)-objectOffset:], uint64(newOffset-objectOffset))
 		b.vtables = append(b.vtables, newOffset)
 	} else {
 		b.head = len(b.ba.data) - objectOffset
-		int16n.PackU64(b.ba.data[b.head:], uint64(existingVtable-objectOffset))
+		int32n.PackU64(b.ba.data[b.head:], uint64(existingVtable-objectOffset))
 	}
 
 	if len(b.currentVT) != 0 {
@@ -278,8 +270,8 @@ func BuilderNew(ls *lua.LState) int {
 
 	ls.Push(LuaBuilder.New(ls, &Builder{
 		ba:        BinaryArray{data: make([]byte, initialSize)},
-		vtables:   nil,
-		currentVT: nil,
+		vtables:   make([]int, 0, 4),
+		currentVT: make([]int, 0, 4),
 		head:      initialSize,
 		objectEnd: 0,
 		finished:  false,
@@ -297,9 +289,7 @@ func BuilderClear(ls *lua.LState) int {
 	if len(b.vtables) != 0 {
 		b.vtables = b.vtables[:0]
 	}
-	if len(b.currentVT) != 0 {
-		b.currentVT = b.currentVT[:0]
-	}
+	b.currentVT = b.currentVT[:0]
 	b.objectEnd = 0
 	b.head = len(b.ba.data)
 	return 0
@@ -324,7 +314,7 @@ func BuilderStartObject(ls *lua.LState) int {
 	b.nested = true
 
 	numFields := int(ls.CheckNumber(2))
-	b.currentVT = make([]int, numFields)
+	b.currentVT = slices.Grow(b.currentVT[:0], numFields)[:0]
 	b.objectEnd = b.Offset()
 	return 0
 }
@@ -354,7 +344,7 @@ func BuilderHead(ls *lua.LState) int {
 
 func BuilderOffset(ls *lua.LState) int {
 	b := LuaBuilder.StartMeta(ls)
-	ls.Push(lua.LNumber(len(b.ba.data) - b.head))
+	ls.Push(lua.LNumber(b.Offset()))
 	return 1
 }
 
@@ -412,7 +402,11 @@ func createBytesHelper(ls *lua.LState, addnul bool) int {
 	b := LuaBuilder.StartMeta(ls)
 	s := ls.CheckString(2)
 	if b.nested {
-		ls.RaiseError("CreateString called in nested context")
+		if addnul {
+			ls.RaiseError("CreateString called in nested context")
+		} else {
+			ls.RaiseError("CreateByteVector called in nested context")
+		}
 		return 0
 	}
 	b.nested = true
@@ -458,8 +452,7 @@ func FinishHelper(ls *lua.LState, sizePrefix bool) int {
 	b.Prep(b.minalign, additional)
 	b.PrependUOffsetTRelative(ls, rootTable)
 	if sizePrefix {
-		size := len(b.ba.data) - b.head
-		b.PrependU64(int32n, uint64(size))
+		b.PrependU64(int32n, uint64(b.Offset()))
 	}
 	b.finished = true
 	ls.Push(lua.LNumber(b.head))
