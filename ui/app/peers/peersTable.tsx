@@ -33,7 +33,7 @@ function PeerRow({ peer }: { peer: Peer }) {
   );
 }
 
-function PeersTable({ title, peers }: { title: string; peers: Peer[] }) {
+function PeersTable({ peers }: { peers: Peer[] }) {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [filteredType, setFilteredType] = useState<DBType | undefined>(
     undefined
@@ -65,7 +65,6 @@ function PeersTable({ title, peers }: { title: string; peers: Peer[] }) {
 
   return (
     <Table
-      title={<Label variant='headline'>{title}</Label>}
       toolbar={{
         left: <></>,
         right: (
