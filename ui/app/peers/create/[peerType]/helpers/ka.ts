@@ -14,12 +14,14 @@ export const kaSetting: PeerSetting[] = [
     label: 'Username',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, username: value as string })),
+    optional: true,
   },
   {
     label: 'Password',
     type: 'password',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, password: value as string })),
+    optional: true,
   },
   {
     label: 'SASL Mechanism',
@@ -35,6 +37,7 @@ export const kaSetting: PeerSetting[] = [
       setter((curr) => ({ ...curr, disableTls: value as boolean })),
     type: 'switch',
     tips: 'If you are using a non-TLS connection for Kafka server, check this box.',
+    optional: true,
   },
 ];
 

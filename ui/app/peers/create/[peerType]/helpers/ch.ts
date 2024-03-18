@@ -45,6 +45,7 @@ export const clickhouseSetting: PeerSetting[] = [
       setter((curr) => ({ ...curr, disableTls: value as boolean })),
     type: 'switch',
     tips: 'If you are using a non-TLS connection for Clickhouse server, check this box.',
+    optional: true,
   },
   {
     label: 'S3 Path',
