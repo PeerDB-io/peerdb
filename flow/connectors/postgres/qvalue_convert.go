@@ -4,19 +4,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"net/netip"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq/oid"
+	"github.com/shopspring/decimal"
 
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
-
-var big10 = big.NewInt(10)
 
 func (c *PostgresConnector) postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
 	switch recvOID {
@@ -217,8 +215,7 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 	val := qvalue.QValue{}
 
 	if value == nil {
-		val = qvalue.QValue{Kind: qvalueKind, Value: nil}
-		return val, nil
+		return qvalue.QValue{Kind: qvalueKind, Value: nil}, nil
 	}
 
 	switch qvalueKind {
@@ -341,11 +338,11 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 	case qvalue.QValueKindNumeric:
 		numVal := value.(pgtype.Numeric)
 		if numVal.Valid {
-			rat, err := numericToRat(&numVal)
+			num, err := numericToDecimal(numVal)
 			if err != nil {
-				return qvalue.QValue{}, fmt.Errorf("failed to convert numeric [%v] to rat: %w", value, err)
+				return qvalue.QValue{}, fmt.Errorf("failed to convert numeric [%v] to decimal: %w", value, err)
 			}
-			val = qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: rat}
+			val = qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: num}
 		}
 	case qvalue.QValueKindArrayFloat32:
 		return convertToArray[float32](qvalueKind, value)
@@ -388,31 +385,16 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(oid uint32, value interfac
 	return parseFieldFromQValueKind(c.postgresOIDToQValueKind(oid), value)
 }
 
-func numericToRat(numVal *pgtype.Numeric) (*big.Rat, error) {
-	if numVal.Valid {
-		if numVal.NaN {
-			// set to nil if NaN
-			return nil, nil
-		}
-
-		switch numVal.InfinityModifier {
-		case pgtype.NegativeInfinity, pgtype.Infinity:
-			return nil, nil
-		}
-
-		rat := new(big.Rat).SetInt(numVal.Int)
-		if numVal.Exp > 0 {
-			mul := new(big.Int).Exp(big10, big.NewInt(int64(numVal.Exp)), nil)
-			rat.Mul(rat, new(big.Rat).SetInt(mul))
-		} else if numVal.Exp < 0 {
-			mul := new(big.Int).Exp(big10, big.NewInt(int64(-numVal.Exp)), nil)
-			rat.Quo(rat, new(big.Rat).SetInt(mul))
-		}
-		return rat, nil
+func numericToDecimal(numVal pgtype.Numeric) (interface{}, error) {
+	switch {
+	case !numVal.Valid:
+		return nil, errors.New("invalid numeric")
+	case numVal.NaN, numVal.InfinityModifier == pgtype.Infinity,
+		numVal.InfinityModifier == pgtype.NegativeInfinity:
+		return nil, nil
+	default:
+		return decimal.NewFromBigInt(numVal.Int, numVal.Exp), nil
 	}
-
-	// handle invalid numeric
-	return nil, errors.New("invalid numeric")
 }
 
 func customTypeToQKind(typeName string) qvalue.QValueKind {

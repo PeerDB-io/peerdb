@@ -5,8 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/big"
 	"time"
+
+	"github.com/shopspring/decimal"
 
 	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -164,16 +165,12 @@ func (r *RecordItems) toMap(hstoreAsJSON bool) (map[string]interface{}, error) {
 			}
 			jsonStruct[col] = formattedDateArr
 		case qvalue.QValueKindNumeric:
-			bigRat, ok := v.Value.(*big.Rat)
+			val, ok := v.Value.(decimal.Decimal)
 			if !ok {
-				return nil, errors.New("expected *big.Rat value")
+				return nil, errors.New("expected decimal.Decimal value")
 			}
 
-			if bigRat == nil {
-				jsonStruct[col] = nil
-				continue
-			}
-			jsonStruct[col] = bigRat.FloatString(100)
+			jsonStruct[col] = val.String()
 		case qvalue.QValueKindFloat64:
 			floatVal, ok := v.Value.(float64)
 			if !ok {
