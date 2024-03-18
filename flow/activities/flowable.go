@@ -35,12 +35,6 @@ type CheckConnectionResult struct {
 	NeedsSetupMetadataTables bool
 }
 
-type SlotSnapshotSignal struct {
-	signal       connpostgres.SlotSignal
-	snapshotName string
-	connector    connectors.CDCPullConnector
-}
-
 type FlowableActivity struct {
 	CatalogPool *pgxpool.Pool
 	Alerter     *alerting.Alerter
