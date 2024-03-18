@@ -941,30 +941,48 @@ func (c *PostgresConnector) EnsurePullability(
 	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil
 }
 
-func (c *PostgresConnector) ExportSnapshot(ctx context.Context) (string, any, error) {
+func (c *PostgresConnector) ExportTxnSnapshot(ctx context.Context) (*protos.ExportTxnSnapshotOutput, any, error) {
 	var snapshotName string
 	tx, err := c.conn.Begin(ctx)
 	if err != nil {
-		return "", nil, err
+		return nil, nil, err
 	}
+	txNeedsRollback := true
+	defer func() {
+		if txNeedsRollback {
+			err := tx.Rollback(context.Background())
+			if err != pgx.ErrTxClosed {
+				c.logger.Error("error while rolling back transaction for snapshot export")
+			}
+		}
+	}()
 
-	_, err = tx.Exec(ctx, "SET idle_in_transaction_session_timeout = 0")
+	_, err = tx.Exec(ctx, "SET LOCAL idle_in_transaction_session_timeout=0")
 	if err != nil {
-		return "", nil, fmt.Errorf("[export-snapshot] error setting idle_in_transaction_session_timeout: %w", err)
+		return nil, nil, fmt.Errorf("[export-snapshot] error setting idle_in_transaction_session_timeout: %w", err)
 	}
 
-	_, err = tx.Exec(ctx, "SET lock_timeout = 0")
+	_, err = tx.Exec(ctx, "SET LOCAL lock_timeout=0")
 	if err != nil {
-		return "", nil, fmt.Errorf("[export-snapshot] error setting lock_timeout: %w", err)
+		return nil, nil, fmt.Errorf("[export-snapshot] error setting lock_timeout: %w", err)
 	}
 
-	err = tx.QueryRow(ctx, "select pg_export_snapshot()").Scan(&snapshotName)
+	ok, _, err := c.MajorVersionCheck(ctx, POSTGRES_13)
+	if err != nil {
+		return nil, nil, fmt.Errorf("[export-snapshot] error getting PG version: %w", err)
+	}
+
+	err = tx.QueryRow(ctx, "SELECT pg_export_snapshot()").Scan(&snapshotName)
 	if err != nil {
 		_ = tx.Rollback(ctx)
-		return "", nil, err
+		return nil, nil, err
 	}
+	txNeedsRollback = false
 
-	return snapshotName, tx, err
+	return &protos.ExportTxnSnapshotOutput{
+		SnapshotName:     snapshotName,
+		SupportsTidScans: ok,
+	}, tx, err
 }
 
 func (c *PostgresConnector) FinishExport(tx any) error {
