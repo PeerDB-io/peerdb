@@ -22,6 +22,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/pua"
+	"github.com/PeerDB-io/peer-flow/pua/flatbuffers"
 )
 
 type KafkaConnector struct {
@@ -137,7 +138,7 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 	var fn *lua.LFunction
 	var ls *lua.LState
 	if req.Script != "" {
-		ls = lua.NewState(lua.Options{SkipOpenLibs: true, IncludeGoStackTrace: true})
+		ls = lua.NewState(lua.Options{SkipOpenLibs: true})
 		defer ls.Close()
 		ls.SetContext(wgCtx)
 		for _, pair := range []struct {
@@ -157,7 +158,7 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 				return nil, fmt.Errorf("failed to initialize Lua runtime: %w", err)
 			}
 		}
-		ls.PreloadModule("flatbuffers", pua.FlatBuffers_Loader)
+		ls.PreloadModule("flatbuffers", pua_flatbuffers.Loader)
 		pua.RegisterTypes(ls)
 		ls.Env.RawSetString("print", ls.NewFunction(func(ls *lua.LState) int {
 			top := ls.GetTop()
@@ -191,7 +192,6 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 		if err := wgCtx.Err(); err != nil {
 			return nil, err
 		}
-		topic := record.GetDestinationTableName()
 		ls.Push(fn)
 		ls.Push(pua.LuaRecord.New(ls, record))
 		err := ls.PCall(1, 1, nil)
@@ -199,14 +199,16 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 			return nil, fmt.Errorf("script failed: %w", err)
 		}
 		value := ls.Get(-1)
+		ls.SetTop(0)
 		if value != lua.LNil {
 			lstr, ok := value.(lua.LString)
 			if !ok {
-				return nil, fmt.Errorf("script returned non-nil non-string: %v", value)
+				return nil, fmt.Errorf("script returned non-nil non-string: %s", value)
 			}
-			wg.Add(1)
-			c.client.Produce(wgCtx, &kgo.Record{Topic: topic, Value: []byte(lstr)}, produceCb)
 
+			wg.Add(1)
+			topic := record.GetDestinationTableName()
+			c.client.Produce(wgCtx, &kgo.Record{Topic: topic, Value: []byte(lstr)}, produceCb)
 			numRecords += 1
 			tableNameRowsMapping[topic] += 1
 		}
