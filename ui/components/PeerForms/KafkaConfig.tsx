@@ -22,7 +22,6 @@ const saslOptions = [
 const KafkaForm = ({ setter }: KafkaProps) => {
   return (
     <div>
-      <Label>TODO TEXT</Label>
       {kaSetting.map((setting, index) => {
         return setting.type === 'switch' ? (
           <RowWithSwitch

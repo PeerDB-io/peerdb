@@ -282,13 +282,11 @@ export const chSchema = z.object({
 });
 
 export const kaSchema = z.object({
-  servers: z.array(z.string()).min(1, { message: 'Atleast 1 server required' }),
-  username: z
-    .string({ required_error: 'Username is required' })
-    .min(1, { message: 'Username cannot be empty' }),
-  password: z
-    .string({ required_error: 'Password is required' })
-    .min(1, { message: 'Password cannot be empty' }),
+  servers: z
+    .array(z.string({ required_error: 'Server address must not be empty' }))
+    .min(1, { message: 'At least 1 server required' }),
+  username: z.string().optional(),
+  password: z.string().optional(),
   sasl: z
     .union(
       [
