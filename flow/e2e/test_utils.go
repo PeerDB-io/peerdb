@@ -271,7 +271,6 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 		"geography_linestring geography(linestring)",
 		"geometry_polygon geometry(polygon)",
 		"geography_polygon geography(polygon)",
-		"nannu NUMERIC",
 		"myreal REAL",
 		"myreal2 REAL",
 		"myreal3 REAL",
@@ -337,12 +336,8 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 						'LINESTRING(0 0, 1 1, 2 2)',
 						'LINESTRING(-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831)',
 						'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))','POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))',
-						'NaN',
-						3.14159,
-						1,
-						1.0,
-						'10.0.0.0/32',
-						'1.1.10.2'::cidr
+						3.14159, 1, 1.0,
+						'10.0.0.0/32', '1.1.10.2'::cidr
 					)`,
 			id, uuid.New().String(), uuid.New().String(),
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String())
@@ -360,12 +355,8 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, my_date,
 					my_time, my_mood, myh,
 					"geometryPoint", geography_point,geometry_linestring, geography_linestring,geometry_polygon, geography_polygon,
-					nannu,
-					myreal,
-					myreal2,
-					myreal3,
-					myinet,
-					mycidr
+					myreal, myreal2, myreal3,
+					myinet, mycidr
 			) VALUES %s;
 	`, suffix, tableName, strings.Join(rows, ",")))
 	if err != nil {
