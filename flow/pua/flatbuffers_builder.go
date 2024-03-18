@@ -65,6 +65,7 @@ func (b *Builder) Prep(width uint8, additional int) {
 		newdata = newdata[:cap(newdata)]
 		copy(newdata[:oldlen], newdata[len(newdata)-oldlen:])
 		b.head += len(newdata) - oldlen
+		b.ba.data = newdata
 	}
 
 	b.Pad(alignsize)
