@@ -92,3 +92,13 @@ func BigQueryTypeToQValueKind(fieldType bigquery.FieldType) (qvalue.QValueKind, 
 		return "", fmt.Errorf("unsupported bigquery field type: %v", fieldType)
 	}
 }
+
+func qValueKindToBigQueryTypeString(colType string) string {
+	bqType := qValueKindToBigQueryType(colType)
+	bqTypeAsString := string(bqType)
+	// string(bigquery.FloatFieldType) is "FLOAT" which is not a BigQuery type.
+	if bqType == bigquery.FloatFieldType {
+		bqTypeAsString = "FLOAT64"
+	}
+	return bqTypeAsString
+}
