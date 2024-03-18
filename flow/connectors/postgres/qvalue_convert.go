@@ -231,19 +231,8 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 	case qvalue.QValueKindTime:
 		timeVal := value.(pgtype.Time)
 		if timeVal.Valid {
-			var timeValStr any
-			timeValStr, err := timeVal.Value()
-			if err != nil {
-				return qvalue.QValue{}, fmt.Errorf("failed to parse time: %w", err)
-			}
-			// edge case, only Postgres supports this extreme value for time
-			timeValStr = strings.Replace(timeValStr.(string), "24:00:00.000000", "23:59:59.999999", 1)
-			t, err := time.Parse("15:04:05.999999", timeValStr.(string))
-			t = t.AddDate(1970, 0, 0)
-			if err != nil {
-				return qvalue.QValue{}, fmt.Errorf("failed to parse time: %w", err)
-			}
-			val = qvalue.QValue{Kind: qvalue.QValueKindTime, Value: t}
+			// 86399999999 to prevent 24:00:00
+			val = qvalue.QValue{Kind: qvalue.QValueKindTime, Value: time.UnixMicro(min(timeVal.Microseconds, 86399999999))}
 		}
 	case qvalue.QValueKindTimeTZ:
 		timeVal := value.(string)
