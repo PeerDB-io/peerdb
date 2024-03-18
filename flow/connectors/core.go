@@ -44,7 +44,7 @@ type CDCPullConnector interface {
 
 	// For InitialSnapshotOnly correctness without replication slot
 	// `any` is for returning transaction if necessary
-	ExportTxnSnapshot(context.Context) (*protos.ExportTxnSnapshotOutput, any, error)
+	ExportTxSnapshot(context.Context) (*protos.ExportTxSnapshotOutput, any, error)
 
 	// `any` from ExportSnapshot passed here when done, allowing transaction to commit
 	FinishExport(any) error

@@ -395,7 +395,7 @@ message IsQRepPartitionSyncedInput {
   string partition_id = 2;
 }
 
-message ExportTxnSnapshotOutput {
+message ExportTxSnapshotOutput {
   string snapshot_name = 1;
   bool supports_tid_scans = 2;
 }

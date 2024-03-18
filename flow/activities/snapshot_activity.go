@@ -22,7 +22,7 @@ type SlotSnapshotState struct {
 	connector    connectors.CDCPullConnector
 }
 
-type TxnSnapshotState struct {
+type TxSnapshotState struct {
 	SnapshotName     string
 	SupportsTIDScans bool
 }
@@ -30,7 +30,7 @@ type TxnSnapshotState struct {
 type SnapshotActivity struct {
 	SnapshotStatesMutex sync.Mutex
 	SlotSnapshotStates  map[string]SlotSnapshotState
-	TxnSnapshotStates   map[string]*TxnSnapshotState
+	TxSnapshotStates    map[string]TxSnapshotState
 	Alerter             *alerting.Alerter
 }
 
@@ -129,13 +129,13 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, pee
 	}
 	defer connectors.CloseConnector(ctx, conn)
 
-	exportSnapshotOutput, tx, err := conn.ExportTxnSnapshot(ctx)
+	exportSnapshotOutput, tx, err := conn.ExportTxSnapshot(ctx)
 	if err != nil {
 		return err
 	}
 
 	a.SnapshotStatesMutex.Lock()
-	a.TxnSnapshotStates[sessionID] = &TxnSnapshotState{
+	a.TxSnapshotStates[sessionID] = TxSnapshotState{
 		SnapshotName:     exportSnapshotOutput.SnapshotName,
 		SupportsTIDScans: exportSnapshotOutput.SupportsTidScans,
 	}
@@ -152,7 +152,7 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, pee
 		activity.RecordHeartbeat(ctx, msg)
 		if ctx.Err() != nil {
 			a.SnapshotStatesMutex.Lock()
-			delete(a.TxnSnapshotStates, sessionID)
+			delete(a.TxSnapshotStates, sessionID)
 			a.SnapshotStatesMutex.Unlock()
 			return conn.FinishExport(tx)
 		}
@@ -160,15 +160,15 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, pee
 	}
 }
 
-func (a *SnapshotActivity) WaitForExportSnapshot(ctx context.Context, sessionID string) (*TxnSnapshotState, error) {
+func (a *SnapshotActivity) WaitForExportSnapshot(ctx context.Context, sessionID string) (*TxSnapshotState, error) {
 	logger := activity.GetLogger(ctx)
 	attempt := 0
 	for {
 		a.SnapshotStatesMutex.Lock()
-		tsc, ok := a.TxnSnapshotStates[sessionID]
+		tsc, ok := a.TxSnapshotStates[sessionID]
 		a.SnapshotStatesMutex.Unlock()
 		if ok {
-			return tsc, nil
+			return &tsc, nil
 		}
 		activity.RecordHeartbeat(ctx, "wait another second for snapshot export")
 		attempt += 1

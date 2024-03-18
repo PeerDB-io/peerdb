@@ -941,7 +941,7 @@ func (c *PostgresConnector) EnsurePullability(
 	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil
 }
 
-func (c *PostgresConnector) ExportTxnSnapshot(ctx context.Context) (*protos.ExportTxnSnapshotOutput, any, error) {
+func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context) (*protos.ExportTxSnapshotOutput, any, error) {
 	var snapshotName string
 	tx, err := c.conn.Begin(ctx)
 	if err != nil {
@@ -950,7 +950,9 @@ func (c *PostgresConnector) ExportTxnSnapshot(ctx context.Context) (*protos.Expo
 	txNeedsRollback := true
 	defer func() {
 		if txNeedsRollback {
-			err := tx.Rollback(context.Background())
+			rollbackCtx, cancelFunc := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancelFunc()
+			err := tx.Rollback(rollbackCtx)
 			if err != pgx.ErrTxClosed {
 				c.logger.Error("error while rolling back transaction for snapshot export")
 			}
@@ -974,12 +976,11 @@ func (c *PostgresConnector) ExportTxnSnapshot(ctx context.Context) (*protos.Expo
 
 	err = tx.QueryRow(ctx, "SELECT pg_export_snapshot()").Scan(&snapshotName)
 	if err != nil {
-		_ = tx.Rollback(ctx)
 		return nil, nil, err
 	}
 	txNeedsRollback = false
 
-	return &protos.ExportTxnSnapshotOutput{
+	return &protos.ExportTxSnapshotOutput{
 		SnapshotName:     snapshotName,
 		SupportsTidScans: ok,
 	}, tx, err

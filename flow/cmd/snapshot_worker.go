@@ -69,7 +69,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (client.Client, worker.Work
 	// explicitly not initializing mutex, in line with design
 	w.RegisterActivity(&activities.SnapshotActivity{
 		SlotSnapshotStates: make(map[string]activities.SlotSnapshotState),
-		TxnSnapshotStates:  make(map[string]*activities.TxnSnapshotState),
+		TxSnapshotStates:   make(map[string]activities.TxSnapshotState),
 		Alerter:            alerting.NewAlerter(context.Background(), conn),
 	})
 

@@ -25,7 +25,7 @@ type snapshotType int
 const (
 	SNAPSHOT_TYPE_UNKNOWN snapshotType = iota
 	SNAPSHOT_TYPE_SLOT
-	SNAPSHOT_TYPE_TXN
+	SNAPSHOT_TYPE_TX
 )
 
 type SnapshotFlowExecution struct {
@@ -154,11 +154,12 @@ func (s *SnapshotFlowExecution) cloneTable(
 			}
 		}
 	}
-
-	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
-		from, parsedSrcTable.String(), mapping.PartitionKey)
+	var query string
 	if mapping.PartitionKey == "" {
 		query = fmt.Sprintf("SELECT %s FROM %s", from, parsedSrcTable.String())
+	} else {
+		query = fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
+			from, parsedSrcTable.String(), mapping.PartitionKey)
 	}
 
 	numWorkers := uint32(8)
@@ -202,7 +203,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 	if cloneTablesInput.snapshotType == SNAPSHOT_TYPE_SLOT {
 		s.logger.Info(fmt.Sprintf("cloning tables for slot name %s and snapshotName %s",
 			cloneTablesInput.slotName, cloneTablesInput.snapshotName))
-	} else if cloneTablesInput.snapshotType == SNAPSHOT_TYPE_TXN {
+	} else if cloneTablesInput.snapshotType == SNAPSHOT_TYPE_TX {
 		s.logger.Info("cloning tables in txn snapshot mode with snapshotName " +
 			cloneTablesInput.snapshotName)
 	}
@@ -334,7 +335,7 @@ func SnapshotFlowWorkflow(
 		)
 
 		var sessionError error
-		var txnSnapshotState *activities.TxnSnapshotState
+		var txnSnapshotState *activities.TxSnapshotState
 		sessionSelector := workflow.NewNamedSelector(ctx, "ExportSnapshotSetup")
 		sessionSelector.AddFuture(fMaintain, func(f workflow.Future) {
 			// MaintainTx should never exit without an error before this point
@@ -353,7 +354,7 @@ func SnapshotFlowWorkflow(
 		}
 
 		if err := se.cloneTables(ctx, &cloneTablesInput{
-			snapshotType:      SNAPSHOT_TYPE_TXN,
+			snapshotType:      SNAPSHOT_TYPE_TX,
 			slotName:          "",
 			snapshotName:      txnSnapshotState.SnapshotName,
 			supportsTIDScans:  txnSnapshotState.SupportsTIDScans,
