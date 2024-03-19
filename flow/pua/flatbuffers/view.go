@@ -24,7 +24,7 @@ func CheckOffset(ls *lua.LState, idx int) int {
 	return int(num)
 }
 
-func FlatBuffers_View_Loader(ls *lua.LState) int {
+func View_Loader(ls *lua.LState) int {
 	m := ls.NewTable()
 	ls.SetField(m, "New", ls.NewFunction(ViewNew))
 

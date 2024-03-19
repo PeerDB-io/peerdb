@@ -169,7 +169,7 @@ func (n *N) Unpack(ls *lua.LState, buf []byte) lua.LValue {
 
 var LuaN = pua.LuaUserDataType[N]{Name: "flatbuffers_n"}
 
-func FlatBuffers_N_Loader(ls *lua.LState) int {
+func N_Loader(ls *lua.LState) int {
 	mtidx := ls.CreateTable(0, 1)
 	mtidx.RawSetString("Unpack", ls.NewFunction(NUnpack))
 	mt := LuaView.NewMetatable(ls)
