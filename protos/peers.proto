@@ -114,6 +114,7 @@ message KafkaConfig {
   string password = 3;
   string sasl = 4;
   bool disable_tls = 5;
+  string partitioner = 6;
 }
 
 enum DBType {

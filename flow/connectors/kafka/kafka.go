@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"unsafe"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/plain"
@@ -31,12 +32,37 @@ type KafkaConnector struct {
 	logger     log.Logger
 }
 
+func unsafeFastStringToReadOnlyBytes(s string) []byte {
+	return unsafe.Slice(unsafe.StringData(s), len(s))
+}
+
+func LVAsReadOnlyBytes(ls *lua.LState, v lua.LValue) ([]byte, error) {
+	str, err := LVAsStringOrNil(ls, v)
+	if err != nil {
+		return nil, err
+	} else if str == "" {
+		return nil, nil
+	} else {
+		return unsafeFastStringToReadOnlyBytes(str), nil
+	}
+}
+
+func LVAsStringOrNil(ls *lua.LState, v lua.LValue) (string, error) {
+	if lstr, ok := v.(lua.LString); ok {
+		return string(lstr), nil
+	} else if v == lua.LNil {
+		return "", nil
+	} else {
+		return "", fmt.Errorf("invalid bytes, must be nil or string: %s", v)
+	}
+}
+
 func NewKafkaConnector(
 	ctx context.Context,
 	config *protos.KafkaConfig,
 ) (*KafkaConnector, error) {
 	optionalOpts := append(
-		make([]kgo.Opt, 0, 6),
+		make([]kgo.Opt, 0, 7),
 		kgo.SeedBrokers(config.Servers...),
 		kgo.AllowAutoTopicCreation(),
 		kgo.WithLogger(kslog.New(slog.Default())), // TODO use logger.LoggerFromCtx
@@ -44,6 +70,18 @@ func NewKafkaConnector(
 	)
 	if !config.DisableTls {
 		optionalOpts = append(optionalOpts, kgo.DialTLSConfig(&tls.Config{MinVersion: tls.VersionTLS13}))
+	}
+	switch config.Partitioner {
+	case "LeastBackup":
+		optionalOpts = append(optionalOpts, kgo.RecordPartitioner(kgo.LeastBackupPartitioner()))
+	case "Manual":
+		optionalOpts = append(optionalOpts, kgo.RecordPartitioner(kgo.ManualPartitioner()))
+	case "RoundRobin":
+		optionalOpts = append(optionalOpts, kgo.RecordPartitioner(kgo.RoundRobinPartitioner()))
+	case "StickyKey":
+		optionalOpts = append(optionalOpts, kgo.RecordPartitioner(kgo.StickyKeyPartitioner(nil)))
+	case "Sticky":
+		optionalOpts = append(optionalOpts, kgo.RecordPartitioner(kgo.StickyPartitioner()))
 	}
 	if config.Username != "" {
 		switch config.Sasl {
@@ -194,24 +232,69 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 		}
 		ls.Push(fn)
 		ls.Push(pua.LuaRecord.New(ls, record))
-		err := ls.PCall(1, 1, nil)
+		err := ls.PCall(1, -1, nil)
 		if err != nil {
 			return nil, fmt.Errorf("script failed: %w", err)
 		}
-		value := ls.Get(-1)
-		ls.SetTop(0)
-		if value != lua.LNil {
-			lstr, ok := value.(lua.LString)
-			if !ok {
-				return nil, fmt.Errorf("script returned non-nil non-string: %s", value)
+		args := ls.GetTop()
+		for i := range args {
+			value := ls.Get(i - args)
+			var kr *kgo.Record
+			switch v := value.(type) {
+			case lua.LString:
+				kr = kgo.StringRecord(string(v))
+			case *lua.LTable:
+				key, err := LVAsReadOnlyBytes(ls, ls.GetField(v, "key"))
+				if err != nil {
+					return nil, fmt.Errorf("invalid key, %w", err)
+				}
+				value, err := LVAsReadOnlyBytes(ls, ls.GetField(v, "value"))
+				if err != nil {
+					return nil, fmt.Errorf("invalid value, %w", err)
+				}
+				topic, err := LVAsStringOrNil(ls, ls.GetField(v, "topic"))
+				if err != nil {
+					return nil, fmt.Errorf("invalid topic, %w", err)
+				}
+				partition := int32(lua.LVAsNumber(ls.GetField(v, "partition")))
+				kr = &kgo.Record{
+					Key:       key,
+					Value:     value,
+					Topic:     topic,
+					Partition: partition,
+				}
+				lheaders := ls.GetField(v, "headers")
+				if headers, ok := lheaders.(*lua.LTable); ok {
+					headers.ForEach(func(k, v lua.LValue) {
+						kstr := k.String()
+						vbytes, err := LVAsReadOnlyBytes(ls, v)
+						if err != nil {
+							vbytes = unsafeFastStringToReadOnlyBytes(err.Error())
+						}
+						kr.Headers = append(kr.Headers, kgo.RecordHeader{
+							Key:   kstr,
+							Value: vbytes,
+						})
+					})
+				} else if lua.LVAsBool(lheaders) {
+					return nil, fmt.Errorf("invalid headers, must be nil or table: %s", lheaders)
+				}
+			case *lua.LNilType:
+			default:
+				return nil, fmt.Errorf("script returned invalid value: %s", value)
 			}
+			if kr != nil {
+				if kr.Topic == "" {
+					kr.Topic = record.GetDestinationTableName()
+				}
 
-			wg.Add(1)
-			topic := record.GetDestinationTableName()
-			c.client.Produce(wgCtx, &kgo.Record{Topic: topic, Value: []byte(lstr)}, produceCb)
-			numRecords += 1
-			tableNameRowsMapping[topic] += 1
+				wg.Add(1)
+				c.client.Produce(wgCtx, kr, produceCb)
+				numRecords += 1
+				tableNameRowsMapping[kr.Topic] += 1
+			}
 		}
+		ls.SetTop(0)
 	}
 
 	waitChan := make(chan struct{})
