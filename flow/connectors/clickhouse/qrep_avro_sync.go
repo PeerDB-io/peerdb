@@ -47,6 +47,7 @@ func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 	if err != nil {
 		return err
 	}
+	// TODO make session token as an optional parameter below
 	//nolint:gosec
 	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM s3('%s','%s','%s', '%s', 'Avro')",
 		s.config.DestinationTableIdentifier, avroFileUrl,
