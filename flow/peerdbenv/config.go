@@ -18,17 +18,6 @@ func PeerDBDeploymentUID() string {
 	return getEnvString("PEERDB_DEPLOYMENT_UID", "")
 }
 
-// PEERDB_CDC_CHANNEL_BUFFER_SIZE
-func PeerDBCDCChannelBufferSize() int {
-	return getEnvInt("PEERDB_CDC_CHANNEL_BUFFER_SIZE", 1<<18)
-}
-
-// PEERDB_EVENTHUB_FLUSH_TIMEOUT_SECONDS
-func PeerDBEventhubFlushTimeoutSeconds() time.Duration {
-	x := getEnvInt("PEERDB_EVENTHUB_FLUSH_TIMEOUT_SECONDS", 10)
-	return time.Duration(x) * time.Second
-}
-
 // env variable doesn't exist anymore, but tests appear to depend on this
 // in lieu of an actual value of IdleTimeoutSeconds
 func PeerDBCDCIdleTimeoutSeconds(providedValue int) time.Duration {
@@ -39,21 +28,6 @@ func PeerDBCDCIdleTimeoutSeconds(providedValue int) time.Duration {
 		x = getEnvInt("", 10)
 	}
 	return time.Duration(x) * time.Second
-}
-
-// PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD
-func PeerDBCDCDiskSpillRecordsThreshold() int {
-	return getEnvInt("PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD", 1_000_000)
-}
-
-// PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD, negative numbers means memory threshold disabled
-func PeerDBCDCDiskSpillMemPercentThreshold() int {
-	return getEnvInt("PEERDB_CDC_DISK_SPILL_MEM_PERCENT_THRESHOLD", -1)
-}
-
-// PEERDB_DISABLE_ONE_SYNC
-func PeerDBDisableOneSync() bool {
-	return getEnvBool("PEERDB_DISABLE_ONE_SYNC", false)
 }
 
 // GOMEMLIMIT is a variable internal to Golang itself, we use this for internal targets, 0 means no maximum
@@ -89,15 +63,6 @@ func PeerDBCatalogDatabase() string {
 // PEERDB_ENABLE_WAL_HEARTBEAT
 func PeerDBEnableWALHeartbeat() bool {
 	return getEnvBool("PEERDB_ENABLE_WAL_HEARTBEAT", false)
-}
-
-// PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE
-func PeerDBEnableParallelSyncNormalize() bool {
-	return getEnvBool("PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE", false)
-}
-
-func PeerDBSnowflakeMergeParallelism() int {
-	return getEnvInt("PEERDB_SNOWFLAKE_MERGE_PARALLELISM", 8)
 }
 
 // PEERDB_TELEMETRY_AWS_SNS_TOPIC_ARN
