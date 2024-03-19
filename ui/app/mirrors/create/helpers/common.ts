@@ -65,7 +65,7 @@ export const blankSnowflakeQRepSetting = {
   watermarkTable: '',
   watermarkColumn: '',
   maxParallelWorkers: 4,
-  waitBetweenBatchesSeconds: 30,
+  waitBetweenBatchesSeconds: 2,
   writeMode: {
     writeType: QRepWriteType.QREP_WRITE_MODE_OVERWRITE,
   } as QRepWriteMode,

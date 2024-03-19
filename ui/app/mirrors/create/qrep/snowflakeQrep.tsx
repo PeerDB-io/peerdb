@@ -38,48 +38,6 @@ export default function SnowflakeQRepForm({
             Query replication mirrors with Snowflake source supports only
             overwrite, full-refresh mode.
           </Callout>
-          <div>
-            <Label>
-              Refresh interval is the time (in seconds) intervals at which new
-              rows will be pulled for replication.
-            </Label>
-            <RowWithTextField
-              label={
-                <Label>
-                  Refresh Interval
-                  <Tooltip
-                    style={{ width: '100%' }}
-                    content={'This is a required field.'}
-                  >
-                    <Label colorName='lowContrast' colorSet='destructive'>
-                      *
-                    </Label>
-                  </Tooltip>
-                </Label>
-              }
-              action={
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                  }}
-                >
-                  <TextField
-                    variant='simple'
-                    type={'number'}
-                    defaultValue={mirrorConfig.waitBetweenBatchesSeconds}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setter((curr) => ({
-                        ...curr,
-                        waitBetweenBatchesSeconds: e.target.valueAsNumber,
-                      }))
-                    }
-                  />
-                </div>
-              }
-            />
-          </div>
           <TableMapping
             sourcePeerName={mirrorConfig.sourcePeer?.name}
             rows={rows}
