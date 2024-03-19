@@ -521,6 +521,9 @@ func QRepFlowWorkflow(
 			if err != nil {
 				return nil
 			}
+			// we don't want to leave this workflow with unhandled signals, but ignoring results
+			signalChan.Drain()
+			state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
 			return workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
 		}
 		logger.Info("initial copy completed for peer flow")
