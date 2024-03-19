@@ -33,13 +33,15 @@ func SyncFlowWorkflow(
 	})
 	var fMaintain workflow.Future
 	var sessionID string
+	syncSessionCtx := ctx
 	if enableOneSync {
 		sessionOptions := &workflow.SessionOptions{
 			CreationTimeout:  5 * time.Minute,
 			ExecutionTimeout: 144 * time.Hour,
 			HeartbeatTimeout: time.Minute,
 		}
-		syncSessionCtx, err := workflow.CreateSession(ctx, sessionOptions)
+		var err error
+		syncSessionCtx, err = workflow.CreateSession(ctx, sessionOptions)
 		if err != nil {
 			return err
 		}
@@ -103,7 +105,7 @@ func SyncFlowWorkflow(
 		currentSyncFlowNum += 1
 		logger.Info("executing sync flow", slog.Int("count", currentSyncFlowNum))
 
-		syncFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		syncFlowCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
 			StartToCloseTimeout: 72 * time.Hour,
 			HeartbeatTimeout:    time.Minute,
 			WaitForCancellation: true,
