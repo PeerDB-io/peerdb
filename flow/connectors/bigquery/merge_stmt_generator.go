@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"cloud.google.com/go/bigquery"
-
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -36,18 +34,14 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 
 	for _, column := range m.normalizedTableSchema.Columns {
 		colType := column.Type
-		bqType := qValueKindToBigQueryType(colType)
-		// CAST doesn't work for FLOAT, so rewrite it to FLOAT64.
-		if bqType == bigquery.FloatFieldType {
-			bqType = "FLOAT64"
-		}
+		bqTypeString := qValueKindToBigQueryTypeString(colType)
 		var castStmt string
 		shortCol := m.shortColumn[column.Name]
 		switch qvalue.QValueKind(colType) {
 		case qvalue.QValueKindJSON, qvalue.QValueKindHStore:
 			// if the type is JSON, then just extract JSON
 			castStmt = fmt.Sprintf("CAST(PARSE_JSON(JSON_VALUE(_peerdb_data, '$.%s'),wide_number_mode=>'round') AS %s) AS `%s`",
-				column.Name, bqType, shortCol)
+				column.Name, bqTypeString, shortCol)
 		// expecting data in BASE64 format
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 			castStmt = fmt.Sprintf("FROM_BASE64(JSON_VALUE(_peerdb_data,'$.%s')) AS `%s`",
@@ -58,10 +52,10 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 			qvalue.QValueKindArrayDate:
 			castStmt = fmt.Sprintf("ARRAY(SELECT CAST(element AS %s) FROM "+
 				"UNNEST(CAST(JSON_VALUE_ARRAY(_peerdb_data, '$.%s') AS ARRAY<STRING>)) AS element WHERE element IS NOT null) AS `%s`",
-				bqType, column.Name, shortCol)
+				bqTypeString, column.Name, shortCol)
 		case qvalue.QValueKindGeography, qvalue.QValueKindGeometry, qvalue.QValueKindPoint:
 			castStmt = fmt.Sprintf("CAST(ST_GEOGFROMTEXT(JSON_VALUE(_peerdb_data, '$.%s')) AS %s) AS `%s`",
-				column.Name, bqType, shortCol)
+				column.Name, bqTypeString, shortCol)
 		// MAKE_INTERVAL(years INT64, months INT64, days INT64, hours INT64, minutes INT64, seconds INT64)
 		// Expecting interval to be in the format of {"Microseconds":2000000,"Days":0,"Months":0,"Valid":true}
 		// json.Marshal in SyncRecords for Postgres already does this - once new data-stores are added,
@@ -79,7 +73,7 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 		// 		column.Name, column.Name)
 		default:
 			castStmt = fmt.Sprintf("CAST(JSON_VALUE(_peerdb_data, '$.%s') AS %s) AS `%s`",
-				column.Name, bqType, shortCol)
+				column.Name, bqTypeString, shortCol)
 		}
 		flattenedProjs = append(flattenedProjs, castStmt)
 	}
