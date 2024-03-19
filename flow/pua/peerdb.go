@@ -12,6 +12,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/yuin/gopher-lua"
 
+	"github.com/PeerDB-io/gluabit32"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -33,6 +34,8 @@ func RegisterTypes(ls *lua.LState) {
 	// overwrite file loader with one retrieving scripts from database
 	loaders := ls.G.Registry.RawGetString("_LOADERS").(*lua.LTable)
 	loaders.RawSetInt(2, ls.NewFunction(LoadPeerdbScript))
+
+	ls.PreloadModule("bit32", bit32.Loader)
 
 	mt := LuaRecord.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaRecordIndex))
