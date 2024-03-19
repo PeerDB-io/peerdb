@@ -224,7 +224,7 @@ func LuaRecordIndex(ls *lua.LState) int {
 func qvToLTable[T any](ls *lua.LState, s []T, f func(x T) lua.LValue) *lua.LTable {
 	tbl := ls.CreateTable(len(s), 0)
 	for idx, val := range s {
-		tbl.RawSetInt(idx, f(val))
+		tbl.RawSetInt(idx+1, f(val))
 	}
 	return tbl
 }
