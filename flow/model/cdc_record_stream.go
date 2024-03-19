@@ -4,7 +4,6 @@ import (
 	"sync/atomic"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 type CDCRecordStream struct {
@@ -20,10 +19,9 @@ type CDCRecordStream struct {
 	emptySignal chan bool
 }
 
-func NewCDCRecordStream() *CDCRecordStream {
-	channelBuffer := peerdbenv.PeerDBCDCChannelBufferSize()
+func NewCDCRecordStream(bufferSizeForCDC int) *CDCRecordStream {
 	return &CDCRecordStream{
-		records:           make(chan Record, channelBuffer),
+		records:           make(chan Record, bufferSizeForCDC),
 		SchemaDeltas:      make([]*protos.TableSchemaDelta, 0),
 		emptySignal:       make(chan bool, 1),
 		lastCheckpointSet: false,

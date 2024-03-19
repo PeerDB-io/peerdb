@@ -21,12 +21,12 @@ import (
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/dynamicconf"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -551,7 +551,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 
 	var totalRowsAffected int64 = 0
 	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(peerdbenv.PeerDBSnowflakeMergeParallelism())
+	g.SetLimit(dynamicconf.PeerDBSnowflakeMergeParallelism(ctx))
 
 	for _, tableName := range destinationTableNames {
 		if gCtx.Err() != nil {

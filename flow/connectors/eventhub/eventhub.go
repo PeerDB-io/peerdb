@@ -12,10 +12,10 @@ import (
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/dynamicconf"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 type EventHubConnector struct {
@@ -106,7 +106,7 @@ func (c *EventHubConnector) processBatch(
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns, false)
 
-	ticker := time.NewTicker(peerdbenv.PeerDBEventhubFlushTimeoutSeconds())
+	ticker := time.NewTicker(dynamicconf.PeerDBEventhubFlushTimeoutSeconds(ctx))
 	defer ticker.Stop()
 
 	lastSeenLSN := int64(0)
