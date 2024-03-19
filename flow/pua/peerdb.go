@@ -467,6 +467,10 @@ func LuaI64Index(ls *lua.LState) int {
 		ls.Push(LuaU64.New(ls, uint64(i64)))
 	case "float64":
 		ls.Push(lua.LNumber(i64))
+	case "hi":
+		ls.Push(lua.LNumber(i64 >> 32))
+	case "lo":
+		ls.Push(lua.LNumber(uint32(i64)))
 	default:
 		return 0
 	}
@@ -483,6 +487,10 @@ func LuaU64Index(ls *lua.LState) int {
 		ls.Push(u64ud)
 	case "float64":
 		ls.Push(lua.LNumber(u64))
+	case "hi":
+		ls.Push(lua.LNumber(u64 >> 32))
+	case "lo":
+		ls.Push(lua.LNumber(uint32(u64)))
 	default:
 		return 0
 	}
@@ -590,8 +598,7 @@ func LuaDecimalIndex(ls *lua.LState) int {
 	case "int64":
 		ls.Push(LuaI64.New(ls, num.IntPart()))
 	case "float64":
-		f64, _ := num.Float64()
-		ls.Push(lua.LNumber(f64))
+		ls.Push(lua.LNumber(num.InexactFloat64()))
 	default:
 		return 0
 	}
