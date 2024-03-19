@@ -204,7 +204,7 @@ func (b *Builder) WriteVtable(ls *lua.LState) int {
 
 var LuaBuilder = pua.LuaUserDataType[*Builder]{Name: "flatbuffers_builder"}
 
-func FlatBuffers_Builder_Loader(ls *lua.LState) int {
+func Builder_Loader(ls *lua.LState) int {
 	m := ls.NewTable()
 	m.RawSetString("New", ls.NewFunction(BuilderNew))
 

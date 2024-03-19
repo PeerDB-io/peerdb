@@ -8,7 +8,7 @@ import (
 
 var LuaBinaryArray = pua.LuaUserDataType[[]byte]{Name: "flatbuffers_binaryarray"}
 
-func FlatBuffers_BinaryArray_Loader(ls *lua.LState) int {
+func BinaryArray_Loader(ls *lua.LState) int {
 	m := ls.NewTable()
 	ls.SetField(m, "New", ls.NewFunction(BinaryArrayNew))
 
