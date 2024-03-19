@@ -66,9 +66,11 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (client.Client, worker.Work
 	})
 
 	w.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
+	// explicitly not initializing mutex, in line with design
 	w.RegisterActivity(&activities.SnapshotActivity{
-		SnapshotConnections: make(map[string]activities.SlotSnapshotSignal),
-		Alerter:             alerting.NewAlerter(context.Background(), conn),
+		SlotSnapshotStates: make(map[string]activities.SlotSnapshotState),
+		TxSnapshotStates:   make(map[string]activities.TxSnapshotState),
+		Alerter:            alerting.NewAlerter(context.Background(), conn),
 	})
 
 	return c, w, nil
