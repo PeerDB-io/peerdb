@@ -100,5 +100,8 @@ func qValueKindToBigQueryTypeString(colType string) string {
 	if bqType == bigquery.FloatFieldType {
 		bqTypeAsString = "FLOAT64"
 	}
+	if bqType == bigquery.BooleanFieldType {
+		bqTypeAsString = "BOOL"
+	}
 	return bqTypeAsString
 }
