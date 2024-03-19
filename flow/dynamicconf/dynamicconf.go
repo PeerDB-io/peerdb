@@ -53,50 +53,6 @@ func dynamicConfNumber[T constraints.Integer](ctx context.Context, key string, d
 	return T(result)
 }
 
-func dynamicConfString(ctx context.Context, key string, defaultValue string) string {
-	conn, err := utils.GetCatalogConnectionPoolFromEnv(ctx)
-	if err != nil {
-		logger.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool: %v", err)
-		return defaultValue
-	}
-
-	if !dynamicConfKeyExists(ctx, conn, key) {
-		return defaultValue
-	}
-
-	var value pgtype.Text
-	query := "SELECT config_value FROM dynamic_settings WHERE config_name = $1"
-	err = conn.QueryRow(ctx, query, key).Scan(&value)
-	if err != nil {
-		logger.LoggerFromCtx(ctx).Error("Failed to get key: %v", err)
-		return defaultValue
-	}
-
-	return value.String
-}
-
-func dynamicConfBool(ctx context.Context, key string, defaultValue bool) bool {
-	conn, err := utils.GetCatalogConnectionPoolFromEnv(ctx)
-	if err != nil {
-		logger.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool: %v", err)
-		return defaultValue
-	}
-
-	if !dynamicConfKeyExists(ctx, conn, key) {
-		return defaultValue
-	}
-
-	var value pgtype.Bool
-	query := "SELECT config_value FROM dynamic_settings WHERE config_name = $1"
-	err = conn.QueryRow(ctx, query, key).Scan(&value)
-	if err != nil {
-		logger.LoggerFromCtx(ctx).Error("Failed to get key: %v", err)
-		return defaultValue
-	}
-
-	return value.Bool
-}
-
 // PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD, 0 disables slot lag alerting entirely
 func PeerDBSlotLagMBAlertThreshold(ctx context.Context) uint32 {
 	return dynamicConfNumber[uint32](ctx, "PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD", 5000)
@@ -114,22 +70,22 @@ func PeerDBOpenConnectionsAlertThreshold(ctx context.Context) uint32 {
 }
 
 func PeerDBSnowflakeMergeParallelism(ctx context.Context) int {
-	return int(dynamicConfNumber[int64](ctx, "PEERDB_SNOWFLAKE_MERGE_PARALLELISM", 8))
+	return int(dynamicConfNumber[int32](ctx, "PEERDB_SNOWFLAKE_MERGE_PARALLELISM", 8))
 }
 
 // PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD
-func PeerDBCDCDiskSpillRecordsThreshold(ctx context.Context) int {
-	return int(dynamicConfNumber[int64](ctx, "PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD", 1_000_000))
+func PeerDBCDCDiskSpillRecordsThreshold(ctx context.Context) int64 {
+	return dynamicConfNumber[int64](ctx, "PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD", 1_000_000)
 }
 
 // PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD, negative numbers means memory threshold disabled
-func PeerDBCDCDiskSpillMemPercentThreshold(ctx context.Context) int {
-	return int(dynamicConfNumber[int64](ctx, "PEERDB_CDC_DISK_SPILL_MEM_PERCENT_THRESHOLD", -1))
+func PeerDBCDCDiskSpillMemPercentThreshold(ctx context.Context) int64 {
+	return dynamicConfNumber[int64](ctx, "PEERDB_CDC_DISK_SPILL_MEM_PERCENT_THRESHOLD", -1)
 }
 
 // PEERDB_CDC_CHANNEL_BUFFER_SIZE
 func PeerDBCDCChannelBufferSize(ctx context.Context) int {
-	return int(dynamicConfNumber[int64](ctx, "PEERDB_CDC_CHANNEL_BUFFER_SIZE", 1<<18))
+	return int(dynamicConfNumber[int32](ctx, "PEERDB_CDC_CHANNEL_BUFFER_SIZE", 1<<18))
 }
 
 // PEERDB_EVENTHUB_FLUSH_TIMEOUT_SECONDS

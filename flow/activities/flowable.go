@@ -24,6 +24,7 @@ import (
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
+	"github.com/PeerDB-io/peer-flow/dynamicconf"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
@@ -323,8 +324,9 @@ func (a *FlowableActivity) SyncFlow(
 	}
 	logger.Info("pulling records...", slog.Int64("LastOffset", lastOffset))
 
+	bufferSizeForCDC := dynamicconf.PeerDBCDCChannelBufferSize(ctx)
 	// start a goroutine to pull records from the source
-	recordBatch := model.NewCDCRecordStream()
+	recordBatch := model.NewCDCRecordStream(bufferSizeForCDC)
 	startTime := time.Now()
 
 	errGroup, errCtx := errgroup.WithContext(ctx)
