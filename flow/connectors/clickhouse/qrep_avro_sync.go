@@ -190,10 +190,6 @@ func (s *ClickhouseAvroSyncMethod) writeToAvroFile(
 
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, flowJobName, partitionID)
 	s3AvroFileKey = strings.Trim(s3AvroFileKey, "/")
-	creds, err := s.connector.credsProvider.Provider.Retrieve(ctx)
-	if err != nil {
-
-	}
 	avroFile, err := ocfWriter.WriteRecordsToS3(ctx, s3o.Bucket, s3AvroFileKey, s.connector.credsProvider.Provider)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write records to S3: %w", err)
