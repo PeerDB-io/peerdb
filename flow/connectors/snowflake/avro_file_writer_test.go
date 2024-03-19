@@ -3,12 +3,12 @@ package connsnowflake
 import (
 	"context"
 	"fmt"
-	"math/big"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
@@ -36,8 +36,7 @@ func createQValue(t *testing.T, kind qvalue.QValueKind, placeHolder int) qvalue.
 		qvalue.QValueKindTimeTZ, qvalue.QValueKindDate:
 		value = time.Now()
 	case qvalue.QValueKindNumeric:
-		// create a new big.Rat for numeric data
-		value = big.NewRat(int64(placeHolder), 1)
+		value = decimal.New(int64(placeHolder), 1)
 	case qvalue.QValueKindUUID:
 		value = uuid.New() // assuming you have the github.com/google/uuid package
 	case qvalue.QValueKindQChar:

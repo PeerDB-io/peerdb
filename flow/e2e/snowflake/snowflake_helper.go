@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"os"
 	"time"
+
+	"github.com/shopspring/decimal"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
@@ -173,9 +174,8 @@ func (s *SnowflakeTestHelper) RunIntQuery(query string) (int, error) {
 	case qvalue.QValueKindInt64:
 		return int(rec[0].Value.(int64)), nil
 	case qvalue.QValueKindNumeric:
-		// get big.Rat and convert to int
-		rat := rec[0].Value.(*big.Rat)
-		return int(rat.Num().Int64() / rat.Denom().Int64()), nil
+		val := rec[0].Value.(decimal.Decimal)
+		return int(val.IntPart()), nil
 	default:
 		return 0, fmt.Errorf("failed to execute query: %s, returned value of type %s", query, rec[0].Kind)
 	}

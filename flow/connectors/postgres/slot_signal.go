@@ -1,9 +1,10 @@
 package connpostgres
 
 type SlotCreationResult struct {
-	SlotName     string
-	SnapshotName string
-	Err          error
+	SlotName         string
+	SnapshotName     string
+	SupportsTIDScans bool
+	Err              error
 }
 
 // This struct contains two signals.

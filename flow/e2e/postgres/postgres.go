@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -29,6 +30,10 @@ func (s PeerFlowE2ETestSuitePG) T() *testing.T {
 }
 
 func (s PeerFlowE2ETestSuitePG) Connector() *connpostgres.PostgresConnector {
+	return s.conn
+}
+
+func (s PeerFlowE2ETestSuitePG) DestinationConnector() connectors.Connector {
 	return s.conn
 }
 

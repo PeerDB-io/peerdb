@@ -22,6 +22,7 @@ import (
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/temporal"
 
+	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -55,6 +56,7 @@ type RowSource interface {
 type GenericSuite interface {
 	RowSource
 	Peer() *protos.Peer
+	DestinationConnector() connectors.Connector
 	DestinationTable(table string) string
 }
 
@@ -112,13 +114,17 @@ func RequireEqualTables(suite RowSource, table string, cols string) {
 }
 
 func EnvEqualTables(env WorkflowRun, suite RowSource, table string, cols string) {
+	EnvEqualTablesWithNames(env, suite, table, table, cols)
+}
+
+func EnvEqualTablesWithNames(env WorkflowRun, suite RowSource, srcTable string, dstTable string, cols string) {
 	t := suite.T()
 	t.Helper()
 
-	pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), table, cols)
+	pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), srcTable, cols)
 	EnvNoError(t, env, err)
 
-	rows, err := suite.GetRows(table, cols)
+	rows, err := suite.GetRows(dstTable, cols)
 	EnvNoError(t, env, err)
 
 	EnvEqualRecordBatches(t, env, pgRows, rows)
@@ -265,7 +271,6 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 		"geography_linestring geography(linestring)",
 		"geometry_polygon geometry(polygon)",
 		"geography_polygon geography(polygon)",
-		"nannu NUMERIC",
 		"myreal REAL",
 		"myreal2 REAL",
 		"myreal3 REAL",
@@ -331,12 +336,8 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 						'LINESTRING(0 0, 1 1, 2 2)',
 						'LINESTRING(-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831)',
 						'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))','POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))',
-						'NaN',
-						3.14159,
-						1,
-						1.0,
-						'10.0.0.0/32',
-						'1.1.10.2'::cidr
+						3.14159, 1, 1.0,
+						'10.0.0.0/32', '1.1.10.2'::cidr
 					)`,
 			id, uuid.New().String(), uuid.New().String(),
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String())
@@ -354,12 +355,8 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, my_date,
 					my_time, my_mood, myh,
 					"geometryPoint", geography_point,geometry_linestring, geography_linestring,geometry_polygon, geography_polygon,
-					nannu,
-					myreal,
-					myreal2,
-					myreal3,
-					myinet,
-					mycidr
+					myreal, myreal2, myreal3,
+					myinet, mycidr
 			) VALUES %s;
 	`, suffix, tableName, strings.Join(rows, ",")))
 	if err != nil {
@@ -517,6 +514,19 @@ func GetOwnersSelectorStringsSF() [2]string {
 		}
 	}
 	return [2]string{strings.Join(pgFields, ","), strings.Join(sfFields, ",")}
+}
+
+func ExpectedDestinationIdentifier(s GenericSuite, ident string) string {
+	switch s.DestinationConnector().(type) {
+	case *connsnowflake.SnowflakeConnector:
+		return strings.ToUpper(ident)
+	default:
+		return ident
+	}
+}
+
+func ExpectedDestinationTableName(s GenericSuite, table string) string {
+	return ExpectedDestinationIdentifier(s, s.DestinationTable(table))
 }
 
 type testWriter struct {

@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -49,6 +50,7 @@ type ReplState struct {
 	Slot        string
 	Publication string
 	Offset      int64
+	LastOffset  atomic.Int64
 }
 
 func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
@@ -133,7 +135,7 @@ func (c *PostgresConnector) ReplPing(ctx context.Context) error {
 			return pglogrepl.SendStandbyStatusUpdate(
 				ctx,
 				c.replConn.PgConn(),
-				pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(c.replState.Offset)},
+				pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(c.replState.LastOffset.Load())},
 			)
 		}
 	}
@@ -184,7 +186,9 @@ func (c *PostgresConnector) MaybeStartReplication(
 			Slot:        slotName,
 			Publication: publicationName,
 			Offset:      req.LastOffset,
+			LastOffset:  atomic.Int64{},
 		}
+		c.replState.LastOffset.Store(req.LastOffset)
 	}
 	return nil
 }
@@ -308,6 +312,9 @@ func (c *PostgresConnector) SetLastOffset(ctx context.Context, jobName string, l
 func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpool.Pool, req *model.PullRecordsRequest) error {
 	defer func() {
 		req.RecordStream.Close()
+		if c.replState != nil {
+			c.replState.Offset = req.RecordStream.GetLastCheckpoint()
+		}
 	}()
 
 	// Slotname would be the job name prefixed with "peerflow_slot_"
@@ -371,9 +378,6 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 		return err
 	}
 
-	req.RecordStream.Close()
-	c.replState.Offset = req.RecordStream.GetLastCheckpoint()
-
 	latestLSN, err := c.getCurrentLSN(ctx)
 	if err != nil {
 		c.logger.Error("error getting current LSN", slog.Any("error", err))
@@ -387,6 +391,12 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 	}
 
 	return nil
+}
+
+func (c *PostgresConnector) UpdateReplStateLastOffset(lastOffset int64) {
+	if c.replState != nil {
+		c.replState.LastOffset.Store(lastOffset)
+	}
 }
 
 // SyncRecords pushes records to the destination.
@@ -931,30 +941,49 @@ func (c *PostgresConnector) EnsurePullability(
 	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil
 }
 
-func (c *PostgresConnector) ExportSnapshot(ctx context.Context) (string, any, error) {
+func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context) (*protos.ExportTxSnapshotOutput, any, error) {
 	var snapshotName string
 	tx, err := c.conn.Begin(ctx)
 	if err != nil {
-		return "", nil, err
+		return nil, nil, err
 	}
+	txNeedsRollback := true
+	defer func() {
+		if txNeedsRollback {
+			rollbackCtx, cancelFunc := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancelFunc()
+			err := tx.Rollback(rollbackCtx)
+			if err != pgx.ErrTxClosed {
+				c.logger.Error("error while rolling back transaction for snapshot export")
+			}
+		}
+	}()
 
-	_, err = tx.Exec(ctx, "SET idle_in_transaction_session_timeout = 0")
+	_, err = tx.Exec(ctx, "SET LOCAL idle_in_transaction_session_timeout=0")
 	if err != nil {
-		return "", nil, fmt.Errorf("[export-snapshot] error setting idle_in_transaction_session_timeout: %w", err)
+		return nil, nil, fmt.Errorf("[export-snapshot] error setting idle_in_transaction_session_timeout: %w", err)
 	}
 
-	_, err = tx.Exec(ctx, "SET lock_timeout = 0")
+	_, err = tx.Exec(ctx, "SET LOCAL lock_timeout=0")
 	if err != nil {
-		return "", nil, fmt.Errorf("[export-snapshot] error setting lock_timeout: %w", err)
+		return nil, nil, fmt.Errorf("[export-snapshot] error setting lock_timeout: %w", err)
 	}
 
-	err = tx.QueryRow(ctx, "select pg_export_snapshot()").Scan(&snapshotName)
+	ok, _, err := c.MajorVersionCheck(ctx, POSTGRES_13)
 	if err != nil {
-		_ = tx.Rollback(ctx)
-		return "", nil, err
+		return nil, nil, fmt.Errorf("[export-snapshot] error getting PG version: %w", err)
 	}
 
-	return snapshotName, tx, err
+	err = tx.QueryRow(ctx, "SELECT pg_export_snapshot()").Scan(&snapshotName)
+	if err != nil {
+		return nil, nil, err
+	}
+	txNeedsRollback = false
+
+	return &protos.ExportTxSnapshotOutput{
+		SnapshotName:     snapshotName,
+		SupportsTidScans: ok,
+	}, tx, err
 }
 
 func (c *PostgresConnector) FinishExport(tx any) error {

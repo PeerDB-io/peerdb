@@ -27,11 +27,16 @@ type Connector interface {
 	ConnectionActive(context.Context) error
 }
 
-type CDCPullConnector interface {
+type GetTableSchemaConnector interface {
 	Connector
 
 	// GetTableSchema returns the schema of a table.
 	GetTableSchema(ctx context.Context, req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error)
+}
+
+type CDCPullConnector interface {
+	Connector
+	GetTableSchemaConnector
 
 	// EnsurePullability ensures that the connector is pullable.
 	EnsurePullability(ctx context.Context, req *protos.EnsurePullabilityBatchInput) (
@@ -39,7 +44,7 @@ type CDCPullConnector interface {
 
 	// For InitialSnapshotOnly correctness without replication slot
 	// `any` is for returning transaction if necessary
-	ExportSnapshot(context.Context) (string, any, error)
+	ExportTxSnapshot(context.Context) (*protos.ExportTxSnapshotOutput, any, error)
 
 	// `any` from ExportSnapshot passed here when done, allowing transaction to commit
 	FinishExport(any) error
@@ -53,6 +58,9 @@ type CDCPullConnector interface {
 	// PullRecords pulls records from the source, and returns a RecordBatch.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
 	PullRecords(ctx context.Context, catalogPool *pgxpool.Pool, req *model.PullRecordsRequest) error
+
+	// Called when offset has been confirmed to destination
+	UpdateReplStateLastOffset(lastOffset int64)
 
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(ctx context.Context, jobName string) error
@@ -251,6 +259,9 @@ var (
 	_ CDCNormalizeConnector = &connbigquery.BigQueryConnector{}
 	_ CDCNormalizeConnector = &connsnowflake.SnowflakeConnector{}
 	_ CDCNormalizeConnector = &connclickhouse.ClickhouseConnector{}
+
+	_ GetTableSchemaConnector = &connpostgres.PostgresConnector{}
+	_ GetTableSchemaConnector = &connsnowflake.SnowflakeConnector{}
 
 	_ NormalizedTablesConnector = &connpostgres.PostgresConnector{}
 	_ NormalizedTablesConnector = &connbigquery.BigQueryConnector{}

@@ -26,6 +26,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -550,7 +551,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 
 	var totalRowsAffected int64 = 0
 	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(8) // limit parallel merges to 8
+	g.SetLimit(peerdbenv.PeerDBSnowflakeMergeParallelism())
 
 	for _, tableName := range destinationTableNames {
 		if gCtx.Err() != nil {

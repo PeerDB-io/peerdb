@@ -494,7 +494,7 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 				SoftDelete:        req.SoftDelete,
 			})
 		if mergeErr != nil {
-			return nil, err
+			return nil, mergeErr
 		}
 
 		err = c.pgMetadata.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId)

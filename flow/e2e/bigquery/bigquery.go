@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -33,6 +34,11 @@ func (s PeerFlowE2ETestSuiteBQ) Conn() *pgx.Conn {
 
 func (s PeerFlowE2ETestSuiteBQ) Connector() *connpostgres.PostgresConnector {
 	return s.conn
+}
+
+func (s PeerFlowE2ETestSuiteBQ) DestinationConnector() connectors.Connector {
+	// TODO have BQ connector
+	return nil
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Suffix() string {

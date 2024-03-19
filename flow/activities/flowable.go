@@ -35,12 +35,6 @@ type CheckConnectionResult struct {
 	NeedsSetupMetadataTables bool
 }
 
-type SlotSnapshotSignal struct {
-	signal       connpostgres.SlotSignal
-	snapshotName string
-	connector    connectors.CDCPullConnector
-}
-
 type FlowableActivity struct {
 	CatalogPool *pgxpool.Pool
 	Alerter     *alerting.Alerter
@@ -287,18 +281,30 @@ func (a *FlowableActivity) SyncFlow(
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
-	logger.Info("pulling records...")
 	tblNameMapping := make(map[string]model.NameAndExclude, len(options.TableMappings))
 	for _, v := range options.TableMappings {
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
 	}
 
-	srcConn, err := a.waitForCdcCache(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	if err := srcConn.ConnectionActive(ctx); err != nil {
-		return nil, temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", nil)
+	var srcConn connectors.CDCPullConnector
+	if sessionID == "" {
+		srcConn, err = connectors.GetCDCPullConnector(ctx, config.Source)
+		if err != nil {
+			return nil, err
+		}
+		defer connectors.CloseConnector(ctx, srcConn)
+
+		if err := srcConn.SetupReplConn(ctx); err != nil {
+			return nil, err
+		}
+	} else {
+		srcConn, err = a.waitForCdcCache(ctx, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		if err := srcConn.ConnectionActive(ctx); err != nil {
+			return nil, temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", nil)
+		}
 	}
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
@@ -315,6 +321,7 @@ func (a *FlowableActivity) SyncFlow(
 	if err != nil {
 		return nil, err
 	}
+	logger.Info("pulling records...", slog.Int64("LastOffset", lastOffset))
 
 	// start a goroutine to pull records from the source
 	recordBatch := model.NewCDCRecordStream()
@@ -346,7 +353,11 @@ func (a *FlowableActivity) SyncFlow(
 		err = errGroup.Wait()
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, flowName, err)
-			return nil, fmt.Errorf("failed in pull records when: %w", err)
+			if temporal.IsApplicationError(err) {
+				return nil, err
+			} else {
+				return nil, fmt.Errorf("failed in pull records when: %w", err)
+			}
 		}
 		logger.Info("no records to push")
 
@@ -401,7 +412,11 @@ func (a *FlowableActivity) SyncFlow(
 	err = errGroup.Wait()
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
-		return nil, fmt.Errorf("failed to pull records: %w", err)
+		if temporal.IsApplicationError(err) {
+			return nil, err
+		} else {
+			return nil, fmt.Errorf("failed to pull records: %w", err)
+		}
 	}
 
 	numRecords := res.NumRecordsSynced
@@ -410,6 +425,7 @@ func (a *FlowableActivity) SyncFlow(
 	logger.Info(fmt.Sprintf("pushed %d records in %d seconds", numRecords, int(syncDuration.Seconds())))
 
 	lastCheckpoint := recordBatch.GetLastCheckpoint()
+	srcConn.UpdateReplStateLastOffset(lastCheckpoint)
 
 	err = monitoring.UpdateNumRowsAndEndLSNForCDCBatch(
 		ctx,

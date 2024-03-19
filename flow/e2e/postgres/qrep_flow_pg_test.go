@@ -36,15 +36,10 @@ func (s PeerFlowE2ETestSuitePG) setupSourceTable(tableName string, rowCount int)
 
 func (s PeerFlowE2ETestSuitePG) comparePGTables(srcSchemaQualified, dstSchemaQualified, selector string) error {
 	// Execute the two EXCEPT queries
-	if err := s.compareQuery(srcSchemaQualified, dstSchemaQualified, selector); err != nil {
-		return err
-	}
-	if err := s.compareQuery(dstSchemaQualified, srcSchemaQualified, selector); err != nil {
-		return err
-	}
-
-	// If no error is returned, then the contents of the two tables are the same
-	return nil
+	return errors.Join(
+		s.compareQuery(srcSchemaQualified, dstSchemaQualified, selector),
+		s.compareQuery(dstSchemaQualified, srcSchemaQualified, selector),
+	)
 }
 
 func (s PeerFlowE2ETestSuitePG) checkEnums(srcSchemaQualified, dstSchemaQualified string) error {

@@ -4,11 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/big"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/shopspring/decimal"
 
 	"github.com/PeerDB-io/peer-flow/geo"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -198,24 +198,12 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			values[i] = uuid.UUID(v)
 
 		case qvalue.QValueKindNumeric:
-			v, ok := qValue.Value.(*big.Rat)
+			v, ok := qValue.Value.(decimal.Decimal)
 			if !ok {
 				src.err = fmt.Errorf("invalid Numeric value %v", qValue.Value)
 				return nil, src.err
 			}
-			if v == nil {
-				values[i] = pgtype.Numeric{
-					Int:              nil,
-					Exp:              0,
-					NaN:              true,
-					InfinityModifier: pgtype.Finite,
-					Valid:            true,
-				}
-				break
-			}
-
-			// TODO: account for precision and scale issues.
-			values[i] = v.FloatString(38)
+			values[i] = v
 
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 			v, ok := qValue.Value.([]byte)
