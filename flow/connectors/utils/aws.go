@@ -1,7 +1,7 @@
 package utils
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,7 +10,9 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
@@ -20,79 +22,154 @@ type AWSSecrets struct {
 	AwsRoleArn      string
 	Region          string
 	Endpoint        string
+	SessionToken    string
+}
+
+type PeerAWSCredentials struct {
+	Credentials aws.Credentials
+	RoleArn     *string
+	Region      string
+	EndpointUrl *string
 }
 
 type S3PeerCredentials struct {
 	AccessKeyID     string `json:"accessKeyId"`
 	SecretAccessKey string `json:"secretAccessKey"`
 	AwsRoleArn      string `json:"awsRoleArn"`
+	SessionToken    string `json:"sessionToken"`
 	Region          string `json:"region"`
 	Endpoint        string `json:"endpoint"`
 }
 
-type ClickhouseS3Credentials struct {
-	AccessKeyID     string `json:"accessKeyId"`
-	SecretAccessKey string `json:"secretAccessKey"`
-	Region          string `json:"region"`
-	BucketPath      string `json:"bucketPath"`
+type ClickHouseS3Credentials struct {
+	Provider   AWSCredentialsProvider
+	BucketPath string
 }
 
-func GetAWSSecrets(creds S3PeerCredentials) (*AWSSecrets, error) {
-	awsRegion := creds.Region
-	if awsRegion == "" {
-		awsRegion = os.Getenv("AWS_REGION")
-	}
-	if awsRegion == "" {
-		return nil, errors.New("AWS_REGION must be set")
-	}
+type AWSCredentials struct {
+	AWS         aws.Credentials
+	EndpointUrl *string
+}
 
-	awsEndpoint := creds.Endpoint
-	if awsEndpoint == "" {
-		awsEndpoint = os.Getenv("AWS_ENDPOINT")
-	}
+type AWSCredentialsProvider interface {
+	Retrieve(ctx context.Context) (AWSCredentials, error)
+	GetUnderlyingProvider() aws.CredentialsProvider
+	GetRegion() string
+}
 
-	awsKey := creds.AccessKeyID
-	if awsKey == "" {
-		awsKey = os.Getenv("AWS_ACCESS_KEY_ID")
-	}
+type ConfigBasedAWSCredentialsProvider struct {
+	config aws.Config
+}
 
-	awsSecret := creds.SecretAccessKey
-	if awsSecret == "" {
-		awsSecret = os.Getenv("AWS_SECRET_ACCESS_KEY")
-	}
+func (r *ConfigBasedAWSCredentialsProvider) GetUnderlyingProvider() aws.CredentialsProvider {
+	return r.config.Credentials
+}
 
-	awsRoleArn := creds.AwsRoleArn
-	if awsRoleArn == "" {
-		awsRoleArn = os.Getenv("AWS_ROLE_ARN")
-	}
+func (r *ConfigBasedAWSCredentialsProvider) GetRegion() string {
+	return r.config.Region
+}
 
-	// one of (awsKey and awsSecret) or awsRoleArn must be set
-	if awsKey == "" && awsSecret == "" && awsRoleArn == "" {
-		return nil, errors.New("one of (AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY) or AWS_ROLE_ARN must be set")
+// Retrieve should be called as late as possible in order to have credentials with latest expiry
+func (r *ConfigBasedAWSCredentialsProvider) Retrieve(ctx context.Context) (AWSCredentials, error) {
+	retrieved, err := r.config.Credentials.Retrieve(ctx)
+	if err != nil {
+		return AWSCredentials{}, err
 	}
-
-	return &AWSSecrets{
-		AccessKeyID:     awsKey,
-		SecretAccessKey: awsSecret,
-		AwsRoleArn:      awsRoleArn,
-		Region:          awsRegion,
-		Endpoint:        awsEndpoint,
+	return AWSCredentials{
+		AWS:         retrieved,
+		EndpointUrl: r.config.BaseEndpoint,
 	}, nil
 }
 
-func GetClickhouseAWSSecrets(bucketPathSuffix string) *ClickhouseS3Credentials {
-	awsRegion := os.Getenv("PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION")
-	awsKey := os.Getenv("PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID")
-	awsSecret := os.Getenv("PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY")
-	awsBucketName := os.Getenv("PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
+func NewConfigBasedAWSCredentialsProvider(config aws.Config) AWSCredentialsProvider {
+	return &ConfigBasedAWSCredentialsProvider{config: config}
+}
 
-	awsBucketPath := fmt.Sprintf("s3://%s/%s", awsBucketName, bucketPathSuffix)
-	return &ClickhouseS3Credentials{
-		AccessKeyID:     awsKey,
-		SecretAccessKey: awsSecret,
-		Region:          awsRegion,
-		BucketPath:      awsBucketPath,
+type StaticAWSCredentialsProvider struct {
+	credentials AWSCredentials
+	region      string
+}
+
+func (s *StaticAWSCredentialsProvider) GetUnderlyingProvider() aws.CredentialsProvider {
+	return credentials.NewStaticCredentialsProvider(s.credentials.AWS.AccessKeyID, s.credentials.AWS.SecretAccessKey,
+		s.credentials.AWS.SessionToken)
+}
+
+func (s *StaticAWSCredentialsProvider) GetRegion() string {
+	return s.region
+}
+
+func (s *StaticAWSCredentialsProvider) Retrieve(ctx context.Context) (AWSCredentials, error) {
+	return s.credentials, nil
+}
+
+func NewStaticAWSCredentialsProvider(credentials AWSCredentials, region string) AWSCredentialsProvider {
+	return &StaticAWSCredentialsProvider{
+		credentials: credentials,
+		region:      region,
 	}
+}
+
+func getPeerDBAWSEnv(connectorName string, awsKey string) string {
+	return os.Getenv(fmt.Sprintf("PEERDB_%s_AWS_CREDENTIALS_%s", strings.ToUpper(connectorName), awsKey))
+}
+
+func LoadPeerDBAWSEnvConfigProvider(connectorName string) AWSCredentialsProvider {
+	accessKeyId := getPeerDBAWSEnv(connectorName, "AWS_ACCESS_KEY_ID")
+	secretAccessKey := getPeerDBAWSEnv(connectorName, "AWS_SECRET_ACCESS_KEY")
+	region := getPeerDBAWSEnv(connectorName, "AWS_REGION")
+	endpointUrl := getPeerDBAWSEnv(connectorName, "AWS_ENDPOINT_URL")
+	var endpointUrlPtr *string
+	if endpointUrl != "" {
+		endpointUrlPtr = &endpointUrl
+	}
+
+	if accessKeyId == "" && secretAccessKey == "" && region == "" && endpointUrl == "" {
+		return nil
+	}
+
+	return NewStaticAWSCredentialsProvider(AWSCredentials{
+		AWS: aws.Credentials{
+			AccessKeyID:     accessKeyId,
+			SecretAccessKey: secretAccessKey,
+		},
+		EndpointUrl: endpointUrlPtr,
+	}, region)
+}
+
+func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCredentials PeerAWSCredentials) (AWSCredentialsProvider, error) {
+	if !(peerCredentials.Credentials.AccessKeyID == "" && peerCredentials.Credentials.SecretAccessKey == "" &&
+		peerCredentials.Region == "" && peerCredentials.RoleArn == nil && peerCredentials.EndpointUrl == nil) {
+		staticProvider := NewStaticAWSCredentialsProvider(AWSCredentials{
+			AWS:         peerCredentials.Credentials,
+			EndpointUrl: peerCredentials.EndpointUrl,
+		}, peerCredentials.Region)
+		if peerCredentials.RoleArn == nil {
+			return staticProvider, nil
+		}
+		awsConfig, err := config.LoadDefaultConfig(ctx, func(options *config.LoadOptions) error {
+			options.AssumeRoleCredentialOptions = func(assumeOptions *stscreds.AssumeRoleOptions) {
+				assumeOptions.RoleARN = *peerCredentials.RoleArn
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		return NewConfigBasedAWSCredentialsProvider(awsConfig), nil
+	}
+	envCredentialsProvider := LoadPeerDBAWSEnvConfigProvider(connectorName)
+	if envCredentialsProvider != nil {
+		return envCredentialsProvider, nil
+	}
+
+	awsConfig, err := config.LoadDefaultConfig(ctx, func(options *config.LoadOptions) error {
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return NewConfigBasedAWSCredentialsProvider(awsConfig), nil
 }
 
 type S3BucketAndPrefix struct {
@@ -114,31 +191,30 @@ func NewS3BucketAndPrefix(s3Path string) (*S3BucketAndPrefix, error) {
 	}, nil
 }
 
-func CreateS3Client(s3Creds S3PeerCredentials) (*s3.Client, error) {
-	awsSecrets, err := GetAWSSecrets(s3Creds)
+func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (*s3.Client, error) {
+	awsCredentials, err := credsProvider.Retrieve(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get AWS secrets: %w", err)
+		return nil, err
 	}
-	options := s3.Options{
-		Region:      awsSecrets.Region,
-		Credentials: credentials.NewStaticCredentialsProvider(awsSecrets.AccessKeyID, awsSecrets.SecretAccessKey, ""),
-	}
-	if awsSecrets.Endpoint != "" {
-		options.BaseEndpoint = &awsSecrets.Endpoint
-		if strings.Contains(awsSecrets.Endpoint, "storage.googleapis.com") {
-			// Assign custom client with our own transport
-			options.HTTPClient = &http.Client{
-				Transport: &RecalculateV4Signature{
-					next:        http.DefaultTransport,
-					signer:      v4.NewSigner(),
-					credentials: options.Credentials,
-					region:      options.Region,
-				},
+	s3Client := s3.NewFromConfig(aws.Config{}, func(options *s3.Options) {
+		options.Region = credsProvider.GetRegion()
+		options.Credentials = credsProvider.GetUnderlyingProvider()
+		options.BaseEndpoint = awsCredentials.EndpointUrl
+		if awsCredentials.EndpointUrl != nil {
+			if strings.Contains(*awsCredentials.EndpointUrl, "storage.googleapis.com") {
+				// Assign custom client with our own transport
+				options.HTTPClient = &http.Client{
+					Transport: &RecalculateV4Signature{
+						next:        http.DefaultTransport,
+						signer:      v4.NewSigner(),
+						credentials: credsProvider.GetUnderlyingProvider(),
+						region:      credsProvider.GetRegion(),
+					},
+				}
 			}
 		}
-	}
-
-	return s3.New(options), nil
+	})
+	return s3Client, nil
 }
 
 // RecalculateV4Signature allow GCS over S3, removing Accept-Encoding header from sign

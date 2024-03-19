@@ -5,18 +5,18 @@ import (
 	"crypto/tls"
 	"database/sql"
 	"fmt"
-	"net/url"
-
 	"github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"go.temporal.io/sdk/log"
-
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"go.temporal.io/sdk/log"
+	"net/url"
+	"os"
 )
 
 type ClickhouseConnector struct {
@@ -25,16 +25,12 @@ type ClickhouseConnector struct {
 	tableSchemaMapping map[string]*protos.TableSchema
 	logger             log.Logger
 	config             *protos.ClickhouseConfig
-	creds              *utils.ClickhouseS3Credentials
+	credsProvider      *utils.ClickHouseS3Credentials
 }
 
-func ValidateS3(ctx context.Context, creds *utils.ClickhouseS3Credentials) error {
+func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error {
 	// for validation purposes
-	s3Client, err := utils.CreateS3Client(utils.S3PeerCredentials{
-		AccessKeyID:     creds.AccessKeyID,
-		SecretAccessKey: creds.SecretAccessKey,
-		Region:          creds.Region,
-	})
+	s3Client, err := utils.CreateS3Client(ctx, creds.Provider)
 	if err != nil {
 		return fmt.Errorf("failed to create S3 client: %w", err)
 	}
@@ -101,28 +97,39 @@ func NewClickhouseConnector(
 		return nil, err
 	}
 
-	var clickhouseS3Creds *utils.ClickhouseS3Credentials
-	// Get user provided S3 credentials
-	clickhouseS3Creds = &utils.ClickhouseS3Credentials{
-		AccessKeyID:     config.AccessKeyId,
-		SecretAccessKey: config.SecretAccessKey,
-		Region:          config.Region,
-		BucketPath:      config.S3Path,
+	credentialsProvider, err := utils.GetAWSCredentialsProvider(ctx, "clickhouse", utils.PeerAWSCredentials{
+		Credentials: aws.Credentials{
+			AccessKeyID:     config.AccessKeyId,
+			SecretAccessKey: config.SecretAccessKey,
+		},
+		Region:      config.Region,
+		EndpointUrl: nil,
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	if clickhouseS3Creds.AccessKeyID == "" &&
-		clickhouseS3Creds.SecretAccessKey == "" && clickhouseS3Creds.Region == "" &&
-		clickhouseS3Creds.BucketPath == "" {
+	awsBucketPath := config.S3Path
+
+	if awsBucketPath == "" {
 		deploymentUID := shared.GetDeploymentUID()
 		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 		bucketPathSuffix := fmt.Sprintf("%s/%s",
 			url.PathEscape(deploymentUID), url.PathEscape(flowName))
-
 		// Fallback: Get S3 credentials from environment
-		clickhouseS3Creds = utils.GetClickhouseAWSSecrets(bucketPathSuffix)
+		awsBucketName := os.Getenv("PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
+		if awsBucketName == "" {
+			return nil, fmt.Errorf("PeerDB Clickhouse Bucket Name not set")
+		}
+
+		awsBucketPath = fmt.Sprintf("s3://%s/%s", awsBucketName, bucketPathSuffix)
+	}
+	clickHouseS3CredentialsNew := utils.ClickHouseS3Credentials{
+		Provider:   credentialsProvider,
+		BucketPath: awsBucketPath,
 	}
 
-	validateErr := ValidateS3(ctx, clickhouseS3Creds)
+	validateErr := ValidateS3(ctx, &clickHouseS3CredentialsNew)
 	if validateErr != nil {
 		return nil, fmt.Errorf("failed to validate S3 bucket: %w", validateErr)
 	}
@@ -132,8 +139,8 @@ func NewClickhouseConnector(
 		pgMetadata:         pgMetadata,
 		tableSchemaMapping: nil,
 		config:             config,
-		creds:              clickhouseS3Creds,
 		logger:             logger,
+		credsProvider:      &clickHouseS3CredentialsNew,
 	}, nil
 }
 

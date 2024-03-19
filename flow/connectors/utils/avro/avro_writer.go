@@ -186,9 +186,11 @@ func (p *peerDBOCFWriter) WriteOCF(ctx context.Context, w io.Writer) (int, error
 	return numRows, nil
 }
 
-func (p *peerDBOCFWriter) WriteRecordsToS3(ctx context.Context, bucketName, key string, s3Creds utils.S3PeerCredentials) (*AvroFile, error) {
+func (p *peerDBOCFWriter) WriteRecordsToS3(
+	ctx context.Context, bucketName, key string, s3Creds utils.AWSCredentialsProvider,
+) (*AvroFile, error) {
 	logger := logger.LoggerFromCtx(ctx)
-	s3svc, err := utils.CreateS3Client(s3Creds)
+	s3svc, err := utils.CreateS3Client(ctx, s3Creds)
 	if err != nil {
 		logger.Error("failed to create S3 client: ", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create S3 client: %w", err)

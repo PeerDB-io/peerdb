@@ -165,7 +165,7 @@ func (c *ClickhouseConnector) dropStage(ctx context.Context, stagingPath string,
 		c.logger.Info(fmt.Sprintf("Deleting contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job))
 
 		// deleting the contents of the bucket with prefix
-		s3svc, err := utils.CreateS3Client(utils.S3PeerCredentials{})
+		s3svc, err := utils.CreateS3Client(ctx, c.credsProvider.Provider)
 		if err != nil {
 			c.logger.Error("failed to create S3 client", slog.Any("error", err))
 			return fmt.Errorf("failed to create S3 client: %w", err)

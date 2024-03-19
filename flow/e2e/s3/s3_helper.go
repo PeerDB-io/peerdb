@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"os"
 	"time"
 
@@ -49,7 +50,19 @@ func NewS3TestHelper(switchToGCS bool) (*S3TestHelper, error) {
 	if switchToGCS {
 		endpoint = "https://storage.googleapis.com"
 	}
-	client, err := utils.CreateS3Client(config)
+	var endpointUrlPtr *string
+	if endpoint != "" {
+		endpointUrlPtr = &endpoint
+	}
+	provider := utils.NewStaticAWSCredentialsProvider(utils.AWSCredentials{
+		AWS: aws.Credentials{
+			AccessKeyID:     config.AccessKeyID,
+			SecretAccessKey: config.SecretAccessKey,
+			SessionToken:    config.SessionToken,
+		},
+		EndpointUrl: endpointUrlPtr,
+	}, config.Region)
+	client, err := utils.CreateS3Client(context.Background(), provider)
 	if err != nil {
 		return nil, err
 	}

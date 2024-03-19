@@ -249,7 +249,12 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 		s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, s.config.FlowJobName, partitionID)
 		s.connector.logger.Info("OCF: Writing records to S3",
 			slog.String(string(shared.PartitionIDKey), partitionID))
-		avroFile, err := ocfWriter.WriteRecordsToS3(ctx, s3o.Bucket, s3AvroFileKey, utils.S3PeerCredentials{})
+
+		provider, err := utils.GetAWSCredentialsProvider(ctx, "snowflake", utils.PeerAWSCredentials{})
+		if err != nil {
+			return nil, err
+		}
+		avroFile, err := ocfWriter.WriteRecordsToS3(ctx, s3o.Bucket, s3AvroFileKey, provider)
 		if err != nil {
 			return nil, fmt.Errorf("failed to write records to S3: %w", err)
 		}

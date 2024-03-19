@@ -96,7 +96,7 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(ctx context.Context, config
 func (c *SnowflakeConnector) createStage(ctx context.Context, stageName string, config *protos.QRepConfig) error {
 	var createStageStmt string
 	if strings.HasPrefix(config.StagingPath, "s3://") {
-		stmt, err := c.createExternalStage(stageName, config)
+		stmt, err := c.createExternalStage(ctx, stageName, config)
 		if err != nil {
 			return err
 		}
@@ -120,13 +120,7 @@ func (c *SnowflakeConnector) createStage(ctx context.Context, stageName string, 
 	return nil
 }
 
-func (c *SnowflakeConnector) createExternalStage(stageName string, config *protos.QRepConfig) (string, error) {
-	awsCreds, err := utils.GetAWSSecrets(utils.S3PeerCredentials{})
-	if err != nil {
-		c.logger.Error("failed to get AWS secrets", slog.Any("error", err))
-		return "", fmt.Errorf("failed to get AWS secrets: %w", err)
-	}
-
+func (c *SnowflakeConnector) createExternalStage(ctx context.Context, stageName string, config *protos.QRepConfig) (string, error) {
 	s3o, err := utils.NewS3BucketAndPrefix(config.StagingPath)
 	if err != nil {
 		c.logger.Error("failed to extract S3 bucket and prefix", slog.Any("error", err))
@@ -136,9 +130,22 @@ func (c *SnowflakeConnector) createExternalStage(stageName string, config *proto
 	cleanURL := fmt.Sprintf("s3://%s/%s/%s", s3o.Bucket, s3o.Prefix, config.FlowJobName)
 
 	s3Int := config.DestinationPeer.GetSnowflakeConfig().S3Integration
+	provider, err := utils.GetAWSCredentialsProvider(ctx, "snowflake", utils.PeerAWSCredentials{})
+	if err != nil {
+		return "", err
+	}
+
+	creds, err := provider.Retrieve(ctx)
+	if err != nil {
+		return "", err
+	}
 	if s3Int == "" {
-		credsStr := fmt.Sprintf("CREDENTIALS=(AWS_KEY_ID='%s' AWS_SECRET_KEY='%s')",
-			awsCreds.AccessKeyID, awsCreds.SecretAccessKey)
+		awsTokenParam := ""
+		if creds.AWS.SessionToken != "" {
+			awsTokenParam = fmt.Sprintf(" AWS_TOKEN='%s'", creds.AWS.SessionToken)
+		}
+		credsStr := fmt.Sprintf("CREDENTIALS=(AWS_KEY_ID='%s' AWS_SECRET_KEY='%s'%s)",
+			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, awsTokenParam)
 
 		stageStatement := `
 		CREATE OR REPLACE STAGE %s
@@ -240,7 +247,11 @@ func (c *SnowflakeConnector) dropStage(ctx context.Context, stagingPath string, 
 		c.logger.Info(fmt.Sprintf("Deleting contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job))
 
 		// deleting the contents of the bucket with prefix
-		s3svc, err := utils.CreateS3Client(utils.S3PeerCredentials{})
+		provider, err := utils.GetAWSCredentialsProvider(ctx, "snowflake", utils.PeerAWSCredentials{})
+		if err != nil {
+			return err
+		}
+		s3svc, err := utils.CreateS3Client(ctx, provider)
 		if err != nil {
 			c.logger.Error("failed to create S3 client", slog.Any("error", err))
 			return fmt.Errorf("failed to create S3 client: %w", err)

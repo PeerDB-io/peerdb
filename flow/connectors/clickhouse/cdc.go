@@ -88,7 +88,7 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 	}
 
 	qrepConfig := &protos.QRepConfig{
-		StagingPath:                c.creds.BucketPath,
+		StagingPath:                c.credsProvider.BucketPath,
 		FlowJobName:                req.FlowJobName,
 		DestinationTableIdentifier: strings.ToLower(rawTableIdentifier),
 	}
