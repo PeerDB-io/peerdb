@@ -13,12 +13,6 @@ interface KafkaProps {
   setter: PeerSetter;
 }
 
-const saslOptions = [
-  { value: 'PLAIN', label: 'PLAIN' },
-  { value: 'SCRAM-SHA-256', label: 'SCRAM-SHA-256' },
-  { value: 'SCRAM-SHA-512', label: 'SCRAM-SHA-512' },
-];
-
 const KafkaForm = ({ setter }: KafkaProps) => {
   return (
     <div>
@@ -55,15 +49,15 @@ const KafkaForm = ({ setter }: KafkaProps) => {
           />
         ) : setting.type === 'select' ? (
           <RowWithSelect
-            label={<Label>SASL Mechanism</Label>}
+            label={<Label>{setting.label}</Label>}
             action={
               <ReactSelect
                 key={index}
-                placeholder='Select a mechanism'
+                placeholder={setting.placeholder}
                 onChange={(val) =>
                   val && setting.stateHandler(val.value, setter)
                 }
-                options={saslOptions}
+                options={setting.options}
                 theme={SelectTheme}
               />
             }

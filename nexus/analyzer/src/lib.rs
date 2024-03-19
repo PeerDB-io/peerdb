@@ -830,15 +830,23 @@ fn parse_db_options(
                     .collect::<Vec<_>>(),
                 username: opts
                     .get("user")
-                    .context("no username specified")?
+                    .cloned()
+                    .unwrap_or_default()
                     .to_string(),
                 password: opts
                     .get("password")
-                    .context("no password specified")?
+                    .cloned()
+                    .unwrap_or_default()
                     .to_string(),
                 sasl: opts
                     .get("sasl_mechanism")
-                    .context("no sasl mechanism specified")?
+                    .cloned()
+                    .unwrap_or_default()
+                    .to_string(),
+                partitioner: opts
+                    .get("sasl_mechanism")
+                    .cloned()
+                    .unwrap_or_default()
                     .to_string(),
                 disable_tls: opts
                     .get("disable_tls")

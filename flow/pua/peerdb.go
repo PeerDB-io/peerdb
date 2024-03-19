@@ -30,6 +30,9 @@ var (
 )
 
 func RegisterTypes(ls *lua.LState) {
+	ls.Env.RawSetString("loadfile", lua.LNil)
+	ls.Env.RawSetString("dofile", lua.LNil)
+
 	// gopher-lua provides 2 loaders {preload, file}
 	// overwrite file loader with one retrieving scripts from database
 	loaders := ls.G.Registry.RawGetString("_LOADERS").(*lua.LTable)

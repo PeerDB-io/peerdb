@@ -288,18 +288,21 @@ export const kaSchema = z.object({
   username: z.string().optional(),
   password: z.string().optional(),
   sasl: z
-    .union(
-      [
-        z.literal('PLAIN'),
-        z.literal('SCRAM-SHA-256'),
-        z.literal('SCRAM-SHA-512'),
-      ],
-      {
-        errorMap: () => ({
-          message: 'One of PLAIN, SCRAM-SHA-256, or SCRAM-SHA-512 is required.',
-        }),
-      }
-    )
+    .union([
+      z.literal('PLAIN'),
+      z.literal('SCRAM-SHA-256'),
+      z.literal('SCRAM-SHA-512'),
+    ])
+    .optional(),
+  partitioner: z
+    .union([
+      z.literal('Default'),
+      z.literal('LeastBackup'),
+      z.literal('Manual'),
+      z.literal('RoundRobin'),
+      z.literal('StickyKey'),
+      z.literal('Sticky'),
+    ])
     .optional(),
   disableTls: z.boolean().optional(),
 });

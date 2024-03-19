@@ -13,6 +13,8 @@ export interface PeerSetting {
   tips?: string;
   helpfulLink?: string;
   default?: string | number;
+  placeholder?: string;
+  options?: { value: string; label: string }[];
 }
 
 export const getBlankSetting = (dbType: string): PeerConfig => {
