@@ -6,6 +6,7 @@ import (
 
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
+	"golang.org/x/exp/maps"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -139,12 +140,10 @@ func SyncFlowWorkflow(
 				tableSchemaDeltasCount := len(childSyncFlowRes.TableSchemaDeltas)
 
 				// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
-				if tableSchemaDeltasCount != 0 {
+				if tableSchemaDeltasCount > 0 {
 					modifiedSrcTables := make([]string, 0, tableSchemaDeltasCount)
-					modifiedDstTables := make([]string, 0, tableSchemaDeltasCount)
 					for _, tableSchemaDelta := range childSyncFlowRes.TableSchemaDeltas {
 						modifiedSrcTables = append(modifiedSrcTables, tableSchemaDelta.SrcTableName)
-						modifiedDstTables = append(modifiedDstTables, tableSchemaDelta.DstTableName)
 					}
 
 					getModifiedSchemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -167,10 +166,9 @@ func SyncFlowWorkflow(
 							nil,
 						).Get(ctx, nil)
 					} else {
-						for i, srcTable := range modifiedSrcTables {
-							dstTable := modifiedDstTables[i]
-							options.TableNameSchemaMapping[dstTable] = getModifiedSchemaRes.TableNameSchemaMapping[srcTable]
-						}
+						processedSchemaMapping := shared.BuildProcessedSchemaMapping(options.TableMappings,
+							getModifiedSchemaRes.TableNameSchemaMapping, logger)
+						maps.Copy(options.TableNameSchemaMapping, processedSchemaMapping)
 					}
 				}
 
