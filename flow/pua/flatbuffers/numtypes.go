@@ -167,7 +167,7 @@ func (n *N) Unpack(ls *lua.LState, buf []byte) lua.LValue {
 	panic("invalid numeric metatype")
 }
 
-var LuaN = pua.LuaUserDataType[N]{Name: "flatbuffers_n"}
+var LuaN = pua.UserDataType[N]{Name: "flatbuffers_n"}
 
 func N_Loader(ls *lua.LState) int {
 	mtidx := ls.CreateTable(0, 1)
