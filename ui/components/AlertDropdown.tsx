@@ -17,10 +17,6 @@ const AlertDropdown = ({
     setOpen((prevOpen) => !prevOpen);
   };
 
-  const handleClose = () => {
-    setOpen(false);
-  };
-
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger>
