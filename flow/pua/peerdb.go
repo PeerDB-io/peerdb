@@ -476,7 +476,7 @@ func LuaI64Index(ls *lua.LState) int {
 	case "float64":
 		ls.Push(lua.LNumber(i64))
 	case "hi":
-		ls.Push(lua.LNumber(i64 >> 32))
+		ls.Push(lua.LNumber(uint32(i64 >> 32)))
 	case "lo":
 		ls.Push(lua.LNumber(uint32(i64)))
 	default:
@@ -496,7 +496,7 @@ func LuaU64Index(ls *lua.LState) int {
 	case "float64":
 		ls.Push(lua.LNumber(u64))
 	case "hi":
-		ls.Push(lua.LNumber(u64 >> 32))
+		ls.Push(lua.LNumber(uint32(u64 >> 32)))
 	case "lo":
 		ls.Push(lua.LNumber(uint32(u64)))
 	default:
