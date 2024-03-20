@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -121,7 +122,7 @@ func NewClickhouseConnector(
 		// Fallback: Get S3 credentials from environment
 		awsBucketName := os.Getenv("PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
 		if awsBucketName == "" {
-			return nil, fmt.Errorf("PeerDB Clickhouse Bucket Name not set")
+			return nil, errors.New("PeerDB Clickhouse Bucket Name not set")
 		}
 
 		awsBucketPath = fmt.Sprintf("s3://%s/%s", awsBucketName, bucketPathSuffix)
