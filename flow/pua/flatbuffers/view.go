@@ -14,7 +14,7 @@ type View struct {
 	hasv      bool
 }
 
-var LuaView = pua.LuaUserDataType[*View]{Name: "flatbuffers_view"}
+var LuaView = pua.UserDataType[*View]{Name: "flatbuffers_view"}
 
 func CheckOffset(ls *lua.LState, idx int) int {
 	num := ls.CheckNumber(idx)

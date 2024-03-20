@@ -202,7 +202,7 @@ func (b *Builder) WriteVtable(ls *lua.LState) int {
 	return objectOffset
 }
 
-var LuaBuilder = pua.LuaUserDataType[*Builder]{Name: "flatbuffers_builder"}
+var LuaBuilder = pua.UserDataType[*Builder]{Name: "flatbuffers_builder"}
 
 func Builder_Loader(ls *lua.LState) int {
 	m := ls.NewTable()

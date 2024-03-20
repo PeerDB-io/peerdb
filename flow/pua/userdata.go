@@ -4,9 +4,9 @@ import (
 	"github.com/yuin/gopher-lua"
 )
 
-type LuaUserDataType[T any] struct{ Name string }
+type UserDataType[T any] struct{ Name string }
 
-func (udt *LuaUserDataType[T]) New(ls *lua.LState, val T) *lua.LUserData {
+func (udt *UserDataType[T]) New(ls *lua.LState, val T) *lua.LUserData {
 	return &lua.LUserData{
 		Value:     val,
 		Env:       ls.Env,
@@ -14,15 +14,15 @@ func (udt *LuaUserDataType[T]) New(ls *lua.LState, val T) *lua.LUserData {
 	}
 }
 
-func (udt *LuaUserDataType[T]) NewMetatable(ls *lua.LState) *lua.LTable {
+func (udt *UserDataType[T]) NewMetatable(ls *lua.LState) *lua.LTable {
 	return ls.NewTypeMetatable(udt.Name)
 }
 
-func (udt *LuaUserDataType[T]) Metatable(ls *lua.LState) lua.LValue {
+func (udt *UserDataType[T]) Metatable(ls *lua.LState) lua.LValue {
 	return ls.GetTypeMetatable(udt.Name)
 }
 
-func (udt *LuaUserDataType[T]) Check(ls *lua.LState, idx int) (*lua.LUserData, T) {
+func (udt *UserDataType[T]) Check(ls *lua.LState, idx int) (*lua.LUserData, T) {
 	ud := ls.CheckUserData(idx)
 	val, ok := ud.Value.(T)
 	if !ok {
@@ -31,11 +31,11 @@ func (udt *LuaUserDataType[T]) Check(ls *lua.LState, idx int) (*lua.LUserData, T
 	return ud, val
 }
 
-func (udt *LuaUserDataType[T]) StartMeta(ls *lua.LState) T {
+func (udt *UserDataType[T]) StartMeta(ls *lua.LState) T {
 	_, val := udt.Check(ls, 1)
 	return val
 }
 
-func (udt *LuaUserDataType[T]) StartIndex(ls *lua.LState) (T, string) {
+func (udt *UserDataType[T]) StartIndex(ls *lua.LState) (T, string) {
 	return udt.StartMeta(ls), ls.CheckString(2)
 }

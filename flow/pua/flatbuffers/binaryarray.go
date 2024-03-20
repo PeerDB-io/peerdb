@@ -6,7 +6,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/pua"
 )
 
-var LuaBinaryArray = pua.LuaUserDataType[[]byte]{Name: "flatbuffers_binaryarray"}
+var LuaBinaryArray = pua.UserDataType[[]byte]{Name: "flatbuffers_binaryarray"}
 
 func BinaryArray_Loader(ls *lua.LState) int {
 	m := ls.NewTable()

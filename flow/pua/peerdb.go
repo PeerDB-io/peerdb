@@ -19,14 +19,14 @@ import (
 )
 
 var (
-	LuaRecord  = LuaUserDataType[model.Record]{Name: "peerdb_record"}
-	LuaRow     = LuaUserDataType[*model.RecordItems]{Name: "peerdb_row"}
-	LuaI64     = LuaUserDataType[int64]{Name: "flatbuffers_i64"}
-	LuaU64     = LuaUserDataType[uint64]{Name: "flatbuffers_u64"}
-	LuaTime    = LuaUserDataType[time.Time]{Name: "peerdb_time"}
-	LuaUuid    = LuaUserDataType[uuid.UUID]{Name: "peerdb_uuid"}
-	LuaBigInt  = LuaUserDataType[*big.Int]{Name: "peerdb_bigint"}
-	LuaDecimal = LuaUserDataType[decimal.Decimal]{Name: "peerdb_bigrat"}
+	LuaRecord  = UserDataType[model.Record]{Name: "peerdb_record"}
+	LuaRow     = UserDataType[*model.RecordItems]{Name: "peerdb_row"}
+	LuaI64     = UserDataType[int64]{Name: "flatbuffers_i64"}
+	LuaU64     = UserDataType[uint64]{Name: "flatbuffers_u64"}
+	LuaTime    = UserDataType[time.Time]{Name: "peerdb_time"}
+	LuaUuid    = UserDataType[uuid.UUID]{Name: "peerdb_uuid"}
+	LuaBigInt  = UserDataType[*big.Int]{Name: "peerdb_bigint"}
+	LuaDecimal = UserDataType[decimal.Decimal]{Name: "peerdb_bigrat"}
 )
 
 func RegisterTypes(ls *lua.LState) {
