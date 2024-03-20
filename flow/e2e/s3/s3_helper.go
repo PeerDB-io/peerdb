@@ -75,7 +75,7 @@ func NewS3TestHelper(switchToGCS bool) (*S3TestHelper, error) {
 			AccessKeyId:     &config.AccessKeyID,
 			SecretAccessKey: &config.SecretAccessKey,
 			Region:          &config.Region,
-			Endpoint:        &endpoint,
+			Endpoint:        endpointUrlPtr,
 		},
 		bucketName,
 		prefix,
