@@ -1144,7 +1144,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Interval_SF() {
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
-	// and then insert 20 rows into the source table
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 
@@ -1162,8 +1161,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Interval_SF() {
 	e2e.EnvNoError(s.t, env, err)
 
 	s.t.Log("Inserted a row into the source table")
-	err = s.checkJSONValue(dstTableName, "dur", "days", "20")
-	e2e.EnvNoError(s.t, env, err)
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
+	err = s.checkJSONValue(dstTableName, "dur", "days", "20")
+	require.NoError(s.t, err)
 }
