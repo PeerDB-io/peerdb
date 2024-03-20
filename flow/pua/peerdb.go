@@ -217,6 +217,8 @@ func LuaRecordIndex(ls *lua.LState) int {
 		}
 	case "checkpoint":
 		ls.Push(LuaI64.New(ls, record.GetCheckpointID()))
+	case "commit_time":
+		ls.Push(LuaTime.New(ls, record.GetCommitTime()))
 	case "target":
 		ls.Push(lua.LString(record.GetDestinationTableName()))
 	case "source":
