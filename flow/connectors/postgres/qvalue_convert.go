@@ -12,6 +12,7 @@ import (
 	"github.com/lib/pq/oid"
 	"github.com/shopspring/decimal"
 
+	peerdb_interval "github.com/PeerDB-io/peer-flow/interval"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -80,6 +81,8 @@ func (c *PostgresConnector) postgresOIDToQValueKind(recvOID uint32) qvalue.QValu
 		return qvalue.QValueKindArrayTimestampTZ
 	case pgtype.TextArrayOID, pgtype.VarcharArrayOID, pgtype.BPCharArrayOID:
 		return qvalue.QValueKindArrayString
+	case pgtype.IntervalOID:
+		return qvalue.QValueKindInterval
 	default:
 		typeName, ok := pgtype.NewMap().TypeForOID(recvOID)
 		if !ok {
@@ -225,6 +228,27 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 	case qvalue.QValueKindTimestampTZ:
 		timestamp := value.(time.Time)
 		val = qvalue.QValue{Kind: qvalue.QValueKindTimestampTZ, Value: timestamp}
+	case qvalue.QValueKindInterval:
+		intervalObject := value.(pgtype.Interval)
+		var interval peerdb_interval.PeerDBInterval
+		interval.Hours = int(intervalObject.Microseconds / 3600000000)
+		interval.Minutes = int((intervalObject.Microseconds % 3600000000) / 60000000)
+		interval.Seconds = float64((intervalObject.Microseconds % 60000000) / 1000000)
+		interval.Days = int(intervalObject.Days)
+		interval.Years = int(intervalObject.Months / 12)
+		interval.Months = int(intervalObject.Months % 12)
+		interval.Valid = intervalObject.Valid
+
+		intervalJSON, err := json.Marshal(interval)
+		if err != nil {
+			return qvalue.QValue{}, fmt.Errorf("failed to parse interval: %w", err)
+		}
+
+		if !interval.Valid {
+			return qvalue.QValue{}, fmt.Errorf("invalid interval: %v", value)
+		}
+
+		return qvalue.QValue{Kind: qvalue.QValueKindString, Value: string(intervalJSON)}, nil
 	case qvalue.QValueKindDate:
 		date := value.(time.Time)
 		val = qvalue.QValue{Kind: qvalue.QValueKindDate, Value: date}

@@ -1119,3 +1119,56 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 
 	e2e.RequireEnvCanceled(s.t, env)
 }
+
+func (s PeerFlowE2ETestSuiteSF) Test_Interval_SF() {
+	tc := e2e.NewTemporalClient(s.t)
+
+	srcTableName := s.attachSchemaSuffix("testintervalsf")
+	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "testintervalsf")
+
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS e2e_test_%s."%s" (
+			id SERIAL PRIMARY KEY,
+			dur INTERVAL
+		);
+	`, s.pgSuffix, "testintervalsf"))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_interval_sf"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.sfHelper.Peer,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig.MaxBatchSize = 100
+
+	// wait for PeerFlowStatusQuery to finish setup
+	// and then insert 20 rows into the source table
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	// insert 20 rows into the source table
+	for range 20 {
+		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO e2e_test_%s."%s"(dur)
+			SELECT
+			floor(random() * 100)::int || ' days ' ||
+			floor(random() * 24)::int || ' hours ' ||
+			floor(random() * 60)::int || ' minutes ' ||
+			floor(random() * 60)::int || ' seconds ' ||
+			floor(random() * 30)::int || ' months' AS random_interval;
+			`, s.pgSuffix, "testintervalsf"))
+		e2e.EnvNoError(s.t, env, err)
+	}
+	s.t.Log("Inserted 20 rows into the source table")
+	e2e.EnvWaitForEqualTablesWithNames(
+		env,
+		s,
+		"normalize interval sf test",
+		"testintervalsf",
+		"\"testintervalsf\"",
+		"id,dur",
+	)
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
+}

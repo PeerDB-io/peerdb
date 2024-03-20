@@ -24,6 +24,7 @@ const (
 	QValueKindDate        QValueKind = "date"
 	QValueKindTime        QValueKind = "time"
 	QValueKindTimeTZ      QValueKind = "timetz"
+	QValueKindInterval    QValueKind = "interval"
 	QValueKindNumeric     QValueKind = "numeric"
 	QValueKindBytes       QValueKind = "bytes"
 	QValueKindUUID        QValueKind = "uuid"
