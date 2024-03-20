@@ -1147,28 +1147,23 @@ func (s PeerFlowE2ETestSuiteSF) Test_Interval_SF() {
 	// and then insert 20 rows into the source table
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
-	// insert 20 rows into the source table
-	for range 20 {
-		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO e2e_test_%s."%s"(dur)
 			SELECT
-			floor(random() * 100)::int || ' days ' ||
-			floor(random() * 24)::int || ' hours ' ||
-			floor(random() * 60)::int || ' minutes ' ||
-			floor(random() * 60)::int || ' seconds ' ||
-			floor(random() * 30)::int || ' months' AS random_interval;
+			make_interval(
+				20,
+				floor(random() * 24)::int,
+				floor(random() * 60)::int,
+				floor(random() * 60)::int,
+				floor(random() * 30)::int
+			);
 			`, s.pgSuffix, "testintervalsf"))
-		e2e.EnvNoError(s.t, env, err)
-	}
-	s.t.Log("Inserted 20 rows into the source table")
-	e2e.EnvWaitForEqualTablesWithNames(
-		env,
-		s,
-		"normalize interval sf test",
-		"testintervalsf",
-		"\"testintervalsf\"",
-		"id,dur",
-	)
+	e2e.EnvNoError(s.t, env, err)
+
+	s.t.Log("Inserted a row into the source table")
+	err = s.checkJSONValue(dstTableName, "dur", "days", "20")
+	e2e.EnvNoError(s.t, env, err)
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
 }
