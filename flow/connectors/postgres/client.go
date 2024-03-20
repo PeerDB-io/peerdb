@@ -361,31 +361,9 @@ func (c *PostgresConnector) createSlotAndPublication(
 
 	// create slot only after we succeeded in creating publication.
 	if !s.SlotExists {
-		conn, err := c.CreateReplConn(ctx)
+		err := c.createSlot(ctx, slot)
 		if err != nil {
-			return fmt.Errorf("[slot] error acquiring connection: %w", err)
-		}
-		defer conn.Close(ctx)
-
-		c.logger.Warn(fmt.Sprintf("Creating replication slot '%s'", slot))
-
-		_, err = conn.Exec(ctx, "SET LOCAL idle_in_transaction_session_timeout=0")
-		if err != nil {
-			return fmt.Errorf("[slot] error setting idle_in_transaction_session_timeout: %w", err)
-		}
-
-		_, err = conn.Exec(ctx, "SET LOCAL lock_timeout=0")
-		if err != nil {
-			return fmt.Errorf("[slot] error setting lock_timeout: %w", err)
-		}
-
-		opts := pglogrepl.CreateReplicationSlotOptions{
-			Temporary: false,
-			Mode:      pglogrepl.LogicalReplication,
-		}
-		res, err := pglogrepl.CreateReplicationSlot(ctx, conn.PgConn(), slot, "pgoutput", opts)
-		if err != nil {
-			return fmt.Errorf("[slot] error creating replication slot: %w", err)
+			return err
 		}
 
 		ok, _, err := c.MajorVersionCheck(ctx, POSTGRES_13)
@@ -393,13 +371,24 @@ func (c *PostgresConnector) createSlotAndPublication(
 			return fmt.Errorf("[slot] error getting PG version: %w", err)
 		}
 
-		c.logger.Info(fmt.Sprintf("Created replication slot '%s'", slot))
+		res, tx, err := c.ExportTxSnapshot(ctx)
+		if err != nil {
+			return fmt.Errorf("error exporting snapshot: %w", err)
+		}
+
+		defer func() {
+			if err := c.FinishExport(tx); err != nil {
+				c.logger.Error("error finishing export", "error", err)
+			}
+		}()
+
 		slotDetails := SlotCreationResult{
-			SlotName:         res.SlotName,
+			SlotName:         slot,
 			SnapshotName:     res.SnapshotName,
 			Err:              nil,
 			SupportsTIDScans: ok,
 		}
+
 		signal.SlotCreated <- slotDetails
 		c.logger.Info("Waiting for clone to complete")
 		<-signal.CloneComplete
@@ -419,6 +408,28 @@ func (c *PostgresConnector) createSlotAndPublication(
 		signal.SlotCreated <- slotDetails
 	}
 
+	return nil
+}
+
+func (c *PostgresConnector) createSlot(ctx context.Context, slot string) error {
+	conn, err := c.CreateReplConn(ctx)
+	if err != nil {
+		return fmt.Errorf("[slot] error acquiring connection: %w", err)
+	}
+	defer conn.Close(ctx)
+
+	c.logger.Warn(fmt.Sprintf("Creating replication slot '%s'", slot))
+	opts := pglogrepl.CreateReplicationSlotOptions{
+		Temporary: false,
+		Mode:      pglogrepl.LogicalReplication,
+	}
+
+	_, err = pglogrepl.CreateReplicationSlot(ctx, conn.PgConn(), slot, "pgoutput", opts)
+	if err != nil {
+		return fmt.Errorf("[slot] error creating replication slot: %w", err)
+	}
+
+	c.logger.Info(fmt.Sprintf("Created replication slot '%s'", slot))
 	return nil
 }
 
