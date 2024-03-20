@@ -45,6 +45,7 @@ func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error
 
 	_, listErr := s3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 		Bucket: &object.Bucket,
+		Prefix: &object.Prefix,
 	},
 	)
 	if listErr != nil {
