@@ -91,13 +91,17 @@ func (s KafkaSuite) TestSimple() {
 	`, srcTableName))
 	require.NoError(s.t, err)
 
+	_, err = s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values
+	('e2e_kasimple', 'lua', 'function onRecord(r) return r.row and r.row.val end') on conflict do nothing`)
+	require.NoError(s.t, err)
+
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      srcTableName,
+		FlowJobName:      e2e.AddSuffix(s, "kasimple"),
 		TableNameMapping: map[string]string{srcTableName: "katest"},
 		Destination:      s.Peer(),
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-	flowConnConfig.Script = `function onRecord(r) return r.row.val end`
+	flowConnConfig.Script = "e2e_kasimple"
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)

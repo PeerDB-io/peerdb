@@ -49,6 +49,7 @@ type PullRecordsRequest struct {
 
 type Record interface {
 	GetCheckpointID() int64
+	GetCommitTime() time.Time
 	GetDestinationTableName() string
 	GetSourceTableName() string
 	// get columns and values for the record
@@ -74,21 +75,31 @@ func NewToJSONOptions(unnestCols []string, hstoreAsJSON bool) *ToJSONOptions {
 	}
 }
 
+type BaseRecord struct {
+	// CheckpointID is the ID of the record.
+	CheckpointID int64 `json:"checkpointId"`
+	// CommitTime from BeginMessage
+	CommitTime time.Time `json:"commitTime"`
+}
+
+func (r *BaseRecord) GetCheckpointID() int64 {
+	return r.CheckpointID
+}
+
+func (r *BaseRecord) GetCommitTime() time.Time {
+	return r.CommitTime
+}
+
 type InsertRecord struct {
+	BaseRecord
 	// Name of the source table
 	SourceTableName string
 	// Name of the destination table
 	DestinationTableName string
-	// CheckpointID is the ID of the record.
-	CheckpointID int64
 	// CommitID is the ID of the commit corresponding to this record.
 	CommitID int64
 	// Items is a map of column name to value.
 	Items *RecordItems
-}
-
-func (r *InsertRecord) GetCheckpointID() int64 {
-	return r.CheckpointID
 }
 
 func (r *InsertRecord) GetDestinationTableName() string {
@@ -104,10 +115,9 @@ func (r *InsertRecord) GetItems() *RecordItems {
 }
 
 type UpdateRecord struct {
+	BaseRecord
 	// Name of the source table
 	SourceTableName string
-	// CheckpointID is the ID of the record.
-	CheckpointID int64
 	// Name of the destination table
 	DestinationTableName string
 	// OldItems is a map of column name to value.
@@ -116,10 +126,6 @@ type UpdateRecord struct {
 	NewItems *RecordItems
 	// unchanged toast columns
 	UnchangedToastColumns map[string]struct{}
-}
-
-func (r *UpdateRecord) GetCheckpointID() int64 {
-	return r.CheckpointID
 }
 
 func (r *UpdateRecord) GetDestinationTableName() string {
@@ -135,20 +141,15 @@ func (r *UpdateRecord) GetItems() *RecordItems {
 }
 
 type DeleteRecord struct {
+	BaseRecord
 	// Name of the source table
 	SourceTableName string
 	// Name of the destination table
 	DestinationTableName string
-	// CheckpointID is the ID of the record.
-	CheckpointID int64
 	// Items is a map of column name to value.
 	Items *RecordItems
 	// unchanged toast columns, filled from latest UpdateRecord
 	UnchangedToastColumns map[string]struct{}
-}
-
-func (r *DeleteRecord) GetCheckpointID() int64 {
-	return r.CheckpointID
 }
 
 func (r *DeleteRecord) GetDestinationTableName() string {
@@ -219,12 +220,8 @@ type NormalizeResponse struct {
 
 // being clever and passing the delta back as a regular record instead of heavy CDC refactoring.
 type RelationRecord struct {
-	CheckpointID     int64                    `json:"checkpointId"`
+	BaseRecord
 	TableSchemaDelta *protos.TableSchemaDelta `json:"tableSchemaDelta"`
-}
-
-func (r *RelationRecord) GetCheckpointID() int64 {
-	return r.CheckpointID
 }
 
 func (r *RelationRecord) GetDestinationTableName() string {
