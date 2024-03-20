@@ -125,8 +125,7 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 
 	creds, err := s.connector.credsProvider.Provider.Retrieve(ctx)
 	if err != nil {
-		// TODO what to return here?
-		return -1, err
+		return 0, err
 	}
 
 	avroFileUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s3o.Bucket,
