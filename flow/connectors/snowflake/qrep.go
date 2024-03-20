@@ -140,13 +140,8 @@ func (c *SnowflakeConnector) createExternalStage(ctx context.Context, stageName 
 		return "", err
 	}
 	if s3Int == "" {
-		awsTokenParam := ""
-		if creds.AWS.SessionToken != "" {
-			awsTokenParam = fmt.Sprintf(" AWS_TOKEN='%s'", creds.AWS.SessionToken)
-		}
-		credsStr := fmt.Sprintf("CREDENTIALS=(AWS_KEY_ID='%s' AWS_SECRET_KEY='%s'%s)",
-			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, awsTokenParam)
-
+		credsStr := fmt.Sprintf("CREDENTIALS=(AWS_KEY_ID='%s' AWS_SECRET_KEY='%s' AWS_TOKEN='%s')",
+			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, creds.AWS.SessionToken)
 		stageStatement := `
 		CREATE OR REPLACE STAGE %s
 		URL = '%s'
