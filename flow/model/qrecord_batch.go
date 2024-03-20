@@ -239,7 +239,7 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 
 			wkb, err := geo.GeoToWKB(v)
 			if err != nil {
-				src.err = errors.New("failed to convert Geospatial value to wkb")
+				src.err = fmt.Errorf("failed to convert Geospatial value to wkb: %v", err)
 				return nil, src.err
 			}
 
