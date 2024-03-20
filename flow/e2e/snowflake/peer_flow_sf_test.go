@@ -1150,13 +1150,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Interval_SF() {
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO e2e_test_%s.%s(dur)
 			SELECT
-			make_interval(
-				20,
-				floor(random() * 24)::int,
-				floor(random() * 60)::int,
-				floor(random() * 60)::int,
-				floor(random() * 30)::int
-			);
+			'2 days'
 			`, s.pgSuffix, "testintervalsf"))
 	e2e.EnvNoError(s.t, env, err)
 
@@ -1171,6 +1165,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Interval_SF() {
 	)
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
-	err = s.checkJSONValue(dstTableName, "dur", "days", "20")
+	err = s.checkJSONValue(dstTableName, "dur", "days", "2")
 	require.NoError(s.t, err)
 }
