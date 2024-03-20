@@ -159,12 +159,12 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 		if err != nil {
 			return nil, err
 		}
-		logger.LoggerFromCtx(ctx).Info("Received AWS credentials with role from peer for connector: %s" + connectorName)
+		logger.LoggerFromCtx(ctx).Info("Received AWS credentials with role from peer for connector: " + connectorName)
 		return NewConfigBasedAWSCredentialsProvider(awsConfig), nil
 	}
 	envCredentialsProvider := LoadPeerDBAWSEnvConfigProvider(connectorName)
 	if envCredentialsProvider != nil {
-		logger.LoggerFromCtx(ctx).Info("Received AWS credentials from PeerDB Env for connector: %s" + connectorName)
+		logger.LoggerFromCtx(ctx).Info("Received AWS credentials from PeerDB Env for connector: " + connectorName)
 		return envCredentialsProvider, nil
 	}
 
@@ -174,7 +174,7 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 	if err != nil {
 		return nil, err
 	}
-	logger.LoggerFromCtx(ctx).Info("Received AWS credentials from SDK config for connector: %s" + connectorName)
+	logger.LoggerFromCtx(ctx).Info("Received AWS credentials from SDK config for connector: " + connectorName)
 	return NewConfigBasedAWSCredentialsProvider(awsConfig), nil
 }
 

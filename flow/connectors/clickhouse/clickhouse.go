@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -43,9 +44,14 @@ func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error
 		return fmt.Errorf("failed to create S3 bucket and prefix: %w", err)
 	}
 
+	prefix := object.Prefix
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+
 	_, listErr := s3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 		Bucket: &object.Bucket,
-		Prefix: &object.Prefix,
+		Prefix: &prefix,
 	},
 	)
 	if listErr != nil {
