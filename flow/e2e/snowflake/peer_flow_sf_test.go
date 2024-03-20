@@ -1127,7 +1127,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Interval_SF() {
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "testintervalsf")
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS e2e_test_%s."%s" (
+		CREATE TABLE IF NOT EXISTS e2e_test_%s.%s (
 			id SERIAL PRIMARY KEY,
 			dur INTERVAL
 		);
@@ -1141,14 +1141,14 @@ func (s PeerFlowE2ETestSuiteSF) Test_Interval_SF() {
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-	flowConnConfig.MaxBatchSize = 100
+	flowConnConfig.MaxBatchSize = 5
 
 	// wait for PeerFlowStatusQuery to finish setup
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO e2e_test_%s."%s"(dur)
+			INSERT INTO e2e_test_%s.%s(dur)
 			SELECT
 			make_interval(
 				20,
@@ -1161,6 +1161,14 @@ func (s PeerFlowE2ETestSuiteSF) Test_Interval_SF() {
 	e2e.EnvNoError(s.t, env, err)
 
 	s.t.Log("Inserted a row into the source table")
+	e2e.EnvWaitForEqualTablesWithNames(
+		env,
+		s,
+		"normalize interval type",
+		"testintervalsf",
+		"testintervalsf",
+		"id",
+	)
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
 	err = s.checkJSONValue(dstTableName, "dur", "days", "20")
