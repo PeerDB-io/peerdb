@@ -76,22 +76,8 @@ func (r *CDCRecordStream) GetRecords() <-chan Record {
 	return r.records
 }
 
-func (r *CDCRecordStream) AddSchemaDelta(tableNameMapping map[string]NameAndExclude, delta *protos.TableSchemaDelta) {
-	if tm, ok := tableNameMapping[delta.SrcTableName]; ok && len(tm.Exclude) != 0 {
-		added := make([]*protos.DeltaAddedColumn, 0, len(delta.AddedColumns))
-		for _, column := range delta.AddedColumns {
-			if _, has := tm.Exclude[column.ColumnName]; !has {
-				added = append(added, column)
-			}
-		}
-		if len(added) != 0 {
-			r.SchemaDeltas = append(r.SchemaDeltas, &protos.TableSchemaDelta{
-				SrcTableName: delta.SrcTableName,
-				DstTableName: delta.DstTableName,
-				AddedColumns: added,
-			})
-		}
-	} else {
-		r.SchemaDeltas = append(r.SchemaDeltas, delta)
-	}
+func (r *CDCRecordStream) AddSchemaDelta(tableNameMapping map[string]NameAndExclude,
+	delta *protos.TableSchemaDelta,
+) {
+	r.SchemaDeltas = append(r.SchemaDeltas, delta)
 }

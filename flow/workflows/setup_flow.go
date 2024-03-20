@@ -3,7 +3,6 @@ package peerflow
 import (
 	"fmt"
 	"log/slog"
-	"slices"
 	"sort"
 	"time"
 
@@ -201,34 +200,8 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	sort.Strings(sortedSourceTables)
 
 	s.logger.Info("setting up normalized tables for peer flow")
-	normalizedTableMapping := make(map[string]*protos.TableSchema)
-	for _, srcTableName := range sortedSourceTables {
-		tableSchema := tableNameSchemaMapping[srcTableName]
-		normalizedTableName := s.tableNameMapping[srcTableName]
-		for _, mapping := range flowConnectionConfigs.TableMappings {
-			if mapping.SourceTableIdentifier == srcTableName {
-				if len(mapping.Exclude) != 0 {
-					columnCount := len(tableSchema.Columns)
-					columns := make([]*protos.FieldDescription, 0, columnCount)
-					for _, column := range tableSchema.Columns {
-						if !slices.Contains(mapping.Exclude, column.Name) {
-							columns = append(columns, column)
-						}
-					}
-					tableSchema = &protos.TableSchema{
-						TableIdentifier:       tableSchema.TableIdentifier,
-						PrimaryKeyColumns:     tableSchema.PrimaryKeyColumns,
-						IsReplicaIdentityFull: tableSchema.IsReplicaIdentityFull,
-						Columns:               columns,
-					}
-				}
-				break
-			}
-		}
-		normalizedTableMapping[normalizedTableName] = tableSchema
-
-		s.logger.Info("normalized table schema", slog.String("table", normalizedTableName), slog.Any("schema", tableSchema))
-	}
+	normalizedTableMapping := shared.BuildProcessedSchemaMapping(flowConnectionConfigs.TableMappings,
+		tableNameSchemaMapping, s.logger)
 
 	// now setup the normalized tables on the destination peer
 	setupConfig := &protos.SetupNormalizedTableBatchInput{
