@@ -81,11 +81,7 @@ export default function CDCConfigForm({
     });
   }, [mirrorConfig.source?.name]);
 
-  if (
-    mirrorConfig.source != undefined &&
-    mirrorConfig.destination != undefined &&
-    publications != undefined
-  )
+  if (mirrorConfig.source != undefined && mirrorConfig.destination != undefined)
     return (
       <>
         {normalSettings.map((setting, id) => {
