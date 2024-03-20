@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"golang.org/x/mod/semver"
 	"net/url"
 	"os"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"go.temporal.io/sdk/log"
+	"golang.org/x/mod/semver"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -165,7 +165,9 @@ func NewClickhouseConnector(
 			}
 		}
 		if !supportsSessionToken {
-			return nil, fmt.Errorf("please provide AWS access credentials explicitly or upgrade to version >= %v, current version is %s", minSupportedClickhouseVersions, clickHouseVersion)
+			return nil, fmt.Errorf(
+				"please provide AWS access credentials explicitly or upgrade to version >= %v, current version is %s",
+				minSupportedClickhouseVersions, clickHouseVersion)
 		}
 	}
 
