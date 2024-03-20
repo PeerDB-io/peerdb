@@ -400,10 +400,23 @@ func (c *PostgresConnector) createSlotAndPublication(
 			Err:              nil,
 			SupportsTIDScans: ok,
 		}
+
+		conn.Close(ctx)
+		snapshotOutput, tx, err := c.ExportTxSnapshot(ctx)
+		if err != nil {
+			return fmt.Errorf("error exporting snapshot: %w", err)
+		}
+
+		slotDetails.SnapshotName = snapshotOutput.SnapshotName
 		signal.SlotCreated <- slotDetails
 		c.logger.Info("Waiting for clone to complete")
+
 		<-signal.CloneComplete
 		c.logger.Info("Clone complete")
+		err = c.FinishExport(tx)
+		if err != nil {
+			return fmt.Errorf("error finishing export: %w", err)
+		}
 	} else {
 		c.logger.Info(fmt.Sprintf("Replication slot '%s' already exists", slot))
 		var e error

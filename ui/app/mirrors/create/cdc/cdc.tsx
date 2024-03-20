@@ -56,8 +56,6 @@ export default function CDCConfigForm({
     const label = setting.label.toLowerCase();
     if (
       (label.includes('snapshot') && mirrorConfig.doInitialSnapshot !== true) ||
-      (label === 'replication slot name' &&
-        mirrorConfig.doInitialSnapshot === true) ||
       (label.includes('staging path') &&
         defaultSyncMode(mirrorConfig.destination?.type) !== 'AVRO')
     ) {
