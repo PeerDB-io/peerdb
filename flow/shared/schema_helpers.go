@@ -5,9 +5,9 @@ import (
 	"slices"
 
 	"go.temporal.io/sdk/log"
+	"golang.org/x/exp/maps"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"golang.org/x/exp/maps"
 )
 
 func AdditionalTablesHasOverlap(currentTableMappings []*protos.TableMapping,
