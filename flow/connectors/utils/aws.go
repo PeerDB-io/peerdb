@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"fmt"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"net/http"
 	"os"
 	"strings"
@@ -145,6 +146,7 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 			EndpointUrl: peerCredentials.EndpointUrl,
 		}, peerCredentials.Region)
 		if peerCredentials.RoleArn == nil {
+			logger.LoggerFromCtx(ctx).Info(fmt.Sprintf("Received AWS credentials from peer for connector: %s", connectorName))
 			return staticProvider, nil
 		}
 		awsConfig, err := config.LoadDefaultConfig(ctx, func(options *config.LoadOptions) error {
@@ -156,10 +158,12 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 		if err != nil {
 			return nil, err
 		}
+		logger.LoggerFromCtx(ctx).Info(fmt.Sprintf("Received AWS credentials with role from peer for connector: %s", connectorName))
 		return NewConfigBasedAWSCredentialsProvider(awsConfig), nil
 	}
 	envCredentialsProvider := LoadPeerDBAWSEnvConfigProvider(connectorName)
 	if envCredentialsProvider != nil {
+		logger.LoggerFromCtx(ctx).Info(fmt.Sprintf("Received AWS credentials from PeerDB Env for connector: %s", connectorName))
 		return envCredentialsProvider, nil
 	}
 
@@ -169,6 +173,7 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 	if err != nil {
 		return nil, err
 	}
+	logger.LoggerFromCtx(ctx).Info(fmt.Sprintf("Received AWS credentials from SDK config for connector: %s", connectorName))
 	return NewConfigBasedAWSCredentialsProvider(awsConfig), nil
 }
 
