@@ -440,6 +440,11 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 			return false
 		}
 
+		// check interval
+		if err := s.checkJSONValue(dstTableName, "c16", "years", "5"); err != nil {
+			return false
+		}
+
 		// check if JSON on snowflake side is a good JSON
 		if err := s.checkJSONValue(dstTableName, "c17", "sai", "1"); err != nil {
 			return false
@@ -1118,53 +1123,4 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 	env.Cancel()
 
 	e2e.RequireEnvCanceled(s.t, env)
-}
-
-func (s PeerFlowE2ETestSuiteSF) Test_Interval_SF() {
-	tc := e2e.NewTemporalClient(s.t)
-
-	srcTableName := s.attachSchemaSuffix("testintervalsf")
-	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "testintervalsf")
-
-	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS e2e_test_%s.%s (
-			id SERIAL PRIMARY KEY,
-			dur INTERVAL
-		);
-	`, s.pgSuffix, "testintervalsf"))
-	require.NoError(s.t, err)
-
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_interval_sf"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.sfHelper.Peer,
-	}
-
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-	flowConnConfig.MaxBatchSize = 5
-
-	// wait for PeerFlowStatusQuery to finish setup
-	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
-
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO e2e_test_%s.%s(dur)
-			SELECT
-			'2 days'
-			`, s.pgSuffix, "testintervalsf"))
-	e2e.EnvNoError(s.t, env, err)
-
-	s.t.Log("Inserted a row into the source table")
-	e2e.EnvWaitForEqualTablesWithNames(
-		env,
-		s,
-		"normalize interval type",
-		"testintervalsf",
-		"testintervalsf",
-		"id",
-	)
-	env.Cancel()
-	e2e.RequireEnvCanceled(s.t, env)
-	err = s.checkJSONValue(dstTableName, "dur", "days", "2")
-	require.NoError(s.t, err)
 }
