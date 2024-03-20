@@ -138,6 +138,18 @@ func (g *GenericSQLQueryExecutor) CountNonNullRows(
 	return count.Int64, err
 }
 
+func (g *GenericSQLQueryExecutor) CountSRIDs(
+	ctx context.Context,
+	schemaName string,
+	tableName string,
+	columnName string,
+) (int64, error) {
+	var count pgtype.Int8
+	err := g.db.QueryRowxContext(ctx, "SELECT COUNT(CASE WHEN "+columnName+
+		" <> 0 THEN 1 END) AS not_zero FROM "+schemaName+"."+tableName).Scan(&count)
+	return count.Int64, err
+}
+
 func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (model.QField, error) {
 	qvKind, ok := g.dbtypeToQValueKind[ct.DatabaseTypeName()]
 	if !ok {

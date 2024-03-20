@@ -136,6 +136,15 @@ func (s *SnowflakeTestHelper) CountNonNullRows(tableName string, columnName stri
 	return int(res), nil
 }
 
+func (s *SnowflakeTestHelper) CountSRIDs(tableName string, columnName string) (int, error) {
+	res, err := s.testClient.CountSRIDs(context.Background(), s.testSchemaName, tableName, columnName)
+	if err != nil {
+		return 0, err
+	}
+
+	return int(res), nil
+}
+
 func (s *SnowflakeTestHelper) CheckNull(tableName string, colNames []string) (bool, error) {
 	return s.testClient.CheckNull(context.Background(), s.testSchemaName, tableName, colNames)
 }
