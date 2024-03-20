@@ -2,6 +2,8 @@
 import { DBType } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
+import { Label } from '@/lib/Label/Label';
+import { ProgressCircle } from '@/lib/ProgressCircle';
 import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
 import { CDCConfig, MirrorSetter, TableMapRow } from '../../../dto/MirrorsDTO';
 import { fetchPublications } from '../handlers';
@@ -135,5 +137,20 @@ export default function CDCConfigForm({
           omitAdditionalTablesMapping={new Map<string, string[]>()}
         />
       </>
+    );
+
+  if (publications === undefined)
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          marginTop: '2rem',
+          columnGap: '1rem',
+        }}
+      >
+        <Label>Loading publications...</Label>
+        <ProgressCircle variant='determinate_progress_circle' />
+      </div>
     );
 }
