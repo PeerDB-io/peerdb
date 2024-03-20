@@ -199,8 +199,8 @@ func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (
 	s3Client := s3.NewFromConfig(aws.Config{}, func(options *s3.Options) {
 		options.Region = credsProvider.GetRegion()
 		options.Credentials = credsProvider.GetUnderlyingProvider()
-		options.BaseEndpoint = awsCredentials.EndpointUrl
 		if awsCredentials.EndpointUrl != nil {
+			options.BaseEndpoint = awsCredentials.EndpointUrl
 			if strings.Contains(*awsCredentials.EndpointUrl, "storage.googleapis.com") {
 				// Assign custom client with our own transport
 				options.HTTPClient = &http.Client{
