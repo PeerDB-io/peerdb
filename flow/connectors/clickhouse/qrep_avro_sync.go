@@ -145,9 +145,9 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	}
 	selectorStr := strings.Join(selector, ",")
 	//nolint:gosec
-	query := fmt.Sprintf("INSERT INTO %s(%s) SELECT %s FROM s3('%s','%s','%s', 'Avro')",
+	query := fmt.Sprintf("INSERT INTO %s(%s) SELECT %s FROM s3('%s','%s','%s', '%s', 'Avro')",
 		config.DestinationTableIdentifier, selectorStr, selectorStr, avroFileUrl,
-		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey)
+		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, creds.AWS.SessionToken)
 
 	_, err = s.connector.database.ExecContext(ctx, query)
 	if err != nil {
