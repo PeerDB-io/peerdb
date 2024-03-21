@@ -48,8 +48,8 @@ func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record) {
 	}
 	rec := &model.InsertRecord{
 		BaseRecord: model.BaseRecord{
-			CheckpointID: 1,
-			CommitTime:   time.Now().UTC(),
+			CheckpointID:   1,
+			CommitTimeNano: time.Now().UnixNano(),
 		},
 		SourceTableName:      "test_src_tbl",
 		DestinationTableName: "test_dst_tbl",

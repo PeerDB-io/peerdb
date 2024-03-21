@@ -408,11 +408,15 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 	}
 }
 
-func (p *PostgresCDCSource) commitTime() time.Time {
+func (p *PostgresCDCSource) baseRecord(lsn pglogrepl.LSN) model.BaseRecord {
+	var nano int64
 	if p.commitLock != nil {
-		return p.commitLock.CommitTime
+		nano = p.commitLock.CommitTime.UnixNano()
 	}
-	return time.Time{}
+	return model.BaseRecord{
+		CheckpointID:   int64(lsn),
+		CommitTimeNano: nano,
+	}
 }
 
 func (p *PostgresCDCSource) processMessage(
@@ -490,10 +494,7 @@ func (p *PostgresCDCSource) processInsertMessage(
 	}
 
 	return &model.InsertRecord{
-		BaseRecord: model.BaseRecord{
-			CheckpointID: int64(lsn),
-			CommitTime:   p.commitTime(),
-		},
+		BaseRecord:           p.baseRecord(lsn),
 		Items:                items,
 		DestinationTableName: p.tableNameMapping[tableName].Name,
 		SourceTableName:      tableName,
@@ -534,10 +535,7 @@ func (p *PostgresCDCSource) processUpdateMessage(
 	}
 
 	return &model.UpdateRecord{
-		BaseRecord: model.BaseRecord{
-			CheckpointID: int64(lsn),
-			CommitTime:   p.commitTime(),
-		},
+		BaseRecord:            p.baseRecord(lsn),
 		OldItems:              oldItems,
 		NewItems:              newItems,
 		DestinationTableName:  p.tableNameMapping[tableName].Name,
@@ -574,10 +572,7 @@ func (p *PostgresCDCSource) processDeleteMessage(
 	}
 
 	return &model.DeleteRecord{
-		BaseRecord: model.BaseRecord{
-			CheckpointID: int64(lsn),
-			CommitTime:   p.commitTime(),
-		},
+		BaseRecord:           p.baseRecord(lsn),
 		Items:                items,
 		DestinationTableName: p.tableNameMapping[tableName].Name,
 		SourceTableName:      tableName,
@@ -781,10 +776,7 @@ func (p *PostgresCDCSource) processRelationMessage(
 	// only log audit if there is actionable delta
 	if len(schemaDelta.AddedColumns) > 0 {
 		rec := &model.RelationRecord{
-			BaseRecord: model.BaseRecord{
-				CheckpointID: int64(lsn),
-				CommitTime:   p.commitTime(),
-			},
+			BaseRecord:       p.baseRecord(lsn),
 			TableSchemaDelta: schemaDelta,
 		}
 		return rec, p.auditSchemaDelta(ctx, p.flowJobName, rec)

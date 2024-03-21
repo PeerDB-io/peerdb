@@ -78,8 +78,8 @@ func NewToJSONOptions(unnestCols []string, hstoreAsJSON bool) *ToJSONOptions {
 type BaseRecord struct {
 	// CheckpointID is the ID of the record.
 	CheckpointID int64 `json:"checkpointId"`
-	// CommitTime from BeginMessage
-	CommitTime time.Time `json:"commitTime"`
+	// BeginMessage.CommitTime.UnixNano(), 16 bytes smaller than time.Time
+	CommitTimeNano int64 `json:"commitTimeNano"`
 }
 
 func (r *BaseRecord) GetCheckpointID() int64 {
@@ -87,7 +87,7 @@ func (r *BaseRecord) GetCheckpointID() int64 {
 }
 
 func (r *BaseRecord) GetCommitTime() time.Time {
-	return r.CommitTime
+	return time.Unix(0, r.CommitTimeNano)
 }
 
 type InsertRecord struct {
