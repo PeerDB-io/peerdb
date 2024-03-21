@@ -89,10 +89,10 @@ func (c *S3Connector) Close() error {
 	return nil
 }
 
-func ValidCheck(ctx context.Context, s3Client *s3.Client, bucketURL string, metadataDB *metadataStore.PostgresMetadataStore) error {
+func (c *S3Connector) ValidateCheck(ctx context.Context) error {
 	reader := strings.NewReader(time.Now().Format(time.RFC3339))
 
-	bucketPrefix, parseErr := utils.NewS3BucketAndPrefix(bucketURL)
+	bucketPrefix, parseErr := utils.NewS3BucketAndPrefix(c.url)
 	if parseErr != nil {
 		return fmt.Errorf("failed to parse bucket url: %w", parseErr)
 	}
@@ -100,7 +100,7 @@ func ValidCheck(ctx context.Context, s3Client *s3.Client, bucketURL string, meta
 	// Write an empty file and then delete it
 	// to check if we have write permissions
 	bucketName := aws.String(bucketPrefix.Bucket)
-	_, putErr := s3Client.PutObject(ctx, &s3.PutObjectInput{
+	_, putErr := c.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: bucketName,
 		Key:    aws.String(_peerDBCheck),
 		Body:   reader,
@@ -109,7 +109,7 @@ func ValidCheck(ctx context.Context, s3Client *s3.Client, bucketURL string, meta
 		return fmt.Errorf("failed to write to bucket: %w", putErr)
 	}
 
-	_, delErr := s3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
+	_, delErr := c.client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: bucketName,
 		Key:    aws.String(_peerDBCheck),
 	})
@@ -118,8 +118,8 @@ func ValidCheck(ctx context.Context, s3Client *s3.Client, bucketURL string, meta
 	}
 
 	// check if we can ping external metadata
-	if metadataDB != nil {
-		err := metadataDB.Ping(ctx)
+	if c.pgMetadata != nil {
+		err := c.pgMetadata.Ping(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to ping external metadata: %w", err)
 		}
@@ -129,12 +129,6 @@ func ValidCheck(ctx context.Context, s3Client *s3.Client, bucketURL string, meta
 }
 
 func (c *S3Connector) ConnectionActive(ctx context.Context) error {
-	validErr := ValidCheck(ctx, &c.client, c.url, c.pgMetadata)
-	if validErr != nil {
-		c.logger.Error("failed to validate s3 connector:", "error", validErr)
-		return validErr
-	}
-
 	return nil
 }
 

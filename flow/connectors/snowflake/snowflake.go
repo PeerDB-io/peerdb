@@ -104,10 +104,11 @@ type UnchangedToastColumnResult struct {
 	UnchangedToastColumns ArrayString
 }
 
-func ValidationCheck(ctx context.Context, database *sql.DB, schemaName string) error {
+func (c *SnowflakeConnector) ValidateCheck(ctx context.Context) error {
+	schemaName := c.rawSchema
 	// check if schema exists
 	var schemaExists sql.NullBool
-	err := database.QueryRowContext(ctx, checkIfSchemaExistsSQL, schemaName).Scan(&schemaExists)
+	err := c.database.QueryRowContext(ctx, checkIfSchemaExistsSQL, schemaName).Scan(&schemaExists)
 	if err != nil {
 		return fmt.Errorf("error while checking if schema exists: %w", err)
 	}
@@ -116,9 +117,9 @@ func ValidationCheck(ctx context.Context, database *sql.DB, schemaName string) e
 
 	// In a transaction, create a table, insert a row into the table and then drop the table
 	// If any of these steps fail, the transaction will be rolled back
-	tx, err := database.BeginTx(ctx, nil)
+	tx, err := c.database.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
+		return fmt.Errorf("failed to begin transaction for table check: %w", err)
 	}
 	// in case we return after error, ensure transaction is rolled back
 	defer func() {
@@ -158,7 +159,7 @@ func ValidationCheck(ctx context.Context, database *sql.DB, schemaName string) e
 	// commit transaction
 	err = tx.Commit()
 	if err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+		return fmt.Errorf("failed to commit transaction for table check: %w", err)
 	}
 
 	return nil
@@ -210,11 +211,6 @@ func NewSnowflakeConnector(
 	rawSchema := "_PEERDB_INTERNAL"
 	if snowflakeProtoConfig.MetadataSchema != nil {
 		rawSchema = *snowflakeProtoConfig.MetadataSchema
-	}
-
-	err = ValidationCheck(ctx, database, rawSchema)
-	if err != nil {
-		return nil, fmt.Errorf("could not validate snowflake peer: %w", err)
 	}
 
 	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)

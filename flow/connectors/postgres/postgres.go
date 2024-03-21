@@ -108,6 +108,11 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	}, nil
 }
 
+func (c *PostgresConnector) ValidateCheck(ctx context.Context) error {
+	c.logger.Info("ValidateCheck for PostgreSQL is a no-op")
+	return nil
+}
+
 func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, error) {
 	conn, err := c.ssh.NewPostgresConnFromConfig(ctx, c.replConfig)
 	if err != nil {

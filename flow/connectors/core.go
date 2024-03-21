@@ -25,6 +25,7 @@ var ErrUnsupportedFunctionality = errors.New("requested connector does not suppo
 type Connector interface {
 	Close() error
 	ConnectionActive(context.Context) error
+	ValidateCheck(context.Context) error
 }
 
 type GetTableSchemaConnector interface {

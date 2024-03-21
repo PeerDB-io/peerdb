@@ -56,25 +56,30 @@ func ValidateS3(ctx context.Context, creds *utils.ClickhouseS3Credentials) error
 }
 
 // Creates and drops a dummy table to validate the peer
-func ValidateClickhouse(ctx context.Context, conn *sql.DB) error {
+func (c *ClickhouseConnector) ValidateCheck(ctx context.Context) error {
 	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
 	// create a table
-	_, err := conn.ExecContext(ctx, fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id UInt64) ENGINE = Memory",
+	_, err := c.database.ExecContext(ctx, fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id UInt64) ENGINE = Memory",
 		validateDummyTableName))
 	if err != nil {
 		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// insert a row
-	_, err = conn.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1)", validateDummyTableName))
+	_, err = c.database.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1)", validateDummyTableName))
 	if err != nil {
 		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// drop the table
-	_, err = conn.ExecContext(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName)
+	_, err = c.database.ExecContext(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName)
 	if err != nil {
 		return fmt.Errorf("failed to drop validation table %s: %w", validateDummyTableName, err)
+	}
+
+	validateErr := ValidateS3(ctx, c.creds)
+	if validateErr != nil {
+		return fmt.Errorf("failed to validate S3 bucket: %w", validateErr)
 	}
 
 	return nil
@@ -88,11 +93,6 @@ func NewClickhouseConnector(
 	database, err := connect(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open connection to Clickhouse peer: %w", err)
-	}
-
-	err = ValidateClickhouse(ctx, database)
-	if err != nil {
-		return nil, fmt.Errorf("invalidated Clickhouse peer: %w", err)
 	}
 
 	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
@@ -120,11 +120,6 @@ func NewClickhouseConnector(
 
 		// Fallback: Get S3 credentials from environment
 		clickhouseS3Creds = utils.GetClickhouseAWSSecrets(bucketPathSuffix)
-	}
-
-	validateErr := ValidateS3(ctx, clickhouseS3Creds)
-	if validateErr != nil {
-		return nil, fmt.Errorf("failed to validate S3 bucket: %w", validateErr)
 	}
 
 	return &ClickhouseConnector{
