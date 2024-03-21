@@ -404,7 +404,7 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	c.logger.Info(fmt.Sprintf("pushing records to Postgres table %s via COPY", rawTableIdentifier))
 
-	numRecords := 0
+	numRecords := int64(0)
 	tableNameRowsMapping := make(map[string]uint32)
 
 	streamReadFunc := func() ([]any, error) {
@@ -509,7 +509,7 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 	if err != nil {
 		return nil, fmt.Errorf("error syncing records: %w", err)
 	}
-	if syncedRecordsCount != int64(numRecords) {
+	if syncedRecordsCount != numRecords {
 		return nil, fmt.Errorf("error syncing records: expected %d records to be synced, but %d were synced",
 			numRecords, syncedRecordsCount)
 	}
@@ -536,7 +536,7 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 
 	return &model.SyncResponse{
 		LastSyncedCheckpointID: lastCP,
-		NumRecordsSynced:       int64(numRecords),
+		NumRecordsSynced:       numRecords,
 		CurrentSyncBatchID:     req.SyncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,
 		TableSchemaDeltas:      req.Records.SchemaDeltas,

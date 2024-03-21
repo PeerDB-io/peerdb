@@ -400,6 +400,7 @@ func (a *FlowableActivity) SyncFlow(
 			FlowJobName:   flowName,
 			TableMappings: options.TableMappings,
 			StagingPath:   config.CdcStagingPath,
+			Script:        config.Script,
 		})
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, flowName, err)

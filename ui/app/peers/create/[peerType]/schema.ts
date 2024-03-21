@@ -278,6 +278,33 @@ export const chSchema = z.object({
   region: z
     .string({ invalid_type_error: 'Region must be a string' })
     .optional(),
+  disableTls: z.boolean(),
+});
+
+export const kaSchema = z.object({
+  servers: z
+    .array(z.string({ required_error: 'Server address must not be empty' }))
+    .min(1, { message: 'At least 1 server required' }),
+  username: z.string().optional(),
+  password: z.string().optional(),
+  sasl: z
+    .union([
+      z.literal('PLAIN'),
+      z.literal('SCRAM-SHA-256'),
+      z.literal('SCRAM-SHA-512'),
+    ])
+    .optional(),
+  partitioner: z
+    .union([
+      z.literal('Default'),
+      z.literal('LeastBackup'),
+      z.literal('Manual'),
+      z.literal('RoundRobin'),
+      z.literal('StickyKey'),
+      z.literal('Sticky'),
+    ])
+    .optional(),
+  disableTls: z.boolean().optional(),
 });
 
 const urlSchema = z

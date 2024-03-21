@@ -32,6 +32,9 @@ export const DBTypeToImageMapping = (peerType: DBType | string) => {
     case DBType.EVENTHUB_GROUP:
     case DBType.EVENTHUB:
       return '/svgs/ms.svg';
+    case DBType.KAFKA:
+    case 'KAFKA':
+      return '/svgs/kafka.svg';
     default:
       return '/svgs/pg.svg';
   }

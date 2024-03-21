@@ -236,8 +236,7 @@ func (r *RecordItems) ToJSONWithOptions(options *ToJSONOptions) (string, error) 
 }
 
 func (r *RecordItems) ToJSON() (string, error) {
-	unnestCols := make([]string, 0)
-	return r.ToJSONWithOpts(NewToJSONOptions(unnestCols, true))
+	return r.ToJSONWithOpts(NewToJSONOptions(nil, true))
 }
 
 func (r *RecordItems) ToJSONWithOpts(opts *ToJSONOptions) (string, error) {

@@ -10,6 +10,9 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs v1.0.4
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub v1.2.0
 	github.com/ClickHouse/clickhouse-go/v2 v2.21.1
+	github.com/PeerDB-io/glua64 v1.0.1
+	github.com/PeerDB-io/gluabit32 v1.0.0
+	github.com/PeerDB-io/gluaflatbuffers v1.0.1
 	github.com/aws/aws-sdk-go-v2 v1.25.3
 	github.com/aws/aws-sdk-go-v2/config v1.27.7
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.7
@@ -35,9 +38,12 @@ require (
 	github.com/slack-go/slack v0.12.5
 	github.com/snowflakedb/gosnowflake v1.8.0
 	github.com/stretchr/testify v1.9.0
+	github.com/twmb/franz-go v1.16.1
+	github.com/twmb/franz-go/plugin/kslog v1.0.0
 	github.com/twpayne/go-geos v0.17.0
 	github.com/urfave/cli/v3 v3.0.0-alpha9
 	github.com/youmark/pkcs8 v0.0.0-20201027041543-1326539a0a0a
+	github.com/yuin/gopher-lua v1.1.1
 	go.temporal.io/api v1.29.1
 	go.temporal.io/sdk v1.26.0
 	go.uber.org/automaxprocs v1.5.3
@@ -91,6 +97,7 @@ require (
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
+	github.com/twmb/franz-go/pkg/kmsg v1.7.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0 // indirect
 	go.opentelemetry.io/otel v1.24.0 // indirect

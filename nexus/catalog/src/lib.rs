@@ -100,6 +100,7 @@ impl Catalog {
                     eventhub_group_config.encode_to_vec()
                 }
                 Config::ClickhouseConfig(clickhouse_config) => clickhouse_config.encode_to_vec(),
+                Config::KafkaConfig(kafka_config) => kafka_config.encode_to_vec(),
             }
         };
 
@@ -306,6 +307,11 @@ impl Catalog {
                         pt::peerdb_peers::ClickhouseConfig::decode(options).with_context(err)?;
                     Config::ClickhouseConfig(clickhouse_config)
                 }
+                DbType::Kafka => {
+                    let kafka_config =
+                        pt::peerdb_peers::KafkaConfig::decode(options).with_context(err)?;
+                    Config::KafkaConfig(kafka_config)
+                }
             })
         } else {
             None
@@ -319,12 +325,11 @@ impl Catalog {
     ) -> anyhow::Result<String> {
         let peer_dbtype = self.get_peer_type_for_id(peer_id).await?;
 
-        let mut table_identifier_parts = table_identifier.split('.').collect::<Vec<&str>>();
-        if table_identifier_parts.len() == 1 && (peer_dbtype != DbType::Bigquery) {
-            table_identifier_parts.insert(0, "public");
+        if !table_identifier.contains('.') && peer_dbtype != DbType::Bigquery {
+            Ok(format!("public.{}", table_identifier))
+        } else {
+            Ok(String::from(table_identifier))
         }
-
-        Ok(table_identifier_parts.join("."))
     }
 
     pub async fn create_cdc_flow_job_entry(&self, job: &FlowJob) -> anyhow::Result<()> {

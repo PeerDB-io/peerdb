@@ -2,7 +2,7 @@ PeerDB Cloud Template
 
 ## Prerequisites
 
-- [NodeJS](https://nodejs.org/en): `18.17.1`
+- [NodeJS](https://nodejs.org/en): `LTS`
 
 ## Getting Started
 

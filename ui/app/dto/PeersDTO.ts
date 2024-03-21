@@ -1,6 +1,7 @@
 import {
   BigqueryConfig,
   ClickhouseConfig,
+  KafkaConfig,
   PostgresConfig,
   S3Config,
   SnowflakeConfig,
@@ -43,7 +44,8 @@ export type PeerConfig =
   | SnowflakeConfig
   | BigqueryConfig
   | ClickhouseConfig
-  | S3Config;
+  | S3Config
+  | KafkaConfig;
 export type CatalogPeer = {
   id: number;
   name: string;

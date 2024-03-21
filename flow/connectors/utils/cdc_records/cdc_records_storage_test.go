@@ -47,9 +47,12 @@ func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record) {
 		PkeyColVal: [32]byte(pkeyColVal),
 	}
 	rec := &model.InsertRecord{
+		BaseRecord: model.BaseRecord{
+			CheckpointID:   1,
+			CommitTimeNano: time.Now().UnixNano(),
+		},
 		SourceTableName:      "test_src_tbl",
 		DestinationTableName: "test_dst_tbl",
-		CheckpointID:         1,
 		CommitID:             2,
 		Items: &model.RecordItems{
 			ColToValIdx: map[string]int{
