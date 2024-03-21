@@ -131,14 +131,14 @@ func (bqsa *BigQueryServiceAccount) CreateStorageClient(ctx context.Context) (*s
 	return client, nil
 }
 
-// TableCheck:
+// ValidateCheck:
 // 1. Creates a table
 // 2. Inserts one row into the table
 // 3. Deletes the table
-func TableCheck(ctx context.Context, client *bigquery.Client, dataset string, project string) error {
+func (c *BigQueryConnector) ValidateCheck(ctx context.Context) error {
 	dummyTable := "peerdb_validate_dummy_" + shared.RandomString(4)
 
-	newTable := client.DatasetInProject(project, dataset).Table(dummyTable)
+	newTable := c.client.DatasetInProject(c.projectID, c.datasetID).Table(dummyTable)
 
 	createErr := newTable.Create(ctx, &bigquery.TableMetadata{
 		Schema: []*bigquery.FieldSchema{
@@ -155,9 +155,9 @@ func TableCheck(ctx context.Context, client *bigquery.Client, dataset string, pr
 	}
 
 	var errs []error
-	insertQuery := client.Query(fmt.Sprintf("INSERT INTO %s VALUES(true)", dummyTable))
-	insertQuery.DefaultDatasetID = dataset
-	insertQuery.DefaultProjectID = project
+	insertQuery := c.client.Query(fmt.Sprintf("INSERT INTO %s VALUES(true)", dummyTable))
+	insertQuery.DefaultDatasetID = c.datasetID
+	insertQuery.DefaultProjectID = c.projectID
 	_, insertErr := insertQuery.Run(ctx)
 	if insertErr != nil {
 		errs = append(errs, fmt.Errorf("unable to validate insertion into table: %w. ", insertErr))
@@ -205,12 +205,6 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 	if datasetErr != nil {
 		logger.Error("failed to get dataset metadata", "error", datasetErr)
 		return nil, fmt.Errorf("failed to get dataset metadata: %v", datasetErr)
-	}
-
-	permissionErr := TableCheck(ctx, client, datasetID, projectID)
-	if permissionErr != nil {
-		logger.Error("failed to get run mock table check", "error", permissionErr)
-		return nil, permissionErr
 	}
 
 	storageClient, err := bqsa.CreateStorageClient(ctx)
