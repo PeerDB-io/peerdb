@@ -145,8 +145,8 @@ func (g *GenericSQLQueryExecutor) CountSRIDs(
 	columnName string,
 ) (int64, error) {
 	var count pgtype.Int8
-	err := g.db.QueryRowxContext(ctx, "SELECT COUNT(CASE WHEN "+columnName+
-		" <> 0 THEN 1 END) AS not_zero FROM "+schemaName+"."+tableName).Scan(&count)
+	err := g.db.QueryRowxContext(ctx, "SELECT COUNT(CASE WHEN ST_SRID("+columnName+
+		") <> 0 THEN 1 END) AS not_zero FROM "+schemaName+"."+tableName).Scan(&count)
 	return count.Int64, err
 }
 
