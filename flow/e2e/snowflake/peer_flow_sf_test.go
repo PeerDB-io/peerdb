@@ -146,6 +146,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 		// Make sure SRIDs are set
 		sridCount, err := s.sfHelper.CountSRIDs("test_invalid_geo_sf_avro_cdc", "line")
 		if err != nil {
+			s.t.Log(err)
 			return false
 		}
 
