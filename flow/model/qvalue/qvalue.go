@@ -64,8 +64,6 @@ func (q QValue) Equals(other QValue) bool {
 	case QValueKindDate,
 		QValueKindTimestamp, QValueKindTimestampTZ:
 		return compareGoTime(q.Value, other.Value)
-	case QValueKindInterval:
-		return compareString(q.Value, other.Value)
 	case QValueKindTime, QValueKindTimeTZ:
 		return compareGoCivilTime(q.Value, other.Value)
 	case QValueKindNumeric:
