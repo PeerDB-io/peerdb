@@ -158,7 +158,7 @@ func (c *KafkaConnector) SyncFlowCleanup(ctx context.Context, jobName string) er
 	return c.pgMetadata.DropMetadata(ctx, jobName)
 }
 
-func loadScript(ctx context.Context, script string, print lua.LGFunction) (*lua.LState, error) {
+func loadScript(ctx context.Context, script string, printfn lua.LGFunction) (*lua.LState, error) {
 	if script == "" {
 		return nil, errors.New("kafka mirror must have script")
 	}
@@ -185,7 +185,7 @@ func loadScript(ctx context.Context, script string, print lua.LGFunction) (*lua.
 	}
 	ls.PreloadModule("flatbuffers", gluaflatbuffers.Loader)
 	pua.RegisterTypes(ls)
-	ls.Env.RawSetString("print", ls.NewFunction(print))
+	ls.Env.RawSetString("print", ls.NewFunction(printfn))
 	err := ls.GPCall(pua.LoadPeerdbScript, lua.LString(script))
 	if err != nil {
 		return nil, fmt.Errorf("error loading script %s: %w", script, err)
