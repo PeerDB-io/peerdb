@@ -824,7 +824,6 @@ fn parse_db_options(
                 servers: opts
                     .get("servers")
                     .context("no servers specified")?
-                    .to_string()
                     .split(',')
                     .map(String::from)
                     .collect::<Vec<_>>(),
