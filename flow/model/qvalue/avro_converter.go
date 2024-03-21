@@ -58,7 +58,11 @@ type AvroSchemaField struct {
 // will return an error.
 func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision int16, scale int16) (interface{}, error) {
 	switch kind {
-	case QValueKindString, QValueKindQChar, QValueKindCIDR, QValueKindINET:
+	case QValueKindString:
+		return "string", nil
+	case QValueKindQChar, QValueKindCIDR, QValueKindINET:
+		return "string", nil
+	case QValueKindInterval:
 		return "string", nil
 	case QValueKindUUID:
 		return AvroSchemaLogical{
@@ -285,7 +289,7 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		return t, nil
 	case QValueKindQChar:
 		return c.processNullableUnion("string", string(c.Value.(uint8)))
-	case QValueKindString, QValueKindCIDR, QValueKindINET, QValueKindMacaddr:
+	case QValueKindString, QValueKindCIDR, QValueKindINET, QValueKindMacaddr, QValueKindInterval:
 		if c.TargetDWH == QDWHTypeSnowflake && c.Value != nil &&
 			(len(c.Value.(string)) > 15*1024*1024) {
 			slog.Warn("Truncating TEXT value > 15MB for Snowflake!")

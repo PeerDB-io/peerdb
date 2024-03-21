@@ -24,6 +24,7 @@ const (
 	QValueKindDate        QValueKind = "date"
 	QValueKindTime        QValueKind = "time"
 	QValueKindTimeTZ      QValueKind = "timetz"
+	QValueKindInterval    QValueKind = "interval"
 	QValueKindNumeric     QValueKind = "numeric"
 	QValueKindBytes       QValueKind = "bytes"
 	QValueKindUUID        QValueKind = "uuid"
@@ -69,6 +70,7 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindJSON:        "VARIANT",
 	QValueKindTimestamp:   "TIMESTAMP_NTZ",
 	QValueKindTimestampTZ: "TIMESTAMP_TZ",
+	QValueKindInterval:    "VARIANT",
 	QValueKindTime:        "TIME",
 	QValueKindTimeTZ:      "TIME",
 	QValueKindDate:        "DATE",
@@ -117,6 +119,7 @@ var QValueKindToClickhouseTypeMap = map[QValueKind]string{
 	QValueKindTimeTZ:      "String",
 	QValueKindInvalid:     "String",
 	QValueKindHStore:      "String",
+
 	// array types will be mapped to VARIANT
 	QValueKindArrayFloat32: "Array(Float32)",
 	QValueKindArrayFloat64: "Array(Float64)",
