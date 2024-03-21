@@ -1198,7 +1198,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion_With_Schema_Changes() {
 	s.t.Log("Inserted 10 rows into the source table")
 
 	e2e.EnvWaitForEqualTables(env, s, "normalize table", tableName, "id,c1,t")
-	_, err = s.Conn().Exec(context.Background(), "ALTER TABLE %s ADD COLUMN t2 TEXT")
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf("ALTER TABLE %s ADD COLUMN t2 TEXT", srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	// insert 10 more rows into the source table
 	for i := range 10 {
