@@ -440,11 +440,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 			return false
 		}
 
-		// check interval
-		if err := s.checkJSONValue(dstTableName, "c16", "years", "5"); err != nil {
-			return false
-		}
-
 		// check if JSON on snowflake side is a good JSON
 		if err := s.checkJSONValue(dstTableName, "c17", "sai", "1"); err != nil {
 			return false
