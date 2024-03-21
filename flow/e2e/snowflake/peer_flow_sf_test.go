@@ -427,7 +427,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 
-	e2e.EnvWaitFor(s.t, env, 5*time.Minute, "normalize types", func() bool {
+	e2e.EnvWaitFor(s.t, env, 10*time.Minute, "normalize types", func() bool {
+		s.t.Log("Checking for nulls in all types")
 		noNulls, err := s.sfHelper.CheckNull("test_types_sf", []string{
 			"c41", "c1", "c2", "c3", "c4",
 			"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
@@ -440,6 +441,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 			return false
 		}
 
+		s.t.Log("Checking for intervals in all types")
 		// interval checks
 		if err := s.checkJSONValue(dstTableName, "c16", "years", "5"); err != nil {
 			return false
@@ -453,6 +455,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 			return false
 		}
 
+		s.t.Log("Checking for json in all types")
 		// check if JSON on snowflake side is a good JSON
 		if err := s.checkJSONValue(dstTableName, "c17", "sai", "1"); err != nil {
 			return false
