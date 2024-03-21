@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -237,9 +238,17 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 				return nil, src.err
 			}
 
-			wkb, err := geo.GeoToWKB(v)
+			geoWkt := v
+			if strings.HasPrefix(v, "SRID=") {
+				_, wkt, found := strings.Cut(v, ";")
+				if found {
+					geoWkt = wkt
+				}
+			}
+
+			wkb, err := geo.GeoToWKB(geoWkt)
 			if err != nil {
-				src.err = errors.New("failed to convert Geospatial value to wkb")
+				src.err = fmt.Errorf("failed to convert Geospatial value to wkb: %v", err)
 				return nil, src.err
 			}
 
