@@ -164,7 +164,6 @@ func loadScript(ctx context.Context, script string, printfn lua.LGFunction) (*lu
 	}
 
 	ls := lua.NewState(lua.Options{SkipOpenLibs: true})
-	defer ls.Close()
 	ls.SetContext(ctx)
 	for _, pair := range []struct {
 		n string
@@ -270,6 +269,7 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 	if err != nil {
 		return nil, err
 	}
+	defer ls.Close()
 
 	lfn := ls.Env.RawGetString("onRecord")
 	fn, ok := lfn.(*lua.LFunction)
