@@ -11,7 +11,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peer-flow/connectors/postgres"
@@ -48,25 +47,20 @@ func (s PeerFlowE2ETestSuiteSQLServer) Suffix() string {
 }
 
 func TestCDCFlowE2ETestSuiteSQLServer(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSuite, func(s PeerFlowE2ETestSuiteSQLServer) {
-		e2e.TearDownPostgres(s)
+	e2eshared.RunSuite(t, SetupSuite)
+}
 
-		if s.sqlsHelper != nil {
-			err := s.sqlsHelper.CleanUp()
-			require.NoError(s.t, err)
-		}
-	})
+func (s PeerFlowE2ETestSuiteSQLServer) Teardown() {
+	e2e.TearDownPostgres(s)
+
+	if s.sqlsHelper != nil {
+		err := s.sqlsHelper.CleanUp()
+		require.NoError(s.t, err)
+	}
 }
 
 func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSQLServer {
 	t.Helper()
-
-	err := godotenv.Load()
-	if err != nil {
-		// it's okay if the .env file is not present
-		// we will use the default values
-		t.Log("Unable to load .env file, using default values from env")
-	}
 
 	suffix := "sqls_" + strings.ToLower(shared.RandomString(8))
 	conn, err := e2e.SetupPostgres(t, suffix)
@@ -99,13 +93,14 @@ func (s PeerFlowE2ETestSuiteSQLServer) setupSQLServerTable(tableName string) {
 
 func (s PeerFlowE2ETestSuiteSQLServer) insertRowsIntoSQLServerTable(tableName string, numRows int) {
 	schemaQualified := fmt.Sprintf("%s.%s", s.sqlsHelper.SchemaName, tableName)
-	for i := 0; i < numRows; i++ {
-		params := make(map[string]interface{})
-		params["id"] = "test_id_" + strconv.Itoa(i)
-		params["card_id"] = "test_card_id_" + strconv.Itoa(i)
-		params["v_from"] = time.Now()
-		params["price"] = 100.00
-		params["status"] = 1
+	for i := range numRows {
+		params := map[string]interface{}{
+			"id":      "test_id_" + strconv.Itoa(i),
+			"card_id": "test_card_id_" + strconv.Itoa(i),
+			"v_from":  time.Now(),
+			"price":   100.00,
+			"status":  1,
+		}
 
 		_, err := s.sqlsHelper.E.NamedExec(
 			context.Background(),
@@ -146,7 +141,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 		s.t.Skip("Skipping SQL Server test")
 	}
 
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	tc := e2e.NewTemporalClient(s.t)
 
 	numRows := 10
 	tblName := "test_qrep_flow_avro_ss_append"
@@ -161,7 +156,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 	query := fmt.Sprintf("SELECT * FROM %s.%s WHERE v_from BETWEEN {{.start}} AND {{.end}}",
 		s.sqlsHelper.SchemaName, tblName)
 
-	postgresPeer := e2e.GeneratePostgresPeer(e2e.PostgresPort)
+	postgresPeer := e2e.GeneratePostgresPeer()
 
 	qrepConfig := &protos.QRepConfig{
 		FlowJobName:                tblName,
@@ -177,18 +172,14 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 		WaitBetweenBatchesSeconds:  5,
 	}
 
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-
-	err := env.GetWorkflowError()
-	require.NoError(s.t, err)
+	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.NoError(s.t, env.Error())
 
 	// Verify that the destination table has the same number of rows as the source table
 	var numRowsInDest pgtype.Int8
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s", dstTableName)
-	err = s.Conn().QueryRow(context.Background(), countQuery).Scan(&numRowsInDest)
+	countQuery := "SELECT COUNT(*) FROM " + dstTableName
+	err := s.Conn().QueryRow(context.Background(), countQuery).Scan(&numRowsInDest)
 	require.NoError(s.t, err)
 
 	require.Equal(s.t, numRows, int(numRowsInDest.Int64))

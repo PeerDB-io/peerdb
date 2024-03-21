@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -42,7 +43,7 @@ func GetAWSSecrets(creds S3PeerCredentials) (*AWSSecrets, error) {
 		awsRegion = os.Getenv("AWS_REGION")
 	}
 	if awsRegion == "" {
-		return nil, fmt.Errorf("AWS_REGION must be set")
+		return nil, errors.New("AWS_REGION must be set")
 	}
 
 	awsEndpoint := creds.Endpoint
@@ -67,7 +68,7 @@ func GetAWSSecrets(creds S3PeerCredentials) (*AWSSecrets, error) {
 
 	// one of (awsKey and awsSecret) or awsRoleArn must be set
 	if awsKey == "" && awsSecret == "" && awsRoleArn == "" {
-		return nil, fmt.Errorf("one of (AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY) or AWS_ROLE_ARN must be set")
+		return nil, errors.New("one of (AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY) or AWS_ROLE_ARN must be set")
 	}
 
 	return &AWSSecrets{

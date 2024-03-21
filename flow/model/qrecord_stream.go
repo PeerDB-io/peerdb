@@ -1,7 +1,7 @@
 package model
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
@@ -70,7 +70,7 @@ func (s *QRecordStream) Schema() (*QRecordSchema, error) {
 
 func (s *QRecordStream) SetSchema(schema *QRecordSchema) error {
 	if s.schemaSet {
-		return fmt.Errorf("Schema already set")
+		return errors.New("Schema already set")
 	}
 
 	s.schema <- QRecordSchemaOrError{

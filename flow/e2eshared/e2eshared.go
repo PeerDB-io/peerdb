@@ -12,14 +12,17 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
-func RunSuite[T any](t *testing.T, setup func(t *testing.T) T, teardown func(T)) {
+type Suite interface {
+	Teardown()
+}
+
+func RunSuite[T Suite](t *testing.T, setup func(t *testing.T) T) {
 	t.Helper()
 	t.Parallel()
 
-	// can be replaced with reflect.TypeFor[T]() in go 1.22
-	typ := reflect.TypeOf((*T)(nil)).Elem()
+	typ := reflect.TypeFor[T]()
 	mcount := typ.NumMethod()
-	for i := 0; i < mcount; i++ {
+	for i := range mcount {
 		m := typ.Method(i)
 		if strings.HasPrefix(m.Name, "Test") {
 			if m.Type.NumIn() == 1 && m.Type.NumOut() == 0 {
@@ -27,7 +30,7 @@ func RunSuite[T any](t *testing.T, setup func(t *testing.T) T, teardown func(T))
 					subtest.Parallel()
 					suite := setup(subtest)
 					subtest.Cleanup(func() {
-						teardown(suite)
+						suite.Teardown()
 					})
 					m.Func.Call([]reflect.Value{reflect.ValueOf(suite)})
 				})

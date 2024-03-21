@@ -3,11 +3,11 @@ package connectors
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/PeerDB-io/peer-flow/alerting"
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	connclickhouse "github.com/PeerDB-io/peer-flow/connectors/clickhouse"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
@@ -18,7 +18,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/shared/alerting"
 )
 
 var ErrUnsupportedFunctionality = errors.New("requested connector does not support functionality")
@@ -28,21 +27,40 @@ type Connector interface {
 	ConnectionActive(context.Context) error
 }
 
-type CDCPullConnector interface {
+type GetTableSchemaConnector interface {
 	Connector
 
 	// GetTableSchema returns the schema of a table.
 	GetTableSchema(ctx context.Context, req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error)
+}
+
+type CDCPullConnector interface {
+	Connector
+	GetTableSchemaConnector
 
 	// EnsurePullability ensures that the connector is pullable.
 	EnsurePullability(ctx context.Context, req *protos.EnsurePullabilityBatchInput) (
 		*protos.EnsurePullabilityBatchOutput, error)
 
+	// For InitialSnapshotOnly correctness without replication slot
+	// `any` is for returning transaction if necessary
+	ExportTxSnapshot(context.Context) (*protos.ExportTxSnapshotOutput, any, error)
+
+	// `any` from ExportSnapshot passed here when done, allowing transaction to commit
+	FinishExport(any) error
+
 	// Methods related to retrieving and pushing records for this connector as a source and destination.
+	SetupReplConn(context.Context) error
+
+	// Ping source to keep connection alive. Can be called concurrently with PullRecords; skips ping in that case.
+	ReplPing(context.Context) error
 
 	// PullRecords pulls records from the source, and returns a RecordBatch.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
 	PullRecords(ctx context.Context, catalogPool *pgxpool.Pool, req *model.PullRecordsRequest) error
+
+	// Called when offset has been confirmed to destination
+	UpdateReplStateLastOffset(lastOffset int64)
 
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(ctx context.Context, jobName string) error
@@ -61,12 +79,12 @@ type NormalizedTablesConnector interface {
 	Connector
 
 	// StartSetupNormalizedTables may be used to have SetupNormalizedTable calls run in a transaction.
-	StartSetupNormalizedTables(ctx context.Context) (interface{}, error)
+	StartSetupNormalizedTables(ctx context.Context) (any, error)
 
 	// SetupNormalizedTable sets up the normalized table on the connector.
 	SetupNormalizedTable(
 		ctx context.Context,
-		tx interface{},
+		tx any,
 		tableIdentifier string,
 		tableSchema *protos.TableSchema,
 		softDeleteColName string,
@@ -75,10 +93,10 @@ type NormalizedTablesConnector interface {
 
 	// CleanupSetupNormalizedTables may be used to rollback transaction started by StartSetupNormalizedTables.
 	// Calling CleanupSetupNormalizedTables after FinishSetupNormalizedTables must be a nop.
-	CleanupSetupNormalizedTables(ctx context.Context, tx interface{})
+	CleanupSetupNormalizedTables(ctx context.Context, tx any)
 
 	// FinishSetupNormalizedTables may be used to finish transaction started by StartSetupNormalizedTables.
-	FinishSetupNormalizedTables(ctx context.Context, tx interface{}) error
+	FinishSetupNormalizedTables(ctx context.Context, tx any) error
 }
 
 type CDCSyncConnector interface {
@@ -136,6 +154,9 @@ type QRepPullConnector interface {
 type QRepSyncConnector interface {
 	Connector
 
+	// IsQRepPartitionSynced returns true if a partition has already been synced
+	IsQRepPartitionSynced(ctx context.Context, req *protos.IsQRepPartitionSyncedInput) (bool, error)
+
 	// SetupQRepMetadataTables sets up the metadata tables for QRep.
 	SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error
 
@@ -164,7 +185,7 @@ func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 	case *protos.Peer_SnowflakeConfig:
 		return connsnowflake.NewSnowflakeConnector(ctx, inner.SnowflakeConfig)
 	case *protos.Peer_EventhubConfig:
-		return nil, fmt.Errorf("use eventhub group config instead")
+		return nil, errors.New("use eventhub group config instead")
 	case *protos.Peer_EventhubGroupConfig:
 		return conneventhub.NewEventHubConnector(ctx, inner.EventhubGroupConfig)
 	case *protos.Peer_S3Config:
@@ -239,6 +260,9 @@ var (
 	_ CDCNormalizeConnector = &connsnowflake.SnowflakeConnector{}
 	_ CDCNormalizeConnector = &connclickhouse.ClickhouseConnector{}
 
+	_ GetTableSchemaConnector = &connpostgres.PostgresConnector{}
+	_ GetTableSchemaConnector = &connsnowflake.SnowflakeConnector{}
+
 	_ NormalizedTablesConnector = &connpostgres.PostgresConnector{}
 	_ NormalizedTablesConnector = &connbigquery.BigQueryConnector{}
 	_ NormalizedTablesConnector = &connsnowflake.SnowflakeConnector{}
@@ -251,6 +275,7 @@ var (
 	_ QRepSyncConnector = &connbigquery.BigQueryConnector{}
 	_ QRepSyncConnector = &connsnowflake.SnowflakeConnector{}
 	_ QRepSyncConnector = &connclickhouse.ClickhouseConnector{}
+	_ QRepSyncConnector = &conns3.S3Connector{}
 
 	_ QRepConsolidateConnector = &connsnowflake.SnowflakeConnector{}
 	_ QRepConsolidateConnector = &connclickhouse.ClickhouseConnector{}

@@ -14,11 +14,6 @@ export async function POST(request: Request) {
     let response: USchemasResponse = {
       schemas: schemaList.schemas,
     };
-    if (schemaList.message === 'no rows in result set') {
-      response = {
-        schemas: [],
-      };
-    }
     return new Response(JSON.stringify(response));
   } catch (e) {
     console.log(e);

@@ -1,11 +1,17 @@
 'use client';
-import { Icon } from '@/lib/Icon';
+import { Button } from '@/lib/Button';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-const EditButton = ({ toLink }: { toLink: string }) => {
+const EditButton = ({
+  toLink,
+  disabled,
+}: {
+  toLink: string;
+  disabled: boolean;
+}) => {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
@@ -14,26 +20,22 @@ const EditButton = ({ toLink }: { toLink: string }) => {
     router.push(toLink);
   };
   return (
-    <button
+    <Button
       className='IconButton'
       onClick={handleEdit}
       aria-label='sort up'
+      variant='normal'
       style={{
         display: 'flex',
-        marginLeft: '1rem',
-        alignItems: 'center',
-        backgroundColor: 'whitesmoke',
-        border: '1px solid rgba(0,0,0,0.1)',
-        borderRadius: '0.5rem',
+        alignItems: 'flex-start',
+        columnGap: '0.3rem',
+        width: '100%',
       }}
+      disabled={disabled}
     >
       <Label>Edit Mirror</Label>
-      {loading ? (
-        <ProgressCircle variant='determinate_progress_circle' />
-      ) : (
-        <Icon name='edit' />
-      )}
-    </button>
+      {loading && <ProgressCircle variant='determinate_progress_circle' />}
+    </Button>
   );
 };
 

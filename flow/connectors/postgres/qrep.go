@@ -458,15 +458,6 @@ func (c *PostgresConnector) SyncQRepRecords(
 		return 0, fmt.Errorf("table %s does not exist, used schema: %s", dstTable.Table, dstTable.Schema)
 	}
 
-	done, err := c.isPartitionSynced(ctx, partition.PartitionId)
-	if err != nil {
-		return 0, fmt.Errorf("failed to check if partition is synced: %w", err)
-	}
-
-	if done {
-		c.logger.Info(fmt.Sprintf("partition %s already synced", partition.PartitionId))
-		return 0, nil
-	}
 	c.logger.Info("SyncRecords called and initial checks complete.")
 
 	stagingTableSync := &QRepStagingTableSync{connector: c}
@@ -573,18 +564,20 @@ func BuildQuery(logger log.Logger, query string, flowJobName string) (string, er
 	return res, nil
 }
 
-// isPartitionSynced checks whether a specific partition is synced
-func (c *PostgresConnector) isPartitionSynced(ctx context.Context, partitionID string) (bool, error) {
+// IsQRepPartitionSynced checks whether a specific partition is synced
+func (c *PostgresConnector) IsQRepPartitionSynced(ctx context.Context,
+	req *protos.IsQRepPartitionSyncedInput,
+) (bool, error) {
 	// setup the query string
 	metadataTableIdentifier := pgx.Identifier{c.metadataSchema, qRepMetadataTableName}
 	queryString := fmt.Sprintf(
-		"SELECT COUNT(*)>0 FROM %s WHERE partitionID = $1;",
+		"SELECT COUNT(*)>0 FROM %s WHERE partitionID=$1;",
 		metadataTableIdentifier.Sanitize(),
 	)
 
 	// prepare and execute the query
 	var result bool
-	err := c.conn.QueryRow(ctx, queryString, partitionID).Scan(&result)
+	err := c.conn.QueryRow(ctx, queryString, req.PartitionId).Scan(&result)
 	if err != nil {
 		return false, fmt.Errorf("failed to execute query: %w", err)
 	}

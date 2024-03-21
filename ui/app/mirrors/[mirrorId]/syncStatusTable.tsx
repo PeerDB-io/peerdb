@@ -1,6 +1,7 @@
 'use client';
 
 import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
+import SelectTheme from '@/app/styles/select';
 import TimeLabel from '@/components/TimeComponent';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
@@ -136,6 +137,7 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
                   setSortField(sortVal);
                 }}
                 defaultValue={{ value: 'batchId', label: 'Batch ID' }}
+                theme={SelectTheme}
               />
             </div>
             <button

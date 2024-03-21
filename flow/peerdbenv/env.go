@@ -7,18 +7,10 @@ import (
 	"golang.org/x/exp/constraints"
 )
 
-// GetEnv returns the value of the environment variable with the given name
-// and a boolean indicating whether the environment variable exists.
-func getEnv(name string) (string, bool) {
-	val, exists := os.LookupEnv(name)
-	return val, exists
-}
-
 // GetEnvInt returns the value of the environment variable with the given name
-// or defaultValue if the environment variable is not set or is not a valid
-// integer value.
+// or defaultValue if the environment variable is not set or is not a valid value.
 func getEnvInt(name string, defaultValue int) int {
-	val, ok := getEnv(name)
+	val, ok := os.LookupEnv(name)
 	if !ok {
 		return defaultValue
 	}
@@ -31,11 +23,10 @@ func getEnvInt(name string, defaultValue int) int {
 	return i
 }
 
-// getEnvUint32 returns the value of the environment variable with the given name
-// or defaultValue if the environment variable is not set or is not a valid
-// uint32 value.
+// getEnvUint returns the value of the environment variable with the given name
+// or defaultValue if the environment variable is not set or is not a valid value.
 func getEnvUint[T constraints.Unsigned](name string, defaultValue T) T {
-	val, ok := getEnv(name)
+	val, ok := os.LookupEnv(name)
 	if !ok {
 		return defaultValue
 	}
@@ -50,10 +41,9 @@ func getEnvUint[T constraints.Unsigned](name string, defaultValue T) T {
 }
 
 // getEnvBool returns the value of the environment variable with the given name
-// or defaultValue if the environment variable is not set or is not a valid
-// boolean value.
+// or defaultValue if the environment variable is not set or is not a valid value.
 func getEnvBool(name string, defaultValue bool) bool {
-	val, ok := getEnv(name)
+	val, ok := os.LookupEnv(name)
 	if !ok {
 		return defaultValue
 	}
@@ -69,7 +59,7 @@ func getEnvBool(name string, defaultValue bool) bool {
 // GetEnvString returns the value of the environment variable with the given name
 // or defaultValue if the environment variable is not set.
 func getEnvString(name string, defaultValue string) string {
-	val, ok := getEnv(name)
+	val, ok := os.LookupEnv(name)
 	if !ok {
 		return defaultValue
 	}

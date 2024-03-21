@@ -33,16 +33,6 @@ func (c *ClickhouseConnector) SyncQRepRecords(
 		slog.String("destinationTable", destTable),
 	)
 
-	done, err := c.isPartitionSynced(ctx, partition.PartitionId)
-	if err != nil {
-		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
-	}
-
-	if done {
-		c.logger.Info("Partition has already been synced", flowLog)
-		return 0, nil
-	}
-
 	tblSchema, err := c.getTableSchema(destTable)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
@@ -96,9 +86,11 @@ func (c *ClickhouseConnector) getTableSchema(tableName string) ([]*sql.ColumnTyp
 	return columnTypes, nil
 }
 
-func (c *ClickhouseConnector) isPartitionSynced(ctx context.Context, partitionID string) (bool, error) {
+func (c *ClickhouseConnector) IsQRepPartitionSynced(ctx context.Context,
+	req *protos.IsQRepPartitionSyncedInput,
+) (bool, error) {
 	//nolint:gosec
-	queryString := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE partitionID = '%s'`, qRepMetadataTableName, partitionID)
+	queryString := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE partitionID = '%s'`, qRepMetadataTableName, req.PartitionId)
 
 	row := c.database.QueryRowContext(ctx, queryString)
 
@@ -116,7 +108,7 @@ func (c *ClickhouseConnector) SetupQRepMetadataTables(ctx context.Context, confi
 	}
 
 	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		_, err = c.database.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
+		_, err = c.database.ExecContext(ctx, "TRUNCATE TABLE "+config.DestinationTableIdentifier)
 		if err != nil {
 			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
 		}
@@ -140,12 +132,12 @@ func (c *ClickhouseConnector) createQRepMetadataTable(ctx context.Context) error
 	queryString := fmt.Sprintf(schemaStatement, qRepMetadataTableName)
 	_, err := c.database.ExecContext(ctx, queryString)
 	if err != nil {
-		c.logger.Error(fmt.Sprintf("failed to create table %s", qRepMetadataTableName),
+		c.logger.Error("failed to create table "+qRepMetadataTableName,
 			slog.Any("error", err))
 
 		return fmt.Errorf("failed to create table %s: %w", qRepMetadataTableName, err)
 	}
-	c.logger.Info(fmt.Sprintf("Created table %s", qRepMetadataTableName))
+	c.logger.Info("Created table " + qRepMetadataTableName)
 	return nil
 }
 
@@ -206,6 +198,6 @@ func (c *ClickhouseConnector) dropStage(ctx context.Context, stagingPath string,
 		c.logger.Info(fmt.Sprintf("Deleted contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job))
 	}
 
-	c.logger.Info(fmt.Sprintf("Dropped stage %s", stagingPath))
+	c.logger.Info("Dropped stage " + stagingPath)
 	return nil
 }

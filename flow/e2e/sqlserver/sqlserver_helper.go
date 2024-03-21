@@ -94,7 +94,7 @@ func (h *SQLServerHelper) CleanUp() error {
 	}
 
 	if h.SchemaName != "" {
-		return h.E.ExecuteQuery(context.Background(), fmt.Sprintf("DROP SCHEMA %s", h.SchemaName))
+		return h.E.ExecuteQuery(context.Background(), "DROP SCHEMA "+h.SchemaName)
 	}
 
 	return nil

@@ -81,7 +81,7 @@ func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*BigQueryServic
 // Validate validates a BigQueryServiceAccount, that none of the fields are empty.
 func (bqsa *BigQueryServiceAccount) Validate() error {
 	v := reflect.ValueOf(*bqsa)
-	for i := 0; i < v.NumField(); i++ {
+	for i := range v.NumField() {
 		if v.Field(i).String() == "" {
 			return fmt.Errorf("field %s is empty", v.Type().Field(i).Name)
 		}
@@ -295,10 +295,10 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			dstDatasetTable, _ := c.convertToDatasetTable(schemaDelta.DstTableName)
+			addedColumnBigQueryType := qValueKindToBigQueryTypeString(addedColumn.ColumnType)
 			query := c.client.Query(fmt.Sprintf(
 				"ALTER TABLE %s ADD COLUMN IF NOT EXISTS `%s` %s",
-				dstDatasetTable.table, addedColumn.ColumnName,
-				qValueKindToBigQueryType(addedColumn.ColumnType)))
+				dstDatasetTable.table, addedColumn.ColumnName, addedColumnBigQueryType))
 			query.DefaultProjectID = c.projectID
 			query.DefaultDatasetID = dstDatasetTable.dataset
 			_, err := query.Read(ctx)
@@ -337,15 +337,14 @@ func (c *BigQueryConnector) GetLastNormalizeBatchID(ctx context.Context, jobName
 func (c *BigQueryConnector) getDistinctTableNamesInBatch(
 	ctx context.Context,
 	flowJobName string,
-	syncBatchID int64,
-	normalizeBatchID int64,
+	batchId int64,
 ) ([]string, error) {
 	rawTableName := c.getRawTableName(flowJobName)
 
 	// Prepare the query to retrieve distinct tables in that batch
 	query := fmt.Sprintf(`SELECT DISTINCT _peerdb_destination_table_name FROM %s
-	 WHERE _peerdb_batch_id > %d and _peerdb_batch_id <= %d`,
-		rawTableName, normalizeBatchID, syncBatchID)
+	 WHERE _peerdb_batch_id = %d`,
+		rawTableName, batchId)
 	// Run the query
 	q := c.client.Query(query)
 	q.DefaultProjectID = c.projectID
@@ -379,8 +378,7 @@ func (c *BigQueryConnector) getDistinctTableNamesInBatch(
 func (c *BigQueryConnector) getTableNametoUnchangedCols(
 	ctx context.Context,
 	flowJobName string,
-	syncBatchID int64,
-	normalizeBatchID int64,
+	batchId int64,
 ) (map[string][]string, error) {
 	rawTableName := c.getRawTableName(flowJobName)
 
@@ -390,9 +388,9 @@ func (c *BigQueryConnector) getTableNametoUnchangedCols(
 	// we don't want these particular DeleteRecords to be used in the update statement
 	query := fmt.Sprintf(`SELECT _peerdb_destination_table_name,
 	array_agg(DISTINCT _peerdb_unchanged_toast_columns) as unchanged_toast_columns FROM %s
-	 WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d AND _peerdb_record_type != 2
+	 WHERE _peerdb_batch_id = %d AND _peerdb_record_type != 2
 	 GROUP BY _peerdb_destination_table_name`,
-		rawTableName, normalizeBatchID, syncBatchID)
+		rawTableName, batchId)
 	// Run the query
 	q := c.client.Query(query)
 	q.DefaultDatasetID = c.datasetID
@@ -468,7 +466,8 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 	return res, nil
 }
 
-// NormalizeRecords normalizes raw table to destination table.
+// NormalizeRecords normalizes raw table to destination table,
+// one batch at a time from the previous normalized batch to the currently synced batch.
 func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
@@ -486,31 +485,58 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 		}, nil
 	}
 
-	distinctTableNames, err := c.getDistinctTableNamesInBatch(
+	for batchId := normBatchID + 1; batchId <= req.SyncBatchID; batchId++ {
+		mergeErr := c.mergeTablesInThisBatch(ctx, batchId,
+			req.FlowJobName, rawTableName, req.TableNameSchemaMapping,
+			&protos.PeerDBColumns{
+				SoftDeleteColName: req.SoftDeleteColName,
+				SyncedAtColName:   req.SyncedAtColName,
+				SoftDelete:        req.SoftDelete,
+			})
+		if mergeErr != nil {
+			return nil, mergeErr
+		}
+
+		err = c.pgMetadata.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &model.NormalizeResponse{
+		Done:         true,
+		StartBatchID: normBatchID + 1,
+		EndBatchID:   req.SyncBatchID,
+	}, nil
+}
+
+func (c *BigQueryConnector) mergeTablesInThisBatch(
+	ctx context.Context,
+	batchId int64,
+	flowName string,
+	rawTableName string,
+	tableToSchema map[string]*protos.TableSchema,
+	peerdbColumns *protos.PeerDBColumns,
+) error {
+	tableNames, err := c.getDistinctTableNamesInBatch(
 		ctx,
-		req.FlowJobName,
-		req.SyncBatchID,
-		normBatchID,
+		flowName,
+		batchId,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("couldn't get distinct table names to normalize: %w", err)
+		return fmt.Errorf("couldn't get distinct table names to normalize: %w", err)
 	}
 
 	tableNametoUnchangedToastCols, err := c.getTableNametoUnchangedCols(
 		ctx,
-		req.FlowJobName,
-		req.SyncBatchID,
-		normBatchID,
+		flowName,
+		batchId,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("couldn't get tablename to unchanged cols mapping: %w", err)
+		return fmt.Errorf("couldn't get tablename to unchanged cols mapping: %w", err)
 	}
 
-	// append all the statements to one list
-	c.logger.Info(fmt.Sprintf("merge raw records to corresponding tables: %s %s %v",
-		c.datasetID, rawTableName, distinctTableNames))
-
-	for _, tableName := range distinctTableNames {
+	for _, tableName := range tableNames {
 		unchangedToastColumns := tableNametoUnchangedToastCols[tableName]
 		dstDatasetTable, _ := c.convertToDatasetTable(tableName)
 		mergeGen := &mergeStmtGenerator{
@@ -521,15 +547,10 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 			},
 			dstTableName:          tableName,
 			dstDatasetTable:       dstDatasetTable,
-			normalizedTableSchema: req.TableNameSchemaMapping[tableName],
-			syncBatchID:           req.SyncBatchID,
-			normalizeBatchID:      normBatchID,
-			peerdbCols: &protos.PeerDBColumns{
-				SoftDeleteColName: req.SoftDeleteColName,
-				SyncedAtColName:   req.SyncedAtColName,
-				SoftDelete:        req.SoftDelete,
-			},
-			shortColumn: map[string]string{},
+			normalizedTableSchema: tableToSchema[tableName],
+			mergeBatchId:          batchId,
+			peerdbCols:            peerdbColumns,
+			shortColumn:           map[string]string{},
 		}
 
 		// normalize anything between last normalized batch id to last sync batchid
@@ -537,7 +558,7 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 		// doesn't exceed the limit. We should make this configurable.
 		const batchSize = 8
 		stmtNum := 0
-		err = utils.ArrayIterChunks(unchangedToastColumns, batchSize, func(chunk []string) error {
+		err = shared.ArrayIterChunks(unchangedToastColumns, batchSize, func(chunk []string) error {
 			stmtNum += 1
 			mergeStmt := mergeGen.generateMergeStmt(chunk)
 			c.logger.Info(fmt.Sprintf("running merge statement %d for table %s..",
@@ -553,20 +574,14 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 			return nil
 		})
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 
-	err = c.pgMetadata.UpdateNormalizeBatchID(ctx, req.FlowJobName, req.SyncBatchID)
-	if err != nil {
-		return nil, err
-	}
-
-	return &model.NormalizeResponse{
-		Done:         true,
-		StartBatchID: normBatchID + 1,
-		EndBatchID:   req.SyncBatchID,
-	}, nil
+	// append all the statements to one list
+	c.logger.Info(fmt.Sprintf("merged raw records to corresponding tables: %s %s %v",
+		c.datasetID, rawTableName, tableNames))
+	return nil
 }
 
 // CreateRawTable creates a raw table, implementing the Connector interface.
@@ -788,7 +803,7 @@ func (c *BigQueryConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 func (c *BigQueryConnector) getRawTableName(flowJobName string) string {
 	// replace all non-alphanumeric characters with _
 	flowJobName = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(flowJobName, "_")
-	return fmt.Sprintf("_peerdb_raw_%s", flowJobName)
+	return "_peerdb_raw_" + flowJobName
 }
 
 func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
@@ -892,11 +907,9 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 			}
 		}
 
-		c.logger.Info(fmt.Sprintf("DROP TABLE IF EXISTS %s",
-			dstDatasetTable.string()))
+		c.logger.Info("DROP TABLE IF EXISTS " + dstDatasetTable.string())
 		// drop the dst table if exists
-		dropQuery := c.client.Query(fmt.Sprintf("DROP TABLE IF EXISTS %s",
-			dstDatasetTable.string()))
+		dropQuery := c.client.Query("DROP TABLE IF EXISTS " + dstDatasetTable.string())
 		dropQuery.DefaultProjectID = c.projectID
 		dropQuery.DefaultDatasetID = c.datasetID
 		_, err = dropQuery.Read(ctx)

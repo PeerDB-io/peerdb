@@ -4,27 +4,20 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"math/big"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/shopspring/decimal"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 )
 
 func setupDB(t *testing.T) (*PostgresConnector, string) {
 	t.Helper()
 
-	connector, err := NewPostgresConnector(context.Background(),
-		&protos.PostgresConfig{
-			Host:     "localhost",
-			Port:     7132,
-			User:     "postgres",
-			Password: "postgres",
-			Database: "postgres",
-		})
+	connector, err := NewPostgresConnector(context.Background(), utils.GetCatalogPostgresConfigFromEnv())
 	if err != nil {
 		t.Fatalf("unable to create connector: %v", err)
 	}
@@ -241,7 +234,7 @@ func TestAllDataTypes(t *testing.T) {
 	}
 
 	expectedNumeric := "123.456"
-	actualNumeric := record[10].Value.(*big.Rat).FloatString(3)
+	actualNumeric := record[10].Value.(decimal.Decimal).String()
 	if actualNumeric != expectedNumeric {
 		t.Fatalf("expected %v, got %v", expectedNumeric, actualNumeric)
 	}

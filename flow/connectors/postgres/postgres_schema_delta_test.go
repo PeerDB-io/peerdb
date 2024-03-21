@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -24,13 +25,7 @@ type PostgresSchemaDeltaTestSuite struct {
 func SetupSuite(t *testing.T) PostgresSchemaDeltaTestSuite {
 	t.Helper()
 
-	connector, err := NewPostgresConnector(context.Background(), &protos.PostgresConfig{
-		Host:     "localhost",
-		Port:     7132,
-		User:     "postgres",
-		Password: "postgres",
-		Database: "postgres",
-	})
+	connector, err := NewPostgresConnector(context.Background(), utils.GetCatalogPostgresConfigFromEnv())
 	require.NoError(t, err)
 
 	setupTx, err := connector.conn.Begin(context.Background())
@@ -201,23 +196,25 @@ func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 }
 
 func TestPostgresSchemaDeltaTestSuite(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSuite, func(s PostgresSchemaDeltaTestSuite) {
-		teardownTx, err := s.connector.conn.Begin(context.Background())
-		require.NoError(s.t, err)
-		defer func() {
-			err := teardownTx.Rollback(context.Background())
-			if err != pgx.ErrTxClosed {
-				require.NoError(s.t, err)
-			}
-		}()
-		_, err = teardownTx.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE",
-			s.schema))
-		require.NoError(s.t, err)
-		err = teardownTx.Commit(context.Background())
-		require.NoError(s.t, err)
+	e2eshared.RunSuite(t, SetupSuite)
+}
 
-		require.NoError(s.t, s.connector.ConnectionActive(context.Background()))
-		require.NoError(s.t, s.connector.Close())
-		require.Error(s.t, s.connector.ConnectionActive(context.Background()))
-	})
+func (s PostgresSchemaDeltaTestSuite) Teardown() {
+	teardownTx, err := s.connector.conn.Begin(context.Background())
+	require.NoError(s.t, err)
+	defer func() {
+		err := teardownTx.Rollback(context.Background())
+		if err != pgx.ErrTxClosed {
+			require.NoError(s.t, err)
+		}
+	}()
+	_, err = teardownTx.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE",
+		s.schema))
+	require.NoError(s.t, err)
+	err = teardownTx.Commit(context.Background())
+	require.NoError(s.t, err)
+
+	require.NoError(s.t, s.connector.ConnectionActive(context.Background()))
+	require.NoError(s.t, s.connector.Close())
+	require.Error(s.t, s.connector.ConnectionActive(context.Background()))
 }

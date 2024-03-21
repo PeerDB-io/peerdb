@@ -7,11 +7,20 @@ import (
 	"github.com/slack-go/slack"
 )
 
-type slackAlertSender struct {
+type SlackAlertSender struct {
+	AlertSender
 	client                        *slack.Client
 	channelIDs                    []string
 	slotLagMBAlertThreshold       uint32
 	openConnectionsAlertThreshold uint32
+}
+
+func (s *SlackAlertSender) getSlotLagMBAlertThreshold() uint32 {
+	return s.slotLagMBAlertThreshold
+}
+
+func (s *SlackAlertSender) getOpenConnectionsAlertThreshold() uint32 {
+	return s.openConnectionsAlertThreshold
 }
 
 type slackAlertConfig struct {
@@ -21,8 +30,8 @@ type slackAlertConfig struct {
 	OpenConnectionsAlertThreshold uint32   `json:"open_connections_alert_threshold"`
 }
 
-func newSlackAlertSender(config *slackAlertConfig) *slackAlertSender {
-	return &slackAlertSender{
+func newSlackAlertSender(config *slackAlertConfig) *SlackAlertSender {
+	return &SlackAlertSender{
 		client:                        slack.New(config.AuthToken),
 		channelIDs:                    config.ChannelIDs,
 		slotLagMBAlertThreshold:       config.SlotLagMBAlertThreshold,
@@ -30,11 +39,11 @@ func newSlackAlertSender(config *slackAlertConfig) *slackAlertSender {
 	}
 }
 
-func (s *slackAlertSender) sendAlert(ctx context.Context, alertTitle string, alertMessage string) error {
+func (s *SlackAlertSender) sendAlert(ctx context.Context, alertTitle string, alertMessage string) error {
 	for _, channelID := range s.channelIDs {
 		_, _, _, err := s.client.SendMessageContext(ctx, channelID, slack.MsgOptionBlocks(
-			slack.NewHeaderBlock(slack.NewTextBlockObject("plain_text", alertTitle, true, false)),
-			slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", alertMessage, false, false), nil, nil),
+			slack.NewHeaderBlock(slack.NewTextBlockObject("plain_text", ":rotating_light:Alert:rotating_light:: "+alertTitle, true, false)),
+			slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", alertMessage+"\ncc: <!channel>", false, false), nil, nil),
 		))
 		if err != nil {
 			return fmt.Errorf("failed to send message to Slack channel %s: %w", channelID, err)

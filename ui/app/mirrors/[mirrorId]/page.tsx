@@ -1,8 +1,7 @@
 import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import prisma from '@/app/utils/prisma';
-import EditButton from '@/components/EditButton';
-import { ResyncDialog } from '@/components/ResyncDialog';
-import { FlowConnectionConfigs } from '@/grpc_generated/flow';
+import MirrorActions from '@/components/MirrorActionsDropdown';
+import { FlowConnectionConfigs, FlowStatus } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { Header } from '@/lib/Header';
@@ -77,8 +76,7 @@ export default async function ViewMirror({
   }
 
   let syncStatusChild = null;
-  let resyncComponent = null;
-  let editButtonHTML = null;
+  let actionsDropdown = null;
 
   if (mirrorStatus.cdcStatus) {
     let rowsSynced = syncs.reduce((acc, sync) => {
@@ -88,26 +86,27 @@ export default async function ViewMirror({
       return acc;
     }, 0);
     const mirrorConfig = FlowConnectionConfigs.decode(mirrorInfo.config_proto!);
+    syncStatusChild = (
+      <SyncStatus rowsSynced={rowsSynced} rows={rows} flowJobName={mirrorId} />
+    );
+
     const dbType = mirrorConfig.destination!.type;
     const canResync =
       dbType.valueOf() === DBType.BIGQUERY.valueOf() ||
       dbType.valueOf() === DBType.SNOWFLAKE.valueOf();
-    if (canResync) {
-      resyncComponent = (
-        <ResyncDialog
-          mirrorConfig={mirrorConfig}
-          workflowId={mirrorInfo.workflow_id || ''}
-        />
-      );
-    }
 
-    syncStatusChild = (
-      <SyncStatus rowsSynced={rowsSynced} rows={rows} flowJobName={mirrorId} />
-    );
-    editButtonHTML = (
-      <div style={{ display: 'flex', alignItems: 'center' }}>
-        <EditButton toLink={`/mirrors/${mirrorId}/edit`} />
-      </div>
+    const isNotPaused =
+      mirrorStatus.currentFlowState.toString() !==
+      FlowStatus[FlowStatus.STATUS_PAUSED];
+
+    actionsDropdown = (
+      <MirrorActions
+        mirrorConfig={mirrorConfig}
+        workflowId={mirrorInfo.workflow_id || ''}
+        editLink={`/mirrors/${mirrorId}/edit`}
+        canResync={canResync}
+        isNotPaused={isNotPaused}
+      />
     );
   } else {
     redirect(`/mirrors/status/qrep/${mirrorId}`);
@@ -123,11 +122,8 @@ export default async function ViewMirror({
           paddingRight: '2rem',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <Header variant='title2'>{mirrorId}</Header>
-          {editButtonHTML}
-        </div>
-        {resyncComponent}
+        <Header variant='title2'>{mirrorId}</Header>
+        {actionsDropdown}
       </div>
       <CDCMirror
         rows={rows}

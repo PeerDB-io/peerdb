@@ -1,10 +1,10 @@
 package model_test
 
 import (
-	"math/big"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/PeerDB-io/peer-flow/e2eshared"
@@ -35,14 +35,14 @@ func TestEquals(t *testing.T) {
 		},
 		{
 			name: "Equal - Same numeric",
-			q1:   []qvalue.QValue{{Kind: qvalue.QValueKindNumeric, Value: big.NewRat(10, 2)}},
+			q1:   []qvalue.QValue{{Kind: qvalue.QValueKindNumeric, Value: decimal.NewFromInt(5)}},
 			q2:   []qvalue.QValue{{Kind: qvalue.QValueKindString, Value: "5"}},
 			want: true,
 		},
 		{
 			name: "Not Equal - Different numeric",
-			q1:   []qvalue.QValue{{Kind: qvalue.QValueKindNumeric, Value: big.NewRat(10, 2)}},
-			q2:   []qvalue.QValue{{Kind: qvalue.QValueKindNumeric, Value: "4.99"}},
+			q1:   []qvalue.QValue{{Kind: qvalue.QValueKindNumeric, Value: decimal.NewFromInt(5)}},
+			q2:   []qvalue.QValue{{Kind: qvalue.QValueKindString, Value: "4.99"}},
 			want: false,
 		},
 	}

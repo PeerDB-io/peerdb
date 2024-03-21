@@ -109,6 +109,10 @@ message PeerSchemasResponse {
   repeated string schemas = 1;
 }
 
+message PeerPublicationsResponse {
+  repeated string publication_names = 1;
+}
+
 message SchemaTablesRequest {
   string peer_name = 1;
   string schema_name = 2;
@@ -121,6 +125,7 @@ message SchemaTablesResponse {
 message TableResponse {
   string table_name = 1;
   bool can_mirror = 2;
+  string table_size = 3;
 }
 
 message AllTablesResponse {
@@ -263,6 +268,10 @@ service FlowService {
 
   rpc GetSchemas(PostgresPeerActivityInfoRequest) returns (PeerSchemasResponse) {
     option (google.api.http) = { get: "/v1/peers/schemas" };
+  }
+
+  rpc GetPublications(PostgresPeerActivityInfoRequest) returns (PeerPublicationsResponse) {
+    option (google.api.http) = { get: "/v1/peers/publications" };
   }
 
   rpc GetTablesInSchema(SchemaTablesRequest) returns (SchemaTablesResponse) {

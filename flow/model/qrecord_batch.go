@@ -1,13 +1,15 @@
 package model
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
-	"math/big"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/shopspring/decimal"
 
 	"github.com/PeerDB-io/peer-flow/geo"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -100,7 +102,7 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 		case qvalue.QValueKindFloat32:
 			v, ok := qValue.Value.(float32)
 			if !ok {
-				src.err = fmt.Errorf("invalid float32 value")
+				src.err = errors.New("invalid float32 value")
 				return nil, src.err
 			}
 			values[i] = v
@@ -108,7 +110,7 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 		case qvalue.QValueKindFloat64:
 			v, ok := qValue.Value.(float64)
 			if !ok {
-				src.err = fmt.Errorf("invalid float64 value")
+				src.err = errors.New("invalid float64 value")
 				return nil, src.err
 			}
 			values[i] = v
@@ -116,7 +118,7 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 		case qvalue.QValueKindInt16, qvalue.QValueKindInt32:
 			v, ok := qValue.Value.(int32)
 			if !ok {
-				src.err = fmt.Errorf("invalid int32 value")
+				src.err = errors.New("invalid int32 value")
 				return nil, src.err
 			}
 			values[i] = v
@@ -124,7 +126,7 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 		case qvalue.QValueKindInt64:
 			v, ok := qValue.Value.(int64)
 			if !ok {
-				src.err = fmt.Errorf("invalid int64 value")
+				src.err = errors.New("invalid int64 value")
 				return nil, src.err
 			}
 			values[i] = v
@@ -132,7 +134,7 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 		case qvalue.QValueKindBoolean:
 			v, ok := qValue.Value.(bool)
 			if !ok {
-				src.err = fmt.Errorf("invalid boolean value")
+				src.err = errors.New("invalid boolean value")
 				return nil, src.err
 			}
 			values[i] = v
@@ -140,7 +142,7 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 		case qvalue.QValueKindQChar:
 			v, ok := qValue.Value.(uint8)
 			if !ok {
-				src.err = fmt.Errorf("invalid \"char\" value")
+				src.err = errors.New("invalid \"char\" value")
 				return nil, src.err
 			}
 			values[i] = rune(v)
@@ -148,7 +150,15 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 		case qvalue.QValueKindString:
 			v, ok := qValue.Value.(string)
 			if !ok {
-				src.err = fmt.Errorf("invalid string value")
+				src.err = errors.New("invalid string value")
+				return nil, src.err
+			}
+			values[i] = v
+
+		case qvalue.QValueKindCIDR, qvalue.QValueKindINET:
+			v, ok := qValue.Value.(string)
+			if !ok {
+				src.err = errors.New("invalid INET/CIDR value")
 				return nil, src.err
 			}
 			values[i] = v
@@ -156,7 +166,7 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 		case qvalue.QValueKindTime:
 			t, ok := qValue.Value.(time.Time)
 			if !ok {
-				src.err = fmt.Errorf("invalid Time value")
+				src.err = errors.New("invalid Time value")
 				return nil, src.err
 			}
 			time := pgtype.Time{Microseconds: t.UnixMicro(), Valid: true}
@@ -165,7 +175,7 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 		case qvalue.QValueKindTimestamp:
 			t, ok := qValue.Value.(time.Time)
 			if !ok {
-				src.err = fmt.Errorf("invalid ExtendedTime value")
+				src.err = errors.New("invalid ExtendedTime value")
 				return nil, src.err
 			}
 			timestamp := pgtype.Timestamp{Time: t, Valid: true}
@@ -174,7 +184,7 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 		case qvalue.QValueKindTimestampTZ:
 			t, ok := qValue.Value.(time.Time)
 			if !ok {
-				src.err = fmt.Errorf("invalid ExtendedTime value")
+				src.err = errors.New("invalid ExtendedTime value")
 				return nil, src.err
 			}
 			timestampTZ := pgtype.Timestamptz{Time: t, Valid: true}
@@ -189,29 +199,17 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			values[i] = uuid.UUID(v)
 
 		case qvalue.QValueKindNumeric:
-			v, ok := qValue.Value.(*big.Rat)
+			v, ok := qValue.Value.(decimal.Decimal)
 			if !ok {
 				src.err = fmt.Errorf("invalid Numeric value %v", qValue.Value)
 				return nil, src.err
 			}
-			if v == nil {
-				values[i] = pgtype.Numeric{
-					Int:              nil,
-					Exp:              0,
-					NaN:              true,
-					InfinityModifier: pgtype.Finite,
-					Valid:            true,
-				}
-				break
-			}
-
-			// TODO: account for precision and scale issues.
-			values[i] = v.FloatString(38)
+			values[i] = v
 
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 			v, ok := qValue.Value.([]byte)
 			if !ok {
-				src.err = fmt.Errorf("invalid Bytes value")
+				src.err = errors.New("invalid Bytes value")
 				return nil, src.err
 			}
 			values[i] = v
@@ -219,7 +217,7 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 		case qvalue.QValueKindDate:
 			t, ok := qValue.Value.(time.Time)
 			if !ok {
-				src.err = fmt.Errorf("invalid Date value")
+				src.err = errors.New("invalid Date value")
 				return nil, src.err
 			}
 			date := pgtype.Date{Time: t, Valid: true}
@@ -228,7 +226,7 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 		case qvalue.QValueKindHStore:
 			v, ok := qValue.Value.(string)
 			if !ok {
-				src.err = fmt.Errorf("invalid HStore value")
+				src.err = errors.New("invalid HStore value")
 				return nil, src.err
 			}
 
@@ -236,13 +234,21 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 		case qvalue.QValueKindGeography, qvalue.QValueKindGeometry, qvalue.QValueKindPoint:
 			v, ok := qValue.Value.(string)
 			if !ok {
-				src.err = fmt.Errorf("invalid Geospatial value")
+				src.err = errors.New("invalid Geospatial value")
 				return nil, src.err
 			}
 
-			wkb, err := geo.GeoToWKB(v)
+			geoWkt := v
+			if strings.HasPrefix(v, "SRID=") {
+				_, wkt, found := strings.Cut(v, ";")
+				if found {
+					geoWkt = wkt
+				}
+			}
+
+			wkb, err := geo.GeoToWKB(geoWkt)
 			if err != nil {
-				src.err = fmt.Errorf("failed to convert Geospatial value to wkb")
+				src.err = fmt.Errorf("failed to convert Geospatial value to wkb: %v", err)
 				return nil, src.err
 			}
 
@@ -312,7 +318,7 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 		case qvalue.QValueKindJSON:
 			v, ok := qValue.Value.(string)
 			if !ok {
-				src.err = fmt.Errorf("invalid JSON value")
+				src.err = errors.New("invalid JSON value")
 				return nil, src.err
 			}
 			values[i] = v

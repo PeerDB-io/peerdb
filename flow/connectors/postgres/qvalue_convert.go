@@ -4,18 +4,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
+	"net/netip"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq/oid"
+	"github.com/shopspring/decimal"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	peerdb_interval "github.com/PeerDB-io/peer-flow/interval"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
-
-var big10 = big.NewInt(10)
 
 func (c *PostgresConnector) postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
 	switch recvOID {
@@ -81,6 +81,8 @@ func (c *PostgresConnector) postgresOIDToQValueKind(recvOID uint32) qvalue.QValu
 		return qvalue.QValueKindArrayTimestampTZ
 	case pgtype.TextArrayOID, pgtype.VarcharArrayOID, pgtype.BPCharArrayOID:
 		return qvalue.QValueKindArrayString
+	case pgtype.IntervalOID:
+		return qvalue.QValueKindInterval
 	default:
 		typeName, ok := pgtype.NewMap().TypeForOID(recvOID)
 		if !ok {
@@ -207,7 +209,7 @@ func convertToArray[T any](kind qvalue.QValueKind, value interface{}) (qvalue.QV
 	case []T:
 		return qvalue.QValue{Kind: kind, Value: v}, nil
 	case []interface{}:
-		return qvalue.QValue{Kind: kind, Value: utils.ArrayCastElements[T](v)}, nil
+		return qvalue.QValue{Kind: kind, Value: shared.ArrayCastElements[T](v)}, nil
 	}
 	return qvalue.QValue{}, fmt.Errorf("failed to parse array %s from %T: %v", kind, value, value)
 }
@@ -216,8 +218,7 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 	val := qvalue.QValue{}
 
 	if value == nil {
-		val = qvalue.QValue{Kind: qvalueKind, Value: nil}
-		return val, nil
+		return qvalue.QValue{Kind: qvalueKind, Value: nil}, nil
 	}
 
 	switch qvalueKind {
@@ -227,25 +228,35 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 	case qvalue.QValueKindTimestampTZ:
 		timestamp := value.(time.Time)
 		val = qvalue.QValue{Kind: qvalue.QValueKindTimestampTZ, Value: timestamp}
+	case qvalue.QValueKindInterval:
+		intervalObject := value.(pgtype.Interval)
+		var interval peerdb_interval.PeerDBInterval
+		interval.Hours = int(intervalObject.Microseconds / 3600000000)
+		interval.Minutes = int((intervalObject.Microseconds % 3600000000) / 60000000)
+		interval.Seconds = float64(intervalObject.Microseconds%60000000) / 1000000.0
+		interval.Days = int(intervalObject.Days)
+		interval.Years = int(intervalObject.Months / 12)
+		interval.Months = int(intervalObject.Months % 12)
+		interval.Valid = intervalObject.Valid
+
+		intervalJSON, err := json.Marshal(interval)
+		if err != nil {
+			return qvalue.QValue{}, fmt.Errorf("failed to parse interval: %w", err)
+		}
+
+		if !interval.Valid {
+			return qvalue.QValue{}, fmt.Errorf("invalid interval: %v", value)
+		}
+
+		return qvalue.QValue{Kind: qvalue.QValueKindString, Value: string(intervalJSON)}, nil
 	case qvalue.QValueKindDate:
 		date := value.(time.Time)
 		val = qvalue.QValue{Kind: qvalue.QValueKindDate, Value: date}
 	case qvalue.QValueKindTime:
 		timeVal := value.(pgtype.Time)
 		if timeVal.Valid {
-			var timeValStr any
-			timeValStr, err := timeVal.Value()
-			if err != nil {
-				return qvalue.QValue{}, fmt.Errorf("failed to parse time: %w", err)
-			}
-			// edge case, only Postgres supports this extreme value for time
-			timeValStr = strings.Replace(timeValStr.(string), "24:00:00.000000", "23:59:59.999999", 1)
-			t, err := time.Parse("15:04:05.999999", timeValStr.(string))
-			t = t.AddDate(1970, 0, 0)
-			if err != nil {
-				return qvalue.QValue{}, fmt.Errorf("failed to parse time: %w", err)
-			}
-			val = qvalue.QValue{Kind: qvalue.QValueKindTime, Value: t}
+			// 86399999999 to prevent 24:00:00
+			val = qvalue.QValue{Kind: qvalue.QValueKindTime, Value: time.UnixMicro(min(timeVal.Microseconds, 86399999999))}
 		}
 	case qvalue.QValueKindTimeTZ:
 		timeVal := value.(string)
@@ -299,20 +310,24 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 			return qvalue.QValue{}, fmt.Errorf("failed to parse UUID: %v", value)
 		}
 	case qvalue.QValueKindINET:
-		switch value.(type) {
+		switch v := value.(type) {
 		case string:
 			val = qvalue.QValue{Kind: qvalue.QValueKindINET, Value: value}
 		case [16]byte:
 			val = qvalue.QValue{Kind: qvalue.QValueKindINET, Value: value}
+		case netip.Prefix:
+			val = qvalue.QValue{Kind: qvalue.QValueKindINET, Value: v.String()}
 		default:
-			return qvalue.QValue{}, fmt.Errorf("failed to parse INET: %v", value)
+			return qvalue.QValue{}, fmt.Errorf("failed to parse INET: %v", v)
 		}
 	case qvalue.QValueKindCIDR:
-		switch value.(type) {
+		switch v := value.(type) {
 		case string:
 			val = qvalue.QValue{Kind: qvalue.QValueKindCIDR, Value: value}
 		case [16]byte:
 			val = qvalue.QValue{Kind: qvalue.QValueKindCIDR, Value: value}
+		case netip.Prefix:
+			val = qvalue.QValue{Kind: qvalue.QValueKindCIDR, Value: v.String()}
 		default:
 			return qvalue.QValue{}, fmt.Errorf("failed to parse CIDR: %v", value)
 		}
@@ -336,11 +351,11 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 	case qvalue.QValueKindNumeric:
 		numVal := value.(pgtype.Numeric)
 		if numVal.Valid {
-			rat, err := numericToRat(&numVal)
+			num, err := numericToDecimal(numVal)
 			if err != nil {
-				return qvalue.QValue{}, fmt.Errorf("failed to convert numeric [%v] to rat: %w", value, err)
+				return qvalue.QValue{}, fmt.Errorf("failed to convert numeric [%v] to decimal: %w", value, err)
 			}
-			val = qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: rat}
+			val = qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: num}
 		}
 	case qvalue.QValueKindArrayFloat32:
 		return convertToArray[float32](qvalueKind, value)
@@ -383,31 +398,16 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(oid uint32, value interfac
 	return parseFieldFromQValueKind(c.postgresOIDToQValueKind(oid), value)
 }
 
-func numericToRat(numVal *pgtype.Numeric) (*big.Rat, error) {
-	if numVal.Valid {
-		if numVal.NaN {
-			// set to nil if NaN
-			return nil, nil
-		}
-
-		switch numVal.InfinityModifier {
-		case pgtype.NegativeInfinity, pgtype.Infinity:
-			return nil, nil
-		}
-
-		rat := new(big.Rat).SetInt(numVal.Int)
-		if numVal.Exp > 0 {
-			mul := new(big.Int).Exp(big10, big.NewInt(int64(numVal.Exp)), nil)
-			rat.Mul(rat, new(big.Rat).SetInt(mul))
-		} else if numVal.Exp < 0 {
-			mul := new(big.Int).Exp(big10, big.NewInt(int64(-numVal.Exp)), nil)
-			rat.Quo(rat, new(big.Rat).SetInt(mul))
-		}
-		return rat, nil
+func numericToDecimal(numVal pgtype.Numeric) (interface{}, error) {
+	switch {
+	case !numVal.Valid:
+		return nil, errors.New("invalid numeric")
+	case numVal.NaN, numVal.InfinityModifier == pgtype.Infinity,
+		numVal.InfinityModifier == pgtype.NegativeInfinity:
+		return nil, nil
+	default:
+		return decimal.NewFromBigInt(numVal.Int, numVal.Exp), nil
 	}
-
-	// handle invalid numeric
-	return nil, errors.New("invalid numeric")
 }
 
 func customTypeToQKind(typeName string) qvalue.QValueKind {

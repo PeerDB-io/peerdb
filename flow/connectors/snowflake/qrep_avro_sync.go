@@ -69,7 +69,7 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 	if err != nil {
 		return 0, err
 	}
-	s.connector.logger.Info(fmt.Sprintf("Created stage %s", stage))
+	s.connector.logger.Info("Created stage " + stage)
 
 	err = s.putFileToStage(ctx, avroFile, stage)
 	if err != nil {
@@ -270,7 +270,7 @@ func (s *SnowflakeAvroSyncHandler) putFileToStage(ctx context.Context, avroFile 
 	putCmd := fmt.Sprintf("PUT file://%s @%s", avroFile.FilePath, stage)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("putting file to stage %s", stage)
+		return "putting file to stage " + stage
 	})
 	defer shutdown()
 

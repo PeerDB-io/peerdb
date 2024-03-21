@@ -8,16 +8,15 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type mergeStmtGenerator struct {
 	rawTableName string
 	// destination table name, used to retrieve records from raw table
 	dstTableName string
-	// last synced batchID.
-	syncBatchID int64
-	// last normalized batchID.
-	normalizeBatchID int64
+	// Id of the currently merging batch
+	mergeBatchId int64
 	// the schema of the table to merge into
 	normalizedTableSchema *protos.TableSchema
 	// array of toast column combinations that are unchanged
@@ -52,7 +51,7 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
 				fmt.Sprintf("TO_GEOMETRY(CAST(%s:\"%s\" AS STRING),true) AS %s",
 					toVariantColumnName, column.Name, targetColumnName))
-		case qvalue.QValueKindJSON, qvalue.QValueKindHStore:
+		case qvalue.QValueKindJSON, qvalue.QValueKindHStore, qvalue.QValueKindInterval:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
 				fmt.Sprintf("PARSE_JSON(CAST(%s:\"%s\" AS STRING)) AS %s",
 					toVariantColumnName, column.Name, targetColumnName))
@@ -94,7 +93,7 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 	insertValuesSQLArray := make([]string, 0, len(columns))
 	for _, column := range columns {
 		normalizedColName := SnowflakeIdentifierNormalize(column.Name)
-		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("SOURCE.%s", normalizedColName))
+		insertValuesSQLArray = append(insertValuesSQLArray, "SOURCE."+normalizedColName)
 	}
 	// fill in synced_at column
 	insertValuesSQLArray = append(insertValuesSQLArray, "CURRENT_TIMESTAMP")
@@ -135,7 +134,7 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 	}
 
 	mergeStatement := fmt.Sprintf(mergeStatementSQL, snowflakeSchemaTableNormalize(parsedDstTable),
-		toVariantColumnName, m.rawTableName, m.normalizeBatchID, m.syncBatchID, flattenedCastsSQL,
+		toVariantColumnName, m.rawTableName, m.mergeBatchId, flattenedCastsSQL,
 		fmt.Sprintf("(%s)", strings.Join(normalizedpkeyColsArray, ",")),
 		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
 
@@ -178,7 +177,7 @@ func (m *mergeStmtGenerator) generateUpdateStatements(allCols []string) []string
 
 	for _, cols := range m.unchangedToastColumns {
 		unchangedColsArray := strings.Split(cols, ",")
-		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
+		otherCols := shared.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0, len(otherCols)+2)
 		for _, colName := range otherCols {
 			normalizedColName := SnowflakeIdentifierNormalize(colName)

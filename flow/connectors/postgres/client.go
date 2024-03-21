@@ -276,7 +276,7 @@ func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database 
 	rows, err := conn.Query(ctx, fmt.Sprintf(`SELECT slot_name, redo_lsn::Text,restart_lsn::text,%s,
 		confirmed_flush_lsn::text,active,
 		round((CASE WHEN pg_is_in_recovery() THEN pg_last_wal_receive_lsn() ELSE pg_current_wal_lsn() END
-		- confirmed_flush_lsn) / 1024 / 1024) AS MB_Behind
+		- restart_lsn) / 1024 / 1024) AS MB_Behind
 		FROM pg_control_checkpoint(),pg_replication_slots %s`, walStatusSelector, whereClause))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read information for slots: %w", err)
@@ -369,12 +369,12 @@ func (c *PostgresConnector) createSlotAndPublication(
 
 		c.logger.Warn(fmt.Sprintf("Creating replication slot '%s'", slot))
 
-		_, err = conn.Exec(ctx, "SET idle_in_transaction_session_timeout = 0")
+		_, err = conn.Exec(ctx, "SET LOCAL idle_in_transaction_session_timeout=0")
 		if err != nil {
 			return fmt.Errorf("[slot] error setting idle_in_transaction_session_timeout: %w", err)
 		}
 
-		_, err = conn.Exec(ctx, "SET lock_timeout = 0")
+		_, err = conn.Exec(ctx, "SET LOCAL lock_timeout=0")
 		if err != nil {
 			return fmt.Errorf("[slot] error setting lock_timeout: %w", err)
 		}
@@ -388,11 +388,17 @@ func (c *PostgresConnector) createSlotAndPublication(
 			return fmt.Errorf("[slot] error creating replication slot: %w", err)
 		}
 
+		ok, _, err := c.MajorVersionCheck(ctx, POSTGRES_13)
+		if err != nil {
+			return fmt.Errorf("[slot] error getting PG version: %w", err)
+		}
+
 		c.logger.Info(fmt.Sprintf("Created replication slot '%s'", slot))
 		slotDetails := SlotCreationResult{
-			SlotName:     res.SlotName,
-			SnapshotName: res.SnapshotName,
-			Err:          nil,
+			SlotName:         res.SlotName,
+			SnapshotName:     res.SnapshotName,
+			Err:              nil,
+			SupportsTIDScans: ok,
 		}
 		signal.SlotCreated <- slotDetails
 		c.logger.Info("Waiting for clone to complete")
@@ -405,9 +411,10 @@ func (c *PostgresConnector) createSlotAndPublication(
 			e = errors.New("slot already exists")
 		}
 		slotDetails := SlotCreationResult{
-			SlotName:     slot,
-			SnapshotName: "",
-			Err:          e,
+			SlotName:         slot,
+			SnapshotName:     "",
+			Err:              e,
+			SupportsTIDScans: false,
 		}
 		signal.SlotCreated <- slotDetails
 	}
@@ -458,7 +465,7 @@ func generateCreateTableSQLForNormalizedTable(
 	}
 
 	// add composite primary key to the table
-	if len(sourceTableSchema.PrimaryKeyColumns) > 0 {
+	if len(sourceTableSchema.PrimaryKeyColumns) > 0 && !sourceTableSchema.IsReplicaIdentityFull {
 		primaryKeyColsQuoted := make([]string, 0, len(sourceTableSchema.PrimaryKeyColumns))
 		for _, primaryKeyCol := range sourceTableSchema.PrimaryKeyColumns {
 			primaryKeyColsQuoted = append(primaryKeyColsQuoted, QuoteIdentifier(primaryKeyCol))

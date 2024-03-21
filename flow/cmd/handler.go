@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
@@ -164,13 +165,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
 
-	_, err = h.temporalClient.ExecuteWorkflow(
-		ctx,                                // context
-		workflowOptions,                    // workflow start options
-		peerflow.CDCFlowWorkflowWithConfig, // workflow function
-		cfg,                                // workflow input
-		nil,                                // workflow state
-	)
+	_, err = h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg, nil)
 	if err != nil {
 		slog.Error("unable to start PeerFlow workflow", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
@@ -332,12 +327,7 @@ func (h *FlowRequestHandler) ShutdownFlow(
 			shared.MirrorNameSearchAttribute: req.FlowJobName,
 		},
 	}
-	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(
-		ctx,                       // context
-		workflowOptions,           // workflow start options
-		peerflow.DropFlowWorkflow, // workflow function
-		req,                       // workflow input
-	)
+	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.DropFlowWorkflow, req)
 	if err != nil {
 		slog.Error("unable to start DropFlow workflow",
 			logs,
@@ -383,8 +373,8 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	}
 
 	if req.RemoveFlowEntry {
-		delErr := h.removeFlowEntryInCatalog(ctx, req.FlowJobName)
-		if delErr != nil {
+		err := h.removeFlowEntryInCatalog(ctx, req.FlowJobName)
+		if err != nil {
 			slog.Error("unable to remove flow job entry",
 				slog.String(string(shared.FlowNameKey), req.FlowJobName),
 				slog.Any("error", err),
@@ -415,11 +405,11 @@ func (h *FlowRequestHandler) FlowStateChange(
 	}
 
 	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil {
-		err = h.temporalClient.SignalWorkflow(
+		err = model.CDCDynamicPropertiesSignal.SignalClientWorkflow(
 			ctx,
+			h.temporalClient,
 			workflowID,
 			"",
-			shared.CDCDynamicPropertiesSignalName,
 			req.FlowConfigUpdate.GetCdcFlowConfigUpdate(),
 		)
 		if err != nil {
@@ -435,21 +425,21 @@ func (h *FlowRequestHandler) FlowStateChange(
 			if err != nil {
 				return nil, err
 			}
-			err = h.temporalClient.SignalWorkflow(
+			err = model.FlowSignal.SignalClientWorkflow(
 				ctx,
+				h.temporalClient,
 				workflowID,
 				"",
-				shared.FlowSignalName,
-				shared.PauseSignal,
+				model.PauseSignal,
 			)
 		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_RUNNING &&
 			currState == protos.FlowStatus_STATUS_PAUSED {
-			err = h.temporalClient.SignalWorkflow(
+			err = model.FlowSignal.SignalClientWorkflow(
 				ctx,
+				h.temporalClient,
 				workflowID,
 				"",
-				shared.FlowSignalName,
-				shared.NoopSignal,
+				model.NoopSignal,
 			)
 		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED &&
 			(currState != protos.FlowStatus_STATUS_TERMINATED) {

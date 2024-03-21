@@ -14,7 +14,7 @@ func GeoValidate(hexWkb string) (string, error) {
 	// Decode the WKB hex string into binary
 	wkb, hexErr := hex.DecodeString(hexWkb)
 	if hexErr != nil {
-		slog.Warn(fmt.Sprintf("Ignoring invalid WKB: %s", hexWkb))
+		slog.Warn("Ignoring invalid WKB: " + hexWkb)
 		return "", hexErr
 	}
 
@@ -31,6 +31,10 @@ func GeoValidate(hexWkb string) (string, error) {
 	}
 
 	wkt := geometryObject.ToWKT()
+
+	if SRID := geometryObject.SRID(); SRID != 0 {
+		wkt = fmt.Sprintf("SRID=%d;%s", geometryObject.SRID(), wkt)
+	}
 	return wkt, nil
 }
 

@@ -97,6 +97,15 @@ const peerSolidStyle = css<BaseStyleProps>`
   --background-color-focus: ${({ theme }) => theme.colors.accent.fill.normal};
 `;
 
+const blueSolidStyle = css<BaseStyleProps>`
+  --focus-border-color: ${({ theme }) => theme.colors.accent.border.normal};
+  --text-color: ${({ theme }) => theme.colors.special.fixed.white};
+  --background-color-default: ${({ theme, $loading }) =>
+    $loading ? 'rgba(74, 176, 240,0.8)' : 'rgba(74, 176, 240,0.8)'};
+  --background-color-hover: ${({ theme }) => 'rgba(74, 176, 240,1)'};
+  --background-color-focus: ${({ theme }) => theme.colors.accent.fill.normal};
+`;
+
 const destructiveSolidStyle = css<BaseStyleProps>`
   --focus-border-color: ${({ theme }) => theme.colors.accent.border.normal};
   --text-color: ${({ theme }) => theme.colors.special.fixed.white};
@@ -138,6 +147,7 @@ const variants = {
   peer: peerSolidStyle,
   normalBorderless: normalBorderlessStyle,
   destructiveBorderless: destructiveBorderlessStyle,
+  blue: blueSolidStyle,
 } as const;
 
 export type ButtonVariant = keyof typeof variants;

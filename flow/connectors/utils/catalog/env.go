@@ -23,7 +23,7 @@ func GetCatalogConnectionPoolFromEnv(ctx context.Context) (*pgxpool.Pool, error)
 	poolMutex.Lock()
 	defer poolMutex.Unlock()
 	if pool == nil {
-		catalogConnectionString := genCatalogConnectionString()
+		catalogConnectionString := GetCatalogConnectionStringFromEnv()
 		pool, err = pgxpool.New(ctx, catalogConnectionString)
 		if err != nil {
 			return nil, fmt.Errorf("unable to establish connection with catalog: %w", err)
@@ -38,12 +38,16 @@ func GetCatalogConnectionPoolFromEnv(ctx context.Context) (*pgxpool.Pool, error)
 	return pool, nil
 }
 
-func genCatalogConnectionString() string {
-	return utils.GetPGConnectionString(&protos.PostgresConfig{
+func GetCatalogConnectionStringFromEnv() string {
+	return utils.GetPGConnectionString(GetCatalogPostgresConfigFromEnv())
+}
+
+func GetCatalogPostgresConfigFromEnv() *protos.PostgresConfig {
+	return &protos.PostgresConfig{
 		Host:     peerdbenv.PeerDBCatalogHost(),
-		Port:     peerdbenv.PeerDBCatalogPort(),
+		Port:     uint32(peerdbenv.PeerDBCatalogPort()),
 		User:     peerdbenv.PeerDBCatalogUser(),
 		Password: peerdbenv.PeerDBCatalogPassword(),
 		Database: peerdbenv.PeerDBCatalogDatabase(),
-	})
+	}
 }

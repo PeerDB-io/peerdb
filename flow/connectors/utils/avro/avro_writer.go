@@ -218,7 +218,6 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(ctx context.Context, bucketName, key 
 		Key:    aws.String(key),
 		Body:   r,
 	})
-
 	if err != nil {
 		s3Path := "s3://" + bucketName + "/" + key
 		logger.Error("failed to upload file: ", slog.Any("error", err), slog.Any("s3_path", s3Path))

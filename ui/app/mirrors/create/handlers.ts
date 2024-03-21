@@ -1,6 +1,7 @@
 import { UCreateMirrorResponse } from '@/app/dto/MirrorsDTO';
 import {
   UColumnsResponse,
+  UPublicationsResponse,
   USchemasResponse,
   UTablesAllResponse,
   UTablesResponse,
@@ -122,7 +123,7 @@ export const reformattedTableMapping = (
   tableMapping: TableMapRow[]
 ): TableMapping[] => {
   const mapping = tableMapping
-    .filter((row) => row?.selected === true)
+    .filter((row) => row?.selected === true && row?.canMirror === true)
     .map((row) => ({
       sourceTableIdentifier: row.source,
       destinationTableIdentifier: row.destination,
@@ -298,6 +299,7 @@ export const fetchTables = async (
         exclude: new Set(),
         selected: false,
         canMirror: tableObject.canMirror,
+        tableSize: tableObject.tableSize,
       });
     }
   }
@@ -366,4 +368,18 @@ export const handleValidateCDC = async (
   }
   notify('CDC Mirror is valid', true);
   setLoading(false);
+};
+
+export const fetchPublications = async (peerName: string) => {
+  const publicationsRes: UPublicationsResponse = await fetch(
+    '/api/peers/publications',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        peerName,
+      }),
+      cache: 'no-store',
+    }
+  ).then((res) => res.json());
+  return publicationsRes.publicationNames;
 };

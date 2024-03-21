@@ -4,21 +4,14 @@ import (
 	"context"
 	"testing"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 )
 
 func BenchmarkQRepQueryExecutor(b *testing.B) {
 	query := "SELECT * FROM bench.large_table"
 
 	ctx := context.Background()
-	connector, err := NewPostgresConnector(ctx,
-		&protos.PostgresConfig{
-			Host:     "localhost",
-			Port:     7132,
-			User:     "postgres",
-			Password: "postgres",
-			Database: "postgres",
-		})
+	connector, err := NewPostgresConnector(ctx, utils.GetCatalogPostgresConfigFromEnv())
 	if err != nil {
 		b.Fatalf("failed to create connection: %v", err)
 	}
@@ -29,7 +22,7 @@ func BenchmarkQRepQueryExecutor(b *testing.B) {
 
 	// Run the benchmark
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := range b.N {
 		// log the iteration
 		b.Logf("iteration %d", i)
 

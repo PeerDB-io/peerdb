@@ -2,6 +2,7 @@ package utils
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 
 	"golang.org/x/crypto/ssh"
@@ -39,7 +40,7 @@ func GetSSHClientConfig(config *protos.SSHConfig) (*ssh.ClientConfig, error) {
 	}
 
 	if len(authMethods) == 0 {
-		return nil, fmt.Errorf("no authentication methods provided")
+		return nil, errors.New("no authentication methods provided")
 	}
 
 	var hostKeyCallback ssh.HostKeyCallback

@@ -31,6 +31,7 @@ func TestAvroTransform(t *testing.T) {
 		"ST_GEOGFROMTEXT(`col1`) AS `col1`",
 		"PARSE_JSON(`col2`,wide_number_mode=>'round') AS `col2`",
 		"`camelCol4`",
+		"CURRENT_TIMESTAMP AS `sync_col`",
 	}
 	transformedCols := getTransformedColumns(dstSchema, "sync_col", "del_col")
 	if !reflect.DeepEqual(transformedCols, expectedTransformCols) {

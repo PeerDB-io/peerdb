@@ -1,6 +1,6 @@
 'use client';
+import AlertDropdown from '@/components/AlertDropdown';
 import ConfigJSONView from '@/components/ConfigJSONView';
-import { DropDialog } from '@/components/DropDialog';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
@@ -10,26 +10,64 @@ import React, { useState } from 'react';
 import { PulseLoader } from 'react-spinners';
 import useSWR from 'swr';
 import { UAlertConfigResponse } from '../dto/AlertDTO';
+import { tableStyle } from '../peers/[peerName]/style';
 import { fetcher } from '../utils/swr';
-import NewAlertConfig from './new';
+import { AlertConfigProps, NewConfig, ServiceType } from './new';
 
-const ServiceIcon = (serviceType: string) => {
-  switch (serviceType.toLowerCase()) {
-    default:
-      return <Image src='/images/slack.png' height={80} width={80} alt='alt' />;
-  }
+const ServiceIcon = ({
+  serviceType,
+  size,
+}: {
+  serviceType: string;
+  size: number;
+}) => {
+  return (
+    <Image
+      src={`/images/${serviceType}.png`}
+      height={size}
+      width={size}
+      alt={serviceType}
+    />
+  );
 };
+
 const AlertConfigPage: React.FC = () => {
   const {
     data: alerts,
-    error,
     isLoading,
   }: {
     data: UAlertConfigResponse[];
     error: any;
     isLoading: boolean;
   } = useSWR('/api/alert-config', fetcher);
-  const [newConfig, setNewConfig] = useState(false);
+
+  const blankAlert: AlertConfigProps = {
+    serviceType: 'slack',
+    alertConfig: {
+      email_addresses: [''],
+      auth_token: '',
+      channel_ids: [''],
+      open_connections_alert_threshold: 20,
+      slot_lag_mb_alert_threshold: 5000,
+    },
+    forEdit: false,
+  };
+
+  const [inEditOrAddMode, setInEditOrAddMode] = useState(false);
+  const [editAlertConfig, setEditAlertConfig] =
+    useState<AlertConfigProps>(blankAlert);
+
+  const onEdit = (alertConfig: UAlertConfigResponse, id: bigint) => {
+    setInEditOrAddMode(true);
+    const configJSON = JSON.stringify(alertConfig.service_config);
+
+    setEditAlertConfig({
+      id,
+      serviceType: alertConfig.service_type as ServiceType,
+      alertConfig: JSON.parse(configJSON),
+      forEdit: true,
+    });
+  };
 
   return (
     <div style={{ padding: '2rem' }}>
@@ -45,25 +83,50 @@ const AlertConfigPage: React.FC = () => {
           <div>
             <Label>
               PeerDB has a built-in alerting feature to update you on your
-              mirrors. Here you can configure your Slack for PeerDB to send
-              alerts.
+              mirrors. Here you can configure your Alert Provider for PeerDB to
+              send alerts.
             </Label>
           </div>
-          <div
-            style={{ marginTop: '2rem', maxHeight: '25em', overflow: 'scroll' }}
-          >
+          <div style={{ ...tableStyle, marginTop: '2rem', maxHeight: '25em' }}>
             <Table>
               {alerts?.length ? (
-                alerts.map((alert: UAlertConfigResponse, index) => (
+                alerts.map((alertConfig: UAlertConfigResponse, index) => (
                   <TableRow key={index}>
-                    <TableCell style={{ width: '10%' }}>{alert.id}</TableCell>
-                    <TableCell style={{ width: '10%' }}>
-                      {ServiceIcon(alert.service_type)}
+                    <TableCell style={{ width: 20 }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            columnGap: '0.5rem',
+                          }}
+                        >
+                          <ServiceIcon
+                            serviceType={alertConfig.service_type}
+                            size={30}
+                          />
+                          <Label>
+                            {alertConfig.service_type.charAt(0).toUpperCase() +
+                              alertConfig.service_type.slice(1)}
+                          </Label>
+                        </div>
+                      </div>
                     </TableCell>
                     <TableCell>
-                      <div style={{ height: '8em' }}>
+                      <div style={{ height: '10em' }}>
                         <ConfigJSONView
-                          config={JSON.stringify(alert.service_config, null, 2)}
+                          config={JSON.stringify(
+                            alertConfig.service_config,
+                            null,
+                            2
+                          )}
                         />
                       </div>
                     </TableCell>
@@ -75,7 +138,11 @@ const AlertConfigPage: React.FC = () => {
                           justifyContent: 'center',
                         }}
                       >
-                        <DropDialog mode='ALERT' dropArgs={{ id: alert.id }} />
+                        <AlertDropdown
+                          disable={inEditOrAddMode}
+                          alertId={alertConfig.id}
+                          onEdit={() => onEdit(alertConfig, alertConfig.id)}
+                        />
                       </div>
                     </TableCell>
                   </TableRow>
@@ -94,17 +161,21 @@ const AlertConfigPage: React.FC = () => {
         </>
       )}
       <Button
-        variant='normalSolid'
-        disabled={newConfig}
+        variant={inEditOrAddMode ? 'peer' : 'normalSolid'}
         style={{ display: 'flex', alignItems: 'center', marginTop: '2rem' }}
-        onClick={() => setNewConfig(true)}
+        onClick={() => {
+          if (inEditOrAddMode) {
+            setEditAlertConfig(blankAlert);
+          }
+          setInEditOrAddMode((prev) => !prev);
+        }}
       >
-        <Icon name='add' />
+        <Icon name={inEditOrAddMode ? 'cancel' : 'add'} />
         <Label as='label' style={{ fontSize: 14 }}>
-          Add Configuration
+          {inEditOrAddMode ? 'Cancel' : 'Add Configuration'}
         </Label>
       </Button>
-      {newConfig && <NewAlertConfig />}
+      {inEditOrAddMode && <NewConfig {...editAlertConfig} />}
     </div>
   );
 };

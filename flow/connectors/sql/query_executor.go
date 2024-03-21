@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math/big"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jmoiron/sqlx"
+	"github.com/shopspring/decimal"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 
@@ -138,6 +138,18 @@ func (g *GenericSQLQueryExecutor) CountNonNullRows(
 	return count.Int64, err
 }
 
+func (g *GenericSQLQueryExecutor) CountSRIDs(
+	ctx context.Context,
+	schemaName string,
+	tableName string,
+	columnName string,
+) (int64, error) {
+	var count pgtype.Int8
+	err := g.db.QueryRowxContext(ctx, "SELECT COUNT(CASE WHEN ST_SRID("+columnName+
+		") <> 0 THEN 1 END) AS not_zero FROM "+schemaName+"."+tableName).Scan(&count)
+	return count.Int64, err
+}
+
 func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (model.QField, error) {
 	qvKind, ok := g.dbtypeToQValueKind[ct.DatabaseTypeName()]
 	if !ok {
@@ -212,7 +224,7 @@ func (g *GenericSQLQueryExecutor) processRows(ctx context.Context, rows *sqlx.Ro
 			case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 				values[i] = new([]byte)
 			case qvalue.QValueKindNumeric:
-				var s sql.NullString
+				var s sql.Null[decimal.Decimal]
 				values[i] = &s
 			case qvalue.QValueKindUUID:
 				values[i] = new([]byte)
@@ -380,13 +392,9 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 			}
 		}
 	case qvalue.QValueKindNumeric:
-		if v, ok := val.(*sql.NullString); ok {
+		if v, ok := val.(*sql.Null[decimal.Decimal]); ok {
 			if v.Valid {
-				numeric := new(big.Rat)
-				if _, ok := numeric.SetString(v.String); !ok {
-					return qvalue.QValue{}, fmt.Errorf("failed to parse numeric: %v", v.String)
-				}
-				return qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: numeric}, nil
+				return qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: v.V}, nil
 			} else {
 				return qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: nil}, nil
 			}

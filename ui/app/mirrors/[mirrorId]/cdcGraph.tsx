@@ -1,5 +1,6 @@
 'use client';
 import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
+import SelectTheme from '@/app/styles/select';
 import { formatGraphLabel, timeOptions } from '@/app/utils/graph';
 import { Label } from '@/lib/Label';
 import { BarChart } from '@tremor/react';
@@ -33,6 +34,7 @@ function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
           options={timeOptions}
           defaultValue={{ label: 'hour', value: 'hour' }}
           onChange={(val, _) => val && setAggregateType(val.value)}
+          theme={SelectTheme}
         />
       </div>
       <div style={{ height: '3rem' }}>

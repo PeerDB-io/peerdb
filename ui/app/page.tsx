@@ -5,7 +5,7 @@ import { Layout, LayoutMain } from '@/lib/Layout';
 export default function Home() {
   return (
     <Layout sidebar={<SidebarComponent />}>
-      <LayoutMain alignSelf='center' justifySelf='center' width='xxLarge'>
+      <LayoutMain alignSelf='center' justifySelf='center' width='full'>
         <Header variant='largeTitle'>PeerDB Home Page</Header>
       </LayoutMain>
     </Layout>

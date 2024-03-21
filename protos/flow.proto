@@ -10,12 +10,14 @@ message TableNameMapping {
   string destination_table_name = 2;
 }
 
+// deprecated
 message RelationMessageColumn {
   uint32 flags = 1;
   string name = 2;
   uint32 data_type = 3;
 }
 
+// deprecated
 message RelationMessage {
   uint32 relation_id = 1;
   string relation_name = 2;
@@ -99,26 +101,12 @@ message CreateTablesFromExistingOutput {
 
 message SyncFlowOptions {
   uint32 batch_size = 1;
+  // deprecated field
   map<uint32, RelationMessage> relation_message_mapping = 2;
   uint64 idle_timeout_seconds = 3;
   map<uint32, string> src_table_id_name_mapping = 4;
   map<string, TableSchema> table_name_schema_mapping = 5;
   repeated TableMapping table_mappings = 6;
-}
-
-// deprecated, unused
-message LastSyncState {
-  int64 checkpoint = 1;
-}
-
-message StartFlowInput {
-  // deprecated, unused
-  LastSyncState last_sync_state = 1;
-  FlowConnectionConfigs flow_connection_configs = 2;
-  SyncFlowOptions sync_flow_options = 3;
-  map<uint32, RelationMessage> relation_message_mapping = 4;
-  map<uint32, string> src_table_id_name_mapping = 5;
-  map<string, TableSchema> table_name_schema_mapping = 6;
 }
 
 message StartNormalizeInput {
@@ -156,6 +144,7 @@ message SetupReplicationInput {
 message SetupReplicationOutput {
   string slot_name = 1;
   string snapshot_name = 2;
+  bool supports_tid_scans = 3;
 }
 
 message CreateRawTableInput {
@@ -337,7 +326,7 @@ message QRepFlowState {
   QRepPartition last_partition = 1;
   uint64 num_partitions_processed = 2;
   bool needs_resync = 3;
-  bool disable_wait_for_new_rows = 4;
+  bool disable_wait_for_new_rows = 4; // deprecated
   FlowStatus current_flow_status = 5;
 }
 
@@ -395,9 +384,19 @@ message SetupFlowOutput {
   map<string, TableSchema> table_name_schema_mapping = 2;
 }
 
-message AddTablesToPublicationInput{
+message AddTablesToPublicationInput {
   string flow_job_name = 1;
   string publication_name = 2;
   repeated TableMapping additional_tables = 3;
+}
+
+message IsQRepPartitionSyncedInput {
+  string flow_job_name = 1;
+  string partition_id = 2;
+}
+
+message ExportTxSnapshotOutput {
+  string snapshot_name = 1;
+  bool supports_tid_scans = 2;
 }
 

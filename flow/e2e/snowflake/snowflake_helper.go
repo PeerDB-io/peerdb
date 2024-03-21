@@ -3,10 +3,12 @@ package e2e_snowflake
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"math/big"
 	"os"
 	"time"
+
+	"github.com/shopspring/decimal"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
@@ -34,7 +36,7 @@ type SnowflakeTestHelper struct {
 func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
 	jsonPath := os.Getenv("TEST_SF_CREDS")
 	if jsonPath == "" {
-		return nil, fmt.Errorf("TEST_SF_CREDS env var not set")
+		return nil, errors.New("TEST_SF_CREDS env var not set")
 	}
 
 	content, err := e2eshared.ReadFileToBytes(jsonPath)
@@ -60,7 +62,10 @@ func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Snowflake client: %w", err)
 	}
-	err = adminClient.ExecuteQuery(context.Background(), fmt.Sprintf("CREATE DATABASE %s", testDatabaseName))
+	err = adminClient.ExecuteQuery(
+		context.Background(),
+		fmt.Sprintf("CREATE TRANSIENT DATABASE %s DATA_RETENTION_TIME_IN_DAYS = 0", testDatabaseName),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Snowflake test database: %w", err)
 	}
@@ -99,7 +104,7 @@ func (s *SnowflakeTestHelper) Cleanup() error {
 	if err != nil {
 		return err
 	}
-	err = s.adminClient.ExecuteQuery(context.Background(), fmt.Sprintf("DROP DATABASE %s", s.testDatabaseName))
+	err = s.adminClient.ExecuteQuery(context.Background(), "DROP DATABASE "+s.testDatabaseName)
 	if err != nil {
 		return err
 	}
@@ -124,6 +129,15 @@ func (s *SnowflakeTestHelper) CountRows(tableName string) (int, error) {
 // CountRows(tableName) returns the non-null number of rows in the given table.
 func (s *SnowflakeTestHelper) CountNonNullRows(tableName string, columnName string) (int, error) {
 	res, err := s.testClient.CountNonNullRows(context.Background(), s.testSchemaName, tableName, columnName)
+	if err != nil {
+		return 0, err
+	}
+
+	return int(res), nil
+}
+
+func (s *SnowflakeTestHelper) CountSRIDs(tableName string, columnName string) (int, error) {
+	res, err := s.testClient.CountSRIDs(context.Background(), s.testSchemaName, tableName, columnName)
 	if err != nil {
 		return 0, err
 	}
@@ -169,9 +183,8 @@ func (s *SnowflakeTestHelper) RunIntQuery(query string) (int, error) {
 	case qvalue.QValueKindInt64:
 		return int(rec[0].Value.(int64)), nil
 	case qvalue.QValueKindNumeric:
-		// get big.Rat and convert to int
-		rat := rec[0].Value.(*big.Rat)
-		return int(rat.Num().Int64() / rat.Denom().Int64()), nil
+		val := rec[0].Value.(decimal.Decimal)
+		return int(val.IntPart()), nil
 	default:
 		return 0, fmt.Errorf("failed to execute query: %s, returned value of type %s", query, rec[0].Kind)
 	}
@@ -187,11 +200,11 @@ func (s *SnowflakeTestHelper) checkSyncedAt(query string) error {
 	for _, record := range recordBatch.Records {
 		for _, entry := range record {
 			if entry.Kind != qvalue.QValueKindTimestamp {
-				return fmt.Errorf("synced_at column check failed: _PEERDB_SYNCED_AT is not timestamp")
+				return errors.New("synced_at column check failed: _PEERDB_SYNCED_AT is not timestamp")
 			}
 			_, ok := entry.Value.(time.Time)
 			if !ok {
-				return fmt.Errorf("synced_at column failed: _PEERDB_SYNCED_AT is not valid")
+				return errors.New("synced_at column failed: _PEERDB_SYNCED_AT is not valid")
 			}
 		}
 	}

@@ -6,13 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/big"
 	"os"
 	"runtime"
 	"sync/atomic"
 	"time"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/shopspring/decimal"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peer-flow/model"
@@ -72,7 +72,7 @@ func (c *cdcRecordsStore) initPebbleDB() error {
 	gob.Register(&model.UpdateRecord{})
 	gob.Register(&model.DeleteRecord{})
 	gob.Register(time.Time{})
-	gob.Register(&big.Rat{})
+	gob.Register(decimal.Decimal{})
 
 	var err error
 	// we don't want a WAL since cache, we don't want to overwrite another DB either

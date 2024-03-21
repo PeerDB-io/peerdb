@@ -162,9 +162,6 @@ export default function QRepStatusTable({
             >
               <Icon name='refresh' />
             </Button>
-            <Button variant='normalBorderless' disabled>
-              <Icon name='download' />
-            </Button>
             <div style={{ minWidth: '10em' }}>
               <ReactSelect
                 options={sortOptions}

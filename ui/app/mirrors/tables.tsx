@@ -5,10 +5,10 @@ import PeerButton from '@/components/PeerComponent';
 import TimeLabel from '@/components/TimeComponent';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
-import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
+import { tableStyle } from '../peers/[peerName]/style';
 
 export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -23,26 +23,8 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
   return (
     <>
       <Label variant='headline'>Change-data capture</Label>
-      <div
-        style={{
-          maxHeight: '35vh',
-          overflow: 'scroll',
-          width: '100%',
-          marginTop: '1rem',
-        }}
-      >
+      <div style={{ ...tableStyle, maxHeight: '35vh' }}>
         <Table
-          toolbar={{
-            left: <></>,
-            right: (
-              <SearchField
-                placeholder='Search by flow name'
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setSearchQuery(e.target.value)
-                }
-              />
-            ),
-          }}
           header={
             <TableRow>
               {['Name', 'Source', 'Destination', 'Start Time', 'Logs', ''].map(
@@ -131,26 +113,8 @@ export function QRepFlows({
   return (
     <>
       <Label variant='headline'>{title}</Label>
-      <div
-        style={{
-          maxHeight: '35vh',
-          overflow: 'scroll',
-          width: '100%',
-          marginTop: '1rem',
-        }}
-      >
+      <div style={{ ...tableStyle, maxHeight: '35vh' }}>
         <Table
-          toolbar={{
-            left: <></>,
-            right: (
-              <SearchField
-                placeholder='Search by flow name'
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setSearchQuery(e.target.value)
-                }
-              />
-            ),
-          }}
           header={
             <TableRow>
               {['Name', 'Source', 'Destination', 'Start Time', ''].map(

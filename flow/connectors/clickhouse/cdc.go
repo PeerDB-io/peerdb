@@ -3,6 +3,7 @@ package connclickhouse
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -25,7 +26,7 @@ const (
 func (c *ClickhouseConnector) getRawTableName(flowJobName string) string {
 	// replace all non-alphanumeric characters with _
 	flowJobName = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(flowJobName, "_")
-	return fmt.Sprintf("_peerdb_raw_%s", flowJobName)
+	return "_peerdb_raw_" + flowJobName
 }
 
 func (c *ClickhouseConnector) checkIfTableExists(ctx context.Context, databaseName string, tableIdentifier string) (bool, error) {
@@ -36,7 +37,7 @@ func (c *ClickhouseConnector) checkIfTableExists(ctx context.Context, databaseNa
 	}
 
 	if !result.Valid {
-		return false, fmt.Errorf("[clickhouse] checkIfTableExists: result is not valid")
+		return false, errors.New("[clickhouse] checkIfTableExists: result is not valid")
 	}
 
 	return result.Int32 == 1, nil
@@ -118,7 +119,7 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 
 func (c *ClickhouseConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
 	rawTableName := c.getRawTableName(req.FlowJobName)
-	c.logger.Info(fmt.Sprintf("pushing records to Clickhouse table %s", rawTableName))
+	c.logger.Info("pushing records to Clickhouse table " + rawTableName)
 
 	res, err := c.syncRecordsViaAvro(ctx, req, rawTableName, req.SyncBatchID)
 	if err != nil {

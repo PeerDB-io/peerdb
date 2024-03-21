@@ -35,16 +35,6 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	}
 	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
 
-	done, err := c.pgMetadata.IsQrepPartitionSynced(ctx, config.FlowJobName, partition.PartitionId)
-	if err != nil {
-		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
-	}
-
-	if done {
-		c.logger.Info("Partition has already been synced", flowLog)
-		return 0, nil
-	}
-
 	avroSync := NewSnowflakeAvroSyncHandler(config, c)
 	return avroSync.SyncQRepRecords(ctx, config, partition, tblSchema, stream)
 }
@@ -74,9 +64,17 @@ func (c *SnowflakeConnector) getTableSchema(ctx context.Context, tableName strin
 }
 
 func (c *SnowflakeConnector) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {
-	_, err := c.database.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
+	var schemaExists sql.NullBool
+	err := c.database.QueryRowContext(ctx, checkIfSchemaExistsSQL, c.rawSchema).Scan(&schemaExists)
 	if err != nil {
-		return err
+		return fmt.Errorf("error while checking if schema %s for raw table exists: %w", c.rawSchema, err)
+	}
+
+	if !schemaExists.Valid || !schemaExists.Bool {
+		_, err := c.database.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
+		if err != nil {
+			return err
+		}
 	}
 
 	stageName := c.getStageNameForJob(config.FlowJobName)
@@ -86,7 +84,7 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(ctx context.Context, config
 	}
 
 	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		_, err = c.database.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
+		_, err = c.database.ExecContext(ctx, "TRUNCATE TABLE "+config.DestinationTableIdentifier)
 		if err != nil {
 			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
 		}
@@ -114,11 +112,11 @@ func (c *SnowflakeConnector) createStage(ctx context.Context, stageName string, 
 	// Execute the query
 	_, err := c.database.ExecContext(ctx, createStageStmt)
 	if err != nil {
-		c.logger.Error(fmt.Sprintf("failed to create stage %s", stageName), slog.Any("error", err))
+		c.logger.Error("failed to create stage "+stageName, slog.Any("error", err))
 		return fmt.Errorf("failed to create stage %s: %w", stageName, err)
 	}
 
-	c.logger.Info(fmt.Sprintf("Created stage %s", stageName))
+	c.logger.Info("Created stage " + stageName)
 	return nil
 }
 
@@ -137,7 +135,10 @@ func (c *SnowflakeConnector) createExternalStage(stageName string, config *proto
 
 	cleanURL := fmt.Sprintf("s3://%s/%s/%s", s3o.Bucket, s3o.Prefix, config.FlowJobName)
 
-	s3Int := config.DestinationPeer.GetSnowflakeConfig().S3Integration
+	var s3Int string
+	if config.DestinationPeer != nil {
+		s3Int = config.DestinationPeer.GetSnowflakeConfig().S3Integration
+	}
 	if s3Int == "" {
 		credsStr := fmt.Sprintf("CREDENTIALS=(AWS_KEY_ID='%s' AWS_SECRET_KEY='%s')",
 			awsCreds.AccessKeyID, awsCreds.SecretAccessKey)
@@ -224,7 +225,7 @@ func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName str
 // dropStage drops the stage for the given job.
 func (c *SnowflakeConnector) dropStage(ctx context.Context, stagingPath string, job string) error {
 	stageName := c.getStageNameForJob(job)
-	stmt := fmt.Sprintf("DROP STAGE IF EXISTS %s", stageName)
+	stmt := "DROP STAGE IF EXISTS " + stageName
 
 	_, err := c.database.ExecContext(ctx, stmt)
 	if err != nil {
@@ -275,10 +276,16 @@ func (c *SnowflakeConnector) dropStage(ctx context.Context, stagingPath string, 
 		c.logger.Info(fmt.Sprintf("Deleted contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job))
 	}
 
-	c.logger.Info(fmt.Sprintf("Dropped stage %s", stageName))
+	c.logger.Info("Dropped stage " + stageName)
 	return nil
 }
 
 func (c *SnowflakeConnector) getStageNameForJob(job string) string {
 	return fmt.Sprintf("%s.peerdb_stage_%s", c.rawSchema, job)
+}
+
+func (c *SnowflakeConnector) IsQRepPartitionSynced(ctx context.Context,
+	req *protos.IsQRepPartitionSyncedInput,
+) (bool, error) {
+	return c.pgMetadata.IsQrepPartitionSynced(ctx, req.FlowJobName, req.PartitionId)
 }

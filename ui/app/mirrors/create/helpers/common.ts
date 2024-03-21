@@ -13,6 +13,7 @@ export interface MirrorSetting {
   helpfulLink?: string;
   default?: string | number | boolean;
   advanced?: boolean; // whether it should come under an 'Advanced' section
+  command?: string;
 }
 
 export const blankCDCSetting: FlowConnectionConfigs = {
@@ -23,12 +24,12 @@ export const blankCDCSetting: FlowConnectionConfigs = {
   maxBatchSize: 1000000,
   doInitialSnapshot: true,
   publicationName: '',
-  snapshotNumRowsPerPartition: 500000,
-  snapshotMaxParallelWorkers: 1,
-  snapshotNumTablesInParallel: 4,
+  snapshotNumRowsPerPartition: 1000000,
+  snapshotMaxParallelWorkers: 4,
+  snapshotNumTablesInParallel: 1,
   snapshotStagingPath: '',
   cdcStagingPath: '',
-  softDelete: false,
+  softDelete: true,
   replicationSlotName: '',
   resync: false,
   softDeleteColName: '',

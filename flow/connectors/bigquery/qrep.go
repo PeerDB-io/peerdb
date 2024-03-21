@@ -30,15 +30,6 @@ func (c *BigQueryConnector) SyncQRepRecords(
 		return 0, err
 	}
 
-	done, err := c.pgMetadata.IsQrepPartitionSynced(ctx, config.FlowJobName, partition.PartitionId)
-	if err != nil {
-		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
-	}
-
-	if done {
-		c.logger.Info(fmt.Sprintf("Partition %s has already been synced", partition.PartitionId))
-		return 0, nil
-	}
 	c.logger.Info(fmt.Sprintf("QRep sync function called and partition existence checked for"+
 		" partition %s of destination table %s",
 		partition.PartitionId, destTable))
@@ -100,7 +91,7 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 
 func (c *BigQueryConnector) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {
 	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		query := c.client.Query(fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
+		query := c.client.Query("TRUNCATE TABLE " + config.DestinationTableIdentifier)
 		query.DefaultDatasetID = c.datasetID
 		query.DefaultProjectID = c.projectID
 		_, err := query.Read(ctx)
@@ -110,4 +101,10 @@ func (c *BigQueryConnector) SetupQRepMetadataTables(ctx context.Context, config 
 	}
 
 	return nil
+}
+
+func (c *BigQueryConnector) IsQRepPartitionSynced(ctx context.Context,
+	req *protos.IsQRepPartitionSyncedInput,
+) (bool, error) {
+	return c.pgMetadata.IsQrepPartitionSynced(ctx, req.FlowJobName, req.PartitionId)
 }

@@ -9,6 +9,7 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -19,13 +20,35 @@ func XminFlowWorkflow(
 ) error {
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	// Support a Query for the current state of the xmin flow.
+
 	err := setWorkflowQueries(ctx, state)
 	if err != nil {
 		return err
 	}
 
+	signalChan := model.FlowSignal.GetSignalChannel(ctx)
+
 	q := NewQRepFlowExecution(ctx, config, originalRunID)
+	logger := q.logger
+
+	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSING ||
+		state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSED {
+		startTime := workflow.Now(ctx)
+		q.activeSignal = model.PauseSignal
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+
+		for q.activeSignal == model.PauseSignal {
+			logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
+			// only place we block on receive, so signal processing is immediate
+			val, ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute)
+			if ok {
+				q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, logger)
+			} else if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
+	}
 
 	err = q.SetupWatermarkTableOnDestination(ctx)
 	if err != nil {
@@ -36,7 +59,7 @@ func XminFlowWorkflow(
 	if err != nil {
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
-	q.logger.Info("metadata tables setup for peer flow - ", config.FlowJobName)
+	logger.Info("metadata tables setup for peer flow")
 
 	err = q.handleTableCreationForResync(ctx, state)
 	if err != nil {
@@ -64,7 +87,7 @@ func XminFlowWorkflow(
 	}
 
 	if config.InitialCopyOnly {
-		q.logger.Info("initial copy completed for peer flow - ", config.FlowJobName)
+		logger.Info("initial copy completed for peer flow")
 		return nil
 	}
 
@@ -78,34 +101,23 @@ func XminFlowWorkflow(
 		Range:       &protos.PartitionRange{Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: lastPartition}}},
 	}
 
-	workflow.GetLogger(ctx).Info("Continuing as new workflow",
-		"Last Partition", state.LastPartition,
-		"Number of Partitions Processed", state.NumPartitionsProcessed)
-
-	// here, we handle signals after the end of the flow because a new workflow does not inherit the signals
-	// and the chance of missing a signal is much higher if the check is before the time consuming parts run
-	signalChan := workflow.GetSignalChannel(ctx, shared.FlowSignalName)
-	q.receiveAndHandleSignalAsync(signalChan)
-	if q.activeSignal == shared.PauseSignal {
-		startTime := time.Now()
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
-		var signalVal shared.CDCFlowSignal
-
-		for q.activeSignal == shared.PauseSignal {
-			q.logger.Info("mirror has been paused", slog.Any("duration", time.Since(startTime)))
-			// only place we block on receive, so signal processing is immediate
-			ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute, &signalVal)
-			if ok {
-				q.activeSignal = shared.FlowSignalHandler(q.activeSignal, signalVal, q.logger)
-			} else if err := ctx.Err(); err != nil {
-				return err
-			}
-		}
-	}
-
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	// Continue the workflow with new state
+	for {
+		val, ok := signalChan.ReceiveAsync()
+		if !ok {
+			break
+		}
+		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
+	}
+
+	logger.Info("Continuing as new workflow",
+		slog.Any("Last Partition", state.LastPartition),
+		slog.Uint64("Number of Partitions Processed", state.NumPartitionsProcessed))
+
+	if q.activeSignal == model.PauseSignal {
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+	}
 	return workflow.NewContinueAsNewError(ctx, XminFlowWorkflow, config, state)
 }

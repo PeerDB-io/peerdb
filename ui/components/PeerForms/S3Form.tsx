@@ -22,7 +22,8 @@ const S3Form = ({ setter }: S3Props) => {
   };
 
   useEffect(() => {
-    const endpoint = storageType === 'S3' ? '' : 'storage.googleapis.com';
+    const endpoint =
+      storageType === 'S3' ? '' : 'https://storage.googleapis.com';
     setter((prev) => {
       return {
         ...prev,

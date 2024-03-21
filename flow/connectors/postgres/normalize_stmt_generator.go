@@ -11,6 +11,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type normalizeStmtGenerator struct {
@@ -201,7 +202,7 @@ func (n *normalizeStmtGenerator) generateUpdateStatements(quotedCols []string) [
 		for i, unchangedToastCol := range unchangedColsArray {
 			unchangedColsArray[i] = QuoteIdentifier(unchangedToastCol)
 		}
-		otherCols := utils.ArrayMinus(quotedCols, unchangedColsArray)
+		otherCols := shared.ArrayMinus(quotedCols, unchangedColsArray)
 		tmpArray := make([]string, 0, len(otherCols))
 		for _, colName := range otherCols {
 			tmpArray = append(tmpArray, fmt.Sprintf("%s=src.%s", colName, colName))

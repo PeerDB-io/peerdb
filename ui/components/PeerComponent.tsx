@@ -8,6 +8,12 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 export const DBTypeToImageMapping = (peerType: DBType | string) => {
   switch (peerType) {
+    case 'AZURE FLEXIBLE POSTGRESQL':
+      return '/svgs/azurepg.svg';
+    case 'RDS POSTGRESQL':
+      return '/svgs/rds.svg';
+    case 'GOOGLE CLOUD POSTGRESQL':
+      return '/svgs/gcp.svg';
     case DBType.POSTGRES:
     case 'POSTGRES':
       return '/svgs/pg.svg';

@@ -1,57 +1,54 @@
 'use client';
 import { SlotLagPoint } from '@/app/dto/PeersDTO';
-import aggregateCountsByInterval from '@/app/mirrors/[mirrorId]/aggregatedCountsByInterval';
+import SelectTheme from '@/app/styles/select';
 import { formatGraphLabel, timeOptions } from '@/app/utils/graph';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle/ProgressCircle';
 import { LineChart } from '@tremor/react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
 import { useLocalStorage } from 'usehooks-ts';
 
 function LagGraph({ slotNames }: { slotNames: string[] }) {
-  const [lagPoints, setLagPoints] = useState<SlotLagPoint[]>([]);
+  const [mounted, setMounted] = useState(false);
+  const [lagPoints, setLagPoints] = useState<
+    { time: string; 'Lag in GB': number }[]
+  >([]);
   const [defaultSlot, setDefaultSlot] = useLocalStorage('defaultSlot', '');
   const [selectedSlot, setSelectedSlot] = useState<string>(defaultSlot);
-  let [aggregateType, setAggregateType] = useState('hour');
+  const [loading, setLoading] = useState(false);
+  let [timeSince, setTimeSince] = useState('hour');
   const fetchLagPoints = useCallback(async () => {
     if (selectedSlot == '') {
       return;
     }
-    const pointsRes = await fetch(`/api/peers/slots/${selectedSlot}`, {
-      cache: 'no-store',
-    });
+
+    setLoading(true);
+    const pointsRes = await fetch(
+      `/api/peers/slots/${selectedSlot}?timeSince=${timeSince}`,
+      {
+        cache: 'no-store',
+      }
+    );
     const points: SlotLagPoint[] = await pointsRes.json();
-    setLagPoints(points);
-  }, [selectedSlot]);
+    setLagPoints(
+      points
+        .sort((x, y) => x.updatedAt - y.updatedAt)
+        .map((data) => ({
+          time: formatGraphLabel(new Date(data.updatedAt!), 'hour'),
+          'Lag in GB': data.slotSize,
+        }))
+    );
+    setLoading(false);
+  }, [selectedSlot, timeSince]);
 
   const handleChange = (val: string) => {
     setDefaultSlot(val);
     setSelectedSlot(val);
   };
 
-  const graphValues = useMemo(() => {
-    let lagDataDot = aggregateCountsByInterval(
-      lagPoints.map((point) => ({
-        timestamp: point.updatedAt,
-        count: parseInt(point.slotSize || '0', 10) || 0,
-      })),
-      aggregateType
-    );
-    lagDataDot = lagDataDot.slice(0, 29);
-    lagDataDot = lagDataDot.reverse();
-    return lagDataDot.map((data) => ({
-      time: formatGraphLabel(new Date(data[0]), aggregateType),
-      'Lag in MB': data[1],
-    }));
-  }, [lagPoints, aggregateType]);
-
-  const [mounted, setMounted] = useState(false);
   useEffect(() => {
     setMounted(true);
-  }, []);
-
-  useEffect(() => {
     fetchLagPoints();
   }, [fetchLagPoints]);
 
@@ -81,28 +78,46 @@ function LagGraph({ slotNames }: { slotNames: string[] }) {
         <ReactSelect
           className='w-1/4'
           placeholder='Select a replication slot'
-          options={slotNames.map((slotName) => ({
-            label: slotName,
-            value: slotName,
-          }))}
+          options={
+            slotNames.length === 0
+              ? undefined
+              : slotNames.map((slotName) => ({
+                  label: slotName,
+                  value: slotName,
+                }))
+          }
           onChange={(val, _) => val && handleChange(val.value)}
-          defaultValue={{ value: selectedSlot, label: selectedSlot }}
+          defaultValue={
+            selectedSlot
+              ? { value: selectedSlot, label: selectedSlot }
+              : undefined
+          }
+          theme={SelectTheme}
         />
 
         <ReactSelect
-          id={aggregateType}
+          id={timeSince}
           placeholder='Select a timeframe'
           options={timeOptions}
           defaultValue={{ label: 'hour', value: 'hour' }}
-          onChange={(val, _) => val && setAggregateType(val.value)}
+          onChange={(val, _) => val && setTimeSince(val.value)}
+          theme={SelectTheme}
         />
       </div>
-      <LineChart
-        index='time'
-        data={graphValues}
-        categories={['Lag in MB']}
-        colors={['rose']}
-      />
+      {loading ? (
+        <center>
+          <Label>Updating slot graph</Label>
+          <ProgressCircle variant='determinate_progress_circle' />
+        </center>
+      ) : (
+        <LineChart
+          index='time'
+          data={lagPoints}
+          categories={['Lag in GB']}
+          colors={['rose']}
+          showXAxis={false}
+        />
+      )}
     </div>
   );
 }
