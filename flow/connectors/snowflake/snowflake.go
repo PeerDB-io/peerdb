@@ -459,7 +459,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 	}
 
 	qrepConfig := &protos.QRepConfig{
-		StagingPath: "",
+		StagingPath: req.StagingPath,
 		FlowJobName: req.FlowJobName,
 		DestinationTableIdentifier: strings.ToLower(fmt.Sprintf("%s.%s", c.rawSchema,
 			rawTableIdentifier)),
