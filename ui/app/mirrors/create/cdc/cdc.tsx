@@ -38,6 +38,7 @@ export default function CDCConfigForm({
   setRows,
 }: MirrorConfigProps) {
   const [publications, setPublications] = useState<string[]>();
+  const [pubLoading, setPubLoading] = useState(true);
   const [show, setShow] = useState(false);
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
     let stateVal: string | boolean = val;
@@ -66,26 +67,15 @@ export default function CDCConfigForm({
     return true;
   };
 
-  const optionsForField = (setting: MirrorSetting) => {
-    switch (setting.label) {
-      case 'Publication Name':
-        return publications;
-      default:
-        return [];
-    }
-  };
-
   useEffect(() => {
+    setPubLoading(true);
     fetchPublications(mirrorConfig.source?.name || '').then((pubs) => {
       setPublications(pubs);
+      setPubLoading(false);
     });
   }, [mirrorConfig.source?.name]);
 
-  if (
-    mirrorConfig.source != undefined &&
-    mirrorConfig.destination != undefined &&
-    publications != undefined
-  )
+  if (mirrorConfig.source != undefined && mirrorConfig.destination != undefined)
     return (
       <>
         {normalSettings.map((setting, id) => {
@@ -95,7 +85,12 @@ export default function CDCConfigForm({
                 key={id}
                 handleChange={handleChange}
                 setting={setting}
-                options={optionsForField(setting)}
+                options={
+                  setting.label === 'Publication Name'
+                    ? publications
+                    : undefined
+                }
+                publicationsLoading={pubLoading}
               />
             )
           );
@@ -126,7 +121,6 @@ export default function CDCConfigForm({
                 key={setting.label}
                 handleChange={handleChange}
                 setting={setting}
-                options={optionsForField(setting)}
               />
             );
           })}
