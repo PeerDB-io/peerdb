@@ -74,9 +74,7 @@ type QRepStatusTableProps = {
   partitions: QRepPartitionStatus[];
 };
 
-export default function QRepStatusTable({
-  partitions,
-}: QRepStatusTableProps) {
+export default function QRepStatusTable({ partitions }: QRepStatusTableProps) {
   const ROWS_PER_PAGE = 10;
   const [currentPage, setCurrentPage] = useState(1);
   const totalPages = Math.ceil(partitions.length / ROWS_PER_PAGE);

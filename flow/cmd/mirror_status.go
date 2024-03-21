@@ -121,7 +121,7 @@ func (h *FlowRequestHandler) cloneTableSummary(
 ) ([]*protos.CloneTableSummary, error) {
 	q := `
 	SELECT
-		qr.flow_name,
+		distinct qr.flow_name,
 		qr.config_proto,
 		qr.start_time AS StartTime,
 		qr.fetch_complete as FetchCompleted,
@@ -131,7 +131,7 @@ func (h *FlowRequestHandler) cloneTableSummary(
 		SUM(qp.rows_in_partition) FILTER (WHERE qp.end_time IS NOT NULL) AS NumRowsSynced,
 		AVG(EXTRACT(EPOCH FROM (qp.end_time - qp.start_time)) * 1000) FILTER (WHERE qp.end_time IS NOT NULL) AS AvgTimePerPartitionMs
 	FROM peerdb_stats.qrep_partitions qp
-	JOIN peerdb_stats.qrep_runs qr ON qp.flow_name = qr.flow_name
+	RIGHT JOIN peerdb_stats.qrep_runs qr ON qp.flow_name = qr.flow_name
 	WHERE qr.flow_name ILIKE $1
 	GROUP BY qr.flow_name, qr.config_proto, qr.start_time, qr.fetch_complete, qr.consolidate_complete;
 	`

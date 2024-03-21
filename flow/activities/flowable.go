@@ -565,7 +565,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		return "getting partitions for job"
 	})
 	defer shutdown()
-
+	time.Sleep(10 * time.Minute)
 	partitions, err := srcConn.GetQRepPartitions(ctx, config, last)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)

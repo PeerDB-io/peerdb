@@ -1,8 +1,6 @@
 'use client';
 import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
-import {
-  MirrorStatusResponse
-} from '@/grpc_generated/route';
+import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@tremor/react';
