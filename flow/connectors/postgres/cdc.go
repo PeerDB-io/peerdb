@@ -739,10 +739,13 @@ func (p *PostgresCDCSource) processRelationMessage(
 	for _, column := range currRel.Columns {
 		// not present in previous relation message, but in current one, so added.
 		if _, ok := prevRelMap[column.Name]; !ok {
-			schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, &protos.DeltaAddedColumn{
-				ColumnName: column.Name,
-				ColumnType: string(currRelMap[column.Name]),
-			})
+			// only add to delta if not excluded
+			if _, ok := p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Exclude[column.Name]; !ok {
+				schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, &protos.DeltaAddedColumn{
+					ColumnName: column.Name,
+					ColumnType: string(currRelMap[column.Name]),
+				})
+			}
 			// present in previous and current relation messages, but data types have changed.
 			// so we add it to AddedColumns and DroppedColumns, knowing that we process DroppedColumns first.
 		} else if prevRelMap[column.Name] != currRelMap[column.Name] {

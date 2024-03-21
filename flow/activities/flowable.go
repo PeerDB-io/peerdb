@@ -616,6 +616,9 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) error {
+	msg := fmt.Sprintf("replicating partition - %s: %d of %d total.", partition.PartitionId, idx, total)
+	activity.RecordHeartbeat(ctx, msg)
+
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
@@ -643,6 +646,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	}
 	if done {
 		logger.Info("no records to push for partition " + partition.PartitionId)
+		activity.RecordHeartbeat(ctx, "no records to push for partition "+partition.PartitionId)
 		return nil
 	}
 

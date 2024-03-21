@@ -55,6 +55,18 @@ func (h *FlowRequestHandler) ValidatePeer(
 		}
 	}
 
+	validationConn, ok := conn.(connectors.ValidationConnector)
+	if ok {
+		validErr := validationConn.ValidateCheck(ctx)
+		if validErr != nil {
+			return &protos.ValidatePeerResponse{
+				Status: protos.ValidatePeerStatus_INVALID,
+				Message: fmt.Sprintf("failed to validate %s peer %s: %v",
+					req.Peer.Type, req.Peer.Name, validErr),
+			}, nil
+		}
+	}
+
 	connErr := conn.ConnectionActive(ctx)
 	if connErr != nil {
 		return &protos.ValidatePeerResponse{

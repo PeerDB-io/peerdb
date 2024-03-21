@@ -13,9 +13,15 @@ interface FieldProps {
   setting: MirrorSetting;
   handleChange: (val: string | boolean, setting: MirrorSetting) => void;
   options?: string[];
+  publicationsLoading?: boolean;
 }
 
-const CDCField = ({ setting, handleChange, options }: FieldProps) => {
+const CDCField = ({
+  setting,
+  handleChange,
+  options,
+  publicationsLoading,
+}: FieldProps) => {
   return setting.type === 'switch' ? (
     <RowWithSwitch
       label={
@@ -72,6 +78,7 @@ const CDCField = ({ setting, handleChange, options }: FieldProps) => {
               getOptionLabel={(option) => option.label}
               getOptionValue={(option) => option.option}
               theme={SelectTheme}
+              isLoading={publicationsLoading}
             />
           </div>
           {setting.tips && (

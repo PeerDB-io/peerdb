@@ -31,6 +31,10 @@ func GeoValidate(hexWkb string) (string, error) {
 	}
 
 	wkt := geometryObject.ToWKT()
+
+	if SRID := geometryObject.SRID(); SRID != 0 {
+		wkt = fmt.Sprintf("SRID=%d;%s", geometryObject.SRID(), wkt)
+	}
 	return wkt, nil
 }
 
