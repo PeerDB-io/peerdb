@@ -21,11 +21,6 @@ type SQLServerConnector struct {
 	logger log.Logger
 }
 
-func (c *SQLServerConnector) ValidateCheck(ctx context.Context) error {
-	c.logger.Info("SQLServerConnector ValidateCheck is a no-op")
-	return nil
-}
-
 // NewSQLServerConnector creates a new SQL Server connection
 func NewSQLServerConnector(ctx context.Context, config *protos.SqlServerConfig) (*SQLServerConnector, error) {
 	connString := fmt.Sprintf("server=%s;user id=%s;password=%s;port=%d;database=%s;",

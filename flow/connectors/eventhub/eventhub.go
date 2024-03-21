@@ -53,11 +53,6 @@ func NewEventHubConnector(
 	}, nil
 }
 
-func (c *EventHubConnector) ValidateCheck(ctx context.Context) error {
-	c.logger.Info("EventHubConnector ValidateCheck is a no-op")
-	return nil
-}
-
 func (c *EventHubConnector) Close() error {
 	if c != nil {
 		timeout, cancel := context.WithTimeout(context.Background(), time.Minute)

@@ -25,6 +25,13 @@ var ErrUnsupportedFunctionality = errors.New("requested connector does not suppo
 type Connector interface {
 	Close() error
 	ConnectionActive(context.Context) error
+}
+
+type ValidationConnector interface {
+	Connector
+
+	// ValidationCheck performs validation for the connectors,
+	// usually includes permissions to create and use objects (tables, schema etc).
 	ValidateCheck(context.Context) error
 }
 
@@ -280,4 +287,9 @@ var (
 
 	_ QRepConsolidateConnector = &connsnowflake.SnowflakeConnector{}
 	_ QRepConsolidateConnector = &connclickhouse.ClickhouseConnector{}
+
+	_ ValidationConnector = &connsnowflake.SnowflakeConnector{}
+	_ ValidationConnector = &connclickhouse.ClickhouseConnector{}
+	_ ValidationConnector = &connbigquery.BigQueryConnector{}
+	_ ValidationConnector = &conns3.S3Connector{}
 )
