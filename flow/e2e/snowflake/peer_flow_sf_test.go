@@ -127,7 +127,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	for range 6 {
 		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s (line,poly) VALUES ($1,$2)
-		`, srcTableName), "010200000002000000000000000000F03F000000000000004000000000000008400000000000001040",
+		`, srcTableName), "SRID=5678;010200000002000000000000000000F03F000000000000004000000000000008400000000000001040",
 			"010300000001000000050000000000000000000000000000000000000000000000"+
 				"00000000000000000000f03f000000000000f03f000000000000f03f0000000000"+
 				"00f03f000000000000000000000000000000000000000000000000")
@@ -143,6 +143,13 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 			return false
 		}
 
+		// Make sure SRIDs are set
+		sridCount, err := s.sfHelper.CountSRIDs("test_invalid_geo_sf_avro_cdc", "line")
+		if err != nil {
+			s.t.Log(err)
+			return false
+		}
+
 		polyCount, err := s.sfHelper.CountNonNullRows("test_invalid_geo_sf_avro_cdc", "poly")
 		if err != nil {
 			return false
@@ -151,9 +158,14 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 		if lineCount != 6 || polyCount != 6 {
 			s.t.Logf("wrong counts, expect 6 lines 6 polies, not %d lines %d polies", lineCount, polyCount)
 			return false
-		} else {
-			return true
 		}
+
+		if sridCount != 6 {
+			s.t.Logf("there are some srids that are 0, expected 6 non-zero srids, got %d non-zero srids", sridCount)
+			return false
+		}
+
+		return true
 	})
 	env.Cancel()
 

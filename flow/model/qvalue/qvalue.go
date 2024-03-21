@@ -292,7 +292,15 @@ func compareGeometry(value1, value2 interface{}) bool {
 	case *geom.Geom:
 		return v1.Equals(geo2)
 	case string:
-		geo1, err := geom.NewGeomFromWKT(v1)
+		geoWkt := v1
+		if strings.HasPrefix(geoWkt, "SRID=") {
+			_, wkt, found := strings.Cut(geoWkt, ";")
+			if found {
+				geoWkt = wkt
+			}
+		}
+
+		geo1, err := geom.NewGeomFromWKT(geoWkt)
 		if err != nil {
 			panic(err)
 		}
