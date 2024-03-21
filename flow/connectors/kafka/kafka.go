@@ -307,6 +307,9 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 		ls.SetTop(0)
 	}
 
+	if err := c.client.Flush(ctx); err != nil {
+		return nil, fmt.Errorf("could not flush transaction: %w", err)
+	}
 	waitChan := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -316,10 +319,6 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 	case <-wgCtx.Done():
 		return nil, wgCtx.Err()
 	case <-waitChan:
-	}
-
-	if err := c.client.Flush(ctx); err != nil {
-		return nil, fmt.Errorf("could not flush transaction: %w", err)
 	}
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()

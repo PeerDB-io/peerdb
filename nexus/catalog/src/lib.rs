@@ -101,6 +101,7 @@ impl Catalog {
                 }
                 Config::ClickhouseConfig(clickhouse_config) => clickhouse_config.encode_to_vec(),
                 Config::KafkaConfig(kafka_config) => kafka_config.encode_to_vec(),
+                Config::PubsubConfig(pubsub_config) => pubsub_config.encode_to_vec(),
             }
         };
 
@@ -311,6 +312,11 @@ impl Catalog {
                     let kafka_config =
                         pt::peerdb_peers::KafkaConfig::decode(options).with_context(err)?;
                     Config::KafkaConfig(kafka_config)
+                }
+                DbType::Pubsub => {
+                    let pubsub_config =
+                        pt::peerdb_peers::PubSubConfig::decode(options).with_context(err)?;
+                    Config::PubsubConfig(pubsub_config)
                 }
             })
         } else {

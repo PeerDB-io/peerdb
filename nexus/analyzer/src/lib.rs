@@ -10,8 +10,9 @@ use anyhow::Context;
 use pt::{
     flow_model::{FlowJob, FlowJobTableMapping, QRepFlowJob},
     peerdb_peers::{
-        peer::Config, BigqueryConfig, ClickhouseConfig, DbType, EventHubConfig, KafkaConfig,
-        MongoConfig, Peer, PostgresConfig, S3Config, SnowflakeConfig, SqlServerConfig,
+        peer::Config, BigqueryConfig, ClickhouseConfig, DbType, EventHubConfig, GcpServiceAccount,
+        KafkaConfig, MongoConfig, Peer, PostgresConfig, PubSubConfig, S3Config, SnowflakeConfig,
+        SqlServerConfig,
     },
 };
 use qrep::process_options;
@@ -248,12 +249,11 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
                             _ => None,
                         };
-                        let snapshot_staging_path = match raw_options
-                            .remove("snapshot_staging_path")
-                        {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => s.clone(),
-                            _ => String::new(),
-                        };
+                        let snapshot_staging_path =
+                            match raw_options.remove("snapshot_staging_path") {
+                                Some(sqlparser::ast::Value::SingleQuotedString(s)) => s.clone(),
+                                _ => String::new(),
+                            };
 
                         let snapshot_max_parallel_workers: Option<u32> = match raw_options
                             .remove("snapshot_max_parallel_workers")
@@ -827,11 +827,7 @@ fn parse_db_options(
                     .split(',')
                     .map(String::from)
                     .collect::<Vec<_>>(),
-                username: opts
-                    .get("user")
-                    .cloned()
-                    .unwrap_or_default()
-                    .to_string(),
+                username: opts.get("user").cloned().unwrap_or_default().to_string(),
                 password: opts
                     .get("password")
                     .cloned()
@@ -853,6 +849,63 @@ fn parse_db_options(
                     .unwrap_or_default(),
             };
             Config::KafkaConfig(kafka_config)
+        }
+        DbType::Pubsub => {
+            let pem_str = opts
+                .get("private_key")
+                .ok_or_else(|| anyhow::anyhow!("missing private_key option for bigquery"))?;
+            pem::parse(pem_str.as_bytes())
+                .map_err(|err| anyhow::anyhow!("unable to parse private_key: {:?}", err))?;
+            let ps_config = PubSubConfig {
+                service_account: Some(GcpServiceAccount {
+                    auth_type: opts
+                        .get("type")
+                        .ok_or_else(|| anyhow::anyhow!("missing type option for bigquery"))?
+                        .to_string(),
+                    project_id: opts
+                        .get("project_id")
+                        .ok_or_else(|| anyhow::anyhow!("missing project_id in peer options"))?
+                        .to_string(),
+                    private_key_id: opts
+                        .get("private_key_id")
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("missing private_key_id option for bigquery")
+                        })?
+                        .to_string(),
+                    private_key: pem_str.to_string(),
+                    client_email: opts
+                        .get("client_email")
+                        .ok_or_else(|| anyhow::anyhow!("missing client_email option for bigquery"))?
+                        .to_string(),
+                    client_id: opts
+                        .get("client_id")
+                        .ok_or_else(|| anyhow::anyhow!("missing client_id option for bigquery"))?
+                        .to_string(),
+                    auth_uri: opts
+                        .get("auth_uri")
+                        .ok_or_else(|| anyhow::anyhow!("missing auth_uri option for bigquery"))?
+                        .to_string(),
+                    token_uri: opts
+                        .get("token_uri")
+                        .ok_or_else(|| anyhow::anyhow!("missing token_uri option for bigquery"))?
+                        .to_string(),
+                    auth_provider_x509_cert_url: opts
+                        .get("auth_provider_x509_cert_url")
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "missing auth_provider_x509_cert_url option for bigquery"
+                            )
+                        })?
+                        .to_string(),
+                    client_x509_cert_url: opts
+                        .get("client_x509_cert_url")
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("missing client_x509_cert_url option for bigquery")
+                        })?
+                        .to_string(),
+                }),
+            };
+            Config::PubsubConfig(ps_config)
         }
     }))
 }
