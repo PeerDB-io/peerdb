@@ -158,27 +158,11 @@ func (c *KafkaConnector) SyncFlowCleanup(ctx context.Context, jobName string) er
 	return c.pgMetadata.DropMetadata(ctx, jobName)
 }
 
-func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	// TODO BeginTransaction if transactional
-
-	var wg sync.WaitGroup
-	wgCtx, wgErr := context.WithCancelCause(ctx)
-	produceCb := func(r *kgo.Record, err error) {
-		if err != nil {
-			wgErr(err)
-		}
-		wg.Done()
-	}
-
-	numRecords := int64(0)
-	tableNameRowsMapping := make(map[string]uint32)
-
-	var fn *lua.LFunction
-	var ls *lua.LState
-	if req.Script != "" {
-		ls = lua.NewState(lua.Options{SkipOpenLibs: true})
+func loadScript(ctx context.Context, script string, print lua.LGFunction) (*lua.LState, error) {
+	if script != "" {
+		ls := lua.NewState(lua.Options{SkipOpenLibs: true})
 		defer ls.Close()
-		ls.SetContext(wgCtx)
+		ls.SetContext(ctx)
 		for _, pair := range []struct {
 			n string
 			f lua.LGFunction
@@ -198,32 +182,99 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 		}
 		ls.PreloadModule("flatbuffers", gluaflatbuffers.Loader)
 		pua.RegisterTypes(ls)
-		ls.Env.RawSetString("print", ls.NewFunction(func(ls *lua.LState) int {
-			top := ls.GetTop()
-			ss := make([]string, top)
-			for i := range top {
-				ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
-			}
-			_ = c.pgMetadata.LogFlowInfo(ctx, req.FlowJobName, strings.Join(ss, "\t"))
-			return 0
-		}))
-		err := ls.GPCall(pua.LoadPeerdbScript, lua.LString(req.Script))
+		ls.Env.RawSetString("print", ls.NewFunction(print))
+		err := ls.GPCall(pua.LoadPeerdbScript, lua.LString(script))
 		if err != nil {
-			return nil, fmt.Errorf("error loading script %s: %w", req.Script, err)
+			return nil, fmt.Errorf("error loading script %s: %w", script, err)
 		}
 		err = ls.PCall(0, 0, nil)
 		if err != nil {
-			return nil, fmt.Errorf("error executing script %s: %w", req.Script, err)
+			return nil, fmt.Errorf("error executing script %s: %w", script, err)
 		}
-
-		var ok bool
-		lfn := ls.Env.RawGetString("onRecord")
-		fn, ok = lfn.(*lua.LFunction)
-		if !ok {
-			return nil, fmt.Errorf("script should define `onRecord` as function, not %s", lfn)
-		}
+		return ls, nil
 	} else {
 		return nil, errors.New("kafka mirror must have script")
+	}
+}
+
+func lvalueToKafkaRecord(ls *lua.LState, value lua.LValue) (*kgo.Record, error) {
+	var kr *kgo.Record
+	switch v := value.(type) {
+	case lua.LString:
+		kr = kgo.StringRecord(string(v))
+	case *lua.LTable:
+		key, err := LVAsReadOnlyBytes(ls, ls.GetField(v, "key"))
+		if err != nil {
+			return nil, fmt.Errorf("invalid key, %w", err)
+		}
+		value, err := LVAsReadOnlyBytes(ls, ls.GetField(v, "value"))
+		if err != nil {
+			return nil, fmt.Errorf("invalid value, %w", err)
+		}
+		topic, err := LVAsStringOrNil(ls, ls.GetField(v, "topic"))
+		if err != nil {
+			return nil, fmt.Errorf("invalid topic, %w", err)
+		}
+		partition := int32(lua.LVAsNumber(ls.GetField(v, "partition")))
+		kr = &kgo.Record{
+			Key:       key,
+			Value:     value,
+			Topic:     topic,
+			Partition: partition,
+		}
+		lheaders := ls.GetField(v, "headers")
+		if headers, ok := lheaders.(*lua.LTable); ok {
+			headers.ForEach(func(k, v lua.LValue) {
+				kstr := k.String()
+				vbytes, err := LVAsReadOnlyBytes(ls, v)
+				if err != nil {
+					vbytes = unsafeFastStringToReadOnlyBytes(err.Error())
+				}
+				kr.Headers = append(kr.Headers, kgo.RecordHeader{
+					Key:   kstr,
+					Value: vbytes,
+				})
+			})
+		} else if lua.LVAsBool(lheaders) {
+			return nil, fmt.Errorf("invalid headers, must be nil or table: %s", lheaders)
+		}
+	case *lua.LNilType:
+	default:
+		return nil, fmt.Errorf("script returned invalid value: %s", value)
+	}
+	return kr, nil
+}
+
+func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+	var wg sync.WaitGroup
+	wgCtx, wgErr := context.WithCancelCause(ctx)
+	produceCb := func(r *kgo.Record, err error) {
+		if err != nil {
+			wgErr(err)
+		}
+		wg.Done()
+	}
+
+	numRecords := int64(0)
+	tableNameRowsMapping := make(map[string]uint32)
+
+	ls, err := loadScript(wgCtx, req.Script, func(ls *lua.LState) int {
+		top := ls.GetTop()
+		ss := make([]string, top)
+		for i := range top {
+			ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
+		}
+		_ = c.pgMetadata.LogFlowInfo(ctx, req.FlowJobName, strings.Join(ss, "\t"))
+		return 0
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	lfn := ls.Env.RawGetString("onRecord")
+	fn, ok := lfn.(*lua.LFunction)
+	if !ok {
+		return nil, fmt.Errorf("script should define `onRecord` as function, not %s", lfn)
 	}
 
 	for record := range req.Records.GetRecords() {
@@ -238,50 +289,9 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 		}
 		args := ls.GetTop()
 		for i := range args {
-			value := ls.Get(i - args)
-			var kr *kgo.Record
-			switch v := value.(type) {
-			case lua.LString:
-				kr = kgo.StringRecord(string(v))
-			case *lua.LTable:
-				key, err := LVAsReadOnlyBytes(ls, ls.GetField(v, "key"))
-				if err != nil {
-					return nil, fmt.Errorf("invalid key, %w", err)
-				}
-				value, err := LVAsReadOnlyBytes(ls, ls.GetField(v, "value"))
-				if err != nil {
-					return nil, fmt.Errorf("invalid value, %w", err)
-				}
-				topic, err := LVAsStringOrNil(ls, ls.GetField(v, "topic"))
-				if err != nil {
-					return nil, fmt.Errorf("invalid topic, %w", err)
-				}
-				partition := int32(lua.LVAsNumber(ls.GetField(v, "partition")))
-				kr = &kgo.Record{
-					Key:       key,
-					Value:     value,
-					Topic:     topic,
-					Partition: partition,
-				}
-				lheaders := ls.GetField(v, "headers")
-				if headers, ok := lheaders.(*lua.LTable); ok {
-					headers.ForEach(func(k, v lua.LValue) {
-						kstr := k.String()
-						vbytes, err := LVAsReadOnlyBytes(ls, v)
-						if err != nil {
-							vbytes = unsafeFastStringToReadOnlyBytes(err.Error())
-						}
-						kr.Headers = append(kr.Headers, kgo.RecordHeader{
-							Key:   kstr,
-							Value: vbytes,
-						})
-					})
-				} else if lua.LVAsBool(lheaders) {
-					return nil, fmt.Errorf("invalid headers, must be nil or table: %s", lheaders)
-				}
-			case *lua.LNilType:
-			default:
-				return nil, fmt.Errorf("script returned invalid value: %s", value)
+			kr, err := lvalueToKafkaRecord(ls, ls.Get(i-args))
+			if err != nil {
+				return nil, err
 			}
 			if kr != nil {
 				if kr.Topic == "" {
@@ -290,17 +300,17 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 
 				wg.Add(1)
 				c.client.Produce(wgCtx, kr, produceCb)
-				numRecords += 1
 				tableNameRowsMapping[kr.Topic] += 1
 			}
 		}
+		numRecords += 1
 		ls.SetTop(0)
 	}
 
 	waitChan := make(chan struct{})
 	go func() {
 		wg.Wait()
-		waitChan <- struct{}{}
+		close(waitChan)
 	}()
 	select {
 	case <-wgCtx.Done():
@@ -312,10 +322,8 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 		return nil, fmt.Errorf("could not flush transaction: %w", err)
 	}
 
-	// TODO EndTransaction if transactional
-
 	lastCheckpoint := req.Records.GetLastCheckpoint()
-	err := c.pgMetadata.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
+	err = c.pgMetadata.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
 	if err != nil {
 		return nil, err
 	}
