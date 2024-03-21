@@ -17,13 +17,13 @@ import (
 	"github.com/yuin/gopher-lua"
 	"go.temporal.io/sdk/log"
 
+	"github.com/PeerDB-io/gluaflatbuffers"
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/pua"
-	"github.com/PeerDB-io/peer-flow/pua/flatbuffers"
 )
 
 type KafkaConnector struct {
@@ -196,7 +196,7 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 				return nil, fmt.Errorf("failed to initialize Lua runtime: %w", err)
 			}
 		}
-		ls.PreloadModule("flatbuffers", pua_flatbuffers.Loader)
+		ls.PreloadModule("flatbuffers", gluaflatbuffers.Loader)
 		pua.RegisterTypes(ls)
 		ls.Env.RawSetString("print", ls.NewFunction(func(ls *lua.LState) int {
 			top := ls.GetTop()
