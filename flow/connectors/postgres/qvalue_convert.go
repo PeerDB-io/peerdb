@@ -233,7 +233,7 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		var interval peerdb_interval.PeerDBInterval
 		interval.Hours = int(intervalObject.Microseconds / 3600000000)
 		interval.Minutes = int((intervalObject.Microseconds % 3600000000) / 60000000)
-		interval.Seconds = float64((intervalObject.Microseconds % 60000000) / 1000000)
+		interval.Seconds = float64(intervalObject.Microseconds%60000000) / 1000000.0
 		interval.Days = int(intervalObject.Days)
 		interval.Years = int(intervalObject.Months / 12)
 		interval.Months = int(intervalObject.Months % 12)
