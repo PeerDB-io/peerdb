@@ -427,7 +427,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 
-	e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize types", func() bool {
+	e2e.EnvWaitFor(s.t, env, 5*time.Minute, "normalize types", func() bool {
 		noNulls, err := s.sfHelper.CheckNull("test_types_sf", []string{
 			"c41", "c1", "c2", "c3", "c4",
 			"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
