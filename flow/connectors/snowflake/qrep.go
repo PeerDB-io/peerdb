@@ -135,7 +135,10 @@ func (c *SnowflakeConnector) createExternalStage(stageName string, config *proto
 
 	cleanURL := fmt.Sprintf("s3://%s/%s/%s", s3o.Bucket, s3o.Prefix, config.FlowJobName)
 
-	s3Int := config.DestinationPeer.GetSnowflakeConfig().S3Integration
+	var s3Int string
+	if config.DestinationPeer != nil {
+		s3Int = config.DestinationPeer.GetSnowflakeConfig().S3Integration
+	}
 	if s3Int == "" {
 		credsStr := fmt.Sprintf("CREDENTIALS=(AWS_KEY_ID='%s' AWS_SECRET_KEY='%s')",
 			awsCreds.AccessKeyID, awsCreds.SecretAccessKey)
