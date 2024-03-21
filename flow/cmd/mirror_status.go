@@ -121,21 +121,24 @@ func (h *FlowRequestHandler) cloneTableSummary(
 ) ([]*protos.CloneTableSummary, error) {
 	q := `
 	SELECT
-		qp.flow_name,
+		qr.flow_name,
 		qr.config_proto,
-		MIN(qp.start_time) AS StartTime,
-		COUNT(*) AS NumPartitionsTotal,
+		qr.start_time AS StartTime,
+		qr.fetch_complete as FetchCompleted,
+		qr.consolidate_complete as ConsolidateCompleted,
+		COUNT(CASE WHEN qp.flow_name IS NOT NULL THEN 1 END) AS NumPartitionsTotal,
 		COUNT(CASE WHEN qp.end_time IS NOT NULL THEN 1 END) AS NumPartitionsCompleted,
 		SUM(qp.rows_in_partition) FILTER (WHERE qp.end_time IS NOT NULL) AS NumRowsSynced,
 		AVG(EXTRACT(EPOCH FROM (qp.end_time - qp.start_time)) * 1000) FILTER (WHERE qp.end_time IS NOT NULL) AS AvgTimePerPartitionMs
 	FROM peerdb_stats.qrep_partitions qp
 	JOIN peerdb_stats.qrep_runs qr ON qp.flow_name = qr.flow_name
-	WHERE qp.flow_name ILIKE $1
-	GROUP BY qp.flow_name, qr.config_proto;
+	WHERE qr.flow_name ILIKE $1
+	GROUP BY qr.flow_name, qr.config_proto, qr.start_time, qr.fetch_complete, qr.consolidate_complete;
 	`
-
 	var flowName pgtype.Text
 	var configBytes []byte
+	var fetchCompleted pgtype.Bool
+	var consolidateCompleted pgtype.Bool
 	var startTime pgtype.Timestamp
 	var numPartitionsTotal pgtype.Int8
 	var numPartitionsCompleted pgtype.Int8
@@ -157,6 +160,8 @@ func (h *FlowRequestHandler) cloneTableSummary(
 			&flowName,
 			&configBytes,
 			&startTime,
+			&fetchCompleted,
+			&consolidateCompleted,
 			&numPartitionsTotal,
 			&numPartitionsCompleted,
 			&numRowsSynced,
@@ -172,6 +177,14 @@ func (h *FlowRequestHandler) cloneTableSummary(
 		}
 		if startTime.Valid {
 			res.StartTime = timestamppb.New(startTime.Time)
+		}
+
+		if fetchCompleted.Valid {
+			res.FetchCompleted = fetchCompleted.Bool
+		}
+
+		if consolidateCompleted.Valid {
+			res.ConsolidateCompleted = consolidateCompleted.Bool
 		}
 
 		if numPartitionsTotal.Valid {
@@ -197,6 +210,7 @@ func (h *FlowRequestHandler) cloneTableSummary(
 				return nil, fmt.Errorf("unable to unmarshal config: %w", err)
 			}
 			res.TableName = config.DestinationTableIdentifier
+			res.SourceTable = config.WatermarkTable
 		}
 
 		cloneStatuses = append(cloneStatuses, &res)

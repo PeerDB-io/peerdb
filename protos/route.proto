@@ -181,6 +181,9 @@ message CloneTableSummary {
   int64 num_rows_synced = 5;
   int64 avg_time_per_partition_ms = 6;
   string flow_job_name = 7;
+  string source_table = 8;
+  bool fetch_completed = 9;
+  bool consolidate_completed = 10;
 }
 
 message SnapshotStatus {

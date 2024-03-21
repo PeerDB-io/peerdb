@@ -13,7 +13,6 @@ import ReactSelect from 'react-select';
 
 export type QRepPartitionStatus = {
   partitionId: string;
-  runUuid: string;
   status: string;
   startTime: Date | null;
   endTime: Date | null;
@@ -31,7 +30,6 @@ function TimeOrProgressBar({ time }: { time: Date | null }) {
 
 function RowPerPartition({
   partitionId,
-  runUuid,
   status,
   startTime,
   endTime,
@@ -50,11 +48,6 @@ function RowPerPartition({
       <TableCell>
         <Label as='label' style={{ fontSize: 15 }}>
           {partitionId}
-        </Label>
-      </TableCell>
-      <TableCell>
-        <Label as='label' style={{ fontSize: 15 }}>
-          {runUuid}
         </Label>
       </TableCell>
       <TableCell>
@@ -82,7 +75,6 @@ type QRepStatusTableProps = {
 };
 
 export default function QRepStatusTable({
-  flowJobName,
   partitions,
 }: QRepStatusTableProps) {
   const ROWS_PER_PAGE = 10;
