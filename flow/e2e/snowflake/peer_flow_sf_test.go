@@ -444,14 +444,17 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 		s.t.Log("Checking for intervals in all types")
 		// interval checks
 		if err := s.checkJSONValue(dstTableName, "c16", "years", "5"); err != nil {
+			s.t.Log(err)
 			return false
 		}
 
 		if err := s.checkJSONValue(dstTableName, "c16", "months", "2"); err != nil {
+			s.t.Log(err)
 			return false
 		}
 
 		if err := s.checkJSONValue(dstTableName, "c16", "days", "29"); err != nil {
+			s.t.Log(err)
 			return false
 		}
 
