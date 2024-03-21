@@ -5,6 +5,7 @@ import BigqueryForm from '@/components/PeerForms/BigqueryConfig';
 import ClickhouseForm from '@/components/PeerForms/ClickhouseConfig';
 import KafkaForm from '@/components/PeerForms/KafkaConfig';
 import PostgresForm from '@/components/PeerForms/PostgresForm';
+import PubSubForm from '@/components/PeerForms/PubSubConfig';
 import S3Form from '@/components/PeerForms/S3Form';
 import SnowflakeForm from '@/components/PeerForms/SnowflakeForm';
 
@@ -84,6 +85,8 @@ export default function CreateConfig({
         return <S3Form setter={setConfig} />;
       case 'KAFKA':
         return <KafkaForm setter={setConfig} />;
+      case 'PUBSUB':
+        return <PubSubForm setter={setConfig} />;
       default:
         return <></>;
     }

@@ -351,3 +351,71 @@ export const s3Schema = z.object({
     })
     .optional(),
 });
+
+export const psSchema = z.object({
+  authType: z
+    .string({
+      required_error: 'Auth Type is required',
+      invalid_type_error: 'Auth Type must be a string',
+    })
+    .min(1, { message: 'Auth Type must be non-empty' })
+    .max(255, 'Auth Type must be less than 255 characters'),
+  projectId: z
+    .string({
+      required_error: 'Project ID is required',
+      invalid_type_error: 'Project ID must be a string',
+    })
+    .min(1, { message: 'Project ID must be non-empty' }),
+  privateKeyId: z
+    .string({
+      required_error: 'Private Key ID is required',
+      invalid_type_error: 'Private Key ID must be a string',
+    })
+    .min(1, { message: 'Private Key must be non-empty' }),
+  privateKey: z
+    .string({
+      required_error: 'Private Key is required',
+      invalid_type_error: 'Private Key must be a string',
+    })
+    .min(1, { message: 'Private Key must be non-empty' }),
+  clientId: z
+    .string({
+      required_error: 'Client ID is required',
+      invalid_type_error: 'Client ID must be a string',
+    })
+    .min(1, { message: 'Client ID must be non-empty' }),
+  clientEmail: z
+    .string({
+      required_error: 'Client Email is required',
+      invalid_type_error: 'Client Email must be a string',
+    })
+    .min(1, { message: 'Client Email must be non-empty' }),
+  authUri: z
+    .string({
+      required_error: 'Auth URI is required',
+      invalid_type_error: 'Auth URI must be a string',
+    })
+    .url({ message: 'Invalid auth URI' })
+    .min(1, { message: 'Auth URI must be non-empty' }),
+  tokenUri: z
+    .string({
+      required_error: 'Token URI is required',
+      invalid_type_error: 'Token URI must be a string',
+    })
+    .url({ message: 'Invalid token URI' })
+    .min(1, { message: 'Token URI must be non-empty' }),
+  authProviderX509CertUrl: z
+    .string({
+      invalid_type_error: 'Auth Cert URL must be a string',
+      required_error: 'Auth Cert URL is required',
+    })
+    .url({ message: 'Invalid auth cert URL' })
+    .min(1, { message: 'Auth Cert URL must be non-empty' }),
+  clientX509CertUrl: z
+    .string({
+      invalid_type_error: 'Client Cert URL must be a string',
+      required_error: 'Client Cert URL is required',
+    })
+    .url({ message: 'Invalid client cert URL' })
+    .min(1, { message: 'Client Cert URL must be non-empty' }),
+});

@@ -56,8 +56,9 @@ function PeersTable({ peers }: { peers: Peer[] }) {
   const availableTypes: { value: DBType | undefined; label: string }[] =
     Array.from(
       new Map( // Map filters out duplicates
-        peers.flatMap((peer) => [
-          [peer.type, { value: peer.type, label: DBTypeToGoodText(peer.type) }],
+        peers.map((peer) => [
+          peer.type,
+          { value: peer.type, label: DBTypeToGoodText(peer.type) },
         ])
       ).values()
     );

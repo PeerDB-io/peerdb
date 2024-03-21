@@ -63,7 +63,7 @@ export const kaSetting: PeerSetting[] = [
   },
 ];
 
-export const blankKaSetting: KafkaConfig = {
+export const blankKafkaSetting: KafkaConfig = {
   servers: [],
   username: '',
   password: '',
