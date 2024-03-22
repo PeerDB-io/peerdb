@@ -225,7 +225,6 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 	var wg sync.WaitGroup
 	wgCtx, wgErr := context.WithCancelCause(ctx)
 	publish := make(chan *pubsub.PublishResult, 60)
-	defer close(publish)
 	go func() {
 		var curpub *pubsub.PublishResult
 		for {
