@@ -210,17 +210,13 @@ func (s PubSubSuite) TestSimple() {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	msgs := make(chan *pubsub.Message)
-	sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-		msgs <- msg
+	var msg *pubsub.Message
+	_ = sub.Receive(ctx, func(ctx context.Context, m *pubsub.Message) {
+		msg = m
+		cancel()
 	})
-	select {
-	case msg := <-msgs:
-		require.Equal(s.t, "testval", string(msg.Data))
-	case <-ctx.Done():
-		s.t.Log("UNEXPECTED TIMEOUT waiting for PubSub subscription to receive message")
-		s.t.Fail()
-	}
+	require.NotNil(s.t, msg)
+	require.Equal(s.t, "testval", string(msg.Data))
 
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
