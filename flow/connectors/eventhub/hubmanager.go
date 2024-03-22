@@ -26,6 +26,8 @@ type EventHubManager struct {
 	peerConfig cmap.ConcurrentMap[string, *protos.EventHubConfig]
 	// eventhub name -> client
 	hubs sync.Map
+	// eventhub name -> number of partitions
+	partitionCount cmap.ConcurrentMap[ScopedEventhub, int]
 }
 
 func NewEventHubManager(
@@ -42,6 +44,30 @@ func NewEventHubManager(
 		creds:      creds,
 		peerConfig: peerConfig,
 	}
+}
+
+func (m *EventHubManager) GetNumPartitions(ctx context.Context, name ScopedEventhub) (int, error) {
+	partitionCount, ok := m.partitionCount.Get(name)
+	if ok {
+		return partitionCount, nil
+	}
+
+	hub, err := m.GetOrCreateHubClient(ctx, name)
+	if err != nil {
+		return 0, err
+	}
+
+	props, err := hub.GetEventHubProperties(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get eventhub properties: %v", err)
+	}
+
+	numPartitions := len(props.PartitionIDs)
+	m.partitionCount.Upsert(name, numPartitions, func(exist bool, valueInMap int, newValue int) int {
+		return newValue
+	})
+
+	return numPartitions, nil
 }
 
 func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedEventhub) (
@@ -61,7 +87,7 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 
 	var hubConnectOK bool
 	var hub any
-	hub, hubConnectOK = m.hubs.Load(name)
+	hub, hubConnectOK = m.hubs.Load(name.ToString())
 	if hubConnectOK {
 		hubTmp := hub.(*azeventhubs.ProducerClient)
 		_, err := hubTmp.GetEventHubProperties(ctx, nil)
@@ -74,7 +100,7 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 			if closeError != nil {
 				logger.Error("failed to close producer client", slog.Any("error", closeError))
 			}
-			m.hubs.Delete(name)
+			m.hubs.Delete(name.ToString())
 			hubConnectOK = false
 		}
 	}
@@ -91,7 +117,7 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 		if err != nil {
 			return nil, fmt.Errorf("failed to create eventhub client: %v", err)
 		}
-		m.hubs.Store(name, hub)
+		m.hubs.Store(name.ToString(), hub)
 		return hub, nil
 	}
 
@@ -106,25 +132,29 @@ func (m *EventHubManager) closeProducerClient(ctx context.Context, pc *azeventhu
 }
 
 func (m *EventHubManager) Close(ctx context.Context) error {
+	var allErrors error
 	numHubsClosed := atomic.Uint32{}
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("closed %d eventhub clients", numHubsClosed.Load())
 	})
 	defer shutdown()
 
-	var allErrors error
 	m.hubs.Range(func(key any, value any) bool {
-		name := key.(ScopedEventhub)
-		hub := value.(*azeventhubs.ProducerClient)
-		err := m.closeProducerClient(ctx, hub)
+		slog.InfoContext(ctx, "closing eventhub client",
+			slog.Uint64("numClosed", uint64(numHubsClosed.Load())),
+			slog.String("Currently closing", fmt.Sprintf("%v", key)))
+		client := value.(*azeventhubs.ProducerClient)
+		err := m.closeProducerClient(ctx, client)
 		if err != nil {
-			logger.LoggerFromCtx(ctx).Error(fmt.Sprintf("failed to close eventhub client for %v", name), slog.Any("error", err))
+			logger.LoggerFromCtx(ctx).Error(fmt.Sprintf("failed to close eventhub client for %v", key),
+				slog.Any("error", err))
 			allErrors = errors.Join(allErrors, err)
 		}
 		numHubsClosed.Add(1)
 		return true
 	})
 
+	slog.InfoContext(ctx, "closed all eventhub clients", slog.Any("numClosed", numHubsClosed.Load()))
 	return allErrors
 }
 
@@ -137,10 +167,9 @@ func (m *EventHubManager) CreateEventDataBatch(ctx context.Context, destination 
 	}
 
 	opts := &azeventhubs.EventDataBatchOptions{
-		// Eventhubs internally does the routing
-		// to partition based on hash of the partition key.
-		// Same partition key is guaranteed to map to same partition.
-		PartitionKey: &destination.PartitionKeyValue,
+		// We want to route same hashed partition value
+		// to same partition.
+		PartitionID: &destination.PartitionKeyValue,
 	}
 	batch, err := hub.NewEventDataBatch(ctx, opts)
 	if err != nil {
