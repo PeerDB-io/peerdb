@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"cloud.google.com/go/pubsub"
 	"github.com/snowflakedb/gosnowflake"
 	"github.com/youmark/pkcs8"
 	"google.golang.org/api/iterator"
@@ -59,6 +60,16 @@ func ParseJsonKeyVal[T any](path string) (T, error) {
 	return result, err
 }
 
+func handleIteratorError(err error) bool {
+	if err != nil {
+		if err == iterator.Done {
+			return true
+		}
+		panic(err)
+	}
+	return false
+}
+
 func CleanupBQ(ctx context.Context) {
 	config, err := ParseJsonKeyVal[map[string]string](os.Getenv("TEST_BQ_CREDS"))
 	if err != nil {
@@ -86,11 +97,8 @@ func CleanupBQ(ctx context.Context) {
 	datasetPrefix := config["dataset_id"]
 	for {
 		ds, err := datasets.Next()
-		if err != nil {
-			if err == iterator.Done {
-				return
-			}
-			panic(err)
+		if handleIteratorError(err) {
+			break
 		}
 
 		if strings.HasPrefix(ds.DatasetID, datasetPrefix) {
@@ -105,6 +113,31 @@ func CleanupBQ(ctx context.Context) {
 				}
 			}
 		}
+	}
+
+	// now pubsub too, lack metadata to avoid deleting currently running tests
+	psclient, err := pubsub.NewClient(ctx, config["project_id"], option.WithCredentialsJSON(config_json))
+	if err != nil {
+		panic(err)
+	}
+	defer psclient.Close()
+
+	topics := psclient.Topics(ctx)
+	for {
+		topic, err := topics.Next()
+		if handleIteratorError(err) {
+			break
+		}
+		topic.Delete(ctx)
+	}
+
+	subscriptions := psclient.Subscriptions(ctx)
+	for {
+		subscription, err := subscriptions.Next()
+		if handleIteratorError(err) {
+			break
+		}
+		subscription.Delete(ctx)
 	}
 }
 
