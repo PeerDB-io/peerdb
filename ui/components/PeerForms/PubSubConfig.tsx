@@ -29,7 +29,7 @@ export default function PubSubForm(props: PSProps) {
         }
         const psConfig: PubSubConfig = {
           serviceAccount: {
-            authType: psJson.type,
+            authType: psJson.type ?? psJson.auth_type,
             projectId: psJson.project_id,
             privateKeyId: psJson.private_key_id,
             privateKey: psJson.private_key,
