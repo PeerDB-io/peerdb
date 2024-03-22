@@ -95,9 +95,10 @@ func (s KafkaSuite) TestSimple() {
 	('e2e_kasimple', 'lua', 'function onRecord(r) return r.row and r.row.val end') on conflict do nothing`)
 	require.NoError(s.t, err)
 
+	flowName := e2e.AddSuffix(s, "kasimple")
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      e2e.AddSuffix(s, "kasimple"),
-		TableNameMapping: map[string]string{srcTableName: "katest"},
+		FlowJobName:      flowName,
+		TableNameMapping: map[string]string{srcTableName: flowName},
 		Destination:      s.Peer(),
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
@@ -115,7 +116,7 @@ func (s KafkaSuite) TestSimple() {
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize insert", func() bool {
 		kafka, err := kgo.NewClient(
 			kgo.SeedBrokers("localhost:9092"),
-			kgo.ConsumeTopics("katest"),
+			kgo.ConsumeTopics(flowName),
 		)
 		if err != nil {
 			return false
@@ -125,7 +126,7 @@ func (s KafkaSuite) TestSimple() {
 		defer cancel()
 		fetches := kafka.PollFetches(ctx)
 		fetches.EachTopic(func(ft kgo.FetchTopic) {
-			require.Equal(s.t, "katest", ft.Topic)
+			require.Equal(s.t, flowName, ft.Topic)
 			ft.EachRecord(func(r *kgo.Record) {
 				require.Equal(s.t, "testval", string(r.Value))
 			})
