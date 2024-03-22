@@ -1,4 +1,4 @@
-package utils
+package peerdbenv
 
 import (
 	"context"
@@ -7,9 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 var (
@@ -39,15 +38,15 @@ func GetCatalogConnectionPoolFromEnv(ctx context.Context) (*pgxpool.Pool, error)
 }
 
 func GetCatalogConnectionStringFromEnv() string {
-	return utils.GetPGConnectionString(GetCatalogPostgresConfigFromEnv())
+	return shared.GetPGConnectionString(GetCatalogPostgresConfigFromEnv())
 }
 
 func GetCatalogPostgresConfigFromEnv() *protos.PostgresConfig {
 	return &protos.PostgresConfig{
-		Host:     peerdbenv.PeerDBCatalogHost(),
-		Port:     uint32(peerdbenv.PeerDBCatalogPort()),
-		User:     peerdbenv.PeerDBCatalogUser(),
-		Password: peerdbenv.PeerDBCatalogPassword(),
-		Database: peerdbenv.PeerDBCatalogDatabase(),
+		Host:     PeerDBCatalogHost(),
+		Port:     uint32(PeerDBCatalogPort()),
+		User:     PeerDBCatalogUser(),
+		Password: PeerDBCatalogPassword(),
+		Database: PeerDBCatalogDatabase(),
 	}
 }

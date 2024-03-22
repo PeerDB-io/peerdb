@@ -2,54 +2,27 @@ package connpubsub
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
-	"unsafe"
 
 	"cloud.google.com/go/pubsub"
 	"github.com/yuin/gopher-lua"
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/gluaflatbuffers"
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/pua"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type PubSubConnector struct {
 	client     *pubsub.Client
 	pgMetadata *metadataStore.PostgresMetadataStore
 	logger     log.Logger
-}
-
-func unsafeFastStringToReadOnlyBytes(s string) []byte {
-	return unsafe.Slice(unsafe.StringData(s), len(s))
-}
-
-func LVAsReadOnlyBytes(ls *lua.LState, v lua.LValue) ([]byte, error) {
-	str, err := LVAsStringOrNil(ls, v)
-	if err != nil {
-		return nil, err
-	} else if str == "" {
-		return nil, nil
-	} else {
-		return unsafeFastStringToReadOnlyBytes(str), nil
-	}
-}
-
-func LVAsStringOrNil(ls *lua.LState, v lua.LValue) (string, error) {
-	if lstr, ok := v.(lua.LString); ok {
-		return string(lstr), nil
-	} else if v == lua.LNil {
-		return "", nil
-	} else {
-		return "", fmt.Errorf("invalid bytes, must be nil or string: %s", v)
-	}
 }
 
 func NewPubSubConnector(
@@ -119,62 +92,24 @@ func (c *PubSubConnector) SyncFlowCleanup(ctx context.Context, jobName string) e
 	return c.pgMetadata.DropMetadata(ctx, jobName)
 }
 
-func loadScript(ctx context.Context, script string, printfn lua.LGFunction) (*lua.LState, error) {
-	if script == "" {
-		return nil, errors.New("pubsub mirror must have script")
-	}
-
-	ls := lua.NewState(lua.Options{SkipOpenLibs: true})
-	ls.SetContext(ctx)
-	for _, pair := range []struct {
-		n string
-		f lua.LGFunction
-	}{
-		{lua.LoadLibName, lua.OpenPackage}, // Must be first
-		{lua.BaseLibName, lua.OpenBase},
-		{lua.TabLibName, lua.OpenTable},
-		{lua.StringLibName, lua.OpenString},
-		{lua.MathLibName, lua.OpenMath},
-	} {
-		ls.Push(ls.NewFunction(pair.f))
-		ls.Push(lua.LString(pair.n))
-		err := ls.PCall(1, 0, nil)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize Lua runtime: %w", err)
-		}
-	}
-	ls.PreloadModule("flatbuffers", gluaflatbuffers.Loader)
-	pua.RegisterTypes(ls)
-	ls.Env.RawSetString("print", ls.NewFunction(printfn))
-	err := ls.GPCall(pua.LoadPeerdbScript, lua.LString(script))
-	if err != nil {
-		return nil, fmt.Errorf("error loading script %s: %w", script, err)
-	}
-	err = ls.PCall(0, 0, nil)
-	if err != nil {
-		return nil, fmt.Errorf("error executing script %s: %w", script, err)
-	}
-	return ls, nil
-}
-
 func lvalueToPubSubMessage(ls *lua.LState, value lua.LValue) (string, *pubsub.Message, error) {
 	var topic string
 	var msg *pubsub.Message
 	switch v := value.(type) {
 	case lua.LString:
 		msg = &pubsub.Message{
-			Data: unsafeFastStringToReadOnlyBytes(string(v)),
+			Data: shared.UnsafeFastStringToReadOnlyBytes(string(v)),
 		}
 	case *lua.LTable:
-		key, err := LVAsStringOrNil(ls, ls.GetField(v, "key"))
+		key, err := utils.LVAsStringOrNil(ls, ls.GetField(v, "key"))
 		if err != nil {
 			return "", nil, fmt.Errorf("invalid key, %w", err)
 		}
-		value, err := LVAsReadOnlyBytes(ls, ls.GetField(v, "value"))
+		value, err := utils.LVAsReadOnlyBytes(ls, ls.GetField(v, "value"))
 		if err != nil {
 			return "", nil, fmt.Errorf("invalid value, %w", err)
 		}
-		topic, err = LVAsStringOrNil(ls, ls.GetField(v, "topic"))
+		topic, err = utils.LVAsStringOrNil(ls, ls.GetField(v, "topic"))
 		if err != nil {
 			return "", nil, fmt.Errorf("invalid topic, %w", err)
 		}
@@ -202,7 +137,7 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 	numRecords := int64(0)
 	tableNameRowsMapping := make(map[string]uint32)
 
-	ls, err := loadScript(ctx, req.Script, func(ls *lua.LState) int {
+	ls, err := utils.LoadScript(ctx, req.Script, func(ls *lua.LState) int {
 		top := ls.GetTop()
 		ss := make([]string, top)
 		for i := range top {

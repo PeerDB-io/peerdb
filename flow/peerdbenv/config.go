@@ -1,7 +1,10 @@
 package peerdbenv
 
 import (
+	"fmt"
 	"time"
+
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 // This file contains functions to get the values of various peerdb environment
@@ -16,6 +19,14 @@ func PeerDBVersionShaShort() string {
 // PEERDB_DEPLOYMENT_UID
 func PeerDBDeploymentUID() string {
 	return getEnvString("PEERDB_DEPLOYMENT_UID", "")
+}
+
+func PeerFlowTaskQueueName(taskQueueID shared.TaskQueueID) string {
+	deploymentUID := PeerDBDeploymentUID()
+	if deploymentUID == "" {
+		return string(taskQueueID)
+	}
+	return fmt.Sprintf("%s-%s", deploymentUID, taskQueueID)
 }
 
 // PEERDB_CDC_CHANNEL_BUFFER_SIZE
