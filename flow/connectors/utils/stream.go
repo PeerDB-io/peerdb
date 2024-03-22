@@ -63,7 +63,8 @@ func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.RecordsT
 
 	go func() {
 		for record := range req.GetRecords() {
-			qRecordOrError := recordToQRecordOrError(req.TableMapping, req.BatchID, record)
+			record.PopulateCountMap(req.TableMapping)
+			qRecordOrError := recordToQRecordOrError(req.BatchID, record)
 			recordStream.Records <- qRecordOrError
 		}
 
@@ -74,7 +75,7 @@ func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.RecordsT
 	}, nil
 }
 
-func recordToQRecordOrError(tableMapping map[string]*model.RecordTypeCounts, batchID int64, record model.Record) model.QRecordOrError {
+func recordToQRecordOrError(batchID int64, record model.Record) model.QRecordOrError {
 	var entries [8]qvalue.QValue
 	switch typedRecord := record.(type) {
 	case *model.InsertRecord:
@@ -103,7 +104,6 @@ func recordToQRecordOrError(tableMapping map[string]*model.RecordTypeCounts, bat
 			Value: "",
 		}
 
-		tableMapping[typedRecord.DestinationTableName].InsertCount += 1
 	case *model.UpdateRecord:
 		newItemsJSON, err := typedRecord.NewItems.ToJSON()
 		if err != nil {
@@ -134,7 +134,7 @@ func recordToQRecordOrError(tableMapping map[string]*model.RecordTypeCounts, bat
 			Kind:  qvalue.QValueKindString,
 			Value: KeysToString(typedRecord.UnchangedToastColumns),
 		}
-		tableMapping[typedRecord.DestinationTableName].UpdateCount += 1
+
 	case *model.DeleteRecord:
 		itemsJSON, err := typedRecord.Items.ToJSON()
 		if err != nil {
@@ -159,7 +159,7 @@ func recordToQRecordOrError(tableMapping map[string]*model.RecordTypeCounts, bat
 			Kind:  qvalue.QValueKindString,
 			Value: KeysToString(typedRecord.UnchangedToastColumns),
 		}
-		tableMapping[typedRecord.DestinationTableName].DeleteCount += 1
+
 	default:
 		return model.QRecordOrError{
 			Err: fmt.Errorf("unknown record type: %T", typedRecord),
@@ -189,7 +189,7 @@ func recordToQRecordOrError(tableMapping map[string]*model.RecordTypeCounts, bat
 }
 
 func InitialiseTableRowsMap(tableMaps []*protos.TableMapping) map[string]*model.RecordTypeCounts {
-	tableNameRowsMapping := make(map[string]*model.RecordTypeCounts)
+	tableNameRowsMapping := make(map[string]*model.RecordTypeCounts, len(tableMaps))
 	for _, mapping := range tableMaps {
 		tableNameRowsMapping[mapping.DestinationTableIdentifier] = &model.RecordTypeCounts{
 			InsertCount: 0,

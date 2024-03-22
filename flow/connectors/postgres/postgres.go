@@ -433,7 +433,7 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 					req.SyncBatchID,
 					"",
 				}
-				tableNameRowsMapping[record.GetDestinationTableName()].InsertCount += 1
+
 			case *model.UpdateRecord:
 				newItemsJSON, err := typedRecord.NewItems.ToJSONWithOptions(&model.ToJSONOptions{
 					UnnestColumns: map[string]struct{}{},
@@ -460,7 +460,7 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 					req.SyncBatchID,
 					utils.KeysToString(typedRecord.UnchangedToastColumns),
 				}
-				tableNameRowsMapping[record.GetDestinationTableName()].UpdateCount += 1
+
 			case *model.DeleteRecord:
 				itemsJSON, err := typedRecord.Items.ToJSONWithOptions(&model.ToJSONOptions{
 					UnnestColumns: map[string]struct{}{},
@@ -480,11 +480,12 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 					req.SyncBatchID,
 					"",
 				}
-				tableNameRowsMapping[record.GetDestinationTableName()].DeleteCount += 1
+
 			default:
 				return nil, fmt.Errorf("unsupported record type for Postgres flow connector: %T", typedRecord)
 			}
 
+			record.PopulateCountMap(tableNameRowsMapping)
 			numRecords += 1
 			return row, nil
 		}

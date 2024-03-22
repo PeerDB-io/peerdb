@@ -54,6 +54,7 @@ type Record interface {
 	GetSourceTableName() string
 	// get columns and values for the record
 	GetItems() *RecordItems
+	PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts)
 }
 
 type ToJSONOptions struct {
@@ -114,6 +115,10 @@ func (r *InsertRecord) GetItems() *RecordItems {
 	return r.Items
 }
 
+func (r *InsertRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
+	mapOfCounts[r.DestinationTableName].InsertCount++
+}
+
 type UpdateRecord struct {
 	BaseRecord
 	// Name of the source table
@@ -140,6 +145,10 @@ func (r *UpdateRecord) GetItems() *RecordItems {
 	return r.NewItems
 }
 
+func (r *UpdateRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
+	mapOfCounts[r.DestinationTableName].UpdateCount++
+}
+
 type DeleteRecord struct {
 	BaseRecord
 	// Name of the source table
@@ -162,6 +171,10 @@ func (r *DeleteRecord) GetSourceTableName() string {
 
 func (r *DeleteRecord) GetItems() *RecordItems {
 	return r.Items
+}
+
+func (r *DeleteRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
+	mapOfCounts[r.DestinationTableName].DeleteCount++
 }
 
 type TableWithPkey struct {
@@ -233,6 +246,9 @@ func (r *RelationRecord) GetSourceTableName() string {
 
 func (r *RelationRecord) GetItems() *RecordItems {
 	return nil
+}
+
+func (r *RelationRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
 }
 
 type RelationMessageMapping map[uint32]*pglogrepl.RelationMessage

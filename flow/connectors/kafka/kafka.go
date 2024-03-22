@@ -236,14 +236,7 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 
 				wg.Add(1)
 				c.client.Produce(wgCtx, kr, produceCb)
-				switch record.(type) {
-				case *model.InsertRecord:
-					tableNameRowsMapping[kr.Topic].InsertCount += 1
-				case *model.UpdateRecord:
-					tableNameRowsMapping[kr.Topic].UpdateCount += 1
-				case *model.DeleteRecord:
-					tableNameRowsMapping[kr.Topic].DeleteCount += 1
-				}
+				record.PopulateCountMap(tableNameRowsMapping)
 			}
 		}
 		numRecords += 1
