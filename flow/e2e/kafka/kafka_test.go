@@ -121,6 +121,7 @@ func (s KafkaSuite) TestSimple() {
 		if err != nil {
 			return false
 		}
+		defer kafka.Close()
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()

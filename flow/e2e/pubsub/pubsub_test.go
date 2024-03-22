@@ -133,7 +133,7 @@ func (s PubSubSuite) TestCreateTopic() {
 	('e2e_pscreate', 'lua', 'function onRecord(r) return r.row and r.row.val end') on conflict do nothing`)
 	require.NoError(s.t, err)
 
-	flowName := e2e.AddSuffix(s, "pscreate")
+	flowName := e2e.AddSuffix(s, "e2epscreate")
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: e2e.AddSuffix(s, flowName)},
@@ -151,11 +151,13 @@ func (s PubSubSuite) TestCreateTopic() {
 	`, srcTableName))
 	require.NoError(s.t, err)
 
-	psclient, err := sa.CreatePubSubClient(context.Background())
-	require.NoError(s.t, err)
-	topic := psclient.Topic(flowName)
-
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "create topic", func() bool {
+		psclient, err := sa.CreatePubSubClient(context.Background())
+		defer func() {
+			_ = psclient.Close()
+		}()
+		require.NoError(s.t, err)
+		topic := psclient.Topic(flowName)
 		exists, err := topic.Exists(context.Background())
 		require.NoError(s.t, err)
 		return exists
@@ -180,7 +182,7 @@ func (s PubSubSuite) TestSimple() {
 	('e2e_pssimple', 'lua', 'function onRecord(r) return r.row and r.row.val end') on conflict do nothing`)
 	require.NoError(s.t, err)
 
-	flowName := e2e.AddSuffix(s, "pssimple")
+	flowName := e2e.AddSuffix(s, "e2epssimple")
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: e2e.AddSuffix(s, flowName)},
@@ -191,6 +193,7 @@ func (s PubSubSuite) TestSimple() {
 
 	psclient, err := sa.CreatePubSubClient(context.Background())
 	require.NoError(s.t, err)
+	defer psclient.Close()
 	topic, err := psclient.CreateTopic(context.Background(), flowName)
 	require.NoError(s.t, err)
 	sub, err := psclient.CreateSubscription(context.Background(), flowName, pubsub.SubscriptionConfig{
