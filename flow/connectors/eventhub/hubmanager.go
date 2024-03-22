@@ -27,7 +27,7 @@ type EventHubManager struct {
 	// eventhub name -> client
 	hubs sync.Map
 	// eventhub name -> number of partitions
-	partitionCount sync.Map
+	partitionCount cmap.ConcurrentMap[ScopedEventhub, int]
 }
 
 func NewEventHubManager(
@@ -47,9 +47,9 @@ func NewEventHubManager(
 }
 
 func (m *EventHubManager) GetNumPartitions(ctx context.Context, name ScopedEventhub) (int, error) {
-	partitionCount, ok := m.partitionCount.Load(name)
+	partitionCount, ok := m.partitionCount.Get(name)
 	if ok {
-		return partitionCount.(int), nil
+		return partitionCount, nil
 	}
 
 	hub, err := m.GetOrCreateHubClient(ctx, name)
@@ -63,7 +63,9 @@ func (m *EventHubManager) GetNumPartitions(ctx context.Context, name ScopedEvent
 	}
 
 	numPartitions := len(props.PartitionIDs)
-	m.partitionCount.Store(name, numPartitions)
+	m.partitionCount.Upsert(name, numPartitions, func(exist bool, valueInMap int, newValue int) int {
+		return newValue
+	})
 
 	return numPartitions, nil
 }
