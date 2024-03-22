@@ -2,6 +2,7 @@ package peerdbenv
 
 import (
 	"os"
+	"reflect"
 	"strconv"
 
 	"golang.org/x/exp/constraints"
@@ -32,7 +33,7 @@ func getEnvUint[T constraints.Unsigned](name string, defaultValue T) T {
 	}
 
 	// widest bit size, truncate later
-	i, err := strconv.ParseUint(val, 10, 64)
+	i, err := strconv.ParseUint(val, 10, int(reflect.TypeFor[T]().Size()*8))
 	if err != nil {
 		return defaultValue
 	}

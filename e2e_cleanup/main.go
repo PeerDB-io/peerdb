@@ -128,7 +128,9 @@ func CleanupBQ(ctx context.Context) {
 		if handleIteratorError(err) {
 			break
 		}
-		topic.Delete(ctx)
+		if strings.HasPrefix(topic.ID(), "e2e") {
+			topic.Delete(ctx)
+		}
 	}
 
 	subscriptions := psclient.Subscriptions(ctx)
@@ -137,7 +139,9 @@ func CleanupBQ(ctx context.Context) {
 		if handleIteratorError(err) {
 			break
 		}
-		subscription.Delete(ctx)
+		if strings.HasPrefix(subscription.ID(), "e2e") {
+			subscription.Delete(ctx)
+		}
 	}
 }
 

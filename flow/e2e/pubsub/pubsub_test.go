@@ -136,7 +136,7 @@ func (s PubSubSuite) TestCreateTopic() {
 	flowName := e2e.AddSuffix(s, "e2epscreate")
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
-		TableNameMapping: map[string]string{srcTableName: e2e.AddSuffix(s, flowName)},
+		TableNameMapping: map[string]string{srcTableName: flowName},
 		Destination:      s.Peer(flowName, sa),
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
@@ -159,9 +159,13 @@ func (s PubSubSuite) TestCreateTopic() {
 		require.NoError(s.t, err)
 		topic := psclient.Topic(flowName)
 		exists, err := topic.Exists(context.Background())
+		s.t.Log("WWWW exists", exists)
 		require.NoError(s.t, err)
 		return exists
 	})
+
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
 }
 
 func (s PubSubSuite) TestSimple() {
@@ -185,7 +189,7 @@ func (s PubSubSuite) TestSimple() {
 	flowName := e2e.AddSuffix(s, "e2epssimple")
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
-		TableNameMapping: map[string]string{srcTableName: e2e.AddSuffix(s, flowName)},
+		TableNameMapping: map[string]string{srcTableName: flowName},
 		Destination:      s.Peer(flowName, sa),
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
@@ -197,7 +201,9 @@ func (s PubSubSuite) TestSimple() {
 	topic, err := psclient.CreateTopic(context.Background(), flowName)
 	require.NoError(s.t, err)
 	sub, err := psclient.CreateSubscription(context.Background(), flowName, pubsub.SubscriptionConfig{
-		Topic: topic,
+		Topic:             topic,
+		RetentionDuration: 10 * time.Minute,
+		ExpirationPolicy:  24 * time.Hour,
 	})
 	require.NoError(s.t, err)
 
@@ -213,13 +219,20 @@ func (s PubSubSuite) TestSimple() {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	var msg *pubsub.Message
-	_ = sub.Receive(ctx, func(ctx context.Context, m *pubsub.Message) {
-		msg = m
-		cancel()
-	})
-	require.NotNil(s.t, msg)
-	require.Equal(s.t, "testval", string(msg.Data))
+	msgs := make(chan *pubsub.Message)
+	go func() {
+		_ = sub.Receive(ctx, func(_ context.Context, m *pubsub.Message) {
+			msgs <- m
+		})
+	}()
+	select {
+	case msg := <-msgs:
+		require.NotNil(s.t, msg)
+		require.Equal(s.t, "testval", string(msg.Data))
+	case <-ctx.Done():
+		s.t.Log("UNEXPECTED TIMEOUT PubSub subscription waiting on message")
+		s.t.Fail()
+	}
 
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
