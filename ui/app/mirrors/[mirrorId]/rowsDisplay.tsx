@@ -34,7 +34,7 @@ const RowsDisplay = ({
         {dataFormatter(totalRowsData.total.valueOf())}
       </p>
       <div style={{ width: '30%', marginTop: '1.5rem' }}>
-        <BarList data={rowsHero} />
+        <BarList valueFormatter={dataFormatter} data={rowsHero} />
       </div>
     </div>
   );
