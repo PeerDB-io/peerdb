@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
@@ -68,13 +69,12 @@ func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.RecordsT
 
 		close(recordStream.Records)
 	}()
-
 	return &model.RecordsToStreamResponse{
 		Stream: recordStream,
 	}, nil
 }
 
-func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, record model.Record) model.QRecordOrError {
+func recordToQRecordOrError(tableMapping map[string]*model.RecordTypeCounts, batchID int64, record model.Record) model.QRecordOrError {
 	var entries [8]qvalue.QValue
 	switch typedRecord := record.(type) {
 	case *model.InsertRecord:
@@ -102,7 +102,8 @@ func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, recor
 			Kind:  qvalue.QValueKindString,
 			Value: "",
 		}
-		tableMapping[typedRecord.DestinationTableName] += 1
+
+		tableMapping[typedRecord.DestinationTableName].InsertCount += 1
 	case *model.UpdateRecord:
 		newItemsJSON, err := typedRecord.NewItems.ToJSON()
 		if err != nil {
@@ -133,7 +134,7 @@ func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, recor
 			Kind:  qvalue.QValueKindString,
 			Value: KeysToString(typedRecord.UnchangedToastColumns),
 		}
-		tableMapping[typedRecord.DestinationTableName] += 1
+		tableMapping[typedRecord.DestinationTableName].UpdateCount += 1
 	case *model.DeleteRecord:
 		itemsJSON, err := typedRecord.Items.ToJSON()
 		if err != nil {
@@ -158,7 +159,7 @@ func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, recor
 			Kind:  qvalue.QValueKindString,
 			Value: KeysToString(typedRecord.UnchangedToastColumns),
 		}
-		tableMapping[typedRecord.DestinationTableName] += 1
+		tableMapping[typedRecord.DestinationTableName].DeleteCount += 1
 	default:
 		return model.QRecordOrError{
 			Err: fmt.Errorf("unknown record type: %T", typedRecord),
@@ -185,4 +186,17 @@ func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, recor
 	return model.QRecordOrError{
 		Record: entries[:],
 	}
+}
+
+func InitialiseTableRowsMap(tableMaps []*protos.TableMapping) map[string]*model.RecordTypeCounts {
+	tableNameRowsMapping := make(map[string]*model.RecordTypeCounts)
+	for _, mapping := range tableMaps {
+		tableNameRowsMapping[mapping.DestinationTableIdentifier] = &model.RecordTypeCounts{
+			InsertCount: 0,
+			UpdateCount: 0,
+			DeleteCount: 0,
+		}
+	}
+
+	return tableNameRowsMapping
 }

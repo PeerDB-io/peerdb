@@ -153,7 +153,7 @@ func (c *S3Connector) SetLastOffset(ctx context.Context, jobName string, offset 
 }
 
 func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	tableNameRowsMapping := make(map[string]uint32)
+	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, req.SyncBatchID)
 	streamRes, err := utils.RecordsToRawTableStream(streamReq)
 	if err != nil {

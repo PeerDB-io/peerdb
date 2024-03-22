@@ -447,7 +447,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 	rawTableIdentifier string,
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {
-	tableNameRowsMapping := make(map[string]uint32)
+	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
 	streamRes, err := utils.RecordsToRawTableStream(streamReq)
 	if err != nil {

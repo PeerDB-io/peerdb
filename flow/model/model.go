@@ -196,11 +196,10 @@ type SyncResponse struct {
 	// LastSyncedCheckpointID is the last ID that was synced.
 	LastSyncedCheckpointID int64
 	// NumRecordsSynced is the number of records that were synced.
-	NumRecordsSynced int64
-	// CurrentSyncBatchID is the ID of the currently synced batch.
+	NumRecordsSynced   int64
 	CurrentSyncBatchID int64
 	// TableNameRowsMapping tells how many records need to be synced to each destination table.
-	TableNameRowsMapping map[string]uint32
+	TableNameRowsMapping map[string]*RecordTypeCounts
 	// to be carried to parent workflow
 	TableSchemaDeltas []*protos.TableSchemaDelta
 }

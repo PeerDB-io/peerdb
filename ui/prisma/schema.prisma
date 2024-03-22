@@ -87,6 +87,9 @@ model cdc_batches {
   end_time        DateTime? @db.Timestamp(6)
   metadata        Json?
   id              Int       @id @default(autoincrement())
+  insert_count    Int       @default(0)
+  update_count    Int       @default(0)
+  delete_count    Int       @default(0)
   cdc_flows       cdc_flows @relation(fields: [flow_name], references: [flow_name], onDelete: Cascade, onUpdate: NoAction, map: "fk_cdc_batches_flow_name")
 
   @@index([batch_id], map: "idx_cdc_batches_batch_id")
@@ -123,6 +126,15 @@ model qrep_partitions {
   qrep_runs         qrep_runs @relation(fields: [flow_name, run_uuid], references: [flow_name, run_uuid], onDelete: Cascade, onUpdate: NoAction, map: "fk_qrep_partitions_run")
 
   @@unique([run_uuid, partition_uuid])
+  @@unique([run_uuid, partition_uuid], map: "qrep_partitions_run_uuid_partition_uuid_key1")
+  @@unique([run_uuid, partition_uuid], map: "qrep_partitions_run_uuid_partition_uuid_key2")
+  @@unique([run_uuid, partition_uuid], map: "qrep_partitions_run_uuid_partition_uuid_key3")
+  @@unique([run_uuid, partition_uuid], map: "qrep_partitions_run_uuid_partition_uuid_key4")
+  @@unique([run_uuid, partition_uuid], map: "qrep_partitions_run_uuid_partition_uuid_key5")
+  @@unique([run_uuid, partition_uuid], map: "qrep_partitions_run_uuid_partition_uuid_key6")
+  @@unique([run_uuid, partition_uuid], map: "qrep_partitions_run_uuid_partition_uuid_key7")
+  @@unique([run_uuid, partition_uuid], map: "qrep_partitions_run_uuid_partition_uuid_key8")
+  @@unique([run_uuid, partition_uuid], map: "qrep_partitions_run_uuid_partition_uuid_key9")
   @@index([flow_name, run_uuid], map: "idx_qrep_partitions_flow_name_run_uuid")
   @@index([partition_uuid], map: "idx_qrep_partitions_partition_uuid", type: Hash)
   @@index([start_time], map: "idx_qrep_partitions_start_time")
@@ -130,14 +142,16 @@ model qrep_partitions {
 }
 
 model qrep_runs {
-  flow_name       String
-  run_uuid        String
-  start_time      DateTime?         @db.Timestamp(6)
-  end_time        DateTime?         @db.Timestamp(6)
-  metadata        Json?
-  config_proto    Bytes?
-  id              Int               @id @default(autoincrement())
-  qrep_partitions qrep_partitions[]
+  flow_name            String
+  run_uuid             String
+  start_time           DateTime?         @db.Timestamp(6)
+  end_time             DateTime?         @db.Timestamp(6)
+  metadata             Json?
+  config_proto         Bytes?
+  id                   Int               @id @default(autoincrement())
+  fetch_complete       Boolean?          @default(false)
+  consolidate_complete Boolean?          @default(false)
+  qrep_partitions      qrep_partitions[]
 
   @@unique([flow_name, run_uuid], map: "uq_qrep_runs_flow_run")
   @@index([flow_name], map: "idx_qrep_runs_flow_name", type: Hash)
@@ -158,6 +172,7 @@ model peer_slot_size {
   wal_status          String?
 
   @@index([slot_name], map: "index_slot_name")
+  @@index([updated_at], map: "index_slot_updated_at")
   @@schema("peerdb_stats")
 }
 
@@ -177,6 +192,7 @@ model alerts_v1 {
   alert_level       String    @default("critical")
   alert_message     String
   created_timestamp DateTime? @default(now()) @db.Timestamp(6)
+  alert_config_id   BigInt?
 
   @@schema("peerdb_stats")
 }
@@ -202,4 +218,58 @@ model schema_deltas_audit_log {
   delta_info     Json
 
   @@schema("peerdb_stats")
+}
+
+model alerting_settings {
+  id           Int    @id(map: "alerting_settings_pkey1") @default(autoincrement())
+  config_name  String
+  config_value String
+
+  @@schema("public")
+}
+
+model dynamic_settings {
+  id                  Int      @id(map: "alerting_settings_pkey") @default(autoincrement())
+  config_name         String   @unique(map: "idx_alerting_settings_config_name")
+  config_value        String
+  setting_description String?
+  needs_restart       Boolean?
+
+  @@schema("public")
+}
+
+model metadata_last_sync_state {
+  job_name           String   @id
+  last_offset        BigInt
+  updated_at         DateTime @default(now()) @db.Timestamptz(6)
+  sync_batch_id      BigInt
+  normalize_batch_id BigInt?
+
+  @@schema("public")
+}
+
+model metadata_qrep_partitions {
+  job_name         String
+  partition_id     String
+  sync_partition   Json     @db.Json
+  sync_start_time  DateTime @db.Timestamptz(6)
+  sync_finish_time DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([job_name, partition_id])
+  @@schema("public")
+}
+
+model scripts {
+  id     Int         @id @default(autoincrement())
+  lang   script_lang
+  name   String      @unique
+  source Bytes
+
+  @@schema("public")
+}
+
+enum script_lang {
+  lua
+
+  @@schema("public")
 }

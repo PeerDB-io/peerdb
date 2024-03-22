@@ -405,8 +405,7 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 	c.logger.Info(fmt.Sprintf("pushing records to Postgres table %s via COPY", rawTableIdentifier))
 
 	numRecords := int64(0)
-	tableNameRowsMapping := make(map[string]uint32)
-
+	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	streamReadFunc := func() ([]any, error) {
 		record, ok := <-req.Records.GetRecords()
 
@@ -434,6 +433,7 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 					req.SyncBatchID,
 					"",
 				}
+				tableNameRowsMapping[record.GetDestinationTableName()].InsertCount += 1
 			case *model.UpdateRecord:
 				newItemsJSON, err := typedRecord.NewItems.ToJSONWithOptions(&model.ToJSONOptions{
 					UnnestColumns: map[string]struct{}{},
@@ -460,6 +460,7 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 					req.SyncBatchID,
 					utils.KeysToString(typedRecord.UnchangedToastColumns),
 				}
+				tableNameRowsMapping[record.GetDestinationTableName()].UpdateCount += 1
 			case *model.DeleteRecord:
 				itemsJSON, err := typedRecord.Items.ToJSONWithOptions(&model.ToJSONOptions{
 					UnnestColumns: map[string]struct{}{},
@@ -479,12 +480,12 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 					req.SyncBatchID,
 					"",
 				}
+				tableNameRowsMapping[record.GetDestinationTableName()].DeleteCount += 1
 			default:
 				return nil, fmt.Errorf("unsupported record type for Postgres flow connector: %T", typedRecord)
 			}
 
 			numRecords += 1
-			tableNameRowsMapping[record.GetDestinationTableName()] += 1
 			return row, nil
 		}
 	}
