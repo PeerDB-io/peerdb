@@ -2,7 +2,6 @@ package connbigquery
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -17,35 +16,21 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/api/iterator"
-	"google.golang.org/api/option"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	cc "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 const (
 	SyncRecordsBatchSize = 1024
 )
-
-type BigQueryServiceAccount struct {
-	Type                    string `json:"type"`
-	ProjectID               string `json:"project_id"`
-	PrivateKeyID            string `json:"private_key_id"`
-	PrivateKey              string `json:"private_key"`
-	ClientEmail             string `json:"client_email"`
-	ClientID                string `json:"client_id"`
-	AuthURI                 string `json:"auth_uri"`
-	TokenURI                string `json:"token_uri"`
-	AuthProviderX509CertURL string `json:"auth_provider_x509_cert_url"`
-	ClientX509CertURL       string `json:"client_x509_cert_url"`
-}
 
 type BigQueryConnector struct {
 	bqConfig      *protos.BigqueryConfig
@@ -58,8 +43,8 @@ type BigQueryConnector struct {
 	logger        log.Logger
 }
 
-func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*BigQueryServiceAccount, error) {
-	var serviceAccount BigQueryServiceAccount
+func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*utils.GcpServiceAccount, error) {
+	var serviceAccount utils.GcpServiceAccount
 	serviceAccount.Type = bqConfig.AuthType
 	serviceAccount.ProjectID = bqConfig.ProjectId
 	serviceAccount.PrivateKeyID = bqConfig.PrivateKeyId
@@ -76,59 +61,6 @@ func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*BigQueryServic
 	}
 
 	return &serviceAccount, nil
-}
-
-// Validate validates a BigQueryServiceAccount, that none of the fields are empty.
-func (bqsa *BigQueryServiceAccount) Validate() error {
-	v := reflect.ValueOf(*bqsa)
-	for i := range v.NumField() {
-		if v.Field(i).String() == "" {
-			return fmt.Errorf("field %s is empty", v.Type().Field(i).Name)
-		}
-	}
-	return nil
-}
-
-// Return BigQueryServiceAccount as JSON byte array
-func (bqsa *BigQueryServiceAccount) ToJSON() ([]byte, error) {
-	return json.Marshal(bqsa)
-}
-
-// CreateBigQueryClient creates a new BigQuery client from a BigQueryServiceAccount.
-func (bqsa *BigQueryServiceAccount) CreateBigQueryClient(ctx context.Context) (*bigquery.Client, error) {
-	bqsaJSON, err := bqsa.ToJSON()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get json: %v", err)
-	}
-
-	client, err := bigquery.NewClient(
-		ctx,
-		bqsa.ProjectID,
-		option.WithCredentialsJSON(bqsaJSON),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create BigQuery client: %v", err)
-	}
-
-	return client, nil
-}
-
-// CreateStorageClient creates a new Storage client from a BigQueryServiceAccount.
-func (bqsa *BigQueryServiceAccount) CreateStorageClient(ctx context.Context) (*storage.Client, error) {
-	bqsaJSON, err := bqsa.ToJSON()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get json: %v", err)
-	}
-
-	client, err := storage.NewClient(
-		ctx,
-		option.WithCredentialsJSON(bqsaJSON),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Storage client: %v", err)
-	}
-
-	return client, nil
 }
 
 // ValidateCheck:
@@ -212,7 +144,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		return nil, fmt.Errorf("failed to create Storage client: %v", err)
 	}
 
-	catalogPool, err := cc.GetCatalogConnectionPoolFromEnv(ctx)
+	catalogPool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create catalog connection pool: %v", err)
 	}

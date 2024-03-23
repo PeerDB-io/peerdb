@@ -576,6 +576,13 @@ func (h *FlowRequestHandler) CreatePeer(
 		}
 		kaConfig := kaConfigObject.KafkaConfig
 		encodedConfig, encodingErr = proto.Marshal(kaConfig)
+	case protos.DBType_PUBSUB:
+		psConfigObject, ok := config.(*protos.Peer_PubsubConfig)
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+		psConfig := psConfigObject.PubsubConfig
+		encodedConfig, encodingErr = proto.Marshal(psConfig)
 	default:
 		return wrongConfigResponse, nil
 	}

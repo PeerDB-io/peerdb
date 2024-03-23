@@ -16,6 +16,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -113,7 +114,7 @@ func NewClickhouseConnector(
 	if clickhouseS3Creds.AccessKeyID == "" &&
 		clickhouseS3Creds.SecretAccessKey == "" && clickhouseS3Creds.Region == "" &&
 		clickhouseS3Creds.BucketPath == "" {
-		deploymentUID := shared.GetDeploymentUID()
+		deploymentUID := peerdbenv.PeerDBDeploymentUID()
 		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 		bucketPathSuffix := fmt.Sprintf("%s/%s",
 			url.PathEscape(deploymentUID), url.PathEscape(flowName))

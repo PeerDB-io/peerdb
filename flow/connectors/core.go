@@ -13,6 +13,7 @@ import (
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
 	connkafka "github.com/PeerDB-io/peer-flow/connectors/kafka"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
+	connpubsub "github.com/PeerDB-io/peer-flow/connectors/pubsub"
 	conns3 "github.com/PeerDB-io/peer-flow/connectors/s3"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
@@ -205,6 +206,8 @@ func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 		return connclickhouse.NewClickhouseConnector(ctx, inner.ClickhouseConfig)
 	case *protos.Peer_KafkaConfig:
 		return connkafka.NewKafkaConnector(ctx, inner.KafkaConfig)
+	case *protos.Peer_PubsubConfig:
+		return connpubsub.NewPubSubConnector(ctx, inner.PubsubConfig)
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}
@@ -264,6 +267,7 @@ var (
 	_ CDCSyncConnector = &connsnowflake.SnowflakeConnector{}
 	_ CDCSyncConnector = &conneventhub.EventHubConnector{}
 	_ CDCSyncConnector = &connkafka.KafkaConnector{}
+	_ CDCSyncConnector = &connpubsub.PubSubConnector{}
 	_ CDCSyncConnector = &conns3.S3Connector{}
 	_ CDCSyncConnector = &connclickhouse.ClickhouseConnector{}
 

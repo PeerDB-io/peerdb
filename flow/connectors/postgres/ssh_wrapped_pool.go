@@ -14,6 +14,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type SSHTunnel struct {
@@ -78,7 +79,7 @@ func (tunnel *SSHTunnel) NewPostgresConnFromPostgresConfig(
 	ctx context.Context,
 	pgConfig *protos.PostgresConfig,
 ) (*pgx.Conn, error) {
-	connectionString := utils.GetPGConnectionString(pgConfig)
+	connectionString := shared.GetPGConnectionString(pgConfig)
 
 	connConfig, err := pgx.ParseConfig(connectionString)
 	if err != nil {

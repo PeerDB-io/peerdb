@@ -5,6 +5,7 @@ go 1.22.0
 require (
 	cloud.google.com/go v0.112.1
 	cloud.google.com/go/bigquery v1.59.1
+	cloud.google.com/go/pubsub v1.37.0
 	cloud.google.com/go/storage v1.39.1
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.5.1
 	github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs v1.0.4

@@ -22,6 +22,7 @@ export async function GET(
   const ehConfig = peerConfig.eventhubConfig;
   const chConfig = peerConfig.clickhouseConfig;
   const kaConfig = peerConfig.kafkaConfig;
+  const psConfig = peerConfig.pubsubConfig;
   if (pgConfig) {
     pgConfig.password = '********';
     pgConfig.transactionSnapshot = '********';
@@ -46,6 +47,10 @@ export async function GET(
   }
   if (kaConfig) {
     kaConfig.password = '********';
+  }
+  if (psConfig?.serviceAccount) {
+    psConfig.serviceAccount.privateKey = '********';
+    psConfig.serviceAccount.privateKeyId = '********';
   }
 
   return NextResponse.json(peerConfig);
