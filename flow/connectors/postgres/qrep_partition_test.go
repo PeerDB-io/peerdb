@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -64,7 +64,7 @@ func newTestCaseForCTID(schema string, name string, rows uint32, expectedNum int
 }
 
 func TestGetQRepPartitions(t *testing.T) {
-	connStr := utils.GetCatalogConnectionStringFromEnv()
+	connStr := peerdbenv.GetCatalogConnectionStringFromEnv()
 
 	// Setup the DB
 	config, err := pgx.ParseConfig(connStr)

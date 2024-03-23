@@ -8,8 +8,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 func dynamicConfKeyExists(ctx context.Context, conn *pgxpool.Pool, key string) bool {
@@ -25,7 +25,7 @@ func dynamicConfKeyExists(ctx context.Context, conn *pgxpool.Pool, key string) b
 }
 
 func dynamicConfUint32(ctx context.Context, key string, defaultValue uint32) uint32 {
-	conn, err := utils.GetCatalogConnectionPoolFromEnv(ctx)
+	conn, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool: %v", err)
 		return defaultValue

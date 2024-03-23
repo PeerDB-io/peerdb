@@ -25,12 +25,12 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
@@ -280,7 +280,7 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 	tblFieldStr := strings.Join(tblFields, ",")
 	var pgErr *pgconn.PgError
 	_, enumErr := conn.Exec(context.Background(), createMoodEnum)
-	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !utils.IsUniqueError(pgErr) {
+	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !shared.IsUniqueError(pgErr) {
 		return enumErr
 	}
 	_, err := conn.Exec(context.Background(), fmt.Sprintf(`
@@ -568,7 +568,7 @@ func ExecutePeerflow(tc client.Client, wf interface{}, args ...interface{}) Work
 }
 
 func ExecuteWorkflow(tc client.Client, taskQueueID shared.TaskQueueID, wf interface{}, args ...interface{}) WorkflowRun {
-	taskQueue := shared.GetPeerFlowTaskQueueName(taskQueueID)
+	taskQueue := peerdbenv.PeerFlowTaskQueueName(taskQueueID)
 
 	wr, err := tc.ExecuteWorkflow(
 		context.Background(),

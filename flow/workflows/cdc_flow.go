@@ -304,7 +304,7 @@ func CDCFlowWorkflow(
 		// next part of the setup is to snapshot-initial-copy and setup replication slots.
 		snapshotFlowID := GetChildWorkflowID("snapshot-flow", cfg.FlowJobName, originalRunID)
 
-		taskQueue := shared.GetPeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue)
+		taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue)
 		childSnapshotFlowOpts := workflow.ChildWorkflowOptions{
 			WorkflowID:        snapshotFlowID,
 			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,

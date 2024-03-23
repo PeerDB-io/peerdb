@@ -12,8 +12,8 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/alerting"
-	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
@@ -47,7 +47,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (client.Client, worker.Work
 		clientOptions.ConnectionOptions = connOptions
 	}
 
-	conn, err := utils.GetCatalogConnectionPoolFromEnv(context.Background())
+	conn, err := peerdbenv.GetCatalogConnectionPoolFromEnv(context.Background())
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
@@ -57,7 +57,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (client.Client, worker.Work
 		return nil, nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 
-	taskQueue := shared.GetPeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue)
+	taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue)
 	w := worker.New(c, taskQueue, worker.Options{
 		EnableSessionWorker: true,
 		OnFatalError: func(err error) {

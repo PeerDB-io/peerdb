@@ -11,13 +11,13 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 func setupDB(t *testing.T) (*PostgresConnector, string) {
 	t.Helper()
 
-	connector, err := NewPostgresConnector(context.Background(), utils.GetCatalogPostgresConfigFromEnv())
+	connector, err := NewPostgresConnector(context.Background(), peerdbenv.GetCatalogPostgresConfigFromEnv())
 	if err != nil {
 		t.Fatalf("unable to create connector: %v", err)
 	}

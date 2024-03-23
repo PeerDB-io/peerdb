@@ -59,7 +59,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	}
 	defer txConn.Close(ctx)
 
-	err = utils.RegisterHStore(ctx, txConn)
+	err = shared.RegisterHStore(ctx, txConn)
 	if err != nil {
 		return 0, fmt.Errorf("failed to register hstore: %w", err)
 	}
