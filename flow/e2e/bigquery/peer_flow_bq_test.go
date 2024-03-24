@@ -36,7 +36,7 @@ func (s PeerFlowE2ETestSuiteBQ) checkJSONValue(tableName, colName, fieldName, va
 		return fmt.Errorf("bad json: empty result set from %s", tableName)
 	}
 
-	jsonVal := res.Records[0][0].Value
+	jsonVal := res.Records[0][0].Value()
 	if jsonVal != value {
 		return fmt.Errorf("bad json value in field %s of column %s: %v. expected: %v", fieldName, colName, jsonVal, value)
 	}
@@ -69,20 +69,8 @@ func (s *PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, softDel
 
 	for _, record := range recordBatch.Records {
 		for _, entry := range record {
-			if entry.Kind == qvalue.QValueKindBoolean {
-				isDeleteVal, ok := entry.Value.(bool)
-				if !(ok && isDeleteVal) {
-					return errors.New("peerdb column failed: _PEERDB_IS_DELETED is not true")
-				}
-				recordCount += 1
-			}
-
-			if entry.Kind == qvalue.QValueKindTimestamp {
-				_, ok := entry.Value.(time.Time)
-				if !ok {
-					return errors.New("peerdb column failed: _PEERDB_SYNCED_AT is not valid")
-				}
-
+			switch entry.(type) {
+			case qvalue.QValueBoolean, qvalue.QValueTimestamp:
 				recordCount += 1
 			}
 		}

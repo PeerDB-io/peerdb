@@ -108,7 +108,7 @@ func GetRowQ(ls *lua.LState, row *model.RecordItems, col string) qvalue.QValue {
 	qv, err := row.GetValueByColName(col)
 	if err != nil {
 		ls.RaiseError(err.Error())
-		return qvalue.QValue{}
+		return nil
 	}
 	return qv
 }
@@ -148,7 +148,7 @@ func LuaRowColumns(ls *lua.LState) int {
 
 func LuaRowColumnKind(ls *lua.LState) int {
 	row, key := LuaRow.StartIndex(ls)
-	ls.Push(lua.LString(GetRowQ(ls, row, key).Kind))
+	ls.Push(lua.LString(GetRowQ(ls, row, key).Kind()))
 	return 1
 }
 
@@ -222,13 +222,13 @@ func qvToLTable[T any](ls *lua.LState, s []T, f func(x T) lua.LValue) *lua.LTabl
 }
 
 func LuaQValue(ls *lua.LState, qv qvalue.QValue) lua.LValue {
-	switch v := qv.Value.(type) {
+	switch v := qv.Value().(type) {
 	case nil:
 		return lua.LNil
 	case bool:
 		return lua.LBool(v)
 	case uint8:
-		if qv.Kind == qvalue.QValueKindQChar {
+		if qv.Kind() == qvalue.QValueKindQChar {
 			return lua.LString(rune(v))
 		} else {
 			return lua.LNumber(v)
@@ -244,7 +244,7 @@ func LuaQValue(ls *lua.LState, qv qvalue.QValue) lua.LValue {
 	case float64:
 		return lua.LNumber(v)
 	case string:
-		if qv.Kind == qvalue.QValueKindUUID {
+		if qv.Kind() == qvalue.QValueKindUUID {
 			u, err := uuid.Parse(v)
 			if err != nil {
 				return LuaUuid.New(ls, u)
@@ -292,7 +292,7 @@ func LuaQValue(ls *lua.LState, qv qvalue.QValue) lua.LValue {
 			return lua.LBool(x)
 		})
 	default:
-		return lua.LString(fmt.Sprint(qv.Value))
+		return lua.LString(fmt.Sprint(qv.Value()))
 	}
 }
 

@@ -21,150 +21,590 @@ import (
 )
 
 // if new types are added, register them in gob - cdc_records_storage.go
-type QValue struct {
-	Kind  QValueKind
-	Value interface{}
+type QValue interface {
+	Kind() QValueKind
+	Value() any
 }
 
-func (q QValue) Equals(other QValue) bool {
-	if q.Kind == QValueKindJSON {
+type QValueInvalid struct {
+	Val string
+}
+
+func (QValueInvalid) Kind() QValueKind {
+	return QValueKindInvalid
+}
+
+func (v QValueInvalid) Value() any {
+	return v.Val
+}
+
+type QValueNull QValueKind
+
+func (v QValueNull) Kind() QValueKind {
+	return QValueKind(v)
+}
+
+func (QValueNull) Value() any {
+	return nil
+}
+
+type QValueFloat32 struct {
+	Val float32
+}
+
+func (QValueFloat32) Kind() QValueKind {
+	return "float32"
+}
+
+func (v QValueFloat32) Value() any {
+	return v.Val
+}
+
+type QValueFloat64 struct {
+	Val float64
+}
+
+func (QValueFloat64) Kind() QValueKind {
+	return "float64"
+}
+
+func (v QValueFloat64) Value() any {
+	return v.Val
+}
+
+type QValueInt16 struct {
+	Val int16
+}
+
+func (QValueInt16) Kind() QValueKind {
+	return "int16"
+}
+
+func (v QValueInt16) Value() any {
+	return v.Val
+}
+
+type QValueInt32 struct {
+	Val int32
+}
+
+func (QValueInt32) Kind() QValueKind {
+	return "int32"
+}
+
+func (v QValueInt32) Value() any {
+	return v.Val
+}
+
+type QValueInt64 struct {
+	Val int64
+}
+
+func (QValueInt64) Kind() QValueKind {
+	return "int64"
+}
+
+func (v QValueInt64) Value() any {
+	return v.Val
+}
+
+type QValueBoolean struct {
+	Val bool
+}
+
+func (QValueBoolean) Kind() QValueKind {
+	return "bool"
+}
+
+func (v QValueBoolean) Value() any {
+	return v.Val
+}
+
+type QValueStruct struct {
+	Val map[string]interface{}
+}
+
+func (QValueStruct) Kind() QValueKind {
+	return "struct"
+}
+
+func (v QValueStruct) Value() any {
+	return v.Val
+}
+
+type QValueQChar struct {
+	Val uint8
+}
+
+func (QValueQChar) Kind() QValueKind {
+	return "qchar"
+}
+
+func (v QValueQChar) Value() any {
+	return v.Val
+}
+
+type QValueString struct {
+	Val string
+}
+
+func (QValueString) Kind() QValueKind {
+	return "string"
+}
+
+func (v QValueString) Value() any {
+	return v.Val
+}
+
+type QValueTimestamp struct {
+	Val time.Time
+}
+
+func (QValueTimestamp) Kind() QValueKind {
+	return "timestamp"
+}
+
+func (v QValueTimestamp) Value() any {
+	return v.Val
+}
+
+type QValueTimestampTZ struct {
+	Val time.Time
+}
+
+func (QValueTimestampTZ) Kind() QValueKind {
+	return "timestamptz"
+}
+
+func (v QValueTimestampTZ) Value() any {
+	return v.Val
+}
+
+type QValueDate struct {
+	Val time.Time
+}
+
+func (QValueDate) Kind() QValueKind {
+	return "date"
+}
+
+func (v QValueDate) Value() any {
+	return v.Val
+}
+
+type QValueTime struct {
+	Val time.Time
+}
+
+func (QValueTime) Kind() QValueKind {
+	return "time"
+}
+
+func (v QValueTime) Value() any {
+	return v.Val
+}
+
+type QValueTimeTZ struct {
+	Val time.Time
+}
+
+func (QValueTimeTZ) Kind() QValueKind {
+	return "timetz"
+}
+
+func (v QValueTimeTZ) Value() any {
+	return v.Val
+}
+
+type QValueInterval struct {
+	Val string
+}
+
+func (QValueInterval) Kind() QValueKind {
+	return "interval"
+}
+
+func (v QValueInterval) Value() any {
+	return v.Val
+}
+
+type QValueNumeric struct {
+	Val decimal.Decimal
+}
+
+func (QValueNumeric) Kind() QValueKind {
+	return "numeric"
+}
+
+func (v QValueNumeric) Value() any {
+	return v.Val
+}
+
+type QValueBytes struct {
+	Val []byte
+}
+
+func (QValueBytes) Kind() QValueKind {
+	return "bytes"
+}
+
+func (v QValueBytes) Value() any {
+	return v.Val
+}
+
+type QValueUUID struct {
+	Val [16]byte
+}
+
+func (QValueUUID) Kind() QValueKind {
+	return "uuid"
+}
+
+func (v QValueUUID) Value() any {
+	return v.Val
+}
+
+type QValueJSON struct {
+	Val string
+}
+
+func (QValueJSON) Kind() QValueKind {
+	return "json"
+}
+
+func (v QValueJSON) Value() any {
+	return v.Val
+}
+
+type QValueBit struct {
+	Val []byte
+}
+
+func (QValueBit) Kind() QValueKind {
+	return "bit"
+}
+
+func (v QValueBit) Value() any {
+	return v.Val
+}
+
+type QValueHStore struct {
+	Val string
+}
+
+func (QValueHStore) Kind() QValueKind {
+	return "hstore"
+}
+
+func (v QValueHStore) Value() any {
+	return v.Val
+}
+
+type QValueGeography struct {
+	Val string
+}
+
+func (QValueGeography) Kind() QValueKind {
+	return "geography"
+}
+
+func (v QValueGeography) Value() any {
+	return v.Val
+}
+
+type QValueGeometry struct {
+	Val string
+}
+
+func (QValueGeometry) Kind() QValueKind {
+	return "geometry"
+}
+
+func (v QValueGeometry) Value() any {
+	return v.Val
+}
+
+type QValuePoint struct {
+	Val string
+}
+
+func (QValuePoint) Kind() QValueKind {
+	return "point"
+}
+
+func (v QValuePoint) Value() any {
+	return v.Val
+}
+
+type QValueCIDR struct {
+	Val string
+}
+
+func (QValueCIDR) Kind() QValueKind {
+	return "cidr"
+}
+
+func (v QValueCIDR) Value() any {
+	return v.Val
+}
+
+type QValueINET struct {
+	Val string
+}
+
+func (QValueINET) Kind() QValueKind {
+	return "inet"
+}
+
+func (v QValueINET) Value() any {
+	return v.Val
+}
+
+type QValueMacaddr struct {
+	Val string
+}
+
+func (QValueMacaddr) Kind() QValueKind {
+	return "macaddr"
+}
+
+func (v QValueMacaddr) Value() any {
+	return v.Val
+}
+
+type QValueArrayFloat32 struct {
+	Val []float32
+}
+
+func (QValueArrayFloat32) Kind() QValueKind {
+	return "array_float32"
+}
+
+func (v QValueArrayFloat32) Value() any {
+	return v.Val
+}
+
+type QValueArrayFloat64 struct {
+	Val []float64
+}
+
+func (QValueArrayFloat64) Kind() QValueKind {
+	return "array_float64"
+}
+
+func (v QValueArrayFloat64) Value() any {
+	return v.Val
+}
+
+type QValueArrayInt16 struct {
+	Val []int16
+}
+
+func (QValueArrayInt16) Kind() QValueKind {
+	return "array_int16"
+}
+
+func (v QValueArrayInt16) Value() any {
+	return v.Val
+}
+
+type QValueArrayInt32 struct {
+	Val []int32
+}
+
+func (QValueArrayInt32) Kind() QValueKind {
+	return "array_int32"
+}
+
+func (v QValueArrayInt32) Value() any {
+	return v.Val
+}
+
+type QValueArrayInt64 struct {
+	Val []int64
+}
+
+func (QValueArrayInt64) Kind() QValueKind {
+	return "array_int64"
+}
+
+func (v QValueArrayInt64) Value() any {
+	return v.Val
+}
+
+type QValueArrayString struct {
+	Val []string
+}
+
+func (QValueArrayString) Kind() QValueKind {
+	return "array_string"
+}
+
+func (v QValueArrayString) Value() any {
+	return v.Val
+}
+
+type QValueArrayDate struct {
+	Val []time.Time
+}
+
+func (QValueArrayDate) Kind() QValueKind {
+	return "array_date"
+}
+
+func (v QValueArrayDate) Value() any {
+	return v.Val
+}
+
+type QValueArrayTimestamp struct {
+	Val []time.Time
+}
+
+func (QValueArrayTimestamp) Kind() QValueKind {
+	return "array_timestamp"
+}
+
+func (v QValueArrayTimestamp) Value() any {
+	return v.Val
+}
+
+type QValueArrayTimestampTZ struct {
+	Val []time.Time
+}
+
+func (QValueArrayTimestampTZ) Kind() QValueKind {
+	return "array_timestamptz"
+}
+
+func (v QValueArrayTimestampTZ) Value() any {
+	return v.Val
+}
+
+type QValueArrayBoolean struct {
+	Val []bool
+}
+
+func (QValueArrayBoolean) Kind() QValueKind {
+	return "array_bool"
+}
+
+func (v QValueArrayBoolean) Value() any {
+	return v.Val
+}
+
+func Equals(qv QValue, other QValue) bool {
+	if qv.Kind() == QValueKindJSON {
 		return true // TODO fix
-	} else if q.Value == nil && other.Value == nil {
+	} else if qv == nil && other == nil {
 		return true
 	}
 
-	switch q.Kind {
-	case QValueKindEmpty:
-		return other.Kind == QValueKindEmpty
-	case QValueKindInvalid:
+	switch q := qv.(type) {
+	case QValueInvalid:
 		return true
-	case QValueKindFloat32:
-		return compareFloat32(q.Value, other.Value)
-	case QValueKindFloat64:
-		return compareFloat64(q.Value, other.Value)
-	case QValueKindInt16:
-		return compareInt16(q.Value, other.Value)
-	case QValueKindInt32:
-		return compareInt32(q.Value, other.Value)
-	case QValueKindInt64:
-		return compareInt64(q.Value, other.Value)
-	case QValueKindBoolean:
-		return compareBoolean(q.Value, other.Value)
-	case QValueKindStruct:
-		return compareStruct(q.Value, other.Value)
-	case QValueKindQChar:
-		if (q.Value == nil) == (other.Value == nil) {
-			return q.Value == nil || q.Value.(uint8) == other.Value.(uint8)
-		} else {
-			return false
+	case QValueFloat32:
+		return q.compareFloat32(other)
+	case QValueFloat64:
+		return q.compareFloat64(other)
+	case QValueInt16:
+		return q.compareInt16(other)
+	case QValueInt32:
+		return q.compareInt32(other)
+	case QValueInt64:
+		return q.compareInt64(other)
+	case QValueBoolean:
+		if otherVal, ok := other.(QValueBoolean); ok {
+			return q.Val == otherVal.Val
 		}
-	case QValueKindString, QValueKindINET, QValueKindCIDR:
-		return compareString(q.Value, other.Value)
+		return false
+	case QValueStruct:
+		if otherVal, ok := other.(QValueStruct); ok {
+			return q.compareStruct(otherVal)
+		}
+		return false
+	case QValueQChar:
+		if otherVal, ok := other.(QValueQChar); ok {
+			return q.Val == otherVal.Val
+		}
+		return false
+	case QValueString:
+		if otherVal, ok := other.(QValueString); ok {
+			return q.Val == otherVal.Val
+		}
+		return false
+	case QValueINET:
+		if otherVal, ok := other.(QValueINET); ok {
+			return q.Val == otherVal.Val
+		}
+		return false
+	case QValueCIDR:
+		if otherVal, ok := other.(QValueCIDR); ok {
+			return q.Val == otherVal.Val
+		}
+		return false
 	// all internally represented as a Golang time.Time
-	case QValueKindDate,
-		QValueKindTimestamp, QValueKindTimestampTZ:
-		return compareGoTime(q.Value, other.Value)
-	case QValueKindTime, QValueKindTimeTZ:
-		return compareGoCivilTime(q.Value, other.Value)
-	case QValueKindNumeric:
-		return compareNumeric(q.Value, other.Value)
-	case QValueKindBytes:
-		return compareBytes(q.Value, other.Value)
-	case QValueKindUUID:
-		return compareUUID(q.Value, other.Value)
-	case QValueKindJSON:
-		return compareJSON(q.Value, other.Value)
-	case QValueKindBit:
-		return compareBit(q.Value, other.Value)
-	case QValueKindGeometry, QValueKindGeography:
-		return compareGeometry(q.Value, other.Value)
-	case QValueKindHStore:
-		return compareHstore(q.Value, other.Value)
-	case QValueKindArrayFloat32:
-		return compareNumericArrays(q.Value, other.Value)
-	case QValueKindArrayFloat64:
-		return compareNumericArrays(q.Value, other.Value)
-	case QValueKindArrayInt32, QValueKindArrayInt16:
-		return compareNumericArrays(q.Value, other.Value)
-	case QValueKindArrayInt64:
-		return compareNumericArrays(q.Value, other.Value)
-	case QValueKindArrayDate:
-		return compareDateArrays(q.Value, other.Value)
-	case QValueKindArrayTimestamp, QValueKindArrayTimestampTZ:
-		return compareTimeArrays(q.Value, other.Value)
-	case QValueKindArrayBoolean:
-		return compareBoolArrays(q.Value, other.Value)
-	case QValueKindArrayString:
-		return compareArrayString(q.Value, other.Value)
+	case QValueDate, QValueTimestamp, QValueTimestampTZ, QValueTime, QValueTimeTZ:
+		return compareGoTime(q.Value(), other.Value)
+	case QValueNumeric:
+		return compareNumeric(q.Val, other.Value())
+	case QValueBytes:
+		return compareBytes(q.Value(), other.Value())
+	case QValueUUID:
+		return compareUUID(q.Value(), other.Value())
+	case QValueJSON:
+		return compareJSON(q.Value(), other.Value())
+	case QValueBit:
+		return compareBytes(q.Value(), other.Value())
+	case QValueGeometry:
+		return compareGeometry(q.Value(), other.Value())
+	case QValueGeography:
+		return compareGeometry(q.Value(), other.Value())
+	case QValueHStore:
+		return compareHstore(q.Val, other.Value())
+	case QValueArrayFloat32:
+		return compareNumericArrays(q.Val, other.Value())
+	case QValueArrayFloat64:
+		return compareNumericArrays(q.Val, other.Value())
+	case QValueArrayInt32, QValueArrayInt16:
+		return compareNumericArrays(q.Value(), other.Value())
+	case QValueArrayInt64:
+		return compareNumericArrays(q.Val, other.Value())
+	case QValueArrayDate:
+		return compareDateArrays(q.Val, other.Value)
+	case QValueArrayTimestamp, QValueArrayTimestampTZ:
+		return compareTimeArrays(q.Value(), other.Value())
+	case QValueArrayBoolean:
+		return compareBoolArrays(q.Val, other.Value())
+	case QValueArrayString:
+		return compareArrayString(q.Val, other.Value())
 	default:
 		return false
 	}
 }
 
-func (q QValue) GoTimeConvert() (string, error) {
-	if q.Kind == QValueKindTime || q.Kind == QValueKindTimeTZ {
-		return q.Value.(time.Time).Format("15:04:05.999999"), nil
-		// no connector supports time with timezone yet
-		// } else if q.Kind == QValueKindTimeTZ {
-		// 	return q.Value.(time.Time).Format("15:04:05.999999-0700"), nil
-	} else if q.Kind == QValueKindDate {
-		return q.Value.(time.Time).Format("2006-01-02"), nil
-	} else if q.Kind == QValueKindTimestamp {
-		return q.Value.(time.Time).Format("2006-01-02 15:04:05.999999"), nil
-	} else if q.Kind == QValueKindTimestampTZ {
-		return q.Value.(time.Time).Format("2006-01-02 15:04:05.999999-0700"), nil
-	} else {
-		return "", fmt.Errorf("unsupported QValueKind: %s", q.Kind)
-	}
-}
-
-func compareInt16(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	int1, ok1 := getInt16(value1)
+func (v QValueInt16) compareInt16(value2 QValue) bool {
 	int2, ok2 := getInt16(value2)
-	return ok1 && ok2 && int1 == int2
+	return ok2 && v.Val == int2
 }
 
-func compareInt32(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	int1, ok1 := getInt32(value1)
+func (v QValueInt32) compareInt32(value2 QValue) bool {
 	int2, ok2 := getInt32(value2)
-	return ok1 && ok2 && int1 == int2
+	return ok2 && v.Val == int2
 }
 
-func compareInt64(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	int1, ok1 := getInt64(value1)
+func (v QValueInt64) compareInt64(value2 QValue) bool {
 	int2, ok2 := getInt64(value2)
-	return ok1 && ok2 && int1 == int2
+	return ok2 && v.Val == int2
 }
 
-func compareFloat32(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-	float1, ok1 := getFloat32(value1)
+func (v QValueFloat32) compareFloat32(value2 interface{}) bool {
 	float2, ok2 := getFloat32(value2)
-	return ok1 && ok2 && float1 == float2
+	return ok2 && v.Val == float2
 }
 
-func compareFloat64(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	float1, ok1 := getFloat64(value1)
+func (v QValueFloat64) compareFloat64(value2 interface{}) bool {
 	float2, ok2 := getFloat64(value2)
-	return ok1 && ok2 && float1 == float2
+	return ok2 && v.Val == float2
 }
 
 func compareGoTime(value1, value2 interface{}) bool {
@@ -187,29 +627,6 @@ func compareGoTime(value1, value2 interface{}) bool {
 	return t1 == t2
 }
 
-func compareGoCivilTime(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	t1, ok1 := value1.(time.Time)
-	t2, ok2 := value2.(time.Time)
-
-	if !ok1 || !ok2 {
-		if !ok2 {
-			// For BigQuery, we need to compare civil.Time with time.Time
-			ct2, ok3 := value2.(civil.Time)
-			if !ok3 {
-				return false
-			}
-			return t1.Hour() == ct2.Hour && t1.Minute() == ct2.Minute && t1.Second() == ct2.Second
-		}
-		return false
-	}
-
-	return t1.Hour() == t2.Hour() && t1.Minute() == t2.Minute() && t1.Second() == t2.Second()
-}
-
 func compareUUID(value1, value2 interface{}) bool {
 	if value1 == nil && value2 == nil {
 		return true
@@ -219,13 +636,6 @@ func compareUUID(value1, value2 interface{}) bool {
 	uuid2, ok2 := getUUID(value2)
 
 	return ok1 && ok2 && uuid1 == uuid2
-}
-
-func compareBoolean(value1, value2 interface{}) bool {
-	bool1, ok1 := value1.(bool)
-	bool2, ok2 := value2.(bool)
-
-	return ok1 && ok2 && bool1 == bool2
 }
 
 func compareBytes(value1, value2 interface{}) bool {
@@ -244,19 +654,6 @@ func compareNumeric(value1, value2 interface{}) bool {
 	}
 
 	return num1.Equal(num2)
-}
-
-func compareString(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	str1, ok1 := value1.(string)
-	str2, ok2 := value2.(string)
-	if !ok1 || !ok2 {
-		return false
-	}
-	return str1 == str2
 }
 
 func compareHstore(value1, value2 interface{}) bool {
@@ -310,10 +707,10 @@ func compareGeometry(value1, value2 interface{}) bool {
 	}
 }
 
-func compareStruct(value1, value2 interface{}) bool {
-	struct1, ok1 := value1.(map[string]interface{})
-	struct2, ok2 := value2.(map[string]interface{})
-	if !ok1 || !ok2 || len(struct1) != len(struct2) {
+func (v QValueStruct) compareStruct(value2 QValueStruct) bool {
+	struct1 := v.Val
+	struct2 := value2.Val
+	if len(struct1) != len(struct2) {
 		return false
 	}
 	for k, v1 := range struct1 {
@@ -323,7 +720,7 @@ func compareStruct(value1, value2 interface{}) bool {
 		}
 		q1, ok1 := v1.(QValue)
 		q2, ok2 := v2.(QValue)
-		if !ok1 || !ok2 || !q1.Equals(q2) {
+		if !ok1 || !ok2 || !Equals(q1, q2) {
 			return false
 		}
 	}
@@ -333,17 +730,6 @@ func compareStruct(value1, value2 interface{}) bool {
 func compareJSON(value1, value2 interface{}) bool {
 	// TODO (kaushik): fix for tests
 	return true
-}
-
-func compareBit(value1, value2 interface{}) bool {
-	bit1, ok1 := value1.(int)
-	bit2, ok2 := value2.(int)
-
-	if !ok1 || !ok2 {
-		return false
-	}
-
-	return bit1 == bit2
 }
 
 func compareNumericArrays(value1, value2 interface{}) bool {

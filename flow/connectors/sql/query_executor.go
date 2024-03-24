@@ -321,87 +321,116 @@ func (g *GenericSQLQueryExecutor) CheckNull(ctx context.Context, schema string, 
 
 func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 	if val == nil {
-		return qvalue.QValue{Kind: kind, Value: nil}, nil
+		return qvalue.QValueNull(kind), nil
 	}
 	switch kind {
 	case qvalue.QValueKindInt32:
 		if v, ok := val.(*sql.NullInt32); ok {
 			if v.Valid {
-				return qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: v.Int32}, nil
+				return qvalue.QValueInt32{Val: v.Int32}, nil
 			} else {
-				return qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: nil}, nil
+				return qvalue.QValueNull(qvalue.QValueKindInt32), nil
 			}
 		}
 	case qvalue.QValueKindInt64:
 		if v, ok := val.(*sql.NullInt64); ok {
 			if v.Valid {
-				return qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: v.Int64}, nil
+				return qvalue.QValueInt64{Val: v.Int64}, nil
 			} else {
-				return qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: nil}, nil
+				return qvalue.QValueNull(qvalue.QValueKindInt64), nil
 			}
 		}
 	case qvalue.QValueKindFloat32:
 		if v, ok := val.(*sql.NullFloat64); ok {
 			if v.Valid {
-				return qvalue.QValue{Kind: qvalue.QValueKindFloat32, Value: float32(v.Float64)}, nil
+				return qvalue.QValueFloat32{Val: float32(v.Float64)}, nil
 			} else {
-				return qvalue.QValue{Kind: qvalue.QValueKindFloat32, Value: nil}, nil
+				return qvalue.QValueNull(qvalue.QValueKindFloat32), nil
 			}
 		}
 	case qvalue.QValueKindFloat64:
 		if v, ok := val.(*sql.NullFloat64); ok {
 			if v.Valid {
-				return qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: v.Float64}, nil
+				return qvalue.QValueFloat64{Val: v.Float64}, nil
 			} else {
-				return qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: nil}, nil
+				return qvalue.QValueNull(qvalue.QValueKindFloat64), nil
 			}
 		}
 	case qvalue.QValueKindQChar:
 		if v, ok := val.(uint8); ok {
-			return qvalue.QValue{Kind: qvalue.QValueKindQChar, Value: v}, nil
+			return qvalue.QValueQChar{Val: v}, nil
 		}
 	case qvalue.QValueKindString:
 		if v, ok := val.(*sql.NullString); ok {
 			if v.Valid {
-				return qvalue.QValue{Kind: qvalue.QValueKindString, Value: v.String}, nil
+				return qvalue.QValueString{Val: v.String}, nil
 			} else {
-				return qvalue.QValue{Kind: qvalue.QValueKindString, Value: nil}, nil
+				return qvalue.QValueNull(qvalue.QValueKindString), nil
 			}
 		}
 	case qvalue.QValueKindBoolean:
 		if v, ok := val.(*sql.NullBool); ok {
 			if v.Valid {
-				return qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: v.Bool}, nil
+				return qvalue.QValueBoolean{Val: v.Bool}, nil
 			} else {
-				return qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: nil}, nil
+				return qvalue.QValueNull(qvalue.QValueKindBoolean), nil
 			}
 		}
-	case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindDate,
-		qvalue.QValueKindTime, qvalue.QValueKindTimeTZ:
+	case qvalue.QValueKindTimestamp:
 		if t, ok := val.(*sql.NullTime); ok {
 			if t.Valid {
-				return qvalue.QValue{
-					Kind:  kind,
-					Value: t.Time,
-				}, nil
+				return qvalue.QValueTimestamp{Val: t.Time}, nil
 			} else {
-				return qvalue.QValue{
-					Kind:  kind,
-					Value: nil,
-				}, nil
+				return qvalue.QValueNull(kind), nil
+			}
+		}
+	case qvalue.QValueKindTimestampTZ:
+		if t, ok := val.(*sql.NullTime); ok {
+			if t.Valid {
+				return qvalue.QValueTimestampTZ{Val: t.Time}, nil
+			} else {
+				return qvalue.QValueNull(kind), nil
+			}
+		}
+	case qvalue.QValueKindDate:
+		if t, ok := val.(*sql.NullTime); ok {
+			if t.Valid {
+				return qvalue.QValueDate{Val: t.Time}, nil
+			} else {
+				return qvalue.QValueNull(kind), nil
+			}
+		}
+	case qvalue.QValueKindTime:
+		if t, ok := val.(*sql.NullTime); ok {
+			if t.Valid {
+				return qvalue.QValueTime{Val: t.Time}, nil
+			} else {
+				return qvalue.QValueNull(kind), nil
+			}
+		}
+	case qvalue.QValueKindTimeTZ:
+		if t, ok := val.(*sql.NullTime); ok {
+			if t.Valid {
+				return qvalue.QValueTimeTZ{Val: t.Time}, nil
+			} else {
+				return qvalue.QValueNull(kind), nil
 			}
 		}
 	case qvalue.QValueKindNumeric:
 		if v, ok := val.(*sql.Null[decimal.Decimal]); ok {
 			if v.Valid {
-				return qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: v.V}, nil
+				return qvalue.QValueNumeric{Val: v.V}, nil
 			} else {
-				return qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: nil}, nil
+				return qvalue.QValueNull(qvalue.QValueKindNumeric), nil
 			}
 		}
-	case qvalue.QValueKindBytes, qvalue.QValueKindBit:
+	case qvalue.QValueKindBytes:
 		if v, ok := val.(*[]byte); ok && v != nil {
-			return qvalue.QValue{Kind: kind, Value: *v}, nil
+			return qvalue.QValueBytes{Val: *v}, nil
+		}
+	case qvalue.QValueKindBit:
+		if v, ok := val.(*[]byte); ok && v != nil {
+			return qvalue.QValueBit{Val: *v}, nil
 		}
 
 	case qvalue.QValueKindUUID:
@@ -409,13 +438,13 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 			// convert byte array to string
 			uuidVal, err := uuid.FromBytes(*v)
 			if err != nil {
-				return qvalue.QValue{}, fmt.Errorf("failed to parse uuid: %v", *v)
+				return nil, fmt.Errorf("failed to parse uuid: %v", *v)
 			}
-			return qvalue.QValue{Kind: qvalue.QValueKindString, Value: uuidVal.String()}, nil
+			return qvalue.QValueUUID{Val: [16]byte(uuidVal)}, nil
 		}
 
 		if v, ok := val.(*[16]byte); ok && v != nil {
-			return qvalue.QValue{Kind: qvalue.QValueKindString, Value: *v}, nil
+			return qvalue.QValueUUID{Val: *v}, nil
 		}
 
 	case qvalue.QValueKindJSON:
@@ -430,7 +459,7 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 			var v []interface{}
 			err := json.Unmarshal([]byte(vstring), &v)
 			if err != nil {
-				return qvalue.QValue{}, fmt.Errorf("failed to parse json array: %v", vstring)
+				return nil, fmt.Errorf("failed to parse json array: %v", vstring)
 			}
 
 			// assume all elements in the array are of the same type
@@ -456,10 +485,10 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 			}
 		}
 
-		return qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: vstring}, nil
+		return qvalue.QValueJSON{Val: vstring}, nil
 
 	case qvalue.QValueKindHStore:
-		return qvalue.QValue{Kind: qvalue.QValueKindHStore, Value: val}, nil
+		return qvalue.QValueHStore{Val: fmt.Sprint(val)}, nil
 
 	case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64,
 		qvalue.QValueKindArrayInt16,
@@ -469,96 +498,95 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 	}
 
 	// If type is unsupported or doesn't match the specified kind, return error
-	return qvalue.QValue{}, fmt.Errorf("unsupported type %T for kind %s", val, kind)
+	return nil, fmt.Errorf("unsupported type %T for kind %s", val, kind)
 }
 
 func toQValueArray(kind qvalue.QValueKind, value interface{}) (qvalue.QValue, error) {
-	var result interface{}
 	switch kind {
 	case qvalue.QValueKindArrayFloat32:
 		switch v := value.(type) {
 		case []float32:
-			result = v
+			return qvalue.QValueArrayFloat32{Val: v}, nil
 		case []interface{}:
 			float32Array := make([]float32, len(v))
 			for i, val := range v {
 				float32Array[i] = val.(float32)
 			}
-			result = float32Array
+			return qvalue.QValueArrayFloat32{Val: float32Array}, nil
 		default:
-			return qvalue.QValue{}, fmt.Errorf("failed to parse array float32: %v", value)
+			return nil, fmt.Errorf("failed to parse array float32: %v", value)
 		}
 
 	case qvalue.QValueKindArrayFloat64:
 		switch v := value.(type) {
 		case []float64:
-			result = v
+			return qvalue.QValueArrayFloat64{Val: v}, nil
 		case []interface{}:
 			float64Array := make([]float64, len(v))
 			for i, val := range v {
 				float64Array[i] = val.(float64)
 			}
-			result = float64Array
+			return qvalue.QValueArrayFloat64{Val: float64Array}, nil
 		default:
-			return qvalue.QValue{}, fmt.Errorf("failed to parse array float64: %v", value)
+			return nil, fmt.Errorf("failed to parse array float64: %v", value)
 		}
 
 	case qvalue.QValueKindArrayInt16:
 		switch v := value.(type) {
 		case []int16:
-			result = v
+			return qvalue.QValueArrayInt16{Val: v}, nil
 		case []interface{}:
 			int16Array := make([]int16, len(v))
 			for i, val := range v {
 				int16Array[i] = val.(int16)
 			}
-			result = int16Array
+			return qvalue.QValueArrayInt16{Val: int16Array}, nil
 		default:
-			return qvalue.QValue{}, fmt.Errorf("failed to parse array int16: %v", value)
+			return nil, fmt.Errorf("failed to parse array int16: %v", value)
 		}
 
 	case qvalue.QValueKindArrayInt32:
 		switch v := value.(type) {
 		case []int32:
-			result = v
+			return qvalue.QValueArrayInt32{Val: v}, nil
 		case []interface{}:
 			int32Array := make([]int32, len(v))
 			for i, val := range v {
 				int32Array[i] = val.(int32)
 			}
-			result = int32Array
+			return qvalue.QValueArrayInt32{Val: int32Array}, nil
 		default:
-			return qvalue.QValue{}, fmt.Errorf("failed to parse array int32: %v", value)
+			return nil, fmt.Errorf("failed to parse array int32: %v", value)
 		}
 
 	case qvalue.QValueKindArrayInt64:
 		switch v := value.(type) {
 		case []int64:
-			result = v
+			return qvalue.QValueArrayInt64{Val: v}, nil
 		case []interface{}:
 			int64Array := make([]int64, len(v))
 			for i, val := range v {
 				int64Array[i] = val.(int64)
 			}
-			result = int64Array
+			return qvalue.QValueArrayInt64{Val: int64Array}, nil
 		default:
-			return qvalue.QValue{}, fmt.Errorf("failed to parse array int64: %v", value)
+			return nil, fmt.Errorf("failed to parse array int64: %v", value)
 		}
 
 	case qvalue.QValueKindArrayString:
 		switch v := value.(type) {
 		case []string:
-			result = v
+			return qvalue.QValueArrayString{Val: v}, nil
 		case []interface{}:
 			stringArray := make([]string, len(v))
 			for i, val := range v {
 				stringArray[i] = val.(string)
 			}
-			result = stringArray
+			return qvalue.QValueArrayString{Val: stringArray}, nil
 		default:
-			return qvalue.QValue{}, fmt.Errorf("failed to parse array string: %v", value)
+			return nil, fmt.Errorf("failed to parse array string: %v", value)
 		}
 	}
 
-	return qvalue.QValue{Kind: kind, Value: result}, nil
+	return qvalue.QValueNull(kind), nil
 }

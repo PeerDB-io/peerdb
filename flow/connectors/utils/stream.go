@@ -11,7 +11,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
-func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.RecordsToStreamResponse, error) {
+func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.QRecordStream, error) {
 	recordStream := model.NewQRecordStream(1 << 17)
 	err := recordStream.SetSchema(&model.QRecordSchema{
 		Fields: []model.QField{
@@ -70,9 +70,7 @@ func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.RecordsT
 
 		close(recordStream.Records)
 	}()
-	return &model.RecordsToStreamResponse{
-		Stream: recordStream,
-	}, nil
+	return recordStream, nil
 }
 
 func recordToQRecordOrError(batchID int64, record model.Record) model.QRecordOrError {
@@ -87,23 +85,10 @@ func recordToQRecordOrError(batchID int64, record model.Record) model.QRecordOrE
 			}
 		}
 
-		entries[3] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: itemsJSON,
-		}
-		entries[4] = qvalue.QValue{
-			Kind:  qvalue.QValueKindInt64,
-			Value: 0,
-		}
-		entries[5] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: "",
-		}
-		entries[7] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: "",
-		}
-
+		entries[3] = qvalue.QValueString{Val: itemsJSON}
+		entries[4] = qvalue.QValueInt64{Val: 0}
+		entries[5] = qvalue.QValueString{Val: ""}
+		entries[7] = qvalue.QValueString{Val: ""}
 	case *model.UpdateRecord:
 		newItemsJSON, err := typedRecord.NewItems.ToJSON()
 		if err != nil {
@@ -118,22 +103,10 @@ func recordToQRecordOrError(batchID int64, record model.Record) model.QRecordOrE
 			}
 		}
 
-		entries[3] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: newItemsJSON,
-		}
-		entries[4] = qvalue.QValue{
-			Kind:  qvalue.QValueKindInt64,
-			Value: 1,
-		}
-		entries[5] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: oldItemsJSON,
-		}
-		entries[7] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: KeysToString(typedRecord.UnchangedToastColumns),
-		}
+		entries[3] = qvalue.QValueString{Val: newItemsJSON}
+		entries[4] = qvalue.QValueInt64{Val: 1}
+		entries[5] = qvalue.QValueString{Val: oldItemsJSON}
+		entries[7] = qvalue.QValueString{Val: KeysToString(typedRecord.UnchangedToastColumns)}
 
 	case *model.DeleteRecord:
 		itemsJSON, err := typedRecord.Items.ToJSON()
@@ -143,22 +116,10 @@ func recordToQRecordOrError(batchID int64, record model.Record) model.QRecordOrE
 			}
 		}
 
-		entries[3] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: itemsJSON,
-		}
-		entries[4] = qvalue.QValue{
-			Kind:  qvalue.QValueKindInt64,
-			Value: 2,
-		}
-		entries[5] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: itemsJSON,
-		}
-		entries[7] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: KeysToString(typedRecord.UnchangedToastColumns),
-		}
+		entries[3] = qvalue.QValueString{Val: itemsJSON}
+		entries[4] = qvalue.QValueInt64{Val: 2}
+		entries[5] = qvalue.QValueString{Val: itemsJSON}
+		entries[7] = qvalue.QValueString{Val: KeysToString(typedRecord.UnchangedToastColumns)}
 
 	default:
 		return model.QRecordOrError{
@@ -166,22 +127,10 @@ func recordToQRecordOrError(batchID int64, record model.Record) model.QRecordOrE
 		}
 	}
 
-	entries[0] = qvalue.QValue{
-		Kind:  qvalue.QValueKindString,
-		Value: uuid.New().String(),
-	}
-	entries[1] = qvalue.QValue{
-		Kind:  qvalue.QValueKindInt64,
-		Value: time.Now().UnixNano(),
-	}
-	entries[2] = qvalue.QValue{
-		Kind:  qvalue.QValueKindString,
-		Value: record.GetDestinationTableName(),
-	}
-	entries[6] = qvalue.QValue{
-		Kind:  qvalue.QValueKindInt64,
-		Value: batchID,
-	}
+	entries[0] = qvalue.QValueString{Val: uuid.New().String()}
+	entries[1] = qvalue.QValueInt64{Val: time.Now().UnixNano()}
+	entries[2] = qvalue.QValueString{Val: record.GetDestinationTableName()}
+	entries[6] = qvalue.QValueInt64{Val: batchID}
 
 	return model.QRecordOrError{
 		Record: entries[:],

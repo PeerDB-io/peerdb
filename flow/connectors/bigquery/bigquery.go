@@ -372,7 +372,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 ) (*model.SyncResponse, error) {
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
-	streamRes, err := utils.RecordsToRawTableStream(streamReq)
+	stream, err := utils.RecordsToRawTableStream(streamReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
@@ -384,7 +384,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 	}
 
 	res, err := avroSync.SyncRecords(ctx, req, rawTableName,
-		rawTableMetadata, syncBatchID, streamRes.Stream, streamReq.TableMapping)
+		rawTableMetadata, syncBatchID, stream, streamReq.TableMapping)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync records via avro: %w", err)
 	}

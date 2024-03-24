@@ -607,7 +607,7 @@ func (p *PostgresCDCSource) convertTupleToMap(
 		}
 		switch col.DataType {
 		case 'n': // null
-			val := qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}
+			val := qvalue.QValueNull(qvalue.QValueKindInvalid)
 			items.AddColumn(colName, val)
 		case 't': // text
 			/* bytea also appears here as a hex */
@@ -649,19 +649,28 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 				// but not representable by time.Time
 				p.logger.Warn(fmt.Sprintf("Invalidated and hence nulled %s data: %s",
 					dt.Name, string(data)))
-				return qvalue.QValue{}, nil
+				switch dt.Name {
+				case "time":
+					return qvalue.QValueNull(qvalue.QValueKindTime), nil
+				case "timetz":
+					return qvalue.QValueNull(qvalue.QValueKindTimeTZ), nil
+				case "timestamp":
+					return qvalue.QValueNull(qvalue.QValueKindTimestamp), nil
+				case "timestamptz":
+					return qvalue.QValueNull(qvalue.QValueKindTimestampTZ), nil
+				}
 			}
-			return qvalue.QValue{}, err
+			return nil, err
 		}
 		retVal, err := p.parseFieldFromPostgresOID(dataType, parsedData)
 		if err != nil {
-			return qvalue.QValue{}, err
+			return nil, err
 		}
 		return retVal, nil
 	} else if dataType == uint32(oid.T_timetz) { // ugly TIMETZ workaround for CDC decoding.
 		retVal, err := p.parseFieldFromPostgresOID(dataType, string(data))
 		if err != nil {
-			return qvalue.QValue{}, err
+			return nil, err
 		}
 		return retVal, nil
 	}
@@ -669,28 +678,26 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 	typeName, ok := p.customTypesMapping[dataType]
 	if ok {
 		customQKind := customTypeToQKind(typeName)
-		if customQKind == qvalue.QValueKindGeography || customQKind == qvalue.QValueKindGeometry {
+		switch customQKind {
+		case qvalue.QValueKindGeography, qvalue.QValueKindGeometry:
 			wkt, err := geo.GeoValidate(string(data))
 			if err != nil {
-				return qvalue.QValue{
-					Kind:  customQKind,
-					Value: nil,
-				}, nil
+				return qvalue.QValueNull(customQKind), nil
+			} else if customQKind == qvalue.QValueKindGeography {
+				return qvalue.QValueGeography{Val: wkt}, nil
 			} else {
-				return qvalue.QValue{
-					Kind:  customQKind,
-					Value: wkt,
-				}, nil
+				return qvalue.QValueGeometry{Val: wkt}, nil
 			}
-		} else {
-			return qvalue.QValue{
-				Kind:  customQKind,
-				Value: string(data),
-			}, nil
+		case qvalue.QValueKindHStore:
+			return qvalue.QValueHStore{Val: string(data)}, nil
+		case qvalue.QValueKindString:
+			return qvalue.QValueString{Val: string(data)}, nil
+		default:
+			return nil, fmt.Errorf("unknown custom qkind: %s", customQKind)
 		}
 	}
 
-	return qvalue.QValue{Kind: qvalue.QValueKindString, Value: string(data)}, nil
+	return qvalue.QValueString{Val: string(data)}, nil
 }
 
 func (p *PostgresCDCSource) auditSchemaDelta(ctx context.Context, flowJobName string, rec *model.RelationRecord) error {
@@ -795,7 +802,7 @@ func (p *PostgresCDCSource) recToTablePKey(req *model.PullRecordsRequest,
 		if err != nil {
 			return nil, fmt.Errorf("error getting pkey column value: %w", err)
 		}
-		pkeyColsMerged = append(pkeyColsMerged, []byte(fmt.Sprint(pkeyColVal.Value)))
+		pkeyColsMerged = append(pkeyColsMerged, []byte(fmt.Sprint(pkeyColVal.Value())))
 	}
 
 	return &model.TableWithPkey{

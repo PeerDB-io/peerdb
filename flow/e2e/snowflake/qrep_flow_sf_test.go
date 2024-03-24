@@ -29,7 +29,7 @@ func (s PeerFlowE2ETestSuiteSF) checkJSONValue(tableName, colName, fieldName, va
 		return fmt.Errorf("bad json: empty result set from %s", tableName)
 	}
 
-	jsonVal := res.Records[0][0].Value
+	jsonVal := res.Records[0][0].Value()
 	if jsonVal != value {
 		return fmt.Errorf("bad json value in field %s of column %s: %v. expected: %v", fieldName, colName, jsonVal, value)
 	}
