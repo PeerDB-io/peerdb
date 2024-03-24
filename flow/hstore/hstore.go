@@ -14,9 +14,8 @@ import (
 	"strings"
 )
 
-type text struct {
-	String string
-	Valid  bool
+func text(s string) *string {
+	return &s
 }
 
 type hstore map[string]*string
@@ -150,35 +149,35 @@ func (p *hstoreParser) consumeKVSeparator() error {
 	return p.consumeExpected2('=', '>')
 }
 
-// consumeDoubleQuotedOrNull consumes the Hstore key/value separator "=>" or returns an error.
-func (p *hstoreParser) consumeDoubleQuotedOrNull() (text, error) {
+// consumeDoubleQuotedOrNull consumes the string or returns an error.
+func (p *hstoreParser) consumeDoubleQuotedOrNull() (*string, error) {
 	// peek at the next byte
 	if p.atEnd() {
-		return text{}, errors.New("found end instead of value")
+		return nil, errors.New("found end instead of value")
 	}
 	next := p.str[p.pos]
 	if next == 'N' {
 		// must be the exact string NULL: use consumeExpected2 twice
 		err := p.consumeExpected2('N', 'U')
 		if err != nil {
-			return text{}, err
+			return nil, err
 		}
 		err = p.consumeExpected2('L', 'L')
 		if err != nil {
-			return text{}, err
+			return nil, err
 		}
-		return text{String: "", Valid: false}, nil
+		return nil, nil
 	} else if next != '"' {
-		return text{}, unexpectedByteErr(next, '"')
+		return nil, unexpectedByteErr(next, '"')
 	}
 
 	// skip the double quote
 	p.pos += 1
 	s, err := p.consumeDoubleQuoted()
 	if err != nil {
-		return text{}, err
+		return nil, err
 	}
-	return text{String: s, Valid: true}, nil
+	return text(s), nil
 }
 
 func ParseHstore(s string) (string, error) {
@@ -217,11 +216,7 @@ func ParseHstore(s string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if value.Valid {
-			result[key] = &value.String
-		} else {
-			result[key] = nil
-		}
+		result[key] = value
 	}
 
 	jsonBytes, err := json.Marshal(result)
