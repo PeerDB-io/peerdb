@@ -26,6 +26,16 @@ type QValue interface {
 	Value() any
 }
 
+type QValueNull QValueKind
+
+func (v QValueNull) Kind() QValueKind {
+	return QValueKind(v)
+}
+
+func (QValueNull) Value() any {
+	return nil
+}
+
 type QValueInvalid struct {
 	Val string
 }
@@ -36,16 +46,6 @@ func (QValueInvalid) Kind() QValueKind {
 
 func (v QValueInvalid) Value() any {
 	return v.Val
-}
-
-type QValueNull QValueKind
-
-func (v QValueNull) Kind() QValueKind {
-	return QValueKind(v)
-}
-
-func (QValueNull) Value() any {
-	return nil
 }
 
 type QValueFloat32 struct {

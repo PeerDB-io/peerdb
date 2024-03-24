@@ -182,7 +182,7 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		return nil, nil
 	}
 
-	switch c.QValue.(type) {
+	switch v := c.QValue.(type) {
 	case QValueInvalid:
 		// we will attempt to convert invalid to a string
 		return c.processNullableUnion("string", c.Value())
@@ -309,7 +309,9 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 			}
 		}
 		return c.processNullableUnion("double", c.Value())
-	case QValueInt16, QValueInt32, QValueInt64:
+	case QValueInt16:
+		return c.processNullableUnion("long", int32(v.Val))
+	case QValueInt32, QValueInt64:
 		return c.processNullableUnion("long", c.Value())
 	case QValueBoolean:
 		return c.processNullableUnion("boolean", c.Value())
