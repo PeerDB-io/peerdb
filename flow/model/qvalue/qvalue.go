@@ -492,9 +492,14 @@ func (v QValueArrayBoolean) Value() any {
 }
 
 func Equals(qv QValue, other QValue) bool {
-	if qv.Kind() == QValueKindJSON {
-		return true // TODO fix
-	} else if qv.Value() == nil && other.Value() == nil {
+	qvValue := qv.Value()
+	otherValue := other.Value()
+	if qvValue == nil && otherValue == nil {
+		return true
+	}
+	qvString, ok1 := qvValue.(string)
+	otherString, ok2 := otherValue.(string)
+	if ok1 && ok2 && qvString == otherString {
 		return true
 	}
 
@@ -551,7 +556,8 @@ func Equals(qv QValue, other QValue) bool {
 	case QValueUUID:
 		return compareUUID(q.Value(), other.Value())
 	case QValueJSON:
-		return compareJSON(q.Value(), other.Value())
+		// TODO (kaushik): fix for tests
+		return true
 	case QValueBit:
 		return compareBytes(q.Value(), other.Value())
 	case QValueGeometry:
@@ -723,11 +729,6 @@ func (v QValueStruct) compareStruct(value2 QValueStruct) bool {
 			return false
 		}
 	}
-	return true
-}
-
-func compareJSON(value1, value2 interface{}) bool {
-	// TODO (kaushik): fix for tests
 	return true
 }
 
