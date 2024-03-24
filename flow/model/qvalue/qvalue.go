@@ -494,7 +494,9 @@ func (v QValueArrayBoolean) Value() any {
 func Equals(qv QValue, other QValue) bool {
 	qvValue := qv.Value()
 	otherValue := other.Value()
-	if qvValue == nil && otherValue == nil {
+	qvEmpty := qvValue == nil || (reflect.TypeOf(qvValue).Kind() == reflect.Slice && reflect.ValueOf(qvValue).Len() == 0)
+	otherEmpty := otherValue == nil || (reflect.TypeOf(otherValue).Kind() == reflect.Slice && reflect.ValueOf(otherValue).Len() == 0)
+	if qvEmpty && otherEmpty {
 		return true
 	}
 	qvString, ok1 := qvValue.(string)
