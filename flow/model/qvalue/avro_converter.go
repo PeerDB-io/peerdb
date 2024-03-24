@@ -309,11 +309,11 @@ func QValueToAvro(value QValue, targetDWH QDWHType, nullable bool, logger log.Lo
 	case QValueStruct:
 		return nil, errors.New("QValueStruct not supported")
 	case QValueNumeric:
-		return c.processNumeric(v.Val)
+		return c.processNumeric(v.Val), nil
 	case QValueBytes:
-		return c.processBytes(v.Val)
+		return c.processBytes(v.Val), nil
 	case QValueBit:
-		return c.processBytes(v.Val)
+		return c.processBytes(v.Val), nil
 	case QValueJSON:
 		return c.processJSON(v.Val)
 	case QValueHStore:
@@ -335,12 +335,7 @@ func QValueToAvro(value QValue, targetDWH QDWHType, nullable bool, logger log.Lo
 	case QValueArrayTimestamp, QValueArrayTimestampTZ:
 		return c.processArrayTime(v.Value().([]time.Time)), nil
 	case QValueArrayDate:
-		arrayDate, err := c.processArrayDate(v.Val)
-		if err != nil || arrayDate == nil {
-			return arrayDate, err
-		}
-
-		return arrayDate, nil
+		return c.processArrayDate(v.Val), nil
 	case QValueUUID:
 		return c.processUUID(v.Val), nil
 	case QValueGeography, QValueGeometry, QValuePoint:
@@ -432,22 +427,19 @@ func (c *QValueAvroConverter) processNullableUnion(
 	return value, nil
 }
 
-func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) (interface{}, error) {
+func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) interface{} {
 	rat := num.Rat()
-
 	if c.Nullable {
-		return goavro.Union("bytes.decimal", rat), nil
+		return goavro.Union("bytes.decimal", rat)
 	}
-
-	return rat, nil
+	return rat
 }
 
-func (c *QValueAvroConverter) processBytes(byteData []byte) (interface{}, error) {
+func (c *QValueAvroConverter) processBytes(byteData []byte) interface{} {
 	if c.Nullable {
-		return goavro.Union("bytes", byteData), nil
+		return goavro.Union("bytes", byteData)
 	}
-
-	return byteData, nil
+	return byteData
 }
 
 func (c *QValueAvroConverter) processJSON(jsonString string) (interface{}, error) {
@@ -495,7 +487,7 @@ func (c *QValueAvroConverter) processArrayTime(arrayTime []time.Time) interface{
 	return transformedTimeArr
 }
 
-func (c *QValueAvroConverter) processArrayDate(arrayDate []time.Time) (interface{}, error) {
+func (c *QValueAvroConverter) processArrayDate(arrayDate []time.Time) interface{} {
 	transformedTimeArr := make([]interface{}, 0, len(arrayDate))
 	for _, t := range arrayDate {
 		if c.TargetDWH == QDWHTypeSnowflake {
@@ -506,10 +498,10 @@ func (c *QValueAvroConverter) processArrayDate(arrayDate []time.Time) (interface
 	}
 
 	if c.Nullable {
-		return goavro.Union("array", transformedTimeArr), nil
+		return goavro.Union("array", transformedTimeArr)
 	}
 
-	return transformedTimeArr, nil
+	return transformedTimeArr
 }
 
 func (c *QValueAvroConverter) processHStore(hstore string) (interface{}, error) {
