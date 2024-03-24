@@ -159,7 +159,7 @@ func (r *RecordItems) toMap(hstoreAsJSON bool) (map[string]interface{}, error) {
 		case qvalue.QValueTime:
 			jsonStruct[col] = v.Val.Format("15:04:05.999999")
 		case qvalue.QValueTimeTZ:
-			jsonStruct[col] = v.Val
+			jsonStruct[col] = v.Val.Format("15:04:05.999999")
 		case qvalue.QValueArrayDate:
 			dateArr := v.Val
 			formattedDateArr := make([]string, 0, len(dateArr))
