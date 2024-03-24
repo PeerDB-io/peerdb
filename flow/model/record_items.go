@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"math"
 
+
+	"github.com/google/uuid"
+
 	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
@@ -76,7 +79,7 @@ func (r *RecordItems) Len() int {
 	return len(r.Values)
 }
 
-func (r *RecordItems) toMap(hstoreAsJSON bool) (map[string]interface{}, error) {
+func (r *RecordItems) toMap(hstoreAsJSON bool, opts ToJSONOptions) (map[string]interface{}, error) {
 	if r.ColToValIdx == nil {
 		return nil, errors.New("colToValIdx is nil")
 	}
@@ -114,6 +117,8 @@ func (r *RecordItems) toMap(hstoreAsJSON bool) (map[string]interface{}, error) {
 			}
 
 			jsonStruct[col] = binStr
+		case qvalue.QValueUUID:
+			jsonStruct[col] = uuid.UUID(v.Val)
 		case qvalue.QValueQChar:
 			jsonStruct[col] = string(v.Val)
 		case qvalue.QValueString:
@@ -125,12 +130,20 @@ func (r *RecordItems) toMap(hstoreAsJSON bool) (map[string]interface{}, error) {
 				jsonStruct[col] = strVal
 			}
 		case qvalue.QValueJSON:
-			strVal := v.Val
-
-			if len(strVal) > 15*1024*1024 {
+			if len(v.Val) > 15*1024*1024 {
 				jsonStruct[col] = ""
+			} else if _, ok := opts.UnnestColumns[col]; ok {
+				var unnestStruct map[string]interface{}
+				err := json.Unmarshal([]byte(v.Val), &unnestStruct)
+				if err != nil {
+					return nil, err
+				}
+
+				for k, v := range unnestStruct {
+					jsonStruct[k] = v
+				}
 			} else {
-				jsonStruct[col] = strVal
+				jsonStruct[col] = v.Val
 			}
 		case qvalue.QValueHStore:
 			hstoreVal := v.Val
@@ -214,7 +227,7 @@ func (r *RecordItems) toMap(hstoreAsJSON bool) (map[string]interface{}, error) {
 
 // a separate method like gives flexibility
 // for us to handle some data types differently
-func (r *RecordItems) ToJSONWithOptions(options *ToJSONOptions) (string, error) {
+func (r *RecordItems) ToJSONWithOptions(options ToJSONOptions) (string, error) {
 	return r.ToJSONWithOpts(options)
 }
 
@@ -222,28 +235,10 @@ func (r *RecordItems) ToJSON() (string, error) {
 	return r.ToJSONWithOpts(NewToJSONOptions(nil, true))
 }
 
-func (r *RecordItems) ToJSONWithOpts(opts *ToJSONOptions) (string, error) {
-	jsonStruct, err := r.toMap(opts.HStoreAsJSON)
+func (r *RecordItems) ToJSONWithOpts(opts ToJSONOptions) (string, error) {
+	jsonStruct, err := r.toMap(opts.HStoreAsJSON, opts)
 	if err != nil {
 		return "", err
-	}
-
-	for col, idx := range r.ColToValIdx {
-		qv := r.Values[idx]
-		if v, ok := qv.(qvalue.QValueJSON); ok {
-			if _, ok := opts.UnnestColumns[col]; ok {
-				var unnestStruct map[string]interface{}
-				err := json.Unmarshal([]byte(v.Val), &unnestStruct)
-				if err != nil {
-					return "", err
-				}
-
-				for k, v := range unnestStruct {
-					jsonStruct[k] = v
-				}
-				delete(jsonStruct, col)
-			}
-		}
 	}
 
 	jsonBytes, err := json.Marshal(jsonStruct)

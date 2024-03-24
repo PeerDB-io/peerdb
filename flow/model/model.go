@@ -62,7 +62,7 @@ type ToJSONOptions struct {
 	HStoreAsJSON  bool
 }
 
-func NewToJSONOptions(unnestCols []string, hstoreAsJSON bool) *ToJSONOptions {
+func NewToJSONOptions(unnestCols []string, hstoreAsJSON bool) ToJSONOptions {
 	var unnestColumns map[string]struct{}
 	if len(unnestCols) != 0 {
 		unnestColumns = make(map[string]struct{}, len(unnestCols))
@@ -70,7 +70,7 @@ func NewToJSONOptions(unnestCols []string, hstoreAsJSON bool) *ToJSONOptions {
 			unnestColumns[col] = struct{}{}
 		}
 	}
-	return &ToJSONOptions{
+	return ToJSONOptions{
 		UnnestColumns: unnestColumns,
 		HStoreAsJSON:  hstoreAsJSON,
 	}
