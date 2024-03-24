@@ -40,14 +40,12 @@ func (qac *QRecordAvroConverter) Convert() (map[string]interface{}, error) {
 		key := qac.ColNames[idx]
 		_, nullable := qac.NullableFields[key]
 
-		avroConverter := qvalue.NewQValueAvroConverter(
+		avroVal, err := qvalue.QValueToAvro(
 			val,
 			qac.TargetDWH,
 			nullable,
 			qac.logger,
 		)
-
-		avroVal, err := avroConverter.ToAvroValue()
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert QValue to Avro-compatible value: %w", err)
 		}

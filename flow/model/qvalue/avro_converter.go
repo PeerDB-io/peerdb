@@ -168,18 +168,16 @@ type QValueAvroConverter struct {
 	logger    log.Logger
 }
 
-func NewQValueAvroConverter(value QValue, targetDWH QDWHType, nullable bool, logger log.Logger) *QValueAvroConverter {
-	return &QValueAvroConverter{
+func QValueToAvro(value QValue, targetDWH QDWHType, nullable bool, logger log.Logger) (interface{}, error) {
+	if nullable && value.Value() == nil {
+		return nil, nil
+	}
+
+	c := &QValueAvroConverter{
 		QValue:    value,
 		TargetDWH: targetDWH,
 		Nullable:  nullable,
 		logger:    logger,
-	}
-}
-
-func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
-	if c.Nullable && c.Value() == nil {
-		return nil, nil
 	}
 
 	switch v := c.QValue.(type) {
@@ -363,10 +361,6 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processGoTimeTZ() (interface{}, error) {
-	if c.Value() == nil && c.Nullable {
-		return nil, nil
-	}
-
 	t, ok := c.Value().(time.Time)
 	if !ok {
 		return nil, errors.New("invalid TimeTZ value")
@@ -381,10 +375,6 @@ func (c *QValueAvroConverter) processGoTimeTZ() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processGoTime() (interface{}, error) {
-	if c.Value() == nil && c.Nullable {
-		return nil, nil
-	}
-
 	t, ok := c.Value().(time.Time)
 	if !ok {
 		return nil, errors.New("invalid Time value")
@@ -403,10 +393,6 @@ func (c *QValueAvroConverter) processGoTime() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processGoTimestampTZ() (interface{}, error) {
-	if c.Value() == nil && c.Nullable {
-		return nil, nil
-	}
-
 	t, ok := c.Value().(time.Time)
 	if !ok {
 		return nil, errors.New("invalid TimestampTZ value")
@@ -453,10 +439,6 @@ func (c *QValueAvroConverter) processGoTimestamp() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processGoDate() (interface{}, error) {
-	if c.Value() == nil && c.Nullable {
-		return nil, nil
-	}
-
 	t, ok := c.Value().(time.Time)
 	if !ok {
 		return nil, errors.New("invalid Time value for Date")
@@ -490,10 +472,6 @@ func (c *QValueAvroConverter) processNullableUnion(
 }
 
 func (c *QValueAvroConverter) processNumeric() (interface{}, error) {
-	if c.Value() == nil {
-		return nil, nil
-	}
-
 	num, ok := c.Value().(decimal.Decimal)
 	if !ok {
 		return nil, fmt.Errorf("invalid Numeric value: expected decimal.Decimal, got %T", c.Value())
@@ -508,10 +486,6 @@ func (c *QValueAvroConverter) processNumeric() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processBytes() (interface{}, error) {
-	if c.Value() == nil && c.Nullable {
-		return nil, nil
-	}
-
 	if c.TargetDWH == QDWHTypeClickhouse {
 		bigNum, ok := c.Value().(decimal.Decimal)
 		if !ok {
@@ -537,10 +511,6 @@ func (c *QValueAvroConverter) processBytes() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processJSON() (interface{}, error) {
-	if c.Value() == nil && c.Nullable {
-		return nil, nil
-	}
-
 	jsonString, ok := c.Value().(string)
 	if !ok {
 		return nil, fmt.Errorf("invalid JSON value %v", c.Value())
@@ -564,10 +534,6 @@ func (c *QValueAvroConverter) processJSON() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processArrayBoolean() (interface{}, error) {
-	if c.Value() == nil && c.Nullable {
-		return nil, nil
-	}
-
 	arrayData, ok := c.Value().([]bool)
 	if !ok {
 		return nil, errors.New("invalid Boolean array value")
@@ -609,10 +575,6 @@ func (c *QValueAvroConverter) processArrayTime() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processArrayDate() (interface{}, error) {
-	if c.Value() == nil && c.Nullable {
-		return nil, nil
-	}
-
 	arrayDate, ok := c.Value().([]time.Time)
 	if !ok {
 		return nil, errors.New("invalid Date array value")
@@ -635,10 +597,6 @@ func (c *QValueAvroConverter) processArrayDate() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processHStore() (interface{}, error) {
-	if c.Value() == nil && c.Nullable {
-		return nil, nil
-	}
-
 	hstoreString, ok := c.Value().(string)
 	if !ok {
 		return nil, fmt.Errorf("invalid HSTORE value %v", c.Value())
@@ -646,7 +604,7 @@ func (c *QValueAvroConverter) processHStore() (interface{}, error) {
 
 	jsonString, err := hstore_util.ParseHstore(hstoreString)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("cannot parse %s: %w", hstoreString, err)
 	}
 
 	if c.Nullable {
@@ -667,10 +625,6 @@ func (c *QValueAvroConverter) processHStore() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processUUID() (interface{}, error) {
-	if c.Value() == nil {
-		return nil, nil
-	}
-
 	byteData, ok := c.Value().([16]byte)
 	if !ok {
 		// attempt to convert google.uuid to [16]byte
@@ -711,10 +665,6 @@ func (c *QValueAvroConverter) processGeospatial() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processArrayInt16() (interface{}, error) {
-	if c.Value() == nil && c.Nullable {
-		return nil, nil
-	}
-
 	arrayData, ok := c.Value().([]int16)
 	if !ok {
 		return nil, errors.New("invalid Int16 array value")
@@ -734,10 +684,6 @@ func (c *QValueAvroConverter) processArrayInt16() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processArrayInt32() (interface{}, error) {
-	if c.Value() == nil && c.Nullable {
-		return nil, nil
-	}
-
 	arrayData, ok := c.Value().([]int32)
 	if !ok {
 		return nil, errors.New("invalid Int32 array value")
@@ -751,10 +697,6 @@ func (c *QValueAvroConverter) processArrayInt32() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processArrayInt64() (interface{}, error) {
-	if c.Value() == nil && c.Nullable {
-		return nil, nil
-	}
-
 	arrayData, ok := c.Value().([]int64)
 	if !ok {
 		return nil, errors.New("invalid Int64 array value")
@@ -768,10 +710,6 @@ func (c *QValueAvroConverter) processArrayInt64() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processArrayFloat32() (interface{}, error) {
-	if c.Value() == nil && c.Nullable {
-		return nil, nil
-	}
-
 	arrayData, ok := c.Value().([]float32)
 	if !ok {
 		return nil, errors.New("invalid Float32 array value")
@@ -785,10 +723,6 @@ func (c *QValueAvroConverter) processArrayFloat32() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processArrayFloat64() (interface{}, error) {
-	if c.Value() == nil && c.Nullable {
-		return nil, nil
-	}
-
 	arrayData, ok := c.Value().([]float64)
 	if !ok {
 		return nil, errors.New("invalid Float64 array value")
@@ -802,10 +736,6 @@ func (c *QValueAvroConverter) processArrayFloat64() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processArrayString() (interface{}, error) {
-	if c.Value() == nil && c.Nullable {
-		return nil, nil
-	}
-
 	arrayData, ok := c.Value().([]string)
 	if !ok {
 		return nil, errors.New("invalid String array value")
