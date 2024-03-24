@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -403,7 +404,10 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 	case qvalue.QValueKindTime:
 		if t, ok := val.(*sql.NullTime); ok {
 			if t.Valid {
-				return qvalue.QValueTime{Val: t.Time}, nil
+				tt := t.Time
+				return qvalue.QValueTimeTZ{
+					Val: time.Date(1970, time.January, 1, tt.Hour(), tt.Minute(), tt.Second(), tt.Nanosecond(), nil),
+				}, nil
 			} else {
 				return qvalue.QValueNull(kind), nil
 			}
@@ -411,7 +415,10 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 	case qvalue.QValueKindTimeTZ:
 		if t, ok := val.(*sql.NullTime); ok {
 			if t.Valid {
-				return qvalue.QValueTimeTZ{Val: t.Time}, nil
+				tt := t.Time
+				return qvalue.QValueTimeTZ{
+					Val: time.Date(1970, time.January, 1, tt.Hour(), tt.Minute(), tt.Second(), tt.Nanosecond(), tt.Location()),
+				}, nil
 			} else {
 				return qvalue.QValueNull(kind), nil
 			}
