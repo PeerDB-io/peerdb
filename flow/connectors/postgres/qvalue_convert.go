@@ -216,8 +216,6 @@ func convertToArray[T any](kind qvalue.QValueKind, value interface{}) ([]T, erro
 }
 
 func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (qvalue.QValue, error) {
-	var val qvalue.QValue
-
 	if value == nil {
 		return qvalue.QValueNull(qvalueKind), nil
 	}
@@ -225,10 +223,10 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 	switch qvalueKind {
 	case qvalue.QValueKindTimestamp:
 		timestamp := value.(time.Time)
-		val = qvalue.QValueTimestamp{Val: timestamp}
+		return qvalue.QValueTimestamp{Val: timestamp}, nil
 	case qvalue.QValueKindTimestampTZ:
 		timestamp := value.(time.Time)
-		val = qvalue.QValueTimestampTZ{Val: timestamp}
+		return qvalue.QValueTimestampTZ{Val: timestamp}, nil
 	case qvalue.QValueKindInterval:
 		intervalObject := value.(pgtype.Interval)
 		var interval peerdb_interval.PeerDBInterval
@@ -252,12 +250,12 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		return qvalue.QValueString{Val: string(intervalJSON)}, nil
 	case qvalue.QValueKindDate:
 		date := value.(time.Time)
-		val = qvalue.QValueDate{Val: date}
+		return qvalue.QValueDate{Val: date}, nil
 	case qvalue.QValueKindTime:
 		timeVal := value.(pgtype.Time)
 		if timeVal.Valid {
 			// 86399999999 to prevent 24:00:00
-			val = qvalue.QValueTime{Val: time.UnixMicro(min(timeVal.Microseconds, 86399999999))}
+			return qvalue.QValueTime{Val: time.UnixMicro(min(timeVal.Microseconds, 86399999999))}, nil
 		}
 	case qvalue.QValueKindTimeTZ:
 		timeVal := value.(string)
@@ -270,37 +268,37 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 			return nil, fmt.Errorf("failed to parse time: %w", err)
 		}
 		t = t.AddDate(1970, 0, 0)
-		val = qvalue.QValueTimeTZ{Val: t}
+		return qvalue.QValueTimeTZ{Val: t}, nil
 
 	case qvalue.QValueKindBoolean:
 		boolVal := value.(bool)
-		val = qvalue.QValueBoolean{Val: boolVal}
+		return qvalue.QValueBoolean{Val: boolVal}, nil
 	case qvalue.QValueKindJSON:
 		tmp, err := parseJSON(value)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse JSON: %w", err)
 		}
-		val = tmp
+		return tmp, nil
 	case qvalue.QValueKindInt16:
 		intVal := value.(int16)
-		val = qvalue.QValueInt16{Val: intVal}
+		return qvalue.QValueInt16{Val: intVal}, nil
 	case qvalue.QValueKindInt32:
 		intVal := value.(int32)
-		val = qvalue.QValueInt32{Val: intVal}
+		return qvalue.QValueInt32{Val: intVal}, nil
 	case qvalue.QValueKindInt64:
 		intVal := value.(int64)
-		val = qvalue.QValueInt64{Val: intVal}
+		return qvalue.QValueInt64{Val: intVal}, nil
 	case qvalue.QValueKindFloat32:
 		floatVal := value.(float32)
-		val = qvalue.QValueFloat32{Val: floatVal}
+		return qvalue.QValueFloat32{Val: floatVal}, nil
 	case qvalue.QValueKindFloat64:
 		floatVal := value.(float64)
-		val = qvalue.QValueFloat64{Val: floatVal}
+		return qvalue.QValueFloat64{Val: floatVal}, nil
 	case qvalue.QValueKindQChar:
-		val = qvalue.QValueQChar{Val: uint8(value.(rune))}
+		return qvalue.QValueQChar{Val: uint8(value.(rune))}, nil
 	case qvalue.QValueKindString:
 		// handling all unsupported types with strings as well for now.
-		val = qvalue.QValueString{Val: fmt.Sprint(value)}
+		return qvalue.QValueString{Val: fmt.Sprint(value)}, nil
 	case qvalue.QValueKindUUID:
 		switch v := value.(type) {
 		case string:
@@ -308,50 +306,50 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse UUID: %w", err)
 			}
-			val = qvalue.QValueUUID{Val: [16]byte(id)}
+			return qvalue.QValueUUID{Val: [16]byte(id)}, nil
 		case [16]byte:
-			val = qvalue.QValueUUID{Val: v}
+			return qvalue.QValueUUID{Val: v}, nil
 		default:
 			return nil, fmt.Errorf("failed to parse UUID: %v", value)
 		}
 	case qvalue.QValueKindINET:
 		switch v := value.(type) {
 		case string:
-			val = qvalue.QValueINET{Val: v}
+			return qvalue.QValueINET{Val: v}, nil
 		case [16]byte:
-			val = qvalue.QValueINET{Val: string(v[:])}
+			return qvalue.QValueINET{Val: string(v[:])}, nil
 		case netip.Prefix:
-			val = qvalue.QValueINET{Val: v.String()}
+			return qvalue.QValueINET{Val: v.String()}, nil
 		default:
 			return nil, fmt.Errorf("failed to parse INET: %v", v)
 		}
 	case qvalue.QValueKindCIDR:
 		switch v := value.(type) {
 		case string:
-			val = qvalue.QValueCIDR{Val: v}
+			return qvalue.QValueCIDR{Val: v}, nil
 		case [16]byte:
-			val = qvalue.QValueCIDR{Val: string(v[:])}
+			return qvalue.QValueCIDR{Val: string(v[:])}, nil
 		case netip.Prefix:
-			val = qvalue.QValueCIDR{Val: v.String()}
+			return qvalue.QValueCIDR{Val: v.String()}, nil
 		default:
 			return nil, fmt.Errorf("failed to parse CIDR: %v", value)
 		}
 	case qvalue.QValueKindMacaddr:
 		switch v := value.(type) {
 		case string:
-			val = qvalue.QValueMacaddr{Val: v}
+			return qvalue.QValueMacaddr{Val: v}, nil
 		case [16]byte:
-			val = qvalue.QValueMacaddr{Val: string(v[:])}
+			return qvalue.QValueMacaddr{Val: string(v[:])}, nil
 		default:
 			return nil, fmt.Errorf("failed to parse MACADDR: %v", value)
 		}
 	case qvalue.QValueKindBytes:
 		rawBytes := value.([]byte)
-		val = qvalue.QValueBytes{Val: rawBytes}
+		return qvalue.QValueBytes{Val: rawBytes}, nil
 	case qvalue.QValueKindBit:
 		bitsVal := value.(pgtype.Bits)
 		if bitsVal.Valid {
-			val = qvalue.QValueBit{Val: bitsVal.Bytes}
+			return qvalue.QValueBit{Val: bitsVal.Bytes}, nil
 		}
 	case qvalue.QValueKindNumeric:
 		numVal := value.(pgtype.Numeric)
@@ -360,38 +358,38 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert numeric [%v] to decimal: %w", value, err)
 			}
-			val = num
+			return num, nil
 		}
 	case qvalue.QValueKindArrayFloat32:
 		a, err := convertToArray[float32](qvalueKind, value)
 		if err != nil {
 			return nil, err
 		}
-		val = qvalue.QValueArrayFloat32{Val: a}
+		return qvalue.QValueArrayFloat32{Val: a}, nil
 	case qvalue.QValueKindArrayFloat64:
 		a, err := convertToArray[float64](qvalueKind, value)
 		if err != nil {
 			return nil, err
 		}
-		val = qvalue.QValueArrayFloat64{Val: a}
+		return qvalue.QValueArrayFloat64{Val: a}, nil
 	case qvalue.QValueKindArrayInt16:
 		a, err := convertToArray[int16](qvalueKind, value)
 		if err != nil {
 			return nil, err
 		}
-		val = qvalue.QValueArrayInt16{Val: a}
+		return qvalue.QValueArrayInt16{Val: a}, nil
 	case qvalue.QValueKindArrayInt32:
 		a, err := convertToArray[int32](qvalueKind, value)
 		if err != nil {
 			return nil, err
 		}
-		val = qvalue.QValueArrayInt32{Val: a}
+		return qvalue.QValueArrayInt32{Val: a}, nil
 	case qvalue.QValueKindArrayInt64:
 		a, err := convertToArray[int64](qvalueKind, value)
 		if err != nil {
 			return nil, err
 		}
-		val = qvalue.QValueArrayInt64{Val: a}
+		return qvalue.QValueArrayInt64{Val: a}, nil
 	case qvalue.QValueKindArrayDate, qvalue.QValueKindArrayTimestamp, qvalue.QValueKindArrayTimestampTZ:
 		a, err := convertToArray[time.Time](qvalueKind, value)
 		if err != nil {
@@ -399,42 +397,39 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		}
 		switch qvalueKind {
 		case qvalue.QValueKindArrayDate:
-			val = qvalue.QValueArrayDate{Val: a}
+			return qvalue.QValueArrayDate{Val: a}, nil
 		case qvalue.QValueKindArrayTimestamp:
-			val = qvalue.QValueArrayTimestamp{Val: a}
+			return qvalue.QValueArrayTimestamp{Val: a}, nil
 		case qvalue.QValueKindArrayTimestampTZ:
-			val = qvalue.QValueArrayTimestampTZ{Val: a}
+			return qvalue.QValueArrayTimestampTZ{Val: a}, nil
 		}
 	case qvalue.QValueKindArrayBoolean:
 		a, err := convertToArray[bool](qvalueKind, value)
 		if err != nil {
 			return nil, err
 		}
-		val = qvalue.QValueArrayBoolean{Val: a}
+		return qvalue.QValueArrayBoolean{Val: a}, nil
 	case qvalue.QValueKindArrayString:
 		a, err := convertToArray[string](qvalueKind, value)
 		if err != nil {
 			return nil, err
 		}
-		val = qvalue.QValueArrayString{Val: a}
+		return qvalue.QValueArrayString{Val: a}, nil
 	case qvalue.QValueKindPoint:
 		xCoord := value.(pgtype.Point).P.X
 		yCoord := value.(pgtype.Point).P.Y
-		val = qvalue.QValuePoint{
+		return qvalue.QValuePoint{
 			Val: fmt.Sprintf("POINT(%f %f)", xCoord, yCoord),
-		}
+		}, nil
 	default:
 		textVal, ok := value.(string)
 		if ok {
-			val = qvalue.QValueString{Val: textVal}
+			return qvalue.QValueString{Val: textVal}, nil
 		}
 	}
 
 	// parsing into pgtype failed.
-	if val == nil {
-		return nil, fmt.Errorf("failed to parse value %v into QValueKind %v", value, qvalueKind)
-	}
-	return val, nil
+	return nil, fmt.Errorf("failed to parse value %v into QValueKind %v", value, qvalueKind)
 }
 
 func (c *PostgresConnector) parseFieldFromPostgresOID(oid uint32, value interface{}) (qvalue.QValue, error) {

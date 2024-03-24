@@ -458,24 +458,24 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 			record[i] = tmp
 		} else {
 			customQKind := customTypeToQKind(typeName)
-			switch customQKind {
-			case qvalue.QValueKindGeography, qvalue.QValueKindGeometry:
-				wkbString, ok := values[i].(string)
-				wkt, err := geo.GeoValidate(wkbString)
-				if err != nil || !ok {
-					record[i] = qvalue.QValueNull(qvalue.QValueKindGeography)
-				} else if customQKind == qvalue.QValueKindGeography {
-					record[i] = qvalue.QValueGeography{Val: wkt}
-				} else {
-					record[i] = qvalue.QValueGeometry{Val: wkt}
-				}
-			case qvalue.QValueKindHStore:
-				record[i] = qvalue.QValueHStore{
-					Val: fmt.Sprint(values[i]),
-				}
-			case qvalue.QValueKindString:
-				record[i] = qvalue.QValueString{
-					Val: fmt.Sprint(values[i]),
+			if values[i] == nil {
+				record[i] = qvalue.QValueNull(customQKind)
+			} else {
+				switch customQKind {
+				case qvalue.QValueKindGeography, qvalue.QValueKindGeometry:
+					wkbString, ok := values[i].(string)
+					wkt, err := geo.GeoValidate(wkbString)
+					if err != nil || !ok {
+						record[i] = qvalue.QValueNull(qvalue.QValueKindGeography)
+					} else if customQKind == qvalue.QValueKindGeography {
+						record[i] = qvalue.QValueGeography{Val: wkt}
+					} else {
+						record[i] = qvalue.QValueGeometry{Val: wkt}
+					}
+				case qvalue.QValueKindHStore:
+					record[i] = qvalue.QValueHStore{Val: fmt.Sprint(values[i])}
+				case qvalue.QValueKindString:
+					record[i] = qvalue.QValueString{Val: fmt.Sprint(values[i])}
 				}
 			}
 		}
