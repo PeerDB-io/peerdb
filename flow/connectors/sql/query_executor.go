@@ -218,7 +218,7 @@ func (g *GenericSQLQueryExecutor) processRows(ctx context.Context, rows *sqlx.Ro
 			case qvalue.QValueKindBoolean:
 				var b sql.NullBool
 				values[i] = &b
-			case qvalue.QValueKindString:
+			case qvalue.QValueKindString, qvalue.QValueKindHStore:
 				var s sql.NullString
 				values[i] = &s
 			case qvalue.QValueKindBytes, qvalue.QValueKindBit:
@@ -443,10 +443,6 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 			return qvalue.QValueUUID{Val: [16]byte(uuidVal)}, nil
 		}
 
-		if v, ok := val.(*[16]byte); ok && v != nil {
-			return qvalue.QValueUUID{Val: *v}, nil
-		}
-
 	case qvalue.QValueKindJSON:
 		vraw := val.(*interface{})
 		vstring, ok := (*vraw).(string)
@@ -488,7 +484,13 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 		return qvalue.QValueJSON{Val: vstring}, nil
 
 	case qvalue.QValueKindHStore:
-		return qvalue.QValueHStore{Val: fmt.Sprint(val)}, nil
+		vraw := val.(*interface{})
+		vstring, ok := (*vraw).(string)
+		if !ok {
+			slog.Warn("A parsed hstore value was not a string. Likely a null field value")
+		}
+
+		return qvalue.QValueHStore{Val: vstring}, nil
 
 	case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64,
 		qvalue.QValueKindArrayInt16,
