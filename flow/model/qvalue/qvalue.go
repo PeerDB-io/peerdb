@@ -544,7 +544,7 @@ func Equals(qv QValue, other QValue) bool {
 		return false
 	// all internally represented as a Golang time.Time
 	case QValueDate, QValueTimestamp, QValueTimestampTZ, QValueTime, QValueTimeTZ:
-		return compareGoTime(q.Value(), other.Value)
+		return compareGoTime(q.Value(), other.Value())
 	case QValueNumeric:
 		return compareNumeric(q.Val, other.Value())
 	case QValueBytes:
@@ -570,7 +570,7 @@ func Equals(qv QValue, other QValue) bool {
 	case QValueArrayInt64:
 		return compareNumericArrays(q.Val, other.Value())
 	case QValueArrayDate:
-		return compareDateArrays(q.Val, other.Value)
+		return compareDateArrays(q.Val, other.Value())
 	case QValueArrayTimestamp, QValueArrayTimestampTZ:
 		return compareTimeArrays(q.Value(), other.Value())
 	case QValueArrayBoolean:

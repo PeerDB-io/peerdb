@@ -140,7 +140,7 @@ func (r *RecordItems) toMap(hstoreAsJSON bool) (map[string]interface{}, error) {
 			} else {
 				jsonVal, err := hstore_util.ParseHstore(hstoreVal)
 				if err != nil {
-					return nil, fmt.Errorf("unable to convert hstore column %s to json for value %T", col, v.Value)
+					return nil, fmt.Errorf("unable to convert hstore column %s to json for value %T: %w", col, v, err)
 				}
 
 				if len(jsonVal) > 15*1024*1024 {
