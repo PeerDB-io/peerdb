@@ -406,7 +406,7 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 			if t.Valid {
 				tt := t.Time
 				return qvalue.QValueTimeTZ{
-					Val: time.Date(1970, time.January, 1, tt.Hour(), tt.Minute(), tt.Second(), tt.Nanosecond(), nil),
+					Val: time.Date(1970, time.January, 1, tt.Hour(), tt.Minute(), tt.Second(), tt.Nanosecond(), time.UTC),
 				}, nil
 			} else {
 				return qvalue.QValueNull(kind), nil
