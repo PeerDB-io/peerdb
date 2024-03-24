@@ -64,6 +64,8 @@ github.com/PeerDB-io/gluabit32 v1.0.2 h1:AGI1Z7dwDVotakpuOOuyTX4/QGi5HUYsipL/Vfo
 github.com/PeerDB-io/gluabit32 v1.0.2/go.mod h1:tsHStN1XG5uGVWEA8d/RameB7el3PE3sVkvk8e3+FJg=
 github.com/PeerDB-io/gluaflatbuffers v1.0.1 h1:Oxlv0VlMYoQ05Q5n/k4hXAsvtDnuVNC99JBUf927br0=
 github.com/PeerDB-io/gluaflatbuffers v1.0.1/go.mod h1:unZOM4Mm2Sn+aAFuVjoJDZ2Dji7jlDWrt4Hvq79as2g=
+github.com/PeerDB-io/gluajson v1.0.0 h1:+W3nZ2WNqyCDIjRM7XtFKZLoZeB6rvsiAE4Ci1jHmzQ=
+github.com/PeerDB-io/gluajson v1.0.0/go.mod h1:arRzpblxlLiWfBAluxP9Xibf6J8UkUIfoY4FPHTsz4Q=
 github.com/alecthomas/assert/v2 v2.6.0 h1:o3WJwILtexrEUk3cUVal3oiQY2tfgr/FHWiz/v2n4FU=
 github.com/alecthomas/assert/v2 v2.6.0/go.mod h1:Bze95FyfUr7x34QZrjL+XP+0qgp/zg8yS+TtBj1WA3k=
 github.com/alecthomas/repr v0.4.0 h1:GhI2A8MACjfegCPVq9f1FLvIBS+DrQ2KQBFZP1iFzXc=
