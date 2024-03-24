@@ -70,7 +70,7 @@ func CheckQRecordEquality(t *testing.T, q []qvalue.QValue, other []qvalue.QValue
 	for i, entry := range q {
 		otherEntry := other[i]
 		if !qvalue.Equals(entry, otherEntry) {
-			t.Logf("entry %d: %T %v != %T %v", i, entry, entry, otherEntry, otherEntry)
+			t.Logf("entry %d: %T %+v != %T %+v", i, entry, entry, otherEntry, otherEntry)
 			return false
 		}
 	}

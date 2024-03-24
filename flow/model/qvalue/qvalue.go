@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/big"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -494,8 +495,10 @@ func (v QValueArrayBoolean) Value() any {
 func Equals(qv QValue, other QValue) bool {
 	qvValue := qv.Value()
 	otherValue := other.Value()
-	qvEmpty := qvValue == nil || (reflect.TypeOf(qvValue).Kind() == reflect.Slice && reflect.ValueOf(qvValue).Len() == 0)
-	otherEmpty := otherValue == nil || (reflect.TypeOf(otherValue).Kind() == reflect.Slice && reflect.ValueOf(otherValue).Len() == 0)
+	qvEmpty := qvValue == nil || qvValue == "" || qvValue == "null" ||
+		(reflect.TypeOf(qvValue).Kind() == reflect.Slice && reflect.ValueOf(qvValue).Len() == 0)
+	otherEmpty := otherValue == nil || otherValue == "" || otherValue == "null" ||
+		(reflect.TypeOf(otherValue).Kind() == reflect.Slice && reflect.ValueOf(otherValue).Len() == 0)
 	if qvEmpty && otherEmpty {
 		return true
 	}
@@ -615,10 +618,6 @@ func (v QValueFloat64) compareFloat64(value2 QValue) bool {
 }
 
 func compareGoTime(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
 	et1, ok1 := value1.(time.Time)
 	et2, ok2 := value2.(time.Time)
 
@@ -635,10 +634,6 @@ func compareGoTime(value1, value2 interface{}) bool {
 }
 
 func compareUUID(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
 	uuid1, ok1 := getUUID(value1)
 	uuid2, ok2 := getUUID(value2)
 
@@ -735,18 +730,6 @@ func (v QValueStruct) compareStruct(value2 QValueStruct) bool {
 }
 
 func compareNumericArrays(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	if value1 == nil && value2 == "null" {
-		return true
-	}
-
-	if value1 == nil && value2 == "" {
-		return true
-	}
-
 	// Helper function to convert a value to float64
 	convertToFloat64 := func(val interface{}) []float64 {
 		switch v := val.(type) {
@@ -798,17 +781,10 @@ func compareNumericArrays(value1, value2 interface{}) bool {
 }
 
 func compareTimeArrays(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
 	array1, ok1 := value1.([]time.Time)
 	array2, ok2 := value2.([]time.Time)
 
-	if !ok1 || !ok2 {
-		return false
-	}
-
-	if len(array1) != len(array2) {
+	if !ok1 || !ok2 || len(array1) != len(array2) {
 		return false
 	}
 
@@ -817,14 +793,10 @@ func compareTimeArrays(value1, value2 interface{}) bool {
 			return false
 		}
 	}
-
 	return true
 }
 
 func compareDateArrays(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
 	array1, ok1 := value1.([]time.Time)
 	array2, ok2 := value2.([]time.Time)
 
@@ -839,14 +811,10 @@ func compareDateArrays(value1, value2 interface{}) bool {
 			return false
 		}
 	}
-
 	return true
 }
 
 func compareBoolArrays(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
 	array1, ok1 := value1.([]bool)
 	array2, ok2 := value2.([]bool)
 
@@ -859,25 +827,10 @@ func compareBoolArrays(value1, value2 interface{}) bool {
 			return false
 		}
 	}
-
 	return true
 }
 
 func compareArrayString(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	// also return true if value2 is string null
-	if value1 == nil && value2 == "null" {
-		return true
-	}
-
-	// nulls end up as empty 'variants' in snowflake
-	if value1 == nil && value2 == "" {
-		return true
-	}
-
 	array1, ok1 := value1.([]string)
 	array2, ok2 := value2.([]string)
 
@@ -885,7 +838,7 @@ func compareArrayString(value1, value2 interface{}) bool {
 		return false
 	}
 
-	return reflect.DeepEqual(array1, array2)
+	return slices.Compare(array1, array2) == 0
 }
 
 func getInt16(v interface{}) (int16, bool) {
