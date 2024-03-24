@@ -495,7 +495,7 @@ func (v QValueArrayBoolean) Value() any {
 func Equals(qv QValue, other QValue) bool {
 	if qv.Kind() == QValueKindJSON {
 		return true // TODO fix
-	} else if qv == nil && other == nil {
+	} else if qv.Value() == nil && other.Value() == nil {
 		return true
 	}
 
@@ -583,27 +583,27 @@ func Equals(qv QValue, other QValue) bool {
 }
 
 func (v QValueInt16) compareInt16(value2 QValue) bool {
-	int2, ok2 := getInt16(value2)
+	int2, ok2 := getInt16(value2.Value())
 	return ok2 && v.Val == int2
 }
 
 func (v QValueInt32) compareInt32(value2 QValue) bool {
-	int2, ok2 := getInt32(value2)
+	int2, ok2 := getInt32(value2.Value())
 	return ok2 && v.Val == int2
 }
 
 func (v QValueInt64) compareInt64(value2 QValue) bool {
-	int2, ok2 := getInt64(value2)
+	int2, ok2 := getInt64(value2.Value())
 	return ok2 && v.Val == int2
 }
 
-func (v QValueFloat32) compareFloat32(value2 interface{}) bool {
-	float2, ok2 := getFloat32(value2)
+func (v QValueFloat32) compareFloat32(value2 QValue) bool {
+	float2, ok2 := getFloat32(value2.Value())
 	return ok2 && v.Val == float2
 }
 
-func (v QValueFloat64) compareFloat64(value2 interface{}) bool {
-	float2, ok2 := getFloat64(value2)
+func (v QValueFloat64) compareFloat64(value2 QValue) bool {
+	float2, ok2 := getFloat64(value2.Value())
 	return ok2 && v.Val == float2
 }
 
