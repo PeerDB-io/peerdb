@@ -29,7 +29,7 @@ func (s PeerFlowE2ETestSuiteBQ) checkJSONValue(tableName, colName, fieldName, va
 		"SELECT `%s`.%s FROM `%s.%s`;",
 		colName, fieldName, s.bqHelper.Config.DatasetId, tableName))
 	if err != nil {
-		return fmt.Errorf("json value check failed: %v", err)
+		return fmt.Errorf("json value check failed: %w", err)
 	}
 
 	if len(res.Records) == 0 {
@@ -443,14 +443,17 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 
 		// check if JSON on bigquery side is a good JSON
 		if err := s.checkJSONValue(dstTableName, "c17", "sai", "-8.021390374331551"); err != nil {
+			s.t.Log(err)
 			return false
 		}
 
 		// check if HSTORE on bigquery side is a good JSON
 		if err := s.checkJSONValue(dstTableName, "c46", "key1", "\"value1\""); err != nil {
+			s.t.Log(err)
 			return false
 		}
 		if err := s.checkJSONValue(dstTableName, "c46", "key2", "null"); err != nil {
+			s.t.Log(err)
 			return false
 		}
 
