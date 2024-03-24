@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"cloud.google.com/go/civil"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
@@ -824,16 +823,16 @@ func compareDateArrays(value1, value2 interface{}) bool {
 		return true
 	}
 	array1, ok1 := value1.([]time.Time)
-	array2, ok2 := value2.([]civil.Date)
+	array2, ok2 := value2.([]time.Time)
 
 	if !ok1 || !ok2 || len(array1) != len(array2) {
 		return false
 	}
 
 	for i := range array1 {
-		if array1[i].Year() != array2[i].Year ||
-			array1[i].Month() != array2[i].Month ||
-			array1[i].Day() != array2[i].Day {
+		if array1[i].Year() != array2[i].Year() ||
+			array1[i].Month() != array2[i].Month() ||
+			array1[i].Day() != array2[i].Day() {
 			return false
 		}
 	}
