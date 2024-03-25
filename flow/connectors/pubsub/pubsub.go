@@ -135,7 +135,7 @@ func lvalueToPubSubMessage(ls *lua.LState, value lua.LValue) (string, *pubsub.Me
 
 func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
 	numRecords := int64(0)
-	tableNameRowsMapping := make(map[string]*model.RecordTypeCounts)
+	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 
 	ls, err := utils.LoadScript(ctx, req.Script, func(ls *lua.LState) int {
 		top := ls.GetTop()
