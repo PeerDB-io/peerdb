@@ -30,7 +30,6 @@ export default async function QRepMirrorStatus({
   const partitions = runs.map((run) => {
     let ret: QRepPartitionStatus = {
       partitionId: run.partition_uuid,
-      runUuid: run.run_uuid,
       startTime: run.start_time,
       endTime: run.end_time,
       pulledRows: run.rows_in_partition,

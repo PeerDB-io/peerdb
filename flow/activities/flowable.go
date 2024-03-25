@@ -554,6 +554,16 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	runUUID string,
 ) (*protos.QRepParitionResult, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	err := monitoring.InitializeQRepRun(
+		ctx,
+		a.CatalogPool,
+		config,
+		runUUID,
+		nil,
+	)
+	if err != nil {
+		return nil, err
+	}
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get qrep pull connector: %w", err)
@@ -564,7 +574,6 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		return "getting partitions for job"
 	})
 	defer shutdown()
-
 	partitions, err := srcConn.GetQRepPartitions(ctx, config, last)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
