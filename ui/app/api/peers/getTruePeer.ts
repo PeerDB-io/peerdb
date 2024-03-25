@@ -7,6 +7,7 @@ import {
   KafkaConfig,
   Peer,
   PostgresConfig,
+  PubSubConfig,
   S3Config,
   SnowflakeConfig,
   SqlServerConfig,
@@ -25,6 +26,7 @@ export const getTruePeer = (peer: CatalogPeer) => {
     | EventHubGroupConfig
     | KafkaConfig
     | PostgresConfig
+    | PubSubConfig
     | S3Config
     | SnowflakeConfig
     | SqlServerConfig;
@@ -64,6 +66,10 @@ export const getTruePeer = (peer: CatalogPeer) => {
     case 9:
       config = KafkaConfig.decode(options);
       newPeer.kafkaConfig = config;
+      break;
+    case 10:
+      config = PubSubConfig.decode(options);
+      newPeer.pubsubConfig = config;
       break;
     default:
       return newPeer;

@@ -21,9 +21,9 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 
-	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
@@ -119,12 +119,12 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 
 	grpcServer := grpc.NewServer()
 
-	catalogConn, err := utils.GetCatalogConnectionPoolFromEnv(ctx)
+	catalogConn, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to get catalog connection pool: %w", err)
 	}
 
-	taskQueue := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
+	taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
 	flowHandler := NewFlowRequestHandler(tc, catalogConn, taskQueue)
 
 	err = killExistingScheduleFlows(ctx, tc, args.TemporalNamespace, taskQueue)

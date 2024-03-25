@@ -14,6 +14,9 @@ pub mod peerdb_peers;
 #[path ="./gen/peerdb_route.rs"]
 pub mod peerdb_route;
 
+pub use prost;
+pub use tonic;
+
 impl From<PeerType> for DbType {
     fn from(peer_type: PeerType) -> Self {
         match peer_type {

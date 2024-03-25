@@ -483,7 +483,7 @@ func (c *PostgresConnector) SetupQRepMetadataTables(ctx context.Context, config 
 	)`, metadataTableIdentifier.Sanitize())
 	// execute create table query
 	_, err = c.conn.Exec(ctx, createQRepMetadataTableSQL)
-	if err != nil && !utils.IsUniqueError(err) {
+	if err != nil && !shared.IsUniqueError(err) {
 		return fmt.Errorf("failed to create table %s: %w", qRepMetadataTableName, err)
 	}
 	c.logger.Info("Setup metadata table.")

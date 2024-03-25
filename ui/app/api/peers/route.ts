@@ -13,6 +13,7 @@ import {
   KafkaConfig,
   Peer,
   PostgresConfig,
+  PubSubConfig,
   S3Config,
   SnowflakeConfig,
 } from '@/grpc_generated/peers';
@@ -69,6 +70,12 @@ const constructPeer = (
         name,
         type: DBType.KAFKA,
         kafkaConfig: config as KafkaConfig,
+      };
+    case 'PUBSUB':
+      return {
+        name,
+        type: DBType.PUBSUB,
+        pubsubConfig: config as PubSubConfig,
       };
     default:
       return;

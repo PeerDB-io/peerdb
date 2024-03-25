@@ -16,6 +16,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/numeric"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type PGVersion int
@@ -369,12 +370,13 @@ func (c *PostgresConnector) createSlotAndPublication(
 
 		c.logger.Warn(fmt.Sprintf("Creating replication slot '%s'", slot))
 
-		_, err = conn.Exec(ctx, "SET LOCAL idle_in_transaction_session_timeout=0")
+		// THIS IS NOT IN A TX!
+		_, err = conn.Exec(ctx, "SET idle_in_transaction_session_timeout=0")
 		if err != nil {
 			return fmt.Errorf("[slot] error setting idle_in_transaction_session_timeout: %w", err)
 		}
 
-		_, err = conn.Exec(ctx, "SET LOCAL lock_timeout=0")
+		_, err = conn.Exec(ctx, "SET lock_timeout=0")
 		if err != nil {
 			return fmt.Errorf("[slot] error setting lock_timeout: %w", err)
 		}
@@ -424,7 +426,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 
 func (c *PostgresConnector) createMetadataSchema(ctx context.Context) error {
 	_, err := c.conn.Exec(ctx, fmt.Sprintf(createSchemaSQL, c.metadataSchema))
-	if err != nil && !utils.IsUniqueError(err) {
+	if err != nil && !shared.IsUniqueError(err) {
 		return fmt.Errorf("error while creating internal schema: %w", err)
 	}
 	return nil

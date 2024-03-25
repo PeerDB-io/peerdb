@@ -13,9 +13,10 @@ import (
 
 	"github.com/PeerDB-io/glua64"
 	"github.com/PeerDB-io/gluabit32"
-	"github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
+	"github.com/PeerDB-io/gluajson"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 var (
@@ -37,7 +38,8 @@ func RegisterTypes(ls *lua.LState) {
 	loaders := ls.G.Registry.RawGetString("_LOADERS").(*lua.LTable)
 	loaders.RawSetInt(2, ls.NewFunction(LoadPeerdbScript))
 
-	ls.PreloadModule("bit32", bit32.Loader)
+	ls.PreloadModule("bit32", gluabit32.Loader)
+	ls.PreloadModule("json", gluajson.Loader)
 
 	mt := LuaRecord.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaRecordIndex))
@@ -77,7 +79,7 @@ func RegisterTypes(ls *lua.LState) {
 func LoadPeerdbScript(ls *lua.LState) int {
 	ctx := ls.Context()
 	name := ls.CheckString(1)
-	pool, err := utils.GetCatalogConnectionPoolFromEnv(ctx)
+	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		ls.RaiseError("Connection failed loading %s: %s", name, err.Error())
 		return 0

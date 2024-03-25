@@ -864,7 +864,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 
 		func() {
 			pgConfig := pgPeer.GetPostgresConfig()
-			peerConn, peerErr := pgx.Connect(ctx, utils.GetPGConnectionString(pgConfig))
+			peerConn, peerErr := pgx.Connect(ctx, shared.GetPGConnectionString(pgConfig))
 			if peerErr != nil {
 				logger.Error(fmt.Sprintf("error creating pool for postgres peer %v with host %v: %v",
 					pgPeer.Name, pgConfig.Host, peerErr))

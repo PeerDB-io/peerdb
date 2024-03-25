@@ -12,9 +12,9 @@ import (
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	cc "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 const (
@@ -28,7 +28,7 @@ type PostgresMetadataStore struct {
 }
 
 func NewPostgresMetadataStore(ctx context.Context) (*PostgresMetadataStore, error) {
-	pool, err := cc.GetCatalogConnectionPoolFromEnv(ctx)
+	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create catalog connection pool: %w", err)
 	}

@@ -5,11 +5,11 @@ use peer_cursor::{QueryExecutor, QueryOutput, Schema};
 use peer_postgres::{self, ast};
 use pgwire::error::PgWireResult;
 use postgres_connection::{connect_postgres, get_pg_connection_string};
-use prost::Message;
 use pt::{
     flow_model::{FlowJob, QRepFlowJob},
     peerdb_peers::PostgresConfig,
     peerdb_peers::{peer::Config, DbType, Peer},
+    prost::Message,
 };
 use serde_json::Value;
 use sqlparser::ast::Statement;
@@ -101,6 +101,7 @@ impl Catalog {
                 }
                 Config::ClickhouseConfig(clickhouse_config) => clickhouse_config.encode_to_vec(),
                 Config::KafkaConfig(kafka_config) => kafka_config.encode_to_vec(),
+                Config::PubsubConfig(pubsub_config) => pubsub_config.encode_to_vec(),
             }
         };
 
@@ -311,6 +312,11 @@ impl Catalog {
                     let kafka_config =
                         pt::peerdb_peers::KafkaConfig::decode(options).with_context(err)?;
                     Config::KafkaConfig(kafka_config)
+                }
+                DbType::Pubsub => {
+                    let pubsub_config =
+                        pt::peerdb_peers::PubSubConfig::decode(options).with_context(err)?;
+                    Config::PubsubConfig(pubsub_config)
                 }
             })
         } else {

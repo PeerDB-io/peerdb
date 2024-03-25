@@ -9,7 +9,6 @@ edition = "2021"
 anyhow = "1"
 async-trait = "0.1"
 chrono.workspace = true
-prost = "0.12"
 peer-cursor = { path = "../peer-cursor" }
 peer-postgres = { path = "../peer-postgres" }
 pgwire.workspace = true

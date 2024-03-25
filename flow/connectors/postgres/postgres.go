@@ -54,7 +54,7 @@ type ReplState struct {
 }
 
 func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
-	connectionString := utils.GetPGConnectionString(pgConfig)
+	connectionString := shared.GetPGConnectionString(pgConfig)
 
 	// create a separate connection pool for non-replication queries as replication connections cannot
 	// be used for extended query protocol, i.e. prepared statements
@@ -82,7 +82,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	replConfig.Config.RuntimeParams["replication"] = "database"
 	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
 
-	customTypeMap, err := utils.GetCustomDataTypes(ctx, conn)
+	customTypeMap, err := shared.GetCustomDataTypes(ctx, conn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get custom type map: %w", err)
 	}
@@ -272,7 +272,7 @@ func (c *PostgresConnector) SetupMetadataTables(ctx context.Context) error {
 
 	_, err = c.conn.Exec(ctx, fmt.Sprintf(createMirrorJobsTableSQL,
 		c.metadataSchema, mirrorJobsTableIdentifier))
-	if err != nil && !utils.IsUniqueError(err) {
+	if err != nil && !shared.IsUniqueError(err) {
 		return fmt.Errorf("error creating table %s: %w", mirrorJobsTableIdentifier, err)
 	}
 

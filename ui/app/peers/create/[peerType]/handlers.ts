@@ -11,6 +11,7 @@ import {
   kaSchema,
   peerNameSchema,
   pgSchema,
+  psSchema,
   s3Schema,
   sfSchema,
 } from './schema';
@@ -61,6 +62,10 @@ const validateFields = (
     case 'KAFKA':
       const kaConfig = kaSchema.safeParse(config);
       if (!kaConfig.success) validationErr = kaConfig.error.issues[0].message;
+      break;
+    case 'PUBSUB':
+      const psConfig = psSchema.safeParse(config);
+      if (!psConfig.success) validationErr = psConfig.error.issues[0].message;
       break;
     default:
       validationErr = 'Unsupported peer type ' + type;
