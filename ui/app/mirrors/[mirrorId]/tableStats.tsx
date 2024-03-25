@@ -56,9 +56,9 @@ const TableStats = ({ tableSyncs }: { tableSyncs: MirrorRowsData[] }) => {
                   tableSync.insertCount,
                   tableSync.updateCount,
                   tableSync.deleteCount,
-                ].map((rowMetric) => {
+                ].map((rowMetric, id) => {
                   return (
-                    <TableCell>
+                    <TableCell key={id}>
                       <Label>{RowDataFormatter(rowMetric)}</Label>
                     </TableCell>
                   );
