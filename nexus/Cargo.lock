@@ -448,7 +448,6 @@ dependencies = [
  "peer-postgres",
  "pgwire",
  "postgres-connection",
- "prost",
  "pt",
  "refinery",
  "serde_json",
@@ -886,7 +885,6 @@ dependencies = [
  "catalog",
  "pt",
  "serde_json",
- "tonic 0.11.0",
  "tonic-health",
  "tracing",
 ]
@@ -1845,7 +1843,6 @@ dependencies = [
  "peerdb-parser",
  "pgwire",
  "postgres",
- "prost",
  "pt",
  "rand",
  "serde_json",
