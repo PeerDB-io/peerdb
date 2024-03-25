@@ -158,7 +158,7 @@ func (c *EventHubConnector) processBatch(
 			// partition_column is the column in the table that is used to determine
 			// the partition key for the eventhub.
 			partitionColumn := destination.PartitionKeyColumn
-			partitionValue := record.GetItems().GetColumnValue(partitionColumn).Value
+			partitionValue := record.GetItems().GetColumnValue(partitionColumn).Value()
 			var partitionKey string
 			if partitionValue != nil {
 				partitionKey = fmt.Sprint(partitionValue)

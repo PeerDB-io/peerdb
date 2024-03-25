@@ -6,9 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"time"
-
-	"github.com/shopspring/decimal"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
@@ -177,16 +174,15 @@ func (s *SnowflakeTestHelper) RunIntQuery(query string) (int, error) {
 		return 0, fmt.Errorf("failed to execute query: %s, returned %d != 1 columns", query, len(rec))
 	}
 
-	switch rec[0].Kind {
-	case qvalue.QValueKindInt32:
-		return int(rec[0].Value.(int32)), nil
-	case qvalue.QValueKindInt64:
-		return int(rec[0].Value.(int64)), nil
-	case qvalue.QValueKindNumeric:
-		val := rec[0].Value.(decimal.Decimal)
-		return int(val.IntPart()), nil
+	switch v := rec[0].(type) {
+	case qvalue.QValueInt32:
+		return int(v.Val), nil
+	case qvalue.QValueInt64:
+		return int(v.Val), nil
+	case qvalue.QValueNumeric:
+		return int(v.Val.IntPart()), nil
 	default:
-		return 0, fmt.Errorf("failed to execute query: %s, returned value of type %s", query, rec[0].Kind)
+		return 0, fmt.Errorf("failed to execute query: %s, returned value of type %s", query, rec[0].Kind())
 	}
 }
 
@@ -199,12 +195,9 @@ func (s *SnowflakeTestHelper) checkSyncedAt(query string) error {
 
 	for _, record := range recordBatch.Records {
 		for _, entry := range record {
-			if entry.Kind != qvalue.QValueKindTimestamp {
-				return errors.New("synced_at column check failed: _PEERDB_SYNCED_AT is not timestamp")
-			}
-			_, ok := entry.Value.(time.Time)
+			_, ok := entry.(qvalue.QValueTimestamp)
 			if !ok {
-				return errors.New("synced_at column failed: _PEERDB_SYNCED_AT is not valid")
+				return errors.New("synced_at column failed: _PEERDB_SYNCED_AT is not a timestamp")
 			}
 		}
 	}

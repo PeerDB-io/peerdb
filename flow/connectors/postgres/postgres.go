@@ -415,8 +415,8 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 			var row []any
 			switch typedRecord := record.(type) {
 			case *model.InsertRecord:
-				itemsJSON, err := typedRecord.Items.ToJSONWithOptions(&model.ToJSONOptions{
-					UnnestColumns: map[string]struct{}{},
+				itemsJSON, err := typedRecord.Items.ToJSONWithOptions(model.ToJSONOptions{
+					UnnestColumns: nil,
 					HStoreAsJSON:  false,
 				})
 				if err != nil {
@@ -435,15 +435,15 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 				}
 
 			case *model.UpdateRecord:
-				newItemsJSON, err := typedRecord.NewItems.ToJSONWithOptions(&model.ToJSONOptions{
-					UnnestColumns: map[string]struct{}{},
+				newItemsJSON, err := typedRecord.NewItems.ToJSONWithOptions(model.ToJSONOptions{
+					UnnestColumns: nil,
 					HStoreAsJSON:  false,
 				})
 				if err != nil {
 					return nil, fmt.Errorf("failed to serialize update record new items to JSON: %w", err)
 				}
-				oldItemsJSON, err := typedRecord.OldItems.ToJSONWithOptions(&model.ToJSONOptions{
-					UnnestColumns: map[string]struct{}{},
+				oldItemsJSON, err := typedRecord.OldItems.ToJSONWithOptions(model.ToJSONOptions{
+					UnnestColumns: nil,
 					HStoreAsJSON:  false,
 				})
 				if err != nil {
@@ -462,8 +462,8 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 				}
 
 			case *model.DeleteRecord:
-				itemsJSON, err := typedRecord.Items.ToJSONWithOptions(&model.ToJSONOptions{
-					UnnestColumns: map[string]struct{}{},
+				itemsJSON, err := typedRecord.Items.ToJSONWithOptions(model.ToJSONOptions{
+					UnnestColumns: nil,
 					HStoreAsJSON:  false,
 				})
 				if err != nil {

@@ -51,10 +51,6 @@ func (r *RecordsToStreamRequest) GetRecords() <-chan Record {
 	return r.records
 }
 
-type RecordsToStreamResponse struct {
-	Stream *QRecordStream
-}
-
 func NewQRecordStream(buffer int) *QRecordStream {
 	return &QRecordStream{
 		schema:      make(chan QRecordSchemaOrError, 1),

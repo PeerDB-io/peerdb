@@ -16,6 +16,7 @@ import (
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -73,6 +74,45 @@ func (c *cdcRecordsStore) initPebbleDB() error {
 	gob.Register(&model.DeleteRecord{})
 	gob.Register(time.Time{})
 	gob.Register(decimal.Decimal{})
+	gob.Register(qvalue.QValueNull(""))
+	gob.Register(qvalue.QValueInvalid{})
+	gob.Register(qvalue.QValueFloat32{})
+	gob.Register(qvalue.QValueFloat64{})
+	gob.Register(qvalue.QValueInt16{})
+	gob.Register(qvalue.QValueInt32{})
+	gob.Register(qvalue.QValueInt64{})
+	gob.Register(qvalue.QValueBoolean{})
+	gob.Register(qvalue.QValueStruct{})
+	gob.Register(qvalue.QValueQChar{})
+	gob.Register(qvalue.QValueString{})
+	gob.Register(qvalue.QValueTimestamp{})
+	gob.Register(qvalue.QValueTimestampTZ{})
+	gob.Register(qvalue.QValueDate{})
+	gob.Register(qvalue.QValueTime{})
+	gob.Register(qvalue.QValueTimeTZ{})
+	gob.Register(qvalue.QValueInterval{})
+	gob.Register(qvalue.QValueNumeric{})
+	gob.Register(qvalue.QValueBytes{})
+	gob.Register(qvalue.QValueUUID{})
+	gob.Register(qvalue.QValueJSON{})
+	gob.Register(qvalue.QValueBit{})
+	gob.Register(qvalue.QValueHStore{})
+	gob.Register(qvalue.QValueGeography{})
+	gob.Register(qvalue.QValueGeometry{})
+	gob.Register(qvalue.QValuePoint{})
+	gob.Register(qvalue.QValueCIDR{})
+	gob.Register(qvalue.QValueINET{})
+	gob.Register(qvalue.QValueMacaddr{})
+	gob.Register(qvalue.QValueArrayFloat32{})
+	gob.Register(qvalue.QValueArrayFloat64{})
+	gob.Register(qvalue.QValueArrayInt16{})
+	gob.Register(qvalue.QValueArrayInt32{})
+	gob.Register(qvalue.QValueArrayInt64{})
+	gob.Register(qvalue.QValueArrayString{})
+	gob.Register(qvalue.QValueArrayDate{})
+	gob.Register(qvalue.QValueArrayTimestamp{})
+	gob.Register(qvalue.QValueArrayTimestampTZ{})
+	gob.Register(qvalue.QValueArrayBoolean{})
 
 	var err error
 	// we don't want a WAL since cache, we don't want to overwrite another DB either
