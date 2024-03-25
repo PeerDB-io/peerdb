@@ -116,7 +116,10 @@ func (r *InsertRecord) GetItems() *RecordItems {
 }
 
 func (r *InsertRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
-	mapOfCounts[r.DestinationTableName].InsertCount++
+	recordCount, ok := mapOfCounts[r.DestinationTableName]
+	if ok {
+		recordCount.InsertCount++
+	}
 }
 
 type UpdateRecord struct {
@@ -146,7 +149,10 @@ func (r *UpdateRecord) GetItems() *RecordItems {
 }
 
 func (r *UpdateRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
-	mapOfCounts[r.DestinationTableName].UpdateCount++
+	recordCount, ok := mapOfCounts[r.DestinationTableName]
+	if ok {
+		recordCount.UpdateCount++
+	}
 }
 
 type DeleteRecord struct {
@@ -174,7 +180,10 @@ func (r *DeleteRecord) GetItems() *RecordItems {
 }
 
 func (r *DeleteRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
-	mapOfCounts[r.DestinationTableName].DeleteCount++
+	recordCount, ok := mapOfCounts[r.DestinationTableName]
+	if ok {
+		recordCount.DeleteCount++
+	}
 }
 
 type TableWithPkey struct {
