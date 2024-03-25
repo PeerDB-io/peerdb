@@ -37,7 +37,7 @@ func RegisterTypes(ls *lua.LState) {
 	loaders := ls.G.Registry.RawGetString("_LOADERS").(*lua.LTable)
 	loaders.RawSetInt(2, ls.NewFunction(LoadPeerdbScript))
 
-	ls.PreloadModule("bit32", bit32.Loader)
+	ls.PreloadModule("bit32", gluabit32.Loader)
 
 	mt := LuaRecord.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaRecordIndex))
