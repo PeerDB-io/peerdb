@@ -4,6 +4,7 @@ import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { useMemo, useState } from 'react';
+import { RowDataFormatter } from './rowsDisplay';
 
 const TableStats = ({ tableSyncs }: { tableSyncs: MirrorRowsData[] }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -50,18 +51,18 @@ const TableStats = ({ tableSyncs }: { tableSyncs: MirrorRowsData[] }) => {
                 <TableCell>
                   <Label>{tableSync.destinationTableName}</Label>
                 </TableCell>
-                <TableCell>
-                  <Label>{tableSync.totalCount}</Label>
-                </TableCell>
-                <TableCell>
-                  <Label>{tableSync.insertCount}</Label>
-                </TableCell>
-                <TableCell>
-                  <Label>{tableSync.updateCount}</Label>
-                </TableCell>
-                <TableCell>
-                  <Label>{tableSync.deleteCount}</Label>
-                </TableCell>
+                {[
+                  tableSync.totalCount,
+                  tableSync.insertCount,
+                  tableSync.updateCount,
+                  tableSync.deleteCount,
+                ].map((rowMetric) => {
+                  return (
+                    <TableCell>
+                      <Label>{RowDataFormatter(rowMetric)}</Label>
+                    </TableCell>
+                  );
+                })}
               </TableRow>
             );
           })}

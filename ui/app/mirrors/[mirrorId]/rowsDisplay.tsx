@@ -3,7 +3,7 @@ import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { BarList } from '@tremor/react';
 import { useState } from 'react';
-const dataFormatter = (number: number) =>
+export const RowDataFormatter = (number: number) =>
   `${Intl.NumberFormat('us').format(number).toString()}`;
 
 const RowsDisplay = ({
@@ -35,7 +35,7 @@ const RowsDisplay = ({
         Rows Synced
       </h4>
       <p className='text-tremor-metric text-tremor-content-strong dark:text-dark-tremor-content-strong font-semibold'>
-        {dataFormatter(totalRowsData.total.valueOf())}
+        {RowDataFormatter(totalRowsData.total.valueOf())}
       </p>
       <Button
         aria-label='icon-button'
@@ -46,7 +46,7 @@ const RowsDisplay = ({
       </Button>
       {show && (
         <div style={{ width: '30%', marginTop: '1.5rem' }}>
-          <BarList valueFormatter={dataFormatter} data={rowsHero} />
+          <BarList valueFormatter={RowDataFormatter} data={rowsHero} />
         </div>
       )}
     </div>
