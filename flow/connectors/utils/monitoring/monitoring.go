@@ -181,7 +181,7 @@ func InitializeQRepRun(
 
 func UpdateStartTimeForQRepRun(ctx context.Context, pool *pgxpool.Pool, runUUID string) error {
 	_, err := pool.Exec(ctx,
-		"UPDATE peerdb_stats.qrep_runs SET start_time=$1 WHERE run_uuid=$2",
+		"UPDATE peerdb_stats.qrep_runs SET start_time=$1, fetch_complete=true WHERE run_uuid=$2",
 		time.Now(), runUUID)
 	if err != nil {
 		return fmt.Errorf("error while updating start time for run_uuid %s in qrep_runs: %w", runUUID, err)
@@ -192,7 +192,7 @@ func UpdateStartTimeForQRepRun(ctx context.Context, pool *pgxpool.Pool, runUUID 
 
 func UpdateEndTimeForQRepRun(ctx context.Context, pool *pgxpool.Pool, runUUID string) error {
 	_, err := pool.Exec(ctx,
-		"UPDATE peerdb_stats.qrep_runs SET end_time=$1 WHERE run_uuid=$2",
+		"UPDATE peerdb_stats.qrep_runs SET end_time=$1, consolidate_complete=true WHERE run_uuid=$2",
 		time.Now(), runUUID)
 	if err != nil {
 		return fmt.Errorf("error while updating end time for run_uuid %s in qrep_runs: %w", runUUID, err)
