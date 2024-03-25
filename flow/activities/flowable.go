@@ -9,7 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
@@ -352,7 +354,10 @@ func (a *FlowableActivity) SyncFlow(
 		// wait for the pull goroutine to finish
 		err = errGroup.Wait()
 		if err != nil {
-			a.Alerter.LogFlowError(ctx, flowName, err)
+			var pgErr *pgconn.PgError
+			if !(errors.As(err, &pgErr) && pgErr.SQLState() != pgerrcode.ObjectInUse) {
+				a.Alerter.LogFlowError(ctx, flowName, err)
+			}
 			if temporal.IsApplicationError(err) {
 				return nil, err
 			} else {
@@ -412,7 +417,11 @@ func (a *FlowableActivity) SyncFlow(
 
 	err = errGroup.Wait()
 	if err != nil {
-		a.Alerter.LogFlowError(ctx, flowName, err)
+		var pgErr *pgconn.PgError
+		if !(errors.As(err, &pgErr) && pgErr.SQLState() != pgerrcode.ObjectInUse) {
+			a.Alerter.LogFlowError(ctx, flowName, err)
+		}
+
 		if temporal.IsApplicationError(err) {
 			return nil, err
 		} else {
