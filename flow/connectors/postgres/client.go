@@ -370,12 +370,13 @@ func (c *PostgresConnector) createSlotAndPublication(
 
 		c.logger.Warn(fmt.Sprintf("Creating replication slot '%s'", slot))
 
-		_, err = conn.Exec(ctx, "SET LOCAL idle_in_transaction_session_timeout=0")
+		// THIS IS NOT IN A TX!
+		_, err = conn.Exec(ctx, "SET idle_in_transaction_session_timeout=0")
 		if err != nil {
 			return fmt.Errorf("[slot] error setting idle_in_transaction_session_timeout: %w", err)
 		}
 
-		_, err = conn.Exec(ctx, "SET LOCAL lock_timeout=0")
+		_, err = conn.Exec(ctx, "SET lock_timeout=0")
 		if err != nil {
 			return fmt.Errorf("[slot] error setting lock_timeout: %w", err)
 		}
