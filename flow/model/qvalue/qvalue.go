@@ -53,7 +53,7 @@ type QValueFloat32 struct {
 }
 
 func (QValueFloat32) Kind() QValueKind {
-	return "float32"
+	return QValueKindFloat32
 }
 
 func (v QValueFloat32) Value() any {
@@ -65,7 +65,7 @@ type QValueFloat64 struct {
 }
 
 func (QValueFloat64) Kind() QValueKind {
-	return "float64"
+	return QValueKindFloat64
 }
 
 func (v QValueFloat64) Value() any {
@@ -77,7 +77,7 @@ type QValueInt16 struct {
 }
 
 func (QValueInt16) Kind() QValueKind {
-	return "int16"
+	return QValueKindInt16
 }
 
 func (v QValueInt16) Value() any {
@@ -89,7 +89,7 @@ type QValueInt32 struct {
 }
 
 func (QValueInt32) Kind() QValueKind {
-	return "int32"
+	return QValueKindInt32
 }
 
 func (v QValueInt32) Value() any {
@@ -101,7 +101,7 @@ type QValueInt64 struct {
 }
 
 func (QValueInt64) Kind() QValueKind {
-	return "int64"
+	return QValueKindInt64
 }
 
 func (v QValueInt64) Value() any {
@@ -113,7 +113,7 @@ type QValueBoolean struct {
 }
 
 func (QValueBoolean) Kind() QValueKind {
-	return "bool"
+	return QValueKindBoolean
 }
 
 func (v QValueBoolean) Value() any {
@@ -125,7 +125,7 @@ type QValueStruct struct {
 }
 
 func (QValueStruct) Kind() QValueKind {
-	return "struct"
+	return QValueKindStruct
 }
 
 func (v QValueStruct) Value() any {
@@ -137,7 +137,7 @@ type QValueQChar struct {
 }
 
 func (QValueQChar) Kind() QValueKind {
-	return "qchar"
+	return QValueKindQChar
 }
 
 func (v QValueQChar) Value() any {
@@ -149,7 +149,7 @@ type QValueString struct {
 }
 
 func (QValueString) Kind() QValueKind {
-	return "string"
+	return QValueKindString
 }
 
 func (v QValueString) Value() any {
@@ -161,7 +161,7 @@ type QValueTimestamp struct {
 }
 
 func (QValueTimestamp) Kind() QValueKind {
-	return "timestamp"
+	return QValueKindTimestamp
 }
 
 func (v QValueTimestamp) Value() any {
@@ -173,7 +173,7 @@ type QValueTimestampTZ struct {
 }
 
 func (QValueTimestampTZ) Kind() QValueKind {
-	return "timestamptz"
+	return QValueKindTimestampTZ
 }
 
 func (v QValueTimestampTZ) Value() any {
@@ -185,7 +185,7 @@ type QValueDate struct {
 }
 
 func (QValueDate) Kind() QValueKind {
-	return "date"
+	return QValueKindDate
 }
 
 func (v QValueDate) Value() any {
@@ -197,7 +197,7 @@ type QValueTime struct {
 }
 
 func (QValueTime) Kind() QValueKind {
-	return "time"
+	return QValueKindTime
 }
 
 func (v QValueTime) Value() any {
@@ -209,7 +209,7 @@ type QValueTimeTZ struct {
 }
 
 func (QValueTimeTZ) Kind() QValueKind {
-	return "timetz"
+	return QValueKindTimeTZ
 }
 
 func (v QValueTimeTZ) Value() any {
@@ -221,7 +221,7 @@ type QValueInterval struct {
 }
 
 func (QValueInterval) Kind() QValueKind {
-	return "interval"
+	return QValueKindInterval
 }
 
 func (v QValueInterval) Value() any {
@@ -233,7 +233,7 @@ type QValueNumeric struct {
 }
 
 func (QValueNumeric) Kind() QValueKind {
-	return "numeric"
+	return QValueKindNumeric
 }
 
 func (v QValueNumeric) Value() any {
@@ -245,7 +245,7 @@ type QValueBytes struct {
 }
 
 func (QValueBytes) Kind() QValueKind {
-	return "bytes"
+	return QValueKindBytes
 }
 
 func (v QValueBytes) Value() any {
@@ -257,7 +257,7 @@ type QValueUUID struct {
 }
 
 func (QValueUUID) Kind() QValueKind {
-	return "uuid"
+	return QValueKindUUID
 }
 
 func (v QValueUUID) Value() any {
@@ -269,7 +269,7 @@ type QValueJSON struct {
 }
 
 func (QValueJSON) Kind() QValueKind {
-	return "json"
+	return QValueKindJSON
 }
 
 func (v QValueJSON) Value() any {
@@ -281,7 +281,7 @@ type QValueBit struct {
 }
 
 func (QValueBit) Kind() QValueKind {
-	return "bit"
+	return QValueKindBit
 }
 
 func (v QValueBit) Value() any {
@@ -293,7 +293,7 @@ type QValueHStore struct {
 }
 
 func (QValueHStore) Kind() QValueKind {
-	return "hstore"
+	return QValueKindHStore
 }
 
 func (v QValueHStore) Value() any {
@@ -305,7 +305,7 @@ type QValueGeography struct {
 }
 
 func (QValueGeography) Kind() QValueKind {
-	return "geography"
+	return QValueKindGeography
 }
 
 func (v QValueGeography) Value() any {
@@ -317,7 +317,7 @@ type QValueGeometry struct {
 }
 
 func (QValueGeometry) Kind() QValueKind {
-	return "geometry"
+	return QValueKindGeometry
 }
 
 func (v QValueGeometry) Value() any {
@@ -329,7 +329,7 @@ type QValuePoint struct {
 }
 
 func (QValuePoint) Kind() QValueKind {
-	return "point"
+	return QValueKindPoint
 }
 
 func (v QValuePoint) Value() any {
@@ -341,7 +341,7 @@ type QValueCIDR struct {
 }
 
 func (QValueCIDR) Kind() QValueKind {
-	return "cidr"
+	return QValueKindCIDR
 }
 
 func (v QValueCIDR) Value() any {
@@ -353,7 +353,7 @@ type QValueINET struct {
 }
 
 func (QValueINET) Kind() QValueKind {
-	return "inet"
+	return QValueKindINET
 }
 
 func (v QValueINET) Value() any {
@@ -365,7 +365,7 @@ type QValueMacaddr struct {
 }
 
 func (QValueMacaddr) Kind() QValueKind {
-	return "macaddr"
+	return QValueKindMacaddr
 }
 
 func (v QValueMacaddr) Value() any {
@@ -377,7 +377,7 @@ type QValueArrayFloat32 struct {
 }
 
 func (QValueArrayFloat32) Kind() QValueKind {
-	return "array_float32"
+	return QValueKindArrayFloat32
 }
 
 func (v QValueArrayFloat32) Value() any {
@@ -389,7 +389,7 @@ type QValueArrayFloat64 struct {
 }
 
 func (QValueArrayFloat64) Kind() QValueKind {
-	return "array_float64"
+	return QValueKindArrayFloat64
 }
 
 func (v QValueArrayFloat64) Value() any {
@@ -401,7 +401,7 @@ type QValueArrayInt16 struct {
 }
 
 func (QValueArrayInt16) Kind() QValueKind {
-	return "array_int16"
+	return QValueKindInt16
 }
 
 func (v QValueArrayInt16) Value() any {
@@ -413,7 +413,7 @@ type QValueArrayInt32 struct {
 }
 
 func (QValueArrayInt32) Kind() QValueKind {
-	return "array_int32"
+	return QValueKindInt32
 }
 
 func (v QValueArrayInt32) Value() any {
@@ -425,7 +425,7 @@ type QValueArrayInt64 struct {
 }
 
 func (QValueArrayInt64) Kind() QValueKind {
-	return "array_int64"
+	return QValueKindArrayInt64
 }
 
 func (v QValueArrayInt64) Value() any {
@@ -437,7 +437,7 @@ type QValueArrayString struct {
 }
 
 func (QValueArrayString) Kind() QValueKind {
-	return "array_string"
+	return QValueKindArrayString
 }
 
 func (v QValueArrayString) Value() any {
@@ -449,7 +449,7 @@ type QValueArrayDate struct {
 }
 
 func (QValueArrayDate) Kind() QValueKind {
-	return "array_date"
+	return QValueKindArrayDate
 }
 
 func (v QValueArrayDate) Value() any {
@@ -461,7 +461,7 @@ type QValueArrayTimestamp struct {
 }
 
 func (QValueArrayTimestamp) Kind() QValueKind {
-	return "array_timestamp"
+	return QValueKindArrayTimestamp
 }
 
 func (v QValueArrayTimestamp) Value() any {
@@ -473,7 +473,7 @@ type QValueArrayTimestampTZ struct {
 }
 
 func (QValueArrayTimestampTZ) Kind() QValueKind {
-	return "array_timestamptz"
+	return QValueKindArrayTimestampTZ
 }
 
 func (v QValueArrayTimestampTZ) Value() any {
@@ -485,7 +485,7 @@ type QValueArrayBoolean struct {
 }
 
 func (QValueArrayBoolean) Kind() QValueKind {
-	return "array_bool"
+	return QValueKindArrayBoolean
 }
 
 func (v QValueArrayBoolean) Value() any {
