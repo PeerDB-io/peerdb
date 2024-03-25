@@ -355,7 +355,7 @@ func (a *FlowableActivity) SyncFlow(
 		err = errGroup.Wait()
 		if err != nil {
 			var pgErr *pgconn.PgError
-			if !(errors.As(err, &pgErr) && pgErr.SQLState() != pgerrcode.ObjectInUse) {
+			if !(errors.As(err, &pgErr) && pgErr.SQLState() == pgerrcode.ObjectInUse) {
 				a.Alerter.LogFlowError(ctx, flowName, err)
 			}
 			if temporal.IsApplicationError(err) {
@@ -418,7 +418,7 @@ func (a *FlowableActivity) SyncFlow(
 	err = errGroup.Wait()
 	if err != nil {
 		var pgErr *pgconn.PgError
-		if !(errors.As(err, &pgErr) && pgErr.SQLState() != pgerrcode.ObjectInUse) {
+		if !(errors.As(err, &pgErr) && pgErr.SQLState() == pgerrcode.ObjectInUse) {
 			a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 
