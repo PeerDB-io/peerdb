@@ -244,12 +244,6 @@ func LuaQValue(ls *lua.LState, qv qvalue.QValue) lua.LValue {
 	case float64:
 		return lua.LNumber(v)
 	case string:
-		if qv.Kind() == qvalue.QValueKindUUID {
-			u, err := uuid.Parse(v)
-			if err != nil {
-				return LuaUuid.New(ls, u)
-			}
-		}
 		return lua.LString(v)
 	case time.Time:
 		return LuaTime.New(ls, v)
