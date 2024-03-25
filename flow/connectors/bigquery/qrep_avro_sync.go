@@ -45,7 +45,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	dstTableMetadata *bigquery.TableMetadata,
 	syncBatchID int64,
 	stream *model.QRecordStream,
-	tableNameRowsMapping map[string]uint32,
+	tableNameRowsMapping map[string]*model.RecordTypeCounts,
 ) (*model.SyncResponse, error) {
 	activity.RecordHeartbeat(ctx,
 		fmt.Sprintf("Flow job %s: Obtaining Avro schema"+

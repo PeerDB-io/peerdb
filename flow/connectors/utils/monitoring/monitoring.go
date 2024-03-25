@@ -14,6 +14,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -106,7 +107,7 @@ func UpdateEndTimeForCDCBatch(
 }
 
 func AddCDCBatchTablesForFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName string,
-	batchID int64, tableNameRowsMapping map[string]uint32,
+	batchID int64, tableNameRowsMapping map[string]*model.RecordTypeCounts,
 ) error {
 	insertBatchTablesTx, err := pool.Begin(ctx)
 	if err != nil {
@@ -121,11 +122,15 @@ func AddCDCBatchTablesForFlow(ctx context.Context, pool *pgxpool.Pool, flowJobNa
 		}
 	}()
 
-	for destinationTableName, numRows := range tableNameRowsMapping {
+	for destinationTableName, rowCounts := range tableNameRowsMapping {
+		numRows := rowCounts.InsertCount + rowCounts.UpdateCount + rowCounts.DeleteCount
 		_, err = insertBatchTablesTx.Exec(ctx,
-			`INSERT INTO peerdb_stats.cdc_batch_table(flow_name,batch_id,destination_table_name,num_rows)
-			 VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
-			flowJobName, batchID, destinationTableName, numRows)
+			`INSERT INTO peerdb_stats.cdc_batch_table
+			(flow_name,batch_id,destination_table_name,num_rows,
+			insert_count,update_count,delete_count)
+			 VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
+			flowJobName, batchID, destinationTableName, numRows,
+			rowCounts.InsertCount, rowCounts.UpdateCount, rowCounts.DeleteCount)
 		if err != nil {
 			return fmt.Errorf("error while inserting statistics into cdc_batch_table: %w", err)
 		}

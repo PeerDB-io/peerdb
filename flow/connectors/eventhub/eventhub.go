@@ -215,7 +215,7 @@ func (c *EventHubConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 		CurrentSyncBatchID:     req.SyncBatchID,
 		LastSyncedCheckpointID: lastCheckpoint,
 		NumRecordsSynced:       int64(numRecords),
-		TableNameRowsMapping:   make(map[string]uint32),
+		TableNameRowsMapping:   make(map[string]*model.RecordTypeCounts),
 		TableSchemaDeltas:      req.Records.SchemaDeltas,
 	}, nil
 }

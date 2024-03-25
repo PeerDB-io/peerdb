@@ -35,3 +35,11 @@ export type SyncStatusRow = {
   endTime: Date | null;
   numRows: number;
 };
+
+export type MirrorRowsData = {
+  destinationTableName: string;
+  insertCount: number;
+  updateCount: number;
+  deleteCount: number;
+  totalCount: number;
+};
