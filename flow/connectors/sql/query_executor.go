@@ -405,6 +405,7 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 		if t, ok := val.(*sql.NullTime); ok {
 			if t.Valid {
 				tt := t.Time
+				// anchor on unix epoch, some drivers anchor on 0001-01-01
 				return qvalue.QValueTimeTZ{
 					Val: time.Date(1970, time.January, 1, tt.Hour(), tt.Minute(), tt.Second(), tt.Nanosecond(), time.UTC),
 				}, nil
@@ -416,6 +417,7 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 		if t, ok := val.(*sql.NullTime); ok {
 			if t.Valid {
 				tt := t.Time
+				// anchor on unix epoch, some drivers anchor on 0001-01-01
 				return qvalue.QValueTimeTZ{
 					Val: time.Date(1970, time.January, 1, tt.Hour(), tt.Minute(), tt.Second(), tt.Nanosecond(), tt.Location()),
 				}, nil
