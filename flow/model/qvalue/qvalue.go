@@ -492,19 +492,15 @@ func (v QValueArrayBoolean) Value() any {
 	return v.Val
 }
 
+func valueEmpty(value any) bool {
+	return value == nil || value == "" || value == "null" ||
+		(reflect.TypeOf(value).Kind() == reflect.Slice && reflect.ValueOf(value).Len() == 0)
+}
+
 func Equals(qv QValue, other QValue) bool {
 	qvValue := qv.Value()
 	otherValue := other.Value()
-	qvEmpty := qvValue == nil || qvValue == "" || qvValue == "null" ||
-		(reflect.TypeOf(qvValue).Kind() == reflect.Slice && reflect.ValueOf(qvValue).Len() == 0)
-	otherEmpty := otherValue == nil || otherValue == "" || otherValue == "null" ||
-		(reflect.TypeOf(otherValue).Kind() == reflect.Slice && reflect.ValueOf(otherValue).Len() == 0)
-	if qvEmpty && otherEmpty {
-		return true
-	}
-	qvString, ok1 := qvValue.(string)
-	otherString, ok2 := otherValue.(string)
-	if ok1 && ok2 && qvString == otherString {
+	if valueEmpty(qvValue) && valueEmpty(otherValue) {
 		return true
 	}
 
@@ -537,56 +533,41 @@ func Equals(qv QValue, other QValue) bool {
 		}
 		return false
 	case QValueString:
-		if otherVal, ok := other.(QValueString); ok {
-			return q.Val == otherVal.Val
-		}
-		return false
+		return compareString(q.Val, otherValue)
 	case QValueINET:
-		if otherVal, ok := other.(QValueINET); ok {
-			return q.Val == otherVal.Val
-		}
-		return false
+		return compareString(q.Val, otherValue)
 	case QValueCIDR:
-		if otherVal, ok := other.(QValueCIDR); ok {
-			return q.Val == otherVal.Val
-		}
-		return false
+		return compareString(q.Val, otherValue)
 	// all internally represented as a Golang time.Time
 	case QValueDate, QValueTimestamp, QValueTimestampTZ, QValueTime, QValueTimeTZ:
-		return compareGoTime(q.Value(), other.Value())
+		return compareGoTime(qvValue, otherValue)
 	case QValueNumeric:
-		return compareNumeric(q.Val, other.Value())
+		return compareNumeric(q.Val, otherValue)
 	case QValueBytes:
-		return compareBytes(q.Value(), other.Value())
+		return compareBytes(qvValue, otherValue)
 	case QValueUUID:
-		return compareUUID(q.Value(), other.Value())
+		return compareUUID(qvValue, otherValue)
 	case QValueJSON:
 		// TODO (kaushik): fix for tests
 		return true
 	case QValueBit:
-		return compareBytes(q.Value(), other.Value())
+		return compareBytes(qvValue, otherValue)
 	case QValueGeometry:
-		return compareGeometry(q.Value(), other.Value())
+		return compareGeometry(q.Val, otherValue)
 	case QValueGeography:
-		return compareGeometry(q.Value(), other.Value())
+		return compareGeometry(q.Val, otherValue)
 	case QValueHStore:
-		return compareHstore(q.Val, other.Value())
-	case QValueArrayFloat32:
-		return compareNumericArrays(q.Val, other.Value())
-	case QValueArrayFloat64:
-		return compareNumericArrays(q.Val, other.Value())
-	case QValueArrayInt32, QValueArrayInt16:
-		return compareNumericArrays(q.Value(), other.Value())
-	case QValueArrayInt64:
-		return compareNumericArrays(q.Val, other.Value())
+		return compareHstore(q.Val, otherValue)
+	case QValueArrayInt32, QValueArrayInt16, QValueArrayInt64, QValueArrayFloat32, QValueArrayFloat64:
+		return compareNumericArrays(qvValue, otherValue)
 	case QValueArrayDate:
-		return compareDateArrays(q.Val, other.Value())
+		return compareDateArrays(q.Val, otherValue)
 	case QValueArrayTimestamp, QValueArrayTimestampTZ:
-		return compareTimeArrays(q.Value(), other.Value())
+		return compareTimeArrays(qvValue, otherValue)
 	case QValueArrayBoolean:
-		return compareBoolArrays(q.Val, other.Value())
+		return compareBoolArrays(q.Val, otherValue)
 	case QValueArrayString:
-		return compareArrayString(q.Val, other.Value())
+		return compareArrayString(q.Val, otherValue)
 	default:
 		return false
 	}
@@ -615,6 +596,11 @@ func (v QValueFloat32) compareFloat32(value2 QValue) bool {
 func (v QValueFloat64) compareFloat64(value2 QValue) bool {
 	float2, ok2 := getFloat64(value2.Value())
 	return ok2 && v.Val == float2
+}
+
+func compareString(s1 string, value2 interface{}) bool {
+	s2, ok := value2.(string)
+	return ok && s1 == s2
 }
 
 func compareGoTime(value1, value2 interface{}) bool {
@@ -681,32 +667,24 @@ func compareHstore(value1, value2 interface{}) bool {
 	}
 }
 
-func compareGeometry(value1, value2 interface{}) bool {
+func compareGeometry(geoWkt string, value2 interface{}) bool {
 	geo2, err := geom.NewGeomFromWKT(value2.(string))
 	if err != nil {
 		panic(err)
 	}
 
-	switch v1 := value1.(type) {
-	case *geom.Geom:
-		return v1.Equals(geo2)
-	case string:
-		geoWkt := v1
-		if strings.HasPrefix(geoWkt, "SRID=") {
-			_, wkt, found := strings.Cut(geoWkt, ";")
-			if found {
-				geoWkt = wkt
-			}
+	if strings.HasPrefix(geoWkt, "SRID=") {
+		_, wkt, found := strings.Cut(geoWkt, ";")
+		if found {
+			geoWkt = wkt
 		}
-
-		geo1, err := geom.NewGeomFromWKT(geoWkt)
-		if err != nil {
-			panic(err)
-		}
-		return geo1.Equals(geo2)
-	default:
-		panic(fmt.Sprintf("invalid geometry value type %T: %v", value1, value1))
 	}
+
+	geo1, err := geom.NewGeomFromWKT(geoWkt)
+	if err != nil {
+		panic(err)
+	}
+	return geo1.Equals(geo2)
 }
 
 func (v QValueStruct) compareStruct(value2 QValueStruct) bool {
