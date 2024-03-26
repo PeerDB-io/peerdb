@@ -232,8 +232,8 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 }
 
 type AvroField struct {
-	Name string      `json:"name"`
 	Type interface{} `json:"type"`
+	Name string      `json:"name"`
 }
 
 type AvroSchema struct {

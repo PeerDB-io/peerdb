@@ -30,7 +30,6 @@ linters:
     - thelper
     - unconvert
     - unparam
-    - unparam
     - unused
     - wastedassign
     - whitespace
@@ -60,7 +59,6 @@ linters-settings:
   govet:
     enable-all: true
     disable:
-      - fieldalignment
       - shadow
   stylecheck:
     checks:

@@ -33,14 +33,14 @@ const (
 )
 
 type BigQueryConnector struct {
+	logger        log.Logger
 	bqConfig      *protos.BigqueryConfig
 	client        *bigquery.Client
 	storageClient *storage.Client
 	pgMetadata    *metadataStore.PostgresMetadataStore
+	catalogPool   *pgxpool.Pool
 	datasetID     string
 	projectID     string
-	catalogPool   *pgxpool.Pool
-	logger        log.Logger
 }
 
 func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*utils.GcpServiceAccount, error) {

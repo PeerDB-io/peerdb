@@ -34,12 +34,12 @@ func encVal(val any) ([]byte, error) {
 type cdcRecordsStore struct {
 	inMemoryRecords           map[model.TableWithPkey]model.Record
 	pebbleDB                  *pebble.DB
-	numRecords                atomic.Int32
 	flowJobName               string
 	dbFolderName              string
-	numRecordsSwitchThreshold int
-	memThresholdBytes         uint64
 	thresholdReason           string
+	memThresholdBytes         uint64
+	numRecords                atomic.Int32
+	numRecordsSwitchThreshold int
 	memStats                  runtime.MemStats
 }
 

@@ -26,8 +26,8 @@ type Alerter struct {
 }
 
 type AlertSenderConfig struct {
-	Id     int64
 	Sender AlertSender
+	Id     int64
 }
 
 func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderConfig, error) {
