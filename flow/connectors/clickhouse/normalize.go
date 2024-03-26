@@ -77,7 +77,7 @@ func generateCreateTableSQLForNormalizedTable(
 	for _, column := range tableSchema.Columns {
 		colName := column.Name
 		colType := qvalue.QValueKind(column.Type)
-		clickhouseType, err := qValueKindToClickhouseType(colType)
+		clickhouseType, err := colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
 		if err != nil {
 			return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 		}
@@ -172,7 +172,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.N
 
 			colSelector.WriteString(fmt.Sprintf("`%s`,", cn))
 			colType := qvalue.QValueKind(ct)
-			clickhouseType, err := qValueKindToClickhouseType(colType)
+			clickhouseType, err := colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
 			if err != nil {
 				return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 			}
