@@ -199,7 +199,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	transformedColumns := getTransformedColumns(&dstTableMetadata.Schema, syncedAtCol, softDeleteCol)
 	selector := strings.Join(transformedColumns, ", ")
 
-	// The staging table may not exist if there are now rows (not created by the bq loader)
+	// The staging table may not exist if there are no rows (not created by the bq loader)
 	if numRecords > 0 {
 		// Insert the records from the staging table into the destination table
 		insertStmt := fmt.Sprintf("INSERT INTO `%s`(%s) SELECT %s FROM `%s`;",
