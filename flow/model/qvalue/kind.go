@@ -3,6 +3,8 @@ package qvalue
 import (
 	"fmt"
 	"strings"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
 type QValueKind string
@@ -129,15 +131,15 @@ var QValueKindToClickhouseTypeMap = map[QValueKind]string{
 	QValueKindArrayInt16:   "Array(Int16)",
 }
 
-func (kind QValueKind) ToDWHColumnType(dwhType QDWHType) (string, error) {
+func (kind QValueKind) ToDWHColumnType(dwhType protos.DBType) (string, error) {
 	switch dwhType {
-	case QDWHTypeSnowflake:
+	case protos.DBType_SNOWFLAKE:
 		if val, ok := QValueKindToSnowflakeTypeMap[kind]; ok {
 			return val, nil
 		} else {
 			return "STRING", nil
 		}
-	case QDWHTypeClickhouse:
+	case protos.DBType_CLICKHOUSE:
 		if val, ok := QValueKindToClickhouseTypeMap[kind]; ok {
 			return val, nil
 		} else {
