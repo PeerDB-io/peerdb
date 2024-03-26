@@ -19,8 +19,8 @@ import (
 
 type SSHTunnel struct {
 	sshConfig *ssh.ClientConfig
-	sshServer string
 	sshClient *ssh.Client
+	sshServer string
 }
 
 func NewSSHTunnel(

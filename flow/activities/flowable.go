@@ -38,8 +38,8 @@ type CheckConnectionResult struct {
 type FlowableActivity struct {
 	CatalogPool *pgxpool.Pool
 	Alerter     *alerting.Alerter
-	CdcCacheRw  sync.RWMutex
 	CdcCache    map[string]connectors.CDCPullConnector
+	CdcCacheRw  sync.RWMutex
 }
 
 func (a *FlowableActivity) CheckConnection(

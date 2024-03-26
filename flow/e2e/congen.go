@@ -162,10 +162,10 @@ func GeneratePostgresPeer() *protos.Peer {
 
 type FlowConnectionGenerationConfig struct {
 	FlowJobName      string
-	TableMappings    []*protos.TableMapping
 	TableNameMapping map[string]string
 	Destination      *protos.Peer
 	CdcStagingPath   string
+	TableMappings    []*protos.TableMapping
 	SoftDelete       bool
 }
 
@@ -214,9 +214,9 @@ type QRepFlowConnectionGenerationConfig struct {
 	FlowJobName                string
 	WatermarkTable             string
 	DestinationTableIdentifier string
-	PostgresPort               int
 	Destination                *protos.Peer
 	StagingPath                string
+	PostgresPort               uint16
 }
 
 // GenerateQRepConfig generates a qrep config for testing.

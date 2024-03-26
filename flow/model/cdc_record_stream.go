@@ -8,6 +8,8 @@ import (
 )
 
 type CDCRecordStream struct {
+	// empty signal to indicate if the records are going to be empty or not.
+	emptySignal chan bool
 	// Records are a list of json objects.
 	records chan Record
 	// Schema changes from the slot
@@ -16,8 +18,6 @@ type CDCRecordStream struct {
 	lastCheckpointSet bool
 	// lastCheckpointID is the last ID of the commit that corresponds to this batch.
 	lastCheckpointID atomic.Int64
-	// empty signal to indicate if the records are going to be empty or not.
-	emptySignal chan bool
 }
 
 func NewCDCRecordStream() *CDCRecordStream {

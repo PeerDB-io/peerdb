@@ -17,9 +17,9 @@ import (
 )
 
 type SlotSnapshotState struct {
-	snapshotName string
-	signal       connpostgres.SlotSignal
 	connector    connectors.CDCPullConnector
+	signal       connpostgres.SlotSignal
+	snapshotName string
 }
 
 type TxSnapshotState struct {
@@ -28,10 +28,10 @@ type TxSnapshotState struct {
 }
 
 type SnapshotActivity struct {
-	SnapshotStatesMutex sync.Mutex
+	Alerter             *alerting.Alerter
 	SlotSnapshotStates  map[string]SlotSnapshotState
 	TxSnapshotStates    map[string]TxSnapshotState
-	Alerter             *alerting.Alerter
+	SnapshotStatesMutex sync.Mutex
 }
 
 // closes the slot signal

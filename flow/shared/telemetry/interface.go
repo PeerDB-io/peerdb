@@ -9,10 +9,10 @@ type Sender interface {
 }
 
 type Attributes struct {
-	Level         Level
 	DeploymentUID string
-	Tags          []string
 	Type          string
+	Level         Level
+	Tags          []string
 }
 
 type Level string

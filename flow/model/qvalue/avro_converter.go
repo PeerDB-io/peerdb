@@ -162,9 +162,9 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision 
 }
 
 type QValueAvroConverter struct {
+	logger    log.Logger
 	TargetDWH QDWHType
 	Nullable  bool
-	logger    log.Logger
 }
 
 func QValueToAvro(value QValue, targetDWH QDWHType, nullable bool, logger log.Logger) (interface{}, error) {

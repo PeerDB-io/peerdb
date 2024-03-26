@@ -31,19 +31,19 @@ import (
 )
 
 type PostgresConnector struct {
-	connStr                string
+	logger                 log.Logger
 	config                 *protos.PostgresConfig
 	ssh                    *SSHTunnel
 	conn                   *pgx.Conn
 	replConfig             *pgx.ConnConfig
 	replConn               *pgx.Conn
 	replState              *ReplState
-	replLock               sync.Mutex
 	customTypesMapping     map[uint32]string
-	metadataSchema         string
 	hushWarnOID            map[uint32]struct{}
-	logger                 log.Logger
 	relationMessageMapping model.RelationMessageMapping
+	connStr                string
+	metadataSchema         string
+	replLock               sync.Mutex
 }
 
 type ReplState struct {

@@ -12,18 +12,18 @@ import (
 type mergeStmtGenerator struct {
 	// dataset + raw table
 	rawDatasetTable datasetTable
-	// destination table name, used to retrieve records from raw table
-	dstTableName string
 	// dataset + destination table
 	dstDatasetTable datasetTable
-	// batch id currently to be merged
-	mergeBatchId int64
 	// the schema of the table to merge into
 	normalizedTableSchema *protos.TableSchema
 	// _PEERDB_IS_DELETED and _SYNCED_AT columns
 	peerdbCols *protos.PeerDBColumns
 	// map for shorter columns
 	shortColumn map[string]string
+	// destination table name, used to retrieve records from raw table
+	dstTableName string
+	// batch id currently to be merged
+	mergeBatchId int64
 }
 
 // generateFlattenedCTE generates a flattened CTE.

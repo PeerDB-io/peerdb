@@ -24,14 +24,14 @@ import (
 )
 
 type BigQueryTestHelper struct {
-	// runID uniquely identifies the test run to namespace stateful schemas.
-	runID uint64
 	// config is the BigQuery config.
 	Config *protos.BigqueryConfig
 	// peer struct holder BigQuery
 	Peer *protos.Peer
 	// client to talk to BigQuery
 	client *bigquery.Client
+	// runID uniquely identifies the test run to namespace stateful schemas.
+	runID uint64
 }
 
 // NewBigQueryTestHelper creates a new BigQueryTestHelper.

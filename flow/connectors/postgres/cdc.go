@@ -46,21 +46,21 @@ type PostgresCDCSource struct {
 }
 
 type PostgresCDCConfig struct {
-	Slot                   string
-	Publication            string
+	CatalogPool            *pgxpool.Pool
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]model.NameAndExclude
 	TableNameSchemaMapping map[string]*protos.TableSchema
 	ChildToParentRelIDMap  map[uint32]uint32
-	CatalogPool            *pgxpool.Pool
-	FlowJobName            string
 	RelationMessageMapping model.RelationMessageMapping
+	FlowJobName            string
+	Slot                   string
+	Publication            string
 }
 
 type startReplicationOpts struct {
 	conn            *pgconn.PgConn
-	startLSN        pglogrepl.LSN
 	replicationOpts pglogrepl.StartReplicationOptions
+	startLSN        pglogrepl.LSN
 }
 
 // Create a new PostgresCDCSource

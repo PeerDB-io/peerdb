@@ -7,9 +7,9 @@ import (
 )
 
 type BoundSelector struct {
-	limit   int
 	futures []workflow.Future
 	ferrors []error
+	limit   int
 }
 
 func NewBoundSelector(limit int) *BoundSelector {

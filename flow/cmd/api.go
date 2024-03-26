@@ -29,12 +29,12 @@ import (
 )
 
 type APIServerParams struct {
-	Port              uint16
-	GatewayPort       uint16
 	TemporalHostPort  string
 	TemporalNamespace string
 	TemporalCert      string
 	TemporalKey       string
+	Port              uint16
+	GatewayPort       uint16
 }
 
 // setupGRPCGatewayServer sets up the grpc-gateway mux

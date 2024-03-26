@@ -3,7 +3,6 @@ package peerflow
 
 import (
 	"fmt"
-	"github.com/PeerDB-io/peer-flow/activities"
 	"log/slog"
 	"strings"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
+	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -474,11 +474,11 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 			return sleepErr
 		}
 
-		logger.Info(fmt.Sprintf("QRepWaitForNewRowsWorkflow: continuing the loop"))
+		logger.Info("QRepWaitForNewRowsWorkflow: continuing the loop")
 		return workflow.NewContinueAsNewError(ctx, QRepWaitForNewRowsWorkflow, config, lastPartition)
 	}
 
-	logger.Info(fmt.Sprintf("QRepWaitForNewRowsWorkflow: exiting the loop"))
+	logger.Info("QRepWaitForNewRowsWorkflow: exiting the loop")
 
 	// New rows found, workflow can complete and allow the parent workflow to proceed
 	return nil

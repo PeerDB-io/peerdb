@@ -22,10 +22,10 @@ import (
 
 // grpc server implementation
 type FlowRequestHandler struct {
+	protos.UnimplementedFlowServiceServer
 	temporalClient      client.Client
 	pool                *pgxpool.Pool
 	peerflowTaskQueueID string
-	protos.UnimplementedFlowServiceServer
 }
 
 func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool, taskQueue string) *FlowRequestHandler {

@@ -10,11 +10,11 @@ import (
 )
 
 type QRecordAvroConverter struct {
+	logger         log.Logger
 	QRecord        []qvalue.QValue
-	TargetDWH      qvalue.QDWHType
 	NullableFields map[string]struct{}
 	ColNames       []string
-	logger         log.Logger
+	TargetDWH      qvalue.QDWHType
 }
 
 func NewQRecordAvroConverter(
@@ -57,8 +57,8 @@ func (qac *QRecordAvroConverter) Convert() (map[string]interface{}, error) {
 }
 
 type QRecordAvroField struct {
-	Name string      `json:"name"`
 	Type interface{} `json:"type"`
+	Name string      `json:"name"`
 }
 
 type QRecordAvroSchema struct {
@@ -68,8 +68,8 @@ type QRecordAvroSchema struct {
 }
 
 type QRecordAvroSchemaDefinition struct {
-	Schema         string
 	NullableFields map[string]struct{}
+	Schema         string
 }
 
 func GetAvroSchemaDefinition(
