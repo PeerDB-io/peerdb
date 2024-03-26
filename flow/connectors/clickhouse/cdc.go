@@ -80,9 +80,9 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 	rawTableIdentifier string,
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {
-	tableNameRowsMapping := make(map[string]uint32)
+	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
-	streamRes, err := utils.RecordsToRawTableStream(streamReq)
+	stream, err := utils.RecordsToRawTableStream(streamReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
@@ -98,7 +98,7 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 		return nil, err
 	}
 
-	numRecords, err := avroSyncer.SyncRecords(ctx, destinationTableSchema, streamRes.Stream, req.FlowJobName)
+	numRecords, err := avroSyncer.SyncRecords(ctx, destinationTableSchema, stream, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}

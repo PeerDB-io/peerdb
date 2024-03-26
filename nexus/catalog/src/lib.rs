@@ -5,11 +5,11 @@ use peer_cursor::{QueryExecutor, QueryOutput, Schema};
 use peer_postgres::{self, ast};
 use pgwire::error::PgWireResult;
 use postgres_connection::{connect_postgres, get_pg_connection_string};
-use prost::Message;
 use pt::{
     flow_model::{FlowJob, QRepFlowJob},
     peerdb_peers::PostgresConfig,
     peerdb_peers::{peer::Config, DbType, Peer},
+    prost::Message,
 };
 use serde_json::Value;
 use sqlparser::ast::Statement;

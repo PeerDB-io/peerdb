@@ -54,6 +54,7 @@ type Record interface {
 	GetSourceTableName() string
 	// get columns and values for the record
 	GetItems() *RecordItems
+	PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts)
 }
 
 type ToJSONOptions struct {
@@ -61,7 +62,7 @@ type ToJSONOptions struct {
 	HStoreAsJSON  bool
 }
 
-func NewToJSONOptions(unnestCols []string, hstoreAsJSON bool) *ToJSONOptions {
+func NewToJSONOptions(unnestCols []string, hstoreAsJSON bool) ToJSONOptions {
 	var unnestColumns map[string]struct{}
 	if len(unnestCols) != 0 {
 		unnestColumns = make(map[string]struct{}, len(unnestCols))
@@ -69,7 +70,7 @@ func NewToJSONOptions(unnestCols []string, hstoreAsJSON bool) *ToJSONOptions {
 			unnestColumns[col] = struct{}{}
 		}
 	}
-	return &ToJSONOptions{
+	return ToJSONOptions{
 		UnnestColumns: unnestColumns,
 		HStoreAsJSON:  hstoreAsJSON,
 	}
@@ -114,6 +115,13 @@ func (r *InsertRecord) GetItems() *RecordItems {
 	return r.Items
 }
 
+func (r *InsertRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
+	recordCount, ok := mapOfCounts[r.DestinationTableName]
+	if ok {
+		recordCount.InsertCount++
+	}
+}
+
 type UpdateRecord struct {
 	BaseRecord
 	// Name of the source table
@@ -140,6 +148,13 @@ func (r *UpdateRecord) GetItems() *RecordItems {
 	return r.NewItems
 }
 
+func (r *UpdateRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
+	recordCount, ok := mapOfCounts[r.DestinationTableName]
+	if ok {
+		recordCount.UpdateCount++
+	}
+}
+
 type DeleteRecord struct {
 	BaseRecord
 	// Name of the source table
@@ -162,6 +177,13 @@ func (r *DeleteRecord) GetSourceTableName() string {
 
 func (r *DeleteRecord) GetItems() *RecordItems {
 	return r.Items
+}
+
+func (r *DeleteRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
+	recordCount, ok := mapOfCounts[r.DestinationTableName]
+	if ok {
+		recordCount.DeleteCount++
+	}
 }
 
 type TableWithPkey struct {
@@ -196,11 +218,10 @@ type SyncResponse struct {
 	// LastSyncedCheckpointID is the last ID that was synced.
 	LastSyncedCheckpointID int64
 	// NumRecordsSynced is the number of records that were synced.
-	NumRecordsSynced int64
-	// CurrentSyncBatchID is the ID of the currently synced batch.
+	NumRecordsSynced   int64
 	CurrentSyncBatchID int64
 	// TableNameRowsMapping tells how many records need to be synced to each destination table.
-	TableNameRowsMapping map[string]uint32
+	TableNameRowsMapping map[string]*RecordTypeCounts
 	// to be carried to parent workflow
 	TableSchemaDeltas []*protos.TableSchemaDelta
 }
@@ -234,6 +255,9 @@ func (r *RelationRecord) GetSourceTableName() string {
 
 func (r *RelationRecord) GetItems() *RecordItems {
 	return nil
+}
+
+func (r *RelationRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
 }
 
 type RelationMessageMapping map[uint32]*pglogrepl.RelationMessage

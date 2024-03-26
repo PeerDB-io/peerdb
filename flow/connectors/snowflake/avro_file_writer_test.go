@@ -17,45 +17,53 @@ import (
 )
 
 // createQValue creates a QValue of the appropriate kind for a given placeholder.
-func createQValue(t *testing.T, kind qvalue.QValueKind, placeHolder int) qvalue.QValue {
+func createQValue(t *testing.T, kind qvalue.QValueKind, placeholder int) qvalue.QValue {
 	t.Helper()
 
-	var value interface{}
 	switch kind {
-	case qvalue.QValueKindInt16, qvalue.QValueKindInt32, qvalue.QValueKindInt64:
-		value = int64(placeHolder)
+	case qvalue.QValueKindInt16:
+		return qvalue.QValueInt16{Val: int16(placeholder)}
+	case qvalue.QValueKindInt32:
+		return qvalue.QValueInt32{Val: int32(placeholder)}
+	case qvalue.QValueKindInt64:
+		return qvalue.QValueInt64{Val: int64(placeholder)}
 	case qvalue.QValueKindFloat32:
-		value = float32(placeHolder)
+		return qvalue.QValueFloat32{Val: float32(placeholder) / 4.0}
 	case qvalue.QValueKindFloat64:
-		value = float64(placeHolder)
+		return qvalue.QValueFloat64{Val: float64(placeholder) / 4.0}
 	case qvalue.QValueKindBoolean:
-		value = placeHolder%2 == 0
+		return qvalue.QValueBoolean{Val: placeholder%2 == 0}
 	case qvalue.QValueKindString:
-		value = fmt.Sprintf("string%d", placeHolder)
-	case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindTime,
-		qvalue.QValueKindTimeTZ, qvalue.QValueKindDate:
-		value = time.Now()
+		return qvalue.QValueString{Val: fmt.Sprintf("string%d", placeholder)}
+	case qvalue.QValueKindTimestamp:
+		return qvalue.QValueTimestamp{Val: time.Now()}
+	case qvalue.QValueKindTimestampTZ:
+		return qvalue.QValueTimestampTZ{Val: time.Now()}
+	case qvalue.QValueKindTime:
+		return qvalue.QValueTime{Val: time.Now()}
+	case qvalue.QValueKindTimeTZ:
+		return qvalue.QValueTimeTZ{Val: time.Now()}
+	case qvalue.QValueKindDate:
+		return qvalue.QValueDate{Val: time.Now()}
 	case qvalue.QValueKindNumeric:
-		value = decimal.New(int64(placeHolder), 1)
+		return qvalue.QValueNumeric{Val: decimal.New(int64(placeholder), 1)}
 	case qvalue.QValueKindUUID:
-		value = uuid.New() // assuming you have the github.com/google/uuid package
+		return qvalue.QValueUUID{Val: [16]byte(uuid.New())} // assuming you have the github.com/google/uuid package
 	case qvalue.QValueKindQChar:
-		value = uint8(48)
-	// case qvalue.QValueKindArray:
-	// 	value = []int{1, 2, 3} // placeholder array, replace with actual logic
-	// case qvalue.QValueKindStruct:
-	// 	value = map[string]interface{}{"key": "value"} // placeholder struct, replace with actual logic
-	// case qvalue.QValueKindJSON:
-	// 	value = `{"key": "value"}` // placeholder JSON, replace with actual logic
-	case qvalue.QValueKindBytes, qvalue.QValueKindBit:
-		value = []byte("sample bytes") // placeholder bytes, replace with actual logic
+		return qvalue.QValueQChar{Val: uint8(48 + placeholder%10)} // assuming you have the github.com/google/uuid package
+		// case qvalue.QValueKindArray:
+		// 	value = []int{1, 2, 3} // placeholder array, replace with actual logic
+		// case qvalue.QValueKindStruct:
+		// 	value = map[string]interface{}{"key": "value"} // placeholder struct, replace with actual logic
+		// case qvalue.QValueKindJSON:
+		// 	value = `{"key": "value"}` // placeholder JSON, replace with actual logic
+	case qvalue.QValueKindBytes:
+		return qvalue.QValueBytes{Val: []byte("sample bytes")} // placeholder bytes, replace with actual logic
+	case qvalue.QValueKindBit:
+		return qvalue.QValueBit{Val: []byte("sample bits")} // placeholder bytes, replace with actual logic
 	default:
 		require.Failf(t, "unsupported QValueKind", "unsupported QValueKind: %s", kind)
-	}
-
-	return qvalue.QValue{
-		Kind:  kind,
-		Value: value,
+		return qvalue.QValueNull(kind)
 	}
 }
 
@@ -115,10 +123,10 @@ func generateRecords(
 		entries := make([]qvalue.QValue, len(allQValueKinds))
 
 		for i, kind := range allQValueKinds {
-			placeHolder := int(row) * i
-			entries[i] = createQValue(t, kind, placeHolder)
 			if allnulls {
-				entries[i].Value = nil
+				entries[i] = qvalue.QValueNull(kind)
+			} else {
+				entries[i] = createQValue(t, kind, int(row)*i)
 			}
 		}
 

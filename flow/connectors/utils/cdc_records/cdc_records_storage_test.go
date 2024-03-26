@@ -61,18 +61,9 @@ func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record) {
 				"rv": 2,
 			},
 			Values: []qvalue.QValue{
-				{
-					Kind:  qvalue.QValueKindInt64,
-					Value: 1,
-				},
-				{
-					Kind:  qvalue.QValueKindTime,
-					Value: tv,
-				},
-				{
-					Kind:  qvalue.QValueKindNumeric,
-					Value: rv,
-				},
+				qvalue.QValueInt64{Val: 1},
+				qvalue.QValueTime{Val: tv},
+				qvalue.QValueNumeric{Val: rv},
 			},
 		},
 	}
