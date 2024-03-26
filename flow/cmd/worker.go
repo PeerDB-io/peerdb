@@ -23,12 +23,14 @@ import (
 )
 
 type WorkerOptions struct {
-	TemporalHostPort  string
-	EnableProfiling   bool
-	PyroscopeServer   string
-	TemporalNamespace string
-	TemporalCert      string
-	TemporalKey       string
+	TemporalHostPort                   string
+	EnableProfiling                    bool
+	PyroscopeServer                    string
+	TemporalNamespace                  string
+	TemporalCert                       string
+	TemporalKey                        string
+	TemporalMaxConcurrentActivities    int
+	TemporalMaxConcurrentWorkflowTasks int
 }
 
 func setupPyroscope(opts *WorkerOptions) {
@@ -110,8 +112,17 @@ func WorkerMain(opts *WorkerOptions) (client.Client, worker.Worker, error) {
 	slog.Info("Created temporal client")
 
 	taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
+	slog.Info(
+		fmt.Sprintf("Creating temporal worker for queue %v: %v workflow workers %v activity workers",
+			taskQueue,
+			opts.TemporalMaxConcurrentWorkflowTasks,
+			opts.TemporalMaxConcurrentActivities,
+		),
+	)
 	w := worker.New(c, taskQueue, worker.Options{
-		EnableSessionWorker: true,
+		EnableSessionWorker:                    true,
+		MaxConcurrentActivityExecutionSize:     opts.TemporalMaxConcurrentActivities,
+		MaxConcurrentWorkflowTaskExecutionSize: opts.TemporalMaxConcurrentWorkflowTasks,
 		OnFatalError: func(err error) {
 			slog.Error("Peerflow Worker failed", slog.Any("error", err))
 		},

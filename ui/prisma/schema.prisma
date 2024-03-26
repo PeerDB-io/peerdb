@@ -90,9 +90,6 @@ model cdc_batches {
   end_time        DateTime? @db.Timestamp(6)
   metadata        Json?
   id              Int       @id @default(autoincrement())
-  insert_count    Int       @default(0)
-  update_count    Int       @default(0)
-  delete_count    Int       @default(0)
   cdc_flows       cdc_flows @relation(fields: [flow_name], references: [flow_name], onDelete: Cascade, onUpdate: NoAction, map: "fk_cdc_batches_flow_name")
 
   @@index([batch_id], map: "idx_cdc_batches_batch_id")
@@ -143,6 +140,8 @@ model qrep_runs {
   metadata             Json?
   config_proto         Bytes?
   id                   Int               @id @default(autoincrement())
+  destination_table    String?
+  source_table         String?
   fetch_complete       Boolean?          @default(false)
   consolidate_complete Boolean?          @default(false)
   qrep_partitions      qrep_partitions[]
