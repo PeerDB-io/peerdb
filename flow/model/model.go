@@ -9,8 +9,8 @@ import (
 )
 
 type NameAndExclude struct {
-	Name    string
 	Exclude map[string]struct{}
+	Name    string
 }
 
 func NewNameAndExclude(name string, exclude []string) NameAndExclude {
@@ -25,14 +25,10 @@ func NewNameAndExclude(name string, exclude []string) NameAndExclude {
 }
 
 type PullRecordsRequest struct {
+	// record batch for pushing changes into
+	RecordStream *CDCRecordStream
 	// FlowJobName is the name of the flow job.
 	FlowJobName string
-	// LastOffset is the latest LSN that was synced.
-	LastOffset int64
-	// MaxBatchSize is the max number of records to fetch.
-	MaxBatchSize uint32
-	// IdleTimeout is the timeout to wait for new records.
-	IdleTimeout time.Duration
 	// relId to name Mapping
 	SrcTableIDNameMapping map[uint32]string
 	// source to destination table name mapping
@@ -43,8 +39,12 @@ type PullRecordsRequest struct {
 	OverridePublicationName string
 	// override replication slot name
 	OverrideReplicationSlotName string
-	// record batch for pushing changes into
-	RecordStream *CDCRecordStream
+	// LastOffset is the latest LSN that was synced.
+	LastOffset int64
+	// MaxBatchSize is the max number of records to fetch.
+	MaxBatchSize uint32
+	// IdleTimeout is the timeout to wait for new records.
+	IdleTimeout time.Duration
 }
 
 type Record interface {
@@ -92,15 +92,15 @@ func (r *BaseRecord) GetCommitTime() time.Time {
 }
 
 type InsertRecord struct {
-	BaseRecord
+	// Items is a map of column name to value.
+	Items *RecordItems
 	// Name of the source table
 	SourceTableName string
 	// Name of the destination table
 	DestinationTableName string
 	// CommitID is the ID of the commit corresponding to this record.
 	CommitID int64
-	// Items is a map of column name to value.
-	Items *RecordItems
+	BaseRecord
 }
 
 func (r *InsertRecord) GetDestinationTableName() string {
@@ -123,17 +123,17 @@ func (r *InsertRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts
 }
 
 type UpdateRecord struct {
-	BaseRecord
-	// Name of the source table
-	SourceTableName string
-	// Name of the destination table
-	DestinationTableName string
 	// OldItems is a map of column name to value.
 	OldItems *RecordItems
 	// NewItems is a map of column name to value.
 	NewItems *RecordItems
 	// unchanged toast columns
 	UnchangedToastColumns map[string]struct{}
+	// Name of the source table
+	SourceTableName string
+	// Name of the destination table
+	DestinationTableName string
+	BaseRecord
 }
 
 func (r *UpdateRecord) GetDestinationTableName() string {
@@ -156,15 +156,15 @@ func (r *UpdateRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts
 }
 
 type DeleteRecord struct {
-	BaseRecord
-	// Name of the source table
-	SourceTableName string
-	// Name of the destination table
-	DestinationTableName string
 	// Items is a map of column name to value.
 	Items *RecordItems
 	// unchanged toast columns, filled from latest UpdateRecord
 	UnchangedToastColumns map[string]struct{}
+	// Name of the source table
+	SourceTableName string
+	// Name of the destination table
+	DestinationTableName string
+	BaseRecord
 }
 
 func (r *DeleteRecord) GetDestinationTableName() string {
@@ -193,43 +193,43 @@ type TableWithPkey struct {
 }
 
 type SyncRecordsRequest struct {
-	SyncBatchID int64
-	Records     *CDCRecordStream
+	Records *CDCRecordStream
 	// FlowJobName is the name of the flow job.
 	FlowJobName string
-	// source:destination mappings
-	TableMappings []*protos.TableMapping
 	// Staging path for AVRO files in CDC
 	StagingPath string
 	// Lua script
 	Script string
+	// source:destination mappings
+	TableMappings []*protos.TableMapping
+	SyncBatchID   int64
 }
 
 type NormalizeRecordsRequest struct {
+	TableNameSchemaMapping map[string]*protos.TableSchema
 	FlowJobName            string
-	SyncBatchID            int64
-	SoftDelete             bool
 	SoftDeleteColName      string
 	SyncedAtColName        string
-	TableNameSchemaMapping map[string]*protos.TableSchema
+	SyncBatchID            int64
+	SoftDelete             bool
 }
 
 type SyncResponse struct {
+	// TableNameRowsMapping tells how many records need to be synced to each destination table.
+	TableNameRowsMapping map[string]*RecordTypeCounts
+	// to be carried to parent workflow
+	TableSchemaDeltas []*protos.TableSchemaDelta
 	// LastSyncedCheckpointID is the last ID that was synced.
 	LastSyncedCheckpointID int64
 	// NumRecordsSynced is the number of records that were synced.
 	NumRecordsSynced   int64
 	CurrentSyncBatchID int64
-	// TableNameRowsMapping tells how many records need to be synced to each destination table.
-	TableNameRowsMapping map[string]*RecordTypeCounts
-	// to be carried to parent workflow
-	TableSchemaDeltas []*protos.TableSchemaDelta
 }
 
 type NormalizePayload struct {
+	TableNameSchemaMapping map[string]*protos.TableSchema
 	Done                   bool
 	SyncBatchID            int64
-	TableNameSchemaMapping map[string]*protos.TableSchema
 }
 
 type NormalizeResponse struct {
@@ -241,8 +241,8 @@ type NormalizeResponse struct {
 
 // being clever and passing the delta back as a regular record instead of heavy CDC refactoring.
 type RelationRecord struct {
-	BaseRecord
 	TableSchemaDelta *protos.TableSchemaDelta `json:"tableSchemaDelta"`
+	BaseRecord
 }
 
 func (r *RelationRecord) GetDestinationTableName() string {

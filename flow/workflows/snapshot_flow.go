@@ -21,7 +21,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-type snapshotType int
+type snapshotType int8
 
 const (
 	SNAPSHOT_TYPE_UNKNOWN snapshotType = iota
@@ -36,9 +36,9 @@ type SnapshotFlowExecution struct {
 }
 
 type cloneTablesInput struct {
-	snapshotType      snapshotType
 	slotName          string
 	snapshotName      string
+	snapshotType      snapshotType
 	supportsTIDScans  bool
 	maxParallelClones int
 }

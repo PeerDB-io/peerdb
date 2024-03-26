@@ -24,13 +24,13 @@ import (
 
 type WorkerOptions struct {
 	TemporalHostPort                   string
-	EnableProfiling                    bool
 	PyroscopeServer                    string
 	TemporalNamespace                  string
 	TemporalCert                       string
 	TemporalKey                        string
 	TemporalMaxConcurrentActivities    int
 	TemporalMaxConcurrentWorkflowTasks int
+	EnableProfiling                    bool
 }
 
 func setupPyroscope(opts *WorkerOptions) {

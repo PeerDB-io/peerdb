@@ -23,11 +23,11 @@ const (
 )
 
 type S3Connector struct {
-	url        string
-	pgMetadata *metadataStore.PostgresMetadataStore
-	client     s3.Client
-	creds      utils.S3PeerCredentials
 	logger     log.Logger
+	pgMetadata *metadataStore.PostgresMetadataStore
+	creds      utils.S3PeerCredentials
+	url        string
+	client     s3.Client
 }
 
 func NewS3Connector(

@@ -46,15 +46,15 @@ const (
 type peerDBOCFWriter struct {
 	stream               *model.QRecordStream
 	avroSchema           *model.QRecordAvroSchemaDefinition
-	avroCompressionCodec AvroCompressionCodec
 	writer               io.WriteCloser
+	avroCompressionCodec AvroCompressionCodec
 	targetDWH            protos.DBType
 }
 
 type AvroFile struct {
-	NumRecords      int
-	StorageLocation AvroStorageLocation
 	FilePath        string
+	StorageLocation AvroStorageLocation
+	NumRecords      int
 }
 
 func (l *AvroFile) Cleanup() {

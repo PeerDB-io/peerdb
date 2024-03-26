@@ -16,8 +16,8 @@ import (
 
 // QRecordBatch holds a batch of []QValue slices
 type QRecordBatch struct {
-	Records [][]qvalue.QValue
 	Schema  *QRecordSchema
+	Records [][]qvalue.QValue
 }
 
 func (q *QRecordBatch) ToQRecordStream(buffer int) (*QRecordStream, error) {
@@ -53,10 +53,10 @@ func constructArray[T any](qValue qvalue.QValue, typeName string) (*pgtype.Array
 }
 
 type QRecordBatchCopyFromSource struct {
-	numRecords    int
+	err           error
 	stream        *QRecordStream
 	currentRecord QRecordOrError
-	err           error
+	numRecords    int
 }
 
 func NewQRecordBatchCopyFromSource(

@@ -81,8 +81,8 @@ const (
 type SnowflakeConnector struct {
 	database   *sql.DB
 	pgMetadata *metadataStore.PostgresMetadataStore
-	rawSchema  string
 	logger     log.Logger
+	rawSchema  string
 }
 
 // creating this to capture array results from snowflake.

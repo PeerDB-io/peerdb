@@ -13,8 +13,8 @@ type RecordTypeCounts struct {
 }
 
 type QRecordOrError struct {
-	Record []qvalue.QValue
 	Err    error
+	Record []qvalue.QValue
 }
 
 type QRecordSchemaOrError struct {
@@ -25,8 +25,8 @@ type QRecordSchemaOrError struct {
 type QRecordStream struct {
 	schema      chan QRecordSchemaOrError
 	Records     chan QRecordOrError
-	schemaSet   bool
 	schemaCache *QRecordSchema
+	schemaSet   bool
 }
 
 type RecordsToStreamRequest struct {

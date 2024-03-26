@@ -22,15 +22,15 @@ import (
 )
 
 type CDCFlowWorkflowState struct {
-	// Current signalled state of the peer flow.
-	ActiveSignal model.CDCFlowSignal
 	// deprecated field
 	RelationMessageMapping model.RelationMessageMapping
-	CurrentFlowStatus      protos.FlowStatus
 	// flow config update request, set to nil after processed
 	FlowConfigUpdate *protos.CDCFlowConfigUpdate
 	// options passed to all SyncFlows
 	SyncFlowOptions *protos.SyncFlowOptions
+	// Current signalled state of the peer flow.
+	ActiveSignal      model.CDCFlowSignal
+	CurrentFlowStatus protos.FlowStatus
 }
 
 // returns a new empty PeerFlowState

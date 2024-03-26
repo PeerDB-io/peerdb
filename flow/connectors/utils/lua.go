@@ -43,14 +43,14 @@ func LoadScript(ctx context.Context, script string, printfn lua.LGFunction) (*lu
 	ls := lua.NewState(lua.Options{SkipOpenLibs: true})
 	ls.SetContext(ctx)
 	for _, pair := range []struct {
-		n string
 		f lua.LGFunction
+		n string
 	}{
-		{lua.LoadLibName, lua.OpenPackage}, // Must be first
-		{lua.BaseLibName, lua.OpenBase},
-		{lua.TabLibName, lua.OpenTable},
-		{lua.StringLibName, lua.OpenString},
-		{lua.MathLibName, lua.OpenMath},
+		{lua.OpenPackage, lua.LoadLibName}, // Must be first
+		{lua.OpenBase, lua.BaseLibName},
+		{lua.OpenTable, lua.TabLibName},
+		{lua.OpenString, lua.StringLibName},
+		{lua.OpenMath, lua.MathLibName},
 	} {
 		ls.Push(ls.NewFunction(pair.f))
 		ls.Push(lua.LString(pair.n))

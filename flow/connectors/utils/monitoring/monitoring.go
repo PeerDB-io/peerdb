@@ -19,10 +19,10 @@ import (
 )
 
 type CDCBatchInfo struct {
-	BatchID     int64
-	RowsInBatch uint32
-	BatchEndlSN int64
 	StartTime   time.Time
+	BatchID     int64
+	BatchEndlSN int64
+	RowsInBatch uint32
 }
 
 func InitializeCDCFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName string) error {

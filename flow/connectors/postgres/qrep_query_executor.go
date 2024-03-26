@@ -21,11 +21,11 @@ import (
 
 type QRepQueryExecutor struct {
 	*PostgresConnector
+	logger      log.Logger
 	snapshot    string
-	testEnv     bool
 	flowJobName string
 	partitionID string
-	logger      log.Logger
+	testEnv     bool
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutor(flowJobName string, partitionID string) *QRepQueryExecutor {
