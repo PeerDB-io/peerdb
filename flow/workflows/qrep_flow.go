@@ -1,9 +1,7 @@
-// This file corresponds to query based replication.
 package peerflow
 
 import (
 	"fmt"
-	"github.com/PeerDB-io/peer-flow/activities"
 	"log/slog"
 	"strings"
 	"time"
@@ -13,6 +11,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
+	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -185,7 +184,7 @@ func (q *QRepFlowExecution) GetPartitions(
 	})
 
 	partitionsFuture := workflow.ExecuteActivity(ctx, flowable.GetQRepPartitions, q.config, last, q.runUUID)
-	partitions := &protos.QRepParitionResult{}
+	var partitions *protos.QRepParitionResult
 	if err := partitionsFuture.Get(ctx, &partitions); err != nil {
 		return nil, fmt.Errorf("failed to fetch partitions to replicate: %w", err)
 	}
@@ -321,16 +320,38 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 	return nil
 }
 
-func (q *QRepFlowExecution) waitForNewRows(ctx workflow.Context, lastPartition *protos.QRepPartition) workflow.ChildWorkflowFuture {
-	cwOptions := workflow.ChildWorkflowOptions{
+func (q *QRepFlowExecution) waitForNewRows(
+	ctx workflow.Context,
+	signalChan model.TypedReceiveChannel[model.CDCFlowSignal],
+	lastPartition *protos.QRepPartition,
+) error {
+	ctx = workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
 		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
 		SearchAttributes: map[string]interface{}{
 			shared.MirrorNameSearchAttribute: q.config.FlowJobName,
 		},
-	}
-	ctx = workflow.WithChildOptions(ctx, cwOptions)
+	})
+	future := workflow.ExecuteChildWorkflow(ctx, QRepWaitForNewRowsWorkflow, q.config, lastPartition)
 
-	return workflow.ExecuteChildWorkflow(ctx, QRepWaitForNewRowsWorkflow, q.config, lastPartition)
+	var newRows bool
+	var waitErr error
+	waitSelector := workflow.NewNamedSelector(ctx, "WaitForRows")
+	signalChan.AddToSelector(waitSelector, func(val model.CDCFlowSignal, _ bool) {
+		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
+	})
+	waitSelector.AddFuture(future, func(f workflow.Future) {
+		newRows = true
+		waitErr = f.Get(ctx, nil)
+	})
+	waitSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+
+	for ctx.Err() == nil && !newRows && q.activeSignal != model.PauseSignal {
+		waitSelector.Select(ctx)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return waitErr
 }
 
 func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, state *protos.QRepFlowState) error {
@@ -474,11 +495,11 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 			return sleepErr
 		}
 
-		logger.Info(fmt.Sprintf("QRepWaitForNewRowsWorkflow: continuing the loop"))
+		logger.Info("QRepWaitForNewRowsWorkflow: continuing the loop")
 		return workflow.NewContinueAsNewError(ctx, QRepWaitForNewRowsWorkflow, config, lastPartition)
 	}
 
-	logger.Info(fmt.Sprintf("QRepWaitForNewRowsWorkflow: exiting the loop"))
+	logger.Info("QRepWaitForNewRowsWorkflow: exiting the loop")
 
 	// New rows found, workflow can complete and allow the parent workflow to proceed
 	return nil
@@ -549,44 +570,54 @@ func QRepFlowWorkflow(
 		return err
 	}
 
-	logger.Info("fetching partitions to replicate for peer flow")
-	partitions, err := q.GetPartitions(ctx, state.LastPartition)
-	if err != nil {
-		return fmt.Errorf("failed to get partitions: %w", err)
+	if state.LastPartition != nil {
+		if err := q.waitForNewRows(ctx, signalChan, state.LastPartition); err != nil {
+			return err
+		}
 	}
 
-	logger.Info(fmt.Sprintf("%d partitions to replicate", len(partitions.Partitions)))
-	if err := q.processPartitions(ctx, maxParallelWorkers, partitions.Partitions); err != nil {
-		return err
+	if q.activeSignal != model.PauseSignal {
+		logger.Info("fetching partitions to replicate for peer flow")
+		partitions, err := q.GetPartitions(ctx, state.LastPartition)
+		if err != nil {
+			return fmt.Errorf("failed to get partitions: %w", err)
+		}
+
+		logger.Info(fmt.Sprintf("%d partitions to replicate", len(partitions.Partitions)))
+		if err := q.processPartitions(ctx, maxParallelWorkers, partitions.Partitions); err != nil {
+			return err
+		}
+
+		logger.Info("consolidating partitions for peer flow")
+		if err := q.consolidatePartitions(ctx); err != nil {
+			return err
+		}
+
+		if config.InitialCopyOnly {
+			logger.Info("initial copy completed for peer flow")
+			return nil
+		}
+
+		err = q.handleTableRenameForResync(ctx, state)
+		if err != nil {
+			return err
+		}
+
+		logger.Info(fmt.Sprintf("%d partitions processed", len(partitions.Partitions)))
+		state.NumPartitionsProcessed += uint64(len(partitions.Partitions))
+
+		if len(partitions.Partitions) > 0 {
+			state.LastPartition = partitions.Partitions[len(partitions.Partitions)-1]
+		}
 	}
 
-	logger.Info("consolidating partitions for peer flow")
-	if err := q.consolidatePartitions(ctx); err != nil {
-		return err
-	}
-
-	if config.InitialCopyOnly {
-		logger.Info("initial copy completed for peer flow")
-		return nil
-	}
-
-	err = q.handleTableRenameForResync(ctx, state)
-	if err != nil {
-		return err
-	}
-
-	logger.Info(fmt.Sprintf("%d partitions processed", len(partitions.Partitions)))
-	state.NumPartitionsProcessed += uint64(len(partitions.Partitions))
-
-	if len(partitions.Partitions) > 0 {
-		state.LastPartition = partitions.Partitions[len(partitions.Partitions)-1]
-	}
-
-	// Let's wait for new rows
-	future := q.waitForNewRows(ctx, state.LastPartition)
-	err = future.Get(ctx, nil)
-	if err != nil {
-		return err
+	// flush signal, after this workflow must not yield
+	for {
+		val, ok := signalChan.ReceiveAsync()
+		if !ok {
+			break
+		}
+		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
 	}
 
 	logger.Info("Continuing as new workflow",
