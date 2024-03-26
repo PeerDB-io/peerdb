@@ -79,7 +79,7 @@ func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
-			MaximumInterval:        24 * time.Hour,
+			MaximumInterval:        time.Hour,
 			MaximumAttempts:        0,
 			NonRetryableErrorTypes: nil,
 		},
@@ -101,7 +101,7 @@ func (q *QRepFlowExecution) getTableSchema(ctx workflow.Context, tableName strin
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
-			MaximumInterval:        24 * time.Hour,
+			MaximumInterval:        time.Hour,
 			MaximumAttempts:        0,
 			NonRetryableErrorTypes: nil,
 		},
@@ -132,7 +132,7 @@ func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Contex
 			RetryPolicy: &temporal.RetryPolicy{
 				InitialInterval:        time.Minute,
 				BackoffCoefficient:     2.,
-				MaximumInterval:        24 * time.Hour,
+				MaximumInterval:        time.Hour,
 				MaximumAttempts:        0,
 				NonRetryableErrorTypes: nil,
 			},
@@ -178,7 +178,7 @@ func (q *QRepFlowExecution) GetPartitions(
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
-			MaximumInterval:        24 * time.Hour,
+			MaximumInterval:        time.Hour,
 			MaximumAttempts:        0,
 			NonRetryableErrorTypes: nil,
 		},
@@ -204,7 +204,7 @@ func (q *QRepPartitionFlowExecution) ReplicatePartitions(ctx workflow.Context,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
-			MaximumInterval:        24 * time.Hour,
+			MaximumInterval:        time.Hour,
 			MaximumAttempts:        0,
 			NonRetryableErrorTypes: nil,
 		},
@@ -298,7 +298,7 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
-			MaximumInterval:        24 * time.Hour,
+			MaximumInterval:        time.Hour,
 			MaximumAttempts:        0,
 			NonRetryableErrorTypes: nil,
 		},
@@ -342,7 +342,7 @@ func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, s
 			RetryPolicy: &temporal.RetryPolicy{
 				InitialInterval:        time.Minute,
 				BackoffCoefficient:     2.,
-				MaximumInterval:        24 * time.Hour,
+				MaximumInterval:        time.Hour,
 				MaximumAttempts:        0,
 				NonRetryableErrorTypes: nil,
 			},
@@ -389,7 +389,7 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 			RetryPolicy: &temporal.RetryPolicy{
 				InitialInterval:        time.Minute,
 				BackoffCoefficient:     2.,
-				MaximumInterval:        24 * time.Hour,
+				MaximumInterval:        time.Hour,
 				MaximumAttempts:        0,
 				NonRetryableErrorTypes: nil,
 			},
@@ -450,7 +450,7 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
-			MaximumInterval:        24 * time.Hour,
+			MaximumInterval:        time.Hour,
 			MaximumAttempts:        0,
 			NonRetryableErrorTypes: nil,
 		},

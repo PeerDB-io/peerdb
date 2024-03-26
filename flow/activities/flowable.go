@@ -966,10 +966,7 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 		return QRepWaitUntilNewRowsResult{Found: false}, fmt.Errorf("failed to check for new rows: %w", err)
 	}
 
-	if result {
-		return QRepWaitUntilNewRowsResult{Found: true}, nil
-	}
-	return QRepWaitUntilNewRowsResult{Found: false}, nil
+	return QRepWaitUntilNewRowsResult{Found: result}, nil
 }
 
 func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.RenameTablesInput) (
