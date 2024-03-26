@@ -34,7 +34,7 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 	for _, column := range columns {
 		genericColumnType := column.Type
 		qvKind := qvalue.QValueKind(genericColumnType)
-		sfType, err := qValueKindToSnowflakeType(qvKind)
+		sfType, err := qvKind.ToDWHColumnType(protos.DBType_SNOWFLAKE)
 		if err != nil {
 			return "", fmt.Errorf("failed to convert column type %s to snowflake type: %w", genericColumnType, err)
 		}

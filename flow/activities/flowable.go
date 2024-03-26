@@ -956,7 +956,7 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
 	if config.SourcePeer.Type != protos.DBType_POSTGRES || last.Range == nil {
-		return QRepWaitUntilNewRowsResult{Found: false}, nil
+		return QRepWaitUntilNewRowsResult{Found: true}, nil
 	}
 
 	logger.Info(fmt.Sprintf("current last partition value is %v", last))

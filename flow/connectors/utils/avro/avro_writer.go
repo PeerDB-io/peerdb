@@ -20,9 +20,9 @@ import (
 	"github.com/linkedin/goavro/v2"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 type (
@@ -48,7 +48,7 @@ type peerDBOCFWriter struct {
 	avroSchema           *model.QRecordAvroSchemaDefinition
 	writer               io.WriteCloser
 	avroCompressionCodec AvroCompressionCodec
-	targetDWH            qvalue.QDWHType
+	targetDWH            protos.DBType
 }
 
 type AvroFile struct {
@@ -70,7 +70,7 @@ func NewPeerDBOCFWriter(
 	stream *model.QRecordStream,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	avroCompressionCodec AvroCompressionCodec,
-	targetDWH qvalue.QDWHType,
+	targetDWH protos.DBType,
 ) *peerDBOCFWriter {
 	return &peerDBOCFWriter{
 		stream:               stream,
