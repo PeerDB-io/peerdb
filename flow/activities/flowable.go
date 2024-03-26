@@ -936,60 +936,40 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	return nil
 }
 
-func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
+type QRepWaitUntilNewRowsResult struct {
+	Found bool
+}
+
+func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 	config *protos.QRepConfig, last *protos.QRepPartition,
-) error {
+) (QRepWaitUntilNewRowsResult, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
 	if config.SourcePeer.Type != protos.DBType_POSTGRES || last.Range == nil {
-		return nil
+		return QRepWaitUntilNewRowsResult{Found: false}, nil
 	}
-	waitBetweenBatches := 5 * time.Second
-	if config.WaitBetweenBatchesSeconds > 0 {
-		waitBetweenBatches = time.Duration(config.WaitBetweenBatchesSeconds) * time.Second
-	}
+
+	logger.Info(fmt.Sprintf("current last partition value is %v", last))
+	activity.RecordHeartbeat(ctx, "QRepHasNewRows")
 
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return fmt.Errorf("failed to get qrep source connector: %w", err)
+		return QRepWaitUntilNewRowsResult{Found: false}, fmt.Errorf("failed to get qrep source connector: %w", err)
 	}
-	defer connectors.CloseConnector(ctx, srcConn)
 	pgSrcConn := srcConn.(*connpostgres.PostgresConnector)
-	logger.Info(fmt.Sprintf("current last partition value is %v", last))
-	attemptCount := 1
-	for {
-		activity.RecordHeartbeat(ctx, fmt.Sprintf("no new rows yet, attempt #%d", attemptCount))
-		waitUntil := time.Now().Add(waitBetweenBatches)
-		for {
-			sleep := time.Until(waitUntil)
-			if sleep > 15*time.Second {
-				sleep = 15 * time.Second
-			}
-			time.Sleep(sleep)
-
-			activity.RecordHeartbeat(ctx, "heartbeat while waiting before next batch")
-			if err := ctx.Err(); err != nil {
-				return fmt.Errorf("cancelled while waiting for new rows: %w", err)
-			} else if time.Now().After(waitUntil) {
-				break
-			}
-		}
-
-		result, err := pgSrcConn.CheckForUpdatedMaxValue(ctx, config, last)
-		if err != nil {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return fmt.Errorf("failed to check for new rows: %w", err)
-		}
-		if result {
-			break
-		}
-
-		attemptCount += 1
+	result, err := pgSrcConn.CheckForUpdatedMaxValue(ctx, config, last)
+	connectors.CloseConnector(ctx, srcConn)
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		return QRepWaitUntilNewRowsResult{Found: false}, fmt.Errorf("failed to check for new rows: %w", err)
 	}
 
-	return nil
+	if result {
+		return QRepWaitUntilNewRowsResult{Found: true}, nil
+	}
+	return QRepWaitUntilNewRowsResult{Found: false}, nil
 }
 
 func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.RenameTablesInput) (

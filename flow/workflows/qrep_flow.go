@@ -3,6 +3,7 @@ package peerflow
 
 import (
 	"fmt"
+	"github.com/PeerDB-io/peer-flow/activities"
 	"log/slog"
 	"strings"
 	"time"
@@ -75,6 +76,13 @@ func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:        time.Minute,
+			BackoffCoefficient:     2.,
+			MaximumInterval:        24 * time.Hour,
+			MaximumAttempts:        0,
+			NonRetryableErrorTypes: nil,
+		},
 	})
 
 	if err := workflow.ExecuteActivity(ctx, flowable.SetupQRepMetadataTables, q.config).Get(ctx, nil); err != nil {
@@ -90,6 +98,13 @@ func (q *QRepFlowExecution) getTableSchema(ctx workflow.Context, tableName strin
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:        time.Minute,
+			BackoffCoefficient:     2.,
+			MaximumInterval:        24 * time.Hour,
+			MaximumAttempts:        0,
+			NonRetryableErrorTypes: nil,
+		},
 	})
 
 	tableSchemaInput := &protos.GetTableSchemaBatchInput{
@@ -114,6 +129,13 @@ func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Contex
 
 		ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 5 * time.Minute,
+			RetryPolicy: &temporal.RetryPolicy{
+				InitialInterval:        time.Minute,
+				BackoffCoefficient:     2.,
+				MaximumInterval:        24 * time.Hour,
+				MaximumAttempts:        0,
+				NonRetryableErrorTypes: nil,
+			},
 		})
 
 		// fetch the schema for the watermark table
@@ -153,6 +175,13 @@ func (q *QRepFlowExecution) GetPartitions(
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:        time.Minute,
+			BackoffCoefficient:     2.,
+			MaximumInterval:        24 * time.Hour,
+			MaximumAttempts:        0,
+			NonRetryableErrorTypes: nil,
+		},
 	})
 
 	partitionsFuture := workflow.ExecuteActivity(ctx, flowable.GetQRepPartitions, q.config, last, q.runUUID)
@@ -172,6 +201,13 @@ func (q *QRepPartitionFlowExecution) ReplicatePartitions(ctx workflow.Context,
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * 5 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:        time.Minute,
+			BackoffCoefficient:     2.,
+			MaximumInterval:        24 * time.Hour,
+			MaximumAttempts:        0,
+			NonRetryableErrorTypes: nil,
+		},
 	})
 
 	msg := fmt.Sprintf("replicating partition batch - %d", partitions.BatchId)
@@ -259,6 +295,13 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:        time.Minute,
+			BackoffCoefficient:     2.,
+			MaximumInterval:        24 * time.Hour,
+			MaximumAttempts:        0,
+			NonRetryableErrorTypes: nil,
+		},
 	})
 
 	if err := workflow.ExecuteActivity(ctx, flowable.ConsolidateQRepPartitions, q.config,
@@ -278,39 +321,16 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 	return nil
 }
 
-func (q *QRepFlowExecution) waitForNewRows(
-	ctx workflow.Context,
-	signalChan model.TypedReceiveChannel[model.CDCFlowSignal],
-	lastPartition *protos.QRepPartition,
-) error {
-	q.logger.Info("idling until new rows are detected")
-
-	var done bool
-	var doneErr error
-	selector := workflow.NewNamedSelector(ctx, "WaitForNewRows")
-
-	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 16 * 365 * 24 * time.Hour, // 16 years
-		HeartbeatTimeout:    time.Minute,
-	})
-	fWait := workflow.ExecuteActivity(ctx, flowable.QRepWaitUntilNewRows, q.config, lastPartition)
-	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
-	selector.AddFuture(fWait, func(f workflow.Future) {
-		doneErr = f.Get(ctx, nil)
-		done = true
-	})
-	signalChan.AddToSelector(selector, func(val model.CDCFlowSignal, _ bool) {
-		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
-	})
-
-	for ctx.Err() == nil && ((!done && q.activeSignal != model.PauseSignal) || selector.HasPending()) {
-		selector.Select(ctx)
+func (q *QRepFlowExecution) waitForNewRows(ctx workflow.Context, lastPartition *protos.QRepPartition) workflow.ChildWorkflowFuture {
+	cwOptions := workflow.ChildWorkflowOptions{
+		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+		SearchAttributes: map[string]interface{}{
+			shared.MirrorNameSearchAttribute: q.config.FlowJobName,
+		},
 	}
+	ctx = workflow.WithChildOptions(ctx, cwOptions)
 
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return doneErr
+	return workflow.ExecuteChildWorkflow(ctx, QRepWaitForNewRowsWorkflow, q.config, lastPartition)
 }
 
 func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, state *protos.QRepFlowState) error {
@@ -319,6 +339,13 @@ func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, s
 		createTablesFromExistingCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 10 * time.Minute,
 			HeartbeatTimeout:    time.Minute,
+			RetryPolicy: &temporal.RetryPolicy{
+				InitialInterval:        time.Minute,
+				BackoffCoefficient:     2.,
+				MaximumInterval:        24 * time.Hour,
+				MaximumAttempts:        0,
+				NonRetryableErrorTypes: nil,
+			},
 		})
 		createTablesFromExistingFuture := workflow.ExecuteActivity(
 			createTablesFromExistingCtx, flowable.CreateTablesFromExisting, &protos.CreateTablesFromExistingInput{
@@ -359,6 +386,13 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 		renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 30 * time.Minute,
 			HeartbeatTimeout:    time.Minute,
+			RetryPolicy: &temporal.RetryPolicy{
+				InitialInterval:        time.Minute,
+				BackoffCoefficient:     2.,
+				MaximumInterval:        24 * time.Hour,
+				MaximumAttempts:        0,
+				NonRetryableErrorTypes: nil,
+			},
 		})
 		renameTablesFuture := workflow.ExecuteActivity(renameTablesCtx, flowable.RenameTables, renameOpts)
 		if err := renameTablesFuture.Get(renameTablesCtx, nil); err != nil {
@@ -404,6 +438,49 @@ func setWorkflowQueries(ctx workflow.Context, state *protos.QRepFlowState) error
 	if err != nil {
 		return fmt.Errorf("failed to register query handler: %w", err)
 	}
+	return nil
+}
+
+func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig, lastPartition *protos.QRepPartition) error {
+	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
+
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 16 * 365 * 24 * time.Hour, // 16 years
+		HeartbeatTimeout:    time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:        time.Minute,
+			BackoffCoefficient:     2.,
+			MaximumInterval:        24 * time.Hour,
+			MaximumAttempts:        0,
+			NonRetryableErrorTypes: nil,
+		},
+	})
+
+	var result activities.QRepWaitUntilNewRowsResult
+	err := workflow.ExecuteActivity(ctx, flowable.QRepHasNewRows, config, lastPartition).Get(ctx, &result)
+	if err != nil {
+		return fmt.Errorf("error checking for new rows: %w", err)
+	}
+	hasNewRows := result.Found
+
+	// If no new rows are found, continue as new
+	if !hasNewRows {
+		waitBetweenBatches := 5 * time.Second
+		if config.WaitBetweenBatchesSeconds > 0 {
+			waitBetweenBatches = time.Duration(config.WaitBetweenBatchesSeconds) * time.Second
+		}
+
+		if sleepErr := workflow.Sleep(ctx, waitBetweenBatches); sleepErr != nil {
+			return sleepErr
+		}
+
+		logger.Info(fmt.Sprintf("QRepWaitForNewRowsWorkflow: continuing the loop"))
+		return workflow.NewContinueAsNewError(ctx, QRepWaitForNewRowsWorkflow, config, lastPartition)
+	}
+
+	logger.Info(fmt.Sprintf("QRepWaitForNewRowsWorkflow: exiting the loop"))
+
+	// New rows found, workflow can complete and allow the parent workflow to proceed
 	return nil
 }
 
@@ -505,7 +582,9 @@ func QRepFlowWorkflow(
 		state.LastPartition = partitions.Partitions[len(partitions.Partitions)-1]
 	}
 
-	err = q.waitForNewRows(ctx, signalChan, state.LastPartition)
+	// Let's wait for new rows
+	future := q.waitForNewRows(ctx, state.LastPartition)
+	err = future.Get(ctx, nil)
 	if err != nil {
 		return err
 	}
