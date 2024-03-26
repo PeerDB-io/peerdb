@@ -4,13 +4,14 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/grafana/pyroscope-go"
-	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/worker"
 	"log"
 	"log/slog"
 	"os"
 	"runtime"
+
+	"github.com/grafana/pyroscope-go"
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/worker"
 
 	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/alerting"
