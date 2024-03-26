@@ -215,7 +215,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 			return -1, fmt.Errorf("SyncQRepRecords: failed to execute statements in a transaction: %w", err)
 		}
 	} else {
-		s.connector.logger.Info("SyncQRepRecords: no rows to sync, hence skipping transaction ", flowLog)
+		s.connector.logger.Info("SyncQRepRecords: no rows to sync, hence skipping transaction", flowLog)
 	}
 
 	err = s.connector.pgMetadata.FinishQrepPartition(ctx, partition, flowJobName, startTime)
