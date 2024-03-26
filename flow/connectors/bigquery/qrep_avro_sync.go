@@ -199,18 +199,23 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	transformedColumns := getTransformedColumns(&dstTableMetadata.Schema, syncedAtCol, softDeleteCol)
 	selector := strings.Join(transformedColumns, ", ")
 
-	// Insert the records from the staging table into the destination table
-	insertStmt := fmt.Sprintf("INSERT INTO `%s`(%s) SELECT %s FROM `%s`;",
-		dstTableName, insertColumnSQL, selector, stagingDatasetTable.string())
+	// The staging table may not exist if there are now rows (not created by the bq loader)
+	if numRecords > 0 {
+		// Insert the records from the staging table into the destination table
+		insertStmt := fmt.Sprintf("INSERT INTO `%s`(%s) SELECT %s FROM `%s`;",
+			dstTableName, insertColumnSQL, selector, stagingDatasetTable.string())
 
-	s.connector.logger.Info("Performing transaction inside QRep sync function", flowLog)
+		s.connector.logger.Info("Performing transaction inside QRep sync function", flowLog)
 
-	query := bqClient.Query(insertStmt)
-	query.DefaultDatasetID = s.connector.datasetID
-	query.DefaultProjectID = s.connector.projectID
-	_, err = query.Read(ctx)
-	if err != nil {
-		return -1, fmt.Errorf("failed to execute statements in a transaction: %w", err)
+		query := bqClient.Query(insertStmt)
+		query.DefaultDatasetID = s.connector.datasetID
+		query.DefaultProjectID = s.connector.projectID
+		_, err = query.Read(ctx)
+		if err != nil {
+			return -1, fmt.Errorf("SyncQRepRecords: failed to execute statements in a transaction: %w", err)
+		}
+	} else {
+		s.connector.logger.Info("SyncQRepRecords: no rows to sync, hence skipping transaction ", flowLog)
 	}
 
 	err = s.connector.pgMetadata.FinishQrepPartition(ctx, partition, flowJobName, startTime)
