@@ -14,6 +14,7 @@ import (
 	"github.com/PeerDB-io/glua64"
 	"github.com/PeerDB-io/gluabit32"
 	"github.com/PeerDB-io/gluajson"
+	"github.com/PeerDB-io/gluamsgpack"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
@@ -40,6 +41,7 @@ func RegisterTypes(ls *lua.LState) {
 
 	ls.PreloadModule("bit32", gluabit32.Loader)
 	ls.PreloadModule("json", gluajson.Loader)
+	ls.PreloadModule("msgpack", gluamsgpack.Loader)
 
 	mt := LuaRecord.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaRecordIndex))
@@ -51,6 +53,7 @@ func RegisterTypes(ls *lua.LState) {
 	mt = LuaUuid.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaUuidIndex))
 	mt.RawSetString("__tostring", ls.NewFunction(LuaUuidString))
+	mt.RawSetString("__msgpack", ls.NewFunction(LuaUuidMsgpack))
 
 	mt = LuaTime.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaTimeIndex))
@@ -66,7 +69,6 @@ func RegisterTypes(ls *lua.LState) {
 	mt.RawSetString("__tostring", ls.NewFunction(LuaDecimalString))
 
 	peerdb := ls.NewTable()
-	peerdb.RawSetString("RowToJSON", ls.NewFunction(LuaRowToJSON))
 	peerdb.RawSetString("RowColumns", ls.NewFunction(LuaRowColumns))
 	peerdb.RawSetString("RowColumnKind", ls.NewFunction(LuaRowColumnKind))
 	peerdb.RawSetString("Now", ls.NewFunction(LuaNow))
@@ -122,17 +124,6 @@ func LuaRowIndex(ls *lua.LState) int {
 func LuaRowLen(ls *lua.LState) int {
 	_, row := LuaRow.Check(ls, 1)
 	ls.Push(lua.LNumber(len(row.Values)))
-	return 1
-}
-
-func LuaRowToJSON(ls *lua.LState) int {
-	_, row := LuaRow.Check(ls, 1)
-	json, err := row.ToJSON()
-	if err != nil {
-		ls.RaiseError("failed to serialize json: %s", err.Error())
-		return 0
-	}
-	ls.Push(lua.LString(json))
 	return 1
 }
 
@@ -304,6 +295,16 @@ func LuaUuidIndex(ls *lua.LState) int {
 func LuaUuidString(ls *lua.LState) int {
 	val := LuaUuid.StartMethod(ls)
 	ls.Push(lua.LString(val.String()))
+	return 1
+}
+
+func LuaUuidMsgpack(ls *lua.LState) int {
+	val := LuaUuid.StartMethod(ls)
+	ls.Push(&lua.LUserData{
+		Value:     gluamsgpack.Bin(val[:]),
+		Env:       ls.Env,
+		Metatable: nil,
+	})
 	return 1
 }
 
