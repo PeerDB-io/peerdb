@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
@@ -150,13 +151,13 @@ func TestWriteRecordsToAvroFileHappyPath(t *testing.T) {
 	// Define sample data
 	records, schema := generateRecords(t, true, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema, qvalue.QDWHTypeSnowflake)
+	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema, protos.DBType_SNOWFLAKE)
 	require.NoError(t, err)
 
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
-	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
+	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressNone, protos.DBType_SNOWFLAKE)
 	_, err = writer.WriteRecordsToAvroFile(context.Background(), tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
@@ -177,13 +178,13 @@ func TestWriteRecordsToZstdAvroFileHappyPath(t *testing.T) {
 	// Define sample data
 	records, schema := generateRecords(t, true, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema, qvalue.QDWHTypeSnowflake)
+	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema, protos.DBType_SNOWFLAKE)
 	require.NoError(t, err)
 
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
-	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressZstd, qvalue.QDWHTypeSnowflake)
+	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressZstd, protos.DBType_SNOWFLAKE)
 	_, err = writer.WriteRecordsToAvroFile(context.Background(), tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
@@ -204,13 +205,13 @@ func TestWriteRecordsToDeflateAvroFileHappyPath(t *testing.T) {
 	// Define sample data
 	records, schema := generateRecords(t, true, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema, qvalue.QDWHTypeSnowflake)
+	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema, protos.DBType_SNOWFLAKE)
 	require.NoError(t, err)
 
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
-	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressDeflate, qvalue.QDWHTypeSnowflake)
+	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressDeflate, protos.DBType_SNOWFLAKE)
 	_, err = writer.WriteRecordsToAvroFile(context.Background(), tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
@@ -230,13 +231,13 @@ func TestWriteRecordsToAvroFileNonNull(t *testing.T) {
 
 	records, schema := generateRecords(t, false, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema, qvalue.QDWHTypeSnowflake)
+	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema, protos.DBType_SNOWFLAKE)
 	require.NoError(t, err)
 
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
-	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
+	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressNone, protos.DBType_SNOWFLAKE)
 	_, err = writer.WriteRecordsToAvroFile(context.Background(), tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
@@ -257,13 +258,13 @@ func TestWriteRecordsToAvroFileAllNulls(t *testing.T) {
 	// Define sample data
 	records, schema := generateRecords(t, true, 10, true)
 
-	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema, qvalue.QDWHTypeSnowflake)
+	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema, protos.DBType_SNOWFLAKE)
 	require.NoError(t, err)
 
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
-	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
+	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressNone, protos.DBType_SNOWFLAKE)
 	_, err = writer.WriteRecordsToAvroFile(context.Background(), tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 

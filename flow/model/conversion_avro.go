@@ -6,12 +6,13 @@ import (
 
 	"go.temporal.io/sdk/log"
 
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 type QRecordAvroConverter struct {
 	QRecord        []qvalue.QValue
-	TargetDWH      qvalue.QDWHType
+	TargetDWH      protos.DBType
 	NullableFields map[string]struct{}
 	ColNames       []string
 	logger         log.Logger
@@ -19,7 +20,7 @@ type QRecordAvroConverter struct {
 
 func NewQRecordAvroConverter(
 	q []qvalue.QValue,
-	targetDWH qvalue.QDWHType,
+	targetDWH protos.DBType,
 	nullableFields map[string]struct{},
 	colNames []string,
 	logger log.Logger,
@@ -75,7 +76,7 @@ type QRecordAvroSchemaDefinition struct {
 func GetAvroSchemaDefinition(
 	dstTableName string,
 	qRecordSchema *QRecordSchema,
-	targetDWH qvalue.QDWHType,
+	targetDWH protos.DBType,
 ) (*QRecordAvroSchemaDefinition, error) {
 	avroFields := make([]QRecordAvroField, 0, len(qRecordSchema.Fields))
 	nullableFields := make(map[string]struct{})

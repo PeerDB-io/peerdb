@@ -11,6 +11,7 @@ import (
 	"github.com/shopspring/decimal"
 	"go.temporal.io/sdk/log"
 
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
 )
 
@@ -56,7 +57,7 @@ type AvroSchemaField struct {
 //
 // For example, QValueKindInt64 would return an AvroLogicalSchema of "long". Unsupported QValueKinds
 // will return an error.
-func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision int16, scale int16) (interface{}, error) {
+func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH protos.DBType, precision int16, scale int16) (interface{}, error) {
 	switch kind {
 	case QValueKindString:
 		return "string", nil
@@ -90,7 +91,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision 
 			Scale:       avroNumericScale,
 		}, nil
 	case QValueKindTime, QValueKindTimeTZ, QValueKindDate:
-		if targetDWH == QDWHTypeClickhouse {
+		if targetDWH == protos.DBType_CLICKHOUSE {
 			if kind == QValueKindTime {
 				return "string", nil
 			}
@@ -104,7 +105,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision 
 		}
 		return "string", nil
 	case QValueKindTimestamp, QValueKindTimestampTZ:
-		if targetDWH == QDWHTypeClickhouse {
+		if targetDWH == protos.DBType_CLICKHOUSE {
 			return AvroSchemaLogical{
 				Type:        "long",
 				LogicalType: "timestamp-micros",
@@ -162,12 +163,12 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType, precision 
 }
 
 type QValueAvroConverter struct {
-	TargetDWH QDWHType
-	Nullable  bool
 	logger    log.Logger
+	TargetDWH protos.DBType
+	Nullable  bool
 }
 
-func QValueToAvro(value QValue, targetDWH QDWHType, nullable bool, logger log.Logger) (interface{}, error) {
+func QValueToAvro(value QValue, targetDWH protos.DBType, nullable bool, logger log.Logger) (interface{}, error) {
 	if nullable && value.Value() == nil {
 		return nil, nil
 	}
@@ -188,7 +189,7 @@ func QValueToAvro(value QValue, targetDWH QDWHType, nullable bool, logger log.Lo
 			return nil, nil
 		}
 
-		if c.TargetDWH == QDWHTypeSnowflake {
+		if c.TargetDWH == protos.DBType_SNOWFLAKE {
 			if c.Nullable {
 				return c.processNullableUnion("string", t.(string))
 			} else {
@@ -196,7 +197,7 @@ func QValueToAvro(value QValue, targetDWH QDWHType, nullable bool, logger log.Lo
 			}
 		}
 
-		if c.TargetDWH == QDWHTypeClickhouse {
+		if c.TargetDWH == protos.DBType_CLICKHOUSE {
 			if c.Nullable {
 				return c.processNullableUnion("string", t.(string))
 			} else {
@@ -212,7 +213,7 @@ func QValueToAvro(value QValue, targetDWH QDWHType, nullable bool, logger log.Lo
 		if t == nil {
 			return nil, nil
 		}
-		if c.TargetDWH == QDWHTypeSnowflake {
+		if c.TargetDWH == protos.DBType_SNOWFLAKE {
 			if c.Nullable {
 				return c.processNullableUnion("string", t.(string))
 			} else {
@@ -220,7 +221,7 @@ func QValueToAvro(value QValue, targetDWH QDWHType, nullable bool, logger log.Lo
 			}
 		}
 
-		if c.TargetDWH == QDWHTypeClickhouse {
+		if c.TargetDWH == protos.DBType_CLICKHOUSE {
 			if c.Nullable {
 				return c.processNullableUnion("long", t.(int64))
 			} else {
@@ -236,7 +237,7 @@ func QValueToAvro(value QValue, targetDWH QDWHType, nullable bool, logger log.Lo
 		if t == nil {
 			return nil, nil
 		}
-		if c.TargetDWH == QDWHTypeSnowflake {
+		if c.TargetDWH == protos.DBType_SNOWFLAKE {
 			if c.Nullable {
 				return c.processNullableUnion("string", t.(string))
 			} else {
@@ -253,7 +254,7 @@ func QValueToAvro(value QValue, targetDWH QDWHType, nullable bool, logger log.Lo
 		if t == nil {
 			return nil, nil
 		}
-		if c.TargetDWH == QDWHTypeSnowflake {
+		if c.TargetDWH == protos.DBType_SNOWFLAKE {
 			if c.Nullable {
 				return c.processNullableUnion("string", t.(string))
 			} else {
@@ -271,7 +272,7 @@ func QValueToAvro(value QValue, targetDWH QDWHType, nullable bool, logger log.Lo
 			return nil, nil
 		}
 
-		if c.TargetDWH == QDWHTypeSnowflake {
+		if c.TargetDWH == protos.DBType_SNOWFLAKE {
 			if c.Nullable {
 				return c.processNullableUnion("string", t.(string))
 			} else {
@@ -286,7 +287,7 @@ func QValueToAvro(value QValue, targetDWH QDWHType, nullable bool, logger log.Lo
 	case QValueQChar:
 		return c.processNullableUnion("string", string(v.Val))
 	case QValueString, QValueCIDR, QValueINET, QValueMacaddr, QValueInterval:
-		if c.TargetDWH == QDWHTypeSnowflake && v.Value() != nil &&
+		if c.TargetDWH == protos.DBType_SNOWFLAKE && v.Value() != nil &&
 			(len(v.Value().(string)) > 15*1024*1024) {
 			slog.Warn("Truncating TEXT value > 15MB for Snowflake!")
 			slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
@@ -294,7 +295,7 @@ func QValueToAvro(value QValue, targetDWH QDWHType, nullable bool, logger log.Lo
 		}
 		return c.processNullableUnion("string", v.Value())
 	case QValueFloat32:
-		if c.TargetDWH == QDWHTypeBigQuery {
+		if c.TargetDWH == protos.DBType_BIGQUERY {
 			return c.processNullableUnion("double", float64(v.Val))
 		}
 		return c.processNullableUnion("float", v.Val)
@@ -348,7 +349,7 @@ func QValueToAvro(value QValue, targetDWH QDWHType, nullable bool, logger log.Lo
 func (c *QValueAvroConverter) processGoTimeTZ(t time.Time) interface{} {
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-	if c.TargetDWH == QDWHTypeSnowflake {
+	if c.TargetDWH == protos.DBType_SNOWFLAKE {
 		return t.Format("15:04:05.999999-0700")
 	}
 	return t.UnixMicro()
@@ -357,10 +358,10 @@ func (c *QValueAvroConverter) processGoTimeTZ(t time.Time) interface{} {
 func (c *QValueAvroConverter) processGoTime(t time.Time) interface{} {
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-	if c.TargetDWH == QDWHTypeSnowflake {
+	if c.TargetDWH == protos.DBType_SNOWFLAKE {
 		return t.Format("15:04:05.999999")
 	}
-	if c.TargetDWH == QDWHTypeClickhouse {
+	if c.TargetDWH == protos.DBType_CLICKHOUSE {
 		return t.Format("15:04:05.999999")
 	}
 
@@ -370,7 +371,7 @@ func (c *QValueAvroConverter) processGoTime(t time.Time) interface{} {
 func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time) interface{} {
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-	if c.TargetDWH == QDWHTypeSnowflake {
+	if c.TargetDWH == protos.DBType_SNOWFLAKE {
 		return t.Format("2006-01-02 15:04:05.999999-0700")
 	}
 
@@ -386,7 +387,7 @@ func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time) interface{} {
 func (c *QValueAvroConverter) processGoTimestamp(t time.Time) interface{} {
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-	if c.TargetDWH == QDWHTypeSnowflake {
+	if c.TargetDWH == protos.DBType_SNOWFLAKE {
 		return t.Format("2006-01-02 15:04:05.999999")
 	}
 
@@ -408,7 +409,7 @@ func (c *QValueAvroConverter) processGoDate(t time.Time) interface{} {
 
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-	if c.TargetDWH == QDWHTypeSnowflake {
+	if c.TargetDWH == protos.DBType_SNOWFLAKE {
 		return t.Format("2006-01-02")
 	}
 	return t
@@ -444,7 +445,7 @@ func (c *QValueAvroConverter) processBytes(byteData []byte) interface{} {
 
 func (c *QValueAvroConverter) processJSON(jsonString string) (interface{}, error) {
 	if c.Nullable {
-		if c.TargetDWH == QDWHTypeSnowflake && len(jsonString) > 15*1024*1024 {
+		if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > 15*1024*1024 {
 			slog.Warn("Truncating JSON value > 15MB for Snowflake!")
 			slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 			return goavro.Union("string", ""), nil
@@ -452,7 +453,7 @@ func (c *QValueAvroConverter) processJSON(jsonString string) (interface{}, error
 		return goavro.Union("string", jsonString), nil
 	}
 
-	if c.TargetDWH == QDWHTypeSnowflake && len(jsonString) > 15*1024*1024 {
+	if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > 15*1024*1024 {
 		slog.Warn("Truncating JSON value > 15MB for Snowflake!")
 		slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 		return "", nil
@@ -473,7 +474,7 @@ func (c *QValueAvroConverter) processArrayTime(arrayTime []time.Time) interface{
 	for _, t := range arrayTime {
 		// Snowflake has issues with avro timestamp types, returning as string form
 		// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-		if c.TargetDWH == QDWHTypeSnowflake {
+		if c.TargetDWH == protos.DBType_SNOWFLAKE {
 			transformedTimeArr = append(transformedTimeArr, t.String())
 		} else {
 			transformedTimeArr = append(transformedTimeArr, t)
@@ -490,7 +491,7 @@ func (c *QValueAvroConverter) processArrayTime(arrayTime []time.Time) interface{
 func (c *QValueAvroConverter) processArrayDate(arrayDate []time.Time) interface{} {
 	transformedTimeArr := make([]interface{}, 0, len(arrayDate))
 	for _, t := range arrayDate {
-		if c.TargetDWH == QDWHTypeSnowflake {
+		if c.TargetDWH == protos.DBType_SNOWFLAKE {
 			transformedTimeArr = append(transformedTimeArr, t.Format("2006-01-02"))
 		} else {
 			transformedTimeArr = append(transformedTimeArr, t)
@@ -511,7 +512,7 @@ func (c *QValueAvroConverter) processHStore(hstore string) (interface{}, error) 
 	}
 
 	if c.Nullable {
-		if c.TargetDWH == QDWHTypeSnowflake && len(jsonString) > 15*1024*1024 {
+		if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > 15*1024*1024 {
 			slog.Warn("Truncating HStore equivalent JSON value > 15MB for Snowflake!")
 			slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 			return goavro.Union("string", ""), nil
@@ -519,7 +520,7 @@ func (c *QValueAvroConverter) processHStore(hstore string) (interface{}, error) 
 		return goavro.Union("string", jsonString), nil
 	}
 
-	if c.TargetDWH == QDWHTypeSnowflake && len(jsonString) > 15*1024*1024 {
+	if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > 15*1024*1024 {
 		slog.Warn("Truncating HStore equivalent JSON value > 15MB for Snowflake!")
 		slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 		return "", nil
