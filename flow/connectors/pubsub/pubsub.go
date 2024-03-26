@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"cloud.google.com/go/pubsub"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
@@ -135,7 +135,7 @@ func lvalueToPubSubMessage(ls *lua.LState, value lua.LValue) (string, *pubsub.Me
 
 func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
 	numRecords := int64(0)
-	tableNameRowsMapping := make(map[string]uint32)
+	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 
 	ls, err := utils.LoadScript(ctx, req.Script, func(ls *lua.LState) int {
 		top := ls.GetTop()
@@ -221,7 +221,7 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 				pubresult := topicClient.Publish(ctx, msg)
 				wg.Add(1)
 				publish <- pubresult
-				tableNameRowsMapping[topic] += 1
+				record.PopulateCountMap(tableNameRowsMapping)
 			}
 		}
 		numRecords += 1

@@ -13,6 +13,8 @@ import (
 
 	"github.com/PeerDB-io/glua64"
 	"github.com/PeerDB-io/gluabit32"
+	"github.com/PeerDB-io/gluajson"
+	"github.com/PeerDB-io/gluamsgpack"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
@@ -37,7 +39,9 @@ func RegisterTypes(ls *lua.LState) {
 	loaders := ls.G.Registry.RawGetString("_LOADERS").(*lua.LTable)
 	loaders.RawSetInt(2, ls.NewFunction(LoadPeerdbScript))
 
-	ls.PreloadModule("bit32", bit32.Loader)
+	ls.PreloadModule("bit32", gluabit32.Loader)
+	ls.PreloadModule("json", gluajson.Loader)
+	ls.PreloadModule("msgpack", gluamsgpack.Loader)
 
 	mt := LuaRecord.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaRecordIndex))
@@ -49,6 +53,7 @@ func RegisterTypes(ls *lua.LState) {
 	mt = LuaUuid.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaUuidIndex))
 	mt.RawSetString("__tostring", ls.NewFunction(LuaUuidString))
+	mt.RawSetString("__msgpack", ls.NewFunction(LuaUuidMsgpack))
 
 	mt = LuaTime.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaTimeIndex))
@@ -64,7 +69,6 @@ func RegisterTypes(ls *lua.LState) {
 	mt.RawSetString("__tostring", ls.NewFunction(LuaDecimalString))
 
 	peerdb := ls.NewTable()
-	peerdb.RawSetString("RowToJSON", ls.NewFunction(LuaRowToJSON))
 	peerdb.RawSetString("RowColumns", ls.NewFunction(LuaRowColumns))
 	peerdb.RawSetString("RowColumnKind", ls.NewFunction(LuaRowColumnKind))
 	peerdb.RawSetString("Now", ls.NewFunction(LuaNow))
@@ -106,7 +110,7 @@ func GetRowQ(ls *lua.LState, row *model.RecordItems, col string) qvalue.QValue {
 	qv, err := row.GetValueByColName(col)
 	if err != nil {
 		ls.RaiseError(err.Error())
-		return qvalue.QValue{}
+		return nil
 	}
 	return qv
 }
@@ -123,17 +127,6 @@ func LuaRowLen(ls *lua.LState) int {
 	return 1
 }
 
-func LuaRowToJSON(ls *lua.LState) int {
-	_, row := LuaRow.Check(ls, 1)
-	json, err := row.ToJSON()
-	if err != nil {
-		ls.RaiseError("failed to serialize json: %s", err.Error())
-		return 0
-	}
-	ls.Push(lua.LString(json))
-	return 1
-}
-
 func LuaRowColumns(ls *lua.LState) int {
 	_, row := LuaRow.Check(ls, 1)
 	tbl := ls.CreateTable(len(row.ColToValIdx), 0)
@@ -146,7 +139,7 @@ func LuaRowColumns(ls *lua.LState) int {
 
 func LuaRowColumnKind(ls *lua.LState) int {
 	row, key := LuaRow.StartIndex(ls)
-	ls.Push(lua.LString(GetRowQ(ls, row, key).Kind))
+	ls.Push(lua.LString(GetRowQ(ls, row, key).Kind()))
 	return 1
 }
 
@@ -220,13 +213,13 @@ func qvToLTable[T any](ls *lua.LState, s []T, f func(x T) lua.LValue) *lua.LTabl
 }
 
 func LuaQValue(ls *lua.LState, qv qvalue.QValue) lua.LValue {
-	switch v := qv.Value.(type) {
+	switch v := qv.Value().(type) {
 	case nil:
 		return lua.LNil
 	case bool:
 		return lua.LBool(v)
 	case uint8:
-		if qv.Kind == qvalue.QValueKindQChar {
+		if qv.Kind() == qvalue.QValueKindQChar {
 			return lua.LString(rune(v))
 		} else {
 			return lua.LNumber(v)
@@ -242,12 +235,6 @@ func LuaQValue(ls *lua.LState, qv qvalue.QValue) lua.LValue {
 	case float64:
 		return lua.LNumber(v)
 	case string:
-		if qv.Kind == qvalue.QValueKindUUID {
-			u, err := uuid.Parse(v)
-			if err != nil {
-				return LuaUuid.New(ls, u)
-			}
-		}
 		return lua.LString(v)
 	case time.Time:
 		return LuaTime.New(ls, v)
@@ -290,7 +277,7 @@ func LuaQValue(ls *lua.LState, qv qvalue.QValue) lua.LValue {
 			return lua.LBool(x)
 		})
 	default:
-		return lua.LString(fmt.Sprint(qv.Value))
+		return lua.LString(fmt.Sprint(qv.Value()))
 	}
 }
 
@@ -308,6 +295,16 @@ func LuaUuidIndex(ls *lua.LState) int {
 func LuaUuidString(ls *lua.LState) int {
 	val := LuaUuid.StartMethod(ls)
 	ls.Push(lua.LString(val.String()))
+	return 1
+}
+
+func LuaUuidMsgpack(ls *lua.LState) int {
+	val := LuaUuid.StartMethod(ls)
+	ls.Push(&lua.LUserData{
+		Value:     gluamsgpack.Bin(val[:]),
+		Env:       ls.Env,
+		Metatable: nil,
+	})
 	return 1
 }
 

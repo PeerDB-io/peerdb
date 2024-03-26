@@ -19,12 +19,12 @@ const MirrorValues = (mirrorConfig: FlowConnectionConfigs | undefined) => {
       label: 'Snapshot Parallel Tables',
     },
     {
-      value: mirrorConfig?.cdcStagingPath || 'Local',
-      label: 'CDC Staging Path',
+      value: `${mirrorConfig?.softDelete}`,
+      label: 'Soft Delete',
     },
     {
-      value: mirrorConfig?.snapshotStagingPath || 'Local',
-      label: 'Snapshot Staging Path',
+      value: mirrorConfig?.cdcStagingPath || 'Local',
+      label: 'CDC Staging Path',
     },
     {
       value: mirrorConfig?.snapshotStagingPath || 'Local',

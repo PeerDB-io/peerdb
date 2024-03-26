@@ -6,6 +6,12 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
+type RecordTypeCounts struct {
+	InsertCount int
+	UpdateCount int
+	DeleteCount int
+}
+
 type QRecordOrError struct {
 	Record []qvalue.QValue
 	Err    error
@@ -25,13 +31,13 @@ type QRecordStream struct {
 
 type RecordsToStreamRequest struct {
 	records      <-chan Record
-	TableMapping map[string]uint32
+	TableMapping map[string]*RecordTypeCounts
 	BatchID      int64
 }
 
 func NewRecordsToStreamRequest(
 	records <-chan Record,
-	tableMapping map[string]uint32,
+	tableMapping map[string]*RecordTypeCounts,
 	batchID int64,
 ) *RecordsToStreamRequest {
 	return &RecordsToStreamRequest{
@@ -43,10 +49,6 @@ func NewRecordsToStreamRequest(
 
 func (r *RecordsToStreamRequest) GetRecords() <-chan Record {
 	return r.records
-}
-
-type RecordsToStreamResponse struct {
-	Stream *QRecordStream
 }
 
 func NewQRecordStream(buffer int) *QRecordStream {

@@ -135,7 +135,7 @@ func (c *EventHubConnector) processBatch(
 				lastSeenLSN = recordLSN
 			}
 
-			json, err := record.GetItems().ToJSONWithOpts(toJSONOpts)
+			json, err := record.GetItems().ToJSONWithOptions(toJSONOpts)
 			if err != nil {
 				c.logger.Info("failed to convert record to json", slog.Any("error", err))
 				return 0, err
@@ -158,7 +158,7 @@ func (c *EventHubConnector) processBatch(
 			// partition_column is the column in the table that is used to determine
 			// the partition key for the eventhub.
 			partitionColumn := destination.PartitionKeyColumn
-			partitionValue := record.GetItems().GetColumnValue(partitionColumn).Value
+			partitionValue := record.GetItems().GetColumnValue(partitionColumn).Value()
 			var partitionKey string
 			if partitionValue != nil {
 				partitionKey = fmt.Sprint(partitionValue)
@@ -215,7 +215,7 @@ func (c *EventHubConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 		CurrentSyncBatchID:     req.SyncBatchID,
 		LastSyncedCheckpointID: lastCheckpoint,
 		NumRecordsSynced:       int64(numRecords),
-		TableNameRowsMapping:   make(map[string]uint32),
+		TableNameRowsMapping:   make(map[string]*model.RecordTypeCounts),
 		TableSchemaDeltas:      req.Records.SchemaDeltas,
 	}, nil
 }

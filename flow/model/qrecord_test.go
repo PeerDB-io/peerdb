@@ -23,26 +23,26 @@ func TestEquals(t *testing.T) {
 	}{
 		{
 			name: "Equal - Same UUID",
-			q1:   []qvalue.QValue{{Kind: qvalue.QValueKindUUID, Value: uuidVal1}},
-			q2:   []qvalue.QValue{{Kind: qvalue.QValueKindString, Value: uuidVal1.String()}},
+			q1:   []qvalue.QValue{qvalue.QValueUUID{Val: uuidVal1}},
+			q2:   []qvalue.QValue{qvalue.QValueString{Val: uuidVal1.String()}},
 			want: true,
 		},
 		{
 			name: "Not Equal - Different UUID",
-			q1:   []qvalue.QValue{{Kind: qvalue.QValueKindUUID, Value: uuidVal1}},
-			q2:   []qvalue.QValue{{Kind: qvalue.QValueKindUUID, Value: uuidVal2}},
+			q1:   []qvalue.QValue{qvalue.QValueUUID{Val: uuidVal1}},
+			q2:   []qvalue.QValue{qvalue.QValueUUID{Val: uuidVal2}},
 			want: false,
 		},
 		{
 			name: "Equal - Same numeric",
-			q1:   []qvalue.QValue{{Kind: qvalue.QValueKindNumeric, Value: decimal.NewFromInt(5)}},
-			q2:   []qvalue.QValue{{Kind: qvalue.QValueKindString, Value: "5"}},
+			q1:   []qvalue.QValue{qvalue.QValueNumeric{Val: decimal.NewFromInt(5)}},
+			q2:   []qvalue.QValue{qvalue.QValueString{Val: "5"}},
 			want: true,
 		},
 		{
 			name: "Not Equal - Different numeric",
-			q1:   []qvalue.QValue{{Kind: qvalue.QValueKindNumeric, Value: decimal.NewFromInt(5)}},
-			q2:   []qvalue.QValue{{Kind: qvalue.QValueKindString, Value: "4.99"}},
+			q1:   []qvalue.QValue{qvalue.QValueNumeric{Val: decimal.NewFromInt(5)}},
+			q2:   []qvalue.QValue{qvalue.QValueString{Val: "4.99"}},
 			want: false,
 		},
 	}

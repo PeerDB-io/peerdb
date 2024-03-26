@@ -12,7 +12,7 @@ import (
 	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 	"github.com/twmb/franz-go/plugin/kslog"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
@@ -191,7 +191,7 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 	}
 
 	numRecords := int64(0)
-	tableNameRowsMapping := make(map[string]uint32)
+	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 
 	ls, err := utils.LoadScript(wgCtx, req.Script, func(ls *lua.LState) int {
 		top := ls.GetTop()
@@ -236,7 +236,7 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 
 				wg.Add(1)
 				c.client.Produce(wgCtx, kr, produceCb)
-				tableNameRowsMapping[kr.Topic] += 1
+				record.PopulateCountMap(tableNameRowsMapping)
 			}
 		}
 		numRecords += 1
