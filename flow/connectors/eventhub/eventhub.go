@@ -135,7 +135,7 @@ func (c *EventHubConnector) processBatch(
 				lastSeenLSN = recordLSN
 			}
 
-			json, err := record.GetItems().ToJSONWithOpts(toJSONOpts)
+			json, err := record.GetItems().ToJSONWithOptions(toJSONOpts)
 			if err != nil {
 				c.logger.Info("failed to convert record to json", slog.Any("error", err))
 				return 0, err

@@ -5,6 +5,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/yuin/gopher-lua"
+
+	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 func assert(t *testing.T, ls *lua.LState, source string) {
@@ -16,11 +19,15 @@ func assert(t *testing.T, ls *lua.LState, source string) {
 	}
 }
 
-func Test_Lua(t *testing.T) {
+func Test(t *testing.T) {
 	t.Parallel()
 
 	ls := lua.NewState(lua.Options{})
 	RegisterTypes(ls)
+
+	row := model.NewRecordItems(1)
+	row.AddColumn("a", qvalue.QValueInt64{Val: 5040})
+	ls.Env.RawSetString("row", LuaRow.New(ls, row))
 
 	id := uuid.UUID([16]byte{2, 3, 5, 7, 11, 13, 17, 19, 127, 131, 137, 139, 149, 151, 241, 251})
 	ls.Env.RawSetString("uuid", LuaUuid.New(ls, id))
@@ -46,5 +53,11 @@ assert(uuid[12] == 149)
 assert(uuid[13] == 151)
 assert(uuid[14] == 241)
 assert(uuid[15] == 251)
+
+local msgpack = require "msgpack"
+assert(msgpack.encode(uuid) == string.char(0xc4, 16, 2, 3, 5, 7, 11, 13, 17, 19, 127, 131, 137, 139, 149, 151, 241, 251))
+
+local json = require "json"
+assert(json.encode(row) == "{\"a\":5040}")
 `)
 }

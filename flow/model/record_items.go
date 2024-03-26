@@ -224,26 +224,24 @@ func (r *RecordItems) toMap(hstoreAsJSON bool, opts ToJSONOptions) (map[string]i
 	return jsonStruct, nil
 }
 
-// a separate method like gives flexibility
-// for us to handle some data types differently
 func (r *RecordItems) ToJSONWithOptions(options ToJSONOptions) (string, error) {
-	return r.ToJSONWithOpts(options)
+	bytes, err := r.MarshalJSONWithOptions(options)
+	return string(bytes), err
 }
 
 func (r *RecordItems) ToJSON() (string, error) {
-	return r.ToJSONWithOpts(NewToJSONOptions(nil, true))
+	return r.ToJSONWithOptions(NewToJSONOptions(nil, true))
 }
 
-func (r *RecordItems) ToJSONWithOpts(opts ToJSONOptions) (string, error) {
+func (r *RecordItems) MarshalJSON() ([]byte, error) {
+	return r.MarshalJSONWithOptions(NewToJSONOptions(nil, true))
+}
+
+func (r *RecordItems) MarshalJSONWithOptions(opts ToJSONOptions) ([]byte, error) {
 	jsonStruct, err := r.toMap(opts.HStoreAsJSON, opts)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	jsonBytes, err := json.Marshal(jsonStruct)
-	if err != nil {
-		return "", err
-	}
-
-	return string(jsonBytes), nil
+	return json.Marshal(jsonStruct)
 }
