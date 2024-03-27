@@ -131,7 +131,8 @@ export default function CreateConfig({
         <Label colorName='lowContrast' variant='subheadline'>
           Configuration
         </Label>
-        {configComponentMap(peerType)}
+
+        <div style={{ minWidth: '40vw' }}>{configComponentMap(peerType)}</div>
 
         <ButtonGroup>
           <Button as={Link} href='/peers/create'>

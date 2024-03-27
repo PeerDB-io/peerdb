@@ -15,7 +15,7 @@ interface KafkaProps {
 
 const KafkaForm = ({ setter }: KafkaProps) => {
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', rowGap: '0.5rem' }}>
       {kaSetting.map((setting, index) => {
         return setting.type === 'switch' ? (
           <RowWithSwitch
