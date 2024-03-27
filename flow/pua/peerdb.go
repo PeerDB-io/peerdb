@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/gluabit32"
 	"github.com/PeerDB-io/gluajson"
 	"github.com/PeerDB-io/gluamsgpack"
+	"github.com/PeerDB-io/gluautf8"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
@@ -42,6 +43,7 @@ func RegisterTypes(ls *lua.LState) {
 	ls.PreloadModule("bit32", gluabit32.Loader)
 	ls.PreloadModule("json", gluajson.Loader)
 	ls.PreloadModule("msgpack", gluamsgpack.Loader)
+	ls.PreloadModule("utf8", gluautf8.Loader)
 
 	mt := LuaRecord.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaRecordIndex))

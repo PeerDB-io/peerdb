@@ -16,6 +16,7 @@ require (
 	github.com/PeerDB-io/gluaflatbuffers v1.0.1
 	github.com/PeerDB-io/gluajson v1.0.1
 	github.com/PeerDB-io/gluamsgpack v1.0.0
+	github.com/PeerDB-io/gluautf8 v1.0.0
 	github.com/aws/aws-sdk-go-v2 v1.26.0
 	github.com/aws/aws-sdk-go-v2/config v1.27.9
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.9
