@@ -26,7 +26,7 @@ var (
 	LuaTime    = glua64.UserDataType[time.Time]{Name: "peerdb_time"}
 	LuaUuid    = glua64.UserDataType[uuid.UUID]{Name: "peerdb_uuid"}
 	LuaBigInt  = glua64.UserDataType[*big.Int]{Name: "peerdb_bigint"}
-	LuaDecimal = glua64.UserDataType[decimal.Decimal]{Name: "peerdb_bigrat"}
+	LuaDecimal = glua64.UserDataType[decimal.Decimal]{Name: "peerdb_decimal"}
 )
 
 func RegisterTypes(ls *lua.LState) {
@@ -53,26 +53,37 @@ func RegisterTypes(ls *lua.LState) {
 	mt = LuaUuid.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaUuidIndex))
 	mt.RawSetString("__tostring", ls.NewFunction(LuaUuidString))
+	mt.RawSetString("__eq", ls.NewFunction(LuaUuidEq))
 	mt.RawSetString("__msgpack", ls.NewFunction(LuaUuidMsgpack))
 
 	mt = LuaTime.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaTimeIndex))
 	mt.RawSetString("__tostring", ls.NewFunction(LuaTimeString))
+	mt.RawSetString("__eq", ls.NewFunction(LuaTimeEq))
+	mt.RawSetString("__le", ls.NewFunction(LuaTimeLe))
+	mt.RawSetString("__lt", ls.NewFunction(LuaTimeLt))
 
 	mt = LuaBigInt.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaBigIntIndex))
 	mt.RawSetString("__tostring", ls.NewFunction(LuaBigIntString))
-	mt.RawSetString("__len", ls.NewFunction(LuaBigIntLen))
+	mt.RawSetString("__eq", ls.NewFunction(LuaBigIntEq))
+	mt.RawSetString("__le", ls.NewFunction(LuaBigIntLe))
+	mt.RawSetString("__lt", ls.NewFunction(LuaBigIntLt))
 
 	mt = LuaDecimal.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaDecimalIndex))
 	mt.RawSetString("__tostring", ls.NewFunction(LuaDecimalString))
+	mt.RawSetString("__eq", ls.NewFunction(LuaDecimalEq))
+	mt.RawSetString("__le", ls.NewFunction(LuaDecimalLe))
+	mt.RawSetString("__lt", ls.NewFunction(LuaDecimalLt))
+	mt.RawSetString("__msgpack", ls.NewFunction(LuaDecimalString))
 
 	peerdb := ls.NewTable()
 	peerdb.RawSetString("RowColumns", ls.NewFunction(LuaRowColumns))
 	peerdb.RawSetString("RowColumnKind", ls.NewFunction(LuaRowColumnKind))
 	peerdb.RawSetString("Now", ls.NewFunction(LuaNow))
 	peerdb.RawSetString("UUID", ls.NewFunction(LuaUUID))
+	peerdb.RawSetString("Decimal", ls.NewFunction(LuaParseDecimal))
 	peerdb.RawSetString("type", ls.NewFunction(LuaType))
 	peerdb.RawSetString("tostring", ls.NewFunction(LuaToString))
 	ls.Env.RawSetString("peerdb", peerdb)
@@ -122,13 +133,13 @@ func LuaRowIndex(ls *lua.LState) int {
 }
 
 func LuaRowLen(ls *lua.LState) int {
-	_, row := LuaRow.Check(ls, 1)
+	row := LuaRow.StartMethod(ls)
 	ls.Push(lua.LNumber(len(row.Values)))
 	return 1
 }
 
 func LuaRowColumns(ls *lua.LState) int {
-	_, row := LuaRow.Check(ls, 1)
+	row := LuaRow.StartMethod(ls)
 	tbl := ls.CreateTable(len(row.ColToValIdx), 0)
 	for col, idx := range row.ColToValIdx {
 		tbl.RawSetInt(idx+1, lua.LString(col))
@@ -298,6 +309,13 @@ func LuaUuidString(ls *lua.LState) int {
 	return 1
 }
 
+func LuaUuidEq(ls *lua.LState) int {
+	val1 := LuaUuid.StartMethod(ls)
+	_, val2 := LuaUuid.Check(ls, 2)
+	ls.Push(lua.LBool(val1 == val2))
+	return 1
+}
+
 func LuaUuidMsgpack(ls *lua.LState) int {
 	val := LuaUuid.StartMethod(ls)
 	ls.Push(&lua.LUserData{
@@ -314,7 +332,29 @@ func LuaNow(ls *lua.LState) int {
 }
 
 func LuaUUID(ls *lua.LState) int {
-	ls.Push(LuaUuid.New(ls, uuid.New()))
+	if ls.GetTop() == 0 {
+		ls.Push(LuaUuid.New(ls, uuid.New()))
+	} else if v, ok := ls.Get(1).(lua.LString); ok {
+		ls.Push(LuaUuid.New(ls, uuid.MustParse(string(v))))
+	} else {
+		ls.RaiseError("uuid must be created from string")
+	}
+	return 1
+}
+
+func LuaParseDecimal(ls *lua.LState) int {
+	switch v := ls.Get(1).(type) {
+	case lua.LNumber:
+		ls.Push(LuaDecimal.New(ls, decimal.NewFromFloat(float64(v))))
+	case lua.LString:
+		d, err := decimal.NewFromString(string(v))
+		if err != nil {
+			ls.RaiseError(err.Error())
+		}
+		ls.Push(LuaDecimal.New(ls, d))
+	default:
+		ls.RaiseError("cannot create decimal from " + v.Type().String())
+	}
 	return 1
 }
 
@@ -377,24 +417,40 @@ func LuaTimeString(ls *lua.LState) int {
 	return 1
 }
 
+func LuaTimeEq(ls *lua.LState) int {
+	t1 := LuaTime.StartMethod(ls)
+	_, t2 := LuaTime.Check(ls, 2)
+	ls.Push(lua.LBool(t1.Compare(t2) == 0))
+	return 1
+}
+
+func LuaTimeLe(ls *lua.LState) int {
+	t1 := LuaTime.StartMethod(ls)
+	_, t2 := LuaTime.Check(ls, 2)
+	ls.Push(lua.LBool(t1.Compare(t2) <= 0))
+	return 1
+}
+
+func LuaTimeLt(ls *lua.LState) int {
+	t1 := LuaTime.StartMethod(ls)
+	_, t2 := LuaTime.Check(ls, 2)
+	ls.Push(lua.LBool(t1.Compare(t2) == -1))
+	return 1
+}
+
 func LuaBigIntIndex(ls *lua.LState) int {
-	_, bi := LuaBigInt.Check(ls, 1)
-	switch key := ls.Get(2).(type) {
-	case lua.LNumber:
-		ls.Push(lua.LNumber(bi.Bytes()[int(key)]))
-	case lua.LString:
-		switch string(key) {
-		case "sign":
-			ls.Push(lua.LNumber(bi.Sign()))
-		case "bytes":
-			ls.Push(lua.LString(bi.Bytes()))
-		case "int64":
-			ls.Push(glua64.I64.New(ls, bi.Int64()))
-		case "is64":
-			ls.Push(lua.LBool(bi.IsInt64()))
-		}
+	bi, key := LuaBigInt.StartIndex(ls)
+	switch key {
+	case "sign":
+		ls.Push(lua.LNumber(bi.Sign()))
+	case "bytes":
+		ls.Push(lua.LString(bi.Bytes()))
+	case "int64":
+		ls.Push(glua64.I64.New(ls, bi.Int64()))
+	case "is64":
+		ls.Push(lua.LBool(bi.IsInt64()))
 	default:
-		ls.RaiseError("BigInt accessed with non number/string")
+		return 0
 	}
 	return 1
 }
@@ -405,9 +461,24 @@ func LuaBigIntString(ls *lua.LState) int {
 	return 1
 }
 
-func LuaBigIntLen(ls *lua.LState) int {
-	bi := LuaBigInt.StartMethod(ls)
-	ls.Push(lua.LNumber(len(bi.Bytes())))
+func LuaBigIntEq(ls *lua.LState) int {
+	t1 := LuaBigInt.StartMethod(ls)
+	_, t2 := LuaBigInt.Check(ls, 2)
+	ls.Push(lua.LBool(t1.Cmp(t2) == 0))
+	return 1
+}
+
+func LuaBigIntLe(ls *lua.LState) int {
+	t1 := LuaBigInt.StartMethod(ls)
+	_, t2 := LuaBigInt.Check(ls, 2)
+	ls.Push(lua.LBool(t1.Cmp(t2) <= 0))
+	return 1
+}
+
+func LuaBigIntLt(ls *lua.LState) int {
+	t1 := LuaBigInt.StartMethod(ls)
+	_, t2 := LuaBigInt.Check(ls, 2)
+	ls.Push(lua.LBool(t1.Cmp(t2) == -1))
 	return 1
 }
 
@@ -435,5 +506,26 @@ func LuaDecimalIndex(ls *lua.LState) int {
 func LuaDecimalString(ls *lua.LState) int {
 	num := LuaDecimal.StartMethod(ls)
 	ls.Push(lua.LString(num.String()))
+	return 1
+}
+
+func LuaDecimalEq(ls *lua.LState) int {
+	t1 := LuaDecimal.StartMethod(ls)
+	_, t2 := LuaDecimal.Check(ls, 2)
+	ls.Push(lua.LBool(t1.Cmp(t2) == 0))
+	return 1
+}
+
+func LuaDecimalLe(ls *lua.LState) int {
+	t1 := LuaDecimal.StartMethod(ls)
+	_, t2 := LuaDecimal.Check(ls, 2)
+	ls.Push(lua.LBool(t1.Cmp(t2) <= 0))
+	return 1
+}
+
+func LuaDecimalLt(ls *lua.LState) int {
+	t1 := LuaDecimal.StartMethod(ls)
+	_, t2 := LuaDecimal.Check(ls, 2)
+	ls.Push(lua.LBool(t1.Cmp(t2) == -1))
 	return 1
 }
