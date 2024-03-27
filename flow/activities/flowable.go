@@ -676,7 +676,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	bufferSize := shared.FetchAndChannelSize
 	if config.SourcePeer.Type == protos.DBType_POSTGRES {
 		errGroup, errCtx := errgroup.WithContext(ctx)
-		stream := model.NewQRecordStream(bufferSize)
+		stream := model.NewQRecordStream(bufferSize, model.FORMAT_AVRO)
 		errGroup.Go(func() error {
 			pgConn := srcConn.(*connpostgres.PostgresConnector)
 			tmp, err := pgConn.PullQRepRecordStream(errCtx, config, partition, stream)
@@ -1089,7 +1089,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	bufferSize := shared.FetchAndChannelSize
 	errGroup, errCtx := errgroup.WithContext(ctx)
 
-	stream := model.NewQRecordStream(bufferSize)
+	stream := model.NewQRecordStream(bufferSize, model.FORMAT_AVRO)
 
 	var currentSnapshotXmin int64
 	errGroup.Go(func() error {

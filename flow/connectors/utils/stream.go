@@ -12,7 +12,7 @@ import (
 )
 
 func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.QRecordStream, error) {
-	recordStream := model.NewQRecordStream(1 << 17)
+	recordStream := model.NewQRecordStream(1<<17, req.RecordSerializationFormat)
 	err := recordStream.SetSchema(&model.QRecordSchema{
 		Fields: []model.QField{
 			{

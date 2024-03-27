@@ -21,7 +21,7 @@ type QRecordBatch struct {
 }
 
 func (q *QRecordBatch) ToQRecordStream(buffer int) (*QRecordStream, error) {
-	stream := NewQRecordStream(buffer)
+	stream := NewQRecordStream(buffer, FORMAT_AVRO)
 
 	go func() {
 		err := stream.SetSchema(q.Schema)

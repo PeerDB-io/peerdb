@@ -154,8 +154,9 @@ func (c *S3Connector) SetLastOffset(ctx context.Context, jobName string, offset 
 
 func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
-	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, req.SyncBatchID)
-	recordStream, err := utils.RecordsToRawTableStream(streamReq)
+	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping,
+		req.SyncBatchID, model.FORMAT_PARQUET_ARROW)
+	stream, err := utils.RecordsToRawTableStream(streamReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
@@ -166,7 +167,7 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 	partition := &protos.QRepPartition{
 		PartitionId: strconv.FormatInt(req.SyncBatchID, 10),
 	}
-	numRecords, err := c.SyncQRepRecords(ctx, qrepConfig, partition, recordStream)
+	numRecords, err := c.SyncQRepRecords(ctx, qrepConfig, partition, stream)
 	if err != nil {
 		return nil, err
 	}

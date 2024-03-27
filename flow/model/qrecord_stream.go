@@ -11,6 +11,14 @@ type RecordTypeCounts struct {
 	UpdateCount int
 	DeleteCount int
 }
+type recordSerializationFormat int
+
+const (
+	FORMAT_UNKNOWN recordSerializationFormat = iota
+	FORMAT_AVRO
+	// Parquet file, defined using an Arrow schema(?)
+	FORMAT_PARQUET_ARROW
+)
 
 type QRecordOrError struct {
 	Record []qvalue.QValue
@@ -23,27 +31,31 @@ type QRecordSchemaOrError struct {
 }
 
 type QRecordStream struct {
-	schema      chan QRecordSchemaOrError
-	Records     chan QRecordOrError
-	schemaSet   bool
-	schemaCache *QRecordSchema
+	schema                    chan QRecordSchemaOrError
+	Records                   chan QRecordOrError
+	schemaSet                 bool
+	schemaCache               *QRecordSchema
+	RecordSerializationFormat recordSerializationFormat
 }
 
 type RecordsToStreamRequest struct {
-	records      <-chan Record
-	TableMapping map[string]*RecordTypeCounts
-	BatchID      int64
+	records                   <-chan Record
+	TableMapping              map[string]*RecordTypeCounts
+	BatchID                   int64
+	RecordSerializationFormat recordSerializationFormat
 }
 
 func NewRecordsToStreamRequest(
 	records <-chan Record,
 	tableMapping map[string]*RecordTypeCounts,
 	batchID int64,
+	recordSerializationFormat recordSerializationFormat,
 ) *RecordsToStreamRequest {
 	return &RecordsToStreamRequest{
-		records:      records,
-		TableMapping: tableMapping,
-		BatchID:      batchID,
+		records:                   records,
+		TableMapping:              tableMapping,
+		BatchID:                   batchID,
+		RecordSerializationFormat: recordSerializationFormat,
 	}
 }
 
@@ -51,12 +63,13 @@ func (r *RecordsToStreamRequest) GetRecords() <-chan Record {
 	return r.records
 }
 
-func NewQRecordStream(buffer int) *QRecordStream {
+func NewQRecordStream(buffer int, recordSerializationFormat recordSerializationFormat) *QRecordStream {
 	return &QRecordStream{
-		schema:      make(chan QRecordSchemaOrError, 1),
-		Records:     make(chan QRecordOrError, buffer),
-		schemaSet:   false,
-		schemaCache: nil,
+		schema:                    make(chan QRecordSchemaOrError, 1),
+		Records:                   make(chan QRecordOrError, buffer),
+		schemaSet:                 false,
+		schemaCache:               nil,
+		RecordSerializationFormat: recordSerializationFormat,
 	}
 }
 

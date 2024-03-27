@@ -254,7 +254,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	query string,
 	args ...interface{},
 ) (*model.QRecordBatch, error) {
-	stream := model.NewQRecordStream(1024)
+	stream := model.NewQRecordStream(1024, model.FORMAT_AVRO)
 	errors := make(chan error, 1)
 	qe.logger.Info("Executing and processing query", slog.String("query", query))
 
