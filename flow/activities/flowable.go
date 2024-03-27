@@ -35,10 +35,15 @@ type CheckConnectionResult struct {
 	NeedsSetupMetadataTables bool
 }
 
+type CdcCacheEntry struct {
+	connector connectors.CDCPullConnector
+	done      chan struct{}
+}
+
 type FlowableActivity struct {
 	CatalogPool *pgxpool.Pool
 	Alerter     *alerting.Alerter
-	CdcCache    map[string]connectors.CDCPullConnector
+	CdcCache    map[string]CdcCacheEntry
 	CdcCacheRw  sync.RWMutex
 }
 
@@ -217,8 +222,12 @@ func (a *FlowableActivity) MaintainPull(
 		return err
 	}
 
+	done := make(chan struct{})
 	a.CdcCacheRw.Lock()
-	a.CdcCache[sessionID] = srcConn
+	a.CdcCache[sessionID] = CdcCacheEntry{
+		connector: srcConn,
+		done:      done,
+	}
 	a.CdcCacheRw.Unlock()
 
 	ticker := time.NewTicker(15 * time.Second)
@@ -234,6 +243,8 @@ func (a *FlowableActivity) MaintainPull(
 				a.CdcCacheRw.Unlock()
 				return temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", err)
 			}
+		case <-done:
+			return nil
 		case <-ctx.Done():
 			a.CdcCacheRw.Lock()
 			delete(a.CdcCache, sessionID)
@@ -243,15 +254,25 @@ func (a *FlowableActivity) MaintainPull(
 	}
 }
 
+func (a *FlowableActivity) UnmaintainPull(ctx context.Context, sessionID string) error {
+	a.CdcCacheRw.Lock()
+	if entry, ok := a.CdcCache[sessionID]; ok {
+		close(entry.done)
+		delete(a.CdcCache, sessionID)
+	}
+	a.CdcCacheRw.Unlock()
+	return nil
+}
+
 func (a *FlowableActivity) waitForCdcCache(ctx context.Context, sessionID string) (connectors.CDCPullConnector, error) {
 	logger := activity.GetLogger(ctx)
 	attempt := 0
 	for {
 		a.CdcCacheRw.RLock()
-		conn, ok := a.CdcCache[sessionID]
+		entry, ok := a.CdcCache[sessionID]
 		a.CdcCacheRw.RUnlock()
 		if ok {
-			return conn, nil
+			return entry.connector, nil
 		}
 		activity.RecordHeartbeat(ctx, "wait another second for source connector")
 		attempt += 1
