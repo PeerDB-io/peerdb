@@ -34,7 +34,6 @@ const ScriptsPage = async () => {
           <Label variant='title3'>Scripts</Label>
           <NewButton targetPage='/scripts/new' buttonText='New script' />
         </div>
-        <Label>Some information regarding scripts should be shown here</Label>
       </div>
       <ScriptsTable scripts={scripts} />
     </div>
