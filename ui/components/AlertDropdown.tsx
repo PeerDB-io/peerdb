@@ -45,7 +45,7 @@ const AlertDropdown = ({
             Edit
           </Button>
 
-          <DropDialog mode='ALERT' dropArgs={{ id: alertId }} />
+          <DropDialog mode='ALERT' dropArgs={{ scriptId: alertId }} />
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>

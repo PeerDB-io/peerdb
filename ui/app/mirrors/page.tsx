@@ -1,14 +1,11 @@
 'use client';
 
+import NewButton from '@/components/NewButton';
 import { QRepConfig } from '@/grpc_generated/flow';
-import { Button } from '@/lib/Button';
 import { Header } from '@/lib/Header';
-import { Icon } from '@/lib/Icon';
-import { Label } from '@/lib/Label';
 import { LayoutMain } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
 import { ProgressCircle } from '@/lib/ProgressCircle';
-import Link from 'next/link';
 import useSWR from 'swr';
 import { fetcher } from '../utils/swr';
 import { CDCFlows, QRepFlows } from './tables';
@@ -50,17 +47,7 @@ export default function Mirrors() {
         <Header
           variant='title2'
           slot={
-            <Button as={Link} href='/mirrors/create' variant='normalSolid'>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                <Icon name='add' /> <Label>New mirror</Label>
-              </div>
-            </Button>
+            <NewButton targetPage='/mirrors/create' buttonText='New mirror' />
           }
         >
           Mirrors
