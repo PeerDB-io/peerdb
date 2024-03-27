@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"runtime"
+	"runtime/metrics"
 	"sync/atomic"
 	"time"
 
@@ -37,10 +37,10 @@ type cdcRecordsStore struct {
 	flowJobName               string
 	dbFolderName              string
 	thresholdReason           string
+	memStats                  []metrics.Sample
 	memThresholdBytes         uint64
 	numRecords                atomic.Int32
 	numRecordsSwitchThreshold int
-	memStats                  runtime.MemStats
 }
 
 func NewCDCRecordsStore(flowJobName string) *cdcRecordsStore {
@@ -60,6 +60,7 @@ func NewCDCRecordsStore(flowJobName string) *cdcRecordsStore {
 			return 0
 		}(),
 		thresholdReason: "",
+		memStats:        []metrics.Sample{{Name: "/gc/heap/allocs:bytes"}},
 	}
 }
 
@@ -134,9 +135,9 @@ func (c *cdcRecordsStore) diskSpillThresholdsExceeded() bool {
 		return true
 	}
 	if c.memThresholdBytes > 0 {
-		runtime.ReadMemStats(&c.memStats)
+		metrics.Read(c.memStats)
 
-		if c.memStats.Alloc >= c.memThresholdBytes {
+		if c.memStats[0].Value.Uint64() >= c.memThresholdBytes {
 			c.thresholdReason = fmt.Sprintf("memalloc greater than %d bytes, spilling to disk",
 				c.memThresholdBytes)
 			return true
