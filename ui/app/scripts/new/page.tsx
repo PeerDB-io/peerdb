@@ -22,7 +22,15 @@ const EditScript = () => {
     id: 1,
     name: '',
     lang: 'lua',
-    source: '',
+    source: `
+-- This is a sample script
+-- Fill in the onRecord function to transform the incoming record
+local json = require "json"
+
+function onRecord(r)
+  return json.encode(r.row)
+end
+    `,
   };
   let inEditMode: boolean = false;
   if (scriptStringBase64) {
@@ -99,6 +107,43 @@ const EditScript = () => {
         }}
       >
         <div>
+          <Label as='label' style={{ display: 'block' }}>
+            You can write a Lua script here for specifying message structure for
+            your topics.
+          </Label>
+          <Label>
+            You can find the
+            <Label
+              as={Link}
+              target='_blank'
+              style={{
+                color: 'teal',
+                cursor: 'pointer',
+                width: 'fit-content',
+              }}
+              href={`https://docs.peerdb.io/lua/reference`}
+            >
+              PeerDB Lua API reference here.
+            </Label>
+          </Label>
+          <Label as='label' style={{ display: 'block' }}>
+            Here is an
+            <Label
+              as={Link}
+              target='_blank'
+              style={{
+                color: 'teal',
+                cursor: 'pointer',
+                width: 'fit-content',
+              }}
+              href={`https://github.com/PeerDB-io/examples/blob/main/debezium.lua`}
+            >
+              example script for a Debezium-like format
+            </Label>
+            for your Kafka messages.
+          </Label>
+        </div>
+        <div>
           <Label>Script Name</Label>
           <TextField
             onChange={(e) =>
@@ -118,7 +163,7 @@ const EditScript = () => {
             setter={(newQuery: string) =>
               setNewScript((prev) => ({ ...prev, source: newQuery }))
             }
-            code={inEditMode ? script?.source : `-- Script away!`}
+            code={newScript?.source}
             height={'30vh'}
             language='lua'
           />

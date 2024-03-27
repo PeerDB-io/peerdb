@@ -37,7 +37,13 @@ const ScriptsPage = async () => {
         </div>
       </div>
       <div>
-        <Label>PeerDB uses Lua scripting for packaging Kafka messages.</Label>
+        <Label>
+          This is a console for writing Lua scripts for PeerDB queue peers.
+        </Label>
+        <Label as='label' style={{ display: 'block' }}>
+          These scripts allow you to specify how change-data information from
+          PostgreSQL will look like in your messages, via the PeerDB Lua API.
+        </Label>
         <Label
           as={Link}
           target='_blank'
@@ -49,7 +55,7 @@ const ScriptsPage = async () => {
           }}
           href={`https://docs.peerdb.io/lua/reference`}
         >
-          Learn more
+          Learn more about PeerDB Lua scripting
         </Label>
       </div>
       <ScriptsTable scripts={scripts} />
