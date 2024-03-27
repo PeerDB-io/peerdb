@@ -58,7 +58,7 @@ const dropStyle = css<BaseStyleProps>`
   --focus-border-color: ${({ theme }) => theme.colors.accent.border.normal};
   --text-color: ${({ theme }) => theme.colors.base.text.highContrast};
   --background-color-default: ${({ theme, $loading }) =>
-    $loading ? theme.colors.base.surface.selected : 'transparent'};
+    $loading ? theme.colors.base.surface.selected : '#FFE6E2'};
   --background-color-hover: ${({ theme }) =>
     theme.colors.destructive.surface.hovered};
   --background-color-focus: transparent;

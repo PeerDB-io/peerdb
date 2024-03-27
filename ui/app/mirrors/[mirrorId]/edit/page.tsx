@@ -1,6 +1,7 @@
 'use client';
 
 import { TableMapRow } from '@/app/dto/MirrorsDTO';
+import { notifyErr } from '@/app/utils/notify';
 import { CDCFlowConfigUpdate, FlowStatus } from '@/grpc_generated/flow';
 import {
   FlowStateChangeRequest,
@@ -14,20 +15,15 @@ import { TextField } from '@/lib/TextField';
 import { Callout } from '@tremor/react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ToastContainer, toast } from 'react-toastify';
+import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import TableMapping from '../../create/cdc/tablemapping';
 import { reformattedTableMapping } from '../../create/handlers';
 import { blankCDCSetting } from '../../create/helpers/common';
 import * as styles from '../../create/styles';
+
 type EditMirrorProps = {
   params: { mirrorId: string };
-};
-
-const notifyErr = (errMsg: string) => {
-  toast.error(errMsg, {
-    position: 'bottom-center',
-  });
 };
 
 const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {

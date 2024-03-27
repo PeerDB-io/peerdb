@@ -141,7 +141,14 @@ export default function SidebarComponent() {
           href={'/alert-config'}
           leadingIcon={<Icon name='notifications' />}
         >
-          {sidebarState === 'open' && 'Alert Configuration'}
+          {sidebarState === 'open' && 'Alerts'}
+        </SidebarItem>
+        <SidebarItem
+          as={Link}
+          href={'/scripts'}
+          leadingIcon={<Icon name='code' />}
+        >
+          {sidebarState === 'open' && 'Scripts'}
         </SidebarItem>
       </Sidebar>
     </SessionProvider>
