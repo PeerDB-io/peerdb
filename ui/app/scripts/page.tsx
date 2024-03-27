@@ -1,5 +1,6 @@
 import NewButton from '@/components/NewButton';
 import { Label } from '@/lib/Label/Label';
+import Link from 'next/link';
 import { ScriptsType } from '../dto/ScriptsDTO';
 import prisma from '../utils/prisma';
 import ScriptsTable from './list';
@@ -19,7 +20,7 @@ const ScriptsPage = async () => {
         display: 'flex',
         flexDirection: 'column',
         width: '100%',
-        rowGap: '2rem',
+        rowGap: '1rem',
       }}
     >
       <div>
@@ -34,6 +35,22 @@ const ScriptsPage = async () => {
           <Label variant='title3'>Scripts</Label>
           <NewButton targetPage='/scripts/new' buttonText='New script' />
         </div>
+      </div>
+      <div>
+        <Label>PeerDB uses Lua scripting for packaging Kafka messages.</Label>
+        <Label
+          as={Link}
+          target='_blank'
+          style={{
+            color: 'teal',
+            cursor: 'pointer',
+            width: 'fit-content',
+            display: 'block',
+          }}
+          href={`https://docs.peerdb.io/lua/reference`}
+        >
+          Learn more
+        </Label>
       </div>
       <ScriptsTable scripts={scripts} />
     </div>

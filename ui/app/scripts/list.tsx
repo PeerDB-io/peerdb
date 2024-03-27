@@ -17,9 +17,9 @@ import { ScriptsType } from '../dto/ScriptsDTO';
 const LanguageIcon = (language: string) => {
   switch (language.toLowerCase()) {
     case 'lua':
-      return '/images/lua-logo.png';
+      return '/svgs/lua.svg';
     default:
-      return '/images/lua-logo.png';
+      return '/svgs/lua.svg';
   }
 };
 
