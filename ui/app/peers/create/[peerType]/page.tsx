@@ -9,6 +9,7 @@ import PubSubForm from '@/components/PeerForms/PubSubConfig';
 import S3Form from '@/components/PeerForms/S3Form';
 import SnowflakeForm from '@/components/PeerForms/SnowflakeForm';
 
+import { notifyErr } from '@/app/utils/notify';
 import TitleCase from '@/app/utils/titlecase';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
@@ -20,7 +21,7 @@ import { Tooltip } from '@/lib/Tooltip';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { ToastContainer, toast } from 'react-toastify';
+import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { handleCreate, handleValidate } from './handlers';
 import { clickhouseSetting } from './helpers/ch';
@@ -30,19 +31,6 @@ import { snowflakeSetting } from './helpers/sf';
 
 type CreateConfigProps = {
   params: { peerType: string };
-};
-
-const notify = (msg: string, success?: boolean) => {
-  if (success) {
-    toast.success(msg, {
-      position: 'bottom-center',
-      autoClose: 1000,
-    });
-  } else {
-    toast.error(msg, {
-      position: 'bottom-center',
-    });
-  }
 };
 
 export default function CreateConfig({
@@ -143,7 +131,8 @@ export default function CreateConfig({
         <Label colorName='lowContrast' variant='subheadline'>
           Configuration
         </Label>
-        {configComponentMap(peerType)}
+
+        <div style={{ minWidth: '40vw' }}>{configComponentMap(peerType)}</div>
 
         <ButtonGroup>
           <Button as={Link} href='/peers/create'>
@@ -152,7 +141,7 @@ export default function CreateConfig({
           <Button
             style={{ backgroundColor: 'gold' }}
             onClick={() =>
-              handleValidate(getDBType(), config, notify, setLoading, name)
+              handleValidate(getDBType(), config, notifyErr, setLoading, name)
             }
           >
             Validate
@@ -163,7 +152,7 @@ export default function CreateConfig({
               handleCreate(
                 getDBType(),
                 config,
-                notify,
+                notifyErr,
                 setLoading,
                 listPeersRoute,
                 name
