@@ -429,6 +429,7 @@ func (c *QValueAvroConverter) processNullableUnion(
 }
 
 func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) interface{} {
+	num, _ = decimal.NewFromString(num.String())
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
 		exp := num.Exponent()
 		digits := int32(num.NumDigits())
