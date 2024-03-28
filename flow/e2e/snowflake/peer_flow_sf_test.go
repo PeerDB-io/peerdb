@@ -121,7 +121,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
 			s.t.Log("NUUU1", err)
 			return false
 		}
-		s.t.Log("NUUU2", fmt.Sprintf("%+v :: %+v", records.Records[0][0], records.Records[0][1]))
+		s.t.Log("NUUU2", fmt.Sprintf("%v :: %v", records.Records[0][0].Value(), records.Records[0][1].Value()))
 		return records.Records[0][0].Value() == nil && records.Records[0][1].Value() != nil
 	})
 
