@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"strings"
 	"time"
 
@@ -439,9 +440,36 @@ func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) interface{} {
 		if strings.ContainsRune(nstr, '.') {
 			digits -= 1
 		}
-		if digits > 37 {
+		fail := ""
+		if digits > 38 {
+			fail = "Clearing NUMERIC value with > 38 digits for Snowflake!"
+		}
+		if fail == "" {
+			var cstr strings.Builder
+			zero := true
+			for i := range len(nstr) {
+				ch := nstr[i]
+				if ch >= '0' && ch <= '9' {
+					if zero && ch == '0' {
+						continue
+					}
+					zero = false
+					cstr.WriteByte(byte(ch))
+				}
+			}
+			if !zero {
+				if bi, ok := new(big.Int).SetString(cstr.String(), 10); ok {
+					if bi.BitLen() > 16*8 {
+						fail = "Clearing NUMERIC value requiring >16 bytes for Snowflake!"
+					}
+				} else {
+					fail = "Clearing NUMERIC value for Snowflake!"
+				}
+			}
+		}
+		if fail != "" {
 			// snowflake only supports 38 digits
-			slog.Warn("Clearing NUMERIC value with > 37 digits for Snowflake!", slog.String("value", nstr))
+			slog.Warn(fail, slog.String("value", nstr))
 			return nil
 		}
 	}
