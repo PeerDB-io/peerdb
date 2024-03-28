@@ -439,9 +439,9 @@ func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) interface{} {
 		if strings.ContainsRune(nstr, '.') {
 			digits -= 1
 		}
-		if digits > 38 {
+		if digits > 37 {
 			// snowflake only supports 38 digits
-			slog.Warn("Clearing NUMERIC value with > 38 digits for Snowflake!", slog.String("value", nstr))
+			slog.Warn("Clearing NUMERIC value with > 37 digits for Snowflake!", slog.String("value", nstr))
 			return nil
 		}
 	}
