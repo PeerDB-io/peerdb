@@ -97,7 +97,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
 	require.NoError(s.t, err)
 
 	_, err = s.Conn().Exec(context.Background(),
-		fmt.Sprintf("INSERT INTO %s (id, num1, num2) VALUES (1, $1,$2)", srcTableName),
+		fmt.Sprintf("INSERT INTO %s (id, num1, num2) VALUES (1,$1,$2)", srcTableName),
 		"999999999999999999999999999999999999999",
 		"99999999999999999999999999999999999999")
 	require.NoError(s.t, err)
@@ -116,7 +116,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
 	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize shapes", func() bool {
-		records, err := s.sfHelper.ExecuteAndProcessQuery("select * from " + dstTableName + " where id = 2")
+		records, err := s.sfHelper.ExecuteAndProcessQuery("select * from " + dstTableName + " where id = 1")
 		if err != nil || len(records.Records) == 0 {
 			s.t.Log("NUUU", err)
 			return false
@@ -126,7 +126,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
 	})
 
 	_, err = s.Conn().Exec(context.Background(),
-		fmt.Sprintf("INSERT INTO %s (id, num1, num2) VALUES (2, $1,$2)", srcTableName),
+		fmt.Sprintf("INSERT INTO %s (id, num1, num2) VALUES (2,$1,$2)", srcTableName),
 		"999999999999999999999999999999999999999",
 		"99999999999999999999999999999999999999")
 	e2e.EnvNoError(s.t, env, err)
