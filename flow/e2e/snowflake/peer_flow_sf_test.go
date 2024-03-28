@@ -82,12 +82,66 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
-	tc := e2e.NewTemporalClient(s.t)
+func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
+	tableName := "test_invalid_numeric"
+	srcTableName := s.attachSchemaSuffix(tableName)
+	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
 
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY,
+			num1 NUMERIC(100, 50) NOT NULL,
+			num2 NUMERIC(100, 50) NOT NULL
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(context.Background(),
+		fmt.Sprintf("INSERT INTO %s (id, num1, num2) VALUES (1,$1,$2)", srcTableName),
+		"999999999999999999999999999999999999999",
+		"99999999999999999999999999999999999999")
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(tableName),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.sfHelper.Peer,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize shapes", func() bool {
+		records, err := s.sfHelper.ExecuteAndProcessQuery("select num1, num2 from " + dstTableName + " where id = 1")
+		if err != nil || len(records.Records) == 0 {
+			return false
+		}
+		return records.Records[0][0].Value() == nil && records.Records[0][1].Value() != nil
+	})
+
+	_, err = s.Conn().Exec(context.Background(),
+		fmt.Sprintf("INSERT INTO %s (id, num1, num2) VALUES (2,$1,$2)", srcTableName),
+		"999999999999999999999999999999999999999",
+		"99999999999999999999999999999999999999")
+	e2e.EnvNoError(s.t, env, err)
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize shapes", func() bool {
+		records, err := s.sfHelper.ExecuteAndProcessQuery("select num1, num2 from " + dstTableName + " where id = 2")
+		if err != nil || len(records.Records) == 0 {
+			return false
+		}
+		return records.Records[0][0].Value() == nil && records.Records[0][1].Value() != nil
+	})
+}
+
+func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	tableName := "test_invalid_geo_sf_avro_cdc"
 	srcTableName := s.attachSchemaSuffix(tableName)
-	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_invalid_geo_sf_avro_cdc")
+	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -105,10 +159,10 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
-	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert 10 rows into the source table
+	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 	// insert 4 invalid shapes and 6 valid shapes into the source table
@@ -138,19 +192,19 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize shapes", func() bool {
 		// We inserted 4 invalid shapes in each,
 		// which should be filtered out as null on destination.
-		lineCount, err := s.sfHelper.CountNonNullRows("test_invalid_geo_sf_avro_cdc", "line")
+		lineCount, err := s.sfHelper.CountNonNullRows(tableName, "line")
 		if err != nil {
 			return false
 		}
 
 		// Make sure SRIDs are set
-		sridCount, err := s.sfHelper.CountSRIDs("test_invalid_geo_sf_avro_cdc", "line")
+		sridCount, err := s.sfHelper.CountSRIDs(tableName, "line")
 		if err != nil {
 			s.t.Log(err)
 			return false
 		}
 
-		polyCount, err := s.sfHelper.CountNonNullRows("test_invalid_geo_sf_avro_cdc", "poly")
+		polyCount, err := s.sfHelper.CountNonNullRows(tableName, "poly")
 		if err != nil {
 			return false
 		}
@@ -441,11 +495,10 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize types", func() bool {
 		noNulls, err := s.sfHelper.CheckNull("test_types_sf", []string{
-			"c41", "c1", "c2", "c3", "c4",
-			"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
-			"c21", "c22", "c23", "c24", "c28", "c29", "c30", "c31", "c33", "c34", "c35", "c36",
-			"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46", "c47", "c48", "c49",
-			"c50", "c51", "c52", "c53", "c54",
+			"c41", "c1", "c2", "c3", "c4", "c6", "c39", "c40", "id", "c9", "c11", "c12", "c13",
+			"c14", "c15", "c16", "c17", "c18", "c21", "c22", "c23", "c24", "c28", "c29", "c30",
+			"c31", "c33", "c34", "c35", "c36", "c37", "c38", "c7", "c8", "c32", "c42", "c43",
+			"c44", "c45", "c46", "c47", "c48", "c49", "c50", "c51", "c52", "c53", "c54",
 		})
 		if err != nil {
 			return false
@@ -1004,8 +1057,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 		"id,c1,c2,t",
 	)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "checking soft delete", func() bool {
-		newerSyncedAtQuery := fmt.Sprintf(`
-				SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED`, dstTableName)
+		newerSyncedAtQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED", dstTableName)
 		numNewRows, err := s.sfHelper.RunIntQuery(newerSyncedAtQuery)
 		e2e.EnvNoError(s.t, env, err)
 		return numNewRows == 1
