@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -289,7 +290,7 @@ func QValueToAvro(value QValue, targetDWH protos.DBType, nullable bool, logger l
 	case QValueString, QValueCIDR, QValueINET, QValueMacaddr, QValueInterval:
 		if c.TargetDWH == protos.DBType_SNOWFLAKE && v.Value() != nil &&
 			(len(v.Value().(string)) > 15*1024*1024) {
-			slog.Warn("Truncating TEXT value > 15MB for Snowflake!")
+			slog.Warn("Clearing TEXT value > 15MB for Snowflake!")
 			slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 			return c.processNullableUnion("string", "")
 		}
@@ -429,19 +430,18 @@ func (c *QValueAvroConverter) processNullableUnion(
 }
 
 func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) interface{} {
-	num, _ = decimal.NewFromString(num.String())
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
-		exp := num.Exponent()
-		digits := int32(num.NumDigits())
-		if exp >= 0 {
-			digits += exp
-		} else if -exp > digits {
-			digits -= exp
+		nstr := num.String()
+		digits := len(nstr)
+		if num.Sign() == -1 {
+			digits -= 1
+		}
+		if strings.ContainsRune(nstr, '.') {
+			digits -= 1
 		}
 		if digits > 38 {
 			// snowflake only supports 38 digits
-			slog.Warn("Truncating NUMERIC value with > 38 digits for Snowflake!",
-				slog.Any("digits", digits), slog.Any("exp", exp), slog.Any("val", num))
+			slog.Warn("Clearing NUMERIC value with > 38 digits for Snowflake!", slog.String("value", nstr))
 			return nil
 		}
 	}
@@ -462,7 +462,7 @@ func (c *QValueAvroConverter) processBytes(byteData []byte) interface{} {
 func (c *QValueAvroConverter) processJSON(jsonString string) interface{} {
 	if c.Nullable {
 		if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > 15*1024*1024 {
-			slog.Warn("Truncating JSON value > 15MB for Snowflake!")
+			slog.Warn("Clearing JSON value > 15MB for Snowflake!")
 			slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 			return goavro.Union("string", "")
 		}
@@ -470,7 +470,7 @@ func (c *QValueAvroConverter) processJSON(jsonString string) interface{} {
 	}
 
 	if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > 15*1024*1024 {
-		slog.Warn("Truncating JSON value > 15MB for Snowflake!")
+		slog.Warn("Clearing JSON value > 15MB for Snowflake!")
 		slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 		return ""
 	}
@@ -529,7 +529,7 @@ func (c *QValueAvroConverter) processHStore(hstore string) (interface{}, error) 
 
 	if c.Nullable {
 		if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > 15*1024*1024 {
-			slog.Warn("Truncating HStore equivalent JSON value > 15MB for Snowflake!")
+			slog.Warn("Clearing HStore equivalent JSON value > 15MB for Snowflake!")
 			slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 			return goavro.Union("string", ""), nil
 		}
@@ -537,7 +537,7 @@ func (c *QValueAvroConverter) processHStore(hstore string) (interface{}, error) 
 	}
 
 	if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > 15*1024*1024 {
-		slog.Warn("Truncating HStore equivalent JSON value > 15MB for Snowflake!")
+		slog.Warn("Clearing HStore equivalent JSON value > 15MB for Snowflake!")
 		slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 		return "", nil
 	}
