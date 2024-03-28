@@ -109,6 +109,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig.DoInitialSnapshot = true
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
