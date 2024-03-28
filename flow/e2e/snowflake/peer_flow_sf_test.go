@@ -115,10 +115,12 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
 	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize shapes", func() bool {
-		records, err := s.sfHelper.ExecuteAndProcessQuery("select * from " + srcTableName + " where id = 2")
+		records, err := s.sfHelper.ExecuteAndProcessQuery("select * from " + dstTableName + " where id = 2")
 		if err != nil || len(records.Records) == 0 {
+			s.t.Log("NUUU", err)
 			return false
 		}
+		s.t.Log("NUUU", records.Records[0][0], records.Records[0][1])
 		return records.Records[0][0] == nil && records.Records[0][1] != nil
 	})
 
@@ -129,7 +131,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
 	e2e.EnvNoError(s.t, env, err)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize shapes", func() bool {
-		records, err := s.sfHelper.ExecuteAndProcessQuery("select * from " + srcTableName + " where id = 2")
+		records, err := s.sfHelper.ExecuteAndProcessQuery("select * from " + dstTableName + " where id = 2")
 		if err != nil || len(records.Records) == 0 {
 			return false
 		}
