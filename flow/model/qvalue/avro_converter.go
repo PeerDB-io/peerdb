@@ -429,7 +429,7 @@ func (c *QValueAvroConverter) processNullableUnion(
 }
 
 func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) interface{} {
-	if c.TargetDWH == protos.DBType_SNOWFLAKE && num.NumDigits() > 38 {
+	if false && c.TargetDWH == protos.DBType_SNOWFLAKE && num.NumDigits() > 38 {
 		// snowflake only supports 38 digits
 		slog.Warn("Truncating NUMERIC value > 38 digits for Snowflake!")
 		return nil
