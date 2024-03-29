@@ -83,8 +83,8 @@ func (qe *QRepQueryExecutor) executeQueryInTx(ctx context.Context, tx pgx.Tx, cu
 }
 
 // FieldDescriptionsToSchema converts a slice of pgconn.FieldDescription to a QRecordSchema.
-func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) *model.QRecordSchema {
-	qfields := make([]model.QField, len(fds))
+func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) *qvalue.QRecordSchema {
+	qfields := make([]qvalue.QField, len(fds))
 	for i, fd := range fds {
 		cname := fd.Name
 		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID)
@@ -101,7 +101,7 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 		cnullable := true
 		if ctype == qvalue.QValueKindNumeric {
 			precision, scale := numeric.ParseNumericTypmod(fd.TypeModifier)
-			qfields[i] = model.QField{
+			qfields[i] = qvalue.QField{
 				Name:      cname,
 				Type:      ctype,
 				Nullable:  cnullable,
@@ -109,14 +109,14 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 				Scale:     scale,
 			}
 		} else {
-			qfields[i] = model.QField{
+			qfields[i] = qvalue.QField{
 				Name:     cname,
 				Type:     ctype,
 				Nullable: cnullable,
 			}
 		}
 	}
-	return model.NewQRecordSchema(qfields)
+	return qvalue.NewQRecordSchema(qfields)
 }
 
 func (qe *QRepQueryExecutor) ProcessRows(

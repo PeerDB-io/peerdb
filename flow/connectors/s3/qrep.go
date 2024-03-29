@@ -9,6 +9,7 @@ import (
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -42,7 +43,7 @@ func (c *S3Connector) SyncQRepRecords(
 
 func getAvroSchema(
 	dstTableName string,
-	schema *model.QRecordSchema,
+	schema *qvalue.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
 	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema, protos.DBType_S3)
 	if err != nil {

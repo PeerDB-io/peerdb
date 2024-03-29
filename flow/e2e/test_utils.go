@@ -439,9 +439,9 @@ func RunXminFlowWorkflow(tc client.Client, config *protos.QRepConfig) WorkflowRu
 	return ExecutePeerflow(tc, peerflow.XminFlowWorkflow, config, state)
 }
 
-func GetOwnersSchema() *model.QRecordSchema {
-	return &model.QRecordSchema{
-		Fields: []model.QField{
+func GetOwnersSchema() *qvalue.QRecordSchema {
+	return &qvalue.QRecordSchema{
+		Fields: []qvalue.QField{
 			{Name: "id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "card_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "from", Type: qvalue.QValueKindTimestamp, Nullable: true},

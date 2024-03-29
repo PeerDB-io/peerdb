@@ -150,7 +150,7 @@ func (s *SnowflakeTestHelper) ExecuteAndProcessQuery(query string) (*model.QReco
 	return s.testClient.ExecuteAndProcessQuery(context.Background(), query)
 }
 
-func (s *SnowflakeTestHelper) CreateTable(tableName string, schema *model.QRecordSchema) error {
+func (s *SnowflakeTestHelper) CreateTable(tableName string, schema *qvalue.QRecordSchema) error {
 	return s.testClient.CreateTable(context.Background(), schema, s.testSchemaName, tableName)
 }
 

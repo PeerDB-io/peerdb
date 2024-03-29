@@ -14,6 +14,7 @@ import (
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -154,7 +155,7 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 
 func (s *ClickhouseAvroSyncMethod) getAvroSchema(
 	dstTableName string,
-	schema *model.QRecordSchema,
+	schema *qvalue.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
 	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema, protos.DBType_CLICKHOUSE)
 	if err != nil {

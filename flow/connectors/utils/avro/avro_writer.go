@@ -127,8 +127,6 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
-	colNames := schema.GetColumnNames()
-
 	numRows := atomic.Uint32{}
 
 	if ctx != nil {
@@ -139,21 +137,20 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 		defer shutdown()
 	}
 
+	avroConverter := model.NewQRecordAvroConverter(
+		p.avroSchema,
+		p.targetDWH,
+		schema.GetColumnNames(),
+		logger,
+	)
+
 	for qRecordOrErr := range p.stream.Records {
 		if qRecordOrErr.Err != nil {
 			logger.Error("[avro] failed to get record from stream", slog.Any("error", qRecordOrErr.Err))
 			return 0, fmt.Errorf("[avro] failed to get record from stream: %w", qRecordOrErr.Err)
 		}
 
-		avroConverter := model.NewQRecordAvroConverter(
-			qRecordOrErr.Record,
-			p.targetDWH,
-			p.avroSchema.NullableFields,
-			colNames,
-			logger,
-		)
-
-		avroMap, err := avroConverter.Convert()
+		avroMap, err := avroConverter.Convert(qRecordOrErr.Record)
 		if err != nil {
 			logger.Error("failed to convert QRecord to Avro compatible map: ", slog.Any("error", err))
 			return 0, fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
