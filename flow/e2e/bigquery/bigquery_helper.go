@@ -308,33 +308,13 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 	}
 }
 
-func bqFieldSchemaToQField(fieldSchema *bigquery.FieldSchema) (model.QField, error) {
-	qValueKind, err := peer_bq.BigQueryTypeToQValueKind(fieldSchema.Type)
-	if err != nil {
-		return model.QField{}, err
-	}
-
-	return model.QField{
-		Name:     fieldSchema.Name,
-		Type:     qValueKind,
-		Nullable: !fieldSchema.Required,
-	}, nil
-}
-
 // bqSchemaToQRecordSchema converts a bigquery schema to a QRecordSchema.
-func bqSchemaToQRecordSchema(schema bigquery.Schema) (*model.QRecordSchema, error) {
-	fields := make([]model.QField, 0, len(schema))
+func bqSchemaToQRecordSchema(schema bigquery.Schema) *qvalue.QRecordSchema {
+	fields := make([]qvalue.QField, 0, len(schema))
 	for _, fieldSchema := range schema {
-		qField, err := bqFieldSchemaToQField(fieldSchema)
-		if err != nil {
-			return nil, err
-		}
-		fields = append(fields, qField)
+		fields = append(fields, peer_bq.BigQueryFieldToQField(fieldSchema))
 	}
-
-	return &model.QRecordSchema{
-		Fields: fields,
-	}, nil
+	return &qvalue.QRecordSchema{Fields: fields}
 }
 
 func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecordBatch, error) {
@@ -369,17 +349,9 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 		records = append(records, qValues)
 	}
 
-	// Now you should fill the column names as well. Here we assume the schema is
-	// retrieved from the query itself
-	var schema *model.QRecordSchema
-	if it.Schema != nil {
-		schema, err = bqSchemaToQRecordSchema(it.Schema)
-		if err != nil {
-			return nil, err
-		}
-	}
+	// Now fill column names as well. Assume the schema is retrieved from the query itself
+	schema := bqSchemaToQRecordSchema(it.Schema)
 
-	// Return a QRecordBatch
 	return &model.QRecordBatch{
 		Records: records,
 		Schema:  schema,
@@ -485,7 +457,7 @@ func qValueKindToBqColTypeString(val qvalue.QValueKind) (string, error) {
 	}
 }
 
-func (b *BigQueryTestHelper) CreateTable(tableName string, schema *model.QRecordSchema) error {
+func (b *BigQueryTestHelper) CreateTable(tableName string, schema *qvalue.QRecordSchema) error {
 	fields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
 		bqType, err := qValueKindToBqColTypeString(field.Type)

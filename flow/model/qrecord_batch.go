@@ -16,7 +16,7 @@ import (
 
 // QRecordBatch holds a batch of []QValue slices
 type QRecordBatch struct {
-	Schema  *QRecordSchema
+	Schema  *qvalue.QRecordSchema
 	Records [][]qvalue.QValue
 }
 
@@ -30,9 +30,7 @@ func (q *QRecordBatch) ToQRecordStream(buffer int) (*QRecordStream, error) {
 		}
 
 		for _, record := range q.Records {
-			stream.Records <- QRecordOrError{
-				Record: record,
-			}
+			stream.Records <- QRecordOrError{Record: record}
 		}
 		close(stream.Records)
 	}()

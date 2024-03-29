@@ -1,14 +1,12 @@
-package model
+package qvalue
 
 import (
 	"strings"
-
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 type QField struct {
 	Name      string
-	Type      qvalue.QValueKind
+	Type      QValueKind
 	Precision int16
 	Scale     int16
 	Nullable  bool
@@ -20,9 +18,7 @@ type QRecordSchema struct {
 
 // NewQRecordSchema creates a new QRecordSchema.
 func NewQRecordSchema(fields []QField) *QRecordSchema {
-	return &QRecordSchema{
-		Fields: fields,
-	}
+	return &QRecordSchema{Fields: fields}
 }
 
 // EqualNames returns true if the field names are equal.

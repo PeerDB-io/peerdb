@@ -13,8 +13,8 @@ import (
 
 func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.QRecordStream, error) {
 	recordStream := model.NewQRecordStream(1 << 17)
-	err := recordStream.SetSchema(&model.QRecordSchema{
-		Fields: []model.QField{
+	err := recordStream.SetSchema(&qvalue.QRecordSchema{
+		Fields: []qvalue.QField{
 			{
 				Name:     "_peerdb_uid",
 				Type:     qvalue.QValueKindString,
