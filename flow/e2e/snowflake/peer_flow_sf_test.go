@@ -98,9 +98,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
 
 	_, err = s.Conn().Exec(context.Background(),
 		fmt.Sprintf("INSERT INTO %s (id, num1, num2) VALUES (1,$1,$2)", srcTableName),
-		// "999999999999999999999999999999999999999",
-		"99999999999999999999999999999999999999",
-		"99999999999999999999999999999999999999")
+		"999999999999999999999999999999999999999",
+		"9999999999999999")
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -127,7 +126,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
 	_, err = s.Conn().Exec(context.Background(),
 		fmt.Sprintf("INSERT INTO %s (id, num1, num2) VALUES (2,$1,$2)", srcTableName),
 		"999999999999999999999999999999999999999",
-		"9999999999999999999999999999999999999")
+		"9999999999999999")
 	e2e.EnvNoError(s.t, env, err)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize shapes", func() bool {
