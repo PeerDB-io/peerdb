@@ -19,8 +19,8 @@ import (
 
 // https://avro.apache.org/docs/1.11.0/spec.html
 type AvroSchemaArray struct {
-	Type  string `json:"type"`
-	Items string `json:"items"`
+	Items interface{} `json:"items"`
+	Type  string      `json:"type"`
 }
 
 type AvroSchemaComplexArray struct {
@@ -52,39 +52,46 @@ type AvroSchemaField struct {
 	LogicalType string      `json:"logicalType,omitempty"`
 }
 
-// GetAvroSchemaFromQValueKind returns the Avro schema for a given QValueKind.
-// The function takes in two parameters, a QValueKind and a boolean indicating if the
-// Avro schema should respect null values. It returns a QValueKindAvroSchema object
-// representing the Avro schema and an error if the QValueKind is unsupported.
+// AvroSchema returns the Avro schema for a given QType.
 //
-// For example, QValueKindInt64 would return an AvroLogicalSchema of "long". Unsupported QValueKinds
-// will return an error.
-func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH protos.DBType, precision int16, scale int16) (interface{}, error) {
-	switch kind {
-	case QValueKindString:
+// For example, QKindInt64 would return an AvroLogicalSchema of "long".
+// Unsupported QValueKinds will return an error.
+func (qt QType) AvroSchema(targetDWH protos.DBType, precision int16, scale int16) (interface{}, error) {
+	if qt.Array > 0 {
+		items, err := QType{Kind: qt.Kind, Array: qt.Array - 1}.AvroSchema(targetDWH, precision, scale)
+		if err != nil {
+			return nil, err
+		}
+		return AvroSchemaArray{
+			Type:  "array",
+			Items: items,
+		}, nil
+	}
+	switch qt.Kind {
+	case QKindString:
 		return "string", nil
-	case QValueKindQChar, QValueKindCIDR, QValueKindINET:
+	case QKindQChar, QKindCIDR, QKindINET:
 		return "string", nil
-	case QValueKindInterval:
+	case QKindInterval:
 		return "string", nil
-	case QValueKindUUID:
+	case QKindUUID:
 		return AvroSchemaLogical{
 			Type:        "string",
 			LogicalType: "uuid",
 		}, nil
-	case QValueKindGeometry, QValueKindGeography, QValueKindPoint:
+	case QKindGeometry, QKindGeography, QKindPoint:
 		return "string", nil
-	case QValueKindInt16, QValueKindInt32, QValueKindInt64:
+	case QKindInt16, QKindInt32, QKindInt64:
 		return "long", nil
-	case QValueKindFloat32:
+	case QKindFloat32:
 		return "float", nil
-	case QValueKindFloat64:
+	case QKindFloat64:
 		return "double", nil
-	case QValueKindBoolean:
+	case QKindBoolean:
 		return "boolean", nil
-	case QValueKindBytes, QValueKindBit:
+	case QKindBytes, QKindBit:
 		return "bytes", nil
-	case QValueKindNumeric:
+	case QKindNumeric:
 		avroNumericPrecision, avroNumericScale := DetermineNumericSettingForDWH(precision, scale, targetDWH)
 		return AvroSchemaNumeric{
 			Type:        "bytes",
@@ -92,12 +99,12 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH protos.DBType, preci
 			Precision:   avroNumericPrecision,
 			Scale:       avroNumericScale,
 		}, nil
-	case QValueKindTime, QValueKindTimeTZ, QValueKindDate:
+	case QKindTime, QKindTimeTZ, QKindDate:
 		if targetDWH == protos.DBType_CLICKHOUSE {
-			if kind == QValueKindTime {
+			if qt.Kind == QKindTime {
 				return "string", nil
 			}
-			if kind == QValueKindDate {
+			if qt.Kind == QKindDate {
 				return AvroSchemaLogical{
 					Type:        "int",
 					LogicalType: "date",
@@ -106,7 +113,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH protos.DBType, preci
 			return "long", nil
 		}
 		return "string", nil
-	case QValueKindTimestamp, QValueKindTimestampTZ:
+	case QKindTimestamp, QKindTimestampTZ:
 		if targetDWH == protos.DBType_CLICKHOUSE {
 			return AvroSchemaLogical{
 				Type:        "long",
@@ -114,53 +121,13 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH protos.DBType, preci
 			}, nil
 		}
 		return "string", nil
-	case QValueKindHStore, QValueKindJSON, QValueKindStruct:
+	case QKindHStore, QKindJSON, QKindStruct:
 		return "string", nil
-	case QValueKindArrayFloat32:
-		return AvroSchemaArray{
-			Type:  "array",
-			Items: "float",
-		}, nil
-	case QValueKindArrayFloat64:
-		return AvroSchemaArray{
-			Type:  "array",
-			Items: "double",
-		}, nil
-	case QValueKindArrayInt32, QValueKindArrayInt16:
-		return AvroSchemaArray{
-			Type:  "array",
-			Items: "int",
-		}, nil
-	case QValueKindArrayInt64:
-		return AvroSchemaArray{
-			Type:  "array",
-			Items: "long",
-		}, nil
-	case QValueKindArrayBoolean:
-		return AvroSchemaArray{
-			Type:  "array",
-			Items: "boolean",
-		}, nil
-	case QValueKindArrayDate:
-		return AvroSchemaArray{
-			Type:  "array",
-			Items: "string",
-		}, nil
-	case QValueKindArrayTimestamp, QValueKindArrayTimestampTZ:
-		return AvroSchemaArray{
-			Type:  "array",
-			Items: "string",
-		}, nil
-	case QValueKindArrayString:
-		return AvroSchemaArray{
-			Type:  "array",
-			Items: "string",
-		}, nil
-	case QValueKindInvalid:
+	case QKindInvalid:
 		// lets attempt to do invalid as a string
 		return "string", nil
 	default:
-		return nil, fmt.Errorf("unsupported QValueKind type: %s", kind)
+		return nil, fmt.Errorf("unsupported QType: %s", qt)
 	}
 }
 
@@ -335,8 +302,10 @@ func QValueToAvro(value QValue, field *QField, targetDWH protos.DBType, logger l
 		return c.processArrayString(v.Val), nil
 	case QValueArrayBoolean:
 		return c.processArrayBoolean(v.Val), nil
-	case QValueArrayTimestamp, QValueArrayTimestampTZ:
-		return c.processArrayTime(v.Value().([]time.Time)), nil
+	case QValueArrayTimestamp:
+		return c.processArrayTime(v.Val), nil
+	case QValueArrayTimestampTZ:
+		return c.processArrayTime(v.Val), nil
 	case QValueArrayDate:
 		return c.processArrayDate(v.Val), nil
 	case QValueUUID:

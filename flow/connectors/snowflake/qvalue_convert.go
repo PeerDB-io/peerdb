@@ -6,37 +6,37 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
-var snowflakeTypeToQValueKindMap = map[string]qvalue.QValueKind{
-	"INT":           qvalue.QValueKindInt32,
-	"BIGINT":        qvalue.QValueKindInt64,
-	"FLOAT":         qvalue.QValueKindFloat64,
-	"DOUBLE":        qvalue.QValueKindFloat64,
-	"REAL":          qvalue.QValueKindFloat64,
-	"VARCHAR":       qvalue.QValueKindString,
-	"CHAR":          qvalue.QValueKindString,
-	"TEXT":          qvalue.QValueKindString,
-	"BOOLEAN":       qvalue.QValueKindBoolean,
-	"DATETIME":      qvalue.QValueKindTimestamp,
-	"TIMESTAMP":     qvalue.QValueKindTimestamp,
-	"TIMESTAMP_NTZ": qvalue.QValueKindTimestamp,
-	"TIMESTAMP_TZ":  qvalue.QValueKindTimestampTZ,
-	"TIME":          qvalue.QValueKindTime,
-	"DATE":          qvalue.QValueKindDate,
-	"BLOB":          qvalue.QValueKindBytes,
-	"BYTEA":         qvalue.QValueKindBytes,
-	"BINARY":        qvalue.QValueKindBytes,
-	"FIXED":         qvalue.QValueKindNumeric,
-	"NUMBER":        qvalue.QValueKindNumeric,
-	"DECIMAL":       qvalue.QValueKindNumeric,
-	"NUMERIC":       qvalue.QValueKindNumeric,
-	"VARIANT":       qvalue.QValueKindJSON,
-	"GEOMETRY":      qvalue.QValueKindGeometry,
-	"GEOGRAPHY":     qvalue.QValueKindGeography,
+var snowflakeTypeToQValueKindMap = map[string]qvalue.QKind{
+	"INT":           qvalue.QKindInt32,
+	"BIGINT":        qvalue.QKindInt64,
+	"FLOAT":         qvalue.QKindFloat64,
+	"DOUBLE":        qvalue.QKindFloat64,
+	"REAL":          qvalue.QKindFloat64,
+	"VARCHAR":       qvalue.QKindString,
+	"CHAR":          qvalue.QKindString,
+	"TEXT":          qvalue.QKindString,
+	"BOOLEAN":       qvalue.QKindBoolean,
+	"DATETIME":      qvalue.QKindTimestamp,
+	"TIMESTAMP":     qvalue.QKindTimestamp,
+	"TIMESTAMP_NTZ": qvalue.QKindTimestamp,
+	"TIMESTAMP_TZ":  qvalue.QKindTimestampTZ,
+	"TIME":          qvalue.QKindTime,
+	"DATE":          qvalue.QKindDate,
+	"BLOB":          qvalue.QKindBytes,
+	"BYTEA":         qvalue.QKindBytes,
+	"BINARY":        qvalue.QKindBytes,
+	"FIXED":         qvalue.QKindNumeric,
+	"NUMBER":        qvalue.QKindNumeric,
+	"DECIMAL":       qvalue.QKindNumeric,
+	"NUMERIC":       qvalue.QKindNumeric,
+	"VARIANT":       qvalue.QKindJSON,
+	"GEOMETRY":      qvalue.QKindGeometry,
+	"GEOGRAPHY":     qvalue.QKindGeography,
 }
 
-func snowflakeTypeToQValueKind(name string) (qvalue.QValueKind, error) {
+func snowflakeTypeToQValueKind(name string) (qvalue.QKind, error) {
 	if val, ok := snowflakeTypeToQValueKindMap[name]; ok {
 		return val, nil
 	}
-	return "", fmt.Errorf("unsupported database type name: %s", name)
+	return qvalue.QKindInvalid, fmt.Errorf("unsupported database type name: %s", name)
 }

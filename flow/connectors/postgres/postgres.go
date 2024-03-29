@@ -755,7 +755,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	columnNames := make([]string, 0, len(fields))
 	columns := make([]*protos.FieldDescription, 0, len(fields))
 	for _, fieldDescription := range fields {
-		genericColType := c.postgresOIDToQValueKind(fieldDescription.DataTypeOID)
+		genericColType := c.postgresOIDToQType(fieldDescription.DataTypeOID)
 		if genericColType == qvalue.QValueKindInvalid {
 			typeName, ok := c.customTypesMapping[fieldDescription.DataTypeOID]
 			if ok {

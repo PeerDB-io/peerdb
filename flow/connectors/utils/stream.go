@@ -17,42 +17,42 @@ func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.QRecordS
 		Fields: []qvalue.QField{
 			{
 				Name:     "_peerdb_uid",
-				Type:     qvalue.QValueKindString,
+				Type:     qvalue.QType{Kind: qvalue.QKindString},
 				Nullable: false,
 			},
 			{
 				Name:     "_peerdb_timestamp",
-				Type:     qvalue.QValueKindInt64,
+				Type:     qvalue.QType{Kind: qvalue.QKindInt64},
 				Nullable: false,
 			},
 			{
 				Name:     "_peerdb_destination_table_name",
-				Type:     qvalue.QValueKindString,
+				Type:     qvalue.QType{Kind: qvalue.QKindString},
 				Nullable: false,
 			},
 			{
 				Name:     "_peerdb_data",
-				Type:     qvalue.QValueKindString,
+				Type:     qvalue.QType{Kind: qvalue.QKindString},
 				Nullable: false,
 			},
 			{
 				Name:     "_peerdb_record_type",
-				Type:     qvalue.QValueKindInt64,
+				Type:     qvalue.QType{Kind: qvalue.QKindInt64},
 				Nullable: true,
 			},
 			{
 				Name:     "_peerdb_match_data",
-				Type:     qvalue.QValueKindString,
+				Type:     qvalue.QType{Kind: qvalue.QKindString},
 				Nullable: true,
 			},
 			{
 				Name:     "_peerdb_batch_id",
-				Type:     qvalue.QValueKindInt64,
+				Type:     qvalue.QType{Kind: qvalue.QKindInt64},
 				Nullable: true,
 			},
 			{
 				Name:     "_peerdb_unchanged_toast_columns",
-				Type:     qvalue.QValueKindString,
+				Type:     qvalue.QType{Kind: qvalue.QKindString},
 				Nullable: true,
 			},
 		},

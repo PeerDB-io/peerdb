@@ -739,7 +739,7 @@ func (p *PostgresCDCSource) processRelationMessage(
 		prevRelMap[column.Name] = qvalue.QValueKind(column.Type)
 	}
 	for _, column := range currRel.Columns {
-		qKind := p.postgresOIDToQValueKind(column.DataType)
+		qKind := p.postgresOIDToQType(column.DataType)
 		if qKind == qvalue.QValueKindInvalid {
 			typeName, ok := p.customTypesMapping[column.DataType]
 			if ok {

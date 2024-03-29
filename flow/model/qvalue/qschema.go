@@ -6,7 +6,7 @@ import (
 
 type QField struct {
 	Name      string
-	Type      QValueKind
+	Type      QType
 	Precision int16
 	Scale     int16
 	Nullable  bool

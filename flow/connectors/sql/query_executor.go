@@ -40,16 +40,16 @@ type SQLQueryExecutor interface {
 
 type GenericSQLQueryExecutor struct {
 	db                 *sqlx.DB
-	dbtypeToQValueKind map[string]qvalue.QValueKind
-	qvalueKindToDBType map[qvalue.QValueKind]string
+	dbtypeToQValueKind map[string]qvalue.QKind
+	qvalueKindToDBType map[qvalue.QKind]string
 	logger             log.Logger
 }
 
 func NewGenericSQLQueryExecutor(
 	logger log.Logger,
 	db *sqlx.DB,
-	dbtypeToQValueKind map[string]qvalue.QValueKind,
-	qvalueKindToDBType map[qvalue.QValueKind]string,
+	dbtypeToQValueKind map[string]qvalue.QKind,
+	qvalueKindToDBType map[qvalue.QKind]string,
 ) *GenericSQLQueryExecutor {
 	return &GenericSQLQueryExecutor{
 		db:                 db,
@@ -104,7 +104,11 @@ func (g *GenericSQLQueryExecutor) RecreateSchema(ctx context.Context, schemaName
 func (g *GenericSQLQueryExecutor) CreateTable(ctx context.Context, schema *qvalue.QRecordSchema, schemaName string, tableName string) error {
 	fields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
-		dbType, ok := g.qvalueKindToDBType[field.Type]
+		if field.Type.Array > 0 {
+			// TODO replace maps with interfaces to support arrays
+			return fmt.Errorf("CreateTable(%s) does not support arrays", tableName)
+		}
+		dbType, ok := g.qvalueKindToDBType[field.Type.Kind]
 		if !ok {
 			return fmt.Errorf("unsupported qvalue type %s", field.Type)
 		}
@@ -158,10 +162,14 @@ func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (qvalue
 	}
 
 	nullable, ok := ct.Nullable()
+	length, _ := ct.Length() // TODO probably wrong if varchar(n) has Length
 
 	return qvalue.QField{
-		Name:     ct.Name(),
-		Type:     qvKind,
+		Name: ct.Name(),
+		Type: qvalue.QType{
+			Kind:  qvKind,
+			Array: uint8(length),
+		},
 		Nullable: ok && nullable,
 	}, nil
 }
@@ -196,38 +204,38 @@ func (g *GenericSQLQueryExecutor) processRows(ctx context.Context, rows *sqlx.Ro
 
 		values := make([]interface{}, len(columns))
 		for i := range values {
-			switch qfields[i].Type {
-			case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindTime,
-				qvalue.QValueKindTimeTZ, qvalue.QValueKindDate:
+			switch qfields[i].Type.Kind {
+			case qvalue.QKindTimestamp, qvalue.QKindTimestampTZ, qvalue.QKindTime,
+				qvalue.QKindTimeTZ, qvalue.QKindDate:
 				var t sql.NullTime
 				values[i] = &t
-			case qvalue.QValueKindInt16:
+			case qvalue.QKindInt16:
 				var n sql.NullInt16
 				values[i] = &n
-			case qvalue.QValueKindInt32:
+			case qvalue.QKindInt32:
 				var n sql.NullInt32
 				values[i] = &n
-			case qvalue.QValueKindInt64:
+			case qvalue.QKindInt64:
 				var n sql.NullInt64
 				values[i] = &n
-			case qvalue.QValueKindFloat32:
+			case qvalue.QKindFloat32:
 				var f sql.NullFloat64
 				values[i] = &f
-			case qvalue.QValueKindFloat64:
+			case qvalue.QKindFloat64:
 				var f sql.NullFloat64
 				values[i] = &f
-			case qvalue.QValueKindBoolean:
+			case qvalue.QKindBoolean:
 				var b sql.NullBool
 				values[i] = &b
-			case qvalue.QValueKindString, qvalue.QValueKindHStore:
+			case qvalue.QKindString, qvalue.QKindHStore:
 				var s sql.NullString
 				values[i] = &s
-			case qvalue.QValueKindBytes, qvalue.QValueKindBit:
+			case qvalue.QKindBytes, qvalue.QKindBit:
 				values[i] = new([]byte)
-			case qvalue.QValueKindNumeric:
+			case qvalue.QKindNumeric:
 				var s sql.Null[decimal.Decimal]
 				values[i] = &s
-			case qvalue.QValueKindUUID:
+			case qvalue.QKindUUID:
 				values[i] = new([]byte)
 			default:
 				values[i] = new(interface{})
@@ -320,88 +328,92 @@ func (g *GenericSQLQueryExecutor) CheckNull(ctx context.Context, schema string, 
 	return count.Int64 == 0, nil
 }
 
-func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
+func toQValue(qt qvalue.QType, val interface{}) (qvalue.QValue, error) {
 	if val == nil {
-		return qvalue.QValueNull(kind), nil
+		return qvalue.QValueNull(qt), nil
 	}
-	switch kind {
-	case qvalue.QValueKindInt32:
+	if qt.Array > 0 {
+		return toQValueArray(qt.Kind, val)
+	}
+
+	switch qt.Kind {
+	case qvalue.QKindInt32:
 		if v, ok := val.(*sql.NullInt32); ok {
 			if v.Valid {
 				return qvalue.QValueInt32{Val: v.Int32}, nil
 			} else {
-				return qvalue.QValueNull(qvalue.QValueKindInt32), nil
+				return qvalue.QValueNull(qt), nil
 			}
 		}
-	case qvalue.QValueKindInt64:
+	case qvalue.QKindInt64:
 		if v, ok := val.(*sql.NullInt64); ok {
 			if v.Valid {
 				return qvalue.QValueInt64{Val: v.Int64}, nil
 			} else {
-				return qvalue.QValueNull(qvalue.QValueKindInt64), nil
+				return qvalue.QValueNull(qt), nil
 			}
 		}
-	case qvalue.QValueKindFloat32:
+	case qvalue.QKindFloat32:
 		if v, ok := val.(*sql.NullFloat64); ok {
 			if v.Valid {
 				return qvalue.QValueFloat32{Val: float32(v.Float64)}, nil
 			} else {
-				return qvalue.QValueNull(qvalue.QValueKindFloat32), nil
+				return qvalue.QValueNull(qt), nil
 			}
 		}
-	case qvalue.QValueKindFloat64:
+	case qvalue.QKindFloat64:
 		if v, ok := val.(*sql.NullFloat64); ok {
 			if v.Valid {
 				return qvalue.QValueFloat64{Val: v.Float64}, nil
 			} else {
-				return qvalue.QValueNull(qvalue.QValueKindFloat64), nil
+				return qvalue.QValueNull(qt), nil
 			}
 		}
-	case qvalue.QValueKindQChar:
+	case qvalue.QKindQChar:
 		if v, ok := val.(uint8); ok {
 			return qvalue.QValueQChar{Val: v}, nil
 		}
-	case qvalue.QValueKindString:
+	case qvalue.QKindString:
 		if v, ok := val.(*sql.NullString); ok {
 			if v.Valid {
 				return qvalue.QValueString{Val: v.String}, nil
 			} else {
-				return qvalue.QValueNull(qvalue.QValueKindString), nil
+				return qvalue.QValueNull(qt), nil
 			}
 		}
-	case qvalue.QValueKindBoolean:
+	case qvalue.QKindBoolean:
 		if v, ok := val.(*sql.NullBool); ok {
 			if v.Valid {
 				return qvalue.QValueBoolean{Val: v.Bool}, nil
 			} else {
-				return qvalue.QValueNull(qvalue.QValueKindBoolean), nil
+				return qvalue.QValueNull(qt), nil
 			}
 		}
-	case qvalue.QValueKindTimestamp:
+	case qvalue.QKindTimestamp:
 		if t, ok := val.(*sql.NullTime); ok {
 			if t.Valid {
 				return qvalue.QValueTimestamp{Val: t.Time}, nil
 			} else {
-				return qvalue.QValueNull(kind), nil
+				return qvalue.QValueNull(qt), nil
 			}
 		}
-	case qvalue.QValueKindTimestampTZ:
+	case qvalue.QKindTimestampTZ:
 		if t, ok := val.(*sql.NullTime); ok {
 			if t.Valid {
 				return qvalue.QValueTimestampTZ{Val: t.Time}, nil
 			} else {
-				return qvalue.QValueNull(kind), nil
+				return qvalue.QValueNull(qt), nil
 			}
 		}
-	case qvalue.QValueKindDate:
+	case qvalue.QKindDate:
 		if t, ok := val.(*sql.NullTime); ok {
 			if t.Valid {
 				return qvalue.QValueDate{Val: t.Time}, nil
 			} else {
-				return qvalue.QValueNull(kind), nil
+				return qvalue.QValueNull(qt), nil
 			}
 		}
-	case qvalue.QValueKindTime:
+	case qvalue.QKindTime:
 		if t, ok := val.(*sql.NullTime); ok {
 			if t.Valid {
 				tt := t.Time
@@ -410,10 +422,10 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 					Val: time.Date(1970, time.January, 1, tt.Hour(), tt.Minute(), tt.Second(), tt.Nanosecond(), time.UTC),
 				}, nil
 			} else {
-				return qvalue.QValueNull(kind), nil
+				return qvalue.QValueNull(qt), nil
 			}
 		}
-	case qvalue.QValueKindTimeTZ:
+	case qvalue.QKindTimeTZ:
 		if t, ok := val.(*sql.NullTime); ok {
 			if t.Valid {
 				tt := t.Time
@@ -422,27 +434,27 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 					Val: time.Date(1970, time.January, 1, tt.Hour(), tt.Minute(), tt.Second(), tt.Nanosecond(), tt.Location()),
 				}, nil
 			} else {
-				return qvalue.QValueNull(kind), nil
+				return qvalue.QValueNull(qt), nil
 			}
 		}
-	case qvalue.QValueKindNumeric:
+	case qvalue.QKindNumeric:
 		if v, ok := val.(*sql.Null[decimal.Decimal]); ok {
 			if v.Valid {
 				return qvalue.QValueNumeric{Val: v.V}, nil
 			} else {
-				return qvalue.QValueNull(qvalue.QValueKindNumeric), nil
+				return qvalue.QValueNull(qt), nil
 			}
 		}
-	case qvalue.QValueKindBytes:
+	case qvalue.QKindBytes:
 		if v, ok := val.(*[]byte); ok && v != nil {
 			return qvalue.QValueBytes{Val: *v}, nil
 		}
-	case qvalue.QValueKindBit:
+	case qvalue.QKindBit:
 		if v, ok := val.(*[]byte); ok && v != nil {
 			return qvalue.QValueBit{Val: *v}, nil
 		}
 
-	case qvalue.QValueKindUUID:
+	case qvalue.QKindUUID:
 		if v, ok := val.(*[]byte); ok && v != nil {
 			// convert byte array to string
 			uuidVal, err := uuid.FromBytes(*v)
@@ -452,7 +464,7 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 			return qvalue.QValueUUID{Val: [16]byte(uuidVal)}, nil
 		}
 
-	case qvalue.QValueKindJSON:
+	case qvalue.QKindJSON:
 		vraw := val.(*interface{})
 		vstring, ok := (*vraw).(string)
 		if !ok {
@@ -470,20 +482,20 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 			// assume all elements in the array are of the same type
 			// based on the first element, determine the type
 			if len(v) > 0 {
-				kind := qvalue.QValueKindString
+				kind := qvalue.QKindString
 				switch v[0].(type) {
 				case float32:
-					kind = qvalue.QValueKindArrayFloat32
+					kind = qvalue.QKindFloat32
 				case float64:
-					kind = qvalue.QValueKindArrayFloat64
+					kind = qvalue.QKindFloat64
 				case int16:
-					kind = qvalue.QValueKindArrayInt16
+					kind = qvalue.QKindInt16
 				case int32:
-					kind = qvalue.QValueKindArrayInt32
+					kind = qvalue.QKindInt32
 				case int64:
-					kind = qvalue.QValueKindArrayInt64
+					kind = qvalue.QKindInt64
 				case string:
-					kind = qvalue.QValueKindArrayString
+					kind = qvalue.QKindString
 				}
 
 				return toQValueArray(kind, v)
@@ -492,7 +504,7 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 
 		return qvalue.QValueJSON{Val: vstring}, nil
 
-	case qvalue.QValueKindHStore:
+	case qvalue.QKindHStore:
 		vraw := val.(*interface{})
 		vstring, ok := (*vraw).(string)
 		if !ok {
@@ -500,21 +512,15 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 		}
 
 		return qvalue.QValueHStore{Val: vstring}, nil
-
-	case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64,
-		qvalue.QValueKindArrayInt16,
-		qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64,
-		qvalue.QValueKindArrayString:
-		return toQValueArray(kind, val)
 	}
 
 	// If type is unsupported or doesn't match the specified kind, return error
-	return nil, fmt.Errorf("unsupported type %T for kind %s", val, kind)
+	return nil, fmt.Errorf("unsupported type %T for kind %s", val, qt.Kind)
 }
 
-func toQValueArray(kind qvalue.QValueKind, value interface{}) (qvalue.QValue, error) {
+func toQValueArray(kind qvalue.QKind, value interface{}) (qvalue.QValue, error) {
 	switch kind {
-	case qvalue.QValueKindArrayFloat32:
+	case qvalue.QKindFloat32:
 		switch v := value.(type) {
 		case []float32:
 			return qvalue.QValueArrayFloat32{Val: v}, nil
@@ -528,7 +534,7 @@ func toQValueArray(kind qvalue.QValueKind, value interface{}) (qvalue.QValue, er
 			return nil, fmt.Errorf("failed to parse array float32: %v", value)
 		}
 
-	case qvalue.QValueKindArrayFloat64:
+	case qvalue.QKindFloat64:
 		switch v := value.(type) {
 		case []float64:
 			return qvalue.QValueArrayFloat64{Val: v}, nil
@@ -542,7 +548,7 @@ func toQValueArray(kind qvalue.QValueKind, value interface{}) (qvalue.QValue, er
 			return nil, fmt.Errorf("failed to parse array float64: %v", value)
 		}
 
-	case qvalue.QValueKindArrayInt16:
+	case qvalue.QKindInt16:
 		switch v := value.(type) {
 		case []int16:
 			return qvalue.QValueArrayInt16{Val: v}, nil
@@ -556,7 +562,7 @@ func toQValueArray(kind qvalue.QValueKind, value interface{}) (qvalue.QValue, er
 			return nil, fmt.Errorf("failed to parse array int16: %v", value)
 		}
 
-	case qvalue.QValueKindArrayInt32:
+	case qvalue.QKindInt32:
 		switch v := value.(type) {
 		case []int32:
 			return qvalue.QValueArrayInt32{Val: v}, nil
@@ -570,7 +576,7 @@ func toQValueArray(kind qvalue.QValueKind, value interface{}) (qvalue.QValue, er
 			return nil, fmt.Errorf("failed to parse array int32: %v", value)
 		}
 
-	case qvalue.QValueKindArrayInt64:
+	case qvalue.QKindInt64:
 		switch v := value.(type) {
 		case []int64:
 			return qvalue.QValueArrayInt64{Val: v}, nil
@@ -584,7 +590,7 @@ func toQValueArray(kind qvalue.QValueKind, value interface{}) (qvalue.QValue, er
 			return nil, fmt.Errorf("failed to parse array int64: %v", value)
 		}
 
-	case qvalue.QValueKindArrayString:
+	case qvalue.QKindString:
 		switch v := value.(type) {
 		case []string:
 			return qvalue.QValueArrayString{Val: v}, nil
@@ -599,5 +605,8 @@ func toQValueArray(kind qvalue.QValueKind, value interface{}) (qvalue.QValue, er
 		}
 	}
 
-	return qvalue.QValueNull(kind), nil
+	return qvalue.QValueNull(qvalue.QType{
+		Kind:  kind,
+		Array: 1,
+	}), nil
 }

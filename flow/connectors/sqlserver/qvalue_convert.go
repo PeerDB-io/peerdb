@@ -2,58 +2,54 @@ package connsqlserver
 
 import "github.com/PeerDB-io/peer-flow/model/qvalue"
 
-var qValueKindToSQLServerTypeMap = map[qvalue.QValueKind]string{
-	qvalue.QValueKindBoolean:     "BIT",
-	qvalue.QValueKindInt16:       "SMALLINT",
-	qvalue.QValueKindInt32:       "INT",
-	qvalue.QValueKindInt64:       "BIGINT",
-	qvalue.QValueKindFloat32:     "REAL",
-	qvalue.QValueKindFloat64:     "FLOAT",
-	qvalue.QValueKindNumeric:     "DECIMAL(38, 9)",
-	qvalue.QValueKindQChar:       "CHAR",
-	qvalue.QValueKindString:      "NTEXT",
-	qvalue.QValueKindJSON:        "NTEXT", // SQL Server doesn't have a native JSON type
-	qvalue.QValueKindTimestamp:   "DATETIME2",
-	qvalue.QValueKindTimestampTZ: "DATETIMEOFFSET",
-	qvalue.QValueKindTime:        "TIME",
-	qvalue.QValueKindDate:        "DATE",
-	qvalue.QValueKindBit:         "BINARY",
-	qvalue.QValueKindBytes:       "VARBINARY(MAX)",
-	qvalue.QValueKindStruct:      "NTEXT", // SQL Server doesn't support struct type
-	qvalue.QValueKindUUID:        "UNIQUEIDENTIFIER",
-	qvalue.QValueKindTimeTZ:      "NTEXT", // SQL Server doesn't have a time with timezone type
-	qvalue.QValueKindInvalid:     "NTEXT",
-	qvalue.QValueKindHStore:      "NTEXT", // SQL Server doesn't have a native HStore type
+var qValueKindToSQLServerTypeMap = map[qvalue.QKind]string{
+	qvalue.QKindBoolean:     "BIT",
+	qvalue.QKindInt16:       "SMALLINT",
+	qvalue.QKindInt32:       "INT",
+	qvalue.QKindInt64:       "BIGINT",
+	qvalue.QKindFloat32:     "REAL",
+	qvalue.QKindFloat64:     "FLOAT",
+	qvalue.QKindNumeric:     "DECIMAL(38, 9)",
+	qvalue.QKindQChar:       "CHAR",
+	qvalue.QKindString:      "NTEXT",
+	qvalue.QKindJSON:        "NTEXT", // SQL Server doesn't have a native JSON type
+	qvalue.QKindTimestamp:   "DATETIME2",
+	qvalue.QKindTimestampTZ: "DATETIMEOFFSET",
+	qvalue.QKindTime:        "TIME",
+	qvalue.QKindDate:        "DATE",
+	qvalue.QKindBit:         "BINARY",
+	qvalue.QKindBytes:       "VARBINARY(MAX)",
+	qvalue.QKindStruct:      "NTEXT", // SQL Server doesn't support struct type
+	qvalue.QKindUUID:        "UNIQUEIDENTIFIER",
+	qvalue.QKindTimeTZ:      "NTEXT", // SQL Server doesn't have a time with timezone type
+	qvalue.QKindInvalid:     "NTEXT",
+	qvalue.QKindHStore:      "NTEXT", // SQL Server doesn't have a native HStore type
 
 	// for all array types, we use NTEXT
-	qvalue.QValueKindArrayFloat32: "NTEXT",
-	qvalue.QValueKindArrayFloat64: "NTEXT",
-	qvalue.QValueKindArrayInt32:   "NTEXT",
-	qvalue.QValueKindArrayInt64:   "NTEXT",
-	qvalue.QValueKindArrayString:  "NTEXT",
+	qvalue.QKindArray: "NTEXT",
 }
 
-var sqlServerTypeToQValueKindMap = map[string]qvalue.QValueKind{
-	"INT":              qvalue.QValueKindInt32,
-	"BIGINT":           qvalue.QValueKindInt64,
-	"REAL":             qvalue.QValueKindFloat32,
-	"FLOAT":            qvalue.QValueKindFloat64,
-	"NTEXT":            qvalue.QValueKindString,
-	"TEXT":             qvalue.QValueKindString,
-	"BIT":              qvalue.QValueKindBoolean,
-	"DATETIME":         qvalue.QValueKindTimestamp,
-	"DATETIME2":        qvalue.QValueKindTimestamp,
-	"DATETIMEOFFSET":   qvalue.QValueKindTimestampTZ,
-	"TIME":             qvalue.QValueKindTime,
-	"DATE":             qvalue.QValueKindDate,
-	"VARBINARY(MAX)":   qvalue.QValueKindBytes,
-	"BINARY":           qvalue.QValueKindBit,
-	"DECIMAL":          qvalue.QValueKindNumeric,
-	"UNIQUEIDENTIFIER": qvalue.QValueKindUUID,
-	"SMALLINT":         qvalue.QValueKindInt32,
-	"TINYINT":          qvalue.QValueKindInt32,
-	"CHAR":             qvalue.QValueKindQChar,
-	"VARCHAR":          qvalue.QValueKindString,
-	"NCHAR":            qvalue.QValueKindString,
-	"NVARCHAR":         qvalue.QValueKindString,
+var sqlServerTypeToQValueKindMap = map[string]qvalue.QKind{
+	"INT":              qvalue.QKindInt32,
+	"BIGINT":           qvalue.QKindInt64,
+	"REAL":             qvalue.QKindFloat32,
+	"FLOAT":            qvalue.QKindFloat64,
+	"NTEXT":            qvalue.QKindString,
+	"TEXT":             qvalue.QKindString,
+	"BIT":              qvalue.QKindBoolean,
+	"DATETIME":         qvalue.QKindTimestamp,
+	"DATETIME2":        qvalue.QKindTimestamp,
+	"DATETIMEOFFSET":   qvalue.QKindTimestampTZ,
+	"TIME":             qvalue.QKindTime,
+	"DATE":             qvalue.QKindDate,
+	"VARBINARY(MAX)":   qvalue.QKindBytes,
+	"BINARY":           qvalue.QKindBit,
+	"DECIMAL":          qvalue.QKindNumeric,
+	"UNIQUEIDENTIFIER": qvalue.QKindUUID,
+	"SMALLINT":         qvalue.QKindInt32,
+	"TINYINT":          qvalue.QKindInt32,
+	"CHAR":             qvalue.QKindQChar,
+	"VARCHAR":          qvalue.QKindString,
+	"NCHAR":            qvalue.QKindString,
+	"NVARCHAR":         qvalue.QKindString,
 }

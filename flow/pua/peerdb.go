@@ -152,7 +152,7 @@ func LuaRowColumns(ls *lua.LState) int {
 
 func LuaRowColumnKind(ls *lua.LState) int {
 	row, key := LuaRow.StartIndex(ls)
-	ls.Push(lua.LString(GetRowQ(ls, row, key).Kind()))
+	ls.Push(lua.LString(GetRowQ(ls, row, key).Type().String()))
 	return 1
 }
 
@@ -232,8 +232,8 @@ func LuaQValue(ls *lua.LState, qv qvalue.QValue) lua.LValue {
 	case bool:
 		return lua.LBool(v)
 	case uint8:
-		if qv.Kind() == qvalue.QValueKindQChar {
-			return lua.LString(rune(v))
+		if ch, ok := qv.(qvalue.QValueQChar); ok {
+			return lua.LString(rune(ch.Val))
 		} else {
 			return lua.LNumber(v)
 		}

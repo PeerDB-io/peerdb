@@ -23,7 +23,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/numeric"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -653,15 +652,15 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 			columns = append(columns, &bigquery.FieldSchema{
 				Name:      column.Name,
 				Type:      bigquery.BigNumericFieldType,
-				Repeated:  qvalue.QValueKind(genericColType).IsArray(),
+				Repeated:  strings.HasPrefix(genericColType, "array_"),
 				Precision: int64(precision),
 				Scale:     int64(scale),
 			})
 		} else {
 			columns = append(columns, &bigquery.FieldSchema{
 				Name:     column.Name,
-				Type:     qValueKindToBigQueryType(genericColType),
-				Repeated: qvalue.QValueKind(genericColType).IsArray(),
+				Type:     parseKindToBigQueryType(genericColType),
+				Repeated: strings.HasPrefix(genericColType, "array_"),
 			})
 		}
 	}

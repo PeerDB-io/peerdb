@@ -87,7 +87,7 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 	qfields := make([]qvalue.QField, len(fds))
 	for i, fd := range fds {
 		cname := fd.Name
-		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID)
+		ctype := qe.postgresOIDToQType(fd.DataTypeOID)
 		if ctype == qvalue.QValueKindInvalid {
 			typeName, ok := qe.customTypesMapping[fd.DataTypeOID]
 			if ok {
