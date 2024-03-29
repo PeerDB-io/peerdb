@@ -148,12 +148,11 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 		avroConverter := model.NewQRecordAvroConverter(
 			qRecordOrErr.Record,
 			p.targetDWH,
-			p.avroSchema.NullableFields,
 			colNames,
 			logger,
 		)
 
-		avroMap, err := avroConverter.Convert()
+		avroMap, err := avroConverter.Convert(p.avroSchema)
 		if err != nil {
 			logger.Error("failed to convert QRecord to Avro compatible map: ", slog.Any("error", err))
 			return 0, fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)

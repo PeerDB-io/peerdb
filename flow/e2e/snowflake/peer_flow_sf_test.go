@@ -136,6 +136,9 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
 		}
 		return records.Records[0][0].Value() == nil && records.Records[0][1].Value() != nil
 	})
+
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
@@ -221,8 +224,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 
 		return true
 	})
-	env.Cancel()
 
+	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
 }
 

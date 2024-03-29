@@ -1,8 +1,6 @@
 package connbigquery
 
 import (
-	"fmt"
-
 	"cloud.google.com/go/bigquery"
 
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -61,35 +59,35 @@ func qValueKindToBigQueryType(colType string) bigquery.FieldType {
 	}
 }
 
-// bigqueryTypeToQValueKind converts a bigquery FieldType to a QValueKind.
-func BigQueryTypeToQValueKind(fieldType bigquery.FieldType) (qvalue.QValueKind, error) {
+// BigQueryTypeToQValueKind converts a bigquery.FieldType to a QValueKind
+func BigQueryTypeToQValueKind(fieldType bigquery.FieldType) qvalue.QValueKind {
 	switch fieldType {
 	case bigquery.StringFieldType:
-		return qvalue.QValueKindString, nil
+		return qvalue.QValueKindString
 	case bigquery.BytesFieldType:
-		return qvalue.QValueKindBytes, nil
+		return qvalue.QValueKindBytes
 	case bigquery.IntegerFieldType:
-		return qvalue.QValueKindInt64, nil
+		return qvalue.QValueKindInt64
 	case bigquery.FloatFieldType:
-		return qvalue.QValueKindFloat64, nil
+		return qvalue.QValueKindFloat64
 	case bigquery.BooleanFieldType:
-		return qvalue.QValueKindBoolean, nil
+		return qvalue.QValueKindBoolean
 	case bigquery.TimestampFieldType:
-		return qvalue.QValueKindTimestamp, nil
+		return qvalue.QValueKindTimestamp
 	case bigquery.DateFieldType:
-		return qvalue.QValueKindDate, nil
+		return qvalue.QValueKindDate
 	case bigquery.TimeFieldType:
-		return qvalue.QValueKindTime, nil
+		return qvalue.QValueKindTime
 	case bigquery.RecordFieldType:
-		return qvalue.QValueKindStruct, nil
+		return qvalue.QValueKindStruct
 	case bigquery.NumericFieldType, bigquery.BigNumericFieldType:
-		return qvalue.QValueKindNumeric, nil
+		return qvalue.QValueKindNumeric
 	case bigquery.GeographyFieldType:
-		return qvalue.QValueKindGeography, nil
+		return qvalue.QValueKindGeography
 	case bigquery.JSONFieldType:
-		return qvalue.QValueKindJSON, nil
+		return qvalue.QValueKindJSON
 	default:
-		return "", fmt.Errorf("unsupported bigquery field type: %v", fieldType)
+		return qvalue.QValueKindInvalid
 	}
 }
 
@@ -104,4 +102,14 @@ func qValueKindToBigQueryTypeString(colType string) string {
 		bqTypeAsString = "BOOL"
 	}
 	return bqTypeAsString
+}
+
+func BigQueryFieldToQField(bqField *bigquery.FieldSchema) qvalue.QField {
+	return qvalue.QField{
+		Name:      bqField.Name,
+		Type:      BigQueryTypeToQValueKind(bqField.Type),
+		Precision: int16(bqField.Precision),
+		Scale:     int16(bqField.Scale),
+		Nullable:  !bqField.Required,
+	}
 }

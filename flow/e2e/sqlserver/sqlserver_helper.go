@@ -9,7 +9,7 @@ import (
 	peersql "github.com/PeerDB-io/peer-flow/connectors/sql"
 	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -65,7 +65,7 @@ func NewSQLServerHelper(name string) (*SQLServerHelper, error) {
 	}, nil
 }
 
-func (h *SQLServerHelper) CreateTable(schema *model.QRecordSchema, tableName string) error {
+func (h *SQLServerHelper) CreateTable(schema *qvalue.QRecordSchema, tableName string) error {
 	err := h.E.CreateTable(context.Background(), schema, h.SchemaName, tableName)
 	if err != nil {
 		return err

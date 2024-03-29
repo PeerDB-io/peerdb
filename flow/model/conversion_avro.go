@@ -11,40 +11,36 @@ import (
 )
 
 type QRecordAvroConverter struct {
-	logger         log.Logger
-	QRecord        []qvalue.QValue
-	NullableFields map[string]struct{}
-	ColNames       []string
-	TargetDWH      protos.DBType
+	logger    log.Logger
+	QRecord   []qvalue.QValue
+	ColNames  []string
+	TargetDWH protos.DBType
 }
 
 func NewQRecordAvroConverter(
 	q []qvalue.QValue,
 	targetDWH protos.DBType,
-	nullableFields map[string]struct{},
 	colNames []string,
 	logger log.Logger,
 ) *QRecordAvroConverter {
 	return &QRecordAvroConverter{
-		QRecord:        q,
-		TargetDWH:      targetDWH,
-		NullableFields: nullableFields,
-		ColNames:       colNames,
-		logger:         logger,
+		QRecord:   q,
+		TargetDWH: targetDWH,
+		ColNames:  colNames,
+		logger:    logger,
 	}
 }
 
-func (qac *QRecordAvroConverter) Convert() (map[string]interface{}, error) {
+func (qac *QRecordAvroConverter) Convert(schema *QRecordAvroSchemaDefinition) (map[string]interface{}, error) {
 	m := make(map[string]interface{}, len(qac.QRecord))
 
 	for idx, val := range qac.QRecord {
 		key := qac.ColNames[idx]
-		_, nullable := qac.NullableFields[key]
 
 		avroVal, err := qvalue.QValueToAvro(
 			val,
+			&schema.Fields[idx],
 			qac.TargetDWH,
-			nullable,
 			qac.logger,
 		)
 		if err != nil {
@@ -69,17 +65,16 @@ type QRecordAvroSchema struct {
 }
 
 type QRecordAvroSchemaDefinition struct {
-	NullableFields map[string]struct{}
-	Schema         string
+	Schema string
+	Fields []qvalue.QField
 }
 
 func GetAvroSchemaDefinition(
 	dstTableName string,
-	qRecordSchema *QRecordSchema,
+	qRecordSchema *qvalue.QRecordSchema,
 	targetDWH protos.DBType,
 ) (*QRecordAvroSchemaDefinition, error) {
 	avroFields := make([]QRecordAvroField, 0, len(qRecordSchema.Fields))
-	nullableFields := make(map[string]struct{})
 
 	for _, qField := range qRecordSchema.Fields {
 		avroType, err := qvalue.GetAvroSchemaFromQValueKind(qField.Type, targetDWH, qField.Precision, qField.Scale)
@@ -89,7 +84,6 @@ func GetAvroSchemaDefinition(
 
 		if qField.Nullable {
 			avroType = []interface{}{"null", avroType}
-			nullableFields[qField.Name] = struct{}{}
 		}
 
 		avroFields = append(avroFields, QRecordAvroField{
@@ -110,7 +104,7 @@ func GetAvroSchemaDefinition(
 	}
 
 	return &QRecordAvroSchemaDefinition{
-		Schema:         string(avroSchemaJSON),
-		NullableFields: nullableFields,
+		Schema: string(avroSchemaJSON),
+		Fields: qRecordSchema.Fields,
 	}, nil
 }

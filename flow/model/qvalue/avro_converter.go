@@ -164,19 +164,19 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH protos.DBType, preci
 }
 
 type QValueAvroConverter struct {
+	*QField
 	logger    log.Logger
 	TargetDWH protos.DBType
-	Nullable  bool
 }
 
-func QValueToAvro(value QValue, targetDWH protos.DBType, nullable bool, logger log.Logger) (interface{}, error) {
-	if nullable && value.Value() == nil {
+func QValueToAvro(value QValue, field *QField, targetDWH protos.DBType, logger log.Logger) (interface{}, error) {
+	if value.Value() == nil {
 		return nil, nil
 	}
 
 	c := &QValueAvroConverter{
+		QField:    field,
 		TargetDWH: targetDWH,
-		Nullable:  nullable,
 		logger:    logger,
 	}
 
@@ -431,7 +431,7 @@ func (c *QValueAvroConverter) processNullableUnion(
 
 func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) interface{} {
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
-		nstr := num.String()
+		nstr := num.StringFixed(int32(c.Precision))
 		digits := len(nstr)
 		if num.Sign() == -1 {
 			digits -= 1

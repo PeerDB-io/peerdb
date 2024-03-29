@@ -18,14 +18,14 @@ type QRecordOrError struct {
 }
 
 type QRecordSchemaOrError struct {
-	Schema *QRecordSchema
+	Schema *qvalue.QRecordSchema
 	Err    error
 }
 
 type QRecordStream struct {
 	schema      chan QRecordSchemaOrError
 	Records     chan QRecordOrError
-	schemaCache *QRecordSchema
+	schemaCache *qvalue.QRecordSchema
 	schemaSet   bool
 }
 
@@ -60,7 +60,7 @@ func NewQRecordStream(buffer int) *QRecordStream {
 	}
 }
 
-func (s *QRecordStream) Schema() (*QRecordSchema, error) {
+func (s *QRecordStream) Schema() (*qvalue.QRecordSchema, error) {
 	if s.schemaCache != nil {
 		return s.schemaCache, nil
 	}
@@ -70,7 +70,7 @@ func (s *QRecordStream) Schema() (*QRecordSchema, error) {
 	return schemaOrError.Schema, schemaOrError.Err
 }
 
-func (s *QRecordStream) SetSchema(schema *QRecordSchema) error {
+func (s *QRecordStream) SetSchema(schema *qvalue.QRecordSchema) error {
 	if s.schemaSet {
 		return errors.New("Schema already set")
 	}

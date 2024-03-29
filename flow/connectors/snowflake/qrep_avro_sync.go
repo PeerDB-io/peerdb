@@ -141,7 +141,7 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 
 func (s *SnowflakeAvroSyncHandler) addMissingColumns(
 	ctx context.Context,
-	schema *model.QRecordSchema,
+	schema *qvalue.QRecordSchema,
 	dstTableSchema []*sql.ColumnType,
 	dstTableName string,
 	partition *protos.QRepPartition,
@@ -205,7 +205,7 @@ func (s *SnowflakeAvroSyncHandler) addMissingColumns(
 
 func (s *SnowflakeAvroSyncHandler) getAvroSchema(
 	dstTableName string,
-	schema *model.QRecordSchema,
+	schema *qvalue.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
 	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema, protos.DBType_SNOWFLAKE)
 	if err != nil {

@@ -247,28 +247,18 @@ func DefineAvroSchema(dstTableName string,
 	syncedAtCol string,
 	softDeleteCol string,
 ) (*model.QRecordAvroSchemaDefinition, error) {
-	avroFields := []AvroField{}
-	nullableFields := make(map[string]struct{})
-
+	avroFields := make([]AvroField, 0, len(dstTableMetadata.Schema))
+	qFields := make([]qvalue.QField, 0, len(avroFields))
 	for _, bqField := range dstTableMetadata.Schema {
 		if bqField.Name == syncedAtCol || bqField.Name == softDeleteCol {
 			continue
 		}
-		avroType, err := GetAvroType(bqField)
+		avroField, err := GetAvroField(bqField)
 		if err != nil {
 			return nil, err
 		}
-
-		// If a field is nullable, its Avro type should be ["null", actualType]
-		if !bqField.Required {
-			avroType = []interface{}{"null", avroType}
-			nullableFields[bqField.Name] = struct{}{}
-		}
-
-		avroFields = append(avroFields, AvroField{
-			Name: bqField.Name,
-			Type: avroType,
-		})
+		avroFields = append(avroFields, avroField)
+		qFields = append(qFields, BigQueryFieldToQField(bqField))
 	}
 
 	avroSchema := AvroSchema{
@@ -283,8 +273,8 @@ func DefineAvroSchema(dstTableName string,
 	}
 
 	return &model.QRecordAvroSchemaDefinition{
-		Schema:         string(avroSchemaJSON),
-		NullableFields: nullableFields,
+		Schema: string(avroSchemaJSON),
+		Fields: qFields,
 	}, nil
 }
 
@@ -394,6 +384,23 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 	default:
 		return nil, fmt.Errorf("unsupported BigQuery field type: %s", bqField.Type)
 	}
+}
+
+func GetAvroField(bqField *bigquery.FieldSchema) (AvroField, error) {
+	avroType, err := GetAvroType(bqField)
+	if err != nil {
+		return AvroField{}, err
+	}
+
+	// If a field is nullable, its Avro type should be ["null", actualType]
+	if !bqField.Required {
+		avroType = []interface{}{"null", avroType}
+	}
+
+	return AvroField{
+		Name: bqField.Name,
+		Type: avroType,
+	}, nil
 }
 
 func (s *QRepAvroSyncMethod) writeToStage(

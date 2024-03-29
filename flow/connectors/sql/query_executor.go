@@ -29,7 +29,7 @@ type SQLQueryExecutor interface {
 	CheckSchemaExists(ctx context.Context, schemaName string) (bool, error)
 	RecreateSchema(ctx context.Context, schemaName string) error
 
-	CreateTable(ctx context.Context, schema *model.QRecordSchema, schemaName string, tableName string) error
+	CreateTable(ctx context.Context, schema *qvalue.QRecordSchema, schemaName string, tableName string) error
 	CountRows(ctx context.Context, schemaName string, tableName string) (int64, error)
 
 	ExecuteAndProcessQuery(ctx context.Context, query string, args ...interface{}) (*model.QRecordBatch, error)
@@ -101,7 +101,7 @@ func (g *GenericSQLQueryExecutor) RecreateSchema(ctx context.Context, schemaName
 	return nil
 }
 
-func (g *GenericSQLQueryExecutor) CreateTable(ctx context.Context, schema *model.QRecordSchema, schemaName string, tableName string) error {
+func (g *GenericSQLQueryExecutor) CreateTable(ctx context.Context, schema *qvalue.QRecordSchema, schemaName string, tableName string) error {
 	fields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
 		dbType, ok := g.qvalueKindToDBType[field.Type]
@@ -151,15 +151,15 @@ func (g *GenericSQLQueryExecutor) CountSRIDs(
 	return count.Int64, err
 }
 
-func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (model.QField, error) {
+func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (qvalue.QField, error) {
 	qvKind, ok := g.dbtypeToQValueKind[ct.DatabaseTypeName()]
 	if !ok {
-		return model.QField{}, fmt.Errorf("unsupported database type %s", ct.DatabaseTypeName())
+		return qvalue.QField{}, fmt.Errorf("unsupported database type %s", ct.DatabaseTypeName())
 	}
 
 	nullable, ok := ct.Nullable()
 
-	return model.QField{
+	return qvalue.QField{
 		Name:     ct.Name(),
 		Type:     qvKind,
 		Nullable: ok && nullable,
@@ -173,7 +173,7 @@ func (g *GenericSQLQueryExecutor) processRows(ctx context.Context, rows *sqlx.Ro
 	}
 
 	// Convert dbColTypes to QFields
-	qfields := make([]model.QField, len(dbColTypes))
+	qfields := make([]qvalue.QField, len(dbColTypes))
 	for i, ct := range dbColTypes {
 		qfield, err := g.columnTypeToQField(ct)
 		if err != nil {
@@ -264,7 +264,7 @@ func (g *GenericSQLQueryExecutor) processRows(ctx context.Context, rows *sqlx.Ro
 	// Return a QRecordBatch
 	return &model.QRecordBatch{
 		Records: records,
-		Schema:  model.NewQRecordSchema(qfields),
+		Schema:  qvalue.NewQRecordSchema(qfields),
 	}, nil
 }
 
