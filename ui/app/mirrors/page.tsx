@@ -71,7 +71,6 @@ export default function Mirrors() {
           >
             PeerDB Quickstart
           </Label>
-          !
         </Label>
       </Panel>
       {isLoading && (
