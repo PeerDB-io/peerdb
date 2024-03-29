@@ -35,8 +35,6 @@ func (qac *QRecordAvroConverter) Convert(qrecord []qvalue.QValue) (map[string]in
 	m := make(map[string]interface{}, len(qrecord))
 
 	for idx, val := range qrecord {
-		key := qac.ColNames[idx]
-
 		avroVal, err := qvalue.QValueToAvro(
 			val,
 			&qac.Schema.Fields[idx],
@@ -47,7 +45,7 @@ func (qac *QRecordAvroConverter) Convert(qrecord []qvalue.QValue) (map[string]in
 			return nil, fmt.Errorf("failed to convert QValue to Avro-compatible value: %w", err)
 		}
 
-		m[key] = avroVal
+		m[qac.ColNames[idx]] = avroVal
 	}
 
 	return m, nil
