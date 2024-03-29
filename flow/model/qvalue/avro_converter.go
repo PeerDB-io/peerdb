@@ -4,7 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
+	"math"
+	"math/big"
 	"time"
 
 	"github.com/google/uuid"
@@ -429,20 +430,41 @@ func (c *QValueAvroConverter) processNullableUnion(
 	return value, nil
 }
 
+var tenInt = big.NewInt(10)
+
+func countDigits(bi *big.Int) int {
+	if bi.IsUint64() {
+		u64 := bi.Uint64()
+		if u64 < (1 << 53) {
+			if u64 == 0 {
+				return 1
+			}
+			return int(math.Log10(float64(u64))) + 1
+		}
+	} else if bi.IsInt64() {
+		i64 := bi.Int64()
+		if i64 > -(1 << 53) {
+			return int(math.Log10(float64(-i64))) + 1
+		}
+	}
+
+	abs := new(big.Int).Abs(bi)
+	// lg10 may be off by 1, need to verify
+	lg10 := int(float64(abs.BitLen()) / math.Log2(10))
+	check := big.NewInt(int64(lg10))
+	return lg10 + abs.Cmp(check.Exp(tenInt, check, nil))
+}
+
 func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) interface{} {
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
-		nstr := num.StringFixed(int32(c.Precision))
-		digits := len(nstr)
-		if num.Sign() == -1 {
-			digits -= 1
-		}
-		if strings.ContainsRune(nstr, '.') {
-			digits -= 1
-		}
-		if digits > 38 {
-			// snowflake only supports 38 digits
-			slog.Warn("Clearing NUMERIC value with > 38 digits for Snowflake!", slog.String("value", nstr))
+		bidigi := countDigits(num.BigInt())
+		avroPrecision, avroScale := DetermineNumericSettingForDWH(c.Precision, c.Scale, c.TargetDWH)
+
+		if bidigi+int(avroScale) > int(avroPrecision) {
+			slog.Warn("Clearing NUMERIC value with too many digits for Snowflake!", slog.Any("number", num))
 			return nil
+		} else if num.Exponent() < -int32(avroScale) {
+			num = num.Round(int32(avroScale))
 		}
 	}
 	rat := num.Rat()
