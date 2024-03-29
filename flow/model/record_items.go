@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strings"
 
 	"github.com/google/uuid"
 
@@ -181,20 +180,7 @@ func (r *RecordItems) toMap(hstoreAsJSON bool, opts ToJSONOptions) (map[string]i
 			}
 			jsonStruct[col] = formattedDateArr
 		case qvalue.QValueNumeric:
-			nstr := v.Val.String()
-			digits := len(nstr)
-			if v.Val.Sign() == -1 {
-				digits -= 1
-			}
-			if strings.ContainsRune(nstr, '.') {
-				digits -= 1
-			}
-			if digits > 38 {
-				// snowflake only supports 38 digits
-				jsonStruct[col] = nil
-			} else {
-				jsonStruct[col] = v.Val.String()
-			}
+			jsonStruct[col] = v.Val.String()
 		case qvalue.QValueFloat64:
 			if math.IsNaN(v.Val) || math.IsInf(v.Val, 0) {
 				jsonStruct[col] = nil
