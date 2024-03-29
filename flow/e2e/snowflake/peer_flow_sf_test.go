@@ -123,9 +123,10 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
 		return records.Records[0][0].Value() == nil && records.Records[0][1].Value() != nil
 	})
 
+	// Fewer 9s this time are still invalid, with precision 2 `1` is 3 digits: `1.00`
 	_, err = s.Conn().Exec(context.Background(),
 		fmt.Sprintf("INSERT INTO %s (id, num1, num2) VALUES (2,$1,$2)", srcTableName),
-		"999999999999999999999999999999999999999",
+		"9999999999999999999999999999999999",
 		"9999999999999999")
 	e2e.EnvNoError(s.t, env, err)
 
