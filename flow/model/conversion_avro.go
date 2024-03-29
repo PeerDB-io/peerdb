@@ -12,34 +12,34 @@ import (
 
 type QRecordAvroConverter struct {
 	logger    log.Logger
-	QRecord   []qvalue.QValue
+	Schema    *QRecordAvroSchemaDefinition
 	ColNames  []string
 	TargetDWH protos.DBType
 }
 
 func NewQRecordAvroConverter(
-	q []qvalue.QValue,
+	schema *QRecordAvroSchemaDefinition,
 	targetDWH protos.DBType,
 	colNames []string,
 	logger log.Logger,
 ) *QRecordAvroConverter {
 	return &QRecordAvroConverter{
-		QRecord:   q,
+		Schema:    schema,
 		TargetDWH: targetDWH,
 		ColNames:  colNames,
 		logger:    logger,
 	}
 }
 
-func (qac *QRecordAvroConverter) Convert(schema *QRecordAvroSchemaDefinition) (map[string]interface{}, error) {
-	m := make(map[string]interface{}, len(qac.QRecord))
+func (qac *QRecordAvroConverter) Convert(qrecord []qvalue.QValue) (map[string]interface{}, error) {
+	m := make(map[string]interface{}, len(qrecord))
 
-	for idx, val := range qac.QRecord {
+	for idx, val := range qrecord {
 		key := qac.ColNames[idx]
 
 		avroVal, err := qvalue.QValueToAvro(
 			val,
-			&schema.Fields[idx],
+			&qac.Schema.Fields[idx],
 			qac.TargetDWH,
 			qac.logger,
 		)
