@@ -10,7 +10,6 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/gluajson"
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -152,7 +151,7 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 	}
 	defer ls.Close()
 	if req.Script == "" {
-		ls.Env.RawSetString("onRecord", ls.NewFunction(gluajson.LuaJsonEncode))
+		ls.Env.RawSetString("onRecord", ls.NewFunction(utils.DefaultOnRecord))
 	}
 
 	lfn := ls.Env.RawGetString("onRecord")

@@ -7,6 +7,7 @@ import (
 	"github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/gluaflatbuffers"
+	"github.com/PeerDB-io/gluajson"
 	"github.com/PeerDB-io/peer-flow/pua"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -66,4 +67,18 @@ func LoadScript(ctx context.Context, script string, printfn lua.LGFunction) (*lu
 		}
 	}
 	return ls, nil
+}
+
+func DefaultOnRecord(ls *lua.LState) int {
+	ud, _ := pua.LuaRecord.Check(ls, 1)
+	tbl := ls.CreateTable(0, 6)
+	for _, key := range []string{
+		"kind", "old", "new", "checkpoint", "commit_time", "source",
+	} {
+		tbl.RawSetString(key, ls.GetField(ud, key))
+	}
+	ls.Push(ls.NewFunction(gluajson.LuaJsonEncode))
+	ls.Push(tbl)
+	ls.Call(1, 1)
+	return 1
 }
