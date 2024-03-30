@@ -8,6 +8,7 @@ import (
 
 	"github.com/PeerDB-io/gluaflatbuffers"
 	"github.com/PeerDB-io/gluajson"
+	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/pua"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -70,7 +71,10 @@ func LoadScript(ctx context.Context, script string, printfn lua.LGFunction) (*lu
 }
 
 func DefaultOnRecord(ls *lua.LState) int {
-	ud, _ := pua.LuaRecord.Check(ls, 1)
+	ud, record := pua.LuaRecord.Check(ls, 1)
+	if _, ok := record.(*model.RelationRecord); ok {
+		return 0
+	}
 	tbl := ls.CreateTable(0, 6)
 	for _, key := range []string{
 		"kind", "old", "new", "checkpoint", "commit_time", "source",
