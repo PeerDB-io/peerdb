@@ -66,9 +66,9 @@ func ServiceAccount() (*utils.GcpServiceAccount, error) {
 	return peer_bq.NewBigQueryServiceAccount(config)
 }
 
-func (s PubSubSuite) Peer(name string, sa *utils.GcpServiceAccount) *protos.Peer {
+func (s PubSubSuite) Peer(sa *utils.GcpServiceAccount) *protos.Peer {
 	return &protos.Peer{
-		Name: e2e.AddSuffix(s, name),
+		Name: e2e.AddSuffix(s, "pubsub"),
 		Type: protos.DBType_PUBSUB,
 		Config: &protos.Peer_PubsubConfig{
 			PubsubConfig: &protos.PubSubConfig{
@@ -137,7 +137,7 @@ func (s PubSubSuite) TestCreateTopic() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: flowName},
-		Destination:      s.Peer(flowName, sa),
+		Destination:      s.Peer(sa),
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 	flowConnConfig.Script = "e2e_pscreate"
@@ -190,7 +190,7 @@ func (s PubSubSuite) TestSimple() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: flowName},
-		Destination:      s.Peer(flowName, sa),
+		Destination:      s.Peer(sa),
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 	flowConnConfig.Script = "e2e_pssimple"

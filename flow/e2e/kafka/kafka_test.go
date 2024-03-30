@@ -43,7 +43,7 @@ func (s KafkaSuite) Suffix() string {
 
 func (s KafkaSuite) Peer() *protos.Peer {
 	return &protos.Peer{
-		Name: e2e.AddSuffix(s, "kasimple"),
+		Name: e2e.AddSuffix(s, "kafka"),
 		Type: protos.DBType_KAFKA,
 		Config: &protos.Peer_KafkaConfig{
 			KafkaConfig: &protos.KafkaConfig{
@@ -130,6 +130,61 @@ func (s KafkaSuite) TestSimple() {
 			require.Equal(s.t, flowName, ft.Topic)
 			ft.EachRecord(func(r *kgo.Record) {
 				require.Equal(s.t, "testval", string(r.Value))
+			})
+		})
+		return true
+	})
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s KafkaSuite) TestDefault() {
+	srcTableName := e2e.AttachSchema(s, "kadefault")
+
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			val text
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	flowName := e2e.AddSuffix(s, "kadefault")
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      flowName,
+		TableNameMapping: map[string]string{srcTableName: flowName},
+		Destination:      s.Peer(),
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO %s (id, val) VALUES (1, 'testval')
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize insert", func() bool {
+		kafka, err := kgo.NewClient(
+			kgo.SeedBrokers("localhost:9092"),
+			kgo.ConsumeTopics(flowName),
+		)
+		if err != nil {
+			return false
+		}
+		defer kafka.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		fetches := kafka.PollFetches(ctx)
+		fetches.EachTopic(func(ft kgo.FetchTopic) {
+			require.Equal(s.t, flowName, ft.Topic)
+			ft.EachRecord(func(r *kgo.Record) {
+				require.Contains(s.t, string(r.Value), "\"testval\"")
+				require.Equal(s.t, byte('{'), r.Value[0])
+				require.Equal(s.t, byte('}'), r.Value[len(r.Value)-1])
 			})
 		})
 		return true
