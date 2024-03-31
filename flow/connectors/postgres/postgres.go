@@ -598,7 +598,7 @@ func (c *PostgresConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 		}
 	}()
 
-	supportsMerge, _, err := c.MajorVersionCheck(ctx, POSTGRES_15)
+	pgversion, err := c.MajorVersion(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -615,7 +615,7 @@ func (c *PostgresConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 				SyncedAtColName:   req.SyncedAtColName,
 				SoftDelete:        req.SoftDelete,
 			},
-			supportsMerge:  supportsMerge,
+			supportsMerge:  pgversion >= POSTGRES_15,
 			metadataSchema: c.metadataSchema,
 			logger:         c.logger,
 		}
@@ -971,7 +971,7 @@ func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context) (*protos.Expor
 		return nil, nil, fmt.Errorf("[export-snapshot] error setting lock_timeout: %w", err)
 	}
 
-	ok, _, err := c.MajorVersionCheck(ctx, POSTGRES_13)
+	pgversion, err := c.MajorVersion(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("[export-snapshot] error getting PG version: %w", err)
 	}
@@ -984,7 +984,7 @@ func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context) (*protos.Expor
 
 	return &protos.ExportTxSnapshotOutput{
 		SnapshotName:     snapshotName,
-		SupportsTidScans: ok,
+		SupportsTidScans: pgversion >= POSTGRES_13,
 	}, tx, err
 }
 
