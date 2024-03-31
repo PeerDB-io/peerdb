@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/plain"
@@ -200,38 +202,80 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 		return nil, fmt.Errorf("script should define `onRecord` as function, not %s", lfn)
 	}
 
-	for record := range req.Records.GetRecords() {
-		if err := wgCtx.Err(); err != nil {
-			return nil, err
-		}
-		ls.Push(fn)
-		ls.Push(pua.LuaRecord.New(ls, record))
-		err := ls.PCall(1, -1, nil)
-		if err != nil {
-			return nil, fmt.Errorf("script failed: %w", err)
-		}
-		args := ls.GetTop()
-		for i := range args {
-			kr, err := lvalueToKafkaRecord(ls, ls.Get(i-args))
-			if err != nil {
-				return nil, err
-			}
-			if kr != nil {
-				if kr.Topic == "" {
-					kr.Topic = record.GetDestinationTableName()
-				}
+	lastSeenLSN := atomic.Int64{}
+	flushLoopDone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(peerdbenv.PeerDBQueueFlushTimeoutSeconds())
+		defer ticker.Stop()
 
-				wg.Add(1)
-				c.client.Produce(wgCtx, kr, produceCb)
-				record.PopulateCountMap(tableNameRowsMapping)
+		lastUpdatedOffset := int64(0)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-flushLoopDone:
+				return
+			// flush loop doesn't block processing new messages
+			case <-ticker.C:
+				lastSeen := lastSeenLSN.Load()
+				if err := c.client.Flush(ctx); err != nil {
+					c.logger.Warn("[kafka] flush error", slog.Any("error", err))
+					continue
+				} else if lastSeen > lastUpdatedOffset {
+					if err := c.SetLastOffset(ctx, req.FlowJobName, lastSeen); err != nil {
+						c.logger.Warn("[kafka] SetLastOffset error", slog.Any("error", err))
+					} else {
+						lastUpdatedOffset = lastSeen
+						c.logger.Info("processBatch", slog.Int64("updated last offset", lastSeen))
+					}
+				}
 			}
 		}
-		numRecords += 1
-		ls.SetTop(0)
+	}()
+
+Loop:
+	for {
+		select {
+		case record, ok := <-req.Records.GetRecords():
+			if !ok {
+				c.logger.Info("flushing batches because no more records")
+				break Loop
+			}
+
+			ls.Push(fn)
+			ls.Push(pua.LuaRecord.New(ls, record))
+			err := ls.PCall(1, -1, nil)
+			if err != nil {
+				return nil, fmt.Errorf("script failed: %w", err)
+			}
+			args := ls.GetTop()
+			for i := range args {
+				kr, err := lvalueToKafkaRecord(ls, ls.Get(i-args))
+				if err != nil {
+					return nil, err
+				}
+				if kr != nil {
+					if kr.Topic == "" {
+						kr.Topic = record.GetDestinationTableName()
+					}
+
+					wg.Add(1)
+					c.client.Produce(wgCtx, kr, produceCb)
+					record.PopulateCountMap(tableNameRowsMapping)
+				}
+			}
+			ls.SetTop(0)
+			numRecords += 1
+			shared.AtomicInt64Max(&lastSeenLSN, record.GetCheckpointID())
+
+		case <-wgCtx.Done():
+			return nil, wgCtx.Err()
+		}
 	}
 
+	close(flushLoopDone)
 	if err := c.client.Flush(ctx); err != nil {
-		return nil, fmt.Errorf("could not flush transaction: %w", err)
+		return nil, fmt.Errorf("[kafka] final flush error: %w", err)
 	}
 	waitChan := make(chan struct{})
 	go func() {

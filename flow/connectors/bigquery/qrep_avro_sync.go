@@ -13,7 +13,6 @@ import (
 	"cloud.google.com/go/bigquery"
 	"go.temporal.io/sdk/activity"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -412,12 +411,6 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	stream *model.QRecordStream,
 	flowName string,
 ) (int, error) {
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("writing to avro stage for objectFolder %s and staging table %s",
-			objectFolder, stagingTable)
-	})
-	defer shutdown()
-
 	var avroFile *avro.AvroFile
 	ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressNone, protos.DBType_BIGQUERY)
 	idLog := slog.Group("write-metadata",
