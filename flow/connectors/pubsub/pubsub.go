@@ -126,6 +126,9 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 		return nil, err
 	}
 	defer ls.Close()
+	if req.Script == "" {
+		ls.Env.RawSetString("onRecord", ls.NewFunction(utils.DefaultOnRecord))
+	}
 
 	lfn := ls.Env.RawGetString("onRecord")
 	fn, ok := lfn.(*lua.LFunction)

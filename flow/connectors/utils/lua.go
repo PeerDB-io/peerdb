@@ -2,17 +2,16 @@ package utils
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/gluaflatbuffers"
+	"github.com/PeerDB-io/gluajson"
+	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/pua"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
-
-var errEmptyScript = errors.New("mirror must have script")
 
 func LVAsReadOnlyBytes(ls *lua.LState, v lua.LValue) ([]byte, error) {
 	str, err := LVAsStringOrNil(ls, v)
@@ -36,10 +35,6 @@ func LVAsStringOrNil(ls *lua.LState, v lua.LValue) (string, error) {
 }
 
 func LoadScript(ctx context.Context, script string, printfn lua.LGFunction) (*lua.LState, error) {
-	if script == "" {
-		return nil, errEmptyScript
-	}
-
 	ls := lua.NewState(lua.Options{SkipOpenLibs: true})
 	ls.SetContext(ctx)
 	for _, pair := range []struct {
@@ -62,13 +57,26 @@ func LoadScript(ctx context.Context, script string, printfn lua.LGFunction) (*lu
 	ls.PreloadModule("flatbuffers", gluaflatbuffers.Loader)
 	pua.RegisterTypes(ls)
 	ls.Env.RawSetString("print", ls.NewFunction(printfn))
-	err := ls.GPCall(pua.LoadPeerdbScript, lua.LString(script))
-	if err != nil {
-		return nil, fmt.Errorf("error loading script %s: %w", script, err)
-	}
-	err = ls.PCall(0, 0, nil)
-	if err != nil {
-		return nil, fmt.Errorf("error executing script %s: %w", script, err)
+	if script != "" {
+		err := ls.GPCall(pua.LoadPeerdbScript, lua.LString(script))
+		if err != nil {
+			return nil, fmt.Errorf("error loading script %s: %w", script, err)
+		}
+		err = ls.PCall(0, 0, nil)
+		if err != nil {
+			return nil, fmt.Errorf("error executing script %s: %w", script, err)
+		}
 	}
 	return ls, nil
+}
+
+func DefaultOnRecord(ls *lua.LState) int {
+	ud, record := pua.LuaRecord.Check(ls, 1)
+	if _, ok := record.(*model.RelationRecord); ok {
+		return 0
+	}
+	ls.Push(ls.NewFunction(gluajson.LuaJsonEncode))
+	ls.Push(ud)
+	ls.Call(1, 1)
+	return 1
 }
