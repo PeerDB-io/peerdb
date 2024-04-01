@@ -203,7 +203,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		"INSERT INTO %s VALUES ($1, $2, $3, $4, $5);",
 		metadataTableIdentifier.Sanitize(),
 	)
-	s.connector.logger.Info("Executing transaction inside Qrep sync", syncLog)
+	s.connector.logger.Info("Executing transaction inside QRep sync", syncLog)
 	_, err = tx.Exec(
 		context.Background(),
 		insertMetadataStmt,
