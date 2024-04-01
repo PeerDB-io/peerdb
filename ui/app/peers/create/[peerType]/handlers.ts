@@ -8,8 +8,10 @@ import { Dispatch, SetStateAction } from 'react';
 import {
   bqSchema,
   chSchema,
+  kaSchema,
   peerNameSchema,
   pgSchema,
+  psSchema,
   s3Schema,
   sfSchema,
 } from './schema';
@@ -56,6 +58,14 @@ const validateFields = (
     case 'S3':
       const s3Config = s3Schema.safeParse(config);
       if (!s3Config.success) validationErr = s3Config.error.issues[0].message;
+      break;
+    case 'KAFKA':
+      const kaConfig = kaSchema.safeParse(config);
+      if (!kaConfig.success) validationErr = kaConfig.error.issues[0].message;
+      break;
+    case 'PUBSUB':
+      const psConfig = psSchema.safeParse(config);
+      if (!psConfig.success) validationErr = psConfig.error.issues[0].message;
       break;
     default:
       validationErr = 'Unsupported peer type ' + type;

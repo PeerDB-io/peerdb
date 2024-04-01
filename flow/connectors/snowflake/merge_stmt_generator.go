@@ -12,17 +12,18 @@ import (
 )
 
 type mergeStmtGenerator struct {
+	// the schema of the table to merge into
+	normalizedTableSchema *protos.TableSchema
+	// _PEERDB_IS_DELETED and _SYNCED_AT columns
+	peerdbCols *protos.PeerDBColumns
+	// _PEERDB_RAW_...
 	rawTableName string
 	// destination table name, used to retrieve records from raw table
 	dstTableName string
-	// Id of the currently merging batch
-	mergeBatchId int64
-	// the schema of the table to merge into
-	normalizedTableSchema *protos.TableSchema
 	// array of toast column combinations that are unchanged
 	unchangedToastColumns []string
-	// _PEERDB_IS_DELETED and _SYNCED_AT columns
-	peerdbCols *protos.PeerDBColumns
+	// Id of the currently merging batch
+	mergeBatchId int64
 }
 
 func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
@@ -33,7 +34,7 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 	for _, column := range columns {
 		genericColumnType := column.Type
 		qvKind := qvalue.QValueKind(genericColumnType)
-		sfType, err := qValueKindToSnowflakeType(qvKind)
+		sfType, err := qvKind.ToDWHColumnType(protos.DBType_SNOWFLAKE)
 		if err != nil {
 			return "", fmt.Errorf("failed to convert column type %s to snowflake type: %w", genericColumnType, err)
 		}

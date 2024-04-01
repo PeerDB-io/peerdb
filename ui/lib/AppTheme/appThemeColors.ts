@@ -54,7 +54,7 @@ export const appThemeColors = {
     },
     surface: {
       normal: '#FFF0EE',
-      hovered: '#FFE6E2',
+      hovered: '#f79383',
       selected: '#FDD8D3',
     },
     border: {

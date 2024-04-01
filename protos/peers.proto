@@ -25,6 +25,19 @@ message SnowflakeConfig {
   optional string metadata_schema = 11;
 }
 
+message GcpServiceAccount {
+  string auth_type = 1;
+  string project_id = 2;
+  string private_key_id = 3;
+  string private_key = 4;
+  string client_email = 5;
+  string client_id = 6;
+  string auth_uri = 7;
+  string token_uri = 8;
+  string auth_provider_x509_cert_url = 9;
+  string client_x509_cert_url = 10;
+}
+
 message BigqueryConfig {
   string auth_type = 1;
   string project_id = 2;
@@ -37,6 +50,10 @@ message BigqueryConfig {
   string auth_provider_x509_cert_url = 9;
   string client_x509_cert_url = 10;
   string dataset_id = 11;
+}
+
+message PubSubConfig {
+  GcpServiceAccount service_account = 1;
 }
 
 message MongoConfig {
@@ -108,6 +125,15 @@ message SqlServerConfig {
   string database = 5;
 }
 
+message KafkaConfig {
+  repeated string servers = 1;
+  string username = 2;
+  string password = 3;
+  string sasl = 4;
+  bool disable_tls = 5;
+  string partitioner = 6;
+}
+
 enum DBType {
   BIGQUERY = 0;
   SNOWFLAKE = 1;
@@ -118,6 +144,8 @@ enum DBType {
   SQLSERVER = 6;
   EVENTHUB_GROUP = 7;
   CLICKHOUSE = 8;
+  KAFKA = 9;
+  PUBSUB = 10;
 }
 
 message Peer {
@@ -133,5 +161,7 @@ message Peer {
     SqlServerConfig sqlserver_config = 9;
     EventHubGroupConfig eventhub_group_config = 10;
     ClickhouseConfig clickhouse_config = 11;
+    KafkaConfig kafka_config = 12;
+    PubSubConfig pubsub_config = 13;
   }
 }

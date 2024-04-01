@@ -14,14 +14,15 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type CDCBatchInfo struct {
-	BatchID     int64
-	RowsInBatch uint32
-	BatchEndlSN int64
 	StartTime   time.Time
+	BatchID     int64
+	BatchEndlSN int64
+	RowsInBatch uint32
 }
 
 func InitializeCDCFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName string) error {
@@ -106,7 +107,7 @@ func UpdateEndTimeForCDCBatch(
 }
 
 func AddCDCBatchTablesForFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName string,
-	batchID int64, tableNameRowsMapping map[string]uint32,
+	batchID int64, tableNameRowsMapping map[string]*model.RecordTypeCounts,
 ) error {
 	insertBatchTablesTx, err := pool.Begin(ctx)
 	if err != nil {
@@ -121,11 +122,15 @@ func AddCDCBatchTablesForFlow(ctx context.Context, pool *pgxpool.Pool, flowJobNa
 		}
 	}()
 
-	for destinationTableName, numRows := range tableNameRowsMapping {
+	for destinationTableName, rowCounts := range tableNameRowsMapping {
+		numRows := rowCounts.InsertCount + rowCounts.UpdateCount + rowCounts.DeleteCount
 		_, err = insertBatchTablesTx.Exec(ctx,
-			`INSERT INTO peerdb_stats.cdc_batch_table(flow_name,batch_id,destination_table_name,num_rows)
-			 VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
-			flowJobName, batchID, destinationTableName, numRows)
+			`INSERT INTO peerdb_stats.cdc_batch_table
+			(flow_name,batch_id,destination_table_name,num_rows,
+			insert_count,update_count,delete_count)
+			 VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
+			flowJobName, batchID, destinationTableName, numRows,
+			rowCounts.InsertCount, rowCounts.UpdateCount, rowCounts.DeleteCount)
 		if err != nil {
 			return fmt.Errorf("error while inserting statistics into cdc_batch_table: %w", err)
 		}
@@ -147,8 +152,8 @@ func InitializeQRepRun(
 ) error {
 	flowJobName := config.GetFlowJobName()
 	_, err := pool.Exec(ctx,
-		"INSERT INTO peerdb_stats.qrep_runs(flow_name,run_uuid) VALUES($1,$2) ON CONFLICT DO NOTHING",
-		flowJobName, runUUID)
+		"INSERT INTO peerdb_stats.qrep_runs(flow_name,run_uuid,source_table,destination_table) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING",
+		flowJobName, runUUID, config.WatermarkTable, config.DestinationTableIdentifier)
 	if err != nil {
 		return fmt.Errorf("error while inserting qrep run in qrep_runs: %w", err)
 	}
@@ -176,7 +181,7 @@ func InitializeQRepRun(
 
 func UpdateStartTimeForQRepRun(ctx context.Context, pool *pgxpool.Pool, runUUID string) error {
 	_, err := pool.Exec(ctx,
-		"UPDATE peerdb_stats.qrep_runs SET start_time=$1 WHERE run_uuid=$2",
+		"UPDATE peerdb_stats.qrep_runs SET start_time=$1, fetch_complete=true WHERE run_uuid=$2",
 		time.Now(), runUUID)
 	if err != nil {
 		return fmt.Errorf("error while updating start time for run_uuid %s in qrep_runs: %w", runUUID, err)
@@ -187,7 +192,7 @@ func UpdateStartTimeForQRepRun(ctx context.Context, pool *pgxpool.Pool, runUUID 
 
 func UpdateEndTimeForQRepRun(ctx context.Context, pool *pgxpool.Pool, runUUID string) error {
 	_, err := pool.Exec(ctx,
-		"UPDATE peerdb_stats.qrep_runs SET end_time=$1 WHERE run_uuid=$2",
+		"UPDATE peerdb_stats.qrep_runs SET end_time=$1, consolidate_complete=true WHERE run_uuid=$2",
 		time.Now(), runUUID)
 	if err != nil {
 		return fmt.Errorf("error while updating end time for run_uuid %s in qrep_runs: %w", runUUID, err)

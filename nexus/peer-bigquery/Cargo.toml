@@ -25,4 +25,4 @@ tokio = { version = "1.0", features = ["full"] }
 gcp-bigquery-client = "0.18"
 uuid = { version = "1.0", features = ["serde", "v4"] }
 value = { path = "../value" }
-yup-oauth2 = "8"
+yup-oauth2 = "=8.3.2"

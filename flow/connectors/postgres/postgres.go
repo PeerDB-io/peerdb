@@ -31,19 +31,19 @@ import (
 )
 
 type PostgresConnector struct {
-	connStr                string
+	logger                 log.Logger
 	config                 *protos.PostgresConfig
 	ssh                    *SSHTunnel
 	conn                   *pgx.Conn
 	replConfig             *pgx.ConnConfig
 	replConn               *pgx.Conn
 	replState              *ReplState
-	replLock               sync.Mutex
 	customTypesMapping     map[uint32]string
-	metadataSchema         string
 	hushWarnOID            map[uint32]struct{}
-	logger                 log.Logger
 	relationMessageMapping model.RelationMessageMapping
+	connStr                string
+	metadataSchema         string
+	replLock               sync.Mutex
 }
 
 type ReplState struct {
@@ -54,7 +54,7 @@ type ReplState struct {
 }
 
 func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
-	connectionString := utils.GetPGConnectionString(pgConfig)
+	connectionString := shared.GetPGConnectionString(pgConfig)
 
 	// create a separate connection pool for non-replication queries as replication connections cannot
 	// be used for extended query protocol, i.e. prepared statements
@@ -82,7 +82,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	replConfig.Config.RuntimeParams["replication"] = "database"
 	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
 
-	customTypeMap, err := utils.GetCustomDataTypes(ctx, conn)
+	customTypeMap, err := shared.GetCustomDataTypes(ctx, conn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get custom type map: %w", err)
 	}
@@ -272,7 +272,7 @@ func (c *PostgresConnector) SetupMetadataTables(ctx context.Context) error {
 
 	_, err = c.conn.Exec(ctx, fmt.Sprintf(createMirrorJobsTableSQL,
 		c.metadataSchema, mirrorJobsTableIdentifier))
-	if err != nil && !utils.IsUniqueError(err) {
+	if err != nil && !shared.IsUniqueError(err) {
 		return fmt.Errorf("error creating table %s: %w", mirrorJobsTableIdentifier, err)
 	}
 
@@ -404,9 +404,8 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	c.logger.Info(fmt.Sprintf("pushing records to Postgres table %s via COPY", rawTableIdentifier))
 
-	numRecords := 0
-	tableNameRowsMapping := make(map[string]uint32)
-
+	numRecords := int64(0)
+	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	streamReadFunc := func() ([]any, error) {
 		record, ok := <-req.Records.GetRecords()
 
@@ -416,8 +415,8 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 			var row []any
 			switch typedRecord := record.(type) {
 			case *model.InsertRecord:
-				itemsJSON, err := typedRecord.Items.ToJSONWithOptions(&model.ToJSONOptions{
-					UnnestColumns: map[string]struct{}{},
+				itemsJSON, err := typedRecord.Items.ToJSONWithOptions(model.ToJSONOptions{
+					UnnestColumns: nil,
 					HStoreAsJSON:  false,
 				})
 				if err != nil {
@@ -434,16 +433,17 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 					req.SyncBatchID,
 					"",
 				}
+
 			case *model.UpdateRecord:
-				newItemsJSON, err := typedRecord.NewItems.ToJSONWithOptions(&model.ToJSONOptions{
-					UnnestColumns: map[string]struct{}{},
+				newItemsJSON, err := typedRecord.NewItems.ToJSONWithOptions(model.ToJSONOptions{
+					UnnestColumns: nil,
 					HStoreAsJSON:  false,
 				})
 				if err != nil {
 					return nil, fmt.Errorf("failed to serialize update record new items to JSON: %w", err)
 				}
-				oldItemsJSON, err := typedRecord.OldItems.ToJSONWithOptions(&model.ToJSONOptions{
-					UnnestColumns: map[string]struct{}{},
+				oldItemsJSON, err := typedRecord.OldItems.ToJSONWithOptions(model.ToJSONOptions{
+					UnnestColumns: nil,
 					HStoreAsJSON:  false,
 				})
 				if err != nil {
@@ -460,9 +460,10 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 					req.SyncBatchID,
 					utils.KeysToString(typedRecord.UnchangedToastColumns),
 				}
+
 			case *model.DeleteRecord:
-				itemsJSON, err := typedRecord.Items.ToJSONWithOptions(&model.ToJSONOptions{
-					UnnestColumns: map[string]struct{}{},
+				itemsJSON, err := typedRecord.Items.ToJSONWithOptions(model.ToJSONOptions{
+					UnnestColumns: nil,
 					HStoreAsJSON:  false,
 				})
 				if err != nil {
@@ -479,12 +480,13 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 					req.SyncBatchID,
 					"",
 				}
+
 			default:
 				return nil, fmt.Errorf("unsupported record type for Postgres flow connector: %T", typedRecord)
 			}
 
+			record.PopulateCountMap(tableNameRowsMapping)
 			numRecords += 1
-			tableNameRowsMapping[record.GetDestinationTableName()] += 1
 			return row, nil
 		}
 	}
@@ -509,7 +511,7 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 	if err != nil {
 		return nil, fmt.Errorf("error syncing records: %w", err)
 	}
-	if syncedRecordsCount != int64(numRecords) {
+	if syncedRecordsCount != numRecords {
 		return nil, fmt.Errorf("error syncing records: expected %d records to be synced, but %d were synced",
 			numRecords, syncedRecordsCount)
 	}
@@ -536,7 +538,7 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 
 	return &model.SyncResponse{
 		LastSyncedCheckpointID: lastCP,
-		NumRecordsSynced:       int64(numRecords),
+		NumRecordsSynced:       numRecords,
 		CurrentSyncBatchID:     req.SyncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,
 		TableSchemaDeltas:      req.Records.SchemaDeltas,
@@ -596,7 +598,7 @@ func (c *PostgresConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 		}
 	}()
 
-	supportsMerge, _, err := c.MajorVersionCheck(ctx, POSTGRES_15)
+	pgversion, err := c.MajorVersion(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -613,7 +615,7 @@ func (c *PostgresConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 				SyncedAtColName:   req.SyncedAtColName,
 				SoftDelete:        req.SoftDelete,
 			},
-			supportsMerge:  supportsMerge,
+			supportsMerge:  pgversion >= POSTGRES_15,
 			metadataSchema: c.metadataSchema,
 			logger:         c.logger,
 		}
@@ -969,7 +971,7 @@ func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context) (*protos.Expor
 		return nil, nil, fmt.Errorf("[export-snapshot] error setting lock_timeout: %w", err)
 	}
 
-	ok, _, err := c.MajorVersionCheck(ctx, POSTGRES_13)
+	pgversion, err := c.MajorVersion(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("[export-snapshot] error getting PG version: %w", err)
 	}
@@ -982,7 +984,7 @@ func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context) (*protos.Expor
 
 	return &protos.ExportTxSnapshotOutput{
 		SnapshotName:     snapshotName,
-		SupportsTidScans: ok,
+		SupportsTidScans: pgversion >= POSTGRES_13,
 	}, tx, err
 }
 

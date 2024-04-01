@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 	"golang.org/x/exp/maps"
 
@@ -212,10 +213,29 @@ func SyncFlowWorkflow(
 			break
 		}
 	}
+
 	if err := ctx.Err(); err != nil {
 		logger.Info("sync canceled", slog.Any("error", err))
 		return err
-	} else if stop {
+	}
+
+	if fMaintain != nil {
+		unmaintainCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
+			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+			StartToCloseTimeout: time.Minute,
+			HeartbeatTimeout:    time.Minute,
+			WaitForCancellation: true,
+		})
+		if err := workflow.ExecuteActivity(
+			unmaintainCtx,
+			flowable.UnmaintainPull,
+			sessionID,
+		).Get(unmaintainCtx, nil); err != nil {
+			logger.Warn("UnmaintainPull failed", slog.Any("error", err))
+		}
+	}
+
+	if stop {
 		return nil
 	}
 	return workflow.NewContinueAsNewError(ctx, SyncFlowWorkflow, config, options)

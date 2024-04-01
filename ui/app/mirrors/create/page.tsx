@@ -16,9 +16,10 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
-import { ToastContainer, toast } from 'react-toastify';
+import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { InfoPopover } from '../../../components/InfoPopover';
+import PeerDBCodeEditor from '../../../components/PeerDBEditor';
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 import CDCConfigForm from './cdc/cdc';
 import {
@@ -32,7 +33,6 @@ import { blankCDCSetting } from './helpers/common';
 import { qrepSettings } from './helpers/qrep';
 import MirrorCards from './mirrorcards';
 import QRepConfigForm from './qrep/qrep';
-import QRepQuery from './qrep/query';
 import * as styles from './styles';
 
 function getPeerValue(peer: Peer) {
@@ -56,17 +56,6 @@ function getPeerLabel(peer: Peer) {
   );
 }
 
-const notifyErr = (msg: string, ok?: boolean) => {
-  if (ok) {
-    toast.success(msg, {
-      position: 'bottom-center',
-    });
-  } else {
-    toast.error(msg, {
-      position: 'bottom-center',
-    });
-  }
-};
 export default function CreateMirrors() {
   const router = useRouter();
   const [mirrorName, setMirrorName] = useState<string>('');
@@ -199,7 +188,7 @@ export default function CreateMirrors() {
           <Divider style={{ marginTop: '1rem', marginBottom: '1rem' }} />
 
           {mirrorType === 'Query Replication' && (
-            <QRepQuery query={qrepQuery} setter={setQrepQuery} />
+            <PeerDBCodeEditor code={qrepQuery} setter={setQrepQuery} />
           )}
 
           {mirrorType && (
@@ -244,7 +233,6 @@ export default function CreateMirrors() {
                       mirrorName,
                       rows,
                       config as CDCConfig,
-                      notifyErr,
                       setValidating
                     )
                   }
@@ -268,7 +256,6 @@ export default function CreateMirrors() {
                         mirrorName,
                         rows,
                         config as CDCConfig,
-                        notifyErr,
                         setCreating,
                         listMirrorsPage
                       )
@@ -276,7 +263,6 @@ export default function CreateMirrors() {
                         mirrorName,
                         qrepQuery,
                         config as QRepConfig,
-                        notifyErr,
                         setCreating,
                         listMirrorsPage,
                         mirrorType === 'XMIN' // for handling xmin specific

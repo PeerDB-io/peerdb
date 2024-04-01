@@ -19,9 +19,9 @@ import (
 type PeerFlowE2ETestSuiteBQ struct {
 	t *testing.T
 
-	bqSuffix string
 	conn     *connpostgres.PostgresConnector
 	bqHelper *BigQueryTestHelper
+	bqSuffix string
 }
 
 func (s PeerFlowE2ETestSuiteBQ) T() *testing.T {

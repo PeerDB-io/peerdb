@@ -40,17 +40,29 @@ func (h *FlowRequestHandler) ValidatePeer(
 	defer conn.Close()
 
 	if req.Peer.Type == protos.DBType_POSTGRES {
-		isValid, version, err := conn.(*connpostgres.PostgresConnector).MajorVersionCheck(ctx, connpostgres.POSTGRES_12)
+		pgversion, err := conn.(*connpostgres.PostgresConnector).MajorVersion(ctx)
 		if err != nil {
 			slog.Error("/peer/validate: pg version check", slog.Any("error", err))
 			return nil, err
 		}
 
-		if !isValid {
+		if pgversion < connpostgres.POSTGRES_12 {
 			return &protos.ValidatePeerResponse{
 				Status: protos.ValidatePeerStatus_INVALID,
-				Message: fmt.Sprintf("%s peer %s must be of version 12 or above. Current version: %d",
-					req.Peer.Type, req.Peer.Name, version),
+				Message: fmt.Sprintf("Postgres peer %s must be of PG12 or above. Current version: %d",
+					req.Peer.Name, pgversion),
+			}, nil
+		}
+	}
+
+	validationConn, ok := conn.(connectors.ValidationConnector)
+	if ok {
+		validErr := validationConn.ValidateCheck(ctx)
+		if validErr != nil {
+			return &protos.ValidatePeerResponse{
+				Status: protos.ValidatePeerStatus_INVALID,
+				Message: fmt.Sprintf("failed to validate %s peer %s: %v",
+					req.Peer.Type, req.Peer.Name, validErr),
 			}, nil
 		}
 	}

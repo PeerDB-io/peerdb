@@ -1,7 +1,9 @@
 import {
   BigqueryConfig,
   ClickhouseConfig,
+  KafkaConfig,
   PostgresConfig,
+  PubSubConfig,
   S3Config,
   SnowflakeConfig,
 } from '@/grpc_generated/peers';
@@ -43,7 +45,9 @@ export type PeerConfig =
   | SnowflakeConfig
   | BigqueryConfig
   | ClickhouseConfig
-  | S3Config;
+  | S3Config
+  | KafkaConfig
+  | PubSubConfig;
 export type CatalogPeer = {
   id: number;
   name: string;

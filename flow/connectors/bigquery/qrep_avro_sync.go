@@ -45,7 +45,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	dstTableMetadata *bigquery.TableMetadata,
 	syncBatchID int64,
 	stream *model.QRecordStream,
-	tableNameRowsMapping map[string]uint32,
+	tableNameRowsMapping map[string]*model.RecordTypeCounts,
 ) (*model.SyncResponse, error) {
 	activity.RecordHeartbeat(ctx,
 		fmt.Sprintf("Flow job %s: Obtaining Avro schema"+
@@ -89,7 +89,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	}
 
 	lastCP := req.Records.GetLastCheckpoint()
-	err = s.connector.pgMetadata.FinishBatch(ctx, req.FlowJobName, syncBatchID, lastCP)
+	err = s.connector.FinishBatch(ctx, req.FlowJobName, syncBatchID, lastCP)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update metadata: %w", err)
 	}
@@ -213,7 +213,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %w", err)
 	}
 
-	err = s.connector.pgMetadata.FinishQrepPartition(ctx, partition, flowJobName, startTime)
+	err = s.connector.FinishQRepPartition(ctx, partition, flowJobName, startTime)
 	if err != nil {
 		return -1, err
 	}
@@ -232,8 +232,8 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 }
 
 type AvroField struct {
-	Name string      `json:"name"`
 	Type interface{} `json:"type"`
+	Name string      `json:"name"`
 }
 
 type AvroSchema struct {
@@ -247,28 +247,18 @@ func DefineAvroSchema(dstTableName string,
 	syncedAtCol string,
 	softDeleteCol string,
 ) (*model.QRecordAvroSchemaDefinition, error) {
-	avroFields := []AvroField{}
-	nullableFields := make(map[string]struct{})
-
+	avroFields := make([]AvroField, 0, len(dstTableMetadata.Schema))
+	qFields := make([]qvalue.QField, 0, len(avroFields))
 	for _, bqField := range dstTableMetadata.Schema {
 		if bqField.Name == syncedAtCol || bqField.Name == softDeleteCol {
 			continue
 		}
-		avroType, err := GetAvroType(bqField)
+		avroField, err := GetAvroField(bqField)
 		if err != nil {
 			return nil, err
 		}
-
-		// If a field is nullable, its Avro type should be ["null", actualType]
-		if !bqField.Required {
-			avroType = []interface{}{"null", avroType}
-			nullableFields[bqField.Name] = struct{}{}
-		}
-
-		avroFields = append(avroFields, AvroField{
-			Name: bqField.Name,
-			Type: avroType,
-		})
+		avroFields = append(avroFields, avroField)
+		qFields = append(qFields, BigQueryFieldToQField(bqField))
 	}
 
 	avroSchema := AvroSchema{
@@ -283,8 +273,8 @@ func DefineAvroSchema(dstTableName string,
 	}
 
 	return &model.QRecordAvroSchemaDefinition{
-		Schema:         string(avroSchemaJSON),
-		NullableFields: nullableFields,
+		Schema: string(avroSchemaJSON),
+		Fields: qFields,
 	}, nil
 }
 
@@ -396,6 +386,23 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 	}
 }
 
+func GetAvroField(bqField *bigquery.FieldSchema) (AvroField, error) {
+	avroType, err := GetAvroType(bqField)
+	if err != nil {
+		return AvroField{}, err
+	}
+
+	// If a field is nullable, its Avro type should be ["null", actualType]
+	if !bqField.Required {
+		avroType = []interface{}{"null", avroType}
+	}
+
+	return AvroField{
+		Name: bqField.Name,
+		Type: avroType,
+	}, nil
+}
+
 func (s *QRepAvroSyncMethod) writeToStage(
 	ctx context.Context,
 	syncID string,
@@ -412,7 +419,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	defer shutdown()
 
 	var avroFile *avro.AvroFile
-	ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressNone, qvalue.QDWHTypeBigQuery)
+	ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressNone, protos.DBType_BIGQUERY)
 	idLog := slog.Group("write-metadata",
 		slog.String(string(shared.FlowNameKey), flowName),
 		slog.String("batchOrPartitionID", syncID),

@@ -10,6 +10,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -43,7 +44,7 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	srcSchema *model.QRecordSchema,
+	srcSchema *qvalue.QRecordSchema,
 ) (*bigquery.TableMetadata, error) {
 	destDatasetTable, _ := c.convertToDatasetTable(config.DestinationTableIdentifier)
 	bqTable := c.client.DatasetInProject(c.projectID, destDatasetTable.dataset).Table(destDatasetTable.table)
@@ -101,10 +102,4 @@ func (c *BigQueryConnector) SetupQRepMetadataTables(ctx context.Context, config 
 	}
 
 	return nil
-}
-
-func (c *BigQueryConnector) IsQRepPartitionSynced(ctx context.Context,
-	req *protos.IsQRepPartitionSyncedInput,
-) (bool, error) {
-	return c.pgMetadata.IsQrepPartitionSynced(ctx, req.FlowJobName, req.PartitionId)
 }

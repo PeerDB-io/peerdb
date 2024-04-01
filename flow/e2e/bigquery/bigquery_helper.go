@@ -24,14 +24,14 @@ import (
 )
 
 type BigQueryTestHelper struct {
-	// runID uniquely identifies the test run to namespace stateful schemas.
-	runID uint64
 	// config is the BigQuery config.
 	Config *protos.BigqueryConfig
 	// peer struct holder BigQuery
 	Peer *protos.Peer
 	// client to talk to BigQuery
 	client *bigquery.Client
+	// runID uniquely identifies the test run to namespace stateful schemas.
+	runID uint64
 }
 
 // NewBigQueryTestHelper creates a new BigQueryTestHelper.
@@ -209,37 +209,40 @@ func (b *BigQueryTestHelper) countRowsWithDataset(dataset, tableName string, non
 func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 	// Based on the real type of the bigquery.Value, we create a qvalue.QValue
 	switch v := bqValue.(type) {
-	case int, int32:
-		return qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: v}, nil
+	case int:
+		return qvalue.QValueInt32{Val: int32(v)}, nil
+	case int32:
+		return qvalue.QValueInt32{Val: v}, nil
 	case int64:
-		return qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: v}, nil
+		return qvalue.QValueInt64{Val: v}, nil
 	case float32:
-		return qvalue.QValue{Kind: qvalue.QValueKindFloat32, Value: v}, nil
+		return qvalue.QValueFloat32{Val: v}, nil
 	case float64:
-		return qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: v}, nil
+		return qvalue.QValueFloat64{Val: v}, nil
 	case string:
-		return qvalue.QValue{Kind: qvalue.QValueKindString, Value: v}, nil
+		return qvalue.QValueString{Val: v}, nil
 	case bool:
-		return qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: v}, nil
+		return qvalue.QValueBoolean{Val: v}, nil
 	case civil.Date:
-		return qvalue.QValue{Kind: qvalue.QValueKindDate, Value: v.In(time.UTC)}, nil
+		return qvalue.QValueDate{Val: v.In(time.UTC)}, nil
 	case civil.Time:
-		return qvalue.QValue{Kind: qvalue.QValueKindTime, Value: v}, nil
+		tm := time.Unix(int64(v.Hour)*3600+int64(v.Minute)*60+int64(v.Second), int64(v.Nanosecond))
+		return qvalue.QValueTime{Val: tm}, nil
 	case time.Time:
-		return qvalue.QValue{Kind: qvalue.QValueKindTimestamp, Value: v}, nil
+		return qvalue.QValueTimestamp{Val: v}, nil
 	case *big.Rat:
 		val, err := decimal.NewFromString(v.FloatString(32))
 		if err != nil {
-			return qvalue.QValue{}, fmt.Errorf("bqHelper failed to parse as decimal %v", v)
+			return nil, fmt.Errorf("bqHelper failed to parse as decimal %v", v)
 		}
-		return qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: val}, nil
+		return qvalue.QValueNumeric{Val: val}, nil
 	case []uint8:
-		return qvalue.QValue{Kind: qvalue.QValueKindBytes, Value: v}, nil
+		return qvalue.QValueBytes{Val: v}, nil
 	case []bigquery.Value:
 		// If the type is an array, we need to convert each element
 		// we can assume all elements are of the same type, let us use first element
 		if len(v) == 0 {
-			return qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}, nil
+			return qvalue.QValueNull(qvalue.QValueKindInvalid), nil
 		}
 
 		firstElement := v[0]
@@ -249,90 +252,69 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 			for _, val := range v {
 				arr = append(arr, val.(int32))
 			}
-			return qvalue.QValue{Kind: qvalue.QValueKindArrayInt32, Value: arr}, nil
+			return qvalue.QValueArrayInt32{Val: arr}, nil
 		case int64:
 			var arr []int64
 			for _, val := range v {
 				arr = append(arr, val.(int64))
 			}
-			return qvalue.QValue{Kind: qvalue.QValueKindArrayInt64, Value: arr}, nil
+			return qvalue.QValueArrayInt64{Val: arr}, nil
 		case float32:
 			var arr []float32
 			for _, val := range v {
 				arr = append(arr, val.(float32))
 			}
-			return qvalue.QValue{Kind: qvalue.QValueKindArrayFloat32, Value: arr}, nil
+			return qvalue.QValueArrayFloat32{Val: arr}, nil
 		case float64:
 			var arr []float64
 			for _, val := range v {
 				arr = append(arr, val.(float64))
 			}
-			return qvalue.QValue{Kind: qvalue.QValueKindArrayFloat64, Value: arr}, nil
+			return qvalue.QValueArrayFloat64{Val: arr}, nil
 		case string:
 			var arr []string
 			for _, val := range v {
 				arr = append(arr, val.(string))
 			}
-			return qvalue.QValue{Kind: qvalue.QValueKindArrayString, Value: arr}, nil
+			return qvalue.QValueArrayString{Val: arr}, nil
 		case time.Time:
 			var arr []time.Time
 			for _, val := range v {
 				arr = append(arr, val.(time.Time))
 			}
-			return qvalue.QValue{Kind: qvalue.QValueKindArrayTimestamp, Value: arr}, nil
+			return qvalue.QValueArrayTimestamp{Val: arr}, nil
 		case civil.Date:
-			var arr []civil.Date
+			var arr []time.Time
 			for _, val := range v {
-				arr = append(arr, val.(civil.Date))
+				arr = append(arr, val.(civil.Date).In(time.UTC))
 			}
-			return qvalue.QValue{Kind: qvalue.QValueKindArrayDate, Value: arr}, nil
+			return qvalue.QValueArrayDate{Val: arr}, nil
 		case bool:
 			var arr []bool
-
 			for _, val := range v {
 				arr = append(arr, val.(bool))
 			}
-			return qvalue.QValue{Kind: qvalue.QValueKindArrayBoolean, Value: arr}, nil
+			return qvalue.QValueArrayBoolean{Val: arr}, nil
 		default:
 			// If type is unsupported, return error
-			return qvalue.QValue{}, fmt.Errorf("bqHelper unsupported type %T", et)
+			return nil, fmt.Errorf("bqHelper unsupported type %T", et)
 		}
 
 	case nil:
-		return qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}, nil
+		return qvalue.QValueNull(qvalue.QValueKindInvalid), nil
 	default:
 		// If type is unsupported, return error
-		return qvalue.QValue{}, fmt.Errorf("bqHelper unsupported type %T", v)
+		return nil, fmt.Errorf("bqHelper unsupported type %T", v)
 	}
-}
-
-func bqFieldSchemaToQField(fieldSchema *bigquery.FieldSchema) (model.QField, error) {
-	qValueKind, err := peer_bq.BigQueryTypeToQValueKind(fieldSchema.Type)
-	if err != nil {
-		return model.QField{}, err
-	}
-
-	return model.QField{
-		Name:     fieldSchema.Name,
-		Type:     qValueKind,
-		Nullable: !fieldSchema.Required,
-	}, nil
 }
 
 // bqSchemaToQRecordSchema converts a bigquery schema to a QRecordSchema.
-func bqSchemaToQRecordSchema(schema bigquery.Schema) (*model.QRecordSchema, error) {
-	fields := make([]model.QField, 0, len(schema))
+func bqSchemaToQRecordSchema(schema bigquery.Schema) *qvalue.QRecordSchema {
+	fields := make([]qvalue.QField, 0, len(schema))
 	for _, fieldSchema := range schema {
-		qField, err := bqFieldSchemaToQField(fieldSchema)
-		if err != nil {
-			return nil, err
-		}
-		fields = append(fields, qField)
+		fields = append(fields, peer_bq.BigQueryFieldToQField(fieldSchema))
 	}
-
-	return &model.QRecordSchema{
-		Fields: fields,
-	}, nil
+	return &qvalue.QRecordSchema{Fields: fields}
 }
 
 func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecordBatch, error) {
@@ -367,17 +349,9 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 		records = append(records, qValues)
 	}
 
-	// Now you should fill the column names as well. Here we assume the schema is
-	// retrieved from the query itself
-	var schema *model.QRecordSchema
-	if it.Schema != nil {
-		schema, err = bqSchemaToQRecordSchema(it.Schema)
-		if err != nil {
-			return nil, err
-		}
-	}
+	// Now fill column names as well. Assume the schema is retrieved from the query itself
+	schema := bqSchemaToQRecordSchema(it.Schema)
 
-	// Return a QRecordBatch
 	return &model.QRecordBatch{
 		Records: records,
 		Schema:  schema,
@@ -483,7 +457,7 @@ func qValueKindToBqColTypeString(val qvalue.QValueKind) (string, error) {
 	}
 }
 
-func (b *BigQueryTestHelper) CreateTable(tableName string, schema *model.QRecordSchema) error {
+func (b *BigQueryTestHelper) CreateTable(tableName string, schema *qvalue.QRecordSchema) error {
 	fields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
 		bqType, err := qValueKindToBqColTypeString(field.Type)
@@ -512,5 +486,13 @@ func (b *BigQueryTestHelper) RunInt64Query(query string) (int64, error) {
 		return 0, fmt.Errorf("expected only 1 record, got %d", len(recordBatch.Records))
 	}
 
-	return recordBatch.Records[0][0].Value.(int64), nil
+	switch v := recordBatch.Records[0][0].(type) {
+	case qvalue.QValueInt16:
+		return int64(v.Val), nil
+	case qvalue.QValueInt32:
+		return int64(v.Val), nil
+	case qvalue.QValueInt64:
+		return v.Val, nil
+	}
+	return 0, fmt.Errorf("non-integer result: %T", recordBatch.Records[0][0])
 }

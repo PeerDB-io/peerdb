@@ -22,10 +22,10 @@ import (
 
 // grpc server implementation
 type FlowRequestHandler struct {
+	protos.UnimplementedFlowServiceServer
 	temporalClient      client.Client
 	pool                *pgxpool.Pool
 	peerflowTaskQueueID string
-	protos.UnimplementedFlowServiceServer
 }
 
 func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool, taskQueue string) *FlowRequestHandler {
@@ -86,7 +86,7 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 	return nil
 }
 
-func (h *FlowRequestHandler) createQrepJobEntry(ctx context.Context,
+func (h *FlowRequestHandler) createQRepJobEntry(ctx context.Context,
 	req *protos.CreateQRepFlowRequest, workflowID string,
 ) error {
 	sourcePeerName := req.QrepConfig.SourcePeer.Name
@@ -221,7 +221,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		},
 	}
 	if req.CreateCatalogEntry {
-		err := h.createQrepJobEntry(ctx, req, workflowID)
+		err := h.createQRepJobEntry(ctx, req, workflowID)
 		if err != nil {
 			slog.Error("unable to create flow job entry",
 				slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
@@ -533,9 +533,7 @@ func (h *FlowRequestHandler) CreatePeer(
 			return wrongConfigResponse, nil
 		}
 		pgConfig := pgConfigObject.PostgresConfig
-
 		encodedConfig, encodingErr = proto.Marshal(pgConfig)
-
 	case protos.DBType_SNOWFLAKE:
 		sfConfigObject, ok := config.(*protos.Peer_SnowflakeConfig)
 		if !ok {
@@ -566,13 +564,25 @@ func (h *FlowRequestHandler) CreatePeer(
 		encodedConfig, encodingErr = proto.Marshal(s3Config)
 	case protos.DBType_CLICKHOUSE:
 		chConfigObject, ok := config.(*protos.Peer_ClickhouseConfig)
-
 		if !ok {
 			return wrongConfigResponse, nil
 		}
-
 		chConfig := chConfigObject.ClickhouseConfig
 		encodedConfig, encodingErr = proto.Marshal(chConfig)
+	case protos.DBType_KAFKA:
+		kaConfigObject, ok := config.(*protos.Peer_KafkaConfig)
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+		kaConfig := kaConfigObject.KafkaConfig
+		encodedConfig, encodingErr = proto.Marshal(kaConfig)
+	case protos.DBType_PUBSUB:
+		psConfigObject, ok := config.(*protos.Peer_PubsubConfig)
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+		psConfig := psConfigObject.PubsubConfig
+		encodedConfig, encodingErr = proto.Marshal(psConfig)
 	default:
 		return wrongConfigResponse, nil
 	}

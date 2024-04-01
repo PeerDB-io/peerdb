@@ -15,21 +15,22 @@ import (
 )
 
 type normalizeStmtGenerator struct {
+	// to log fallback statement selection
+	logger log.Logger
+	// _PEERDB_RAW_...
 	rawTableName string
 	// destination table name, used to retrieve records from raw table
 	dstTableName string
 	// the schema of the table to merge into
 	normalizedTableSchema *protos.TableSchema
-	// array of toast column combinations that are unchanged
-	unchangedToastColumns []string
 	// _PEERDB_IS_DELETED and _SYNCED_AT columns
 	peerdbCols *protos.PeerDBColumns
-	// Postgres version 15 introduced MERGE, fallback statements before that
-	supportsMerge bool
 	// Postgres metadata schema
 	metadataSchema string
-	// to log fallback statement selection
-	logger log.Logger
+	// array of toast column combinations that are unchanged
+	unchangedToastColumns []string
+	// Postgres version 15 introduced MERGE, fallback statements before that
+	supportsMerge bool
 }
 
 func (n *normalizeStmtGenerator) generateNormalizeStatements() []string {

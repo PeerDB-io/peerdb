@@ -20,9 +20,9 @@ import (
 	"github.com/linkedin/goavro/v2"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 type (
@@ -46,15 +46,15 @@ const (
 type peerDBOCFWriter struct {
 	stream               *model.QRecordStream
 	avroSchema           *model.QRecordAvroSchemaDefinition
-	avroCompressionCodec AvroCompressionCodec
 	writer               io.WriteCloser
-	targetDWH            qvalue.QDWHType
+	avroCompressionCodec AvroCompressionCodec
+	targetDWH            protos.DBType
 }
 
 type AvroFile struct {
-	NumRecords      int
-	StorageLocation AvroStorageLocation
 	FilePath        string
+	StorageLocation AvroStorageLocation
+	NumRecords      int
 }
 
 func (l *AvroFile) Cleanup() {
@@ -70,7 +70,7 @@ func NewPeerDBOCFWriter(
 	stream *model.QRecordStream,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	avroCompressionCodec AvroCompressionCodec,
-	targetDWH qvalue.QDWHType,
+	targetDWH protos.DBType,
 ) *peerDBOCFWriter {
 	return &peerDBOCFWriter{
 		stream:               stream,
@@ -127,8 +127,6 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
-	colNames := schema.GetColumnNames()
-
 	numRows := atomic.Uint32{}
 
 	if ctx != nil {
@@ -139,21 +137,20 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 		defer shutdown()
 	}
 
+	avroConverter := model.NewQRecordAvroConverter(
+		p.avroSchema,
+		p.targetDWH,
+		schema.GetColumnNames(),
+		logger,
+	)
+
 	for qRecordOrErr := range p.stream.Records {
 		if qRecordOrErr.Err != nil {
 			logger.Error("[avro] failed to get record from stream", slog.Any("error", qRecordOrErr.Err))
 			return 0, fmt.Errorf("[avro] failed to get record from stream: %w", qRecordOrErr.Err)
 		}
 
-		avroConverter := model.NewQRecordAvroConverter(
-			qRecordOrErr.Record,
-			p.targetDWH,
-			p.avroSchema.NullableFields,
-			colNames,
-			logger,
-		)
-
-		avroMap, err := avroConverter.Convert()
+		avroMap, err := avroConverter.Convert(qRecordOrErr.Record)
 		if err != nil {
 			logger.Error("failed to convert QRecord to Avro compatible map: ", slog.Any("error", err))
 			return 0, fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)

@@ -35,7 +35,7 @@ type PostgresCDCSource struct {
 	slot                   string
 	publication            string
 	typeMap                *pgtype.Map
-	commitLock             bool
+	commitLock             *pglogrepl.BeginMessage
 
 	// for partitioned tables, maps child relid to parent relid
 	childToParentRelIDMapping map[uint32]uint32
@@ -46,21 +46,21 @@ type PostgresCDCSource struct {
 }
 
 type PostgresCDCConfig struct {
-	Slot                   string
-	Publication            string
+	CatalogPool            *pgxpool.Pool
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]model.NameAndExclude
 	TableNameSchemaMapping map[string]*protos.TableSchema
 	ChildToParentRelIDMap  map[uint32]uint32
-	CatalogPool            *pgxpool.Pool
-	FlowJobName            string
 	RelationMessageMapping model.RelationMessageMapping
+	FlowJobName            string
+	Slot                   string
+	Publication            string
 }
 
 type startReplicationOpts struct {
 	conn            *pgconn.PgConn
-	startLSN        pglogrepl.LSN
 	replicationOpts pglogrepl.StartReplicationOptions
+	startLSN        pglogrepl.LSN
 }
 
 // Create a new PostgresCDCSource
@@ -75,7 +75,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) *
 		publication:               cdcConfig.Publication,
 		childToParentRelIDMapping: cdcConfig.ChildToParentRelIDMap,
 		typeMap:                   pgtype.NewMap(),
-		commitLock:                false,
+		commitLock:                nil,
 		catalogPool:               cdcConfig.CatalogPool,
 		flowJobName:               cdcConfig.FlowJobName,
 	}
@@ -188,7 +188,7 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 			}
 		}
 
-		if !p.commitLock {
+		if p.commitLock == nil {
 			if cdcRecordsStorage.Len() >= int(req.MaxBatchSize) {
 				return nil
 			}
@@ -208,7 +208,7 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 			if !cdcRecordsStorage.IsEmpty() {
 				p.logger.Info(fmt.Sprintf("standby deadline reached, have %d records", cdcRecordsStorage.Len()))
 
-				if !p.commitLock {
+				if p.commitLock == nil {
 					p.logger.Info(
 						fmt.Sprintf("no commit lock, returning currently accumulated records - %d",
 							cdcRecordsStorage.Len()))
@@ -241,7 +241,7 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 			return fmt.Errorf("consumeStream preempted: %w", ctxErr)
 		}
 
-		if err != nil && !p.commitLock {
+		if err != nil && p.commitLock == nil {
 			if pgconn.Timeout(err) {
 				p.logger.Info(fmt.Sprintf("Stand-by deadline reached, returning currently accumulated records - %d",
 					cdcRecordsStorage.Len()))
@@ -408,6 +408,17 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 	}
 }
 
+func (p *PostgresCDCSource) baseRecord(lsn pglogrepl.LSN) model.BaseRecord {
+	var nano int64
+	if p.commitLock != nil {
+		nano = p.commitLock.CommitTime.UnixNano()
+	}
+	return model.BaseRecord{
+		CheckpointID:   int64(lsn),
+		CommitTimeNano: nano,
+	}
+}
+
 func (p *PostgresCDCSource) processMessage(
 	ctx context.Context,
 	batch *model.CDCRecordStream,
@@ -423,7 +434,7 @@ func (p *PostgresCDCSource) processMessage(
 	case *pglogrepl.BeginMessage:
 		p.logger.Debug(fmt.Sprintf("BeginMessage => FinalLSN: %v, XID: %v", msg.FinalLSN, msg.Xid))
 		p.logger.Debug("Locking PullRecords at BeginMessage, awaiting CommitMessage")
-		p.commitLock = true
+		p.commitLock = msg
 	case *pglogrepl.InsertMessage:
 		return p.processInsertMessage(xld.WALStart, msg)
 	case *pglogrepl.UpdateMessage:
@@ -435,7 +446,7 @@ func (p *PostgresCDCSource) processMessage(
 		p.logger.Debug(fmt.Sprintf("CommitMessage => CommitLSN: %v, TransactionEndLSN: %v",
 			msg.CommitLSN, msg.TransactionEndLSN))
 		batch.UpdateLatestCheckpoint(int64(msg.CommitLSN))
-		p.commitLock = false
+		p.commitLock = nil
 	case *pglogrepl.RelationMessage:
 		// treat all relation messages as corresponding to parent if partitioned.
 		msg.RelationID = p.getParentRelIDIfPartitioned(msg.RelationID)
@@ -483,7 +494,7 @@ func (p *PostgresCDCSource) processInsertMessage(
 	}
 
 	return &model.InsertRecord{
-		CheckpointID:         int64(lsn),
+		BaseRecord:           p.baseRecord(lsn),
 		Items:                items,
 		DestinationTableName: p.tableNameMapping[tableName].Name,
 		SourceTableName:      tableName,
@@ -524,7 +535,7 @@ func (p *PostgresCDCSource) processUpdateMessage(
 	}
 
 	return &model.UpdateRecord{
-		CheckpointID:          int64(lsn),
+		BaseRecord:            p.baseRecord(lsn),
 		OldItems:              oldItems,
 		NewItems:              newItems,
 		DestinationTableName:  p.tableNameMapping[tableName].Name,
@@ -561,7 +572,7 @@ func (p *PostgresCDCSource) processDeleteMessage(
 	}
 
 	return &model.DeleteRecord{
-		CheckpointID:         int64(lsn),
+		BaseRecord:           p.baseRecord(lsn),
 		Items:                items,
 		DestinationTableName: p.tableNameMapping[tableName].Name,
 		SourceTableName:      tableName,
@@ -596,7 +607,7 @@ func (p *PostgresCDCSource) convertTupleToMap(
 		}
 		switch col.DataType {
 		case 'n': // null
-			val := qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}
+			val := qvalue.QValueNull(qvalue.QValueKindInvalid)
 			items.AddColumn(colName, val)
 		case 't': // text
 			/* bytea also appears here as a hex */
@@ -638,19 +649,28 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 				// but not representable by time.Time
 				p.logger.Warn(fmt.Sprintf("Invalidated and hence nulled %s data: %s",
 					dt.Name, string(data)))
-				return qvalue.QValue{}, nil
+				switch dt.Name {
+				case "time":
+					return qvalue.QValueNull(qvalue.QValueKindTime), nil
+				case "timetz":
+					return qvalue.QValueNull(qvalue.QValueKindTimeTZ), nil
+				case "timestamp":
+					return qvalue.QValueNull(qvalue.QValueKindTimestamp), nil
+				case "timestamptz":
+					return qvalue.QValueNull(qvalue.QValueKindTimestampTZ), nil
+				}
 			}
-			return qvalue.QValue{}, err
+			return nil, err
 		}
 		retVal, err := p.parseFieldFromPostgresOID(dataType, parsedData)
 		if err != nil {
-			return qvalue.QValue{}, err
+			return nil, err
 		}
 		return retVal, nil
 	} else if dataType == uint32(oid.T_timetz) { // ugly TIMETZ workaround for CDC decoding.
 		retVal, err := p.parseFieldFromPostgresOID(dataType, string(data))
 		if err != nil {
-			return qvalue.QValue{}, err
+			return nil, err
 		}
 		return retVal, nil
 	}
@@ -658,28 +678,26 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 	typeName, ok := p.customTypesMapping[dataType]
 	if ok {
 		customQKind := customTypeToQKind(typeName)
-		if customQKind == qvalue.QValueKindGeography || customQKind == qvalue.QValueKindGeometry {
+		switch customQKind {
+		case qvalue.QValueKindGeography, qvalue.QValueKindGeometry:
 			wkt, err := geo.GeoValidate(string(data))
 			if err != nil {
-				return qvalue.QValue{
-					Kind:  customQKind,
-					Value: nil,
-				}, nil
+				return qvalue.QValueNull(customQKind), nil
+			} else if customQKind == qvalue.QValueKindGeography {
+				return qvalue.QValueGeography{Val: wkt}, nil
 			} else {
-				return qvalue.QValue{
-					Kind:  customQKind,
-					Value: wkt,
-				}, nil
+				return qvalue.QValueGeometry{Val: wkt}, nil
 			}
-		} else {
-			return qvalue.QValue{
-				Kind:  customQKind,
-				Value: string(data),
-			}, nil
+		case qvalue.QValueKindHStore:
+			return qvalue.QValueHStore{Val: string(data)}, nil
+		case qvalue.QValueKindString:
+			return qvalue.QValueString{Val: string(data)}, nil
+		default:
+			return nil, fmt.Errorf("unknown custom qkind: %s", customQKind)
 		}
 	}
 
-	return qvalue.QValue{Kind: qvalue.QValueKindString, Value: string(data)}, nil
+	return qvalue.QValueString{Val: string(data)}, nil
 }
 
 func (p *PostgresCDCSource) auditSchemaDelta(ctx context.Context, flowJobName string, rec *model.RelationRecord) error {
@@ -765,8 +783,8 @@ func (p *PostgresCDCSource) processRelationMessage(
 	// only log audit if there is actionable delta
 	if len(schemaDelta.AddedColumns) > 0 {
 		rec := &model.RelationRecord{
+			BaseRecord:       p.baseRecord(lsn),
 			TableSchemaDelta: schemaDelta,
-			CheckpointID:     int64(lsn),
 		}
 		return rec, p.auditSchemaDelta(ctx, p.flowJobName, rec)
 	}
@@ -784,7 +802,7 @@ func (p *PostgresCDCSource) recToTablePKey(req *model.PullRecordsRequest,
 		if err != nil {
 			return nil, fmt.Errorf("error getting pkey column value: %w", err)
 		}
-		pkeyColsMerged = append(pkeyColsMerged, []byte(fmt.Sprint(pkeyColVal.Value)))
+		pkeyColsMerged = append(pkeyColsMerged, []byte(fmt.Sprint(pkeyColVal.Value())))
 	}
 
 	return &model.TableWithPkey{

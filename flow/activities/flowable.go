@@ -35,11 +35,16 @@ type CheckConnectionResult struct {
 	NeedsSetupMetadataTables bool
 }
 
+type CdcCacheEntry struct {
+	connector connectors.CDCPullConnector
+	done      chan struct{}
+}
+
 type FlowableActivity struct {
 	CatalogPool *pgxpool.Pool
 	Alerter     *alerting.Alerter
+	CdcCache    map[string]CdcCacheEntry
 	CdcCacheRw  sync.RWMutex
-	CdcCache    map[string]connectors.CDCPullConnector
 }
 
 func (a *FlowableActivity) CheckConnection(
@@ -217,8 +222,12 @@ func (a *FlowableActivity) MaintainPull(
 		return err
 	}
 
+	done := make(chan struct{})
 	a.CdcCacheRw.Lock()
-	a.CdcCache[sessionID] = srcConn
+	a.CdcCache[sessionID] = CdcCacheEntry{
+		connector: srcConn,
+		done:      done,
+	}
 	a.CdcCacheRw.Unlock()
 
 	ticker := time.NewTicker(15 * time.Second)
@@ -234,6 +243,8 @@ func (a *FlowableActivity) MaintainPull(
 				a.CdcCacheRw.Unlock()
 				return temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", err)
 			}
+		case <-done:
+			return nil
 		case <-ctx.Done():
 			a.CdcCacheRw.Lock()
 			delete(a.CdcCache, sessionID)
@@ -243,15 +254,25 @@ func (a *FlowableActivity) MaintainPull(
 	}
 }
 
+func (a *FlowableActivity) UnmaintainPull(ctx context.Context, sessionID string) error {
+	a.CdcCacheRw.Lock()
+	if entry, ok := a.CdcCache[sessionID]; ok {
+		close(entry.done)
+		delete(a.CdcCache, sessionID)
+	}
+	a.CdcCacheRw.Unlock()
+	return nil
+}
+
 func (a *FlowableActivity) waitForCdcCache(ctx context.Context, sessionID string) (connectors.CDCPullConnector, error) {
 	logger := activity.GetLogger(ctx)
 	attempt := 0
 	for {
 		a.CdcCacheRw.RLock()
-		conn, ok := a.CdcCache[sessionID]
+		entry, ok := a.CdcCache[sessionID]
 		a.CdcCacheRw.RUnlock()
 		if ok {
-			return conn, nil
+			return entry.connector, nil
 		}
 		activity.RecordHeartbeat(ctx, "wait another second for source connector")
 		attempt += 1
@@ -400,6 +421,7 @@ func (a *FlowableActivity) SyncFlow(
 			FlowJobName:   flowName,
 			TableMappings: options.TableMappings,
 			StagingPath:   config.CdcStagingPath,
+			Script:        config.Script,
 		})
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, flowName, err)
@@ -544,6 +566,16 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	runUUID string,
 ) (*protos.QRepParitionResult, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	err := monitoring.InitializeQRepRun(
+		ctx,
+		a.CatalogPool,
+		config,
+		runUUID,
+		nil,
+	)
+	if err != nil {
+		return nil, err
+	}
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get qrep pull connector: %w", err)
@@ -554,7 +586,6 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		return "getting partitions for job"
 	})
 	defer shutdown()
-
 	partitions, err := srcConn.GetQRepPartitions(ctx, config, last)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -616,6 +647,9 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) error {
+	msg := fmt.Sprintf("replicating partition - %s: %d of %d total.", partition.PartitionId, idx, total)
+	activity.RecordHeartbeat(ctx, msg)
+
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
@@ -643,6 +677,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	}
 	if done {
 		logger.Info("no records to push for partition " + partition.PartitionId)
+		activity.RecordHeartbeat(ctx, "no records to push for partition "+partition.PartitionId)
 		return nil
 	}
 
@@ -850,7 +885,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 
 		func() {
 			pgConfig := pgPeer.GetPostgresConfig()
-			peerConn, peerErr := pgx.Connect(ctx, utils.GetPGConnectionString(pgConfig))
+			peerConn, peerErr := pgx.Connect(ctx, shared.GetPGConnectionString(pgConfig))
 			if peerErr != nil {
 				logger.Error(fmt.Sprintf("error creating pool for postgres peer %v with host %v: %v",
 					pgPeer.Name, pgConfig.Host, peerErr))
@@ -931,60 +966,37 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	return nil
 }
 
-func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
+type QRepWaitUntilNewRowsResult struct {
+	Found bool
+}
+
+func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 	config *protos.QRepConfig, last *protos.QRepPartition,
-) error {
+) (QRepWaitUntilNewRowsResult, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
 	if config.SourcePeer.Type != protos.DBType_POSTGRES || last.Range == nil {
-		return nil
+		return QRepWaitUntilNewRowsResult{Found: true}, nil
 	}
-	waitBetweenBatches := 5 * time.Second
-	if config.WaitBetweenBatchesSeconds > 0 {
-		waitBetweenBatches = time.Duration(config.WaitBetweenBatchesSeconds) * time.Second
-	}
+
+	logger.Info(fmt.Sprintf("current last partition value is %v", last))
+	activity.RecordHeartbeat(ctx, "QRepHasNewRows")
 
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return fmt.Errorf("failed to get qrep source connector: %w", err)
+		return QRepWaitUntilNewRowsResult{Found: false}, fmt.Errorf("failed to get qrep source connector: %w", err)
 	}
-	defer connectors.CloseConnector(ctx, srcConn)
 	pgSrcConn := srcConn.(*connpostgres.PostgresConnector)
-	logger.Info(fmt.Sprintf("current last partition value is %v", last))
-	attemptCount := 1
-	for {
-		activity.RecordHeartbeat(ctx, fmt.Sprintf("no new rows yet, attempt #%d", attemptCount))
-		waitUntil := time.Now().Add(waitBetweenBatches)
-		for {
-			sleep := time.Until(waitUntil)
-			if sleep > 15*time.Second {
-				sleep = 15 * time.Second
-			}
-			time.Sleep(sleep)
-
-			activity.RecordHeartbeat(ctx, "heartbeat while waiting before next batch")
-			if err := ctx.Err(); err != nil {
-				return fmt.Errorf("cancelled while waiting for new rows: %w", err)
-			} else if time.Now().After(waitUntil) {
-				break
-			}
-		}
-
-		result, err := pgSrcConn.CheckForUpdatedMaxValue(ctx, config, last)
-		if err != nil {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return fmt.Errorf("failed to check for new rows: %w", err)
-		}
-		if result {
-			break
-		}
-
-		attemptCount += 1
+	result, err := pgSrcConn.CheckForUpdatedMaxValue(ctx, config, last)
+	connectors.CloseConnector(ctx, srcConn)
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		return QRepWaitUntilNewRowsResult{Found: false}, fmt.Errorf("failed to check for new rows: %w", err)
 	}
 
-	return nil
+	return QRepWaitUntilNewRowsResult{Found: result}, nil
 }
 
 func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.RenameTablesInput) (

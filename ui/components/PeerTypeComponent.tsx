@@ -24,6 +24,10 @@ export const DBTypeToGoodText = (ptype: DBType) => {
       return 'MongoDB';
     case DBType.CLICKHOUSE:
       return 'Clickhouse';
+    case DBType.KAFKA:
+      return 'Kafka';
+    case DBType.PUBSUB:
+      return 'PubSub';
     case DBType.UNRECOGNIZED:
       return 'Unrecognised';
   }

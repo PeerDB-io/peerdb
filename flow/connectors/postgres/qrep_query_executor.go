@@ -21,11 +21,11 @@ import (
 
 type QRepQueryExecutor struct {
 	*PostgresConnector
+	logger      log.Logger
 	snapshot    string
-	testEnv     bool
 	flowJobName string
 	partitionID string
-	logger      log.Logger
+	testEnv     bool
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutor(flowJobName string, partitionID string) *QRepQueryExecutor {
@@ -83,8 +83,8 @@ func (qe *QRepQueryExecutor) executeQueryInTx(ctx context.Context, tx pgx.Tx, cu
 }
 
 // FieldDescriptionsToSchema converts a slice of pgconn.FieldDescription to a QRecordSchema.
-func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) *model.QRecordSchema {
-	qfields := make([]model.QField, len(fds))
+func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) *qvalue.QRecordSchema {
+	qfields := make([]qvalue.QField, len(fds))
 	for i, fd := range fds {
 		cname := fd.Name
 		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID)
@@ -101,7 +101,7 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 		cnullable := true
 		if ctype == qvalue.QValueKindNumeric {
 			precision, scale := numeric.ParseNumericTypmod(fd.TypeModifier)
-			qfields[i] = model.QField{
+			qfields[i] = qvalue.QField{
 				Name:      cname,
 				Type:      ctype,
 				Nullable:  cnullable,
@@ -109,14 +109,14 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 				Scale:     scale,
 			}
 		} else {
-			qfields[i] = model.QField{
+			qfields[i] = qvalue.QField{
 				Name:     cname,
 				Type:     ctype,
 				Nullable: cnullable,
 			}
 		}
 	}
-	return model.NewQRecordSchema(qfields)
+	return qvalue.NewQRecordSchema(qfields)
 }
 
 func (qe *QRepQueryExecutor) ProcessRows(
@@ -458,18 +458,25 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 			record[i] = tmp
 		} else {
 			customQKind := customTypeToQKind(typeName)
-			if customQKind == qvalue.QValueKindGeography || customQKind == qvalue.QValueKindGeometry {
-				wkbString, ok := values[i].(string)
-				wkt, err := geo.GeoValidate(wkbString)
-				if err != nil || !ok {
-					values[i] = nil
-				} else {
-					values[i] = wkt
+			if values[i] == nil {
+				record[i] = qvalue.QValueNull(customQKind)
+			} else {
+				switch customQKind {
+				case qvalue.QValueKindGeography, qvalue.QValueKindGeometry:
+					wkbString, ok := values[i].(string)
+					wkt, err := geo.GeoValidate(wkbString)
+					if err != nil || !ok {
+						record[i] = qvalue.QValueNull(qvalue.QValueKindGeography)
+					} else if customQKind == qvalue.QValueKindGeography {
+						record[i] = qvalue.QValueGeography{Val: wkt}
+					} else {
+						record[i] = qvalue.QValueGeometry{Val: wkt}
+					}
+				case qvalue.QValueKindHStore:
+					record[i] = qvalue.QValueHStore{Val: fmt.Sprint(values[i])}
+				case qvalue.QValueKindString:
+					record[i] = qvalue.QValueString{Val: fmt.Sprint(values[i])}
 				}
-			}
-			record[i] = qvalue.QValue{
-				Kind:  customQKind,
-				Value: values[i],
 			}
 		}
 	}

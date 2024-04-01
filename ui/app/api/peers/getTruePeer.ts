@@ -4,8 +4,10 @@ import {
   ClickhouseConfig,
   EventHubConfig,
   EventHubGroupConfig,
+  KafkaConfig,
   Peer,
   PostgresConfig,
+  PubSubConfig,
   S3Config,
   SnowflakeConfig,
   SqlServerConfig,
@@ -19,13 +21,15 @@ export const getTruePeer = (peer: CatalogPeer) => {
   const options = peer.options;
   let config:
     | BigqueryConfig
-    | SnowflakeConfig
-    | PostgresConfig
+    | ClickhouseConfig
     | EventHubConfig
-    | S3Config
-    | SqlServerConfig
     | EventHubGroupConfig
-    | ClickhouseConfig;
+    | KafkaConfig
+    | PostgresConfig
+    | PubSubConfig
+    | S3Config
+    | SnowflakeConfig
+    | SqlServerConfig;
   switch (peer.type) {
     case 0:
       config = BigqueryConfig.decode(options);
@@ -58,6 +62,14 @@ export const getTruePeer = (peer: CatalogPeer) => {
     case 8:
       config = ClickhouseConfig.decode(options);
       newPeer.clickhouseConfig = config;
+      break;
+    case 9:
+      config = KafkaConfig.decode(options);
+      newPeer.kafkaConfig = config;
+      break;
+    case 10:
+      config = PubSubConfig.decode(options);
+      newPeer.pubsubConfig = config;
       break;
     default:
       return newPeer;

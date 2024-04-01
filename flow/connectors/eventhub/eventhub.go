@@ -19,8 +19,8 @@ import (
 )
 
 type EventHubConnector struct {
+	*metadataStore.PostgresMetadata
 	config     *protos.EventHubGroupConfig
-	pgMetadata *metadataStore.PostgresMetadataStore
 	creds      *azidentity.DefaultAzureCredential
 	hubManager *EventHubManager
 	logger     log.Logger
@@ -39,17 +39,17 @@ func NewEventHubConnector(
 	}
 
 	hubManager := NewEventHubManager(defaultAzureCreds, config)
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
+	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
 		logger.Error("failed to create postgres metadata store", "error", err)
 		return nil, err
 	}
 
 	return &EventHubConnector{
-		config:     config,
-		pgMetadata: pgMetadata,
-		creds:      defaultAzureCreds,
-		hubManager: hubManager,
+		PostgresMetadata: pgMetadata,
+		config:           config,
+		creds:            defaultAzureCreds,
+		hubManager:       hubManager,
 	}, nil
 }
 
@@ -74,24 +74,6 @@ func (c *EventHubConnector) NeedsSetupMetadataTables(_ context.Context) bool {
 }
 
 func (c *EventHubConnector) SetupMetadataTables(_ context.Context) error {
-	return nil
-}
-
-func (c *EventHubConnector) GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error) {
-	return c.pgMetadata.GetLastBatchID(ctx, jobName)
-}
-
-func (c *EventHubConnector) GetLastOffset(ctx context.Context, jobName string) (int64, error) {
-	return c.pgMetadata.FetchLastOffset(ctx, jobName)
-}
-
-func (c *EventHubConnector) SetLastOffset(ctx context.Context, jobName string, offset int64) error {
-	err := c.pgMetadata.UpdateLastOffset(ctx, jobName, offset)
-	if err != nil {
-		c.logger.Error("failed to update last offset", slog.Any("error", err))
-		return err
-	}
-
 	return nil
 }
 
@@ -139,7 +121,7 @@ func (c *EventHubConnector) processBatch(
 				lastSeenLSN = recordLSN
 			}
 
-			json, err := record.GetItems().ToJSONWithOpts(toJSONOpts)
+			json, err := record.GetItems().ToJSONWithOptions(toJSONOpts)
 			if err != nil {
 				c.logger.Info("failed to convert record to json", slog.Any("error", err))
 				return 0, err
@@ -161,7 +143,7 @@ func (c *EventHubConnector) processBatch(
 			// partition_column is the column in the table that is used to determine
 			// the partition key for the eventhub.
 			partitionColumn := destination.PartitionKeyColumn
-			partitionValue := record.GetItems().GetColumnValue(partitionColumn).Value
+			partitionValue := record.GetItems().GetColumnValue(partitionColumn).Value()
 			var partitionKey string
 			if partitionValue != nil {
 				partitionKey = fmt.Sprint(partitionValue)
@@ -201,16 +183,14 @@ func (c *EventHubConnector) processBatch(
 }
 
 func (c *EventHubConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	batch := req.Records
-
-	numRecords, err := c.processBatch(ctx, req.FlowJobName, batch)
+	numRecords, err := c.processBatch(ctx, req.FlowJobName, req.Records)
 	if err != nil {
 		c.logger.Error("failed to process batch", slog.Any("error", err))
 		return nil, err
 	}
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
-	err = c.pgMetadata.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
+	err = c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
 	if err != nil {
 		c.logger.Error("failed to increment id", slog.Any("error", err))
 		return nil, err
@@ -220,7 +200,7 @@ func (c *EventHubConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 		CurrentSyncBatchID:     req.SyncBatchID,
 		LastSyncedCheckpointID: lastCheckpoint,
 		NumRecordsSynced:       int64(numRecords),
-		TableNameRowsMapping:   make(map[string]uint32),
+		TableNameRowsMapping:   make(map[string]*model.RecordTypeCounts),
 		TableSchemaDeltas:      req.Records.SchemaDeltas,
 	}, nil
 }
@@ -255,8 +235,4 @@ func (c *EventHubConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 func (c *EventHubConnector) ReplayTableSchemaDeltas(_ context.Context, flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error {
 	c.logger.Info("ReplayTableSchemaDeltas for event hub is a no-op")
 	return nil
-}
-
-func (c *EventHubConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
-	return c.pgMetadata.DropMetadata(ctx, jobName)
 }

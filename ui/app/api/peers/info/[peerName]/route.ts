@@ -1,5 +1,6 @@
 import prisma from '@/app/utils/prisma';
 import { NextRequest, NextResponse } from 'next/server';
+
 import { getTruePeer } from '../../getTruePeer';
 
 export async function GET(
@@ -20,6 +21,8 @@ export async function GET(
   const sfConfig = peerConfig.snowflakeConfig;
   const ehConfig = peerConfig.eventhubConfig;
   const chConfig = peerConfig.clickhouseConfig;
+  const kaConfig = peerConfig.kafkaConfig;
+  const psConfig = peerConfig.pubsubConfig;
   if (pgConfig) {
     pgConfig.password = '********';
     pgConfig.transactionSnapshot = '********';
@@ -41,6 +44,13 @@ export async function GET(
   if (chConfig) {
     chConfig.password = '********';
     chConfig.secretAccessKey = '********';
+  }
+  if (kaConfig) {
+    kaConfig.password = '********';
+  }
+  if (psConfig?.serviceAccount) {
+    psConfig.serviceAccount.privateKey = '********';
+    psConfig.serviceAccount.privateKeyId = '********';
   }
 
   return NextResponse.json(peerConfig);

@@ -88,25 +88,14 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	defer peerConn.Close(ctx)
 
 	rows, err := peerConn.Query(ctx, `SELECT DISTINCT ON (t.relname)
-    t.relname,
-    CASE
-        WHEN con.contype = 'p' OR t.relreplident = 'i' OR t.relreplident = 'f' THEN true
-        ELSE false
-    END AS can_mirror,
-	pg_size_pretty(pg_total_relation_size(t.oid)) :: text AS table_size
-	FROM
-		pg_class t
-	LEFT JOIN
-		pg_namespace n ON t.relnamespace = n.oid
-	LEFT JOIN
-		pg_constraint con ON con.conrelid = t.oid AND con.contype = 'p'
-	WHERE
-		n.nspname = $1
-	AND
-		t.relkind = 'r'
-	ORDER BY
-    t.relname,
-    can_mirror DESC;
+		t.relname,
+		(con.contype = 'p' OR t.relreplident in ('i', 'f')) AS can_mirror,
+		pg_size_pretty(pg_total_relation_size(t.oid))::text AS table_size
+	FROM pg_class t
+	LEFT JOIN pg_namespace n ON t.relnamespace = n.oid
+	LEFT JOIN pg_constraint con ON con.conrelid = t.oid AND con.contype = 'p'
+	WHERE n.nspname = $1 AND t.relkind = 'r'
+	ORDER BY t.relname, can_mirror DESC;
 `, req.SchemaName)
 	if err != nil {
 		slog.Info("failed to fetch publications", slog.Any("error", err))
@@ -161,7 +150,7 @@ func (h *FlowRequestHandler) GetAllTables(
 	rows, err := peerConn.Query(ctx, "SELECT n.nspname || '.' || c.relname AS schema_table "+
 		"FROM pg_class c "+
 		"JOIN pg_namespace n ON c.relnamespace = n.oid "+
-		"WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' AND c.relkind = 'r';")
+		"WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' AND c.relkind IN ('r', 'v', 'm', 'f');")
 	if err != nil {
 		return &protos.AllTablesResponse{Tables: nil}, err
 	}

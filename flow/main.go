@@ -62,6 +62,20 @@ func main() {
 		Sources: cli.EnvVars("PEERDB_TEMPORAL_NAMESPACE"),
 	}
 
+	temporalMaxConcurrentActivitiesFlag := &cli.IntFlag{
+		Name:    "temporal-max-concurrent-activities",
+		Value:   1000,
+		Usage:   "Temporal: maximum number of concurrent activities",
+		Sources: cli.EnvVars("TEMPORAL_MAX_CONCURRENT_ACTIVITIES"),
+	}
+
+	temporalMaxConcurrentWorkflowTasksFlag := &cli.IntFlag{
+		Name:    "temporal-max-concurrent-workflow-tasks",
+		Value:   1000,
+		Usage:   "Temporal: maximum number of concurrent workflows",
+		Sources: cli.EnvVars("TEMPORAL_MAX_CONCURRENT_WORKFLOW_TASKS"),
+	}
+
 	app := &cli.Command{
 		Name: "PeerDB Flows CLI",
 		Commands: []*cli.Command{
@@ -70,12 +84,14 @@ func main() {
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
 					c, w, err := cmd.WorkerMain(&cmd.WorkerOptions{
-						TemporalHostPort:  temporalHostPort,
-						EnableProfiling:   clicmd.Bool("enable-profiling"),
-						PyroscopeServer:   clicmd.String("pyroscope-server-address"),
-						TemporalNamespace: clicmd.String("temporal-namespace"),
-						TemporalCert:      clicmd.String("temporal-cert"),
-						TemporalKey:       clicmd.String("temporal-key"),
+						TemporalHostPort:                   temporalHostPort,
+						EnableProfiling:                    clicmd.Bool("enable-profiling"),
+						PyroscopeServer:                    clicmd.String("pyroscope-server-address"),
+						TemporalNamespace:                  clicmd.String("temporal-namespace"),
+						TemporalCert:                       clicmd.String("temporal-cert"),
+						TemporalKey:                        clicmd.String("temporal-key"),
+						TemporalMaxConcurrentActivities:    int(clicmd.Int("temporal-max-concurrent-activities")),
+						TemporalMaxConcurrentWorkflowTasks: int(clicmd.Int("temporal-max-concurrent-workflow-tasks")),
 					})
 					if err != nil {
 						return err
@@ -90,6 +106,8 @@ func main() {
 					temporalNamespaceFlag,
 					&temporalCertFlag,
 					&temporalKeyFlag,
+					temporalMaxConcurrentActivitiesFlag,
+					temporalMaxConcurrentWorkflowTasksFlag,
 				},
 			},
 			{

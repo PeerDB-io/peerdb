@@ -11,7 +11,9 @@ import (
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	connclickhouse "github.com/PeerDB-io/peer-flow/connectors/clickhouse"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
+	connkafka "github.com/PeerDB-io/peer-flow/connectors/kafka"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
+	connpubsub "github.com/PeerDB-io/peer-flow/connectors/pubsub"
 	conns3 "github.com/PeerDB-io/peer-flow/connectors/s3"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
@@ -25,6 +27,14 @@ var ErrUnsupportedFunctionality = errors.New("requested connector does not suppo
 type Connector interface {
 	Close() error
 	ConnectionActive(context.Context) error
+}
+
+type ValidationConnector interface {
+	Connector
+
+	// ValidationCheck performs validation for the connectors,
+	// usually includes permissions to create and use objects (tables, schema etc).
+	ValidateCheck(context.Context) error
 }
 
 type GetTableSchemaConnector interface {
@@ -194,6 +204,10 @@ func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 		return connsqlserver.NewSQLServerConnector(ctx, inner.SqlserverConfig)
 	case *protos.Peer_ClickhouseConfig:
 		return connclickhouse.NewClickhouseConnector(ctx, inner.ClickhouseConfig)
+	case *protos.Peer_KafkaConfig:
+		return connkafka.NewKafkaConnector(ctx, inner.KafkaConfig)
+	case *protos.Peer_PubsubConfig:
+		return connpubsub.NewPubSubConnector(ctx, inner.PubsubConfig)
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}
@@ -252,6 +266,8 @@ var (
 	_ CDCSyncConnector = &connbigquery.BigQueryConnector{}
 	_ CDCSyncConnector = &connsnowflake.SnowflakeConnector{}
 	_ CDCSyncConnector = &conneventhub.EventHubConnector{}
+	_ CDCSyncConnector = &connkafka.KafkaConnector{}
+	_ CDCSyncConnector = &connpubsub.PubSubConnector{}
 	_ CDCSyncConnector = &conns3.S3Connector{}
 	_ CDCSyncConnector = &connclickhouse.ClickhouseConnector{}
 
@@ -279,4 +295,9 @@ var (
 
 	_ QRepConsolidateConnector = &connsnowflake.SnowflakeConnector{}
 	_ QRepConsolidateConnector = &connclickhouse.ClickhouseConnector{}
+
+	_ ValidationConnector = &connsnowflake.SnowflakeConnector{}
+	_ ValidationConnector = &connclickhouse.ClickhouseConnector{}
+	_ ValidationConnector = &connbigquery.BigQueryConnector{}
+	_ ValidationConnector = &conns3.S3Connector{}
 )

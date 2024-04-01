@@ -15,20 +15,21 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/alerting"
-	"github.com/PeerDB-io/peer-flow/connectors"
-	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
 
 type WorkerOptions struct {
-	TemporalHostPort  string
-	EnableProfiling   bool
-	PyroscopeServer   string
-	TemporalNamespace string
-	TemporalCert      string
-	TemporalKey       string
+	TemporalHostPort                   string
+	PyroscopeServer                    string
+	TemporalNamespace                  string
+	TemporalCert                       string
+	TemporalKey                        string
+	TemporalMaxConcurrentActivities    int
+	TemporalMaxConcurrentWorkflowTasks int
+	EnableProfiling                    bool
 }
 
 func setupPyroscope(opts *WorkerOptions) {
@@ -98,7 +99,7 @@ func WorkerMain(opts *WorkerOptions) (client.Client, worker.Worker, error) {
 		clientOptions.ConnectionOptions = connOptions
 	}
 
-	conn, err := utils.GetCatalogConnectionPoolFromEnv(context.Background())
+	conn, err := peerdbenv.GetCatalogConnectionPoolFromEnv(context.Background())
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
@@ -109,9 +110,18 @@ func WorkerMain(opts *WorkerOptions) (client.Client, worker.Worker, error) {
 	}
 	slog.Info("Created temporal client")
 
-	taskQueue := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
+	taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
+	slog.Info(
+		fmt.Sprintf("Creating temporal worker for queue %v: %v workflow workers %v activity workers",
+			taskQueue,
+			opts.TemporalMaxConcurrentWorkflowTasks,
+			opts.TemporalMaxConcurrentActivities,
+		),
+	)
 	w := worker.New(c, taskQueue, worker.Options{
-		EnableSessionWorker: true,
+		EnableSessionWorker:                    true,
+		MaxConcurrentActivityExecutionSize:     opts.TemporalMaxConcurrentActivities,
+		MaxConcurrentWorkflowTaskExecutionSize: opts.TemporalMaxConcurrentWorkflowTasks,
 		OnFatalError: func(err error) {
 			slog.Error("Peerflow Worker failed", slog.Any("error", err))
 		},
@@ -121,7 +131,7 @@ func WorkerMain(opts *WorkerOptions) (client.Client, worker.Worker, error) {
 	w.RegisterActivity(&activities.FlowableActivity{
 		CatalogPool: conn,
 		Alerter:     alerting.NewAlerter(context.Background(), conn),
-		CdcCache:    make(map[string]connectors.CDCPullConnector),
+		CdcCache:    make(map[string]activities.CdcCacheEntry),
 	})
 
 	return c, w, nil
