@@ -22,7 +22,7 @@ import (
 )
 
 var (
-	LuaRecord  = glua64.UserDataType[model.Record]{Name: "peerdb_record"}
+	LuaRecord  = glua64.UserDataType[model.Record[model.RecordItems]]{Name: "peerdb_record"}
 	LuaRow     = glua64.UserDataType[model.RecordItems]{Name: "peerdb_row"}
 	LuaTime    = glua64.UserDataType[time.Time]{Name: "peerdb_time"}
 	LuaUuid    = glua64.UserDataType[uuid.UUID]{Name: "peerdb_uuid"}
@@ -164,13 +164,13 @@ func LuaRecordIndex(ls *lua.LState) int {
 	switch key {
 	case "kind":
 		switch record.(type) {
-		case *model.InsertRecord:
+		case *model.InsertRecord[model.RecordItems]:
 			ls.Push(lua.LString("insert"))
-		case *model.UpdateRecord:
+		case *model.UpdateRecord[model.RecordItems]:
 			ls.Push(lua.LString("update"))
-		case *model.DeleteRecord:
+		case *model.DeleteRecord[model.RecordItems]:
 			ls.Push(lua.LString("delete"))
-		case *model.RelationRecord:
+		case *model.RelationRecord[model.RecordItems]:
 			ls.Push(lua.LString("relation"))
 		}
 	case "row":
@@ -183,9 +183,9 @@ func LuaRecordIndex(ls *lua.LState) int {
 	case "old":
 		var items model.RecordItems
 		switch rec := record.(type) {
-		case *model.UpdateRecord:
+		case *model.UpdateRecord[model.RecordItems]:
 			items = rec.OldItems
-		case *model.DeleteRecord:
+		case *model.DeleteRecord[model.RecordItems]:
 			items = rec.Items
 		}
 		if items.ColToVal != nil {
@@ -196,9 +196,9 @@ func LuaRecordIndex(ls *lua.LState) int {
 	case "new":
 		var items model.RecordItems
 		switch rec := record.(type) {
-		case *model.InsertRecord:
+		case *model.InsertRecord[model.RecordItems]:
 			items = rec.Items
-		case *model.UpdateRecord:
+		case *model.UpdateRecord[model.RecordItems]:
 			items = rec.NewItems
 		}
 		if items.ColToVal != nil {

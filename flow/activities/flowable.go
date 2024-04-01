@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -36,7 +37,7 @@ type CheckConnectionResult struct {
 }
 
 type CdcCacheEntry struct {
-	connector connectors.CDCPullConnector
+	connector connectors.CDCPullConnectorCore
 	done      chan struct{}
 }
 
@@ -133,9 +134,9 @@ func (a *FlowableActivity) GetTableSchema(
 	config *protos.GetTableSchemaBatchInput,
 ) (*protos.GetTableSchemaBatchOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
-	srcConn, err := connectors.GetCDCPullConnector(ctx, config.PeerConnectionConfig)
+	srcConn, err := connectors.GetAs[connectors.GetTableSchemaConnector](ctx, config.PeerConnectionConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get connector: %w", err)
+		return nil, fmt.Errorf("failed to get CDCPullPgConnector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
@@ -175,7 +176,8 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 	tableExistsMapping := make(map[string]bool)
 	for tableIdentifier, tableSchema := range config.TableNameSchemaMapping {
-		existing, err := conn.SetupNormalizedTable(
+		var existing bool
+		existing, err = conn.SetupNormalizedTable(
 			ctx,
 			tx,
 			tableIdentifier,
@@ -197,8 +199,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 		}
 	}
 
-	err = conn.FinishSetupNormalizedTables(ctx, tx)
-	if err != nil {
+	if err := conn.FinishSetupNormalizedTables(ctx, tx); err != nil {
 		return nil, fmt.Errorf("failed to commit normalized tables tx: %w", err)
 	}
 
@@ -264,7 +265,8 @@ func (a *FlowableActivity) UnmaintainPull(ctx context.Context, sessionID string)
 	return nil
 }
 
-func (a *FlowableActivity) waitForCdcCache(ctx context.Context, sessionID string) (connectors.CDCPullConnector, error) {
+func waitForCdcCache[TPull connectors.CDCPullConnectorCore](ctx context.Context, a *FlowableActivity, sessionID string) (TPull, error) {
+	var none TPull
 	logger := activity.GetLogger(ctx)
 	attempt := 0
 	for {
@@ -272,7 +274,10 @@ func (a *FlowableActivity) waitForCdcCache(ctx context.Context, sessionID string
 		entry, ok := a.CdcCache[sessionID]
 		a.CdcCacheRw.RUnlock()
 		if ok {
-			return entry.connector, nil
+			if conn, ok := entry.connector.(TPull); ok {
+				return conn, nil
+			}
+			return none, fmt.Errorf("expected %s, cache held %T", reflect.TypeFor[TPull]().Name(), entry.connector)
 		}
 		activity.RecordHeartbeat(ctx, "wait another second for source connector")
 		attempt += 1
@@ -280,23 +285,51 @@ func (a *FlowableActivity) waitForCdcCache(ctx context.Context, sessionID string
 			logger.Info("waiting on source connector setup", slog.Int("attempt", attempt))
 		}
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return none, err
 		}
 		time.Sleep(time.Second)
 	}
 }
 
-func (a *FlowableActivity) SyncFlow(
+func (a *FlowableActivity) SyncRecords(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
 	sessionID string,
 ) (*model.SyncResponse, error) {
+	return syncCore(ctx, a, config, options, sessionID,
+		connectors.CDCPullConnector.PullRecords,
+		connectors.CDCSyncConnector.SyncRecords,
+		connectors.CDCSyncConnector.ReplayTableSchemaDeltas)
+}
+
+func (a *FlowableActivity) SyncPg(
+	ctx context.Context,
+	config *protos.FlowConnectionConfigs,
+	options *protos.SyncFlowOptions,
+	sessionID string,
+) (*model.SyncResponse, error) {
+	return syncCore(ctx, a, config, options, sessionID,
+		connectors.CDCPullPgConnector.PullPg,
+		connectors.CDCSyncPgConnector.SyncPg,
+		connectors.CDCSyncPgConnector.ReplayPgTableSchemaDeltas)
+}
+
+func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncConnectorCore, Items model.Items](
+	ctx context.Context,
+	a *FlowableActivity,
+	config *protos.FlowConnectionConfigs,
+	options *protos.SyncFlowOptions,
+	sessionID string,
+	pull func(TPull, context.Context, *pgxpool.Pool, *model.PullRecordsRequest[Items]) error,
+	sync func(TSync, context.Context, *model.SyncRecordsRequest[Items]) (*model.SyncResponse, error),
+	replay func(TSync, context.Context, string, []*protos.TableSchemaDelta) error,
+) (*model.SyncResponse, error) {
 	flowName := config.FlowJobName
 	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
 	logger := activity.GetLogger(ctx)
 	activity.RecordHeartbeat(ctx, "starting flow...")
-	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.Destination)
+	dstConn, err := connectors.GetAs[TSync](ctx, config.Destination)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
 	}
@@ -307,9 +340,9 @@ func (a *FlowableActivity) SyncFlow(
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
 	}
 
-	var srcConn connectors.CDCPullConnector
+	var srcConn TPull
 	if sessionID == "" {
-		srcConn, err = connectors.GetCDCPullConnector(ctx, config.Source)
+		srcConn, err = connectors.GetAs[TPull](ctx, config.Source)
 		if err != nil {
 			return nil, err
 		}
@@ -319,7 +352,7 @@ func (a *FlowableActivity) SyncFlow(
 			return nil, err
 		}
 	} else {
-		srcConn, err = a.waitForCdcCache(ctx, sessionID)
+		srcConn, err = waitForCdcCache[TPull](ctx, a, sessionID)
 		if err != nil {
 			return nil, err
 		}
@@ -345,12 +378,12 @@ func (a *FlowableActivity) SyncFlow(
 	logger.Info("pulling records...", slog.Int64("LastOffset", lastOffset))
 
 	// start a goroutine to pull records from the source
-	recordBatch := model.NewCDCRecordStream()
+	recordBatch := model.NewCDCStream[Items]()
 	startTime := time.Now()
 
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
-		return srcConn.PullRecords(errCtx, a.CatalogPool, &model.PullRecordsRequest{
+		return pull(srcConn, errCtx, a.CatalogPool, &model.PullRecordsRequest[Items]{
 			FlowJobName:           flowName,
 			SrcTableIDNameMapping: options.SrcTableIdNameMapping,
 			TableNameMapping:      tblNameMapping,
@@ -382,7 +415,7 @@ func (a *FlowableActivity) SyncFlow(
 		}
 		logger.Info("no records to push")
 
-		err := dstConn.ReplayTableSchemaDeltas(ctx, flowName, recordBatch.SchemaDeltas)
+		err := replay(dstConn, ctx, flowName, recordBatch.SchemaDeltas)
 		if err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
@@ -415,7 +448,7 @@ func (a *FlowableActivity) SyncFlow(
 		}
 
 		syncStartTime = time.Now()
-		res, err = dstConn.SyncRecords(errCtx, &model.SyncRecordsRequest{
+		res, err = sync(dstConn, errCtx, &model.SyncRecordsRequest[Items]{
 			SyncBatchID:   syncBatchID,
 			Records:       recordBatch,
 			FlowJobName:   flowName,

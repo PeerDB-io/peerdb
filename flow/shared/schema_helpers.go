@@ -60,6 +60,7 @@ func BuildProcessedSchemaMapping(tableMappings []*protos.TableMapping,
 						TableIdentifier:       tableSchema.TableIdentifier,
 						PrimaryKeyColumns:     tableSchema.PrimaryKeyColumns,
 						IsReplicaIdentityFull: tableSchema.IsReplicaIdentityFull,
+						System:                tableSchema.System,
 						Columns:               columns,
 					}
 				}

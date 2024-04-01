@@ -1,4 +1,8 @@
-import { FlowConnectionConfigs, QRepWriteType } from '@/grpc_generated/flow';
+import {
+  FlowConnectionConfigs,
+  QRepWriteType,
+  TypeSystem,
+} from '@/grpc_generated/flow';
 import { Peer } from '@/grpc_generated/peers';
 
 export interface MirrorSetting {
@@ -37,6 +41,7 @@ export const blankCDCSetting: FlowConnectionConfigs = {
   initialSnapshotOnly: false,
   idleTimeoutSeconds: 60,
   script: '',
+  system: TypeSystem.Q,
 };
 
 export const blankQRepSetting = {

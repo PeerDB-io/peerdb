@@ -6,13 +6,13 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
-type Record interface {
+type Record[T Items] interface {
 	GetCheckpointID() int64
 	GetCommitTime() time.Time
 	GetDestinationTableName() string
 	GetSourceTableName() string
 	// get columns and values for the record
-	GetItems() RecordItems
+	GetItems() T
 	PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts)
 }
 
@@ -31,9 +31,9 @@ func (r *BaseRecord) GetCommitTime() time.Time {
 	return time.Unix(0, r.CommitTimeNano)
 }
 
-type InsertRecord struct {
+type InsertRecord[T Items] struct {
 	// Items is a map of column name to value.
-	Items RecordItems
+	Items T
 	// Name of the source table
 	SourceTableName string
 	// Name of the destination table
@@ -43,30 +43,30 @@ type InsertRecord struct {
 	BaseRecord
 }
 
-func (r *InsertRecord) GetDestinationTableName() string {
+func (r *InsertRecord[T]) GetDestinationTableName() string {
 	return r.DestinationTableName
 }
 
-func (r *InsertRecord) GetSourceTableName() string {
+func (r *InsertRecord[T]) GetSourceTableName() string {
 	return r.SourceTableName
 }
 
-func (r *InsertRecord) GetItems() RecordItems {
+func (r *InsertRecord[T]) GetItems() T {
 	return r.Items
 }
 
-func (r *InsertRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
+func (r *InsertRecord[T]) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
 	recordCount, ok := mapOfCounts[r.DestinationTableName]
 	if ok {
 		recordCount.InsertCount++
 	}
 }
 
-type UpdateRecord struct {
+type UpdateRecord[T Items] struct {
 	// OldItems is a map of column name to value.
-	OldItems RecordItems
+	OldItems T
 	// NewItems is a map of column name to value.
-	NewItems RecordItems
+	NewItems T
 	// unchanged toast columns
 	UnchangedToastColumns map[string]struct{}
 	// Name of the source table
@@ -76,28 +76,28 @@ type UpdateRecord struct {
 	BaseRecord
 }
 
-func (r *UpdateRecord) GetDestinationTableName() string {
+func (r *UpdateRecord[T]) GetDestinationTableName() string {
 	return r.DestinationTableName
 }
 
-func (r *UpdateRecord) GetSourceTableName() string {
+func (r *UpdateRecord[T]) GetSourceTableName() string {
 	return r.SourceTableName
 }
 
-func (r *UpdateRecord) GetItems() RecordItems {
+func (r *UpdateRecord[T]) GetItems() T {
 	return r.NewItems
 }
 
-func (r *UpdateRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
+func (r *UpdateRecord[T]) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
 	recordCount, ok := mapOfCounts[r.DestinationTableName]
 	if ok {
 		recordCount.UpdateCount++
 	}
 }
 
-type DeleteRecord struct {
+type DeleteRecord[T Items] struct {
 	// Items is a map of column name to value.
-	Items RecordItems
+	Items T
 	// unchanged toast columns, filled from latest UpdateRecord
 	UnchangedToastColumns map[string]struct{}
 	// Name of the source table
@@ -107,19 +107,19 @@ type DeleteRecord struct {
 	BaseRecord
 }
 
-func (r *DeleteRecord) GetDestinationTableName() string {
+func (r *DeleteRecord[T]) GetDestinationTableName() string {
 	return r.DestinationTableName
 }
 
-func (r *DeleteRecord) GetSourceTableName() string {
+func (r *DeleteRecord[T]) GetSourceTableName() string {
 	return r.SourceTableName
 }
 
-func (r *DeleteRecord) GetItems() RecordItems {
+func (r *DeleteRecord[T]) GetItems() T {
 	return r.Items
 }
 
-func (r *DeleteRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
+func (r *DeleteRecord[T]) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
 	recordCount, ok := mapOfCounts[r.DestinationTableName]
 	if ok {
 		recordCount.DeleteCount++
@@ -127,22 +127,23 @@ func (r *DeleteRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts
 }
 
 // being clever and passing the delta back as a regular record instead of heavy CDC refactoring.
-type RelationRecord struct {
+type RelationRecord[T Items] struct {
 	TableSchemaDelta *protos.TableSchemaDelta `json:"tableSchemaDelta"`
 	BaseRecord
 }
 
-func (r *RelationRecord) GetDestinationTableName() string {
+func (r *RelationRecord[T]) GetDestinationTableName() string {
 	return r.TableSchemaDelta.DstTableName
 }
 
-func (r *RelationRecord) GetSourceTableName() string {
+func (r *RelationRecord[T]) GetSourceTableName() string {
 	return r.TableSchemaDelta.SrcTableName
 }
 
-func (r *RelationRecord) GetItems() RecordItems {
-	return RecordItems{ColToVal: nil}
+func (r *RelationRecord[T]) GetItems() T {
+	var none T
+	return none
 }
 
-func (r *RelationRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
+func (r *RelationRecord[T]) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
 }

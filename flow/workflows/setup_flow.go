@@ -185,6 +185,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		PeerConnectionConfig: flowConnectionConfigs.Source,
 		TableIdentifiers:     sourceTables,
 		FlowName:             s.cdcFlowName,
+		System:               flowConnectionConfigs.System,
 	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)

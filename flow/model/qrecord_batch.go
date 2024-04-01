@@ -115,11 +115,10 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 		case qvalue.QValueCIDR, qvalue.QValueINET, qvalue.QValueMacaddr:
 			str, ok := v.Value().(string)
 			if !ok {
-				src.err = errors.New("invalid INET/CIDR value")
+				src.err = errors.New("invalid INET/CIDR/MACADDR value")
 				return nil, src.err
 			}
 			values[i] = str
-
 		case qvalue.QValueTime:
 			values[i] = pgtype.Time{Microseconds: v.Val.UnixMicro(), Valid: true}
 		case qvalue.QValueTimestamp:
@@ -130,14 +129,10 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			values[i] = uuid.UUID(v.Val)
 		case qvalue.QValueNumeric:
 			values[i] = v.Val
-		case qvalue.QValueBytes, qvalue.QValueBit:
-			bytes, ok := v.Value().([]byte)
-			if !ok {
-				src.err = errors.New("invalid Bytes value")
-				return nil, src.err
-			}
-			values[i] = bytes
-
+		case qvalue.QValueBit:
+			values[i] = v.Val
+		case qvalue.QValueBytes:
+			values[i] = v.Val
 		case qvalue.QValueDate:
 			values[i] = pgtype.Date{Time: v.Val, Valid: true}
 		case qvalue.QValueHStore:

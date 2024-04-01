@@ -39,7 +39,7 @@ func NewQRepAvroSyncMethod(connector *BigQueryConnector, gcsBucket string,
 
 func (s *QRepAvroSyncMethod) SyncRecords(
 	ctx context.Context,
-	req *model.SyncRecordsRequest,
+	req *model.SyncRecordsRequest[model.RecordItems],
 	rawTableName string,
 	dstTableMetadata *bigquery.TableMetadata,
 	syncBatchID int64,

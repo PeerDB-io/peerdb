@@ -24,9 +24,9 @@ func NewNameAndExclude(name string, exclude []string) NameAndExclude {
 	return NameAndExclude{Name: name, Exclude: exset}
 }
 
-type PullRecordsRequest struct {
+type PullRecordsRequest[T Items] struct {
 	// record batch for pushing changes into
-	RecordStream *CDCRecordStream
+	RecordStream *CDCStream[T]
 	// FlowJobName is the name of the flow job.
 	FlowJobName string
 	// relId to name Mapping
@@ -72,8 +72,8 @@ type TableWithPkey struct {
 	PkeyColVal [32]byte
 }
 
-type SyncRecordsRequest struct {
-	Records *CDCRecordStream
+type SyncRecordsRequest[T Items] struct {
+	Records *CDCStream[T]
 	// FlowJobName is the name of the flow job.
 	FlowJobName string
 	// Staging path for AVRO files in CDC

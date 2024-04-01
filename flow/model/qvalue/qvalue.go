@@ -6,7 +6,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// if new types are added, register them in gob - cdc_records_storage.go
+// if new types are added, register them in gob - cdc_store.go
 type QValue interface {
 	Kind() QValueKind
 	Value() any
