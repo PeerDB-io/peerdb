@@ -281,5 +281,5 @@ func (c *SnowflakeConnector) dropStage(ctx context.Context, stagingPath string, 
 }
 
 func (c *SnowflakeConnector) getStageNameForJob(job string) string {
-	return fmt.Sprintf("%s.peerdb_stage_%s", c.rawSchema, job)
+	return fmt.Sprintf("%s.\"peerdb_stage_%s\"", c.rawSchema, strings.ReplaceAll(job, "\"", "\"\""))
 }

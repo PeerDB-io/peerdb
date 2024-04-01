@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/jackc/pglogrepl"
@@ -433,8 +432,7 @@ func (c *PostgresConnector) createMetadataSchema(ctx context.Context) error {
 }
 
 func getRawTableIdentifier(jobName string) string {
-	jobName = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(jobName, "_")
-	return fmt.Sprintf("%s_%s", rawTablePrefix, strings.ToLower(jobName))
+	return QuoteIdentifier(fmt.Sprintf("%s_%s", rawTablePrefix, jobName))
 }
 
 func generateCreateTableSQLForNormalizedTable(

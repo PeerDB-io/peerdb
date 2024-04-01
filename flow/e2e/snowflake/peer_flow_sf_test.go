@@ -558,7 +558,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_multi_table"),
+		FlowJobName:      s.attachSuffix("test-multi-table"),
 		TableNameMapping: map[string]string{srcTable1Name: dstTable1Name, srcTable2Name: dstTable2Name},
 		Destination:      s.sfHelper.Peer,
 	}

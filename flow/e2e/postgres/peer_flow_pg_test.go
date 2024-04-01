@@ -172,7 +172,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_enum_flow"),
+		FlowJobName:      s.attachSuffix("test-enum-flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.peer,
 	}

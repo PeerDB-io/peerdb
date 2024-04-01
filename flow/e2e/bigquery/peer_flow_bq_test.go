@@ -1330,7 +1330,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_JSON_PKey_BQ() {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_json_pkey_flow"),
+		FlowJobName:      s.attachSuffix("test-json-pkey-flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.bqHelper.Peer,
 		CdcStagingPath:   "",
