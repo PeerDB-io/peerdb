@@ -72,7 +72,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 		true,
 		"")
 	require.NoError(s.t, err)
-	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 
@@ -97,7 +97,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Timestamps_And_Date_QRep() {
 		"")
 	qrepConfig.WatermarkColumn = "watermark_ts"
 	require.NoError(s.t, err)
-	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 
@@ -137,7 +137,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
 		true,
 		"_PEERDB_SYNCED_AT")
 	require.NoError(s.t, err)
-	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 

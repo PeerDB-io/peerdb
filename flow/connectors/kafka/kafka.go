@@ -26,9 +26,9 @@ import (
 )
 
 type KafkaConnector struct {
-	client     *kgo.Client
-	pgMetadata *metadataStore.PostgresMetadataStore
-	logger     log.Logger
+	*metadataStore.PostgresMetadata
+	client *kgo.Client
+	logger log.Logger
 }
 
 func NewKafkaConnector(
@@ -77,15 +77,15 @@ func NewKafkaConnector(
 		return nil, fmt.Errorf("failed to create kafka client: %w", err)
 	}
 
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
+	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	return &KafkaConnector{
-		client:     client,
-		pgMetadata: pgMetadata,
-		logger:     logger.LoggerFromCtx(ctx),
+		PostgresMetadata: pgMetadata,
+		client:           client,
+		logger:           logger.LoggerFromCtx(ctx),
 	}, nil
 }
 
@@ -104,18 +104,6 @@ func (c *KafkaConnector) CreateRawTable(ctx context.Context, req *protos.CreateR
 	return &protos.CreateRawTableOutput{TableIdentifier: "n/a"}, nil
 }
 
-func (c *KafkaConnector) GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error) {
-	return c.pgMetadata.GetLastBatchID(ctx, jobName)
-}
-
-func (c *KafkaConnector) GetLastOffset(ctx context.Context, jobName string) (int64, error) {
-	return c.pgMetadata.FetchLastOffset(ctx, jobName)
-}
-
-func (c *KafkaConnector) SetLastOffset(ctx context.Context, jobName string, offset int64) error {
-	return c.pgMetadata.UpdateLastOffset(ctx, jobName, offset)
-}
-
 func (c *KafkaConnector) NeedsSetupMetadataTables(_ context.Context) bool {
 	return false
 }
@@ -126,10 +114,6 @@ func (c *KafkaConnector) SetupMetadataTables(_ context.Context) error {
 
 func (c *KafkaConnector) ReplayTableSchemaDeltas(_ context.Context, flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error {
 	return nil
-}
-
-func (c *KafkaConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
-	return c.pgMetadata.DropMetadata(ctx, jobName)
 }
 
 func lvalueToKafkaRecord(ls *lua.LState, value lua.LValue) (*kgo.Record, error) {
@@ -199,7 +183,7 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 		for i := range top {
 			ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
 		}
-		_ = c.pgMetadata.LogFlowInfo(ctx, req.FlowJobName, strings.Join(ss, "\t"))
+		_ = c.LogFlowInfo(ctx, req.FlowJobName, strings.Join(ss, "\t"))
 		return 0
 	})
 	if err != nil {
@@ -258,7 +242,7 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 	}
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
-	err = c.pgMetadata.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
+	err = c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
 	if err != nil {
 		return nil, err
 	}
