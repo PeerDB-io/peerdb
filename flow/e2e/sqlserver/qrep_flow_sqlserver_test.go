@@ -171,7 +171,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 		WaitBetweenBatchesSeconds:  5,
 	}
 
-	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 

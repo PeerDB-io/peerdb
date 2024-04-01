@@ -33,11 +33,11 @@ const (
 )
 
 type BigQueryConnector struct {
+	*metadataStore.PostgresMetadata
 	logger        log.Logger
 	bqConfig      *protos.BigqueryConfig
 	client        *bigquery.Client
 	storageClient *storage.Client
-	pgMetadata    *metadataStore.PostgresMetadataStore
 	catalogPool   *pgxpool.Pool
 	datasetID     string
 	projectID     string
@@ -150,14 +150,14 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 	}
 
 	return &BigQueryConnector{
-		bqConfig:      config,
-		client:        client,
-		datasetID:     datasetID,
-		projectID:     projectID,
-		pgMetadata:    metadataStore.NewPostgresMetadataStoreFromCatalog(logger, catalogPool),
-		storageClient: storageClient,
-		catalogPool:   catalogPool,
-		logger:        logger,
+		bqConfig:         config,
+		client:           client,
+		datasetID:        datasetID,
+		projectID:        projectID,
+		PostgresMetadata: metadataStore.NewPostgresMetadataFromCatalog(logger, catalogPool),
+		storageClient:    storageClient,
+		catalogPool:      catalogPool,
+		logger:           logger,
 	}, nil
 }
 
@@ -177,10 +177,6 @@ func (c *BigQueryConnector) ConnectionActive(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-func (c *BigQueryConnector) NeedsSetupMetadataTables(_ context.Context) bool {
-	return false
 }
 
 func (c *BigQueryConnector) waitForTableReady(ctx context.Context, datasetTable *datasetTable) error {
@@ -238,26 +234,6 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 	}
 
 	return nil
-}
-
-func (c *BigQueryConnector) SetupMetadataTables(_ context.Context) error {
-	return nil
-}
-
-func (c *BigQueryConnector) GetLastOffset(ctx context.Context, jobName string) (int64, error) {
-	return c.pgMetadata.FetchLastOffset(ctx, jobName)
-}
-
-func (c *BigQueryConnector) SetLastOffset(ctx context.Context, jobName string, offset int64) error {
-	return c.pgMetadata.UpdateLastOffset(ctx, jobName, offset)
-}
-
-func (c *BigQueryConnector) GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error) {
-	return c.pgMetadata.GetLastBatchID(ctx, jobName)
-}
-
-func (c *BigQueryConnector) GetLastNormalizeBatchID(ctx context.Context, jobName string) (int64, error) {
-	return c.pgMetadata.GetLastNormalizeBatchID(ctx, jobName)
 }
 
 func (c *BigQueryConnector) getDistinctTableNamesInBatch(
@@ -423,7 +399,7 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 			return nil, mergeErr
 		}
 
-		err = c.pgMetadata.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId)
+		err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId)
 		if err != nil {
 			return nil, err
 		}
@@ -710,7 +686,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 }
 
 func (c *BigQueryConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
-	err := c.pgMetadata.DropMetadata(ctx, jobName)
+	err := c.PostgresMetadata.SyncFlowCleanup(ctx, jobName)
 	if err != nil {
 		return fmt.Errorf("unable to clear metadata for sync flow cleanup: %w", err)
 	}

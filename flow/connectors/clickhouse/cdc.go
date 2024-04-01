@@ -126,7 +126,7 @@ func (c *ClickhouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 		return nil, err
 	}
 
-	err = c.pgMetadata.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpointID)
+	err = c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpointID)
 	if err != nil {
 		c.logger.Error("failed to increment id", slog.Any("error", err))
 		return nil, err
@@ -135,43 +135,8 @@ func (c *ClickhouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 	return res, nil
 }
 
-func (c *ClickhouseConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
-	err := c.pgMetadata.DropMetadata(ctx, jobName)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 func (c *ClickhouseConnector) ReplayTableSchemaDeltas(_ context.Context, flowJobName string,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
-	return nil
-}
-
-func (c *ClickhouseConnector) NeedsSetupMetadataTables(_ context.Context) bool {
-	return false
-}
-
-func (c *ClickhouseConnector) SetupMetadataTables(_ context.Context) error {
-	return nil
-}
-
-func (c *ClickhouseConnector) GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error) {
-	return c.pgMetadata.GetLastBatchID(ctx, jobName)
-}
-
-func (c *ClickhouseConnector) GetLastOffset(ctx context.Context, jobName string) (int64, error) {
-	return c.pgMetadata.FetchLastOffset(ctx, jobName)
-}
-
-// update offset for a job
-func (c *ClickhouseConnector) SetLastOffset(ctx context.Context, jobName string, offset int64) error {
-	err := c.pgMetadata.UpdateLastOffset(ctx, jobName, offset)
-	if err != nil {
-		c.logger.Error("failed to update last offset: ", slog.Any("error", err))
-		return err
-	}
-
 	return nil
 }

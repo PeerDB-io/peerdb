@@ -193,7 +193,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	require.NoError(s.t, err)
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 
@@ -230,7 +230,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns_QRep_PG() {
 	require.NoError(s.t, err)
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 
@@ -267,7 +267,7 @@ func (s PeerFlowE2ETestSuitePG) Test_No_Rows_QRep_PG() {
 	require.NoError(s.t, err)
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 }
@@ -300,7 +300,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Pause() {
 	config.InitialCopyOnly = false
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQrepFlowWorkflow(tc, config)
+	env := e2e.RunQRepFlowWorkflow(tc, config)
 	e2e.SignalWorkflow(env, model.FlowSignal, model.PauseSignal)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing", func() bool {

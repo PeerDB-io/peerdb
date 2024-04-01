@@ -20,9 +20,9 @@ import (
 )
 
 type PubSubConnector struct {
-	client     *pubsub.Client
-	pgMetadata *metadataStore.PostgresMetadataStore
-	logger     log.Logger
+	*metadataStore.PostgresMetadata
+	client *pubsub.Client
+	logger log.Logger
 }
 
 func NewPubSubConnector(
@@ -35,15 +35,15 @@ func NewPubSubConnector(
 		return nil, fmt.Errorf("failed to create pubsub client: %w", err)
 	}
 
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
+	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	return &PubSubConnector{
-		client:     client,
-		pgMetadata: pgMetadata,
-		logger:     logger.LoggerFromCtx(ctx),
+		client:           client,
+		PostgresMetadata: pgMetadata,
+		logger:           logger.LoggerFromCtx(ctx),
 	}, nil
 }
 
@@ -64,32 +64,8 @@ func (c *PubSubConnector) CreateRawTable(ctx context.Context, req *protos.Create
 	return &protos.CreateRawTableOutput{TableIdentifier: "n/a"}, nil
 }
 
-func (c *PubSubConnector) GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error) {
-	return c.pgMetadata.GetLastBatchID(ctx, jobName)
-}
-
-func (c *PubSubConnector) GetLastOffset(ctx context.Context, jobName string) (int64, error) {
-	return c.pgMetadata.FetchLastOffset(ctx, jobName)
-}
-
-func (c *PubSubConnector) SetLastOffset(ctx context.Context, jobName string, offset int64) error {
-	return c.pgMetadata.UpdateLastOffset(ctx, jobName, offset)
-}
-
-func (c *PubSubConnector) NeedsSetupMetadataTables(_ context.Context) bool {
-	return false
-}
-
-func (c *PubSubConnector) SetupMetadataTables(_ context.Context) error {
-	return nil
-}
-
 func (c *PubSubConnector) ReplayTableSchemaDeltas(_ context.Context, flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error {
 	return nil
-}
-
-func (c *PubSubConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
-	return c.pgMetadata.DropMetadata(ctx, jobName)
 }
 
 func lvalueToPubSubMessage(ls *lua.LState, value lua.LValue) (string, *pubsub.Message, error) {
@@ -143,7 +119,7 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 		for i := range top {
 			ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
 		}
-		_ = c.pgMetadata.LogFlowInfo(ctx, req.FlowJobName, strings.Join(ss, "\t"))
+		_ = c.LogFlowInfo(ctx, req.FlowJobName, strings.Join(ss, "\t"))
 		return 0
 	})
 	if err != nil {
@@ -247,7 +223,7 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 	}
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
-	err = c.pgMetadata.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
+	err = c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
 	if err != nil {
 		return nil, err
 	}
