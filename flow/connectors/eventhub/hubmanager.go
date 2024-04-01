@@ -63,9 +63,7 @@ func (m *EventHubManager) GetNumPartitions(ctx context.Context, name ScopedEvent
 	}
 
 	numPartitions := len(props.PartitionIDs)
-	m.partitionCount.Upsert(name, numPartitions, func(exist bool, valueInMap int, newValue int) int {
-		return newValue
-	})
+	m.partitionCount.Set(name, numPartitions)
 
 	return numPartitions, nil
 }
