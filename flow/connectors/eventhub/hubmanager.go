@@ -152,7 +152,7 @@ func (m *EventHubManager) Close(ctx context.Context) error {
 		return true
 	})
 
-	slog.InfoContext(ctx, "closed all eventhub clients", slog.Any("numClosed", numHubsClosed.Load()))
+	slog.InfoContext(ctx, "closed all eventhub clients", slog.Uint64("numClosed", uint64(numHubsClosed.Load())))
 	return allErrors
 }
 
