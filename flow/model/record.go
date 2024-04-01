@@ -12,7 +12,7 @@ type Record interface {
 	GetDestinationTableName() string
 	GetSourceTableName() string
 	// get columns and values for the record
-	GetItems() *RecordItems
+	GetItems() RecordItems
 	PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts)
 }
 
@@ -33,7 +33,7 @@ func (r *BaseRecord) GetCommitTime() time.Time {
 
 type InsertRecord struct {
 	// Items is a map of column name to value.
-	Items *RecordItems
+	Items RecordItems
 	// Name of the source table
 	SourceTableName string
 	// Name of the destination table
@@ -49,9 +49,9 @@ func (r *InsertRecord) GetDestinationTableName() string {
 
 type UpdateRecord struct {
 	// OldItems is a map of column name to value.
-	OldItems *RecordItems
+	OldItems RecordItems
 	// NewItems is a map of column name to value.
-	NewItems *RecordItems
+	NewItems RecordItems
 	// unchanged toast columns
 	UnchangedToastColumns map[string]struct{}
 	// Name of the source table
@@ -69,7 +69,7 @@ func (r *UpdateRecord) GetSourceTableName() string {
 	return r.SourceTableName
 }
 
-func (r *UpdateRecord) GetItems() *RecordItems {
+func (r *UpdateRecord) GetItems() RecordItems {
 	return r.NewItems
 }
 
@@ -82,7 +82,7 @@ func (r *UpdateRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts
 
 type DeleteRecord struct {
 	// Items is a map of column name to value.
-	Items *RecordItems
+	Items RecordItems
 	// unchanged toast columns, filled from latest UpdateRecord
 	UnchangedToastColumns map[string]struct{}
 	// Name of the source table
@@ -100,7 +100,7 @@ func (r *DeleteRecord) GetSourceTableName() string {
 	return r.SourceTableName
 }
 
-func (r *DeleteRecord) GetItems() *RecordItems {
+func (r *DeleteRecord) GetItems() RecordItems {
 	return r.Items
 }
 
@@ -125,8 +125,8 @@ func (r *RelationRecord) GetSourceTableName() string {
 	return r.TableSchemaDelta.SrcTableName
 }
 
-func (r *RelationRecord) GetItems() *RecordItems {
-	return nil
+func (r *RelationRecord) GetItems() RecordItems {
+	return RecordItems{ColToVal: nil}
 }
 
 func (r *RelationRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {

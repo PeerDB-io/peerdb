@@ -23,7 +23,7 @@ import (
 
 var (
 	LuaRecord  = glua64.UserDataType[model.Record]{Name: "peerdb_record"}
-	LuaRow     = glua64.UserDataType[*model.RecordItems]{Name: "peerdb_row"}
+	LuaRow     = glua64.UserDataType[model.RecordItems]{Name: "peerdb_row"}
 	LuaTime    = glua64.UserDataType[time.Time]{Name: "peerdb_time"}
 	LuaUuid    = glua64.UserDataType[uuid.UUID]{Name: "peerdb_uuid"}
 	LuaBigInt  = glua64.UserDataType[*big.Int]{Name: "peerdb_bigint"}
@@ -120,7 +120,7 @@ func LoadPeerdbScript(ls *lua.LState) int {
 	return 1
 }
 
-func GetRowQ(ls *lua.LState, row *model.RecordItems, col string) qvalue.QValue {
+func GetRowQ(ls *lua.LState, row model.RecordItems, col string) qvalue.QValue {
 	qv, err := row.GetValueByColName(col)
 	if err != nil {
 		ls.RaiseError(err.Error())
@@ -175,33 +175,33 @@ func LuaRecordIndex(ls *lua.LState) int {
 		}
 	case "row":
 		items := record.GetItems()
-		if items != nil {
+		if items.ColToVal != nil {
 			ls.Push(LuaRow.New(ls, items))
 		} else {
 			ls.Push(lua.LNil)
 		}
 	case "old":
-		var items *model.RecordItems
+		var items model.RecordItems
 		switch rec := record.(type) {
 		case *model.UpdateRecord:
 			items = rec.OldItems
 		case *model.DeleteRecord:
 			items = rec.Items
 		}
-		if items != nil {
+		if items.ColToVal != nil {
 			ls.Push(LuaRow.New(ls, items))
 		} else {
 			ls.Push(lua.LNil)
 		}
 	case "new":
-		var items *model.RecordItems
+		var items model.RecordItems
 		switch rec := record.(type) {
 		case *model.InsertRecord:
 			items = rec.Items
 		case *model.UpdateRecord:
 			items = rec.NewItems
 		}
-		if items != nil {
+		if items.ColToVal != nil {
 			ls.Push(LuaRow.New(ls, items))
 		} else {
 			ls.Push(lua.LNil)

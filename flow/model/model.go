@@ -70,7 +70,7 @@ func (r *InsertRecord) GetSourceTableName() string {
 	return r.SourceTableName
 }
 
-func (r *InsertRecord) GetItems() *RecordItems {
+func (r *InsertRecord) GetItems() RecordItems {
 	return r.Items
 }
 

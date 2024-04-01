@@ -590,7 +590,7 @@ func (p *PostgresCDCSource) convertTupleToMap(
 	tuple *pglogrepl.TupleData,
 	rel *pglogrepl.RelationMessage,
 	exclude map[string]struct{},
-) (*model.RecordItems, map[string]struct{}, error) {
+) (model.RecordItems, map[string]struct{}, error) {
 	// if the tuple is nil, return an empty map
 	if tuple == nil {
 		return model.NewRecordItems(0), make(map[string]struct{}), nil
@@ -613,19 +613,19 @@ func (p *PostgresCDCSource) convertTupleToMap(
 			/* bytea also appears here as a hex */
 			data, err := p.decodeColumnData(col.Data, rel.Columns[idx].DataType, pgtype.TextFormatCode)
 			if err != nil {
-				return nil, nil, fmt.Errorf("error decoding text column data: %w", err)
+				return model.RecordItems{}, nil, fmt.Errorf("error decoding text column data: %w", err)
 			}
 			items.AddColumn(colName, data)
 		case 'b': // binary
 			data, err := p.decodeColumnData(col.Data, rel.Columns[idx].DataType, pgtype.BinaryFormatCode)
 			if err != nil {
-				return nil, nil, fmt.Errorf("error decoding binary column data: %w", err)
+				return model.RecordItems{}, nil, fmt.Errorf("error decoding binary column data: %w", err)
 			}
 			items.AddColumn(colName, data)
 		case 'u': // unchanged toast
 			unchangedToastColumns[colName] = struct{}{}
 		default:
-			return nil, nil, fmt.Errorf("unknown column data type: %s", string(col.DataType))
+			return model.RecordItems{}, nil, fmt.Errorf("unknown column data type: %s", string(col.DataType))
 		}
 	}
 	return items, unchangedToastColumns, nil

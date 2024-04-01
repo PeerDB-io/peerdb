@@ -16,13 +16,13 @@ type RecordItems struct {
 	ColToVal map[string]qvalue.QValue
 }
 
-func NewRecordItems(capacity int) *RecordItems {
-	return &RecordItems{
+func NewRecordItems(capacity int) RecordItems {
+	return RecordItems{
 		ColToVal: make(map[string]qvalue.QValue, capacity),
 	}
 }
 
-func NewRecordItemWithData(cols []string, val []qvalue.QValue) *RecordItems {
+func NewRecordItemWithData(cols []string, val []qvalue.QValue) RecordItems {
 	recordItem := NewRecordItems(len(cols))
 	for i, col := range cols {
 		recordItem.ColToVal[col] = val[i]
@@ -30,11 +30,11 @@ func NewRecordItemWithData(cols []string, val []qvalue.QValue) *RecordItems {
 	return recordItem
 }
 
-func (r *RecordItems) AddColumn(col string, val qvalue.QValue) {
+func (r RecordItems) AddColumn(col string, val qvalue.QValue) {
 	r.ColToVal[col] = val
 }
 
-func (r *RecordItems) GetColumnValue(col string) qvalue.QValue {
+func (r RecordItems) GetColumnValue(col string) qvalue.QValue {
 	return r.ColToVal[col]
 }
 
@@ -42,7 +42,7 @@ func (r *RecordItems) GetColumnValue(col string) qvalue.QValue {
 // current RecordItems with the values from the input RecordItems for the columns
 // that are present in the input RecordItems but not in the current RecordItems.
 // We return the slice of col names that were updated.
-func (r *RecordItems) UpdateIfNotExists(input *RecordItems) []string {
+func (r RecordItems) UpdateIfNotExists(input RecordItems) []string {
 	updatedCols := make([]string, 0)
 	for col, val := range input.ColToVal {
 		if _, ok := r.ColToVal[col]; !ok {
@@ -53,7 +53,7 @@ func (r *RecordItems) UpdateIfNotExists(input *RecordItems) []string {
 	return updatedCols
 }
 
-func (r *RecordItems) GetValueByColName(colName string) (qvalue.QValue, error) {
+func (r RecordItems) GetValueByColName(colName string) (qvalue.QValue, error) {
 	val, ok := r.ColToVal[colName]
 	if !ok {
 		return nil, fmt.Errorf("column name %s not found", colName)
@@ -61,11 +61,11 @@ func (r *RecordItems) GetValueByColName(colName string) (qvalue.QValue, error) {
 	return val, nil
 }
 
-func (r *RecordItems) Len() int {
+func (r RecordItems) Len() int {
 	return len(r.ColToVal)
 }
 
-func (r *RecordItems) toMap(hstoreAsJSON bool, opts ToJSONOptions) (map[string]interface{}, error) {
+func (r RecordItems) toMap(hstoreAsJSON bool, opts ToJSONOptions) (map[string]interface{}, error) {
 	jsonStruct := make(map[string]interface{}, len(r.ColToVal))
 	for col, qv := range r.ColToVal {
 		if qv == nil {
@@ -206,20 +206,20 @@ func (r *RecordItems) toMap(hstoreAsJSON bool, opts ToJSONOptions) (map[string]i
 	return jsonStruct, nil
 }
 
-func (r *RecordItems) ToJSONWithOptions(options ToJSONOptions) (string, error) {
+func (r RecordItems) ToJSONWithOptions(options ToJSONOptions) (string, error) {
 	bytes, err := r.MarshalJSONWithOptions(options)
 	return string(bytes), err
 }
 
-func (r *RecordItems) ToJSON() (string, error) {
+func (r RecordItems) ToJSON() (string, error) {
 	return r.ToJSONWithOptions(NewToJSONOptions(nil, true))
 }
 
-func (r *RecordItems) MarshalJSON() ([]byte, error) {
+func (r RecordItems) MarshalJSON() ([]byte, error) {
 	return r.MarshalJSONWithOptions(NewToJSONOptions(nil, true))
 }
 
-func (r *RecordItems) MarshalJSONWithOptions(opts ToJSONOptions) ([]byte, error) {
+func (r RecordItems) MarshalJSONWithOptions(opts ToJSONOptions) ([]byte, error) {
 	jsonStruct, err := r.toMap(opts.HStoreAsJSON, opts)
 	if err != nil {
 		return nil, err
