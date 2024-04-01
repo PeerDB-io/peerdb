@@ -75,14 +75,8 @@ func DefaultOnRecord(ls *lua.LState) int {
 	if _, ok := record.(*model.RelationRecord); ok {
 		return 0
 	}
-	tbl := ls.CreateTable(0, 6)
-	for _, key := range []string{
-		"kind", "old", "new", "checkpoint", "commit_time", "source",
-	} {
-		tbl.RawSetString(key, ls.GetField(ud, key))
-	}
 	ls.Push(ls.NewFunction(gluajson.LuaJsonEncode))
-	ls.Push(tbl)
+	ls.Push(ud)
 	ls.Call(1, 1)
 	return 1
 }

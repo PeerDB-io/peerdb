@@ -47,6 +47,7 @@ func RegisterTypes(ls *lua.LState) {
 
 	mt := LuaRecord.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaRecordIndex))
+	mt.RawSetString("__json", ls.NewFunction(LuaRecordJson))
 
 	mt = LuaRow.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaRowIndex))
@@ -214,6 +215,18 @@ func LuaRecordIndex(ls *lua.LState) int {
 	default:
 		return 0
 	}
+	return 1
+}
+
+func LuaRecordJson(ls *lua.LState) int {
+	ud := ls.Get(1)
+	tbl := ls.CreateTable(0, 6)
+	for _, key := range []string{
+		"kind", "old", "new", "checkpoint", "commit_time", "source",
+	} {
+		tbl.RawSetString(key, ls.GetField(ud, key))
+	}
+	ls.Push(tbl)
 	return 1
 }
 
