@@ -129,7 +129,7 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 	}
 	s.connector.logger.Info("Put file to stage in Avro sync for snowflake", partitionLog)
 
-	err = s.connector.pgMetadata.FinishQrepPartition(ctx, partition, config.FlowJobName, startTime)
+	err = s.connector.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime)
 	if err != nil {
 		return -1, err
 	}

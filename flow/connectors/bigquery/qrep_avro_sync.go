@@ -89,7 +89,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	}
 
 	lastCP := req.Records.GetLastCheckpoint()
-	err = s.connector.pgMetadata.FinishBatch(ctx, req.FlowJobName, syncBatchID, lastCP)
+	err = s.connector.FinishBatch(ctx, req.FlowJobName, syncBatchID, lastCP)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update metadata: %w", err)
 	}
@@ -213,7 +213,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %w", err)
 	}
 
-	err = s.connector.pgMetadata.FinishQrepPartition(ctx, partition, flowJobName, startTime)
+	err = s.connector.FinishQRepPartition(ctx, partition, flowJobName, startTime)
 	if err != nil {
 		return -1, err
 	}

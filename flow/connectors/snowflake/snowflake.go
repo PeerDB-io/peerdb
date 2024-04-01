@@ -79,10 +79,10 @@ const (
 )
 
 type SnowflakeConnector struct {
-	database   *sql.DB
-	pgMetadata *metadataStore.PostgresMetadataStore
-	logger     log.Logger
-	rawSchema  string
+	*metadataStore.PostgresMetadata
+	database  *sql.DB
+	logger    log.Logger
+	rawSchema string
 }
 
 // creating this to capture array results from snowflake.
@@ -213,16 +213,16 @@ func NewSnowflakeConnector(
 		rawSchema = *snowflakeProtoConfig.MetadataSchema
 	}
 
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
+	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("could not connect to metadata store: %w", err)
 	}
 
 	return &SnowflakeConnector{
-		database:   database,
-		pgMetadata: pgMetadata,
-		rawSchema:  rawSchema,
-		logger:     logger,
+		PostgresMetadata: pgMetadata,
+		database:         database,
+		rawSchema:        rawSchema,
+		logger:           logger,
 	}, nil
 }
 
@@ -239,30 +239,6 @@ func (c *SnowflakeConnector) Close() error {
 func (c *SnowflakeConnector) ConnectionActive(ctx context.Context) error {
 	// This also checks if database exists
 	return c.database.PingContext(ctx)
-}
-
-func (c *SnowflakeConnector) NeedsSetupMetadataTables(_ context.Context) bool {
-	return false
-}
-
-func (c *SnowflakeConnector) SetupMetadataTables(_ context.Context) error {
-	return nil
-}
-
-func (c *SnowflakeConnector) GetLastOffset(ctx context.Context, jobName string) (int64, error) {
-	return c.pgMetadata.FetchLastOffset(ctx, jobName)
-}
-
-func (c *SnowflakeConnector) SetLastOffset(ctx context.Context, jobName string, offset int64) error {
-	return c.pgMetadata.UpdateLastOffset(ctx, jobName, offset)
-}
-
-func (c *SnowflakeConnector) GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error) {
-	return c.pgMetadata.GetLastBatchID(ctx, jobName)
-}
-
-func (c *SnowflakeConnector) GetLastNormalizeBatchID(ctx context.Context, jobName string) (int64, error) {
-	return c.pgMetadata.GetLastNormalizeBatchID(ctx, jobName)
 }
 
 func (c *SnowflakeConnector) getDistinctTableNamesInBatch(
@@ -433,7 +409,7 @@ func (c *SnowflakeConnector) SyncRecords(ctx context.Context, req *model.SyncRec
 		return nil, err
 	}
 
-	err = c.pgMetadata.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpointID)
+	err = c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpointID)
 	if err != nil {
 		return nil, err
 	}
@@ -515,7 +491,7 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 			return nil, mergeErr
 		}
 
-		err = c.pgMetadata.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId)
+		err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId)
 		if err != nil {
 			return nil, err
 		}
@@ -644,7 +620,7 @@ func (c *SnowflakeConnector) CreateRawTable(ctx context.Context, req *protos.Cre
 }
 
 func (c *SnowflakeConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
-	err := c.pgMetadata.DropMetadata(ctx, jobName)
+	err := c.PostgresMetadata.SyncFlowCleanup(ctx, jobName)
 	if err != nil {
 		return fmt.Errorf("unable to clear metadata for sync flow cleanup: %w", err)
 	}
