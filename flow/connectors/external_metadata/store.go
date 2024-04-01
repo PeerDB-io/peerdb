@@ -22,31 +22,31 @@ const (
 	qrepTableName          = "metadata_qrep_partitions"
 )
 
-type PostgresMetadataStore struct {
+type PostgresMetadata struct {
 	pool   *pgxpool.Pool
 	logger log.Logger
 }
 
-func NewPostgresMetadataStore(ctx context.Context) (*PostgresMetadataStore, error) {
+func NewPostgresMetadata(ctx context.Context) (*PostgresMetadata, error) {
 	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create catalog connection pool: %w", err)
 	}
 
-	return &PostgresMetadataStore{
+	return &PostgresMetadata{
 		pool:   pool,
 		logger: logger.LoggerFromCtx(ctx),
 	}, nil
 }
 
-func NewPostgresMetadataStoreFromCatalog(logger log.Logger, pool *pgxpool.Pool) *PostgresMetadataStore {
-	return &PostgresMetadataStore{
+func NewPostgresMetadataFromCatalog(logger log.Logger, pool *pgxpool.Pool) *PostgresMetadata {
+	return &PostgresMetadata{
 		pool:   pool,
 		logger: logger,
 	}
 }
 
-func (p *PostgresMetadataStore) Ping(ctx context.Context) error {
+func (p *PostgresMetadata) Ping(ctx context.Context) error {
 	pingErr := p.pool.Ping(ctx)
 	if pingErr != nil {
 		return fmt.Errorf("metadata db ping failed: %w", pingErr)
@@ -55,14 +55,22 @@ func (p *PostgresMetadataStore) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (p *PostgresMetadataStore) LogFlowInfo(ctx context.Context, flowName string, info string) error {
+func (p *PostgresMetadata) LogFlowInfo(ctx context.Context, flowName string, info string) error {
 	_, err := p.pool.Exec(ctx,
 		"INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
 		flowName, info, "info")
 	return err
 }
 
-func (p *PostgresMetadataStore) FetchLastOffset(ctx context.Context, jobName string) (int64, error) {
+func (p *PostgresMetadata) NeedsSetupMetadataTables(_ context.Context) bool {
+	return false
+}
+
+func (p *PostgresMetadata) SetupMetadataTables(_ context.Context) error {
+	return nil
+}
+
+func (p *PostgresMetadata) GetLastOffset(ctx context.Context, jobName string) (int64, error) {
 	row := p.pool.QueryRow(ctx,
 		`SELECT last_offset FROM `+
 			lastSyncStateTableName+
@@ -83,7 +91,7 @@ func (p *PostgresMetadataStore) FetchLastOffset(ctx context.Context, jobName str
 	return offset.Int64, nil
 }
 
-func (p *PostgresMetadataStore) GetLastBatchID(ctx context.Context, jobName string) (int64, error) {
+func (p *PostgresMetadata) GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error) {
 	row := p.pool.QueryRow(ctx,
 		`SELECT sync_batch_id FROM `+lastSyncStateTableName+` WHERE job_name = $1`, jobName)
 
@@ -103,7 +111,7 @@ func (p *PostgresMetadataStore) GetLastBatchID(ctx context.Context, jobName stri
 	return syncBatchID.Int64, nil
 }
 
-func (p *PostgresMetadataStore) GetLastNormalizeBatchID(ctx context.Context, jobName string) (int64, error) {
+func (p *PostgresMetadata) GetLastNormalizeBatchID(ctx context.Context, jobName string) (int64, error) {
 	rows := p.pool.QueryRow(ctx,
 		`SELECT normalize_batch_id FROM `+
 			lastSyncStateTableName+
@@ -125,8 +133,7 @@ func (p *PostgresMetadataStore) GetLastNormalizeBatchID(ctx context.Context, job
 	return normalizeBatchID.Int64, nil
 }
 
-// update offset for a job
-func (p *PostgresMetadataStore) UpdateLastOffset(ctx context.Context, jobName string, offset int64) error {
+func (p *PostgresMetadata) SetLastOffset(ctx context.Context, jobName string, offset int64) error {
 	p.logger.Info("updating last offset", "offset", offset)
 	_, err := p.pool.Exec(ctx, `
 		INSERT INTO `+lastSyncStateTableName+` (job_name, last_offset, sync_batch_id)
@@ -143,7 +150,7 @@ func (p *PostgresMetadataStore) UpdateLastOffset(ctx context.Context, jobName st
 	return nil
 }
 
-func (p *PostgresMetadataStore) FinishBatch(ctx context.Context, jobName string, syncBatchID int64, offset int64) error {
+func (p *PostgresMetadata) FinishBatch(ctx context.Context, jobName string, syncBatchID int64, offset int64) error {
 	p.logger.Info("finishing batch", "SyncBatchID", syncBatchID, "offset", offset)
 	_, err := p.pool.Exec(ctx, `
 		INSERT INTO `+lastSyncStateTableName+` (job_name, last_offset, sync_batch_id)
@@ -162,7 +169,7 @@ func (p *PostgresMetadataStore) FinishBatch(ctx context.Context, jobName string,
 	return nil
 }
 
-func (p *PostgresMetadataStore) UpdateNormalizeBatchID(ctx context.Context, jobName string, batchID int64) error {
+func (p *PostgresMetadata) UpdateNormalizeBatchID(ctx context.Context, jobName string, batchID int64) error {
 	p.logger.Info("updating normalize batch id for job")
 	_, err := p.pool.Exec(ctx,
 		`UPDATE `+lastSyncStateTableName+
@@ -175,7 +182,7 @@ func (p *PostgresMetadataStore) UpdateNormalizeBatchID(ctx context.Context, jobN
 	return nil
 }
 
-func (p *PostgresMetadataStore) FinishQrepPartition(
+func (p *PostgresMetadata) FinishQRepPartition(
 	ctx context.Context,
 	partition *protos.QRepPartition,
 	jobName string,
@@ -195,19 +202,19 @@ func (p *PostgresMetadataStore) FinishQrepPartition(
 	return err
 }
 
-func (p *PostgresMetadataStore) IsQrepPartitionSynced(ctx context.Context, jobName string, partitionID string) (bool, error) {
+func (p *PostgresMetadata) IsQRepPartitionSynced(ctx context.Context, req *protos.IsQRepPartitionSyncedInput) (bool, error) {
 	var exists bool
 	err := p.pool.QueryRow(ctx,
 		`SELECT EXISTS(SELECT * FROM `+qrepTableName+
 			` WHERE job_name = $1 AND partition_id = $2)`,
-		jobName, partitionID).Scan(&exists)
+		req.FlowJobName, req.PartitionId).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("failed to execute query: %w", err)
 	}
 	return exists, nil
 }
 
-func (p *PostgresMetadataStore) DropMetadata(ctx context.Context, jobName string) error {
+func (p *PostgresMetadata) SyncFlowCleanup(ctx context.Context, jobName string) error {
 	_, err := p.pool.Exec(ctx,
 		`DELETE FROM `+lastSyncStateTableName+` WHERE job_name = $1`, jobName)
 	if err != nil {

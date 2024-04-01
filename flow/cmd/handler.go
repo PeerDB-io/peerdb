@@ -86,7 +86,7 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 	return nil
 }
 
-func (h *FlowRequestHandler) createQrepJobEntry(ctx context.Context,
+func (h *FlowRequestHandler) createQRepJobEntry(ctx context.Context,
 	req *protos.CreateQRepFlowRequest, workflowID string,
 ) error {
 	sourcePeerName := req.QrepConfig.SourcePeer.Name
@@ -221,7 +221,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		},
 	}
 	if req.CreateCatalogEntry {
-		err := h.createQrepJobEntry(ctx, req, workflowID)
+		err := h.createQRepJobEntry(ctx, req, workflowID)
 		if err != nil {
 			slog.Error("unable to create flow job entry",
 				slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))

@@ -21,8 +21,8 @@ import (
 )
 
 type ClickhouseConnector struct {
+	*metadataStore.PostgresMetadata
 	database           *sql.DB
-	pgMetadata         *metadataStore.PostgresMetadataStore
 	tableSchemaMapping map[string]*protos.TableSchema
 	logger             log.Logger
 	config             *protos.ClickhouseConfig
@@ -96,7 +96,7 @@ func NewClickhouseConnector(
 		return nil, fmt.Errorf("failed to open connection to Clickhouse peer: %w", err)
 	}
 
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
+	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
 		logger.Error("failed to create postgres metadata store", "error", err)
 		return nil, err
@@ -125,7 +125,7 @@ func NewClickhouseConnector(
 
 	return &ClickhouseConnector{
 		database:           database,
-		pgMetadata:         pgMetadata,
+		PostgresMetadata:   pgMetadata,
 		tableSchemaMapping: nil,
 		config:             config,
 		creds:              clickhouseS3Creds,

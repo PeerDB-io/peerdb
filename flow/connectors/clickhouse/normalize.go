@@ -233,7 +233,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.N
 	}
 
 	endNormalizeBatchId := normBatchID + 1
-	err = c.pgMetadata.UpdateNormalizeBatchID(ctx, req.FlowJobName, endNormalizeBatchId)
+	err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, endNormalizeBatchId)
 	if err != nil {
 		c.logger.Error("[clickhouse] error while updating normalize batch id", "error", err)
 		return nil, err
@@ -285,13 +285,4 @@ func (c *ClickhouseConnector) getDistinctTableNamesInBatch(
 	}
 
 	return tableNames, nil
-}
-
-func (c *ClickhouseConnector) GetLastNormalizeBatchID(ctx context.Context, flowJobName string) (int64, error) {
-	normalizeBatchID, err := c.pgMetadata.GetLastNormalizeBatchID(ctx, flowJobName)
-	if err != nil {
-		return 0, fmt.Errorf("error while getting last normalize batch id: %w", err)
-	}
-
-	return normalizeBatchID, nil
 }

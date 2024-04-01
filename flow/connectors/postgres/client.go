@@ -19,7 +19,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-type PGVersion int
+type PGVersion int32
 
 const (
 	POSTGRES_12 PGVersion = 120000
@@ -266,12 +266,12 @@ func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database 
 		whereClause = "WHERE database=" + QuoteLiteral(database)
 	}
 
-	hasWALStatus, _, err := majorVersionCheck(ctx, conn, POSTGRES_13)
+	pgversion, err := majorVersion(ctx, conn)
 	if err != nil {
 		return nil, err
 	}
 	walStatusSelector := "wal_status"
-	if !hasWALStatus {
+	if pgversion < POSTGRES_13 {
 		walStatusSelector = "'unknown'"
 	}
 	rows, err := conn.Query(ctx, fmt.Sprintf(`SELECT slot_name, redo_lsn::Text,restart_lsn::text,%s,
@@ -343,12 +343,12 @@ func (c *PostgresConnector) createSlotAndPublication(
 
 	if !s.PublicationExists {
 		// check and enable publish_via_partition_root
-		supportsPubViaRoot, _, err := c.MajorVersionCheck(ctx, POSTGRES_13)
+		pgversion, err := c.MajorVersion(ctx)
 		if err != nil {
 			return fmt.Errorf("error checking Postgres version: %w", err)
 		}
 		var pubViaRootString string
-		if supportsPubViaRoot {
+		if pgversion >= POSTGRES_13 {
 			pubViaRootString = "WITH(publish_via_partition_root=true)"
 		}
 		// Create the publication to help filter changes only for the given tables
@@ -390,7 +390,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 			return fmt.Errorf("[slot] error creating replication slot: %w", err)
 		}
 
-		ok, _, err := c.MajorVersionCheck(ctx, POSTGRES_13)
+		pgversion, err := c.MajorVersion(ctx)
 		if err != nil {
 			return fmt.Errorf("[slot] error getting PG version: %w", err)
 		}
@@ -400,7 +400,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 			SlotName:         res.SlotName,
 			SnapshotName:     res.SnapshotName,
 			Err:              nil,
-			SupportsTIDScans: ok,
+			SupportsTIDScans: pgversion >= POSTGRES_13,
 		}
 		signal.SlotCreated <- slotDetails
 		c.logger.Info("Waiting for clone to complete")
@@ -523,18 +523,18 @@ func (c *PostgresConnector) jobMetadataExists(ctx context.Context, jobName strin
 	return result.Bool, nil
 }
 
-func majorVersionCheck(ctx context.Context, conn *pgx.Conn, majorVersion PGVersion) (bool, int64, error) {
-	var version pgtype.Int8
+func majorVersion(ctx context.Context, conn *pgx.Conn) (PGVersion, error) {
+	var version int32
 	err := conn.QueryRow(ctx, "SELECT current_setting('server_version_num')::INTEGER").Scan(&version)
 	if err != nil {
-		return false, 0, fmt.Errorf("failed to get server version: %w", err)
+		return 0, fmt.Errorf("failed to get server version: %w", err)
 	}
 
-	return version.Int64 >= int64(majorVersion), version.Int64, nil
+	return PGVersion(version), nil
 }
 
-func (c *PostgresConnector) MajorVersionCheck(ctx context.Context, majorVersion PGVersion) (bool, int64, error) {
-	return majorVersionCheck(ctx, c.conn, majorVersion)
+func (c *PostgresConnector) MajorVersion(ctx context.Context) (PGVersion, error) {
+	return majorVersion(ctx, c.conn)
 }
 
 func (c *PostgresConnector) updateSyncMetadata(ctx context.Context, flowJobName string, lastCP int64, syncBatchID int64,

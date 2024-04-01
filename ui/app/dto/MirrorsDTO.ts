@@ -1,6 +1,12 @@
 import { FlowConnectionConfigs, QRepConfig } from '@/grpc_generated/flow';
 import { Dispatch, SetStateAction } from 'react';
 
+export enum MirrorType {
+  CDC = 'CDC',
+  QRep = 'Query Replication',
+  XMin = 'XMin',
+}
+
 export type UCreateMirrorResponse = {
   created: boolean;
 };

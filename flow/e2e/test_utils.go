@@ -428,7 +428,7 @@ func CreateQRepWorkflowConfig(
 	return qrepConfig, nil
 }
 
-func RunQrepFlowWorkflow(tc client.Client, config *protos.QRepConfig) WorkflowRun {
+func RunQRepFlowWorkflow(tc client.Client, config *protos.QRepConfig) WorkflowRun {
 	state := peerflow.NewQRepFlowState()
 	return ExecutePeerflow(tc, peerflow.QRepFlowWorkflow, config, state)
 }
