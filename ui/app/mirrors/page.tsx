@@ -3,9 +3,11 @@
 import NewButton from '@/components/NewButton';
 import { QRepConfig } from '@/grpc_generated/flow';
 import { Header } from '@/lib/Header';
+import { Label } from '@/lib/Label';
 import { LayoutMain } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
 import { ProgressCircle } from '@/lib/ProgressCircle';
+import Link from 'next/link';
 import useSWR from 'swr';
 import { fetcher } from '../utils/swr';
 import { CDCFlows, QRepFlows } from './tables';
@@ -52,6 +54,24 @@ export default function Mirrors() {
         >
           Mirrors
         </Header>
+        <Label>
+          Mirrors are used to replicate data from one peer to another. PeerDB
+          supports three modes of replication.
+          <br></br>
+          Begin moving data in minutes by following the simple
+          <Label
+            as={Link}
+            target='_blank'
+            style={{
+              color: 'teal',
+              cursor: 'pointer',
+              width: 'fit-content',
+            }}
+            href={`https://docs.peerdb.io/quickstart/quickstart`}
+          >
+            PeerDB Quickstart
+          </Label>
+        </Label>
       </Panel>
       {isLoading && (
         <Panel>

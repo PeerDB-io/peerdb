@@ -13,14 +13,14 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { TextField } from '@/lib/TextField';
 import { Divider } from '@tremor/react';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { InfoPopover } from '../../../components/InfoPopover';
 import PeerDBCodeEditor from '../../../components/PeerDBEditor';
-import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
+import { CDCConfig, MirrorType, TableMapRow } from '../../dto/MirrorsDTO';
 import CDCConfigForm from './cdc/cdc';
 import {
   handleCreateCDC,
@@ -58,8 +58,12 @@ function getPeerLabel(peer: Peer) {
 
 export default function CreateMirrors() {
   const router = useRouter();
+  const mirrorParam = useSearchParams();
+  const mirrorTypeParam = mirrorParam.get('type');
   const [mirrorName, setMirrorName] = useState<string>('');
-  const [mirrorType, setMirrorType] = useState<string>('');
+  const [mirrorType, setMirrorType] = useState<MirrorType>(
+    (mirrorTypeParam as MirrorType) ?? MirrorType.CDC
+  );
   const [creating, setCreating] = useState<boolean>(false);
   const [validating, setValidating] = useState<boolean>(false);
   const [config, setConfig] = useState<CDCConfig | QRepConfig>(blankCDCSetting);
@@ -78,8 +82,8 @@ export default function CreateMirrors() {
         setPeers(res);
       });
 
-    if (mirrorType === 'Query Replication' || mirrorType === 'XMIN') {
-      if (mirrorType === 'XMIN') {
+    if (mirrorType != MirrorType.CDC) {
+      if (mirrorType === MirrorType.XMin) {
         setConfig((curr) => {
           return { ...curr, setupWatermarkTableOnDestination: true };
         });
@@ -120,7 +124,7 @@ export default function CreateMirrors() {
           >
             Mirror type
           </Label>
-          <MirrorCards setMirrorType={setMirrorType} />
+          <MirrorCards mirrorType={mirrorType} setMirrorType={setMirrorType} />
           <RowWithTextField
             label={<Label>Mirror Name</Label>}
             action={
@@ -156,7 +160,7 @@ export default function CreateMirrors() {
                         placeholder={`Select the ${
                           peerEnd === 'src' ? 'source' : 'destination'
                         } peer`}
-                        onChange={(val, action) =>
+                        onChange={(val) =>
                           handlePeer(val, peerEnd as 'src' | 'dst', setConfig)
                         }
                         options={
@@ -187,7 +191,7 @@ export default function CreateMirrors() {
 
           <Divider style={{ marginTop: '1rem', marginBottom: '1rem' }} />
 
-          {mirrorType === 'Query Replication' && (
+          {mirrorType === MirrorType.QRep && (
             <PeerDBCodeEditor code={qrepQuery} setter={setQrepQuery} />
           )}
 
@@ -201,9 +205,9 @@ export default function CreateMirrors() {
             </Label>
           )}
           {!creating && <ToastContainer />}
-          {mirrorType === '' ? (
+          {!mirrorType ? (
             <></>
-          ) : mirrorType === 'CDC' ? (
+          ) : mirrorType === MirrorType.CDC ? (
             <CDCConfigForm
               settings={cdcSettings}
               mirrorConfig={config as CDCConfig}
@@ -216,14 +220,14 @@ export default function CreateMirrors() {
               settings={qrepSettings}
               mirrorConfig={config as QRepConfig}
               setter={setConfig}
-              xmin={mirrorType === 'XMIN'}
+              xmin={mirrorType === MirrorType.XMin}
             />
           )}
         </Panel>
         <Panel>
           {mirrorType && (
             <div style={styles.MirrorButtonContainer}>
-              {mirrorType === 'CDC' && (
+              {mirrorType === MirrorType.CDC && (
                 <Button
                   style={styles.MirrorButtonStyle}
                   variant='peer'
@@ -251,7 +255,7 @@ export default function CreateMirrors() {
                 variant='normalSolid'
                 disabled={creating}
                 onClick={() =>
-                  mirrorType === 'CDC'
+                  mirrorType === MirrorType.CDC
                     ? handleCreateCDC(
                         mirrorName,
                         rows,
@@ -265,7 +269,7 @@ export default function CreateMirrors() {
                         config as QRepConfig,
                         setCreating,
                         listMirrorsPage,
-                        mirrorType === 'XMIN' // for handling xmin specific
+                        mirrorType === MirrorType.XMin // for handling xmin specific
                       )
                 }
               >
