@@ -137,15 +137,17 @@ func LuaRowIndex(ls *lua.LState) int {
 
 func LuaRowLen(ls *lua.LState) int {
 	row := LuaRow.StartMethod(ls)
-	ls.Push(lua.LNumber(len(row.Values)))
+	ls.Push(lua.LNumber(len(row.ColToVal)))
 	return 1
 }
 
 func LuaRowColumns(ls *lua.LState) int {
 	row := LuaRow.StartMethod(ls)
-	tbl := ls.CreateTable(len(row.ColToValIdx), 0)
-	for col, idx := range row.ColToValIdx {
-		tbl.RawSetInt(idx+1, lua.LString(col))
+	tbl := ls.CreateTable(len(row.ColToVal), 0)
+	idx := 0
+	for col := range row.ColToVal {
+		idx += 1
+		tbl.RawSetInt(idx, lua.LString(col))
 	}
 	ls.Push(tbl)
 	return 1

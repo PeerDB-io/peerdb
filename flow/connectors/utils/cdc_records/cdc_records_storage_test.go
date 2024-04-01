@@ -55,15 +55,10 @@ func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record) {
 		DestinationTableName: "test_dst_tbl",
 		CommitID:             2,
 		Items: &model.RecordItems{
-			ColToValIdx: map[string]int{
-				"id": 0,
-				"ts": 1,
-				"rv": 2,
-			},
-			Values: []qvalue.QValue{
-				qvalue.QValueInt64{Val: 1},
-				qvalue.QValueTime{Val: tv},
-				qvalue.QValueNumeric{Val: rv},
+			ColToVal: map[string]qvalue.QValue{
+				"id": qvalue.QValueInt64{Val: 1},
+				"ts": qvalue.QValueTime{Val: tv},
+				"rv": qvalue.QValueNumeric{Val: rv},
 			},
 		},
 	}
