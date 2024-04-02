@@ -50,6 +50,7 @@ func NewEventHubConnector(
 		config:           config,
 		creds:            defaultAzureCreds,
 		hubManager:       hubManager,
+		logger:           logger,
 	}, nil
 }
 
@@ -135,7 +136,7 @@ func (c *EventHubConnector) processBatch(
 				return 0, err
 			}
 
-			ehConfig, ok := c.hubManager.peerConfig.Get(destination.PeerName)
+			ehConfig, ok := c.hubManager.namespaceToEventhubMap.Get(destination.NamespaceName)
 			if !ok {
 				c.logger.Error("failed to get eventhub config", slog.Any("error", err))
 				return 0, err
