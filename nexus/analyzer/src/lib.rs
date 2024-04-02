@@ -907,5 +907,37 @@ fn parse_db_options(
             };
             Config::PubsubConfig(ps_config)
         }
+        DbType::Eventhubs => {
+            let unnest_columns = opts
+                .get("unnest_columns")
+                .map(|columns| {
+                    columns
+                        .split(',')
+                        .map(|column| column.trim().to_string())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
+            let eventhubs: Vec<EventHubConfig> = serde_json::from_str(
+                opts.get("eventhubs")
+                    .context("no eventhubs specified")?
+                    .to_string()
+                    .as_str(),
+            )
+            .context("unable to parse eventhubs as valid json")?;
+
+            let mut eventhubs_map: HashMap<String, EventHubConfig> = HashMap::new();
+            for eventhub in eventhubs {
+                eventhubs_map.insert(eventhub.namespace.clone(), eventhub);
+            }
+
+            let eventhub_group_config = pt::peerdb_peers::EventHubGroupConfig {
+                eventhubs: eventhubs_map,
+                unnest_columns,
+            };
+
+            println!("eventhub_group_config: {:?}", eventhub_group_config);
+            Config::EventhubGroupConfig(eventhub_group_config)
+        }
     }))
 }

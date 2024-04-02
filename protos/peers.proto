@@ -90,7 +90,7 @@ message EventHubConfig {
 }
 
 message EventHubGroupConfig {
-  // event hub peer name to event hub config
+  // event hub namespace name to event hub config
   map<string, EventHubConfig> eventhubs = 1;
   repeated string unnest_columns = 3;
 }
@@ -146,6 +146,7 @@ enum DBType {
   CLICKHOUSE = 8;
   KAFKA = 9;
   PUBSUB = 10;
+  EVENTHUBS = 11;
 }
 
 message Peer {

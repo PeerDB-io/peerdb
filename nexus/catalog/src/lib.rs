@@ -303,6 +303,11 @@ impl Catalog {
                         pt::peerdb_peers::EventHubGroupConfig::decode(options).with_context(err)?;
                     Config::EventhubGroupConfig(eventhub_group_config)
                 }
+                DbType::Eventhubs => {
+                    let eventhub_group_config =
+                        pt::peerdb_peers::EventHubGroupConfig::decode(options).with_context(err)?;
+                    Config::EventhubGroupConfig(eventhub_group_config)
+                }
                 DbType::Clickhouse => {
                     let clickhouse_config =
                         pt::peerdb_peers::ClickhouseConfig::decode(options).with_context(err)?;

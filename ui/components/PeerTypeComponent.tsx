@@ -10,7 +10,7 @@ export const DBTypeToGoodText = (ptype: DBType) => {
       return 'PostgreSQL';
     case DBType.SNOWFLAKE:
       return 'Snowflake';
-    case DBType.EVENTHUB:
+    case (DBType.EVENTHUB, DBType.EVENTHUBS):
       return 'Event Hubs';
     case DBType.EVENTHUB_GROUP:
       return 'Event Hubs (Group)';
@@ -28,7 +28,7 @@ export const DBTypeToGoodText = (ptype: DBType) => {
       return 'Kafka';
     case DBType.PUBSUB:
       return 'PubSub';
-    case DBType.UNRECOGNIZED:
+    default:
       return 'Unrecognised';
   }
 };
