@@ -120,7 +120,7 @@ func generateRecords(
 		}
 	}
 
-	for row := uint32(0); row < numRows; row++ {
+	for row := range numRows {
 		entries := make([]qvalue.QValue, len(allQValueKinds))
 
 		for i, kind := range allQValueKinds {
