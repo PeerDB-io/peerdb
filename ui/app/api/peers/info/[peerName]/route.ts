@@ -19,7 +19,7 @@ export async function GET(
   const bqConfig = peerConfig.bigqueryConfig;
   const s3Config = peerConfig.s3Config;
   const sfConfig = peerConfig.snowflakeConfig;
-  const ehConfig = peerConfig.eventhubConfig;
+  const ehConfig = peerConfig.eventhubGroupConfig;
   const chConfig = peerConfig.clickhouseConfig;
   const kaConfig = peerConfig.kafkaConfig;
   const psConfig = peerConfig.pubsubConfig;
@@ -39,8 +39,11 @@ export async function GET(
     sfConfig.password = '********';
   }
   if (ehConfig) {
-    ehConfig.subscriptionId = '********';
+    for (const key in ehConfig.eventhubs) {
+      ehConfig.eventhubs[key].subscriptionId = '********';
+    }
   }
+
   if (chConfig) {
     chConfig.password = '********';
     chConfig.secretAccessKey = '********';

@@ -397,7 +397,7 @@ func (a *FlowableActivity) SyncFlow(
 	var res *model.SyncResponse
 	errGroup.Go(func() error {
 		syncBatchID, err := dstConn.GetLastSyncBatchID(errCtx, flowName)
-		if err != nil && config.Destination.Type != protos.DBType_EVENTHUB {
+		if err != nil && config.Destination.Type != protos.DBType_EVENTHUBS {
 			return err
 		}
 		syncBatchID += 1

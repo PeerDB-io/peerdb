@@ -127,12 +127,16 @@ export const DropDialog = ({
     switch (mode) {
       case 'MIRROR':
         objectSpecificDeleteText = `mirror ${(dropArgs as dropMirrorArgs).flowJobName}`;
+        break;
       case 'PEER':
         objectSpecificDeleteText = `peer ${(dropArgs as dropPeerArgs).peerName}`;
+        break;
       case 'ALERT':
         objectSpecificDeleteText = 'this alert';
+        break;
       case 'SCRIPT':
         objectSpecificDeleteText = 'this script';
+        break;
     }
     return (
       deletePart + objectSpecificDeleteText + '? This action cannot be reverted'
@@ -143,12 +147,16 @@ export const DropDialog = ({
     switch (mode) {
       case 'MIRROR':
         handleDropMirror(dropArgs as dropMirrorArgs, setLoading, setMsg);
+        break;
       case 'PEER':
         handleDropPeer(dropArgs as dropPeerArgs);
+        break;
       case 'ALERT':
         handleDeleteAlert(dropArgs as deleteAlertArgs);
+        break;
       case 'SCRIPT':
         handleDeleteScript(dropArgs as deleteScriptArgs);
+        break;
     }
   };
 

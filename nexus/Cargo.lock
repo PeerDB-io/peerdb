@@ -2935,7 +2935,7 @@ dependencies = [
 [[package]]
 name = "sqlparser"
 version = "0.41.0"
-source = "git+https://github.com/peerdb-io/sqlparser-rs.git#9fbfb423db7fc0949dea2b1400cb5ef848426409"
+source = "git+https://github.com/peerdb-io/sqlparser-rs.git#178a84c3c48123a2818298d87748033581886eae"
 dependencies = [
  "log",
  "sqlparser_derive",
@@ -2944,7 +2944,7 @@ dependencies = [
 [[package]]
 name = "sqlparser_derive"
 version = "0.2.1"
-source = "git+https://github.com/peerdb-io/sqlparser-rs.git#9fbfb423db7fc0949dea2b1400cb5ef848426409"
+source = "git+https://github.com/peerdb-io/sqlparser-rs.git#178a84c3c48123a2818298d87748033581886eae"
 dependencies = [
  "proc-macro2",
  "quote",

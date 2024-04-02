@@ -2,8 +2,7 @@ use catalog::WorkflowDetails;
 use pt::{
     flow_model::{FlowJob, QRepFlowJob},
     peerdb_flow::{QRepWriteMode, QRepWriteType},
-    peerdb_route,
-    tonic,
+    peerdb_route, tonic,
 };
 use serde_json::Value;
 use tonic_health::pb::health_client;

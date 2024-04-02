@@ -147,8 +147,7 @@ impl NexusBackend {
 
     fn is_peer_validity_supported(peer_type: i32) -> bool {
         let unsupported_peer_types = [
-            4, // EVENTHUB
-            7, // EVENTHUB_GROUP
+            11, // EVENTHUBS
         ];
         !unsupported_peer_types.contains(&peer_type)
     }
