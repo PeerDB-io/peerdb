@@ -22,8 +22,8 @@ import (
 
 type EventHubManager struct {
 	creds *azidentity.DefaultAzureCredential
-	// eventhub peer name -> config
-	peerConfig cmap.ConcurrentMap[string, *protos.EventHubConfig]
+	// eventhub namespace name -> config
+	namespaceToEventhubMap cmap.ConcurrentMap[string, *protos.EventHubConfig]
 	// eventhub name -> client
 	hubs sync.Map
 }
@@ -32,22 +32,22 @@ func NewEventHubManager(
 	creds *azidentity.DefaultAzureCredential,
 	groupConfig *protos.EventHubGroupConfig,
 ) *EventHubManager {
-	peerConfig := cmap.New[*protos.EventHubConfig]()
+	namespaceToEventhubMap := cmap.New[*protos.EventHubConfig]()
 
 	for name, config := range groupConfig.Eventhubs {
-		peerConfig.Set(name, config)
+		namespaceToEventhubMap.Set(name, config)
 	}
 
 	return &EventHubManager{
-		creds:      creds,
-		peerConfig: peerConfig,
+		creds:                  creds,
+		namespaceToEventhubMap: namespaceToEventhubMap,
 	}
 }
 
 func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedEventhub) (
 	*azeventhubs.ProducerClient, error,
 ) {
-	ehConfig, ok := m.peerConfig.Get(name.PeerName)
+	ehConfig, ok := m.namespaceToEventhubMap.Get(name.NamespaceName)
 	if !ok {
 		return nil, fmt.Errorf("eventhub '%s' not configured", name.Eventhub)
 	}
@@ -152,9 +152,9 @@ func (m *EventHubManager) CreateEventDataBatch(ctx context.Context, destination 
 
 // EnsureEventHubExists ensures that the eventhub exists.
 func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedEventhub) error {
-	cfg, ok := m.peerConfig.Get(name.PeerName)
+	cfg, ok := m.namespaceToEventhubMap.Get(name.NamespaceName)
 	if !ok {
-		return fmt.Errorf("eventhub peer '%s' not configured", name.PeerName)
+		return fmt.Errorf("eventhub namespace '%s' not registered", name.NamespaceName)
 	}
 
 	hubClient, err := m.getEventHubMgmtClient(cfg.SubscriptionId)

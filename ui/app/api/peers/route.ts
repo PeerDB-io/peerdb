@@ -10,6 +10,7 @@ import {
   BigqueryConfig,
   ClickhouseConfig,
   DBType,
+  EventHubGroupConfig,
   KafkaConfig,
   Peer,
   PostgresConfig,
@@ -76,6 +77,12 @@ const constructPeer = (
         name,
         type: DBType.PUBSUB,
         pubsubConfig: config as PubSubConfig,
+      };
+    case 'EVENTHUBS':
+      return {
+        name,
+        type: DBType.EVENTHUBS,
+        eventhubGroupConfig: config as EventHubGroupConfig,
       };
     default:
       return;

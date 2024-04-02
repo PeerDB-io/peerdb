@@ -71,6 +71,10 @@ export const getTruePeer = (peer: CatalogPeer) => {
       config = PubSubConfig.decode(options);
       newPeer.pubsubConfig = config;
       break;
+    case 11:
+      config = EventHubGroupConfig.decode(options);
+      newPeer.eventhubGroupConfig = config;
+      break;
     default:
       return newPeer;
   }
