@@ -10,10 +10,8 @@ export const DBTypeToGoodText = (ptype: DBType) => {
       return 'PostgreSQL';
     case DBType.SNOWFLAKE:
       return 'Snowflake';
-    case (DBType.EVENTHUB, DBType.EVENTHUBS):
+    case DBType.EVENTHUBS:
       return 'Event Hubs';
-    case DBType.EVENTHUB_GROUP:
-      return 'Event Hubs (Group)';
     case DBType.BIGQUERY:
       return 'BigQuery';
     case DBType.S3:
