@@ -89,13 +89,8 @@ impl<'a> StatementAnalyzer for PeerExistanceAnalyzer<'a> {
 /// PeerDDLAnalyzer is a statement analyzer that checks if the given
 /// statement is a PeerDB DDL statement. If it is, it returns the type of
 /// DDL statement.
+#[derive(Default)]
 pub struct PeerDDLAnalyzer;
-
-impl Default for PeerDDLAnalyzer {
-    fn default() -> Self {
-        Self
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum PeerDDL {
@@ -493,10 +488,7 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
     }
 }
 
-fn parse_db_options(
-    db_type: DbType,
-    with_options: &[SqlOption],
-) -> anyhow::Result<Option<Config>> {
+fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Result<Option<Config>> {
     let mut opts: HashMap<&str, &str> = HashMap::with_capacity(with_options.len());
     for opt in with_options {
         let val = match opt.value {
