@@ -2,7 +2,6 @@ package model
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 
@@ -14,78 +13,61 @@ import (
 
 // encoding/gob cannot encode unexported fields
 type RecordItems struct {
-	ColToValIdx map[string]int
-	Values      []qvalue.QValue
+	ColToVal map[string]qvalue.QValue
 }
 
-func NewRecordItems(capacity int) *RecordItems {
-	return &RecordItems{
-		ColToValIdx: make(map[string]int, capacity),
-		Values:      make([]qvalue.QValue, 0, capacity),
+func NewRecordItems(capacity int) RecordItems {
+	return RecordItems{
+		ColToVal: make(map[string]qvalue.QValue, capacity),
 	}
 }
 
-func NewRecordItemWithData(cols []string, val []qvalue.QValue) *RecordItems {
+func NewRecordItemWithData(cols []string, val []qvalue.QValue) RecordItems {
 	recordItem := NewRecordItems(len(cols))
 	for i, col := range cols {
-		recordItem.ColToValIdx[col] = len(recordItem.Values)
-		recordItem.Values = append(recordItem.Values, val[i])
+		recordItem.ColToVal[col] = val[i]
 	}
 	return recordItem
 }
 
-func (r *RecordItems) AddColumn(col string, val qvalue.QValue) {
-	if idx, ok := r.ColToValIdx[col]; ok {
-		r.Values[idx] = val
-	} else {
-		r.ColToValIdx[col] = len(r.Values)
-		r.Values = append(r.Values, val)
-	}
+func (r RecordItems) AddColumn(col string, val qvalue.QValue) {
+	r.ColToVal[col] = val
 }
 
-func (r *RecordItems) GetColumnValue(col string) qvalue.QValue {
-	if idx, ok := r.ColToValIdx[col]; ok {
-		return r.Values[idx]
-	}
-	return nil
+func (r RecordItems) GetColumnValue(col string) qvalue.QValue {
+	return r.ColToVal[col]
 }
 
 // UpdateIfNotExists takes in a RecordItems as input and updates the values of the
 // current RecordItems with the values from the input RecordItems for the columns
 // that are present in the input RecordItems but not in the current RecordItems.
 // We return the slice of col names that were updated.
-func (r *RecordItems) UpdateIfNotExists(input *RecordItems) []string {
+func (r RecordItems) UpdateIfNotExists(input RecordItems) []string {
 	updatedCols := make([]string, 0)
-	for col, idx := range input.ColToValIdx {
-		if _, ok := r.ColToValIdx[col]; !ok {
-			r.ColToValIdx[col] = len(r.Values)
-			r.Values = append(r.Values, input.Values[idx])
+	for col, val := range input.ColToVal {
+		if _, ok := r.ColToVal[col]; !ok {
+			r.ColToVal[col] = val
 			updatedCols = append(updatedCols, col)
 		}
 	}
 	return updatedCols
 }
 
-func (r *RecordItems) GetValueByColName(colName string) (qvalue.QValue, error) {
-	idx, ok := r.ColToValIdx[colName]
+func (r RecordItems) GetValueByColName(colName string) (qvalue.QValue, error) {
+	val, ok := r.ColToVal[colName]
 	if !ok {
 		return nil, fmt.Errorf("column name %s not found", colName)
 	}
-	return r.Values[idx], nil
+	return val, nil
 }
 
-func (r *RecordItems) Len() int {
-	return len(r.Values)
+func (r RecordItems) Len() int {
+	return len(r.ColToVal)
 }
 
-func (r *RecordItems) toMap(hstoreAsJSON bool, opts ToJSONOptions) (map[string]interface{}, error) {
-	if r.ColToValIdx == nil {
-		return nil, errors.New("colToValIdx is nil")
-	}
-
-	jsonStruct := make(map[string]interface{}, len(r.ColToValIdx))
-	for col, idx := range r.ColToValIdx {
-		qv := r.Values[idx]
+func (r RecordItems) toMap(hstoreAsJSON bool, opts ToJSONOptions) (map[string]interface{}, error) {
+	jsonStruct := make(map[string]interface{}, len(r.ColToVal))
+	for col, qv := range r.ColToVal {
 		if qv == nil {
 			jsonStruct[col] = nil
 			continue
@@ -224,20 +206,20 @@ func (r *RecordItems) toMap(hstoreAsJSON bool, opts ToJSONOptions) (map[string]i
 	return jsonStruct, nil
 }
 
-func (r *RecordItems) ToJSONWithOptions(options ToJSONOptions) (string, error) {
+func (r RecordItems) ToJSONWithOptions(options ToJSONOptions) (string, error) {
 	bytes, err := r.MarshalJSONWithOptions(options)
 	return string(bytes), err
 }
 
-func (r *RecordItems) ToJSON() (string, error) {
+func (r RecordItems) ToJSON() (string, error) {
 	return r.ToJSONWithOptions(NewToJSONOptions(nil, true))
 }
 
-func (r *RecordItems) MarshalJSON() ([]byte, error) {
+func (r RecordItems) MarshalJSON() ([]byte, error) {
 	return r.MarshalJSONWithOptions(NewToJSONOptions(nil, true))
 }
 
-func (r *RecordItems) MarshalJSONWithOptions(opts ToJSONOptions) ([]byte, error) {
+func (r RecordItems) MarshalJSONWithOptions(opts ToJSONOptions) ([]byte, error) {
 	jsonStruct, err := r.toMap(opts.HStoreAsJSON, opts)
 	if err != nil {
 		return nil, err
