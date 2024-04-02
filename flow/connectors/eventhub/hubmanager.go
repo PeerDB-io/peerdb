@@ -22,7 +22,7 @@ import (
 
 type EventHubManager struct {
 	creds *azidentity.DefaultAzureCredential
-	// eventhub peer name -> config
+	// eventhub namespace name -> config
 	namespaceToEventhubMap cmap.ConcurrentMap[string, *protos.EventHubConfig]
 	// eventhub name -> client
 	hubs sync.Map
