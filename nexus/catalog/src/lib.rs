@@ -278,11 +278,6 @@ impl Catalog {
                         pt::peerdb_peers::MongoConfig::decode(options).with_context(err)?;
                     Config::MongoConfig(mongo_config)
                 }
-                DbType::Eventhub => {
-                    let eventhub_config =
-                        pt::peerdb_peers::EventHubConfig::decode(options).with_context(err)?;
-                    Config::EventhubConfig(eventhub_config)
-                }
                 DbType::Postgres => {
                     let postgres_config =
                         pt::peerdb_peers::PostgresConfig::decode(options).with_context(err)?;
@@ -297,11 +292,6 @@ impl Catalog {
                     let sqlserver_config =
                         pt::peerdb_peers::SqlServerConfig::decode(options).with_context(err)?;
                     Config::SqlserverConfig(sqlserver_config)
-                }
-                DbType::EventhubGroup => {
-                    let eventhub_group_config =
-                        pt::peerdb_peers::EventHubGroupConfig::decode(options).with_context(err)?;
-                    Config::EventhubGroupConfig(eventhub_group_config)
                 }
                 DbType::Eventhubs => {
                     let eventhub_group_config =

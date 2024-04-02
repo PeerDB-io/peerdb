@@ -89,13 +89,11 @@ impl<'a> StatementAnalyzer for PeerExistanceAnalyzer<'a> {
 /// PeerDDLAnalyzer is a statement analyzer that checks if the given
 /// statement is a PeerDB DDL statement. If it is, it returns the type of
 /// DDL statement.
-pub struct PeerDDLAnalyzer<'a> {
-    peers: &'a HashMap<String, Peer>,
-}
+pub struct PeerDDLAnalyzer;
 
-impl<'a> PeerDDLAnalyzer<'a> {
-    pub fn new(peers: &'a HashMap<String, Peer>) -> Self {
-        Self { peers }
+impl Default for PeerDDLAnalyzer {
+    fn default() -> Self {
+        Self
     }
 }
 
@@ -139,7 +137,7 @@ pub enum PeerDDL {
     },
 }
 
-impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
+impl StatementAnalyzer for PeerDDLAnalyzer {
     type Output = Option<PeerDDL>;
 
     fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output> {
@@ -151,7 +149,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                 with_options,
             } => {
                 let db_type = DbType::from(peer_type.clone());
-                let config = parse_db_options(self.peers, db_type, with_options)?;
+                let config = parse_db_options(db_type, with_options)?;
                 let peer = Peer {
                     name: peer_name.to_string().to_lowercase(),
                     r#type: db_type as i32,
@@ -496,7 +494,6 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
 }
 
 fn parse_db_options(
-    peers: &HashMap<String, Peer>,
     db_type: DbType,
     with_options: &[SqlOption],
 ) -> anyhow::Result<Option<Config>> {
@@ -664,45 +661,6 @@ fn parse_db_options(
             };
             Config::PostgresConfig(postgres_config)
         }
-        DbType::Eventhub => {
-            let subscription_id = opts
-                .get("subscription_id")
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-
-            // partition_count default to 3 if not set, parse as int
-            let partition_count = opts
-                .get("partition_count")
-                .unwrap_or(&"3")
-                .parse::<u32>()
-                .context("unable to parse partition_count as valid int")?;
-
-            // message_retention_in_days default to 7 if not set, parse as int
-            let message_retention_in_days = opts
-                .get("message_retention_in_days")
-                .unwrap_or(&"7")
-                .parse::<u32>()
-                .context("unable to parse message_retention_in_days as valid int")?;
-
-            let eventhub_config = EventHubConfig {
-                namespace: opts
-                    .get("namespace")
-                    .context("no namespace specified")?
-                    .to_string(),
-                resource_group: opts
-                    .get("resource_group")
-                    .context("no resource group specified")?
-                    .to_string(),
-                location: opts
-                    .get("location")
-                    .context("location not specified")?
-                    .to_string(),
-                subscription_id,
-                partition_count,
-                message_retention_in_days,
-            };
-            Config::EventhubConfig(eventhub_config)
-        }
         DbType::S3 => {
             let s3_config = S3Config {
                 url: opts
@@ -737,44 +695,6 @@ fn parse_db_options(
                     .to_string(),
             };
             Config::SqlserverConfig(sqlserver_config)
-        }
-        DbType::EventhubGroup => {
-            // split comma separated list of columns and trim
-            let unnest_columns = opts
-                .get("unnest_columns")
-                .map(|columns| {
-                    columns
-                        .split(',')
-                        .map(|column| column.trim().to_string())
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-
-            let mut eventhubs: HashMap<String, EventHubConfig> = HashMap::new();
-            for (key, _) in opts {
-                if matches!(key, "metadata_db" | "unnest_columns") {
-                    continue;
-                }
-
-                // check if peers contains key and if it does
-                // then add it to the eventhubs hashmap, if not error
-                if let Some(peer) = peers.get(key) {
-                    let eventhub_config = peer.config.as_ref().unwrap();
-                    if let Config::EventhubConfig(eventhub_config) = eventhub_config {
-                        eventhubs.insert(key.to_string(), eventhub_config.clone());
-                    } else {
-                        anyhow::bail!("Peer '{}' is not an eventhub", key);
-                    }
-                } else {
-                    anyhow::bail!("Peer '{}' does not exist", key);
-                }
-            }
-
-            let eventhub_group_config = pt::peerdb_peers::EventHubGroupConfig {
-                eventhubs,
-                unnest_columns,
-            };
-            Config::EventhubGroupConfig(eventhub_group_config)
         }
         DbType::Clickhouse => {
             let clickhouse_config = ClickhouseConfig {

@@ -139,10 +139,8 @@ enum DBType {
   SNOWFLAKE = 1;
   MONGO = 2;
   POSTGRES = 3;
-  EVENTHUB = 4;
   S3 = 5;
   SQLSERVER = 6;
-  EVENTHUB_GROUP = 7;
   CLICKHOUSE = 8;
   KAFKA = 9;
   PUBSUB = 10;
