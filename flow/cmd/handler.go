@@ -583,6 +583,13 @@ func (h *FlowRequestHandler) CreatePeer(
 		}
 		psConfig := psConfigObject.PubsubConfig
 		encodedConfig, encodingErr = proto.Marshal(psConfig)
+	case protos.DBType_EVENTHUBS:
+		ehConfigObject, ok := config.(*protos.Peer_EventhubGroupConfig)
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+		ehConfig := ehConfigObject.EventhubGroupConfig
+		encodedConfig, encodingErr = proto.Marshal(ehConfig)
 	default:
 		return wrongConfigResponse, nil
 	}

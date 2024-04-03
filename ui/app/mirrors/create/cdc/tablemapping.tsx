@@ -2,6 +2,7 @@
 import { DBType } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField';
+import { Callout } from '@tremor/react';
 import Link from 'next/link';
 import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
 import { BarLoader } from 'react-spinners/';
@@ -60,6 +61,22 @@ const TableMapping = ({
         </Link>{' '}
         have been granted for your tables.
       </Label>
+      {peerType === DBType.EVENTHUBS && (
+        <Callout
+          title='Note on Eventhubs targets'
+          color='grey'
+          style={{ fontSize: 14 }}
+        >
+          Eventhubs targets are of the form{' '}
+          <b>namespace.eventhub_name.partition_column.</b>
+          <br></br>
+          Namespaces are specified in the Eventhub peer. PeerDB will create the
+          eventhub if needed with the name you specify in the provided namespace
+          for each source table <br></br>
+          Messages are sent to partitions based on the values of the partition
+          column.
+        </Callout>
+      )}
       <div
         style={{
           display: 'flex',

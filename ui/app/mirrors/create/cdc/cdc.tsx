@@ -60,7 +60,14 @@ export default function CDCConfigForm({
       (label === 'replication slot name' &&
         mirrorConfig.doInitialSnapshot === true) ||
       (label.includes('staging path') &&
-        defaultSyncMode(mirrorConfig.destination?.type) !== 'AVRO')
+        defaultSyncMode(mirrorConfig.destination?.type) !== 'AVRO') ||
+      ((mirrorConfig.destination?.type === DBType.EVENTHUBS ||
+        mirrorConfig.destination?.type === DBType.KAFKA ||
+        mirrorConfig.destination?.type === DBType.PUBSUB) &&
+        (label.includes('initial copy') ||
+          label.includes('initial load') ||
+          label.includes('soft delete') ||
+          label.includes('snapshot')))
     ) {
       return false;
     }
@@ -117,11 +124,13 @@ export default function CDCConfigForm({
         {show &&
           advancedSettings.map((setting, id) => {
             return (
-              <CDCField
-                key={setting.label}
-                handleChange={handleChange}
-                setting={setting}
-              />
+              paramDisplayCondition(setting) && (
+                <CDCField
+                  key={setting.label}
+                  handleChange={handleChange}
+                  setting={setting}
+                />
+              )
             );
           })}
 

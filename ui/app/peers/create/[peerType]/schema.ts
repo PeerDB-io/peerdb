@@ -1,3 +1,4 @@
+import { ehSchema } from '@/components/PeerForms/Eventhubs/schema';
 import * as z from 'zod';
 
 export const peerNameSchema = z
@@ -419,5 +420,12 @@ export const psSchema = z.object({
       })
       .url({ message: 'Invalid client cert URL' })
       .min(1, { message: 'Client Cert URL must be non-empty' }),
+  }),
+});
+
+export const ehGroupSchema = z.object({
+  // string to ehSchema map
+  eventhubs: z.record(ehSchema).refine((obj) => Object.keys(obj).length > 0, {
+    message: 'At least 1 Event Hub is required',
   }),
 });

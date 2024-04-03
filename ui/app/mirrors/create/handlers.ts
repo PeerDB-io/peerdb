@@ -71,6 +71,11 @@ const CDCCheck = (
     config.replicationSlotName = '';
   }
 
+  if (config.destination?.type == DBType.EVENTHUBS) {
+    config.doInitialSnapshot = false;
+    config.softDelete = false;
+  }
+
   return '';
 };
 
@@ -261,6 +266,14 @@ const getDefaultDestinationTable = (
   ) {
     return `${schemaName}_${tableName}`;
   }
+
+  if (
+    peerType.toString() == 'EVENTHUBS' ||
+    dBTypeToJSON(peerType) == 'EVENTHUBS'
+  ) {
+    return `<namespace>.${schemaName}_${tableName}.<partition_column>`;
+  }
+
   return `${schemaName}.${tableName}`;
 };
 
