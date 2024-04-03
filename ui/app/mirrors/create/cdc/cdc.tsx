@@ -54,16 +54,19 @@ export default function CDCConfigForm({
   }, [settings]);
 
   const paramDisplayCondition = (setting: MirrorSetting) => {
+    const isQueueDestination =
+      mirrorConfig.destination?.type === DBType.EVENTHUBS ||
+      mirrorConfig.destination?.type === DBType.KAFKA ||
+      mirrorConfig.destination?.type === DBType.PUBSUB;
     const label = setting.label.toLowerCase();
     if (
       (label.includes('snapshot') && mirrorConfig.doInitialSnapshot !== true) ||
       (label === 'replication slot name' &&
-        mirrorConfig.doInitialSnapshot === true) ||
+        mirrorConfig.doInitialSnapshot === true &&
+        !isQueueDestination) ||
       (label.includes('staging path') &&
         defaultSyncMode(mirrorConfig.destination?.type) !== 'AVRO') ||
-      ((mirrorConfig.destination?.type === DBType.EVENTHUBS ||
-        mirrorConfig.destination?.type === DBType.KAFKA ||
-        mirrorConfig.destination?.type === DBType.PUBSUB) &&
+      (isQueueDestination &&
         (label.includes('initial copy') ||
           label.includes('initial load') ||
           label.includes('soft delete') ||
