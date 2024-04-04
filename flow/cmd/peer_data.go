@@ -93,7 +93,7 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 		pg_size_pretty(pg_total_relation_size(t.oid))::text AS table_size
 	FROM pg_class t
 	LEFT JOIN pg_namespace n ON t.relnamespace = n.oid
-	LEFT JOIN pg_constraint con ON con.conrelid = t.oid AND con.contype = 'p'
+	LEFT JOIN pg_constraint con ON con.conrelid = t.oid
 	WHERE n.nspname = $1 AND t.relkind = 'r'
 	ORDER BY t.relname, can_mirror DESC;
 `, req.SchemaName)
