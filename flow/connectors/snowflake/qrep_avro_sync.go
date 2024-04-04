@@ -266,7 +266,6 @@ func (s *SnowflakeAvroSyncHandler) putFileToStage(ctx context.Context, avroFile 
 		return nil
 	}
 
-	activity.RecordHeartbeat(ctx, "putting file to stage")
 	putCmd := fmt.Sprintf("PUT file://%s @%s", avroFile.FilePath, stage)
 
 	if _, err := s.connector.database.ExecContext(ctx, putCmd); err != nil {
