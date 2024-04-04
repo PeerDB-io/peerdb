@@ -13,22 +13,22 @@ import (
 
 type mergeStmtGenerator struct {
 	// the schema of the table to merge into
-	normalizedTableSchema *protos.TableSchema
+	tableSchemaMapping map[string]*protos.TableSchema
+	// array of toast column combinations that are unchanged
+	unchangedToastColumnsMap map[string][]string
 	// _PEERDB_IS_DELETED and _SYNCED_AT columns
 	peerdbCols *protos.PeerDBColumns
 	// _PEERDB_RAW_...
 	rawTableName string
-	// destination table name, used to retrieve records from raw table
-	dstTableName string
-	// array of toast column combinations that are unchanged
-	unchangedToastColumns []string
 	// Id of the currently merging batch
 	mergeBatchId int64
 }
 
-func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
-	parsedDstTable, _ := utils.ParseSchemaTable(m.dstTableName)
-	columns := m.normalizedTableSchema.Columns
+func (m *mergeStmtGenerator) generateMergeStmt(dstTable string) (string, error) {
+	parsedDstTable, _ := utils.ParseSchemaTable(dstTable)
+	normalizedTableSchema := m.tableSchemaMapping[dstTable]
+	unchangedToastColumns := m.unchangedToastColumnsMap[dstTable]
+	columns := normalizedTableSchema.Columns
 
 	flattenedCastsSQLArray := make([]string, 0, len(columns))
 	for _, column := range columns {
@@ -99,7 +99,7 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 	// fill in synced_at column
 	insertValuesSQLArray = append(insertValuesSQLArray, "CURRENT_TIMESTAMP")
 	insertValuesSQL := strings.Join(insertValuesSQLArray, ",")
-	updateStatementsforToastCols := m.generateUpdateStatements(columnNames)
+	updateStatementsforToastCols := m.generateUpdateStatements(columnNames, unchangedToastColumns)
 
 	// handling the case when an insert and delete happen in the same batch, with updates in the middle
 	// with soft-delete, we want the row to be in the destination with SOFT_DELETE true
@@ -114,9 +114,9 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 	}
 	updateStringToastCols := strings.Join(updateStatementsforToastCols, " ")
 
-	normalizedpkeyColsArray := make([]string, 0, len(m.normalizedTableSchema.PrimaryKeyColumns))
-	pkeySelectSQLArray := make([]string, 0, len(m.normalizedTableSchema.PrimaryKeyColumns))
-	for _, pkeyColName := range m.normalizedTableSchema.PrimaryKeyColumns {
+	normalizedpkeyColsArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
+	pkeySelectSQLArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
+	for _, pkeyColName := range normalizedTableSchema.PrimaryKeyColumns {
 		normalizedPkeyColName := SnowflakeIdentifierNormalize(pkeyColName)
 		normalizedpkeyColsArray = append(normalizedpkeyColsArray, normalizedPkeyColName)
 		pkeySelectSQLArray = append(pkeySelectSQLArray, fmt.Sprintf("TARGET.%s = SOURCE.%s",
@@ -166,17 +166,15 @@ and updating the other columns.
 6. Repeat steps 1-5 for each unique set of unchanged toast column groups.
 7. Return the list of generated update statements.
 */
-func (m *mergeStmtGenerator) generateUpdateStatements(allCols []string) []string {
+func (m *mergeStmtGenerator) generateUpdateStatements(allCols []string, unchangedToastColumns []string) []string {
 	handleSoftDelete := m.peerdbCols.SoftDelete && (m.peerdbCols.SoftDeleteColName != "")
-	// weird way of doing it but avoids prealloc lint
-	updateStmts := make([]string, 0, func() int {
-		if handleSoftDelete {
-			return 2 * len(m.unchangedToastColumns)
-		}
-		return len(m.unchangedToastColumns)
-	}())
+	stmtCount := len(unchangedToastColumns)
+	if handleSoftDelete {
+		stmtCount *= 2
+	}
+	updateStmts := make([]string, 0, stmtCount)
 
-	for _, cols := range m.unchangedToastColumns {
+	for _, cols := range unchangedToastColumns {
 		unchangedColsArray := strings.Split(cols, ",")
 		otherCols := shared.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0, len(otherCols)+2)

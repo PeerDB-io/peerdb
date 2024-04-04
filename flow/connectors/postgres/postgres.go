@@ -604,22 +604,21 @@ func (c *PostgresConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 	}
 	mergeStatementsBatch := &pgx.Batch{}
 	totalRowsAffected := 0
+	normalizeStmtGen := &normalizeStmtGenerator{
+		Logger:                   c.logger,
+		rawTableName:             rawTableIdentifier,
+		tableSchemaMapping:       req.TableNameSchemaMapping,
+		unchangedToastColumnsMap: unchangedToastColsMap,
+		peerdbCols: &protos.PeerDBColumns{
+			SoftDeleteColName: req.SoftDeleteColName,
+			SyncedAtColName:   req.SyncedAtColName,
+			SoftDelete:        req.SoftDelete,
+		},
+		supportsMerge:  pgversion >= POSTGRES_15,
+		metadataSchema: c.metadataSchema,
+	}
 	for _, destinationTableName := range destinationTableNames {
-		normalizeStmtGen := &normalizeStmtGenerator{
-			rawTableName:          rawTableIdentifier,
-			dstTableName:          destinationTableName,
-			normalizedTableSchema: req.TableNameSchemaMapping[destinationTableName],
-			unchangedToastColumns: unchangedToastColsMap[destinationTableName],
-			peerdbCols: &protos.PeerDBColumns{
-				SoftDeleteColName: req.SoftDeleteColName,
-				SyncedAtColName:   req.SyncedAtColName,
-				SoftDelete:        req.SoftDelete,
-			},
-			supportsMerge:  pgversion >= POSTGRES_15,
-			metadataSchema: c.metadataSchema,
-			logger:         c.logger,
-		}
-		normalizeStatements := normalizeStmtGen.generateNormalizeStatements()
+		normalizeStatements := normalizeStmtGen.generateNormalizeStatements(destinationTableName)
 		for _, normalizeStatement := range normalizeStatements {
 			mergeStatementsBatch.Queue(normalizeStatement, normBatchID, req.SyncBatchID, destinationTableName).Exec(
 				func(ct pgconn.CommandTag) error {
