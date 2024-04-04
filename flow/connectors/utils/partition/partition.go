@@ -51,6 +51,15 @@ func adjustStartValue(prevEnd interface{}, start interface{}) interface{} {
 	case time.Time:
 		// postgres timestamp has microsecond precision
 		return prevEnd.(time.Time).Add(1 * time.Microsecond)
+	case pgtype.TID:
+		pe := prevEnd.(pgtype.TID)
+		if pe.OffsetNumber < 0xFFFF {
+			pe.OffsetNumber++
+		} else {
+			pe.BlockNumber++
+			pe.OffsetNumber = 0
+		}
+		return pe
 	default:
 		return start
 	}
