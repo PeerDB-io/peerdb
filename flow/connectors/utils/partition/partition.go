@@ -60,6 +60,8 @@ func adjustStartValue(prevEnd interface{}, start interface{}) interface{} {
 			pe.OffsetNumber = 0
 		}
 		return pe
+	case uint32:
+		return prevEnd.(uint32) + 1
 	default:
 		return start
 	}
