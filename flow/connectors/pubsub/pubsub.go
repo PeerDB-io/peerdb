@@ -3,8 +3,11 @@ package connpubsub
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"cloud.google.com/go/pubsub"
 	lua "github.com/yuin/gopher-lua"
@@ -15,6 +18,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/pua"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -109,6 +113,55 @@ func lvalueToPubSubMessage(ls *lua.LState, value lua.LValue) (string, *pubsub.Me
 	return topic, msg, nil
 }
 
+type topicCache struct {
+	cache map[string]*pubsub.Topic
+	lock  sync.RWMutex
+}
+
+func (tc *topicCache) forEach(ctx context.Context, f func(topic *pubsub.Topic)) {
+	tc.lock.RLock()
+	defer tc.lock.RUnlock()
+	for _, topicClient := range tc.cache {
+		if ctx.Err() != nil {
+			return
+		}
+		f(topicClient)
+	}
+}
+
+func (tc *topicCache) Flush(ctx context.Context) {
+	tc.forEach(ctx, func(topic *pubsub.Topic) {
+		topic.Flush()
+	})
+}
+
+func (tc *topicCache) Stop(ctx context.Context) {
+	tc.forEach(ctx, func(topic *pubsub.Topic) {
+		topic.Stop()
+	})
+}
+
+func (tc *topicCache) GetOrSet(topic string, f func() (*pubsub.Topic, error)) (*pubsub.Topic, error) {
+	tc.lock.RLock()
+	client, ok := tc.cache[topic]
+	tc.lock.RUnlock()
+	if ok {
+		return client, nil
+	}
+	tc.lock.Lock()
+	defer tc.lock.Unlock()
+	// check cache again, in case of write race
+	if client, ok := tc.cache[topic]; ok {
+		return client, nil
+	}
+	client, err := f()
+	if err != nil {
+		return nil, err
+	}
+	tc.cache[topic] = client
+	return client, nil
+}
+
 func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
 	numRecords := int64(0)
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
@@ -160,60 +213,95 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 		}
 	}()
 
-	topiccache := make(map[string]*pubsub.Topic)
-	for record := range req.Records.GetRecords() {
-		if err := ctx.Err(); err != nil {
-			return nil, err
+	topiccache := topicCache{cache: make(map[string]*pubsub.Topic)}
+	lastSeenLSN := atomic.Int64{}
+	flushLoopDone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(peerdbenv.PeerDBQueueFlushTimeoutSeconds())
+		defer ticker.Stop()
+
+		lastUpdatedOffset := int64(0)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-flushLoopDone:
+				return
+			// flush loop doesn't block processing new messages
+			case <-ticker.C:
+				lastSeen := lastSeenLSN.Load()
+				if lastSeen > lastUpdatedOffset {
+					if err := c.SetLastOffset(ctx, req.FlowJobName, lastSeen); err != nil {
+						c.logger.Warn("[pubsub] SetLastOffset error", slog.Any("error", err))
+					} else {
+						lastUpdatedOffset = lastSeen
+						c.logger.Info("processBatch", slog.Int64("updated last offset", lastUpdatedOffset))
+					}
+				}
+			}
 		}
-		ls.Push(fn)
-		ls.Push(pua.LuaRecord.New(ls, record))
-		err := ls.PCall(1, -1, nil)
-		if err != nil {
-			return nil, fmt.Errorf("script failed: %w", err)
-		}
-		args := ls.GetTop()
-		for i := range args {
-			topic, msg, err := lvalueToPubSubMessage(ls, ls.Get(i-args))
+	}()
+
+Loop:
+	for {
+		select {
+		case record, ok := <-req.Records.GetRecords():
+			if !ok {
+				c.logger.Info("flushing batches because no more records")
+				break Loop
+			}
+			ls.Push(fn)
+			ls.Push(pua.LuaRecord.New(ls, record))
+			err := ls.PCall(1, -1, nil)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("script failed: %w", err)
 			}
-			if msg != nil {
-				if topic == "" {
-					topic = record.GetDestinationTableName()
+			args := ls.GetTop()
+			for i := range args {
+				topic, msg, err := lvalueToPubSubMessage(ls, ls.Get(i-args))
+				if err != nil {
+					return nil, err
 				}
-				topicClient, ok := topiccache[topic]
-				if !ok {
-					topicClient = c.client.Topic(topic)
-					exists, err := topicClient.Exists(ctx)
-					if err != nil {
-						return nil, fmt.Errorf("error checking if topic exists: %w", err)
+				if msg != nil {
+					if topic == "" {
+						topic = record.GetDestinationTableName()
 					}
-					if !exists {
-						topicClient, err = c.client.CreateTopic(ctx, topic)
+					topicClient, err := topiccache.GetOrSet(topic, func() (*pubsub.Topic, error) {
+						topicClient := c.client.Topic(topic)
+						exists, err := topicClient.Exists(wgCtx)
 						if err != nil {
-							return nil, fmt.Errorf("error creating topic: %w", err)
+							return nil, fmt.Errorf("error checking if topic exists: %w", err)
 						}
+						if !exists {
+							topicClient, err = c.client.CreateTopic(wgCtx, topic)
+							if err != nil {
+								return nil, fmt.Errorf("error creating topic: %w", err)
+							}
+						}
+						return topicClient, nil
+					})
+					if err != nil {
+						return nil, err
 					}
-					topiccache[topic] = topicClient
+
+					pubresult := topicClient.Publish(ctx, msg)
+					wg.Add(1)
+					publish <- pubresult
+					record.PopulateCountMap(tableNameRowsMapping)
 				}
-
-				pubresult := topicClient.Publish(ctx, msg)
-				wg.Add(1)
-				publish <- pubresult
-				record.PopulateCountMap(tableNameRowsMapping)
 			}
+			ls.SetTop(0)
+			numRecords += 1
+			shared.AtomicInt64Max(&lastSeenLSN, record.GetCheckpointID())
+
+		case <-wgCtx.Done():
+			return nil, wgCtx.Err()
 		}
-		numRecords += 1
-		ls.SetTop(0)
 	}
 
+	close(flushLoopDone)
 	close(publish)
-	for _, topicClient := range topiccache {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		topicClient.Stop()
-	}
+	topiccache.Stop(wgCtx)
 	waitChan := make(chan struct{})
 	go func() {
 		wg.Wait()

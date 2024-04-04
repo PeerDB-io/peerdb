@@ -189,7 +189,8 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 		}
 
 		if p.commitLock == nil {
-			if cdcRecordsStorage.Len() >= int(req.MaxBatchSize) {
+			cdclen := cdcRecordsStorage.Len()
+			if cdclen >= 0 && uint32(cdclen) >= req.MaxBatchSize {
 				return nil
 			}
 
