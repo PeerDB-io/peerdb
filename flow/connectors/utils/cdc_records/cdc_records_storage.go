@@ -146,11 +146,11 @@ func (c *cdcRecordsStore) diskSpillThresholdsExceeded() bool {
 	return false
 }
 
-func (c *cdcRecordsStore) Set(logger log.Logger, key *model.TableWithPkey, rec model.Record) error {
-	if key != nil {
-		_, ok := c.inMemoryRecords[*key]
+func (c *cdcRecordsStore) Set(logger log.Logger, key model.TableWithPkey, rec model.Record) error {
+	if key.TableName != "" {
+		_, ok := c.inMemoryRecords[key]
 		if ok || !c.diskSpillThresholdsExceeded() {
-			c.inMemoryRecords[*key] = rec
+			c.inMemoryRecords[key] = rec
 		} else {
 			if c.pebbleDB == nil {
 				logger.Info(c.thresholdReason,
