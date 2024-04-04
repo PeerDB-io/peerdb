@@ -320,65 +320,6 @@ func (c *PostgresConnector) PullQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-) (*model.QRecordBatch, error) {
-	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
-	if partition.FullTablePartition {
-		c.logger.Info("pulling full table partition", partitionIdLog)
-		executor := c.NewQRepQueryExecutorSnapshot(c.config.TransactionSnapshot,
-			config.FlowJobName, partition.PartitionId)
-		query := config.Query
-		return executor.ExecuteAndProcessQuery(ctx, query)
-	}
-
-	var rangeStart interface{}
-	var rangeEnd interface{}
-
-	// Depending on the type of the range, convert the range into the correct type
-	switch x := partition.Range.Range.(type) {
-	case *protos.PartitionRange_IntRange:
-		rangeStart = x.IntRange.Start
-		rangeEnd = x.IntRange.End
-	case *protos.PartitionRange_TimestampRange:
-		rangeStart = x.TimestampRange.Start.AsTime()
-		rangeEnd = x.TimestampRange.End.AsTime()
-	case *protos.PartitionRange_TidRange:
-		rangeStart = pgtype.TID{
-			BlockNumber:  x.TidRange.Start.BlockNumber,
-			OffsetNumber: uint16(x.TidRange.Start.OffsetNumber),
-			Valid:        true,
-		}
-		rangeEnd = pgtype.TID{
-			BlockNumber:  x.TidRange.End.BlockNumber,
-			OffsetNumber: uint16(x.TidRange.End.OffsetNumber),
-			Valid:        true,
-		}
-	default:
-		return nil, fmt.Errorf("unknown range type: %v", x)
-	}
-	c.logger.Info("Obtained ranges for partition for PullQRep", partitionIdLog)
-
-	// Build the query to pull records within the range from the source table
-	// Be sure to order the results by the watermark column to ensure consistency across pulls
-	query, err := BuildQuery(c.logger, config.Query, config.FlowJobName)
-	if err != nil {
-		return nil, err
-	}
-
-	executor := c.NewQRepQueryExecutorSnapshot(c.config.TransactionSnapshot,
-		config.FlowJobName, partition.PartitionId)
-
-	records, err := executor.ExecuteAndProcessQuery(ctx, query, rangeStart, rangeEnd)
-	if err != nil {
-		return nil, err
-	}
-
-	return records, nil
-}
-
-func (c *PostgresConnector) PullQRepRecordStream(
-	ctx context.Context,
-	config *protos.QRepConfig,
-	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)

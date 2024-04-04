@@ -134,10 +134,7 @@ func generateRecords(
 		records.Records[row] = entries
 	}
 
-	stream, err := records.ToQRecordStream(1024)
-	require.NoError(t, err)
-
-	return stream, schema
+	return records.ToQRecordStream(1024), schema
 }
 
 func TestWriteRecordsToAvroFileHappyPath(t *testing.T) {

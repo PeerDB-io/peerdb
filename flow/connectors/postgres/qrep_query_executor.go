@@ -26,13 +26,7 @@ type QRepQueryExecutor struct {
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutor(flowJobName string, partitionID string) *QRepQueryExecutor {
-	return &QRepQueryExecutor{
-		PostgresConnector: c,
-		snapshot:          "",
-		flowJobName:       flowJobName,
-		partitionID:       partitionID,
-		logger:            log.With(c.logger, slog.String(string(shared.PartitionIDKey), partitionID)),
-	}
+	return c.NewQRepQueryExecutorSnapshot("", flowJobName, partitionID)
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(snapshot string, flowJobName string, partitionID string) *QRepQueryExecutor {
