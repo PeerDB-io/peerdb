@@ -186,6 +186,12 @@ type QRepConsolidateConnector interface {
 	CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error
 }
 
+type RenameTablesConnector interface {
+	Connector
+
+	RenameTables(context.Context, *protos.RenameTablesInput) (*protos.RenameTablesOutput, error)
+}
+
 func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 	switch inner := config.Config.(type) {
 	case *protos.Peer_PostgresConfig:
@@ -213,7 +219,7 @@ func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 	}
 }
 
-func GetConnectorAs[T Connector](ctx context.Context, config *protos.Peer) (T, error) {
+func GetAs[T Connector](ctx context.Context, config *protos.Peer) (T, error) {
 	var none T
 	conn, err := GetConnector(ctx, config)
 	if err != nil {
@@ -228,27 +234,27 @@ func GetConnectorAs[T Connector](ctx context.Context, config *protos.Peer) (T, e
 }
 
 func GetCDCPullConnector(ctx context.Context, config *protos.Peer) (CDCPullConnector, error) {
-	return GetConnectorAs[CDCPullConnector](ctx, config)
+	return GetAs[CDCPullConnector](ctx, config)
 }
 
 func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConnector, error) {
-	return GetConnectorAs[CDCSyncConnector](ctx, config)
+	return GetAs[CDCSyncConnector](ctx, config)
 }
 
 func GetCDCNormalizeConnector(ctx context.Context, config *protos.Peer) (CDCNormalizeConnector, error) {
-	return GetConnectorAs[CDCNormalizeConnector](ctx, config)
+	return GetAs[CDCNormalizeConnector](ctx, config)
 }
 
 func GetQRepPullConnector(ctx context.Context, config *protos.Peer) (QRepPullConnector, error) {
-	return GetConnectorAs[QRepPullConnector](ctx, config)
+	return GetAs[QRepPullConnector](ctx, config)
 }
 
 func GetQRepSyncConnector(ctx context.Context, config *protos.Peer) (QRepSyncConnector, error) {
-	return GetConnectorAs[QRepSyncConnector](ctx, config)
+	return GetAs[QRepSyncConnector](ctx, config)
 }
 
 func GetQRepConsolidateConnector(ctx context.Context, config *protos.Peer) (QRepConsolidateConnector, error) {
-	return GetConnectorAs[QRepConsolidateConnector](ctx, config)
+	return GetAs[QRepConsolidateConnector](ctx, config)
 }
 
 func CloseConnector(ctx context.Context, conn Connector) {
@@ -295,6 +301,9 @@ var (
 
 	_ QRepConsolidateConnector = &connsnowflake.SnowflakeConnector{}
 	_ QRepConsolidateConnector = &connclickhouse.ClickhouseConnector{}
+
+	_ RenameTablesConnector = &connsnowflake.SnowflakeConnector{}
+	_ RenameTablesConnector = &connbigquery.BigQueryConnector{}
 
 	_ ValidationConnector = &connsnowflake.SnowflakeConnector{}
 	_ ValidationConnector = &connclickhouse.ClickhouseConnector{}
