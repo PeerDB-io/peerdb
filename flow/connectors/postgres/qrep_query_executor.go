@@ -8,10 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
-	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/geo"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/numeric"
@@ -25,7 +23,6 @@ type QRepQueryExecutor struct {
 	snapshot    string
 	flowJobName string
 	partitionID string
-	testEnv     bool
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutor(flowJobName string, partitionID string) *QRepQueryExecutor {
@@ -48,10 +45,6 @@ func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(snapshot string, flowJo
 	}
 }
 
-func (qe *QRepQueryExecutor) SetTestEnv(testEnv bool) {
-	qe.testEnv = testEnv
-}
-
 func (qe *QRepQueryExecutor) ExecuteQuery(ctx context.Context, query string, args ...interface{}) (pgx.Rows, error) {
 	rows, err := qe.conn.Query(ctx, query, args...)
 	if err != nil {
@@ -64,14 +57,6 @@ func (qe *QRepQueryExecutor) ExecuteQuery(ctx context.Context, query string, arg
 func (qe *QRepQueryExecutor) executeQueryInTx(ctx context.Context, tx pgx.Tx, cursorName string, fetchSize int) (pgx.Rows, error) {
 	qe.logger.Info("Executing query in transaction")
 	q := fmt.Sprintf("FETCH %d FROM %s", fetchSize, cursorName)
-
-	if !qe.testEnv {
-		shutdown := utils.HeartbeatRoutine(ctx, func() string {
-			qe.logger.Info(fmt.Sprintf("still running '%s'...", q))
-			return fmt.Sprintf("running '%s'", q)
-		})
-		defer shutdown()
-	}
 
 	rows, err := tx.Query(ctx, q)
 	if err != nil {
@@ -159,50 +144,37 @@ func (qe *QRepQueryExecutor) processRowsStream(
 	fieldDescriptions []pgconn.FieldDescription,
 ) (int, error) {
 	numRows := 0
-	const heartBeatNumRows = 5000
+	const heartBeatNumRows = 10000
 
-	// Iterate over the rows
 	for rows.Next() {
-		select {
-		case <-ctx.Done():
+		if err := ctx.Err(); err != nil {
 			qe.logger.Info("Context canceled, exiting processRowsStream early")
-			return numRows, ctx.Err()
-		default:
-			// Process the row as before
-			record, err := qe.mapRowToQRecord(rows, fieldDescriptions)
-			if err != nil {
-				qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
-				stream.Records <- model.QRecordOrError{
-					Err: fmt.Errorf("failed to map row to QRecord: %w", err),
-				}
-				return 0, fmt.Errorf("failed to map row to QRecord: %w", err)
-			}
-
-			stream.Records <- model.QRecordOrError{
-				Record: record,
-				Err:    nil,
-			}
-
-			if numRows%heartBeatNumRows == 0 {
-				qe.recordHeartbeat(ctx, "cursor: %s - fetched %d records", cursorName, numRows)
-			}
-
-			numRows++
+			return numRows, err
 		}
+
+		record, err := qe.mapRowToQRecord(rows, fieldDescriptions)
+		if err != nil {
+			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
+			stream.Records <- model.QRecordOrError{
+				Err: fmt.Errorf("failed to map row to QRecord: %w", err),
+			}
+			return 0, fmt.Errorf("failed to map row to QRecord: %w", err)
+		}
+
+		stream.Records <- model.QRecordOrError{
+			Record: record,
+			Err:    nil,
+		}
+
+		if numRows%heartBeatNumRows == 0 {
+			qe.logger.Info("processing row stream", slog.String("cursor", cursorName), slog.Int("records", numRows))
+		}
+
+		numRows++
 	}
 
-	qe.recordHeartbeat(ctx, "cursor %s - fetch completed - %d records", cursorName, numRows)
-	qe.logger.Info("processed row stream")
+	qe.logger.Info("processed row stream", slog.String("cursor", cursorName), slog.Int("records", numRows))
 	return numRows, nil
-}
-
-func (qe *QRepQueryExecutor) recordHeartbeat(ctx context.Context, x string, args ...interface{}) {
-	if qe.testEnv {
-		qe.logger.Info(fmt.Sprintf(x, args...))
-		return
-	}
-	msg := fmt.Sprintf(x, args...)
-	activity.RecordHeartbeat(ctx, msg)
 }
 
 func (qe *QRepQueryExecutor) processFetchedRows(
@@ -399,7 +371,6 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
 	qe.logger.Info(fmt.Sprintf("[pg_query_executor] declared cursor '%s' for query '%s'", cursorName, query))
 
 	totalRecordsFetched := 0
-	numFetchOpsComplete := 0
 	for {
 		numRows, err := qe.processFetchedRows(ctx, query, tx, cursorName, fetchSize, stream)
 		if err != nil {
@@ -413,9 +384,6 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
 		if numRows == 0 {
 			break
 		}
-
-		numFetchOpsComplete += 1
-		qe.recordHeartbeat(ctx, "#%d fetched %d rows", numFetchOpsComplete, numRows)
 	}
 
 	qe.logger.Info("Committing transaction")

@@ -63,7 +63,6 @@ func TestExecuteAndProcessQuery(t *testing.T) {
 	}
 
 	qe := connector.NewQRepQueryExecutor("test flow", "test part")
-	qe.SetTestEnv(true)
 
 	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
 	batch, err := qe.ExecuteAndProcessQuery(context.Background(), query)

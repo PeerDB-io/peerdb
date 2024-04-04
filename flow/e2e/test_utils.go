@@ -92,7 +92,6 @@ func EnvTrue(t *testing.T, env WorkflowRun, val bool) {
 
 func GetPgRows(conn *connpostgres.PostgresConnector, suffix string, table string, cols string) (*model.QRecordBatch, error) {
 	pgQueryExecutor := conn.NewQRepQueryExecutor("testflow", "testpart")
-	pgQueryExecutor.SetTestEnv(true)
 
 	return pgQueryExecutor.ExecuteAndProcessQuery(
 		context.Background(),
