@@ -232,7 +232,7 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 				lastSeen := lastSeenLSN.Load()
 				if lastSeen > lastUpdatedOffset {
 					if err := c.SetLastOffset(ctx, req.FlowJobName, lastSeen); err != nil {
-						c.logger.Warn("[kafka] SetLastOffset error", slog.Any("error", err))
+						c.logger.Warn("[pubsub] SetLastOffset error", slog.Any("error", err))
 					} else {
 						lastUpdatedOffset = lastSeen
 						c.logger.Info("processBatch", slog.Int64("updated last offset", lastUpdatedOffset))

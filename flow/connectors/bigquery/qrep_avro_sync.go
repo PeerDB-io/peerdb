@@ -47,8 +47,8 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	tableNameRowsMapping map[string]*model.RecordTypeCounts,
 ) (*model.SyncResponse, error) {
 	s.connector.logger.Info(
-		fmt.Sprintf("Flow job %s: Obtaining Avro schema for destination table %s and sync batch ID %d",
-			req.FlowJobName, rawTableName, syncBatchID))
+		fmt.Sprintf("Obtaining Avro schema for destination table %s and sync batch ID %d",
+			rawTableName, syncBatchID))
 	// You will need to define your Avro schema as a string
 	avroSchema, err := DefineAvroSchema(rawTableName, dstTableMetadata, "", "")
 	if err != nil {
