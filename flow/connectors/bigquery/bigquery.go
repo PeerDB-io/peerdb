@@ -438,22 +438,21 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 		return fmt.Errorf("couldn't get tablename to unchanged cols mapping: %w", err)
 	}
 
+	mergeGen := &mergeStmtGenerator{
+		rawDatasetTable: datasetTable{
+			project: c.projectID,
+			dataset: c.datasetID,
+			table:   rawTableName,
+		},
+		tableSchemaMapping: tableToSchema,
+		mergeBatchId:       batchId,
+		peerdbCols:         peerdbColumns,
+		shortColumn:        map[string]string{},
+	}
+
 	for _, tableName := range tableNames {
 		unchangedToastColumns := tableNametoUnchangedToastCols[tableName]
 		dstDatasetTable, _ := c.convertToDatasetTable(tableName)
-		mergeGen := &mergeStmtGenerator{
-			rawDatasetTable: datasetTable{
-				project: c.projectID,
-				dataset: c.datasetID,
-				table:   rawTableName,
-			},
-			dstTableName:          tableName,
-			dstDatasetTable:       dstDatasetTable,
-			normalizedTableSchema: tableToSchema[tableName],
-			mergeBatchId:          batchId,
-			peerdbCols:            peerdbColumns,
-			shortColumn:           map[string]string{},
-		}
 
 		// normalize anything between last normalized batch id to last sync batchid
 		// TODO (kaushik): This is so that the statement size for individual merge statements
@@ -462,7 +461,7 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 		stmtNum := 0
 		err = shared.ArrayIterChunks(unchangedToastColumns, batchSize, func(chunk []string) error {
 			stmtNum += 1
-			mergeStmt := mergeGen.generateMergeStmt(chunk)
+			mergeStmt := mergeGen.generateMergeStmt(tableName, dstDatasetTable, chunk)
 			c.logger.Info(fmt.Sprintf("running merge statement %d for table %s..",
 				stmtNum, tableName))
 
