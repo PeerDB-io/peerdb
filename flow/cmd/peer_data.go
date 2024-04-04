@@ -94,7 +94,7 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	FROM pg_class t
 	LEFT JOIN pg_namespace n ON t.relnamespace = n.oid
 	LEFT JOIN pg_constraint con ON con.conrelid = t.oid
-	WHERE n.nspname = $1 AND t.relkind = 'r'
+	WHERE n.nspname = $1 AND (t.relkind = 'r' OR t.relkind = 'p')
 	ORDER BY t.relname, can_mirror DESC;
 `, req.SchemaName)
 	if err != nil {
