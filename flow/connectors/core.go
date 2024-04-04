@@ -158,7 +158,7 @@ type QRepPullConnector interface {
 	GetQRepPartitions(ctx context.Context, config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error)
 
 	// PullQRepRecords returns the records for a given partition.
-	PullQRepRecords(ctx context.Context, config *protos.QRepConfig, partition *protos.QRepPartition) (*model.QRecordBatch, error)
+	PullQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, *model.QRecordStream) (int, error)
 }
 
 type QRepSyncConnector interface {

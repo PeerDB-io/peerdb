@@ -20,22 +20,22 @@ type QRecordBatch struct {
 	Records [][]qvalue.QValue
 }
 
-func (q *QRecordBatch) ToQRecordStream(buffer int) (*QRecordStream, error) {
-	stream := NewQRecordStream(buffer)
+func (q *QRecordBatch) ToQRecordStream(buffer int) *QRecordStream {
+	stream := NewQRecordStream(min(buffer, len(q.Records)))
+	go q.FeedToQRecordStream(stream)
+	return stream
+}
 
-	go func() {
-		err := stream.SetSchema(q.Schema)
-		if err != nil {
-			slog.Warn(err.Error())
-		}
+func (q *QRecordBatch) FeedToQRecordStream(stream *QRecordStream) {
+	err := stream.SetSchema(q.Schema)
+	if err != nil {
+		slog.Warn(err.Error())
+	}
 
-		for _, record := range q.Records {
-			stream.Records <- QRecordOrError{Record: record}
-		}
-		close(stream.Records)
-	}()
-
-	return stream, nil
+	for _, record := range q.Records {
+		stream.Records <- QRecordOrError{Record: record}
+	}
+	close(stream.Records)
 }
 
 func constructArray[T any](qValue qvalue.QValue, typeName string) (*pgtype.Array[T], error) {
