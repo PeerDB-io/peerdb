@@ -27,8 +27,7 @@ func (s *BoundSelector) SpawnChild(ctx workflow.Context, w interface{}, args ...
 
 	future := workflow.ExecuteChildWorkflow(ctx, w, args...)
 	s.selector.AddFuture(future, func(f workflow.Future) {
-		err := f.Get(ctx, nil)
-		if err != nil {
+		if err := f.Get(ctx, nil); err != nil {
 			s.ferrors = append(s.ferrors, err)
 		}
 	})
