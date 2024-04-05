@@ -8,9 +8,9 @@ edition = "2021"
 [dependencies]
 anyhow = "1"
 pt = { path = "../pt" }
-rustls = "0.22"
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 urlencoding = "2"
 tokio-postgres = "0.7.2"
-tokio-postgres-rustls = "0.11.1"
+tokio-postgres-rustls = "0.12"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
