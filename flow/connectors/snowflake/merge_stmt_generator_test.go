@@ -18,14 +18,13 @@ func TestGenerateUpdateStatement(t *testing.T) {
 		 "_PEERDB_SYNCED_AT" = CURRENT_TIMESTAMP`,
 	}
 	mergeGen := &mergeStmtGenerator{
-		unchangedToastColumns: unchangedToastCols,
 		peerdbCols: &protos.PeerDBColumns{
 			SoftDelete:        false,
 			SyncedAtColName:   "_PEERDB_SYNCED_AT",
 			SoftDeleteColName: "_PEERDB_SOFT_DELETE",
 		},
 	}
-	result := mergeGen.generateUpdateStatements(allCols)
+	result := mergeGen.generateUpdateStatements(allCols, unchangedToastCols)
 
 	for i := range expected {
 		expected[i] = utils.RemoveSpacesTabsNewlines(expected[i])
@@ -50,14 +49,13 @@ func TestGenerateUpdateStatement_WithSoftDelete(t *testing.T) {
 		  "_PEERDB_SYNCED_AT" = CURRENT_TIMESTAMP, "_PEERDB_SOFT_DELETE" = TRUE`,
 	}
 	mergeGen := &mergeStmtGenerator{
-		unchangedToastColumns: unchangedToastCols,
 		peerdbCols: &protos.PeerDBColumns{
 			SoftDelete:        true,
 			SyncedAtColName:   "_PEERDB_SYNCED_AT",
 			SoftDeleteColName: "_PEERDB_SOFT_DELETE",
 		},
 	}
-	result := mergeGen.generateUpdateStatements(allCols)
+	result := mergeGen.generateUpdateStatements(allCols, unchangedToastCols)
 
 	for i := range expected {
 		expected[i] = utils.RemoveSpacesTabsNewlines(expected[i])
@@ -88,14 +86,13 @@ func TestGenerateUpdateStatement_WithUnchangedToastCols(t *testing.T) {
 		 "_PEERDB_SYNCED_AT" = CURRENT_TIMESTAMP`,
 	}
 	mergeGen := &mergeStmtGenerator{
-		unchangedToastColumns: unchangedToastCols,
 		peerdbCols: &protos.PeerDBColumns{
 			SoftDelete:        false,
 			SyncedAtColName:   "_PEERDB_SYNCED_AT",
 			SoftDeleteColName: "_PEERDB_SOFT_DELETE",
 		},
 	}
-	result := mergeGen.generateUpdateStatements(allCols)
+	result := mergeGen.generateUpdateStatements(allCols, unchangedToastCols)
 
 	for i := range expected {
 		expected[i] = utils.RemoveSpacesTabsNewlines(expected[i])
@@ -138,14 +135,13 @@ func TestGenerateUpdateStatement_WithUnchangedToastColsAndSoftDelete(t *testing.
 		 "_PEERDB_SYNCED_AT" = CURRENT_TIMESTAMP, "_PEERDB_SOFT_DELETE" = TRUE`,
 	}
 	mergeGen := &mergeStmtGenerator{
-		unchangedToastColumns: unchangedToastCols,
 		peerdbCols: &protos.PeerDBColumns{
 			SoftDelete:        true,
 			SyncedAtColName:   "_PEERDB_SYNCED_AT",
 			SoftDeleteColName: "_PEERDB_SOFT_DELETE",
 		},
 	}
-	result := mergeGen.generateUpdateStatements(allCols)
+	result := mergeGen.generateUpdateStatements(allCols, unchangedToastCols)
 
 	for i := range expected {
 		expected[i] = utils.RemoveSpacesTabsNewlines(expected[i])

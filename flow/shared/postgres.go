@@ -14,6 +14,14 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
+type PGVersion int32
+
+const (
+	POSTGRES_12 PGVersion = 120000
+	POSTGRES_13 PGVersion = 130000
+	POSTGRES_15 PGVersion = 150000
+)
+
 func IsUniqueError(err error) bool {
 	var pgerr *pgconn.PgError
 	return errors.As(err, &pgerr) && pgerr.Code == pgerrcode.UniqueViolation
@@ -72,4 +80,14 @@ func RegisterHStore(ctx context.Context, conn *pgx.Conn) error {
 	conn.TypeMap().RegisterType(&pgtype.Type{Name: "hstore", OID: hstoreOID, Codec: pgtype.HstoreCodec{}})
 
 	return nil
+}
+
+func GetMajorVersion(ctx context.Context, conn *pgx.Conn) (PGVersion, error) {
+	var version int32
+	err := conn.QueryRow(ctx, "SELECT current_setting('server_version_num')::INTEGER").Scan(&version)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get server version: %w", err)
+	}
+
+	return PGVersion(version), nil
 }
