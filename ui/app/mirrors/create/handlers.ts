@@ -6,6 +6,7 @@ import {
   UTablesAllResponse,
   UTablesResponse,
 } from '@/app/dto/PeersDTO';
+import { notifyErr } from '@/app/utils/notify';
 import {
   FlowConnectionConfigs,
   QRepConfig,
@@ -20,6 +21,17 @@ import {
   qrepSchema,
   tableMappingSchema,
 } from './schema';
+
+export const IsQueuePeer = (peerType?: DBType): boolean => {
+  if (!peerType) {
+    return false;
+  }
+  return (
+    peerType === DBType.KAFKA ||
+    peerType === DBType.PUBSUB ||
+    peerType === DBType.EVENTHUBS
+  );
+};
 
 export const handlePeer = (
   peer: Peer | null,
@@ -68,6 +80,11 @@ const CDCCheck = (
 
   if (config.doInitialSnapshot == true && config.replicationSlotName !== '') {
     config.replicationSlotName = '';
+  }
+
+  if (IsQueuePeer(config.destination?.type)) {
+    config.doInitialSnapshot = false;
+    config.softDelete = false;
   }
 
   return '';
@@ -137,13 +154,12 @@ export const handleCreateCDC = async (
   flowJobName: string,
   rows: TableMapRow[],
   config: CDCConfig,
-  notify: (msg: string, ok?: boolean) => void,
   setLoading: Dispatch<SetStateAction<boolean>>,
   route: RouteCallback
 ) => {
   const err = CDCCheck(flowJobName, rows, config);
   if (err != '') {
-    notify(err);
+    notifyErr(err);
     return;
   }
 
@@ -155,11 +171,11 @@ export const handleCreateCDC = async (
     }),
   }).then((res) => res.json());
   if (!statusMessage.created) {
-    notify(statusMessage.message || 'Unable to create mirror.');
+    notifyErr(statusMessage.message || 'Unable to create mirror.');
     setLoading(false);
     return;
   }
-  notify('CDC Mirror created successfully', true);
+  notifyErr('CDC Mirror created successfully', true);
   route();
   setLoading(false);
 };
@@ -177,7 +193,6 @@ export const handleCreateQRep = async (
   flowJobName: string,
   query: string,
   config: QRepConfig,
-  notify: (msg: string) => void,
   setLoading: Dispatch<SetStateAction<boolean>>,
   route: RouteCallback,
   xmin?: boolean
@@ -185,7 +200,7 @@ export const handleCreateQRep = async (
   const flowNameValid = flowNameSchema.safeParse(flowJobName);
   if (!flowNameValid.success) {
     const flowNameErr = flowNameValid.error.issues[0].message;
-    notify(flowNameErr);
+    notifyErr(flowNameErr);
     return;
   }
 
@@ -203,12 +218,12 @@ export const handleCreateQRep = async (
     (!config.writeMode?.upsertKeyColumns ||
       config.writeMode?.upsertKeyColumns.length == 0)
   ) {
-    notify('For upsert mode, unique key columns cannot be empty.');
+    notifyErr('For upsert mode, unique key columns cannot be empty.');
     return;
   }
   const fieldErr = validateQRepFields(query, config);
   if (fieldErr) {
-    notify(fieldErr);
+    notifyErr(fieldErr);
     return;
   }
   config.flowJobName = flowJobName;
@@ -225,11 +240,11 @@ export const handleCreateQRep = async (
     }
   ).then((res) => res.json());
   if (!statusMessage.created) {
-    notify('unable to create mirror.');
+    notifyErr('unable to create mirror.');
     setLoading(false);
     return;
   }
-  notify('Query Replication Mirror created successfully');
+  notifyErr('Query Replication Mirror created successfully');
   route();
   setLoading(false);
 };
@@ -262,6 +277,14 @@ const getDefaultDestinationTable = (
   ) {
     return `${schemaName}_${tableName}`;
   }
+
+  if (
+    peerType.toString() == 'EVENTHUBS' ||
+    dBTypeToJSON(peerType) == 'EVENTHUBS'
+  ) {
+    return `<namespace>.${schemaName}_${tableName}.<partition_column>`;
+  }
+
   return `${schemaName}.${tableName}`;
 };
 
@@ -343,13 +366,12 @@ export const handleValidateCDC = async (
   flowJobName: string,
   rows: TableMapRow[],
   config: CDCConfig,
-  notify: (msg: string, ok?: boolean) => void,
   setLoading: Dispatch<SetStateAction<boolean>>
 ) => {
   setLoading(true);
   const err = CDCCheck(flowJobName, rows, config);
   if (err != '') {
-    notify(err);
+    notifyErr(err);
     setLoading(false);
     return;
   }
@@ -362,11 +384,11 @@ export const handleValidateCDC = async (
     .then((res) => res.json())
     .catch((e) => console.log(e));
   if (!status.ok) {
-    notify(status.message || 'Mirror is invalid');
+    notifyErr(status.message || 'Mirror is invalid');
     setLoading(false);
     return;
   }
-  notify('CDC Mirror is valid', true);
+  notifyErr('CDC Mirror is valid', true);
   setLoading(false);
 };
 

@@ -120,7 +120,7 @@ export default function PostgresForm({ settings, setter, type }: ConfigProps) {
 
       <Label
         as='label'
-        style={{ marginTop: '1rem' }}
+        style={{ marginTop: '1rem', display: 'block' }}
         variant='subheadline'
         colorName='lowContrast'
       >

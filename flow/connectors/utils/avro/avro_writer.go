@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"runtime/debug"
-	"sync/atomic"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
@@ -20,9 +19,9 @@ import (
 	"github.com/linkedin/goavro/v2"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 type (
@@ -46,15 +45,15 @@ const (
 type peerDBOCFWriter struct {
 	stream               *model.QRecordStream
 	avroSchema           *model.QRecordAvroSchemaDefinition
-	avroCompressionCodec AvroCompressionCodec
 	writer               io.WriteCloser
-	targetDWH            qvalue.QDWHType
+	avroCompressionCodec AvroCompressionCodec
+	targetDWH            protos.DBType
 }
 
 type AvroFile struct {
-	NumRecords      int
-	StorageLocation AvroStorageLocation
 	FilePath        string
+	StorageLocation AvroStorageLocation
+	NumRecords      int
 }
 
 func (l *AvroFile) Cleanup() {
@@ -70,7 +69,7 @@ func NewPeerDBOCFWriter(
 	stream *model.QRecordStream,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	avroCompressionCodec AvroCompressionCodec,
-	targetDWH qvalue.QDWHType,
+	targetDWH protos.DBType,
 ) *peerDBOCFWriter {
 	return &peerDBOCFWriter{
 		stream:               stream,
@@ -127,17 +126,14 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
-	colNames := schema.GetColumnNames()
+	numRows := 0
 
-	numRows := atomic.Uint32{}
-
-	if ctx != nil {
-		shutdown := utils.HeartbeatRoutine(ctx, func() string {
-			written := numRows.Load()
-			return fmt.Sprintf("[avro] written %d rows to OCF", written)
-		})
-		defer shutdown()
-	}
+	avroConverter := model.NewQRecordAvroConverter(
+		p.avroSchema,
+		p.targetDWH,
+		schema.GetColumnNames(),
+		logger,
+	)
 
 	for qRecordOrErr := range p.stream.Records {
 		if qRecordOrErr.Err != nil {
@@ -145,15 +141,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 			return 0, fmt.Errorf("[avro] failed to get record from stream: %w", qRecordOrErr.Err)
 		}
 
-		avroConverter := model.NewQRecordAvroConverter(
-			qRecordOrErr.Record,
-			p.targetDWH,
-			p.avroSchema.NullableFields,
-			colNames,
-			logger,
-		)
-
-		avroMap, err := avroConverter.Convert()
+		avroMap, err := avroConverter.Convert(qRecordOrErr.Record)
 		if err != nil {
 			logger.Error("failed to convert QRecord to Avro compatible map: ", slog.Any("error", err))
 			return 0, fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
@@ -165,10 +153,10 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 			return 0, fmt.Errorf("failed to write record to OCF: %w", err)
 		}
 
-		numRows.Add(1)
+		numRows += 1
 	}
 
-	return int(numRows.Load()), nil
+	return numRows, nil
 }
 
 func (p *peerDBOCFWriter) WriteOCF(ctx context.Context, w io.Writer) (int, error) {

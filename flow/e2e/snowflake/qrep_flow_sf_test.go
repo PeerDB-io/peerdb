@@ -29,7 +29,7 @@ func (s PeerFlowE2ETestSuiteSF) checkJSONValue(tableName, colName, fieldName, va
 		return fmt.Errorf("bad json: empty result set from %s", tableName)
 	}
 
-	jsonVal := res.Records[0][0].Value
+	jsonVal := res.Records[0][0].Value()
 	if jsonVal != value {
 		return fmt.Errorf("bad json value in field %s of column %s: %v. expected: %v", fieldName, colName, jsonVal, value)
 	}
@@ -72,7 +72,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 	qrepConfig.SetupWatermarkTableOnDestination = true
 	require.NoError(s.t, err)
 
-	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 
@@ -113,7 +113,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() 
 	qrepConfig.SetupWatermarkTableOnDestination = true
 	require.NoError(s.t, err)
 
-	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 
@@ -148,7 +148,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
-	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 5*time.Minute)
 	require.NoError(s.t, env.Error())
 
@@ -225,7 +225,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
-	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 5*time.Minute)
 	require.NoError(s.t, env.Error())
 
@@ -263,7 +263,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
 	qrepConfig.SetupWatermarkTableOnDestination = true
 	require.NoError(s.t, err)
 
-	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 

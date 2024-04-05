@@ -5,9 +5,12 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type CDCRecordStream struct {
+	// empty signal to indicate if the records are going to be empty or not.
+	emptySignal chan bool
 	// Records are a list of json objects.
 	records chan Record
 	// Schema changes from the slot
@@ -16,8 +19,6 @@ type CDCRecordStream struct {
 	lastCheckpointSet bool
 	// lastCheckpointID is the last ID of the commit that corresponds to this batch.
 	lastCheckpointID atomic.Int64
-	// empty signal to indicate if the records are going to be empty or not.
-	emptySignal chan bool
 }
 
 func NewCDCRecordStream() *CDCRecordStream {
@@ -32,12 +33,7 @@ func NewCDCRecordStream() *CDCRecordStream {
 }
 
 func (r *CDCRecordStream) UpdateLatestCheckpoint(val int64) {
-	// TODO update with https://github.com/golang/go/issues/63999 once implemented
-	// r.lastCheckpointID.Max(val)
-	oldLast := r.lastCheckpointID.Load()
-	for oldLast < val && !r.lastCheckpointID.CompareAndSwap(oldLast, val) {
-		oldLast = r.lastCheckpointID.Load()
-	}
+	shared.AtomicInt64Max(&r.lastCheckpointID, val)
 }
 
 func (r *CDCRecordStream) GetLastCheckpoint() int64 {

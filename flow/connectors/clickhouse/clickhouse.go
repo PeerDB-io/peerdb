@@ -16,12 +16,13 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type ClickhouseConnector struct {
+	*metadataStore.PostgresMetadata
 	database           *sql.DB
-	pgMetadata         *metadataStore.PostgresMetadataStore
 	tableSchemaMapping map[string]*protos.TableSchema
 	logger             log.Logger
 	config             *protos.ClickhouseConfig
@@ -95,7 +96,7 @@ func NewClickhouseConnector(
 		return nil, fmt.Errorf("failed to open connection to Clickhouse peer: %w", err)
 	}
 
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
+	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
 		logger.Error("failed to create postgres metadata store", "error", err)
 		return nil, err
@@ -113,7 +114,7 @@ func NewClickhouseConnector(
 	if clickhouseS3Creds.AccessKeyID == "" &&
 		clickhouseS3Creds.SecretAccessKey == "" && clickhouseS3Creds.Region == "" &&
 		clickhouseS3Creds.BucketPath == "" {
-		deploymentUID := shared.GetDeploymentUID()
+		deploymentUID := peerdbenv.PeerDBDeploymentUID()
 		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 		bucketPathSuffix := fmt.Sprintf("%s/%s",
 			url.PathEscape(deploymentUID), url.PathEscape(flowName))
@@ -124,7 +125,7 @@ func NewClickhouseConnector(
 
 	return &ClickhouseConnector{
 		database:           database,
-		pgMetadata:         pgMetadata,
+		PostgresMetadata:   pgMetadata,
 		tableSchemaMapping: nil,
 		config:             config,
 		creds:              clickhouseS3Creds,

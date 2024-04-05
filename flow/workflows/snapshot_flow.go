@@ -17,10 +17,11 @@ import (
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-type snapshotType int
+type snapshotType int8
 
 const (
 	SNAPSHOT_TYPE_UNKNOWN snapshotType = iota
@@ -35,9 +36,9 @@ type SnapshotFlowExecution struct {
 }
 
 type cloneTablesInput struct {
-	snapshotType      snapshotType
 	slotName          string
 	snapshotName      string
+	snapshotType      snapshotType
 	supportsTIDScans  bool
 	maxParallelClones int
 }
@@ -122,7 +123,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	s.logger.Info(fmt.Sprintf("Obtained child id %s for source table %s and destination table %s",
 		childWorkflowID, srcName, dstName), cloneLog)
 
-	taskQueue := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
+	taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
 	childCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
 		WorkflowID:          childWorkflowID,
 		WorkflowTaskTimeout: 5 * time.Minute,
@@ -208,7 +209,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 			cloneTablesInput.snapshotName)
 	}
 
-	boundSelector := concurrency.NewBoundSelector(cloneTablesInput.maxParallelClones)
+	boundSelector := concurrency.NewBoundSelector(ctx, cloneTablesInput.maxParallelClones)
 
 	defaultPartitionCol := "ctid"
 	if !cloneTablesInput.supportsTIDScans {

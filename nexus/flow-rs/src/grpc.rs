@@ -2,7 +2,7 @@ use catalog::WorkflowDetails;
 use pt::{
     flow_model::{FlowJob, QRepFlowJob},
     peerdb_flow::{QRepWriteMode, QRepWriteType},
-    peerdb_route,
+    peerdb_route, tonic,
 };
 use serde_json::Value;
 use tonic_health::pb::health_client;
@@ -161,7 +161,7 @@ impl FlowGrpcClient {
             snapshot_num_rows_per_partition: snapshot_num_rows_per_partition.unwrap_or(0),
             snapshot_max_parallel_workers: snapshot_max_parallel_workers.unwrap_or(0),
             snapshot_num_tables_in_parallel: snapshot_num_tables_in_parallel.unwrap_or(0),
-            snapshot_staging_path: job.snapshot_staging_path.clone().unwrap_or_default(),
+            snapshot_staging_path: job.snapshot_staging_path.clone(),
             cdc_staging_path: job.cdc_staging_path.clone().unwrap_or_default(),
             soft_delete: job.soft_delete,
             replication_slot_name: replication_slot_name.unwrap_or_default(),
@@ -170,6 +170,7 @@ impl FlowGrpcClient {
             soft_delete_col_name: job.soft_delete_col_name.clone().unwrap_or_default(),
             synced_at_col_name: job.synced_at_col_name.clone().unwrap_or_default(),
             initial_snapshot_only: job.initial_snapshot_only,
+            script: job.script.clone(),
             ..Default::default()
         };
 

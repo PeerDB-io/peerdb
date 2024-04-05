@@ -12,6 +12,7 @@ import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
 import { useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
+import { RowDataFormatter } from './rowsDisplay';
 
 type SyncStatusTableProps = {
   rows: SyncStatusRow[];
@@ -201,7 +202,7 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
               endTime={row.endTime}
             />
           </TableCell>
-          <TableCell>{row.numRows}</TableCell>
+          <TableCell>{RowDataFormatter(row.numRows)}</TableCell>
         </TableRow>
       ))}
     </Table>

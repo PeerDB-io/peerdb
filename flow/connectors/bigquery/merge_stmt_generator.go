@@ -10,29 +10,25 @@ import (
 )
 
 type mergeStmtGenerator struct {
-	// dataset + raw table
-	rawDatasetTable datasetTable
-	// destination table name, used to retrieve records from raw table
-	dstTableName string
-	// dataset + destination table
-	dstDatasetTable datasetTable
-	// batch id currently to be merged
-	mergeBatchId int64
 	// the schema of the table to merge into
-	normalizedTableSchema *protos.TableSchema
+	tableSchemaMapping map[string]*protos.TableSchema
 	// _PEERDB_IS_DELETED and _SYNCED_AT columns
 	peerdbCols *protos.PeerDBColumns
 	// map for shorter columns
 	shortColumn map[string]string
+	// dataset + raw table
+	rawDatasetTable datasetTable
+	// batch id currently to be merged
+	mergeBatchId int64
 }
 
 // generateFlattenedCTE generates a flattened CTE.
-func (m *mergeStmtGenerator) generateFlattenedCTE() string {
+func (m *mergeStmtGenerator) generateFlattenedCTE(dstTable string, normalizedTableSchema *protos.TableSchema) string {
 	// for each column in the normalized table, generate CAST + JSON_EXTRACT_SCALAR
 	// statement.
-	flattenedProjs := make([]string, 0, len(m.normalizedTableSchema.Columns)+3)
+	flattenedProjs := make([]string, 0, len(normalizedTableSchema.Columns)+3)
 
-	for _, column := range m.normalizedTableSchema.Columns {
+	for _, column := range normalizedTableSchema.Columns {
 		colType := column.Type
 		bqTypeString := qValueKindToBigQueryTypeString(colType)
 		var castStmt string
@@ -88,18 +84,18 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 	return fmt.Sprintf("WITH _f AS "+
 		"(SELECT %s FROM `%s` WHERE _peerdb_batch_id=%d AND "+
 		"_peerdb_destination_table_name='%s')",
-		strings.Join(flattenedProjs, ","), m.rawDatasetTable.string(), m.mergeBatchId, m.dstTableName)
+		strings.Join(flattenedProjs, ","), m.rawDatasetTable.string(), m.mergeBatchId, dstTable)
 }
 
 // This function is to support datatypes like JSON which cannot be partitioned by or compared by BigQuery
-func (m *mergeStmtGenerator) transformedPkeyStrings(forPartition bool) []string {
-	pkeys := make([]string, 0, len(m.normalizedTableSchema.PrimaryKeyColumns))
-	columnNameTypeMap := make(map[string]qvalue.QValueKind, len(m.normalizedTableSchema.Columns))
-	for _, col := range m.normalizedTableSchema.Columns {
+func (m *mergeStmtGenerator) transformedPkeyStrings(normalizedTableSchema *protos.TableSchema, forPartition bool) []string {
+	pkeys := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
+	columnNameTypeMap := make(map[string]qvalue.QValueKind, len(normalizedTableSchema.Columns))
+	for _, col := range normalizedTableSchema.Columns {
 		columnNameTypeMap[col.Name] = qvalue.QValueKind(col.Type)
 	}
 
-	for _, pkeyCol := range m.normalizedTableSchema.PrimaryKeyColumns {
+	for _, pkeyCol := range normalizedTableSchema.PrimaryKeyColumns {
 		pkeyColType, ok := columnNameTypeMap[pkeyCol]
 		if !ok {
 			continue
@@ -130,7 +126,7 @@ func (m *mergeStmtGenerator) transformedPkeyStrings(forPartition bool) []string 
 }
 
 // generateDeDupedCTE generates a de-duped CTE.
-func (m *mergeStmtGenerator) generateDeDupedCTE() string {
+func (m *mergeStmtGenerator) generateDeDupedCTE(normalizedTableSchema *protos.TableSchema) string {
 	const cte = `_dd AS (
 		SELECT _peerdb_ranked.* FROM(
 				SELECT RANK() OVER(
@@ -140,19 +136,20 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 			WHERE _peerdb_rank=1
 	) SELECT * FROM _dd`
 
-	shortPkeys := m.transformedPkeyStrings(true)
+	shortPkeys := m.transformedPkeyStrings(normalizedTableSchema, true)
 	pkeyColsStr := strings.Join(shortPkeys, ",")
 	return fmt.Sprintf(cte, pkeyColsStr)
 }
 
 // generateMergeStmt generates a merge statement.
-func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) string {
+func (m *mergeStmtGenerator) generateMergeStmt(dstTable string, dstDatasetTable datasetTable, unchangedToastColumns []string) string {
+	normalizedTableSchema := m.tableSchemaMapping[dstTable]
 	// comma separated list of column names
-	columnCount := len(m.normalizedTableSchema.Columns)
+	columnCount := len(normalizedTableSchema.Columns)
 	backtickColNames := make([]string, 0, columnCount)
 	shortBacktickColNames := make([]string, 0, columnCount)
 	pureColNames := make([]string, 0, columnCount)
-	for i, col := range m.normalizedTableSchema.Columns {
+	for i, col := range normalizedTableSchema.Columns {
 		shortCol := fmt.Sprintf("_c%d", i)
 		m.shortColumn[col.Name] = shortCol
 		backtickColNames = append(backtickColNames, fmt.Sprintf("`%s`", col.Name))
@@ -175,7 +172,7 @@ func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) s
 	}
 	updateStringToastCols := strings.Join(updateStatementsforToastCols, " ")
 
-	pkeySelectSQLArray := m.transformedPkeyStrings(false)
+	pkeySelectSQLArray := m.transformedPkeyStrings(normalizedTableSchema, false)
 	// t.<pkey1> = d.<pkey1> AND t.<pkey2> = d.<pkey2> ...
 	pkeySelectSQL := strings.Join(pkeySelectSQLArray, " AND ")
 
@@ -193,7 +190,7 @@ func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) s
 		" ON %s WHEN NOT MATCHED AND _d._rt!=2 THEN "+
 		"INSERT (%s) VALUES(%s) "+
 		"%s WHEN MATCHED AND _d._rt=2 THEN %s;",
-		m.dstDatasetTable.table, m.generateFlattenedCTE(), m.generateDeDupedCTE(),
+		dstDatasetTable.table, m.generateFlattenedCTE(dstTable, normalizedTableSchema), m.generateDeDupedCTE(normalizedTableSchema),
 		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
 }
 

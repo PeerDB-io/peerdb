@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -160,7 +159,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
 	var pgErr *pgconn.PgError
 	_, enumErr := s.Conn().Exec(context.Background(), createMoodEnum)
-	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !utils.IsUniqueError(enumErr) {
+	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !shared.IsUniqueError(enumErr) {
 		require.NoError(s.t, enumErr)
 	}
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -803,6 +802,42 @@ func (s PeerFlowE2ETestSuitePG) Test_Supported_Mixed_Case_Table() {
 
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_Multiple_Parallel_Initial() {
+	tableMapping := make([]*protos.TableMapping, 5)
+	for i := range tableMapping {
+		srcTable := fmt.Sprintf("test_multi_init_%d", i)
+		dstTable := srcTable + "_dst"
+		s.setupSourceTable(srcTable, (i+1)*101)
+		tableMapping[i] = &protos.TableMapping{
+			SourceTableIdentifier:      s.attachSchemaSuffix(srcTable),
+			DestinationTableIdentifier: s.attachSchemaSuffix(dstTable),
+		}
+	}
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("test_multi_init"),
+	}
+	config := &protos.FlowConnectionConfigs{
+		DoInitialSnapshot:           true,
+		InitialSnapshotOnly:         true,
+		FlowJobName:                 connectionGen.FlowJobName,
+		Destination:                 s.peer,
+		TableMappings:               tableMapping,
+		Source:                      e2e.GeneratePostgresPeer(),
+		CdcStagingPath:              "",
+		SnapshotMaxParallelWorkers:  4,
+		SnapshotNumTablesInParallel: 3,
+	}
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, config, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	for _, tm := range config.TableMappings {
+		require.NoError(s.t, s.comparePGTables(tm.SourceTableIdentifier, tm.DestinationTableIdentifier, "id,address,asset_id"))
+	}
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_ContinueAsNew() {

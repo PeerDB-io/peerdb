@@ -4,9 +4,10 @@ import Image from 'next/image';
 import { Dispatch, SetStateAction, useState } from 'react';
 import ReactSelect from 'react-select';
 import { PulseLoader } from 'react-spinners';
-import { ToastContainer, toast } from 'react-toastify';
+import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import SelectTheme from '../styles/select';
+import { notifyErr } from '../utils/notify';
 import {
   alertConfigReqSchema,
   alertConfigType,
@@ -24,12 +25,6 @@ export interface AlertConfigProps {
   alertConfig: serviceConfigType;
   forEdit?: boolean;
 }
-
-const notifyErr = (errMsg: string) => {
-  toast.error(errMsg, {
-    position: 'bottom-center',
-  });
-};
 
 function ConfigLabel(data: { label: string; value: string }) {
   return (

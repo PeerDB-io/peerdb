@@ -17,4 +17,15 @@ const MirrorButtonContainer: CSSProperties = {
   right: '5%',
 };
 
-export { MirrorButtonContainer, MirrorButtonStyle };
+const MirrorCardStyle: CSSProperties = {
+  cursor: 'pointer',
+  padding: '0.5rem',
+  width: '35%',
+  display: 'flex',
+  flexDirection: 'column',
+  justifyContent: 'space-between',
+  border: '2px solid rgba(0, 0, 0, 0.07)',
+  borderRadius: '1rem',
+};
+
+export { MirrorButtonContainer, MirrorButtonStyle, MirrorCardStyle };

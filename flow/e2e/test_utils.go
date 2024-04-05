@@ -25,12 +25,12 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
@@ -92,7 +92,6 @@ func EnvTrue(t *testing.T, env WorkflowRun, val bool) {
 
 func GetPgRows(conn *connpostgres.PostgresConnector, suffix string, table string, cols string) (*model.QRecordBatch, error) {
 	pgQueryExecutor := conn.NewQRepQueryExecutor("testflow", "testpart")
-	pgQueryExecutor.SetTestEnv(true)
 
 	return pgQueryExecutor.ExecuteAndProcessQuery(
 		context.Background(),
@@ -280,18 +279,15 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 	tblFieldStr := strings.Join(tblFields, ",")
 	var pgErr *pgconn.PgError
 	_, enumErr := conn.Exec(context.Background(), createMoodEnum)
-	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !utils.IsUniqueError(pgErr) {
+	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !shared.IsUniqueError(pgErr) {
 		return enumErr
 	}
 	_, err := conn.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE e2e_test_%s.%s (
 			%s
 		);`, suffix, tableName, tblFieldStr))
-	if err != nil {
-		return err
-	}
 
-	return nil
+	return err
 }
 
 func generate20MBJson() ([]byte, error) {
@@ -428,7 +424,7 @@ func CreateQRepWorkflowConfig(
 	return qrepConfig, nil
 }
 
-func RunQrepFlowWorkflow(tc client.Client, config *protos.QRepConfig) WorkflowRun {
+func RunQRepFlowWorkflow(tc client.Client, config *protos.QRepConfig) WorkflowRun {
 	state := peerflow.NewQRepFlowState()
 	return ExecutePeerflow(tc, peerflow.QRepFlowWorkflow, config, state)
 }
@@ -439,9 +435,9 @@ func RunXminFlowWorkflow(tc client.Client, config *protos.QRepConfig) WorkflowRu
 	return ExecutePeerflow(tc, peerflow.XminFlowWorkflow, config, state)
 }
 
-func GetOwnersSchema() *model.QRecordSchema {
-	return &model.QRecordSchema{
-		Fields: []model.QField{
+func GetOwnersSchema() *qvalue.QRecordSchema {
+	return &qvalue.QRecordSchema{
+		Fields: []qvalue.QField{
 			{Name: "id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "card_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "from", Type: qvalue.QValueKindTimestamp, Nullable: true},
@@ -568,7 +564,7 @@ func ExecutePeerflow(tc client.Client, wf interface{}, args ...interface{}) Work
 }
 
 func ExecuteWorkflow(tc client.Client, taskQueueID shared.TaskQueueID, wf interface{}, args ...interface{}) WorkflowRun {
-	taskQueue := shared.GetPeerFlowTaskQueueName(taskQueueID)
+	taskQueue := peerdbenv.PeerFlowTaskQueueName(taskQueueID)
 
 	wr, err := tc.ExecuteWorkflow(
 		context.Background(),

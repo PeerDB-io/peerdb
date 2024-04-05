@@ -1,11 +1,5 @@
 package shared
 
-import (
-	"fmt"
-
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-)
-
 type (
 	ContextKey  string
 	TaskQueueID string
@@ -34,15 +28,3 @@ const (
 )
 
 const FetchAndChannelSize = 256 * 1024
-
-func GetPeerFlowTaskQueueName(taskQueueID TaskQueueID) string {
-	deploymentUID := peerdbenv.PeerDBDeploymentUID()
-	if deploymentUID == "" {
-		return string(taskQueueID)
-	}
-	return fmt.Sprintf("%s-%s", deploymentUID, taskQueueID)
-}
-
-func GetDeploymentUID() string {
-	return peerdbenv.PeerDBDeploymentUID()
-}

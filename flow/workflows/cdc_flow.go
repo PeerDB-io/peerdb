@@ -22,15 +22,15 @@ import (
 )
 
 type CDCFlowWorkflowState struct {
-	// Current signalled state of the peer flow.
-	ActiveSignal model.CDCFlowSignal
 	// deprecated field
 	RelationMessageMapping model.RelationMessageMapping
-	CurrentFlowStatus      protos.FlowStatus
 	// flow config update request, set to nil after processed
 	FlowConfigUpdate *protos.CDCFlowConfigUpdate
 	// options passed to all SyncFlows
 	SyncFlowOptions *protos.SyncFlowOptions
+	// Current signalled state of the peer flow.
+	ActiveSignal      model.CDCFlowSignal
+	CurrentFlowStatus protos.FlowStatus
 }
 
 // returns a new empty PeerFlowState
@@ -304,7 +304,7 @@ func CDCFlowWorkflow(
 		// next part of the setup is to snapshot-initial-copy and setup replication slots.
 		snapshotFlowID := GetChildWorkflowID("snapshot-flow", cfg.FlowJobName, originalRunID)
 
-		taskQueue := shared.GetPeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue)
+		taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue)
 		childSnapshotFlowOpts := workflow.ChildWorkflowOptions{
 			WorkflowID:        snapshotFlowID,
 			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,

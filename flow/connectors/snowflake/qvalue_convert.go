@@ -34,15 +34,6 @@ var snowflakeTypeToQValueKindMap = map[string]qvalue.QValueKind{
 	"GEOGRAPHY":     qvalue.QValueKindGeography,
 }
 
-func qValueKindToSnowflakeType(colType qvalue.QValueKind) (string, error) {
-	val, err := colType.ToDWHColumnType(qvalue.QDWHTypeSnowflake)
-	if err != nil {
-		return "", err
-	}
-
-	return val, err
-}
-
 func snowflakeTypeToQValueKind(name string) (qvalue.QValueKind, error) {
 	if val, ok := snowflakeTypeToQValueKindMap[name]; ok {
 		return val, nil

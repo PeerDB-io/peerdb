@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic';
 
 import { ProgressCircle } from '@/lib/ProgressCircle';
 
+import NewButton from '@/components/NewButton';
 import useSWR from 'swr';
 import { fetcher } from '../utils/swr';
 
@@ -22,20 +23,7 @@ export default function Peers() {
       <Panel style={{ width: '100%' }}>
         <Header
           variant='title2'
-          slot={
-            <Button as={Link} href={'/peers/create'} variant='normalSolid'>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                <Icon name='add' />
-                <Label>New peer</Label>
-              </div>
-            </Button>
-          }
+          slot={<NewButton targetPage='/peers/create' buttonText='New peer' />}
         >
           Peers
         </Header>

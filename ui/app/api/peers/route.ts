@@ -10,8 +10,11 @@ import {
   BigqueryConfig,
   ClickhouseConfig,
   DBType,
+  EventHubGroupConfig,
+  KafkaConfig,
   Peer,
   PostgresConfig,
+  PubSubConfig,
   S3Config,
   SnowflakeConfig,
 } from '@/grpc_generated/peers';
@@ -63,6 +66,24 @@ const constructPeer = (
         type: DBType.S3,
         s3Config: config as S3Config,
       };
+    case 'KAFKA':
+      return {
+        name,
+        type: DBType.KAFKA,
+        kafkaConfig: config as KafkaConfig,
+      };
+    case 'PUBSUB':
+      return {
+        name,
+        type: DBType.PUBSUB,
+        pubsubConfig: config as PubSubConfig,
+      };
+    case 'EVENTHUBS':
+      return {
+        name,
+        type: DBType.EVENTHUBS,
+        eventhubGroupConfig: config as EventHubGroupConfig,
+      };
     default:
       return;
   }
@@ -99,7 +120,6 @@ export async function POST(request: Request) {
     }
   } else if (mode === 'create') {
     const req: CreatePeerRequest = { peer };
-    console.log('/peer/create req:', req);
     try {
       const createStatus: CreatePeerResponse = await fetch(
         `${flowServiceAddr}/v1/peers/create`,

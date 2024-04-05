@@ -15,41 +15,45 @@ import (
 )
 
 type normalizeStmtGenerator struct {
+	// to log fallback statement selection
+	log.Logger
+	// _PEERDB_RAW_...
 	rawTableName string
-	// destination table name, used to retrieve records from raw table
-	dstTableName string
 	// the schema of the table to merge into
-	normalizedTableSchema *protos.TableSchema
+	tableSchemaMapping map[string]*protos.TableSchema
 	// array of toast column combinations that are unchanged
-	unchangedToastColumns []string
+	unchangedToastColumnsMap map[string][]string
 	// _PEERDB_IS_DELETED and _SYNCED_AT columns
 	peerdbCols *protos.PeerDBColumns
-	// Postgres version 15 introduced MERGE, fallback statements before that
-	supportsMerge bool
 	// Postgres metadata schema
 	metadataSchema string
-	// to log fallback statement selection
-	logger log.Logger
+	// Postgres version 15 introduced MERGE, fallback statements before that
+	supportsMerge bool
 }
 
-func (n *normalizeStmtGenerator) generateNormalizeStatements() []string {
+func (n *normalizeStmtGenerator) generateNormalizeStatements(dstTable string) []string {
+	normalizedTableSchema := n.tableSchemaMapping[dstTable]
 	if n.supportsMerge {
-		return []string{n.generateMergeStatement()}
+		unchangedToastColumns := n.unchangedToastColumnsMap[dstTable]
+		return []string{n.generateMergeStatement(dstTable, normalizedTableSchema, unchangedToastColumns)}
 	}
-	n.logger.Warn("Postgres version is not high enough to support MERGE, falling back to UPSERT+DELETE")
-	n.logger.Warn("TOAST columns will not be updated properly, use REPLICA IDENTITY FULL or upgrade Postgres")
+	n.Warn("Postgres version is not high enough to support MERGE, falling back to UPSERT+DELETE")
+	n.Warn("TOAST columns will not be updated properly, use REPLICA IDENTITY FULL or upgrade Postgres")
 	if n.peerdbCols.SoftDelete {
-		n.logger.Warn("soft delete enabled with fallback statements! this combination is unsupported")
+		n.Warn("soft delete enabled with fallback statements! this combination is unsupported")
 	}
-	return n.generateFallbackStatements()
+	return n.generateFallbackStatements(dstTable, normalizedTableSchema)
 }
 
-func (n *normalizeStmtGenerator) generateFallbackStatements() []string {
-	columnCount := len(n.normalizedTableSchema.Columns)
+func (n *normalizeStmtGenerator) generateFallbackStatements(
+	dstTableName string,
+	normalizedTableSchema *protos.TableSchema,
+) []string {
+	columnCount := len(normalizedTableSchema.Columns)
 	columnNames := make([]string, 0, columnCount)
 	flattenedCastsSQLArray := make([]string, 0, columnCount)
-	primaryKeyColumnCasts := make(map[string]string, len(n.normalizedTableSchema.PrimaryKeyColumns))
-	for _, column := range n.normalizedTableSchema.Columns {
+	primaryKeyColumnCasts := make(map[string]string, len(normalizedTableSchema.PrimaryKeyColumns))
+	for _, column := range normalizedTableSchema.Columns {
 		genericColumnType := column.Type
 		quotedCol := QuoteIdentifier(column.Name)
 		stringCol := QuoteLiteral(column.Name)
@@ -63,21 +67,21 @@ func (n *normalizeStmtGenerator) generateFallbackStatements() []string {
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>%s)::%s AS %s",
 				stringCol, pgType, quotedCol))
 		}
-		if slices.Contains(n.normalizedTableSchema.PrimaryKeyColumns, column.Name) {
+		if slices.Contains(normalizedTableSchema.PrimaryKeyColumns, column.Name) {
 			primaryKeyColumnCasts[column.Name] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
 		}
 	}
 	flattenedCastsSQL := strings.Join(flattenedCastsSQLArray, ",")
-	parsedDstTable, _ := utils.ParseSchemaTable(n.dstTableName)
+	parsedDstTable, _ := utils.ParseSchemaTable(dstTableName)
 
 	insertColumnsSQL := strings.Join(columnNames, ",")
 	updateColumnsSQLArray := make([]string, 0, columnCount)
-	for _, column := range n.normalizedTableSchema.Columns {
+	for _, column := range normalizedTableSchema.Columns {
 		quotedCol := QuoteIdentifier(column.Name)
 		updateColumnsSQLArray = append(updateColumnsSQLArray, fmt.Sprintf(`%s=EXCLUDED.%s`, quotedCol, quotedCol))
 	}
 	updateColumnsSQL := strings.Join(updateColumnsSQLArray, ",")
-	deleteWhereClauseArray := make([]string, 0, len(n.normalizedTableSchema.PrimaryKeyColumns))
+	deleteWhereClauseArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
 	for columnName, columnCast := range primaryKeyColumnCasts {
 		deleteWhereClauseArray = append(deleteWhereClauseArray, fmt.Sprintf(`%s.%s=%s`,
 			parsedDstTable.String(), QuoteIdentifier(columnName), columnCast))
@@ -97,7 +101,7 @@ func (n *normalizeStmtGenerator) generateFallbackStatements() []string {
 	fallbackUpsertStatement := fmt.Sprintf(fallbackUpsertStatementSQL,
 		strings.Join(maps.Values(primaryKeyColumnCasts), ","), n.metadataSchema,
 		n.rawTableName, parsedDstTable.String(), insertColumnsSQL, flattenedCastsSQL,
-		strings.Join(n.normalizedTableSchema.PrimaryKeyColumns, ","), updateColumnsSQL)
+		strings.Join(normalizedTableSchema.PrimaryKeyColumns, ","), updateColumnsSQL)
 	fallbackDeleteStatement := fmt.Sprintf(fallbackDeleteStatementSQL,
 		strings.Join(maps.Values(primaryKeyColumnCasts), ","), n.metadataSchema,
 		n.rawTableName, deleteUpdate, deleteWhereClauseSQL)
@@ -105,16 +109,20 @@ func (n *normalizeStmtGenerator) generateFallbackStatements() []string {
 	return []string{fallbackUpsertStatement, fallbackDeleteStatement}
 }
 
-func (n *normalizeStmtGenerator) generateMergeStatement() string {
-	columnCount := len(n.normalizedTableSchema.Columns)
+func (n *normalizeStmtGenerator) generateMergeStatement(
+	dstTableName string,
+	normalizedTableSchema *protos.TableSchema,
+	unchangedToastColumns []string,
+) string {
+	columnCount := len(normalizedTableSchema.Columns)
 	quotedColumnNames := make([]string, columnCount)
 
 	flattenedCastsSQLArray := make([]string, 0, columnCount)
-	parsedDstTable, _ := utils.ParseSchemaTable(n.dstTableName)
+	parsedDstTable, _ := utils.ParseSchemaTable(dstTableName)
 
 	primaryKeyColumnCasts := make(map[string]string)
-	primaryKeySelectSQLArray := make([]string, 0, len(n.normalizedTableSchema.PrimaryKeyColumns))
-	for i, column := range n.normalizedTableSchema.Columns {
+	primaryKeySelectSQLArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
+	for i, column := range normalizedTableSchema.Columns {
 		genericColumnType := column.Type
 		quotedCol := QuoteIdentifier(column.Name)
 		stringCol := QuoteLiteral(column.Name)
@@ -129,7 +137,7 @@ func (n *normalizeStmtGenerator) generateMergeStatement() string {
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>%s)::%s AS %s",
 				stringCol, pgType, quotedCol))
 		}
-		if slices.Contains(n.normalizedTableSchema.PrimaryKeyColumns, column.Name) {
+		if slices.Contains(normalizedTableSchema.PrimaryKeyColumns, column.Name) {
 			primaryKeyColumnCasts[column.Name] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
 			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray, fmt.Sprintf("src.%s=dst.%s",
 				quotedCol, quotedCol))
@@ -141,7 +149,7 @@ func (n *normalizeStmtGenerator) generateMergeStatement() string {
 		insertValuesSQLArray = append(insertValuesSQLArray, "src."+quotedCol)
 	}
 
-	updateStatementsforToastCols := n.generateUpdateStatements(quotedColumnNames)
+	updateStatementsforToastCols := n.generateUpdateStatements(quotedColumnNames, unchangedToastColumns)
 	// append synced_at column
 	if n.peerdbCols.SyncedAtColName != "" {
 		quotedColumnNames = append(quotedColumnNames, QuoteIdentifier(n.peerdbCols.SyncedAtColName))
@@ -187,17 +195,15 @@ func (n *normalizeStmtGenerator) generateMergeStatement() string {
 	return mergeStmt
 }
 
-func (n *normalizeStmtGenerator) generateUpdateStatements(quotedCols []string) []string {
+func (n *normalizeStmtGenerator) generateUpdateStatements(quotedCols []string, unchangedToastColumns []string) []string {
 	handleSoftDelete := n.peerdbCols.SoftDelete && (n.peerdbCols.SoftDeleteColName != "")
-	// weird way of doing it but avoids prealloc lint
-	updateStmts := make([]string, 0, func() int {
-		if handleSoftDelete {
-			return 2 * len(n.unchangedToastColumns)
-		}
-		return len(n.unchangedToastColumns)
-	}())
+	stmtCount := len(unchangedToastColumns)
+	if handleSoftDelete {
+		stmtCount *= 2
+	}
+	updateStmts := make([]string, 0, stmtCount)
 
-	for _, cols := range n.unchangedToastColumns {
+	for _, cols := range unchangedToastColumns {
 		unchangedColsArray := strings.Split(cols, ",")
 		for i, unchangedToastCol := range unchangedColsArray {
 			unchangedColsArray[i] = QuoteIdentifier(unchangedToastCol)

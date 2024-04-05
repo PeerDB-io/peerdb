@@ -129,7 +129,7 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 	}
 	s.connector.logger.Info("Put file to stage in Avro sync for snowflake", partitionLog)
 
-	err = s.connector.pgMetadata.FinishQrepPartition(ctx, partition, config.FlowJobName, startTime)
+	err = s.connector.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime)
 	if err != nil {
 		return -1, err
 	}
@@ -141,7 +141,7 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 
 func (s *SnowflakeAvroSyncHandler) addMissingColumns(
 	ctx context.Context,
-	schema *model.QRecordSchema,
+	schema *qvalue.QRecordSchema,
 	dstTableSchema []*sql.ColumnType,
 	dstTableName string,
 	partition *protos.QRepPartition,
@@ -174,7 +174,7 @@ func (s *SnowflakeAvroSyncHandler) addMissingColumns(
 		}
 
 		for colName, colType := range colsToTypes {
-			sfColType, err := colType.ToDWHColumnType(qvalue.QDWHTypeSnowflake)
+			sfColType, err := colType.ToDWHColumnType(protos.DBType_SNOWFLAKE)
 			if err != nil {
 				return fmt.Errorf("failed to convert QValueKind to Snowflake column type: %w", err)
 			}
@@ -205,9 +205,9 @@ func (s *SnowflakeAvroSyncHandler) addMissingColumns(
 
 func (s *SnowflakeAvroSyncHandler) getAvroSchema(
 	dstTableName string,
-	schema *model.QRecordSchema,
+	schema *qvalue.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
-	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema, qvalue.QDWHTypeSnowflake)
+	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema, protos.DBType_SNOWFLAKE)
 	if err != nil {
 		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
@@ -224,7 +224,7 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 	flowJobName string,
 ) (*avro.AvroFile, error) {
 	if s.config.StagingPath == "" {
-		ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressZstd, qvalue.QDWHTypeSnowflake)
+		ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressZstd, protos.DBType_SNOWFLAKE)
 		tmpDir := fmt.Sprintf("%s/peerdb-avro-%s", os.TempDir(), flowJobName)
 		err := os.MkdirAll(tmpDir, os.ModePerm)
 		if err != nil {
@@ -240,7 +240,7 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 
 		return avroFile, nil
 	} else if strings.HasPrefix(s.config.StagingPath, "s3://") {
-		ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressZstd, qvalue.QDWHTypeSnowflake)
+		ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressZstd, protos.DBType_SNOWFLAKE)
 		s3o, err := utils.NewS3BucketAndPrefix(s.config.StagingPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse staging path: %w", err)
@@ -266,13 +266,7 @@ func (s *SnowflakeAvroSyncHandler) putFileToStage(ctx context.Context, avroFile 
 		return nil
 	}
 
-	activity.RecordHeartbeat(ctx, "putting file to stage")
 	putCmd := fmt.Sprintf("PUT file://%s @%s", avroFile.FilePath, stage)
-
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return "putting file to stage " + stage
-	})
-	defer shutdown()
 
 	if _, err := s.connector.database.ExecContext(ctx, putCmd); err != nil {
 		return fmt.Errorf("failed to put file to stage: %w", err)
