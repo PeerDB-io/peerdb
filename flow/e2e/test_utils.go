@@ -286,11 +286,8 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 		CREATE TABLE e2e_test_%s.%s (
 			%s
 		);`, suffix, tableName, tblFieldStr))
-	if err != nil {
-		return err
-	}
 
-	return nil
+	return err
 }
 
 func generate20MBJson() ([]byte, error) {
