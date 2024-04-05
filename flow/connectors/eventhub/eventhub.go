@@ -10,7 +10,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	azeventhubs "github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
@@ -198,7 +198,8 @@ func (c *EventHubConnector) processBatch(
 	var ls *lua.LState
 	var fn *lua.LFunction
 	if script != "" {
-		ls, err := utils.LoadScript(ctx, script, func(ls *lua.LState) int {
+		var err error
+		ls, err = utils.LoadScript(ctx, script, func(ls *lua.LState) int {
 			top := ls.GetTop()
 			ss := make([]string, top)
 			for i := range top {
@@ -211,9 +212,6 @@ func (c *EventHubConnector) processBatch(
 			return 0, err
 		}
 		defer ls.Close()
-		if script == "" {
-			ls.Env.RawSetString("onRecord", ls.NewFunction(utils.DefaultOnRecord))
-		}
 
 		lfn := ls.Env.RawGetString("onRecord")
 		var ok bool
@@ -253,12 +251,14 @@ func (c *EventHubConnector) processBatch(
 				if err != nil {
 					return 0, fmt.Errorf("script failed: %w", err)
 				}
+
 				args := ls.GetTop()
 				for i := range args {
 					scoped, err := lvalueToEventData(ls, ls.Get(i-args))
 					if err != nil {
 						return 0, err
 					}
+
 					if scoped.Data != nil {
 						if scoped.Hub.NamespaceName == "" {
 							scoped.Hub, err = NewScopedEventhub(destinationString)
