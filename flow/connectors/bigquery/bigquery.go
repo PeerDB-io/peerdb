@@ -728,7 +728,7 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 
 		columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
 		for _, col := range renameRequest.TableSchema.Columns {
-			columnNames = append(columnNames, col.Name)
+			columnNames = append(columnNames, "`"+col.Name+"`")
 		}
 
 		if req.SoftDeleteColName != nil {
@@ -744,7 +744,10 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 			allColsWithoutAlias := strings.Join(columnNames, ",")
 			allColsWithAlias := allColsBuilder.String()
 
-			pkeyCols := renameRequest.TableSchema.PrimaryKeyColumns
+			pkeyCols := make([]string, 0, len(renameRequest.TableSchema.PrimaryKeyColumns))
+			for _, pkeyCol := range renameRequest.TableSchema.PrimaryKeyColumns {
+				pkeyCols = append(pkeyCols, "`"+pkeyCol+"`")
+			}
 
 			c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dstDatasetTable.string()))
 

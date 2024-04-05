@@ -755,11 +755,16 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 
 			columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
 			for _, col := range renameRequest.TableSchema.Columns {
-				columnNames = append(columnNames, col.Name)
+				columnNames = append(columnNames, SnowflakeIdentifierNormalize(col.Name))
+			}
+
+			pkeyColumnNames := make([]string, 0, len(renameRequest.TableSchema.PrimaryKeyColumns))
+			for _, col := range renameRequest.TableSchema.PrimaryKeyColumns {
+				pkeyColumnNames = append(pkeyColumnNames, SnowflakeIdentifierNormalize(col))
 			}
 
 			allCols := strings.Join(columnNames, ",")
-			pkeyCols := strings.Join(renameRequest.TableSchema.PrimaryKeyColumns, ",")
+			pkeyCols := strings.Join(pkeyColumnNames, ",")
 
 			c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
 
