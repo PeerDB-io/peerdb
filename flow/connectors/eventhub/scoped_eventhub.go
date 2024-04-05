@@ -33,10 +33,6 @@ func NewScopedEventhub(dstTableName string) (ScopedEventhub, error) {
 	}, nil
 }
 
-func (s *ScopedEventhub) SetPartitionValue(value string) {
-	s.PartitionKeyValue = value
-}
-
 func (s ScopedEventhub) Equals(other ScopedEventhub) bool {
 	return s.NamespaceName == other.NamespaceName &&
 		s.Eventhub == other.Eventhub &&
