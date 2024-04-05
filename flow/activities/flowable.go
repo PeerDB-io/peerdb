@@ -149,7 +149,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 ) (*protos.SetupNormalizedTableBatchOutput, error) {
 	logger := activity.GetLogger(ctx)
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
-	conn, err := connectors.GetConnectorAs[connectors.NormalizedTablesConnector](ctx, config.PeerConnectionConfig)
+	conn, err := connectors.GetAs[connectors.NormalizedTablesConnector](ctx, config.PeerConnectionConfig)
 	if err != nil {
 		if err == connectors.ErrUnsupportedFunctionality {
 			logger.Info("Connector does not implement normalized tables")
@@ -972,34 +972,19 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	*protos.RenameTablesOutput, error,
 ) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.Peer)
+	conn, err := connectors.GetAs[connectors.RenameTablesConnector](ctx, config.Peer)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
-	defer connectors.CloseConnector(ctx, dstConn)
+	defer connectors.CloseConnector(ctx, conn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return "renaming tables for job"
 	})
 	defer shutdown()
 
-	if config.Peer.Type == protos.DBType_SNOWFLAKE {
-		sfConn, ok := dstConn.(*connsnowflake.SnowflakeConnector)
-		if !ok {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return nil, errors.New("failed to cast connector to snowflake connector")
-		}
-		return sfConn.RenameTables(ctx, config)
-	} else if config.Peer.Type == protos.DBType_BIGQUERY {
-		bqConn, ok := dstConn.(*connbigquery.BigQueryConnector)
-		if !ok {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return nil, errors.New("failed to cast connector to bigquery connector")
-		}
-		return bqConn.RenameTables(ctx, config)
-	}
-	return nil, errors.New("rename tables is only supported on snowflake and bigquery")
+	return conn.RenameTables(ctx, config)
 }
 
 func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *protos.CreateTablesFromExistingInput) (
