@@ -22,6 +22,17 @@ import {
   tableMappingSchema,
 } from './schema';
 
+export const IsQueuePeer = (peerType?: DBType): boolean => {
+  if (!peerType) {
+    return false;
+  }
+  return (
+    peerType === DBType.KAFKA ||
+    peerType === DBType.PUBSUB ||
+    peerType === DBType.EVENTHUBS
+  );
+};
+
 export const handlePeer = (
   peer: Peer | null,
   peerEnd: 'src' | 'dst',
@@ -69,6 +80,11 @@ const CDCCheck = (
 
   if (config.doInitialSnapshot == true && config.replicationSlotName !== '') {
     config.replicationSlotName = '';
+  }
+
+  if (IsQueuePeer(config.destination?.type)) {
+    config.doInitialSnapshot = false;
+    config.softDelete = false;
   }
 
   return '';
@@ -261,6 +277,14 @@ const getDefaultDestinationTable = (
   ) {
     return `${schemaName}_${tableName}`;
   }
+
+  if (
+    peerType.toString() == 'EVENTHUBS' ||
+    dBTypeToJSON(peerType) == 'EVENTHUBS'
+  ) {
+    return `<namespace>.${schemaName}_${tableName}.<partition_column>`;
+  }
+
   return `${schemaName}.${tableName}`;
 };
 
