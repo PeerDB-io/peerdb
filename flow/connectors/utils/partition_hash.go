@@ -3,11 +3,13 @@ package utils
 import (
 	"hash/fnv"
 	"strconv"
+
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 func hashString(s string) uint32 {
 	h := fnv.New32a()
-	h.Write([]byte(s))
+	h.Write(shared.UnsafeFastStringToReadOnlyBytes(s))
 	return h.Sum32()
 }
 
