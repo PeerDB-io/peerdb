@@ -73,7 +73,7 @@ func (c *EventHubConnector) Close() error {
 	return nil
 }
 
-func (c *EventHubConnector) ConnectionActive(_ context.Context) error {
+func (c *EventHubConnector) ConnectionActive(ctx context.Context) error {
 	return nil
 }
 

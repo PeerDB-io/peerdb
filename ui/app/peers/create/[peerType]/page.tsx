@@ -11,6 +11,8 @@ import SnowflakeForm from '@/components/PeerForms/SnowflakeForm';
 
 import { notifyErr } from '@/app/utils/notify';
 import TitleCase from '@/app/utils/titlecase';
+import EventhubsForm from '@/components/PeerForms/Eventhubs/EventhubGroupConfig';
+import { EventHubGroupConfig } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
 import { Label } from '@/lib/Label';
@@ -75,6 +77,13 @@ export default function CreateConfig({
         return <KafkaForm setter={setConfig} />;
       case 'PUBSUB':
         return <PubSubForm setter={setConfig} />;
+      case 'EVENTHUBS':
+        return (
+          <EventhubsForm
+            groupConfig={config as EventHubGroupConfig}
+            setter={setConfig}
+          />
+        );
       default:
         return <></>;
     }
@@ -139,7 +148,7 @@ export default function CreateConfig({
             Back
           </Button>
           <Button
-            style={{ backgroundColor: 'gold' }}
+            style={{ backgroundColor: 'wheat' }}
             onClick={() =>
               handleValidate(getDBType(), config, notifyErr, setLoading, name)
             }
@@ -159,7 +168,7 @@ export default function CreateConfig({
               )
             }
           >
-            Create
+            Create peer
           </Button>
         </ButtonGroup>
         <Panel>

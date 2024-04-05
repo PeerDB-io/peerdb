@@ -4,7 +4,7 @@ import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
 import { CDCConfig, MirrorSetter, TableMapRow } from '../../../dto/MirrorsDTO';
-import { fetchPublications } from '../handlers';
+import { IsQueuePeer, fetchPublications } from '../handlers';
 import { MirrorSetting } from '../helpers/common';
 import CDCField from './fields';
 import TableMapping from './tablemapping';
@@ -55,12 +55,19 @@ export default function CDCConfigForm({
 
   const paramDisplayCondition = (setting: MirrorSetting) => {
     const label = setting.label.toLowerCase();
+    const isQueue = IsQueuePeer(mirrorConfig.destination?.type);
     if (
       (label.includes('snapshot') && mirrorConfig.doInitialSnapshot !== true) ||
       (label === 'replication slot name' &&
-        mirrorConfig.doInitialSnapshot === true) ||
+        mirrorConfig.doInitialSnapshot === true &&
+        !isQueue) ||
       (label.includes('staging path') &&
-        defaultSyncMode(mirrorConfig.destination?.type) !== 'AVRO')
+        defaultSyncMode(mirrorConfig.destination?.type) !== 'AVRO') ||
+      (isQueue &&
+        (label.includes('initial copy') ||
+          label.includes('initial load') ||
+          label.includes('soft delete') ||
+          label.includes('snapshot')))
     ) {
       return false;
     }
@@ -117,11 +124,13 @@ export default function CDCConfigForm({
         {show &&
           advancedSettings.map((setting, id) => {
             return (
-              <CDCField
-                key={setting.label}
-                handleChange={handleChange}
-                setting={setting}
-              />
+              paramDisplayCondition(setting) && (
+                <CDCField
+                  key={setting.label}
+                  handleChange={handleChange}
+                  setting={setting}
+                />
+              )
             );
           })}
 

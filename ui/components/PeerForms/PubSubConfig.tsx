@@ -52,16 +52,17 @@ export default function PubSubForm(props: PSProps) {
   return (
     <>
       <Label>
-        A service account JSON file in PubSub is a file that contains
-        information which allows PeerDB to securely access PubSub resources.
+        A service account JSON file allows PeerDB to securely access PubSub
+        resources.
       </Label>
-      <Link
-        style={{ color: 'teal', textDecoration: 'underline' }}
+      <Label
+        as={Link}
+        style={{ color: 'teal', textDecoration: 'underline', display: 'block' }}
         href='https://cloud.google.com/bigquery/docs/authentication/service-account-file'
         target='_blank'
       >
         Creating a service account file
-      </Link>
+      </Label>
       <RowWithTextField
         label={
           <Label>

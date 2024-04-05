@@ -1,6 +1,7 @@
 import {
   BigqueryConfig,
   ClickhouseConfig,
+  EventHubConfig,
   EventHubGroupConfig,
   KafkaConfig,
   PostgresConfig,
@@ -49,6 +50,7 @@ export type PeerConfig =
   | S3Config
   | KafkaConfig
   | PubSubConfig
+  | EventHubConfig
   | EventHubGroupConfig;
 export type CatalogPeer = {
   id: number;

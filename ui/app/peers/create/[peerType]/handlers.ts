@@ -8,6 +8,7 @@ import { Dispatch, SetStateAction } from 'react';
 import {
   bqSchema,
   chSchema,
+  ehGroupSchema,
   kaSchema,
   peerNameSchema,
   pgSchema,
@@ -66,6 +67,11 @@ const validateFields = (
     case 'PUBSUB':
       const psConfig = psSchema.safeParse(config);
       if (!psConfig.success) validationErr = psConfig.error.issues[0].message;
+      break;
+    case 'EVENTHUBS':
+      const ehGroupConfig = ehGroupSchema.safeParse(config);
+      if (!ehGroupConfig.success)
+        validationErr = ehGroupConfig.error.issues[0].message;
       break;
     default:
       validationErr = 'Unsupported peer type ' + type;

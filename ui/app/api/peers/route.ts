@@ -120,7 +120,6 @@ export async function POST(request: Request) {
     }
   } else if (mode === 'create') {
     const req: CreatePeerRequest = { peer };
-    console.log('/peer/create req:', req);
     try {
       const createStatus: CreatePeerResponse = await fetch(
         `${flowServiceAddr}/v1/peers/create`,
