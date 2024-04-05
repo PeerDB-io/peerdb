@@ -525,21 +525,21 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 	g, gCtx := errgroup.WithContext(ctx)
 	g.SetLimit(peerdbenv.PeerDBSnowflakeMergeParallelism())
 
+	mergeGen := &mergeStmtGenerator{
+		rawTableName:             getRawTableIdentifier(flowName),
+		mergeBatchId:             batchId,
+		tableSchemaMapping:       tableToSchema,
+		unchangedToastColumnsMap: tableNameToUnchangedToastCols,
+		peerdbCols:               peerdbCols,
+	}
+
 	for _, tableName := range destinationTableNames {
 		if gCtx.Err() != nil {
 			break
 		}
 
 		g.Go(func() error {
-			mergeGen := &mergeStmtGenerator{
-				rawTableName:          getRawTableIdentifier(flowName),
-				dstTableName:          tableName,
-				mergeBatchId:          batchId,
-				normalizedTableSchema: tableToSchema[tableName],
-				unchangedToastColumns: tableNameToUnchangedToastCols[tableName],
-				peerdbCols:            peerdbCols,
-			}
-			mergeStatement, err := mergeGen.generateMergeStmt()
+			mergeStatement, err := mergeGen.generateMergeStmt(tableName)
 			if err != nil {
 				return err
 			}
