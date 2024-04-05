@@ -614,7 +614,7 @@ func (c *PostgresConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 			SyncedAtColName:   req.SyncedAtColName,
 			SoftDelete:        req.SoftDelete,
 		},
-		supportsMerge:  pgversion >= POSTGRES_15,
+		supportsMerge:  pgversion >= shared.POSTGRES_15,
 		metadataSchema: c.metadataSchema,
 	}
 	for _, destinationTableName := range destinationTableNames {
@@ -983,7 +983,7 @@ func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context) (*protos.Expor
 
 	return &protos.ExportTxSnapshotOutput{
 		SnapshotName:     snapshotName,
-		SupportsTidScans: pgversion >= POSTGRES_13,
+		SupportsTidScans: pgversion >= shared.POSTGRES_13,
 	}, tx, err
 }
 
