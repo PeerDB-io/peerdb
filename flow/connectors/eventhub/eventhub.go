@@ -89,17 +89,13 @@ func (c *EventHubConnector) processBatch(
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns, false)
 
-	ticker := time.NewTicker(peerdbenv.PeerDBEventhubFlushTimeoutSeconds())
+	ticker := time.NewTicker(peerdbenv.PeerDBQueueFlushTimeoutSeconds())
 	defer ticker.Stop()
 
 	lastSeenLSN := int64(0)
 	lastUpdatedOffset := int64(0)
 
 	numRecords := atomic.Uint32{}
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("processed %d records for flow %s", numRecords.Load(), flowJobName)
-	})
-	defer shutdown()
 
 	for {
 		select {
@@ -161,7 +157,7 @@ func (c *EventHubConnector) processBatch(
 			}
 
 			curNumRecords := numRecords.Load()
-			if curNumRecords%1000 == 0 {
+			if curNumRecords&1023 == 0 {
 				c.logger.Info("processBatch", slog.Int("number of records processed for sending", int(curNumRecords)))
 			}
 

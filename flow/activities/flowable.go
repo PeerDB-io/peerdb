@@ -334,7 +334,7 @@ func (a *FlowableActivity) SyncFlow(
 	defer shutdown()
 
 	batchSize := options.BatchSize
-	if batchSize <= 0 {
+	if batchSize == 0 {
 		batchSize = 1_000_000
 	}
 

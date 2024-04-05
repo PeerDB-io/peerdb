@@ -8,6 +8,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 func (h *FlowRequestHandler) ValidatePeer(
@@ -46,7 +47,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 			return nil, err
 		}
 
-		if pgversion < connpostgres.POSTGRES_12 {
+		if pgversion < shared.POSTGRES_12 {
 			return &protos.ValidatePeerResponse{
 				Status: protos.ValidatePeerStatus_INVALID,
 				Message: fmt.Sprintf("Postgres peer %s must be of PG12 or above. Current version: %d",

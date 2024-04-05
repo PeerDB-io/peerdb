@@ -13,7 +13,6 @@ import (
 	"cloud.google.com/go/bigquery"
 	"go.temporal.io/sdk/activity"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -47,11 +46,9 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	stream *model.QRecordStream,
 	tableNameRowsMapping map[string]*model.RecordTypeCounts,
 ) (*model.SyncResponse, error) {
-	activity.RecordHeartbeat(ctx,
-		fmt.Sprintf("Flow job %s: Obtaining Avro schema"+
-			" for destination table %s and sync batch ID %d",
-			req.FlowJobName, rawTableName, syncBatchID),
-	)
+	s.connector.logger.Info(
+		fmt.Sprintf("Obtaining Avro schema for destination table %s and sync batch ID %d",
+			rawTableName, syncBatchID))
 	// You will need to define your Avro schema as a string
 	avroSchema, err := DefineAvroSchema(rawTableName, dstTableMetadata, "", "")
 	if err != nil {
@@ -412,12 +409,6 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	stream *model.QRecordStream,
 	flowName string,
 ) (int, error) {
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("writing to avro stage for objectFolder %s and staging table %s",
-			objectFolder, stagingTable)
-	})
-	defer shutdown()
-
 	var avroFile *avro.AvroFile
 	ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressNone, protos.DBType_BIGQUERY)
 	idLog := slog.Group("write-metadata",

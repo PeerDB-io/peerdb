@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"runtime/debug"
-	"sync/atomic"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
@@ -127,15 +126,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
-	numRows := atomic.Uint32{}
-
-	if ctx != nil {
-		shutdown := utils.HeartbeatRoutine(ctx, func() string {
-			written := numRows.Load()
-			return fmt.Sprintf("[avro] written %d rows to OCF", written)
-		})
-		defer shutdown()
-	}
+	numRows := 0
 
 	avroConverter := model.NewQRecordAvroConverter(
 		p.avroSchema,
@@ -162,10 +153,10 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 			return 0, fmt.Errorf("failed to write record to OCF: %w", err)
 		}
 
-		numRows.Add(1)
+		numRows += 1
 	}
 
-	return int(numRows.Load()), nil
+	return numRows, nil
 }
 
 func (p *peerDBOCFWriter) WriteOCF(ctx context.Context, w io.Writer) (int, error) {

@@ -34,9 +34,9 @@ func PeerDBCDCChannelBufferSize() int {
 	return getEnvInt("PEERDB_CDC_CHANNEL_BUFFER_SIZE", 1<<18)
 }
 
-// PEERDB_EVENTHUB_FLUSH_TIMEOUT_SECONDS
-func PeerDBEventhubFlushTimeoutSeconds() time.Duration {
-	x := getEnvInt("PEERDB_EVENTHUB_FLUSH_TIMEOUT_SECONDS", 10)
+// PEERDB_QUEUE_FLUSH_TIMEOUT_SECONDS
+func PeerDBQueueFlushTimeoutSeconds() time.Duration {
+	x := getEnvInt("PEERDB_QUEUE_FLUSH_TIMEOUT_SECONDS", 10)
 	return time.Duration(x) * time.Second
 }
 

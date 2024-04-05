@@ -154,7 +154,7 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 	nextStandbyMessageDeadline := time.Now().Add(standbyMessageTimeout)
 
 	logger := logger.LoggerFromCtx(ctx)
-	addRecordWithKey := func(key *model.TableWithPkey, rec model.Record) error {
+	addRecordWithKey := func(key model.TableWithPkey, rec model.Record) error {
 		err := cdcRecordsStorage.Set(logger, key, rec)
 		if err != nil {
 			return err
@@ -189,7 +189,8 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 		}
 
 		if p.commitLock == nil {
-			if cdcRecordsStorage.Len() >= int(req.MaxBatchSize) {
+			cdclen := cdcRecordsStorage.Len()
+			if cdclen >= 0 && uint32(cdclen) >= req.MaxBatchSize {
 				return nil
 			}
 
@@ -302,7 +303,7 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 					// will change in future
 					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
 					if isFullReplica {
-						err := addRecordWithKey(nil, rec)
+						err := addRecordWithKey(model.TableWithPkey{}, rec)
 						if err != nil {
 							return err
 						}
@@ -312,7 +313,7 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 							return err
 						}
 
-						latestRecord, ok, err := cdcRecordsStorage.Get(*tablePkeyVal)
+						latestRecord, ok, err := cdcRecordsStorage.Get(tablePkeyVal)
 						if err != nil {
 							return err
 						}
@@ -334,7 +335,7 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 				case *model.InsertRecord:
 					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
 					if isFullReplica {
-						err := addRecordWithKey(nil, rec)
+						err := addRecordWithKey(model.TableWithPkey{}, rec)
 						if err != nil {
 							return err
 						}
@@ -352,7 +353,7 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 				case *model.DeleteRecord:
 					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
 					if isFullReplica {
-						err := addRecordWithKey(nil, rec)
+						err := addRecordWithKey(model.TableWithPkey{}, rec)
 						if err != nil {
 							return err
 						}
@@ -362,7 +363,7 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 							return err
 						}
 
-						latestRecord, ok, err := cdcRecordsStorage.Get(*tablePkeyVal)
+						latestRecord, ok, err := cdcRecordsStorage.Get(tablePkeyVal)
 						if err != nil {
 							return err
 						}
@@ -385,7 +386,7 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 
 						// A delete can only be followed by an INSERT, which does not need backfilling
 						// No need to store DeleteRecords in memory or disk.
-						err = addRecordWithKey(nil, rec)
+						err = addRecordWithKey(model.TableWithPkey{}, rec)
 						if err != nil {
 							return err
 						}
@@ -793,19 +794,19 @@ func (p *PostgresCDCSource) processRelationMessage(
 
 func (p *PostgresCDCSource) recToTablePKey(req *model.PullRecordsRequest,
 	rec model.Record,
-) (*model.TableWithPkey, error) {
+) (model.TableWithPkey, error) {
 	tableName := rec.GetDestinationTableName()
 	pkeyColsMerged := make([][]byte, 0, len(req.TableNameSchemaMapping[tableName].PrimaryKeyColumns))
 
 	for _, pkeyCol := range req.TableNameSchemaMapping[tableName].PrimaryKeyColumns {
 		pkeyColVal, err := rec.GetItems().GetValueByColName(pkeyCol)
 		if err != nil {
-			return nil, fmt.Errorf("error getting pkey column value: %w", err)
+			return model.TableWithPkey{}, fmt.Errorf("error getting pkey column value: %w", err)
 		}
 		pkeyColsMerged = append(pkeyColsMerged, []byte(fmt.Sprint(pkeyColVal.Value())))
 	}
 
-	return &model.TableWithPkey{
+	return model.TableWithPkey{
 		TableName:  tableName,
 		PkeyColVal: sha256.Sum256(slices.Concat(pkeyColsMerged...)),
 	}, nil
