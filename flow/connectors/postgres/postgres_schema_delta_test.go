@@ -62,8 +62,11 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: []*protos.DeltaAddedColumn{{
-			ColumnName: "hi",
-			ColumnType: string(qvalue.QValueKindInt64),
+			Column: &protos.FieldDescription{
+				Name:         "hi",
+				Type:         string(qvalue.QValueKindInt64),
+				TypeModifier: -1,
+			},
 		}},
 	}})
 	require.NoError(s.t, err)
@@ -108,8 +111,11 @@ func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 	for _, column := range expectedTableSchema.Columns {
 		if column.Name != "id" {
 			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
-				ColumnName: column.Name,
-				ColumnType: column.Type,
+				Column: &protos.FieldDescription{
+					Name:         column.Name,
+					Type:         column.Type,
+					TypeModifier: -1,
+				},
 			})
 		}
 	}
@@ -145,8 +151,11 @@ func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 	for _, column := range expectedTableSchema.Columns {
 		if column.Name != "id" {
 			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
-				ColumnName: column.Name,
-				ColumnType: column.Type,
+				Column: &protos.FieldDescription{
+					Name:         column.Name,
+					Type:         column.Type,
+					TypeModifier: -1,
+				},
 			})
 		}
 	}
@@ -182,8 +191,11 @@ func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 	for _, column := range expectedTableSchema.Columns {
 		if column.Name != " " {
 			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
-				ColumnName: column.Name,
-				ColumnType: column.Type,
+				Column: &protos.FieldDescription{
+					Name:         column.Name,
+					Type:         column.Type,
+					TypeModifier: -1,
+				},
 			})
 		}
 	}

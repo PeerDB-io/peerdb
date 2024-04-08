@@ -834,8 +834,11 @@ func processRelationMessage[Items model.Items](
 			// only add to delta if not excluded
 			if _, ok := p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Exclude[column.Name]; !ok {
 				schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, &protos.DeltaAddedColumn{
-					ColumnName: column.Name,
-					ColumnType: currRelMap[column.Name],
+					Column: &protos.FieldDescription{
+						Name:         column.Name,
+						Type:         string(currRelMap[column.Name]),
+						TypeModifier: column.TypeModifier,
+					},
 				})
 			}
 			// present in previous and current relation messages, but data types have changed.

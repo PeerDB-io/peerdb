@@ -371,20 +371,30 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			sfColtype, err := qvalue.QValueKind(addedColumn.ColumnType).ToDWHColumnType(protos.DBType_SNOWFLAKE)
+			sfColtype, err := qvalue.QValueKind(addedColumn.Column.Type).ToDWHColumnType(protos.DBType_SNOWFLAKE)
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to snowflake type: %w",
-					addedColumn.ColumnType, err)
+					addedColumn.Column.Type, err)
 			}
+
+			if sfColtype == string(qvalue.QValueKindNumeric) {
+				precision, scale := numeric.ParseNumericTypmod(addedColumn.Column.TypeModifier)
+				if addedColumn.Column.TypeModifier == -1 || precision > 38 || scale > 37 {
+					precision = numeric.PeerDBNumericPrecision
+					scale = numeric.PeerDBNumericScale
+				}
+				sfColtype = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
+			}
+
 			_, err = tableSchemaModifyTx.ExecContext(ctx,
 				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
-					schemaDelta.DstTableName, strings.ToUpper(addedColumn.ColumnName), sfColtype))
+					schemaDelta.DstTableName, strings.ToUpper(addedColumn.Column.Name), sfColtype))
 			if err != nil {
-				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
+				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Column.Name,
 					schemaDelta.DstTableName, err)
 			}
-			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName,
-				addedColumn.ColumnType),
+			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.Column.Name,
+				addedColumn.Column.Type),
 				"destination table name", schemaDelta.DstTableName,
 				"source table name", schemaDelta.SrcTableName)
 		}

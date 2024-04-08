@@ -319,8 +319,7 @@ message DropFlowInput {
 }
 
 message DeltaAddedColumn {
-  string column_name = 1;
-  string column_type = 2;
+  FieldDescription column = 1;
 }
 
 message TableSchemaDelta {

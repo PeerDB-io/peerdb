@@ -217,19 +217,19 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			dstDatasetTable, _ := c.convertToDatasetTable(schemaDelta.DstTableName)
-			addedColumnBigQueryType := qValueKindToBigQueryTypeString(addedColumn.ColumnType)
+			addedColumnBigQueryType := qValueKindToBigQueryTypeString(addedColumn.Column.Type)
 			query := c.client.Query(fmt.Sprintf(
 				"ALTER TABLE %s ADD COLUMN IF NOT EXISTS `%s` %s",
-				dstDatasetTable.table, addedColumn.ColumnName, addedColumnBigQueryType))
+				dstDatasetTable.table, addedColumn.Column.Name, addedColumnBigQueryType))
 			query.DefaultProjectID = c.projectID
 			query.DefaultDatasetID = dstDatasetTable.dataset
 			_, err := query.Read(ctx)
 			if err != nil {
-				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
+				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Column.Name,
 					schemaDelta.DstTableName, err)
 			}
 			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s to table %s",
-				addedColumn.ColumnName, addedColumn.ColumnType, schemaDelta.DstTableName))
+				addedColumn.Column.Name, addedColumn.Column.Type, schemaDelta.DstTableName))
 		}
 	}
 

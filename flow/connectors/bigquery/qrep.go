@@ -10,6 +10,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -71,8 +72,11 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 				col.Name, config.DestinationTableIdentifier),
 				slog.String(string(shared.PartitionIDKey), partition.PartitionId))
 			tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, &protos.DeltaAddedColumn{
-				ColumnName: col.Name,
-				ColumnType: string(col.Type),
+				Column: &protos.FieldDescription{
+					Name:         col.Name,
+					Type:         string(col.Type),
+					TypeModifier: numeric.MakeNumericTypmod(int32(col.Precision), int32(col.Scale)),
+				},
 			})
 		}
 	}

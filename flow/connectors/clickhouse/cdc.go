@@ -152,20 +152,20 @@ func (c *ClickhouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			clickhouseColType, err := qvalue.QValueKind(addedColumn.ColumnType).ToDWHColumnType(protos.DBType_CLICKHOUSE)
+			clickhouseColType, err := qvalue.QValueKind(addedColumn.Column.Type).ToDWHColumnType(protos.DBType_CLICKHOUSE)
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to clickhouse type: %w",
-					addedColumn.ColumnType, err)
+					addedColumn.Column.Type, err)
 			}
 			_, err = tableSchemaModifyTx.ExecContext(ctx,
 				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
-					schemaDelta.DstTableName, addedColumn.ColumnName, clickhouseColType))
+					schemaDelta.DstTableName, addedColumn.Column.Name, clickhouseColType))
 			if err != nil {
-				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
+				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Column.Name,
 					schemaDelta.DstTableName, err)
 			}
-			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName,
-				addedColumn.ColumnType),
+			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.Column.Name,
+				addedColumn.Column.Type),
 				"destination table name", schemaDelta.DstTableName,
 				"source table name", schemaDelta.SrcTableName)
 		}
