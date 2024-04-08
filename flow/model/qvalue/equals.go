@@ -14,7 +14,7 @@ import (
 	"github.com/shopspring/decimal"
 	geom "github.com/twpayne/go-geos"
 
-	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
+	hstore_util "github.com/PeerDB-io/peer-flow/datatypes/hstore"
 )
 
 func valueEmpty(value any) bool {

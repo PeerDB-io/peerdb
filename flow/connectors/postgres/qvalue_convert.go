@@ -13,7 +13,7 @@ import (
 	"github.com/lib/pq/oid"
 	"github.com/shopspring/decimal"
 
-	peerdb_interval "github.com/PeerDB-io/peer-flow/interval"
+	peerdb_interval "github.com/PeerDB-io/peer-flow/datatypes/interval"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )

@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
+	hstore_util "github.com/PeerDB-io/peer-flow/datatypes/hstore"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 

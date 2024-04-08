@@ -13,8 +13,8 @@ import (
 	"github.com/shopspring/decimal"
 	"go.temporal.io/sdk/log"
 
+	hstore_util "github.com/PeerDB-io/peer-flow/datatypes/hstore"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
 )
 
 // https://avro.apache.org/docs/1.11.0/spec.html
