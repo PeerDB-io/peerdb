@@ -622,13 +622,17 @@ func (c *PostgresConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 		for _, normalizeStatement := range normalizeStatements {
 			mergeStatementsBatch.Queue(normalizeStatement, normBatchID, req.SyncBatchID, destinationTableName).Exec(
 				func(ct pgconn.CommandTag) error {
+					c.logger.Info("callback for merge statement", "destinationTableName", destinationTableName,
+						"rowsAffected", ct.RowsAffected())
 					totalRowsAffected += int(ct.RowsAffected())
 					return nil
 				})
 		}
 	}
 	if mergeStatementsBatch.Len() > 0 {
+		c.logger.Info("before mergeResults")
 		mergeResults := normalizeRecordsTx.SendBatch(ctx, mergeStatementsBatch)
+		c.logger.Info("after mergeResults, before close")
 		err = mergeResults.Close()
 		if err != nil {
 			return nil, fmt.Errorf("error executing merge statements: %w", err)
