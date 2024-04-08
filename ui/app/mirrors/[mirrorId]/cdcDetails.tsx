@@ -12,6 +12,7 @@ import { Label } from '@/lib/Label';
 import moment from 'moment';
 import Link from 'next/link';
 import MirrorValues from './configValues';
+import { RowDataFormatter } from './rowsDisplay';
 import TablePairs from './tablePairs';
 
 type props = {
@@ -128,7 +129,7 @@ function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
               </Label>
             </div>
             <div>
-              <Label variant='body'>{numberWithCommas(rowsSynced)}</Label>
+              <Label variant='body'>{RowDataFormatter(rowsSynced)}</Label>
             </div>
           </div>
 
@@ -141,10 +142,6 @@ function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
       <TablePairs tables={tablesSynced} />
     </>
   );
-}
-
-export function numberWithCommas(x: any): string {
-  return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 function statusChangeHandle(
