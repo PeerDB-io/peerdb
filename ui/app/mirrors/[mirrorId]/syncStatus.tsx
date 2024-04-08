@@ -64,7 +64,7 @@ export default async function SyncStatus({
     0
   );
   const totalRowsData = {
-    total: inserts + updates + deletes,
+    total: rowsSynced,
     inserts,
     updates,
     deletes,
