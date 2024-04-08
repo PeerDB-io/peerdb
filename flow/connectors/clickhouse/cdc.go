@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 const (
@@ -135,8 +136,55 @@ func (c *ClickhouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 	return res, nil
 }
 
-func (c *ClickhouseConnector) ReplayTableSchemaDeltas(_ context.Context, flowJobName string,
+func (c *ClickhouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJobName string,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
+	if len(schemaDeltas) == 0 {
+		return nil
+	}
+
+	tableSchemaModifyTx, err := c.database.Begin()
+	if err != nil {
+		return fmt.Errorf("error starting transaction for schema modification: %w",
+			err)
+	}
+	defer func() {
+		deferErr := tableSchemaModifyTx.Rollback()
+		if deferErr != sql.ErrTxDone && deferErr != nil {
+			c.logger.Error("error rolling back transaction for table schema modification", "error", deferErr)
+		}
+	}()
+
+	for _, schemaDelta := range schemaDeltas {
+		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
+			continue
+		}
+
+		for _, addedColumn := range schemaDelta.AddedColumns {
+			clickhouseColType, err := qvalue.QValueKind(addedColumn.ColumnType).ToDWHColumnType(protos.DBType_CLICKHOUSE)
+			if err != nil {
+				return fmt.Errorf("failed to convert column type %s to clickhouse type: %w",
+					addedColumn.ColumnType, err)
+			}
+			_, err = tableSchemaModifyTx.ExecContext(ctx,
+				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
+					schemaDelta.DstTableName, addedColumn.ColumnName, clickhouseColType))
+			if err != nil {
+				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
+					schemaDelta.DstTableName, err)
+			}
+			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName,
+				addedColumn.ColumnType),
+				"destination table name", schemaDelta.DstTableName,
+				"source table name", schemaDelta.SrcTableName)
+		}
+	}
+
+	err = tableSchemaModifyTx.Commit()
+	if err != nil {
+		return fmt.Errorf("failed to commit transaction for table schema modification: %w",
+			err)
+	}
+
 	return nil
 }
