@@ -5,7 +5,7 @@ import (
 
 	"go.temporal.io/sdk/log"
 
-	numeric "github.com/PeerDB-io/peer-flow/datatypes/numeric"
+	numeric "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 

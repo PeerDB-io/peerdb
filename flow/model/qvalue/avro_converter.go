@@ -13,7 +13,7 @@ import (
 	"github.com/shopspring/decimal"
 	"go.temporal.io/sdk/log"
 
-	hstore_util "github.com/PeerDB-io/peer-flow/datatypes/hstore"
+	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
@@ -544,7 +544,7 @@ func (c *QValueAvroConverter) processArrayDate(arrayDate []time.Time) interface{
 }
 
 func (c *QValueAvroConverter) processHStore(hstore string) (interface{}, error) {
-	jsonString, err := hstore_util.ParseHstore(hstore)
+	jsonString, err := datatypes.ParseHstore(hstore)
 	if err != nil {
 		return "", fmt.Errorf("cannot parse %s: %w", hstore, err)
 	}

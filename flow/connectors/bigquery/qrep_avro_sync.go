@@ -14,7 +14,7 @@ import (
 	"go.temporal.io/sdk/activity"
 
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
-	numeric "github.com/PeerDB-io/peer-flow/datatypes/numeric"
+	numeric "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"

@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	hstore_util "github.com/PeerDB-io/peer-flow/datatypes/hstore"
+	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
@@ -132,7 +132,7 @@ func (r RecordItems) toMap(hstoreAsJSON bool, opts ToJSONOptions) (map[string]in
 			if !hstoreAsJSON {
 				jsonStruct[col] = hstoreVal
 			} else {
-				jsonVal, err := hstore_util.ParseHstore(hstoreVal)
+				jsonVal, err := datatypes.ParseHstore(hstoreVal)
 				if err != nil {
 					return nil, fmt.Errorf("unable to convert hstore column %s to json for value %T: %w", col, v, err)
 				}

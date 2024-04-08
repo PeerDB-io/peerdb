@@ -13,7 +13,7 @@ import (
 	"github.com/lib/pq/oid"
 	"github.com/shopspring/decimal"
 
-	peerdb_interval "github.com/PeerDB-io/peer-flow/datatypes/interval"
+	datatypes "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -229,7 +229,7 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		return qvalue.QValueTimestampTZ{Val: timestamp}, nil
 	case qvalue.QValueKindInterval:
 		intervalObject := value.(pgtype.Interval)
-		var interval peerdb_interval.PeerDBInterval
+		var interval datatypes.PeerDBInterval
 		interval.Hours = int(intervalObject.Microseconds / 3600000000)
 		interval.Minutes = int((intervalObject.Microseconds % 3600000000) / 60000000)
 		interval.Seconds = float64(intervalObject.Microseconds%60000000) / 1000000.0
