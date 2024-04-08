@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/peer-flow/datatypes/geo"
-	"github.com/PeerDB-io/peer-flow/datatypes/numeric"
+	geo "github.com/PeerDB-io/peer-flow/datatypes/geo"
+	numeric "github.com/PeerDB-io/peer-flow/datatypes/numeric"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"

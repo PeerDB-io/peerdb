@@ -1,4 +1,4 @@
-package geo
+package datatypes
 
 import (
 	"encoding/hex"

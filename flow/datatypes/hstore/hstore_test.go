@@ -1,4 +1,4 @@
-package hstore_util
+package datatypes
 
 import (
 	"testing"
