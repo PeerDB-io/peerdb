@@ -4,7 +4,7 @@ import { Icon } from '@/lib/Icon';
 import { BarList } from '@tremor/react';
 import { useState } from 'react';
 export const RowDataFormatter = (number: number) =>
-  `${Intl.NumberFormat('us').format(number).toString()}`;
+  `${Intl.NumberFormat('en-US').format(number).toString()}`;
 
 const RowsDisplay = ({
   totalRowsData,
