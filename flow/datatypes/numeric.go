@@ -1,4 +1,4 @@
-package numeric
+package datatypes
 
 const (
 	PeerDBNumericPrecision    = 38

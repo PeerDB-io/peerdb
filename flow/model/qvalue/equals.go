@@ -14,7 +14,7 @@ import (
 	"github.com/shopspring/decimal"
 	geom "github.com/twpayne/go-geos"
 
-	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
+	"github.com/PeerDB-io/peer-flow/datatypes"
 )
 
 func valueEmpty(value any) bool {
@@ -174,7 +174,7 @@ func compareHStore(str1 string, value2 interface{}) bool {
 	if str1 == str2 {
 		return true
 	}
-	parsedHStore1, err := hstore_util.ParseHstore(str1)
+	parsedHStore1, err := datatypes.ParseHstore(str1)
 	if err != nil {
 		panic(err)
 	}
