@@ -96,10 +96,10 @@ func PeerDBOpenConnectionsAlertThreshold(ctx context.Context) uint32 {
 	return dynamicConfUint32(ctx, "PEERDB_PGPEER_OPEN_CONNECTIONS_ALERT_THRESHOLD", 5)
 }
 
-// PEERDB_ENABLE_SYNCED_AT_PARTITIONING, for creating target tables with
+// PEERDB_BIGQUERY_ENABLE_SYNCED_AT_PARTITIONING, for creating target tables with
 // partitioning by _PEERDB_SYNCED_AT column
 // If true, the target tables will be partitioned by _PEERDB_SYNCED_AT column
 // If false, the target tables will not be partitioned
 func PeerDBBigQueryEnableSyncedAtPartitioning(ctx context.Context) bool {
-	return dynamicConfBool(ctx, "PEERDB_ENABLE_SYNCED_AT_PARTITIONING", false)
+	return dynamicConfBool(ctx, "PEERDB_BIGQUERY_ENABLE_SYNCED_AT_PARTITIONING", false)
 }
