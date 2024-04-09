@@ -618,7 +618,7 @@ func (c *PostgresConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 	for _, destinationTableName := range destinationTableNames {
 		normalizeStatements := normalizeStmtGen.generateNormalizeStatements(destinationTableName)
 		for _, normalizeStatement := range normalizeStatements {
-			ct, err := normalizeRecordsTx.Exec(ctx, normalizeStatement)
+			ct, err := normalizeRecordsTx.Exec(ctx, normalizeStatement, normBatchID, req.SyncBatchID, destinationTableName)
 			if err != nil {
 				return nil, fmt.Errorf("error executing merge statements: %w", err)
 			}
