@@ -112,7 +112,7 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			values[i] = rune(v.Val)
 		case qvalue.QValueString:
 			values[i] = v.Val
-		case qvalue.QValueCIDR, qvalue.QValueINET:
+		case qvalue.QValueCIDR, qvalue.QValueINET, qvalue.QValueMacaddr:
 			str, ok := v.Value().(string)
 			if !ok {
 				src.err = errors.New("invalid INET/CIDR value")

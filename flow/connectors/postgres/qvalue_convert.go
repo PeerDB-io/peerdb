@@ -337,7 +337,7 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		case string:
 			return qvalue.QValueMacaddr{Val: v}, nil
 		case net.HardwareAddr:
-			return qvalue.QValueCIDR{Val: v.String()}, nil
+			return qvalue.QValueMacaddr{Val: v.String()}, nil
 		default:
 			return nil, fmt.Errorf("failed to parse MACADDR: %v", value)
 		}

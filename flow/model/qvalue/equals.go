@@ -63,6 +63,8 @@ func Equals(qv QValue, other QValue) bool {
 		return compareString(q.Val, otherValue)
 	case QValueCIDR:
 		return compareString(q.Val, otherValue)
+	case QValueMacaddr:
+		return compareString(q.Val, otherValue)
 	// all internally represented as a Golang time.Time
 	case QValueDate, QValueTimestamp, QValueTimestampTZ, QValueTime, QValueTimeTZ:
 		return compareGoTime(qvValue, otherValue)
