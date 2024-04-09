@@ -39,11 +39,8 @@ type APIServerParams struct {
 
 // setupGRPCGatewayServer sets up the grpc-gateway mux
 func setupGRPCGatewayServer(args *APIServerParams) (*http.Server, error) {
-	//nolint:staticcheck
-	conn, err := grpc.DialContext(
-		context.Background(),
+	conn, err := grpc.NewClient(
 		fmt.Sprintf("0.0.0.0:%d", args.Port),
-		grpc.WithBlock(),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
