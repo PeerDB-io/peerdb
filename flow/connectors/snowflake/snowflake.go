@@ -61,7 +61,7 @@ const (
 	 ARRAY_AGG(DISTINCT _PEERDB_UNCHANGED_TOAST_COLUMNS) FROM %s.%s WHERE
 	 _PEERDB_BATCH_ID = %d AND _PEERDB_RECORD_TYPE != 2
 	 GROUP BY _PEERDB_DESTINATION_TABLE_NAME`
-	getTableSchemaSQL = `SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+	getTableSchemaSQL = `SELECT COLUMN_NAME, DATA_TYPE, NUMERIC_PRECISION, NUMERIC_SCALE FROM INFORMATION_SCHEMA.COLUMNS
 	 WHERE UPPER(TABLE_SCHEMA)=? AND UPPER(TABLE_NAME)=? ORDER BY ORDINAL_POSITION`
 
 	checkIfTableExistsSQL = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.TABLES
@@ -377,7 +377,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 					addedColumn.Column.Type, err)
 			}
 
-			if sfColtype == string(qvalue.QValueKindNumeric) {
+			if addedColumn.Column.Type == string(qvalue.QValueKindNumeric) {
 				precision, scale := numeric.ParseNumericTypmod(addedColumn.Column.TypeModifier)
 				if addedColumn.Column.TypeModifier == -1 || precision > 38 || scale > 37 {
 					precision = numeric.PeerDBNumericPrecision
@@ -394,7 +394,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 					schemaDelta.DstTableName, err)
 			}
 			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.Column.Name,
-				addedColumn.Column.Type),
+				sfColtype),
 				"destination table name", schemaDelta.DstTableName,
 				"source table name", schemaDelta.SrcTableName)
 		}

@@ -8,9 +8,9 @@ import (
 
 	"cloud.google.com/go/bigquery"
 
+	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -75,7 +75,7 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 				Column: &protos.FieldDescription{
 					Name:         col.Name,
 					Type:         string(col.Type),
-					TypeModifier: numeric.MakeNumericTypmod(int32(col.Precision), int32(col.Scale)),
+					TypeModifier: datatypes.MakeNumericTypmod(int32(col.Precision), int32(col.Scale)),
 				},
 			})
 		}

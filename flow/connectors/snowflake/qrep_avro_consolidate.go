@@ -39,9 +39,16 @@ func NewSnowflakeAvroConsolidateHandler(
 func (s *SnowflakeAvroConsolidateHandler) CopyStageToDestination(ctx context.Context) error {
 	s.connector.logger.Info("Copying stage to destination " + s.dstTableName)
 
-	colNames, colTypes, colsErr := s.connector.getColsFromTable(ctx, s.dstTableName)
+	columns, colsErr := s.connector.getColsFromTable(ctx, s.dstTableName)
 	if colsErr != nil {
 		return fmt.Errorf("failed to get columns from destination table: %w", colsErr)
+	}
+
+	colNames := make([]string, 0, len(columns))
+	colTypes := make([]string, 0, len(columns))
+	for _, col := range columns {
+		colNames = append(colNames, col.ColumnName)
+		colTypes = append(colTypes, col.ColumnType)
 	}
 	s.allColNames = colNames
 	s.allColTypes = colTypes

@@ -126,9 +126,8 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 				TypeModifier: -1,
 			},
 			{
-				Name: "C6",
-				Type: string(qvalue.QValueKindNumeric),
-
+				Name:         "C6",
+				Type:         string(qvalue.QValueKindNumeric),
 				TypeModifier: numericAddedColumnTypeModifier, // Numeric(16,7)
 			},
 			{
