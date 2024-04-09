@@ -66,21 +66,6 @@ func NewToJSONOptions(unnestCols []string, hstoreAsJSON bool) ToJSONOptions {
 	}
 }
 
-func (r *InsertRecord) GetSourceTableName() string {
-	return r.SourceTableName
-}
-
-func (r *InsertRecord) GetItems() RecordItems {
-	return r.Items
-}
-
-func (r *InsertRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
-	recordCount, ok := mapOfCounts[r.DestinationTableName]
-	if ok {
-		recordCount.InsertCount++
-	}
-}
-
 type TableWithPkey struct {
 	TableName string
 	// SHA256 hash of the primary key columns

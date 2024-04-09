@@ -47,6 +47,21 @@ func (r *InsertRecord) GetDestinationTableName() string {
 	return r.DestinationTableName
 }
 
+func (r *InsertRecord) GetSourceTableName() string {
+	return r.SourceTableName
+}
+
+func (r *InsertRecord) GetItems() RecordItems {
+	return r.Items
+}
+
+func (r *InsertRecord) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
+	recordCount, ok := mapOfCounts[r.DestinationTableName]
+	if ok {
+		recordCount.InsertCount++
+	}
+}
+
 type UpdateRecord struct {
 	// OldItems is a map of column name to value.
 	OldItems RecordItems

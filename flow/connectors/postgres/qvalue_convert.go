@@ -88,23 +88,24 @@ func (c *PostgresConnector) postgresOIDToQValueKind(recvOID uint32) qvalue.QValu
 		typeName, ok := pgtype.NewMap().TypeForOID(recvOID)
 		if !ok {
 			// workaround for some types not being defined by pgtype
-			if recvOID == uint32(oid.T_timetz) {
+			switch recvOID {
+			case uint32(oid.T_timetz):
 				return qvalue.QValueKindTimeTZ
-			} else if recvOID == uint32(oid.T_xml) { // XML
+			case uint32(oid.T_xml):
 				return qvalue.QValueKindString
-			} else if recvOID == uint32(oid.T_money) { // MONEY
+			case uint32(oid.T_money):
 				return qvalue.QValueKindString
-			} else if recvOID == uint32(oid.T_txid_snapshot) { // TXID_SNAPSHOT
+			case uint32(oid.T_txid_snapshot):
 				return qvalue.QValueKindString
-			} else if recvOID == uint32(oid.T_tsvector) { // TSVECTOR
+			case uint32(oid.T_tsvector):
 				return qvalue.QValueKindString
-			} else if recvOID == uint32(oid.T_tsquery) { // TSQUERY
+			case uint32(oid.T_tsquery):
 				return qvalue.QValueKindString
-			} else if recvOID == uint32(oid.T_point) { // POINT
+			case uint32(oid.T_point):
 				return qvalue.QValueKindPoint
+			default:
+				return qvalue.QValueKindInvalid
 			}
-
-			return qvalue.QValueKindInvalid
 		} else {
 			_, warned := c.hushWarnOID[recvOID]
 			if !warned {
@@ -449,16 +450,14 @@ func numericToDecimal(numVal pgtype.Numeric) (qvalue.QValue, error) {
 }
 
 func customTypeToQKind(typeName string) qvalue.QValueKind {
-	var qValueKind qvalue.QValueKind
 	switch typeName {
 	case "geometry":
-		qValueKind = qvalue.QValueKindGeometry
+		return qvalue.QValueKindGeometry
 	case "geography":
-		qValueKind = qvalue.QValueKindGeography
+		return qvalue.QValueKindGeography
 	case "hstore":
-		qValueKind = qvalue.QValueKindHStore
+		return qvalue.QValueKindHStore
 	default:
-		qValueKind = qvalue.QValueKindString
+		return qvalue.QValueKindString
 	}
-	return qValueKind
 }
