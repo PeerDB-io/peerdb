@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"strings"
 	"time"
@@ -317,8 +318,6 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		switch v := value.(type) {
 		case string:
 			return qvalue.QValueINET{Val: v}, nil
-		case [16]byte:
-			return qvalue.QValueINET{Val: string(v[:])}, nil
 		case netip.Prefix:
 			return qvalue.QValueINET{Val: v.String()}, nil
 		default:
@@ -328,8 +327,6 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		switch v := value.(type) {
 		case string:
 			return qvalue.QValueCIDR{Val: v}, nil
-		case [16]byte:
-			return qvalue.QValueCIDR{Val: string(v[:])}, nil
 		case netip.Prefix:
 			return qvalue.QValueCIDR{Val: v.String()}, nil
 		default:
@@ -339,8 +336,8 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		switch v := value.(type) {
 		case string:
 			return qvalue.QValueMacaddr{Val: v}, nil
-		case [16]byte:
-			return qvalue.QValueMacaddr{Val: string(v[:])}, nil
+		case net.HardwareAddr:
+			return qvalue.QValueCIDR{Val: v.String()}, nil
 		default:
 			return nil, fmt.Errorf("failed to parse MACADDR: %v", value)
 		}

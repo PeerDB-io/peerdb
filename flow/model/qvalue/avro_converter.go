@@ -63,7 +63,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH protos.DBType, preci
 	switch kind {
 	case QValueKindString:
 		return "string", nil
-	case QValueKindQChar, QValueKindCIDR, QValueKindINET:
+	case QValueKindQChar, QValueKindCIDR, QValueKindINET, QValueKindMacaddr:
 		return "string", nil
 	case QValueKindInterval:
 		return "string", nil
