@@ -20,6 +20,7 @@ import (
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	numeric "github.com/PeerDB-io/peer-flow/datatypes"
+	"github.com/PeerDB-io/peer-flow/dynamicconf"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -665,10 +666,20 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 		}
 	}
 
+	timePartitionEnabled := dynamicconf.PeerDBBigQueryEnableSyncedAtPartitioning(ctx)
+	var timePartitioning *bigquery.TimePartitioning
+	if timePartitionEnabled && syncedAtColName != "" {
+		timePartitioning = &bigquery.TimePartitioning{
+			Type:  bigquery.DayPartitioningType,
+			Field: syncedAtColName,
+		}
+	}
+
 	metadata := &bigquery.TableMetadata{
-		Schema:     schema,
-		Name:       datasetTable.table,
-		Clustering: clustering,
+		Schema:           schema,
+		Name:             datasetTable.table,
+		Clustering:       clustering,
+		TimePartitioning: timePartitioning,
 	}
 
 	err = table.Create(ctx, metadata)
