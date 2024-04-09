@@ -1,9 +1,7 @@
-import { Prisma } from '@prisma/client';
-
 export type UAlertConfigResponse = {
   id: bigint;
   service_type: string;
-  service_config: Prisma.JsonValue;
+  service_config: any;
 };
 
 export type MirrorLogsRequest = {

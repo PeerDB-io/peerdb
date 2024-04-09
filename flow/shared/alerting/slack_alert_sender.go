@@ -8,19 +8,25 @@ import (
 )
 
 type slackAlertSender struct {
-	client     *slack.Client
-	channelIDs []string
+	client                        *slack.Client
+	channelIDs                    []string
+	slotLagMBAlertThreshold       uint32
+	openConnectionsAlertThreshold uint32
 }
 
 type slackAlertConfig struct {
-	AuthToken  string   `json:"auth_token"`
-	ChannelIDs []string `json:"channel_ids"`
+	AuthToken                     string   `json:"auth_token"`
+	ChannelIDs                    []string `json:"channel_ids"`
+	SlotLagMBAlertThreshold       uint32   `json:"slot_lag_mb_alert_threshold"`
+	OpenConnectionsAlertThreshold uint32   `json:"open_connections_alert_threshold"`
 }
 
 func newSlackAlertSender(config *slackAlertConfig) *slackAlertSender {
 	return &slackAlertSender{
-		client:     slack.New(config.AuthToken),
-		channelIDs: config.ChannelIDs,
+		client:                        slack.New(config.AuthToken),
+		channelIDs:                    config.ChannelIDs,
+		slotLagMBAlertThreshold:       config.SlotLagMBAlertThreshold,
+		openConnectionsAlertThreshold: config.OpenConnectionsAlertThreshold,
 	}
 }
 

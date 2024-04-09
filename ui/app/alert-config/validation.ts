@@ -14,6 +14,18 @@ export const alertConfigReqSchema = z.object({
         required_error: 'We need a channel ID',
       })
       .min(1, { message: 'Atleast one channel ID is needed' }),
+    slot_lag_mb_alert_threshold: z
+      .number({
+        invalid_type_error: 'Threshold must be a number',
+      })
+      .int()
+      .min(0, 'Threshold must be non-negative'),
+    open_connections_alert_threshold: z
+      .number({
+        invalid_type_error: 'Threshold must be a number',
+      })
+      .int()
+      .min(0, 'Threshold must be non-negative'),
   }),
 });
 
