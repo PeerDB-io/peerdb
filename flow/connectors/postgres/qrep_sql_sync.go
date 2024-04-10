@@ -85,7 +85,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	if writeMode == nil ||
 		writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_APPEND ||
 		writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		if writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
+		if writeMode != nil && writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
 			// Truncate the destination table before copying records
 			s.connector.logger.Info(fmt.Sprintf("Truncating table %s for overwrite mode", dstTableName), syncLog)
 			_, err = tx.Exec(ctx,
