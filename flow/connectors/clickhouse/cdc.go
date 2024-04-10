@@ -19,9 +19,8 @@ import (
 )
 
 const (
-	checkIfTableExistsSQL     = `SELECT exists(SELECT 1 FROM system.tables WHERE database = ? AND name = ?) AS table_exists;`
-	dropTableIfExistsSQL      = `DROP TABLE IF EXISTS %s;`
-	mirrorJobsTableIdentifier = "PEERDB_MIRROR_JOBS"
+	checkIfTableExistsSQL = `SELECT exists(SELECT 1 FROM system.tables WHERE database = ? AND name = ?) AS table_exists;`
+	dropTableIfExistsSQL  = `DROP TABLE IF EXISTS %s;`
 )
 
 // getRawTableName returns the raw table name for the given table identifier.
@@ -43,13 +42,6 @@ func (c *ClickhouseConnector) checkIfTableExists(ctx context.Context, databaseNa
 	}
 
 	return result.Int32 == 1, nil
-}
-
-type MirrorJobRow struct {
-	MirrorJobName    string
-	Offset           int
-	SyncBatchID      int
-	NormalizeBatchID int
 }
 
 func (c *ClickhouseConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
