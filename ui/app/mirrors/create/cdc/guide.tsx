@@ -20,6 +20,8 @@ const GuideForDestinationSetup = ({
         return 'https://docs.peerdb.io/connect/azure_flexible_server_postgres';
       case 'GOOGLE CLOUD POSTGRESQL':
         return 'https://docs.peerdb.io/connect/cloudsql_postgres';
+      case 'CRUNCHY POSTGRES':
+        return 'https://docs.peerdb.io/connect/crunchy_bridge';
       default:
         return '';
     }

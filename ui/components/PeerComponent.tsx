@@ -14,6 +14,10 @@ export const DBTypeToImageMapping = (peerType: DBType | string) => {
       return '/svgs/rds.svg';
     case 'GOOGLE CLOUD POSTGRESQL':
       return '/svgs/gcp.svg';
+    case 'TEMBO':
+      return '/images/tembo.png';
+    case 'CRUNCHY POSTGRES':
+      return '/images/crunchy.png';
     case DBType.POSTGRES:
     case 'POSTGRES':
       return '/svgs/pg.svg';

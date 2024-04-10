@@ -45,14 +45,14 @@ export default function CreateConfig({
   const [loading, setLoading] = useState<boolean>(false);
   const peerLabel = peerType.toUpperCase().replaceAll('%20', ' ');
   const getDBType = () => {
-    if (peerType.includes('POSTGRESQL')) {
+    if (peerType.includes('POSTGRES') || peerType.includes('TEMBO')) {
       return 'POSTGRES';
     }
     return peerType;
   };
 
   const configComponentMap = (peerType: string) => {
-    if (peerType.includes('POSTGRESQL')) {
+    if (peerType.includes('POSTGRES') || peerType === 'TEMBO') {
       return (
         <PostgresForm
           settings={postgresSetting}
