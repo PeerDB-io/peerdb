@@ -83,7 +83,18 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	var numRowsSynced int64
 
 	if writeMode == nil ||
-		writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_APPEND {
+		writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_APPEND ||
+		writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
+
+		if writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
+			// Truncate the destination table before copying records
+			_, err = tx.Exec(ctx,
+				"TRUNCATE TABLE "+dstTableName.String())
+			if err != nil {
+				return -1, fmt.Errorf("failed to TRUNCATE table before copy: %w", err)
+			}
+		}
+
 		// Perform the COPY FROM operation
 		numRowsSynced, err = tx.CopyFrom(
 			context.Background(),
