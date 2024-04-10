@@ -99,7 +99,7 @@ func (s PeerFlowE2ETestSuitePG) compareQuery(srcSchemaQualified, dstSchemaQualif
 }
 
 func (s PeerFlowE2ETestSuitePG) compareCounts(dstSchemaQualified string, expectedCount int64) error {
-	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", dstSchemaQualified)
+	query := "SELECT COUNT(*) FROM " + dstSchemaQualified
 	count, err := s.RunInt64Query(query)
 	if err != nil {
 		return err
