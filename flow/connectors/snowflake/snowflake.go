@@ -622,19 +622,15 @@ func (c *SnowflakeConnector) CreateRawTable(ctx context.Context, req *protos.Cre
 func (c *SnowflakeConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
 	err := c.PostgresMetadata.SyncFlowCleanup(ctx, jobName)
 	if err != nil {
-		return fmt.Errorf("unable to clear metadata for sync flow cleanup: %w", err)
+		return fmt.Errorf("[snowflake drop mirror] unable to clear metadata for sync flow cleanup: %w", err)
 	}
 
-	syncFlowCleanupTx, err := c.database.BeginTx(ctx, nil)
+	// delete raw table if exists
+	rawTableIdentifier := getRawTableIdentifier(jobName)
+	_, err = c.database.ExecContext(ctx, fmt.Sprintf(dropTableIfExistsSQL, c.rawSchema, rawTableIdentifier))
 	if err != nil {
-		return fmt.Errorf("unable to begin transaction for sync flow cleanup: %w", err)
+		return fmt.Errorf("[snowflake drop mirror] unable to drop raw table: %w", err)
 	}
-	defer func() {
-		deferErr := syncFlowCleanupTx.Rollback()
-		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Error("error while rolling back transaction for flow cleanup", "error", deferErr)
-		}
-	}()
 
 	err = c.dropStage(ctx, "", jobName)
 	if err != nil {
