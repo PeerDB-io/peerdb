@@ -1,8 +1,9 @@
 package datatypes
 
 const (
+	// defaults
 	PeerDBBigQueryPrecision   = 38
-	PeerDBBigQueryScale       = 9
+	PeerDBBigQueryScale       = 20
 	PeerDBSnowflakePrecision  = 38
 	PeerDBSnowflakeScale      = 20
 	PeerDBClickhousePrecision = 76
