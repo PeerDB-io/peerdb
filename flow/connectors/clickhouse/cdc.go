@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	checkIfTableExistsSQL     = `SELECT exists(SELECT 1 FROM system.tables WHERE database = ? AND name = ?) AS table_exists;`
-	mirrorJobsTableIdentifier = "PEERDB_MIRROR_JOBS"
+	checkIfTableExistsSQL = `SELECT exists(SELECT 1 FROM system.tables WHERE database = ? AND name = ?) AS table_exists;`
+	dropTableIfExistsSQL  = `DROP TABLE IF EXISTS %s;`
 )
 
 // getRawTableName returns the raw table name for the given table identifier.
@@ -42,13 +42,6 @@ func (c *ClickhouseConnector) checkIfTableExists(ctx context.Context, databaseNa
 	}
 
 	return result.Int32 == 1, nil
-}
-
-type MirrorJobRow struct {
-	MirrorJobName    string
-	Offset           int
-	SyncBatchID      int
-	NormalizeBatchID int
 }
 
 func (c *ClickhouseConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
@@ -184,6 +177,22 @@ func (c *ClickhouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 	if err != nil {
 		return fmt.Errorf("failed to commit transaction for table schema modification: %w",
 			err)
+	}
+
+	return nil
+}
+
+func (c *ClickhouseConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
+	err := c.PostgresMetadata.SyncFlowCleanup(ctx, jobName)
+	if err != nil {
+		return fmt.Errorf("[snowflake drop mirror] unable to clear metadata for sync flow cleanup: %w", err)
+	}
+
+	// delete raw table if exists
+	rawTableIdentifier := c.getRawTableName(jobName)
+	_, err = c.database.ExecContext(ctx, fmt.Sprintf(dropTableIfExistsSQL, rawTableIdentifier))
+	if err != nil {
+		return fmt.Errorf("[snowflake drop mirror] unable to drop raw table: %w", err)
 	}
 
 	return nil
