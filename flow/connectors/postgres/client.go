@@ -444,6 +444,8 @@ func generateCreateTableSQLForNormalizedTable(
 		if column.Type == "numeric" && column.TypeModifier != -1 {
 			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
 			pgColumnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
+		} else if column.TypeModifier != -1 {
+			pgColumnType += fmt.Sprintf("(%d)", column.TypeModifier)
 		}
 		createTableSQLArray = append(createTableSQLArray,
 			fmt.Sprintf("%s %s", QuoteIdentifier(column.Name), pgColumnType))
