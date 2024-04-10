@@ -7,6 +7,7 @@ import {
   UTablesResponse,
 } from '@/app/dto/PeersDTO';
 import { notifyErr } from '@/app/utils/notify';
+import { DBTypeToGoodText } from '@/components/PeerTypeComponent';
 import {
   FlowConnectionConfigs,
   QRepConfig,
@@ -21,7 +22,6 @@ import {
   qrepSchema,
   tableMappingSchema,
 } from './schema';
-import { DBTypeToGoodText } from '@/components/PeerTypeComponent';
 
 export const IsQueuePeer = (peerType?: DBType): boolean => {
   if (!peerType) {
@@ -230,13 +230,23 @@ export const handleCreateQRep = async (
   config.flowJobName = flowJobName;
   config.query = query;
 
-  const isSchemaLessPeer = config.destinationPeer?.type === DBType.BIGQUERY || config.destinationPeer?.type === DBType.CLICKHOUSE;
+  const isSchemaLessPeer =
+    config.destinationPeer?.type === DBType.BIGQUERY ||
+    config.destinationPeer?.type === DBType.CLICKHOUSE;
   if (isSchemaLessPeer && config.destinationTableIdentifier?.includes('.')) {
-    notifyErr('Destination table should not be schema qualified for ' + DBTypeToGoodText(config.destinationPeer?.type) + ' targets');
+    notifyErr(
+      'Destination table should not be schema qualified for ' +
+        DBTypeToGoodText(config.destinationPeer?.type) +
+        ' targets'
+    );
     return;
   }
   if (!isSchemaLessPeer && !config.destinationTableIdentifier?.includes('.')) {
-    notifyErr('Destination table should be schema qualified for ' + DBTypeToGoodText(config.destinationPeer?.type) + ' targets');
+    notifyErr(
+      'Destination table should be schema qualified for ' +
+        DBTypeToGoodText(config.destinationPeer?.type) +
+        ' targets'
+    );
     return;
   }
 
