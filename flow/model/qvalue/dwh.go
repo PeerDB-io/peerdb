@@ -10,7 +10,7 @@ import (
 )
 
 func DetermineNumericSettingForDWH(precision int16, scale int16, dwh protos.DBType) (int16, int16) {
-	var warehouseNumeric numeric.WarehouseNumericComaptibility
+	var warehouseNumeric numeric.WarehouseNumericCompatibility
 	switch dwh {
 	case protos.DBType_CLICKHOUSE:
 		warehouseNumeric = numeric.ClickHouseNumericCompatibility{}
@@ -19,7 +19,7 @@ func DetermineNumericSettingForDWH(precision int16, scale int16, dwh protos.DBTy
 	case protos.DBType_BIGQUERY:
 		warehouseNumeric = numeric.BigQueryNumericCompatibility{}
 	default:
-		warehouseNumeric = numeric.SnowflakeNumericCompatibility{}
+		warehouseNumeric = numeric.DefaultNumericCompatibility{}
 	}
 
 	if !warehouseNumeric.IsValidPrevisionAndScale(precision, scale) {

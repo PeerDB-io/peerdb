@@ -62,11 +62,7 @@ func (m *mergeStmtGenerator) generateMergeStmt(dstTable string) (string, error) 
 		// 		"Microseconds*1000) "+
 		// 		"AS %s", toVariantColumnName, columnName, columnName))
 		case qvalue.QValueKindNumeric:
-			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
-			if column.TypeModifier == -1 || precision > 38 || scale > 37 {
-				precision = numeric.PeerDBNumericPrecision
-				scale = numeric.PeerDBNumericScale
-			}
+			precision, scale := numeric.GetNumericTypeForWarehouse(column.TypeModifier, numeric.SnowflakeNumericCompatibility{})
 			numericType := fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
 				fmt.Sprintf("TRY_CAST((%s:\"%s\")::text AS %s) AS %s",

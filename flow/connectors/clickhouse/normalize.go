@@ -84,11 +84,7 @@ func generateCreateTableSQLForNormalizedTable(
 
 		switch colType {
 		case qvalue.QValueKindNumeric:
-			precision, scale := datatypes.ParseNumericTypmod(column.TypeModifier)
-			clickhouseCompatibility := datatypes.ClickHouseNumericCompatibility{}
-			if column.TypeModifier == -1 || !clickhouseCompatibility.IsValidPrevisionAndScale(precision, scale) {
-				precision, scale = clickhouseCompatibility.DefaultPrecisionAndScale()
-			}
+			precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
 			stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ",
 				colName, precision, scale))
 		default:

@@ -675,11 +675,7 @@ func generateCreateTableSQLForNormalizedTable(
 		}
 
 		if genericColumnType == "numeric" {
-			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
-			snowflakeCompatibility := numeric.SnowflakeNumericCompatibility{}
-			if column.TypeModifier == -1 || !snowflakeCompatibility.IsValidPrevisionAndScale(precision, scale) {
-				precision, scale = snowflakeCompatibility.DefaultPrecisionAndScale()
-			}
+			precision, scale := numeric.GetNumericTypeForWarehouse(column.TypeModifier, numeric.SnowflakeNumericCompatibility{})
 			sfColType = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
 		}
 
