@@ -278,10 +278,9 @@ func DefineAvroSchema(dstTableName string,
 func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 	avroNumericPrecision := int16(bqField.Precision)
 	avroNumericScale := int16(bqField.Scale)
-	if avroNumericPrecision > 38 || avroNumericPrecision <= 0 ||
-		avroNumericScale > 38 || avroNumericScale < 0 {
-		avroNumericPrecision = numeric.PeerDBNumericPrecision
-		avroNumericScale = numeric.PeerDBNumericScale
+	bqNumeric := numeric.BigQueryNumericCompatibility{}
+	if !bqNumeric.IsValidPrevisionAndScale(avroNumericPrecision, avroNumericScale) {
+		avroNumericPrecision, avroNumericScale = bqNumeric.DefaultPrecisionAndScale()
 	}
 
 	considerRepeated := func(typ string, repeated bool) interface{} {
