@@ -32,6 +32,12 @@ func (s PeerFlowE2ETestSuitePG) setupSourceTable(tableName string, rowCount int)
 	}
 }
 
+func (s PeerFlowE2ETestSuitePG) populateSourceTable(tableName string, rowCount int) {
+	if rowCount > 0 {
+		require.NoError(s.t, e2e.PopulateSourceTable(s.Conn(), s.suffix, tableName, rowCount))
+	}
+}
+
 func (s PeerFlowE2ETestSuitePG) comparePGTables(srcSchemaQualified, dstSchemaQualified, selector string) error {
 	// Execute the two EXCEPT queries
 	return errors.Join(
@@ -89,6 +95,20 @@ func (s PeerFlowE2ETestSuitePG) compareQuery(srcSchemaQualified, dstSchemaQualif
 	if len(errors) > 0 {
 		return fmt.Errorf("comparison failed: rows are not equal\n%s", strings.Join(errors, "\n---\n"))
 	}
+	return nil
+}
+
+func (s PeerFlowE2ETestSuitePG) compareCounts(dstSchemaQualified string, expectedCount int64) error {
+	query := "SELECT COUNT(*) FROM " + dstSchemaQualified
+	count, err := s.RunInt64Query(query)
+	if err != nil {
+		return err
+	}
+
+	if count != expectedCount {
+		return fmt.Errorf("expected %d rows, got %d", expectedCount, count)
+	}
+
 	return nil
 }
 
@@ -234,6 +254,56 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns_QRep_PG() {
 
 	err = s.checkSyncedAt(dstSchemaQualified)
 	require.NoError(s.t, err)
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_Overwrite_PG() {
+	numRows := 10
+
+	srcTable := "test_overwrite_pg_1"
+	s.setupSourceTable(srcTable, numRows)
+
+	dstTable := "test_overwrite_pg_2"
+
+	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)
+	dstSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, dstTable)
+
+	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
+		s.suffix, srcTable)
+
+	postgresPeer := e2e.GeneratePostgresPeer()
+
+	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+		"test_overwrite_pg",
+		srcSchemaQualified,
+		dstSchemaQualified,
+		query,
+		postgresPeer,
+		"",
+		true,
+		"_PEERDB_SYNCED_AT",
+	)
+	require.NoError(s.t, err)
+	qrepConfig.WriteMode = &protos.QRepWriteMode{
+		WriteType: protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE,
+	}
+	qrepConfig.InitialCopyOnly = false
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for first sync to complete", func() bool {
+		err = s.compareCounts(dstSchemaQualified, int64(numRows))
+		return err == nil
+	})
+
+	newRowCount := 5
+	s.populateSourceTable(srcTable, newRowCount)
+
+	e2e.EnvWaitFor(s.t, env, 2*time.Minute, "waiting for overwrite sync to complete", func() bool {
+		err = s.compareCounts(dstSchemaQualified, int64(newRowCount))
+		return err == nil
+	})
+
+	require.NoError(s.t, env.Error())
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_No_Rows_QRep_PG() {
