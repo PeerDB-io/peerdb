@@ -14,7 +14,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/log"
@@ -602,7 +601,6 @@ func (c *PostgresConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 	if err != nil {
 		return nil, err
 	}
-	mergeStatementsBatch := &pgx.Batch{}
 	totalRowsAffected := 0
 	normalizeStmtGen := &normalizeStmtGenerator{
 		Logger:                   c.logger,
@@ -620,18 +618,11 @@ func (c *PostgresConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 	for _, destinationTableName := range destinationTableNames {
 		normalizeStatements := normalizeStmtGen.generateNormalizeStatements(destinationTableName)
 		for _, normalizeStatement := range normalizeStatements {
-			mergeStatementsBatch.Queue(normalizeStatement, normBatchID, req.SyncBatchID, destinationTableName).Exec(
-				func(ct pgconn.CommandTag) error {
-					totalRowsAffected += int(ct.RowsAffected())
-					return nil
-				})
-		}
-	}
-	if mergeStatementsBatch.Len() > 0 {
-		mergeResults := normalizeRecordsTx.SendBatch(ctx, mergeStatementsBatch)
-		err = mergeResults.Close()
-		if err != nil {
-			return nil, fmt.Errorf("error executing merge statements: %w", err)
+			ct, err := normalizeRecordsTx.Exec(ctx, normalizeStatement, normBatchID, req.SyncBatchID, destinationTableName)
+			if err != nil {
+				return nil, fmt.Errorf("error executing normalize statement: %w", err)
+			}
+			totalRowsAffected += int(ct.RowsAffected())
 		}
 	}
 	c.logger.Info(fmt.Sprintf("normalized %d records", totalRowsAffected))
