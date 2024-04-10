@@ -32,7 +32,7 @@ func (c ClickHouseNumericCompatibility) DefaultPrecisionAndScale() (int16, int16
 }
 
 func (c ClickHouseNumericCompatibility) IsValidPrevisionAndScale(precision, scale int16) bool {
-	return precision <= PeerDBClickhousePrecision && scale < precision
+	return precision > 0 && precision <= PeerDBClickhousePrecision && scale < precision
 }
 
 type SnowflakeNumericCompatibility struct{}
@@ -50,7 +50,7 @@ func (c SnowflakeNumericCompatibility) DefaultPrecisionAndScale() (int16, int16)
 }
 
 func (c SnowflakeNumericCompatibility) IsValidPrevisionAndScale(precision, scale int16) bool {
-	return precision <= 38 && scale < precision
+	return precision > 0 && precision <= 38 && scale < precision
 }
 
 type BigQueryNumericCompatibility struct{}
@@ -68,7 +68,7 @@ func (c BigQueryNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) 
 }
 
 func (c BigQueryNumericCompatibility) IsValidPrevisionAndScale(precision, scale int16) bool {
-	return precision <= 38 && scale < precision
+	return precision > 0 && precision <= 38 && scale < precision
 }
 
 // This is to reverse what make_numeric_typmod of Postgres does:
