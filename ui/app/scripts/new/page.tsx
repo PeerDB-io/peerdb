@@ -102,14 +102,13 @@ end
         style={{
           display: 'flex',
           flexDirection: 'column',
-          rowGap: '1rem',
+          rowGap: '0.5em',
           width: '100%',
         }}
       >
         <div>
           <Label as='label' style={{ display: 'block' }}>
-            You can write a Lua script here for specifying message structure for
-            your topics.
+            You can write a Lua script for customizing queue messages.
           </Label>
           <Label>
             You can find the
@@ -138,12 +137,11 @@ end
               }}
               href={`https://github.com/PeerDB-io/examples/blob/main/debezium.lua`}
             >
-              example script for a Debezium-like format
+              example script for a Debezium-like format.
             </Label>
-            for your Kafka messages.
           </Label>
         </div>
-        <div>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
           <Label>Script Name</Label>
           <TextField
             onChange={(e) =>
@@ -155,16 +153,13 @@ end
           />
         </div>
 
-        <div style={{ width: '100%', resize: 'vertical', overflow: 'auto' }}>
-          <Label as='label' style={{ marginBottom: '1rem' }}>
-            Script Code
-          </Label>
+        <div style={{ width: '100%', height: '60vh', overflow: 'none' }}>
           <PeerDBCodeEditor
             setter={(newQuery: string) =>
               setNewScript((prev) => ({ ...prev, source: newQuery }))
             }
             code={newScript?.source}
-            height={'30vh'}
+            height={'100%'}
             language='lua'
           />
         </div>
