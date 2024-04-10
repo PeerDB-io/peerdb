@@ -687,10 +687,14 @@ func (c *BigQueryConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 	}
 
 	dataset := c.client.DatasetInProject(c.projectID, c.datasetID)
-	// deleting PeerDB specific tables
-	err = dataset.Table(c.getRawTableName(jobName)).Delete(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to delete raw table: %w", err)
+	rawTableHandle := dataset.Table(c.getRawTableName(jobName))
+	// check if exists, then delete
+	_, err = rawTableHandle.Metadata(ctx)
+	if err == nil {
+		deleteErr := rawTableHandle.Delete(ctx)
+		if deleteErr != nil {
+			return fmt.Errorf("failed to delete raw table: %w", deleteErr)
+		}
 	}
 
 	return nil
