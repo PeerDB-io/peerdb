@@ -676,9 +676,9 @@ func generateCreateTableSQLForNormalizedTable(
 
 		if genericColumnType == "numeric" {
 			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
-			if column.TypeModifier == -1 || precision > 38 || scale > 37 {
-				precision = numeric.PeerDBNumericPrecision
-				scale = numeric.PeerDBNumericScale
+			snowflakeCompatibility := numeric.SnowflakeNumericCompatibility{}
+			if column.TypeModifier == -1 || !snowflakeCompatibility.IsValidPrevisionAndScale(precision, scale) {
+				precision, scale = snowflakeCompatibility.DefaultPrecisionAndScale()
 			}
 			sfColType = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
 		}
