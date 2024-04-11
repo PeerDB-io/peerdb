@@ -92,6 +92,7 @@ type CDCPullPgConnector interface {
 	CDCPullConnectorCore
 
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
+	// It's signature, aside from type parameter, should match CDCPullConnector.PullRecords.
 	PullPg(ctx context.Context, catalogPool *pgxpool.Pool, req *model.PullRecordsRequest[model.PgItems]) error
 }
 
@@ -162,6 +163,7 @@ type CDCSyncPgConnector interface {
 
 	// SyncPg pushes PgItems to the destination peer and stores it in PeerDB specific tables.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
+	// It's signature, aside from type parameter, should match CDCSyncConnector.SyncRecords.
 	SyncPg(ctx context.Context, req *model.SyncRecordsRequest[model.PgItems]) (*model.SyncResponse, error)
 
 	ReplayPgTableSchemaDeltas(ctx context.Context, flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error
