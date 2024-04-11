@@ -1051,6 +1051,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TypeSystem_PG() {
 		Destination:      s.peer,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig.System = protos.TypeSystem_PG
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
