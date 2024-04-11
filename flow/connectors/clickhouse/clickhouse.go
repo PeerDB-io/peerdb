@@ -154,8 +154,9 @@ func NewClickhouseConnector(
 		}
 		if semver.Compare(clickHouseVersion, minSupportedClickhouseVersion) < 0 {
 			return nil, fmt.Errorf(
-				"please provide AWS access credentials explicitly or upgrade to clickhouse version >= %v, current version is %s. Additionally you may contact PeerDB support to get creds injected for you",
-				minSupportedClickhouseVersion, clickHouseVersion)
+				"provide AWS access credentials explicitly or upgrade to clickhouse version >= %v, current version is %s. %s",
+				minSupportedClickhouseVersion, clickHouseVersion,
+				"You can also contact PeerDB support for implicit S3 setup for older versions of Clickhouse.")
 		}
 	}
 
