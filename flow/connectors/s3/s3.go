@@ -42,8 +42,8 @@ func NewS3Connector(
 			SecretAccessKey: config.GetSecretAccessKey(),
 		},
 		RoleArn:     config.RoleArn,
-		Region:      config.GetRegion(),
 		EndpointUrl: config.Endpoint,
+		Region:      config.GetRegion(),
 	})
 	if err != nil {
 		return nil, err

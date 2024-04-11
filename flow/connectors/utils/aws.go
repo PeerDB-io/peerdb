@@ -30,8 +30,8 @@ type AWSSecrets struct {
 type PeerAWSCredentials struct {
 	Credentials aws.Credentials
 	RoleArn     *string
-	Region      string
 	EndpointUrl *string
+	Region      string
 }
 
 type S3PeerCredentials struct {

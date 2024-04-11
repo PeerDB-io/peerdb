@@ -114,8 +114,8 @@ func NewClickhouseConnector(
 			AccessKeyID:     config.AccessKeyId,
 			SecretAccessKey: config.SecretAccessKey,
 		},
-		Region:      config.Region,
 		EndpointUrl: nil,
+		Region:      config.Region,
 	})
 	if err != nil {
 		return nil, err
@@ -154,7 +154,7 @@ func NewClickhouseConnector(
 		}
 		if semver.Compare(clickHouseVersion, minSupportedClickhouseVersion) < 0 {
 			return nil, fmt.Errorf(
-				"please provide AWS access credentials explicitly or upgrade to clickhouse version >= %v, current version is %s",
+				"please provide AWS access credentials explicitly or upgrade to clickhouse version >= %v, current version is %s. Additionally you may contact PeerDB support to get creds injected for you",
 				minSupportedClickhouseVersion, clickHouseVersion)
 		}
 	}

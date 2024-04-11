@@ -19,9 +19,9 @@ type EmailAlertSender struct {
 	sourceEmail                   string
 	configurationSetName          string
 	replyToAddresses              []string
+	emailAddresses                []string
 	slotLagMBAlertThreshold       uint32
 	openConnectionsAlertThreshold uint32
-	emailAddresses                []string
 }
 
 func (e *EmailAlertSender) getSlotLagMBAlertThreshold() uint32 {
@@ -36,9 +36,9 @@ type EmailAlertSenderConfig struct {
 	sourceEmail                   string
 	configurationSetName          string
 	replyToAddresses              []string
+	EmailAddresses                []string `json:"email_addresses"`
 	SlotLagMBAlertThreshold       uint32   `json:"slot_lag_mb_alert_threshold"`
 	OpenConnectionsAlertThreshold uint32   `json:"open_connections_alert_threshold"`
-	EmailAddresses                []string `json:"email_addresses"`
 }
 
 func (e *EmailAlertSender) sendAlert(ctx context.Context, alertTitle string, alertMessage string) error {
@@ -88,9 +88,9 @@ func NewEmailAlertSender(client *ses.Client, config *EmailAlertSenderConfig) *Em
 		sourceEmail:                   config.sourceEmail,
 		configurationSetName:          config.configurationSetName,
 		replyToAddresses:              config.replyToAddresses,
+		emailAddresses:                config.EmailAddresses,
 		slotLagMBAlertThreshold:       config.SlotLagMBAlertThreshold,
 		openConnectionsAlertThreshold: config.OpenConnectionsAlertThreshold,
-		emailAddresses:                config.EmailAddresses,
 	}
 }
 
