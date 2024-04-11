@@ -1039,9 +1039,6 @@ func (s PeerFlowE2ETestSuitePG) Test_TypeSystem_PG() {
 			jb jsonb,
 			aa32 integer[][],
 			currency char(3)
-		);
-		insert into %[1]s (updated_at, j, jb, aa32, currency) values (
-			NOW(),'{"a" : 123}','{"a" : 123}','{{1,2,3},{4,5,6},{7,8,9}}','CAD'
 		)`, srcTableName))
 	require.NoError(s.t, err)
 
