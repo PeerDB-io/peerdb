@@ -62,7 +62,7 @@ func (n *normalizeStmtGenerator) generateFallbackStatements(
 ) []string {
 	columnCount := len(normalizedTableSchema.Columns)
 	columnNames := make([]string, 0, columnCount)
-	flattenedCastsSlice := make([]string, 0, columnCount)
+	flattenedCastsSQLArray := make([]string, 0, columnCount)
 	primaryKeyColumnCasts := make(map[string]string, len(normalizedTableSchema.PrimaryKeyColumns))
 	for _, column := range normalizedTableSchema.Columns {
 		genericColumnType := column.Type
@@ -77,21 +77,21 @@ func (n *normalizeStmtGenerator) generateFallbackStatements(
 			expr = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
 		}
 
-		flattenedCastsSlice = append(flattenedCastsSlice, fmt.Sprintf("%s AS %s", expr, quotedCol))
+		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("%s AS %s", expr, quotedCol))
 		if slices.Contains(normalizedTableSchema.PrimaryKeyColumns, column.Name) {
 			primaryKeyColumnCasts[column.Name] = expr
 		}
 	}
-	flattenedCastsSQL := strings.Join(flattenedCastsSlice, ",")
+	flattenedCastsSQL := strings.Join(flattenedCastsSQLArray, ",")
 	parsedDstTable, _ := utils.ParseSchemaTable(dstTableName)
 
 	insertColumnsSQL := strings.Join(columnNames, ",")
-	updateColumnsSlice := make([]string, 0, columnCount)
+	updateColumnsSQLArray := make([]string, 0, columnCount)
 	for _, column := range normalizedTableSchema.Columns {
 		quotedCol := QuoteIdentifier(column.Name)
-		updateColumnsSlice = append(updateColumnsSlice, fmt.Sprintf(`%s=EXCLUDED.%s`, quotedCol, quotedCol))
+		updateColumnsSQLArray = append(updateColumnsSQLArray, fmt.Sprintf(`%s=EXCLUDED.%s`, quotedCol, quotedCol))
 	}
-	updateColumnsSQL := strings.Join(updateColumnsSlice, ",")
+	updateColumnsSQL := strings.Join(updateColumnsSQLArray, ",")
 	deleteWhereClauseArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
 	for columnName, columnCast := range primaryKeyColumnCasts {
 		deleteWhereClauseArray = append(deleteWhereClauseArray, fmt.Sprintf(`%s.%s=%s`,
@@ -128,11 +128,11 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 	columnCount := len(normalizedTableSchema.Columns)
 	quotedColumnNames := make([]string, columnCount)
 
-	flattenedCastsSlice := make([]string, 0, columnCount)
+	flattenedCastsSQLArray := make([]string, 0, columnCount)
 	parsedDstTable, _ := utils.ParseSchemaTable(dstTableName)
 
 	primaryKeyColumnCasts := make(map[string]string)
-	primaryKeySelectSlice := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
+	primaryKeySelectSQLArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
 	for i, column := range normalizedTableSchema.Columns {
 		genericColumnType := column.Type
 		quotedCol := QuoteIdentifier(column.Name)
@@ -146,31 +146,31 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 		} else {
 			expr = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
 		}
-		flattenedCastsSlice = append(flattenedCastsSlice, fmt.Sprintf("%s AS %s", expr, quotedCol))
+		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("%s AS %s", expr, quotedCol))
 		if slices.Contains(normalizedTableSchema.PrimaryKeyColumns, column.Name) {
 			primaryKeyColumnCasts[column.Name] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
-			primaryKeySelectSlice = append(primaryKeySelectSlice, fmt.Sprintf("src.%s=dst.%s", quotedCol, quotedCol))
+			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray, fmt.Sprintf("src.%s=dst.%s", quotedCol, quotedCol))
 		}
 	}
-	flattenedCastsSQL := strings.Join(flattenedCastsSlice, ",")
-	insertValuesSlice := make([]string, 0, columnCount+2)
+	flattenedCastsSQL := strings.Join(flattenedCastsSQLArray, ",")
+	insertValuesSQLArray := make([]string, 0, columnCount+2)
 	for _, quotedCol := range quotedColumnNames {
-		insertValuesSlice = append(insertValuesSlice, "src."+quotedCol)
+		insertValuesSQLArray = append(insertValuesSQLArray, "src."+quotedCol)
 	}
 
 	updateStatementsforToastCols := n.generateUpdateStatements(quotedColumnNames, unchangedToastColumns)
 	// append synced_at column
 	if n.peerdbCols.SyncedAtColName != "" {
 		quotedColumnNames = append(quotedColumnNames, QuoteIdentifier(n.peerdbCols.SyncedAtColName))
-		insertValuesSlice = append(insertValuesSlice, "CURRENT_TIMESTAMP")
+		insertValuesSQLArray = append(insertValuesSQLArray, "CURRENT_TIMESTAMP")
 	}
 	insertColumnsSQL := strings.Join(quotedColumnNames, ",")
-	insertValuesSQL := strings.Join(insertValuesSlice, ",")
+	insertValuesSQL := strings.Join(insertValuesSQLArray, ",")
 
 	if n.peerdbCols.SoftDelete {
 		softDeleteInsertColumnsSQL := strings.Join(
 			append(quotedColumnNames, QuoteIdentifier(n.peerdbCols.SoftDeleteColName)), ",")
-		softDeleteInsertValuesSQL := strings.Join(append(insertValuesSlice, "TRUE"), ",")
+		softDeleteInsertValuesSQL := strings.Join(append(insertValuesSQLArray, "TRUE"), ",")
 
 		updateStatementsforToastCols = append(updateStatementsforToastCols,
 			fmt.Sprintf("WHEN NOT MATCHED AND (src._peerdb_record_type=2) THEN INSERT (%s) VALUES(%s)",
@@ -194,7 +194,7 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 		n.rawTableName,
 		parsedDstTable.String(),
 		flattenedCastsSQL,
-		strings.Join(primaryKeySelectSlice, " AND "),
+		strings.Join(primaryKeySelectSQLArray, " AND "),
 		insertColumnsSQL,
 		insertValuesSQL,
 		updateStringToastCols,
