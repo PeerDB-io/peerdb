@@ -1064,7 +1064,11 @@ func (s PeerFlowE2ETestSuitePG) Test_TypeSystem_PG() {
 	e2e.EnvNoError(s.t, env, err)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize rows", func() bool {
-		return s.comparePGTables(srcTableName, dstTableName, "id,created_at,updated_at.j,jb,aa32,currency") == nil
+		err := s.comparePGTables(srcTableName, dstTableName, "id,created_at,updated_at.j,jb,aa32,currency")
+		if err != nil {
+			s.t.Log("PGPGPG", err)
+		}
+		return err == nil
 	})
 
 	env.Cancel()
