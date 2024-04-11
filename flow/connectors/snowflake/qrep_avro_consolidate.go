@@ -142,7 +142,7 @@ func (s *SnowflakeAvroConsolidateHandler) generateUpsertMergeCommand(
 	upsertKeyCols := s.config.WriteMode.UpsertKeyColumns
 	// all cols are acquired from snowflake schema, so let us try to make upsert key cols match the case
 	// and also the watermark col, then the quoting should be fine
-	caseMatchedCols := map[string]string{}
+	caseMatchedCols := make(map[string]string, len(s.allColNames))
 	for _, col := range s.allColNames {
 		caseMatchedCols[strings.ToLower(col)] = col
 	}

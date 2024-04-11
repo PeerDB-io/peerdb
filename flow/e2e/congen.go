@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	"github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 func cleanPostgres(conn *pgx.Conn, suffix string) error {
@@ -106,7 +106,7 @@ func setupPostgresSchema(t *testing.T, conn *pgx.Conn, suffix string) error {
 func SetupPostgres(t *testing.T, suffix string) (*connpostgres.PostgresConnector, error) {
 	t.Helper()
 
-	connector, err := connpostgres.NewPostgresConnector(context.Background(), utils.GetCatalogPostgresConfigFromEnv())
+	connector, err := connpostgres.NewPostgresConnector(context.Background(), peerdbenv.GetCatalogPostgresConfigFromEnv())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres connection: %w", err)
 	}
@@ -155,17 +155,17 @@ func GeneratePostgresPeer() *protos.Peer {
 		Name: "test_postgres_peer",
 		Type: protos.DBType_POSTGRES,
 		Config: &protos.Peer_PostgresConfig{
-			PostgresConfig: utils.GetCatalogPostgresConfigFromEnv(),
+			PostgresConfig: peerdbenv.GetCatalogPostgresConfigFromEnv(),
 		},
 	}
 }
 
 type FlowConnectionGenerationConfig struct {
 	FlowJobName      string
-	TableMappings    []*protos.TableMapping
 	TableNameMapping map[string]string
 	Destination      *protos.Peer
 	CdcStagingPath   string
+	TableMappings    []*protos.TableMapping
 	SoftDelete       bool
 }
 
@@ -214,9 +214,9 @@ type QRepFlowConnectionGenerationConfig struct {
 	FlowJobName                string
 	WatermarkTable             string
 	DestinationTableIdentifier string
-	PostgresPort               int
 	Destination                *protos.Peer
 	StagingPath                string
+	PostgresPort               uint16
 }
 
 // GenerateQRepConfig generates a qrep config for testing.

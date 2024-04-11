@@ -21,12 +21,13 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type ClickhouseConnector struct {
+	*metadataStore.PostgresMetadata
 	database           *sql.DB
-	pgMetadata         *metadataStore.PostgresMetadataStore
 	tableSchemaMapping map[string]*protos.TableSchema
 	logger             log.Logger
 	config             *protos.ClickhouseConfig
@@ -63,25 +64,30 @@ func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error
 }
 
 // Creates and drops a dummy table to validate the peer
-func ValidateClickhouse(ctx context.Context, conn *sql.DB) error {
+func (c *ClickhouseConnector) ValidateCheck(ctx context.Context) error {
 	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
 	// create a table
-	_, err := conn.ExecContext(ctx, fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id UInt64) ENGINE = Memory",
+	_, err := c.database.ExecContext(ctx, fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id UInt64) ENGINE = Memory",
 		validateDummyTableName))
 	if err != nil {
 		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// insert a row
-	_, err = conn.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1)", validateDummyTableName))
+	_, err = c.database.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1)", validateDummyTableName))
 	if err != nil {
 		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// drop the table
-	_, err = conn.ExecContext(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName)
+	_, err = c.database.ExecContext(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName)
 	if err != nil {
 		return fmt.Errorf("failed to drop validation table %s: %w", validateDummyTableName, err)
+	}
+
+	validateErr := ValidateS3(ctx, c.credsProvider)
+	if validateErr != nil {
+		return fmt.Errorf("failed to validate S3 bucket: %w", validateErr)
 	}
 
 	return nil
@@ -97,12 +103,7 @@ func NewClickhouseConnector(
 		return nil, fmt.Errorf("failed to open connection to Clickhouse peer: %w", err)
 	}
 
-	err = ValidateClickhouse(ctx, database)
-	if err != nil {
-		return nil, fmt.Errorf("invalidated Clickhouse peer: %w", err)
-	}
-
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
+	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
 		logger.Error("failed to create postgres metadata store", "error", err)
 		return nil, err
@@ -123,7 +124,7 @@ func NewClickhouseConnector(
 	awsBucketPath := config.S3Path
 
 	if awsBucketPath == "" {
-		deploymentUID := shared.GetDeploymentUID()
+		deploymentUID := peerdbenv.PeerDBDeploymentUID()
 		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 		bucketPathSuffix := fmt.Sprintf("%s/%s",
 			url.PathEscape(deploymentUID), url.PathEscape(flowName))
@@ -182,7 +183,7 @@ func NewClickhouseConnector(
 
 	return &ClickhouseConnector{
 		database:           database,
-		pgMetadata:         pgMetadata,
+		PostgresMetadata:   pgMetadata,
 		tableSchemaMapping: nil,
 		config:             config,
 		logger:             logger,

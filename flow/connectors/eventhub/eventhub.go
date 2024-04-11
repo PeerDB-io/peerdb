@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	azeventhubs "github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
+	lua "github.com/yuin/gopher-lua"
 	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
@@ -16,11 +19,13 @@ import (
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/pua"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type EventHubConnector struct {
+	*metadataStore.PostgresMetadata
 	config     *protos.EventHubGroupConfig
-	pgMetadata *metadataStore.PostgresMetadataStore
 	creds      *azidentity.DefaultAzureCredential
 	hubManager *EventHubManager
 	logger     log.Logger
@@ -39,17 +44,18 @@ func NewEventHubConnector(
 	}
 
 	hubManager := NewEventHubManager(defaultAzureCreds, config)
-	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx)
+	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
 		logger.Error("failed to create postgres metadata store", "error", err)
 		return nil, err
 	}
 
 	return &EventHubConnector{
-		config:     config,
-		pgMetadata: pgMetadata,
-		creds:      defaultAzureCreds,
-		hubManager: hubManager,
+		PostgresMetadata: pgMetadata,
+		config:           config,
+		creds:            defaultAzureCreds,
+		hubManager:       hubManager,
+		logger:           logger,
 	}, nil
 }
 
@@ -67,7 +73,7 @@ func (c *EventHubConnector) Close() error {
 	return nil
 }
 
-func (c *EventHubConnector) ConnectionActive(_ context.Context) error {
+func (c *EventHubConnector) ConnectionActive(ctx context.Context) error {
 	return nil
 }
 
@@ -79,22 +85,96 @@ func (c *EventHubConnector) SetupMetadataTables(_ context.Context) error {
 	return nil
 }
 
-func (c *EventHubConnector) GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error) {
-	return c.pgMetadata.GetLastBatchID(ctx, jobName)
-}
-
-func (c *EventHubConnector) GetLastOffset(ctx context.Context, jobName string) (int64, error) {
-	return c.pgMetadata.FetchLastOffset(ctx, jobName)
-}
-
-func (c *EventHubConnector) SetLastOffset(ctx context.Context, jobName string, offset int64) error {
-	err := c.pgMetadata.UpdateLastOffset(ctx, jobName, offset)
-	if err != nil {
-		c.logger.Error("failed to update last offset", slog.Any("error", err))
-		return err
+func lvalueToEventData(ls *lua.LState, value lua.LValue) (ScopedEventhubData, error) {
+	var scoped ScopedEventhubData
+	switch v := value.(type) {
+	case lua.LString:
+		scoped.Data = &azeventhubs.EventData{
+			Body: shared.UnsafeFastStringToReadOnlyBytes(string(v)),
+		}
+	case *lua.LTable:
+		value, err := utils.LVAsReadOnlyBytes(ls, ls.GetField(v, "value"))
+		if err != nil {
+			return scoped, fmt.Errorf("invalid value, %w", err)
+		}
+		destination, err := utils.LVAsStringOrNil(ls, ls.GetField(v, "destination"))
+		if err != nil {
+			return scoped, fmt.Errorf("invalid destination, %w", err)
+		}
+		if destination != "" {
+			scoped.Hub, err = NewScopedEventhub(destination)
+			if err != nil {
+				return scoped, fmt.Errorf("invalid topic, %w", err)
+			}
+		}
+		namespace, err := utils.LVAsStringOrNil(ls, ls.GetField(v, "namespace"))
+		if err != nil {
+			return scoped, fmt.Errorf("invalid namespace, %w", err)
+		}
+		if namespace != "" {
+			scoped.Hub.NamespaceName = namespace
+		}
+		partCol, err := utils.LVAsStringOrNil(ls, ls.GetField(v, "partitionColumn"))
+		if err != nil {
+			return scoped, fmt.Errorf("invalid partitionColumn, %w", err)
+		}
+		if partCol != "" {
+			scoped.Hub.PartitionKeyColumn = partCol
+		}
+		key, err := utils.LVAsStringOrNil(ls, ls.GetField(v, "key"))
+		if err != nil {
+			return scoped, fmt.Errorf("invalid key, %w", err)
+		}
+		if key != "" {
+			scoped.Hub.PartitionKeyValue = key
+		}
+		hub, err := utils.LVAsStringOrNil(ls, ls.GetField(v, "hub"))
+		if err != nil {
+			return scoped, fmt.Errorf("invalid hub, %w", err)
+		}
+		if hub != "" {
+			scoped.Hub.Eventhub = hub
+		}
+		contentType, err := utils.LVAsStringOrNil(ls, ls.GetField(v, "contentType"))
+		if err != nil {
+			return scoped, fmt.Errorf("invalid contentType, %w", err)
+		}
+		contentTypePtr := &contentType
+		if contentType == "" {
+			contentTypePtr = nil
+		}
+		messageId, err := utils.LVAsStringOrNil(ls, ls.GetField(v, "messageId"))
+		if err != nil {
+			return scoped, fmt.Errorf("invalid messageId, %w", err)
+		}
+		messageIdPtr := &messageId
+		if messageId == "" {
+			messageIdPtr = nil
+		}
+		scoped.Data = &azeventhubs.EventData{
+			Body:        value,
+			ContentType: contentTypePtr,
+			MessageID:   messageIdPtr,
+		}
+		lheaders := ls.GetField(v, "headers")
+		if headers, ok := lheaders.(*lua.LTable); ok {
+			scoped.Data.Properties = make(map[string]any)
+			headers.ForEach(func(k, v lua.LValue) {
+				scoped.Data.Properties[k.String()] = v
+			})
+		} else if lua.LVAsBool(lheaders) {
+			return scoped, fmt.Errorf("invalid headers, must be nil or table: %s", lheaders)
+		}
+	case *lua.LNilType:
+	default:
+		return scoped, fmt.Errorf("script returned invalid value: %s", value)
 	}
+	return scoped, nil
+}
 
-	return nil
+type ScopedEventhubData struct {
+	Data *azeventhubs.EventData
+	Hub  ScopedEventhub
 }
 
 // returns the number of records synced
@@ -102,21 +182,44 @@ func (c *EventHubConnector) processBatch(
 	ctx context.Context,
 	flowJobName string,
 	batch *model.CDCRecordStream,
+	script string,
 ) (uint32, error) {
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns, false)
 
-	ticker := time.NewTicker(peerdbenv.PeerDBEventhubFlushTimeoutSeconds())
+	ticker := time.NewTicker(peerdbenv.PeerDBQueueFlushTimeoutSeconds())
 	defer ticker.Stop()
 
 	lastSeenLSN := int64(0)
 	lastUpdatedOffset := int64(0)
 
 	numRecords := atomic.Uint32{}
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("processed %d records for flow %s", numRecords.Load(), flowJobName)
-	})
-	defer shutdown()
+
+	var ls *lua.LState
+	var fn *lua.LFunction
+	if script != "" {
+		var err error
+		ls, err = utils.LoadScript(ctx, script, func(ls *lua.LState) int {
+			top := ls.GetTop()
+			ss := make([]string, top)
+			for i := range top {
+				ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
+			}
+			_ = c.LogFlowInfo(ctx, flowJobName, strings.Join(ss, "\t"))
+			return 0
+		})
+		if err != nil {
+			return 0, err
+		}
+		defer ls.Close()
+
+		lfn := ls.Env.RawGetString("onRecord")
+		var ok bool
+		fn, ok = lfn.(*lua.LFunction)
+		if !ok {
+			return 0, fmt.Errorf("script should define `onRecord` as function, not %s", lfn)
+		}
+	}
 
 	for {
 		select {
@@ -134,51 +237,84 @@ func (c *EventHubConnector) processBatch(
 				return currNumRecords, nil
 			}
 
-			numRecords.Add(1)
-
 			recordLSN := record.GetCheckpointID()
 			if recordLSN > lastSeenLSN {
 				lastSeenLSN = recordLSN
 			}
 
-			json, err := record.GetItems().ToJSONWithOpts(toJSONOpts)
-			if err != nil {
-				c.logger.Info("failed to convert record to json", slog.Any("error", err))
-				return 0, err
+			var events []ScopedEventhubData
+			destinationString := record.GetDestinationTableName()
+			if fn != nil {
+				ls.Push(fn)
+				ls.Push(pua.LuaRecord.New(ls, record))
+				err := ls.PCall(1, -1, nil)
+				if err != nil {
+					return 0, fmt.Errorf("script failed: %w", err)
+				}
+
+				args := ls.GetTop()
+				for i := range args {
+					scoped, err := lvalueToEventData(ls, ls.Get(i-args))
+					if err != nil {
+						return 0, err
+					}
+
+					if scoped.Data != nil {
+						if scoped.Hub.NamespaceName == "" {
+							scoped.Hub, err = NewScopedEventhub(destinationString)
+							if err != nil {
+								c.logger.Error("failed to get topic name", slog.Any("error", err))
+								return 0, err
+							}
+						}
+						events = append(events, scoped)
+					}
+				}
+				ls.SetTop(0)
+			} else {
+				json, err := record.GetItems().ToJSONWithOptions(toJSONOpts)
+				if err != nil {
+					c.logger.Info("failed to convert record to json", slog.Any("error", err))
+					return 0, err
+				}
+				scopedHub, err := NewScopedEventhub(destinationString)
+				if err != nil {
+					c.logger.Error("failed to get topic name", slog.Any("error", err))
+					return 0, err
+				}
+				events = []ScopedEventhubData{{Hub: scopedHub, Data: &azeventhubs.EventData{Body: []byte(json)}}}
 			}
 
-			destination, err := NewScopedEventhub(record.GetDestinationTableName())
-			if err != nil {
-				c.logger.Error("failed to get topic name", slog.Any("error", err))
-				return 0, err
+			for _, event := range events {
+				ehConfig, ok := c.hubManager.namespaceToEventhubMap.Get(event.Hub.NamespaceName)
+				if !ok {
+					c.logger.Error("failed to get eventhub config", slog.String("namespace", event.Hub.NamespaceName))
+					return 0, fmt.Errorf("failed to get eventhub config %s", event.Hub.NamespaceName)
+				}
+
+				// Scoped eventhub is of the form peer_name.eventhub_name.partition_column
+				// partition_column is the column in the table that is used to determine
+				// the partition key for the eventhub.
+				partitionKey := event.Hub.PartitionKeyValue
+				if partitionKey == "" {
+					partitionColumn := event.Hub.PartitionKeyColumn
+					partitionValue := record.GetItems().GetColumnValue(partitionColumn).Value()
+					if partitionValue != nil {
+						partitionKey = fmt.Sprint(partitionValue)
+					}
+
+					partitionKey = utils.HashedPartitionKey(partitionKey, ehConfig.PartitionCount)
+					event.Hub.PartitionKeyValue = partitionKey
+				}
+				err := batchPerTopic.AddEvent(ctx, event.Hub, event.Data, false)
+				if err != nil {
+					c.logger.Error("failed to add event to batch", slog.Any("error", err))
+					return 0, err
+				}
 			}
 
-			ehConfig, ok := c.hubManager.peerConfig.Get(destination.PeerName)
-			if !ok {
-				c.logger.Error("failed to get eventhub config", slog.Any("error", err))
-				return 0, err
-			}
-
-			numPartitions := ehConfig.PartitionCount
-			// Scoped eventhub is of the form peer_name.eventhub_name.partition_column
-			// partition_column is the column in the table that is used to determine
-			// the partition key for the eventhub.
-			partitionColumn := destination.PartitionKeyColumn
-			partitionValue := record.GetItems().GetColumnValue(partitionColumn).Value
-			var partitionKey string
-			if partitionValue != nil {
-				partitionKey = fmt.Sprint(partitionValue)
-			}
-			partitionKey = utils.HashedPartitionKey(partitionKey, numPartitions)
-			destination.SetPartitionValue(partitionKey)
-			err = batchPerTopic.AddEvent(ctx, destination, json, false)
-			if err != nil {
-				c.logger.Error("failed to add event to batch", slog.Any("error", err))
-				return 0, err
-			}
-
-			curNumRecords := numRecords.Load()
-			if curNumRecords%1000 == 0 {
+			curNumRecords := numRecords.Add(1)
+			if curNumRecords%10000 == 0 {
 				c.logger.Info("processBatch", slog.Int("number of records processed for sending", int(curNumRecords)))
 			}
 
@@ -204,16 +340,14 @@ func (c *EventHubConnector) processBatch(
 }
 
 func (c *EventHubConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	batch := req.Records
-
-	numRecords, err := c.processBatch(ctx, req.FlowJobName, batch)
+	numRecords, err := c.processBatch(ctx, req.FlowJobName, req.Records, req.Script)
 	if err != nil {
 		c.logger.Error("failed to process batch", slog.Any("error", err))
 		return nil, err
 	}
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
-	err = c.pgMetadata.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
+	err = c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
 	if err != nil {
 		c.logger.Error("failed to increment id", slog.Any("error", err))
 		return nil, err
@@ -223,7 +357,7 @@ func (c *EventHubConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 		CurrentSyncBatchID:     req.SyncBatchID,
 		LastSyncedCheckpointID: lastCheckpoint,
 		NumRecordsSynced:       int64(numRecords),
-		TableNameRowsMapping:   make(map[string]uint32),
+		TableNameRowsMapping:   make(map[string]*model.RecordTypeCounts),
 		TableSchemaDeltas:      req.Records.SchemaDeltas,
 	}, nil
 }
@@ -258,8 +392,4 @@ func (c *EventHubConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 func (c *EventHubConnector) ReplayTableSchemaDeltas(_ context.Context, flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error {
 	c.logger.Info("ReplayTableSchemaDeltas for event hub is a no-op")
 	return nil
-}
-
-func (c *EventHubConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
-	return c.pgMetadata.DropMetadata(ctx, jobName)
 }

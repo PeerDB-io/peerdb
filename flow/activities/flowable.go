@@ -35,11 +35,16 @@ type CheckConnectionResult struct {
 	NeedsSetupMetadataTables bool
 }
 
+type CdcCacheEntry struct {
+	connector connectors.CDCPullConnector
+	done      chan struct{}
+}
+
 type FlowableActivity struct {
 	CatalogPool *pgxpool.Pool
 	Alerter     *alerting.Alerter
+	CdcCache    map[string]CdcCacheEntry
 	CdcCacheRw  sync.RWMutex
-	CdcCache    map[string]connectors.CDCPullConnector
 }
 
 func (a *FlowableActivity) CheckConnection(
@@ -144,7 +149,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 ) (*protos.SetupNormalizedTableBatchOutput, error) {
 	logger := activity.GetLogger(ctx)
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
-	conn, err := connectors.GetConnectorAs[connectors.NormalizedTablesConnector](ctx, config.PeerConnectionConfig)
+	conn, err := connectors.GetAs[connectors.NormalizedTablesConnector](ctx, config.PeerConnectionConfig)
 	if err != nil {
 		if err == connectors.ErrUnsupportedFunctionality {
 			logger.Info("Connector does not implement normalized tables")
@@ -217,8 +222,12 @@ func (a *FlowableActivity) MaintainPull(
 		return err
 	}
 
+	done := make(chan struct{})
 	a.CdcCacheRw.Lock()
-	a.CdcCache[sessionID] = srcConn
+	a.CdcCache[sessionID] = CdcCacheEntry{
+		connector: srcConn,
+		done:      done,
+	}
 	a.CdcCacheRw.Unlock()
 
 	ticker := time.NewTicker(15 * time.Second)
@@ -234,6 +243,8 @@ func (a *FlowableActivity) MaintainPull(
 				a.CdcCacheRw.Unlock()
 				return temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", err)
 			}
+		case <-done:
+			return nil
 		case <-ctx.Done():
 			a.CdcCacheRw.Lock()
 			delete(a.CdcCache, sessionID)
@@ -243,15 +254,25 @@ func (a *FlowableActivity) MaintainPull(
 	}
 }
 
+func (a *FlowableActivity) UnmaintainPull(ctx context.Context, sessionID string) error {
+	a.CdcCacheRw.Lock()
+	if entry, ok := a.CdcCache[sessionID]; ok {
+		close(entry.done)
+		delete(a.CdcCache, sessionID)
+	}
+	a.CdcCacheRw.Unlock()
+	return nil
+}
+
 func (a *FlowableActivity) waitForCdcCache(ctx context.Context, sessionID string) (connectors.CDCPullConnector, error) {
 	logger := activity.GetLogger(ctx)
 	attempt := 0
 	for {
 		a.CdcCacheRw.RLock()
-		conn, ok := a.CdcCache[sessionID]
+		entry, ok := a.CdcCache[sessionID]
 		a.CdcCacheRw.RUnlock()
 		if ok {
-			return conn, nil
+			return entry.connector, nil
 		}
 		activity.RecordHeartbeat(ctx, "wait another second for source connector")
 		attempt += 1
@@ -313,7 +334,7 @@ func (a *FlowableActivity) SyncFlow(
 	defer shutdown()
 
 	batchSize := options.BatchSize
-	if batchSize <= 0 {
+	if batchSize == 0 {
 		batchSize = 1_000_000
 	}
 
@@ -376,7 +397,7 @@ func (a *FlowableActivity) SyncFlow(
 	var res *model.SyncResponse
 	errGroup.Go(func() error {
 		syncBatchID, err := dstConn.GetLastSyncBatchID(errCtx, flowName)
-		if err != nil && config.Destination.Type != protos.DBType_EVENTHUB {
+		if err != nil && config.Destination.Type != protos.DBType_EVENTHUBS {
 			return err
 		}
 		syncBatchID += 1
@@ -400,6 +421,7 @@ func (a *FlowableActivity) SyncFlow(
 			FlowJobName:   flowName,
 			TableMappings: options.TableMappings,
 			StagingPath:   config.CdcStagingPath,
+			Script:        config.Script,
 		})
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, flowName, err)
@@ -544,6 +566,10 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	runUUID string,
 ) (*protos.QRepParitionResult, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	err := monitoring.InitializeQRepRun(ctx, a.CatalogPool, config, runUUID, nil)
+	if err != nil {
+		return nil, err
+	}
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get qrep pull connector: %w", err)
@@ -554,7 +580,6 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		return "getting partitions for job"
 	})
 	defer shutdown()
-
 	partitions, err := srcConn.GetQRepPartitions(ctx, config, last)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -616,6 +641,9 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) error {
+	msg := fmt.Sprintf("replicating partition - %s: %d of %d total.", partition.PartitionId, idx, total)
+	activity.RecordHeartbeat(ctx, msg)
+
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
@@ -643,6 +671,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	}
 	if done {
 		logger.Info("no records to push for partition " + partition.PartitionId)
+		activity.RecordHeartbeat(ctx, "no records to push for partition "+partition.PartitionId)
 		return nil
 	}
 
@@ -660,64 +689,35 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 
 	var rowsSynced int
 	bufferSize := shared.FetchAndChannelSize
-	if config.SourcePeer.Type == protos.DBType_POSTGRES {
-		errGroup, errCtx := errgroup.WithContext(ctx)
-		stream := model.NewQRecordStream(bufferSize)
-		errGroup.Go(func() error {
-			pgConn := srcConn.(*connpostgres.PostgresConnector)
-			tmp, err := pgConn.PullQRepRecordStream(errCtx, config, partition, stream)
-			numRecords := int64(tmp)
-			if err != nil {
-				a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-				return fmt.Errorf("failed to pull records: %w", err)
-			} else {
-				err = monitoring.UpdatePullEndTimeAndRowsForPartition(errCtx,
-					a.CatalogPool, runUUID, partition, numRecords)
-				if err != nil {
-					logger.Error(err.Error())
-				}
-			}
-			return nil
-		})
-
-		errGroup.Go(func() error {
-			rowsSynced, err = dstConn.SyncQRepRecords(errCtx, config, partition, stream)
-			if err != nil {
-				a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-				return fmt.Errorf("failed to sync records: %w", err)
-			}
-			return context.Canceled
-		})
-
-		err = errGroup.Wait()
-		if err != nil && err != context.Canceled {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return err
-		}
-	} else {
-		recordBatch, err := srcConn.PullQRepRecords(ctx, config, partition)
+	errGroup, errCtx := errgroup.WithContext(ctx)
+	stream := model.NewQRecordStream(bufferSize)
+	errGroup.Go(func() error {
+		tmp, err := srcConn.PullQRepRecords(errCtx, config, partition, stream)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return fmt.Errorf("failed to pull qrep records: %w", err)
+			return fmt.Errorf("failed to pull records: %w", err)
 		}
-		logger.Info(fmt.Sprintf("pulled %d records", len(recordBatch.Records)))
-
-		err = monitoring.UpdatePullEndTimeAndRowsForPartition(ctx, a.CatalogPool, runUUID, partition, int64(len(recordBatch.Records)))
+		numRecords := int64(tmp)
+		err = monitoring.UpdatePullEndTimeAndRowsForPartition(errCtx,
+			a.CatalogPool, runUUID, partition, numRecords)
 		if err != nil {
-			return err
+			logger.Error(err.Error())
 		}
+		return nil
+	})
 
-		stream, err := recordBatch.ToQRecordStream(bufferSize)
-		if err != nil {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return fmt.Errorf("failed to convert to qrecord stream: %w", err)
-		}
-
-		rowsSynced, err = dstConn.SyncQRepRecords(ctx, config, partition, stream)
+	errGroup.Go(func() error {
+		rowsSynced, err = dstConn.SyncQRepRecords(errCtx, config, partition, stream)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return fmt.Errorf("failed to sync records: %w", err)
 		}
+		return context.Canceled
+	})
+
+	if err := errGroup.Wait(); err != nil && err != context.Canceled {
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		return err
 	}
 
 	if rowsSynced > 0 {
@@ -728,13 +728,13 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		}
 	}
 
-	err = monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition)
-	return err
+	return monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition)
 }
 
 func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig,
 	runUUID string,
 ) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	dstConn, err := connectors.GetQRepConsolidateConnector(ctx, config.DestinationPeer)
 	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
 		return monitoring.UpdateEndTimeForQRepRun(ctx, a.CatalogPool, runUUID)
@@ -758,6 +758,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 }
 
 func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	dst, err := connectors.GetQRepConsolidateConnector(ctx, config.DestinationPeer)
 	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
 		return nil
@@ -781,6 +782,7 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, config *protos.Sh
 }
 
 func (a *FlowableActivity) DropFlowDestination(ctx context.Context, config *protos.ShutdownRequest) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.DestinationPeer)
 	if err != nil {
 		return fmt.Errorf("failed to get destination connector: %w", err)
@@ -850,7 +852,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 
 		func() {
 			pgConfig := pgPeer.GetPostgresConfig()
-			peerConn, peerErr := pgx.Connect(ctx, utils.GetPGConnectionString(pgConfig))
+			peerConn, peerErr := pgx.Connect(ctx, shared.GetPGConnectionString(pgConfig))
 			if peerErr != nil {
 				logger.Error(fmt.Sprintf("error creating pool for postgres peer %v with host %v: %v",
 					pgPeer.Name, pgConfig.Host, peerErr))
@@ -931,94 +933,61 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	return nil
 }
 
-func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
+type QRepWaitUntilNewRowsResult struct {
+	Found bool
+}
+
+func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 	config *protos.QRepConfig, last *protos.QRepPartition,
-) error {
+) (QRepWaitUntilNewRowsResult, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
 	if config.SourcePeer.Type != protos.DBType_POSTGRES || last.Range == nil {
-		return nil
+		return QRepWaitUntilNewRowsResult{Found: true}, nil
 	}
-	waitBetweenBatches := 5 * time.Second
-	if config.WaitBetweenBatchesSeconds > 0 {
-		waitBetweenBatches = time.Duration(config.WaitBetweenBatchesSeconds) * time.Second
-	}
+
+	logger.Info(fmt.Sprintf("current last partition value is %v", last))
 
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return fmt.Errorf("failed to get qrep source connector: %w", err)
+		return QRepWaitUntilNewRowsResult{Found: false}, fmt.Errorf("failed to get qrep source connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
+
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
+		return "scanning for new rows"
+	})
+	defer shutdown()
+
 	pgSrcConn := srcConn.(*connpostgres.PostgresConnector)
-	logger.Info(fmt.Sprintf("current last partition value is %v", last))
-	attemptCount := 1
-	for {
-		activity.RecordHeartbeat(ctx, fmt.Sprintf("no new rows yet, attempt #%d", attemptCount))
-		waitUntil := time.Now().Add(waitBetweenBatches)
-		for {
-			sleep := time.Until(waitUntil)
-			if sleep > 15*time.Second {
-				sleep = 15 * time.Second
-			}
-			time.Sleep(sleep)
-
-			activity.RecordHeartbeat(ctx, "heartbeat while waiting before next batch")
-			if err := ctx.Err(); err != nil {
-				return fmt.Errorf("cancelled while waiting for new rows: %w", err)
-			} else if time.Now().After(waitUntil) {
-				break
-			}
-		}
-
-		result, err := pgSrcConn.CheckForUpdatedMaxValue(ctx, config, last)
-		if err != nil {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return fmt.Errorf("failed to check for new rows: %w", err)
-		}
-		if result {
-			break
-		}
-
-		attemptCount += 1
+	result, err := pgSrcConn.CheckForUpdatedMaxValue(ctx, config, last)
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		return QRepWaitUntilNewRowsResult{Found: false}, fmt.Errorf("failed to check for new rows: %w", err)
 	}
 
-	return nil
+	return QRepWaitUntilNewRowsResult{Found: result}, nil
 }
 
 func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.RenameTablesInput) (
 	*protos.RenameTablesOutput, error,
 ) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.Peer)
+	conn, err := connectors.GetAs[connectors.RenameTablesConnector](ctx, config.Peer)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
-	defer connectors.CloseConnector(ctx, dstConn)
+	defer connectors.CloseConnector(ctx, conn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		return "renaming tables for job"
 	})
 	defer shutdown()
 
-	if config.Peer.Type == protos.DBType_SNOWFLAKE {
-		sfConn, ok := dstConn.(*connsnowflake.SnowflakeConnector)
-		if !ok {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return nil, errors.New("failed to cast connector to snowflake connector")
-		}
-		return sfConn.RenameTables(ctx, config)
-	} else if config.Peer.Type == protos.DBType_BIGQUERY {
-		bqConn, ok := dstConn.(*connbigquery.BigQueryConnector)
-		if !ok {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return nil, errors.New("failed to cast connector to bigquery connector")
-		}
-		return bqConn.RenameTables(ctx, config)
-	}
-	return nil, errors.New("rename tables is only supported on snowflake and bigquery")
+	return conn.RenameTables(ctx, config)
 }
 
 func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *protos.CreateTablesFromExistingInput) (

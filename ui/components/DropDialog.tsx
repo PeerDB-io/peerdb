@@ -1,6 +1,7 @@
 'use client';
 import { UDropMirrorResponse } from '@/app/dto/MirrorsDTO';
 import { UDropPeerResponse } from '@/app/dto/PeersDTO';
+import { DeleteScript } from '@/app/scripts/handlers';
 import { Peer } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Dialog, DialogClose } from '@/lib/Dialog';
@@ -24,6 +25,10 @@ interface dropPeerArgs {
 
 interface deleteAlertArgs {
   id: number | bigint;
+}
+
+interface deleteScriptArgs {
+  scriptId: number;
 }
 
 export const handleDropMirror = async (
@@ -62,8 +67,8 @@ export const DropDialog = ({
   mode,
   dropArgs,
 }: {
-  mode: 'PEER' | 'MIRROR' | 'ALERT';
-  dropArgs: dropMirrorArgs | dropPeerArgs | deleteAlertArgs;
+  mode: 'PEER' | 'MIRROR' | 'ALERT' | 'SCRIPT';
+  dropArgs: dropMirrorArgs | dropPeerArgs | deleteAlertArgs | deleteScriptArgs;
 }) => {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
@@ -108,6 +113,53 @@ export const DropDialog = ({
     }
   };
 
+  const handleDeleteScript = (dropArgs: deleteScriptArgs) => {
+    setLoading(true);
+    DeleteScript(dropArgs.scriptId).then((success) => {
+      setLoading(false);
+      if (success) window.location.reload();
+    });
+  };
+
+  const getDeleteText = () => {
+    let deletePart = 'Are you sure you want to delete ';
+    let objectSpecificDeleteText = '';
+    switch (mode) {
+      case 'MIRROR':
+        objectSpecificDeleteText = `mirror ${(dropArgs as dropMirrorArgs).flowJobName}`;
+        break;
+      case 'PEER':
+        objectSpecificDeleteText = `peer ${(dropArgs as dropPeerArgs).peerName}`;
+        break;
+      case 'ALERT':
+        objectSpecificDeleteText = 'this alert';
+        break;
+      case 'SCRIPT':
+        objectSpecificDeleteText = 'this script';
+        break;
+    }
+    return (
+      deletePart + objectSpecificDeleteText + '? This action cannot be reverted'
+    );
+  };
+
+  const handleDelete = () => {
+    switch (mode) {
+      case 'MIRROR':
+        handleDropMirror(dropArgs as dropMirrorArgs, setLoading, setMsg);
+        break;
+      case 'PEER':
+        handleDropPeer(dropArgs as dropPeerArgs);
+        break;
+      case 'ALERT':
+        handleDeleteAlert(dropArgs as deleteAlertArgs);
+        break;
+      case 'SCRIPT':
+        handleDeleteScript(dropArgs as deleteScriptArgs);
+        break;
+    }
+  };
+
   return (
     <Dialog
       noInteract={true}
@@ -126,23 +178,11 @@ export const DropDialog = ({
     >
       <div>
         <Label as='label' variant='action'>
-          Delete{' '}
-          {mode === 'MIRROR' ? 'Mirror' : mode === 'PEER' ? 'Peer' : 'Alert'}
+          Delete {mode.toLowerCase()}
         </Label>
         <Divider style={{ margin: 0 }} />
         <Label as='label' variant='body' style={{ marginTop: '0.3rem' }}>
-          Are you sure you want to delete{' '}
-          {mode === 'MIRROR'
-            ? 'mirror'
-            : mode === 'PEER'
-              ? 'peer'
-              : 'this alert'}{' '}
-          <b>
-            {mode === 'MIRROR'
-              ? (dropArgs as dropMirrorArgs).flowJobName
-              : (dropArgs as dropPeerArgs).peerName}
-          </b>{' '}
-          ? This action cannot be reverted.
+          {getDeleteText()}
         </Label>
         <div style={{ display: 'flex', marginTop: '1rem' }}>
           <DialogClose>
@@ -151,17 +191,7 @@ export const DropDialog = ({
             </Button>
           </DialogClose>
           <Button
-            onClick={() =>
-              mode === 'MIRROR'
-                ? handleDropMirror(
-                    dropArgs as dropMirrorArgs,
-                    setLoading,
-                    setMsg
-                  )
-                : mode === 'PEER'
-                  ? handleDropPeer(dropArgs as dropPeerArgs)
-                  : handleDeleteAlert(dropArgs as deleteAlertArgs)
-            }
+            onClick={() => handleDelete()}
             style={{
               marginLeft: '1rem',
               backgroundColor: '#dc3545',

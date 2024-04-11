@@ -2,103 +2,80 @@ package model
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
-	"time"
 
-	"github.com/shopspring/decimal"
+	"github.com/google/uuid"
 
-	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
+	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 // encoding/gob cannot encode unexported fields
 type RecordItems struct {
-	ColToValIdx map[string]int
-	Values      []qvalue.QValue
+	ColToVal map[string]qvalue.QValue
 }
 
-func NewRecordItems(capacity int) *RecordItems {
-	return &RecordItems{
-		ColToValIdx: make(map[string]int, capacity),
-		Values:      make([]qvalue.QValue, 0, capacity),
+func NewRecordItems(capacity int) RecordItems {
+	return RecordItems{
+		ColToVal: make(map[string]qvalue.QValue, capacity),
 	}
 }
 
-func NewRecordItemWithData(cols []string, val []qvalue.QValue) *RecordItems {
+func NewRecordItemWithData(cols []string, val []qvalue.QValue) RecordItems {
 	recordItem := NewRecordItems(len(cols))
 	for i, col := range cols {
-		recordItem.ColToValIdx[col] = len(recordItem.Values)
-		recordItem.Values = append(recordItem.Values, val[i])
+		recordItem.ColToVal[col] = val[i]
 	}
 	return recordItem
 }
 
-func (r *RecordItems) AddColumn(col string, val qvalue.QValue) {
-	if idx, ok := r.ColToValIdx[col]; ok {
-		r.Values[idx] = val
-	} else {
-		r.ColToValIdx[col] = len(r.Values)
-		r.Values = append(r.Values, val)
-	}
+func (r RecordItems) AddColumn(col string, val qvalue.QValue) {
+	r.ColToVal[col] = val
 }
 
-func (r *RecordItems) GetColumnValue(col string) qvalue.QValue {
-	if idx, ok := r.ColToValIdx[col]; ok {
-		return r.Values[idx]
-	}
-	return qvalue.QValue{}
+func (r RecordItems) GetColumnValue(col string) qvalue.QValue {
+	return r.ColToVal[col]
 }
 
 // UpdateIfNotExists takes in a RecordItems as input and updates the values of the
 // current RecordItems with the values from the input RecordItems for the columns
 // that are present in the input RecordItems but not in the current RecordItems.
 // We return the slice of col names that were updated.
-func (r *RecordItems) UpdateIfNotExists(input *RecordItems) []string {
+func (r RecordItems) UpdateIfNotExists(input RecordItems) []string {
 	updatedCols := make([]string, 0)
-	for col, idx := range input.ColToValIdx {
-		if _, ok := r.ColToValIdx[col]; !ok {
-			r.ColToValIdx[col] = len(r.Values)
-			r.Values = append(r.Values, input.Values[idx])
+	for col, val := range input.ColToVal {
+		if _, ok := r.ColToVal[col]; !ok {
+			r.ColToVal[col] = val
 			updatedCols = append(updatedCols, col)
 		}
 	}
 	return updatedCols
 }
 
-func (r *RecordItems) GetValueByColName(colName string) (qvalue.QValue, error) {
-	idx, ok := r.ColToValIdx[colName]
+func (r RecordItems) GetValueByColName(colName string) (qvalue.QValue, error) {
+	val, ok := r.ColToVal[colName]
 	if !ok {
-		return qvalue.QValue{}, fmt.Errorf("column name %s not found", colName)
+		return nil, fmt.Errorf("column name %s not found", colName)
 	}
-	return r.Values[idx], nil
+	return val, nil
 }
 
-func (r *RecordItems) Len() int {
-	return len(r.Values)
+func (r RecordItems) Len() int {
+	return len(r.ColToVal)
 }
 
-func (r *RecordItems) toMap(hstoreAsJSON bool) (map[string]interface{}, error) {
-	if r.ColToValIdx == nil {
-		return nil, errors.New("colToValIdx is nil")
-	}
-
-	jsonStruct := make(map[string]interface{}, len(r.ColToValIdx))
-	for col, idx := range r.ColToValIdx {
-		v := r.Values[idx]
-		if v.Value == nil {
+func (r RecordItems) toMap(hstoreAsJSON bool, opts ToJSONOptions) (map[string]interface{}, error) {
+	jsonStruct := make(map[string]interface{}, len(r.ColToVal))
+	for col, qv := range r.ColToVal {
+		if qv == nil {
 			jsonStruct[col] = nil
 			continue
 		}
 
-		var err error
-		switch v.Kind {
-		case qvalue.QValueKindBit, qvalue.QValueKindBytes:
-			bitVal, ok := v.Value.([]byte)
-			if !ok {
-				return nil, errors.New("expected []byte value")
-			}
+		switch v := qv.(type) {
+		case qvalue.QValueBit:
+			bitVal := v.Val
 
 			// convert to binary string because
 			// json.Marshal stores byte arrays as
@@ -109,36 +86,55 @@ func (r *RecordItems) toMap(hstoreAsJSON bool) (map[string]interface{}, error) {
 			}
 
 			jsonStruct[col] = binStr
-		case qvalue.QValueKindQChar:
-			ch, ok := v.Value.(uint8)
-			if !ok {
-				return nil, fmt.Errorf("expected \"char\" value for column %s for %T", col, v.Value)
+		case qvalue.QValueBytes:
+			bitVal := v.Val
+
+			// convert to binary string because
+			// json.Marshal stores byte arrays as
+			// base64
+			binStr := ""
+			for _, b := range bitVal {
+				binStr += fmt.Sprintf("%08b", b)
 			}
 
-			jsonStruct[col] = string(ch)
-		case qvalue.QValueKindString, qvalue.QValueKindJSON:
-			strVal, ok := v.Value.(string)
-			if !ok {
-				return nil, fmt.Errorf("expected string value for column %s for %T", col, v.Value)
-			}
+			jsonStruct[col] = binStr
+		case qvalue.QValueUUID:
+			jsonStruct[col] = uuid.UUID(v.Val)
+		case qvalue.QValueQChar:
+			jsonStruct[col] = string(v.Val)
+		case qvalue.QValueString:
+			strVal := v.Val
 
 			if len(strVal) > 15*1024*1024 {
 				jsonStruct[col] = ""
 			} else {
 				jsonStruct[col] = strVal
 			}
-		case qvalue.QValueKindHStore:
-			hstoreVal, ok := v.Value.(string)
-			if !ok {
-				return nil, fmt.Errorf("expected string value for hstore column %s for value %T", col, v.Value)
+		case qvalue.QValueJSON:
+			if len(v.Val) > 15*1024*1024 {
+				jsonStruct[col] = ""
+			} else if _, ok := opts.UnnestColumns[col]; ok {
+				var unnestStruct map[string]interface{}
+				err := json.Unmarshal([]byte(v.Val), &unnestStruct)
+				if err != nil {
+					return nil, err
+				}
+
+				for k, v := range unnestStruct {
+					jsonStruct[k] = v
+				}
+			} else {
+				jsonStruct[col] = v.Val
 			}
+		case qvalue.QValueHStore:
+			hstoreVal := v.Val
 
 			if !hstoreAsJSON {
 				jsonStruct[col] = hstoreVal
 			} else {
-				jsonVal, err := hstore_util.ParseHstore(hstoreVal)
+				jsonVal, err := datatypes.ParseHstore(hstoreVal)
 				if err != nil {
-					return nil, fmt.Errorf("unable to convert hstore column %s to json for value %T", col, v.Value)
+					return nil, fmt.Errorf("unable to convert hstore column %s to json for value %T: %w", col, v, err)
 				}
 
 				if len(jsonVal) > 15*1024*1024 {
@@ -148,55 +144,39 @@ func (r *RecordItems) toMap(hstoreAsJSON bool) (map[string]interface{}, error) {
 				}
 			}
 
-		case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindDate,
-			qvalue.QValueKindTime, qvalue.QValueKindTimeTZ:
-			jsonStruct[col], err = v.GoTimeConvert()
-			if err != nil {
-				return nil, err
-			}
-		case qvalue.QValueKindArrayDate:
-			dateArr, ok := v.Value.([]time.Time)
-			if !ok {
-				return nil, errors.New("expected []time.Time value")
-			}
+		case qvalue.QValueTimestamp:
+			jsonStruct[col] = v.Val.Format("2006-01-02 15:04:05.999999")
+		case qvalue.QValueTimestampTZ:
+			jsonStruct[col] = v.Val.Format("2006-01-02 15:04:05.999999-0700")
+		case qvalue.QValueDate:
+			jsonStruct[col] = v.Val.Format("2006-01-02")
+		case qvalue.QValueTime:
+			jsonStruct[col] = v.Val.Format("15:04:05.999999")
+		case qvalue.QValueTimeTZ:
+			jsonStruct[col] = v.Val.Format("15:04:05.999999")
+		case qvalue.QValueArrayDate:
+			dateArr := v.Val
 			formattedDateArr := make([]string, 0, len(dateArr))
 			for _, val := range dateArr {
 				formattedDateArr = append(formattedDateArr, val.Format("2006-01-02"))
 			}
 			jsonStruct[col] = formattedDateArr
-		case qvalue.QValueKindNumeric:
-			val, ok := v.Value.(decimal.Decimal)
-			if !ok {
-				return nil, errors.New("expected decimal.Decimal value")
-			}
-
-			jsonStruct[col] = val.String()
-		case qvalue.QValueKindFloat64:
-			floatVal, ok := v.Value.(float64)
-			if !ok {
-				return nil, errors.New("expected float64 value")
-			}
-			if math.IsNaN(floatVal) || math.IsInf(floatVal, 0) {
+		case qvalue.QValueNumeric:
+			jsonStruct[col] = v.Val.String()
+		case qvalue.QValueFloat64:
+			if math.IsNaN(v.Val) || math.IsInf(v.Val, 0) {
 				jsonStruct[col] = nil
 			} else {
-				jsonStruct[col] = floatVal
+				jsonStruct[col] = v.Val
 			}
-		case qvalue.QValueKindFloat32:
-			floatVal, ok := v.Value.(float32)
-			if !ok {
-				return nil, errors.New("expected float32 value")
-			}
-			if math.IsNaN(float64(floatVal)) || math.IsInf(float64(floatVal), 0) {
+		case qvalue.QValueFloat32:
+			if math.IsNaN(float64(v.Val)) || math.IsInf(float64(v.Val), 0) {
 				jsonStruct[col] = nil
 			} else {
-				jsonStruct[col] = floatVal
+				jsonStruct[col] = v.Val
 			}
-		case qvalue.QValueKindArrayFloat64:
-			floatArr, ok := v.Value.([]float64)
-			if !ok {
-				return nil, errors.New("expected []float64 value")
-			}
-
+		case qvalue.QValueArrayFloat64:
+			floatArr := v.Val
 			nullableFloatArr := make([]interface{}, 0, len(floatArr))
 			for _, val := range floatArr {
 				if math.IsNaN(val) || math.IsInf(val, 0) {
@@ -206,11 +186,8 @@ func (r *RecordItems) toMap(hstoreAsJSON bool) (map[string]interface{}, error) {
 				}
 			}
 			jsonStruct[col] = nullableFloatArr
-		case qvalue.QValueKindArrayFloat32:
-			floatArr, ok := v.Value.([]float32)
-			if !ok {
-				return nil, errors.New("expected []float32 value")
-			}
+		case qvalue.QValueArrayFloat32:
+			floatArr := v.Val
 			nullableFloatArr := make([]interface{}, 0, len(floatArr))
 			for _, val := range floatArr {
 				if math.IsNaN(float64(val)) || math.IsInf(float64(val), 0) {
@@ -222,52 +199,31 @@ func (r *RecordItems) toMap(hstoreAsJSON bool) (map[string]interface{}, error) {
 			jsonStruct[col] = nullableFloatArr
 
 		default:
-			jsonStruct[col] = v.Value
+			jsonStruct[col] = v.Value()
 		}
 	}
 
 	return jsonStruct, nil
 }
 
-// a separate method like gives flexibility
-// for us to handle some data types differently
-func (r *RecordItems) ToJSONWithOptions(options *ToJSONOptions) (string, error) {
-	return r.ToJSONWithOpts(options)
+func (r RecordItems) ToJSONWithOptions(options ToJSONOptions) (string, error) {
+	bytes, err := r.MarshalJSONWithOptions(options)
+	return string(bytes), err
 }
 
-func (r *RecordItems) ToJSON() (string, error) {
-	unnestCols := make([]string, 0)
-	return r.ToJSONWithOpts(NewToJSONOptions(unnestCols, true))
+func (r RecordItems) ToJSON() (string, error) {
+	return r.ToJSONWithOptions(NewToJSONOptions(nil, true))
 }
 
-func (r *RecordItems) ToJSONWithOpts(opts *ToJSONOptions) (string, error) {
-	jsonStruct, err := r.toMap(opts.HStoreAsJSON)
+func (r RecordItems) MarshalJSON() ([]byte, error) {
+	return r.MarshalJSONWithOptions(NewToJSONOptions(nil, true))
+}
+
+func (r RecordItems) MarshalJSONWithOptions(opts ToJSONOptions) ([]byte, error) {
+	jsonStruct, err := r.toMap(opts.HStoreAsJSON, opts)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	for col, idx := range r.ColToValIdx {
-		v := r.Values[idx]
-		if v.Kind == qvalue.QValueKindJSON {
-			if _, ok := opts.UnnestColumns[col]; ok {
-				var unnestStruct map[string]interface{}
-				err := json.Unmarshal([]byte(v.Value.(string)), &unnestStruct)
-				if err != nil {
-					return "", err
-				}
-
-				for k, v := range unnestStruct {
-					jsonStruct[k] = v
-				}
-				delete(jsonStruct, col)
-			}
-		}
-	}
-
-	jsonBytes, err := json.Marshal(jsonStruct)
-	if err != nil {
-		return "", err
-	}
-
-	return string(jsonBytes), nil
+	return json.Marshal(jsonStruct)
 }

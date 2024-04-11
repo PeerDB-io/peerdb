@@ -11,7 +11,9 @@ import (
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	connclickhouse "github.com/PeerDB-io/peer-flow/connectors/clickhouse"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
+	connkafka "github.com/PeerDB-io/peer-flow/connectors/kafka"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
+	connpubsub "github.com/PeerDB-io/peer-flow/connectors/pubsub"
 	conns3 "github.com/PeerDB-io/peer-flow/connectors/s3"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
@@ -25,6 +27,14 @@ var ErrUnsupportedFunctionality = errors.New("requested connector does not suppo
 type Connector interface {
 	Close() error
 	ConnectionActive(context.Context) error
+}
+
+type ValidationConnector interface {
+	Connector
+
+	// ValidationCheck performs validation for the connectors,
+	// usually includes permissions to create and use objects (tables, schema etc).
+	ValidateCheck(context.Context) error
 }
 
 type GetTableSchemaConnector interface {
@@ -148,7 +158,7 @@ type QRepPullConnector interface {
 	GetQRepPartitions(ctx context.Context, config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error)
 
 	// PullQRepRecords returns the records for a given partition.
-	PullQRepRecords(ctx context.Context, config *protos.QRepConfig, partition *protos.QRepPartition) (*model.QRecordBatch, error)
+	PullQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, *model.QRecordStream) (int, error)
 }
 
 type QRepSyncConnector interface {
@@ -176,6 +186,12 @@ type QRepConsolidateConnector interface {
 	CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error
 }
 
+type RenameTablesConnector interface {
+	Connector
+
+	RenameTables(context.Context, *protos.RenameTablesInput) (*protos.RenameTablesOutput, error)
+}
+
 func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 	switch inner := config.Config.(type) {
 	case *protos.Peer_PostgresConfig:
@@ -194,12 +210,16 @@ func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 		return connsqlserver.NewSQLServerConnector(ctx, inner.SqlserverConfig)
 	case *protos.Peer_ClickhouseConfig:
 		return connclickhouse.NewClickhouseConnector(ctx, inner.ClickhouseConfig)
+	case *protos.Peer_KafkaConfig:
+		return connkafka.NewKafkaConnector(ctx, inner.KafkaConfig)
+	case *protos.Peer_PubsubConfig:
+		return connpubsub.NewPubSubConnector(ctx, inner.PubsubConfig)
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}
 }
 
-func GetConnectorAs[T Connector](ctx context.Context, config *protos.Peer) (T, error) {
+func GetAs[T Connector](ctx context.Context, config *protos.Peer) (T, error) {
 	var none T
 	conn, err := GetConnector(ctx, config)
 	if err != nil {
@@ -214,27 +234,27 @@ func GetConnectorAs[T Connector](ctx context.Context, config *protos.Peer) (T, e
 }
 
 func GetCDCPullConnector(ctx context.Context, config *protos.Peer) (CDCPullConnector, error) {
-	return GetConnectorAs[CDCPullConnector](ctx, config)
+	return GetAs[CDCPullConnector](ctx, config)
 }
 
 func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConnector, error) {
-	return GetConnectorAs[CDCSyncConnector](ctx, config)
+	return GetAs[CDCSyncConnector](ctx, config)
 }
 
 func GetCDCNormalizeConnector(ctx context.Context, config *protos.Peer) (CDCNormalizeConnector, error) {
-	return GetConnectorAs[CDCNormalizeConnector](ctx, config)
+	return GetAs[CDCNormalizeConnector](ctx, config)
 }
 
 func GetQRepPullConnector(ctx context.Context, config *protos.Peer) (QRepPullConnector, error) {
-	return GetConnectorAs[QRepPullConnector](ctx, config)
+	return GetAs[QRepPullConnector](ctx, config)
 }
 
 func GetQRepSyncConnector(ctx context.Context, config *protos.Peer) (QRepSyncConnector, error) {
-	return GetConnectorAs[QRepSyncConnector](ctx, config)
+	return GetAs[QRepSyncConnector](ctx, config)
 }
 
 func GetQRepConsolidateConnector(ctx context.Context, config *protos.Peer) (QRepConsolidateConnector, error) {
-	return GetConnectorAs[QRepConsolidateConnector](ctx, config)
+	return GetAs[QRepConsolidateConnector](ctx, config)
 }
 
 func CloseConnector(ctx context.Context, conn Connector) {
@@ -252,6 +272,8 @@ var (
 	_ CDCSyncConnector = &connbigquery.BigQueryConnector{}
 	_ CDCSyncConnector = &connsnowflake.SnowflakeConnector{}
 	_ CDCSyncConnector = &conneventhub.EventHubConnector{}
+	_ CDCSyncConnector = &connkafka.KafkaConnector{}
+	_ CDCSyncConnector = &connpubsub.PubSubConnector{}
 	_ CDCSyncConnector = &conns3.S3Connector{}
 	_ CDCSyncConnector = &connclickhouse.ClickhouseConnector{}
 
@@ -279,4 +301,12 @@ var (
 
 	_ QRepConsolidateConnector = &connsnowflake.SnowflakeConnector{}
 	_ QRepConsolidateConnector = &connclickhouse.ClickhouseConnector{}
+
+	_ RenameTablesConnector = &connsnowflake.SnowflakeConnector{}
+	_ RenameTablesConnector = &connbigquery.BigQueryConnector{}
+
+	_ ValidationConnector = &connsnowflake.SnowflakeConnector{}
+	_ ValidationConnector = &connclickhouse.ClickhouseConnector{}
+	_ ValidationConnector = &connbigquery.BigQueryConnector{}
+	_ ValidationConnector = &conns3.S3Connector{}
 )

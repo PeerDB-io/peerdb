@@ -17,7 +17,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -124,9 +123,9 @@ func (s PeerFlowE2ETestSuiteSQLServer) setupPGDestinationTable(tableName string)
 	require.NoError(s.t, err)
 }
 
-func getSimpleTableSchema() *model.QRecordSchema {
-	return &model.QRecordSchema{
-		Fields: []model.QField{
+func getSimpleTableSchema() *qvalue.QRecordSchema {
+	return &qvalue.QRecordSchema{
+		Fields: []qvalue.QField{
 			{Name: "id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "card_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "v_from", Type: qvalue.QValueKindTimestamp, Nullable: true},
@@ -172,7 +171,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 		WaitBetweenBatchesSeconds:  5,
 	}
 
-	env := e2e.RunQrepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 

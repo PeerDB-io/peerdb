@@ -38,7 +38,7 @@ function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
         />
       </div>
       <div style={{ height: '3rem' }}>
-        <Label variant='body'>Sync history</Label>
+        <Label variant='headline'>Sync history</Label>
       </div>
       <BarChart
         className='mt-3'

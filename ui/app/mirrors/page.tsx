@@ -1,9 +1,8 @@
 'use client';
 
+import NewButton from '@/components/NewButton';
 import { QRepConfig } from '@/grpc_generated/flow';
-import { Button } from '@/lib/Button';
 import { Header } from '@/lib/Header';
-import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { LayoutMain } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
@@ -50,21 +49,29 @@ export default function Mirrors() {
         <Header
           variant='title2'
           slot={
-            <Button as={Link} href='/mirrors/create' variant='normalSolid'>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                <Icon name='add' /> <Label>New mirror</Label>
-              </div>
-            </Button>
+            <NewButton targetPage='/mirrors/create' buttonText='New mirror' />
           }
         >
           Mirrors
         </Header>
+        <Label>
+          Mirrors are used to replicate data from one peer to another. PeerDB
+          supports three modes of replication.
+          <br></br>
+          Begin moving data in minutes by following the simple
+          <Label
+            as={Link}
+            target='_blank'
+            style={{
+              color: 'teal',
+              cursor: 'pointer',
+              width: 'fit-content',
+            }}
+            href={`https://docs.peerdb.io/quickstart/quickstart`}
+          >
+            PeerDB Quickstart
+          </Label>
+        </Label>
       </Panel>
       {isLoading && (
         <Panel>

@@ -4,14 +4,14 @@ import (
 	"context"
 	"testing"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 func BenchmarkQRepQueryExecutor(b *testing.B) {
 	query := "SELECT * FROM bench.large_table"
 
 	ctx := context.Background()
-	connector, err := NewPostgresConnector(ctx, utils.GetCatalogPostgresConfigFromEnv())
+	connector, err := NewPostgresConnector(ctx, peerdbenv.GetCatalogPostgresConfigFromEnv())
 	if err != nil {
 		b.Fatalf("failed to create connection: %v", err)
 	}

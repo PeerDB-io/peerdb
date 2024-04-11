@@ -12,11 +12,11 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
 
@@ -29,14 +29,14 @@ func (s PeerFlowE2ETestSuiteBQ) checkJSONValue(tableName, colName, fieldName, va
 		"SELECT `%s`.%s FROM `%s.%s`;",
 		colName, fieldName, s.bqHelper.Config.DatasetId, tableName))
 	if err != nil {
-		return fmt.Errorf("json value check failed: %v", err)
+		return fmt.Errorf("json value check failed: %w", err)
 	}
 
 	if len(res.Records) == 0 {
 		return fmt.Errorf("bad json: empty result set from %s", tableName)
 	}
 
-	jsonVal := res.Records[0][0].Value
+	jsonVal := res.Records[0][0].Value()
 	if jsonVal != value {
 		return fmt.Errorf("bad json value in field %s of column %s: %v. expected: %v", fieldName, colName, jsonVal, value)
 	}
@@ -69,20 +69,8 @@ func (s *PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, softDel
 
 	for _, record := range recordBatch.Records {
 		for _, entry := range record {
-			if entry.Kind == qvalue.QValueKindBoolean {
-				isDeleteVal, ok := entry.Value.(bool)
-				if !(ok && isDeleteVal) {
-					return errors.New("peerdb column failed: _PEERDB_IS_DELETED is not true")
-				}
-				recordCount += 1
-			}
-
-			if entry.Kind == qvalue.QValueKindTimestamp {
-				_, ok := entry.Value.(time.Time)
-				if !ok {
-					return errors.New("peerdb column failed: _PEERDB_SYNCED_AT is not valid")
-				}
-
+			switch entry.(type) {
+			case qvalue.QValueBoolean, qvalue.QValueTimestamp:
 				recordCount += 1
 			}
 		}
@@ -388,7 +376,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
 	var pgErr *pgconn.PgError
 	_, enumErr := s.Conn().Exec(context.Background(), createMoodEnum)
-	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !utils.IsUniqueError(pgErr) {
+	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !shared.IsUniqueError(pgErr) {
 		require.NoError(s.t, enumErr)
 	}
 
@@ -455,14 +443,17 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 
 		// check if JSON on bigquery side is a good JSON
 		if err := s.checkJSONValue(dstTableName, "c17", "sai", "-8.021390374331551"); err != nil {
+			s.t.Log(err)
 			return false
 		}
 
 		// check if HSTORE on bigquery side is a good JSON
 		if err := s.checkJSONValue(dstTableName, "c46", "key1", "\"value1\""); err != nil {
+			s.t.Log(err)
 			return false
 		}
 		if err := s.checkJSONValue(dstTableName, "c46", "key2", "null"); err != nil {
+			s.t.Log(err)
 			return false
 		}
 

@@ -10,8 +10,9 @@ use anyhow::Context;
 use pt::{
     flow_model::{FlowJob, FlowJobTableMapping, QRepFlowJob},
     peerdb_peers::{
-        peer::Config, BigqueryConfig, ClickhouseConfig, DbType, EventHubConfig, MongoConfig, Peer,
-        PostgresConfig, S3Config, SnowflakeConfig, SqlServerConfig,
+        peer::Config, BigqueryConfig, ClickhouseConfig, DbType, EventHubConfig, GcpServiceAccount,
+        KafkaConfig, MongoConfig, Peer, PostgresConfig, PubSubConfig, S3Config, SnowflakeConfig,
+        SqlServerConfig,
     },
 };
 use qrep::process_options;
@@ -88,15 +89,8 @@ impl<'a> StatementAnalyzer for PeerExistanceAnalyzer<'a> {
 /// PeerDDLAnalyzer is a statement analyzer that checks if the given
 /// statement is a PeerDB DDL statement. If it is, it returns the type of
 /// DDL statement.
-pub struct PeerDDLAnalyzer<'a> {
-    peers: &'a HashMap<String, Peer>,
-}
-
-impl<'a> PeerDDLAnalyzer<'a> {
-    pub fn new(peers: &'a HashMap<String, Peer>) -> Self {
-        Self { peers }
-    }
-}
+#[derive(Default)]
+pub struct PeerDDLAnalyzer;
 
 #[derive(Debug, Clone)]
 pub enum PeerDDL {
@@ -138,7 +132,7 @@ pub enum PeerDDL {
     },
 }
 
-impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
+impl StatementAnalyzer for PeerDDLAnalyzer {
     type Output = Option<PeerDDL>;
 
     fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output> {
@@ -150,7 +144,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                 with_options,
             } => {
                 let db_type = DbType::from(peer_type.clone());
-                let config = parse_db_options(self.peers, db_type, with_options)?;
+                let config = parse_db_options(db_type, with_options)?;
                 let peer = Peer {
                     name: peer_name.to_string().to_lowercase(),
                     r#type: db_type as i32,
@@ -248,12 +242,11 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
                             _ => None,
                         };
-                        let snapshot_staging_path = match raw_options
-                            .remove("snapshot_staging_path")
-                        {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
-                            _ => Some("".to_string()),
-                        };
+                        let snapshot_staging_path =
+                            match raw_options.remove("snapshot_staging_path") {
+                                Some(sqlparser::ast::Value::SingleQuotedString(s)) => s.clone(),
+                                _ => String::new(),
+                            };
 
                         let snapshot_max_parallel_workers: Option<u32> = match raw_options
                             .remove("snapshot_max_parallel_workers")
@@ -311,6 +304,11 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             _ => false,
                         };
 
+                        let script = match raw_options.remove("script") {
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => s.clone(),
+                            _ => String::new(),
+                        };
+
                         let flow_job = FlowJob {
                             name: cdc.mirror_name.to_string().to_lowercase(),
                             source_peer: cdc.source_peer.to_string().to_lowercase(),
@@ -333,6 +331,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             soft_delete_col_name,
                             synced_at_col_name,
                             initial_snapshot_only: initial_copy_only,
+                            script,
                         };
 
                         if initial_copy_only && !do_initial_copy {
@@ -489,11 +488,7 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
     }
 }
 
-fn parse_db_options(
-    peers: &HashMap<String, Peer>,
-    db_type: DbType,
-    with_options: &[SqlOption],
-) -> anyhow::Result<Option<Config>> {
+fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Result<Option<Config>> {
     let mut opts: HashMap<&str, &str> = HashMap::with_capacity(with_options.len());
     for opt in with_options {
         let val = match opt.value {
@@ -658,45 +653,6 @@ fn parse_db_options(
             };
             Config::PostgresConfig(postgres_config)
         }
-        DbType::Eventhub => {
-            let subscription_id = opts
-                .get("subscription_id")
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-
-            // partition_count default to 3 if not set, parse as int
-            let partition_count = opts
-                .get("partition_count")
-                .unwrap_or(&"3")
-                .parse::<u32>()
-                .context("unable to parse partition_count as valid int")?;
-
-            // message_retention_in_days default to 7 if not set, parse as int
-            let message_retention_in_days = opts
-                .get("message_retention_in_days")
-                .unwrap_or(&"7")
-                .parse::<u32>()
-                .context("unable to parse message_retention_in_days as valid int")?;
-
-            let eventhub_config = EventHubConfig {
-                namespace: opts
-                    .get("namespace")
-                    .context("no namespace specified")?
-                    .to_string(),
-                resource_group: opts
-                    .get("resource_group")
-                    .context("no resource group specified")?
-                    .to_string(),
-                location: opts
-                    .get("location")
-                    .context("location not specified")?
-                    .to_string(),
-                subscription_id,
-                partition_count,
-                message_retention_in_days,
-            };
-            Config::EventhubConfig(eventhub_config)
-        }
         DbType::S3 => {
             let s3_config = S3Config {
                 url: opts
@@ -731,44 +687,6 @@ fn parse_db_options(
                     .to_string(),
             };
             Config::SqlserverConfig(sqlserver_config)
-        }
-        DbType::EventhubGroup => {
-            // split comma separated list of columns and trim
-            let unnest_columns = opts
-                .get("unnest_columns")
-                .map(|columns| {
-                    columns
-                        .split(',')
-                        .map(|column| column.trim().to_string())
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-
-            let mut eventhubs: HashMap<String, EventHubConfig> = HashMap::new();
-            for (key, _) in opts {
-                if matches!(key, "metadata_db" | "unnest_columns") {
-                    continue;
-                }
-
-                // check if peers contains key and if it does
-                // then add it to the eventhubs hashmap, if not error
-                if let Some(peer) = peers.get(key) {
-                    let eventhub_config = peer.config.as_ref().unwrap();
-                    if let Config::EventhubConfig(eventhub_config) = eventhub_config {
-                        eventhubs.insert(key.to_string(), eventhub_config.clone());
-                    } else {
-                        anyhow::bail!("Peer '{}' is not an eventhub", key);
-                    }
-                } else {
-                    anyhow::bail!("Peer '{}' does not exist", key);
-                }
-            }
-
-            let eventhub_group_config = pt::peerdb_peers::EventHubGroupConfig {
-                eventhubs,
-                unnest_columns,
-            };
-            Config::EventhubGroupConfig(eventhub_group_config)
         }
         DbType::Clickhouse => {
             let clickhouse_config = ClickhouseConfig {
@@ -812,6 +730,126 @@ fn parse_db_options(
                     .unwrap_or_default(),
             };
             Config::ClickhouseConfig(clickhouse_config)
+        }
+        DbType::Kafka => {
+            let kafka_config = KafkaConfig {
+                servers: opts
+                    .get("servers")
+                    .context("no servers specified")?
+                    .split(',')
+                    .map(String::from)
+                    .collect::<Vec<_>>(),
+                username: opts.get("user").cloned().unwrap_or_default().to_string(),
+                password: opts
+                    .get("password")
+                    .cloned()
+                    .unwrap_or_default()
+                    .to_string(),
+                sasl: opts
+                    .get("sasl_mechanism")
+                    .cloned()
+                    .unwrap_or_default()
+                    .to_string(),
+                partitioner: opts
+                    .get("sasl_mechanism")
+                    .cloned()
+                    .unwrap_or_default()
+                    .to_string(),
+                disable_tls: opts
+                    .get("disable_tls")
+                    .and_then(|s| s.parse::<bool>().ok())
+                    .unwrap_or_default(),
+            };
+            Config::KafkaConfig(kafka_config)
+        }
+        DbType::Pubsub => {
+            let pem_str = opts
+                .get("private_key")
+                .ok_or_else(|| anyhow::anyhow!("missing private_key option for bigquery"))?;
+            pem::parse(pem_str.as_bytes())
+                .map_err(|err| anyhow::anyhow!("unable to parse private_key: {:?}", err))?;
+            let ps_config = PubSubConfig {
+                service_account: Some(GcpServiceAccount {
+                    auth_type: opts
+                        .get("type")
+                        .ok_or_else(|| anyhow::anyhow!("missing type option for bigquery"))?
+                        .to_string(),
+                    project_id: opts
+                        .get("project_id")
+                        .ok_or_else(|| anyhow::anyhow!("missing project_id in peer options"))?
+                        .to_string(),
+                    private_key_id: opts
+                        .get("private_key_id")
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("missing private_key_id option for bigquery")
+                        })?
+                        .to_string(),
+                    private_key: pem_str.to_string(),
+                    client_email: opts
+                        .get("client_email")
+                        .ok_or_else(|| anyhow::anyhow!("missing client_email option for bigquery"))?
+                        .to_string(),
+                    client_id: opts
+                        .get("client_id")
+                        .ok_or_else(|| anyhow::anyhow!("missing client_id option for bigquery"))?
+                        .to_string(),
+                    auth_uri: opts
+                        .get("auth_uri")
+                        .ok_or_else(|| anyhow::anyhow!("missing auth_uri option for bigquery"))?
+                        .to_string(),
+                    token_uri: opts
+                        .get("token_uri")
+                        .ok_or_else(|| anyhow::anyhow!("missing token_uri option for bigquery"))?
+                        .to_string(),
+                    auth_provider_x509_cert_url: opts
+                        .get("auth_provider_x509_cert_url")
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "missing auth_provider_x509_cert_url option for bigquery"
+                            )
+                        })?
+                        .to_string(),
+                    client_x509_cert_url: opts
+                        .get("client_x509_cert_url")
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("missing client_x509_cert_url option for bigquery")
+                        })?
+                        .to_string(),
+                }),
+            };
+            Config::PubsubConfig(ps_config)
+        }
+        DbType::Eventhubs => {
+            let unnest_columns = opts
+                .get("unnest_columns")
+                .map(|columns| {
+                    columns
+                        .split(',')
+                        .map(|column| column.trim().to_string())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
+            let eventhubs: Vec<EventHubConfig> = serde_json::from_str(
+                opts.get("eventhubs")
+                    .context("no eventhubs specified")?
+                    .to_string()
+                    .as_str(),
+            )
+            .context("unable to parse eventhubs as valid json")?;
+
+            let mut eventhubs_map: HashMap<String, EventHubConfig> = HashMap::new();
+            for eventhub in eventhubs {
+                eventhubs_map.insert(eventhub.namespace.clone(), eventhub);
+            }
+
+            let eventhub_group_config = pt::peerdb_peers::EventHubGroupConfig {
+                eventhubs: eventhubs_map,
+                unnest_columns,
+            };
+
+            println!("eventhub_group_config: {:?}", eventhub_group_config);
+            Config::EventhubGroupConfig(eventhub_group_config)
         }
     }))
 }

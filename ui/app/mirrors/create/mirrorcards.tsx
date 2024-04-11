@@ -1,62 +1,55 @@
 'use client';
+import { MirrorType } from '@/app/dto/MirrorsDTO';
 import { Label } from '@/lib/Label';
 import { RowWithRadiobutton } from '@/lib/Layout';
 import { RadioButton, RadioButtonGroup } from '@/lib/RadioButtonGroup';
 import Link from 'next/link';
 import { SetStateAction } from 'react';
+import { MirrorCardStyle } from './styles';
 
 const MirrorCards = ({
+  mirrorType,
   setMirrorType,
 }: {
-  setMirrorType: (value: SetStateAction<string>) => void;
+  mirrorType: MirrorType;
+  setMirrorType: (value: SetStateAction<MirrorType>) => void;
 }) => {
   const cards = [
     {
-      title: 'CDC',
+      title: MirrorType.CDC,
       description:
         'Change-data Capture or CDC refers to replication of changes on the source table to the target table with initial load. This is recommended.',
       link: 'https://docs.peerdb.io/usecases/Real-time%20CDC/overview',
     },
     {
-      title: 'Query Replication',
+      title: MirrorType.QRep,
       description:
         'Query Replication allows you to specify a set of rows to be synced via a SELECT query.',
       link: 'https://docs.peerdb.io/usecases/Streaming%20Query%20Replication/overview',
     },
     {
-      title: 'XMIN',
+      title: MirrorType.XMin,
       description:
         'XMIN mode uses the xmin system column of PostgreSQL as a watermark column for replication.',
       link: 'https://docs.peerdb.io/sql/commands/create-mirror#xmin-query-replication',
     },
   ];
   return (
-    <RadioButtonGroup onValueChange={(value: string) => setMirrorType(value)}>
+    <RadioButtonGroup
+      value={mirrorType}
+      onValueChange={(value: MirrorType) => setMirrorType(value)}
+    >
       <div
         style={{
           display: 'flex',
           alignItems: 'start',
           marginBottom: '1rem',
+          columnGap: '1rem',
         }}
       >
         {cards.map((card, index) => {
           return (
-            <label
-              key={index}
-              style={{
-                padding: '0.5rem',
-                width: '35%',
-                marginRight:
-                  card.title === 'Query Replication' ? '0.5rem' : 'auto',
-                marginLeft:
-                  card.title === 'Query Replication' ? '0.5rem' : 'auto',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                border: '2px solid rgba(0, 0, 0, 0.07)',
-                borderRadius: '1rem',
-              }}
-            >
+            <label key={index} style={MirrorCardStyle}>
               <div>
                 <RowWithRadiobutton
                   label={
@@ -70,7 +63,8 @@ const MirrorCards = ({
                   <div style={{ fontSize: 14 }}>{card.description}</div>
                 </Label>
               </div>
-              <Link
+              <Label
+                as={Link}
                 target='_blank'
                 style={{
                   color: 'teal',
@@ -80,7 +74,7 @@ const MirrorCards = ({
                 href={card.link}
               >
                 Learn more
-              </Link>
+              </Label>
             </label>
           );
         })}

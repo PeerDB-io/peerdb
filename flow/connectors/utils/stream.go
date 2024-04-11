@@ -6,14 +6,15 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
-func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.RecordsToStreamResponse, error) {
+func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.QRecordStream, error) {
 	recordStream := model.NewQRecordStream(1 << 17)
-	err := recordStream.SetSchema(&model.QRecordSchema{
-		Fields: []model.QField{
+	err := recordStream.SetSchema(&qvalue.QRecordSchema{
+		Fields: []qvalue.QField{
 			{
 				Name:     "_peerdb_uid",
 				Type:     qvalue.QValueKindString,
@@ -62,19 +63,17 @@ func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.RecordsT
 
 	go func() {
 		for record := range req.GetRecords() {
-			qRecordOrError := recordToQRecordOrError(req.TableMapping, req.BatchID, record)
+			record.PopulateCountMap(req.TableMapping)
+			qRecordOrError := recordToQRecordOrError(req.BatchID, record)
 			recordStream.Records <- qRecordOrError
 		}
 
 		close(recordStream.Records)
 	}()
-
-	return &model.RecordsToStreamResponse{
-		Stream: recordStream,
-	}, nil
+	return recordStream, nil
 }
 
-func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, record model.Record) model.QRecordOrError {
+func recordToQRecordOrError(batchID int64, record model.Record) model.QRecordOrError {
 	var entries [8]qvalue.QValue
 	switch typedRecord := record.(type) {
 	case *model.InsertRecord:
@@ -86,23 +85,10 @@ func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, recor
 			}
 		}
 
-		entries[3] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: itemsJSON,
-		}
-		entries[4] = qvalue.QValue{
-			Kind:  qvalue.QValueKindInt64,
-			Value: 0,
-		}
-		entries[5] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: "",
-		}
-		entries[7] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: "",
-		}
-		tableMapping[typedRecord.DestinationTableName] += 1
+		entries[3] = qvalue.QValueString{Val: itemsJSON}
+		entries[4] = qvalue.QValueInt64{Val: 0}
+		entries[5] = qvalue.QValueString{Val: ""}
+		entries[7] = qvalue.QValueString{Val: ""}
 	case *model.UpdateRecord:
 		newItemsJSON, err := typedRecord.NewItems.ToJSON()
 		if err != nil {
@@ -117,23 +103,11 @@ func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, recor
 			}
 		}
 
-		entries[3] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: newItemsJSON,
-		}
-		entries[4] = qvalue.QValue{
-			Kind:  qvalue.QValueKindInt64,
-			Value: 1,
-		}
-		entries[5] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: oldItemsJSON,
-		}
-		entries[7] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: KeysToString(typedRecord.UnchangedToastColumns),
-		}
-		tableMapping[typedRecord.DestinationTableName] += 1
+		entries[3] = qvalue.QValueString{Val: newItemsJSON}
+		entries[4] = qvalue.QValueInt64{Val: 1}
+		entries[5] = qvalue.QValueString{Val: oldItemsJSON}
+		entries[7] = qvalue.QValueString{Val: KeysToString(typedRecord.UnchangedToastColumns)}
+
 	case *model.DeleteRecord:
 		itemsJSON, err := typedRecord.Items.ToJSON()
 		if err != nil {
@@ -142,47 +116,36 @@ func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, recor
 			}
 		}
 
-		entries[3] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: itemsJSON,
-		}
-		entries[4] = qvalue.QValue{
-			Kind:  qvalue.QValueKindInt64,
-			Value: 2,
-		}
-		entries[5] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: itemsJSON,
-		}
-		entries[7] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: KeysToString(typedRecord.UnchangedToastColumns),
-		}
-		tableMapping[typedRecord.DestinationTableName] += 1
+		entries[3] = qvalue.QValueString{Val: itemsJSON}
+		entries[4] = qvalue.QValueInt64{Val: 2}
+		entries[5] = qvalue.QValueString{Val: itemsJSON}
+		entries[7] = qvalue.QValueString{Val: KeysToString(typedRecord.UnchangedToastColumns)}
+
 	default:
 		return model.QRecordOrError{
 			Err: fmt.Errorf("unknown record type: %T", typedRecord),
 		}
 	}
 
-	entries[0] = qvalue.QValue{
-		Kind:  qvalue.QValueKindString,
-		Value: uuid.New().String(),
-	}
-	entries[1] = qvalue.QValue{
-		Kind:  qvalue.QValueKindInt64,
-		Value: time.Now().UnixNano(),
-	}
-	entries[2] = qvalue.QValue{
-		Kind:  qvalue.QValueKindString,
-		Value: record.GetDestinationTableName(),
-	}
-	entries[6] = qvalue.QValue{
-		Kind:  qvalue.QValueKindInt64,
-		Value: batchID,
-	}
+	entries[0] = qvalue.QValueString{Val: uuid.New().String()}
+	entries[1] = qvalue.QValueInt64{Val: time.Now().UnixNano()}
+	entries[2] = qvalue.QValueString{Val: record.GetDestinationTableName()}
+	entries[6] = qvalue.QValueInt64{Val: batchID}
 
 	return model.QRecordOrError{
 		Record: entries[:],
 	}
+}
+
+func InitialiseTableRowsMap(tableMaps []*protos.TableMapping) map[string]*model.RecordTypeCounts {
+	tableNameRowsMapping := make(map[string]*model.RecordTypeCounts, len(tableMaps))
+	for _, mapping := range tableMaps {
+		tableNameRowsMapping[mapping.DestinationTableIdentifier] = &model.RecordTypeCounts{
+			InsertCount: 0,
+			UpdateCount: 0,
+			DeleteCount: 0,
+		}
+	}
+
+	return tableNameRowsMapping
 }

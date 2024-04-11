@@ -129,7 +129,10 @@ func (c *SnowflakeConnector) createExternalStage(ctx context.Context, stageName 
 
 	cleanURL := fmt.Sprintf("s3://%s/%s/%s", s3o.Bucket, s3o.Prefix, config.FlowJobName)
 
-	s3Int := config.DestinationPeer.GetSnowflakeConfig().S3Integration
+	var s3Int string
+	if config.DestinationPeer != nil {
+		s3Int = config.DestinationPeer.GetSnowflakeConfig().S3Integration
+	}
 	provider, err := utils.GetAWSCredentialsProvider(ctx, "snowflake", utils.PeerAWSCredentials{})
 	if err != nil {
 		return "", err
@@ -159,8 +162,6 @@ func (c *SnowflakeConnector) createExternalStage(ctx context.Context, stageName 
 }
 
 func (c *SnowflakeConnector) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig) error {
-	c.logger.Info("Consolidating partitions")
-
 	destTable := config.DestinationTableIdentifier
 	stageName := c.getStageNameForJob(config.FlowJobName)
 
@@ -285,10 +286,4 @@ func (c *SnowflakeConnector) dropStage(ctx context.Context, stagingPath string, 
 
 func (c *SnowflakeConnector) getStageNameForJob(job string) string {
 	return fmt.Sprintf("%s.peerdb_stage_%s", c.rawSchema, job)
-}
-
-func (c *SnowflakeConnector) IsQRepPartitionSynced(ctx context.Context,
-	req *protos.IsQRepPartitionSyncedInput,
-) (bool, error) {
-	return c.pgMetadata.IsQrepPartitionSynced(ctx, req.FlowJobName, req.PartitionId)
 }

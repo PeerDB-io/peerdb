@@ -8,34 +8,24 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
-	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/geo"
+	datatypes "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type QRepQueryExecutor struct {
 	*PostgresConnector
+	logger      log.Logger
 	snapshot    string
-	testEnv     bool
 	flowJobName string
 	partitionID string
-	logger      log.Logger
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutor(flowJobName string, partitionID string) *QRepQueryExecutor {
-	return &QRepQueryExecutor{
-		PostgresConnector: c,
-		snapshot:          "",
-		flowJobName:       flowJobName,
-		partitionID:       partitionID,
-		logger:            log.With(c.logger, slog.String(string(shared.PartitionIDKey), partitionID)),
-	}
+	return c.NewQRepQueryExecutorSnapshot("", flowJobName, partitionID)
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(snapshot string, flowJobName string, partitionID string) *QRepQueryExecutor {
@@ -46,10 +36,6 @@ func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(snapshot string, flowJo
 		partitionID:       partitionID,
 		logger:            log.With(c.logger, slog.String(string(shared.PartitionIDKey), partitionID)),
 	}
-}
-
-func (qe *QRepQueryExecutor) SetTestEnv(testEnv bool) {
-	qe.testEnv = testEnv
 }
 
 func (qe *QRepQueryExecutor) ExecuteQuery(ctx context.Context, query string, args ...interface{}) (pgx.Rows, error) {
@@ -65,14 +51,6 @@ func (qe *QRepQueryExecutor) executeQueryInTx(ctx context.Context, tx pgx.Tx, cu
 	qe.logger.Info("Executing query in transaction")
 	q := fmt.Sprintf("FETCH %d FROM %s", fetchSize, cursorName)
 
-	if !qe.testEnv {
-		shutdown := utils.HeartbeatRoutine(ctx, func() string {
-			qe.logger.Info(fmt.Sprintf("still running '%s'...", q))
-			return fmt.Sprintf("running '%s'", q)
-		})
-		defer shutdown()
-	}
-
 	rows, err := tx.Query(ctx, q)
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to execute query in tx", slog.Any("error", err))
@@ -83,8 +61,8 @@ func (qe *QRepQueryExecutor) executeQueryInTx(ctx context.Context, tx pgx.Tx, cu
 }
 
 // FieldDescriptionsToSchema converts a slice of pgconn.FieldDescription to a QRecordSchema.
-func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) *model.QRecordSchema {
-	qfields := make([]model.QField, len(fds))
+func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) *qvalue.QRecordSchema {
+	qfields := make([]qvalue.QField, len(fds))
 	for i, fd := range fds {
 		cname := fd.Name
 		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID)
@@ -100,8 +78,8 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 		// TODO fix this.
 		cnullable := true
 		if ctype == qvalue.QValueKindNumeric {
-			precision, scale := numeric.ParseNumericTypmod(fd.TypeModifier)
-			qfields[i] = model.QField{
+			precision, scale := datatypes.ParseNumericTypmod(fd.TypeModifier)
+			qfields[i] = qvalue.QField{
 				Name:      cname,
 				Type:      ctype,
 				Nullable:  cnullable,
@@ -109,14 +87,14 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 				Scale:     scale,
 			}
 		} else {
-			qfields[i] = model.QField{
+			qfields[i] = qvalue.QField{
 				Name:     cname,
 				Type:     ctype,
 				Nullable: cnullable,
 			}
 		}
 	}
-	return model.NewQRecordSchema(qfields)
+	return qvalue.NewQRecordSchema(qfields)
 }
 
 func (qe *QRepQueryExecutor) ProcessRows(
@@ -159,50 +137,37 @@ func (qe *QRepQueryExecutor) processRowsStream(
 	fieldDescriptions []pgconn.FieldDescription,
 ) (int, error) {
 	numRows := 0
-	const heartBeatNumRows = 5000
+	const heartBeatNumRows = 10000
 
-	// Iterate over the rows
 	for rows.Next() {
-		select {
-		case <-ctx.Done():
+		if err := ctx.Err(); err != nil {
 			qe.logger.Info("Context canceled, exiting processRowsStream early")
-			return numRows, ctx.Err()
-		default:
-			// Process the row as before
-			record, err := qe.mapRowToQRecord(rows, fieldDescriptions)
-			if err != nil {
-				qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
-				stream.Records <- model.QRecordOrError{
-					Err: fmt.Errorf("failed to map row to QRecord: %w", err),
-				}
-				return 0, fmt.Errorf("failed to map row to QRecord: %w", err)
-			}
-
-			stream.Records <- model.QRecordOrError{
-				Record: record,
-				Err:    nil,
-			}
-
-			if numRows%heartBeatNumRows == 0 {
-				qe.recordHeartbeat(ctx, "cursor: %s - fetched %d records", cursorName, numRows)
-			}
-
-			numRows++
+			return numRows, err
 		}
+
+		record, err := qe.mapRowToQRecord(rows, fieldDescriptions)
+		if err != nil {
+			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
+			stream.Records <- model.QRecordOrError{
+				Err: fmt.Errorf("failed to map row to QRecord: %w", err),
+			}
+			return 0, fmt.Errorf("failed to map row to QRecord: %w", err)
+		}
+
+		stream.Records <- model.QRecordOrError{
+			Record: record,
+			Err:    nil,
+		}
+
+		if numRows%heartBeatNumRows == 0 {
+			qe.logger.Info("processing row stream", slog.String("cursor", cursorName), slog.Int("records", numRows))
+		}
+
+		numRows++
 	}
 
-	qe.recordHeartbeat(ctx, "cursor %s - fetch completed - %d records", cursorName, numRows)
-	qe.logger.Info("processed row stream")
+	qe.logger.Info("processed row stream", slog.String("cursor", cursorName), slog.Int("records", numRows))
 	return numRows, nil
-}
-
-func (qe *QRepQueryExecutor) recordHeartbeat(ctx context.Context, x string, args ...interface{}) {
-	if qe.testEnv {
-		qe.logger.Info(fmt.Sprintf(x, args...))
-		return
-	}
-	msg := fmt.Sprintf(x, args...)
-	activity.RecordHeartbeat(ctx, msg)
 }
 
 func (qe *QRepQueryExecutor) processFetchedRows(
@@ -399,7 +364,6 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
 	qe.logger.Info(fmt.Sprintf("[pg_query_executor] declared cursor '%s' for query '%s'", cursorName, query))
 
 	totalRecordsFetched := 0
-	numFetchOpsComplete := 0
 	for {
 		numRows, err := qe.processFetchedRows(ctx, query, tx, cursorName, fetchSize, stream)
 		if err != nil {
@@ -413,9 +377,6 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
 		if numRows == 0 {
 			break
 		}
-
-		numFetchOpsComplete += 1
-		qe.recordHeartbeat(ctx, "#%d fetched %d rows", numFetchOpsComplete, numRows)
 	}
 
 	qe.logger.Info("Committing transaction")
@@ -458,18 +419,25 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 			record[i] = tmp
 		} else {
 			customQKind := customTypeToQKind(typeName)
-			if customQKind == qvalue.QValueKindGeography || customQKind == qvalue.QValueKindGeometry {
-				wkbString, ok := values[i].(string)
-				wkt, err := geo.GeoValidate(wkbString)
-				if err != nil || !ok {
-					values[i] = nil
-				} else {
-					values[i] = wkt
+			if values[i] == nil {
+				record[i] = qvalue.QValueNull(customQKind)
+			} else {
+				switch customQKind {
+				case qvalue.QValueKindGeography, qvalue.QValueKindGeometry:
+					wkbString, ok := values[i].(string)
+					wkt, err := datatypes.GeoValidate(wkbString)
+					if err != nil || !ok {
+						record[i] = qvalue.QValueNull(qvalue.QValueKindGeography)
+					} else if customQKind == qvalue.QValueKindGeography {
+						record[i] = qvalue.QValueGeography{Val: wkt}
+					} else {
+						record[i] = qvalue.QValueGeometry{Val: wkt}
+					}
+				case qvalue.QValueKindHStore:
+					record[i] = qvalue.QValueHStore{Val: fmt.Sprint(values[i])}
+				case qvalue.QValueKindString:
+					record[i] = qvalue.QValueString{Val: fmt.Sprint(values[i])}
 				}
-			}
-			record[i] = qvalue.QValue{
-				Kind:  customQKind,
-				Value: values[i],
 			}
 		}
 	}

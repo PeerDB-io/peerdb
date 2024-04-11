@@ -165,9 +165,9 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 
 func (s *ClickhouseAvroSyncMethod) getAvroSchema(
 	dstTableName string,
-	schema *model.QRecordSchema,
+	schema *qvalue.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
-	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema, qvalue.QDWHTypeClickhouse)
+	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema, protos.DBType_CLICKHOUSE)
 	if err != nil {
 		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
@@ -182,7 +182,7 @@ func (s *ClickhouseAvroSyncMethod) writeToAvroFile(
 	flowJobName string,
 ) (*avro.AvroFile, error) {
 	stagingPath := s.connector.credsProvider.BucketPath
-	ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressZstd, qvalue.QDWHTypeClickhouse)
+	ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressZstd, protos.DBType_CLICKHOUSE)
 	s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse staging path: %w", err)

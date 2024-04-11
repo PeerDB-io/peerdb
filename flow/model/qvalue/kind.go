@@ -3,12 +3,13 @@ package qvalue
 import (
 	"fmt"
 	"strings"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
 type QValueKind string
 
 const (
-	QValueKindEmpty       QValueKind = ""
 	QValueKindInvalid     QValueKind = "invalid"
 	QValueKindFloat32     QValueKind = "float32"
 	QValueKindFloat64     QValueKind = "float64"
@@ -24,6 +25,7 @@ const (
 	QValueKindDate        QValueKind = "date"
 	QValueKindTime        QValueKind = "time"
 	QValueKindTimeTZ      QValueKind = "timetz"
+	QValueKindInterval    QValueKind = "interval"
 	QValueKindNumeric     QValueKind = "numeric"
 	QValueKindBytes       QValueKind = "bytes"
 	QValueKindUUID        QValueKind = "uuid"
@@ -69,6 +71,7 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindJSON:        "VARIANT",
 	QValueKindTimestamp:   "TIMESTAMP_NTZ",
 	QValueKindTimestampTZ: "TIMESTAMP_TZ",
+	QValueKindInterval:    "VARIANT",
 	QValueKindTime:        "TIME",
 	QValueKindTimeTZ:      "TIME",
 	QValueKindDate:        "DATE",
@@ -117,6 +120,7 @@ var QValueKindToClickhouseTypeMap = map[QValueKind]string{
 	QValueKindTimeTZ:      "String",
 	QValueKindInvalid:     "String",
 	QValueKindHStore:      "String",
+
 	// array types will be mapped to VARIANT
 	QValueKindArrayFloat32: "Array(Float32)",
 	QValueKindArrayFloat64: "Array(Float64)",
@@ -127,15 +131,15 @@ var QValueKindToClickhouseTypeMap = map[QValueKind]string{
 	QValueKindArrayInt16:   "Array(Int16)",
 }
 
-func (kind QValueKind) ToDWHColumnType(dwhType QDWHType) (string, error) {
+func (kind QValueKind) ToDWHColumnType(dwhType protos.DBType) (string, error) {
 	switch dwhType {
-	case QDWHTypeSnowflake:
+	case protos.DBType_SNOWFLAKE:
 		if val, ok := QValueKindToSnowflakeTypeMap[kind]; ok {
 			return val, nil
 		} else {
 			return "STRING", nil
 		}
-	case QDWHTypeClickhouse:
+	case protos.DBType_CLICKHOUSE:
 		if val, ok := QValueKindToClickhouseTypeMap[kind]; ok {
 			return val, nil
 		} else {

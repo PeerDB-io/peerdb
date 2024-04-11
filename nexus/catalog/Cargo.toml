@@ -9,12 +9,11 @@ edition = "2021"
 anyhow = "1"
 async-trait = "0.1"
 chrono.workspace = true
-prost = "0.12"
 peer-cursor = { path = "../peer-cursor" }
 peer-postgres = { path = "../peer-postgres" }
 pgwire.workspace = true
 pt = { path = "../pt" }
-refinery = { version = "0.8", features = ["tokio-postgres"] }
+refinery = { version = "0.8", default-features = false, features = ["tokio-postgres"] }
 serde_json = "1.0"
 sqlparser.workspace = true
 tokio = { version = "1.13.0", features = ["full"] }

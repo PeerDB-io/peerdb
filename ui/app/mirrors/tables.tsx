@@ -1,24 +1,35 @@
 'use client';
 import { DropDialog } from '@/components/DropDialog';
 import MirrorLink from '@/components/MirrorLink';
+import NewButton from '@/components/NewButton';
 import PeerButton from '@/components/PeerComponent';
 import TimeLabel from '@/components/TimeComponent';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { MirrorType } from '../dto/MirrorsDTO';
 import { tableStyle } from '../peers/[peerName]/style';
 
 export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const mirrors = useMemo(
-    () =>
-      cdcFlows.filter((flow: any) => {
-        return flow.name.toLowerCase().includes(searchQuery.toLowerCase());
-      }),
-    [searchQuery, cdcFlows]
-  );
+  if (cdcFlows?.length === 0) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          rowGap: '1rem',
+          width: 'fit-content',
+        }}
+      >
+        <Label variant='headline'>Change-data capture</Label>
+        <NewButton
+          targetPage={`/mirrors/create?type=${MirrorType.CDC}`}
+          buttonText={`Create your first CDC mirror`}
+        />
+      </div>
+    );
+  }
 
   return (
     <>
@@ -45,7 +56,7 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
             </TableRow>
           }
         >
-          {mirrors.map((flow: any) => (
+          {cdcFlows.map((flow: any) => (
             <TableRow key={flow.id}>
               <TableCell>
                 <MirrorLink flowName={flow?.name} />
@@ -97,17 +108,23 @@ export function QRepFlows({
   qrepFlows: any;
   title: string;
 }) {
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const mirrors = useMemo(
-    () =>
-      qrepFlows.filter((flow: any) => {
-        return flow.name.toLowerCase().includes(searchQuery.toLowerCase());
-      }),
-    [searchQuery, qrepFlows]
-  );
-
-  if (mirrors.length === 0) {
-    return <Label variant='headline'>{title}: None</Label>;
+  if (qrepFlows?.length === 0) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          rowGap: '1rem',
+          width: 'fit-content',
+        }}
+      >
+        <Label variant='headline'>{title}</Label>
+        <NewButton
+          targetPage={`/mirrors/create?type=${title === 'XMIN Mirrors' ? MirrorType.XMin : MirrorType.QRep}`}
+          buttonText={`Create your first ${title === 'XMIN Mirrors' ? 'XMIN mirror' : 'query replication'}`}
+        />
+      </div>
+    );
   }
 
   return (
@@ -129,7 +146,7 @@ export function QRepFlows({
             </TableRow>
           }
         >
-          {mirrors.map((flow: any) => (
+          {qrepFlows.map((flow: any) => (
             <TableRow key={flow.id}>
               <TableCell>
                 <MirrorLink flowName={flow?.name} />

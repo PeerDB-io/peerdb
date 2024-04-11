@@ -14,20 +14,20 @@ import (
 )
 
 type NormalizeState struct {
-	Wait                   bool
-	Stop                   bool
+	TableNameSchemaMapping map[string]*protos.TableSchema
 	LastSyncBatchID        int64
 	SyncBatchID            int64
-	TableNameSchemaMapping map[string]*protos.TableSchema
+	Wait                   bool
+	Stop                   bool
 }
 
 func NewNormalizeState() *NormalizeState {
 	return &NormalizeState{
-		Wait:                   true,
-		Stop:                   false,
+		TableNameSchemaMapping: nil,
 		LastSyncBatchID:        -1,
 		SyncBatchID:            -1,
-		TableNameSchemaMapping: nil,
+		Wait:                   true,
+		Stop:                   false,
 	}
 }
 

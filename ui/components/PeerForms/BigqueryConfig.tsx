@@ -29,7 +29,7 @@ export default function BigqueryForm(props: BQProps) {
           return;
         }
         const bqConfig: BigqueryConfig = {
-          authType: bqJson.type,
+          authType: bqJson.type ?? bqJson.auth_type,
           projectId: bqJson.project_id,
           privateKeyId: bqJson.private_key_id,
           privateKey: bqJson.private_key,

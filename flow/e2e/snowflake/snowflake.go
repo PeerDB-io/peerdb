@@ -22,10 +22,10 @@ import (
 type PeerFlowE2ETestSuiteSF struct {
 	t *testing.T
 
-	pgSuffix  string
 	conn      *connpostgres.PostgresConnector
 	sfHelper  *SnowflakeTestHelper
 	connector *connsnowflake.SnowflakeConnector
+	pgSuffix  string
 }
 
 func (s PeerFlowE2ETestSuiteSF) T() *testing.T {

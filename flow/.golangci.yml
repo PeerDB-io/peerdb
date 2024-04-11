@@ -1,9 +1,10 @@
-run:
-  skip-dirs:
+issues:
+  exclude-dirs:
     - generated
 linters:
   enable:
     - containedctx
+    - copyloopvar
     - dogsled
     - durationcheck
     - errcheck
@@ -14,6 +15,7 @@ linters:
     - gosec
     - gosimple
     - ineffassign
+    - intrange
     - lll
     - misspell
     - musttag
@@ -29,7 +31,6 @@ linters:
     - testifylint
     - thelper
     - unconvert
-    - unparam
     - unparam
     - unused
     - wastedassign
@@ -60,7 +61,6 @@ linters-settings:
   govet:
     enable-all: true
     disable:
-      - fieldalignment
       - shadow
   stylecheck:
     checks:

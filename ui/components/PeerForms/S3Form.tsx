@@ -51,7 +51,7 @@ const S3Form = ({ setter }: S3Props) => {
         <br></br>
         <a
           style={{ color: 'teal' }}
-          href='https://docs.peerdb.io/sql/commands/create-peer#storage-peers-s3-and-gcs'
+          href='https://cloud.google.com/storage/docs/authentication/managing-hmackeys#create'
         >
           More information on how to setup HMAC for GCS.
         </a>

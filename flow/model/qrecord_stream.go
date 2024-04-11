@@ -6,32 +6,38 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
+type RecordTypeCounts struct {
+	InsertCount int
+	UpdateCount int
+	DeleteCount int
+}
+
 type QRecordOrError struct {
-	Record []qvalue.QValue
 	Err    error
+	Record []qvalue.QValue
 }
 
 type QRecordSchemaOrError struct {
-	Schema *QRecordSchema
+	Schema *qvalue.QRecordSchema
 	Err    error
 }
 
 type QRecordStream struct {
 	schema      chan QRecordSchemaOrError
 	Records     chan QRecordOrError
+	schemaCache *qvalue.QRecordSchema
 	schemaSet   bool
-	schemaCache *QRecordSchema
 }
 
 type RecordsToStreamRequest struct {
 	records      <-chan Record
-	TableMapping map[string]uint32
+	TableMapping map[string]*RecordTypeCounts
 	BatchID      int64
 }
 
 func NewRecordsToStreamRequest(
 	records <-chan Record,
-	tableMapping map[string]uint32,
+	tableMapping map[string]*RecordTypeCounts,
 	batchID int64,
 ) *RecordsToStreamRequest {
 	return &RecordsToStreamRequest{
@@ -45,10 +51,6 @@ func (r *RecordsToStreamRequest) GetRecords() <-chan Record {
 	return r.records
 }
 
-type RecordsToStreamResponse struct {
-	Stream *QRecordStream
-}
-
 func NewQRecordStream(buffer int) *QRecordStream {
 	return &QRecordStream{
 		schema:      make(chan QRecordSchemaOrError, 1),
@@ -58,7 +60,7 @@ func NewQRecordStream(buffer int) *QRecordStream {
 	}
 }
 
-func (s *QRecordStream) Schema() (*QRecordSchema, error) {
+func (s *QRecordStream) Schema() (*qvalue.QRecordSchema, error) {
 	if s.schemaCache != nil {
 		return s.schemaCache, nil
 	}
@@ -68,7 +70,7 @@ func (s *QRecordStream) Schema() (*QRecordSchema, error) {
 	return schemaOrError.Schema, schemaOrError.Err
 }
 
-func (s *QRecordStream) SetSchema(schema *QRecordSchema) error {
+func (s *QRecordStream) SetSchema(schema *qvalue.QRecordSchema) error {
 	if s.schemaSet {
 		return errors.New("Schema already set")
 	}

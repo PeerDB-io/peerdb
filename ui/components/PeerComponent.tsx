@@ -14,6 +14,10 @@ export const DBTypeToImageMapping = (peerType: DBType | string) => {
       return '/svgs/rds.svg';
     case 'GOOGLE CLOUD POSTGRESQL':
       return '/svgs/gcp.svg';
+    case 'TEMBO':
+      return '/images/tembo.png';
+    case 'CRUNCHY POSTGRES':
+      return '/images/crunchy.png';
     case DBType.POSTGRES:
     case 'POSTGRES':
       return '/svgs/pg.svg';
@@ -29,8 +33,15 @@ export const DBTypeToImageMapping = (peerType: DBType | string) => {
     case 'CLICKHOUSE':
     case DBType.CLICKHOUSE:
       return '/svgs/ch.svg';
-    case DBType.EVENTHUB_GROUP:
-    case DBType.EVENTHUB:
+    case DBType.EVENTHUBS:
+      return '/svgs/ms.svg';
+    case DBType.KAFKA:
+    case 'KAFKA':
+      return '/svgs/kafka.svg';
+    case DBType.PUBSUB:
+    case 'PUBSUB':
+      return '/svgs/pubsub.svg';
+    case 'EVENTHUBS':
       return '/svgs/ms.svg';
     default:
       return '/svgs/pg.svg';
