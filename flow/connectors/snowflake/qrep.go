@@ -160,8 +160,6 @@ func (c *SnowflakeConnector) createExternalStage(stageName string, config *proto
 }
 
 func (c *SnowflakeConnector) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig) error {
-	c.logger.Info("Consolidating partitions")
-
 	destTable := config.DestinationTableIdentifier
 	stageName := c.getStageNameForJob(config.FlowJobName)
 
