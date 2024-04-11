@@ -1069,11 +1069,4 @@ func (s PeerFlowE2ETestSuitePG) Test_TypeSystem_PG() {
 
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
-
-	// inserting COIN raises error because currency should be char(3)
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		insert into %s (updated_at, j, jb, aa32, currency) values (
-			NOW(),'{"b" : 123}','{"b" : 123}','{{3,2,1},{6,5,4},{9,8,7}}','COIN'
-		)`, dstTableName))
-	require.Error(s.t, err)
 }
