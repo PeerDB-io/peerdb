@@ -215,7 +215,7 @@ func LuaRecordIndex(ls *lua.LState) int {
 	case "source":
 		ls.Push(lua.LString(record.GetSourceTableName()))
 	case "unchanged_columns":
-		if ur, ok := record.(*model.UpdateRecord); ok {
+		if ur, ok := record.(*model.UpdateRecord[model.RecordItems]); ok {
 			tbl := ls.CreateTable(0, len(ur.UnchangedToastColumns))
 			for col := range ur.UnchangedToastColumns {
 				tbl.RawSetString(col, lua.LTrue)
@@ -238,7 +238,7 @@ func LuaRecordJson(ls *lua.LState) int {
 	} {
 		tbl.RawSetString(key, ls.GetField(ud, key))
 	}
-	if ur, ok := ud.Value.(*model.UpdateRecord); ok {
+	if ur, ok := ud.Value.(*model.UpdateRecord[model.RecordItems]); ok {
 		if len(ur.UnchangedToastColumns) > 0 {
 			unchanged := ls.CreateTable(len(ur.UnchangedToastColumns), 0)
 			for col := range ur.UnchangedToastColumns {
