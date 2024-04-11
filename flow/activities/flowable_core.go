@@ -59,7 +59,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	sessionID string,
 	pull func(TPull, context.Context, *pgxpool.Pool, *model.PullRecordsRequest[Items]) error,
 	sync func(TSync, context.Context, *model.SyncRecordsRequest[Items]) (*model.SyncResponse, error),
-	replay func(TSync, context.Context, string, []*protos.TableSchemaDelta) error,
 ) (*model.SyncResponse, error) {
 	flowName := config.FlowJobName
 	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
@@ -151,7 +150,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 		logger.Info("no records to push")
 
-		err := replay(dstConn, ctx, flowName, recordBatch.SchemaDeltas)
+		err := dstConn.ReplayTableSchemaDeltas(ctx, flowName, recordBatch.SchemaDeltas)
 		if err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}

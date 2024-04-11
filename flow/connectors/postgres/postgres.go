@@ -419,11 +419,11 @@ func (c *PostgresConnector) UpdateReplStateLastOffset(lastOffset int64) {
 }
 
 func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
-	return syncRecordsCore(ctx, c, req, (*PostgresConnector).ReplayTableSchemaDeltas)
+	return syncRecordsCore(ctx, c, req)
 }
 
 func (c *PostgresConnector) SyncPg(ctx context.Context, req *model.SyncRecordsRequest[model.PgItems]) (*model.SyncResponse, error) {
-	return syncRecordsCore(ctx, c, req, (*PostgresConnector).ReplayPgTableSchemaDeltas)
+	return syncRecordsCore(ctx, c, req)
 }
 
 // syncRecordsCore pushes records to the destination.
@@ -431,7 +431,6 @@ func syncRecordsCore[Items model.Items](
 	ctx context.Context,
 	c *PostgresConnector,
 	req *model.SyncRecordsRequest[Items],
-	replayTableSchemaDeltas func(*PostgresConnector, context.Context, string, []*protos.TableSchemaDelta) error,
 ) (*model.SyncResponse, error) {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	c.logger.Info(fmt.Sprintf("pushing records to Postgres table %s via COPY", rawTableIdentifier))
@@ -563,7 +562,7 @@ func syncRecordsCore[Items model.Items](
 		return nil, err
 	}
 
-	err = replayTableSchemaDeltas(c, ctx, req.FlowJobName, req.Records.SchemaDeltas)
+	err = c.ReplayTableSchemaDeltas(ctx, req.FlowJobName, req.Records.SchemaDeltas)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
@@ -881,10 +880,10 @@ func (c *PostgresConnector) SetupNormalizedTable(
 
 // replayTableSchemaDeltaCore changes a destination table to match the schema at source
 // This could involve adding or dropping multiple columns.
-func (c *PostgresConnector) replayTableSchemaDeltasCore(
+func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
+	flowJobName string,
 	schemaDeltas []*protos.TableSchemaDelta,
-	pgpg bool,
 ) error {
 	if len(schemaDeltas) == 0 {
 		return nil
@@ -910,7 +909,7 @@ func (c *PostgresConnector) replayTableSchemaDeltasCore(
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			columnType := addedColumn.ColumnType
-			if !pgpg {
+			if schemaDelta.System == protos.TypeSystem_Q {
 				columnType = qValueKindToPostgresType(columnType)
 			}
 			_, err = tableSchemaModifyTx.Exec(ctx, fmt.Sprintf(
@@ -933,26 +932,6 @@ func (c *PostgresConnector) replayTableSchemaDeltasCore(
 		return fmt.Errorf("failed to commit transaction for table schema modification: %w", err)
 	}
 	return nil
-}
-
-// ReplayTableSchemaDelta changes a destination table to match the schema at source
-// This could involve adding or dropping multiple columns.
-func (c *PostgresConnector) ReplayTableSchemaDeltas(
-	ctx context.Context,
-	flowJobName string,
-	schemaDeltas []*protos.TableSchemaDelta,
-) error {
-	return c.replayTableSchemaDeltasCore(ctx, schemaDeltas, false)
-}
-
-// ReplayTableSchemaDelta changes a destination table to match the schema at source
-// This could involve adding or dropping multiple columns.
-func (c *PostgresConnector) ReplayPgTableSchemaDeltas(
-	ctx context.Context,
-	flowJobName string,
-	schemaDeltas []*protos.TableSchemaDelta,
-) error {
-	return c.replayTableSchemaDeltasCore(ctx, schemaDeltas, true)
 }
 
 // EnsurePullability ensures that a table is pullable, implementing the Connector interface.

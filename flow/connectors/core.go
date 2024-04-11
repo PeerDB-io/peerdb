@@ -143,6 +143,11 @@ type CDCSyncConnectorCore interface {
 
 	// SyncFlowCleanup drops metadata tables on the destination, as a part of DROP MIRROR.
 	SyncFlowCleanup(ctx context.Context, jobName string) error
+
+	// ReplayTableSchemaDelta changes a destination table to match the schema at source
+	// This could involve adding or dropping multiple columns.
+	// Connectors which are non-normalizing should implement this as a nop.
+	ReplayTableSchemaDeltas(ctx context.Context, flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error
 }
 
 type CDCSyncConnector interface {
@@ -151,11 +156,6 @@ type CDCSyncConnector interface {
 	// SyncRecords pushes RecordItems to the destination peer and stores it in PeerDB specific tables.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
 	SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error)
-
-	// ReplayTableSchemaDelta changes a destination table to match the schema at source
-	// This could involve adding or dropping multiple columns.
-	// Connectors which are non-normalizing should implement this as a nop.
-	ReplayTableSchemaDeltas(ctx context.Context, flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error
 }
 
 type CDCSyncPgConnector interface {
@@ -165,8 +165,6 @@ type CDCSyncPgConnector interface {
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
 	// It's signature, aside from type parameter, should match CDCSyncConnector.SyncRecords.
 	SyncPg(ctx context.Context, req *model.SyncRecordsRequest[model.PgItems]) (*model.SyncResponse, error)
-
-	ReplayPgTableSchemaDeltas(ctx context.Context, flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error
 }
 
 type CDCNormalizeConnector interface {

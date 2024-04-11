@@ -272,8 +272,7 @@ func (a *FlowableActivity) SyncRecords(
 ) (*model.SyncResponse, error) {
 	return syncCore(ctx, a, config, options, sessionID,
 		connectors.CDCPullConnector.PullRecords,
-		connectors.CDCSyncConnector.SyncRecords,
-		connectors.CDCSyncConnector.ReplayTableSchemaDeltas)
+		connectors.CDCSyncConnector.SyncRecords)
 }
 
 func (a *FlowableActivity) SyncPg(
@@ -284,8 +283,7 @@ func (a *FlowableActivity) SyncPg(
 ) (*model.SyncResponse, error) {
 	return syncCore(ctx, a, config, options, sessionID,
 		connectors.CDCPullPgConnector.PullPg,
-		connectors.CDCSyncPgConnector.SyncPg,
-		connectors.CDCSyncPgConnector.ReplayPgTableSchemaDeltas)
+		connectors.CDCSyncPgConnector.SyncPg)
 }
 
 func (a *FlowableActivity) StartNormalize(

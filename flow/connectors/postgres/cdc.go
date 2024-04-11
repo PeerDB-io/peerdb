@@ -807,27 +807,34 @@ func processRelationMessage[Items model.Items](
 	// tableNameSchemaMapping uses dst table name as the key, so annoying lookup
 	prevSchema := p.tableNameSchemaMapping[p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name]
 	// creating maps for lookup later
-	// TODO don't be qvalue for raw pg
-	prevRelMap := make(map[string]qvalue.QValueKind)
-	currRelMap := make(map[string]qvalue.QValueKind)
+	prevRelMap := make(map[string]string)
+	currRelMap := make(map[string]string)
 	for _, column := range prevSchema.Columns {
-		prevRelMap[column.Name] = qvalue.QValueKind(column.Type)
+		prevRelMap[column.Name] = column.Type
 	}
 	for _, column := range currRel.Columns {
-		qKind := p.postgresOIDToQValueKind(column.DataType)
-		if qKind == qvalue.QValueKindInvalid {
-			typeName, ok := p.customTypesMapping[column.DataType]
-			if ok {
-				qKind = customTypeToQKind(typeName)
+		switch prevSchema.System {
+		case protos.TypeSystem_Q:
+			qKind := p.postgresOIDToQValueKind(column.DataType)
+			if qKind == qvalue.QValueKindInvalid {
+				typeName, ok := p.customTypesMapping[column.DataType]
+				if ok {
+					qKind = customTypeToQKind(typeName)
+				}
 			}
+			currRelMap[column.Name] = string(qKind)
+		case protos.TypeSystem_PG:
+			currRelMap[column.Name] = p.postgresOIDToName(column.DataType)
+		default:
+			panic(fmt.Sprintf("cannot process schema changes for unknown type system %s", prevSchema.System))
 		}
-		currRelMap[column.Name] = qKind
 	}
 
 	schemaDelta := &protos.TableSchemaDelta{
 		SrcTableName: p.srcTableIDNameMapping[currRel.RelationID],
 		DstTableName: p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name,
 		AddedColumns: make([]*protos.DeltaAddedColumn, 0),
+		System:       prevSchema.System,
 	}
 	for _, column := range currRel.Columns {
 		// not present in previous relation message, but in current one, so added.
@@ -836,7 +843,7 @@ func processRelationMessage[Items model.Items](
 			if _, ok := p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Exclude[column.Name]; !ok {
 				schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, &protos.DeltaAddedColumn{
 					ColumnName: column.Name,
-					ColumnType: string(currRelMap[column.Name]),
+					ColumnType: currRelMap[column.Name],
 				})
 			}
 			// present in previous and current relation messages, but data types have changed.

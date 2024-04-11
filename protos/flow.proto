@@ -327,6 +327,7 @@ message TableSchemaDelta {
   string src_table_name = 1;
   string dst_table_name = 2;
   repeated DeltaAddedColumn added_columns = 3;
+  TypeSystem system = 4;
 }
 
 message QRepFlowState {
