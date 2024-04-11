@@ -52,17 +52,15 @@ export default function CreateConfig({
   };
 
   const configComponentMap = (peerType: string) => {
-    if (peerType.includes('POSTGRES') || peerType === 'TEMBO') {
-      return (
-        <PostgresForm
-          settings={postgresSetting}
-          setter={setConfig}
-          type={peerType}
-        />
-      );
-    }
-
-    switch (peerType) {
+    switch (getDBType()) {
+      case 'POSTGRES':
+        return (
+          <PostgresForm
+            settings={postgresSetting}
+            setter={setConfig}
+            type={peerType}
+          />
+        );
       case 'SNOWFLAKE':
         return <SnowflakeForm settings={snowflakeSetting} setter={setConfig} />;
       case 'BIGQUERY':
