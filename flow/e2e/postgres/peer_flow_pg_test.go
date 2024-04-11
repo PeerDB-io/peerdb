@@ -1051,6 +1051,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TypeSystem_PG() {
 		Destination:      s.peer,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.System = protos.TypeSystem_PG
 
 	tc := e2e.NewTemporalClient(s.t)
