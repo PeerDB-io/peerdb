@@ -734,6 +734,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig,
 	runUUID string,
 ) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	dstConn, err := connectors.GetQRepConsolidateConnector(ctx, config.DestinationPeer)
 	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
 		return monitoring.UpdateEndTimeForQRepRun(ctx, a.CatalogPool, runUUID)
@@ -757,6 +758,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 }
 
 func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	dst, err := connectors.GetQRepConsolidateConnector(ctx, config.DestinationPeer)
 	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
 		return nil
@@ -780,6 +782,7 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, config *protos.Sh
 }
 
 func (a *FlowableActivity) DropFlowDestination(ctx context.Context, config *protos.ShutdownRequest) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.DestinationPeer)
 	if err != nil {
 		return fmt.Errorf("failed to get destination connector: %w", err)
