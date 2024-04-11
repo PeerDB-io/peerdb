@@ -34,14 +34,6 @@ func NewRecordItems(capacity int) RecordItems {
 	}
 }
 
-func NewRecordItemWithData(cols []string, val []qvalue.QValue) RecordItems {
-	recordItem := NewRecordItems(len(cols))
-	for i, col := range cols {
-		recordItem.ColToVal[col] = val[i]
-	}
-	return recordItem
-}
-
 func (r RecordItems) AddColumn(col string, val qvalue.QValue) {
 	r.ColToVal[col] = val
 }

@@ -18,14 +18,6 @@ func NewPgItems(capacity int) PgItems {
 	}
 }
 
-func NewPgItemsData(cols []string, val [][]byte) PgItems {
-	recordItem := NewPgItems(len(cols))
-	for i, col := range cols {
-		recordItem.ColToVal[col] = val[i]
-	}
-	return recordItem
-}
-
 func (r PgItems) AddColumn(col string, val []byte) {
 	r.ColToVal[col] = val
 }
