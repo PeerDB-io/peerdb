@@ -141,39 +141,22 @@ func NewClickhouseConnector(
 		BucketPath: awsBucketPath,
 	}
 	credentials, err := credentialsProvider.Retrieve(ctx)
-	// TODO finish and test this flow when a compatible ClickHouse version is available
+	if err != nil {
+		return nil, err
+	}
 	if credentials.AWS.SessionToken != "" {
-		minSupportedClickhouseVersions := []string{
-			// TODO versions having
-			// https://github.com/ClickHouse/ClickHouse/commit/d045ab150ed5659f143beca5e50d0b72dae3bf78
-		}
+		minSupportedClickhouseVersion := "24.3.1.2672"
 		clickHouseVersionRow := database.QueryRowContext(ctx, "SELECT version()")
 		var clickHouseVersion string
 		err := clickHouseVersionRow.Scan(&clickHouseVersionRow)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query clickhouse version: %w", err)
 		}
-		supportsSessionToken := false
-		for _, minSupportedVersion := range minSupportedClickhouseVersions {
-			minSupportedMajor := semver.Major(minSupportedVersion)
-			currentClickHouseMajor := semver.Major(clickHouseVersion)
-			// We are in the same major version, now check if we are ahead of the minor version having the change
-			if semver.Compare(minSupportedMajor, currentClickHouseMajor) == 0 {
-				if semver.Compare(minSupportedMajor, clickHouseVersion) <= 0 {
-					supportsSessionToken = true
-					break
-				}
-			}
-		}
-		if !supportsSessionToken {
+		if semver.Compare(clickHouseVersion, minSupportedClickhouseVersion) < 0 {
 			return nil, fmt.Errorf(
-				"please provide AWS access credentials explicitly or upgrade to version >= %v, current version is %s",
-				minSupportedClickhouseVersions, clickHouseVersion)
+				"please provide AWS access credentials explicitly or upgrade to clickhouse version >= %v, current version is %s",
+				minSupportedClickhouseVersion, clickHouseVersion)
 		}
-	}
-
-	if err != nil {
-		return nil, err
 	}
 
 	validateErr := ValidateS3(ctx, &clickHouseS3CredentialsNew)
