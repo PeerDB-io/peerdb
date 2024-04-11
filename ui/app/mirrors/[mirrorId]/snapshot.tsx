@@ -61,8 +61,8 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
       }}
     >
       {[
-        { data: completedTableLoads, title: 'Completed tables' },
         { data: inProgressTableLoads, title: 'In progress' },
+        { data: completedTableLoads, title: 'Completed tables' },
       ].map((tableLoads, index) => (
         <SnapshotTable
           key={index}
