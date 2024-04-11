@@ -288,8 +288,6 @@ func (q *QRepFlowExecution) processPartitions(
 // For some targets we need to consolidate all the partitions from stages before
 // we proceed to next batch.
 func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
-	q.logger.Info("consolidating partitions")
-
 	// only an operation for Snowflake currently.
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * time.Hour,
