@@ -47,7 +47,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer func() {
-		deferErr := tx.Rollback(ctx)
+		deferErr := tx.Rollback(context.Background())
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
 			c.logger.Error("error rolling back transaction for get partitions", slog.Any("error", deferErr))
 		}
@@ -289,7 +289,7 @@ func (c *PostgresConnector) CheckForUpdatedMaxValue(
 		return false, fmt.Errorf("unable to begin transaction for getting max value: %w", err)
 	}
 	defer func() {
-		deferErr := tx.Rollback(ctx)
+		deferErr := tx.Rollback(context.Background())
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
 			c.logger.Error("error rolling back transaction for getting max value", "error", err)
 		}

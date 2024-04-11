@@ -320,7 +320,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
 	var err error
 
 	defer func() {
-		err := tx.Rollback(ctx)
+		err := tx.Rollback(context.Background())
 		if err != nil && err != pgx.ErrTxClosed {
 			qe.logger.Error("[pg_query_executor] failed to rollback transaction", slog.Any("error", err))
 		}

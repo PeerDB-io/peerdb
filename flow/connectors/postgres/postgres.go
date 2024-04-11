@@ -495,7 +495,7 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 		return nil, fmt.Errorf("error starting transaction for syncing records: %w", err)
 	}
 	defer func() {
-		deferErr := syncRecordsTx.Rollback(ctx)
+		deferErr := syncRecordsTx.Rollback(context.Background())
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
 			c.logger.Error("error rolling back transaction for syncing records", slog.Any("error", err))
 		}
@@ -591,7 +591,7 @@ func (c *PostgresConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 		return nil, fmt.Errorf("error starting transaction for normalizing records: %w", err)
 	}
 	defer func() {
-		deferErr := normalizeRecordsTx.Rollback(ctx)
+		deferErr := normalizeRecordsTx.Rollback(context.Background())
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
 			c.logger.Error("error rolling back transaction for normalizing records", slog.Any("error", err))
 		}
@@ -664,7 +664,7 @@ func (c *PostgresConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 		return nil, fmt.Errorf("error starting transaction for creating raw table: %w", err)
 	}
 	defer func() {
-		deferErr := createRawTableTx.Rollback(ctx)
+		deferErr := createRawTableTx.Rollback(context.Background())
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
 			c.logger.Error("error rolling back transaction for creating raw table.", slog.Any("error", err))
 		}
@@ -846,7 +846,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 			err)
 	}
 	defer func() {
-		deferErr := tableSchemaModifyTx.Rollback(ctx)
+		deferErr := tableSchemaModifyTx.Rollback(context.Background())
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
 			c.logger.Error("error rolling back transaction for table schema modification", slog.Any("error", err))
 		}
@@ -1053,7 +1053,7 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 		return fmt.Errorf("unable to begin transaction for sync flow cleanup: %w", err)
 	}
 	defer func() {
-		deferErr := syncFlowCleanupTx.Rollback(ctx)
+		deferErr := syncFlowCleanupTx.Rollback(context.Background())
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
 			c.logger.Error("error while rolling back transaction for flow cleanup", slog.Any("error", deferErr))
 		}
