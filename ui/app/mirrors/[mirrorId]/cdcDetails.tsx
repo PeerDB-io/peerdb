@@ -35,7 +35,7 @@ function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
     getCurrentIdleTimeout(mirrorConfig.flowJobName).then((res) => {
       getSyncInterval(res);
     });
-  }, []);
+  }, [mirrorConfig.flowJobName]);
   return (
     <>
       <div className='mt-10'>

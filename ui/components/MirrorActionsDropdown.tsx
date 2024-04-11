@@ -31,7 +31,7 @@ const MirrorActions = ({
       }
     );
     setMounted(true);
-  }, []);
+  }, [mirrorConfig.flowJobName]);
 
   if (mounted)
     return (

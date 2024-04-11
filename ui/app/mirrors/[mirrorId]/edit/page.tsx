@@ -179,7 +179,8 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
           The <b>replication slot will grow</b> during this period.
           <br></br>
           For custom publications, ensure that the tables are part of the
-          publication you provided.
+          publication you provided. This can be done with ALTER PUBLICATION
+          pubname ADD TABLE table1, table2;
         </Callout>
       )}
 
