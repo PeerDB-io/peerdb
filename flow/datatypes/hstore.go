@@ -5,7 +5,7 @@ https://github.com/postgres/postgres/blob/bea18b1c949145ba2ca79d4765dba3cc9494a4
 This package is an implementation based on the above code.
 It's simplified to only parse the subset which `hstore_out` outputs.
 */
-package hstore_util
+package datatypes
 
 import (
 	"encoding/json"

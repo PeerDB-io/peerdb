@@ -1,4 +1,4 @@
-package peerdb_interval
+package datatypes
 
 type PeerDBInterval struct {
 	Hours   int     `json:"hours,omitempty"`

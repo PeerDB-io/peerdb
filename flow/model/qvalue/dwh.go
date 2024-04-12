@@ -5,21 +5,25 @@ import (
 
 	"go.temporal.io/sdk/log"
 
+	numeric "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model/numeric"
 )
 
 func DetermineNumericSettingForDWH(precision int16, scale int16, dwh protos.DBType) (int16, int16) {
-	if dwh == protos.DBType_CLICKHOUSE {
-		if precision > numeric.PeerDBClickhousePrecision || precision <= 0 ||
-			scale > precision || scale < 0 {
-			return numeric.PeerDBClickhousePrecision, numeric.PeerDBClickhouseScale
-		}
-	} else {
-		if precision > numeric.PeerDBNumericPrecision || precision <= 0 ||
-			scale > numeric.PeerDBNumericScale || scale < 0 {
-			return numeric.PeerDBNumericPrecision, numeric.PeerDBNumericScale
-		}
+	var warehouseNumeric numeric.WarehouseNumericCompatibility
+	switch dwh {
+	case protos.DBType_CLICKHOUSE:
+		warehouseNumeric = numeric.ClickHouseNumericCompatibility{}
+	case protos.DBType_SNOWFLAKE:
+		warehouseNumeric = numeric.SnowflakeNumericCompatibility{}
+	case protos.DBType_BIGQUERY:
+		warehouseNumeric = numeric.BigQueryNumericCompatibility{}
+	default:
+		warehouseNumeric = numeric.DefaultNumericCompatibility{}
+	}
+
+	if !warehouseNumeric.IsValidPrevisionAndScale(precision, scale) {
+		precision, scale = warehouseNumeric.DefaultPrecisionAndScale()
 	}
 
 	return precision, scale

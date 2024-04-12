@@ -10,9 +10,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/peer-flow/geo"
+	datatypes "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -79,7 +78,7 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 		// TODO fix this.
 		cnullable := true
 		if ctype == qvalue.QValueKindNumeric {
-			precision, scale := numeric.ParseNumericTypmod(fd.TypeModifier)
+			precision, scale := datatypes.ParseNumericTypmod(fd.TypeModifier)
 			qfields[i] = qvalue.QField{
 				Name:      cname,
 				Type:      ctype,
@@ -426,7 +425,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 				switch customQKind {
 				case qvalue.QValueKindGeography, qvalue.QValueKindGeometry:
 					wkbString, ok := values[i].(string)
-					wkt, err := geo.GeoValidate(wkbString)
+					wkt, err := datatypes.GeoValidate(wkbString)
 					if err != nil || !ok {
 						record[i] = qvalue.QValueNull(qvalue.QValueKindGeography)
 					} else if customQKind == qvalue.QValueKindGeography {

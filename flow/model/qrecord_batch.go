@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/PeerDB-io/peer-flow/geo"
+	geo "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
@@ -112,7 +112,7 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			values[i] = rune(v.Val)
 		case qvalue.QValueString:
 			values[i] = v.Val
-		case qvalue.QValueCIDR, qvalue.QValueINET:
+		case qvalue.QValueCIDR, qvalue.QValueINET, qvalue.QValueMacaddr:
 			str, ok := v.Value().(string)
 			if !ok {
 				src.err = errors.New("invalid INET/CIDR value")

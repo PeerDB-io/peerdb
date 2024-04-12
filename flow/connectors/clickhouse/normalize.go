@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
@@ -84,11 +84,7 @@ func generateCreateTableSQLForNormalizedTable(
 
 		switch colType {
 		case qvalue.QValueKindNumeric:
-			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
-			if column.TypeModifier == -1 || precision > 76 || scale > precision {
-				precision = numeric.PeerDBClickhousePrecision
-				scale = numeric.PeerDBClickhouseScale
-			}
+			precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
 			stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ",
 				colName, precision, scale))
 		default:

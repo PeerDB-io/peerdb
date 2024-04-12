@@ -45,24 +45,22 @@ export default function CreateConfig({
   const [loading, setLoading] = useState<boolean>(false);
   const peerLabel = peerType.toUpperCase().replaceAll('%20', ' ');
   const getDBType = () => {
-    if (peerType.includes('POSTGRESQL')) {
+    if (peerType.includes('POSTGRES') || peerType.includes('TEMBO')) {
       return 'POSTGRES';
     }
     return peerType;
   };
 
   const configComponentMap = (peerType: string) => {
-    if (peerType.includes('POSTGRESQL')) {
-      return (
-        <PostgresForm
-          settings={postgresSetting}
-          setter={setConfig}
-          type={peerType}
-        />
-      );
-    }
-
-    switch (peerType) {
+    switch (getDBType()) {
+      case 'POSTGRES':
+        return (
+          <PostgresForm
+            settings={postgresSetting}
+            setter={setConfig}
+            type={peerType}
+          />
+        );
       case 'SNOWFLAKE':
         return <SnowflakeForm settings={snowflakeSetting} setter={setConfig} />;
       case 'BIGQUERY':

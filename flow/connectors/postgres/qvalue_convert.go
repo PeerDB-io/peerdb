@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"strings"
 	"time"
@@ -13,7 +14,7 @@ import (
 	"github.com/lib/pq/oid"
 	"github.com/shopspring/decimal"
 
-	peerdb_interval "github.com/PeerDB-io/peer-flow/interval"
+	datatypes "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -88,23 +89,24 @@ func (c *PostgresConnector) postgresOIDToQValueKind(recvOID uint32) qvalue.QValu
 		typeName, ok := pgtype.NewMap().TypeForOID(recvOID)
 		if !ok {
 			// workaround for some types not being defined by pgtype
-			if recvOID == uint32(oid.T_timetz) {
+			switch recvOID {
+			case uint32(oid.T_timetz):
 				return qvalue.QValueKindTimeTZ
-			} else if recvOID == uint32(oid.T_xml) { // XML
+			case uint32(oid.T_xml):
 				return qvalue.QValueKindString
-			} else if recvOID == uint32(oid.T_money) { // MONEY
+			case uint32(oid.T_money):
 				return qvalue.QValueKindString
-			} else if recvOID == uint32(oid.T_txid_snapshot) { // TXID_SNAPSHOT
+			case uint32(oid.T_txid_snapshot):
 				return qvalue.QValueKindString
-			} else if recvOID == uint32(oid.T_tsvector) { // TSVECTOR
+			case uint32(oid.T_tsvector):
 				return qvalue.QValueKindString
-			} else if recvOID == uint32(oid.T_tsquery) { // TSQUERY
+			case uint32(oid.T_tsquery):
 				return qvalue.QValueKindString
-			} else if recvOID == uint32(oid.T_point) { // POINT
+			case uint32(oid.T_point):
 				return qvalue.QValueKindPoint
+			default:
+				return qvalue.QValueKindInvalid
 			}
-
-			return qvalue.QValueKindInvalid
 		} else {
 			_, warned := c.hushWarnOID[recvOID]
 			if !warned {
@@ -229,7 +231,7 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		return qvalue.QValueTimestampTZ{Val: timestamp}, nil
 	case qvalue.QValueKindInterval:
 		intervalObject := value.(pgtype.Interval)
-		var interval peerdb_interval.PeerDBInterval
+		var interval datatypes.PeerDBInterval
 		interval.Hours = int(intervalObject.Microseconds / 3600000000)
 		interval.Minutes = int((intervalObject.Microseconds % 3600000000) / 60000000)
 		interval.Seconds = float64(intervalObject.Microseconds%60000000) / 1000000.0
@@ -316,8 +318,6 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		switch v := value.(type) {
 		case string:
 			return qvalue.QValueINET{Val: v}, nil
-		case [16]byte:
-			return qvalue.QValueINET{Val: string(v[:])}, nil
 		case netip.Prefix:
 			return qvalue.QValueINET{Val: v.String()}, nil
 		default:
@@ -327,8 +327,6 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		switch v := value.(type) {
 		case string:
 			return qvalue.QValueCIDR{Val: v}, nil
-		case [16]byte:
-			return qvalue.QValueCIDR{Val: string(v[:])}, nil
 		case netip.Prefix:
 			return qvalue.QValueCIDR{Val: v.String()}, nil
 		default:
@@ -338,8 +336,8 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		switch v := value.(type) {
 		case string:
 			return qvalue.QValueMacaddr{Val: v}, nil
-		case [16]byte:
-			return qvalue.QValueMacaddr{Val: string(v[:])}, nil
+		case net.HardwareAddr:
+			return qvalue.QValueMacaddr{Val: v.String()}, nil
 		default:
 			return nil, fmt.Errorf("failed to parse MACADDR: %v", value)
 		}
@@ -449,16 +447,14 @@ func numericToDecimal(numVal pgtype.Numeric) (qvalue.QValue, error) {
 }
 
 func customTypeToQKind(typeName string) qvalue.QValueKind {
-	var qValueKind qvalue.QValueKind
 	switch typeName {
 	case "geometry":
-		qValueKind = qvalue.QValueKindGeometry
+		return qvalue.QValueKindGeometry
 	case "geography":
-		qValueKind = qvalue.QValueKindGeography
+		return qvalue.QValueKindGeography
 	case "hstore":
-		qValueKind = qvalue.QValueKindHStore
+		return qvalue.QValueKindHStore
 	default:
-		qValueKind = qvalue.QValueKindString
+		return qvalue.QValueKindString
 	}
-	return qValueKind
 }

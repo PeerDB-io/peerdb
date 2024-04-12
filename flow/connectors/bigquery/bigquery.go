@@ -19,10 +19,11 @@ import (
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	numeric "github.com/PeerDB-io/peer-flow/datatypes"
+	"github.com/PeerDB-io/peer-flow/dynamicconf"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -620,11 +621,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	for _, column := range tableSchema.Columns {
 		genericColType := column.Type
 		if genericColType == "numeric" {
-			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
-			if column.TypeModifier == -1 || precision > 38 || scale > 37 {
-				precision = numeric.PeerDBNumericPrecision
-				scale = numeric.PeerDBNumericScale
-			}
+			precision, scale := numeric.GetNumericTypeForWarehouse(column.TypeModifier, numeric.BigQueryNumericCompatibility{})
 			columns = append(columns, &bigquery.FieldSchema{
 				Name:      column.Name,
 				Type:      bigquery.BigNumericFieldType,
@@ -669,10 +666,20 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 		}
 	}
 
+	timePartitionEnabled := dynamicconf.PeerDBBigQueryEnableSyncedAtPartitioning(ctx)
+	var timePartitioning *bigquery.TimePartitioning
+	if timePartitionEnabled && syncedAtColName != "" {
+		timePartitioning = &bigquery.TimePartitioning{
+			Type:  bigquery.DayPartitioningType,
+			Field: syncedAtColName,
+		}
+	}
+
 	metadata := &bigquery.TableMetadata{
-		Schema:     schema,
-		Name:       datasetTable.table,
-		Clustering: clustering,
+		Schema:           schema,
+		Name:             datasetTable.table,
+		Clustering:       clustering,
+		TimePartitioning: timePartitioning,
 	}
 
 	err = table.Create(ctx, metadata)
@@ -691,10 +698,14 @@ func (c *BigQueryConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 	}
 
 	dataset := c.client.DatasetInProject(c.projectID, c.datasetID)
-	// deleting PeerDB specific tables
-	err = dataset.Table(c.getRawTableName(jobName)).Delete(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to delete raw table: %w", err)
+	rawTableHandle := dataset.Table(c.getRawTableName(jobName))
+	// check if exists, then delete
+	_, err = rawTableHandle.Metadata(ctx)
+	if err == nil {
+		deleteErr := rawTableHandle.Delete(ctx)
+		if deleteErr != nil {
+			return fmt.Errorf("failed to delete raw table: %w", deleteErr)
+		}
 	}
 
 	return nil

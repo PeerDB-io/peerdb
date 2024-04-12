@@ -8,7 +8,9 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 5;
 
 const ScriptsPage = async () => {
-  const existingScripts = await prisma.scripts.findMany();
+  const existingScripts = await prisma.scripts.findMany({
+    orderBy: { name: 'asc' },
+  });
   const scripts: ScriptsType[] = existingScripts.map((script) => ({
     ...script,
     source: script.source.toString(),

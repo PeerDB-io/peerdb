@@ -13,8 +13,8 @@ import (
 	"github.com/shopspring/decimal"
 	"go.temporal.io/sdk/log"
 
+	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
 )
 
 // https://avro.apache.org/docs/1.11.0/spec.html
@@ -63,7 +63,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH protos.DBType, preci
 	switch kind {
 	case QValueKindString:
 		return "string", nil
-	case QValueKindQChar, QValueKindCIDR, QValueKindINET:
+	case QValueKindQChar, QValueKindCIDR, QValueKindINET, QValueKindMacaddr:
 		return "string", nil
 	case QValueKindInterval:
 		return "string", nil
@@ -544,7 +544,7 @@ func (c *QValueAvroConverter) processArrayDate(arrayDate []time.Time) interface{
 }
 
 func (c *QValueAvroConverter) processHStore(hstore string) (interface{}, error) {
-	jsonString, err := hstore_util.ParseHstore(hstore)
+	jsonString, err := datatypes.ParseHstore(hstore)
 	if err != nil {
 		return "", fmt.Errorf("cannot parse %s: %w", hstore, err)
 	}

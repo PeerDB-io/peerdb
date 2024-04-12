@@ -19,8 +19,8 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/cdc_records"
+	geo "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/geo"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -112,6 +112,7 @@ func GetChildToParentRelIDMap(ctx context.Context, conn *pgx.Conn) (map[uint32]u
 
 // PullRecords pulls records from the cdc stream
 func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullRecordsRequest) error {
+	logger := logger.LoggerFromCtx(ctx)
 	conn := p.replConn.PgConn()
 	records := req.RecordStream
 	// clientXLogPos is the last checkpoint id, we need to ack that we have processed
@@ -135,17 +136,17 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 		if cdcRecordsStorage.IsEmpty() {
 			records.SignalAsEmpty()
 		}
-		p.logger.Info(fmt.Sprintf("[finished] PullRecords streamed %d records", cdcRecordsStorage.Len()))
+		logger.Info(fmt.Sprintf("[finished] PullRecords streamed %d records", cdcRecordsStorage.Len()))
 		err := cdcRecordsStorage.Close()
 		if err != nil {
-			p.logger.Warn("failed to clean up records storage", slog.Any("error", err))
+			logger.Warn("failed to clean up records storage", slog.Any("error", err))
 		}
 	}()
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		currRecords := cdcRecordsStorage.Len()
 		msg := fmt.Sprintf("pulling records, currently have %d records", currRecords)
-		p.logger.Info(msg)
+		logger.Info(msg)
 		return msg
 	})
 	defer shutdown()
@@ -153,7 +154,6 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 	standbyMessageTimeout := req.IdleTimeout
 	nextStandbyMessageDeadline := time.Now().Add(standbyMessageTimeout)
 
-	logger := logger.LoggerFromCtx(ctx)
 	addRecordWithKey := func(key model.TableWithPkey, rec model.Record) error {
 		err := cdcRecordsStorage.Set(logger, key, rec)
 		if err != nil {
@@ -164,7 +164,7 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 		if cdcRecordsStorage.Len() == 1 {
 			records.SignalAsNotEmpty()
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
-			p.logger.Info(fmt.Sprintf("pushing the standby deadline to %s", nextStandbyMessageDeadline))
+			logger.Info(fmt.Sprintf("pushing the standby deadline to %s", nextStandbyMessageDeadline))
 		}
 		return nil
 	}
@@ -183,7 +183,7 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 
 			if time.Since(standByLastLogged) > 10*time.Second {
 				numRowsProcessedMessage := fmt.Sprintf("processed %d rows", cdcRecordsStorage.Len())
-				p.logger.Info("Sent Standby status message. " + numRowsProcessedMessage)
+				logger.Info("Sent Standby status message. " + numRowsProcessedMessage)
 				standByLastLogged = time.Now()
 			}
 		}
@@ -195,7 +195,7 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 			}
 
 			if waitingForCommit {
-				p.logger.Info(fmt.Sprintf(
+				logger.Info(fmt.Sprintf(
 					"[%s] commit received, returning currently accumulated records - %d",
 					p.flowJobName,
 					cdcRecordsStorage.Len()),
@@ -207,20 +207,20 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 		// if we are past the next standby deadline (?)
 		if time.Now().After(nextStandbyMessageDeadline) {
 			if !cdcRecordsStorage.IsEmpty() {
-				p.logger.Info(fmt.Sprintf("standby deadline reached, have %d records", cdcRecordsStorage.Len()))
+				logger.Info(fmt.Sprintf("standby deadline reached, have %d records", cdcRecordsStorage.Len()))
 
 				if p.commitLock == nil {
-					p.logger.Info(
+					logger.Info(
 						fmt.Sprintf("no commit lock, returning currently accumulated records - %d",
 							cdcRecordsStorage.Len()))
 					return nil
 				} else {
-					p.logger.Info(fmt.Sprintf("commit lock, waiting for commit to return records - %d",
+					logger.Info(fmt.Sprintf("commit lock, waiting for commit to return records - %d",
 						cdcRecordsStorage.Len()))
 					waitingForCommit = true
 				}
 			} else {
-				p.logger.Info(fmt.Sprintf("[%s] standby deadline reached, no records accumulated, continuing to wait",
+				logger.Info(fmt.Sprintf("[%s] standby deadline reached, no records accumulated, continuing to wait",
 					p.flowJobName),
 				)
 			}
@@ -244,7 +244,7 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 
 		if err != nil && p.commitLock == nil {
 			if pgconn.Timeout(err) {
-				p.logger.Info(fmt.Sprintf("Stand-by deadline reached, returning currently accumulated records - %d",
+				logger.Info(fmt.Sprintf("Stand-by deadline reached, returning currently accumulated records - %d",
 					cdcRecordsStorage.Len()))
 				return nil
 			} else {
@@ -253,7 +253,7 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 		}
 
 		if errMsg, ok := rawMsg.(*pgproto3.ErrorResponse); ok {
-			p.logger.Error(fmt.Sprintf("received Postgres WAL error: %+v", errMsg))
+			logger.Error(fmt.Sprintf("received Postgres WAL error: %+v", errMsg))
 			return fmt.Errorf("received Postgres WAL error: %+v", errMsg)
 		}
 
@@ -269,7 +269,7 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 				return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
 			}
 
-			p.logger.Debug(
+			logger.Debug(
 				fmt.Sprintf("Primary Keepalive Message => ServerWALEnd: %s ServerTime: %s ReplyRequested: %t",
 					pkm.ServerWALEnd, pkm.ServerTime, pkm.ReplyRequested))
 
@@ -287,7 +287,7 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 				return fmt.Errorf("ParseXLogData failed: %w", err)
 			}
 
-			p.logger.Debug(fmt.Sprintf("XLogData => WALStart %s ServerWALEnd %s ServerTime %s\n",
+			logger.Debug(fmt.Sprintf("XLogData => WALStart %s ServerWALEnd %s ServerTime %s\n",
 				xld.WALStart, xld.ServerWALEnd, xld.ServerTime))
 			rec, err := p.processMessage(ctx, records, xld, clientXLogPos)
 			if err != nil {
@@ -395,7 +395,7 @@ func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullReco
 				case *model.RelationRecord:
 					tableSchemaDelta := r.TableSchemaDelta
 					if len(tableSchemaDelta.AddedColumns) > 0 {
-						p.logger.Info(fmt.Sprintf("Detected schema change for table %s, addedColumns: %v",
+						logger.Info(fmt.Sprintf("Detected schema change for table %s, addedColumns: %v",
 							tableSchemaDelta.SrcTableName, tableSchemaDelta.AddedColumns))
 						records.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
 					}
@@ -426,6 +426,7 @@ func (p *PostgresCDCSource) processMessage(
 	xld pglogrepl.XLogData,
 	currentClientXlogPos pglogrepl.LSN,
 ) (model.Record, error) {
+	logger := logger.LoggerFromCtx(ctx)
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing logical message: %w", err)
@@ -433,8 +434,8 @@ func (p *PostgresCDCSource) processMessage(
 
 	switch msg := logicalMsg.(type) {
 	case *pglogrepl.BeginMessage:
-		p.logger.Debug(fmt.Sprintf("BeginMessage => FinalLSN: %v, XID: %v", msg.FinalLSN, msg.Xid))
-		p.logger.Debug("Locking PullRecords at BeginMessage, awaiting CommitMessage")
+		logger.Debug(fmt.Sprintf("BeginMessage => FinalLSN: %v, XID: %v", msg.FinalLSN, msg.Xid))
+		logger.Debug("Locking PullRecords at BeginMessage, awaiting CommitMessage")
 		p.commitLock = msg
 	case *pglogrepl.InsertMessage:
 		return p.processInsertMessage(xld.WALStart, msg)
@@ -444,7 +445,7 @@ func (p *PostgresCDCSource) processMessage(
 		return p.processDeleteMessage(xld.WALStart, msg)
 	case *pglogrepl.CommitMessage:
 		// for a commit message, update the last checkpoint id for the record batch.
-		p.logger.Debug(fmt.Sprintf("CommitMessage => CommitLSN: %v, TransactionEndLSN: %v",
+		logger.Debug(fmt.Sprintf("CommitMessage => CommitLSN: %v, TransactionEndLSN: %v",
 			msg.CommitLSN, msg.TransactionEndLSN))
 		batch.UpdateLatestCheckpoint(int64(msg.CommitLSN))
 		p.commitLock = nil
@@ -456,13 +457,13 @@ func (p *PostgresCDCSource) processMessage(
 			return nil, nil
 		}
 
-		p.logger.Debug(fmt.Sprintf("RelationMessage => RelationID: %d, Namespace: %s, RelationName: %s, Columns: %v",
+		logger.Debug(fmt.Sprintf("RelationMessage => RelationID: %d, Namespace: %s, RelationName: %s, Columns: %v",
 			msg.RelationID, msg.Namespace, msg.RelationName, msg.Columns))
 
 		return p.processRelationMessage(ctx, currentClientXlogPos, msg)
 
 	case *pglogrepl.TruncateMessage:
-		p.logger.Warn("TruncateMessage not supported")
+		logger.Warn("TruncateMessage not supported")
 	}
 
 	return nil, nil

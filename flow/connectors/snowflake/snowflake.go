@@ -21,10 +21,10 @@ import (
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	numeric "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/numeric"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -622,19 +622,15 @@ func (c *SnowflakeConnector) CreateRawTable(ctx context.Context, req *protos.Cre
 func (c *SnowflakeConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
 	err := c.PostgresMetadata.SyncFlowCleanup(ctx, jobName)
 	if err != nil {
-		return fmt.Errorf("unable to clear metadata for sync flow cleanup: %w", err)
+		return fmt.Errorf("[snowflake drop mirror] unable to clear metadata for sync flow cleanup: %w", err)
 	}
 
-	syncFlowCleanupTx, err := c.database.BeginTx(ctx, nil)
+	// delete raw table if exists
+	rawTableIdentifier := getRawTableIdentifier(jobName)
+	_, err = c.database.ExecContext(ctx, fmt.Sprintf(dropTableIfExistsSQL, c.rawSchema, rawTableIdentifier))
 	if err != nil {
-		return fmt.Errorf("unable to begin transaction for sync flow cleanup: %w", err)
+		return fmt.Errorf("[snowflake drop mirror] unable to drop raw table: %w", err)
 	}
-	defer func() {
-		deferErr := syncFlowCleanupTx.Rollback()
-		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Error("error while rolling back transaction for flow cleanup", "error", deferErr)
-		}
-	}()
 
 	err = c.dropStage(ctx, "", jobName)
 	if err != nil {
@@ -675,11 +671,7 @@ func generateCreateTableSQLForNormalizedTable(
 		}
 
 		if genericColumnType == "numeric" {
-			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
-			if column.TypeModifier == -1 || precision > 38 || scale > 37 {
-				precision = numeric.PeerDBNumericPrecision
-				scale = numeric.PeerDBNumericScale
-			}
+			precision, scale := numeric.GetNumericTypeForWarehouse(column.TypeModifier, numeric.SnowflakeNumericCompatibility{})
 			sfColType = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
 		}
 
