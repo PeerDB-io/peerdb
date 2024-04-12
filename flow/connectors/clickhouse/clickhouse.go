@@ -148,7 +148,7 @@ func NewClickhouseConnector(
 		minSupportedClickhouseVersion := "24.3.1.2672"
 		clickHouseVersionRow := database.QueryRowContext(ctx, "SELECT version()")
 		var clickHouseVersion string
-		err := clickHouseVersionRow.Scan(&clickHouseVersionRow)
+		err := clickHouseVersionRow.Scan(&clickHouseVersion)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query clickhouse version: %w", err)
 		}
