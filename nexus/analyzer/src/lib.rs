@@ -104,11 +104,11 @@ pub enum PeerDDL {
     },
     CreateMirrorForCDC {
         if_not_exists: bool,
-        flow_job: FlowJob,
+        flow_job: Box<FlowJob>,
     },
     CreateMirrorForSelect {
         if_not_exists: bool,
-        qrep_flow_job: QRepFlowJob,
+        qrep_flow_job: Box<QRepFlowJob>,
     },
     ExecuteMirrorForSelect {
         flow_job_name: String,
@@ -309,6 +309,11 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => String::new(),
                         };
 
+                        let system = match raw_options.remove("system") {
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => s.clone(),
+                            _ => "Q".to_string(),
+                        };
+
                         let flow_job = FlowJob {
                             name: cdc.mirror_name.to_string().to_lowercase(),
                             source_peer: cdc.source_peer.to_string().to_lowercase(),
@@ -332,6 +337,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             synced_at_col_name,
                             initial_snapshot_only: initial_copy_only,
                             script,
+                            system,
                         };
 
                         if initial_copy_only && !do_initial_copy {
@@ -340,7 +346,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
 
                         Ok(Some(PeerDDL::CreateMirrorForCDC {
                             if_not_exists: *if_not_exists,
-                            flow_job,
+                            flow_job: Box::new(flow_job),
                         }))
                     }
                     Select(select) => {
@@ -372,7 +378,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
 
                         Ok(Some(PeerDDL::CreateMirrorForSelect {
                             if_not_exists: *if_not_exists,
-                            qrep_flow_job,
+                            qrep_flow_job: Box::new(qrep_flow_job),
                         }))
                     }
                 }

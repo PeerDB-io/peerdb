@@ -1,4 +1,4 @@
-package cdc_records
+package utils
 
 import (
 	"bytes"
@@ -31,8 +31,8 @@ func encVal(val any) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-type cdcRecordsStore struct {
-	inMemoryRecords           map[model.TableWithPkey]model.Record
+type cdcStore[Items model.Items] struct {
+	inMemoryRecords           map[model.TableWithPkey]model.Record[Items]
 	pebbleDB                  *pebble.DB
 	flowJobName               string
 	dbFolderName              string
@@ -43,9 +43,9 @@ type cdcRecordsStore struct {
 	numRecordsSwitchThreshold int
 }
 
-func NewCDCRecordsStore(flowJobName string) *cdcRecordsStore {
-	return &cdcRecordsStore{
-		inMemoryRecords:           make(map[model.TableWithPkey]model.Record),
+func NewCDCStore[Items model.Items](flowJobName string) *cdcStore[Items] {
+	return &cdcStore[Items]{
+		inMemoryRecords:           make(map[model.TableWithPkey]model.Record[Items]),
 		pebbleDB:                  nil,
 		numRecords:                atomic.Int32{},
 		flowJobName:               flowJobName,
@@ -64,15 +64,8 @@ func NewCDCRecordsStore(flowJobName string) *cdcRecordsStore {
 	}
 }
 
-func (c *cdcRecordsStore) initPebbleDB() error {
-	if c.pebbleDB != nil {
-		return nil
-	}
-
+func init() {
 	// register future record classes here as well, if they are passed/stored as interfaces
-	gob.Register(&model.InsertRecord{})
-	gob.Register(&model.UpdateRecord{})
-	gob.Register(&model.DeleteRecord{})
 	gob.Register(time.Time{})
 	gob.Register(decimal.Decimal{})
 	gob.Register(qvalue.QValueNull(""))
@@ -114,6 +107,17 @@ func (c *cdcRecordsStore) initPebbleDB() error {
 	gob.Register(qvalue.QValueArrayTimestamp{})
 	gob.Register(qvalue.QValueArrayTimestampTZ{})
 	gob.Register(qvalue.QValueArrayBoolean{})
+}
+
+func (c *cdcStore[T]) initPebbleDB() error {
+	if c.pebbleDB != nil {
+		return nil
+	}
+
+	gob.Register(&model.InsertRecord[T]{})
+	gob.Register(&model.UpdateRecord[T]{})
+	gob.Register(&model.DeleteRecord[T]{})
+	gob.Register(&model.RelationRecord[T]{})
 
 	var err error
 	// we don't want a WAL since cache, we don't want to overwrite another DB either
@@ -128,7 +132,7 @@ func (c *cdcRecordsStore) initPebbleDB() error {
 	return nil
 }
 
-func (c *cdcRecordsStore) diskSpillThresholdsExceeded() bool {
+func (c *cdcStore[T]) diskSpillThresholdsExceeded() bool {
 	if len(c.inMemoryRecords) >= c.numRecordsSwitchThreshold {
 		c.thresholdReason = fmt.Sprintf("more than %d primary keys read, spilling to disk",
 			c.numRecordsSwitchThreshold)
@@ -146,7 +150,7 @@ func (c *cdcRecordsStore) diskSpillThresholdsExceeded() bool {
 	return false
 }
 
-func (c *cdcRecordsStore) Set(logger log.Logger, key model.TableWithPkey, rec model.Record) error {
+func (c *cdcStore[T]) Set(logger log.Logger, key model.TableWithPkey, rec model.Record[T]) error {
 	if key.TableName != "" {
 		_, ok := c.inMemoryRecords[key]
 		if ok || !c.diskSpillThresholdsExceeded() {
@@ -180,12 +184,13 @@ func (c *cdcRecordsStore) Set(logger log.Logger, key model.TableWithPkey, rec mo
 			}
 		}
 	}
+
 	c.numRecords.Add(1)
 	return nil
 }
 
 // bool is to indicate if a record is found or not [similar to ok]
-func (c *cdcRecordsStore) Get(key model.TableWithPkey) (model.Record, bool, error) {
+func (c *cdcStore[T]) Get(key model.TableWithPkey) (model.Record[T], bool, error) {
 	rec, ok := c.inMemoryRecords[key]
 	if ok {
 		return rec, true, nil
@@ -212,7 +217,7 @@ func (c *cdcRecordsStore) Get(key model.TableWithPkey) (model.Record, bool, erro
 		}()
 
 		dec := gob.NewDecoder(bytes.NewReader(encodedRec))
-		var rec model.Record
+		var rec model.Record[T]
 		err = dec.Decode(&rec)
 		if err != nil {
 			return nil, false, fmt.Errorf("failed to decode record: %w", err)
@@ -223,15 +228,15 @@ func (c *cdcRecordsStore) Get(key model.TableWithPkey) (model.Record, bool, erro
 	return nil, false, nil
 }
 
-func (c *cdcRecordsStore) Len() int {
+func (c *cdcStore[T]) Len() int {
 	return int(c.numRecords.Load())
 }
 
-func (c *cdcRecordsStore) IsEmpty() bool {
+func (c *cdcStore[T]) IsEmpty() bool {
 	return c.Len() == 0
 }
 
-func (c *cdcRecordsStore) Close() error {
+func (c *cdcStore[T]) Close() error {
 	c.inMemoryRecords = nil
 	if c.pebbleDB != nil {
 		err := c.pebbleDB.Close()

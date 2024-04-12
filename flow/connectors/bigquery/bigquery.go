@@ -327,7 +327,7 @@ func (c *BigQueryConnector) getTableNametoUnchangedCols(
 // SyncRecords pushes records to the destination.
 // Currently only supports inserts, updates, and deletes.
 // More record types will be added in the future.
-func (c *BigQueryConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+func (c *BigQueryConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
 	c.logger.Info(fmt.Sprintf("pushing records to %s.%s...", c.datasetID, rawTableName))
@@ -343,7 +343,7 @@ func (c *BigQueryConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 
 func (c *BigQueryConnector) syncRecordsViaAvro(
 	ctx context.Context,
-	req *model.SyncRecordsRequest,
+	req *model.SyncRecordsRequest[model.RecordItems],
 	rawTableName string,
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {

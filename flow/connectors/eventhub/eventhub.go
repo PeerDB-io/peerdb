@@ -181,7 +181,7 @@ type ScopedEventhubData struct {
 func (c *EventHubConnector) processBatch(
 	ctx context.Context,
 	flowJobName string,
-	batch *model.CDCRecordStream,
+	batch *model.CDCStream[model.RecordItems],
 	script string,
 ) (uint32, error) {
 	batchPerTopic := NewHubBatches(c.hubManager)
@@ -339,7 +339,7 @@ func (c *EventHubConnector) processBatch(
 	}
 }
 
-func (c *EventHubConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+func (c *EventHubConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
 	numRecords, err := c.processBatch(ctx, req.FlowJobName, req.Records, req.Script)
 	if err != nil {
 		c.logger.Error("failed to process batch", slog.Any("error", err))

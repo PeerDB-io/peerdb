@@ -1025,3 +1025,51 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
 }
+
+func (s PeerFlowE2ETestSuitePG) Test_TypeSystem_PG() {
+	srcTableName := s.attachSchemaSuffix("test_typesystem_pg")
+	dstTableName := s.attachSchemaSuffix("test_typesystem_pg_dst")
+
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		create table %[1]s (
+			id uuid not null primary key default gen_random_uuid(),
+			created_at timestamptz not null default now(),
+			updated_at timestamp,
+			j json,
+			jb jsonb,
+			aa32 integer[][],
+			currency char(3)
+		)`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_typesystem_pg"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.peer,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.System = protos.TypeSystem_PG
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+
+	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		insert into %s (updated_at, j, jb, aa32, currency) values (
+			NOW(),'{"b" : 123}','{"b" : 123}','{{3,2,1},{6,5,4},{9,8,7}}','ISK'
+		)`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize rows", func() bool {
+		err := s.comparePGTables(srcTableName, dstTableName, "id,created_at,updated_at,j::text,jb,aa32,currency")
+		if err != nil {
+			s.t.Log("PGPGPG", err)
+		}
+		return err == nil
+	})
+
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
+}

@@ -110,6 +110,7 @@ func (q *QRepFlowExecution) getTableSchema(ctx workflow.Context, tableName strin
 		PeerConnectionConfig: q.config.SourcePeer,
 		TableIdentifiers:     []string{tableName},
 		FlowName:             q.config.FlowJobName,
+		System:               q.config.System,
 	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)

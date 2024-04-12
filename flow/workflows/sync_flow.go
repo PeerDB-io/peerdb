@@ -113,7 +113,12 @@ func SyncFlowWorkflow(
 			WaitForCancellation: true,
 		})
 
-		syncFlowFuture := workflow.ExecuteActivity(syncFlowCtx, flowable.SyncFlow, config, options, sessionID)
+		var syncFlowFuture workflow.Future
+		if config.System == protos.TypeSystem_Q {
+			syncFlowFuture = workflow.ExecuteActivity(syncFlowCtx, flowable.SyncRecords, config, options, sessionID)
+		} else {
+			syncFlowFuture = workflow.ExecuteActivity(syncFlowCtx, flowable.SyncPg, config, options, sessionID)
+		}
 		selector.AddFuture(syncFlowFuture, func(f workflow.Future) {
 			syncDone = true
 
@@ -155,6 +160,7 @@ func SyncFlowWorkflow(
 							PeerConnectionConfig: config.Source,
 							TableIdentifiers:     modifiedSrcTables,
 							FlowName:             config.FlowJobName,
+							System:               config.System,
 						})
 
 					var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput

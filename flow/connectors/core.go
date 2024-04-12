@@ -40,11 +40,11 @@ type ValidationConnector interface {
 type GetTableSchemaConnector interface {
 	Connector
 
-	// GetTableSchema returns the schema of a table.
+	// GetTableSchema returns the schema of a table in terms of QValueKind.
 	GetTableSchema(ctx context.Context, req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error)
 }
 
-type CDCPullConnector interface {
+type CDCPullConnectorCore interface {
 	Connector
 	GetTableSchemaConnector
 
@@ -62,12 +62,8 @@ type CDCPullConnector interface {
 	// Methods related to retrieving and pushing records for this connector as a source and destination.
 	SetupReplConn(context.Context) error
 
-	// Ping source to keep connection alive. Can be called concurrently with PullRecords; skips ping in that case.
+	// Ping source to keep connection alive. Can be called concurrently with pulling records; skips ping in that case.
 	ReplPing(context.Context) error
-
-	// PullRecords pulls records from the source, and returns a RecordBatch.
-	// This method should be idempotent, and should be able to be called multiple times with the same request.
-	PullRecords(ctx context.Context, catalogPool *pgxpool.Pool, req *model.PullRecordsRequest) error
 
 	// Called when offset has been confirmed to destination
 	UpdateReplStateLastOffset(lastOffset int64)
@@ -85,11 +81,33 @@ type CDCPullConnector interface {
 	AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error
 }
 
+type CDCPullConnector interface {
+	CDCPullConnectorCore
+
+	// This method should be idempotent, and should be able to be called multiple times with the same request.
+	PullRecords(ctx context.Context, catalogPool *pgxpool.Pool, req *model.PullRecordsRequest[model.RecordItems]) error
+}
+
+type CDCPullPgConnector interface {
+	CDCPullConnectorCore
+
+	// This method should be idempotent, and should be able to be called multiple times with the same request.
+	// It's signature, aside from type parameter, should match CDCPullConnector.PullRecords.
+	PullPg(ctx context.Context, catalogPool *pgxpool.Pool, req *model.PullRecordsRequest[model.PgItems]) error
+}
+
 type NormalizedTablesConnector interface {
 	Connector
 
 	// StartSetupNormalizedTables may be used to have SetupNormalizedTable calls run in a transaction.
 	StartSetupNormalizedTables(ctx context.Context) (any, error)
+
+	// CleanupSetupNormalizedTables may be used to rollback transaction started by StartSetupNormalizedTables.
+	// Calling CleanupSetupNormalizedTables after FinishSetupNormalizedTables must be a nop.
+	CleanupSetupNormalizedTables(ctx context.Context, tx any)
+
+	// FinishSetupNormalizedTables may be used to finish transaction started by StartSetupNormalizedTables.
+	FinishSetupNormalizedTables(ctx context.Context, tx any) error
 
 	// SetupNormalizedTable sets up the normalized table on the connector.
 	SetupNormalizedTable(
@@ -100,16 +118,9 @@ type NormalizedTablesConnector interface {
 		softDeleteColName string,
 		syncedAtColName string,
 	) (bool, error)
-
-	// CleanupSetupNormalizedTables may be used to rollback transaction started by StartSetupNormalizedTables.
-	// Calling CleanupSetupNormalizedTables after FinishSetupNormalizedTables must be a nop.
-	CleanupSetupNormalizedTables(ctx context.Context, tx any)
-
-	// FinishSetupNormalizedTables may be used to finish transaction started by StartSetupNormalizedTables.
-	FinishSetupNormalizedTables(ctx context.Context, tx any) error
 }
 
-type CDCSyncConnector interface {
+type CDCSyncConnectorCore interface {
 	Connector
 
 	// NeedsSetupMetadataTables checks if the metadata table [PEERDB_MIRROR_JOBS] needs to be created.
@@ -130,17 +141,30 @@ type CDCSyncConnector interface {
 	// CreateRawTable creates a raw table for the connector with a given name and a fixed schema.
 	CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error)
 
+	// SyncFlowCleanup drops metadata tables on the destination, as a part of DROP MIRROR.
+	SyncFlowCleanup(ctx context.Context, jobName string) error
+
 	// ReplayTableSchemaDelta changes a destination table to match the schema at source
 	// This could involve adding or dropping multiple columns.
 	// Connectors which are non-normalizing should implement this as a nop.
 	ReplayTableSchemaDeltas(ctx context.Context, flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error
+}
 
-	// SyncRecords pushes records to the destination peer and stores it in PeerDB specific tables.
+type CDCSyncConnector interface {
+	CDCSyncConnectorCore
+
+	// SyncRecords pushes RecordItems to the destination peer and stores it in PeerDB specific tables.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
-	SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error)
+	SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error)
+}
 
-	// SyncFlowCleanup drops metadata tables on the destination, as a part of DROP MIRROR.
-	SyncFlowCleanup(ctx context.Context, jobName string) error
+type CDCSyncPgConnector interface {
+	CDCSyncConnectorCore
+
+	// SyncPg pushes PgItems to the destination peer and stores it in PeerDB specific tables.
+	// This method should be idempotent, and should be able to be called multiple times with the same request.
+	// It's signature, aside from type parameter, should match CDCSyncConnector.SyncRecords.
+	SyncPg(ctx context.Context, req *model.SyncRecordsRequest[model.PgItems]) (*model.SyncResponse, error)
 }
 
 type CDCNormalizeConnector interface {
@@ -268,6 +292,8 @@ func CloseConnector(ctx context.Context, conn Connector) {
 var (
 	_ CDCPullConnector = &connpostgres.PostgresConnector{}
 
+	_ CDCPullPgConnector = &connpostgres.PostgresConnector{}
+
 	_ CDCSyncConnector = &connpostgres.PostgresConnector{}
 	_ CDCSyncConnector = &connbigquery.BigQueryConnector{}
 	_ CDCSyncConnector = &connsnowflake.SnowflakeConnector{}
@@ -276,6 +302,8 @@ var (
 	_ CDCSyncConnector = &connpubsub.PubSubConnector{}
 	_ CDCSyncConnector = &conns3.S3Connector{}
 	_ CDCSyncConnector = &connclickhouse.ClickhouseConnector{}
+
+	_ CDCSyncPgConnector = &connpostgres.PostgresConnector{}
 
 	_ CDCNormalizeConnector = &connpostgres.PostgresConnector{}
 	_ CDCNormalizeConnector = &connbigquery.BigQueryConnector{}

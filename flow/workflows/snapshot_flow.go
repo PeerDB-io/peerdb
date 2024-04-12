@@ -190,6 +190,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		WriteMode: &protos.QRepWriteMode{
 			WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
 		},
+		System: s.config.System,
 	}
 
 	state := NewQRepFlowState()

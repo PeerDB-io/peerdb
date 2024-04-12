@@ -72,7 +72,7 @@ func LoadScript(ctx context.Context, script string, printfn lua.LGFunction) (*lu
 
 func DefaultOnRecord(ls *lua.LState) int {
 	ud, record := pua.LuaRecord.Check(ls, 1)
-	if _, ok := record.(*model.RelationRecord); ok {
+	if _, ok := record.(*model.RelationRecord[model.RecordItems]); ok {
 		return 0
 	}
 	ls.Push(ls.NewFunction(gluajson.LuaJsonEncode))
