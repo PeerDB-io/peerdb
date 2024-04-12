@@ -145,14 +145,20 @@ func NewClickhouseConnector(
 		return nil, err
 	}
 	if credentials.AWS.SessionToken != "" {
-		minSupportedClickhouseVersion := "24.3.1.2672"
+		minSupportedClickhouseVersion := "v24.3.1"
 		clickHouseVersionRow := database.QueryRowContext(ctx, "SELECT version()")
 		var clickHouseVersion string
 		err := clickHouseVersionRow.Scan(&clickHouseVersion)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query clickhouse version: %w", err)
 		}
-		if semver.Compare(clickHouseVersion, minSupportedClickhouseVersion) < 0 {
+		// Ignore everything after patch version and prefix with "v", else semver.Compare will fail
+		versionParts := strings.SplitN(clickHouseVersion, ".", 4)
+		if len(versionParts) > 3 {
+			versionParts = versionParts[:3]
+		}
+		cleanedClickHouseVersion := "v" + strings.Join(versionParts, ".")
+		if semver.Compare(cleanedClickHouseVersion, minSupportedClickhouseVersion) < 0 {
 			return nil, fmt.Errorf(
 				"provide AWS access credentials explicitly or upgrade to clickhouse version >= %v, current version is %s. %s",
 				minSupportedClickhouseVersion, clickHouseVersion,
