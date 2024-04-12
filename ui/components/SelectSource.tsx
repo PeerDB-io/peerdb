@@ -1,24 +1,21 @@
 'use client';
-import SelectTheme from '@/app/styles/select';
 import TitleCase from '@/app/utils/titlecase';
 import { DBType } from '@/grpc_generated/peers';
 import Image from 'next/image';
-import { Dispatch, SetStateAction } from 'react';
-import ReactSelect from 'react-select';
 import { DBTypeToImageMapping } from './PeerComponent';
 
-interface SelectSourceProps {
-  peerType: string;
-  setPeerType: Dispatch<SetStateAction<string>>;
-}
+interface SelectSourceProps {}
 
 function SourceLabel({ value, label }: { value: string; label: string }) {
   const peerLogo = DBTypeToImageMapping(label);
   return (
-    <div style={{ display: 'flex', alignItems: 'center' }}>
+    <a
+      style={{ display: 'flex', alignItems: 'center' }}
+      href={`/peers/create/${label}`}
+    >
       <Image src={peerLogo} alt='peer' height={15} width={15} />
       <div style={{ marginLeft: 10 }}>{TitleCase(label)}</div>
-    </div>
+    </a>
   );
 }
 
@@ -51,15 +48,14 @@ export default function SelectSource({
     { value: 'POSTGRESQL', label: 'CRUNCHY POSTGRES' }
   );
   return (
-    <ReactSelect
-      className='w-full'
-      placeholder='Select a source'
-      options={dbTypes}
-      defaultValue={dbTypes.find((opt) => opt.label === peerType)}
-      onChange={(val, _) => val && setPeerType(val.label)}
-      formatOptionLabel={SourceLabel}
-      theme={SelectTheme}
-      getOptionValue={(option) => option.label}
-    />
+    <div style={{ columns: 2 }}>
+      {dbTypes.map((dbtype) => (
+        <SourceLabel
+          key={dbtype.label}
+          value={dbtype.value}
+          label={dbtype.label}
+        />
+      ))}
+    </div>
   );
 }
