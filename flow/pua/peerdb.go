@@ -45,7 +45,11 @@ func RegisterTypes(ls *lua.LState) {
 	ls.PreloadModule("msgpack", gluamsgpack.Loader)
 	ls.PreloadModule("utf8", gluautf8.Loader)
 
-	mt := LuaRecord.NewMetatable(ls)
+	mt := ls.NewTypeMetatable("Array")
+	mt.RawSetString("__json", ls.NewFunction(LuaArrayJson))
+	mt.RawSetString("__msgpack", ls.NewFunction(LuaArrayMsgpack))
+
+	mt = LuaRecord.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaRecordIndex))
 	mt.RawSetString("__json", ls.NewFunction(LuaRecordJson))
 
@@ -82,6 +86,7 @@ func RegisterTypes(ls *lua.LState) {
 	mt.RawSetString("__msgpack", ls.NewFunction(LuaDecimalString))
 
 	peerdb := ls.NewTable()
+	peerdb.RawSetString("RowTable", ls.NewFunction(LuaRowTable))
 	peerdb.RawSetString("RowColumns", ls.NewFunction(LuaRowColumns))
 	peerdb.RawSetString("RowColumnKind", ls.NewFunction(LuaRowColumnKind))
 	peerdb.RawSetString("Now", ls.NewFunction(LuaNow))
@@ -141,6 +146,16 @@ func LuaRowLen(ls *lua.LState) int {
 	return 1
 }
 
+func LuaRowTable(ls *lua.LState) int {
+	row := LuaRow.StartMethod(ls)
+	tbl := ls.CreateTable(0, len(row.ColToVal))
+	for col, val := range row.ColToVal {
+		tbl.RawSetString(col, LuaQValue(ls, val))
+	}
+	ls.Push(tbl)
+	return 1
+}
+
 func LuaRowColumns(ls *lua.LState) int {
 	row := LuaRow.StartMethod(ls)
 	tbl := ls.CreateTable(len(row.ColToVal), 0)
@@ -156,6 +171,24 @@ func LuaRowColumns(ls *lua.LState) int {
 func LuaRowColumnKind(ls *lua.LState) int {
 	row, key := LuaRow.StartIndex(ls)
 	ls.Push(lua.LString(GetRowQ(ls, row, key).Kind()))
+	return 1
+}
+
+func LuaArrayJson(ls *lua.LState) int {
+	ls.Push(&lua.LUserData{
+		Value:     gluajson.Array(ls.CheckTable(1)),
+		Env:       ls.Env,
+		Metatable: nil,
+	})
+	return 1
+}
+
+func LuaArrayMsgpack(ls *lua.LState) int {
+	ls.Push(&lua.LUserData{
+		Value:     gluamsgpack.Array(ls.CheckTable(1)),
+		Env:       ls.Env,
+		Metatable: nil,
+	})
 	return 1
 }
 
@@ -253,6 +286,7 @@ func LuaRecordJson(ls *lua.LState) int {
 
 func qvToLTable[T any](ls *lua.LState, s []T, f func(x T) lua.LValue) *lua.LTable {
 	tbl := ls.CreateTable(len(s), 0)
+	tbl.Metatable = ls.GetTypeMetatable("Array")
 	for idx, val := range s {
 		tbl.RawSetInt(idx+1, f(val))
 	}
