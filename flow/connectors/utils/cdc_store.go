@@ -60,7 +60,7 @@ func NewCDCStore[Items model.Items](flowJobName string) *cdcStore[Items] {
 			return 0
 		}(),
 		thresholdReason: "",
-		memStats:        []metrics.Sample{{Name: "/gc/heap/allocs:bytes"}},
+		memStats:        []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}},
 	}
 }
 
