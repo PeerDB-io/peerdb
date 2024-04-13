@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/puddle/v2"
 	"github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/gluaflatbuffers"
@@ -79,4 +80,33 @@ func DefaultOnRecord(ls *lua.LState) int {
 	ls.Push(ud)
 	ls.Call(1, 1)
 	return 1
+}
+
+type LPool = *puddle.Pool[*lua.LState]
+
+func LuaPool(cons puddle.Constructor[*lua.LState]) LPool {
+	pool, err := puddle.NewPool(&puddle.Config[*lua.LState]{
+		Constructor: cons,
+		Destructor:  (*lua.LState).Close,
+		MaxSize:     4, // TODO env variable
+	})
+	if err != nil {
+		// only happens when MaxSize < 1
+		panic(err)
+	}
+	return pool
+}
+
+func LuaPoolJob(ctx context.Context, pool LPool, wait <-chan struct{}, f func(*lua.LState, <-chan struct{})) (chan struct{}, error) {
+	res, err := pool.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	block := make(chan struct{})
+	go func() {
+		defer close(block)
+		defer res.Release()
+		f(res.Value(), wait)
+	}()
+	return block, nil
 }

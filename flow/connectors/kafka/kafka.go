@@ -169,7 +169,7 @@ func lvalueToKafkaRecord(ls *lua.LState, value lua.LValue) (*kgo.Record, error) 
 func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
 	var wg sync.WaitGroup
 	wgCtx, wgErr := context.WithCancelCause(ctx)
-	produceCb := func(r *kgo.Record, err error) {
+	produceCb := func(_ *kgo.Record, err error) {
 		if err != nil {
 			wgErr(err)
 		}
@@ -179,28 +179,25 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 	numRecords := int64(0)
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 
-	ls, err := utils.LoadScript(wgCtx, req.Script, func(ls *lua.LState) int {
-		top := ls.GetTop()
-		ss := make([]string, top)
-		for i := range top {
-			ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
+	pool := utils.LuaPool(func(ctx context.Context) (*lua.LState, error) {
+		ls, err := utils.LoadScript(ctx, req.Script, func(ls *lua.LState) int {
+			top := ls.GetTop()
+			ss := make([]string, top)
+			for i := range top {
+				ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
+			}
+			_ = c.LogFlowInfo(ctx, req.FlowJobName, strings.Join(ss, "\t"))
+			return 0
+		})
+		if err != nil {
+			return nil, err
 		}
-		_ = c.LogFlowInfo(ctx, req.FlowJobName, strings.Join(ss, "\t"))
-		return 0
+		if req.Script == "" {
+			ls.Env.RawSetString("onRecord", ls.NewFunction(utils.DefaultOnRecord))
+		}
+		return ls, nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	defer ls.Close()
-	if req.Script == "" {
-		ls.Env.RawSetString("onRecord", ls.NewFunction(utils.DefaultOnRecord))
-	}
-
-	lfn := ls.Env.RawGetString("onRecord")
-	fn, ok := lfn.(*lua.LFunction)
-	if !ok {
-		return nil, fmt.Errorf("script should define `onRecord` as function, not %s", lfn)
-	}
+	defer pool.Close()
 
 	lastSeenLSN := atomic.Int64{}
 	flushLoopDone := make(chan struct{})
@@ -233,6 +230,8 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 		}
 	}()
 
+	chain := make(chan struct{})
+	close(chain)
 Loop:
 	for {
 		select {
@@ -242,31 +241,53 @@ Loop:
 				break Loop
 			}
 
-			ls.Push(fn)
-			ls.Push(pua.LuaRecord.New(ls, record))
-			err := ls.PCall(1, -1, nil)
-			if err != nil {
-				return nil, fmt.Errorf("script failed: %w", err)
-			}
-			args := ls.GetTop()
-			for i := range args {
-				kr, err := lvalueToKafkaRecord(ls, ls.Get(i-args))
-				if err != nil {
-					return nil, err
+			var err error
+			chain, err = utils.LuaPoolJob(wgCtx, pool, chain, func(ls *lua.LState, wait <-chan struct{}) {
+				lfn := ls.Env.RawGetString("onRecord")
+				fn, ok := lfn.(*lua.LFunction)
+				if !ok {
+					wgErr(fmt.Errorf("script should define `onRecord` as function, not %s", lfn))
+					return
 				}
-				if kr != nil {
-					if kr.Topic == "" {
-						kr.Topic = record.GetDestinationTableName()
-					}
 
-					wg.Add(1)
-					c.client.Produce(wgCtx, kr, produceCb)
-					record.PopulateCountMap(tableNameRowsMapping)
+				ls.Push(fn)
+				ls.Push(pua.LuaRecord.New(ls, record))
+				err := ls.PCall(1, -1, nil)
+				if err != nil {
+					wgErr(fmt.Errorf("script failed: %w", err))
+					return
 				}
+				args := ls.GetTop()
+
+				select {
+				case <-wgCtx.Done():
+					return
+				case <-wait:
+				}
+
+				for i := range args {
+					kr, err := lvalueToKafkaRecord(ls, ls.Get(i-args))
+					if err != nil {
+						wgErr(err)
+						return
+					}
+					if kr != nil {
+						if kr.Topic == "" {
+							kr.Topic = record.GetDestinationTableName()
+						}
+
+						wg.Add(1)
+						c.client.Produce(wgCtx, kr, produceCb)
+						record.PopulateCountMap(tableNameRowsMapping)
+					}
+				}
+				ls.SetTop(0)
+				numRecords += 1
+				shared.AtomicInt64Max(&lastSeenLSN, record.GetCheckpointID())
+			})
+			if err != nil {
+				return nil, err
 			}
-			ls.SetTop(0)
-			numRecords += 1
-			shared.AtomicInt64Max(&lastSeenLSN, record.GetCheckpointID())
 
 		case <-wgCtx.Done():
 			return nil, wgCtx.Err()
@@ -274,6 +295,7 @@ Loop:
 	}
 
 	close(flushLoopDone)
+	<-chain
 	if err := c.client.Flush(ctx); err != nil {
 		return nil, fmt.Errorf("[kafka] final flush error: %w", err)
 	}
@@ -289,8 +311,7 @@ Loop:
 	}
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
-	err = c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
-	if err != nil {
+	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
 		return nil, err
 	}
 
