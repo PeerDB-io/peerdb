@@ -70,11 +70,13 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 
 	output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
+		System:           protos.TypeSystem_Q,
 	})
 	require.NoError(s.t, err)
 	require.Equal(s.t, &protos.TableSchema{
 		TableIdentifier:   tableName,
 		PrimaryKeyColumns: []string{"id"},
+		System:            protos.TypeSystem_Q,
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         "id",
@@ -100,6 +102,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 		TableIdentifier:   tableName,
 		PrimaryKeyColumns: []string{"id"},
 		Columns:           AddAllColumnTypesFields,
+		System:            protos.TypeSystem_Q,
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
 	for _, column := range expectedTableSchema.Columns {
@@ -120,6 +123,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 
 	output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
+		System:           protos.TypeSystem_Q,
 	})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
@@ -135,6 +139,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 		TableIdentifier:   tableName,
 		PrimaryKeyColumns: []string{"id"},
 		Columns:           TrickyFields,
+		System:            protos.TypeSystem_Q,
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
 	for _, column := range expectedTableSchema.Columns {
@@ -155,6 +160,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 
 	output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
+		System:           protos.TypeSystem_Q,
 	})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
@@ -170,6 +176,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 		TableIdentifier:   tableName,
 		PrimaryKeyColumns: []string{" "},
 		Columns:           WhitespaceFields,
+		System:            protos.TypeSystem_Q,
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
 	for _, column := range expectedTableSchema.Columns {
@@ -190,6 +197,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 
 	output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
+		System:           protos.TypeSystem_Q,
 	})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[tableName])

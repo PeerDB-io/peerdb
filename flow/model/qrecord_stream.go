@@ -29,25 +29,25 @@ type QRecordStream struct {
 	schemaSet   bool
 }
 
-type RecordsToStreamRequest struct {
-	records      <-chan Record
+type RecordsToStreamRequest[T Items] struct {
+	records      <-chan Record[T]
 	TableMapping map[string]*RecordTypeCounts
 	BatchID      int64
 }
 
-func NewRecordsToStreamRequest(
-	records <-chan Record,
+func NewRecordsToStreamRequest[T Items](
+	records <-chan Record[T],
 	tableMapping map[string]*RecordTypeCounts,
 	batchID int64,
-) *RecordsToStreamRequest {
-	return &RecordsToStreamRequest{
+) *RecordsToStreamRequest[T] {
+	return &RecordsToStreamRequest[T]{
 		records:      records,
 		TableMapping: tableMapping,
 		BatchID:      batchID,
 	}
 }
 
-func (r *RecordsToStreamRequest) GetRecords() <-chan Record {
+func (r *RecordsToStreamRequest[T]) GetRecords() <-chan Record[T] {
 	return r.records
 }
 

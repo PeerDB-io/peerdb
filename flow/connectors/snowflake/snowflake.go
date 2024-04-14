@@ -400,7 +400,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 	return nil
 }
 
-func (c *SnowflakeConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+func (c *SnowflakeConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	c.logger.Info("pushing records to Snowflake table " + rawTableIdentifier)
 
@@ -419,7 +419,7 @@ func (c *SnowflakeConnector) SyncRecords(ctx context.Context, req *model.SyncRec
 
 func (c *SnowflakeConnector) syncRecordsViaAvro(
 	ctx context.Context,
-	req *model.SyncRecordsRequest,
+	req *model.SyncRecordsRequest[model.RecordItems],
 	rawTableIdentifier string,
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {

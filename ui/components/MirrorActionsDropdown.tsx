@@ -1,12 +1,12 @@
 'use client';
+import { getMirrorState } from '@/app/mirrors/[mirrorId]/handlers';
 import EditButton from '@/components/EditButton';
 import { ResyncDialog } from '@/components/ResyncDialog';
-import { FlowConnectionConfigs } from '@/grpc_generated/flow';
-import { Button } from '@/lib/Button/Button';
-import { Icon } from '@/lib/Icon';
-import { Label } from '@/lib/Label/Label';
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { FlowConnectionConfigs, FlowStatus } from '@/grpc_generated/flow';
+import { MirrorStatusResponse } from '@/grpc_generated/route';
+import { Select, SelectItem } from '@tremor/react';
 import { useEffect, useState } from 'react';
+import PauseOrResumeButton from './PauseOrResumeButton';
 
 const MirrorActions = ({
   mirrorConfig,
@@ -21,50 +21,48 @@ const MirrorActions = ({
   canResync: boolean;
   isNotPaused: boolean;
 }) => {
+  const [mirrorStatus, setMirrorStatus] = useState<FlowStatus>();
   const [mounted, setMounted] = useState(false);
-  const [open, setOpen] = useState(false);
-  const handleToggle = () => {
-    setOpen((prevOpen) => !prevOpen);
-  };
-  useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    getMirrorState(mirrorConfig.flowJobName).then(
+      (res: MirrorStatusResponse) => {
+        setMirrorStatus(res.currentFlowState);
+      }
+    );
+    setMounted(true);
+  }, [mirrorConfig.flowJobName]);
+
   if (mounted)
     return (
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger>
-          <Button
-            aria-controls={open ? 'menu-list-grow' : undefined}
-            aria-haspopup='true'
-            variant='normal'
-            onClick={handleToggle}
-            style={{
-              boxShadow: '0px 1px 1px rgba(0,0,0,0.1)',
-              border: '1px solid rgba(0,0,0,0.1)',
-            }}
-          >
-            <Label>Actions</Label>
-            <Icon name='arrow_downward_alt' />
-          </Button>
-        </DropdownMenu.Trigger>
-
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content
-            style={{
-              border: '1px solid rgba(0,0,0,0.1)',
-              borderRadius: '0.5rem',
-              backgroundColor: 'white',
-            }}
-          >
+      <div>
+        <Select
+          placeholder='Actions'
+          value='Actions'
+          style={{ width: 'fit-content' }}
+        >
+          <SelectItem value='1' style={{ padding: 0 }}>
+            {mirrorStatus && (
+              <PauseOrResumeButton
+                mirrorConfig={mirrorConfig}
+                mirrorStatus={mirrorStatus}
+              />
+            )}
+          </SelectItem>
+          <SelectItem value='2' style={{ padding: 0 }}>
             <EditButton toLink={editLink} disabled={isNotPaused} />
+          </SelectItem>
 
+          <SelectItem value='3' style={{ padding: 0 }}>
             {canResync && (
               <ResyncDialog
                 mirrorConfig={mirrorConfig}
                 workflowId={workflowId}
               />
             )}
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
+          </SelectItem>
+        </Select>
+      </div>
     );
   return <></>;
 };

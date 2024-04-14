@@ -145,13 +145,13 @@ func (c *PostgresConnector) MaybeStartReplication(
 	ctx context.Context,
 	slotName string,
 	publicationName string,
-	req *model.PullRecordsRequest,
+	lastOffset int64,
 ) error {
-	if c.replState != nil && (c.replState.Offset != req.LastOffset ||
+	if c.replState != nil && (c.replState.Offset != lastOffset ||
 		c.replState.Slot != slotName ||
 		c.replState.Publication != publicationName) {
 		msg := fmt.Sprintf("replState changed, reset connector. slot name: old=%s new=%s, publication: old=%s new=%s, offset: old=%d new=%d",
-			c.replState.Slot, slotName, c.replState.Publication, publicationName, c.replState.Offset, req.LastOffset,
+			c.replState.Slot, slotName, c.replState.Publication, publicationName, c.replState.Offset, lastOffset,
 		)
 		c.logger.Info(msg)
 		return temporal.NewNonRetryableApplicationError(msg, "desync", nil)
@@ -164,9 +164,9 @@ func (c *PostgresConnector) MaybeStartReplication(
 		}
 
 		var startLSN pglogrepl.LSN
-		if req.LastOffset > 0 {
-			c.logger.Info("starting replication from last sync state", slog.Int64("last checkpoint", req.LastOffset))
-			startLSN = pglogrepl.LSN(req.LastOffset + 1)
+		if lastOffset > 0 {
+			c.logger.Info("starting replication from last sync state", slog.Int64("last checkpoint", lastOffset))
+			startLSN = pglogrepl.LSN(lastOffset + 1)
 		}
 
 		opts := startReplicationOpts{
@@ -184,10 +184,10 @@ func (c *PostgresConnector) MaybeStartReplication(
 		c.replState = &ReplState{
 			Slot:        slotName,
 			Publication: publicationName,
-			Offset:      req.LastOffset,
+			Offset:      lastOffset,
 			LastOffset:  atomic.Int64{},
 		}
-		c.replState.LastOffset.Store(req.LastOffset)
+		c.replState.LastOffset.Store(lastOffset)
 	}
 	return nil
 }
@@ -307,8 +307,30 @@ func (c *PostgresConnector) SetLastOffset(ctx context.Context, jobName string, l
 	return nil
 }
 
+func (c *PostgresConnector) PullRecords(
+	ctx context.Context,
+	catalogPool *pgxpool.Pool,
+	req *model.PullRecordsRequest[model.RecordItems],
+) error {
+	return pullCore(ctx, c, catalogPool, req, (*PostgresCDCSource).PullRecords)
+}
+
+func (c *PostgresConnector) PullPg(
+	ctx context.Context,
+	catalogPool *pgxpool.Pool,
+	req *model.PullRecordsRequest[model.PgItems],
+) error {
+	return pullCore(ctx, c, catalogPool, req, (*PostgresCDCSource).PullPg)
+}
+
 // PullRecords pulls records from the source.
-func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpool.Pool, req *model.PullRecordsRequest) error {
+func pullCore[Items model.Items](
+	ctx context.Context,
+	c *PostgresConnector,
+	catalogPool *pgxpool.Pool,
+	req *model.PullRecordsRequest[Items],
+	pull func(*PostgresCDCSource, context.Context, *model.PullRecordsRequest[Items]) error,
+) error {
 	defer func() {
 		req.RecordStream.Close()
 		if c.replState != nil {
@@ -353,8 +375,7 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 	c.replLock.Lock()
 	defer c.replLock.Unlock()
 
-	err = c.MaybeStartReplication(ctx, slotName, publicationName, req)
-	if err != nil {
+	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset); err != nil {
 		c.logger.Error("error starting replication", slog.Any("error", err))
 		return err
 	}
@@ -371,8 +392,7 @@ func (c *PostgresConnector) PullRecords(ctx context.Context, catalogPool *pgxpoo
 		RelationMessageMapping: c.relationMessageMapping,
 	})
 
-	err = cdc.PullRecords(ctx, req)
-	if err != nil {
+	if err := pull(cdc, ctx, req); err != nil {
 		c.logger.Error("error pulling records", slog.Any("error", err))
 		return err
 	}
@@ -398,8 +418,20 @@ func (c *PostgresConnector) UpdateReplStateLastOffset(lastOffset int64) {
 	}
 }
 
-// SyncRecords pushes records to the destination.
-func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
+	return syncRecordsCore(ctx, c, req)
+}
+
+func (c *PostgresConnector) SyncPg(ctx context.Context, req *model.SyncRecordsRequest[model.PgItems]) (*model.SyncResponse, error) {
+	return syncRecordsCore(ctx, c, req)
+}
+
+// syncRecordsCore pushes records to the destination.
+func syncRecordsCore[Items model.Items](
+	ctx context.Context,
+	c *PostgresConnector,
+	req *model.SyncRecordsRequest[Items],
+) (*model.SyncResponse, error) {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	c.logger.Info(fmt.Sprintf("pushing records to Postgres table %s via COPY", rawTableIdentifier))
 
@@ -413,7 +445,7 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 		} else {
 			var row []any
 			switch typedRecord := record.(type) {
-			case *model.InsertRecord:
+			case *model.InsertRecord[Items]:
 				itemsJSON, err := typedRecord.Items.ToJSONWithOptions(model.ToJSONOptions{
 					UnnestColumns: nil,
 					HStoreAsJSON:  false,
@@ -433,7 +465,7 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 					"",
 				}
 
-			case *model.UpdateRecord:
+			case *model.UpdateRecord[Items]:
 				newItemsJSON, err := typedRecord.NewItems.ToJSONWithOptions(model.ToJSONOptions{
 					UnnestColumns: nil,
 					HStoreAsJSON:  false,
@@ -460,7 +492,7 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 					utils.KeysToString(typedRecord.UnchangedToastColumns),
 				}
 
-			case *model.DeleteRecord:
+			case *model.DeleteRecord[Items]:
 				itemsJSON, err := typedRecord.Items.ToJSONWithOptions(model.ToJSONOptions{
 					UnnestColumns: nil,
 					HStoreAsJSON:  false,
@@ -544,7 +576,10 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 	}, nil
 }
 
-func (c *PostgresConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
+func (c *PostgresConnector) NormalizeRecords(
+	ctx context.Context,
+	req *model.NormalizeRecordsRequest,
+) (*model.NormalizeResponse, error) {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 
 	jobMetadataExists, err := c.jobMetadataExists(ctx, req.FlowJobName)
@@ -580,7 +615,7 @@ func (c *PostgresConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 	if err != nil {
 		return nil, err
 	}
-	unchangedToastColsMap, err := c.getTableNametoUnchangedCols(ctx, req.FlowJobName,
+	unchangedToastColumnsMap, err := c.getTableNametoUnchangedCols(ctx, req.FlowJobName,
 		req.SyncBatchID, normBatchID)
 	if err != nil {
 		return nil, err
@@ -602,11 +637,11 @@ func (c *PostgresConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 		return nil, err
 	}
 	totalRowsAffected := 0
-	normalizeStmtGen := &normalizeStmtGenerator{
+	normalizeStmtGen := normalizeStmtGenerator{
 		Logger:                   c.logger,
 		rawTableName:             rawTableIdentifier,
 		tableSchemaMapping:       req.TableNameSchemaMapping,
-		unchangedToastColumnsMap: unchangedToastColsMap,
+		unchangedToastColumnsMap: unchangedToastColumnsMap,
 		peerdbCols: &protos.PeerDBColumns{
 			SoftDeleteColName: req.SoftDeleteColName,
 			SyncedAtColName:   req.SyncedAtColName,
@@ -615,6 +650,7 @@ func (c *PostgresConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 		supportsMerge:  pgversion >= shared.POSTGRES_15,
 		metadataSchema: c.metadataSchema,
 	}
+
 	for _, destinationTableName := range destinationTableNames {
 		normalizeStatements := normalizeStmtGen.generateNormalizeStatements(destinationTableName)
 		for _, normalizeStatement := range normalizeStatements {
@@ -693,19 +729,17 @@ func (c *PostgresConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 	return nil, nil
 }
 
-// GetTableSchema returns the schema for a table, implementing the Connector interface.
 func (c *PostgresConnector) GetTableSchema(
 	ctx context.Context,
 	req *protos.GetTableSchemaBatchInput,
 ) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(ctx, tableName)
+		tableSchema, err := c.getTableSchemaForTable(ctx, tableName, req.System)
 		if err != nil {
 			return nil, err
 		}
 		res[tableName] = tableSchema
-		utils.RecordHeartbeat(ctx, "fetched schema for table "+tableName)
 		c.logger.Info("fetched schema for table " + tableName)
 	}
 
@@ -717,6 +751,7 @@ func (c *PostgresConnector) GetTableSchema(
 func (c *PostgresConnector) getTableSchemaForTable(
 	ctx context.Context,
 	tableName string,
+	system protos.TypeSystem,
 ) (*protos.TableSchema, error) {
 	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
@@ -745,20 +780,34 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	columnNames := make([]string, 0, len(fields))
 	columns := make([]*protos.FieldDescription, 0, len(fields))
 	for _, fieldDescription := range fields {
-		genericColType := c.postgresOIDToQValueKind(fieldDescription.DataTypeOID)
-		if genericColType == qvalue.QValueKindInvalid {
-			typeName, ok := c.customTypesMapping[fieldDescription.DataTypeOID]
-			if ok {
-				genericColType = customTypeToQKind(typeName)
-			} else {
-				genericColType = qvalue.QValueKindString
+		var colType string
+		switch system {
+		case protos.TypeSystem_PG:
+			colType = c.postgresOIDToName(fieldDescription.DataTypeOID)
+			if colType == "" {
+				typeName, ok := c.customTypesMapping[fieldDescription.DataTypeOID]
+				if !ok {
+					return nil, fmt.Errorf("error getting type name for %d", fieldDescription.DataTypeOID)
+				}
+				colType = typeName
 			}
+		case protos.TypeSystem_Q:
+			qColType := c.postgresOIDToQValueKind(fieldDescription.DataTypeOID)
+			if qColType == qvalue.QValueKindInvalid {
+				typeName, ok := c.customTypesMapping[fieldDescription.DataTypeOID]
+				if ok {
+					qColType = customTypeToQKind(typeName)
+				} else {
+					qColType = qvalue.QValueKindString
+				}
+			}
+			colType = string(qColType)
 		}
 
 		columnNames = append(columnNames, fieldDescription.Name)
 		columns = append(columns, &protos.FieldDescription{
 			Name:         fieldDescription.Name,
-			Type:         string(genericColType),
+			Type:         colType,
 			TypeModifier: fieldDescription.TypeModifier,
 		})
 	}
@@ -776,6 +825,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		PrimaryKeyColumns:     pKeyCols,
 		IsReplicaIdentityFull: replicaIdentityType == ReplicaIdentityFull,
 		Columns:               columns,
+		System:                system,
 	}, nil
 }
 
@@ -828,7 +878,7 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	return false, nil
 }
 
-// ReplayTableSchemaDelta changes a destination table to match the schema at source
+// replayTableSchemaDeltaCore changes a destination table to match the schema at source
 // This could involve adding or dropping multiple columns.
 func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
@@ -858,10 +908,14 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
+			columnType := addedColumn.ColumnType
+			if schemaDelta.System == protos.TypeSystem_Q {
+				columnType = qValueKindToPostgresType(columnType)
+			}
 			_, err = tableSchemaModifyTx.Exec(ctx, fmt.Sprintf(
 				"ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s",
-				schemaDelta.DstTableName, QuoteIdentifier(addedColumn.ColumnName),
-				qValueKindToPostgresType(addedColumn.ColumnType)))
+				schemaDelta.DstTableName, QuoteIdentifier(addedColumn.ColumnName), columnType,
+			))
 			if err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
 					schemaDelta.DstTableName, err)
@@ -874,12 +928,9 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 		}
 	}
 
-	err = tableSchemaModifyTx.Commit(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to commit transaction for table schema modification: %w",
-			err)
+	if err := tableSchemaModifyTx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction for table schema modification: %w", err)
 	}
-
 	return nil
 }
 

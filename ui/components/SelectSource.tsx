@@ -45,7 +45,9 @@ export default function SelectSource({
     { value: 'POSTGRESQL', label: 'POSTGRESQL' },
     { value: 'POSTGRESQL', label: 'RDS POSTGRESQL' },
     { value: 'POSTGRESQL', label: 'GOOGLE CLOUD POSTGRESQL' },
-    { value: 'POSTGRESQL', label: 'AZURE FLEXIBLE POSTGRESQL' }
+    { value: 'POSTGRESQL', label: 'AZURE FLEXIBLE POSTGRESQL' },
+    { value: 'POSTGRESQL', label: 'TEMBO' },
+    { value: 'POSTGRESQL', label: 'CRUNCHY POSTGRES' }
   );
   return (
     <ReactSelect
@@ -56,6 +58,7 @@ export default function SelectSource({
       onChange={(val, _) => val && setPeerType(val.label)}
       formatOptionLabel={SourceLabel}
       theme={SelectTheme}
+      getOptionValue={(option) => option.label}
     />
   );
 }

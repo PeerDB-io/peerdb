@@ -437,12 +437,13 @@ func generateCreateTableSQLForNormalizedTable(
 ) string {
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns)+2)
 	for _, column := range sourceTableSchema.Columns {
-		pgColumnType := qValueKindToPostgresType(column.Type)
-		if column.Type == "numeric" {
+		pgColumnType := column.Type
+		if sourceTableSchema.System == protos.TypeSystem_Q {
+			pgColumnType = qValueKindToPostgresType(pgColumnType)
+		}
+		if column.Type == "numeric" && column.TypeModifier != -1 {
 			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
-			if column.TypeModifier != -1 {
-				pgColumnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
-			}
+			pgColumnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
 		}
 		createTableSQLArray = append(createTableSQLArray,
 			fmt.Sprintf("%s %s", QuoteIdentifier(column.Name), pgColumnType))

@@ -31,6 +31,7 @@ func (c *SnowflakeConnector) getTableSchemaForTable(ctx context.Context, tableNa
 	return &protos.TableSchema{
 		TableIdentifier: tableName,
 		Columns:         colFields,
+		System:          protos.TypeSystem_Q,
 	}, nil
 }
 

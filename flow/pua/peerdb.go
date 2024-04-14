@@ -22,7 +22,7 @@ import (
 )
 
 var (
-	LuaRecord  = glua64.UserDataType[model.Record]{Name: "peerdb_record"}
+	LuaRecord  = glua64.UserDataType[model.Record[model.RecordItems]]{Name: "peerdb_record"}
 	LuaRow     = glua64.UserDataType[model.RecordItems]{Name: "peerdb_row"}
 	LuaTime    = glua64.UserDataType[time.Time]{Name: "peerdb_time"}
 	LuaUuid    = glua64.UserDataType[uuid.UUID]{Name: "peerdb_uuid"}
@@ -45,7 +45,11 @@ func RegisterTypes(ls *lua.LState) {
 	ls.PreloadModule("msgpack", gluamsgpack.Loader)
 	ls.PreloadModule("utf8", gluautf8.Loader)
 
-	mt := LuaRecord.NewMetatable(ls)
+	mt := ls.NewTypeMetatable("Array")
+	mt.RawSetString("__json", ls.NewFunction(LuaArrayJson))
+	mt.RawSetString("__msgpack", ls.NewFunction(LuaArrayMsgpack))
+
+	mt = LuaRecord.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaRecordIndex))
 	mt.RawSetString("__json", ls.NewFunction(LuaRecordJson))
 
@@ -82,6 +86,7 @@ func RegisterTypes(ls *lua.LState) {
 	mt.RawSetString("__msgpack", ls.NewFunction(LuaDecimalString))
 
 	peerdb := ls.NewTable()
+	peerdb.RawSetString("RowTable", ls.NewFunction(LuaRowTable))
 	peerdb.RawSetString("RowColumns", ls.NewFunction(LuaRowColumns))
 	peerdb.RawSetString("RowColumnKind", ls.NewFunction(LuaRowColumnKind))
 	peerdb.RawSetString("Now", ls.NewFunction(LuaNow))
@@ -141,6 +146,16 @@ func LuaRowLen(ls *lua.LState) int {
 	return 1
 }
 
+func LuaRowTable(ls *lua.LState) int {
+	row := LuaRow.StartMethod(ls)
+	tbl := ls.CreateTable(0, len(row.ColToVal))
+	for col, val := range row.ColToVal {
+		tbl.RawSetString(col, LuaQValue(ls, val))
+	}
+	ls.Push(tbl)
+	return 1
+}
+
 func LuaRowColumns(ls *lua.LState) int {
 	row := LuaRow.StartMethod(ls)
 	tbl := ls.CreateTable(len(row.ColToVal), 0)
@@ -159,18 +174,36 @@ func LuaRowColumnKind(ls *lua.LState) int {
 	return 1
 }
 
+func LuaArrayJson(ls *lua.LState) int {
+	ls.Push(&lua.LUserData{
+		Value:     gluajson.Array(ls.CheckTable(1)),
+		Env:       ls.Env,
+		Metatable: nil,
+	})
+	return 1
+}
+
+func LuaArrayMsgpack(ls *lua.LState) int {
+	ls.Push(&lua.LUserData{
+		Value:     gluamsgpack.Array(ls.CheckTable(1)),
+		Env:       ls.Env,
+		Metatable: nil,
+	})
+	return 1
+}
+
 func LuaRecordIndex(ls *lua.LState) int {
 	record, key := LuaRecord.StartIndex(ls)
 	switch key {
 	case "kind":
 		switch record.(type) {
-		case *model.InsertRecord:
+		case *model.InsertRecord[model.RecordItems]:
 			ls.Push(lua.LString("insert"))
-		case *model.UpdateRecord:
+		case *model.UpdateRecord[model.RecordItems]:
 			ls.Push(lua.LString("update"))
-		case *model.DeleteRecord:
+		case *model.DeleteRecord[model.RecordItems]:
 			ls.Push(lua.LString("delete"))
-		case *model.RelationRecord:
+		case *model.RelationRecord[model.RecordItems]:
 			ls.Push(lua.LString("relation"))
 		}
 	case "row":
@@ -183,9 +216,9 @@ func LuaRecordIndex(ls *lua.LState) int {
 	case "old":
 		var items model.RecordItems
 		switch rec := record.(type) {
-		case *model.UpdateRecord:
+		case *model.UpdateRecord[model.RecordItems]:
 			items = rec.OldItems
-		case *model.DeleteRecord:
+		case *model.DeleteRecord[model.RecordItems]:
 			items = rec.Items
 		}
 		if items.ColToVal != nil {
@@ -196,9 +229,9 @@ func LuaRecordIndex(ls *lua.LState) int {
 	case "new":
 		var items model.RecordItems
 		switch rec := record.(type) {
-		case *model.InsertRecord:
+		case *model.InsertRecord[model.RecordItems]:
 			items = rec.Items
-		case *model.UpdateRecord:
+		case *model.UpdateRecord[model.RecordItems]:
 			items = rec.NewItems
 		}
 		if items.ColToVal != nil {
@@ -214,6 +247,16 @@ func LuaRecordIndex(ls *lua.LState) int {
 		ls.Push(lua.LString(record.GetDestinationTableName()))
 	case "source":
 		ls.Push(lua.LString(record.GetSourceTableName()))
+	case "unchanged_columns":
+		if ur, ok := record.(*model.UpdateRecord[model.RecordItems]); ok {
+			tbl := ls.CreateTable(0, len(ur.UnchangedToastColumns))
+			for col := range ur.UnchangedToastColumns {
+				tbl.RawSetString(col, lua.LTrue)
+			}
+			ls.Push(tbl)
+		} else {
+			ls.Push(lua.LNil)
+		}
 	default:
 		return 0
 	}
@@ -221,12 +264,21 @@ func LuaRecordIndex(ls *lua.LState) int {
 }
 
 func LuaRecordJson(ls *lua.LState) int {
-	ud := ls.Get(1)
-	tbl := ls.CreateTable(0, 6)
+	ud := ls.CheckUserData(1)
+	tbl := ls.CreateTable(0, 7)
 	for _, key := range []string{
 		"kind", "old", "new", "checkpoint", "commit_time", "source",
 	} {
 		tbl.RawSetString(key, ls.GetField(ud, key))
+	}
+	if ur, ok := ud.Value.(*model.UpdateRecord[model.RecordItems]); ok {
+		if len(ur.UnchangedToastColumns) > 0 {
+			unchanged := ls.CreateTable(len(ur.UnchangedToastColumns), 0)
+			for col := range ur.UnchangedToastColumns {
+				unchanged.Append(lua.LString(col))
+			}
+			tbl.RawSetString("unchanged_columns", unchanged)
+		}
 	}
 	ls.Push(tbl)
 	return 1
@@ -234,6 +286,7 @@ func LuaRecordJson(ls *lua.LState) int {
 
 func qvToLTable[T any](ls *lua.LState, s []T, f func(x T) lua.LValue) *lua.LTable {
 	tbl := ls.CreateTable(len(s), 0)
+	tbl.Metatable = ls.GetTypeMetatable("Array")
 	for idx, val := range s {
 		tbl.RawSetInt(idx+1, f(val))
 	}

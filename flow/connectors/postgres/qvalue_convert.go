@@ -19,6 +19,29 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
+func (c *PostgresConnector) postgresOIDToName(recvOID uint32) string {
+	if ty, ok := pgtype.NewMap().TypeForOID(recvOID); ok {
+		return ty.Name
+	}
+	// workaround for some types not being defined by pgtype
+	switch recvOID {
+	case uint32(oid.T_timetz):
+		return "timetz"
+	case uint32(oid.T_xml):
+		return "xml"
+	case uint32(oid.T_money):
+		return "money"
+	case uint32(oid.T_txid_snapshot):
+		return "txid_snapshot"
+	case uint32(oid.T_tsvector):
+		return "tsvector"
+	case uint32(oid.T_tsquery):
+		return "tsquery"
+	default:
+		return ""
+	}
+}
+
 func (c *PostgresConnector) postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
 	switch recvOID {
 	case pgtype.BoolOID:
@@ -339,7 +362,7 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		case net.HardwareAddr:
 			return qvalue.QValueMacaddr{Val: v.String()}, nil
 		default:
-			return nil, fmt.Errorf("failed to parse MACADDR: %v", value)
+			return nil, fmt.Errorf("failed to parse MACADDR: %v %T", value, v)
 		}
 	case qvalue.QValueKindBytes:
 		rawBytes := value.([]byte)

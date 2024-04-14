@@ -5,13 +5,12 @@ import PeerButton from '@/components/PeerComponent';
 import TimeLabel from '@/components/TimeComponent';
 import { FlowConnectionConfigs, FlowStatus } from '@/grpc_generated/flow';
 import { dBTypeFromJSON } from '@/grpc_generated/peers';
-import { FlowStateChangeRequest } from '@/grpc_generated/route';
-import { Button } from '@/lib/Button';
-import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
-import moment from 'moment';
+import { ProgressCircle } from '@/lib/ProgressCircle';
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import MirrorValues from './configValues';
+import { getCurrentIdleTimeout } from './handlers';
 import { RowDataFormatter } from './rowsDisplay';
 import TablePairs from './tablePairs';
 
@@ -22,13 +21,8 @@ type props = {
   mirrorStatus: FlowStatus;
 };
 function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
-  let lastSyncedAt = moment(
-    syncs.length > 1
-      ? syncs[1]?.endTime
-      : syncs.length
-        ? syncs[0]?.startTime
-        : new Date()
-  ).fromNow();
+  const [syncInterval, getSyncInterval] = useState<number>();
+
   let rowsSynced = syncs.reduce((acc, sync) => {
     if (sync.endTime !== null) {
       return acc + sync.numRows;
@@ -37,6 +31,11 @@ function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
   }, 0);
 
   const tablesSynced = mirrorConfig.tableMappings;
+  useEffect(() => {
+    getCurrentIdleTimeout(mirrorConfig.flowJobName).then((res) => {
+      getSyncInterval(res);
+    });
+  }, [mirrorConfig.flowJobName]);
   return (
     <>
       <div className='mt-10'>
@@ -53,15 +52,11 @@ function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
                 width: 'fit-content',
                 borderRadius: '1rem',
                 border: '1px solid rgba(0,0,0,0.1)',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
               }}
             >
               <Link href={`/mirrors/errors/${mirrorConfig.flowJobName}`}>
                 <Label>{formatStatus(mirrorStatus)}</Label>
               </Link>
-              {statusChangeHandle(mirrorConfig, mirrorStatus)}
             </div>
           </div>
           <div className='basis-1/4 md:basis-1/3'>
@@ -105,11 +100,11 @@ function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
           <div className='basis-1/4'>
             <div>
               <Label variant='subheadline' colorName='lowContrast'>
-                Last Sync
+                Sync Interval
               </Label>
             </div>
             <div>
-              <Label variant='body'>{lastSyncedAt}</Label>
+              <SyncIntervalLabel syncInterval={syncInterval} />
             </div>
           </div>
           <div className='basis-1/4'>
@@ -144,71 +139,6 @@ function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
   );
 }
 
-function statusChangeHandle(
-  mirrorConfig: FlowConnectionConfigs,
-  mirrorStatus: FlowStatus
-) {
-  // hopefully there's a better way to do this cast
-  if (mirrorStatus.toString() === FlowStatus[FlowStatus.STATUS_RUNNING]) {
-    return (
-      <Button
-        className='IconButton'
-        aria-label='Pause'
-        onClick={async () => {
-          const req: FlowStateChangeRequest = {
-            flowJobName: mirrorConfig.flowJobName,
-            sourcePeer: mirrorConfig.source,
-            destinationPeer: mirrorConfig.destination,
-            requestedFlowState: FlowStatus.STATUS_PAUSED,
-          };
-          await fetch(`/api/mirrors/state_change`, {
-            method: 'POST',
-            body: JSON.stringify(req),
-            cache: 'no-store',
-          });
-          window.location.reload();
-        }}
-      >
-        <Icon name='pause' />
-      </Button>
-    );
-  } else if (mirrorStatus.toString() === FlowStatus[FlowStatus.STATUS_PAUSED]) {
-    return (
-      <Button
-        className='IconButton'
-        aria-label='Play'
-        onClick={async () => {
-          const req: FlowStateChangeRequest = {
-            flowJobName: mirrorConfig.flowJobName,
-            sourcePeer: mirrorConfig.source,
-            destinationPeer: mirrorConfig.destination,
-            requestedFlowState: FlowStatus.STATUS_RUNNING,
-          };
-          await fetch(`/api/mirrors/state_change`, {
-            method: 'POST',
-            body: JSON.stringify(req),
-            cache: 'no-store',
-          });
-          window.location.reload();
-        }}
-      >
-        <Icon name='play_circle' />
-      </Button>
-    );
-  } else {
-    return (
-      <Button
-        className='IconButton'
-        aria-label='Pause (disabled)'
-        disabled={true}
-        style={{ opacity: '50%' }}
-      >
-        <Icon name='pause' />
-      </Button>
-    );
-  }
-}
-
 function formatStatus(mirrorStatus: FlowStatus) {
   const mirrorStatusLower = mirrorStatus
     .toString()
@@ -219,5 +149,26 @@ function formatStatus(mirrorStatus: FlowStatus) {
     mirrorStatusLower.at(0)?.toLocaleUpperCase() + mirrorStatusLower.slice(1)
   );
 }
+
+const SyncIntervalLabel: React.FC<{ syncInterval?: number }> = ({
+  syncInterval,
+}) => {
+  let formattedInterval: string;
+
+  if (!syncInterval) {
+    return <ProgressCircle variant='determinate_progress_circle' />;
+  }
+  if (syncInterval >= 3600) {
+    const hours = Math.floor(syncInterval / 3600);
+    formattedInterval = `${hours} hour${hours !== 1 ? 's' : ''}`;
+  } else if (syncInterval >= 60) {
+    const minutes = Math.floor(syncInterval / 60);
+    formattedInterval = `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+  } else {
+    formattedInterval = `${syncInterval} second${syncInterval !== 1 ? 's' : ''}`;
+  }
+
+  return <Label>{formattedInterval}</Label>;
+};
 
 export default CdcDetails;

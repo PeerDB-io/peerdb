@@ -166,7 +166,7 @@ func lvalueToKafkaRecord(ls *lua.LState, value lua.LValue) (*kgo.Record, error) 
 	return kr, nil
 }
 
-func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
 	var wg sync.WaitGroup
 	wgCtx, wgErr := context.WithCancelCause(ctx)
 	produceCb := func(r *kgo.Record, err error) {

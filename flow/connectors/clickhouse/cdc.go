@@ -70,7 +70,7 @@ func (c *ClickhouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 
 func (c *ClickhouseConnector) syncRecordsViaAvro(
 	ctx context.Context,
-	req *model.SyncRecordsRequest,
+	req *model.SyncRecordsRequest[model.RecordItems],
 	rawTableIdentifier string,
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {
@@ -111,7 +111,7 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 	}, nil
 }
 
-func (c *ClickhouseConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+func (c *ClickhouseConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
 	rawTableName := c.getRawTableName(req.FlowJobName)
 	c.logger.Info("pushing records to Clickhouse table " + rawTableName)
 

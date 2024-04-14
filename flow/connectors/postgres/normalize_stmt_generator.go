@@ -31,6 +31,17 @@ type normalizeStmtGenerator struct {
 	supportsMerge bool
 }
 
+func (n *normalizeStmtGenerator) columnTypeToPg(schema *protos.TableSchema, columnType string) string {
+	switch schema.System {
+	case protos.TypeSystem_Q:
+		return qValueKindToPostgresType(columnType)
+	case protos.TypeSystem_PG:
+		return columnType
+	default:
+		panic(fmt.Sprintf("unsupported system %s", schema.System))
+	}
+}
+
 func (n *normalizeStmtGenerator) generateNormalizeStatements(dstTable string) []string {
 	normalizedTableSchema := n.tableSchemaMapping[dstTable]
 	if n.supportsMerge {
@@ -58,17 +69,17 @@ func (n *normalizeStmtGenerator) generateFallbackStatements(
 		quotedCol := QuoteIdentifier(column.Name)
 		stringCol := QuoteLiteral(column.Name)
 		columnNames = append(columnNames, quotedCol)
-		pgType := qValueKindToPostgresType(genericColumnType)
-		if qvalue.QValueKind(genericColumnType).IsArray() {
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
-				fmt.Sprintf("ARRAY(SELECT * FROM JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>%s)::JSON))::%s AS %s",
-					stringCol, pgType, quotedCol))
+		pgType := n.columnTypeToPg(normalizedTableSchema, genericColumnType)
+		var expr string
+		if normalizedTableSchema.System == protos.TypeSystem_Q && qvalue.QValueKind(genericColumnType).IsArray() {
+			expr = fmt.Sprintf("ARRAY(SELECT JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>%s)::JSON))::%s", stringCol, pgType)
 		} else {
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>%s)::%s AS %s",
-				stringCol, pgType, quotedCol))
+			expr = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
 		}
+
+		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("%s AS %s", expr, quotedCol))
 		if slices.Contains(normalizedTableSchema.PrimaryKeyColumns, column.Name) {
-			primaryKeyColumnCasts[column.Name] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
+			primaryKeyColumnCasts[column.Name] = expr
 		}
 	}
 	flattenedCastsSQL := strings.Join(flattenedCastsSQLArray, ",")
@@ -128,19 +139,17 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 		stringCol := QuoteLiteral(column.Name)
 		quotedColumnNames[i] = quotedCol
 
-		pgType := qValueKindToPostgresType(genericColumnType)
-		if qvalue.QValueKind(genericColumnType).IsArray() {
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
-				fmt.Sprintf("ARRAY(SELECT * FROM JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>%s)::JSON))::%s AS %s",
-					stringCol, pgType, quotedCol))
+		pgType := n.columnTypeToPg(normalizedTableSchema, genericColumnType)
+		var expr string
+		if normalizedTableSchema.System == protos.TypeSystem_Q && qvalue.QValueKind(genericColumnType).IsArray() {
+			expr = fmt.Sprintf("ARRAY(SELECT JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>%s)::JSON))::%s", stringCol, pgType)
 		} else {
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>%s)::%s AS %s",
-				stringCol, pgType, quotedCol))
+			expr = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
 		}
+		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("%s AS %s", expr, quotedCol))
 		if slices.Contains(normalizedTableSchema.PrimaryKeyColumns, column.Name) {
 			primaryKeyColumnCasts[column.Name] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
-			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray, fmt.Sprintf("src.%s=dst.%s",
-				quotedCol, quotedCol))
+			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray, fmt.Sprintf("src.%s=dst.%s", quotedCol, quotedCol))
 		}
 	}
 	flattenedCastsSQL := strings.Join(flattenedCastsSQLArray, ",")

@@ -21,6 +21,7 @@ import TableMapping from '../../create/cdc/tablemapping';
 import { reformattedTableMapping } from '../../create/handlers';
 import { blankCDCSetting } from '../../create/helpers/common';
 import * as styles from '../../create/styles';
+import { getMirrorState } from '../handlers';
 
 type EditMirrorProps = {
   params: { mirrorId: string };
@@ -41,26 +42,19 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
   const { push } = useRouter();
 
   const fetchStateAndUpdateDeps = useCallback(async () => {
-    await fetch('/api/mirrors/state', {
-      method: 'POST',
-      body: JSON.stringify({
-        flowJobName: mirrorId,
-      }),
-    })
-      .then((res) => res.json())
-      .then((res) => {
-        setMirrorState(res);
+    await getMirrorState(mirrorId).then((res) => {
+      setMirrorState(res);
 
-        setConfig({
-          batchSize:
-            (res as MirrorStatusResponse).cdcStatus?.config?.maxBatchSize ||
-            defaultBatchSize,
-          idleTimeout:
-            (res as MirrorStatusResponse).cdcStatus?.config
-              ?.idleTimeoutSeconds || defaultIdleTimeout,
-          additionalTables: [],
-        });
+      setConfig({
+        batchSize:
+          (res as MirrorStatusResponse).cdcStatus?.config?.maxBatchSize ||
+          defaultBatchSize,
+        idleTimeout:
+          (res as MirrorStatusResponse).cdcStatus?.config?.idleTimeoutSeconds ||
+          defaultIdleTimeout,
+        additionalTables: [],
       });
+    });
   }, [mirrorId, defaultBatchSize, defaultIdleTimeout]);
 
   useEffect(() => {
@@ -183,6 +177,10 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
           been completed.
           <br></br>
           The <b>replication slot will grow</b> during this period.
+          <br></br>
+          For custom publications, ensure that the tables are part of the
+          publication you provided. This can be done with ALTER PUBLICATION
+          pubname ADD TABLE table1, table2;
         </Callout>
       )}
 

@@ -11,6 +11,18 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
+type Items interface {
+	json.Marshaler
+	UpdateIfNotExists(Items) []string
+	GetBytesByColName(string) ([]byte, error)
+	ToJSONWithOptions(ToJSONOptions) (string, error)
+}
+
+func ItemsToJSON(items Items) (string, error) {
+	bytes, err := items.MarshalJSON()
+	return string(bytes), err
+}
+
 // encoding/gob cannot encode unexported fields
 type RecordItems struct {
 	ColToVal map[string]qvalue.QValue
@@ -20,14 +32,6 @@ func NewRecordItems(capacity int) RecordItems {
 	return RecordItems{
 		ColToVal: make(map[string]qvalue.QValue, capacity),
 	}
-}
-
-func NewRecordItemWithData(cols []string, val []qvalue.QValue) RecordItems {
-	recordItem := NewRecordItems(len(cols))
-	for i, col := range cols {
-		recordItem.ColToVal[col] = val[i]
-	}
-	return recordItem
 }
 
 func (r RecordItems) AddColumn(col string, val qvalue.QValue) {
@@ -42,8 +46,9 @@ func (r RecordItems) GetColumnValue(col string) qvalue.QValue {
 // current RecordItems with the values from the input RecordItems for the columns
 // that are present in the input RecordItems but not in the current RecordItems.
 // We return the slice of col names that were updated.
-func (r RecordItems) UpdateIfNotExists(input RecordItems) []string {
-	updatedCols := make([]string, 0)
+func (r RecordItems) UpdateIfNotExists(input_ Items) []string {
+	input := input_.(RecordItems)
+	updatedCols := make([]string, 0, len(input.ColToVal))
 	for col, val := range input.ColToVal {
 		if _, ok := r.ColToVal[col]; !ok {
 			r.ColToVal[col] = val
@@ -61,11 +66,19 @@ func (r RecordItems) GetValueByColName(colName string) (qvalue.QValue, error) {
 	return val, nil
 }
 
+func (r RecordItems) GetBytesByColName(colName string) ([]byte, error) {
+	val, err := r.GetValueByColName(colName)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(fmt.Sprint(val.Value())), nil
+}
+
 func (r RecordItems) Len() int {
 	return len(r.ColToVal)
 }
 
-func (r RecordItems) toMap(hstoreAsJSON bool, opts ToJSONOptions) (map[string]interface{}, error) {
+func (r RecordItems) toMap(opts ToJSONOptions) (map[string]interface{}, error) {
 	jsonStruct := make(map[string]interface{}, len(r.ColToVal))
 	for col, qv := range r.ColToVal {
 		if qv == nil {
@@ -129,7 +142,7 @@ func (r RecordItems) toMap(hstoreAsJSON bool, opts ToJSONOptions) (map[string]in
 		case qvalue.QValueHStore:
 			hstoreVal := v.Val
 
-			if !hstoreAsJSON {
+			if !opts.HStoreAsJSON {
 				jsonStruct[col] = hstoreVal
 			} else {
 				jsonVal, err := datatypes.ParseHstore(hstoreVal)
@@ -211,16 +224,12 @@ func (r RecordItems) ToJSONWithOptions(options ToJSONOptions) (string, error) {
 	return string(bytes), err
 }
 
-func (r RecordItems) ToJSON() (string, error) {
-	return r.ToJSONWithOptions(NewToJSONOptions(nil, true))
-}
-
 func (r RecordItems) MarshalJSON() ([]byte, error) {
 	return r.MarshalJSONWithOptions(NewToJSONOptions(nil, true))
 }
 
 func (r RecordItems) MarshalJSONWithOptions(opts ToJSONOptions) ([]byte, error) {
-	jsonStruct, err := r.toMap(opts.HStoreAsJSON, opts)
+	jsonStruct, err := r.toMap(opts)
 	if err != nil {
 		return nil, err
 	}

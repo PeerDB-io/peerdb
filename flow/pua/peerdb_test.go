@@ -28,6 +28,10 @@ func Test(t *testing.T) {
 	row.AddColumn("a", qvalue.QValueInt64{Val: 5040})
 	ls.Env.RawSetString("row", LuaRow.New(ls, row))
 
+	row_empty_array := model.NewRecordItems(1)
+	row_empty_array.AddColumn("a", qvalue.QValueArrayInt32{Val: nil})
+	ls.Env.RawSetString("row_empty_array", LuaRow.New(ls, row_empty_array))
+
 	assert(t, ls, `
 assert(require('bit32').band(173, 21) == 5)
 assert(dofile == nil)
@@ -62,5 +66,6 @@ assert(msgpack.encode(uuid) == string.char(0xc4, 16, 2, 3, 5, 7, 11, 13, 17, 19,
 
 local json = require "json"
 assert(json.encode(row) == "{\"a\":5040}")
+print(json.encode(row_empty_array.a) == "[]")
 `)
 }
