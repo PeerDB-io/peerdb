@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jackc/puddle/v2"
 	"github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/gluaflatbuffers"
@@ -82,31 +81,95 @@ func DefaultOnRecord(ls *lua.LState) int {
 	return 1
 }
 
-type LPool = *puddle.Pool[*lua.LState]
-
-func LuaPool(cons puddle.Constructor[*lua.LState]) LPool {
-	pool, err := puddle.NewPool(&puddle.Config[*lua.LState]{
-		Constructor: cons,
-		Destructor:  (*lua.LState).Close,
-		MaxSize:     4, // TODO env variable
-	})
-	if err != nil {
-		// only happens when MaxSize < 1
-		panic(err)
-	}
-	return pool
+type LPoolMessage[T any] struct {
+	f   func(*lua.LState) T
+	ret chan<- T
+}
+type LPool[T any] struct {
+	messages chan LPoolMessage[T]
+	returns  chan<- (<-chan T)
+	wait     <-chan struct{}
+	cons     func() (*lua.LState, error)
+	maxSize  int
+	size     int
+	closed   bool
 }
 
-func LuaPoolJob(ctx context.Context, pool LPool, wait <-chan struct{}, f func(*lua.LState, <-chan struct{})) (chan struct{}, error) {
-	res, err := pool.Acquire(ctx)
-	if err != nil {
+func LuaPool[T any](cons func() (*lua.LState, error), merge func(T)) (*LPool[T], error) {
+	maxSize := 4 // TODO env variable
+	returns := make(chan (<-chan T), maxSize)
+	wait := make(chan struct{})
+	messages := make(chan LPoolMessage[T])
+	go func() {
+		for ret := range returns {
+			for val := range ret {
+				merge(val)
+			}
+		}
+		close(wait)
+	}()
+
+	pool := &LPool[T]{
+		messages: messages,
+		returns:  returns,
+		wait:     wait,
+		cons:     cons,
+		maxSize:  maxSize,
+		size:     0,
+		closed:   false,
+	}
+	if err := pool.Spawn(); err != nil {
+		pool.Close()
 		return nil, err
 	}
-	block := make(chan struct{})
+	return pool, nil
+}
+
+func (pool *LPool[T]) Spawn() error {
+	ls, err := pool.cons()
+	if err != nil {
+		return err
+	}
+	pool.size += 1
 	go func() {
-		defer close(block)
-		defer res.Release()
-		f(res.Value(), wait)
+		defer ls.Close()
+		for message := range pool.messages {
+			message.ret <- message.f(ls)
+			close(message.ret)
+		}
 	}()
-	return block, nil
+	return nil
+}
+
+func (pool *LPool[T]) Close() {
+	if !pool.closed {
+		close(pool.returns)
+		close(pool.messages)
+		pool.closed = true
+	}
+}
+
+func (pool *LPool[T]) Run(f func(*lua.LState) T) {
+	ret := make(chan T, 1)
+	pool.returns <- ret
+	msg := LPoolMessage[T]{f: f, ret: ret}
+	if pool.size < pool.maxSize {
+		select {
+		case pool.messages <- msg:
+			return
+		default:
+			_ = pool.Spawn()
+		}
+	}
+	pool.messages <- msg
+}
+
+func (pool *LPool[T]) Wait(ctx context.Context) error {
+	pool.Close()
+	select {
+	case <-pool.wait:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
