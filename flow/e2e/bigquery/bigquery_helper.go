@@ -231,11 +231,7 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 	case time.Time:
 		return qvalue.QValueTimestamp{Val: v}, nil
 	case *big.Rat:
-		val, err := decimal.NewFromString(v.FloatString(32))
-		if err != nil {
-			return nil, fmt.Errorf("bqHelper failed to parse as decimal %v", v)
-		}
-		return qvalue.QValueNumeric{Val: val}, nil
+		return qvalue.QValueNumeric{Val: decimal.NewFromBigRat(v, 32)}, nil
 	case []uint8:
 		return qvalue.QValueBytes{Val: v}, nil
 	case []bigquery.Value:
