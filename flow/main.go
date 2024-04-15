@@ -15,6 +15,9 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/cmd"
 	"github.com/PeerDB-io/peer-flow/logger"
+
+	"net/http"
+	_ "net/http/pprof"
 )
 
 func main() {
@@ -176,6 +179,10 @@ func main() {
 			stacklen := runtime.Stack(buf, true)
 			log.Printf("=== received SIGQUIT ===\n*** goroutine dump...\n%s\n*** end\n", buf[:stacklen])
 		}
+	}()
+
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
 	}()
 
 	if err := app.Run(appCtx, os.Args); err != nil {
