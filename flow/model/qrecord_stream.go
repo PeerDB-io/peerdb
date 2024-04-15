@@ -1,8 +1,6 @@
 package model
 
 import (
-	"errors"
-
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
@@ -19,13 +17,12 @@ type QRecordOrError struct {
 
 type QRecordSchemaOrError struct {
 	Schema *qvalue.QRecordSchema
-	Err    error
 }
 
 type QRecordStream struct {
-	schema      chan QRecordSchemaOrError
+	schemaLatch chan struct{}
 	Records     chan QRecordOrError
-	schemaCache *qvalue.QRecordSchema
+	schema      qvalue.QRecordSchema
 	schemaSet   bool
 }
 
@@ -53,39 +50,30 @@ func (r *RecordsToStreamRequest[T]) GetRecords() <-chan Record[T] {
 
 func NewQRecordStream(buffer int) *QRecordStream {
 	return &QRecordStream{
-		schema:      make(chan QRecordSchemaOrError, 1),
+		schemaLatch: make(chan struct{}),
 		Records:     make(chan QRecordOrError, buffer),
+		schema:      qvalue.QRecordSchema{},
 		schemaSet:   false,
-		schemaCache: nil,
 	}
 }
 
-func (s *QRecordStream) Schema() (*qvalue.QRecordSchema, error) {
-	if s.schemaCache != nil {
-		return s.schemaCache, nil
-	}
-
-	schemaOrError := <-s.schema
-	s.schemaCache = schemaOrError.Schema
-	return schemaOrError.Schema, schemaOrError.Err
+func (s *QRecordStream) Schema() qvalue.QRecordSchema {
+	<-s.schemaLatch
+	return s.schema
 }
 
-func (s *QRecordStream) SetSchema(schema *qvalue.QRecordSchema) error {
-	if s.schemaSet {
-		return errors.New("Schema already set")
+func (s *QRecordStream) SetSchema(schema qvalue.QRecordSchema) {
+	if !s.schemaSet {
+		s.schema = schema
+		close(s.schemaLatch)
+		s.schemaSet = true
 	}
-
-	s.schema <- QRecordSchemaOrError{
-		Schema: schema,
-	}
-	s.schemaSet = true
-	return nil
 }
 
 func (s *QRecordStream) IsSchemaSet() bool {
 	return s.schemaSet
 }
 
-func (s *QRecordStream) SchemaChan() <-chan QRecordSchemaOrError {
-	return s.schema
+func (s *QRecordStream) SchemaChan() <-chan struct{} {
+	return s.schemaLatch
 }

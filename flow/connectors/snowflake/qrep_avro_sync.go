@@ -44,10 +44,7 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 	tableLog := slog.String("destinationTable", s.config.DestinationTableIdentifier)
 	dstTableName := s.config.DestinationTableIdentifier
 
-	schema, err := stream.Schema()
-	if err != nil {
-		return -1, fmt.Errorf("failed to get schema from stream: %w", err)
-	}
+	schema := stream.Schema()
 
 	s.connector.logger.Info("sync function called and schema acquired", tableLog)
 
@@ -99,13 +96,10 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 	startTime := time.Now()
 	dstTableName := config.DestinationTableIdentifier
 
-	schema, err := stream.Schema()
-	if err != nil {
-		return -1, fmt.Errorf("failed to get schema from stream: %w", err)
-	}
+	schema := stream.Schema()
 	s.connector.logger.Info("sync function called and schema acquired", partitionLog)
 
-	err = s.addMissingColumns(ctx, schema, dstTableSchema, dstTableName, partition)
+	err := s.addMissingColumns(ctx, schema, dstTableSchema, dstTableName, partition)
 	if err != nil {
 		return 0, err
 	}
@@ -141,7 +135,7 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 
 func (s *SnowflakeAvroSyncHandler) addMissingColumns(
 	ctx context.Context,
-	schema *qvalue.QRecordSchema,
+	schema qvalue.QRecordSchema,
 	dstTableSchema []*sql.ColumnType,
 	dstTableName string,
 	partition *protos.QRepPartition,
@@ -205,7 +199,7 @@ func (s *SnowflakeAvroSyncHandler) addMissingColumns(
 
 func (s *SnowflakeAvroSyncHandler) getAvroSchema(
 	dstTableName string,
-	schema *qvalue.QRecordSchema,
+	schema qvalue.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
 	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema, protos.DBType_SNOWFLAKE)
 	if err != nil {

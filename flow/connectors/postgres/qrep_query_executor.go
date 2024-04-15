@@ -61,7 +61,7 @@ func (qe *QRepQueryExecutor) executeQueryInTx(ctx context.Context, tx pgx.Tx, cu
 }
 
 // FieldDescriptionsToSchema converts a slice of pgconn.FieldDescription to a QRecordSchema.
-func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) *qvalue.QRecordSchema {
+func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) qvalue.QRecordSchema {
 	qfields := make([]qvalue.QField, len(fds))
 	for i, fd := range fds {
 		cname := fd.Name
@@ -120,8 +120,8 @@ func (qe *QRepQueryExecutor) ProcessRows(
 	}
 
 	batch := &model.QRecordBatch{
-		Records: records,
 		Schema:  qe.fieldDescriptionsToSchema(fieldDescriptions),
+		Records: records,
 	}
 
 	qe.logger.Info(fmt.Sprintf("[postgres] pulled %d records", len(batch.Records)))
@@ -192,8 +192,7 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 
 	fieldDescriptions := rows.FieldDescriptions()
 	if !stream.IsSchemaSet() {
-		schema := qe.fieldDescriptionsToSchema(fieldDescriptions)
-		_ = stream.SetSchema(schema)
+		stream.SetSchema(qe.fieldDescriptionsToSchema(fieldDescriptions))
 	}
 
 	numRows, err := qe.processRowsStream(ctx, cursorName, stream, rows, fieldDescriptions)
@@ -236,15 +235,10 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	select {
 	case err := <-errors:
 		return nil, err
-	case schema := <-stream.SchemaChan():
-		if schema.Err != nil {
-			qe.logger.Error("[pg_query_executor] failed to get schema from stream", slog.Any("error", schema.Err))
-			<-errors
-			return nil, fmt.Errorf("failed to get schema from stream: %w", schema.Err)
-		}
+	case <-stream.SchemaChan():
 		batch := &model.QRecordBatch{
+			Schema:  stream.Schema(),
 			Records: make([][]qvalue.QValue, 0),
-			Schema:  schema.Schema,
 		}
 		for record := range stream.Records {
 			if record.Err == nil {

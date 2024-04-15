@@ -13,7 +13,7 @@ import (
 
 func RecordsToRawTableStream[Items model.Items](req *model.RecordsToStreamRequest[Items]) (*model.QRecordStream, error) {
 	recordStream := model.NewQRecordStream(1 << 17)
-	err := recordStream.SetSchema(&qvalue.QRecordSchema{
+	recordStream.SetSchema(qvalue.QRecordSchema{
 		Fields: []qvalue.QField{
 			{
 				Name:     "_peerdb_uid",
@@ -57,9 +57,6 @@ func RecordsToRawTableStream[Items model.Items](req *model.RecordsToStreamReques
 			},
 		},
 	})
-	if err != nil {
-		return nil, err
-	}
 
 	go func() {
 		for record := range req.GetRecords() {
