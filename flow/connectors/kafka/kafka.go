@@ -262,8 +262,8 @@ Loop:
 					wgErr(fmt.Errorf("script failed: %w", err))
 					return nil
 				}
-				args := ls.GetTop()
 
+				args := ls.GetTop()
 				results := make([]*kgo.Record, 0, args)
 				for i := range args {
 					kr, err := lvalueToKafkaRecord(ls, ls.Get(i-args))
@@ -286,7 +286,7 @@ Loop:
 			})
 
 		case <-wgCtx.Done():
-			return nil, wgCtx.Err()
+			break Loop
 		}
 	}
 
