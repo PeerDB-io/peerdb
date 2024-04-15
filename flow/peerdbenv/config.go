@@ -40,6 +40,10 @@ func PeerDBQueueFlushTimeoutSeconds() time.Duration {
 	return time.Duration(x) * time.Second
 }
 
+func PeerDBQueueParallelism() int {
+	return getEnvInt("PEERDB_QUEUE_PARALLELISM", 4)
+}
+
 // env variable doesn't exist anymore, but tests appear to depend on this
 // in lieu of an actual value of IdleTimeoutSeconds
 func PeerDBCDCIdleTimeoutSeconds(providedValue int) time.Duration {

@@ -66,6 +66,6 @@ assert(msgpack.encode(uuid) == string.char(0xc4, 16, 2, 3, 5, 7, 11, 13, 17, 19,
 
 local json = require "json"
 assert(json.encode(row) == "{\"a\":5040}")
-print(json.encode(row_empty_array.a) == "[]")
+assert(json.encode(row_empty_array.a) == "[]")
 `)
 }
