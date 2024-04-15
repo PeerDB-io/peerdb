@@ -7,10 +7,10 @@ require (
 	cloud.google.com/go/bigquery v1.60.0
 	cloud.google.com/go/pubsub v1.37.0
 	cloud.google.com/go/storage v1.40.0
-	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.5.1
+	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.5.2
 	github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs v1.1.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub v1.2.0
-	github.com/ClickHouse/clickhouse-go/v2 v2.23.0
+	github.com/ClickHouse/clickhouse-go/v2 v2.23.1
 	github.com/PeerDB-io/glua64 v1.0.1
 	github.com/PeerDB-io/gluabit32 v1.0.2
 	github.com/PeerDB-io/gluaflatbuffers v1.0.1
@@ -33,12 +33,12 @@ require (
 	github.com/jackc/pgx/v5 v5.5.5
 	github.com/jmoiron/sqlx v1.3.5
 	github.com/joho/godotenv v1.5.1
-	github.com/klauspost/compress v1.17.7
+	github.com/klauspost/compress v1.17.8
 	github.com/lib/pq v1.10.9
 	github.com/linkedin/goavro/v2 v2.12.0
 	github.com/microsoft/go-mssqldb v1.7.0
 	github.com/orcaman/concurrent-map/v2 v2.0.1
-	github.com/shopspring/decimal v1.3.1
+	github.com/shopspring/decimal v1.4.0
 	github.com/slack-go/slack v0.12.5
 	github.com/snowflakedb/gosnowflake v1.9.0
 	github.com/stretchr/testify v1.9.0
@@ -48,14 +48,14 @@ require (
 	github.com/urfave/cli/v3 v3.0.0-alpha9
 	github.com/youmark/pkcs8 v0.0.0-20201027041543-1326539a0a0a
 	github.com/yuin/gopher-lua v1.1.1
-	go.temporal.io/api v1.31.0
-	go.temporal.io/sdk v1.26.0
+	go.temporal.io/api v1.32.0
+	go.temporal.io/sdk v1.26.1
 	go.uber.org/automaxprocs v1.5.3
 	golang.org/x/crypto v0.22.0
 	golang.org/x/sync v0.7.0
 	google.golang.org/api v0.172.0
-	google.golang.org/genproto/googleapis/api v0.0.0-20240401170217-c3f982113cda
-	google.golang.org/grpc v1.63.0
+	google.golang.org/genproto/googleapis/api v0.0.0-20240412170617-26222e5d3d56
+	google.golang.org/grpc v1.63.2
 	google.golang.org/protobuf v1.33.0
 )
 
@@ -97,7 +97,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.19.0 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
-	github.com/prometheus/common v0.52.2 // indirect
+	github.com/prometheus/common v0.52.3 // indirect
 	github.com/prometheus/procfs v0.13.0 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
@@ -117,7 +117,7 @@ require (
 	cloud.google.com/go/iam v1.1.7 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.11.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.5.2 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.3.1 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.3.2 // indirect
 	github.com/Azure/go-amqp v1.0.5 // indirect
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.2.2 // indirect
 	github.com/andybalholm/brotli v1.1.0 // indirect
@@ -166,7 +166,7 @@ require (
 	github.com/xrash/smetrics v0.0.0-20240312152122-5f08fbb34913 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	go.opencensus.io v0.24.0 // indirect
-	golang.org/x/exp v0.0.0-20240404231335-c0f41cb1a7a0
+	golang.org/x/exp v0.0.0-20240409090435-93d18d7e34b8
 	golang.org/x/mod v0.17.0 // indirect
 	golang.org/x/net v0.24.0 // indirect
 	golang.org/x/oauth2 v0.19.0 // indirect
@@ -175,7 +175,7 @@ require (
 	golang.org/x/time v0.5.0 // indirect
 	golang.org/x/tools v0.20.0 // indirect
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028 // indirect
-	google.golang.org/genproto v0.0.0-20240401170217-c3f982113cda // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240401170217-c3f982113cda // indirect
+	google.golang.org/genproto v0.0.0-20240412170617-26222e5d3d56 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240412170617-26222e5d3d56 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
