@@ -46,11 +46,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	)
 	partitionID := partition.PartitionId
 	startTime := time.Now()
-	schema, err := stream.Schema()
-	if err != nil {
-		logger.LoggerFromCtx(ctx).Error("failed to get schema from stream", slog.Any("error", err), syncLog)
-		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
-	}
+	schema := stream.Schema()
 
 	txConfig := s.connector.conn.Config()
 	txConn, err := pgx.ConnectConfig(ctx, txConfig)

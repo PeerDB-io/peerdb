@@ -69,7 +69,7 @@ type QRecordAvroSchemaDefinition struct {
 
 func GetAvroSchemaDefinition(
 	dstTableName string,
-	qRecordSchema *qvalue.QRecordSchema,
+	qRecordSchema qvalue.QRecordSchema,
 	targetDWH protos.DBType,
 ) (*QRecordAvroSchemaDefinition, error) {
 	avroFields := make([]QRecordAvroField, 0, len(qRecordSchema.Fields))

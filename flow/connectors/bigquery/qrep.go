@@ -22,10 +22,8 @@ func (c *BigQueryConnector) SyncQRepRecords(
 ) (int, error) {
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
-	srcSchema, err := stream.Schema()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get schema of source table %s: %w", config.WatermarkTable, err)
-	}
+	srcSchema := stream.Schema()
+
 	tblMetadata, err := c.replayTableSchemaDeltasQRep(ctx, config, partition, srcSchema)
 	if err != nil {
 		return 0, err
@@ -44,7 +42,7 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	srcSchema *qvalue.QRecordSchema,
+	srcSchema qvalue.QRecordSchema,
 ) (*bigquery.TableMetadata, error) {
 	destDatasetTable, _ := c.convertToDatasetTable(config.DestinationTableIdentifier)
 	bqTable := c.client.DatasetInProject(c.projectID, destDatasetTable.dataset).Table(destDatasetTable.table)

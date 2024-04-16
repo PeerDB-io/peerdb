@@ -3,7 +3,6 @@ package model
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -16,7 +15,7 @@ import (
 
 // QRecordBatch holds a batch of []QValue slices
 type QRecordBatch struct {
-	Schema  *qvalue.QRecordSchema
+	Schema  qvalue.QRecordSchema
 	Records [][]qvalue.QValue
 }
 
@@ -27,10 +26,7 @@ func (q *QRecordBatch) ToQRecordStream(buffer int) *QRecordStream {
 }
 
 func (q *QRecordBatch) FeedToQRecordStream(stream *QRecordStream) {
-	err := stream.SetSchema(q.Schema)
-	if err != nil {
-		slog.Warn(err.Error())
-	}
+	stream.SetSchema(q.Schema)
 
 	for _, record := range q.Records {
 		stream.Records <- QRecordOrError{Record: record}
