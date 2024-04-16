@@ -130,13 +130,8 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 	)
 
 	numRows := 0
-	for qRecordOrErr := range p.stream.Records {
-		if qRecordOrErr.Err != nil {
-			logger.Error("[avro] failed to get record from stream", slog.Any("error", qRecordOrErr.Err))
-			return 0, fmt.Errorf("[avro] failed to get record from stream: %w", qRecordOrErr.Err)
-		}
-
-		avroMap, err := avroConverter.Convert(qRecordOrErr.Record)
+	for qrecord := range p.stream.Records {
+		avroMap, err := avroConverter.Convert(qrecord)
 		if err != nil {
 			logger.Error("failed to convert QRecord to Avro compatible map: ", slog.Any("error", err))
 			return 0, fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
@@ -149,6 +144,10 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 		}
 
 		numRows += 1
+	}
+	if err := p.stream.Err(); err != nil {
+		logger.Error("[avro] failed to get record from stream", slog.Any("error", err))
+		return 0, fmt.Errorf("[avro] failed to get record from stream: %w", err)
 	}
 
 	return numRows, nil

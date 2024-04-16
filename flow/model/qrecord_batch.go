@@ -29,7 +29,7 @@ func (q *QRecordBatch) FeedToQRecordStream(stream *QRecordStream) {
 	stream.SetSchema(q.Schema)
 
 	for _, record := range q.Records {
-		stream.Records <- QRecordOrError{Record: record}
+		stream.Records <- record
 	}
 	close(stream.Records)
 }
@@ -49,7 +49,7 @@ func constructArray[T any](qValue qvalue.QValue, typeName string) (*pgtype.Array
 type QRecordBatchCopyFromSource struct {
 	err           error
 	stream        *QRecordStream
-	currentRecord QRecordOrError
+	currentRecord []qvalue.QValue
 	numRecords    int
 }
 
@@ -59,7 +59,7 @@ func NewQRecordBatchCopyFromSource(
 	return &QRecordBatchCopyFromSource{
 		numRecords:    0,
 		stream:        stream,
-		currentRecord: QRecordOrError{},
+		currentRecord: nil,
 		err:           nil,
 	}
 }
@@ -67,6 +67,7 @@ func NewQRecordBatchCopyFromSource(
 func (src *QRecordBatchCopyFromSource) Next() bool {
 	rec, ok := <-src.stream.Records
 	if !ok {
+		src.err = src.stream.Err()
 		return false
 	}
 
@@ -76,16 +77,12 @@ func (src *QRecordBatchCopyFromSource) Next() bool {
 }
 
 func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
-	if src.currentRecord.Err != nil {
-		src.err = src.currentRecord.Err
+	if src.err != nil {
 		return nil, src.err
 	}
 
-	record := src.currentRecord.Record
-	numEntries := len(record)
-
-	values := make([]interface{}, numEntries)
-	for i, qValue := range record {
+	values := make([]interface{}, len(src.currentRecord))
+	for i, qValue := range src.currentRecord {
 		if qValue.Value() == nil {
 			values[i] = nil
 			continue
