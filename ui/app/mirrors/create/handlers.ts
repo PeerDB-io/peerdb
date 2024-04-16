@@ -234,21 +234,26 @@ export const handleCreateQRep = async (
   const isSchemaLessPeer =
     config.destinationPeer?.type === DBType.BIGQUERY ||
     config.destinationPeer?.type === DBType.CLICKHOUSE;
-  if (isSchemaLessPeer && config.destinationTableIdentifier?.includes('.')) {
-    notifyErr(
-      'Destination table should not be schema qualified for ' +
-        DBTypeToGoodText(config.destinationPeer?.type) +
-        ' targets'
-    );
-    return;
-  }
-  if (!isSchemaLessPeer && !config.destinationTableIdentifier?.includes('.')) {
-    notifyErr(
-      'Destination table should be schema qualified for ' +
-        DBTypeToGoodText(config.destinationPeer?.type) +
-        ' targets'
-    );
-    return;
+  if (config.destinationPeer?.type !== DBType.ELASTICSEARCH) {
+    if (isSchemaLessPeer && config.destinationTableIdentifier?.includes('.')) {
+      notifyErr(
+        'Destination table should not be schema qualified for ' +
+          DBTypeToGoodText(config.destinationPeer?.type) +
+          ' targets'
+      );
+      return;
+    }
+    if (
+      !isSchemaLessPeer &&
+      !config.destinationTableIdentifier?.includes('.')
+    ) {
+      notifyErr(
+        'Destination table should be schema qualified for ' +
+          DBTypeToGoodText(config.destinationPeer?.type) +
+          ' targets'
+      );
+      return;
+    }
   }
 
   setLoading(true);
