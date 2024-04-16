@@ -75,6 +75,9 @@ func (s *QRecordStream) Err() error {
 	return s.err
 }
 
+// Set error & close stream. Calling with multiple errors only tracks first error & does not panic.
+// Close(nil) after an error won't panic, but Close after Close(nil) will panic,
+// this is enough to be able to safely `defer stream.Close(nil)`.
 func (s *QRecordStream) Close(err error) {
 	if s.err == nil {
 		s.err = err
