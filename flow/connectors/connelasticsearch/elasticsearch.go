@@ -21,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type ElasticsearchConnector struct {
@@ -90,7 +91,6 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 
 	schema := stream.Schema()
 
-	var bulkIndexHasError bool
 	var bulkIndexErrors []error
 	var bulkIndexMutex sync.Mutex
 	var docId string
@@ -146,13 +146,8 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 			switch field.Type {
 			// JSON is stored as a string, fix that
 			case qvalue.QValueKindJSON:
-				var jsonUnnest any
-				err := json.Unmarshal([]byte(qRecordOrErr.Record[i].Value().(string)), &jsonUnnest)
-				if err != nil {
-					esc.logger.Error("[es] failed to json.Unmarshal subfield", slog.Any("error", qRecordOrErr.Err))
-					return 0, fmt.Errorf("[es] failed to json.Unmarshal subfield: %w", qRecordOrErr.Err)
-				}
-				qRecordJsonMap[field.Name] = jsonUnnest
+				qRecordJsonMap[field.Name] = json.RawMessage(shared.
+					UnsafeFastStringToReadOnlyBytes(qRecordOrErr.Record[i].(qvalue.QValueJSON).Val))
 			default:
 				qRecordJsonMap[field.Name] = qRecordOrErr.Record[i].Value()
 			}
@@ -174,7 +169,6 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 			) {
 				bulkIndexMutex.Lock()
 				defer bulkIndexMutex.Unlock()
-				bulkIndexHasError = true
 				if err != nil {
 					bulkIndexErrors = append(bulkIndexErrors, err)
 				} else {
@@ -197,7 +191,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 		return 0, fmt.Errorf("[es] failed to close bulk indexer: %w", err)
 	}
 	bulkIndexerHasShutdown = true
-	if bulkIndexHasError {
+	if len(bulkIndexErrors) > 0 {
 		esc.logger.Error("[es] failed to bulk index records", slog.Any("errors", bulkIndexErrors))
 		return 0, fmt.Errorf("[es] failed to bulk index records: %v", bulkIndexErrors)
 	}
