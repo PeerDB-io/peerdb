@@ -129,16 +129,11 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 		}
 	}()
 
-	for qRecordOrErr := range stream.Records {
-		if qRecordOrErr.Err != nil {
-			esc.logger.Error("[es] failed to get record from stream", slog.Any("error", qRecordOrErr.Err))
-			return 0, fmt.Errorf("[es] failed to get record from stream: %w", qRecordOrErr.Err)
-		}
-
+	for qRecord := range stream.Records {
 		qRecordJsonMap := make(map[string]any)
 
 		if upsertColIndex >= 0 {
-			docId = fmt.Sprintf("%v", qRecordOrErr.Record[upsertColIndex].Value())
+			docId = fmt.Sprintf("%v", qRecord[upsertColIndex].Value())
 		} else {
 			docId = uuid.New().String()
 		}
@@ -147,9 +142,9 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 			// JSON is stored as a string, fix that
 			case qvalue.QValueKindJSON:
 				qRecordJsonMap[field.Name] = json.RawMessage(shared.
-					UnsafeFastStringToReadOnlyBytes(qRecordOrErr.Record[i].(qvalue.QValueJSON).Val))
+					UnsafeFastStringToReadOnlyBytes(qRecord[i].(qvalue.QValueJSON).Val))
 			default:
-				qRecordJsonMap[field.Name] = qRecordOrErr.Record[i].Value()
+				qRecordJsonMap[field.Name] = qRecord[i].Value()
 			}
 		}
 		qRecordJsonBytes, err := json.Marshal(qRecordJsonMap)
@@ -186,6 +181,10 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 		numRecords++
 	}
 
+	if err := stream.Err(); err != nil {
+		esc.logger.Error("[es] failed to get record from stream", slog.Any("error", err))
+		return 0, fmt.Errorf("[es] failed to get record from stream: %w", err)
+	}
 	if err := esBulkIndexer.Close(ctx); err != nil {
 		esc.logger.Error("[es] failed to close bulk indexer", slog.Any("error", err))
 		return 0, fmt.Errorf("[es] failed to close bulk indexer: %w", err)
