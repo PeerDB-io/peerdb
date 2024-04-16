@@ -262,8 +262,8 @@ func (g *GenericSQLQueryExecutor) processRows(ctx context.Context, rows *sqlx.Ro
 	}
 
 	return &model.QRecordBatch{
-		Records: records,
 		Schema:  qvalue.NewQRecordSchema(qfields),
+		Records: records,
 	}, nil
 }
 

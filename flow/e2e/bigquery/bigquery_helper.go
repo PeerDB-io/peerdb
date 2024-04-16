@@ -305,12 +305,12 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 }
 
 // bqSchemaToQRecordSchema converts a bigquery schema to a QRecordSchema.
-func bqSchemaToQRecordSchema(schema bigquery.Schema) *qvalue.QRecordSchema {
+func bqSchemaToQRecordSchema(schema bigquery.Schema) qvalue.QRecordSchema {
 	fields := make([]qvalue.QField, 0, len(schema))
 	for _, fieldSchema := range schema {
 		fields = append(fields, peer_bq.BigQueryFieldToQField(fieldSchema))
 	}
-	return &qvalue.QRecordSchema{Fields: fields}
+	return qvalue.QRecordSchema{Fields: fields}
 }
 
 func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecordBatch, error) {
@@ -349,8 +349,8 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 	schema := bqSchemaToQRecordSchema(it.Schema)
 
 	return &model.QRecordBatch{
-		Records: records,
 		Schema:  schema,
+		Records: records,
 	}, nil
 }
 

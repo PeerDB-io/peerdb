@@ -120,13 +120,7 @@ func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error
 
 func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter *goavro.OCFWriter) (int, error) {
 	logger := logger.LoggerFromCtx(ctx)
-	schema, err := p.stream.Schema()
-	if err != nil {
-		logger.Error("failed to get schema from stream", slog.Any("error", err))
-		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
-	}
-
-	numRows := 0
+	schema := p.stream.Schema()
 
 	avroConverter := model.NewQRecordAvroConverter(
 		p.avroSchema,
@@ -135,6 +129,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 		logger,
 	)
 
+	numRows := 0
 	for qRecordOrErr := range p.stream.Records {
 		if qRecordOrErr.Err != nil {
 			logger.Error("[avro] failed to get record from stream", slog.Any("error", qRecordOrErr.Err))
