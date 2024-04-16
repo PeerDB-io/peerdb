@@ -197,22 +197,22 @@ services:
       catalog:
         condition: service_healthy
 
-  peerdb-ui:
-    container_name: peerdb-ui
-    build:
-      context: .
-      dockerfile: stacks/peerdb-ui.Dockerfile
-    ports:
-      - 3000:3000
-    environment:
-      <<: *catalog-config
-      DATABASE_URL: postgres://postgres:postgres@catalog:5432/postgres
-      PEERDB_FLOW_SERVER_HTTP: http://flow_api:8113
-      PEERDB_PASSWORD:
-      NEXTAUTH_SECRET: __changeme__
-      NEXTAUTH_URL: http://localhost:3000
-    depends_on:
-      - flow-api
+  # peerdb-ui:
+  #   container_name: peerdb-ui
+  #   build:
+  #     context: .
+  #     dockerfile: stacks/peerdb-ui.Dockerfile
+  #   ports:
+  #     - 3000:3000
+  #   environment:
+  #     <<: *catalog-config
+  #     DATABASE_URL: postgres://postgres:postgres@catalog:5432/postgres
+  #     PEERDB_FLOW_SERVER_HTTP: http://flow_api:8113
+  #     PEERDB_PASSWORD:
+  #     NEXTAUTH_SECRET: __changeme__
+  #     NEXTAUTH_URL: http://localhost:3000
+  #   depends_on:
+  #     - flow-api
 
 volumes:
   pgdata:

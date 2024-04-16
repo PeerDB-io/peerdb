@@ -10,6 +10,7 @@ import {
   BigqueryConfig,
   ClickhouseConfig,
   DBType,
+  ElasticsearchConfig,
   EventHubGroupConfig,
   KafkaConfig,
   Peer,
@@ -83,6 +84,12 @@ const constructPeer = (
         name,
         type: DBType.EVENTHUBS,
         eventhubGroupConfig: config as EventHubGroupConfig,
+      };
+    case 'ELASTICSEARCH':
+      return {
+        name,
+        type: DBType.ELASTICSEARCH,
+        elasticsearchConfig: config as ElasticsearchConfig,
       };
     default:
       return;

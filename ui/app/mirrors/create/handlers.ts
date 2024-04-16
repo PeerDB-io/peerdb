@@ -198,6 +198,7 @@ export const handleCreateQRep = async (
   route: RouteCallback,
   xmin?: boolean
 ) => {
+  console.log(config);
   const flowNameValid = flowNameSchema.safeParse(flowJobName);
   if (!flowNameValid.success) {
     const flowNameErr = flowNameValid.error.issues[0].message;
