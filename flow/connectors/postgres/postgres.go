@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1038,10 +1037,8 @@ func (c *PostgresConnector) FinishExport(tx any) error {
 
 // SetupReplication sets up replication for the source connector.
 func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSignal, req *protos.SetupReplicationInput) error {
-	// ensure that the flowjob name is [a-z0-9_] only
-	reg := regexp.MustCompile(`^[a-z0-9_]+$`)
-	if !reg.MatchString(req.FlowJobName) {
-		return fmt.Errorf("invalid flow job name: `%s`, it should be [a-z0-9_]+", req.FlowJobName)
+	if !shared.IsValidReplicationName(req.FlowJobName) {
+		return fmt.Errorf("invalid flow job name: `%s`, it should be ^[a-z_][a-z0-9_]*$", req.FlowJobName)
 	}
 
 	// Slotname would be the job name prefixed with "peerflow_slot_"

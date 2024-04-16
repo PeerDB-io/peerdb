@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -707,8 +706,7 @@ func generateCreateTableSQLForNormalizedTable(
 }
 
 func getRawTableIdentifier(jobName string) string {
-	jobName = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(jobName, "_")
-	return fmt.Sprintf("%s_%s", rawTablePrefix, jobName)
+	return rawTablePrefix + "_" + shared.ReplaceIllegalCharactersWithUnderscores(jobName)
 }
 
 func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
