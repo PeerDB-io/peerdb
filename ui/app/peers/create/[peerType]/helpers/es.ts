@@ -19,7 +19,7 @@ export const esSetting: PeerSetting[] = [
         return {
           ...esConfig,
           authType: elasticsearchAuthTypeFromJSON(value),
-        }
+        };
       }),
     type: 'select',
     placeholder: 'Select a mechanism',
