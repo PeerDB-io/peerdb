@@ -312,7 +312,7 @@ func (c *PostgresConnector) PullRecords(
 	catalogPool *pgxpool.Pool,
 	req *model.PullRecordsRequest[model.RecordItems],
 ) error {
-	return pullCore(ctx, c, catalogPool, req, (*PostgresCDCSource).PullRecords)
+	return pullCore(ctx, c, catalogPool, req, qProcessor{})
 }
 
 func (c *PostgresConnector) PullPg(
@@ -320,7 +320,7 @@ func (c *PostgresConnector) PullPg(
 	catalogPool *pgxpool.Pool,
 	req *model.PullRecordsRequest[model.PgItems],
 ) error {
-	return pullCore(ctx, c, catalogPool, req, (*PostgresCDCSource).PullPg)
+	return pullCore(ctx, c, catalogPool, req, pgProcessor{})
 }
 
 // PullRecords pulls records from the source.
@@ -329,7 +329,7 @@ func pullCore[Items model.Items](
 	c *PostgresConnector,
 	catalogPool *pgxpool.Pool,
 	req *model.PullRecordsRequest[Items],
-	pull func(*PostgresCDCSource, context.Context, *model.PullRecordsRequest[Items]) error,
+	processor replProcessor[Items],
 ) error {
 	defer func() {
 		req.RecordStream.Close()
@@ -392,7 +392,7 @@ func pullCore[Items model.Items](
 		RelationMessageMapping: c.relationMessageMapping,
 	})
 
-	if err := pull(cdc, ctx, req); err != nil {
+	if err := PullCdcRecords(ctx, cdc, req, processor); err != nil {
 		c.logger.Error("error pulling records", slog.Any("error", err))
 		return err
 	}

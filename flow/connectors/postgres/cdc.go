@@ -287,18 +287,10 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 	return qvalue.QValueString{Val: string(data)}, nil
 }
 
-func (p *PostgresCDCSource) PullRecords(ctx context.Context, req *model.PullRecordsRequest[model.RecordItems]) error {
-	return pullRecordsCore(p, ctx, req, qProcessor{})
-}
-
-func (p *PostgresCDCSource) PullPg(ctx context.Context, req *model.PullRecordsRequest[model.PgItems]) error {
-	return pullRecordsCore(p, ctx, req, pgProcessor{})
-}
-
-// pullRecordsCore pulls records from the cdc stream
-func pullRecordsCore[Items model.Items](
-	p *PostgresCDCSource,
+// PullCdcRecords pulls records from req's cdc stream
+func PullCdcRecords[Items model.Items](
 	ctx context.Context,
+	p *PostgresCDCSource,
 	req *model.PullRecordsRequest[Items],
 	processor replProcessor[Items],
 ) error {
