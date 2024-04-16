@@ -7,7 +7,7 @@ export const peerNameSchema = z
     required_error: 'Peer name is required.',
   })
   .min(1, { message: 'Peer name cannot be empty.' })
-  .regex(/^[a-z0-9_]*$/, {
+  .regex(/^[a-z_][a-z0-9_]*$/, {
     message:
       'Peer name must contain only lowercase letters, numbers and underscores',
   });
