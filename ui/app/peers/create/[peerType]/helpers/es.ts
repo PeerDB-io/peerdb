@@ -14,10 +14,13 @@ export const esSetting: PeerSetting[] = [
   {
     label: 'Authentication type',
     stateHandler: (value, setter) =>
-      setter((curr) => ({
-        ...curr,
-        authType: elasticsearchAuthTypeFromJSON(value),
-      })),
+      setter((curr) => {
+        let esConfig = curr as ElasticsearchConfig;
+        return {
+          ...esConfig,
+          authType: elasticsearchAuthTypeFromJSON(value),
+        }
+      }),
     type: 'select',
     placeholder: 'Select a mechanism',
     options: [

@@ -1,4 +1,4 @@
-package conn_elasticsearch
+package connelasticsearch
 
 import (
 	"bytes"
@@ -11,6 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/elastic/go-elasticsearch/v8"
+	"github.com/elastic/go-elasticsearch/v8/esutil"
+	"github.com/google/uuid"
 	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
@@ -18,15 +21,12 @@ import (
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/elastic/go-elasticsearch/v8"
-	"github.com/elastic/go-elasticsearch/v8/esutil"
-	"github.com/google/uuid"
 )
 
 type ElasticsearchConnector struct {
-	pgMetadata *metadataStore.PostgresMetadata
-	client     *elasticsearch.Client
-	logger     log.Logger
+	*metadataStore.PostgresMetadata
+	client *elasticsearch.Client
+	logger log.Logger
 }
 
 func NewElasticsearchConnector(ctx context.Context,
@@ -58,9 +58,9 @@ func NewElasticsearchConnector(ctx context.Context,
 	}
 
 	return &ElasticsearchConnector{
-		client:     esClient,
-		pgMetadata: pgMetadata,
-		logger:     logger.LoggerFromCtx(ctx),
+		PostgresMetadata: pgMetadata,
+		client:           esClient,
+		logger:           logger.LoggerFromCtx(ctx),
 	}, nil
 }
 
@@ -75,12 +75,6 @@ func (esc *ElasticsearchConnector) ConnectionActive(ctx context.Context) error {
 func (esc *ElasticsearchConnector) Close() error {
 	// stateless connector
 	return nil
-}
-
-func (esc *ElasticsearchConnector) IsQRepPartitionSynced(ctx context.Context,
-	req *protos.IsQRepPartitionSyncedInput,
-) (bool, error) {
-	return esc.pgMetadata.IsQRepPartitionSynced(ctx, req)
 }
 
 func (esc *ElasticsearchConnector) SetupQRepMetadataTables(ctx context.Context,
@@ -121,8 +115,6 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 		// parallelism comes from the workflow design itself, no need for this
 		NumWorkers:    1,
 		FlushInterval: 10 * time.Second,
-		// 1GB
-		FlushBytes: 1_000_000_000,
 	})
 	if err != nil {
 		esc.logger.Error("[es] failed to initialize bulk indexer", slog.Any("error", err))
@@ -171,21 +163,30 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 			return 0, fmt.Errorf("[es] failed to json.Marshal record: %w", err)
 		}
 
-		esBulkIndexer.Add(ctx, esutil.BulkIndexerItem{
+		err = esBulkIndexer.Add(ctx, esutil.BulkIndexerItem{
 			Action:     "index",
 			DocumentID: docId,
 			Body:       bytes.NewReader(qRecordJsonBytes),
 
 			// OnFailure is called for each failed operation, log and let parent handle
 			OnFailure: func(ctx context.Context, _ esutil.BulkIndexerItem,
-				_ esutil.BulkIndexerResponseItem, err error,
+				res esutil.BulkIndexerResponseItem, err error,
 			) {
 				bulkIndexMutex.Lock()
 				defer bulkIndexMutex.Unlock()
 				bulkIndexHasError = true
-				bulkIndexErrors = append(bulkIndexErrors, err)
+				if err != nil {
+					bulkIndexErrors = append(bulkIndexErrors, err)
+				} else {
+					bulkIndexErrors = append(bulkIndexErrors,
+						fmt.Errorf("%s %s %v", res.Error.Type, res.Error.Reason, res.Error.Cause))
+				}
 			},
 		})
+		if err != nil {
+			esc.logger.Error("[es] failed to add record to bulk indexer", slog.Any("error", err))
+			return 0, fmt.Errorf("[es] failed to add record to bulk indexer: %w", err)
+		}
 
 		// update here instead of OnSuccess, if we close successfully it should match
 		numRecords++
@@ -201,7 +202,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 		return 0, fmt.Errorf("[es] failed to bulk index records: %v", bulkIndexErrors)
 	}
 
-	err = esc.pgMetadata.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime)
+	err = esc.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime)
 	if err != nil {
 		esc.logger.Error("[es] failed to log partition info", slog.Any("error", err))
 		return 0, fmt.Errorf("[es] failed to log partition info: %w", err)
