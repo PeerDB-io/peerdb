@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
-	"regexp"
 	"strings"
 	"time"
 
@@ -713,9 +712,7 @@ func (c *BigQueryConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 
 // getRawTableName returns the raw table name for the given table identifier.
 func (c *BigQueryConnector) getRawTableName(flowJobName string) string {
-	// replace all non-alphanumeric characters with _
-	flowJobName = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(flowJobName, "_")
-	return "_peerdb_raw_" + flowJobName
+	return "_peerdb_raw_" + shared.ReplaceIllegalCharactersWithUnderscores(flowJobName)
 }
 
 func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {

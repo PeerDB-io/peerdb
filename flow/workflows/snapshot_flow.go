@@ -3,7 +3,6 @@ package peerflow
 import (
 	"fmt"
 	"log/slog"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -117,8 +116,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 
 	childWorkflowID := fmt.Sprintf("clone_%s_%s_%s", flowName, dstName, originalRunID)
-	reg := regexp.MustCompile("[^a-zA-Z0-9_]+")
-	childWorkflowID = reg.ReplaceAllString(childWorkflowID, "_")
+	childWorkflowID = shared.ReplaceIllegalCharactersWithUnderscores(childWorkflowID)
 
 	s.logger.Info(fmt.Sprintf("Obtained child id %s for source table %s and destination table %s",
 		childWorkflowID, srcName, dstName), cloneLog)
