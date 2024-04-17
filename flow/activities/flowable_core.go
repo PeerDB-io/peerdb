@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/yuin/gopher-lua"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
@@ -23,6 +25,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/pua"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -343,10 +346,35 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	})
 	defer shutdown()
 
-	var rowsSynced int
 	bufferSize := shared.FetchAndChannelSize
-	errGroup, errCtx := errgroup.WithContext(ctx)
 	stream := model.NewQRecordStream(bufferSize)
+	outstream := stream
+	if config.Script != "" {
+		ls, err := utils.LoadScript(ctx, config.Script, func(ls *lua.LState) int {
+			top := ls.GetTop()
+			ss := make([]string, top)
+			for i := range top {
+				ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
+			}
+			a.Alerter.LogFlowInfo(ctx, config.FlowJobName, strings.Join(ss, "\t"))
+			return 0
+		})
+		if err != nil {
+			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+			return err
+		}
+		lfn := ls.Env.RawGetString("transformRow")
+		fn, ok := lfn.(*lua.LFunction)
+		if !ok {
+			err := fmt.Errorf("script should define `transformRow` as function, not %s", lfn)
+			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+			return err
+		}
+		outstream = pua.AttachToStream(ls, fn, stream)
+	}
+
+	var rowsSynced int
+	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
 		tmp, err := srcConn.PullQRepRecords(errCtx, config, partition, stream)
 		if err != nil {
@@ -363,7 +391,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	})
 
 	errGroup.Go(func() error {
-		rowsSynced, err = dstConn.SyncQRepRecords(errCtx, config, partition, stream)
+		rowsSynced, err = dstConn.SyncQRepRecords(errCtx, config, partition, outstream)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return fmt.Errorf("failed to sync records: %w", err)
