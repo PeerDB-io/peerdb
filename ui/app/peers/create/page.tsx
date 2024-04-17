@@ -1,16 +1,10 @@
 'use client';
 import SelectSource from '@/components/SelectSource';
 import { Action } from '@/lib/Action';
-import { Button } from '@/lib/Button';
-import { ButtonGroup } from '@/lib/ButtonGroup';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
-import { RowWithSelect } from '@/lib/Layout';
-import Link from 'next/link';
-import { useState } from 'react';
 
 export default function CreatePeer() {
-  const [peerType, setPeerType] = useState<string>('');
   return (
     <div
       style={{
@@ -43,27 +37,7 @@ export default function CreatePeer() {
           Learn about peers
         </Action>
 
-        <RowWithSelect
-          label={
-            <Label as='label' htmlFor='source'>
-              Data source
-            </Label>
-          }
-          action={
-            <SelectSource peerType={peerType} setPeerType={setPeerType} />
-          }
-        />
-
-        <ButtonGroup style={{ marginTop: '2rem' }}>
-          <Button as={Link} href='/peers'>
-            Cancel
-          </Button>
-          <Link href={`/peers/create/${peerType}`}>
-            <Button disabled={!peerType} variant='normalSolid'>
-              Continue
-            </Button>
-          </Link>
-        </ButtonGroup>
+        <SelectSource />
       </div>
     </div>
   );
