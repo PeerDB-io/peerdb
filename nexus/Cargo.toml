@@ -7,6 +7,7 @@ members = [
   "peer-bigquery",
   "peer-connections",
   "peer-cursor",
+  "peer-mysql",
   "peer-postgres",
   "peer-snowflake",
   "postgres-connection",
