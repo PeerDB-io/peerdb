@@ -93,7 +93,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 
 		// Perform the COPY FROM operation
 		numRowsSynced, err = tx.CopyFrom(
-			context.Background(),
+			ctx,
 			pgx.Identifier{dstTableName.Schema, dstTableName.Table},
 			schema.GetColumnNames(),
 			copySource,
@@ -109,7 +109,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 				QuoteIdentifier(syncedAtCol),
 				QuoteIdentifier(syncedAtCol),
 			)
-			_, err = tx.Exec(context.Background(), updateSyncedAtStmt)
+			_, err = tx.Exec(ctx, updateSyncedAtStmt)
 			if err != nil {
 				return -1, fmt.Errorf("failed to update synced_at column: %w", err)
 			}
@@ -128,14 +128,14 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 
 		s.connector.logger.Info(fmt.Sprintf("Creating staging table %s - '%s'",
 			stagingTableName, createStagingTableStmt), syncLog)
-		_, err = tx.Exec(context.Background(), createStagingTableStmt)
+		_, err = tx.Exec(ctx, createStagingTableStmt)
 		if err != nil {
 			return -1, fmt.Errorf("failed to create staging table: %w", err)
 		}
 
 		// Step 2.2: Insert records into the staging table
 		numRowsSynced, err = tx.CopyFrom(
-			context.Background(),
+			ctx,
 			stagingTableIdentifier,
 			schema.GetColumnNames(),
 			copySource,
@@ -178,7 +178,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 			setClause,
 		)
 		s.connector.logger.Info("Performing upsert operation", slog.String("upsertStmt", upsertStmt), syncLog)
-		res, err := tx.Exec(context.Background(), upsertStmt)
+		res, err := tx.Exec(ctx, upsertStmt)
 		if err != nil {
 			return -1, fmt.Errorf("failed to perform upsert operation: %w", err)
 		}
@@ -191,7 +191,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 			stagingTableIdentifier.Sanitize(),
 		)
 		s.connector.logger.Info("Dropping staging table", slog.String("stagingTable", stagingTableName), syncLog)
-		_, err = tx.Exec(context.Background(), dropStagingTableStmt)
+		_, err = tx.Exec(ctx, dropStagingTableStmt)
 		if err != nil {
 			return -1, fmt.Errorf("failed to drop staging table: %w", err)
 		}
@@ -212,7 +212,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	)
 	s.connector.logger.Info("Executing transaction inside QRep sync", syncLog)
 	_, err = tx.Exec(
-		context.Background(),
+		ctx,
 		insertMetadataStmt,
 		flowJobName,
 		partitionID,
@@ -224,7 +224,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %w", err)
 	}
 
-	err = tx.Commit(context.Background())
+	err = tx.Commit(ctx)
 	if err != nil {
 		return -1, fmt.Errorf("failed to commit transaction: %w", err)
 	}
