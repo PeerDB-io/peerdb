@@ -347,18 +347,14 @@ func (h *FlowRequestHandler) getQRepConfigFromCatalog(ctx context.Context, flowJ
 }
 
 func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) (bool, error) {
-	var query pgtype.Text
-	err := h.pool.QueryRow(ctx, "SELECT query_string FROM flows WHERE name = $1", flowJobName).Scan(&query)
+	var isCdc bool
+	err := h.pool.QueryRow(ctx, "select exists(select * from flows where name = $1 and coalesce(query_string, '') = '')",
+		flowJobName).Scan(&isCdc)
 	if err != nil {
 		slog.Error("unable to query flow", slog.Any("error", err))
 		return false, fmt.Errorf("unable to query flow: %w", err)
 	}
-
-	if !query.Valid || query.String == "" {
-		return true, nil
-	}
-
-	return false, nil
+	return isCdc, nil
 }
 
 func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID string) (protos.FlowStatus, error) {
