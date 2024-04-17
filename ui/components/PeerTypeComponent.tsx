@@ -26,6 +26,8 @@ export const DBTypeToGoodText = (ptype?: DBType) => {
       return 'Kafka';
     case DBType.PUBSUB:
       return 'PubSub';
+    case DBType.ELASTICSEARCH:
+      return 'Elasticsearch';
     default:
       return 'Unrecognised';
   }

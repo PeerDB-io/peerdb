@@ -43,6 +43,9 @@ export const DBTypeToImageMapping = (peerType: DBType | string) => {
       return '/svgs/pubsub.svg';
     case 'EVENTHUBS':
       return '/svgs/ms.svg';
+    case DBType.ELASTICSEARCH:
+    case 'ELASTICSEARCH':
+      return '/svgs/elasticsearch.svg';
     default:
       return '/svgs/pg.svg';
   }

@@ -854,8 +854,53 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 unnest_columns,
             };
 
-            println!("eventhub_group_config: {:?}", eventhub_group_config);
             Config::EventhubGroupConfig(eventhub_group_config)
+        }
+        DbType::Elasticsearch => {
+            let addresses = opts
+                .get("addresses")
+                .map(|columns| {
+                    columns
+                        .split(',')
+                        .map(|column| column.trim().to_string())
+                        .collect::<Vec<_>>()
+                })
+                .ok_or_else(|| anyhow::anyhow!("missing connection addresses for Elasticsearch"))?;
+
+            // either basic auth or API key auth, not both
+            let api_key = opts.get("api_key").map(|s| s.to_string());
+            let username = opts.get("username").map(|s| s.to_string());
+            let password = opts.get("password").map(|s| s.to_string());
+            if api_key.is_some() {
+                if username.is_some() || password.is_some() {
+                    return Err(anyhow::anyhow!(
+                        "both API key auth and basic auth specified"
+                    ));
+                }
+                Config::ElasticsearchConfig(pt::peerdb_peers::ElasticsearchConfig {
+                    addresses,
+                    auth_type: pt::peerdb_peers::ElasticsearchAuthType::Apikey.into(),
+                    username: None,
+                    password: None,
+                    api_key,
+                })
+            } else if username.is_some() && password.is_some() {
+                Config::ElasticsearchConfig(pt::peerdb_peers::ElasticsearchConfig {
+                    addresses,
+                    auth_type: pt::peerdb_peers::ElasticsearchAuthType::Basic.into(),
+                    username,
+                    password,
+                    api_key: None,
+                })
+            } else {
+                Config::ElasticsearchConfig(pt::peerdb_peers::ElasticsearchConfig {
+                    addresses,
+                    auth_type: pt::peerdb_peers::ElasticsearchAuthType::None.into(),
+                    username: None,
+                    password: None,
+                    api_key: None,
+                })
+            }
         }
     }))
 }

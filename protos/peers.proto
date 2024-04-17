@@ -134,6 +134,22 @@ message KafkaConfig {
   string partitioner = 6;
 }
 
+enum ElasticsearchAuthType {
+  UNKNOWN = 0;
+  NONE = 1;
+  BASIC = 2;
+  APIKEY = 3;
+}
+
+message ElasticsearchConfig {
+  // decide if this is something actually used or single address is enough
+  repeated string addresses = 1;
+  ElasticsearchAuthType auth_type = 2;
+  optional string username = 3;
+  optional string password = 4;
+  optional string api_key = 5;
+}
+
 enum DBType {
   BIGQUERY = 0;
   SNOWFLAKE = 1;
@@ -145,6 +161,7 @@ enum DBType {
   KAFKA = 9;
   PUBSUB = 10;
   EVENTHUBS = 11;
+  ELASTICSEARCH = 12;
 }
 
 message Peer {
@@ -162,5 +179,6 @@ message Peer {
     ClickhouseConfig clickhouse_config = 11;
     KafkaConfig kafka_config = 12;
     PubSubConfig pubsub_config = 13;
+    ElasticsearchConfig elasticsearch_config = 14;
   }
 }

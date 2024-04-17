@@ -10,6 +10,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/alerting"
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	connclickhouse "github.com/PeerDB-io/peer-flow/connectors/clickhouse"
+	connelasticsearch "github.com/PeerDB-io/peer-flow/connectors/connelasticsearch"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
 	connkafka "github.com/PeerDB-io/peer-flow/connectors/kafka"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
@@ -238,6 +239,8 @@ func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 		return connkafka.NewKafkaConnector(ctx, inner.KafkaConfig)
 	case *protos.Peer_PubsubConfig:
 		return connpubsub.NewPubSubConnector(ctx, inner.PubsubConfig)
+	case *protos.Peer_ElasticsearchConfig:
+		return connelasticsearch.NewElasticsearchConnector(ctx, inner.ElasticsearchConfig)
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}
@@ -326,6 +329,7 @@ var (
 	_ QRepSyncConnector = &connsnowflake.SnowflakeConnector{}
 	_ QRepSyncConnector = &connclickhouse.ClickhouseConnector{}
 	_ QRepSyncConnector = &conns3.S3Connector{}
+	_ QRepSyncConnector = &connelasticsearch.ElasticsearchConnector{}
 
 	_ QRepConsolidateConnector = &connsnowflake.SnowflakeConnector{}
 	_ QRepConsolidateConnector = &connclickhouse.ClickhouseConnector{}

@@ -590,6 +590,13 @@ func (h *FlowRequestHandler) CreatePeer(
 		}
 		ehConfig := ehConfigObject.EventhubGroupConfig
 		encodedConfig, encodingErr = proto.Marshal(ehConfig)
+	case protos.DBType_ELASTICSEARCH:
+		esConfigObject, ok := config.(*protos.Peer_ElasticsearchConfig)
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+		esConfig := esConfigObject.ElasticsearchConfig
+		encodedConfig, encodingErr = proto.Marshal(esConfig)
 	default:
 		return wrongConfigResponse, nil
 	}
