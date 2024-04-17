@@ -10,7 +10,7 @@ function SourceLabel({ label }: { label: string }) {
   return (
     <Button
       as={Link}
-      href={`/ peers / create / ${label}`}
+      href={`/peers/create/${label}`}
       style={{
         justifyContent: 'space-between',
         padding: '0.5rem',
