@@ -1,6 +1,5 @@
 'use client';
 import TitleCase from '@/app/utils/titlecase';
-import { DBType } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button/Button';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -11,7 +10,7 @@ function SourceLabel({ label }: { label: string }) {
   return (
     <Button
       as={Link}
-      href={`/peers/create/${label}`}
+      href={`/ peers / create / ${label}`}
       style={{
         justifyContent: 'space-between',
         padding: '0.5rem',
@@ -32,43 +31,51 @@ function SourceLabel({ label }: { label: string }) {
   );
 }
 
+const dbTypes = [
+  [
+    'Postgres',
+    'POSTGRESQL',
+    'RDS POSTGRESQL',
+    'GOOGLE CLOUD POSTGRESQL',
+    'AZURE FLEXIBLE POSTGRESQL',
+    'TEMBO',
+    'CRUNCHY POSTGRES',
+  ],
+  ['Warehouses', 'SNOWFLAKE', 'BIGQUERY', 'S3', 'CLICKHOUSE', 'ELASTICSEARCH'],
+  ['Queues', 'KAFKA', 'EVENTHUBS', 'PUBSUB'],
+];
+
+const gridContainerStyle = {
+  display: 'flex',
+  gap: '20px',
+  flexWrap: 'wrap',
+  border: 'solid #18794e',
+  borderRadius: '20px',
+  position: 'relative',
+  padding: '20px',
+  marginTop: '20px',
+} as const;
+const gridHeaderStyle = {
+  position: 'absolute',
+  top: '-15px',
+  height: '30px',
+  display: 'flex',
+  alignItems: 'center',
+  color: '#fff',
+  backgroundColor: '#18794e',
+  borderRadius: '15px',
+  marginLeft: '10px',
+  paddingLeft: '10px',
+  paddingRight: '10px',
+} as const;
+
 export default function SelectSource() {
-  const dbTypes = Object.values(DBType)
-    .filter(
-      (value): value is string =>
-        typeof value === 'string' &&
-        (value === 'POSTGRESQL' ||
-          value === 'SNOWFLAKE' ||
-          value === 'BIGQUERY' ||
-          value === 'S3' ||
-          value === 'CLICKHOUSE' ||
-          value === 'KAFKA' ||
-          value === 'EVENTHUBS' ||
-          value === 'PUBSUB' ||
-          value === 'ELASTICSEARCH')
-    )
-    .map((value) => ({ label: value, value }));
-
-  dbTypes.push(
-    { value: 'POSTGRESQL', label: 'POSTGRESQL' },
-    { value: 'POSTGRESQL', label: 'RDS POSTGRESQL' },
-    { value: 'POSTGRESQL', label: 'GOOGLE CLOUD POSTGRESQL' },
-    { value: 'POSTGRESQL', label: 'AZURE FLEXIBLE POSTGRESQL' },
-    { value: 'POSTGRESQL', label: 'TEMBO' },
-    { value: 'POSTGRESQL', label: 'CRUNCHY POSTGRES' }
-  );
-
-  const gridContainerStyle = {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, 1fr)',
-    gap: '20px',
-  };
-
-  return (
-    <div style={gridContainerStyle}>
-      {dbTypes.map((dbtype) => (
-        <SourceLabel key={dbtype.label} label={dbtype.label} />
+  return dbTypes.map(([category, ...items]) => (
+    <div key={category} style={gridContainerStyle}>
+      <div style={gridHeaderStyle}>{category}</div>
+      {items.map((item) => (
+        <SourceLabel key={item} label={item} />
       ))}
     </div>
-  );
+  ));
 }
