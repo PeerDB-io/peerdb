@@ -39,21 +39,16 @@ func (c *PostgresConnector) GetQRepPartitions(
 	}
 
 	// begin a transaction
-	tx, err := c.conn.BeginTx(ctx, pgx.TxOptions{
+	getPartitionsTx, err := c.conn.BeginTx(ctx, pgx.TxOptions{
 		AccessMode: pgx.ReadOnly,
 		IsoLevel:   pgx.RepeatableRead,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer func() {
-		deferErr := tx.Rollback(context.Background())
-		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("error rolling back transaction for get partitions", slog.Any("error", deferErr))
-		}
-	}()
+	defer shared.RollbackTx(getPartitionsTx, c.logger)
 
-	err = c.setTransactionSnapshot(ctx, tx)
+	err = c.setTransactionSnapshot(ctx, getPartitionsTx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set transaction snapshot: %w", err)
 	}
@@ -66,7 +61,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 	// 	log.Warnf("failed to lock table %s: %v", config.WatermarkTable, err)
 	// }
 
-	return c.getNumRowsPartitions(ctx, tx, config, last)
+	return c.getNumRowsPartitions(ctx, getPartitionsTx, config, last)
 }
 
 func (c *PostgresConnector) setTransactionSnapshot(ctx context.Context, tx pgx.Tx) error {
@@ -284,18 +279,13 @@ func (c *PostgresConnector) CheckForUpdatedMaxValue(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) (bool, error) {
-	tx, err := c.conn.Begin(ctx)
+	checkTx, err := c.conn.Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("unable to begin transaction for getting max value: %w", err)
 	}
-	defer func() {
-		deferErr := tx.Rollback(context.Background())
-		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("error rolling back transaction for getting max value", "error", err)
-		}
-	}()
+	defer shared.RollbackTx(checkTx, c.logger)
 
-	_, maxValue, err := c.getMinMaxValues(ctx, tx, config, last)
+	_, maxValue, err := c.getMinMaxValues(ctx, checkTx, config, last)
 	if err != nil {
 		return false, fmt.Errorf("error while getting min and max values: %w", err)
 	}

@@ -494,12 +494,7 @@ func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 	if err != nil {
 		return nil, fmt.Errorf("error starting transaction for syncing records: %w", err)
 	}
-	defer func() {
-		deferErr := syncRecordsTx.Rollback(context.Background())
-		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("error rolling back transaction for syncing records", slog.Any("error", err))
-		}
-	}()
+	defer shared.RollbackTx(syncRecordsTx, c.logger)
 
 	syncedRecordsCount, err := syncRecordsTx.CopyFrom(ctx, pgx.Identifier{c.metadataSchema, rawTableIdentifier},
 		[]string{
@@ -590,12 +585,7 @@ func (c *PostgresConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 	if err != nil {
 		return nil, fmt.Errorf("error starting transaction for normalizing records: %w", err)
 	}
-	defer func() {
-		deferErr := normalizeRecordsTx.Rollback(context.Background())
-		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("error rolling back transaction for normalizing records", slog.Any("error", err))
-		}
-	}()
+	defer shared.RollbackTx(normalizeRecordsTx, c.logger)
 
 	pgversion, err := c.MajorVersion(ctx)
 	if err != nil {
@@ -663,12 +653,7 @@ func (c *PostgresConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 	if err != nil {
 		return nil, fmt.Errorf("error starting transaction for creating raw table: %w", err)
 	}
-	defer func() {
-		deferErr := createRawTableTx.Rollback(context.Background())
-		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("error rolling back transaction for creating raw table.", slog.Any("error", err))
-		}
-	}()
+	defer shared.RollbackTx(createRawTableTx, c.logger)
 
 	_, err = createRawTableTx.Exec(ctx, fmt.Sprintf(createRawTableSQL, c.metadataSchema, rawTableIdentifier))
 	if err != nil {
@@ -785,10 +770,7 @@ func (c *PostgresConnector) StartSetupNormalizedTables(ctx context.Context) (any
 }
 
 func (c *PostgresConnector) CleanupSetupNormalizedTables(ctx context.Context, tx any) {
-	err := tx.(pgx.Tx).Rollback(ctx)
-	if err != pgx.ErrTxClosed && err != nil {
-		c.logger.Error("error rolling back transaction for creating raw table", slog.Any("error", err))
-	}
+	shared.RollbackTx(tx.(pgx.Tx), c.logger)
 }
 
 func (c *PostgresConnector) FinishSetupNormalizedTables(ctx context.Context, tx any) error {
@@ -845,12 +827,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 		return fmt.Errorf("error starting transaction for schema modification: %w",
 			err)
 	}
-	defer func() {
-		deferErr := tableSchemaModifyTx.Rollback(context.Background())
-		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("error rolling back transaction for table schema modification", slog.Any("error", err))
-		}
-	}()
+	defer shared.RollbackTx(tableSchemaModifyTx, c.logger)
 
 	for _, schemaDelta := range schemaDeltas {
 		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
@@ -1052,12 +1029,7 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 	if err != nil {
 		return fmt.Errorf("unable to begin transaction for sync flow cleanup: %w", err)
 	}
-	defer func() {
-		deferErr := syncFlowCleanupTx.Rollback(context.Background())
-		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("error while rolling back transaction for flow cleanup", slog.Any("error", deferErr))
-		}
-	}()
+	defer shared.RollbackTx(syncFlowCleanupTx, c.logger)
 
 	_, err = syncFlowCleanupTx.Exec(ctx, fmt.Sprintf(dropTableIfExistsSQL, c.metadataSchema,
 		getRawTableIdentifier(jobName)))
