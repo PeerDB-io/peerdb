@@ -138,11 +138,11 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 			docId = uuid.New().String()
 		}
 		for i, field := range schema.Fields {
-			switch field.Type {
+			switch r := qRecord[i].(type) {
 			// JSON is stored as a string, fix that
-			case qvalue.QValueKindJSON:
+			case qvalue.QValueJSON:
 				qRecordJsonMap[field.Name] = json.RawMessage(shared.
-					UnsafeFastStringToReadOnlyBytes(qRecord[i].(qvalue.QValueJSON).Val))
+					UnsafeFastStringToReadOnlyBytes(r.Val))
 			default:
 				qRecordJsonMap[field.Name] = qRecord[i].Value()
 			}
