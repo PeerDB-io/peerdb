@@ -168,7 +168,8 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 					bulkIndexErrors = append(bulkIndexErrors, err)
 				} else {
 					bulkIndexErrors = append(bulkIndexErrors,
-						fmt.Errorf("%s %s %v", res.Error.Type, res.Error.Reason, res.Error.Cause))
+						fmt.Errorf("type:%s reason:%s caused by:(%v)", res.Error.Type,
+							res.Error.Reason, res.Error.Cause))
 				}
 			},
 		})
@@ -191,7 +192,9 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 	}
 	bulkIndexerHasShutdown = true
 	if len(bulkIndexErrors) > 0 {
-		esc.logger.Error("[es] failed to bulk index records", slog.Any("errors", bulkIndexErrors))
+		for _, err := range bulkIndexErrors {
+			esc.logger.Error("[es] failed to index record", slog.Any("err", err))
+		}
 	}
 
 	err = esc.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime)
