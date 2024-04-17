@@ -1,28 +1,38 @@
 'use client';
 import TitleCase from '@/app/utils/titlecase';
 import { DBType } from '@/grpc_generated/peers';
+import { Button } from '@/lib/Button/Button';
 import Image from 'next/image';
+import Link from 'next/link';
 import { DBTypeToImageMapping } from './PeerComponent';
 
-interface SelectSourceProps {}
-
-function SourceLabel({ value, label }: { value: string; label: string }) {
+function SourceLabel({ label }: { label: string }) {
   const peerLogo = DBTypeToImageMapping(label);
   return (
-    <a
-      style={{ display: 'flex', alignItems: 'center' }}
+    <Button
+      as={Link}
       href={`/peers/create/${label}`}
+      style={{
+        justifyContent: 'space-between',
+        padding: '0.5rem',
+        backgroundColor: 'white',
+        borderRadius: '1rem',
+        border: '1px solid rgba(0,0,0,0.1)',
+      }}
     >
-      <Image src={peerLogo} alt='peer' height={15} width={15} />
-      <div style={{ marginLeft: 10 }}>{TitleCase(label)}</div>
-    </a>
+      <Image
+        src={peerLogo}
+        alt='peer'
+        width={20}
+        height={20}
+        objectFit='cover'
+      />
+      <div>{TitleCase(label)}</div>
+    </Button>
   );
 }
 
-export default function SelectSource({
-  peerType,
-  setPeerType,
-}: SelectSourceProps) {
+export default function SelectSource() {
   const dbTypes = Object.values(DBType)
     .filter(
       (value): value is string =>
@@ -47,14 +57,17 @@ export default function SelectSource({
     { value: 'POSTGRESQL', label: 'TEMBO' },
     { value: 'POSTGRESQL', label: 'CRUNCHY POSTGRES' }
   );
+
+  const gridContainerStyle = {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, 1fr)',
+    gap: '20px',
+  };
+
   return (
-    <div style={{ columns: 2 }}>
+    <div style={gridContainerStyle}>
       {dbTypes.map((dbtype) => (
-        <SourceLabel
-          key={dbtype.label}
-          value={dbtype.value}
-          label={dbtype.label}
-        />
+        <SourceLabel key={dbtype.label} label={dbtype.label} />
       ))}
     </div>
   );
