@@ -144,7 +144,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 				qRecordJsonMap[field.Name] = json.RawMessage(shared.
 					UnsafeFastStringToReadOnlyBytes(r.Val))
 			default:
-				qRecordJsonMap[field.Name] = qRecord[i].Value()
+				qRecordJsonMap[field.Name] = r.Value()
 			}
 		}
 		qRecordJsonBytes, err := json.Marshal(qRecordJsonMap)
@@ -192,7 +192,6 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 	bulkIndexerHasShutdown = true
 	if len(bulkIndexErrors) > 0 {
 		esc.logger.Error("[es] failed to bulk index records", slog.Any("errors", bulkIndexErrors))
-		return 0, fmt.Errorf("[es] failed to bulk index records: %v", bulkIndexErrors)
 	}
 
 	err = esc.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime)
