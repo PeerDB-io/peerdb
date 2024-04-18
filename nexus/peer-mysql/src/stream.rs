@@ -1,11 +1,9 @@
 use std::{
     pin::Pin,
-    str::FromStr,
-    sync::Arc,
+    sync::{Arc, Mutex},
     task::{Context, Poll},
 };
 
-use chrono::DateTime;
 use futures::Stream;
 use peer_cursor::{Record, RecordStream, Schema};
 use pgwire::{
@@ -15,21 +13,17 @@ use pgwire::{
     },
     error::{PgWireError, PgWireResult},
 };
-use mysql_async::QueryResult;
+use mysql_async::{Column, ResultSetStream, Row, TextProtocol};
 use mysql_async::consts::ColumnType;
-use rust_decimal::Decimal;
-use value::Value;
 
 #[derive(Debug)]
 pub struct MySchema {
     schema: Schema,
-    fields: Vec<TableFieldSchema>,
 }
 
-pub struct MyRecordStream {
-    result_set: QueryResult,
+pub struct MyRecordStream<'a> {
+    result_set: Mutex<Pin<Box<ResultSetStream<'a, 'a, 'static, Row, TextProtocol>>>>,
     schema: MySchema,
-    num_records: usize,
 }
 
 // convert ColumnType to pgwire FieldInfo's Type
@@ -53,14 +47,14 @@ fn convert_field_type(field_type: ColumnType) -> Type {
         ColumnType::MYSQL_TYPE_TIMESTAMP => Type::TIMESTAMP,
         ColumnType::MYSQL_TYPE_GEOMETRY => Type::POLYGON_ARRAY,
         ColumnType::MYSQL_TYPE_JSON => Type::JSON,
+        _ => todo!(),
     }
 }
 
 impl MySchema {
-    pub fn from_result_set(result: QueryResult) -> Self {
-        let my_schema = result.columns_ref();
+    pub fn from_columns(columns: &[Column]) -> Self {
         let schema = Arc::new(
-            my_schema
+            columns
                 .iter()
                 .map(|column| {
                     let datatype = convert_field_type(column.column_type());
@@ -69,10 +63,7 @@ impl MySchema {
                 .collect(),
         );
 
-        Self {
-            schema,
-            fields: fields.clone(),
-        }
+        Self { schema }
     }
 
     pub fn schema(&self) -> Schema {
@@ -80,22 +71,17 @@ impl MySchema {
     }
 }
 
-impl MyRecordStream {
-    pub fn new(result_set: ResultSet) -> Self {
-        let my_schema = MySchema::from_result_set(&result_set);
-        let num_records = result_set.row_count();
+impl<'a> MyRecordStream<'a> {
+    pub fn new(result_set: ResultSetStream<'a, 'a, 'static, Row, TextProtocol>) -> Self {
+        let my_schema = MySchema::from_columns(result_set.columns_ref());
 
         Self {
-            result_set,
+            result_set: Mutex::new(Pin::new(Box::new(result_set))),
             schema: my_schema,
-            num_records,
         }
     }
 
-    pub fn get_num_records(&self) -> usize {
-        self.num_records
-    }
-
+    /*
     pub fn convert_result_set_item(&self, result_set: &ResultSet) -> anyhow::Result<Record> {
         let mut values = Vec::with_capacity(self.schema.fields.len());
         for field in &self.schema.fields {
@@ -105,7 +91,7 @@ impl MyRecordStream {
             let value = match result_set.get_json_value_by_name(&field.name)? {
                 _ => todo!(),
             };
-            values.push(value.unwrap_or(Value::Null));
+            // values.push(value.unwrap_or(Value::Null));
         }
 
         Ok(Record {
@@ -113,23 +99,35 @@ impl MyRecordStream {
             schema: self.schema.schema(),
         })
     }
+    */
 }
 
-impl Stream for MyRecordStream {
+pub fn mysql_row_to_values(_row: Row) -> Vec<value::Value> {
+    // TODO
+    Vec::new()
+}
+
+impl<'a> Stream for MyRecordStream<'a> {
     type Item = PgWireResult<Record>;
 
-    fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self.result_set.next_row() {
-            let record = self.convert_result_set_item(&self.result_set);
-            let result = record.map_err(|e| PgWireError::ApiError(e.into()));
-            Poll::Ready(Some(result))
-        } else {
-            Poll::Ready(None)
-        }
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut substream = self.result_set.lock().expect("poisoned mutex");
+        substream.as_mut().poll_next(cx).map(|result| {
+            result.map(|result| {
+                match result {
+                    Ok(row) => Ok(Record{
+                        schema: self.schema(),
+                        values: mysql_row_to_values(row),
+                    }),
+                    Err(err) => Err(PgWireError::ApiError(err.into())),
+                }
+                
+            })
+        })
     }
 }
 
-impl RecordStream for MyRecordStream {
+impl<'a> RecordStream for MyRecordStream<'a> {
     fn schema(&self) -> Schema {
         self.schema.schema()
     }

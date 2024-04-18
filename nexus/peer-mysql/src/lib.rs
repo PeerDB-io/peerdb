@@ -2,6 +2,8 @@ mod cursor;
 mod stream;
 
 use cursor::MySqlCursorManager;
+use mysql_async::{Conn, ResultSetStream, Row, TextProtocol};
+use mysql_async::prelude::Queryable;
 use peer_connections::PeerConnectionTracker;
 use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, Schema};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
@@ -13,8 +15,14 @@ pub struct MySqlQueryExecutor {
     project_id: String,
     dataset_id: String,
     peer_connections: PeerConnectionTracker,
-    client: Box<Client>,
+    client: Box<Conn>,
     cursor_manager: MySqlCursorManager,
+}
+
+impl MySqlQueryExecutor {
+    async fn query<'a, 'b: 'a>(&'a mut self, query: &'b str) -> PgWireResult<ResultSetStream<'a, 'a, 'static, Row, TextProtocol>> {
+        self.client.query_stream(query).await.map_err(|err| PgWireError::ApiError(err.into()))
+    }
 }
 
 #[async_trait::async_trait]
@@ -24,22 +32,14 @@ impl QueryExecutor for MySqlQueryExecutor {
         // only support SELECT statements
         match stmt {
             Statement::Query(query) => {
-                let mut query = query.clone();
-                let bq_ast = ast::BigqueryAst::default();
-                bq_ast
-                    .rewrite(&self.dataset_id, &mut query)
-                    .context("unable to rewrite query")
-                    .map_err(|err| PgWireError::ApiError(err.into()))?;
-
                 let query = query.to_string();
                 tracing::info!("bq rewritten query: {}", query);
 
-                let result_set = self.run_tracked(&query).await?;
+                let result_set = self.query(&query).await?;
 
                 let cursor = MyRecordStream::new(result_set);
                 tracing::info!(
-                    "retrieved {} rows for query {}",
-                    cursor.get_num_records(),
+                    "retrieved rows for query {}",
                     query
                 );
                 Ok(QueryOutput::Stream(Box::pin(cursor)))
@@ -127,20 +127,14 @@ impl QueryExecutor for MySqlQueryExecutor {
         match stmt {
             Statement::Query(query) => {
                 let mut query = query.clone();
-                let bq_ast = ast::BigqueryAst::default();
-                bq_ast
-                    .rewrite(&self.dataset_id, &mut query)
-                    .context("unable to rewrite query")
-                    .map_err(|err| PgWireError::ApiError(err.into()))?;
-
                 // add LIMIT 0 to the root level query.
                 // this is a workaround for the bigquery API not supporting DESCRIBE
                 // queries.
                 query.limit = Some(Expr::Value(Value::Number("0".to_owned(), false)));
 
                 let query = query.to_string();
-                let result_set = self.run_tracked(&query).await?;
-                let schema = MySchema::from_result_set(&result_set);
+                let result_set = self.query(&query).await?;
+                let schema = MySchema::from_columns(result_set.columns_ref());
 
                 // log the schema
                 tracing::info!("[bigquery] schema: {:?}", schema);

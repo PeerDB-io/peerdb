@@ -14,7 +14,6 @@ use cursor::PeerCursors;
 use dashmap::{mapref::entry::Entry as DashEntry, DashMap};
 use flow_rs::grpc::{FlowGrpcClient, PeerValidationResult};
 use futures::join;
-use peer_bigquery::BigQueryQueryExecutor;
 use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
     util::{records_to_query_response, sendable_stream_to_query_response},
@@ -832,12 +831,17 @@ impl NexusBackend {
             DashEntry::Vacant(entry) => {
                 let executor: Arc<dyn QueryExecutor> = match &peer.config {
                     Some(Config::BigqueryConfig(ref c)) => {
-                        let executor = BigQueryQueryExecutor::new(
+                        let executor = peer_bigquery::BigQueryQueryExecutor::new(
                             peer.name.clone(),
                             c,
                             self.peer_connections.clone(),
                         )
                         .await?;
+                        Arc::new(executor)
+                    }
+                    Some(Config::MySqlConfig(ref c)) => {
+                        let executor =
+                            peer_postgres::MySqlQueryExecutor::new(peer.name.clone(), c).await?;
                         Arc::new(executor)
                     }
                     Some(Config::PostgresConfig(ref c)) => {
