@@ -140,6 +140,7 @@ export default function CDCConfigForm({
           setRows={setRows}
           peerType={mirrorConfig.destination?.type}
           omitAdditionalTablesMapping={new Map<string, string[]>()}
+          allowNoCDCTables={mirrorConfig.initialSnapshotOnly}
         />
       </>
     );

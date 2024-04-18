@@ -190,6 +190,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
         rows={rows}
         setRows={setRows}
         omitAdditionalTablesMapping={omitAdditionalTablesMapping}
+        allowNoCDCTables={false}
       />
 
       {isNotPaused && (

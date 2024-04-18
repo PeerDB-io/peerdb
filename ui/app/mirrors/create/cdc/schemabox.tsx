@@ -36,6 +36,7 @@ interface SchemaBoxProps {
   >;
   peerType?: DBType;
   omitAdditionalTables: string[] | undefined;
+  allowNoCDCTables: boolean;
 }
 const SchemaBox = ({
   sourcePeer,
@@ -46,6 +47,7 @@ const SchemaBox = ({
   tableColumns,
   setTableColumns,
   omitAdditionalTables,
+  allowNoCDCTables,
 }: SchemaBoxProps) => {
   const [tablesLoading, setTablesLoading] = useState(false);
   const [columnsLoading, setColumnsLoading] = useState(false);
@@ -147,18 +149,20 @@ const SchemaBox = ({
 
       if (rowsDoNotHaveSchemaTables(schemaName)) {
         setTablesLoading(true);
-        fetchTables(sourcePeer, schemaName, peerType).then((newRows) => {
-          for (const row of newRows) {
-            if (omitAdditionalTables?.includes(row.source)) {
-              row.canMirror = false;
+        fetchTables(sourcePeer, schemaName, peerType, allowNoCDCTables).then(
+          (newRows) => {
+            for (const row of newRows) {
+              if (omitAdditionalTables?.includes(row.source)) {
+                row.canMirror = allowNoCDCTables;
+              }
             }
+            setRows((oldRows) => [
+              ...oldRows.filter((oldRow) => oldRow.schema !== schema),
+              ...newRows,
+            ]);
+            setTablesLoading(false);
           }
-          setRows((oldRows) => [
-            ...oldRows.filter((oldRow) => oldRow.schema !== schema),
-            ...newRows,
-          ]);
-          setTablesLoading(false);
-        });
+        );
       }
     } else {
       setExpandedSchemas((curr) =>

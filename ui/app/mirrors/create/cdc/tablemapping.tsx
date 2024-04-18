@@ -18,6 +18,8 @@ interface TableMappingProps {
   peerType?: DBType;
   // schema -> omitted source table mapping
   omitAdditionalTablesMapping: Map<string, string[]>;
+  // for initial copy only
+  allowNoCDCTables: boolean;
 }
 
 const TableMapping = ({
@@ -26,6 +28,7 @@ const TableMapping = ({
   setRows,
   peerType,
   omitAdditionalTablesMapping,
+  allowNoCDCTables,
 }: TableMappingProps) => {
   const [allSchemas, setAllSchemas] = useState<string[]>();
   const [schemaQuery, setSchemaQuery] = useState('');
@@ -109,6 +112,7 @@ const TableMapping = ({
               setTableColumns={setTableColumns}
               peerType={peerType}
               omitAdditionalTables={omitAdditionalTablesMapping.get(schema)}
+              allowNoCDCTables={allowNoCDCTables}
             />
           ))
         ) : (
