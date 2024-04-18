@@ -33,7 +33,7 @@ pub struct BqRecordStream {
     num_records: usize,
 }
 
-// covnert FieldType to pgwire FieldInfo's Type
+// convert FieldType to pgwire FieldInfo's Type
 fn convert_field_type(field_type: &FieldType) -> Type {
     match field_type {
         FieldType::Bool => Type::BOOL,
