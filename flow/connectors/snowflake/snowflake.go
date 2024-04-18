@@ -371,29 +371,25 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			sfColtype, err := qvalue.QValueKind(addedColumn.Column.Type).ToDWHColumnType(protos.DBType_SNOWFLAKE)
+			sfColtype, err := qvalue.QValueKind(addedColumn.Type).ToDWHColumnType(protos.DBType_SNOWFLAKE)
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to snowflake type: %w",
-					addedColumn.Column.Type, err)
+					addedColumn.Type, err)
 			}
 
-			if addedColumn.Column.Type == string(qvalue.QValueKindNumeric) {
-				precision, scale := numeric.ParseNumericTypmod(addedColumn.Column.TypeModifier)
-				if addedColumn.Column.TypeModifier == -1 || precision > 38 || scale > 37 {
-					precision = numeric.PeerDBNumericPrecision
-					scale = numeric.PeerDBNumericScale
-				}
+			if addedColumn.Type == string(qvalue.QValueKindNumeric) {
+				precision, scale := numeric.GetNumericTypeForWarehouse(addedColumn.TypeModifier, numeric.SnowflakeNumericCompatibility{})
 				sfColtype = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
 			}
 
 			_, err = tableSchemaModifyTx.ExecContext(ctx,
 				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
-					schemaDelta.DstTableName, strings.ToUpper(addedColumn.Column.Name), sfColtype))
+					schemaDelta.DstTableName, strings.ToUpper(addedColumn.Name), sfColtype))
 			if err != nil {
-				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Column.Name,
+				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
 			}
-			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.Column.Name,
+			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.Name,
 				sfColtype),
 				"destination table name", schemaDelta.DstTableName,
 				"source table name", schemaDelta.SrcTableName)
@@ -542,7 +538,8 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 		peerdbCols:               peerdbCols,
 	}
 
-	for _, tableName := range destinationTableNames {
+	for _, table := range destinationTableNames {
+		tableName := table
 		if gCtx.Err() != nil {
 			break
 		}

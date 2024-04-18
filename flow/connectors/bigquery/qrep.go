@@ -71,13 +71,12 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 			c.logger.Info(fmt.Sprintf("adding column %s to destination table %s",
 				col.Name, config.DestinationTableIdentifier),
 				slog.String(string(shared.PartitionIDKey), partition.PartitionId))
-			tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, &protos.DeltaAddedColumn{
-				Column: &protos.FieldDescription{
-					Name:         col.Name,
-					Type:         string(col.Type),
-					TypeModifier: datatypes.MakeNumericTypmod(int32(col.Precision), int32(col.Scale)),
-				},
-			})
+			tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, &protos.FieldDescription{
+				Name:         col.Name,
+				Type:         string(col.Type),
+				TypeModifier: datatypes.MakeNumericTypmod(int32(col.Precision), int32(col.Scale)),
+			},
+			)
 		}
 	}
 
