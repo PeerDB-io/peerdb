@@ -149,7 +149,7 @@ const SchemaBox = ({
 
       if (rowsDoNotHaveSchemaTables(schemaName)) {
         setTablesLoading(true);
-        fetchTables(sourcePeer, schemaName, peerType, allowNoCDCTables).then(
+        fetchTables(sourcePeer, schemaName, allowNoCDCTables, peerType).then(
           (newRows) => {
             for (const row of newRows) {
               if (omitAdditionalTables?.includes(row.source)) {

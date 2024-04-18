@@ -318,8 +318,8 @@ const getDefaultDestinationTable = (
 export const fetchTables = async (
   peerName: string,
   schemaName: string,
-  peerType?: DBType,
-  allowNoCDCTables?: boolean
+  allowNoCDCTables: boolean,
+  peerType?: DBType
 ) => {
   if (schemaName.length === 0) return [];
   const tablesRes: UTablesResponse = await fetch('/api/peers/tables', {
@@ -349,7 +349,7 @@ export const fetchTables = async (
         partitionKey: '',
         exclude: new Set(),
         selected: false,
-        canMirror: tableObject.canMirror || !allowNoCDCTables,
+        canMirror: tableObject.canMirror || allowNoCDCTables,
         tableSize: tableObject.tableSize,
       });
     }
