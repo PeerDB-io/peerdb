@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -111,8 +112,9 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		return nil, err
 	}
 	logger.Info("pulling records...", slog.Int64("LastOffset", lastOffset))
+	consumedOffset := atomic.Int64{}
+	consumedOffset.Store(lastOffset)
 
-	// start a goroutine to pull records from the source
 	recordBatch := model.NewCDCStream[Items]()
 	startTime := time.Now()
 
@@ -123,6 +125,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			SrcTableIDNameMapping: options.SrcTableIdNameMapping,
 			TableNameMapping:      tblNameMapping,
 			LastOffset:            lastOffset,
+			ConsumedOffset:        &consumedOffset,
 			MaxBatchSize:          batchSize,
 			IdleTimeout: peerdbenv.PeerDBCDCIdleTimeoutSeconds(
 				int(options.IdleTimeoutSeconds),
@@ -184,12 +187,13 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 		syncStartTime = time.Now()
 		res, err = sync(dstConn, errCtx, &model.SyncRecordsRequest[Items]{
-			SyncBatchID:   syncBatchID,
-			Records:       recordBatch,
-			FlowJobName:   flowName,
-			TableMappings: options.TableMappings,
-			StagingPath:   config.CdcStagingPath,
-			Script:        config.Script,
+			SyncBatchID:    syncBatchID,
+			Records:        recordBatch,
+			ConsumedOffset: &consumedOffset,
+			FlowJobName:    flowName,
+			TableMappings:  options.TableMappings,
+			StagingPath:    config.CdcStagingPath,
+			Script:         config.Script,
 		})
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, flowName, err)
