@@ -538,8 +538,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 		peerdbCols:               peerdbCols,
 	}
 
-	for _, table := range destinationTableNames {
-		tableName := table
+	for _, tableName := range destinationTableNames {
 		if gCtx.Err() != nil {
 			break
 		}
