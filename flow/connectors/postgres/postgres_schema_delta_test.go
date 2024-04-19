@@ -62,7 +62,7 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: []*protos.FieldDescription{
-			&protos.FieldDescription{
+			{
 				Name:         "hi",
 				Type:         string(qvalue.QValueKindInt64),
 				TypeModifier: -1,
