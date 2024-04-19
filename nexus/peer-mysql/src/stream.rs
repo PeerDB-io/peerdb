@@ -76,7 +76,7 @@ impl<'a> MyRecordStream<'a> {
         let my_schema = MySchema::from_columns(result_set.columns_ref());
 
         Self {
-            result_set: Mutex::new(Pin::new(Box::new(result_set))),
+            result_set: Mutex::new(Box::pin(result_set)),
             schema: my_schema,
         }
     }
@@ -121,7 +121,7 @@ impl<'a> Stream for MyRecordStream<'a> {
                     }),
                     Err(err) => Err(PgWireError::ApiError(err.into())),
                 }
-                
+
             })
         })
     }

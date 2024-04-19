@@ -122,7 +122,7 @@ impl QueryExecutor for MySqlQueryExecutor {
     // describe the output of the query
     async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<Schema>> {
         // print the statement
-        tracing::info!("[bigquery] describe: {}", stmt);
+        tracing::info!("[mysql] describe: {}", stmt);
         // only support SELECT statements
         match stmt {
             Statement::Query(query) => {
@@ -137,7 +137,7 @@ impl QueryExecutor for MySqlQueryExecutor {
                 let schema = MySchema::from_columns(result_set.columns_ref());
 
                 // log the schema
-                tracing::info!("[bigquery] schema: {:?}", schema);
+                tracing::info!("[mysql] schema: {:?}", schema);
 
                 Ok(Some(schema.schema()))
             }
