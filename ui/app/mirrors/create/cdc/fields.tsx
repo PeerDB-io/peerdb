@@ -20,7 +20,7 @@ const CDCField = ({
   setting,
   handleChange,
   options,
-  optionsLoading: publicationsLoading,
+  optionsLoading,
 }: FieldProps) => {
   return setting.type === 'switch' ? (
     <RowWithSwitch
@@ -77,7 +77,7 @@ const CDCField = ({
               getOptionLabel={(option) => option.label}
               getOptionValue={(option) => option.option}
               theme={SelectTheme}
-              isLoading={publicationsLoading}
+              isLoading={optionsLoading}
             />
           </div>
           {setting.tips && (
