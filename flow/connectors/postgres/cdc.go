@@ -835,7 +835,7 @@ func processRelationMessage[Items model.Items](
 			if _, ok := p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Exclude[column.Name]; !ok {
 				schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, &protos.FieldDescription{
 					Name:         column.Name,
-					Type:         string(currRelMap[column.Name]),
+					Type:         currRelMap[column.Name],
 					TypeModifier: column.TypeModifier,
 				},
 				)
