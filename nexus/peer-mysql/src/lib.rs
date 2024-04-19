@@ -79,7 +79,7 @@ impl QueryExecutor for MySqlQueryExecutor {
             Statement::Fetch {
                 name, direction, ..
             } => {
-                tracing::info!("fetching cursor for bigquery: {}", name.value);
+                tracing::info!("fetching cursor for mysql: {}", name.value);
 
                 // Attempt to extract the count from the direction
                 let count = match direction {
@@ -129,7 +129,7 @@ impl QueryExecutor for MySqlQueryExecutor {
             }
             _ => {
                 let error = format!(
-                    "only SELECT statements are supported in bigquery. got: {}",
+                    "only SELECT statements are supported in mysql. got: {}",
                     stmt
                 );
                 PgWireResult::Err(PgWireError::UserError(Box::new(ErrorInfo::new(
@@ -148,12 +148,6 @@ impl QueryExecutor for MySqlQueryExecutor {
         // only support SELECT statements
         match stmt {
             Statement::Query(query) => {
-                let mut query = query.clone();
-                // add LIMIT 0 to the root level query.
-                // this is a workaround for the bigquery API not supporting DESCRIBE
-                // queries.
-                query.limit = Some(Expr::Value(Value::Number("0".to_owned(), false)));
-
                 let query = query.to_string();
                 let schema = self.query_schema(&query).await?;
 
@@ -169,7 +163,7 @@ impl QueryExecutor for MySqlQueryExecutor {
             _ => PgWireResult::Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
                 "fdw_error".to_owned(),
-                "only SELECT statements are supported in bigquery".to_owned(),
+                "only SELECT statements are supported in mysql".to_owned(),
             )))),
         }
     }
