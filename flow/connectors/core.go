@@ -46,7 +46,6 @@ type GetTableSchemaConnector interface {
 }
 
 type CDCPullConnectorCore interface {
-	Connector
 	GetTableSchemaConnector
 
 	// EnsurePullability ensures that the connector is pullable.
