@@ -884,20 +884,19 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			columnType := addedColumn.ColumnType
+			columnType := addedColumn.Type
 			if schemaDelta.System == protos.TypeSystem_Q {
 				columnType = qValueKindToPostgresType(columnType)
 			}
 			_, err = tableSchemaModifyTx.Exec(ctx, fmt.Sprintf(
 				"ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s",
-				schemaDelta.DstTableName, QuoteIdentifier(addedColumn.ColumnName), columnType,
-			))
+				schemaDelta.DstTableName, QuoteIdentifier(addedColumn.Name), columnType))
 			if err != nil {
-				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
+				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
 			}
 			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s",
-				addedColumn.ColumnName, addedColumn.ColumnType),
+				addedColumn.Name, addedColumn.Type),
 				slog.String("srcTableName", schemaDelta.SrcTableName),
 				slog.String("dstTableName", schemaDelta.DstTableName),
 			)

@@ -8,6 +8,7 @@ import (
 
 	"cloud.google.com/go/bigquery"
 
+	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -70,10 +71,12 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 			c.logger.Info(fmt.Sprintf("adding column %s to destination table %s",
 				col.Name, config.DestinationTableIdentifier),
 				slog.String(string(shared.PartitionIDKey), partition.PartitionId))
-			tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, &protos.DeltaAddedColumn{
-				ColumnName: col.Name,
-				ColumnType: string(col.Type),
-			})
+			tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, &protos.FieldDescription{
+				Name:         col.Name,
+				Type:         string(col.Type),
+				TypeModifier: datatypes.MakeNumericTypmod(int32(col.Precision), int32(col.Scale)),
+			},
+			)
 		}
 	}
 
