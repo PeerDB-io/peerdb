@@ -224,8 +224,6 @@ func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 		return connbigquery.NewBigQueryConnector(ctx, inner.BigqueryConfig)
 	case *protos.Peer_SnowflakeConfig:
 		return connsnowflake.NewSnowflakeConnector(ctx, inner.SnowflakeConfig)
-	case *protos.Peer_EventhubConfig:
-		return nil, errors.New("use eventhub group config instead")
 	case *protos.Peer_EventhubGroupConfig:
 		return conneventhub.NewEventHubConnector(ctx, inner.EventhubGroupConfig)
 	case *protos.Peer_S3Config:
