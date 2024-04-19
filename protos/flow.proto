@@ -318,15 +318,10 @@ message DropFlowInput {
   string flow_name = 1;
 }
 
-message DeltaAddedColumn {
-  string column_name = 1;
-  string column_type = 2;
-}
-
 message TableSchemaDelta {
   string src_table_name = 1;
   string dst_table_name = 2;
-  repeated DeltaAddedColumn added_columns = 3;
+  repeated FieldDescription added_columns = 3;
   TypeSystem system = 4;
 }
 
