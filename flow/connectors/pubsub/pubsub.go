@@ -241,7 +241,6 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 		ticker := time.NewTicker(peerdbenv.PeerDBQueueFlushTimeoutSeconds())
 		defer ticker.Stop()
 
-		lastUpdatedOffset := int64(0)
 		for {
 			select {
 			case <-ctx.Done():
@@ -251,12 +250,12 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 			// flush loop doesn't block processing new messages
 			case <-ticker.C:
 				lastSeen := lastSeenLSN.Load()
-				if lastSeen > lastUpdatedOffset {
+				if lastSeen > req.ConsumedOffset.Load() {
 					if err := c.SetLastOffset(ctx, req.FlowJobName, lastSeen); err != nil {
 						c.logger.Warn("[pubsub] SetLastOffset error", slog.Any("error", err))
 					} else {
-						lastUpdatedOffset = lastSeen
-						c.logger.Info("processBatch", slog.Int64("updated last offset", lastUpdatedOffset))
+						shared.AtomicInt64Max(req.ConsumedOffset, lastSeen)
+						c.logger.Info("processBatch", slog.Int64("updated last offset", lastSeen))
 					}
 				}
 			}
