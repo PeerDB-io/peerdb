@@ -891,7 +891,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 			_, err = tableSchemaModifyTx.Exec(ctx, fmt.Sprintf(
 				"ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s",
 				schemaDelta.DstTableName, QuoteIdentifier(addedColumn.Name),
-				addedColumn.Type))
+				columnType))
 			if err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
