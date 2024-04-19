@@ -20,9 +20,23 @@ pub struct MySqlQueryExecutor {
 
 impl MySqlQueryExecutor {
     pub async fn new(peer_name: String, config: &MySqlConfig) -> anyhow::Result<Self> {
+        // TODO TLS
+        let mut opts = mysql_async::OptsBuilder::default();
+        if !config.user.is_empty() {
+            opts = opts.user(Some(config.user.clone()))
+        }
+        if !config.password.is_empty() {
+            opts = opts.pass(Some(config.password.clone()))
+        }
+        if !config.database.is_empty() {
+            opts = opts.db_name(Some(config.database.clone()))
+        }
+        opts = opts.compression(mysql_async::Compression::new(config.compression))
+            .ip_or_hostname(config.host.clone())
+            .tcp_port(config.port as u16);
         Ok(Self {
             peer_name,
-            pool: mysql_async::Pool::from_url("").expect("TODO"),
+            pool: mysql_async::Pool::new(opts),
             cursor_manager: Default::default(),
         })
     }
