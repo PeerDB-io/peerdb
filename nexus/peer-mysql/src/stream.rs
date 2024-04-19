@@ -16,6 +16,7 @@ use pgwire::{
 use mysql_async::prelude::Queryable;
 use mysql_async::{Column, ResultSetStream, Row, TextProtocol};
 use mysql_async::consts::ColumnType;
+use value::Value;
 
 #[derive(Debug)]
 pub struct MySchema {
@@ -41,7 +42,9 @@ fn convert_field_type(field_type: ColumnType) -> Type {
         ColumnType::MYSQL_TYPE_INT24 => Type::INT4,
         ColumnType::MYSQL_TYPE_LONG => Type::INT4,
         ColumnType::MYSQL_TYPE_LONGLONG => Type::INT8,
-        ColumnType::MYSQL_TYPE_DECIMAL => Type::NUMERIC,
+        ColumnType::MYSQL_TYPE_DECIMAL |
+        ColumnType::MYSQL_TYPE_NEWDECIMAL
+            => Type::NUMERIC,
         ColumnType::MYSQL_TYPE_VARCHAR => Type::TEXT,
         ColumnType::MYSQL_TYPE_TINY_BLOB |
         ColumnType::MYSQL_TYPE_MEDIUM_BLOB |
@@ -111,9 +114,18 @@ impl MyRecordStream {
     */
 }
 
-pub fn mysql_row_to_values(_row: &Row) -> Vec<value::Value> {
-    // TODO
-    Vec::new()
+// TODO cleanup unwrap
+pub fn mysql_row_to_values(row: &Row) -> Vec<Value> {
+    row.columns_ref().iter().enumerate().map(|(i, col)| {
+        match col.column_type() {
+            ColumnType::MYSQL_TYPE_NULL => Value::Null,
+            ColumnType::MYSQL_TYPE_BIT => Value::Bool(row.get(i).unwrap()),
+            ColumnType::MYSQL_TYPE_FLOAT => Value::Float(row.get(i).unwrap()),
+            ColumnType::MYSQL_TYPE_DOUBLE => Value::Double(row.get(i).unwrap()),
+            // TODO rest of types
+            _ => Value::Null,
+        }
+    }).collect()
 }
 
 impl Stream for MyRecordStream {
