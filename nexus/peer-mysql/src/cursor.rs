@@ -13,6 +13,7 @@ pub struct MySqlCursor {
     schema: Schema,
 }
 
+#[derive(Default)]
 pub struct MySqlCursorManager {
     cursors: DashMap<String, MySqlCursor>,
 }

@@ -13,6 +13,7 @@ use pgwire::{
     },
     error::{PgWireError, PgWireResult},
 };
+use mysql_async::prelude::Queryable;
 use mysql_async::{Column, ResultSetStream, Row, TextProtocol};
 use mysql_async::consts::ColumnType;
 
@@ -21,9 +22,11 @@ pub struct MySchema {
     schema: Schema,
 }
 
-pub struct MyRecordStream<'a> {
-    result_set: Mutex<Pin<Box<ResultSetStream<'a, 'a, 'static, Row, TextProtocol>>>>,
+pub struct MyRecordStream {
+    conn: mysql_async::Conn,
+    results: Pin<Box<Vec<Row>>>,
     schema: MySchema,
+    idx: usize,
 }
 
 // convert ColumnType to pgwire FieldInfo's Type
@@ -71,14 +74,20 @@ impl MySchema {
     }
 }
 
-impl<'a> MyRecordStream<'a> {
-    pub fn new(result_set: ResultSetStream<'a, 'a, 'static, Row, TextProtocol>) -> Self {
-        let my_schema = MySchema::from_columns(result_set.columns_ref());
+impl MyRecordStream {
+    pub async fn query(mut conn: mysql_async::Conn, query: String) -> PgWireResult<Self> {
+        // TODO query_stream
+        // let results: mysql_async::ResultSetStream<'static, 'static, 'static, Row, TextProtocol> = conn.query_stream(query).await.map_err(|err| PgWireError::ApiError(err.into()))?;
+        let results: mysql_async::QueryResult<'_, 'static, mysql_async::TextProtocol> = conn.query_iter(query).await.map_err(|err| PgWireError::ApiError(err.into()))?;
+        let my_schema = MySchema::from_columns(results.columns_ref());
+        let results = results.collect_and_drop::<Row>().await.map_err(|err| PgWireError::ApiError(err.into()))?;
 
-        Self {
-            result_set: Mutex::new(Box::pin(result_set)),
+        Ok(Self {
+            conn,
+            results: Box::pin(results),
             schema: my_schema,
-        }
+            idx: 0,
+        })
     }
 
     /*
@@ -102,32 +111,29 @@ impl<'a> MyRecordStream<'a> {
     */
 }
 
-pub fn mysql_row_to_values(_row: Row) -> Vec<value::Value> {
+pub fn mysql_row_to_values(_row: &Row) -> Vec<value::Value> {
     // TODO
     Vec::new()
 }
 
-impl<'a> Stream for MyRecordStream<'a> {
+impl Stream for MyRecordStream {
     type Item = PgWireResult<Record>;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut substream = self.result_set.lock().expect("poisoned mutex");
-        substream.as_mut().poll_next(cx).map(|result| {
-            result.map(|result| {
-                match result {
-                    Ok(row) => Ok(Record{
-                        schema: self.schema(),
-                        values: mysql_row_to_values(row),
-                    }),
-                    Err(err) => Err(PgWireError::ApiError(err.into())),
-                }
-
-            })
-        })
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let idx = self.idx;
+        self.idx += 1;
+        if idx >= self.results.len() {
+            Poll::Ready(None)
+        } else {
+            Poll::Ready(Some(Ok(Record{
+                schema: self.schema(),
+                values: mysql_row_to_values(&self.results[idx]),
+            })))
+        }
     }
 }
 
-impl<'a> RecordStream for MyRecordStream<'a> {
+impl RecordStream for MyRecordStream {
     fn schema(&self) -> Schema {
         self.schema.schema()
     }

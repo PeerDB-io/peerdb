@@ -839,9 +839,9 @@ impl NexusBackend {
                         .await?;
                         Arc::new(executor)
                     }
-                    Some(Config::MySqlConfig(ref c)) => {
+                    Some(Config::MysqlConfig(ref c)) => {
                         let executor =
-                            peer_postgres::MySqlQueryExecutor::new(peer.name.clone(), c).await?;
+                            peer_mysql::MySqlQueryExecutor::new(peer.name.clone(), c).await?;
                         Arc::new(executor)
                     }
                     Some(Config::PostgresConfig(ref c)) => {

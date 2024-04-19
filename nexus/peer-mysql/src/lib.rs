@@ -2,8 +2,8 @@ mod cursor;
 mod stream;
 
 use cursor::MySqlCursorManager;
-use mysql_async::{Conn, ResultSetStream, Row, TextProtocol};
 use mysql_async::prelude::Queryable;
+use pt::peerdb_peers::MySqlConfig;
 use peer_connections::PeerConnectionTracker;
 use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, Schema};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
@@ -12,16 +12,30 @@ use stream::{MyRecordStream, MySchema};
 
 pub struct MySqlQueryExecutor {
     peer_name: String,
-    project_id: String,
-    dataset_id: String,
-    peer_connections: PeerConnectionTracker,
-    client: Box<Conn>,
+    // peer_connections: PeerConnectionTracker,
+    // TODO Arc<Mutex<mysql_async::Conn>> ?
+    pool: mysql_async::Pool,
     cursor_manager: MySqlCursorManager,
 }
 
 impl MySqlQueryExecutor {
-    async fn query<'a, 'b: 'a>(&'a mut self, query: &'b str) -> PgWireResult<ResultSetStream<'a, 'a, 'static, Row, TextProtocol>> {
-        self.client.query_stream(query).await.map_err(|err| PgWireError::ApiError(err.into()))
+    pub async fn new(peer_name: String, config: &MySqlConfig) -> anyhow::Result<Self> {
+        Ok(Self {
+            peer_name,
+            pool: mysql_async::Pool::from_url("").expect("TODO"),
+            cursor_manager: Default::default(),
+        })
+    }
+
+    async fn query(&self, query: String) -> PgWireResult<MyRecordStream> {
+        let conn: mysql_async::Conn = self.pool.get_conn().await.map_err(|err| PgWireError::ApiError(err.into()))?;
+        MyRecordStream::query(conn, query).await
+    }
+
+    async fn query_schema(&self, query: &str) -> PgWireResult<MySchema> {
+        let mut conn = self.pool.get_conn().await.map_err(|err| PgWireError::ApiError(err.into()))?;
+        let results: mysql_async::ResultSetStream<'_, '_, 'static, mysql_async::Row, mysql_async::TextProtocol> = conn.query_stream(query).await.map_err(|err| PgWireError::ApiError(err.into()))?;
+        Ok(MySchema::from_columns(results.columns_ref()))
     }
 }
 
@@ -33,15 +47,9 @@ impl QueryExecutor for MySqlQueryExecutor {
         match stmt {
             Statement::Query(query) => {
                 let query = query.to_string();
-                tracing::info!("bq rewritten query: {}", query);
+                tracing::info!("mysql rewritten query: {}", query);
 
-                let result_set = self.query(&query).await?;
-
-                let cursor = MyRecordStream::new(result_set);
-                tracing::info!(
-                    "retrieved rows for query {}",
-                    query
-                );
+                let cursor = self.query(query).await?;
                 Ok(QueryOutput::Stream(Box::pin(cursor)))
             }
             Statement::Declare { name, query, .. } => {
@@ -133,8 +141,7 @@ impl QueryExecutor for MySqlQueryExecutor {
                 query.limit = Some(Expr::Value(Value::Number("0".to_owned(), false)));
 
                 let query = query.to_string();
-                let result_set = self.query(&query).await?;
-                let schema = MySchema::from_columns(result_set.columns_ref());
+                let schema = self.query_schema(&query).await?;
 
                 // log the schema
                 tracing::info!("[mysql] schema: {:?}", schema);
