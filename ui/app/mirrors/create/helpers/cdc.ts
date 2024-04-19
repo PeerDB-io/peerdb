@@ -1,3 +1,4 @@
+import { TypeSystem } from '@/grpc_generated/flow';
 import { CDCConfig } from '../../../dto/MirrorsDTO';
 import { MirrorSetting } from './common';
 export const cdcSettings: MirrorSetting[] = [
@@ -147,6 +148,18 @@ export const cdcSettings: MirrorSetting[] = [
         script: (value as string) || '',
       })),
     tips: 'Associate PeerDB script with this mirror.',
+    advanced: true,
+  },
+  {
+    label: 'Use Postgres type system',
+    stateHandler: (value, setter) =>
+      setter((curr: CDCConfig) => ({
+        ...curr,
+        system: value === true ? TypeSystem.PG : TypeSystem.Q,
+      })),
+    type: 'switch',
+    default: false,
+    tips: 'Decide if PeerDB should use native Postgres types directly',
     advanced: true,
   },
 ];
