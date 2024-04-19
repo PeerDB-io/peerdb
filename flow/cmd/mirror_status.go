@@ -348,7 +348,7 @@ func (h *FlowRequestHandler) getQRepConfigFromCatalog(ctx context.Context, flowJ
 
 func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) (bool, error) {
 	var isCdc bool
-	err := h.pool.QueryRow(ctx, "select exists(select * from flows where name = $1 and coalesce(query_string, '') = '')",
+	err := h.pool.QueryRow(ctx, "SELECT exists(SELECT * FROM flows WHERE name=$1 and coalesce(query_string, '')='')",
 		flowJobName).Scan(&isCdc)
 	if err != nil {
 		slog.Error("unable to query flow", slog.Any("error", err))
