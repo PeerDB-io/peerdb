@@ -1784,6 +1784,7 @@ dependencies = [
  "num-traits",
  "rand",
  "regex",
+ "rust_decimal",
  "saturating",
  "serde",
  "serde_json",
@@ -2069,7 +2070,6 @@ dependencies = [
  "sqlparser",
  "tokio",
  "tracing",
- "uuid",
  "value",
 ]
 
@@ -3283,7 +3283,7 @@ dependencies = [
 [[package]]
 name = "sqlparser"
 version = "0.41.0"
-source = "git+https://github.com/peerdb-io/sqlparser-rs.git?branch=ps-es-parsing#e86bcd9ed3dd9ac7be94569f0ae1fc20c440dafa"
+source = "git+https://github.com/peerdb-io/sqlparser-rs.git?branch=mysql#4c87aa38f2ac6167884e2a9c4db4a13ce92faacb"
 dependencies = [
  "log",
  "sqlparser_derive",
@@ -3292,7 +3292,7 @@ dependencies = [
 [[package]]
 name = "sqlparser_derive"
 version = "0.2.1"
-source = "git+https://github.com/peerdb-io/sqlparser-rs.git?branch=ps-es-parsing#e86bcd9ed3dd9ac7be94569f0ae1fc20c440dafa"
+source = "git+https://github.com/peerdb-io/sqlparser-rs.git?branch=mysql#4c87aa38f2ac6167884e2a9c4db4a13ce92faacb"
 dependencies = [
  "proc-macro2",
  "quote",
