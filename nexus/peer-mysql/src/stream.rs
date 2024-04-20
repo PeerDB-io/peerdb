@@ -34,7 +34,7 @@ pub struct MyRecordStream {
 fn convert_field_type(field_type: ColumnType) -> Type {
     match field_type {
         ColumnType::MYSQL_TYPE_NULL => Type::VOID,
-        ColumnType::MYSQL_TYPE_BIT => Type::BOOL,
+        // ColumnType::MYSQL_TYPE_BIT => Type::BOOL,
         ColumnType::MYSQL_TYPE_FLOAT => Type::FLOAT4,
         ColumnType::MYSQL_TYPE_DOUBLE => Type::FLOAT8,
         ColumnType::MYSQL_TYPE_TINY => Type::INT2,
@@ -119,9 +119,15 @@ pub fn mysql_row_to_values(row: &Row) -> Vec<Value> {
     row.columns_ref().iter().enumerate().map(|(i, col)| {
         match col.column_type() {
             ColumnType::MYSQL_TYPE_NULL => Value::Null,
-            ColumnType::MYSQL_TYPE_BIT => Value::Bool(row.get(i).unwrap()),
+            ColumnType::MYSQL_TYPE_TINY => Value::TinyInt(row.get(i).unwrap()),
+            ColumnType::MYSQL_TYPE_SHORT => Value::SmallInt(row.get(i).unwrap()),
+            ColumnType::MYSQL_TYPE_LONG |
+            ColumnType::MYSQL_TYPE_INT24 => Value::Integer(row.get(i).unwrap()),
+            ColumnType::MYSQL_TYPE_LONGLONG => Value::BigInt(row.get(i).unwrap()),
             ColumnType::MYSQL_TYPE_FLOAT => Value::Float(row.get(i).unwrap()),
             ColumnType::MYSQL_TYPE_DOUBLE => Value::Double(row.get(i).unwrap()),
+            ColumnType::MYSQL_TYPE_DECIMAL | 
+            ColumnType::MYSQL_TYPE_NEWDECIMAL => Value::Numeric(row.get(i).unwrap()),
             // TODO rest of types
             _ => Value::Null,
         }
