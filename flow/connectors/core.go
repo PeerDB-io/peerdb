@@ -13,6 +13,7 @@ import (
 	connelasticsearch "github.com/PeerDB-io/peer-flow/connectors/connelasticsearch"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
 	connkafka "github.com/PeerDB-io/peer-flow/connectors/kafka"
+	connmysql "github.com/PeerDB-io/peer-flow/connectors/mysql"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connpubsub "github.com/PeerDB-io/peer-flow/connectors/pubsub"
 	conns3 "github.com/PeerDB-io/peer-flow/connectors/s3"
@@ -230,6 +231,8 @@ func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 		return conns3.NewS3Connector(ctx, inner.S3Config)
 	case *protos.Peer_SqlserverConfig:
 		return connsqlserver.NewSQLServerConnector(ctx, inner.SqlserverConfig)
+	case *protos.Peer_MysqlConfig:
+		return connmysql.MySqlConnector{}, nil
 	case *protos.Peer_ClickhouseConfig:
 		return connclickhouse.NewClickhouseConnector(ctx, inner.ClickhouseConfig)
 	case *protos.Peer_KafkaConfig:
@@ -338,4 +341,6 @@ var (
 	_ ValidationConnector = &connclickhouse.ClickhouseConnector{}
 	_ ValidationConnector = &connbigquery.BigQueryConnector{}
 	_ ValidationConnector = &conns3.S3Connector{}
+
+	_ Connector = &connmysql.MySqlConnector{}
 )
