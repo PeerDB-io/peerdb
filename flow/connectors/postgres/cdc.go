@@ -299,14 +299,12 @@ func PullCdcRecords[Items model.Items](
 	records := req.RecordStream
 	// clientXLogPos is the last checkpoint id, we need to ack that we have processed
 	// until clientXLogPos each time we send a standby status update.
-	// consumedXLogPos is the lsn that has been committed on the destination.
-	var clientXLogPos, consumedXLogPos pglogrepl.LSN
+	var clientXLogPos pglogrepl.LSN
 	if req.LastOffset > 0 {
 		clientXLogPos = pglogrepl.LSN(req.LastOffset)
-		consumedXLogPos = clientXLogPos
 
 		err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
-			pglogrepl.StandbyStatusUpdate{WALWritePosition: consumedXLogPos})
+			pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load())})
 		if err != nil {
 			return fmt.Errorf("[initial-flush] SendStandbyStatusUpdate failed: %w", err)
 		}
@@ -357,7 +355,7 @@ func PullCdcRecords[Items model.Items](
 	for {
 		if pkmRequiresResponse {
 			err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
-				pglogrepl.StandbyStatusUpdate{WALWritePosition: consumedXLogPos})
+				pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load())})
 			if err != nil {
 				return fmt.Errorf("SendStandbyStatusUpdate failed: %w", err)
 			}

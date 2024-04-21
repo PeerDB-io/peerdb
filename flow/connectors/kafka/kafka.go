@@ -213,7 +213,6 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 		ticker := time.NewTicker(peerdbenv.PeerDBQueueFlushTimeoutSeconds())
 		defer ticker.Stop()
 
-		lastUpdatedOffset := int64(0)
 		for {
 			select {
 			case <-ctx.Done():
@@ -226,11 +225,11 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 				if err := c.client.Flush(ctx); err != nil {
 					c.logger.Warn("[kafka] flush error", slog.Any("error", err))
 					continue
-				} else if lastSeen > lastUpdatedOffset {
+				} else if lastSeen > req.ConsumedOffset.Load() {
 					if err := c.SetLastOffset(ctx, req.FlowJobName, lastSeen); err != nil {
 						c.logger.Warn("[kafka] SetLastOffset error", slog.Any("error", err))
 					} else {
-						lastUpdatedOffset = lastSeen
+						shared.AtomicInt64Max(req.ConsumedOffset, lastSeen)
 						c.logger.Info("processBatch", slog.Int64("updated last offset", lastSeen))
 					}
 				}
