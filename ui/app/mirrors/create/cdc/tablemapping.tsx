@@ -54,7 +54,7 @@ const TableMapping = ({
           style={{ color: 'teal' }}
           target='_blank'
           href={
-            'https://docs.peerdb.io/connect/rds_postgres#creating-peerdb-user-and-granting-permissions'
+            'https://docs.peerdb.io/connect/postgres/rds_postgres#creating-peerdb-user-and-granting-permissions'
           }
         >
           these permissions
