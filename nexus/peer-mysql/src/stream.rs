@@ -5,6 +5,9 @@ use std::{
 };
 
 use futures::Stream;
+use mysql_async::consts::ColumnType;
+use mysql_async::prelude::Queryable;
+use mysql_async::{Column, ResultSetStream, Row, TextProtocol};
 use peer_cursor::{Record, RecordStream, Schema};
 use pgwire::{
     api::{
@@ -13,9 +16,6 @@ use pgwire::{
     },
     error::{PgWireError, PgWireResult},
 };
-use mysql_async::prelude::Queryable;
-use mysql_async::{Column, ResultSetStream, Row, TextProtocol};
-use mysql_async::consts::ColumnType;
 use value::Value;
 
 #[derive(Debug)]
@@ -42,30 +42,24 @@ fn convert_field_type(field_type: ColumnType) -> Type {
         ColumnType::MYSQL_TYPE_INT24 => Type::INT4,
         ColumnType::MYSQL_TYPE_LONG => Type::INT4,
         ColumnType::MYSQL_TYPE_LONGLONG => Type::INT8,
-        ColumnType::MYSQL_TYPE_DECIMAL |
-        ColumnType::MYSQL_TYPE_NEWDECIMAL
-            => Type::NUMERIC,
-        ColumnType::MYSQL_TYPE_VARCHAR |
-            ColumnType::MYSQL_TYPE_VAR_STRING |
-            ColumnType::MYSQL_TYPE_STRING |
-            ColumnType::MYSQL_TYPE_ENUM |
-            ColumnType::MYSQL_TYPE_GEOMETRY |
-            ColumnType::MYSQL_TYPE_SET
-            => Type::TEXT,
-        ColumnType::MYSQL_TYPE_BIT |
-        ColumnType::MYSQL_TYPE_TINY_BLOB |
-        ColumnType::MYSQL_TYPE_MEDIUM_BLOB |
-        ColumnType::MYSQL_TYPE_LONG_BLOB |
-        ColumnType::MYSQL_TYPE_BLOB => Type::BYTEA,
-        ColumnType::MYSQL_TYPE_DATE |
-            ColumnType::MYSQL_TYPE_NEWDATE => Type::DATE,
-        ColumnType::MYSQL_TYPE_TIME |
-            ColumnType::MYSQL_TYPE_TIME2
-            => Type::TIME,
-        ColumnType::MYSQL_TYPE_TIMESTAMP |
-            ColumnType::MYSQL_TYPE_TIMESTAMP2 |
-            ColumnType::MYSQL_TYPE_DATETIME |
-            ColumnType::MYSQL_TYPE_DATETIME2 => Type::TIMESTAMP,
+        ColumnType::MYSQL_TYPE_DECIMAL | ColumnType::MYSQL_TYPE_NEWDECIMAL => Type::NUMERIC,
+        ColumnType::MYSQL_TYPE_VARCHAR
+        | ColumnType::MYSQL_TYPE_VAR_STRING
+        | ColumnType::MYSQL_TYPE_STRING
+        | ColumnType::MYSQL_TYPE_ENUM
+        | ColumnType::MYSQL_TYPE_SET => Type::TEXT,
+        ColumnType::MYSQL_TYPE_TINY_BLOB
+        | ColumnType::MYSQL_TYPE_MEDIUM_BLOB
+        | ColumnType::MYSQL_TYPE_LONG_BLOB
+        | ColumnType::MYSQL_TYPE_BLOB
+        | ColumnType::MYSQL_TYPE_BIT
+        | ColumnType::MYSQL_TYPE_GEOMETRY => Type::BYTEA,
+        ColumnType::MYSQL_TYPE_DATE | ColumnType::MYSQL_TYPE_NEWDATE => Type::DATE,
+        ColumnType::MYSQL_TYPE_TIME | ColumnType::MYSQL_TYPE_TIME2 => Type::TIME,
+        ColumnType::MYSQL_TYPE_TIMESTAMP
+        | ColumnType::MYSQL_TYPE_TIMESTAMP2
+        | ColumnType::MYSQL_TYPE_DATETIME
+        | ColumnType::MYSQL_TYPE_DATETIME2 => Type::TIMESTAMP,
         ColumnType::MYSQL_TYPE_JSON => Type::JSONB,
         ColumnType::MYSQL_TYPE_TYPED_ARRAY => Type::VOID,
         ColumnType::MYSQL_TYPE_UNKNOWN => Type::VOID,
@@ -79,7 +73,13 @@ impl MySchema {
                 .iter()
                 .map(|column| {
                     let datatype = convert_field_type(column.column_type());
-                    FieldInfo::new(column.name_str().into_owned(), None, None, datatype, FieldFormat::Text)
+                    FieldInfo::new(
+                        column.name_str().into_owned(),
+                        None,
+                        None,
+                        datatype,
+                        FieldFormat::Text,
+                    )
                 })
                 .collect(),
         );
@@ -96,9 +96,15 @@ impl MyRecordStream {
     pub async fn query(mut conn: mysql_async::Conn, query: String) -> PgWireResult<Self> {
         // TODO query_stream
         // let results: mysql_async::ResultSetStream<'static, 'static, 'static, Row, TextProtocol> = conn.query_stream(query).await.map_err(|err| PgWireError::ApiError(err.into()))?;
-        let results: mysql_async::QueryResult<'_, 'static, mysql_async::TextProtocol> = conn.query_iter(query).await.map_err(|err| PgWireError::ApiError(err.into()))?;
+        let results: mysql_async::QueryResult<'_, 'static, mysql_async::TextProtocol> = conn
+            .query_iter(query)
+            .await
+            .map_err(|err| PgWireError::ApiError(err.into()))?;
         let my_schema = MySchema::from_columns(results.columns_ref());
-        let results = results.collect_and_drop::<Row>().await.map_err(|err| PgWireError::ApiError(err.into()))?;
+        let results = results
+            .collect_and_drop::<Row>()
+            .await
+            .map_err(|err| PgWireError::ApiError(err.into()))?;
 
         Ok(Self {
             conn,
@@ -131,47 +137,52 @@ impl MyRecordStream {
 
 // TODO cleanup unwrap
 pub fn mysql_row_to_values(row: &Row) -> Vec<Value> {
-    row.columns_ref().iter().enumerate().map(|(i, col)|
-        match col.column_type() {
+    row.columns_ref()
+        .iter()
+        .enumerate()
+        .map(|(i, col)| match col.column_type() {
             ColumnType::MYSQL_TYPE_NULL => Value::Null,
             ColumnType::MYSQL_TYPE_TINY => Value::TinyInt(row.get(i).unwrap()),
-            ColumnType::MYSQL_TYPE_SHORT |
-        ColumnType::MYSQL_TYPE_TINY |
-            ColumnType::MYSQL_TYPE_YEAR
-            => Value::SmallInt(row.get(i).unwrap()),
-            ColumnType::MYSQL_TYPE_LONG |
-            ColumnType::MYSQL_TYPE_INT24 => Value::Integer(row.get(i).unwrap()),
+            ColumnType::MYSQL_TYPE_SHORT
+            | ColumnType::MYSQL_TYPE_TINY
+            | ColumnType::MYSQL_TYPE_YEAR => Value::SmallInt(row.get(i).unwrap()),
+            ColumnType::MYSQL_TYPE_LONG | ColumnType::MYSQL_TYPE_INT24 => {
+                Value::Integer(row.get(i).unwrap())
+            }
             ColumnType::MYSQL_TYPE_LONGLONG => Value::BigInt(row.get(i).unwrap()),
             ColumnType::MYSQL_TYPE_FLOAT => Value::Float(row.get(i).unwrap()),
             ColumnType::MYSQL_TYPE_DOUBLE => Value::Double(row.get(i).unwrap()),
-            ColumnType::MYSQL_TYPE_DECIMAL |
-            ColumnType::MYSQL_TYPE_NEWDECIMAL => Value::Numeric(row.get(i).unwrap()),
-        ColumnType::MYSQL_TYPE_VARCHAR |
-            ColumnType::MYSQL_TYPE_VAR_STRING |
-            ColumnType::MYSQL_TYPE_STRING |
-            ColumnType::MYSQL_TYPE_ENUM |
-            ColumnType::MYSQL_TYPE_GEOMETRY |
-            ColumnType::MYSQL_TYPE_SET
-            => Value::Text(row.get(i).unwrap()),
-        ColumnType::MYSQL_TYPE_BIT |
-        ColumnType::MYSQL_TYPE_TINY_BLOB |
-        ColumnType::MYSQL_TYPE_MEDIUM_BLOB |
-        ColumnType::MYSQL_TYPE_LONG_BLOB |
-        ColumnType::MYSQL_TYPE_BLOB => Value::Binary(row.get::<Vec<u8>, usize>(i).unwrap().into()),
-        ColumnType::MYSQL_TYPE_DATE |
-            ColumnType::MYSQL_TYPE_NEWDATE => Value::Date(row.get(i).unwrap()),
-        ColumnType::MYSQL_TYPE_TIME |
-            ColumnType::MYSQL_TYPE_TIME2
-            => Value::Time(row.get(i).unwrap()),
-        ColumnType::MYSQL_TYPE_TIMESTAMP |
-            ColumnType::MYSQL_TYPE_TIMESTAMP2 |
-            ColumnType::MYSQL_TYPE_DATETIME |
-            ColumnType::MYSQL_TYPE_DATETIME2 => Value::PostgresTimestamp(row.get(i).unwrap()),
-        ColumnType::MYSQL_TYPE_JSON => Value::JsonB(row.get(i).unwrap()),
-        ColumnType::MYSQL_TYPE_TYPED_ARRAY => Value::Null,
-        ColumnType::MYSQL_TYPE_UNKNOWN => Value::Null,
-        }
-    ).collect()
+            ColumnType::MYSQL_TYPE_DECIMAL | ColumnType::MYSQL_TYPE_NEWDECIMAL => {
+                Value::Numeric(row.get(i).unwrap())
+            }
+            ColumnType::MYSQL_TYPE_VARCHAR
+            | ColumnType::MYSQL_TYPE_VAR_STRING
+            | ColumnType::MYSQL_TYPE_STRING
+            | ColumnType::MYSQL_TYPE_ENUM
+            | ColumnType::MYSQL_TYPE_SET => Value::Text(row.get(i).unwrap()),
+            ColumnType::MYSQL_TYPE_TINY_BLOB
+            | ColumnType::MYSQL_TYPE_MEDIUM_BLOB
+            | ColumnType::MYSQL_TYPE_LONG_BLOB
+            | ColumnType::MYSQL_TYPE_BLOB
+            | ColumnType::MYSQL_TYPE_BIT
+            | ColumnType::MYSQL_TYPE_GEOMETRY => {
+                Value::Binary(row.get::<Vec<u8>, usize>(i).unwrap().into())
+            }
+            ColumnType::MYSQL_TYPE_DATE | ColumnType::MYSQL_TYPE_NEWDATE => {
+                Value::Date(row.get(i).unwrap())
+            }
+            ColumnType::MYSQL_TYPE_TIME | ColumnType::MYSQL_TYPE_TIME2 => {
+                Value::Time(row.get(i).unwrap())
+            }
+            ColumnType::MYSQL_TYPE_TIMESTAMP
+            | ColumnType::MYSQL_TYPE_TIMESTAMP2
+            | ColumnType::MYSQL_TYPE_DATETIME
+            | ColumnType::MYSQL_TYPE_DATETIME2 => Value::PostgresTimestamp(row.get(i).unwrap()),
+            ColumnType::MYSQL_TYPE_JSON => Value::JsonB(row.get(i).unwrap()),
+            ColumnType::MYSQL_TYPE_TYPED_ARRAY => Value::Null,
+            ColumnType::MYSQL_TYPE_UNKNOWN => Value::Null,
+        })
+        .collect()
 }
 
 impl Stream for MyRecordStream {
@@ -183,7 +194,7 @@ impl Stream for MyRecordStream {
         if idx >= self.results.len() {
             Poll::Ready(None)
         } else {
-            Poll::Ready(Some(Ok(Record{
+            Poll::Ready(Some(Ok(Record {
                 schema: self.schema(),
                 values: mysql_row_to_values(&self.results[idx]),
             })))
