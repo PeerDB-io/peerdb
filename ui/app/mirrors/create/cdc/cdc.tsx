@@ -67,7 +67,10 @@ export default function CDCConfigForm({
         (label.includes('initial copy') ||
           label.includes('initial load') ||
           label.includes('soft delete') ||
-          label.includes('snapshot')))
+          label.includes('snapshot'))) ||
+      ((mirrorConfig.source?.type !== DBType.POSTGRES ||
+        mirrorConfig.destination?.type !== DBType.POSTGRES) &&
+        label.includes('type system'))
     ) {
       return false;
     }
@@ -97,7 +100,7 @@ export default function CDCConfigForm({
                     ? publications
                     : undefined
                 }
-                publicationsLoading={pubLoading}
+                optionsLoading={pubLoading}
               />
             )
           );

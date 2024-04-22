@@ -1,16 +1,8 @@
-import {
-  FlowConnectionConfigs,
-  QRepWriteType,
-  TypeSystem,
-} from '@/grpc_generated/flow';
-import { Peer } from '@/grpc_generated/peers';
+import { FlowConnectionConfigs, TypeSystem } from '@/grpc_generated/flow';
 
 export interface MirrorSetting {
   label: string;
-  stateHandler: (
-    value: string | string[] | Peer | boolean | QRepWriteType,
-    setter: any
-  ) => void;
+  stateHandler: (value: any, setter: any) => void;
   type?: string;
   required?: boolean;
   tips?: string;
