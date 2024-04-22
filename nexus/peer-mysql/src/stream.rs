@@ -34,9 +34,9 @@ pub struct MyRecordStream {
 fn convert_field_type(field_type: ColumnType) -> Type {
     match field_type {
         ColumnType::MYSQL_TYPE_NULL => Type::VOID,
-        // ColumnType::MYSQL_TYPE_BIT => Type::BOOL,
         ColumnType::MYSQL_TYPE_FLOAT => Type::FLOAT4,
         ColumnType::MYSQL_TYPE_DOUBLE => Type::FLOAT8,
+        ColumnType::MYSQL_TYPE_YEAR => Type::INT2,
         ColumnType::MYSQL_TYPE_TINY => Type::INT2,
         ColumnType::MYSQL_TYPE_SHORT => Type::INT2,
         ColumnType::MYSQL_TYPE_INT24 => Type::INT4,
@@ -45,15 +45,30 @@ fn convert_field_type(field_type: ColumnType) -> Type {
         ColumnType::MYSQL_TYPE_DECIMAL |
         ColumnType::MYSQL_TYPE_NEWDECIMAL
             => Type::NUMERIC,
-        ColumnType::MYSQL_TYPE_VARCHAR => Type::TEXT,
+        ColumnType::MYSQL_TYPE_VARCHAR |
+            ColumnType::MYSQL_TYPE_VAR_STRING |
+            ColumnType::MYSQL_TYPE_STRING |
+            ColumnType::MYSQL_TYPE_ENUM |
+            ColumnType::MYSQL_TYPE_GEOMETRY |
+            ColumnType::MYSQL_TYPE_SET
+            => Type::TEXT,
+        ColumnType::MYSQL_TYPE_BIT |
         ColumnType::MYSQL_TYPE_TINY_BLOB |
         ColumnType::MYSQL_TYPE_MEDIUM_BLOB |
         ColumnType::MYSQL_TYPE_LONG_BLOB |
         ColumnType::MYSQL_TYPE_BLOB => Type::BYTEA,
-        ColumnType::MYSQL_TYPE_TIMESTAMP => Type::TIMESTAMP,
-        ColumnType::MYSQL_TYPE_GEOMETRY => Type::POLYGON_ARRAY,
-        ColumnType::MYSQL_TYPE_JSON => Type::JSON,
-        _ => todo!(),
+        ColumnType::MYSQL_TYPE_DATE |
+            ColumnType::MYSQL_TYPE_NEWDATE => Type::DATE,
+        ColumnType::MYSQL_TYPE_TIME |
+            ColumnType::MYSQL_TYPE_TIME2
+            => Type::TIME,
+        ColumnType::MYSQL_TYPE_TIMESTAMP |
+            ColumnType::MYSQL_TYPE_TIMESTAMP2 |
+            ColumnType::MYSQL_TYPE_DATETIME |
+            ColumnType::MYSQL_TYPE_DATETIME2 => Type::TIMESTAMP,
+        ColumnType::MYSQL_TYPE_JSON => Type::JSONB,
+        ColumnType::MYSQL_TYPE_TYPED_ARRAY => Type::VOID,
+        ColumnType::MYSQL_TYPE_UNKNOWN => Type::VOID,
     }
 }
 
@@ -116,22 +131,47 @@ impl MyRecordStream {
 
 // TODO cleanup unwrap
 pub fn mysql_row_to_values(row: &Row) -> Vec<Value> {
-    row.columns_ref().iter().enumerate().map(|(i, col)| {
+    row.columns_ref().iter().enumerate().map(|(i, col)|
         match col.column_type() {
             ColumnType::MYSQL_TYPE_NULL => Value::Null,
             ColumnType::MYSQL_TYPE_TINY => Value::TinyInt(row.get(i).unwrap()),
-            ColumnType::MYSQL_TYPE_SHORT => Value::SmallInt(row.get(i).unwrap()),
+            ColumnType::MYSQL_TYPE_SHORT |
+        ColumnType::MYSQL_TYPE_TINY |
+            ColumnType::MYSQL_TYPE_YEAR
+            => Value::SmallInt(row.get(i).unwrap()),
             ColumnType::MYSQL_TYPE_LONG |
             ColumnType::MYSQL_TYPE_INT24 => Value::Integer(row.get(i).unwrap()),
             ColumnType::MYSQL_TYPE_LONGLONG => Value::BigInt(row.get(i).unwrap()),
             ColumnType::MYSQL_TYPE_FLOAT => Value::Float(row.get(i).unwrap()),
             ColumnType::MYSQL_TYPE_DOUBLE => Value::Double(row.get(i).unwrap()),
-            ColumnType::MYSQL_TYPE_DECIMAL | 
+            ColumnType::MYSQL_TYPE_DECIMAL |
             ColumnType::MYSQL_TYPE_NEWDECIMAL => Value::Numeric(row.get(i).unwrap()),
-            // TODO rest of types
-            _ => Value::Null,
+        ColumnType::MYSQL_TYPE_VARCHAR |
+            ColumnType::MYSQL_TYPE_VAR_STRING |
+            ColumnType::MYSQL_TYPE_STRING |
+            ColumnType::MYSQL_TYPE_ENUM |
+            ColumnType::MYSQL_TYPE_GEOMETRY |
+            ColumnType::MYSQL_TYPE_SET
+            => Value::Text(row.get(i).unwrap()),
+        ColumnType::MYSQL_TYPE_BIT |
+        ColumnType::MYSQL_TYPE_TINY_BLOB |
+        ColumnType::MYSQL_TYPE_MEDIUM_BLOB |
+        ColumnType::MYSQL_TYPE_LONG_BLOB |
+        ColumnType::MYSQL_TYPE_BLOB => Value::Binary(row.get::<Vec<u8>, usize>(i).unwrap().into()),
+        ColumnType::MYSQL_TYPE_DATE |
+            ColumnType::MYSQL_TYPE_NEWDATE => Value::Date(row.get(i).unwrap()),
+        ColumnType::MYSQL_TYPE_TIME |
+            ColumnType::MYSQL_TYPE_TIME2
+            => Value::Time(row.get(i).unwrap()),
+        ColumnType::MYSQL_TYPE_TIMESTAMP |
+            ColumnType::MYSQL_TYPE_TIMESTAMP2 |
+            ColumnType::MYSQL_TYPE_DATETIME |
+            ColumnType::MYSQL_TYPE_DATETIME2 => Value::PostgresTimestamp(row.get(i).unwrap()),
+        ColumnType::MYSQL_TYPE_JSON => Value::JsonB(row.get(i).unwrap()),
+        ColumnType::MYSQL_TYPE_TYPED_ARRAY => Value::Null,
+        ColumnType::MYSQL_TYPE_UNKNOWN => Value::Null,
         }
-    }).collect()
+    ).collect()
 }
 
 impl Stream for MyRecordStream {

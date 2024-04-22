@@ -1,3 +1,4 @@
+mod ast;
 mod cursor;
 mod stream;
 
@@ -60,6 +61,8 @@ impl QueryExecutor for MySqlQueryExecutor {
         // only support SELECT statements
         match stmt {
             Statement::Query(query) => {
+                let mut query = query.clone();
+                ast::rewrite_query(&self.peer_name, &mut query);
                 let query = query.to_string();
                 tracing::info!("mysql rewritten query: {}", query);
 
@@ -67,7 +70,9 @@ impl QueryExecutor for MySqlQueryExecutor {
                 Ok(QueryOutput::Stream(Box::pin(cursor)))
             }
             Statement::Declare { name, query, .. } => {
-                let query_stmt = Statement::Query(query.clone());
+                let mut query = query.clone();
+                ast::rewrite_query(&self.peer_name, &mut query);
+                let query_stmt = Statement::Query(query);
                 self.cursor_manager
                     .create_cursor(&name.value, &query_stmt, self)
                     .await?;
@@ -148,8 +153,9 @@ impl QueryExecutor for MySqlQueryExecutor {
         // only support SELECT statements
         match stmt {
             Statement::Query(query) => {
-                let query = query.to_string();
-                let schema = self.query_schema(&query).await?;
+                let mut query = query.clone();
+                ast::rewrite_query(&self.peer_name, &mut query);
+                let schema = self.query_schema(&query.to_string()).await?;
 
                 // log the schema
                 tracing::info!("[mysql] schema: {:?}", schema);
@@ -157,7 +163,9 @@ impl QueryExecutor for MySqlQueryExecutor {
                 Ok(Some(schema.schema()))
             }
             Statement::Declare { query, .. } => {
-                let query_stmt = Statement::Query(query.clone());
+                let mut query = query.clone();
+                ast::rewrite_query(&self.peer_name, &mut query);
+                let query_stmt = Statement::Query(query);
                 self.describe(&query_stmt).await
             }
             _ => PgWireResult::Err(PgWireError::UserError(Box::new(ErrorInfo::new(
