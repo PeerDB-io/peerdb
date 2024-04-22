@@ -159,7 +159,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 			Body:       bytes.NewReader(qRecordJsonBytes),
 
 			// OnFailure is called for each failed operation, log and let parent handle
-			OnFailure: func(ctx context.Context, _ esutil.BulkIndexerItem,
+			OnFailure: func(ctx context.Context, item esutil.BulkIndexerItem,
 				res esutil.BulkIndexerResponseItem, err error,
 			) {
 				bulkIndexMutex.Lock()
@@ -167,9 +167,13 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 				if err != nil {
 					bulkIndexErrors = append(bulkIndexErrors, err)
 				} else {
+					causeString := ""
+					if res.Error.Cause.Type != "" || res.Error.Cause.Reason != "" {
+						causeString = fmt.Sprintf("(caused by type:%s reason:%s)", res.Error.Cause.Type, res.Error.Cause.Reason)
+					}
 					bulkIndexErrors = append(bulkIndexErrors,
-						fmt.Errorf("type:%s reason:%s caused by:(%v)", res.Error.Type,
-							res.Error.Reason, res.Error.Cause))
+						fmt.Errorf("id:%s type:%s reason:%s %s", item.DocumentID, res.Error.Type,
+							res.Error.Reason, causeString))
 				}
 			},
 		})
