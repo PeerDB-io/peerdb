@@ -75,7 +75,7 @@ jobs:
           json: ${{ secrets.GCS_CREDS }}
 
       - name: setup Eventhubs credentials
-        id: gcs-credentials
+        id: eventhubs-credentials
         uses: jsdaniell/create-json@v1.2.3
         with:
           name: "eh_creds.json"
