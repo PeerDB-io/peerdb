@@ -52,6 +52,7 @@ type ReplState struct {
 }
 
 func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
+	logger := logger.LoggerFromCtx(ctx)
 	connectionString := shared.GetPGConnectionString(pgConfig)
 
 	// create a separate connection pool for non-replication queries as replication connections cannot
@@ -68,11 +69,13 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 
 	tunnel, err := NewSSHTunnel(ctx, pgConfig.SshConfig)
 	if err != nil {
+		logger.Error("failed to create ssh tunnel", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
 	}
 
 	conn, err := tunnel.NewPostgresConnFromConfig(ctx, connConfig)
 	if err != nil {
+		logger.Error("failed to create connection", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create connection: %w", err)
 	}
 
@@ -82,6 +85,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 
 	customTypeMap, err := shared.GetCustomDataTypes(ctx, conn)
 	if err != nil {
+		logger.Error("failed to get custom type map", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to get custom type map: %w", err)
 	}
 
@@ -101,7 +105,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		customTypesMapping:     customTypeMap,
 		metadataSchema:         metadataSchema,
 		hushWarnOID:            make(map[uint32]struct{}),
-		logger:                 logger.LoggerFromCtx(ctx),
+		logger:                 logger,
 		relationMessageMapping: make(model.RelationMessageMapping),
 	}, nil
 }
