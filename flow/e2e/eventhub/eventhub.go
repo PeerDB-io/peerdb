@@ -44,7 +44,7 @@ func ConsumeAllMessages(
 		return nil, fmt.Errorf("failed to create eventhub client: %w", err)
 	}
 
-	var messages []string
+	messages := make([]string, 0, expectedNum)
 	partitionClient, err := ehClient.NewPartitionClient("0", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create partition client: %w", err)
