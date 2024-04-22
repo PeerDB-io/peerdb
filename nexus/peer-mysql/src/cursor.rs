@@ -126,4 +126,3 @@ impl MySqlCursorManager {
         Ok(keys)
     }
 }
-

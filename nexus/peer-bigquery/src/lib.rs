@@ -166,14 +166,11 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 Ok(QueryOutput::Records(records))
             }
             Statement::Close { cursor } => {
-                let mut closed_cursors = vec![];
-                match cursor {
-                    CloseCursor::All => {
-                        closed_cursors = self.cursor_manager.close_all_cursors().await?;
-                    }
+                let closed_cursors = match cursor {
+                    CloseCursor::All => self.cursor_manager.close_all_cursors().await?,
                     CloseCursor::Specific { name } => {
                         self.cursor_manager.close(&name.value).await?;
-                        closed_cursors.push(name.value.clone());
+                        vec![name.value.clone()]
                     }
                 };
                 Ok(QueryOutput::Cursor(CursorModification::Closed(

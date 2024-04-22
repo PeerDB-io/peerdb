@@ -903,36 +903,34 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 })
             }
         }
-        DbType::Mysql => {
-            Config::MysqlConfig(pt::peerdb_peers::MySqlConfig {
-                host: opts.get("host").context("no host specified")?.to_string(),
-                port: opts
-                    .get("port")
-                    .context("no port specified")?
-                    .parse::<u32>()
-                    .context("unable to parse port as valid int")?,
-                user: opts
-                    .get("user")
-                    .context("no username specified")?
-                    .to_string(),
-                password: opts
-                    .get("password")
-                    .cloned()
-                    .unwrap_or_default()
-                    .to_string(),
-                database: opts
-                    .get("database")
-                    .context("no default database specified")?
-                    .to_string(),
-                compression: opts
-                    .get("compression")
-                    .and_then(|s| s.parse::<i8>().ok())
-                    .unwrap_or_default() as u32,
-                disable_tls: opts
-                    .get("disable_tls")
-                    .and_then(|s| s.parse::<bool>().ok())
-                    .unwrap_or_default(),
-            })
-        }
+        DbType::Mysql => Config::MysqlConfig(pt::peerdb_peers::MySqlConfig {
+            host: opts.get("host").context("no host specified")?.to_string(),
+            port: opts
+                .get("port")
+                .context("no port specified")?
+                .parse::<u32>()
+                .context("unable to parse port as valid int")?,
+            user: opts
+                .get("user")
+                .context("no username specified")?
+                .to_string(),
+            password: opts
+                .get("password")
+                .cloned()
+                .unwrap_or_default()
+                .to_string(),
+            database: opts
+                .get("database")
+                .context("no default database specified")?
+                .to_string(),
+            compression: opts
+                .get("compression")
+                .and_then(|s| s.parse::<i8>().ok())
+                .unwrap_or_default() as u32,
+            disable_tls: opts
+                .get("disable_tls")
+                .and_then(|s| s.parse::<bool>().ok())
+                .unwrap_or_default(),
+        }),
     }))
 }

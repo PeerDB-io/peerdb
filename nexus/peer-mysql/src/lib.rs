@@ -4,10 +4,10 @@ mod stream;
 
 use cursor::MySqlCursorManager;
 use mysql_async::prelude::Queryable;
-use pt::peerdb_peers::MySqlConfig;
 use peer_connections::PeerConnectionTracker;
 use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, Schema};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
+use pt::peerdb_peers::MySqlConfig;
 use sqlparser::ast::{CloseCursor, Expr, FetchDirection, Statement, Value};
 use stream::{MyRecordStream, MySchema};
 
@@ -32,7 +32,8 @@ impl MySqlQueryExecutor {
         if !config.database.is_empty() {
             opts = opts.db_name(Some(config.database.clone()))
         }
-        opts = opts.compression(mysql_async::Compression::new(config.compression))
+        opts = opts
+            .compression(mysql_async::Compression::new(config.compression))
             .ip_or_hostname(config.host.clone())
             .tcp_port(config.port as u16);
         Ok(Self {
@@ -43,13 +44,30 @@ impl MySqlQueryExecutor {
     }
 
     async fn query(&self, query: String) -> PgWireResult<MyRecordStream> {
-        let conn: mysql_async::Conn = self.pool.get_conn().await.map_err(|err| PgWireError::ApiError(err.into()))?;
+        let conn: mysql_async::Conn = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|err| PgWireError::ApiError(err.into()))?;
         MyRecordStream::query(conn, query).await
     }
 
     async fn query_schema(&self, query: &str) -> PgWireResult<MySchema> {
-        let mut conn = self.pool.get_conn().await.map_err(|err| PgWireError::ApiError(err.into()))?;
-        let results: mysql_async::ResultSetStream<'_, '_, 'static, mysql_async::Row, mysql_async::TextProtocol> = conn.query_stream(query).await.map_err(|err| PgWireError::ApiError(err.into()))?;
+        let mut conn = self
+            .pool
+            .get_conn()
+            .await
+            .map_err(|err| PgWireError::ApiError(err.into()))?;
+        let results: mysql_async::ResultSetStream<
+            '_,
+            '_,
+            'static,
+            mysql_async::Row,
+            mysql_async::TextProtocol,
+        > = conn
+            .query_stream(query)
+            .await
+            .map_err(|err| PgWireError::ApiError(err.into()))?;
         Ok(MySchema::from_columns(results.columns_ref()))
     }
 }
@@ -118,14 +136,11 @@ impl QueryExecutor for MySqlQueryExecutor {
                 Ok(QueryOutput::Records(records))
             }
             Statement::Close { cursor } => {
-                let mut closed_cursors = vec![];
-                match cursor {
-                    CloseCursor::All => {
-                        closed_cursors = self.cursor_manager.close_all_cursors().await?;
-                    }
+                let closed_cursors = match cursor {
+                    CloseCursor::All => self.cursor_manager.close_all_cursors().await?,
                     CloseCursor::Specific { name } => {
                         self.cursor_manager.close(&name.value).await?;
-                        closed_cursors.push(name.value.clone());
+                        vec![name.value.clone()]
                     }
                 };
                 Ok(QueryOutput::Cursor(CursorModification::Closed(
@@ -176,4 +191,3 @@ impl QueryExecutor for MySqlQueryExecutor {
         }
     }
 }
-
