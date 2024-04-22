@@ -13,7 +13,13 @@ interface ConfigProps {
 }
 
 export default function ClickhouseForm({ settings, setter }: ConfigProps) {
-  const S3Labels = ['S3 Path', 'Access Key ID', 'Secret Access Key', 'Region'];
+  const S3Labels = [
+    'S3 Path',
+    'Access Key ID',
+    'Secret Access Key',
+    'Region',
+    'Endpoint',
+  ];
   const handleChange = (val: string | boolean, setting: PeerSetting) => {
     setting.stateHandler(val, setter);
   };
