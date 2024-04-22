@@ -11,7 +11,7 @@ on:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
-    runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubicloud-standard-16-ubuntu-2204-arm' }}
+    runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubicloud-standard-16' }}
     timeout-minutes: ${{ (matrix.language == 'swift' && 120) || 360 }}
     permissions:
       # required for all workflows
