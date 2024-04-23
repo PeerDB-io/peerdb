@@ -2005,7 +2005,6 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
- "dashmap",
  "futures",
  "gcp-bigquery-client",
  "peer-connections",
@@ -2043,10 +2042,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "dashmap",
  "futures",
  "pgwire",
  "sqlparser",
  "tokio",
+ "tracing",
  "value",
 ]
 
@@ -2057,7 +2058,6 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
- "dashmap",
  "futures",
  "mysql_async",
  "peer-connections",
@@ -2112,7 +2112,6 @@ dependencies = [
  "base64 0.22.0",
  "catalog",
  "chrono",
- "dashmap",
  "futures",
  "hex",
  "jsonwebtoken",

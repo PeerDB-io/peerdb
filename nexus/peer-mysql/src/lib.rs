@@ -1,10 +1,8 @@
 mod ast;
 mod client;
-mod cursor;
 mod stream;
 
-use cursor::MySqlCursorManager;
-use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, Schema, RecordStream};
+use peer_cursor::{CursorManager, CursorModification, QueryExecutor, QueryOutput, Schema, RecordStream};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pt::peerdb_peers::MySqlConfig;
 use sqlparser::ast::{CloseCursor, FetchDirection, Statement};
@@ -13,7 +11,7 @@ use stream::{MyRecordStream};
 pub struct MySqlQueryExecutor {
     peer_name: String,
     client: client::MyClient,
-    cursor_manager: MySqlCursorManager,
+    cursor_manager: CursorManager,
 }
 
 impl MySqlQueryExecutor {
@@ -35,6 +33,7 @@ impl MySqlQueryExecutor {
             .ip_or_hostname(config.host.clone())
             .tcp_port(config.port as u16);
         let client = client::MyClient::new(opts.into()).await?;
+
         Ok(Self {
             peer_name,
             client,

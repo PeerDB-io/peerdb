@@ -37,7 +37,7 @@ bytes = "1.0"
 catalog = { path = "../catalog" }
 clap = { version = "4.0", features = ["derive", "env"] }
 console-subscriber = "0.2"
-dashmap = "5.0"
+dashmap.workspace = true
 dotenvy = "0.15.7"
 flow-rs = { path = "../flow-rs" }
 futures = { version = "0.3.28", features = ["executor"] }
@@ -55,7 +55,7 @@ serde_json = "1.0"
 rand = "0.8"
 time = "0.3"
 tokio = { version = "1", features = ["full"] }
-tracing = "0.1"
+tracing.workspace = true
 tracing-appender = "0.2"
 tracing-subscriber = "0.3"
 uuid = "1.0"

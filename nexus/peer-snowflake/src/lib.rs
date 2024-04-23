@@ -1,7 +1,6 @@
 use anyhow::Context;
 use async_recursion::async_recursion;
-use cursor::SnowflakeCursorManager;
-use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, Schema};
+use peer_cursor::{CursorManager, CursorModification, QueryExecutor, QueryOutput, Schema};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use std::cmp::min;
 use std::time::Duration;
@@ -20,7 +19,6 @@ use crate::stream::SnowflakeSchema;
 
 mod ast;
 mod auth;
-mod cursor;
 mod stream;
 
 const DEFAULT_REFRESH_THRESHOLD: u64 = 3000;
@@ -101,7 +99,7 @@ pub struct SnowflakeQueryExecutor {
     auth: SnowflakeAuth,
     query_timeout: u64,
     reqwest_client: reqwest::Client,
-    cursor_manager: SnowflakeCursorManager,
+    cursor_manager: CursorManager,
 }
 
 enum QueryAttemptResult {
@@ -127,7 +125,7 @@ impl SnowflakeQueryExecutor {
             .gzip(true)
             .default_headers(default_headers)
             .build()?;
-        let cursor_manager = SnowflakeCursorManager::new();
+
         Ok(Self {
             config: config.clone(),
             partition_number: 0,
@@ -146,7 +144,7 @@ impl SnowflakeQueryExecutor {
             )?,
             query_timeout: config.query_timeout,
             reqwest_client,
-            cursor_manager,
+            cursor_manager: Default::default(),
         })
     }
 

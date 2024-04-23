@@ -1,20 +1,18 @@
 use std::time::Duration;
 
 use anyhow::Context;
-use cursor::BigQueryCursorManager;
 use gcp_bigquery_client::{
     model::{query_request::QueryRequest, query_response::ResultSet},
     Client,
 };
 use peer_connections::PeerConnectionTracker;
-use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, Schema};
+use peer_cursor::{CursorManager, CursorModification, QueryExecutor, QueryOutput, Schema};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pt::peerdb_peers::BigqueryConfig;
 use sqlparser::ast::{CloseCursor, Expr, FetchDirection, Statement, Value};
 use stream::{BqRecordStream, BqSchema};
 
 mod ast;
-mod cursor;
 mod stream;
 
 pub struct BigQueryQueryExecutor {
@@ -23,7 +21,7 @@ pub struct BigQueryQueryExecutor {
     dataset_id: String,
     peer_connections: PeerConnectionTracker,
     client: Box<Client>,
-    cursor_manager: BigQueryCursorManager,
+    cursor_manager: CursorManager,
 }
 
 pub async fn bq_client_from_config(config: &BigqueryConfig) -> anyhow::Result<Client> {
@@ -53,15 +51,14 @@ impl BigQueryQueryExecutor {
         peer_connections: PeerConnectionTracker,
     ) -> anyhow::Result<Self> {
         let client = bq_client_from_config(config).await?;
-        let client = Box::new(client);
-        let cursor_manager = BigQueryCursorManager::new();
+
         Ok(Self {
             peer_name,
             project_id: config.project_id.clone(),
             dataset_id: config.dataset_id.clone(),
             peer_connections,
-            client,
-            cursor_manager,
+            client: Box::new(client),
+            cursor_manager: Default::default(),
         })
     }
 
