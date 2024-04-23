@@ -19,12 +19,6 @@ pub struct MySqlCursorManager {
 }
 
 impl MySqlCursorManager {
-    pub fn new() -> Self {
-        Self {
-            cursors: DashMap::new(),
-        }
-    }
-
     pub async fn create_cursor(
         &self,
         name: &str,
