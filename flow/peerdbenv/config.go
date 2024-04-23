@@ -136,3 +136,8 @@ func PeerDBAlertingEmailSenderRegion() string {
 func PeerDBAlertingEmailSenderReplyToAddresses() string {
 	return getEnvString("PEERDB_ALERTING_EMAIL_SENDER_REPLY_TO_ADDRESSES", "")
 }
+
+// PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME
+func PeerDBClickhouseAWSS3BucketName() string {
+	return getEnvString("PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME", "")
+}

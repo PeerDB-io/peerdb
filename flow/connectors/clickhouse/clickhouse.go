@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -129,7 +128,7 @@ func NewClickhouseConnector(
 		bucketPathSuffix := fmt.Sprintf("%s/%s",
 			url.PathEscape(deploymentUID), url.PathEscape(flowName))
 		// Fallback: Get S3 credentials from environment
-		awsBucketName := os.Getenv("PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
+		awsBucketName := peerdbenv.PeerDBClickhouseAWSS3BucketName()
 		if awsBucketName == "" {
 			return nil, errors.New("PeerDB Clickhouse Bucket Name not set")
 		}
@@ -145,6 +144,8 @@ func NewClickhouseConnector(
 		return nil, err
 	}
 	if credentials.AWS.SessionToken != "" {
+		// This is the minimum version of Clickhouse that actually supports session token
+		// https://github.com/ClickHouse/ClickHouse/issues/61230
 		minSupportedClickhouseVersion := "v24.3.1"
 		clickHouseVersionRow := database.QueryRowContext(ctx, "SELECT version()")
 		var clickHouseVersion string
