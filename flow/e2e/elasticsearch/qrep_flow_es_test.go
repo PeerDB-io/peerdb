@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
-	"github.com/stretchr/testify/require"
 )
 
 func Test_Elasticsearch(t *testing.T) {
@@ -46,7 +47,7 @@ func (s elasticsearchSuite) Test_Simple_Qrep() {
 		query,
 		s.peer,
 		"",
-		true,
+		false,
 		"")
 	require.NoError(s.t, err)
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)

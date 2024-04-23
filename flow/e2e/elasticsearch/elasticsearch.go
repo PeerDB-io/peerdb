@@ -6,21 +6,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/elastic/go-elasticsearch/v8"
+	"github.com/stretchr/testify/require"
+
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/elastic/go-elasticsearch/v8"
-	"github.com/stretchr/testify/require"
 )
 
 type elasticsearchSuite struct {
 	t        *testing.T
 	conn     *connpostgres.PostgresConnector
 	esClient *elasticsearch.TypedClient
-	suffix   string
 	peer     *protos.Peer
+	suffix   string
 }
 
 func (s elasticsearchSuite) T() *testing.T {
