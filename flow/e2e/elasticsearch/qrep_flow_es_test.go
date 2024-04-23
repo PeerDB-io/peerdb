@@ -20,7 +20,7 @@ func (s elasticsearchSuite) Test_Simple_Qrep() {
 
 	_, err := s.conn.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
-			id PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
 			val TEXT,
 			updated_at TIMESTAMP DEFAULT now()
 		);
