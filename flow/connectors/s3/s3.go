@@ -24,10 +24,10 @@ const (
 
 type S3Connector struct {
 	*metadataStore.PostgresMetadata
-	logger log.Logger
-	creds  utils.S3PeerCredentials
-	url    string
-	client s3.Client
+	logger              log.Logger
+	credentialsProvider utils.AWSCredentialsProvider
+	url                 string
+	client              s3.Client
 }
 
 func NewS3Connector(
@@ -35,34 +35,21 @@ func NewS3Connector(
 	config *protos.S3Config,
 ) (*S3Connector, error) {
 	logger := logger.LoggerFromCtx(ctx)
-	keyID := ""
-	if config.AccessKeyId != nil {
-		keyID = *config.AccessKeyId
+
+	provider, err := utils.GetAWSCredentialsProvider(ctx, "s3", utils.PeerAWSCredentials{
+		Credentials: aws.Credentials{
+			AccessKeyID:     config.GetAccessKeyId(),
+			SecretAccessKey: config.GetSecretAccessKey(),
+		},
+		RoleArn:     config.RoleArn,
+		EndpointUrl: config.Endpoint,
+		Region:      config.GetRegion(),
+	})
+	if err != nil {
+		return nil, err
 	}
-	secretKey := ""
-	if config.SecretAccessKey != nil {
-		secretKey = *config.SecretAccessKey
-	}
-	roleArn := ""
-	if config.RoleArn != nil {
-		roleArn = *config.RoleArn
-	}
-	region := ""
-	if config.Region != nil {
-		region = *config.Region
-	}
-	endpoint := ""
-	if config.Endpoint != nil {
-		endpoint = *config.Endpoint
-	}
-	s3PeerCreds := utils.S3PeerCredentials{
-		AccessKeyID:     keyID,
-		SecretAccessKey: secretKey,
-		AwsRoleArn:      roleArn,
-		Region:          region,
-		Endpoint:        endpoint,
-	}
-	s3Client, err := utils.CreateS3Client(s3PeerCreds)
+
+	s3Client, err := utils.CreateS3Client(ctx, provider)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create S3 client: %w", err)
 	}
@@ -72,11 +59,11 @@ func NewS3Connector(
 		return nil, err
 	}
 	return &S3Connector{
-		url:              config.Url,
-		PostgresMetadata: pgMetadata,
-		client:           *s3Client,
-		creds:            s3PeerCreds,
-		logger:           logger,
+		url:                 config.Url,
+		PostgresMetadata:    pgMetadata,
+		client:              *s3Client,
+		credentialsProvider: provider,
+		logger:              logger,
 	}, nil
 }
 

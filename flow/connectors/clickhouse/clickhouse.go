@@ -4,13 +4,17 @@ import (
 	"context"
 	"crypto/tls"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"go.temporal.io/sdk/log"
+	"golang.org/x/mod/semver"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -26,16 +30,12 @@ type ClickhouseConnector struct {
 	tableSchemaMapping map[string]*protos.TableSchema
 	logger             log.Logger
 	config             *protos.ClickhouseConfig
-	creds              *utils.ClickhouseS3Credentials
+	credsProvider      *utils.ClickHouseS3Credentials
 }
 
-func ValidateS3(ctx context.Context, creds *utils.ClickhouseS3Credentials) error {
+func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error {
 	// for validation purposes
-	s3Client, err := utils.CreateS3Client(utils.S3PeerCredentials{
-		AccessKeyID:     creds.AccessKeyID,
-		SecretAccessKey: creds.SecretAccessKey,
-		Region:          creds.Region,
-	})
+	s3Client, err := utils.CreateS3Client(ctx, creds.Provider)
 	if err != nil {
 		return fmt.Errorf("failed to create S3 client: %w", err)
 	}
@@ -45,8 +45,14 @@ func ValidateS3(ctx context.Context, creds *utils.ClickhouseS3Credentials) error
 		return fmt.Errorf("failed to create S3 bucket and prefix: %w", err)
 	}
 
+	prefix := object.Prefix
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+
 	_, listErr := s3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 		Bucket: &object.Bucket,
+		Prefix: &prefix,
 	},
 	)
 	if listErr != nil {
@@ -78,7 +84,7 @@ func (c *ClickhouseConnector) ValidateCheck(ctx context.Context) error {
 		return fmt.Errorf("failed to drop validation table %s: %w", validateDummyTableName, err)
 	}
 
-	validateErr := ValidateS3(ctx, c.creds)
+	validateErr := ValidateS3(ctx, c.credsProvider)
 	if validateErr != nil {
 		return fmt.Errorf("failed to validate S3 bucket: %w", validateErr)
 	}
@@ -102,25 +108,68 @@ func NewClickhouseConnector(
 		return nil, err
 	}
 
-	var clickhouseS3Creds *utils.ClickhouseS3Credentials
-	// Get user provided S3 credentials
-	clickhouseS3Creds = &utils.ClickhouseS3Credentials{
-		AccessKeyID:     config.AccessKeyId,
-		SecretAccessKey: config.SecretAccessKey,
-		Region:          config.Region,
-		BucketPath:      config.S3Path,
+	credentialsProvider, err := utils.GetAWSCredentialsProvider(ctx, "clickhouse", utils.PeerAWSCredentials{
+		Credentials: aws.Credentials{
+			AccessKeyID:     config.AccessKeyId,
+			SecretAccessKey: config.SecretAccessKey,
+		},
+		EndpointUrl: nil,
+		Region:      config.Region,
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	if clickhouseS3Creds.AccessKeyID == "" &&
-		clickhouseS3Creds.SecretAccessKey == "" && clickhouseS3Creds.Region == "" &&
-		clickhouseS3Creds.BucketPath == "" {
+	awsBucketPath := config.S3Path
+
+	if awsBucketPath == "" {
 		deploymentUID := peerdbenv.PeerDBDeploymentUID()
 		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 		bucketPathSuffix := fmt.Sprintf("%s/%s",
 			url.PathEscape(deploymentUID), url.PathEscape(flowName))
-
 		// Fallback: Get S3 credentials from environment
-		clickhouseS3Creds = utils.GetClickhouseAWSSecrets(bucketPathSuffix)
+		awsBucketName := peerdbenv.PeerDBClickhouseAWSS3BucketName()
+		if awsBucketName == "" {
+			return nil, errors.New("PeerDB Clickhouse Bucket Name not set")
+		}
+
+		awsBucketPath = fmt.Sprintf("s3://%s/%s", awsBucketName, bucketPathSuffix)
+	}
+	clickHouseS3CredentialsNew := utils.ClickHouseS3Credentials{
+		Provider:   credentialsProvider,
+		BucketPath: awsBucketPath,
+	}
+	credentials, err := credentialsProvider.Retrieve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if credentials.AWS.SessionToken != "" {
+		// This is the minimum version of Clickhouse that actually supports session token
+		// https://github.com/ClickHouse/ClickHouse/issues/61230
+		minSupportedClickhouseVersion := "v24.3.1"
+		clickHouseVersionRow := database.QueryRowContext(ctx, "SELECT version()")
+		var clickHouseVersion string
+		err := clickHouseVersionRow.Scan(&clickHouseVersion)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query clickhouse version: %w", err)
+		}
+		// Ignore everything after patch version and prefix with "v", else semver.Compare will fail
+		versionParts := strings.SplitN(clickHouseVersion, ".", 4)
+		if len(versionParts) > 3 {
+			versionParts = versionParts[:3]
+		}
+		cleanedClickHouseVersion := "v" + strings.Join(versionParts, ".")
+		if semver.Compare(cleanedClickHouseVersion, minSupportedClickhouseVersion) < 0 {
+			return nil, fmt.Errorf(
+				"provide AWS access credentials explicitly or upgrade to clickhouse version >= %v, current version is %s. %s",
+				minSupportedClickhouseVersion, clickHouseVersion,
+				"You can also contact PeerDB support for implicit S3 setup for older versions of Clickhouse.")
+		}
+	}
+
+	validateErr := ValidateS3(ctx, &clickHouseS3CredentialsNew)
+	if validateErr != nil {
+		return nil, fmt.Errorf("failed to validate S3 bucket: %w", validateErr)
 	}
 
 	return &ClickhouseConnector{
@@ -128,8 +177,8 @@ func NewClickhouseConnector(
 		PostgresMetadata:   pgMetadata,
 		tableSchemaMapping: nil,
 		config:             config,
-		creds:              clickhouseS3Creds,
 		logger:             logger,
+		credsProvider:      &clickHouseS3CredentialsNew,
 	}, nil
 }
 
