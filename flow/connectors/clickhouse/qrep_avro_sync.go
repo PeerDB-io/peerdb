@@ -66,11 +66,7 @@ func (s *ClickhouseAvroSyncMethod) SyncRecords(
 	tableLog := slog.String("destinationTable", s.config.DestinationTableIdentifier)
 	dstTableName := s.config.DestinationTableIdentifier
 
-	schema, err := stream.Schema()
-	if err != nil {
-		return -1, fmt.Errorf("failed to get schema from stream: %w", err)
-	}
-
+	schema := stream.Schema()
 	s.connector.logger.Info("sync function called and schema acquired", tableLog)
 
 	avroSchema, err := s.getAvroSchema(dstTableName, schema)
@@ -103,11 +99,8 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	startTime := time.Now()
 	dstTableName := config.DestinationTableIdentifier
 	stagingPath := s.connector.credsProvider.BucketPath
-	schema, err := stream.Schema()
-	if err != nil {
-		return -1, fmt.Errorf("failed to get schema from stream: %w", err)
-	}
-	avroSchema, err := s.getAvroSchema(dstTableName, schema)
+
+	avroSchema, err := s.getAvroSchema(dstTableName, stream.Schema())
 	if err != nil {
 		return 0, err
 	}
@@ -164,7 +157,7 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 
 func (s *ClickhouseAvroSyncMethod) getAvroSchema(
 	dstTableName string,
-	schema *qvalue.QRecordSchema,
+	schema qvalue.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
 	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema, protos.DBType_CLICKHOUSE)
 	if err != nil {

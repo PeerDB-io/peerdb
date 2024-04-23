@@ -3,7 +3,6 @@ package qvalue
 import (
 	"bytes"
 	"math"
-	"math/big"
 	"reflect"
 	"slices"
 	"strconv"
@@ -463,7 +462,7 @@ func getDecimal(v interface{}) (decimal.Decimal, bool) {
 	case int64:
 		return decimal.NewFromInt(value), true
 	case uint64:
-		return decimal.NewFromBigInt(new(big.Int).SetUint64(value), 0), true
+		return decimal.NewFromUint64(value), true
 	case float32:
 		return decimal.NewFromFloat32(value), true
 	case int32:

@@ -7,6 +7,7 @@ import {
   UTablesResponse,
 } from '@/app/dto/PeersDTO';
 import { notifyErr } from '@/app/utils/notify';
+import { DBTypeToGoodText } from '@/components/PeerTypeComponent';
 import {
   FlowConnectionConfigs,
   QRepConfig,
@@ -197,6 +198,7 @@ export const handleCreateQRep = async (
   route: RouteCallback,
   xmin?: boolean
 ) => {
+  console.log(config);
   const flowNameValid = flowNameSchema.safeParse(flowJobName);
   if (!flowNameValid.success) {
     const flowNameErr = flowNameValid.error.issues[0].message;
@@ -228,6 +230,31 @@ export const handleCreateQRep = async (
   }
   config.flowJobName = flowJobName;
   config.query = query;
+
+  const isSchemaLessPeer =
+    config.destinationPeer?.type === DBType.BIGQUERY ||
+    config.destinationPeer?.type === DBType.CLICKHOUSE;
+  if (config.destinationPeer?.type !== DBType.ELASTICSEARCH) {
+    if (isSchemaLessPeer && config.destinationTableIdentifier?.includes('.')) {
+      notifyErr(
+        'Destination table should not be schema qualified for ' +
+          DBTypeToGoodText(config.destinationPeer?.type) +
+          ' targets'
+      );
+      return;
+    }
+    if (
+      !isSchemaLessPeer &&
+      !config.destinationTableIdentifier?.includes('.')
+    ) {
+      notifyErr(
+        'Destination table should be schema qualified for ' +
+          DBTypeToGoodText(config.destinationPeer?.type) +
+          ' targets'
+      );
+      return;
+    }
+  }
 
   setLoading(true);
   const statusMessage: UCreateMirrorResponse = await fetch(

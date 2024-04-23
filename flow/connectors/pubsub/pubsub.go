@@ -72,7 +72,12 @@ func (c *PubSubConnector) ReplayTableSchemaDeltas(_ context.Context, flowJobName
 	return nil
 }
 
-func lvalueToPubSubMessage(ls *lua.LState, value lua.LValue) (string, *pubsub.Message, error) {
+type PubSubMessage struct {
+	*pubsub.Message
+	Topic string
+}
+
+func lvalueToPubSubMessage(ls *lua.LState, value lua.LValue) (PubSubMessage, error) {
 	var topic string
 	var msg *pubsub.Message
 	switch v := value.(type) {
@@ -83,15 +88,15 @@ func lvalueToPubSubMessage(ls *lua.LState, value lua.LValue) (string, *pubsub.Me
 	case *lua.LTable:
 		key, err := utils.LVAsStringOrNil(ls, ls.GetField(v, "key"))
 		if err != nil {
-			return "", nil, fmt.Errorf("invalid key, %w", err)
+			return PubSubMessage{}, fmt.Errorf("invalid key, %w", err)
 		}
 		value, err := utils.LVAsReadOnlyBytes(ls, ls.GetField(v, "value"))
 		if err != nil {
-			return "", nil, fmt.Errorf("invalid value, %w", err)
+			return PubSubMessage{}, fmt.Errorf("invalid value, %w", err)
 		}
 		topic, err = utils.LVAsStringOrNil(ls, ls.GetField(v, "topic"))
 		if err != nil {
-			return "", nil, fmt.Errorf("invalid topic, %w", err)
+			return PubSubMessage{}, fmt.Errorf("invalid topic, %w", err)
 		}
 		msg = &pubsub.Message{
 			OrderingKey: key,
@@ -104,13 +109,16 @@ func lvalueToPubSubMessage(ls *lua.LState, value lua.LValue) (string, *pubsub.Me
 				msg.Attributes[k.String()] = v.String()
 			})
 		} else if lua.LVAsBool(lheaders) {
-			return "", nil, fmt.Errorf("invalid headers, must be nil or table: %s", lheaders)
+			return PubSubMessage{}, fmt.Errorf("invalid headers, must be nil or table: %s", lheaders)
 		}
 	case *lua.LNilType:
 	default:
-		return "", nil, fmt.Errorf("script returned invalid value: %s", value)
+		return PubSubMessage{}, fmt.Errorf("script returned invalid value: %s", value)
 	}
-	return topic, msg, nil
+	return PubSubMessage{
+		Message: msg,
+		Topic:   topic,
+	}, nil
 }
 
 type topicCache struct {
@@ -162,65 +170,77 @@ func (tc *topicCache) GetOrSet(topic string, f func() (*pubsub.Topic, error)) (*
 	return client, nil
 }
 
-func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	numRecords := int64(0)
+func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
+	numRecords := atomic.Int64{}
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
+	topiccache := topicCache{cache: make(map[string]*pubsub.Topic)}
+	publish := make(chan *pubsub.PublishResult, 32)
 
-	ls, err := utils.LoadScript(ctx, req.Script, func(ls *lua.LState) int {
-		top := ls.GetTop()
-		ss := make([]string, top)
-		for i := range top {
-			ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
-		}
-		_ = c.LogFlowInfo(ctx, req.FlowJobName, strings.Join(ss, "\t"))
-		return 0
-	})
-	if err != nil {
-		return nil, err
-	}
-	defer ls.Close()
-	if req.Script == "" {
-		ls.Env.RawSetString("onRecord", ls.NewFunction(utils.DefaultOnRecord))
-	}
-
-	lfn := ls.Env.RawGetString("onRecord")
-	fn, ok := lfn.(*lua.LFunction)
-	if !ok {
-		return nil, fmt.Errorf("script should define `onRecord` as function, not %s", lfn)
-	}
-
-	var wg sync.WaitGroup
+	waitChan := make(chan struct{})
 	wgCtx, wgErr := context.WithCancelCause(ctx)
-	publish := make(chan *pubsub.PublishResult, 60)
-	go func() {
-		var curpub *pubsub.PublishResult
-		for {
-			select {
-			case curpub, ok = <-publish:
-				if !ok {
-					return
-				}
-			case <-ctx.Done():
-				wgErr(ctx.Err())
-				return
+
+	pool, err := utils.LuaPool(func() (*lua.LState, error) {
+		ls, err := utils.LoadScript(ctx, req.Script, func(ls *lua.LState) int {
+			top := ls.GetTop()
+			ss := make([]string, top)
+			for i := range top {
+				ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
 			}
-			_, err := curpub.Get(ctx)
+			_ = c.LogFlowInfo(ctx, req.FlowJobName, strings.Join(ss, "\t"))
+			return 0
+		})
+		if err != nil {
+			return nil, err
+		}
+		if req.Script == "" {
+			ls.Env.RawSetString("onRecord", ls.NewFunction(utils.DefaultOnRecord))
+		}
+		return ls, nil
+	}, func(messages []PubSubMessage) {
+		for _, message := range messages {
+			topicClient, err := topiccache.GetOrSet(message.Topic, func() (*pubsub.Topic, error) {
+				topicClient := c.client.Topic(message.Topic)
+				exists, err := topicClient.Exists(wgCtx)
+				if err != nil {
+					return nil, fmt.Errorf("error checking if topic exists: %w", err)
+				}
+				if !exists {
+					topicClient, err = c.client.CreateTopic(wgCtx, message.Topic)
+					if err != nil {
+						return nil, fmt.Errorf("error creating topic: %w", err)
+					}
+				}
+				return topicClient, nil
+			})
 			if err != nil {
 				wgErr(err)
 				return
 			}
-			wg.Done()
+
+			publish <- topicClient.Publish(ctx, message.Message)
 		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer pool.Close()
+
+	go func() {
+		for curpub := range publish {
+			if _, err := curpub.Get(ctx); err != nil {
+				wgErr(err)
+				break
+			}
+		}
+		close(waitChan)
 	}()
 
-	topiccache := topicCache{cache: make(map[string]*pubsub.Topic)}
 	lastSeenLSN := atomic.Int64{}
 	flushLoopDone := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(peerdbenv.PeerDBQueueFlushTimeoutSeconds())
 		defer ticker.Stop()
 
-		lastUpdatedOffset := int64(0)
 		for {
 			select {
 			case <-ctx.Done():
@@ -230,12 +250,12 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 			// flush loop doesn't block processing new messages
 			case <-ticker.C:
 				lastSeen := lastSeenLSN.Load()
-				if lastSeen > lastUpdatedOffset {
+				if lastSeen > req.ConsumedOffset.Load() {
 					if err := c.SetLastOffset(ctx, req.FlowJobName, lastSeen); err != nil {
 						c.logger.Warn("[pubsub] SetLastOffset error", slog.Any("error", err))
 					} else {
-						lastUpdatedOffset = lastSeen
-						c.logger.Info("processBatch", slog.Int64("updated last offset", lastUpdatedOffset))
+						shared.AtomicInt64Max(req.ConsumedOffset, lastSeen)
+						c.logger.Info("processBatch", slog.Int64("updated last offset", lastSeen))
 					}
 				}
 			}
@@ -250,63 +270,56 @@ Loop:
 				c.logger.Info("flushing batches because no more records")
 				break Loop
 			}
-			ls.Push(fn)
-			ls.Push(pua.LuaRecord.New(ls, record))
-			err := ls.PCall(1, -1, nil)
-			if err != nil {
-				return nil, fmt.Errorf("script failed: %w", err)
-			}
-			args := ls.GetTop()
-			for i := range args {
-				topic, msg, err := lvalueToPubSubMessage(ls, ls.Get(i-args))
-				if err != nil {
-					return nil, err
-				}
-				if msg != nil {
-					if topic == "" {
-						topic = record.GetDestinationTableName()
-					}
-					topicClient, err := topiccache.GetOrSet(topic, func() (*pubsub.Topic, error) {
-						topicClient := c.client.Topic(topic)
-						exists, err := topicClient.Exists(wgCtx)
-						if err != nil {
-							return nil, fmt.Errorf("error checking if topic exists: %w", err)
-						}
-						if !exists {
-							topicClient, err = c.client.CreateTopic(wgCtx, topic)
-							if err != nil {
-								return nil, fmt.Errorf("error creating topic: %w", err)
-							}
-						}
-						return topicClient, nil
-					})
-					if err != nil {
-						return nil, err
-					}
 
-					pubresult := topicClient.Publish(ctx, msg)
-					wg.Add(1)
-					publish <- pubresult
-					record.PopulateCountMap(tableNameRowsMapping)
+			pool.Run(func(ls *lua.LState) []PubSubMessage {
+				lfn := ls.Env.RawGetString("onRecord")
+				fn, ok := lfn.(*lua.LFunction)
+				if !ok {
+					wgErr(fmt.Errorf("script should define `onRecord` as function, not %s", lfn))
+					return nil
 				}
-			}
-			ls.SetTop(0)
-			numRecords += 1
-			shared.AtomicInt64Max(&lastSeenLSN, record.GetCheckpointID())
+
+				ls.Push(fn)
+				ls.Push(pua.LuaRecord.New(ls, record))
+				err := ls.PCall(1, -1, nil)
+				if err != nil {
+					wgErr(fmt.Errorf("script failed: %w", err))
+					return nil
+				}
+
+				args := ls.GetTop()
+				results := make([]PubSubMessage, 0, args)
+				for i := range args {
+					msg, err := lvalueToPubSubMessage(ls, ls.Get(i-args))
+					if err != nil {
+						wgErr(err)
+						return nil
+					}
+					if msg.Message != nil {
+						if msg.Topic == "" {
+							msg.Topic = record.GetDestinationTableName()
+						}
+						results = append(results, msg)
+						record.PopulateCountMap(tableNameRowsMapping)
+					}
+				}
+				ls.SetTop(0)
+				numRecords.Add(1)
+				shared.AtomicInt64Max(&lastSeenLSN, record.GetCheckpointID())
+				return results
+			})
 
 		case <-wgCtx.Done():
-			return nil, wgCtx.Err()
+			break Loop
 		}
 	}
 
 	close(flushLoopDone)
 	close(publish)
+	if err := pool.Wait(wgCtx); err != nil {
+		return nil, err
+	}
 	topiccache.Stop(wgCtx)
-	waitChan := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(waitChan)
-	}()
 	select {
 	case <-wgCtx.Done():
 		return nil, wgCtx.Err()
@@ -314,15 +327,14 @@ Loop:
 	}
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
-	err = c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
-	if err != nil {
+	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
 		return nil, err
 	}
 
 	return &model.SyncResponse{
 		CurrentSyncBatchID:     req.SyncBatchID,
 		LastSyncedCheckpointID: lastCheckpoint,
-		NumRecordsSynced:       numRecords,
+		NumRecordsSynced:       numRecords.Load(),
 		TableNameRowsMapping:   tableNameRowsMapping,
 		TableSchemaDeltas:      req.Records.SchemaDeltas,
 	}, nil

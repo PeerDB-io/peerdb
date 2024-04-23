@@ -17,16 +17,12 @@ type QRecordSchema struct {
 }
 
 // NewQRecordSchema creates a new QRecordSchema.
-func NewQRecordSchema(fields []QField) *QRecordSchema {
-	return &QRecordSchema{Fields: fields}
+func NewQRecordSchema(fields []QField) QRecordSchema {
+	return QRecordSchema{Fields: fields}
 }
 
 // EqualNames returns true if the field names are equal.
-func (q *QRecordSchema) EqualNames(other *QRecordSchema) bool {
-	if other == nil {
-		return q == nil
-	}
-
+func (q QRecordSchema) EqualNames(other QRecordSchema) bool {
 	if len(q.Fields) != len(other.Fields) {
 		return false
 	}
@@ -44,7 +40,7 @@ func (q *QRecordSchema) EqualNames(other *QRecordSchema) bool {
 }
 
 // GetColumnNames returns a slice of column names.
-func (q *QRecordSchema) GetColumnNames() []string {
+func (q QRecordSchema) GetColumnNames() []string {
 	names := make([]string, 0, len(q.Fields))
 	for _, field := range q.Fields {
 		names = append(names, field.Name)

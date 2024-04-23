@@ -256,7 +256,7 @@ func (a *Alerter) sendTelemetryMessage(ctx context.Context, flowName string, mor
 		_, err := a.telemetrySender.SendMessage(ctx, details, details, telemetry.Attributes{
 			Level:         level,
 			DeploymentUID: peerdbenv.PeerDBDeploymentUID(),
-			Tags:          []string{flowName},
+			Tags:          []string{flowName, peerdbenv.PeerDBDeploymentUID()},
 			Type:          flowName,
 		})
 		if err != nil {

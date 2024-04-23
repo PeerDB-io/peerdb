@@ -62,8 +62,8 @@ export const ResyncDialog = ({
       noInteract={true}
       size='xLarge'
       triggerButton={
-        <Button variant='normal' style={{ width: '100%' }}>
-          <Label as='label'>Resync</Label>
+        <Button variant='normalBorderless' style={{ width: '100%' }}>
+          <Label as='label'>Resync mirror</Label>
         </Button>
       }
     >

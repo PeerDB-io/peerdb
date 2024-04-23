@@ -1,4 +1,5 @@
 import { ehSchema } from '@/components/PeerForms/Eventhubs/schema';
+import { ElasticsearchAuthType } from '@/grpc_generated/peers';
 import * as z from 'zod';
 
 export const peerNameSchema = z
@@ -7,7 +8,7 @@ export const peerNameSchema = z
     required_error: 'Peer name is required.',
   })
   .min(1, { message: 'Peer name cannot be empty.' })
-  .regex(/^[a-z0-9_]*$/, {
+  .regex(/^[a-z_][a-z0-9_]*$/, {
     message:
       'Peer name must contain only lowercase letters, numbers and underscores',
   });
@@ -429,3 +430,62 @@ export const ehGroupSchema = z.object({
     message: 'At least 1 Event Hub is required',
   }),
 });
+
+// slightly cursed, check for non-empty and non-whitespace string
+const isString = (i: string | undefined): boolean => {
+  return !!i && !!i.trim();
+};
+
+export const esSchema = z
+  .object({
+    addresses: z.array(
+      z.string().url({
+        message: 'Addresses must be a comma-seperated list of URLs',
+      })
+    ),
+    authType: z.nativeEnum(ElasticsearchAuthType, {
+      required_error: 'Auth type cannot be empty',
+      invalid_type_error: 'Auth type must be one of [none,basic,apikey]',
+    }),
+    username: z
+      .string({
+        invalid_type_error: 'Username must be a string',
+      })
+      .optional(),
+    password: z
+      .string({
+        invalid_type_error: 'Password must be a string',
+      })
+      .optional(),
+    apiKey: z
+      .string({
+        invalid_type_error: 'API key must be a string',
+      })
+      .optional(),
+  })
+  .refine(
+    (esSchema) => {
+      if (esSchema.authType === ElasticsearchAuthType.BASIC) {
+        return (
+          isString(esSchema.username) &&
+          isString(esSchema.password) &&
+          !isString(esSchema.apiKey)
+        );
+      } else if (esSchema.authType === ElasticsearchAuthType.APIKEY) {
+        return (
+          !isString(esSchema.username) &&
+          !isString(esSchema.password) &&
+          isString(esSchema.apiKey)
+        );
+      } else if (esSchema.authType === ElasticsearchAuthType.NONE) {
+        return (
+          !isString(esSchema.username) &&
+          !isString(esSchema.password) &&
+          !isString(esSchema.apiKey)
+        );
+      }
+    },
+    {
+      message: 'Authentication info not valid',
+    }
+  );

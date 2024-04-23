@@ -3,7 +3,6 @@ package model
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -16,7 +15,7 @@ import (
 
 // QRecordBatch holds a batch of []QValue slices
 type QRecordBatch struct {
-	Schema  *qvalue.QRecordSchema
+	Schema  qvalue.QRecordSchema
 	Records [][]qvalue.QValue
 }
 
@@ -27,13 +26,10 @@ func (q *QRecordBatch) ToQRecordStream(buffer int) *QRecordStream {
 }
 
 func (q *QRecordBatch) FeedToQRecordStream(stream *QRecordStream) {
-	err := stream.SetSchema(q.Schema)
-	if err != nil {
-		slog.Warn(err.Error())
-	}
+	stream.SetSchema(q.Schema)
 
 	for _, record := range q.Records {
-		stream.Records <- QRecordOrError{Record: record}
+		stream.Records <- record
 	}
 	close(stream.Records)
 }
@@ -53,7 +49,7 @@ func constructArray[T any](qValue qvalue.QValue, typeName string) (*pgtype.Array
 type QRecordBatchCopyFromSource struct {
 	err           error
 	stream        *QRecordStream
-	currentRecord QRecordOrError
+	currentRecord []qvalue.QValue
 	numRecords    int
 }
 
@@ -63,7 +59,7 @@ func NewQRecordBatchCopyFromSource(
 	return &QRecordBatchCopyFromSource{
 		numRecords:    0,
 		stream:        stream,
-		currentRecord: QRecordOrError{},
+		currentRecord: nil,
 		err:           nil,
 	}
 }
@@ -71,6 +67,7 @@ func NewQRecordBatchCopyFromSource(
 func (src *QRecordBatchCopyFromSource) Next() bool {
 	rec, ok := <-src.stream.Records
 	if !ok {
+		src.err = src.stream.Err()
 		return false
 	}
 
@@ -80,16 +77,12 @@ func (src *QRecordBatchCopyFromSource) Next() bool {
 }
 
 func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
-	if src.currentRecord.Err != nil {
-		src.err = src.currentRecord.Err
+	if src.err != nil {
 		return nil, src.err
 	}
 
-	record := src.currentRecord.Record
-	numEntries := len(record)
-
-	values := make([]interface{}, numEntries)
-	for i, qValue := range record {
+	values := make([]interface{}, len(src.currentRecord))
+	for i, qValue := range src.currentRecord {
 		if qValue.Value() == nil {
 			values[i] = nil
 			continue
@@ -115,11 +108,10 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 		case qvalue.QValueCIDR, qvalue.QValueINET, qvalue.QValueMacaddr:
 			str, ok := v.Value().(string)
 			if !ok {
-				src.err = errors.New("invalid INET/CIDR value")
+				src.err = errors.New("invalid INET/CIDR/MACADDR value")
 				return nil, src.err
 			}
 			values[i] = str
-
 		case qvalue.QValueTime:
 			values[i] = pgtype.Time{Microseconds: v.Val.UnixMicro(), Valid: true}
 		case qvalue.QValueTimestamp:
@@ -130,14 +122,10 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			values[i] = uuid.UUID(v.Val)
 		case qvalue.QValueNumeric:
 			values[i] = v.Val
-		case qvalue.QValueBytes, qvalue.QValueBit:
-			bytes, ok := v.Value().([]byte)
-			if !ok {
-				src.err = errors.New("invalid Bytes value")
-				return nil, src.err
-			}
-			values[i] = bytes
-
+		case qvalue.QValueBit:
+			values[i] = v.Val
+		case qvalue.QValueBytes:
+			values[i] = v.Val
 		case qvalue.QValueDate:
 			values[i] = pgtype.Date{Time: v.Val, Valid: true}
 		case qvalue.QValueHStore:

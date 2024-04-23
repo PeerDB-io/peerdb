@@ -2,6 +2,7 @@
 import { Button } from '@/lib/Button';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
+import { Tooltip } from '@/lib/Tooltip';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
@@ -20,22 +21,32 @@ const EditButton = ({
     router.push(toLink);
   };
   return (
-    <Button
-      className='IconButton'
-      onClick={handleEdit}
-      aria-label='sort up'
-      variant='normal'
+    <Tooltip
       style={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        columnGap: '0.3rem',
+        display: disabled ? 'flex' : 'none',
+        backgroundColor: 'white',
+        color: 'black',
         width: '100%',
       }}
-      disabled={disabled}
+      content='Pause the mirror to enable editing'
     >
-      <Label>Edit Mirror</Label>
-      {loading && <ProgressCircle variant='determinate_progress_circle' />}
-    </Button>
+      <Button
+        className='IconButton'
+        onClick={handleEdit}
+        aria-label='sort up'
+        variant='normalBorderless'
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          columnGap: '0.3rem',
+          width: '100%',
+        }}
+        disabled={disabled}
+      >
+        <Label>Edit mirror</Label>
+        {loading && <ProgressCircle variant='determinate_progress_circle' />}
+      </Button>
+    </Tooltip>
   );
 };
 

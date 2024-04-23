@@ -17,6 +17,13 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
+type SnowflakeTableColumn struct {
+	ColumnName       string
+	ColumnType       string
+	NumericPrecision int32
+	NumericScale     int32
+}
+
 func (c *SnowflakeConnector) SyncQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
@@ -181,11 +188,11 @@ func (c *SnowflakeConnector) CleanupQRepFlow(ctx context.Context, config *protos
 	return c.dropStage(ctx, config.StagingPath, config.FlowJobName)
 }
 
-func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName string) ([]string, []string, error) {
+func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName string) ([]SnowflakeTableColumn, error) {
 	// parse the table name to get the schema and table name
 	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to parse table name: %w", err)
+		return nil, fmt.Errorf("failed to parse table name: %w", err)
 	}
 
 	rows, err := c.database.QueryContext(
@@ -195,31 +202,35 @@ func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName str
 		strings.ToUpper(schemaTable.Table),
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to execute query: %w", err)
+		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
 	defer rows.Close()
 
 	var colName, colType pgtype.Text
-	colNames := make([]string, 0, 8)
-	colTypes := make([]string, 0, 8)
+	var numericPrecision, numericScale pgtype.Int4
+	var cols []SnowflakeTableColumn
 	for rows.Next() {
-		if err := rows.Scan(&colName, &colType); err != nil {
-			return nil, nil, fmt.Errorf("failed to scan row: %w", err)
+		if err := rows.Scan(&colName, &colType, &numericPrecision, &numericScale); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
-		colNames = append(colNames, colName.String)
-		colTypes = append(colTypes, colType.String)
+		cols = append(cols, SnowflakeTableColumn{
+			ColumnName:       colName.String,
+			ColumnType:       colType.String,
+			NumericPrecision: numericPrecision.Int32,
+			NumericScale:     numericScale.Int32,
+		})
 	}
 
 	err = rows.Err()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read rows: %w", err)
+		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
 
-	if len(colNames) == 0 {
-		return nil, nil, fmt.Errorf("cannot load schema: table %s.%s does not exist", schemaTable.Schema, schemaTable.Table)
+	if len(cols) == 0 {
+		return nil, fmt.Errorf("cannot load schema: table %s.%s does not exist", schemaTable.Schema, schemaTable.Table)
 	}
 
-	return colNames, colTypes, nil
+	return cols, nil
 }
 
 // dropStage drops the stage for the given job.

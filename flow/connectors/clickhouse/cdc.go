@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"strings"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
@@ -16,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 const (
@@ -25,9 +25,7 @@ const (
 
 // getRawTableName returns the raw table name for the given table identifier.
 func (c *ClickhouseConnector) getRawTableName(flowJobName string) string {
-	// replace all non-alphanumeric characters with _
-	flowJobName = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(flowJobName, "_")
-	return "_peerdb_raw_" + flowJobName
+	return "_peerdb_raw_" + shared.ReplaceIllegalCharactersWithUnderscores(flowJobName)
 }
 
 func (c *ClickhouseConnector) checkIfTableExists(ctx context.Context, databaseName string, tableIdentifier string) (bool, error) {
@@ -70,7 +68,7 @@ func (c *ClickhouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 
 func (c *ClickhouseConnector) syncRecordsViaAvro(
 	ctx context.Context,
-	req *model.SyncRecordsRequest,
+	req *model.SyncRecordsRequest[model.RecordItems],
 	rawTableIdentifier string,
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {
@@ -111,7 +109,7 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 	}, nil
 }
 
-func (c *ClickhouseConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+func (c *ClickhouseConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
 	rawTableName := c.getRawTableName(req.FlowJobName)
 	c.logger.Info("pushing records to Clickhouse table " + rawTableName)
 
@@ -154,20 +152,20 @@ func (c *ClickhouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			clickhouseColType, err := qvalue.QValueKind(addedColumn.ColumnType).ToDWHColumnType(protos.DBType_CLICKHOUSE)
+			clickhouseColType, err := qvalue.QValueKind(addedColumn.Type).ToDWHColumnType(protos.DBType_CLICKHOUSE)
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to clickhouse type: %w",
-					addedColumn.ColumnType, err)
+					addedColumn.Type, err)
 			}
 			_, err = tableSchemaModifyTx.ExecContext(ctx,
 				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
-					schemaDelta.DstTableName, addedColumn.ColumnName, clickhouseColType))
+					schemaDelta.DstTableName, addedColumn.Name, clickhouseColType))
 			if err != nil {
-				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
+				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
 			}
-			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName,
-				addedColumn.ColumnType),
+			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.Name,
+				addedColumn.Type),
 				"destination table name", schemaDelta.DstTableName,
 				"source table name", schemaDelta.SrcTableName)
 		}

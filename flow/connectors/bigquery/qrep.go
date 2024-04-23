@@ -8,6 +8,7 @@ import (
 
 	"cloud.google.com/go/bigquery"
 
+	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -22,10 +23,8 @@ func (c *BigQueryConnector) SyncQRepRecords(
 ) (int, error) {
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
-	srcSchema, err := stream.Schema()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get schema of source table %s: %w", config.WatermarkTable, err)
-	}
+	srcSchema := stream.Schema()
+
 	tblMetadata, err := c.replayTableSchemaDeltasQRep(ctx, config, partition, srcSchema)
 	if err != nil {
 		return 0, err
@@ -44,7 +43,7 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	srcSchema *qvalue.QRecordSchema,
+	srcSchema qvalue.QRecordSchema,
 ) (*bigquery.TableMetadata, error) {
 	destDatasetTable, _ := c.convertToDatasetTable(config.DestinationTableIdentifier)
 	bqTable := c.client.DatasetInProject(c.projectID, destDatasetTable.dataset).Table(destDatasetTable.table)
@@ -72,10 +71,12 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 			c.logger.Info(fmt.Sprintf("adding column %s to destination table %s",
 				col.Name, config.DestinationTableIdentifier),
 				slog.String(string(shared.PartitionIDKey), partition.PartitionId))
-			tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, &protos.DeltaAddedColumn{
-				ColumnName: col.Name,
-				ColumnType: string(col.Type),
-			})
+			tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, &protos.FieldDescription{
+				Name:         col.Name,
+				Type:         string(col.Type),
+				TypeModifier: datatypes.MakeNumericTypmod(int32(col.Precision), int32(col.Scale)),
+			},
+			)
 		}
 	}
 

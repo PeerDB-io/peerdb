@@ -104,11 +104,11 @@ pub enum PeerDDL {
     },
     CreateMirrorForCDC {
         if_not_exists: bool,
-        flow_job: FlowJob,
+        flow_job: Box<FlowJob>,
     },
     CreateMirrorForSelect {
         if_not_exists: bool,
-        qrep_flow_job: QRepFlowJob,
+        qrep_flow_job: Box<QRepFlowJob>,
     },
     ExecuteMirrorForSelect {
         flow_job_name: String,
@@ -309,6 +309,11 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => String::new(),
                         };
 
+                        let system = match raw_options.remove("system") {
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => s.clone(),
+                            _ => "Q".to_string(),
+                        };
+
                         let flow_job = FlowJob {
                             name: cdc.mirror_name.to_string().to_lowercase(),
                             source_peer: cdc.source_peer.to_string().to_lowercase(),
@@ -332,6 +337,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             synced_at_col_name,
                             initial_snapshot_only: initial_copy_only,
                             script,
+                            system,
                         };
 
                         if initial_copy_only && !do_initial_copy {
@@ -340,7 +346,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
 
                         Ok(Some(PeerDDL::CreateMirrorForCDC {
                             if_not_exists: *if_not_exists,
-                            flow_job,
+                            flow_job: Box::new(flow_job),
                         }))
                     }
                     Select(select) => {
@@ -372,7 +378,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
 
                         Ok(Some(PeerDDL::CreateMirrorForSelect {
                             if_not_exists: *if_not_exists,
-                            qrep_flow_job,
+                            qrep_flow_job: Box::new(qrep_flow_job),
                         }))
                     }
                 }
@@ -848,8 +854,53 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 unnest_columns,
             };
 
-            println!("eventhub_group_config: {:?}", eventhub_group_config);
             Config::EventhubGroupConfig(eventhub_group_config)
+        }
+        DbType::Elasticsearch => {
+            let addresses = opts
+                .get("addresses")
+                .map(|columns| {
+                    columns
+                        .split(',')
+                        .map(|column| column.trim().to_string())
+                        .collect::<Vec<_>>()
+                })
+                .ok_or_else(|| anyhow::anyhow!("missing connection addresses for Elasticsearch"))?;
+
+            // either basic auth or API key auth, not both
+            let api_key = opts.get("api_key").map(|s| s.to_string());
+            let username = opts.get("username").map(|s| s.to_string());
+            let password = opts.get("password").map(|s| s.to_string());
+            if api_key.is_some() {
+                if username.is_some() || password.is_some() {
+                    return Err(anyhow::anyhow!(
+                        "both API key auth and basic auth specified"
+                    ));
+                }
+                Config::ElasticsearchConfig(pt::peerdb_peers::ElasticsearchConfig {
+                    addresses,
+                    auth_type: pt::peerdb_peers::ElasticsearchAuthType::Apikey.into(),
+                    username: None,
+                    password: None,
+                    api_key,
+                })
+            } else if username.is_some() && password.is_some() {
+                Config::ElasticsearchConfig(pt::peerdb_peers::ElasticsearchConfig {
+                    addresses,
+                    auth_type: pt::peerdb_peers::ElasticsearchAuthType::Basic.into(),
+                    username,
+                    password,
+                    api_key: None,
+                })
+            } else {
+                Config::ElasticsearchConfig(pt::peerdb_peers::ElasticsearchConfig {
+                    addresses,
+                    auth_type: pt::peerdb_peers::ElasticsearchAuthType::None.into(),
+                    username: None,
+                    password: None,
+                    api_key: None,
+                })
+            }
         }
     }))
 }

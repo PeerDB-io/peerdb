@@ -13,14 +13,14 @@ interface FieldProps {
   setting: MirrorSetting;
   handleChange: (val: string | boolean, setting: MirrorSetting) => void;
   options?: string[];
-  publicationsLoading?: boolean;
+  optionsLoading?: boolean;
 }
 
 const CDCField = ({
   setting,
   handleChange,
   options,
-  publicationsLoading,
+  optionsLoading,
 }: FieldProps) => {
   return setting.type === 'switch' ? (
     <RowWithSwitch
@@ -70,7 +70,6 @@ const CDCField = ({
         >
           <div style={{ width: '100%' }}>
             <ReactSelect
-              placeholder={`Select a publication`}
               onChange={(val, action) =>
                 val && handleChange(val.option, setting)
               }
@@ -78,7 +77,7 @@ const CDCField = ({
               getOptionLabel={(option) => option.label}
               getOptionValue={(option) => option.option}
               theme={SelectTheme}
-              isLoading={publicationsLoading}
+              isLoading={optionsLoading}
             />
           </div>
           {setting.tips && (

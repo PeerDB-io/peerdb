@@ -4,7 +4,7 @@ import { Label } from '@/lib/Label';
 import Image from 'next/image';
 import { DBTypeToImageMapping } from './PeerComponent';
 
-export const DBTypeToGoodText = (ptype: DBType) => {
+export const DBTypeToGoodText = (ptype?: DBType) => {
   switch (ptype) {
     case DBType.POSTGRES:
       return 'PostgreSQL';
@@ -26,6 +26,8 @@ export const DBTypeToGoodText = (ptype: DBType) => {
       return 'Kafka';
     case DBType.PUBSUB:
       return 'PubSub';
+    case DBType.ELASTICSEARCH:
+      return 'Elasticsearch';
     default:
       return 'Unrecognised';
   }

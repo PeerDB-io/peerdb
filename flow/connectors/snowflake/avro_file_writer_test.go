@@ -74,7 +74,7 @@ func generateRecords(
 	nullable bool,
 	numRows uint32,
 	allnulls bool,
-) (*model.QRecordStream, *qvalue.QRecordSchema) {
+) (*model.QRecordStream, qvalue.QRecordSchema) {
 	t.Helper()
 
 	allQValueKinds := []qvalue.QValueKind{
@@ -102,22 +102,21 @@ func generateRecords(
 
 	numKinds := len(allQValueKinds)
 
-	schema := &qvalue.QRecordSchema{
+	schema := qvalue.QRecordSchema{
 		Fields: make([]qvalue.QField, numKinds),
 	}
-
-	// Create sample records
-	records := &model.QRecordBatch{
-		Records: make([][]qvalue.QValue, numRows),
-		Schema:  schema,
-	}
-
 	for i, kind := range allQValueKinds {
 		schema.Fields[i] = qvalue.QField{
 			Name:     string(kind),
 			Type:     kind,
 			Nullable: nullable,
 		}
+	}
+
+	// Create sample records
+	records := &model.QRecordBatch{
+		Schema:  schema,
+		Records: make([][]qvalue.QValue, numRows),
 	}
 
 	for row := range numRows {

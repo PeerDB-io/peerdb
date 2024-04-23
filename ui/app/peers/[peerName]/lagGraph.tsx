@@ -98,7 +98,7 @@ function LagGraph({ slotNames }: { slotNames: string[] }) {
         <ReactSelect
           id={timeSince}
           placeholder='Select a timeframe'
-          options={timeOptions}
+          options={timeOptions.filter((x) => !x.value.endsWith('min'))}
           defaultValue={{ label: 'hour', value: 'hour' }}
           onChange={(val, _) => val && setTimeSince(val.value)}
           theme={SelectTheme}

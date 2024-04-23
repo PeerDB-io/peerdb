@@ -1,0 +1,61 @@
+name: "CodeQL"
+
+on:
+  push:
+    branches: [ "main", "customer-*", "stable" ]
+  pull_request:
+    branches: [ "main", "customer-*", "stable" ]
+  schedule:
+    - cron: '15 17 * * 2'
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubicloud-standard-16' }}
+    timeout-minutes: ${{ (matrix.language == 'swift' && 120) || 360 }}
+    permissions:
+      # required for all workflows
+      security-events: write
+
+      # required to fetch internal or private CodeQL packs
+      packages: read
+
+      # only required for workflows in private repositories
+      actions: read
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - language: go
+          build-mode: autobuild
+        - language: javascript-typescript
+          build-mode: none
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - uses: bufbuild/buf-setup-action@v1.29.0-1
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+
+    - run: buf generate protos
+
+    - name: install lib-geos
+      run: |
+        sudo apt-get update
+        sudo apt-get install libgeos-dev
+
+
+    # Initializes the CodeQL tools for scanning.
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
+        build-mode: ${{ matrix.build-mode }}
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:${{matrix.language}}"

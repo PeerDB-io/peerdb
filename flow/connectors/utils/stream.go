@@ -11,9 +11,9 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
-func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.QRecordStream, error) {
+func RecordsToRawTableStream[Items model.Items](req *model.RecordsToStreamRequest[Items]) (*model.QRecordStream, error) {
 	recordStream := model.NewQRecordStream(1 << 17)
-	err := recordStream.SetSchema(&qvalue.QRecordSchema{
+	recordStream.SetSchema(qvalue.QRecordSchema{
 		Fields: []qvalue.QField{
 			{
 				Name:     "_peerdb_uid",
@@ -57,15 +57,17 @@ func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.QRecordS
 			},
 		},
 	})
-	if err != nil {
-		return nil, err
-	}
 
 	go func() {
 		for record := range req.GetRecords() {
 			record.PopulateCountMap(req.TableMapping)
-			qRecordOrError := recordToQRecordOrError(req.BatchID, record)
-			recordStream.Records <- qRecordOrError
+			qRecord, err := recordToQRecordOrError(req.BatchID, record)
+			if err != nil {
+				recordStream.Close(err)
+				return
+			} else {
+				recordStream.Records <- qRecord
+			}
 		}
 
 		close(recordStream.Records)
@@ -73,34 +75,28 @@ func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.QRecordS
 	return recordStream, nil
 }
 
-func recordToQRecordOrError(batchID int64, record model.Record) model.QRecordOrError {
+func recordToQRecordOrError[Items model.Items](batchID int64, record model.Record[Items]) ([]qvalue.QValue, error) {
 	var entries [8]qvalue.QValue
 	switch typedRecord := record.(type) {
-	case *model.InsertRecord:
+	case *model.InsertRecord[Items]:
 		// json.Marshal converts bytes in Hex automatically to BASE64 string.
-		itemsJSON, err := typedRecord.Items.ToJSON()
+		itemsJSON, err := model.ItemsToJSON(typedRecord.Items)
 		if err != nil {
-			return model.QRecordOrError{
-				Err: fmt.Errorf("failed to serialize insert record items to JSON: %w", err),
-			}
+			return nil, fmt.Errorf("failed to serialize insert record items to JSON: %w", err)
 		}
 
 		entries[3] = qvalue.QValueString{Val: itemsJSON}
 		entries[4] = qvalue.QValueInt64{Val: 0}
 		entries[5] = qvalue.QValueString{Val: ""}
 		entries[7] = qvalue.QValueString{Val: ""}
-	case *model.UpdateRecord:
-		newItemsJSON, err := typedRecord.NewItems.ToJSON()
+	case *model.UpdateRecord[Items]:
+		newItemsJSON, err := model.ItemsToJSON(typedRecord.NewItems)
 		if err != nil {
-			return model.QRecordOrError{
-				Err: fmt.Errorf("failed to serialize update record new items to JSON: %w", err),
-			}
+			return nil, fmt.Errorf("failed to serialize update record new items to JSON: %w", err)
 		}
-		oldItemsJSON, err := typedRecord.OldItems.ToJSON()
+		oldItemsJSON, err := model.ItemsToJSON(typedRecord.OldItems)
 		if err != nil {
-			return model.QRecordOrError{
-				Err: fmt.Errorf("failed to serialize update record old items to JSON: %w", err),
-			}
+			return nil, fmt.Errorf("failed to serialize update record old items to JSON: %w", err)
 		}
 
 		entries[3] = qvalue.QValueString{Val: newItemsJSON}
@@ -108,12 +104,10 @@ func recordToQRecordOrError(batchID int64, record model.Record) model.QRecordOrE
 		entries[5] = qvalue.QValueString{Val: oldItemsJSON}
 		entries[7] = qvalue.QValueString{Val: KeysToString(typedRecord.UnchangedToastColumns)}
 
-	case *model.DeleteRecord:
-		itemsJSON, err := typedRecord.Items.ToJSON()
+	case *model.DeleteRecord[Items]:
+		itemsJSON, err := model.ItemsToJSON(typedRecord.Items)
 		if err != nil {
-			return model.QRecordOrError{
-				Err: fmt.Errorf("failed to serialize delete record items to JSON: %w", err),
-			}
+			return nil, fmt.Errorf("failed to serialize delete record items to JSON: %w", err)
 		}
 
 		entries[3] = qvalue.QValueString{Val: itemsJSON}
@@ -122,9 +116,7 @@ func recordToQRecordOrError(batchID int64, record model.Record) model.QRecordOrE
 		entries[7] = qvalue.QValueString{Val: KeysToString(typedRecord.UnchangedToastColumns)}
 
 	default:
-		return model.QRecordOrError{
-			Err: fmt.Errorf("unknown record type: %T", typedRecord),
-		}
+		return nil, fmt.Errorf("unknown record type: %T", typedRecord)
 	}
 
 	entries[0] = qvalue.QValueString{Val: uuid.New().String()}
@@ -132,9 +124,7 @@ func recordToQRecordOrError(batchID int64, record model.Record) model.QRecordOrE
 	entries[2] = qvalue.QValueString{Val: record.GetDestinationTableName()}
 	entries[6] = qvalue.QValueInt64{Val: batchID}
 
-	return model.QRecordOrError{
-		Record: entries[:],
-	}
+	return entries[:], nil
 }
 
 func InitialiseTableRowsMap(tableMaps []*protos.TableMapping) map[string]*model.RecordTypeCounts {
