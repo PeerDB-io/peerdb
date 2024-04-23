@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"github.com/PeerDB-io/peer-flow/alerting"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"go.temporal.io/sdk/client"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/PeerDB-io/peer-flow/alerting"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -26,8 +26,8 @@ type FlowRequestHandler struct {
 	protos.UnimplementedFlowServiceServer
 	temporalClient      client.Client
 	pool                *pgxpool.Pool
-	peerflowTaskQueueID string
 	alerter             *alerting.Alerter
+	peerflowTaskQueueID string
 }
 
 func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool, taskQueue string) *FlowRequestHandler {
