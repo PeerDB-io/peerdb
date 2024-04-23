@@ -88,9 +88,9 @@ func NewEmailAlertSender(client *ses.Client, config *EmailAlertSenderConfig) *Em
 		sourceEmail:                   config.sourceEmail,
 		configurationSetName:          config.configurationSetName,
 		replyToAddresses:              config.replyToAddresses,
+		emailAddresses:                config.EmailAddresses,
 		slotLagMBAlertThreshold:       config.SlotLagMBAlertThreshold,
 		openConnectionsAlertThreshold: config.OpenConnectionsAlertThreshold,
-		emailAddresses:                config.EmailAddresses,
 	}
 }
 
