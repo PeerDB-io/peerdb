@@ -79,17 +79,6 @@ export default function CreateMirrors() {
       .then((res) => {
         setPeers(res);
       });
-
-    if (mirrorType != MirrorType.CDC) {
-      if (mirrorType === MirrorType.XMin) {
-        setConfig((curr) => {
-          return { ...curr, setupWatermarkTableOnDestination: true };
-        });
-      } else
-        setConfig((curr) => {
-          return { ...curr, setupWatermarkTableOnDestination: false };
-        });
-    }
   }, [mirrorType]);
 
   let listMirrorsPage = () => {
