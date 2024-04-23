@@ -1,5 +1,6 @@
 'use client';
 import SelectTheme from '@/app/styles/select';
+import QRepQueryTemplate from '@/app/utils/qreptemplate';
 import { DBTypeToImageMapping } from '@/components/PeerComponent';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepConfig } from '@/grpc_generated/flow';
@@ -13,6 +14,7 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { TextField } from '@/lib/TextField';
 import { Divider } from '@tremor/react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
@@ -69,11 +71,7 @@ export default function CreateMirrors() {
   const [config, setConfig] = useState<CDCConfig | QRepConfig>(blankCDCSetting);
   const [peers, setPeers] = useState<Peer[]>([]);
   const [rows, setRows] = useState<TableMapRow[]>([]);
-  const [qrepQuery, setQrepQuery] =
-    useState<string>(`-- Here's a sample template:
-    SELECT * FROM <table_name>
-    WHERE <watermark_column>
-    BETWEEN {{.start}} AND {{.end}}`);
+  const [qrepQuery, setQrepQuery] = useState<string>(QRepQueryTemplate);
 
   useEffect(() => {
     fetch('/api/peers', { cache: 'no-store' })
@@ -192,7 +190,37 @@ export default function CreateMirrors() {
           <Divider style={{ marginTop: '1rem', marginBottom: '1rem' }} />
 
           {mirrorType === MirrorType.QRep && (
-            <PeerDBCodeEditor code={qrepQuery} setter={setQrepQuery} />
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                rowGap: '1rem',
+              }}
+            >
+              <Label variant='subheadline'>Replication Query</Label>
+              <Label>
+                Write a query whose results will be replicated to a target
+                table.
+                <br></br>
+                In most cases, you will require a watermark table and a
+                watermark column in that table.
+                <br></br>
+                <Link
+                  style={{
+                    color: 'teal',
+                    cursor: 'pointer',
+                    width: 'fit-content',
+                  }}
+                  target='_blank'
+                  href={
+                    'https://docs.peerdb.io/usecases/Streaming%20Query%20Replication/postgres-to-snowflake#step-2-set-up-mirror-to-transform-and-sync-data'
+                  }
+                >
+                  What does that mean ?
+                </Link>
+              </Label>
+              <PeerDBCodeEditor code={qrepQuery} setter={setQrepQuery} />
+            </div>
           )}
 
           {mirrorType && (
