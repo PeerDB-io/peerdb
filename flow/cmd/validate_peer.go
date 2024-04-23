@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"github.com/PeerDB-io/peer-flow/shared/telemetry"
 	"log/slog"
 
 	"github.com/PeerDB-io/peer-flow/connectors"
@@ -59,6 +60,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 	validationConn, ok := conn.(connectors.ValidationConnector)
 	if ok {
 		validErr := validationConn.ValidateCheck(ctx)
+		h.alerter.LogNonFlowWarning(ctx, telemetry.CreatePeer, req.Peer.Name, fmt.Sprintf("Failed to validate peer %s: %v", req.Peer.Name, validErr))
 		if validErr != nil {
 			return &protos.ValidatePeerResponse{
 				Status: protos.ValidatePeerStatus_INVALID,
@@ -70,6 +72,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 
 	connErr := conn.ConnectionActive(ctx)
 	if connErr != nil {
+		h.alerter.LogNonFlowWarning(ctx, telemetry.CreatePeer, req.Peer.Name, fmt.Sprintf("Failed to establish peer connection %s: %v", req.Peer.Name, connErr))
 		return &protos.ValidatePeerResponse{
 			Status: protos.ValidatePeerStatus_INVALID,
 			Message: fmt.Sprintf("failed to establish active connection to %s peer %s: %v",

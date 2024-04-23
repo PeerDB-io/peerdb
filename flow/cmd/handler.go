@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"github.com/PeerDB-io/peer-flow/alerting"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -26,6 +27,7 @@ type FlowRequestHandler struct {
 	temporalClient      client.Client
 	pool                *pgxpool.Pool
 	peerflowTaskQueueID string
+	alerter             *alerting.Alerter
 }
 
 func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool, taskQueue string) *FlowRequestHandler {
@@ -33,6 +35,7 @@ func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool, tas
 		temporalClient:      temporalClient,
 		pool:                pool,
 		peerflowTaskQueueID: taskQueue,
+		alerter:             alerting.NewAlerter(context.Background(), pool),
 	}
 }
 
