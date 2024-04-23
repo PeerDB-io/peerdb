@@ -1,6 +1,6 @@
 module github.com/PeerDB-io/peer-flow
 
-go 1.22.0
+go 1.22.2
 
 require (
 	cloud.google.com/go v0.112.2
@@ -54,7 +54,7 @@ require (
 	go.uber.org/automaxprocs v1.5.3
 	golang.org/x/crypto v0.22.0
 	golang.org/x/sync v0.7.0
-	google.golang.org/api v0.175.0
+	google.golang.org/api v0.176.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20240415180920-8c6c420018be
 	google.golang.org/grpc v1.63.2
 	google.golang.org/protobuf v1.33.0

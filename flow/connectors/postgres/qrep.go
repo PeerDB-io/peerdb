@@ -123,10 +123,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	}
 
 	// Calculate the number of partitions
-	numPartitions := totalRows.Int64 / numRowsPerPartition
-	if totalRows.Int64%numRowsPerPartition != 0 {
-		numPartitions++
-	}
+	numPartitions := shared.DivCeil(totalRows.Int64, numRowsPerPartition)
 	c.logger.Info(fmt.Sprintf("total rows: %d, num partitions: %d, num rows per partition: %d",
 		totalRows.Int64, numPartitions, numRowsPerPartition))
 
