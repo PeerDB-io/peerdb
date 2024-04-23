@@ -139,5 +139,5 @@ func PeerDBAlertingEmailSenderReplyToAddresses() string {
 
 // PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME
 func PeerDBClickhouseAWSS3BucketName() string {
-	return getEnvString("PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME", "")
+	return GetEnvString("PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME", "")
 }
