@@ -1,51 +1,37 @@
-use crate::SnowflakeQueryExecutor;
 use dashmap::DashMap;
+
 use futures::StreamExt;
-use peer_cursor::{QueryExecutor, QueryOutput, Records, Schema, SendableStream};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use sqlparser::ast::Statement;
 
-pub struct SnowflakeCursor {
-    position: usize,
-    stream: SendableStream,
-    schema: Schema,
+use crate::{Cursor, QueryExecutor, QueryOutput, Records};
+
+#[derive(Default)]
+pub struct CursorManager {
+    cursors: DashMap<String, Cursor>,
 }
 
-pub struct SnowflakeCursorManager {
-    cursors: DashMap<String, SnowflakeCursor>,
-}
-
-impl SnowflakeCursorManager {
-    pub fn new() -> Self {
-        Self {
-            cursors: DashMap::new(),
-        }
-    }
-    pub async fn create_cursor(
+impl CursorManager {
+    pub async fn create_cursor<>(
         &self,
         name: &str,
         stmt: &Statement,
-        executor: &SnowflakeQueryExecutor,
+        executor: &dyn QueryExecutor,
     ) -> PgWireResult<()> {
-        // Execute the query to obtain a stream of records
         let output = executor.execute(stmt).await?;
 
         match output {
             QueryOutput::Stream(stream) => {
-                // Get the schema from the stream
                 let schema = stream.schema();
 
-                // Create a new cursor
-                let cursor = SnowflakeCursor {
+                let cursor = Cursor {
                     position: 0,
                     stream,
                     schema,
                 };
 
-                // Store the cursor
                 self.cursors.insert(name.to_string(), cursor);
 
-                // log the cursor and statement
                 tracing::info!("Created cursor {} for statement '{}'", name, stmt);
 
                 Ok(())
@@ -63,24 +49,22 @@ impl SnowflakeCursorManager {
             PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
                 "fdw_error".to_owned(),
-                format!("[snowflake] Cursor {} does not exist", name),
+                format!("Cursor {} does not exist", name),
             )))
         })?;
 
         let mut records = Vec::new();
         let prev_end = cursor.position;
         let mut cursor_position = cursor.position;
-        {
-            while cursor_position - prev_end < count {
-                match cursor.stream.next().await {
-                    Some(Ok(record)) => {
-                        records.push(record);
-                        cursor_position += 1;
-                        tracing::info!("cursor position: {}", cursor_position);
-                    }
-                    Some(Err(err)) => return Err(err),
-                    None => break,
+        while cursor_position - prev_end < count {
+            match cursor.stream.next().await {
+                Some(Ok(record)) => {
+                    records.push(record);
+                    cursor_position += 1;
+                    tracing::info!("cusror position: {}", cursor_position);
                 }
+                Some(Err(err)) => return Err(err),
+                None => break,
             }
         }
 
@@ -93,8 +77,7 @@ impl SnowflakeCursorManager {
     }
 
     pub async fn close(&self, name: &str) -> PgWireResult<()> {
-        // log that we are removing the cursor from bq
-        tracing::info!("Removing cursor {} from Snowflake", name);
+        tracing::info!("Removing cursor {}", name);
 
         self.cursors
             .remove(name)
@@ -108,10 +91,8 @@ impl SnowflakeCursorManager {
             .map(|_| ())
     }
 
-    // close all the cursors
     pub async fn close_all_cursors(&self) -> PgWireResult<Vec<String>> {
-        // log that we are removing all the cursors from bq
-        tracing::info!("Removing all cursors from Snowflake");
+        tracing::info!("Removing all cursors");
 
         let keys: Vec<_> = self
             .cursors
@@ -122,3 +103,4 @@ impl SnowflakeCursorManager {
         Ok(keys)
     }
 }
+
