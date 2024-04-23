@@ -78,7 +78,7 @@ export const clickhouseSetting: PeerSetting[] = [
   {
     label: 'Endpoint',
     stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, region: value as string })),
+      setter((curr) => ({ ...curr, endpoint: value as string })),
     helpfulLink:
       'https://docs.aws.amazon.com/general/latest/gr/s3.html#s3_region',
     tips: 'An endpoint is the URL of the entry point for an AWS web service.',

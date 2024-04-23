@@ -76,18 +76,12 @@ func (c *S3Connector) Close() error {
 	return nil
 }
 
-func (c *S3Connector) ValidateCheck(ctx context.Context) error {
+// Write an empty file and then delete it
+// to check if we have write permissions
+func PutAndRemoveS3(ctx context.Context, client *s3.Client, bucket string) error {
 	reader := strings.NewReader(time.Now().Format(time.RFC3339))
-
-	bucketPrefix, parseErr := utils.NewS3BucketAndPrefix(c.url)
-	if parseErr != nil {
-		return fmt.Errorf("failed to parse bucket url: %w", parseErr)
-	}
-
-	// Write an empty file and then delete it
-	// to check if we have write permissions
-	bucketName := aws.String(bucketPrefix.Bucket)
-	_, putErr := c.client.PutObject(ctx, &s3.PutObjectInput{
+	bucketName := aws.String(bucket)
+	_, putErr := client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: bucketName,
 		Key:    aws.String(_peerDBCheck),
 		Body:   reader,
@@ -96,7 +90,7 @@ func (c *S3Connector) ValidateCheck(ctx context.Context) error {
 		return fmt.Errorf("failed to write to bucket: %w", putErr)
 	}
 
-	_, delErr := c.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+	_, delErr := client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: bucketName,
 		Key:    aws.String(_peerDBCheck),
 	})
@@ -105,6 +99,15 @@ func (c *S3Connector) ValidateCheck(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (c *S3Connector) ValidateCheck(ctx context.Context) error {
+	bucketPrefix, parseErr := utils.NewS3BucketAndPrefix(c.url)
+	if parseErr != nil {
+		return fmt.Errorf("failed to parse bucket url: %w", parseErr)
+	}
+
+	return PutAndRemoveS3(ctx, &c.client, bucketPrefix.Bucket)
 }
 
 func (c *S3Connector) ConnectionActive(ctx context.Context) error {

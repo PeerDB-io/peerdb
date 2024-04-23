@@ -280,6 +280,9 @@ export const chSchema = z.object({
   region: z
     .string({ invalid_type_error: 'Region must be a string' })
     .optional(),
+  endpoint: z
+    .string({ invalid_type_error: 'Endpoint must be a string' })
+    .optional(),
   disableTls: z.boolean(),
 });
 
