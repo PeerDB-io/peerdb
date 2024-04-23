@@ -1,21 +1,18 @@
 mod ast;
+mod client;
 mod cursor;
 mod stream;
 
 use cursor::MySqlCursorManager;
-use mysql_async::prelude::Queryable;
-use peer_connections::PeerConnectionTracker;
-use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, Schema};
+use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, Schema, RecordStream};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pt::peerdb_peers::MySqlConfig;
-use sqlparser::ast::{CloseCursor, Expr, FetchDirection, Statement, Value};
-use stream::{MyRecordStream, MySchema};
+use sqlparser::ast::{CloseCursor, FetchDirection, Statement};
+use stream::{MyRecordStream};
 
 pub struct MySqlQueryExecutor {
     peer_name: String,
-    // peer_connections: PeerConnectionTracker,
-    // TODO Arc<Mutex<mysql_async::Conn>> ?
-    pool: mysql_async::Pool,
+    client: client::MyClient,
     cursor_manager: MySqlCursorManager,
 }
 
@@ -37,39 +34,21 @@ impl MySqlQueryExecutor {
             .compression(mysql_async::Compression::new(config.compression))
             .ip_or_hostname(config.host.clone())
             .tcp_port(config.port as u16);
+        let client = client::MyClient::new(opts.into()).await?;
         Ok(Self {
             peer_name,
-            pool: mysql_async::Pool::new(opts),
+            client,
             cursor_manager: Default::default(),
         })
     }
 
     async fn query(&self, query: String) -> PgWireResult<MyRecordStream> {
-        let conn: mysql_async::Conn = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|err| PgWireError::ApiError(err.into()))?;
-        MyRecordStream::query(conn, query).await
+        MyRecordStream::query(self.client.clone(), query).await
     }
 
-    async fn query_schema(&self, query: &str) -> PgWireResult<MySchema> {
-        let mut conn = self
-            .pool
-            .get_conn()
-            .await
-            .map_err(|err| PgWireError::ApiError(err.into()))?;
-        let results: mysql_async::ResultSetStream<
-            '_,
-            '_,
-            'static,
-            mysql_async::Row,
-            mysql_async::TextProtocol,
-        > = conn
-            .query_stream(query)
-            .await
-            .map_err(|err| PgWireError::ApiError(err.into()))?;
-        Ok(MySchema::from_columns(results.columns_ref()))
+    async fn query_schema(&self, query: String) -> PgWireResult<Schema> {
+        let stream = MyRecordStream::query(self.client.clone(), query).await?;
+        Ok(stream.schema())
     }
 }
 
@@ -171,12 +150,7 @@ impl QueryExecutor for MySqlQueryExecutor {
             Statement::Query(query) => {
                 let mut query = query.clone();
                 ast::rewrite_query(&self.peer_name, &mut query);
-                let schema = self.query_schema(&query.to_string()).await?;
-
-                // log the schema
-                tracing::info!("[mysql] schema: {:?}", schema);
-
-                Ok(Some(schema.schema()))
+                Ok(Some(self.query_schema(query.to_string()).await?))
             }
             Statement::Declare { query, .. } => {
                 let mut query = query.clone();
