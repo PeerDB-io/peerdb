@@ -1753,14 +1753,19 @@ dependencies = [
  "percent-encoding",
  "pin-project",
  "rand",
+ "rustls 0.22.4",
+ "rustls-pemfile 2.1.2",
  "serde",
  "serde_json",
  "socket2",
  "thiserror",
  "tokio",
+ "tokio-rustls 0.25.0",
  "tokio-util",
  "twox-hash",
  "url",
+ "webpki",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -4094,6 +4099,16 @@ checksum = "77afa9a11836342370f4817622a2f0f418b134426d91a82dfb48f532d2ec13ef"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "webpki"
+version = "0.22.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed63aea5ce73d0ff405984102c42de94fc55a6b75765d621c65262469b3c9b53"
+dependencies = [
+ "ring",
+ "untrusted",
 ]
 
 [[package]]
