@@ -113,7 +113,7 @@ func NewClickhouseConnector(
 			AccessKeyID:     config.AccessKeyId,
 			SecretAccessKey: config.SecretAccessKey,
 		},
-		EndpointUrl: nil,
+		EndpointUrl: config.Endpoint,
 		Region:      config.Region,
 	})
 	if err != nil {

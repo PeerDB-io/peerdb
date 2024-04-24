@@ -42,7 +42,9 @@ func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 
 	avroFileUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s3o.Bucket,
 		s.connector.credsProvider.Provider.GetRegion(), avroFile.FilePath)
-	if strings.Contains(s.connector.creds.Endpoint, "storage.googleapis.com") {
+
+	endpoint := s.connector.credsProvider.Provider.GetEndpointURL()
+	if strings.Contains(endpoint, "storage.googleapis.com") {
 		avroFileUrl = fmt.Sprintf("https://storage.googleapis.com/%s/%s", s3o.Bucket, avroFile.FilePath)
 	}
 
@@ -126,7 +128,8 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 
 	avroFileUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s3o.Bucket,
 		s.connector.credsProvider.Provider.GetRegion(), avroFile.FilePath)
-	if strings.Contains(s.connector.creds.Endpoint, "storage.googleapis.com") {
+	endpoint := s.connector.credsProvider.Provider.GetEndpointURL()
+	if strings.Contains(endpoint, "storage.googleapis.com") {
 		avroFileUrl = fmt.Sprintf("https://storage.googleapis.com/%s/%s", s3o.Bucket, avroFile.FilePath)
 	}
 

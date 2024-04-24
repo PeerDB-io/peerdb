@@ -57,6 +57,7 @@ type AWSCredentialsProvider interface {
 	Retrieve(ctx context.Context) (AWSCredentials, error)
 	GetUnderlyingProvider() aws.CredentialsProvider
 	GetRegion() string
+	GetEndpointURL() string
 }
 
 type ConfigBasedAWSCredentialsProvider struct {
@@ -69,6 +70,15 @@ func (r *ConfigBasedAWSCredentialsProvider) GetUnderlyingProvider() aws.Credenti
 
 func (r *ConfigBasedAWSCredentialsProvider) GetRegion() string {
 	return r.config.Region
+}
+
+func (r *ConfigBasedAWSCredentialsProvider) GetEndpointURL() string {
+	endpoint := ""
+	if r.config.BaseEndpoint != nil {
+		endpoint = *r.config.BaseEndpoint
+	}
+
+	return endpoint
 }
 
 // Retrieve should be called as late as possible in order to have credentials with latest expiry
@@ -103,6 +113,15 @@ func (s *StaticAWSCredentialsProvider) GetRegion() string {
 
 func (s *StaticAWSCredentialsProvider) Retrieve(ctx context.Context) (AWSCredentials, error) {
 	return s.credentials, nil
+}
+
+func (s *StaticAWSCredentialsProvider) GetEndpointURL() string {
+	endpoint := ""
+	if s.credentials.EndpointUrl != nil {
+		endpoint = *s.credentials.EndpointUrl
+	}
+
+	return endpoint
 }
 
 func NewStaticAWSCredentialsProvider(credentials AWSCredentials, region string) AWSCredentialsProvider {
@@ -206,17 +225,14 @@ func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (
 		options.Region = credsProvider.GetRegion()
 		options.Credentials = credsProvider.GetUnderlyingProvider()
 		if awsCredentials.EndpointUrl != nil {
-			options.BaseEndpoint = awsCredentials.EndpointUrl
-			if strings.Contains(*awsCredentials.EndpointUrl, "storage.googleapis.com") {
-				// Assign custom client with our own transport
-				options.HTTPClient = &http.Client{
-					Transport: &RecalculateV4Signature{
-						next:        http.DefaultTransport,
-						signer:      v4.NewSigner(),
-						credentials: credsProvider.GetUnderlyingProvider(),
-						region:      credsProvider.GetRegion(),
-					},
-				}
+			// Assign custom client with our own transport
+			options.HTTPClient = &http.Client{
+				Transport: &RecalculateV4Signature{
+					next:        http.DefaultTransport,
+					signer:      v4.NewSigner(),
+					credentials: credsProvider.GetUnderlyingProvider(),
+					region:      credsProvider.GetRegion(),
+				},
 			}
 		}
 	})
