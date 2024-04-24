@@ -153,11 +153,6 @@ func NewClickhouseConnector(
 		}
 	}
 
-	validateErr := ValidateS3(ctx, &clickHouseS3CredentialsNew)
-	if validateErr != nil {
-		return nil, fmt.Errorf("failed to validate S3 bucket: %w", validateErr)
-	}
-
 	return &ClickhouseConnector{
 		database:           database,
 		PostgresMetadata:   pgMetadata,
