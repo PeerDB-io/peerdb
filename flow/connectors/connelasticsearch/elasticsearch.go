@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -91,6 +92,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 
 	schema := stream.Schema()
 
+	bulkIndexHasFatalError := false
 	var bulkIndexErrors []error
 	var bulkIndexMutex sync.Mutex
 	var docId string
@@ -174,10 +176,14 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 					bulkIndexErrors = append(bulkIndexErrors,
 						fmt.Errorf("id:%s type:%s reason:%s %s", item.DocumentID, res.Error.Type,
 							res.Error.Reason, causeString))
+					if res.Error.Type == "illegal_argument_exception" &&
+						strings.Contains(res.Error.Reason, "Number of documents in the index can't exceed") {
+						bulkIndexHasFatalError = true
+					}
 				}
 			},
 		})
-		if err != nil {
+		if err != nil || bulkIndexHasFatalError {
 			esc.logger.Error("[es] failed to add record to bulk indexer", slog.Any("error", err))
 			return 0, fmt.Errorf("[es] failed to add record to bulk indexer: %w", err)
 		}
@@ -199,6 +205,10 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 		for _, err := range bulkIndexErrors {
 			esc.logger.Error("[es] failed to index record", slog.Any("err", err))
 		}
+	}
+	if bulkIndexHasFatalError {
+		esc.logger.Error("[es] fatal error while bulk index")
+		return 0, fmt.Errorf("[es] fatal error while bulk index")
 	}
 
 	err = esc.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime)
