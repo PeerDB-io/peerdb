@@ -12,11 +12,11 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"go.temporal.io/sdk/log"
 	"golang.org/x/mod/semver"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
+	conns3 "github.com/PeerDB-io/peer-flow/connectors/s3"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
@@ -45,21 +45,7 @@ func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error
 		return fmt.Errorf("failed to create S3 bucket and prefix: %w", err)
 	}
 
-	prefix := object.Prefix
-	if !strings.HasSuffix(prefix, "/") {
-		prefix += "/"
-	}
-
-	_, listErr := s3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket: &object.Bucket,
-		Prefix: &prefix,
-	},
-	)
-	if listErr != nil {
-		return fmt.Errorf("failed to list objects: %w", listErr)
-	}
-
-	return nil
+	return conns3.PutAndRemoveS3(ctx, s3Client, object.Bucket)
 }
 
 // Creates and drops a dummy table to validate the peer
