@@ -16,8 +16,11 @@ use pt::{
     },
 };
 use qrep::process_options;
-use sqlparser::ast::CreateMirror::{Select, CDC};
-use sqlparser::ast::{visit_relations, visit_statements, FetchDirection, SqlOption, Statement};
+use sqlparser::ast::{
+    self, visit_relations, visit_statements,
+    CreateMirror::{Select, CDC},
+    Expr, FetchDirection, SqlOption, Statement,
+};
 
 mod qrep;
 
@@ -185,9 +188,9 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             raw_options.insert(&option.name.value as &str, &option.value);
                         }
                         let do_initial_copy = match raw_options.remove("do_initial_copy") {
-                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            Some(Expr::Value(ast::Value::Boolean(b))) => *b,
                             // also support "true" and "false" as strings
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => {
                                 match s.as_ref() {
                                     "true" => true,
                                     "false" => false,
@@ -203,9 +206,9 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
 
                         // bool resync true or false, default to false if not in opts
                         let resync = match raw_options.remove("resync") {
-                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            Some(Expr::Value(ast::Value::Boolean(b))) => *b,
                             // also support "true" and "false" as strings
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => {
                                 match s.as_ref() {
                                     "true" => true,
                                     "false" => false,
@@ -218,99 +221,99 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                         let publication_name: Option<String> = match raw_options
                             .remove("publication_name")
                         {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
                             _ => None,
                         };
 
                         let replication_slot_name: Option<String> = match raw_options
                             .remove("replication_slot_name")
                         {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
                             _ => None,
                         };
 
                         let snapshot_num_rows_per_partition: Option<u32> = match raw_options
                             .remove("snapshot_num_rows_per_partition")
                         {
-                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
                             _ => None,
                         };
 
                         let snapshot_num_tables_in_parallel: Option<u32> = match raw_options
                             .remove("snapshot_num_tables_in_parallel")
                         {
-                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
                             _ => None,
                         };
                         let snapshot_staging_path =
                             match raw_options.remove("snapshot_staging_path") {
-                                Some(sqlparser::ast::Value::SingleQuotedString(s)) => s.clone(),
+                                Some(Expr::Value(ast::Value::SingleQuotedString(s))) => s.clone(),
                                 _ => String::new(),
                             };
 
                         let snapshot_max_parallel_workers: Option<u32> = match raw_options
                             .remove("snapshot_max_parallel_workers")
                         {
-                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
                             _ => None,
                         };
 
                         let cdc_staging_path = match raw_options.remove("cdc_staging_path") {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
                             _ => Some("".to_string()),
                         };
 
                         let soft_delete = match raw_options.remove("soft_delete") {
-                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            Some(Expr::Value(ast::Value::Boolean(b))) => *b,
                             _ => false,
                         };
 
                         let push_parallelism: Option<i64> = match raw_options
                             .remove("push_parallelism")
                         {
-                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<i64>()?),
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<i64>()?),
                             _ => None,
                         };
 
                         let push_batch_size: Option<i64> = match raw_options
                             .remove("push_batch_size")
                         {
-                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<i64>()?),
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<i64>()?),
                             _ => None,
                         };
 
                         let max_batch_size: Option<u32> = match raw_options.remove("max_batch_size")
                         {
-                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
                             _ => None,
                         };
 
                         let soft_delete_col_name: Option<String> = match raw_options
                             .remove("soft_delete_col_name")
                         {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
                             _ => None,
                         };
 
                         let synced_at_col_name: Option<String> = match raw_options
                             .remove("synced_at_col_name")
                         {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
                             _ => None,
                         };
 
                         let initial_copy_only = match raw_options.remove("initial_copy_only") {
-                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            Some(Expr::Value(ast::Value::Boolean(b))) => *b,
                             _ => false,
                         };
 
                         let script = match raw_options.remove("script") {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => s.clone(),
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => s.clone(),
                             _ => String::new(),
                         };
 
                         let system = match raw_options.remove("system") {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => s.clone(),
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => s.clone(),
                             _ => "Q".to_string(),
                         };
 
@@ -352,15 +355,15 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                     Select(select) => {
                         let mut raw_options = HashMap::with_capacity(select.with_options.len());
                         for option in &select.with_options {
-                            raw_options.insert(&option.name.value as &str, &option.value);
+                            if let Expr::Value(ref value) = option.value {
+                                raw_options.insert(&option.name.value as &str, value);
+                            }
                         }
 
                         // we treat disabled as a special option, and do not pass it to the
                         // flow server, this is primarily used for external orchestration.
                         let mut disabled = false;
-                        if let Some(sqlparser::ast::Value::Boolean(b)) =
-                            raw_options.remove("disabled")
-                        {
+                        if let Some(ast::Value::Boolean(b)) = raw_options.remove("disabled") {
                             disabled = *b;
                         }
 
@@ -411,7 +414,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                 }
 
                 let query_string = match raw_options.remove("query_string") {
-                    Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                    Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
                     _ => None,
                 };
 
@@ -469,10 +472,10 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
             } => {
                 let count = match direction {
                     FetchDirection::Count {
-                        limit: sqlparser::ast::Value::Number(n, _),
+                        limit: ast::Value::Number(n, _),
                     }
                     | FetchDirection::Forward {
-                        limit: Some(sqlparser::ast::Value::Number(n, _)),
+                        limit: Some(ast::Value::Number(n, _)),
                     } => n.parse::<usize>(),
                     _ => {
                         return Err(anyhow::anyhow!(
@@ -484,8 +487,8 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
                 Ok(Some(CursorEvent::Fetch(name.value.clone(), count?)))
             }
             Statement::Close { cursor } => match cursor {
-                sqlparser::ast::CloseCursor::All => Ok(Some(CursorEvent::CloseAll)),
-                sqlparser::ast::CloseCursor::Specific { name } => {
+                ast::CloseCursor::All => Ok(Some(CursorEvent::CloseAll)),
+                ast::CloseCursor::Specific { name } => {
                     Ok(Some(CursorEvent::Close(name.to_string())))
                 }
             },
@@ -498,15 +501,10 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
     let mut opts: HashMap<&str, &str> = HashMap::with_capacity(with_options.len());
     for opt in with_options {
         let val = match opt.value {
-            sqlparser::ast::Value::SingleQuotedString(ref str) => str,
-            sqlparser::ast::Value::Number(ref v, _) => v,
-            sqlparser::ast::Value::Boolean(v) => {
-                if v {
-                    "true"
-                } else {
-                    "false"
-                }
-            }
+            Expr::Value(ast::Value::SingleQuotedString(ref str)) => str,
+            Expr::Value(ast::Value::Number(ref v, _)) => v,
+            Expr::Value(ast::Value::Boolean(true)) => "true",
+            Expr::Value(ast::Value::Boolean(false)) => "false",
             _ => panic!("invalid option type for peer"),
         };
         opts.insert(&opt.name.value, val);

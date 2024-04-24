@@ -11,7 +11,7 @@ use pt::peerdb_peers::SnowflakeConfig;
 use reqwest::{header, StatusCode};
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
-use sqlparser::ast::{CloseCursor, FetchDirection, Query, Statement};
+use sqlparser::ast::{CloseCursor, Declare, FetchDirection, Query, Statement};
 use tokio::time::sleep;
 use tracing::info;
 
@@ -316,15 +316,31 @@ impl QueryExecutor for SnowflakeQueryExecutor {
                 );
                 Ok(QueryOutput::Stream(Box::pin(cursor)))
             }
-            Statement::Declare { name, query, .. } => {
-                let query_stmt = Statement::Query(query.clone());
-                self.cursor_manager
-                    .create_cursor(&name.value, &query_stmt, self)
-                    .await?;
+            Statement::Declare { stmts } => {
+                if stmts.len() != 1 {
+                    Err(PgWireError::ApiError(
+                        "peerdb only supports singular declare statements".into(),
+                    ))
+                } else if let Declare {
+                    ref names,
+                    for_query: Some(ref query),
+                    ..
+                } = stmts[0]
+                {
+                    let name = &names[0];
+                    let query_stmt = Statement::Query(query.clone());
+                    self.cursor_manager
+                        .create_cursor(&name.value, &query_stmt, self)
+                        .await?;
 
-                Ok(QueryOutput::Cursor(CursorModification::Created(
-                    name.value.clone(),
-                )))
+                    Ok(QueryOutput::Cursor(CursorModification::Created(
+                        name.value.clone(),
+                    )))
+                } else {
+                    Err(PgWireError::ApiError(
+                        "peerdb only supports declare for query statements".into(),
+                    ))
+                }
             }
             Statement::Fetch {
                 name, direction, ..
@@ -338,21 +354,15 @@ impl QueryExecutor for SnowflakeQueryExecutor {
                     }
                     | FetchDirection::Forward {
                         limit: Some(sqlparser::ast::Value::Number(n, _)),
-                    } => n.parse::<usize>(),
-                    _ => {
-                        return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                            "ERROR".to_owned(),
-                            "fdw_error".to_owned(),
-                            "only FORWARD count and COUNT count are supported in FETCH".to_owned(),
-                        ))))
-                    }
-                };
-
-                // If parsing the count resulted in an error, return an internal error
-                let count = match count {
-                    Ok(c) => c,
-                    Err(err) => return Err(PgWireError::ApiError(err.into())),
-                };
+                    } => n
+                        .parse::<usize>()
+                        .map_err(|err| PgWireError::ApiError(err.into())),
+                    _ => Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                        "ERROR".to_owned(),
+                        "fdw_error".to_owned(),
+                        "only FORWARD count and COUNT count are supported in FETCH".to_owned(),
+                    )))),
+                }?;
 
                 tracing::info!("fetching {} rows", count);
 
@@ -405,9 +415,23 @@ impl QueryExecutor for SnowflakeQueryExecutor {
 
                 Ok(Some(schema.schema()))
             }
-            Statement::Declare { query, .. } => {
-                let query_stmt = Statement::Query(query.clone());
-                self.describe(&query_stmt).await
+            Statement::Declare { stmts } => {
+                if stmts.len() != 1 {
+                    Err(PgWireError::ApiError(
+                        "peerdb only supports singular declare statements".into(),
+                    ))
+                } else if let Declare {
+                    for_query: Some(ref query),
+                    ..
+                } = stmts[0]
+                {
+                    let query_stmt = Statement::Query(query.clone());
+                    self.describe(&query_stmt).await
+                } else {
+                    Err(PgWireError::ApiError(
+                        "peerdb only supports declare for query statements".into(),
+                    ))
+                }
             }
             _ => PgWireResult::Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
