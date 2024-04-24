@@ -92,7 +92,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 
 	schema := stream.Schema()
 
-	bulkIndexHasFatalError := false
+	var bulkIndexFatalError error
 	var bulkIndexErrors []error
 	var bulkIndexMutex sync.Mutex
 	var docId string
@@ -173,12 +173,12 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 					if res.Error.Cause.Type != "" || res.Error.Cause.Reason != "" {
 						causeString = fmt.Sprintf("(caused by type:%s reason:%s)", res.Error.Cause.Type, res.Error.Cause.Reason)
 					}
-					bulkIndexErrors = append(bulkIndexErrors,
-						fmt.Errorf("id:%s type:%s reason:%s %s", item.DocumentID, res.Error.Type,
-							res.Error.Reason, causeString))
+					cbErr := fmt.Errorf("id:%s type:%s reason:%s %s", item.DocumentID, res.Error.Type,
+						res.Error.Reason, causeString)
+					bulkIndexErrors = append(bulkIndexErrors, cbErr)
 					if res.Error.Type == "illegal_argument_exception" &&
 						strings.Contains(res.Error.Reason, "Number of documents in the index can't exceed") {
-						bulkIndexHasFatalError = true
+						bulkIndexFatalError = cbErr
 					}
 				}
 			},
@@ -187,8 +187,9 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 			esc.logger.Error("[es] failed to add record to bulk indexer", slog.Any("error", err))
 			return 0, fmt.Errorf("[es] failed to add record to bulk indexer: %w", err)
 		}
-		if bulkIndexHasFatalError {
-			break
+		if bulkIndexFatalError != nil {
+			esc.logger.Error("[es] fatal error while indexing record", slog.Any("error", bulkIndexFatalError))
+			return 0, fmt.Errorf("[es] fatal error while indexing record: %w", bulkIndexFatalError)
 		}
 
 		// update here instead of OnSuccess, if we close successfully it should match
@@ -208,10 +209,6 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 		for _, err := range bulkIndexErrors {
 			esc.logger.Error("[es] failed to index record", slog.Any("err", err))
 		}
-	}
-	if bulkIndexHasFatalError {
-		esc.logger.Error("[es] fatal error while bulk index")
-		return 0, fmt.Errorf("[es] fatal error while bulk index")
 	}
 
 	err = esc.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime)
