@@ -183,9 +183,12 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 				}
 			},
 		})
-		if err != nil || bulkIndexHasFatalError {
+		if err != nil {
 			esc.logger.Error("[es] failed to add record to bulk indexer", slog.Any("error", err))
 			return 0, fmt.Errorf("[es] failed to add record to bulk indexer: %w", err)
+		}
+		if bulkIndexHasFatalError {
+			break
 		}
 
 		// update here instead of OnSuccess, if we close successfully it should match
