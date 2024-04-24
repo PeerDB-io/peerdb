@@ -2,11 +2,13 @@ mod ast;
 mod client;
 mod stream;
 
-use peer_cursor::{CursorManager, CursorModification, QueryExecutor, QueryOutput, Schema, RecordStream};
+use peer_cursor::{
+    CursorManager, CursorModification, QueryExecutor, QueryOutput, RecordStream, Schema,
+};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pt::peerdb_peers::MySqlConfig;
 use sqlparser::ast::{CloseCursor, FetchDirection, Statement};
-use stream::{MyRecordStream};
+use stream::MyRecordStream;
 
 pub struct MySqlQueryExecutor {
     peer_name: String,
@@ -17,8 +19,7 @@ pub struct MySqlQueryExecutor {
 impl MySqlQueryExecutor {
     pub async fn new(peer_name: String, config: &MySqlConfig) -> anyhow::Result<Self> {
         // TODO TLS
-        let mut opts = mysql_async::OptsBuilder::default()
-            .prefer_socket(Some(false)); // prefer_socket breaks connecting to StarRocks
+        let mut opts = mysql_async::OptsBuilder::default().prefer_socket(Some(false)); // prefer_socket breaks connecting to StarRocks
         if !config.user.is_empty() {
             opts = opts.user(Some(config.user.clone()))
         }

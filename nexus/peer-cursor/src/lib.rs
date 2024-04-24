@@ -5,8 +5,8 @@ use pgwire::{api::results::FieldInfo, error::PgWireResult};
 use sqlparser::ast::Statement;
 use value::Value;
 
-pub mod util;
 mod manager;
+pub mod util;
 
 pub use manager::CursorManager;
 

@@ -12,7 +12,7 @@ pub struct CursorManager {
 }
 
 impl CursorManager {
-    pub async fn create_cursor<>(
+    pub async fn create_cursor(
         &self,
         name: &str,
         stmt: &Statement,
@@ -103,4 +103,3 @@ impl CursorManager {
         Ok(keys)
     }
 }
-
