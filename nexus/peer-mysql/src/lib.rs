@@ -18,7 +18,6 @@ pub struct MySqlQueryExecutor {
 
 impl MySqlQueryExecutor {
     pub async fn new(peer_name: String, config: &MySqlConfig) -> anyhow::Result<Self> {
-        // TODO TLS
         let mut opts = mysql_async::OptsBuilder::default().prefer_socket(Some(false)); // prefer_socket breaks connecting to StarRocks
         if !config.user.is_empty() {
             opts = opts.user(Some(config.user.clone()))
@@ -28,6 +27,9 @@ impl MySqlQueryExecutor {
         }
         if !config.database.is_empty() {
             opts = opts.db_name(Some(config.database.clone()))
+        }
+        if !config.disable_tls {
+            opts = opts.ssl_opts(mysql_async::SslOpts::default())
         }
         opts = opts
             .compression(mysql_async::Compression::new(config.compression))
