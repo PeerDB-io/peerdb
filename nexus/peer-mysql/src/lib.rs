@@ -7,7 +7,7 @@ use peer_cursor::{
 };
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pt::peerdb_peers::MySqlConfig;
-use sqlparser::ast::{CloseCursor, FetchDirection, Statement};
+use sqlparser::ast::{CloseCursor, Declare, FetchDirection, Statement};
 use stream::MyRecordStream;
 
 pub struct MySqlQueryExecutor {
@@ -69,17 +69,33 @@ impl QueryExecutor for MySqlQueryExecutor {
                 let cursor = self.query(query).await?;
                 Ok(QueryOutput::Stream(Box::pin(cursor)))
             }
-            Statement::Declare { name, query, .. } => {
-                let mut query = query.clone();
-                ast::rewrite_query(&self.peer_name, &mut query);
-                let query_stmt = Statement::Query(query);
-                self.cursor_manager
-                    .create_cursor(&name.value, &query_stmt, self)
-                    .await?;
+            Statement::Declare { stmts } => {
+                if stmts.len() != 1 {
+                    Err(PgWireError::ApiError(
+                        "peerdb only supports singular declare statements".into(),
+                    ))
+                } else if let Declare {
+                    ref names,
+                    for_query: Some(ref query),
+                    ..
+                } = stmts[0]
+                {
+                    let name = &names[0];
+                    let mut query = query.clone();
+                    ast::rewrite_query(&self.peer_name, &mut query);
+                    let query_stmt = Statement::Query(query);
+                    self.cursor_manager
+                        .create_cursor(&name.value, &query_stmt, self)
+                        .await?;
 
-                Ok(QueryOutput::Cursor(CursorModification::Created(
-                    name.value.clone(),
-                )))
+                    Ok(QueryOutput::Cursor(CursorModification::Created(
+                        name.value.clone(),
+                    )))
+                } else {
+                    Err(PgWireError::ApiError(
+                        "peerdb only supports declare for query statements".into(),
+                    ))
+                }
             }
             Statement::Fetch {
                 name, direction, ..
@@ -93,21 +109,15 @@ impl QueryExecutor for MySqlQueryExecutor {
                     }
                     | FetchDirection::Forward {
                         limit: Some(sqlparser::ast::Value::Number(n, _)),
-                    } => n.parse::<usize>(),
-                    _ => {
-                        return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                            "ERROR".to_owned(),
-                            "fdw_error".to_owned(),
-                            "only FORWARD count and COUNT count are supported in FETCH".to_owned(),
-                        ))))
-                    }
-                };
-
-                // If parsing the count resulted in an error, return an internal error
-                let count = match count {
-                    Ok(c) => c,
-                    Err(err) => return Err(PgWireError::ApiError(err.into())),
-                };
+                    } => n
+                        .parse::<usize>()
+                        .map_err(|err| PgWireError::ApiError(err.into())),
+                    _ => Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                        "ERROR".to_owned(),
+                        "fdw_error".to_owned(),
+                        "only FORWARD count and COUNT count are supported in FETCH".to_owned(),
+                    )))),
+                }?;
 
                 tracing::info!("fetching {} rows", count);
 
@@ -134,7 +144,7 @@ impl QueryExecutor for MySqlQueryExecutor {
                     "only SELECT statements are supported in mysql. got: {}",
                     stmt
                 );
-                PgWireResult::Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                     "ERROR".to_owned(),
                     "fdw_error".to_owned(),
                     error,
@@ -154,11 +164,23 @@ impl QueryExecutor for MySqlQueryExecutor {
                 ast::rewrite_query(&self.peer_name, &mut query);
                 Ok(Some(self.query_schema(query.to_string()).await?))
             }
-            Statement::Declare { query, .. } => {
-                let mut query = query.clone();
-                ast::rewrite_query(&self.peer_name, &mut query);
-                let query_stmt = Statement::Query(query);
-                self.describe(&query_stmt).await
+            Statement::Declare { stmts } => {
+                if stmts.len() != 1 {
+                    Err(PgWireError::ApiError(
+                        "peerdb only supports singular declare statements".into(),
+                    ))
+                } else if let Declare {
+                    for_query: Some(ref query),
+                    ..
+                } = stmts[0]
+                {
+                    let query_stmt = Statement::Query(query.clone());
+                    self.describe(&query_stmt).await
+                } else {
+                    Err(PgWireError::ApiError(
+                        "peerdb only supports declare for query statements".into(),
+                    ))
+                }
             }
             _ => PgWireResult::Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
