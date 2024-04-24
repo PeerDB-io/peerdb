@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -176,8 +175,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 					cbErr := fmt.Errorf("id:%s type:%s reason:%s %s", item.DocumentID, res.Error.Type,
 						res.Error.Reason, causeString)
 					bulkIndexErrors = append(bulkIndexErrors, cbErr)
-					if res.Error.Type == "illegal_argument_exception" &&
-						strings.Contains(res.Error.Reason, "Number of documents in the index can't exceed") {
+					if res.Error.Type == "illegal_argument_exception" {
 						bulkIndexFatalError = cbErr
 					}
 				}
