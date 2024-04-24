@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use futures::StreamExt;
-use tokio::{spawn, sync::mpsc};
 use mysql_async::{self, prelude::Queryable};
+use tokio::{spawn, sync::mpsc};
 
 pub enum Response {
     Row(mysql_async::Row),
@@ -25,19 +25,21 @@ impl MyClient {
         let mut conn = mysql_async::Conn::new(opts).await?;
         let (send, mut recv) = mpsc::channel(1);
         spawn(async move {
-            while let Some(Message{
-                query,
-                response,
-            }) = recv.recv().await {
+            while let Some(Message { query, response }) = recv.recv().await {
                 match conn.query_stream(query).await {
                     Ok(stream) => {
                         response.send(Response::Schema(stream.columns())).await.ok();
-                        stream.for_each_concurrent(1, |row| async {
-                            response.send(match row {
-                                Ok(row) => Response::Row(row),
-                                Err(err) => Response::Err(err),
-                            }).await.ok();
-                        }).await;
+                        stream
+                            .for_each_concurrent(1, |row| async {
+                                response
+                                    .send(match row {
+                                        Ok(row) => Response::Row(row),
+                                        Err(err) => Response::Err(err),
+                                    })
+                                    .await
+                                    .ok();
+                            })
+                            .await;
                     }
                     Err(e) => {
                         response.send(Response::Err(e)).await.ok();
