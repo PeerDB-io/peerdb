@@ -141,7 +141,7 @@ func LoadPeerDBAWSEnvConfigProvider(connectorName string) AWSCredentialsProvider
 	accessKeyId := getPeerDBAWSEnv(connectorName, "AWS_ACCESS_KEY_ID")
 	secretAccessKey := getPeerDBAWSEnv(connectorName, "AWS_SECRET_ACCESS_KEY")
 	region := getPeerDBAWSEnv(connectorName, "AWS_REGION")
-	endpointUrl := getPeerDBAWSEnv(connectorName, "AWS_ENDPOINT_URL")
+	endpointUrl := getPeerDBAWSEnv(connectorName, "AWS_ENDPOINT_URL_S3")
 	var endpointUrlPtr *string
 	if endpointUrl != "" {
 		endpointUrlPtr = &endpointUrl
@@ -162,7 +162,7 @@ func LoadPeerDBAWSEnvConfigProvider(connectorName string) AWSCredentialsProvider
 
 func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCredentials PeerAWSCredentials) (AWSCredentialsProvider, error) {
 	if !(peerCredentials.Credentials.AccessKeyID == "" && peerCredentials.Credentials.SecretAccessKey == "" &&
-		peerCredentials.Region == "" && peerCredentials.RoleArn == nil && peerCredentials.EndpointUrl == nil) {
+		peerCredentials.Region == "" && peerCredentials.RoleArn == nil && (peerCredentials.EndpointUrl == nil || *peerCredentials.EndpointUrl == "")) {
 		staticProvider := NewStaticAWSCredentialsProvider(AWSCredentials{
 			AWS:         peerCredentials.Credentials,
 			EndpointUrl: peerCredentials.EndpointUrl,

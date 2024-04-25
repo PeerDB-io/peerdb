@@ -97,5 +97,5 @@ export const blankClickhouseSetting: ClickhouseConfig = {
   secretAccessKey: '',
   region: '',
   disableTls: false,
-  endpoint: '',
+  endpoint: undefined,
 };
