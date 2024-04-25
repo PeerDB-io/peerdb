@@ -9,6 +9,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/google/uuid"
 	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
@@ -81,7 +82,8 @@ func (c *S3Connector) Close() error {
 func PutAndRemoveS3(ctx context.Context, client *s3.Client, bucket string, prefix string) error {
 	reader := strings.NewReader(time.Now().Format(time.RFC3339))
 	bucketName := aws.String(bucket)
-	temporaryObjectPath := prefix + _peerDBCheck
+	temporaryObjectPath := prefix + "/" + _peerDBCheck + uuid.New().String()
+	temporaryObjectPath = strings.TrimPrefix(temporaryObjectPath, "/")
 	_, putErr := client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: bucketName,
 		Key:    aws.String(temporaryObjectPath),
