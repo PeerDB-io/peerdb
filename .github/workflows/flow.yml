@@ -22,6 +22,14 @@ jobs:
           PGUSER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
+      elasticsearch:
+        image: elasticsearch:8.13.0
+        ports:
+          - 9200:9200
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: false
+          xpack.security.enrollment.enabled: false
 
     steps:
       - name: checkout sources
@@ -134,3 +142,4 @@ jobs:
           PEERDB_CATALOG_USER: postgres
           PEERDB_CATALOG_PASSWORD: postgres
           PEERDB_CATALOG_DATABASE: postgres
+          ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
