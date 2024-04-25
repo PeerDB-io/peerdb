@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/twmb/franz-go/plugin/kslog"
 	"log/slog"
 	"strings"
 	"sync"
@@ -14,6 +13,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
+	"github.com/twmb/franz-go/plugin/kslog"
 	lua "github.com/yuin/gopher-lua"
 	"go.temporal.io/sdk/log"
 
