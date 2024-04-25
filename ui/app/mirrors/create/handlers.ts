@@ -7,6 +7,7 @@ import {
   UTablesResponse,
 } from '@/app/dto/PeersDTO';
 import { notifyErr } from '@/app/utils/notify';
+import QRepQueryTemplate from '@/app/utils/qreptemplate';
 import { DBTypeToGoodText } from '@/components/PeerTypeComponent';
 import {
   FlowConnectionConfigs,
@@ -198,11 +199,15 @@ export const handleCreateQRep = async (
   route: RouteCallback,
   xmin?: boolean
 ) => {
-  console.log(config);
   const flowNameValid = flowNameSchema.safeParse(flowJobName);
   if (!flowNameValid.success) {
     const flowNameErr = flowNameValid.error.issues[0].message;
     notifyErr(flowNameErr);
+    return;
+  }
+
+  if (query === QRepQueryTemplate) {
+    notifyErr('Please fill in the query box');
     return;
   }
 

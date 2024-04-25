@@ -50,6 +50,6 @@ export const blankQRepSetting = {
   writeMode: undefined,
   stagingPath: '',
   numRowsPerPartition: 100000,
-  setupWatermarkTableOnDestination: false,
+  setupWatermarkTableOnDestination: true,
   dstTableFullResync: false,
 };
