@@ -921,6 +921,10 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 .get("database")
                 .context("no default database specified")?
                 .to_string(),
+            setup: opts
+                .get("setup")
+                .map(|s| s.split(';').map(String::from).collect::<Vec<_>>())
+                .unwrap_or_default(),
             compression: opts
                 .get("compression")
                 .and_then(|s| s.parse::<i8>().ok())

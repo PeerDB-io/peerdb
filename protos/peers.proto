@@ -132,8 +132,9 @@ message MySqlConfig {
   string user = 3;
   string password = 4;
   string database = 5;
-  uint32 compression = 6;
-  bool disable_tls = 7;
+  repeated string setup = 6;
+  uint32 compression = 7;
+  bool disable_tls = 8;
 }
 
 message KafkaConfig {
