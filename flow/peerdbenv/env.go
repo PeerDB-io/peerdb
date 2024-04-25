@@ -59,7 +59,7 @@ func getEnvBool(name string, defaultValue bool) bool {
 
 // GetEnvString returns the value of the environment variable with the given name
 // or defaultValue if the environment variable is not set.
-func getEnvString(name string, defaultValue string) string {
+func GetEnvString(name string, defaultValue string) string {
 	val, ok := os.LookupEnv(name)
 	if !ok {
 		return defaultValue

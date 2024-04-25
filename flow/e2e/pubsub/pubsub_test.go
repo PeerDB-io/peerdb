@@ -1,4 +1,4 @@
-package e2e_kafka
+package e2e_pubsub
 
 import (
 	"context"
