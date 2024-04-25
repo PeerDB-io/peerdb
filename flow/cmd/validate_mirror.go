@@ -29,35 +29,38 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 
 	pgPeer, err := connpostgres.NewPostgresConnector(ctx, sourcePeerConfig)
 	if err != nil {
+		displayErr := fmt.Errorf("failed to create postgres connector: %v", err)
 		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			fmt.Sprintf("failed to create postgres connector: %v", err),
+			fmt.Sprint(displayErr),
 		)
 		return &protos.ValidateCDCMirrorResponse{
 			Ok: false,
-		}, fmt.Errorf("failed to create postgres connector: %v", err)
+		}, displayErr
 	}
 	defer pgPeer.Close()
 
 	// Check replication connectivity
 	err = pgPeer.CheckReplicationConnectivity(ctx)
 	if err != nil {
+		displayErr := fmt.Errorf("unable to establish replication connectivity: %v", err)
 		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			fmt.Sprintf("unable to establish replication connectivity: %v", err),
+			fmt.Sprint(displayErr),
 		)
 		return &protos.ValidateCDCMirrorResponse{
 			Ok: false,
-		}, fmt.Errorf("unable to establish replication connectivity: %v", err)
+		}, displayErr
 	}
 
 	// Check permissions of postgres peer
 	err = pgPeer.CheckReplicationPermissions(ctx, sourcePeerConfig.User)
 	if err != nil {
+		displayErr := fmt.Errorf("failed to check replication permissions: %v", err)
 		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			fmt.Sprintf("failed to check replication permissions: %v", err),
+			fmt.Sprint(displayErr),
 		)
 		return &protos.ValidateCDCMirrorResponse{
 			Ok: false,
-		}, fmt.Errorf("failed to check replication permissions: %v", err)
+		}, displayErr
 	}
 
 	// Check source tables
@@ -65,12 +68,13 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	for _, tableMapping := range req.ConnectionConfigs.TableMappings {
 		parsedTable, parseErr := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
 		if parseErr != nil {
+			displayErr := fmt.Errorf("invalid source table identifier: %s", parseErr)
 			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-				"invalid source table identifier: "+tableMapping.SourceTableIdentifier,
+				fmt.Sprint(displayErr),
 			)
 			return &protos.ValidateCDCMirrorResponse{
 				Ok: false,
-			}, fmt.Errorf("invalid source table identifier: %s", tableMapping.SourceTableIdentifier)
+			}, displayErr
 		}
 
 		sourceTables = append(sourceTables, parsedTable)
@@ -80,12 +84,13 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	if pubName != "" {
 		err = pgPeer.CheckSourceTables(ctx, sourceTables, pubName)
 		if err != nil {
+			displayErr := fmt.Errorf("provided source tables invalidated: %v", err)
 			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-				fmt.Sprintf("provided source tables invalidated: %v", err),
+				fmt.Sprint(displayErr),
 			)
 			return &protos.ValidateCDCMirrorResponse{
 				Ok: false,
-			}, fmt.Errorf("provided source tables invalidated: %v", err)
+			}, displayErr
 		}
 	}
 

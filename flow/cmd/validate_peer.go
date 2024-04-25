@@ -60,27 +60,27 @@ func (h *FlowRequestHandler) ValidatePeer(
 	validationConn, ok := conn.(connectors.ValidationConnector)
 	if ok {
 		validErr := validationConn.ValidateCheck(ctx)
+		displayErr := fmt.Sprintf("failed to validate peer %s: %v", req.Peer.Name, validErr)
 		h.alerter.LogNonFlowWarning(ctx, telemetry.CreatePeer, req.Peer.Name,
-			fmt.Sprintf("Failed to validate peer %s: %v", req.Peer.Name, validErr),
+			displayErr,
 		)
 		if validErr != nil {
 			return &protos.ValidatePeerResponse{
-				Status: protos.ValidatePeerStatus_INVALID,
-				Message: fmt.Sprintf("failed to validate %s peer %s: %v",
-					req.Peer.Type, req.Peer.Name, validErr),
+				Status:  protos.ValidatePeerStatus_INVALID,
+				Message: displayErr,
 			}, nil
 		}
 	}
 
 	connErr := conn.ConnectionActive(ctx)
 	if connErr != nil {
+		displayErr := fmt.Sprintf("failed to establish active connection to %s peer %s: %v", req.Peer.Type, req.Peer.Name, connErr)
 		h.alerter.LogNonFlowWarning(ctx, telemetry.CreatePeer, req.Peer.Name,
-			fmt.Sprintf("Failed to establish peer connection %s: %v", req.Peer.Name, connErr),
+			displayErr,
 		)
 		return &protos.ValidatePeerResponse{
-			Status: protos.ValidatePeerStatus_INVALID,
-			Message: fmt.Sprintf("failed to establish active connection to %s peer %s: %v",
-				req.Peer.Type, req.Peer.Name, connErr),
+			Status:  protos.ValidatePeerStatus_INVALID,
+			Message: displayErr,
 		}, nil
 	}
 
