@@ -4,19 +4,20 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-
-	"github.com/PeerDB-io/peer-flow/logger"
+	smithyendpoints "github.com/aws/smithy-go/endpoints"
 )
 
 type AWSSecrets struct {
@@ -231,26 +232,44 @@ func NewS3BucketAndPrefix(s3Path string) (*S3BucketAndPrefix, error) {
 	}, nil
 }
 
+type resolverV2 struct {
+	userProvidedEndpointUrl string
+}
+
+func (r *resolverV2) ResolveEndpoint(ctx context.Context, params s3.EndpointParameters) (
+	smithyendpoints.Endpoint, error,
+) {
+	if r.userProvidedEndpointUrl != "" {
+		u, err := url.Parse(r.userProvidedEndpointUrl)
+		if err != nil {
+			return smithyendpoints.Endpoint{}, err
+		}
+
+		u.Path = "/" + *params.Bucket
+		return smithyendpoints.Endpoint{
+			URI: *u,
+		}, nil
+	}
+
+	return s3.NewDefaultEndpointResolverV2().ResolveEndpoint(ctx, params)
+}
+
 func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (*s3.Client, error) {
 	awsCredentials, err := credsProvider.Retrieve(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	resolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...any) (aws.Endpoint, error) {
-		return aws.Endpoint{
-			PartitionID:       "aws",
-			URL:               credsProvider.GetEndpointURL(),
-			SigningRegion:     credsProvider.GetRegion(),
-			HostnameImmutable: true,
-		}, nil
-	})
-
-	s3Client := s3.NewFromConfig(aws.Config{EndpointResolverWithOptions: resolver}, func(options *s3.Options) {
+	s3Client := s3.NewFromConfig(aws.Config{}, func(options *s3.Options) {
 		options.Region = credsProvider.GetRegion()
 		options.Credentials = credsProvider.GetUnderlyingProvider()
+
 		if awsCredentials.EndpointUrl != nil && *awsCredentials.EndpointUrl != "" {
 			options.BaseEndpoint = awsCredentials.EndpointUrl
+			options.EndpointResolverV2 = &resolverV2{
+				userProvidedEndpointUrl: *awsCredentials.EndpointUrl,
+			}
+
 			// Assign custom client with our own transport
 			options.HTTPClient = &http.Client{
 				Transport: &RecalculateV4Signature{
