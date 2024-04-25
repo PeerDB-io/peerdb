@@ -45,7 +45,7 @@ func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error
 		return fmt.Errorf("failed to create S3 bucket and prefix: %w", err)
 	}
 
-	return conns3.PutAndRemoveS3(ctx, s3Client, object.Bucket)
+	return conns3.PutAndRemoveS3(ctx, s3Client, object.Bucket, object.Prefix)
 }
 
 // Creates and drops a dummy table to validate the peer
