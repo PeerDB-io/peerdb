@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/twmb/franz-go/plugin/kslog"
 	"log/slog"
 	"strings"
 	"sync"
@@ -13,7 +14,6 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
-	"github.com/twmb/franz-go/plugin/kslog"
 	lua "github.com/yuin/gopher-lua"
 	"go.temporal.io/sdk/log"
 
@@ -45,7 +45,7 @@ func NewKafkaConnector(
 		kgo.SoftwareNameAndVersion("peerdb", peerdbenv.PeerDBVersionShaShort()),
 	)
 	if !config.DisableTls {
-		optionalOpts = append(optionalOpts, kgo.DialTLSConfig(&tls.Config{MinVersion: tls.VersionTLS13}))
+		optionalOpts = append(optionalOpts, kgo.DialTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12}))
 	}
 	switch config.Partitioner {
 	case "LeastBackup":
