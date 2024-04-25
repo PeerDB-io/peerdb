@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -197,6 +198,20 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 	return NewConfigBasedAWSCredentialsProvider(awsConfig), nil
 }
 
+func FileURLForS3Service(endpoint string, region string, bucket string, filePath string) string {
+	fileUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", bucket, region, filePath)
+	if strings.Contains(endpoint, "storage.googleapis.com") {
+		fileUrl = fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucket, filePath)
+	}
+	// example: min.io local bucket
+	match, _ := regexp.MatchString(`^http://[a-zA-Z0-9.-]+:\d+$`, endpoint)
+	if match {
+		fileUrl = fmt.Sprintf("%s/%s/%s", endpoint, bucket, filePath)
+	}
+
+	return fileUrl
+}
+
 type S3BucketAndPrefix struct {
 	Bucket string
 	Prefix string
@@ -221,10 +236,21 @@ func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (
 	if err != nil {
 		return nil, err
 	}
-	s3Client := s3.NewFromConfig(aws.Config{}, func(options *s3.Options) {
+
+	resolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...any) (aws.Endpoint, error) {
+		return aws.Endpoint{
+			PartitionID:       "aws",
+			URL:               credsProvider.GetEndpointURL(),
+			SigningRegion:     credsProvider.GetRegion(),
+			HostnameImmutable: true,
+		}, nil
+	})
+
+	s3Client := s3.NewFromConfig(aws.Config{EndpointResolverWithOptions: resolver}, func(options *s3.Options) {
 		options.Region = credsProvider.GetRegion()
 		options.Credentials = credsProvider.GetUnderlyingProvider()
-		if awsCredentials.EndpointUrl != nil {
+		if awsCredentials.EndpointUrl != nil && *awsCredentials.EndpointUrl != "" {
+			options.BaseEndpoint = awsCredentials.EndpointUrl
 			// Assign custom client with our own transport
 			options.HTTPClient = &http.Client{
 				Transport: &RecalculateV4Signature{

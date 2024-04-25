@@ -40,14 +40,9 @@ func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 		return err
 	}
 
-	avroFileUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s3o.Bucket,
-		s.connector.credsProvider.Provider.GetRegion(), avroFile.FilePath)
-
 	endpoint := s.connector.credsProvider.Provider.GetEndpointURL()
-	if strings.Contains(endpoint, "storage.googleapis.com") {
-		avroFileUrl = fmt.Sprintf("https://storage.googleapis.com/%s/%s", s3o.Bucket, avroFile.FilePath)
-	}
-
+	region := s.connector.credsProvider.Provider.GetRegion()
+	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFile.FilePath)
 	creds, err := s.connector.credsProvider.Provider.Retrieve(ctx)
 	if err != nil {
 		return err
@@ -126,13 +121,9 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 		return 0, err
 	}
 
-	avroFileUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s3o.Bucket,
-		s.connector.credsProvider.Provider.GetRegion(), avroFile.FilePath)
 	endpoint := s.connector.credsProvider.Provider.GetEndpointURL()
-	if strings.Contains(endpoint, "storage.googleapis.com") {
-		avroFileUrl = fmt.Sprintf("https://storage.googleapis.com/%s/%s", s3o.Bucket, avroFile.FilePath)
-	}
-
+	region := s.connector.credsProvider.Provider.GetRegion()
+	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFile.FilePath)
 	selector := make([]string, 0, len(dstTableSchema))
 	for _, col := range dstTableSchema {
 		colName := col.Name()
