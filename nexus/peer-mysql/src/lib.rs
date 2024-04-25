@@ -32,6 +32,7 @@ impl MySqlQueryExecutor {
             opts = opts.ssl_opts(mysql_async::SslOpts::default())
         }
         opts = opts
+            .setup(config.setup.clone())
             .compression(mysql_async::Compression::new(config.compression))
             .ip_or_hostname(config.host.clone())
             .tcp_port(config.port as u16);
