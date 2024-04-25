@@ -32,10 +32,11 @@ func (h *FlowRequestHandler) ValidatePeer(
 
 	conn, err := connectors.GetConnector(ctx, req.Peer)
 	if err != nil {
+		displayErr := fmt.Sprintf("%s peer %s was invalidated: %v", req.Peer.Type, req.Peer.Name, err)
+		h.alerter.LogNonFlowWarning(ctx, telemetry.CreatePeer, req.Peer.Name, displayErr)
 		return &protos.ValidatePeerResponse{
-			Status: protos.ValidatePeerStatus_INVALID,
-			Message: fmt.Sprintf("%s peer %s was invalidated: %s",
-				req.Peer.Type, req.Peer.Name, err),
+			Status:  protos.ValidatePeerStatus_INVALID,
+			Message: displayErr,
 		}, nil
 	}
 
