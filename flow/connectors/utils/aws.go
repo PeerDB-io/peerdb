@@ -21,6 +21,8 @@ import (
 	"github.com/PeerDB-io/peer-flow/logger"
 )
 
+var s3CompatibleServiceEndpointPattern = regexp.MustCompile(`^https?://[a-zA-Z0-9.-]+(:\d+)?$`)
+
 type AWSSecrets struct {
 	AccessKeyID     string
 	SecretAccessKey string
@@ -202,17 +204,13 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 }
 
 func FileURLForS3Service(endpoint string, region string, bucket string, filePath string) string {
-	fileUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", bucket, region, filePath)
-	if strings.Contains(endpoint, "storage.googleapis.com") {
-		fileUrl = fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucket, filePath)
-	}
 	// example: min.io local bucket or GCS
-	match, _ := regexp.MatchString(`^https?://[a-zA-Z0-9.-]+(:\d+)?$`, endpoint)
-	if match {
-		fileUrl = fmt.Sprintf("%s/%s/%s", endpoint, bucket, filePath)
+	matches := s3CompatibleServiceEndpointPattern.MatchString(endpoint)
+	if matches {
+		return fmt.Sprintf("%s/%s/%s", endpoint, bucket, filePath)
 	}
 
-	return fileUrl
+	return fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", bucket, region, filePath)
 }
 
 type S3BucketAndPrefix struct {
