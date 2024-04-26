@@ -287,6 +287,10 @@ func (c *PostgresConnector) CheckForUpdatedMaxValue(
 		return false, fmt.Errorf("error while getting min and max values: %w", err)
 	}
 
+	if last == nil || last.Range == nil {
+		return maxValue != nil, nil
+	}
+
 	switch x := last.Range.Range.(type) {
 	case *protos.PartitionRange_IntRange:
 		if maxValue.(int64) > x.IntRange.End {
