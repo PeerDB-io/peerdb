@@ -113,6 +113,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 		"stage",
 		false,
 		"",
+		"",
 	)
 	require.NoError(s.t, err)
 	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
@@ -153,6 +154,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 		s.s3Helper.GetPeer(),
 		"stage",
 		false,
+		"",
 		"",
 	)
 	require.NoError(s.t, err)

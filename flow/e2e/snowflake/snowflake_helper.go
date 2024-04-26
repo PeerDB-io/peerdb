@@ -204,3 +204,22 @@ func (s *SnowflakeTestHelper) checkSyncedAt(query string) error {
 
 	return nil
 }
+
+// runs a query that returns an int result
+func (s *SnowflakeTestHelper) checkIsDeleted(query string) error {
+	recordBatch, err := s.testClient.ExecuteAndProcessQuery(context.Background(), query)
+	if err != nil {
+		return err
+	}
+
+	for _, record := range recordBatch.Records {
+		for _, entry := range record {
+			_, ok := entry.(qvalue.QValueBoolean)
+			if !ok {
+				return errors.New("is_deleted column failed: _PEERDB_IS_DELETED is not a boolean")
+			}
+		}
+	}
+
+	return nil
+}
