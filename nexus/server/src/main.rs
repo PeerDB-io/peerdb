@@ -188,7 +188,9 @@ impl NexusBackend {
             flow_handler.as_ref()
         } else {
             return Ok(());
-        }.lock().await;
+        }
+        .lock()
+        .await;
 
         let validate_request = pt::peerdb_route::ValidatePeerRequest {
             peer: Some(Peer {
@@ -779,7 +781,8 @@ impl NexusBackend {
             }
 
             NexusStatement::Rollback { stmt } => {
-                self.execute_statement(self.catalog.as_ref(), &stmt, None).await
+                self.execute_statement(self.catalog.as_ref(), &stmt, None)
+                    .await
             }
 
             NexusStatement::Empty => Ok(vec![Response::EmptyQuery]),
