@@ -186,7 +186,6 @@ func (s *SnowflakeTestHelper) RunIntQuery(query string) (int, error) {
 	}
 }
 
-// runs a query that returns an int result
 func (s *SnowflakeTestHelper) checkSyncedAt(query string) error {
 	recordBatch, err := s.testClient.ExecuteAndProcessQuery(context.Background(), query)
 	if err != nil {
@@ -205,7 +204,6 @@ func (s *SnowflakeTestHelper) checkSyncedAt(query string) error {
 	return nil
 }
 
-// runs a query that returns an int result
 func (s *SnowflakeTestHelper) checkIsDeleted(query string) error {
 	recordBatch, err := s.testClient.ExecuteAndProcessQuery(context.Background(), query)
 	if err != nil {
