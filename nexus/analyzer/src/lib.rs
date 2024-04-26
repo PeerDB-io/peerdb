@@ -3,7 +3,6 @@
 use std::{
     collections::{HashMap, HashSet},
     ops::ControlFlow,
-    vec,
 };
 
 use anyhow::Context;
@@ -165,9 +164,8 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
             } => {
                 match create_mirror {
                     CDC(cdc) => {
-                        let mut flow_job_table_mappings = vec![];
-                        for table_mapping in &cdc.mapping_options {
-                            flow_job_table_mappings.push(FlowJobTableMapping {
+                        let flow_job_table_mappings = cdc.mapping_options.iter().map(|table_mapping|
+                            FlowJobTableMapping {
                                 source_table_identifier: table_mapping.source.to_string(),
                                 destination_table_identifier: table_mapping.destination.to_string(),
                                 partition_key: table_mapping
@@ -179,8 +177,8 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                                     .as_ref()
                                     .map(|ss| ss.iter().map(|s| s.value.clone()).collect())
                                     .unwrap_or_default(),
-                            });
-                        }
+                            }
+                        ).collect::<Vec<_>>();
 
                         // get do_initial_copy from with_options
                         let mut raw_options = HashMap::with_capacity(cdc.with_options.len());
