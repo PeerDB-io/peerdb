@@ -87,7 +87,7 @@ impl Catalog {
 
     pub async fn create_peer(&self, peer: &Peer) -> anyhow::Result<i64> {
         let config_blob = {
-            let config = peer.config.clone().context("invalid peer config")?;
+            let config = peer.config.as_ref().context("invalid peer config")?;
             match config {
                 Config::SnowflakeConfig(snowflake_config) => snowflake_config.encode_to_vec(),
                 Config::BigqueryConfig(bigquery_config) => bigquery_config.encode_to_vec(),

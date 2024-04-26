@@ -786,6 +786,10 @@ impl NexusBackend {
                 self.execute_statement(executor.as_ref(), &stmt, None).await
             }
 
+            NexusStatement::Rollback { stmt } => {
+                self.execute_statement(self.catalog.as_ref(), &stmt, None).await
+            }
+
             NexusStatement::Empty => Ok(vec![Response::EmptyQuery]),
         }
     }
@@ -985,6 +989,7 @@ impl ExtendedQueryHandler for NexusBackend {
             NexusStatement::PeerDDL { .. } => Ok(DescribeResponse::no_data()),
             NexusStatement::PeerCursor { .. } => Ok(DescribeResponse::no_data()),
             NexusStatement::Empty => Ok(DescribeResponse::no_data()),
+            NexusStatement::Rollback { .. } => Ok(DescribeResponse::no_data()),
             NexusStatement::PeerQuery { stmt, assoc } => {
                 let schema: Option<Schema> = match assoc {
                     QueryAssociation::Peer(peer) => {
