@@ -121,7 +121,7 @@ impl NexusBackend {
                 Ok(vec![res])
             }
             QueryOutput::Cursor(cm) => {
-                tracing::info!("cursor modification: {:?}", cm);
+                tracing::info!("cursor modification: {:?} {}", cm, peer_holder.is_some());
                 let mut peer_cursors = self.peer_cursors.lock().await;
                 match cm {
                     peer_cursor::CursorModification::Created(cursor_name) => {
@@ -985,9 +985,18 @@ impl ExtendedQueryHandler for NexusBackend {
             NexusStatement::PeerQuery { stmt, assoc } => {
                 let schema: Option<Schema> = match assoc {
                     QueryAssociation::Peer(peer) => {
-                        // if the peer is of type bigquery, let us route the query to bq.
                         match &peer.config {
                             Some(Config::BigqueryConfig(_)) => {
+                                let executor =
+                                    self.get_peer_executor(peer).await.map_err(|err| {
+                                        PgWireError::ApiError(
+                                            format!("unable to get peer executor: {:?}", err)
+                                                .into(),
+                                        )
+                                    })?;
+                                executor.describe(stmt).await?
+                            }
+                            Some(Config::MysqlConfig(_)) => {
                                 let executor =
                                     self.get_peer_executor(peer).await.map_err(|err| {
                                         PgWireError::ApiError(
@@ -1017,10 +1026,7 @@ impl ExtendedQueryHandler for NexusBackend {
                                     })?;
                                 executor.describe(stmt).await?
                             }
-                            Some(_peer) => {
-                                panic!("peer type not supported: {:?}", peer)
-                            }
-                            None => {
+                            _ => {
                                 panic!("peer type not supported: {:?}", peer)
                             }
                         }
