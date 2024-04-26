@@ -273,7 +273,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 
-	err = s.sfHelper.checkSyncedAt(fmt.Sprintf(`SELECT "_PEERDB_SYNCED_AT" FROM %s`, dstSchemaQualified))
+	err = s.sfHelper.checkSyncedAt(`SELECT "_PEERDB_SYNCED_AT" FROM ` + dstSchemaQualified)
 	require.NoError(s.t, err)
 }
 
@@ -312,6 +312,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Default_False_SF() {
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 
-	err = s.sfHelper.checkIsDeleted(fmt.Sprintf(`SELECT "_PEERDB_IS_DELETED" FROM %s`, dstSchemaQualified))
+	err = s.sfHelper.checkIsDeleted(`SELECT "_PEERDB_IS_DELETED" FROM ` + dstSchemaQualified)
 	require.NoError(s.t, err)
 }
