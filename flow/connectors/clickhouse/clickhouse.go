@@ -146,9 +146,9 @@ func NewClickhouseConnector(
 		cleanedClickHouseVersion := "v" + strings.Join(versionParts, ".")
 		if semver.Compare(cleanedClickHouseVersion, minSupportedClickhouseVersion) < 0 {
 			return nil, fmt.Errorf(
-				"provide AWS access credentials explicitly or upgrade to clickhouse version >= %v, current version is %s. %s",
+				"provide S3 Transient Stage details explicitly or upgrade to clickhouse version >= %v, current version is %s. %s",
 				minSupportedClickhouseVersion, clickHouseVersion,
-				"You can also contact PeerDB support for implicit S3 setup for older versions of Clickhouse.")
+				"You can also contact PeerDB support for implicit S3 stage setup for older versions of Clickhouse.")
 		}
 	}
 
