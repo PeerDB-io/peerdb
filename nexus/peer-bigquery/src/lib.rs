@@ -148,6 +148,8 @@ impl QueryExecutor for BigQueryQueryExecutor {
 
                 // Attempt to extract the count from the direction
                 let count = match direction {
+                    FetchDirection::ForwardAll | FetchDirection::All => usize::MAX,
+                    FetchDirection::Next | FetchDirection::Forward { limit: None } => 1,
                     FetchDirection::Count {
                         limit: sqlparser::ast::Value::Number(n, _),
                     }
@@ -155,13 +157,13 @@ impl QueryExecutor for BigQueryQueryExecutor {
                         limit: Some(sqlparser::ast::Value::Number(n, _)),
                     } => n
                         .parse::<usize>()
-                        .map_err(|err| PgWireError::ApiError(err.into())),
-                    _ => Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                        .map_err(|err| PgWireError::ApiError(err.into()))?,
+                    _ => return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                         "ERROR".to_owned(),
                         "fdw_error".to_owned(),
                         "only FORWARD count and COUNT count are supported in FETCH".to_owned(),
                     )))),
-                }?;
+                };
 
                 tracing::info!("fetching {} rows", count);
 

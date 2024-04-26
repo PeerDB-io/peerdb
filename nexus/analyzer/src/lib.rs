@@ -483,6 +483,8 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
                 name, direction, ..
             } => {
                 let count = match direction {
+                    FetchDirection::ForwardAll | FetchDirection::All => usize::MAX,
+                    FetchDirection::Next | FetchDirection::Forward { limit: None } => 1,
                     FetchDirection::Count {
                         limit: ast::Value::Number(n, _),
                     }
