@@ -144,13 +144,6 @@ impl NexusBackend {
         }
     }
 
-    fn is_peer_validity_supported(peer_type: i32) -> bool {
-        let unsupported_peer_types = [
-            11, // EVENTHUBS
-        ];
-        !unsupported_peer_types.contains(&peer_type)
-    }
-
     async fn check_for_mirror(
         catalog: &Catalog,
         flow_name: &str,
@@ -360,16 +353,13 @@ impl NexusBackend {
                     peer,
                     if_not_exists: _,
                 } => {
-                    let peer_type = peer.r#type;
-                    if Self::is_peer_validity_supported(peer_type) {
-                        self.validate_peer(peer).await.map_err(|e| {
-                            PgWireError::UserError(Box::new(ErrorInfo::new(
-                                "ERROR".to_owned(),
-                                "internal_error".to_owned(),
-                                e.to_string(),
-                            )))
-                        })?;
-                    }
+                    self.validate_peer(peer).await.map_err(|e| {
+                        PgWireError::UserError(Box::new(ErrorInfo::new(
+                            "ERROR".to_owned(),
+                            "internal_error".to_owned(),
+                            e.to_string(),
+                        )))
+                    })?;
 
                     self.catalog.create_peer(peer.as_ref()).await.map_err(|e| {
                         PgWireError::UserError(Box::new(ErrorInfo::new(
