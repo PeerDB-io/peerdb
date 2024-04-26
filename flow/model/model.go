@@ -1,6 +1,10 @@
 package model
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -75,6 +79,31 @@ type TableWithPkey struct {
 	PkeyColVal [32]byte
 }
 
+func (t *TableWithPkey) String() string {
+	return fmt.Sprintf("%s.%s", t.TableName, hex.EncodeToString(t.PkeyColVal[:]))
+}
+
+func RecToTablePKey[T Items](
+	tableNameSchemaMapping map[string]*protos.TableSchema,
+	rec Record[T],
+) (TableWithPkey, error) {
+	tableName := rec.GetDestinationTableName()
+	pkeyColsMerged := make([][]byte, 0, len(tableNameSchemaMapping[tableName].PrimaryKeyColumns))
+
+	for _, pkeyCol := range tableNameSchemaMapping[tableName].PrimaryKeyColumns {
+		pkeyColBytes, err := rec.GetItems().GetBytesByColName(pkeyCol)
+		if err != nil {
+			return TableWithPkey{}, fmt.Errorf("error getting pkey column value: %w", err)
+		}
+		pkeyColsMerged = append(pkeyColsMerged, pkeyColBytes)
+	}
+
+	return TableWithPkey{
+		TableName:  tableName,
+		PkeyColVal: sha256.Sum256(slices.Concat(pkeyColsMerged...)),
+	}, nil
+}
+
 type SyncRecordsRequest[T Items] struct {
 	Records *CDCStream[T]
 	// ConsumedOffset allows destination to confirm lsn for slot
@@ -88,6 +117,8 @@ type SyncRecordsRequest[T Items] struct {
 	// source:destination mappings
 	TableMappings []*protos.TableMapping
 	SyncBatchID   int64
+	// destination table name -> schema mapping
+	TableNameSchemaMapping map[string]*protos.TableSchema
 }
 
 type NormalizeRecordsRequest struct {
