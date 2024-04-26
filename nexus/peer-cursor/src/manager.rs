@@ -54,21 +54,18 @@ impl CursorManager {
         })?;
 
         let mut records = Vec::new();
-        let prev_end = cursor.position;
-        let mut cursor_position = cursor.position;
-        while cursor_position - prev_end < count {
+        while records.len() < count {
             match cursor.stream.next().await {
                 Some(Ok(record)) => {
                     records.push(record);
-                    cursor_position += 1;
-                    tracing::info!("cusror position: {}", cursor_position);
                 }
                 Some(Err(err)) => return Err(err),
                 None => break,
             }
         }
 
-        cursor.position = cursor_position;
+        tracing::info!("Cursor {} fetched {} records", name, records.len());
+        cursor.position += records.len();
 
         Ok(Records {
             records,
