@@ -48,7 +48,9 @@ func (s elasticsearchSuite) Test_Simple_Qrep() {
 		s.peer,
 		"",
 		false,
-		"")
+		"",
+		"",
+	)
 	require.NoError(s.t, err)
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
