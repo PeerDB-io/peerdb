@@ -54,6 +54,7 @@ require (
 	go.temporal.io/sdk v1.26.1
 	go.uber.org/automaxprocs v1.5.3
 	golang.org/x/crypto v0.22.0
+	golang.org/x/mod v0.17.0
 	golang.org/x/sync v0.7.0
 	google.golang.org/api v0.176.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20240415180920-8c6c420018be
@@ -170,7 +171,6 @@ require (
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	golang.org/x/exp v0.0.0-20240416160154-fe59bbe5cc7f
-	golang.org/x/mod v0.17.0
 	golang.org/x/net v0.24.0 // indirect
 	golang.org/x/oauth2 v0.19.0 // indirect
 	golang.org/x/sys v0.19.0 // indirect
