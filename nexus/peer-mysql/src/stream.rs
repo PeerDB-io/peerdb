@@ -104,50 +104,57 @@ impl MyRecordStream {
     }
 }
 
-pub fn mysql_row_to_values(row: &Row) -> Vec<Value> {
-    row.columns_ref()
-        .iter()
-        .enumerate()
-        .map(|(i, col)| match col.column_type() {
+pub fn mysql_row_to_values(row: Row) -> Vec<Value> {
+    use mysql_async::from_value;
+    let columns = row.columns();
+    row.unwrap()
+        .into_iter()
+        .zip(columns.iter())
+        .map(|(val, col)|
+            if val == mysql_async::Value::NULL {
+                Value::Null
+            } else {
+            match col.column_type() {
             ColumnType::MYSQL_TYPE_NULL | ColumnType::MYSQL_TYPE_UNKNOWN => Value::Null,
-            ColumnType::MYSQL_TYPE_TINY => Value::TinyInt(row.get(i).unwrap()),
+            ColumnType::MYSQL_TYPE_TINY => Value::TinyInt(from_value(val)),
             ColumnType::MYSQL_TYPE_SHORT | ColumnType::MYSQL_TYPE_YEAR => {
-                Value::SmallInt(row.get(i).unwrap())
+                Value::SmallInt(from_value(val))
             }
             ColumnType::MYSQL_TYPE_LONG | ColumnType::MYSQL_TYPE_INT24 => {
-                Value::Integer(row.get(i).unwrap())
+                Value::Integer(from_value(val))
             }
-            ColumnType::MYSQL_TYPE_LONGLONG => Value::BigInt(row.get(i).unwrap()),
-            ColumnType::MYSQL_TYPE_FLOAT => Value::Float(row.get(i).unwrap()),
-            ColumnType::MYSQL_TYPE_DOUBLE => Value::Double(row.get(i).unwrap()),
+            ColumnType::MYSQL_TYPE_LONGLONG => Value::BigInt(from_value(val)),
+            ColumnType::MYSQL_TYPE_FLOAT => Value::Float(from_value(val)),
+            ColumnType::MYSQL_TYPE_DOUBLE => Value::Double(from_value(val)),
             ColumnType::MYSQL_TYPE_DECIMAL | ColumnType::MYSQL_TYPE_NEWDECIMAL => {
-                Value::Numeric(row.get(i).unwrap())
+                Value::Numeric(from_value(val))
             }
             ColumnType::MYSQL_TYPE_VARCHAR
             | ColumnType::MYSQL_TYPE_VAR_STRING
             | ColumnType::MYSQL_TYPE_STRING
             | ColumnType::MYSQL_TYPE_ENUM
-            | ColumnType::MYSQL_TYPE_SET => Value::Text(row.get(i).unwrap()),
+            | ColumnType::MYSQL_TYPE_SET => Value::Text(from_value(val)),
             ColumnType::MYSQL_TYPE_TINY_BLOB
             | ColumnType::MYSQL_TYPE_MEDIUM_BLOB
             | ColumnType::MYSQL_TYPE_LONG_BLOB
             | ColumnType::MYSQL_TYPE_BLOB
             | ColumnType::MYSQL_TYPE_BIT
             | ColumnType::MYSQL_TYPE_GEOMETRY => {
-                Value::Binary(row.get::<Vec<u8>, usize>(i).unwrap().into())
+                Value::Binary(from_value::<Vec<u8>>(val).into())
             }
             ColumnType::MYSQL_TYPE_DATE | ColumnType::MYSQL_TYPE_NEWDATE => {
-                Value::Date(row.get(i).unwrap())
+                Value::Date(from_value(val))
             }
             ColumnType::MYSQL_TYPE_TIME | ColumnType::MYSQL_TYPE_TIME2 => {
-                Value::Time(row.get(i).unwrap())
+                Value::Time(from_value(val))
             }
             ColumnType::MYSQL_TYPE_TIMESTAMP
             | ColumnType::MYSQL_TYPE_TIMESTAMP2
             | ColumnType::MYSQL_TYPE_DATETIME
-            | ColumnType::MYSQL_TYPE_DATETIME2 => Value::PostgresTimestamp(row.get(i).unwrap()),
-            ColumnType::MYSQL_TYPE_JSON => Value::JsonB(row.get(i).unwrap()),
+            | ColumnType::MYSQL_TYPE_DATETIME2 => Value::PostgresTimestamp(from_value(val)),
+            ColumnType::MYSQL_TYPE_JSON => Value::JsonB(from_value(val)),
             ColumnType::MYSQL_TYPE_TYPED_ARRAY => Value::Null,
+            }
         })
         .collect()
 }
@@ -158,7 +165,7 @@ impl Stream for MyRecordStream {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let row_stream = &mut self.stream;
         match Pin::new(row_stream).poll_next(cx) {
-            Poll::Ready(Some(client::Response::Row(ref row))) => Poll::Ready(Some(Ok(Record {
+            Poll::Ready(Some(client::Response::Row(row))) => Poll::Ready(Some(Ok(Record {
                 schema: self.schema.clone(),
                 values: mysql_row_to_values(row),
             }))),
