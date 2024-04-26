@@ -70,6 +70,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 		s.bqHelper.Peer,
 		"",
 		true,
+		"",
 		"")
 	require.NoError(s.t, err)
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
@@ -94,6 +95,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Timestamps_And_Date_QRep() {
 		s.bqHelper.Peer,
 		"",
 		true,
+		"",
 		"")
 	qrepConfig.WatermarkColumn = "watermark_ts"
 	require.NoError(s.t, err)
@@ -135,7 +137,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
 		s.bqHelper.Peer,
 		"",
 		true,
-		"_PEERDB_SYNCED_AT")
+		"_PEERDB_SYNCED_AT",
+		"")
 	require.NoError(s.t, err)
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)

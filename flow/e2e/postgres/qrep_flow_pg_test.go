@@ -207,6 +207,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 		"",
 		true,
 		"",
+		"",
 	)
 	require.NoError(s.t, err)
 
@@ -244,6 +245,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns_QRep_PG() {
 		"",
 		true,
 		"_PEERDB_SYNCED_AT",
+		"",
 	)
 	require.NoError(s.t, err)
 
@@ -281,6 +283,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Overwrite_PG() {
 		"",
 		true,
 		"_PEERDB_SYNCED_AT",
+		"",
 	)
 	require.NoError(s.t, err)
 	qrepConfig.WriteMode = &protos.QRepWriteMode{
@@ -331,6 +334,7 @@ func (s PeerFlowE2ETestSuitePG) Test_No_Rows_QRep_PG() {
 		"",
 		true,
 		"_PEERDB_SYNCED_AT",
+		"",
 	)
 	require.NoError(s.t, err)
 
@@ -363,6 +367,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Pause() {
 		"",
 		true,
 		"_PEERDB_SYNCED_AT",
+		"",
 	)
 	require.NoError(s.t, err)
 	config.InitialCopyOnly = false
