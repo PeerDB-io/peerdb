@@ -184,10 +184,12 @@ impl NexusBackend {
 
     async fn validate_peer<'a>(&self, peer: &Peer) -> anyhow::Result<()> {
         //if flow handler does not exist, skip validation
-        if self.flow_handler.is_none() {
+        let mut flow_handler = if let Some(ref flow_handler) = self.flow_handler {
+            flow_handler.as_ref()
+        } else {
             return Ok(());
-        }
-        let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
+        }.lock().await;
+
         let validate_request = pt::peerdb_route::ValidatePeerRequest {
             peer: Some(Peer {
                 name: peer.name.clone(),
