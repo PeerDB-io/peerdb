@@ -9,12 +9,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/elastic/go-elasticsearch/v8/esutil"
+	"github.com/google/uuid"
+
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/elastic/go-elasticsearch/v8/esutil"
-	"github.com/google/uuid"
 )
 
 func (esc *ElasticsearchConnector) SetupQRepMetadataTables(ctx context.Context,
@@ -94,7 +95,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 		}
 
 		err = esBulkIndexer.Add(ctx, esutil.BulkIndexerItem{
-			Action:     "index",
+			Action:     actionIndex,
 			DocumentID: docId,
 			Body:       bytes.NewReader(qRecordJsonBytes),
 

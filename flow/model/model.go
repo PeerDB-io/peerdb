@@ -109,7 +109,9 @@ type SyncRecordsRequest[T Items] struct {
 	// ConsumedOffset allows destination to confirm lsn for slot
 	ConsumedOffset *atomic.Int64
 	// FlowJobName is the name of the flow job.
-	FlowJobName string
+	// destination table name -> schema mapping
+	TableNameSchemaMapping map[string]*protos.TableSchema
+	FlowJobName            string
 	// Staging path for AVRO files in CDC
 	StagingPath string
 	// Lua script
@@ -117,8 +119,6 @@ type SyncRecordsRequest[T Items] struct {
 	// source:destination mappings
 	TableMappings []*protos.TableMapping
 	SyncBatchID   int64
-	// destination table name -> schema mapping
-	TableNameSchemaMapping map[string]*protos.TableSchema
 }
 
 type NormalizeRecordsRequest struct {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -144,9 +145,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 		}
 		return closeHasErrors
 	}
-	defer func() {
-		cacheCloser()
-	}()
+	defer cacheCloser()
 
 	flushLoopDone := make(chan struct{})
 	// we only update lastSeenLSN in the OnSuccess call, so this should be safe even if race
@@ -271,7 +270,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 
 	if cacheCloser() {
 		esc.logger.Error("[es] failed to close bulk indexer(s)")
-		return nil, fmt.Errorf("[es] failed to close bulk indexer(s)")
+		return nil, errors.New("[es] failed to close bulk indexer(s)")
 	}
 	bulkIndexersHaveShutdown = true
 	if len(bulkIndexErrors) > 0 {
