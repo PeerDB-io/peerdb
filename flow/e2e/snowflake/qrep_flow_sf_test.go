@@ -313,7 +313,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Default_False_SF() {
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 
-	err = s.sfHelper.checkSyncedAt(fmt.Sprintf(`SELECT "_PEERDB_IS_DELETED" FROM %s.%s`,
+	err = s.sfHelper.checkIsDeleted(fmt.Sprintf(`SELECT "_PEERDB_IS_DELETED" FROM %s.%s`,
 		s.sfHelper.testSchemaName, tblName))
 	require.NoError(s.t, err)
 }
