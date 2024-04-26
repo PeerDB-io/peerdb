@@ -151,8 +151,9 @@ func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Contex
 			TableNameSchemaMapping: map[string]*protos.TableSchema{
 				q.config.DestinationTableIdentifier: watermarkTableSchema,
 			},
-			SyncedAtColName: q.config.SyncedAtColName,
-			FlowName:        q.config.FlowJobName,
+			SyncedAtColName:   q.config.SyncedAtColName,
+			SoftDeleteColName: q.config.SoftDeleteColName,
+			FlowName:          q.config.FlowJobName,
 		}
 
 		future := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
