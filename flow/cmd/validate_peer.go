@@ -9,6 +9,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peer-flow/shared/telemetry"
 )
 
 func (h *FlowRequestHandler) ValidatePeer(
@@ -31,10 +32,11 @@ func (h *FlowRequestHandler) ValidatePeer(
 
 	conn, err := connectors.GetConnector(ctx, req.Peer)
 	if err != nil {
+		displayErr := fmt.Sprintf("%s peer %s was invalidated: %v", req.Peer.Type, req.Peer.Name, err)
+		h.alerter.LogNonFlowWarning(ctx, telemetry.CreatePeer, req.Peer.Name, displayErr)
 		return &protos.ValidatePeerResponse{
-			Status: protos.ValidatePeerStatus_INVALID,
-			Message: fmt.Sprintf("%s peer %s was invalidated: %s",
-				req.Peer.Type, req.Peer.Name, err),
+			Status:  protos.ValidatePeerStatus_INVALID,
+			Message: displayErr,
 		}, nil
 	}
 
@@ -59,21 +61,27 @@ func (h *FlowRequestHandler) ValidatePeer(
 	validationConn, ok := conn.(connectors.ValidationConnector)
 	if ok {
 		validErr := validationConn.ValidateCheck(ctx)
+		displayErr := fmt.Sprintf("failed to validate peer %s: %v", req.Peer.Name, validErr)
+		h.alerter.LogNonFlowWarning(ctx, telemetry.CreatePeer, req.Peer.Name,
+			displayErr,
+		)
 		if validErr != nil {
 			return &protos.ValidatePeerResponse{
-				Status: protos.ValidatePeerStatus_INVALID,
-				Message: fmt.Sprintf("failed to validate %s peer %s: %v",
-					req.Peer.Type, req.Peer.Name, validErr),
+				Status:  protos.ValidatePeerStatus_INVALID,
+				Message: displayErr,
 			}, nil
 		}
 	}
 
 	connErr := conn.ConnectionActive(ctx)
 	if connErr != nil {
+		displayErr := fmt.Sprintf("failed to establish active connection to %s peer %s: %v", req.Peer.Type, req.Peer.Name, connErr)
+		h.alerter.LogNonFlowWarning(ctx, telemetry.CreatePeer, req.Peer.Name,
+			displayErr,
+		)
 		return &protos.ValidatePeerResponse{
-			Status: protos.ValidatePeerStatus_INVALID,
-			Message: fmt.Sprintf("failed to establish active connection to %s peer %s: %v",
-				req.Peer.Type, req.Peer.Name, connErr),
+			Status:  protos.ValidatePeerStatus_INVALID,
+			Message: displayErr,
 		}, nil
 	}
 
