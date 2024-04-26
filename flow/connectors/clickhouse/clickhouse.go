@@ -12,7 +12,6 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"go.temporal.io/sdk/log"
 	"golang.org/x/mod/semver"
 
@@ -45,21 +44,7 @@ func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error
 		return fmt.Errorf("failed to create S3 bucket and prefix: %w", err)
 	}
 
-	prefix := object.Prefix
-	if !strings.HasSuffix(prefix, "/") {
-		prefix += "/"
-	}
-
-	_, listErr := s3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket: &object.Bucket,
-		Prefix: &prefix,
-	},
-	)
-	if listErr != nil {
-		return fmt.Errorf("failed to list objects: %w", listErr)
-	}
-
-	return nil
+	return utils.PutAndRemoveS3(ctx, s3Client, object.Bucket, object.Prefix)
 }
 
 // Creates and drops a dummy table to validate the peer
@@ -113,7 +98,7 @@ func NewClickhouseConnector(
 			AccessKeyID:     config.AccessKeyId,
 			SecretAccessKey: config.SecretAccessKey,
 		},
-		EndpointUrl: nil,
+		EndpointUrl: config.Endpoint,
 		Region:      config.Region,
 	})
 	if err != nil {
@@ -161,15 +146,10 @@ func NewClickhouseConnector(
 		cleanedClickHouseVersion := "v" + strings.Join(versionParts, ".")
 		if semver.Compare(cleanedClickHouseVersion, minSupportedClickhouseVersion) < 0 {
 			return nil, fmt.Errorf(
-				"provide AWS access credentials explicitly or upgrade to clickhouse version >= %v, current version is %s. %s",
+				"provide S3 Transient Stage details explicitly or upgrade to clickhouse version >= %v, current version is %s. %s",
 				minSupportedClickhouseVersion, clickHouseVersion,
-				"You can also contact PeerDB support for implicit S3 setup for older versions of Clickhouse.")
+				"You can also contact PeerDB support for implicit S3 stage setup for older versions of Clickhouse.")
 		}
-	}
-
-	validateErr := ValidateS3(ctx, &clickHouseS3CredentialsNew)
-	if validateErr != nil {
-		return nil, fmt.Errorf("failed to validate S3 bucket: %w", validateErr)
 	}
 
 	return &ClickhouseConnector{

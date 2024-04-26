@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -14,9 +16,17 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	smithyendpoints "github.com/aws/smithy-go/endpoints"
+	"github.com/google/uuid"
 
 	"github.com/PeerDB-io/peer-flow/logger"
 )
+
+const (
+	_peerDBCheck = "peerdb_check"
+)
+
+var s3CompatibleServiceEndpointPattern = regexp.MustCompile(`^https?://[a-zA-Z0-9.-]+(:\d+)?$`)
 
 type AWSSecrets struct {
 	AccessKeyID     string
@@ -57,6 +67,7 @@ type AWSCredentialsProvider interface {
 	Retrieve(ctx context.Context) (AWSCredentials, error)
 	GetUnderlyingProvider() aws.CredentialsProvider
 	GetRegion() string
+	GetEndpointURL() string
 }
 
 type ConfigBasedAWSCredentialsProvider struct {
@@ -69,6 +80,15 @@ func (r *ConfigBasedAWSCredentialsProvider) GetUnderlyingProvider() aws.Credenti
 
 func (r *ConfigBasedAWSCredentialsProvider) GetRegion() string {
 	return r.config.Region
+}
+
+func (r *ConfigBasedAWSCredentialsProvider) GetEndpointURL() string {
+	endpoint := ""
+	if r.config.BaseEndpoint != nil {
+		endpoint = *r.config.BaseEndpoint
+	}
+
+	return endpoint
 }
 
 // Retrieve should be called as late as possible in order to have credentials with latest expiry
@@ -105,6 +125,15 @@ func (s *StaticAWSCredentialsProvider) Retrieve(ctx context.Context) (AWSCredent
 	return s.credentials, nil
 }
 
+func (s *StaticAWSCredentialsProvider) GetEndpointURL() string {
+	endpoint := ""
+	if s.credentials.EndpointUrl != nil {
+		endpoint = *s.credentials.EndpointUrl
+	}
+
+	return endpoint
+}
+
 func NewStaticAWSCredentialsProvider(credentials AWSCredentials, region string) AWSCredentialsProvider {
 	return &StaticAWSCredentialsProvider{
 		credentials: credentials,
@@ -120,7 +149,7 @@ func LoadPeerDBAWSEnvConfigProvider(connectorName string) AWSCredentialsProvider
 	accessKeyId := getPeerDBAWSEnv(connectorName, "AWS_ACCESS_KEY_ID")
 	secretAccessKey := getPeerDBAWSEnv(connectorName, "AWS_SECRET_ACCESS_KEY")
 	region := getPeerDBAWSEnv(connectorName, "AWS_REGION")
-	endpointUrl := getPeerDBAWSEnv(connectorName, "AWS_ENDPOINT_URL")
+	endpointUrl := getPeerDBAWSEnv(connectorName, "AWS_ENDPOINT_URL_S3")
 	var endpointUrlPtr *string
 	if endpointUrl != "" {
 		endpointUrlPtr = &endpointUrl
@@ -141,7 +170,8 @@ func LoadPeerDBAWSEnvConfigProvider(connectorName string) AWSCredentialsProvider
 
 func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCredentials PeerAWSCredentials) (AWSCredentialsProvider, error) {
 	if !(peerCredentials.Credentials.AccessKeyID == "" && peerCredentials.Credentials.SecretAccessKey == "" &&
-		peerCredentials.Region == "" && peerCredentials.RoleArn == nil && peerCredentials.EndpointUrl == nil) {
+		peerCredentials.Region == "" && peerCredentials.RoleArn == nil &&
+		(peerCredentials.EndpointUrl == nil || *peerCredentials.EndpointUrl == "")) {
 		staticProvider := NewStaticAWSCredentialsProvider(AWSCredentials{
 			AWS:         peerCredentials.Credentials,
 			EndpointUrl: peerCredentials.EndpointUrl,
@@ -178,6 +208,16 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 	return NewConfigBasedAWSCredentialsProvider(awsConfig), nil
 }
 
+func FileURLForS3Service(endpoint string, region string, bucket string, filePath string) string {
+	// example: min.io local bucket or GCS
+	matches := s3CompatibleServiceEndpointPattern.MatchString(endpoint)
+	if matches {
+		return fmt.Sprintf("%s/%s/%s", endpoint, bucket, filePath)
+	}
+
+	return fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", bucket, region, filePath)
+}
+
 type S3BucketAndPrefix struct {
 	Bucket string
 	Prefix string
@@ -197,26 +237,52 @@ func NewS3BucketAndPrefix(s3Path string) (*S3BucketAndPrefix, error) {
 	}, nil
 }
 
+type resolverV2 struct {
+	userProvidedEndpointUrl string
+}
+
+func (r *resolverV2) ResolveEndpoint(ctx context.Context, params s3.EndpointParameters) (
+	smithyendpoints.Endpoint, error,
+) {
+	if r.userProvidedEndpointUrl != "" {
+		u, err := url.Parse(r.userProvidedEndpointUrl)
+		if err != nil {
+			return smithyendpoints.Endpoint{}, err
+		}
+
+		u.Path += "/" + *params.Bucket
+		return smithyendpoints.Endpoint{
+			URI: *u,
+		}, nil
+	}
+
+	return s3.NewDefaultEndpointResolverV2().ResolveEndpoint(ctx, params)
+}
+
 func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (*s3.Client, error) {
 	awsCredentials, err := credsProvider.Retrieve(ctx)
 	if err != nil {
 		return nil, err
 	}
+
 	s3Client := s3.NewFromConfig(aws.Config{}, func(options *s3.Options) {
 		options.Region = credsProvider.GetRegion()
 		options.Credentials = credsProvider.GetUnderlyingProvider()
-		if awsCredentials.EndpointUrl != nil {
+
+		if awsCredentials.EndpointUrl != nil && *awsCredentials.EndpointUrl != "" {
 			options.BaseEndpoint = awsCredentials.EndpointUrl
-			if strings.Contains(*awsCredentials.EndpointUrl, "storage.googleapis.com") {
-				// Assign custom client with our own transport
-				options.HTTPClient = &http.Client{
-					Transport: &RecalculateV4Signature{
-						next:        http.DefaultTransport,
-						signer:      v4.NewSigner(),
-						credentials: credsProvider.GetUnderlyingProvider(),
-						region:      credsProvider.GetRegion(),
-					},
-				}
+			options.EndpointResolverV2 = &resolverV2{
+				userProvidedEndpointUrl: *awsCredentials.EndpointUrl,
+			}
+
+			// Assign custom client with our own transport
+			options.HTTPClient = &http.Client{
+				Transport: &RecalculateV4Signature{
+					next:        http.DefaultTransport,
+					signer:      v4.NewSigner(),
+					credentials: credsProvider.GetUnderlyingProvider(),
+					region:      credsProvider.GetRegion(),
+				},
 			}
 		}
 	})
@@ -257,4 +323,31 @@ func (lt *RecalculateV4Signature) RoundTrip(req *http.Request) (*http.Response, 
 
 	// follows up the original round tripper
 	return lt.next.RoundTrip(req)
+}
+
+// Write an empty file and then delete it
+// to check if we have write permissions
+func PutAndRemoveS3(ctx context.Context, client *s3.Client, bucket string, prefix string) error {
+	reader := strings.NewReader(time.Now().Format(time.RFC3339))
+	bucketName := aws.String(bucket)
+	temporaryObjectPath := prefix + "/" + _peerDBCheck + uuid.New().String()
+	temporaryObjectPath = strings.TrimPrefix(temporaryObjectPath, "/")
+	_, putErr := client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: bucketName,
+		Key:    aws.String(temporaryObjectPath),
+		Body:   reader,
+	})
+	if putErr != nil {
+		return fmt.Errorf("failed to write to bucket: %w", putErr)
+	}
+
+	_, delErr := client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: bucketName,
+		Key:    aws.String(temporaryObjectPath),
+	})
+	if delErr != nil {
+		return fmt.Errorf("failed to delete from bucket: %w", delErr)
+	}
+
+	return nil
 }

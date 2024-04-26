@@ -734,6 +734,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("disable_tls")
                     .and_then(|s| s.parse::<bool>().ok())
                     .unwrap_or_default(),
+                endpoint: opts.get("endpoint").map(|s| s.to_string()),
             };
             Config::ClickhouseConfig(clickhouse_config)
         }
