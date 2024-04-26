@@ -66,10 +66,7 @@ impl AuthSource for FixedPasswordAuthSource {
         let salt = rand::thread_rng().gen::<[u8; 4]>();
         let password = &self.password;
         let hash_password = hash_md5_password(login_info.user().unwrap_or(""), password, &salt);
-        Ok(Password::new(
-            Some(salt.to_vec()),
-            hash_password.as_bytes().to_vec(),
-        ))
+        Ok(Password::new(Some(salt.to_vec()), Vec::from(hash_password)))
     }
 }
 

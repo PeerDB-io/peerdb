@@ -97,8 +97,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
         match stmt {
             Statement::Query(query) => {
                 let mut query = query.clone();
-                let bq_ast = ast::BigqueryAst::default();
-                bq_ast
+                ast::BigqueryAst
                     .rewrite(&self.dataset_id, &mut query)
                     .context("unable to rewrite query")
                     .map_err(|err| PgWireError::ApiError(err.into()))?;
@@ -206,8 +205,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
         match stmt {
             Statement::Query(query) => {
                 let mut query = query.clone();
-                let bq_ast = ast::BigqueryAst::default();
-                bq_ast
+                ast::BigqueryAst
                     .rewrite(&self.dataset_id, &mut query)
                     .context("unable to rewrite query")
                     .map_err(|err| PgWireError::ApiError(err.into()))?;
