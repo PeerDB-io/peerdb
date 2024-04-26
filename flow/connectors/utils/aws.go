@@ -204,8 +204,8 @@ func FileURLForS3Service(endpoint string, region string, bucket string, filePath
 	if strings.Contains(endpoint, "storage.googleapis.com") {
 		fileUrl = fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucket, filePath)
 	}
-	// example: min.io local bucket
-	match, _ := regexp.MatchString(`^http://[a-zA-Z0-9.-]+:\d+$`, endpoint)
+	// example: min.io local bucket or GCS
+	match, _ := regexp.MatchString(`^https?://[a-zA-Z0-9.-]+(:\d+)?$`, endpoint)
 	if match {
 		fileUrl = fmt.Sprintf("%s/%s/%s", endpoint, bucket, filePath)
 	}
@@ -245,7 +245,7 @@ func (r *resolverV2) ResolveEndpoint(ctx context.Context, params s3.EndpointPara
 			return smithyendpoints.Endpoint{}, err
 		}
 
-		u.Path = "/" + *params.Bucket
+		u.Path += "/" + *params.Bucket
 		return smithyendpoints.Endpoint{
 			URI: *u,
 		}, nil
