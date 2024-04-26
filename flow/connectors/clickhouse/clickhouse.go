@@ -16,7 +16,6 @@ import (
 	"golang.org/x/mod/semver"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
-	conns3 "github.com/PeerDB-io/peer-flow/connectors/s3"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
@@ -45,7 +44,7 @@ func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error
 		return fmt.Errorf("failed to create S3 bucket and prefix: %w", err)
 	}
 
-	return conns3.PutAndRemoveS3(ctx, s3Client, object.Bucket, object.Prefix)
+	return utils.PutAndRemoveS3(ctx, s3Client, object.Bucket, object.Prefix)
 }
 
 // Creates and drops a dummy table to validate the peer

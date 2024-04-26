@@ -4,12 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/google/uuid"
 	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
@@ -17,10 +14,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
-)
-
-const (
-	_peerDBCheck = "peerdb_check"
 )
 
 type S3Connector struct {
@@ -77,40 +70,13 @@ func (c *S3Connector) Close() error {
 	return nil
 }
 
-// Write an empty file and then delete it
-// to check if we have write permissions
-func PutAndRemoveS3(ctx context.Context, client *s3.Client, bucket string, prefix string) error {
-	reader := strings.NewReader(time.Now().Format(time.RFC3339))
-	bucketName := aws.String(bucket)
-	temporaryObjectPath := prefix + "/" + _peerDBCheck + uuid.New().String()
-	temporaryObjectPath = strings.TrimPrefix(temporaryObjectPath, "/")
-	_, putErr := client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: bucketName,
-		Key:    aws.String(temporaryObjectPath),
-		Body:   reader,
-	})
-	if putErr != nil {
-		return fmt.Errorf("failed to write to bucket: %w", putErr)
-	}
-
-	_, delErr := client.DeleteObject(ctx, &s3.DeleteObjectInput{
-		Bucket: bucketName,
-		Key:    aws.String(temporaryObjectPath),
-	})
-	if delErr != nil {
-		return fmt.Errorf("failed to delete from bucket: %w", delErr)
-	}
-
-	return nil
-}
-
 func (c *S3Connector) ValidateCheck(ctx context.Context) error {
 	bucketPrefix, parseErr := utils.NewS3BucketAndPrefix(c.url)
 	if parseErr != nil {
 		return fmt.Errorf("failed to parse bucket url: %w", parseErr)
 	}
 
-	return PutAndRemoveS3(ctx, &c.client, bucketPrefix.Bucket, bucketPrefix.Prefix)
+	return utils.PutAndRemoveS3(ctx, &c.client, bucketPrefix.Bucket, bucketPrefix.Prefix)
 }
 
 func (c *S3Connector) ConnectionActive(ctx context.Context) error {

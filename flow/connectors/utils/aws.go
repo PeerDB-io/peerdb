@@ -17,8 +17,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	smithyendpoints "github.com/aws/smithy-go/endpoints"
+	"github.com/google/uuid"
 
 	"github.com/PeerDB-io/peer-flow/logger"
+)
+
+const (
+	_peerDBCheck = "peerdb_check"
 )
 
 var s3CompatibleServiceEndpointPattern = regexp.MustCompile(`^https?://[a-zA-Z0-9.-]+(:\d+)?$`)
@@ -318,4 +323,31 @@ func (lt *RecalculateV4Signature) RoundTrip(req *http.Request) (*http.Response, 
 
 	// follows up the original round tripper
 	return lt.next.RoundTrip(req)
+}
+
+// Write an empty file and then delete it
+// to check if we have write permissions
+func PutAndRemoveS3(ctx context.Context, client *s3.Client, bucket string, prefix string) error {
+	reader := strings.NewReader(time.Now().Format(time.RFC3339))
+	bucketName := aws.String(bucket)
+	temporaryObjectPath := prefix + "/" + _peerDBCheck + uuid.New().String()
+	temporaryObjectPath = strings.TrimPrefix(temporaryObjectPath, "/")
+	_, putErr := client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: bucketName,
+		Key:    aws.String(temporaryObjectPath),
+		Body:   reader,
+	})
+	if putErr != nil {
+		return fmt.Errorf("failed to write to bucket: %w", putErr)
+	}
+
+	_, delErr := client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: bucketName,
+		Key:    aws.String(temporaryObjectPath),
+	})
+	if delErr != nil {
+		return fmt.Errorf("failed to delete from bucket: %w", delErr)
+	}
+
+	return nil
 }
