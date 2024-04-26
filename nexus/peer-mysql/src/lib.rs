@@ -2,6 +2,8 @@ mod ast;
 mod client;
 mod stream;
 
+use std::fmt::Write;
+
 use peer_cursor::{
     CursorManager, CursorModification, QueryExecutor, QueryOutput, RecordStream, Schema,
 };
@@ -61,6 +63,34 @@ impl QueryExecutor for MySqlQueryExecutor {
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
         // only support SELECT statements
         match stmt {
+            Statement::Explain { analyze, format, statement, .. } => {
+                if let Statement::Query(ref query) = **statement {
+                    let mut query = query.clone();
+                    ast::rewrite_query(&self.peer_name, &mut query);
+                    let mut querystr = String::from("EXPLAIN ");
+                    if *analyze {
+                        querystr.push_str("ANALYZE ");
+                    }
+                    if let Some(format) = format {
+                        write!(querystr, "FORMAT={} ", format).ok();
+                    }
+                    write!(querystr, "{}", query).ok();
+                    tracing::info!("mysql rewritten query: {}", query);
+
+                    let cursor = self.query(querystr).await?;
+                    Ok(QueryOutput::Stream(Box::pin(cursor)))
+                } else {
+                    let error = format!(
+                        "only EXPLAIN SELECT statements are supported in mysql. got: {}",
+                        statement
+                    );
+                    Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                        "ERROR".to_owned(),
+                        "fdw_error".to_owned(),
+                        error,
+                    ))))
+                }
+            }
             Statement::Query(query) => {
                 let mut query = query.clone();
                 ast::rewrite_query(&self.peer_name, &mut query);
