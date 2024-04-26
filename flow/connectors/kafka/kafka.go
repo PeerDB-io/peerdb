@@ -45,7 +45,7 @@ func NewKafkaConnector(
 		kgo.SoftwareNameAndVersion("peerdb", peerdbenv.PeerDBVersionShaShort()),
 	)
 	if !config.DisableTls {
-		optionalOpts = append(optionalOpts, kgo.DialTLSConfig(&tls.Config{MinVersion: tls.VersionTLS13}))
+		optionalOpts = append(optionalOpts, kgo.DialTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12}))
 	}
 	switch config.Partitioner {
 	case "LeastBackup":
