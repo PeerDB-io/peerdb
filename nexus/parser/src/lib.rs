@@ -59,8 +59,7 @@ impl NexusStatement {
             });
         }
 
-        let peer_cursor: PeerCursorAnalyzer = Default::default();
-        if let Ok(Some(cursor)) = peer_cursor.analyze(stmt) {
+        if let Ok(Some(cursor)) = PeerCursorAnalyzer.analyze(stmt) {
             return Ok(NexusStatement::PeerCursor {
                 stmt: stmt.clone(),
                 cursor,

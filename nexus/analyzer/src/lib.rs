@@ -53,26 +53,38 @@ impl<'a> StatementAnalyzer for PeerExistanceAnalyzer<'a> {
 
     fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output> {
         let mut peers_touched: HashSet<String> = HashSet::new();
+        let mut analyze_name = |name: &str| {
+            let name = name.to_lowercase();
+            if self.peers.contains_key(&name) {
+                peers_touched.insert(name);
+            }
+        };
 
-        // This is necessary as visit relations was not visiting drop table's object names,
-        // causing DROP commands for Postgres peer being interpreted as
-        // catalog queries.
+        // Necessary as visit_relations fails to deeply visit some structures.
         visit_statements(statement, |stmt| {
-            if let &Statement::Drop { names, .. } = &stmt {
-                for name in names {
-                    let peer_name = name.0[0].value.to_lowercase();
-                    if self.peers.contains_key(&peer_name) {
-                        peers_touched.insert(peer_name);
+            match stmt {
+                Statement::Drop { names, .. } => {
+                    for name in names {
+                        analyze_name(&name.0[0].value);
                     }
                 }
+                Statement::Declare { stmts } => {
+                    for stmt in stmts {
+                        if let Some(ref query) = stmt.for_query {
+                            visit_relations(query, |relation| {
+                                analyze_name(&relation.0[0].value);
+                                ControlFlow::<()>::Continue(())
+                            });
+                        }
+                    }
+                }
+                _ => (),
             }
             ControlFlow::<()>::Continue(())
         });
+
         visit_relations(statement, |relation| {
-            let peer_name = relation.0[0].value.to_lowercase();
-            if self.peers.contains_key(&peer_name) {
-                peers_touched.insert(peer_name);
-            }
+            analyze_name(&relation.0[0].value);
             ControlFlow::<()>::Continue(())
         });
 
@@ -476,7 +488,7 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
                     }
                     | FetchDirection::Forward {
                         limit: Some(ast::Value::Number(n, _)),
-                    } => n.parse::<usize>(),
+                    } => n.parse::<usize>()?,
                     _ => {
                         return Err(anyhow::anyhow!(
                             "invalid fetch direction for cursor: {:?}",
@@ -484,7 +496,7 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
                         ))
                     }
                 };
-                Ok(Some(CursorEvent::Fetch(name.value.clone(), count?)))
+                Ok(Some(CursorEvent::Fetch(name.value.clone(), count)))
             }
             Statement::Close { cursor } => match cursor {
                 ast::CloseCursor::All => Ok(Some(CursorEvent::CloseAll)),

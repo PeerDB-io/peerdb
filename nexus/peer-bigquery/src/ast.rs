@@ -8,8 +8,7 @@ use sqlparser::ast::{
     FunctionArgExpr, Ident, ObjectName, Query, SetExpr, SetOperator, SetQuantifier, TimezoneInfo,
 };
 
-#[derive(Default)]
-pub struct BigqueryAst {}
+pub struct BigqueryAst;
 
 impl BigqueryAst {
     pub fn is_timestamp_returning_function(&self, name: &str) -> bool {
