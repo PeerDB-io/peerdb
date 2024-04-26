@@ -162,7 +162,8 @@ func LoadPeerDBAWSEnvConfigProvider(connectorName string) AWSCredentialsProvider
 
 func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCredentials PeerAWSCredentials) (AWSCredentialsProvider, error) {
 	if !(peerCredentials.Credentials.AccessKeyID == "" && peerCredentials.Credentials.SecretAccessKey == "" &&
-		peerCredentials.Region == "" && peerCredentials.RoleArn == nil && (peerCredentials.EndpointUrl == nil || *peerCredentials.EndpointUrl == "")) {
+		peerCredentials.Region == "" && peerCredentials.RoleArn == nil &&
+		(peerCredentials.EndpointUrl == nil || *peerCredentials.EndpointUrl == "")) {
 		staticProvider := NewStaticAWSCredentialsProvider(AWSCredentials{
 			AWS:         peerCredentials.Credentials,
 			EndpointUrl: peerCredentials.EndpointUrl,
