@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -18,6 +17,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	smithyendpoints "github.com/aws/smithy-go/endpoints"
+
+	"github.com/PeerDB-io/peer-flow/logger"
 )
 
 type AWSSecrets struct {
