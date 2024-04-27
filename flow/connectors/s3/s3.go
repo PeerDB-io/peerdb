@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -18,16 +16,12 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 )
 
-const (
-	_peerDBCheck = "peerdb_check"
-)
-
 type S3Connector struct {
 	*metadataStore.PostgresMetadata
-	logger log.Logger
-	creds  utils.S3PeerCredentials
-	url    string
-	client s3.Client
+	logger              log.Logger
+	credentialsProvider utils.AWSCredentialsProvider
+	url                 string
+	client              s3.Client
 }
 
 func NewS3Connector(
@@ -35,34 +29,21 @@ func NewS3Connector(
 	config *protos.S3Config,
 ) (*S3Connector, error) {
 	logger := logger.LoggerFromCtx(ctx)
-	keyID := ""
-	if config.AccessKeyId != nil {
-		keyID = *config.AccessKeyId
+
+	provider, err := utils.GetAWSCredentialsProvider(ctx, "s3", utils.PeerAWSCredentials{
+		Credentials: aws.Credentials{
+			AccessKeyID:     config.GetAccessKeyId(),
+			SecretAccessKey: config.GetSecretAccessKey(),
+		},
+		RoleArn:     config.RoleArn,
+		EndpointUrl: config.Endpoint,
+		Region:      config.GetRegion(),
+	})
+	if err != nil {
+		return nil, err
 	}
-	secretKey := ""
-	if config.SecretAccessKey != nil {
-		secretKey = *config.SecretAccessKey
-	}
-	roleArn := ""
-	if config.RoleArn != nil {
-		roleArn = *config.RoleArn
-	}
-	region := ""
-	if config.Region != nil {
-		region = *config.Region
-	}
-	endpoint := ""
-	if config.Endpoint != nil {
-		endpoint = *config.Endpoint
-	}
-	s3PeerCreds := utils.S3PeerCredentials{
-		AccessKeyID:     keyID,
-		SecretAccessKey: secretKey,
-		AwsRoleArn:      roleArn,
-		Region:          region,
-		Endpoint:        endpoint,
-	}
-	s3Client, err := utils.CreateS3Client(s3PeerCreds)
+
+	s3Client, err := utils.CreateS3Client(ctx, provider)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create S3 client: %w", err)
 	}
@@ -72,11 +53,11 @@ func NewS3Connector(
 		return nil, err
 	}
 	return &S3Connector{
-		url:              config.Url,
-		PostgresMetadata: pgMetadata,
-		client:           *s3Client,
-		creds:            s3PeerCreds,
-		logger:           logger,
+		url:                 config.Url,
+		PostgresMetadata:    pgMetadata,
+		client:              *s3Client,
+		credentialsProvider: provider,
+		logger:              logger,
 	}, nil
 }
 
@@ -90,41 +71,19 @@ func (c *S3Connector) Close() error {
 }
 
 func (c *S3Connector) ValidateCheck(ctx context.Context) error {
-	reader := strings.NewReader(time.Now().Format(time.RFC3339))
-
 	bucketPrefix, parseErr := utils.NewS3BucketAndPrefix(c.url)
 	if parseErr != nil {
 		return fmt.Errorf("failed to parse bucket url: %w", parseErr)
 	}
 
-	// Write an empty file and then delete it
-	// to check if we have write permissions
-	bucketName := aws.String(bucketPrefix.Bucket)
-	_, putErr := c.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: bucketName,
-		Key:    aws.String(_peerDBCheck),
-		Body:   reader,
-	})
-	if putErr != nil {
-		return fmt.Errorf("failed to write to bucket: %w", putErr)
-	}
-
-	_, delErr := c.client.DeleteObject(ctx, &s3.DeleteObjectInput{
-		Bucket: bucketName,
-		Key:    aws.String(_peerDBCheck),
-	})
-	if delErr != nil {
-		return fmt.Errorf("failed to delete from bucket: %w", delErr)
-	}
-
-	return nil
+	return utils.PutAndRemoveS3(ctx, &c.client, bucketPrefix.Bucket, bucketPrefix.Prefix)
 }
 
 func (c *S3Connector) ConnectionActive(ctx context.Context) error {
 	return nil
 }
 
-func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, req.SyncBatchID)
 	recordStream, err := utils.RecordsToRawTableStream(streamReq)

@@ -6,7 +6,7 @@ import {
 import { MirrorSetting } from './common';
 export const qrepSettings: MirrorSetting[] = [
   {
-    label: 'Table',
+    label: 'Source Table',
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({
         ...curr,
@@ -32,10 +32,11 @@ export const qrepSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({
         ...curr,
-        setupWatermarkTableOnDestination: (value as boolean) || false,
+        setupWatermarkTableOnDestination: value as boolean,
       })),
     tips: 'Specify if you want to create the watermark table on the destination as-is, can be used for some queries.',
     type: 'switch',
+    default: true,
   },
   {
     label: 'Destination Table Name',
@@ -69,17 +70,6 @@ export const qrepSettings: MirrorSetting[] = [
     tips: 'PeerDB spins up parallel threads for each partition. This setting controls the number of partitions to sync in parallel. The default value is 4.',
     default: '4',
     type: 'number',
-  },
-  {
-    label: 'Staging Path',
-    stateHandler: (value, setter) =>
-      setter((curr: QRepConfig) => ({
-        ...curr,
-        stagingPath: (value as string) || '',
-      })),
-    tips: `You can specify staging path for sync mode AVRO. For Snowflake as destination peer:
-    If this starts with s3:// then it will be written to S3.
-    If nothing is specified then it will be written to local disk.`,
   },
   {
     label: 'Write Type',
@@ -127,7 +117,7 @@ export const qrepSettings: MirrorSetting[] = [
     type: 'switch',
   },
   {
-    label: 'Wait Time Between Batches',
+    label: 'Sync Interval (Seconds)',
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({
         ...curr,
@@ -137,14 +127,4 @@ export const qrepSettings: MirrorSetting[] = [
     default: 30,
     type: 'number',
   },
-  // {
-  //   label: 'Resync Destination Table',
-  //   stateHandler: (value, setter) =>
-  //     setter((curr: QRepConfig) => ({
-  //       ...curr,
-  //       dstTableFullResync:value as boolean
-  //     })),
-  //   tips: 'Perform a resync of the provided destination table',
-  //   type: 'switch',
-  // },
 ];

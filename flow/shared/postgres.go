@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
+	"time"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
@@ -90,4 +93,13 @@ func GetMajorVersion(ctx context.Context, conn *pgx.Conn) (PGVersion, error) {
 	}
 
 	return PGVersion(version), nil
+}
+
+func RollbackTx(tx pgx.Tx, logger log.Logger) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	err := tx.Rollback(ctx)
+	if err != nil && err != pgx.ErrTxClosed {
+		logger.Error("error while rolling back transaction", slog.Any("error", err))
+	}
 }

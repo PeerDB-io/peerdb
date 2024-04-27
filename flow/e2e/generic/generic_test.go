@@ -152,6 +152,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	}
 	output, err := destinationSchemaConnector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{dstTableName},
+		System:           protos.TypeSystem_Q,
 	})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output.TableNameSchemaMapping[dstTableName]))
@@ -195,6 +196,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	}
 	output, err = destinationSchemaConnector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{dstTableName},
+		System:           protos.TypeSystem_Q,
 	})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output.TableNameSchemaMapping[dstTableName]))
@@ -244,6 +246,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	}
 	output, err = destinationSchemaConnector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{dstTableName},
+		System:           protos.TypeSystem_Q,
 	})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output.TableNameSchemaMapping[dstTableName]))
@@ -293,6 +296,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	}
 	output, err = destinationSchemaConnector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{dstTableName},
+		System:           protos.TypeSystem_Q,
 	})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output.TableNameSchemaMapping[dstTableName]))

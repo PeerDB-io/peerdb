@@ -13,12 +13,12 @@ import (
 
 // PEERDB_VERSION_SHA_SHORT
 func PeerDBVersionShaShort() string {
-	return getEnvString("PEERDB_VERSION_SHA_SHORT", "unknown")
+	return GetEnvString("PEERDB_VERSION_SHA_SHORT", "unknown")
 }
 
 // PEERDB_DEPLOYMENT_UID
 func PeerDBDeploymentUID() string {
-	return getEnvString("PEERDB_DEPLOYMENT_UID", "")
+	return GetEnvString("PEERDB_DEPLOYMENT_UID", "")
 }
 
 func PeerFlowTaskQueueName(taskQueueID shared.TaskQueueID) string {
@@ -38,6 +38,10 @@ func PeerDBCDCChannelBufferSize() int {
 func PeerDBQueueFlushTimeoutSeconds() time.Duration {
 	x := getEnvInt("PEERDB_QUEUE_FLUSH_TIMEOUT_SECONDS", 10)
 	return time.Duration(x) * time.Second
+}
+
+func PeerDBQueueParallelism() int {
+	return getEnvInt("PEERDB_QUEUE_PARALLELISM", 4)
 }
 
 // env variable doesn't exist anymore, but tests appear to depend on this
@@ -74,7 +78,7 @@ func PeerDBFlowWorkerMaxMemBytes() uint64 {
 
 // PEERDB_CATALOG_HOST
 func PeerDBCatalogHost() string {
-	return getEnvString("PEERDB_CATALOG_HOST", "")
+	return GetEnvString("PEERDB_CATALOG_HOST", "")
 }
 
 // PEERDB_CATALOG_PORT
@@ -84,17 +88,17 @@ func PeerDBCatalogPort() uint16 {
 
 // PEERDB_CATALOG_USER
 func PeerDBCatalogUser() string {
-	return getEnvString("PEERDB_CATALOG_USER", "")
+	return GetEnvString("PEERDB_CATALOG_USER", "")
 }
 
 // PEERDB_CATALOG_PASSWORD
 func PeerDBCatalogPassword() string {
-	return getEnvString("PEERDB_CATALOG_PASSWORD", "")
+	return GetEnvString("PEERDB_CATALOG_PASSWORD", "")
 }
 
 // PEERDB_CATALOG_DATABASE
 func PeerDBCatalogDatabase() string {
-	return getEnvString("PEERDB_CATALOG_DATABASE", "")
+	return GetEnvString("PEERDB_CATALOG_DATABASE", "")
 }
 
 // PEERDB_ENABLE_WAL_HEARTBEAT
@@ -113,22 +117,27 @@ func PeerDBSnowflakeMergeParallelism() int {
 
 // PEERDB_TELEMETRY_AWS_SNS_TOPIC_ARN
 func PeerDBTelemetryAWSSNSTopicArn() string {
-	return getEnvString("PEERDB_TELEMETRY_AWS_SNS_TOPIC_ARN", "")
+	return GetEnvString("PEERDB_TELEMETRY_AWS_SNS_TOPIC_ARN", "")
 }
 
 func PeerDBAlertingEmailSenderSourceEmail() string {
-	return getEnvString("PEERDB_ALERTING_EMAIL_SENDER_SOURCE_EMAIL", "")
+	return GetEnvString("PEERDB_ALERTING_EMAIL_SENDER_SOURCE_EMAIL", "")
 }
 
 func PeerDBAlertingEmailSenderConfigurationSet() string {
-	return getEnvString("PEERDB_ALERTING_EMAIL_SENDER_CONFIGURATION_SET", "")
+	return GetEnvString("PEERDB_ALERTING_EMAIL_SENDER_CONFIGURATION_SET", "")
 }
 
 func PeerDBAlertingEmailSenderRegion() string {
-	return getEnvString("PEERDB_ALERTING_EMAIL_SENDER_REGION", "")
+	return GetEnvString("PEERDB_ALERTING_EMAIL_SENDER_REGION", "")
 }
 
 // Comma-separated reply-to addresses
 func PeerDBAlertingEmailSenderReplyToAddresses() string {
-	return getEnvString("PEERDB_ALERTING_EMAIL_SENDER_REPLY_TO_ADDRESSES", "")
+	return GetEnvString("PEERDB_ALERTING_EMAIL_SENDER_REPLY_TO_ADDRESSES", "")
+}
+
+// PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME
+func PeerDBClickhouseAWSS3BucketName() string {
+	return GetEnvString("PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME", "")
 }

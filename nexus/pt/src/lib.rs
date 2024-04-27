@@ -28,6 +28,8 @@ impl From<PeerType> for DbType {
             PeerType::SQLServer => DbType::Sqlserver,
             PeerType::Kafka => DbType::Kafka,
             PeerType::Eventhubs => DbType::Eventhubs,
+            PeerType::PubSub => DbType::Pubsub,
+            PeerType::Elasticsearch => DbType::Elasticsearch,
         }
     }
 }

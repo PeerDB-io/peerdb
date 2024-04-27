@@ -35,6 +35,7 @@ pub struct FlowJob {
     pub synced_at_col_name: Option<String>,
     pub initial_snapshot_only: bool,
     pub script: String,
+    pub system: String,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]

@@ -24,13 +24,6 @@ interface QRepConfigProps {
   xmin?: boolean;
 }
 
-interface QRepConfigProps {
-  settings: MirrorSetting[];
-  mirrorConfig: QRepConfig;
-  setter: MirrorSetter;
-  xmin?: boolean;
-}
-
 const WriteModes = ['Append', 'Upsert', 'Overwrite'].map((value) => ({
   label: value,
   value,

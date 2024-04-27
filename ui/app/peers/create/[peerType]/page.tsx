@@ -11,8 +11,12 @@ import SnowflakeForm from '@/components/PeerForms/SnowflakeForm';
 
 import { notifyErr } from '@/app/utils/notify';
 import TitleCase from '@/app/utils/titlecase';
+import ElasticsearchConfigForm from '@/components/PeerForms/ElasticsearchConfigForm';
 import EventhubsForm from '@/components/PeerForms/Eventhubs/EventhubGroupConfig';
-import { EventHubGroupConfig } from '@/grpc_generated/peers';
+import {
+  ElasticsearchConfig,
+  EventHubGroupConfig,
+} from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
 import { Label } from '@/lib/Label';
@@ -79,6 +83,13 @@ export default function CreateConfig({
         return (
           <EventhubsForm
             groupConfig={config as EventHubGroupConfig}
+            setter={setConfig}
+          />
+        );
+      case 'ELASTICSEARCH':
+        return (
+          <ElasticsearchConfigForm
+            config={config as ElasticsearchConfig}
             setter={setConfig}
           />
         );

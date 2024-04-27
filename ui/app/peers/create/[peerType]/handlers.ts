@@ -9,6 +9,7 @@ import {
   bqSchema,
   chSchema,
   ehGroupSchema,
+  esSchema,
   kaSchema,
   peerNameSchema,
   pgSchema,
@@ -73,6 +74,13 @@ const validateFields = (
       if (!ehGroupConfig.success)
         validationErr = ehGroupConfig.error.issues[0].message;
       break;
+    case 'ELASTICSEARCH':
+      const esConfig = esSchema.safeParse(config);
+      if (!esConfig.success) {
+        console.log(esConfig.error);
+        validationErr = esConfig.error.issues[0].message;
+      }
+      break;
     default:
       validationErr = 'Unsupported peer type ' + type;
   }
@@ -94,6 +102,7 @@ export const handleValidate = async (
   const isValid = validateFields(type, config, notify, name);
   if (!isValid) return;
   setLoading(true);
+
   const valid: UValidatePeerResponse = await fetch('/api/peers/', {
     method: 'POST',
     body: JSON.stringify({

@@ -13,7 +13,10 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
-const schemaDeltaTestSchemaName = "PUBLIC"
+const (
+	schemaDeltaTestSchemaName            = "PUBLIC"
+	numericAddedColumnTypeModifier int32 = 1048587 // Numeric(16,7)
+)
 
 type SnowflakeSchemaDeltaTestSuite struct {
 	t *testing.T
@@ -53,10 +56,13 @@ func (s SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	err = s.connector.ReplayTableSchemaDeltas(context.Background(), "schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
-		AddedColumns: []*protos.DeltaAddedColumn{{
-			ColumnName: "HI",
-			ColumnType: string(qvalue.QValueKindJSON),
-		}},
+		AddedColumns: []*protos.FieldDescription{
+			{
+				Name:         "HI",
+				Type:         string(qvalue.QValueKindJSON),
+				TypeModifier: -1,
+			},
+		},
 	}})
 	require.NoError(s.t, err)
 
@@ -120,10 +126,9 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 				TypeModifier: -1,
 			},
 			{
-				Name: "C6",
-				Type: string(qvalue.QValueKindNumeric),
-
-				TypeModifier: -1,
+				Name:         "C6",
+				Type:         string(qvalue.QValueKindNumeric),
+				TypeModifier: numericAddedColumnTypeModifier, // Numeric(16,7)
 			},
 			{
 				Name:         "C7",
@@ -147,13 +152,20 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 			},
 		},
 	}
-	addedColumns := make([]*protos.DeltaAddedColumn, 0)
+	addedColumns := make([]*protos.FieldDescription, 0)
 	for _, column := range expectedTableSchema.Columns {
 		if column.Name != "ID" {
-			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
-				ColumnName: column.Name,
-				ColumnType: column.Type,
-			})
+			var typeModifierOfAddedCol int32
+			typeModifierOfAddedCol = -1
+			if column.Type == string(qvalue.QValueKindNumeric) {
+				typeModifierOfAddedCol = numericAddedColumnTypeModifier
+			}
+			addedColumns = append(addedColumns, &protos.FieldDescription{
+				Name:         column.Name,
+				Type:         column.Type,
+				TypeModifier: typeModifierOfAddedCol,
+			},
+			)
 		}
 	}
 
@@ -226,13 +238,15 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 			},
 		},
 	}
-	addedColumns := make([]*protos.DeltaAddedColumn, 0)
+	addedColumns := make([]*protos.FieldDescription, 0)
 	for _, column := range expectedTableSchema.Columns {
 		if column.Name != "ID" {
-			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
-				ColumnName: column.Name,
-				ColumnType: column.Type,
-			})
+			addedColumns = append(addedColumns, &protos.FieldDescription{
+				Name:         column.Name,
+				Type:         column.Type,
+				TypeModifier: -1,
+			},
+			)
 		}
 	}
 
@@ -280,13 +294,16 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 			},
 		},
 	}
-	addedColumns := make([]*protos.DeltaAddedColumn, 0)
+
+	addedColumns := make([]*protos.FieldDescription, 0)
 	for _, column := range expectedTableSchema.Columns {
 		if column.Name != " " {
-			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
-				ColumnName: column.Name,
-				ColumnType: column.Type,
-			})
+			addedColumns = append(addedColumns, &protos.FieldDescription{
+				Name:         column.Name,
+				Type:         column.Type,
+				TypeModifier: -1,
+			},
+			)
 		}
 	}
 

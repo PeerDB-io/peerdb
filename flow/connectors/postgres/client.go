@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/jackc/pglogrepl"
@@ -425,8 +424,7 @@ func (c *PostgresConnector) createMetadataSchema(ctx context.Context) error {
 }
 
 func getRawTableIdentifier(jobName string) string {
-	jobName = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(jobName, "_")
-	return fmt.Sprintf("%s_%s", rawTablePrefix, strings.ToLower(jobName))
+	return rawTablePrefix + "_" + strings.ToLower(shared.ReplaceIllegalCharactersWithUnderscores(jobName))
 }
 
 func generateCreateTableSQLForNormalizedTable(
@@ -437,12 +435,13 @@ func generateCreateTableSQLForNormalizedTable(
 ) string {
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns)+2)
 	for _, column := range sourceTableSchema.Columns {
-		pgColumnType := qValueKindToPostgresType(column.Type)
-		if column.Type == "numeric" {
+		pgColumnType := column.Type
+		if sourceTableSchema.System == protos.TypeSystem_Q {
+			pgColumnType = qValueKindToPostgresType(pgColumnType)
+		}
+		if column.Type == "numeric" && column.TypeModifier != -1 {
 			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
-			if column.TypeModifier != -1 {
-				pgColumnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
-			}
+			pgColumnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
 		}
 		createTableSQLArray = append(createTableSQLArray,
 			fmt.Sprintf("%s %s", QuoteIdentifier(column.Name), pgColumnType))

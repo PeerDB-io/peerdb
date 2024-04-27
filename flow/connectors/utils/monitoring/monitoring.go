@@ -114,7 +114,7 @@ func AddCDCBatchTablesForFlow(ctx context.Context, pool *pgxpool.Pool, flowJobNa
 		return fmt.Errorf("error while beginning transaction for inserting statistics into cdc_batch_table: %w", err)
 	}
 	defer func() {
-		err = insertBatchTablesTx.Rollback(ctx)
+		err = insertBatchTablesTx.Rollback(context.Background())
 		if err != pgx.ErrTxClosed && err != nil {
 			logger.LoggerFromCtx(ctx).Error("error during transaction rollback",
 				slog.Any("error", err),

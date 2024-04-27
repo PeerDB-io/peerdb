@@ -110,6 +110,7 @@ func (q *QRepFlowExecution) getTableSchema(ctx workflow.Context, tableName strin
 		PeerConnectionConfig: q.config.SourcePeer,
 		TableIdentifiers:     []string{tableName},
 		FlowName:             q.config.FlowJobName,
+		System:               q.config.System,
 	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
@@ -150,8 +151,9 @@ func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Contex
 			TableNameSchemaMapping: map[string]*protos.TableSchema{
 				q.config.DestinationTableIdentifier: watermarkTableSchema,
 			},
-			SyncedAtColName: q.config.SyncedAtColName,
-			FlowName:        q.config.FlowJobName,
+			SyncedAtColName:   q.config.SyncedAtColName,
+			SoftDeleteColName: q.config.SoftDeleteColName,
+			FlowName:          q.config.FlowJobName,
 		}
 
 		future := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)

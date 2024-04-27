@@ -1,7 +1,7 @@
 use catalog::WorkflowDetails;
 use pt::{
     flow_model::{FlowJob, QRepFlowJob},
-    peerdb_flow::{QRepWriteMode, QRepWriteType},
+    peerdb_flow::{QRepWriteMode, QRepWriteType, TypeSystem},
     peerdb_route, tonic,
 };
 use serde_json::Value;
@@ -134,15 +134,16 @@ impl FlowGrpcClient {
         src: pt::peerdb_peers::Peer,
         dst: pt::peerdb_peers::Peer,
     ) -> anyhow::Result<String> {
-        let mut table_mappings: Vec<pt::peerdb_flow::TableMapping> = vec![];
-        job.table_mappings.iter().for_each(|mapping| {
-            table_mappings.push(pt::peerdb_flow::TableMapping {
+        let table_mappings: Vec<pt::peerdb_flow::TableMapping> = job
+            .table_mappings
+            .iter()
+            .map(|mapping| pt::peerdb_flow::TableMapping {
                 source_table_identifier: mapping.source_table_identifier.clone(),
                 destination_table_identifier: mapping.destination_table_identifier.clone(),
                 partition_key: mapping.partition_key.clone().unwrap_or_default(),
                 exclude: mapping.exclude.clone(),
-            });
-        });
+            })
+            .collect::<Vec<_>>();
 
         let do_initial_snapshot = job.do_initial_copy;
         let publication_name = job.publication_name.clone();
@@ -150,6 +151,9 @@ impl FlowGrpcClient {
         let snapshot_num_rows_per_partition = job.snapshot_num_rows_per_partition;
         let snapshot_max_parallel_workers = job.snapshot_max_parallel_workers;
         let snapshot_num_tables_in_parallel = job.snapshot_num_tables_in_parallel;
+        let Some(system) = TypeSystem::from_str_name(&job.system) else {
+            return anyhow::Result::Err(anyhow::anyhow!("invalid system {}", job.system));
+        };
 
         let flow_conn_cfg = pt::peerdb_flow::FlowConnectionConfigs {
             source: Some(src),
@@ -171,6 +175,7 @@ impl FlowGrpcClient {
             synced_at_col_name: job.synced_at_col_name.clone().unwrap_or_default(),
             initial_snapshot_only: job.initial_snapshot_only,
             script: job.script.clone(),
+            system: system as i32,
             ..Default::default()
         };
 

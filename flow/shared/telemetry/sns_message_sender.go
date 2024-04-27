@@ -29,7 +29,10 @@ type SNSMessageSenderConfig struct {
 }
 
 func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, body string, attributes Attributes) (*string, error) {
-	activityInfo := activity.GetInfo(ctx)
+	activityInfo := activity.Info{}
+	if activity.IsActivity(ctx) {
+		activityInfo = activity.GetInfo(ctx)
+	}
 	deduplicationString := strings.Join([]string{
 		"deployID", attributes.DeploymentUID,
 		"subject", subject,

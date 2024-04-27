@@ -256,7 +256,7 @@ func (a *Alerter) sendTelemetryMessage(ctx context.Context, flowName string, mor
 		_, err := a.telemetrySender.SendMessage(ctx, details, details, telemetry.Attributes{
 			Level:         level,
 			DeploymentUID: peerdbenv.PeerDBDeploymentUID(),
-			Tags:          []string{flowName},
+			Tags:          []string{flowName, peerdbenv.PeerDBDeploymentUID()},
 			Type:          flowName,
 		})
 		if err != nil {
@@ -264,6 +264,27 @@ func (a *Alerter) sendTelemetryMessage(ctx context.Context, flowName string, mor
 			return
 		}
 	}
+}
+
+// Wrapper for different telemetry levels for non-flow events
+func (a *Alerter) LogNonFlowInfo(ctx context.Context, eventType telemetry.EventType, key string, message string) {
+	a.LogNonFlowEvent(ctx, eventType, key, message, telemetry.INFO)
+}
+
+func (a *Alerter) LogNonFlowWarning(ctx context.Context, eventType telemetry.EventType, key string, message string) {
+	a.LogNonFlowEvent(ctx, eventType, key, message, telemetry.WARN)
+}
+
+func (a *Alerter) LogNonFlowError(ctx context.Context, eventType telemetry.EventType, key string, message string) {
+	a.LogNonFlowEvent(ctx, eventType, key, message, telemetry.ERROR)
+}
+
+func (a *Alerter) LogNonFlowCritical(ctx context.Context, eventType telemetry.EventType, key string, message string) {
+	a.LogNonFlowEvent(ctx, eventType, key, message, telemetry.CRITICAL)
+}
+
+func (a *Alerter) LogNonFlowEvent(ctx context.Context, eventType telemetry.EventType, key string, message string, level telemetry.Level) {
+	a.sendTelemetryMessage(ctx, string(eventType)+":"+key, message, level)
 }
 
 func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) {

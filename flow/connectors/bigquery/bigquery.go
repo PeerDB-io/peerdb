@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
-	"regexp"
 	"strings"
 	"time"
 
@@ -218,19 +217,19 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			dstDatasetTable, _ := c.convertToDatasetTable(schemaDelta.DstTableName)
-			addedColumnBigQueryType := qValueKindToBigQueryTypeString(addedColumn.ColumnType)
+			addedColumnBigQueryType := qValueKindToBigQueryTypeString(addedColumn.Type)
 			query := c.client.Query(fmt.Sprintf(
 				"ALTER TABLE %s ADD COLUMN IF NOT EXISTS `%s` %s",
-				dstDatasetTable.table, addedColumn.ColumnName, addedColumnBigQueryType))
+				dstDatasetTable.table, addedColumn.Name, addedColumnBigQueryType))
 			query.DefaultProjectID = c.projectID
 			query.DefaultDatasetID = dstDatasetTable.dataset
 			_, err := query.Read(ctx)
 			if err != nil {
-				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
+				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
 			}
 			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s to table %s",
-				addedColumn.ColumnName, addedColumn.ColumnType, schemaDelta.DstTableName))
+				addedColumn.Name, addedColumn.Type, schemaDelta.DstTableName))
 		}
 	}
 
@@ -327,7 +326,7 @@ func (c *BigQueryConnector) getTableNametoUnchangedCols(
 // SyncRecords pushes records to the destination.
 // Currently only supports inserts, updates, and deletes.
 // More record types will be added in the future.
-func (c *BigQueryConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+func (c *BigQueryConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
 	c.logger.Info(fmt.Sprintf("pushing records to %s.%s...", c.datasetID, rawTableName))
@@ -343,7 +342,7 @@ func (c *BigQueryConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 
 func (c *BigQueryConnector) syncRecordsViaAvro(
 	ctx context.Context,
-	req *model.SyncRecordsRequest,
+	req *model.SyncRecordsRequest[model.RecordItems],
 	rawTableName string,
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {
@@ -713,9 +712,7 @@ func (c *BigQueryConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 
 // getRawTableName returns the raw table name for the given table identifier.
 func (c *BigQueryConnector) getRawTableName(flowJobName string) string {
-	// replace all non-alphanumeric characters with _
-	flowJobName = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(flowJobName, "_")
-	return "_peerdb_raw_" + flowJobName
+	return "_peerdb_raw_" + shared.ReplaceIllegalCharactersWithUnderscores(flowJobName)
 }
 
 func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {

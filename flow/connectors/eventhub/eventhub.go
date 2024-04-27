@@ -180,9 +180,7 @@ type ScopedEventhubData struct {
 // returns the number of records synced
 func (c *EventHubConnector) processBatch(
 	ctx context.Context,
-	flowJobName string,
-	batch *model.CDCRecordStream,
-	script string,
+	req *model.SyncRecordsRequest[model.RecordItems],
 ) (uint32, error) {
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns, false)
@@ -191,21 +189,20 @@ func (c *EventHubConnector) processBatch(
 	defer ticker.Stop()
 
 	lastSeenLSN := int64(0)
-	lastUpdatedOffset := int64(0)
 
 	numRecords := atomic.Uint32{}
 
 	var ls *lua.LState
 	var fn *lua.LFunction
-	if script != "" {
+	if req.Script != "" {
 		var err error
-		ls, err = utils.LoadScript(ctx, script, func(ls *lua.LState) int {
+		ls, err = utils.LoadScript(ctx, req.Script, func(ls *lua.LState) int {
 			top := ls.GetTop()
 			ss := make([]string, top)
 			for i := range top {
 				ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
 			}
-			_ = c.LogFlowInfo(ctx, flowJobName, strings.Join(ss, "\t"))
+			_ = c.LogFlowInfo(ctx, req.FlowJobName, strings.Join(ss, "\t"))
 			return 0
 		})
 		if err != nil {
@@ -223,10 +220,10 @@ func (c *EventHubConnector) processBatch(
 
 	for {
 		select {
-		case record, ok := <-batch.GetRecords():
+		case record, ok := <-req.Records.GetRecords():
 			if !ok {
 				c.logger.Info("flushing batches because no more records")
-				err := batchPerTopic.flushAllBatches(ctx, flowJobName)
+				err := batchPerTopic.flushAllBatches(ctx, req.FlowJobName)
 				if err != nil {
 					return 0, err
 				}
@@ -322,25 +319,23 @@ func (c *EventHubConnector) processBatch(
 			return 0, fmt.Errorf("[eventhub] context cancelled %w", ctx.Err())
 
 		case <-ticker.C:
-			err := batchPerTopic.flushAllBatches(ctx, flowJobName)
+			err := batchPerTopic.flushAllBatches(ctx, req.FlowJobName)
 			if err != nil {
 				return 0, err
-			}
-
-			if lastSeenLSN > lastUpdatedOffset {
-				err = c.SetLastOffset(ctx, flowJobName, lastSeenLSN)
-				lastUpdatedOffset = lastSeenLSN
-				c.logger.Info("processBatch", slog.Int64("updated last offset", lastSeenLSN))
-				if err != nil {
-					return 0, fmt.Errorf("failed to update last offset: %w", err)
+			} else if lastSeenLSN > req.ConsumedOffset.Load() {
+				if err := c.SetLastOffset(ctx, req.FlowJobName, lastSeenLSN); err != nil {
+					c.logger.Warn("[eventhubs] SetLastOffset error", slog.Any("error", err))
+				} else {
+					shared.AtomicInt64Max(req.ConsumedOffset, lastSeenLSN)
+					c.logger.Info("processBatch", slog.Int64("updated last offset", lastSeenLSN))
 				}
 			}
 		}
 	}
 }
 
-func (c *EventHubConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	numRecords, err := c.processBatch(ctx, req.FlowJobName, req.Records, req.Script)
+func (c *EventHubConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
+	numRecords, err := c.processBatch(ctx, req)
 	if err != nil {
 		c.logger.Error("failed to process batch", slog.Any("error", err))
 		return nil, err

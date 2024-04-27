@@ -186,7 +186,6 @@ func (s *SnowflakeTestHelper) RunIntQuery(query string) (int, error) {
 	}
 }
 
-// runs a query that returns an int result
 func (s *SnowflakeTestHelper) checkSyncedAt(query string) error {
 	recordBatch, err := s.testClient.ExecuteAndProcessQuery(context.Background(), query)
 	if err != nil {
@@ -198,6 +197,24 @@ func (s *SnowflakeTestHelper) checkSyncedAt(query string) error {
 			_, ok := entry.(qvalue.QValueTimestamp)
 			if !ok {
 				return errors.New("synced_at column failed: _PEERDB_SYNCED_AT is not a timestamp")
+			}
+		}
+	}
+
+	return nil
+}
+
+func (s *SnowflakeTestHelper) checkIsDeleted(query string) error {
+	recordBatch, err := s.testClient.ExecuteAndProcessQuery(context.Background(), query)
+	if err != nil {
+		return err
+	}
+
+	for _, record := range recordBatch.Records {
+		for _, entry := range record {
+			_, ok := entry.(qvalue.QValueBoolean)
+			if !ok {
+				return errors.New("is_deleted column failed: _PEERDB_IS_DELETED is not a boolean")
 			}
 		}
 	}

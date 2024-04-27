@@ -7,6 +7,8 @@ import {
   UTablesResponse,
 } from '@/app/dto/PeersDTO';
 import { notifyErr } from '@/app/utils/notify';
+import QRepQueryTemplate from '@/app/utils/qreptemplate';
+import { DBTypeToGoodText } from '@/components/PeerTypeComponent';
 import {
   FlowConnectionConfigs,
   QRepConfig,
@@ -204,6 +206,11 @@ export const handleCreateQRep = async (
     return;
   }
 
+  if (query === QRepQueryTemplate) {
+    notifyErr('Please fill in the query box');
+    return;
+  }
+
   if (xmin == true) {
     config.watermarkColumn = 'xmin';
     config.query = `SELECT * FROM ${quotedWatermarkTable(
@@ -228,6 +235,31 @@ export const handleCreateQRep = async (
   }
   config.flowJobName = flowJobName;
   config.query = query;
+
+  const isSchemaLessPeer =
+    config.destinationPeer?.type === DBType.BIGQUERY ||
+    config.destinationPeer?.type === DBType.CLICKHOUSE;
+  if (config.destinationPeer?.type !== DBType.ELASTICSEARCH) {
+    if (isSchemaLessPeer && config.destinationTableIdentifier?.includes('.')) {
+      notifyErr(
+        'Destination table should not be schema qualified for ' +
+          DBTypeToGoodText(config.destinationPeer?.type) +
+          ' targets'
+      );
+      return;
+    }
+    if (
+      !isSchemaLessPeer &&
+      !config.destinationTableIdentifier?.includes('.')
+    ) {
+      notifyErr(
+        'Destination table should be schema qualified for ' +
+          DBTypeToGoodText(config.destinationPeer?.type) +
+          ' targets'
+      );
+      return;
+    }
+  }
 
   setLoading(true);
   const statusMessage: UCreateMirrorResponse = await fetch(

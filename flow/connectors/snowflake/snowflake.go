@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -62,7 +61,7 @@ const (
 	 ARRAY_AGG(DISTINCT _PEERDB_UNCHANGED_TOAST_COLUMNS) FROM %s.%s WHERE
 	 _PEERDB_BATCH_ID = %d AND _PEERDB_RECORD_TYPE != 2
 	 GROUP BY _PEERDB_DESTINATION_TABLE_NAME`
-	getTableSchemaSQL = `SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+	getTableSchemaSQL = `SELECT COLUMN_NAME, DATA_TYPE, NUMERIC_PRECISION, NUMERIC_SCALE FROM INFORMATION_SCHEMA.COLUMNS
 	 WHERE UPPER(TABLE_SCHEMA)=? AND UPPER(TABLE_NAME)=? ORDER BY ORDINAL_POSITION`
 
 	checkIfTableExistsSQL = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.TABLES
@@ -372,20 +371,26 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			sfColtype, err := qvalue.QValueKind(addedColumn.ColumnType).ToDWHColumnType(protos.DBType_SNOWFLAKE)
+			sfColtype, err := qvalue.QValueKind(addedColumn.Type).ToDWHColumnType(protos.DBType_SNOWFLAKE)
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to snowflake type: %w",
-					addedColumn.ColumnType, err)
+					addedColumn.Type, err)
 			}
+
+			if addedColumn.Type == string(qvalue.QValueKindNumeric) {
+				precision, scale := numeric.GetNumericTypeForWarehouse(addedColumn.TypeModifier, numeric.SnowflakeNumericCompatibility{})
+				sfColtype = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
+			}
+
 			_, err = tableSchemaModifyTx.ExecContext(ctx,
 				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
-					schemaDelta.DstTableName, strings.ToUpper(addedColumn.ColumnName), sfColtype))
+					schemaDelta.DstTableName, strings.ToUpper(addedColumn.Name), sfColtype))
 			if err != nil {
-				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
+				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
 			}
-			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName,
-				addedColumn.ColumnType),
+			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.Name,
+				sfColtype),
 				"destination table name", schemaDelta.DstTableName,
 				"source table name", schemaDelta.SrcTableName)
 		}
@@ -400,7 +405,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 	return nil
 }
 
-func (c *SnowflakeConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+func (c *SnowflakeConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	c.logger.Info("pushing records to Snowflake table " + rawTableIdentifier)
 
@@ -419,7 +424,7 @@ func (c *SnowflakeConnector) SyncRecords(ctx context.Context, req *model.SyncRec
 
 func (c *SnowflakeConnector) syncRecordsViaAvro(
 	ctx context.Context,
-	req *model.SyncRecordsRequest,
+	req *model.SyncRecordsRequest[model.RecordItems],
 	rawTableIdentifier string,
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {
@@ -707,8 +712,7 @@ func generateCreateTableSQLForNormalizedTable(
 }
 
 func getRawTableIdentifier(jobName string) string {
-	jobName = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(jobName, "_")
-	return fmt.Sprintf("%s_%s", rawTablePrefix, jobName)
+	return rawTablePrefix + "_" + shared.ReplaceIllegalCharactersWithUnderscores(jobName)
 }
 
 func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {

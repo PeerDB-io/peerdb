@@ -1,6 +1,6 @@
 module github.com/PeerDB-io/peer-flow-cleanup
 
-go 1.22.0
+go 1.22.2
 
 require (
 	cloud.google.com/go/bigquery v1.59.1

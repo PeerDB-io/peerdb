@@ -3,34 +3,36 @@ package connsnowflake
 import (
 	"context"
 
+	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 func (c *SnowflakeConnector) getTableSchemaForTable(ctx context.Context, tableName string) (*protos.TableSchema, error) {
-	colNames, colTypes, err := c.getColsFromTable(ctx, tableName)
+	columns, err := c.getColsFromTable(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
 
-	colFields := make([]*protos.FieldDescription, 0, len(colNames))
-	for i, sfType := range colTypes {
-		genericColType, err := snowflakeTypeToQValueKind(sfType)
+	colFields := make([]*protos.FieldDescription, 0, len(columns))
+	for i, sfColumn := range columns {
+		genericColType, err := snowflakeTypeToQValueKind(sfColumn.ColumnType)
 		if err != nil {
 			// we use string for invalid types
 			genericColType = qvalue.QValueKindString
 		}
-		colTypes[i] = string(genericColType)
+
 		colFields = append(colFields, &protos.FieldDescription{
-			Name:         colNames[i],
-			Type:         colTypes[i],
-			TypeModifier: -1,
+			Name:         columns[i].ColumnName,
+			Type:         string(genericColType),
+			TypeModifier: datatypes.MakeNumericTypmod(sfColumn.NumericPrecision, sfColumn.NumericScale),
 		})
 	}
 
 	return &protos.TableSchema{
 		TableIdentifier: tableName,
 		Columns:         colFields,
+		System:          protos.TypeSystem_Q,
 	}, nil
 }
 

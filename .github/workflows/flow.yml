@@ -22,6 +22,14 @@ jobs:
           PGUSER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
+      elasticsearch:
+        image: elasticsearch:8.13.0
+        ports:
+          - 9200:9200
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: false
+          xpack.security.enrollment.enabled: false
 
     steps:
       - name: checkout sources
@@ -74,6 +82,13 @@ jobs:
           name: "gcs_creds.json"
           json: ${{ secrets.GCS_CREDS }}
 
+      - name: setup Eventhubs credentials
+        id: eventhubs-credentials
+        uses: jsdaniell/create-json@v1.2.3
+        with:
+          name: "eh_creds.json"
+          json: ${{ secrets.EH_CREDS }}
+
       - name: create hstore extension, increase logical replication limits, and setup catalog database
         run: >
           docker exec "${{ job.services.catalog.id }}" psql -U postgres -c "CREATE EXTENSION hstore;"
@@ -111,6 +126,7 @@ jobs:
           TEST_SF_CREDS: ${{ github.workspace }}/snowflake_creds.json
           TEST_S3_CREDS: ${{ github.workspace }}/s3_creds.json
           TEST_GCS_CREDS: ${{ github.workspace }}/gcs_creds.json
+          TEST_EH_CREDS: ${{ github.workspace }}/eh_creds.json
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -126,3 +142,4 @@ jobs:
           PEERDB_CATALOG_USER: postgres
           PEERDB_CATALOG_PASSWORD: postgres
           PEERDB_CATALOG_DATABASE: postgres
+          ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200

@@ -75,6 +75,15 @@ export const clickhouseSetting: PeerSetting[] = [
       setter((curr) => ({ ...curr, region: value as string })),
     tips: 'The region where your bucket is located. For example, us-east-1.',
   },
+  {
+    label: 'Endpoint',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, endpoint: value as string })),
+    helpfulLink:
+      'https://docs.aws.amazon.com/general/latest/gr/s3.html#s3_region',
+    tips: 'An endpoint is the URL of the entry point for an AWS web service.',
+    optional: true,
+  },
 ];
 
 export const blankClickhouseSetting: ClickhouseConfig = {
@@ -88,4 +97,5 @@ export const blankClickhouseSetting: ClickhouseConfig = {
   secretAccessKey: '',
   region: '',
   disableTls: false,
+  endpoint: undefined,
 };

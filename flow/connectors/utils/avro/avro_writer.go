@@ -120,13 +120,7 @@ func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error
 
 func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter *goavro.OCFWriter) (int, error) {
 	logger := logger.LoggerFromCtx(ctx)
-	schema, err := p.stream.Schema()
-	if err != nil {
-		logger.Error("failed to get schema from stream", slog.Any("error", err))
-		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
-	}
-
-	numRows := 0
+	schema := p.stream.Schema()
 
 	avroConverter := model.NewQRecordAvroConverter(
 		p.avroSchema,
@@ -135,13 +129,9 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 		logger,
 	)
 
-	for qRecordOrErr := range p.stream.Records {
-		if qRecordOrErr.Err != nil {
-			logger.Error("[avro] failed to get record from stream", slog.Any("error", qRecordOrErr.Err))
-			return 0, fmt.Errorf("[avro] failed to get record from stream: %w", qRecordOrErr.Err)
-		}
-
-		avroMap, err := avroConverter.Convert(qRecordOrErr.Record)
+	numRows := 0
+	for qrecord := range p.stream.Records {
+		avroMap, err := avroConverter.Convert(qrecord)
 		if err != nil {
 			logger.Error("failed to convert QRecord to Avro compatible map: ", slog.Any("error", err))
 			return 0, fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
@@ -154,6 +144,10 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 		}
 
 		numRows += 1
+	}
+	if err := p.stream.Err(); err != nil {
+		logger.Error("[avro] failed to get record from stream", slog.Any("error", err))
+		return 0, fmt.Errorf("[avro] failed to get record from stream: %w", err)
 	}
 
 	return numRows, nil
@@ -174,9 +168,11 @@ func (p *peerDBOCFWriter) WriteOCF(ctx context.Context, w io.Writer) (int, error
 	return numRows, nil
 }
 
-func (p *peerDBOCFWriter) WriteRecordsToS3(ctx context.Context, bucketName, key string, s3Creds utils.S3PeerCredentials) (*AvroFile, error) {
+func (p *peerDBOCFWriter) WriteRecordsToS3(
+	ctx context.Context, bucketName, key string, s3Creds utils.AWSCredentialsProvider,
+) (*AvroFile, error) {
 	logger := logger.LoggerFromCtx(ctx)
-	s3svc, err := utils.CreateS3Client(s3Creds)
+	s3svc, err := utils.CreateS3Client(ctx, s3Creds)
 	if err != nil {
 		logger.Error("failed to create S3 client: ", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create S3 client: %w", err)

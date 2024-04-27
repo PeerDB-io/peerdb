@@ -3,14 +3,12 @@ package conns3
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 func (c *S3Connector) SyncQRepRecords(
@@ -19,13 +17,7 @@ func (c *S3Connector) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
-	schema, err := stream.Schema()
-	if err != nil {
-		c.logger.Error("failed to get schema from stream",
-			slog.Any("error", err),
-			slog.String(string(shared.PartitionIDKey), partition.PartitionId))
-		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
-	}
+	schema := stream.Schema()
 
 	dstTableName := config.DestinationTableIdentifier
 	avroSchema, err := getAvroSchema(dstTableName, schema)
@@ -43,7 +35,7 @@ func (c *S3Connector) SyncQRepRecords(
 
 func getAvroSchema(
 	dstTableName string,
-	schema *qvalue.QRecordSchema,
+	schema qvalue.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
 	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema, protos.DBType_S3)
 	if err != nil {
@@ -66,8 +58,9 @@ func (c *S3Connector) writeToAvroFile(
 	}
 
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, jobName, partitionID)
+
 	writer := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressNone, protos.DBType_SNOWFLAKE)
-	avroFile, err := writer.WriteRecordsToS3(ctx, s3o.Bucket, s3AvroFileKey, c.creds)
+	avroFile, err := writer.WriteRecordsToS3(ctx, s3o.Bucket, s3AvroFileKey, c.credentialsProvider)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to S3: %w", err)
 	}

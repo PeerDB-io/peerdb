@@ -1,4 +1,4 @@
-package cdc_records
+package utils
 
 import (
 	"crypto/rand"
@@ -32,7 +32,7 @@ func getDecimalForTesting(t *testing.T) decimal.Decimal {
 	return decimal.New(9876543210, 123)
 }
 
-func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record) {
+func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record[model.RecordItems]) {
 	t.Helper()
 
 	pkeyColVal := make([]byte, 32)
@@ -46,7 +46,7 @@ func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record) {
 		TableName:  "test_src_tbl",
 		PkeyColVal: [32]byte(pkeyColVal),
 	}
-	rec := &model.InsertRecord{
+	rec := &model.InsertRecord[model.RecordItems]{
 		BaseRecord: model.BaseRecord{
 			CheckpointID:   1,
 			CommitTimeNano: time.Now().UnixNano(),
@@ -67,7 +67,7 @@ func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record) {
 
 func TestSingleRecord(t *testing.T) {
 	t.Parallel()
-	cdcRecordsStore := NewCDCRecordsStore("test_single_record")
+	cdcRecordsStore := NewCDCStore[model.RecordItems]("test_single_record")
 	cdcRecordsStore.numRecordsSwitchThreshold = 10
 
 	key, rec := genKeyAndRec(t)
@@ -87,7 +87,7 @@ func TestSingleRecord(t *testing.T) {
 
 func TestRecordsTillSpill(t *testing.T) {
 	t.Parallel()
-	cdcRecordsStore := NewCDCRecordsStore("test_records_till_spill")
+	cdcRecordsStore := NewCDCStore[model.RecordItems]("test_records_till_spill")
 	cdcRecordsStore.numRecordsSwitchThreshold = 10
 
 	// add records upto set limit
@@ -118,7 +118,7 @@ func TestRecordsTillSpill(t *testing.T) {
 func TestTimeAndDecimalEncoding(t *testing.T) {
 	t.Parallel()
 
-	cdcRecordsStore := NewCDCRecordsStore("test_time_encoding")
+	cdcRecordsStore := NewCDCStore[model.RecordItems]("test_time_encoding")
 	cdcRecordsStore.numRecordsSwitchThreshold = 0
 
 	key, rec := genKeyAndRec(t)
@@ -130,7 +130,7 @@ func TestTimeAndDecimalEncoding(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, rec, retreived)
 
-	_, err = retreived.GetItems().ToJSON()
+	_, err = model.ItemsToJSON(retreived.GetItems())
 	require.NoError(t, err)
 
 	require.NoError(t, cdcRecordsStore.Close())
@@ -139,7 +139,7 @@ func TestTimeAndDecimalEncoding(t *testing.T) {
 func TestNullKeyDoesntStore(t *testing.T) {
 	t.Parallel()
 
-	cdcRecordsStore := NewCDCRecordsStore("test_time_encoding")
+	cdcRecordsStore := NewCDCStore[model.RecordItems]("test_time_encoding")
 	cdcRecordsStore.numRecordsSwitchThreshold = 0
 
 	key, rec := genKeyAndRec(t)

@@ -71,6 +71,8 @@ message FlowConnectionConfigs {
   string synced_at_col_name = 19;
 
   string script = 20;
+
+  TypeSystem system = 21;
 }
 
 message RenameTableOption {
@@ -161,6 +163,7 @@ message TableSchema {
   string table_identifier = 1;
   repeated string primary_key_columns = 2;
   bool is_replica_identity_full = 3;
+  TypeSystem system = 4;
   repeated FieldDescription columns = 6;
 }
 
@@ -174,16 +177,11 @@ message GetTableSchemaBatchInput {
   peerdb_peers.Peer peer_connection_config = 1;
   repeated string table_identifiers = 2;
   string flow_name = 3;
+  TypeSystem system = 4;
 }
 
 message GetTableSchemaBatchOutput {
   map<string, TableSchema> table_name_schema_mapping = 1;
-}
-
-message SetupNormalizedTableInput {
-  peerdb_peers.Peer peer_connection_config = 1;
-  string table_identifier = 2;
-  TableSchema source_table_schema = 3;
 }
 
 message SetupNormalizedTableBatchInput {
@@ -248,6 +246,11 @@ message QRepWriteMode {
   repeated string upsert_key_columns = 2;
 }
 
+enum TypeSystem {
+  Q = 0;
+  PG = 1;
+}
+
 message QRepConfig {
   string flow_job_name = 1;
 
@@ -292,6 +295,8 @@ message QRepConfig {
 
   string synced_at_col_name = 16;
   string soft_delete_col_name = 17;
+
+  TypeSystem system = 18;
 }
 
 message QRepPartition {
@@ -313,15 +318,11 @@ message DropFlowInput {
   string flow_name = 1;
 }
 
-message DeltaAddedColumn {
-  string column_name = 1;
-  string column_type = 2;
-}
-
 message TableSchemaDelta {
   string src_table_name = 1;
   string dst_table_name = 2;
-  repeated DeltaAddedColumn added_columns = 3;
+  repeated FieldDescription added_columns = 3;
+  TypeSystem system = 4;
 }
 
 message QRepFlowState {

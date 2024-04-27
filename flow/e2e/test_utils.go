@@ -406,6 +406,7 @@ func CreateQRepWorkflowConfig(
 	stagingPath string,
 	setupDst bool,
 	syncedAtCol string,
+	isDeletedCol string,
 ) (*protos.QRepConfig, error) {
 	connectionGen := QRepFlowConnectionGenerationConfig{
 		FlowJobName:                flowJobName,
@@ -421,6 +422,7 @@ func CreateQRepWorkflowConfig(
 	qrepConfig.InitialCopyOnly = true
 	qrepConfig.SyncedAtColName = syncedAtCol
 	qrepConfig.SetupWatermarkTableOnDestination = setupDst
+	qrepConfig.SoftDeleteColName = isDeletedCol
 
 	return qrepConfig, nil
 }

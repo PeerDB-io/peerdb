@@ -39,9 +39,16 @@ func NewSnowflakeAvroConsolidateHandler(
 func (s *SnowflakeAvroConsolidateHandler) CopyStageToDestination(ctx context.Context) error {
 	s.connector.logger.Info("Copying stage to destination " + s.dstTableName)
 
-	colNames, colTypes, colsErr := s.connector.getColsFromTable(ctx, s.dstTableName)
+	columns, colsErr := s.connector.getColsFromTable(ctx, s.dstTableName)
 	if colsErr != nil {
 		return fmt.Errorf("failed to get columns from destination table: %w", colsErr)
+	}
+
+	colNames := make([]string, 0, len(columns))
+	colTypes := make([]string, 0, len(columns))
+	for _, col := range columns {
+		colNames = append(colNames, col.ColumnName)
+		colTypes = append(colTypes, col.ColumnType)
 	}
 	s.allColNames = colNames
 	s.allColTypes = colTypes
@@ -69,7 +76,7 @@ func (s *SnowflakeAvroConsolidateHandler) CopyStageToDestination(ctx context.Con
 	return nil
 }
 
-func getTransformSQL(colNames []string, colTypes []string, syncedAtCol string) (string, string) {
+func getTransformSQL(colNames []string, colTypes []string, syncedAtCol string, isDeletedCol string) (string, string) {
 	transformations := make([]string, 0, len(colNames))
 	columnOrder := make([]string, 0, len(colNames))
 	for idx, avroColName := range colNames {
@@ -78,6 +85,11 @@ func getTransformSQL(colNames []string, colTypes []string, syncedAtCol string) (
 		columnOrder = append(columnOrder, normalizedColName)
 		if avroColName == syncedAtCol {
 			transformations = append(transformations, "CURRENT_TIMESTAMP AS "+normalizedColName)
+			continue
+		}
+
+		if avroColName == isDeletedCol {
+			transformations = append(transformations, "FALSE AS "+normalizedColName)
 			continue
 		}
 
@@ -118,7 +130,12 @@ func getTransformSQL(colNames []string, colTypes []string, syncedAtCol string) (
 
 // copy to either the actual destination table or a tempTable
 func (s *SnowflakeAvroConsolidateHandler) getCopyTransformation(copyDstTable string) string {
-	transformationSQL, columnsSQL := getTransformSQL(s.allColNames, s.allColTypes, s.config.SyncedAtColName)
+	transformationSQL, columnsSQL := getTransformSQL(
+		s.allColNames,
+		s.allColTypes,
+		s.config.SyncedAtColName,
+		s.config.SoftDeleteColName,
+	)
 	return fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) FILE_FORMAT=(TYPE=AVRO), PURGE=TRUE",
 		copyDstTable, columnsSQL, transformationSQL, s.stage)
 }

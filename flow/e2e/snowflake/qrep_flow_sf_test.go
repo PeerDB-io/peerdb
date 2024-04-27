@@ -68,6 +68,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 		"",
 		false,
 		"",
+		"",
 	)
 	qrepConfig.SetupWatermarkTableOnDestination = true
 	require.NoError(s.t, err)
@@ -104,6 +105,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() 
 		s.sfHelper.Peer,
 		"",
 		false,
+		"",
 		"",
 	)
 	qrepConfig.WriteMode = &protos.QRepWriteMode{
@@ -143,6 +145,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 		"",
 		false,
 		"",
+		"",
 	)
 	require.NoError(s.t, err)
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
@@ -177,6 +180,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 		s.sfHelper.Peer,
 		"",
 		false,
+		"",
 		"",
 	)
 	qrepConfig.WriteMode = &protos.QRepWriteMode{
@@ -220,6 +224,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 		"",
 		false,
 		"",
+		"",
 	)
 	require.NoError(s.t, err)
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
@@ -255,6 +260,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
 		"",
 		true,
 		"_PEERDB_SYNCED_AT",
+		"",
 	)
 	qrepConfig.WriteMode = &protos.QRepWriteMode{
 		WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
@@ -267,7 +273,45 @@ func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 
-	err = s.sfHelper.checkSyncedAt(fmt.Sprintf(`SELECT "_PEERDB_SYNCED_AT" FROM %s.%s`,
-		s.sfHelper.testSchemaName, tblName))
+	err = s.sfHelper.checkSyncedAt(`SELECT "_PEERDB_SYNCED_AT" FROM ` + dstSchemaQualified)
+	require.NoError(s.t, err)
+}
+
+func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Default_False_SF() {
+	tc := e2e.NewTemporalClient(s.t)
+
+	numRows := 10
+
+	tblName := "test_qrep_deleted_false_sf"
+	s.setupSourceTable(tblName, numRows)
+
+	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
+
+	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
+		s.pgSuffix, tblName)
+
+	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+		"test_deleted_false_qrep_sf",
+		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
+		dstSchemaQualified,
+		query,
+		s.sfHelper.Peer,
+		"",
+		true,
+		"_PEERDB_SYNCED_AT",
+		"_PEERDB_IS_DELETED",
+	)
+	qrepConfig.WriteMode = &protos.QRepWriteMode{
+		WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
+		UpsertKeyColumns: []string{"id"},
+	}
+	qrepConfig.SetupWatermarkTableOnDestination = true
+	require.NoError(s.t, err)
+
+	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.NoError(s.t, env.Error())
+
+	err = s.sfHelper.checkIsDeleted(`SELECT "_PEERDB_IS_DELETED" FROM ` + dstSchemaQualified)
 	require.NoError(s.t, err)
 }
