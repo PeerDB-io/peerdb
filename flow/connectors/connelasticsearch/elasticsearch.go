@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
@@ -104,12 +106,10 @@ func recordItemsProcessor(items model.RecordItems) ([]byte, error) {
 	qRecordJsonMap := make(map[string]any)
 
 	for key, val := range items.ColToVal {
-		switch r := val.(type) {
-		// JSON is stored as a string, fix that
-		case qvalue.QValueJSON:
-			qRecordJsonMap[key] = json.RawMessage(shared.
-				UnsafeFastStringToReadOnlyBytes(r.Val))
-		default:
+		if r, ok := val.(qvalue.QValueJSON); ok { // JSON is stored as a string, fix that
+			qRecordJsonMap[key] = json.RawMessage(
+				shared.UnsafeFastStringToReadOnlyBytes(r.Val))
+		} else {
 			qRecordJsonMap[key] = r.Value()
 		}
 	}
@@ -124,8 +124,8 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 	// atomics for counts will be unnecessary in other destinations, using a mutex instead
 	var recordCountsUpdateMutex sync.Mutex
 	// we're taking a mutex anyway, avoid atomic
-	var lastSeenLSN int64
-	var numRecords int64
+	var lastSeenLSN atomic.Int64
+	var numRecords atomic.Int64
 
 	// no I don't like this either
 	esBulkIndexerCache := make(map[string]esutil.BulkIndexer)
@@ -149,7 +149,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 
 	flushLoopDone := make(chan struct{})
 	// we only update lastSeenLSN in the OnSuccess call, so this should be safe even if race
-	// between loop breaking and sending on flushLoopDone
+	// between loop breaking and closing flushLoopDone
 	go func() {
 		ticker := time.NewTicker(peerdbenv.PeerDBQueueFlushTimeoutSeconds())
 		defer ticker.Stop()
@@ -161,7 +161,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 			case <-flushLoopDone:
 				return
 			case <-ticker.C:
-				lastSeen := lastSeenLSN
+				lastSeen := lastSeenLSN.Load()
 				if lastSeen > req.ConsumedOffset.Load() {
 					if err := esc.SetLastOffset(ctx, req.FlowJobName, lastSeen); err != nil {
 						esc.logger.Warn("[es] SetLastOffset error", slog.Any("error", err))
@@ -174,6 +174,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 		}
 	}()
 
+	var docId string
 	var bulkIndexFatalError error
 	var bulkIndexErrors []error
 	var bulkIndexOnFailureMutex sync.Mutex
@@ -212,23 +213,34 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 			esBulkIndexerCache[record.GetDestinationTableName()] = bulkIndexer
 		}
 
-		tablePkey, err := model.RecToTablePKey(req.TableNameSchemaMapping, record)
-		if err != nil {
-			esc.logger.Error("[es] failed to process record", slog.Any("error", err))
-			return nil, fmt.Errorf("[es] failed to process record: %w", err)
+		if len(req.TableNameSchemaMapping[record.GetDestinationTableName()].PrimaryKeyColumns) == 1 {
+			qValue, err := record.GetItems().GetValueByColName(
+				req.TableNameSchemaMapping[record.GetDestinationTableName()].PrimaryKeyColumns[0])
+			if err != nil {
+				esc.logger.Error("[es] failed to process record", slog.Any("error", err))
+				return nil, fmt.Errorf("[es] failed to process record: %w", err)
+			}
+			docId = fmt.Sprint(qValue.Value())
+		} else {
+			tablePkey, err := model.RecToTablePKey(req.TableNameSchemaMapping, record)
+			if err != nil {
+				esc.logger.Error("[es] failed to process record", slog.Any("error", err))
+				return nil, fmt.Errorf("[es] failed to process record: %w", err)
+			}
+			docId = hex.EncodeToString(tablePkey.PkeyColVal[:])
 		}
 
 		err = bulkIndexer.Add(ctx, esutil.BulkIndexerItem{
 			Action:     action,
-			DocumentID: tablePkey.String(),
+			DocumentID: docId,
 			Body:       bytes.NewReader(bodyBytes),
 
 			OnSuccess: func(_ context.Context, _ esutil.BulkIndexerItem, _ esutil.BulkIndexerResponseItem) {
+				shared.AtomicInt64Max(&lastSeenLSN, record.GetCheckpointID())
+				numRecords.Add(1)
 				recordCountsUpdateMutex.Lock()
 				defer recordCountsUpdateMutex.Unlock()
 				record.PopulateCountMap(tableNameRowsMapping)
-				lastSeenLSN = max(lastSeenLSN, record.GetCheckpointID())
-				numRecords++
 			},
 			// OnFailure is called for each failed operation, log and let parent handle
 			OnFailure: func(ctx context.Context, item esutil.BulkIndexerItem,
@@ -287,7 +299,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 	return &model.SyncResponse{
 		CurrentSyncBatchID:     req.SyncBatchID,
 		LastSyncedCheckpointID: lastCheckpoint,
-		NumRecordsSynced:       numRecords,
+		NumRecordsSynced:       numRecords.Load(),
 		TableNameRowsMapping:   tableNameRowsMapping,
 		TableSchemaDeltas:      req.Records.SchemaDeltas,
 	}, nil

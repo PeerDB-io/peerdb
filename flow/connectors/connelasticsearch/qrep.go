@@ -3,9 +3,12 @@ package connelasticsearch
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -24,6 +27,16 @@ func (esc *ElasticsearchConnector) SetupQRepMetadataTables(ctx context.Context,
 	return nil
 }
 
+func upsertKeyColsHash(qRecord []qvalue.QValue, upsertColIndices []int) string {
+	upsertColsMerged := make([][]byte, 0, len(upsertColIndices))
+
+	for _, upsertColIndex := range upsertColIndices {
+		upsertColsMerged = append(upsertColsMerged, []byte(fmt.Sprint(qRecord[upsertColIndex].Value())))
+	}
+	hashBytes := sha256.Sum256(slices.Concat(upsertColsMerged...))
+	return hex.EncodeToString(hashBytes[:])
+}
+
 func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *protos.QRepConfig,
 	partition *protos.QRepPartition, stream *model.QRecordStream,
 ) (int, error) {
@@ -38,14 +51,17 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 	numRecords := 0
 	bulkIndexerHasShutdown := false
 
-	// -1 means use UUID, >=0 means column in the record
-	upsertColIndex := -1
-	// only support single upsert column for now
-	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_UPSERT &&
-		len(config.WriteMode.UpsertKeyColumns) == 1 {
-		for i, field := range schema.Fields {
-			if config.WriteMode.UpsertKeyColumns[0] == field.Name {
-				upsertColIndex = i
+	// len == 0 means use UUID
+	// len == 1 means single column, use value directly
+	// len > 1 means SHA256 hash of upsert key columns
+	// ordered such that we preserve order of UpsertKeyColumns
+	var upsertKeyColIndices []int
+	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_UPSERT {
+		schemaColNames := schema.GetColumnNames()
+		for _, upsertCol := range config.WriteMode.UpsertKeyColumns {
+			idx := slices.Index(schemaColNames, upsertCol)
+			if idx != -1 {
+				upsertKeyColIndices = append(upsertKeyColIndices, idx)
 			}
 		}
 	}
@@ -73,18 +89,19 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 	for qRecord := range stream.Records {
 		qRecordJsonMap := make(map[string]any)
 
-		if upsertColIndex >= 0 {
-			docId = fmt.Sprintf("%v", qRecord[upsertColIndex].Value())
-		} else {
+		switch len(upsertKeyColIndices) {
+		case 0:
 			docId = uuid.New().String()
+		case 1:
+			docId = fmt.Sprint(qRecord[upsertKeyColIndices[0]].Value())
+		default:
+			docId = upsertKeyColsHash(qRecord, upsertKeyColIndices)
 		}
 		for i, field := range schema.Fields {
-			switch r := qRecord[i].(type) {
-			// JSON is stored as a string, fix that
-			case qvalue.QValueJSON:
-				qRecordJsonMap[field.Name] = json.RawMessage(shared.
-					UnsafeFastStringToReadOnlyBytes(r.Val))
-			default:
+			if r, ok := qRecord[i].(qvalue.QValueJSON); ok { // JSON is stored as a string, fix that
+				qRecordJsonMap[field.Name] = json.RawMessage(
+					shared.UnsafeFastStringToReadOnlyBytes(r.Val))
+			} else {
 				qRecordJsonMap[field.Name] = r.Value()
 			}
 		}

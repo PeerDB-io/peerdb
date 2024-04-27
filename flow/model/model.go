@@ -2,7 +2,6 @@ package model
 
 import (
 	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"slices"
 	"sync/atomic"
@@ -77,10 +76,6 @@ type TableWithPkey struct {
 	TableName string
 	// SHA256 hash of the primary key columns
 	PkeyColVal [32]byte
-}
-
-func (t *TableWithPkey) String() string {
-	return fmt.Sprintf("%s.%s", t.TableName, hex.EncodeToString(t.PkeyColVal[:]))
 }
 
 func RecToTablePKey[T Items](
