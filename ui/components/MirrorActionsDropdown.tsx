@@ -4,7 +4,7 @@ import EditButton from '@/components/EditButton';
 import { ResyncDialog } from '@/components/ResyncDialog';
 import { FlowConnectionConfigs, FlowStatus } from '@/grpc_generated/flow';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
-import { Select, SelectItem } from '@tremor/react';
+import { Select } from '@tremor/react';
 import { useEffect, useState } from 'react';
 import PauseOrResumeButton from './PauseOrResumeButton';
 
@@ -36,31 +36,17 @@ const MirrorActions = ({
   if (mounted)
     return (
       <div>
-        <Select
-          placeholder='Actions'
-          value='Actions'
-          style={{ width: 'fit-content' }}
-        >
-          <SelectItem value='1' style={{ padding: 0 }}>
-            {mirrorStatus && (
-              <PauseOrResumeButton
-                mirrorConfig={mirrorConfig}
-                mirrorStatus={mirrorStatus}
-              />
-            )}
-          </SelectItem>
-          <SelectItem value='2' style={{ padding: 0 }}>
-            <EditButton toLink={editLink} disabled={isNotPaused} />
-          </SelectItem>
-
-          <SelectItem value='3' style={{ padding: 0 }}>
-            {canResync && (
-              <ResyncDialog
-                mirrorConfig={mirrorConfig}
-                workflowId={workflowId}
-              />
-            )}
-          </SelectItem>
+        <Select placeholder='Actions' value='Actions'>
+          {mirrorStatus && (
+            <PauseOrResumeButton
+              mirrorConfig={mirrorConfig}
+              mirrorStatus={mirrorStatus}
+            />
+          )}
+          <EditButton toLink={editLink} disabled={isNotPaused} />
+          {canResync && (
+            <ResyncDialog mirrorConfig={mirrorConfig} workflowId={workflowId} />
+          )}
         </Select>
       </div>
     );
