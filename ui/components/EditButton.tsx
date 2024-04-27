@@ -2,7 +2,6 @@
 import { Button } from '@/lib/Button';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
-import { Tooltip } from '@/lib/Tooltip';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
@@ -21,32 +20,21 @@ const EditButton = ({
     router.push(toLink);
   };
   return (
-    <Tooltip
+    <Button
+      onClick={handleEdit}
+      variant='normalBorderless'
       style={{
-        display: disabled ? 'flex' : 'none',
-        backgroundColor: 'white',
-        color: 'black',
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'left',
+        columnGap: '0.3rem',
         width: '100%',
       }}
-      content='Pause the mirror to enable editing'
+      disabled={disabled}
     >
-      <Button
-        className='IconButton'
-        onClick={handleEdit}
-        aria-label='sort up'
-        variant='normalBorderless'
-        style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          columnGap: '0.3rem',
-          width: '100%',
-        }}
-        disabled={disabled}
-      >
-        <Label>Edit mirror</Label>
-        {loading && <ProgressCircle variant='determinate_progress_circle' />}
-      </Button>
-    </Tooltip>
+      <Label>Edit {disabled ? '(pause first)' : 'mirror'}</Label>
+      {loading && <ProgressCircle variant='determinate_progress_circle' />}
+    </Button>
   );
 };
 

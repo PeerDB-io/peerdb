@@ -14,9 +14,8 @@ function PauseOrResumeButton({
   if (mirrorStatus.toString() === FlowStatus[FlowStatus.STATUS_RUNNING]) {
     return (
       <Button
-        className='IconButton'
-        aria-label='Pause'
         variant='normalBorderless'
+        style={{ width: '100%', justifyContent: 'left' }}
         onClick={() => changeFlowState(mirrorConfig, FlowStatus.STATUS_PAUSED)}
       >
         <Label>Pause mirror</Label>
@@ -25,8 +24,7 @@ function PauseOrResumeButton({
   } else if (mirrorStatus.toString() === FlowStatus[FlowStatus.STATUS_PAUSED]) {
     return (
       <Button
-        className='IconButton'
-        aria-label='Play'
+        style={{ width: '100%', justifyContent: 'left' }}
         onClick={() => changeFlowState(mirrorConfig, FlowStatus.STATUS_RUNNING)}
       >
         <Label>Resume mirror</Label>
