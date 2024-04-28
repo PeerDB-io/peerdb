@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v8/esutil"
-	"github.com/google/uuid"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -35,7 +34,7 @@ func upsertKeyColsHash(qRecord []qvalue.QValue, upsertColIndices []int) string {
 		_, _ = fmt.Fprint(hasher, qRecord[upsertColIndex].Value())
 	}
 	hashBytes := hasher.Sum(nil)
-	return hex.EncodeToString(hashBytes[:])
+	return base64.RawURLEncoding.EncodeToString(hashBytes)
 }
 
 func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *protos.QRepConfig,
@@ -92,7 +91,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 
 		switch len(upsertKeyColIndices) {
 		case 0:
-			docId = uuid.New().String()
+			// relying on autogeneration of document ID
 		case 1:
 			docId = fmt.Sprint(qRecord[upsertKeyColIndices[0]].Value())
 		default:

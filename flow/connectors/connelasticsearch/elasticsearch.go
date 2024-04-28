@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -227,7 +227,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 				esc.logger.Error("[es] failed to process record", slog.Any("error", err))
 				return nil, fmt.Errorf("[es] failed to process record: %w", err)
 			}
-			docId = hex.EncodeToString(tablePkey.PkeyColVal[:])
+			docId = base64.RawURLEncoding.EncodeToString(tablePkey.PkeyColVal[:])
 		}
 
 		err = bulkIndexer.Add(ctx, esutil.BulkIndexerItem{
