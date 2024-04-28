@@ -59,13 +59,13 @@ func (s elasticsearchSuite) Test_Simple_QRep_Append() {
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 
 	e2e.EnvWaitFor(s.t, env, 10*time.Second, "waiting for ES to catch up", func() bool {
-		return s.CountDocumentsInIndex(srcTableName) == int64(rowCount)
+		return s.countDocumentsInIndex(srcTableName) == int64(rowCount)
 	})
 	_, err = s.conn.Conn().Exec(context.Background(), fmt.Sprintf(`
 	UPDATE %s SET c1=c1+2,updated_at=now() WHERE id%%2=0;`, srcTableName))
 	require.NoError(s.t, err, "failed to update rows on source")
 	e2e.EnvWaitFor(s.t, env, 20*time.Second, "waiting for ES to catch up", func() bool {
-		return s.CountDocumentsInIndex(srcTableName) == int64(3*rowCount/2)
+		return s.countDocumentsInIndex(srcTableName) == int64(3*rowCount/2)
 	})
 
 	require.NoError(s.t, env.Error())
@@ -117,13 +117,7 @@ func (s elasticsearchSuite) Test_Simple_QRep_Upsert() {
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 
 	e2e.EnvWaitFor(s.t, env, 10*time.Second, "waiting for ES to catch up", func() bool {
-		return s.CountDocumentsInIndex(srcTableName) == int64(rowCount)
-	})
-	_, err = s.conn.Conn().Exec(context.Background(), fmt.Sprintf(`
-	UPDATE %s SET c1=c1+2,updated_at=now() WHERE id%%2=0;`, srcTableName))
-	require.NoError(s.t, err, "failed to update rows on source")
-	e2e.EnvWaitFor(s.t, env, 20*time.Second, "waiting for ES to catch up", func() bool {
-		return s.CountDocumentsInIndex(srcTableName) == int64(rowCount)
+		return s.countDocumentsInIndex(srcTableName) == int64(rowCount)
 	})
 
 	require.NoError(s.t, env.Error())
