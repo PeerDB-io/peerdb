@@ -3,6 +3,7 @@ use std::time::Duration;
 use anyhow::Context;
 use gcp_bigquery_client::{
     model::{query_request::QueryRequest, query_response::ResultSet},
+    yup_oauth2,
     Client,
 };
 use peer_connections::PeerConnectionTracker;
