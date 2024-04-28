@@ -32,7 +32,7 @@ func upsertKeyColsHash(qRecord []qvalue.QValue, upsertColIndices []int) string {
 
 	for _, upsertColIndex := range upsertColIndices {
 		// cannot return an error
-		_, _ = hasher.Write([]byte(fmt.Sprint(qRecord[upsertColIndex].Value())))
+		_, _ = fmt.Fprint(hasher, qRecord[upsertColIndex].Value())
 	}
 	hashBytes := sha256.Sum256(nil)
 	return hex.EncodeToString(hashBytes[:])
