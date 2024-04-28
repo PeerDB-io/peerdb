@@ -28,12 +28,13 @@ func (esc *ElasticsearchConnector) SetupQRepMetadataTables(ctx context.Context,
 }
 
 func upsertKeyColsHash(qRecord []qvalue.QValue, upsertColIndices []int) string {
-	upsertColsMerged := make([][]byte, 0, len(upsertColIndices))
+	hasher := sha256.New()
 
 	for _, upsertColIndex := range upsertColIndices {
-		upsertColsMerged = append(upsertColsMerged, []byte(fmt.Sprint(qRecord[upsertColIndex].Value())))
+		// cannot return an error
+		_, _ = hasher.Write([]byte(fmt.Sprint(qRecord[upsertColIndex].Value())))
 	}
-	hashBytes := sha256.Sum256(slices.Concat(upsertColsMerged...))
+	hashBytes := sha256.Sum256(nil)
 	return hex.EncodeToString(hashBytes[:])
 }
 

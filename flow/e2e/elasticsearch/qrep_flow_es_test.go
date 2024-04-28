@@ -55,6 +55,7 @@ func (s elasticsearchSuite) Test_Simple_Qrep() {
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
+	time.Sleep(2 * time.Second)
 
 	require.EqualValues(s.t, rowCount, s.CountDocumentsInIndex(srcTableName))
 }

@@ -3,7 +3,6 @@ package model
 import (
 	"crypto/sha256"
 	"fmt"
-	"slices"
 	"sync/atomic"
 	"time"
 
@@ -83,19 +82,20 @@ func RecToTablePKey[T Items](
 	rec Record[T],
 ) (TableWithPkey, error) {
 	tableName := rec.GetDestinationTableName()
-	pkeyColsMerged := make([][]byte, 0, len(tableNameSchemaMapping[tableName].PrimaryKeyColumns))
+	hasher := sha256.New()
 
 	for _, pkeyCol := range tableNameSchemaMapping[tableName].PrimaryKeyColumns {
 		pkeyColBytes, err := rec.GetItems().GetBytesByColName(pkeyCol)
 		if err != nil {
 			return TableWithPkey{}, fmt.Errorf("error getting pkey column value: %w", err)
 		}
-		pkeyColsMerged = append(pkeyColsMerged, pkeyColBytes)
+		// cannot return an error
+		_, _ = hasher.Write(pkeyColBytes)
 	}
 
 	return TableWithPkey{
 		TableName:  tableName,
-		PkeyColVal: sha256.Sum256(slices.Concat(pkeyColsMerged...)),
+		PkeyColVal: sha256.Sum256(nil),
 	}, nil
 }
 
