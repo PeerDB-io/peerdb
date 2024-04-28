@@ -34,7 +34,7 @@ func upsertKeyColsHash(qRecord []qvalue.QValue, upsertColIndices []int) string {
 		// cannot return an error
 		_, _ = fmt.Fprint(hasher, qRecord[upsertColIndex].Value())
 	}
-	hashBytes := sha256.Sum256(nil)
+	hashBytes := hasher.Sum(nil)
 	return hex.EncodeToString(hashBytes[:])
 }
 
@@ -103,7 +103,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 				qRecordJsonMap[field.Name] = json.RawMessage(
 					shared.UnsafeFastStringToReadOnlyBytes(r.Val))
 			} else {
-				qRecordJsonMap[field.Name] = r.Value()
+				qRecordJsonMap[field.Name] = qRecord[i].Value()
 			}
 		}
 		qRecordJsonBytes, err := json.Marshal(qRecordJsonMap)

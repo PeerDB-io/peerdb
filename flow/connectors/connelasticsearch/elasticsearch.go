@@ -110,7 +110,7 @@ func recordItemsProcessor(items model.RecordItems) ([]byte, error) {
 			qRecordJsonMap[key] = json.RawMessage(
 				shared.UnsafeFastStringToReadOnlyBytes(r.Val))
 		} else {
-			qRecordJsonMap[key] = r.Value()
+			qRecordJsonMap[key] = val.Value()
 		}
 	}
 

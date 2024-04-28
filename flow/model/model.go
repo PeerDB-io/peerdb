@@ -95,7 +95,7 @@ func RecToTablePKey[T Items](
 
 	return TableWithPkey{
 		TableName:  tableName,
-		PkeyColVal: sha256.Sum256(nil),
+		PkeyColVal: [32]byte(hasher.Sum(nil)),
 	}, nil
 }
 
