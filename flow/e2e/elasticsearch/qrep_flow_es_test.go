@@ -23,6 +23,7 @@ func (s elasticsearchSuite) Test_Simple_QRep_Append() {
 	_, err := s.conn.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			c1 INT,
 			val TEXT,
 			updated_at TIMESTAMP DEFAULT now()
 		);
@@ -32,8 +33,8 @@ func (s elasticsearchSuite) Test_Simple_QRep_Append() {
 	rowCount := 10
 	for i := range rowCount {
 		_, err := s.conn.Conn().Exec(context.Background(), fmt.Sprintf(`
-		INSERT INTO %s(val) VALUES('val%d')
-	`, srcTableName, i))
+		INSERT INTO %s(c1,val) VALUES(%d,'val%d')
+	`, srcTableName, i, i))
 		require.NoError(s.t, err, "failed to insert row")
 	}
 
@@ -76,6 +77,7 @@ func (s elasticsearchSuite) Test_Simple_QRep_Upsert() {
 	_, err := s.conn.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			c1 INT,
 			val TEXT,
 			updated_at TIMESTAMP DEFAULT now()
 		);
@@ -85,8 +87,8 @@ func (s elasticsearchSuite) Test_Simple_QRep_Upsert() {
 	rowCount := 10
 	for i := range rowCount {
 		_, err := s.conn.Conn().Exec(context.Background(), fmt.Sprintf(`
-		INSERT INTO %s(val) VALUES('val%d')
-	`, srcTableName, i))
+		INSERT INTO %s(c1,val) VALUES(%d,'val%d')
+	`, srcTableName, i, i))
 		require.NoError(s.t, err, "failed to insert row")
 	}
 
