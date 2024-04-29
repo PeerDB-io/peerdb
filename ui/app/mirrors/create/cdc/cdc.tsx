@@ -70,7 +70,10 @@ export default function CDCConfigForm({
           label.includes('snapshot'))) ||
       ((mirrorConfig.source?.type !== DBType.POSTGRES ||
         mirrorConfig.destination?.type !== DBType.POSTGRES) &&
-        label.includes('type system'))
+        label.includes('type system')) ||
+      (mirrorConfig.destination?.type !== DBType.BIGQUERY &&
+        mirrorConfig.destination?.type !== DBType.SNOWFLAKE &&
+        label.includes('column name'))
     ) {
       return false;
     }
