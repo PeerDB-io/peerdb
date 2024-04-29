@@ -212,6 +212,7 @@ export const handleCreateQRep = async (
   }
 
   if (
+    !xmin &&
     config.writeMode?.writeType != QRepWriteType.QREP_WRITE_MODE_OVERWRITE &&
     !(query.includes('{{.start}}') && query.includes('{{.end}}'))
   ) {
