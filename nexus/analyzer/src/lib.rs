@@ -933,7 +933,8 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 .to_string(),
             database: opts
                 .get("database")
-                .context("no default database specified")?
+                .cloned()
+                .unwrap_or_default()
                 .to_string(),
             setup: opts
                 .get("setup")
