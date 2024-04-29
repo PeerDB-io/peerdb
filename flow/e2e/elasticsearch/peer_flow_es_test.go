@@ -51,9 +51,28 @@ func (s elasticsearchSuite) Test_Simple_PKey_CDC_Mirror() {
 	`, srcTableName, i, i))
 		require.NoError(s.t, err, "failed to insert row")
 	}
-
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial snapshot + inserted rows", func() bool {
 		return s.countDocumentsInIndex(srcTableName) == int64(2*rowCount)
+	})
+
+	_, err = s.conn.Conn().Exec(context.Background(), fmt.Sprintf(`
+	UPDATE %s SET c1=c1+2,updated_at=now() WHERE id%%2=0;`, srcTableName))
+	require.NoError(s.t, err, "failed to update rows on source")
+	for i := range rowCount {
+		_, err := s.conn.Conn().Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO %s(c1,val) VALUES(%d,'val%d')
+	`, srcTableName, i, i))
+		require.NoError(s.t, err, "failed to insert row")
+	}
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for updates + new inserts", func() bool {
+		return s.countDocumentsInIndex(srcTableName) == int64(3*rowCount)
+	})
+
+	_, err = s.conn.Conn().Exec(context.Background(), fmt.Sprintf(`
+	DELETE FROM %s WHERE id%%2=1;`, srcTableName))
+	require.NoError(s.t, err, "failed to delete rows on source")
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for deletes", func() bool {
+		return s.countDocumentsInIndex(srcTableName) == int64(3*rowCount/2)
 	})
 
 	env.Cancel()
@@ -69,7 +88,7 @@ func (s elasticsearchSuite) Test_Composite_PKey_CDC_Mirror() {
 			c1 INT,
 			val TEXT,
 			updated_at TIMESTAMP DEFAULT now(),
-			PRIMARY KEY(id,c1)
+			PRIMARY KEY(id,val)
 		);
 	`, srcTableName))
 	require.NoError(s.t, err, "failed creating table")
@@ -104,6 +123,26 @@ func (s elasticsearchSuite) Test_Composite_PKey_CDC_Mirror() {
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial snapshot + inserted rows", func() bool {
 		return s.countDocumentsInIndex(srcTableName) == int64(2*rowCount)
+	})
+
+	_, err = s.conn.Conn().Exec(context.Background(), fmt.Sprintf(`
+	UPDATE %s SET c1=c1+2,updated_at=now() WHERE id%%2=0;`, srcTableName))
+	require.NoError(s.t, err, "failed to update rows on source")
+	for i := range rowCount {
+		_, err := s.conn.Conn().Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO %s(c1,val) VALUES(%d,'val%d')
+	`, srcTableName, i, i))
+		require.NoError(s.t, err, "failed to insert row")
+	}
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for updates + new inserts", func() bool {
+		return s.countDocumentsInIndex(srcTableName) == int64(3*rowCount)
+	})
+
+	_, err = s.conn.Conn().Exec(context.Background(), fmt.Sprintf(`
+	DELETE FROM %s WHERE id%%2=1;`, srcTableName))
+	require.NoError(s.t, err, "failed to delete rows on source")
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for deletes", func() bool {
+		return s.countDocumentsInIndex(srcTableName) == int64(3*rowCount/2)
 	})
 
 	env.Cancel()
