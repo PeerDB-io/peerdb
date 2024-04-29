@@ -211,6 +211,16 @@ export const handleCreateQRep = async (
     return;
   }
 
+  if (
+    config.writeMode?.writeType != QRepWriteType.QREP_WRITE_MODE_OVERWRITE &&
+    !(query.includes('{{.start}}') && query.includes('{{.end}}'))
+  ) {
+    notifyErr(
+      'Please include placeholders {{.start}} and {{.end}} in the query'
+    );
+    return;
+  }
+
   if (xmin == true) {
     config.watermarkColumn = 'xmin';
     config.query = `SELECT * FROM ${quotedWatermarkTable(
