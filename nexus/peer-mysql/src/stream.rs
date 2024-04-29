@@ -110,50 +110,51 @@ pub fn mysql_row_to_values(row: Row) -> Vec<Value> {
     row.unwrap()
         .into_iter()
         .zip(columns.iter())
-        .map(|(val, col)|
+        .map(|(val, col)| {
             if val == mysql_async::Value::NULL {
                 Value::Null
             } else {
-            match col.column_type() {
-            ColumnType::MYSQL_TYPE_NULL | ColumnType::MYSQL_TYPE_UNKNOWN => Value::Null,
-            ColumnType::MYSQL_TYPE_TINY => Value::TinyInt(from_value(val)),
-            ColumnType::MYSQL_TYPE_SHORT | ColumnType::MYSQL_TYPE_YEAR => {
-                Value::SmallInt(from_value(val))
-            }
-            ColumnType::MYSQL_TYPE_LONG | ColumnType::MYSQL_TYPE_INT24 => {
-                Value::Integer(from_value(val))
-            }
-            ColumnType::MYSQL_TYPE_LONGLONG => Value::BigInt(from_value(val)),
-            ColumnType::MYSQL_TYPE_FLOAT => Value::Float(from_value(val)),
-            ColumnType::MYSQL_TYPE_DOUBLE => Value::Double(from_value(val)),
-            ColumnType::MYSQL_TYPE_DECIMAL | ColumnType::MYSQL_TYPE_NEWDECIMAL => {
-                Value::Numeric(from_value(val))
-            }
-            ColumnType::MYSQL_TYPE_VARCHAR
-            | ColumnType::MYSQL_TYPE_VAR_STRING
-            | ColumnType::MYSQL_TYPE_STRING
-            | ColumnType::MYSQL_TYPE_ENUM
-            | ColumnType::MYSQL_TYPE_SET => Value::Text(from_value(val)),
-            ColumnType::MYSQL_TYPE_TINY_BLOB
-            | ColumnType::MYSQL_TYPE_MEDIUM_BLOB
-            | ColumnType::MYSQL_TYPE_LONG_BLOB
-            | ColumnType::MYSQL_TYPE_BLOB
-            | ColumnType::MYSQL_TYPE_BIT
-            | ColumnType::MYSQL_TYPE_GEOMETRY => {
-                Value::Binary(from_value::<Vec<u8>>(val).into())
-            }
-            ColumnType::MYSQL_TYPE_DATE | ColumnType::MYSQL_TYPE_NEWDATE => {
-                Value::Date(from_value(val))
-            }
-            ColumnType::MYSQL_TYPE_TIME | ColumnType::MYSQL_TYPE_TIME2 => {
-                Value::Time(from_value(val))
-            }
-            ColumnType::MYSQL_TYPE_TIMESTAMP
-            | ColumnType::MYSQL_TYPE_TIMESTAMP2
-            | ColumnType::MYSQL_TYPE_DATETIME
-            | ColumnType::MYSQL_TYPE_DATETIME2 => Value::PostgresTimestamp(from_value(val)),
-            ColumnType::MYSQL_TYPE_JSON => Value::JsonB(from_value(val)),
-            ColumnType::MYSQL_TYPE_TYPED_ARRAY => Value::Null,
+                match col.column_type() {
+                    ColumnType::MYSQL_TYPE_NULL | ColumnType::MYSQL_TYPE_UNKNOWN => Value::Null,
+                    ColumnType::MYSQL_TYPE_TINY => Value::TinyInt(from_value(val)),
+                    ColumnType::MYSQL_TYPE_SHORT | ColumnType::MYSQL_TYPE_YEAR => {
+                        Value::SmallInt(from_value(val))
+                    }
+                    ColumnType::MYSQL_TYPE_LONG | ColumnType::MYSQL_TYPE_INT24 => {
+                        Value::Integer(from_value(val))
+                    }
+                    ColumnType::MYSQL_TYPE_LONGLONG => Value::BigInt(from_value(val)),
+                    ColumnType::MYSQL_TYPE_FLOAT => Value::Float(from_value(val)),
+                    ColumnType::MYSQL_TYPE_DOUBLE => Value::Double(from_value(val)),
+                    ColumnType::MYSQL_TYPE_DECIMAL | ColumnType::MYSQL_TYPE_NEWDECIMAL => {
+                        Value::Numeric(from_value(val))
+                    }
+                    ColumnType::MYSQL_TYPE_VARCHAR
+                    | ColumnType::MYSQL_TYPE_VAR_STRING
+                    | ColumnType::MYSQL_TYPE_STRING
+                    | ColumnType::MYSQL_TYPE_ENUM
+                    | ColumnType::MYSQL_TYPE_SET => Value::Text(from_value(val)),
+                    ColumnType::MYSQL_TYPE_TINY_BLOB
+                    | ColumnType::MYSQL_TYPE_MEDIUM_BLOB
+                    | ColumnType::MYSQL_TYPE_LONG_BLOB
+                    | ColumnType::MYSQL_TYPE_BLOB
+                    | ColumnType::MYSQL_TYPE_BIT
+                    | ColumnType::MYSQL_TYPE_GEOMETRY => {
+                        Value::Binary(from_value::<Vec<u8>>(val).into())
+                    }
+                    ColumnType::MYSQL_TYPE_DATE | ColumnType::MYSQL_TYPE_NEWDATE => {
+                        Value::Date(from_value(val))
+                    }
+                    ColumnType::MYSQL_TYPE_TIME | ColumnType::MYSQL_TYPE_TIME2 => {
+                        Value::Time(from_value(val))
+                    }
+                    ColumnType::MYSQL_TYPE_TIMESTAMP
+                    | ColumnType::MYSQL_TYPE_TIMESTAMP2
+                    | ColumnType::MYSQL_TYPE_DATETIME
+                    | ColumnType::MYSQL_TYPE_DATETIME2 => Value::PostgresTimestamp(from_value(val)),
+                    ColumnType::MYSQL_TYPE_JSON => Value::JsonB(from_value(val)),
+                    ColumnType::MYSQL_TYPE_TYPED_ARRAY => Value::Null,
+                }
             }
         })
         .collect()

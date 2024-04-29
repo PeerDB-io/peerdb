@@ -357,11 +357,13 @@ impl QueryExecutor for SnowflakeQueryExecutor {
                     } => n
                         .parse::<usize>()
                         .map_err(|err| PgWireError::ApiError(err.into()))?,
-                    _ => return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                        "ERROR".to_owned(),
-                        "fdw_error".to_owned(),
-                        "only FORWARD count and COUNT count are supported in FETCH".to_owned(),
-                    )))),
+                    _ => {
+                        return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                            "ERROR".to_owned(),
+                            "fdw_error".to_owned(),
+                            "only FORWARD count and COUNT count are supported in FETCH".to_owned(),
+                        ))))
+                    }
                 };
 
                 tracing::info!("fetching {} rows", count);
