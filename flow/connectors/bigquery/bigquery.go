@@ -639,9 +639,10 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 
 	if softDeleteColName != "" {
 		columns = append(columns, &bigquery.FieldSchema{
-			Name:     softDeleteColName,
-			Type:     bigquery.BooleanFieldType,
-			Repeated: false,
+			Name:                   softDeleteColName,
+			Type:                   bigquery.BooleanFieldType,
+			Repeated:               false,
+			DefaultValueExpression: "false",
 		})
 	}
 
