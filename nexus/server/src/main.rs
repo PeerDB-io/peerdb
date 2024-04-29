@@ -26,11 +26,13 @@ use pgwire::{
             md5pass::{hash_md5_password, MakeMd5PasswordAuthStartupHandler},
             AuthSource, LoginInfo, Password, ServerParameterProvider,
         },
-        portal::{Portal},
+        portal::Portal,
         query::{ExtendedQueryHandler, SimpleQueryHandler},
-        results::{DescribeResponse, DescribePortalResponse, DescribeStatementResponse, Response, Tag},
+        results::{
+            DescribePortalResponse, DescribeResponse, DescribeStatementResponse, Response, Tag,
+        },
         stmt::StoredStatement,
-        ClientInfo, MakeHandler, Type
+        ClientInfo, MakeHandler, Type,
     },
     error::{ErrorInfo, PgWireError, PgWireResult},
     tokio::process_socket,
@@ -861,11 +863,7 @@ impl NexusBackend {
         })
     }
 
-    async fn do_describe(
-        &self,
-        stmt: &NexusParsedStatement,
-    ) -> PgWireResult<Option<Schema>>
-    {
+    async fn do_describe(&self, stmt: &NexusParsedStatement) -> PgWireResult<Option<Schema>> {
         tracing::info!("[eqp] do_describe: {}", stmt.query);
         let stmt = &stmt.statement;
         match stmt {
@@ -875,61 +873,47 @@ impl NexusBackend {
             NexusStatement::Rollback { .. } => Ok(None),
             NexusStatement::PeerQuery { stmt, assoc } => {
                 let schema: Option<Schema> = match assoc {
-                    QueryAssociation::Peer(peer) => {
-                        match &peer.config {
-                            Some(Config::BigqueryConfig(_)) => {
-                                let executor =
-                                    self.get_peer_executor(peer).await.map_err(|err| {
-                                        PgWireError::ApiError(
-                                            format!("unable to get peer executor: {:?}", err)
-                                                .into(),
-                                        )
-                                    })?;
-                                executor.describe(stmt).await?
-                            }
-                            Some(Config::MysqlConfig(_)) => {
-                                let executor =
-                                    self.get_peer_executor(peer).await.map_err(|err| {
-                                        PgWireError::ApiError(
-                                            format!("unable to get peer executor: {:?}", err)
-                                                .into(),
-                                        )
-                                    })?;
-                                executor.describe(stmt).await?
-                            }
-                            Some(Config::PostgresConfig(_)) => {
-                                let executor =
-                                    self.get_peer_executor(peer).await.map_err(|err| {
-                                        PgWireError::ApiError(
-                                            format!("unable to get peer executor: {:?}", err)
-                                                .into(),
-                                        )
-                                    })?;
-                                executor.describe(stmt).await?
-                            }
-                            Some(Config::SnowflakeConfig(_)) => {
-                                let executor =
-                                    self.get_peer_executor(peer).await.map_err(|err| {
-                                        PgWireError::ApiError(
-                                            format!("unable to get peer executor: {:?}", err)
-                                                .into(),
-                                        )
-                                    })?;
-                                executor.describe(stmt).await?
-                            }
-                            _ => {
-                                panic!("peer type not supported: {:?}", peer)
-                            }
+                    QueryAssociation::Peer(peer) => match &peer.config {
+                        Some(Config::BigqueryConfig(_)) => {
+                            let executor = self.get_peer_executor(peer).await.map_err(|err| {
+                                PgWireError::ApiError(
+                                    format!("unable to get peer executor: {:?}", err).into(),
+                                )
+                            })?;
+                            executor.describe(stmt).await?
                         }
-                    }
+                        Some(Config::MysqlConfig(_)) => {
+                            let executor = self.get_peer_executor(peer).await.map_err(|err| {
+                                PgWireError::ApiError(
+                                    format!("unable to get peer executor: {:?}", err).into(),
+                                )
+                            })?;
+                            executor.describe(stmt).await?
+                        }
+                        Some(Config::PostgresConfig(_)) => {
+                            let executor = self.get_peer_executor(peer).await.map_err(|err| {
+                                PgWireError::ApiError(
+                                    format!("unable to get peer executor: {:?}", err).into(),
+                                )
+                            })?;
+                            executor.describe(stmt).await?
+                        }
+                        Some(Config::SnowflakeConfig(_)) => {
+                            let executor = self.get_peer_executor(peer).await.map_err(|err| {
+                                PgWireError::ApiError(
+                                    format!("unable to get peer executor: {:?}", err).into(),
+                                )
+                            })?;
+                            executor.describe(stmt).await?
+                        }
+                        _ => {
+                            panic!("peer type not supported: {:?}", peer)
+                        }
+                    },
                     QueryAssociation::Catalog => self.catalog.describe(stmt).await?,
                 };
 
-                Ok(if self.peerdb_fdw_mode {
-                    None
-                } else {
-                    schema
-                })
+                Ok(if self.peerdb_fdw_mode { None } else { schema })
             }
         }
     }
@@ -1037,11 +1021,13 @@ impl ExtendedQueryHandler for NexusBackend {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        Ok(if let Some(schema) = self.do_describe(&target.statement.statement).await? {
-            DescribePortalResponse::new((*schema).clone())
-        } else {
-            DescribePortalResponse::no_data()
-        })
+        Ok(
+            if let Some(schema) = self.do_describe(&target.statement.statement).await? {
+                DescribePortalResponse::new((*schema).clone())
+            } else {
+                DescribePortalResponse::no_data()
+            },
+        )
     }
 
     async fn do_describe_statement<C>(
@@ -1052,11 +1038,13 @@ impl ExtendedQueryHandler for NexusBackend {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        Ok(if let Some(schema) = self.do_describe(&target.statement).await? {
-            DescribeStatementResponse::new(target.parameter_types.clone(), (*schema).clone())
-        } else {
-            DescribeStatementResponse::no_data()
-        })
+        Ok(
+            if let Some(schema) = self.do_describe(&target.statement).await? {
+                DescribeStatementResponse::new(target.parameter_types.clone(), (*schema).clone())
+            } else {
+                DescribeStatementResponse::no_data()
+            },
+        )
     }
 }
 
