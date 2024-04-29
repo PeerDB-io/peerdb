@@ -2003,6 +2003,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "peer-ast"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "pt",
+ "rust_decimal",
+ "sqlparser",
+]
+
+[[package]]
 name = "peer-bigquery"
 version = "0.1.0"
 dependencies = [
@@ -2011,6 +2021,7 @@ dependencies = [
  "chrono",
  "futures",
  "gcp-bigquery-client",
+ "peer-ast",
  "peer-connections",
  "peer-cursor",
  "pgwire",
@@ -2063,6 +2074,7 @@ dependencies = [
  "chrono",
  "futures",
  "mysql_async",
+ "peer-ast",
  "peer-connections",
  "peer-cursor",
  "pgwire",

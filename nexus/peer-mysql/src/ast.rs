@@ -1,6 +1,10 @@
 use std::ops::ControlFlow;
 
-use sqlparser::ast::{visit_relations_mut, Expr, Query};
+use peer_ast::flatten_expr_to_in_list;
+use sqlparser::ast::{
+    visit_expressions_mut, visit_relations_mut, Array, ArrayElemTypeDef, BinaryOperator, DataType,
+    Expr, Query,
+};
 
 pub fn rewrite_query(peername: &str, query: &mut Query) {
     visit_relations_mut(query, |table| {
@@ -15,4 +19,25 @@ pub fn rewrite_query(peername: &str, query: &mut Query) {
     if let Some(Expr::Cast { expr, .. }) = &query.limit {
         query.limit = Some((**expr).clone());
     }
+
+    // flatten ANY to IN operation overall.
+    visit_expressions_mut(query, |node| {
+        if let Expr::AnyOp {
+            left,
+            compare_op,
+            right,
+        } = node
+        {
+            if matches!(compare_op, BinaryOperator::Eq | BinaryOperator::NotEq) {
+                let list = flatten_expr_to_in_list(right).expect("failed to flatten");
+                *node = Expr::InList {
+                    expr: left.clone(),
+                    list,
+                    negated: matches!(compare_op, BinaryOperator::NotEq),
+                };
+            }
+        }
+
+        ControlFlow::<()>::Continue(())
+    });
 }
