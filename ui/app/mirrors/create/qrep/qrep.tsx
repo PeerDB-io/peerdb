@@ -104,7 +104,7 @@ export default function QRepConfigForm({
     setting: MirrorSetting
   ) => {
     if (val) {
-      if (setting.label === 'Table') {
+      if (setting.label.includes('Table')) {
         if (mirrorConfig.destinationPeer?.type === DBType.BIGQUERY) {
           setter((curr) => ({
             ...curr,
