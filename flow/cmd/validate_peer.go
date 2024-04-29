@@ -61,8 +61,8 @@ func (h *FlowRequestHandler) ValidatePeer(
 	validationConn, ok := conn.(connectors.ValidationConnector)
 	if ok {
 		validErr := validationConn.ValidateCheck(ctx)
-		displayErr := fmt.Sprintf("failed to validate peer %s: %v", req.Peer.Name, validErr)
 		if validErr != nil {
+			displayErr := fmt.Sprintf("failed to validate peer %s: %v", req.Peer.Name, validErr)
 			h.alerter.LogNonFlowWarning(ctx, telemetry.CreatePeer, req.Peer.Name,
 				displayErr,
 			)
