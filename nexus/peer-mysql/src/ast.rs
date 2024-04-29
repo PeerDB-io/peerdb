@@ -1,6 +1,6 @@
 use std::ops::ControlFlow;
 
-use sqlparser::ast::{visit_relations_mut, Query};
+use sqlparser::ast::{visit_relations_mut, Expr, Query};
 
 pub fn rewrite_query(peername: &str, query: &mut Query) {
     visit_relations_mut(query, |table| {
@@ -10,4 +10,9 @@ pub fn rewrite_query(peername: &str, query: &mut Query) {
         }
         ControlFlow::<()>::Continue(())
     });
+
+    // postgres_fdw sends `limit 1` as `limit 1::bigint` which mysql chokes on
+    if let Some(Expr::Cast { expr, .. }) = &query.limit {
+        query.limit = Some((**expr).clone());
+    }
 }
