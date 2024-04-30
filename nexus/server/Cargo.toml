@@ -63,4 +63,4 @@ cargo-deb = "2.0"
 
 [dev-dependencies]
 postgres = "0.19.4"
-sha256 = "1.0.3"
+similar = "2"

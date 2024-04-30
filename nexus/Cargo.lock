@@ -2191,7 +2191,7 @@ dependencies = [
  "pt",
  "rand",
  "serde_json",
- "sha256",
+ "similar",
  "sqlparser",
  "time",
  "tokio",
@@ -3172,19 +3172,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sha256"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18278f6a914fa3070aa316493f7d2ddfb9ac86ebc06fa3b83bffda487e9065b0"
-dependencies = [
- "async-trait",
- "bytes",
- "hex",
- "sha2",
- "tokio",
-]
-
-[[package]]
 name = "sharded-slab"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3229,6 +3216,12 @@ name = "simdutf8"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f27f6278552951f1f2b8cf9da965d10969b2efdea95a6ec47987ab46edfe263a"
+
+[[package]]
+name = "similar"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa42c91313f1d05da9b26f267f931cf178d4aba455b4c4622dd7355eb80c6640"
 
 [[package]]
 name = "simple_asn1"
