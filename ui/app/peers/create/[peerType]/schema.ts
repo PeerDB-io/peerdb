@@ -288,26 +288,42 @@ export const chSchema = z.object({
 
 export const kaSchema = z.object({
   servers: z
-    .array(z.string({ required_error: 'Server address must not be empty' }))
+    .array(
+      z.string({
+        invalid_type_error: 'Invalid server provided',
+        required_error: 'Server address must not be empty',
+      })
+    )
     .min(1, { message: 'At least 1 server required' }),
   username: z.string().optional(),
   password: z.string().optional(),
   sasl: z
-    .union([
-      z.literal('PLAIN'),
-      z.literal('SCRAM-SHA-256'),
-      z.literal('SCRAM-SHA-512'),
-    ])
+    .union(
+      [
+        z.literal('PLAIN'),
+        z.literal('SCRAM-SHA-256'),
+        z.literal('SCRAM-SHA-512'),
+      ],
+      { errorMap: (issue, ctx) => ({ message: 'Invalid SASL mechanism' }) }
+    )
     .optional(),
   partitioner: z
-    .union([
-      z.literal('Default'),
-      z.literal('LeastBackup'),
-      z.literal('Manual'),
-      z.literal('RoundRobin'),
-      z.literal('StickyKey'),
-      z.literal('Sticky'),
-    ])
+    .union(
+      [
+        z.literal('Default'),
+        z.literal('LeastBackup'),
+        z.literal('Manual'),
+        z.literal('RoundRobin'),
+        z.literal('StickyKey'),
+        z.literal('Sticky'),
+        z.literal(''),
+      ],
+      {
+        errorMap: (issue, ctx) => ({
+          message: 'Invalid partitioning mechanism',
+        }),
+      }
+    )
     .optional(),
   disableTls: z.boolean().optional(),
 });
