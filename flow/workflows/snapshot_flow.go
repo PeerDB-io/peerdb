@@ -171,6 +171,18 @@ func (s *SnapshotFlowExecution) cloneTable(
 		numRowsPerPartition = s.config.SnapshotNumRowsPerPartition
 	}
 
+	snapshotWriteMode := &protos.QRepWriteMode{
+		WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
+	}
+	// ensure document IDs are synchronized across initial load and CDC
+	// for the same document
+	if s.config.Destination.Type == protos.DBType_ELASTICSEARCH {
+		snapshotWriteMode = &protos.QRepWriteMode{
+			WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
+			UpsertKeyColumns: s.tableNameSchemaMapping[mapping.DestinationTableIdentifier].PrimaryKeyColumns,
+		}
+	}
+
 	config := &protos.QRepConfig{
 		FlowJobName:                childWorkflowID,
 		SourcePeer:                 sourcePostgres,
@@ -185,10 +197,8 @@ func (s *SnapshotFlowExecution) cloneTable(
 		StagingPath:                s.config.SnapshotStagingPath,
 		SyncedAtColName:            s.config.SyncedAtColName,
 		SoftDeleteColName:          s.config.SoftDeleteColName,
-		WriteMode: &protos.QRepWriteMode{
-			WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
-		},
-		System: s.config.System,
+		WriteMode:                  snapshotWriteMode,
+		System:                     s.config.System,
 	}
 
 	state := NewQRepFlowState()

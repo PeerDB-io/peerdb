@@ -706,7 +706,7 @@ func (c *PostgresConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 	_, err = createRawTableTx.Exec(ctx, fmt.Sprintf(createRawTableDstTableIndexSQL, rawTableIdentifier,
 		c.metadataSchema, rawTableIdentifier))
 	if err != nil {
-		return nil, fmt.Errorf("error creating destion table index on raw table: %w", err)
+		return nil, fmt.Errorf("error creating destination table index on raw table: %w", err)
 	}
 
 	err = createRawTableTx.Commit(ctx)
