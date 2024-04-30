@@ -162,4 +162,24 @@ export const cdcSettings: MirrorSetting[] = [
     tips: 'Decide if PeerDB should use native Postgres types directly',
     advanced: true,
   },
+  {
+    label: 'Synced-At Column Name',
+    stateHandler: (value, setter) =>
+      setter((curr: CDCConfig) => ({
+        ...curr,
+        syncedAtColName: value as string | '',
+      })),
+    tips: 'A field to set the name of PeerDBs synced_at column. If not set, a default name will be set',
+    advanced: true,
+  },
+  {
+    label: 'Soft Delete Column Name',
+    stateHandler: (value, setter) =>
+      setter((curr: CDCConfig) => ({
+        ...curr,
+        softDeleteColName: value as string | '',
+      })),
+    tips: 'A field to set the name of PeerDBs soft delete column.',
+    advanced: true,
+  },
 ];
