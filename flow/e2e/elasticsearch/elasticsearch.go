@@ -80,8 +80,12 @@ func (s elasticsearchSuite) Peer() *protos.Peer {
 	return s.peer
 }
 
-func (s elasticsearchSuite) CountDocumentsInIndex(index string) int64 {
+func (s elasticsearchSuite) countDocumentsInIndex(index string) int64 {
 	res, err := s.esClient.Count().Index(index).Do(context.Background())
+	// index may not exist yet, don't error out for that
+	if err != nil && strings.Contains(err.Error(), "index_not_found_exception") {
+		return 0
+	}
 	require.NoError(s.t, err, "failed to get count of documents in index")
 	return res.Count
 }

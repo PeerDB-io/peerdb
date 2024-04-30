@@ -2,10 +2,8 @@ package connpostgres
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"log/slog"
-	"slices"
 	"time"
 
 	"github.com/jackc/pglogrepl"
@@ -488,7 +486,7 @@ func PullCdcRecords[Items model.Items](
 							return err
 						}
 					} else {
-						tablePkeyVal, err := recToTablePKey(req, rec)
+						tablePkeyVal, err := model.RecToTablePKey[Items](req.TableNameSchemaMapping, rec)
 						if err != nil {
 							return err
 						}
@@ -520,7 +518,7 @@ func PullCdcRecords[Items model.Items](
 							return err
 						}
 					} else {
-						tablePkeyVal, err := recToTablePKey(req, rec)
+						tablePkeyVal, err := model.RecToTablePKey[Items](req.TableNameSchemaMapping, rec)
 						if err != nil {
 							return err
 						}
@@ -538,7 +536,7 @@ func PullCdcRecords[Items model.Items](
 							return err
 						}
 					} else {
-						tablePkeyVal, err := recToTablePKey(req, rec)
+						tablePkeyVal, err := model.RecToTablePKey[Items](req.TableNameSchemaMapping, rec)
 						if err != nil {
 							return err
 						}
@@ -863,27 +861,6 @@ func processRelationMessage[Items model.Items](
 		return rec, auditSchemaDelta(ctx, p, rec)
 	}
 	return nil, nil
-}
-
-func recToTablePKey[Items model.Items](
-	req *model.PullRecordsRequest[Items],
-	rec model.Record[Items],
-) (model.TableWithPkey, error) {
-	tableName := rec.GetDestinationTableName()
-	pkeyColsMerged := make([][]byte, 0, len(req.TableNameSchemaMapping[tableName].PrimaryKeyColumns))
-
-	for _, pkeyCol := range req.TableNameSchemaMapping[tableName].PrimaryKeyColumns {
-		pkeyColBytes, err := rec.GetItems().GetBytesByColName(pkeyCol)
-		if err != nil {
-			return model.TableWithPkey{}, fmt.Errorf("error getting pkey column value: %w", err)
-		}
-		pkeyColsMerged = append(pkeyColsMerged, pkeyColBytes)
-	}
-
-	return model.TableWithPkey{
-		TableName:  tableName,
-		PkeyColVal: sha256.Sum256(slices.Concat(pkeyColsMerged...)),
-	}, nil
 }
 
 func (p *PostgresCDCSource) getParentRelIDIfPartitioned(relID uint32) uint32 {

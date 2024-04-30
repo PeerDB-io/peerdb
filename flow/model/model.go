@@ -1,6 +1,8 @@
 package model
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -75,12 +77,36 @@ type TableWithPkey struct {
 	PkeyColVal [32]byte
 }
 
+func RecToTablePKey[T Items](
+	tableNameSchemaMapping map[string]*protos.TableSchema,
+	rec Record[T],
+) (TableWithPkey, error) {
+	tableName := rec.GetDestinationTableName()
+	hasher := sha256.New()
+
+	for _, pkeyCol := range tableNameSchemaMapping[tableName].PrimaryKeyColumns {
+		pkeyColBytes, err := rec.GetItems().GetBytesByColName(pkeyCol)
+		if err != nil {
+			return TableWithPkey{}, fmt.Errorf("error getting pkey column value: %w", err)
+		}
+		// cannot return an error
+		_, _ = hasher.Write(pkeyColBytes)
+	}
+
+	return TableWithPkey{
+		TableName:  tableName,
+		PkeyColVal: [32]byte(hasher.Sum(nil)),
+	}, nil
+}
+
 type SyncRecordsRequest[T Items] struct {
 	Records *CDCStream[T]
 	// ConsumedOffset allows destination to confirm lsn for slot
 	ConsumedOffset *atomic.Int64
 	// FlowJobName is the name of the flow job.
-	FlowJobName string
+	// destination table name -> schema mapping
+	TableNameSchemaMapping map[string]*protos.TableSchema
+	FlowJobName            string
 	// Staging path for AVRO files in CDC
 	StagingPath string
 	// Lua script

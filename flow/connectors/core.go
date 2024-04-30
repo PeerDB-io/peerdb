@@ -304,6 +304,7 @@ var (
 	_ CDCSyncConnector = &connpubsub.PubSubConnector{}
 	_ CDCSyncConnector = &conns3.S3Connector{}
 	_ CDCSyncConnector = &connclickhouse.ClickhouseConnector{}
+	_ CDCSyncConnector = &connelasticsearch.ElasticsearchConnector{}
 
 	_ CDCSyncPgConnector = &connpostgres.PostgresConnector{}
 
