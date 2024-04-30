@@ -924,7 +924,8 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 .context("unable to parse port as valid int")?,
             user: opts
                 .get("user")
-                .context("no username specified")?
+                .cloned()
+                .unwrap_or_default()
                 .to_string(),
             password: opts
                 .get("password")
@@ -942,8 +943,8 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 .unwrap_or_default(),
             compression: opts
                 .get("compression")
-                .and_then(|s| s.parse::<i8>().ok())
-                .unwrap_or_default() as u32,
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or_default(),
             disable_tls: opts
                 .get("disable_tls")
                 .and_then(|s| s.parse::<bool>().ok())
