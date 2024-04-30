@@ -187,13 +187,14 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 		syncStartTime = time.Now()
 		res, err = sync(dstConn, errCtx, &model.SyncRecordsRequest[Items]{
-			SyncBatchID:    syncBatchID,
-			Records:        recordBatch,
-			ConsumedOffset: &consumedOffset,
-			FlowJobName:    flowName,
-			TableMappings:  options.TableMappings,
-			StagingPath:    config.CdcStagingPath,
-			Script:         config.Script,
+			SyncBatchID:            syncBatchID,
+			Records:                recordBatch,
+			ConsumedOffset:         &consumedOffset,
+			FlowJobName:            flowName,
+			TableMappings:          options.TableMappings,
+			StagingPath:            config.CdcStagingPath,
+			Script:                 config.Script,
+			TableNameSchemaMapping: options.TableNameSchemaMapping,
 		})
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, flowName, err)
