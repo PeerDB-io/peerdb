@@ -724,7 +724,9 @@ func (c *PostgresConnector) GetTableSchema(
 ) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
-		activity.RecordHeartbeat(ctx, fmt.Sprintf("fetching schema for table %s", tableName))
+		if activity.IsActivity(ctx) {
+			activity.RecordHeartbeat(ctx, "fetching schema for table "+tableName)
+		}
 		tableSchema, err := c.getTableSchemaForTable(ctx, tableName, req.System)
 		if err != nil {
 			return nil, err
