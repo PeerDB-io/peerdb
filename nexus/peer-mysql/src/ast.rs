@@ -1,16 +1,39 @@
 use std::ops::ControlFlow;
 
 use peer_ast::flatten_expr_to_in_list;
+use serde_json::{self, Value as JsonValue};
 use sqlparser::ast::{
     visit_expressions_mut, visit_function_arg_mut, visit_relations_mut, Array, BinaryOperator,
-    DataType, Expr, FunctionArgExpr, Query,
+    DataType, Expr, FunctionArgExpr, Query, Value,
 };
+
+fn json_to_expr(val: JsonValue) -> Expr {
+    match val {
+        JsonValue::Null => Expr::Value(Value::Null),
+        JsonValue::Bool(x) => Expr::Value(Value::Boolean(x)),
+        JsonValue::Number(x) => Expr::Value(Value::Number(x.to_string(), false)),
+        JsonValue::String(x) => Expr::Value(Value::SingleQuotedString(x)),
+        JsonValue::Array(x) => Expr::Array(Array {
+            elem: x.into_iter().map(json_to_expr).collect::<Vec<_>>(),
+            named: false
+        }),
+        JsonValue::Object(x) => Expr::Cast {
+            data_type: DataType::JSON,
+            expr: Box::new(Expr::Value(Value::SingleQuotedString(JsonValue::Object(x).to_string()))),
+            format: None,
+        },
+    }
+}
 
 pub fn rewrite_query(peername: &str, query: &mut Query) {
     visit_relations_mut(query, |table| {
-        // if peer name is first part of table name, remove first part
-        if peername.eq_ignore_ascii_case(&table.0[0].value) {
-            table.0.remove(0);
+        if table.0.len() > 1 {
+            // if peer name is first part of table name, remove first part
+            if peername.eq_ignore_ascii_case(&table.0[0].value) {
+                table.0.remove(0);
+            } else if table.0[0].value == "public" {
+                table.0.remove(0);
+            }
         }
         ControlFlow::<()>::Continue(())
     });
@@ -34,6 +57,17 @@ pub fn rewrite_query(peername: &str, query: &mut Query) {
                     named: true,
                 };
                 *node = FunctionArgExpr::Expr(Expr::Array(rewritten_array));
+            } else if let Expr::Cast { data_type: DataType::JSONB, expr, .. } = arg_expr {
+                *node = match **expr {
+                    Expr::Value(Value::SingleQuotedString(ref s)) => {
+                        if let Ok(val) = serde_json::from_str::<JsonValue>(s) {
+                            FunctionArgExpr::Expr(json_to_expr(val))
+                        } else {
+                            FunctionArgExpr::Expr((**expr).clone())
+                        }
+                    },
+                    _ => FunctionArgExpr::Expr((**expr).clone())
+                };
             }
         }
 
