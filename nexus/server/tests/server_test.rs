@@ -1,4 +1,3 @@
-use postgres::{Client, NoTls, SimpleQueryMessage};
 use std::{
     fs::{read_dir, File},
     io::{prelude::*, BufReader, Write},
@@ -7,7 +6,12 @@ use std::{
     thread,
     time::Duration,
 };
+
+use postgres::{Client, NoTls, SimpleQueryMessage};
+use similar::TextDiff;
+
 mod create_peers;
+
 fn input_files() -> Vec<String> {
     let sql_directory = read_dir("tests/sql").unwrap();
     sql_directory
@@ -16,8 +20,9 @@ fn input_files() -> Vec<String> {
                 sql_file
                     .path()
                     .file_name()
-                    .and_then(|n| n.to_str().map(String::from))
+                    .and_then(|n| n.to_str())
                     .filter(|n| n.ends_with(".sql"))
+                    .map(String::from)
             })
         })
         .collect::<Vec<String>>()
@@ -112,8 +117,8 @@ fn server_test() {
         let expected_output_path = ["tests/results/expected/", file, ".out"].concat();
         let mut output_file = File::create(["tests/results/actual/", file, ".out"].concat())
             .expect("Unable to create result file");
+
         for query in queries {
-            let mut output = Vec::new();
             dbg!(query.as_str());
 
             // filter out comments and empty lines
@@ -132,59 +137,43 @@ fn server_test() {
             match res[0] {
                 // Fetch column names for the output
                 SimpleQueryMessage::Row(ref simplerow) => {
-                    for column in simplerow.columns() {
-                        column_names.push(column.name());
-                    }
+                    column_names.extend(simplerow.columns().iter().map(|column| column.name()));
                 }
                 SimpleQueryMessage::CommandComplete(_x) => (),
                 _ => (),
             };
 
-            res.iter().for_each(|row| {
-                for column_head in &column_names {
-                    let row_parse = match row {
-                        SimpleQueryMessage::Row(ref simplerow) => simplerow.get(column_head),
-                        SimpleQueryMessage::CommandComplete(_x) => None,
-                        _ => None,
-                    };
-
-                    let row_value = match row_parse {
-                        None => {
-                            continue;
+            let mut output = String::new();
+            for row in res {
+                if let SimpleQueryMessage::Row(simplerow) = row {
+                    for idx in 0..simplerow.len() {
+                        if let Some(val) = simplerow.get(idx) {
+                            output.push_str(val);
+                            output.push('\n');
                         }
-                        Some(x) => x,
-                    };
-                    output.push(row_value.to_owned());
+                    }
                 }
-            });
-
-            for i in &output {
-                let output_line = (*i).as_bytes();
-                output_file
-                    .write_all(output_line)
-                    .expect("Unable to write query output");
-                output_file
-                    .write_all("\n".as_bytes())
-                    .expect("Output file write failure");
             }
+            output_file
+                .write_all(output.as_bytes())
+                .expect("Unable to write query output");
 
             // flush the output file
             output_file.flush().expect("Unable to flush output file");
         }
 
-        // Compare hash of expected and obtained files
-        let obtained_file = std::fs::read(&actual_output_path).unwrap();
-        let expected_file = std::fs::read(&expected_output_path).unwrap();
-        let obtained_hash = sha256::digest(obtained_file.as_slice());
-        let expected_hash = sha256::digest(expected_file.as_slice());
-
+        let obtained_file = std::fs::read_to_string(&actual_output_path).unwrap();
+        let expected_file = std::fs::read_to_string(&expected_output_path).unwrap();
         // if there is a mismatch, print the diff, along with the path.
-        if obtained_hash != expected_hash {
-            tracing::info!("expected: {expected_output_path}");
-            tracing::info!("obtained: {actual_output_path}");
-        }
+        if obtained_file != expected_file {
+            tracing::info!("failed: {file}");
+            let diff = TextDiff::from_lines(&expected_file, &obtained_file);
+            for change in diff.iter_all_changes() {
+                print!("{}{}", change.tag(), change);
+            }
 
-        assert_eq!(obtained_hash, expected_hash);
+            panic!("result didn't match expected output");
+        }
     });
 }
 

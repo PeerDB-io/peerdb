@@ -87,13 +87,12 @@ impl Catalog {
 
     pub async fn create_peer(&self, peer: &Peer) -> anyhow::Result<i64> {
         let config_blob = {
-            let config = peer.config.clone().context("invalid peer config")?;
+            let config = peer.config.as_ref().context("invalid peer config")?;
             match config {
                 Config::SnowflakeConfig(snowflake_config) => snowflake_config.encode_to_vec(),
                 Config::BigqueryConfig(bigquery_config) => bigquery_config.encode_to_vec(),
                 Config::MongoConfig(mongo_config) => mongo_config.encode_to_vec(),
                 Config::PostgresConfig(postgres_config) => postgres_config.encode_to_vec(),
-                Config::EventhubConfig(eventhub_config) => eventhub_config.encode_to_vec(),
                 Config::S3Config(s3_config) => s3_config.encode_to_vec(),
                 Config::SqlserverConfig(sqlserver_config) => sqlserver_config.encode_to_vec(),
                 Config::EventhubGroupConfig(eventhub_group_config) => {
@@ -105,6 +104,7 @@ impl Catalog {
                 Config::ElasticsearchConfig(elasticsearch_config) => {
                     elasticsearch_config.encode_to_vec()
                 }
+                Config::MysqlConfig(mysql_config) => mysql_config.encode_to_vec(),
             }
         };
 
@@ -320,6 +320,11 @@ impl Catalog {
                     let elasticsearch_config =
                         pt::peerdb_peers::ElasticsearchConfig::decode(options).with_context(err)?;
                     Config::ElasticsearchConfig(elasticsearch_config)
+                }
+                DbType::Mysql => {
+                    let mysql_config =
+                        pt::peerdb_peers::MySqlConfig::decode(options).with_context(err)?;
+                    Config::MysqlConfig(mysql_config)
                 }
             })
         } else {
