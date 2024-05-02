@@ -217,6 +217,21 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			dstDatasetTable, _ := c.convertToDatasetTable(schemaDelta.DstTableName)
+			table := c.client.DatasetInProject(c.projectID, dstDatasetTable.dataset).Table(dstDatasetTable.table)
+			dstMetadata, metadataErr := table.Metadata(ctx)
+			if metadataErr != nil {
+				return fmt.Errorf("failed to get metadata for table %s: %w", schemaDelta.DstTableName, metadataErr)
+			}
+
+			// check if the column already exists
+			for _, field := range dstMetadata.Schema {
+				if field.Name == addedColumn.Name {
+					c.logger.Info(fmt.Sprintf("[schema delta replay] column %s already exists in table %s",
+						addedColumn.Name, schemaDelta.DstTableName))
+					continue
+				}
+			}
+
 			addedColumnBigQueryType := qValueKindToBigQueryTypeString(addedColumn.Type)
 			query := c.client.Query(fmt.Sprintf(
 				"ALTER TABLE %s ADD COLUMN IF NOT EXISTS `%s` %s",
