@@ -162,8 +162,8 @@ fn server_test() {
             output_file.flush().expect("Unable to flush output file");
         }
 
-        let obtained_file = std::fs::read_to_string(&actual_output_path).unwrap();
-        let expected_file = std::fs::read_to_string(&expected_output_path).unwrap();
+        let obtained_file = std::fs::read_to_string(actual_output_path).unwrap();
+        let expected_file = std::fs::read_to_string(expected_output_path).unwrap();
         // if there is a mismatch, print the diff, along with the path.
         if obtained_file != expected_file {
             tracing::info!("failed: {file}");

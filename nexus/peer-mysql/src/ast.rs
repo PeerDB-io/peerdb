@@ -50,7 +50,7 @@ pub fn rewrite_query(peername: &str, query: &mut Query) {
     {
         query.offset = Some(Offset {
             value: (**expr).clone(),
-            rows: rows.clone(),
+            rows: *rows,
         });
     }
 
