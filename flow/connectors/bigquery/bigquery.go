@@ -215,6 +215,7 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 			continue
 		}
 
+	AddedColumnsLoop:
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			dstDatasetTable, _ := c.convertToDatasetTable(schemaDelta.DstTableName)
 			table := c.client.DatasetInProject(c.projectID, dstDatasetTable.dataset).Table(dstDatasetTable.table)
@@ -228,7 +229,7 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 				if field.Name == addedColumn.Name {
 					c.logger.Info(fmt.Sprintf("[schema delta replay] column %s already exists in table %s",
 						addedColumn.Name, schemaDelta.DstTableName))
-					continue
+					continue AddedColumnsLoop
 				}
 			}
 
