@@ -4,7 +4,7 @@ use peer_ast::flatten_expr_to_in_list;
 use serde_json::{self, Value as JsonValue};
 use sqlparser::ast::{
     visit_expressions_mut, visit_function_arg_mut, visit_relations_mut, Array, BinaryOperator,
-    DataType, Expr, FunctionArgExpr, Query, Value,
+    DataType, Expr, FunctionArgExpr, Offset, Query, Value,
 };
 
 fn json_to_expr(val: JsonValue) -> Expr {
@@ -42,6 +42,16 @@ pub fn rewrite_query(peername: &str, query: &mut Query) {
     // postgres_fdw sends `limit 1` as `limit 1::bigint` which mysql chokes on
     if let Some(Expr::Cast { expr, .. }) = &query.limit {
         query.limit = Some((**expr).clone());
+    }
+    if let Some(Offset {
+        value: Expr::Cast { expr, .. },
+        rows,
+    }) = &query.offset
+    {
+        query.offset = Some(Offset {
+            value: (**expr).clone(),
+            rows: rows.clone(),
+        });
     }
 
     visit_function_arg_mut(query, |node| {
