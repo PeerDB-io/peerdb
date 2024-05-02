@@ -449,9 +449,9 @@ impl Catalog {
             )
             .await?;
 
-        if job.flow_options.get("destination_table_name").is_none() {
+        let Some(destination_table_name) = job.flow_options.get("destination_table_name") else {
             return Err(anyhow!("destination_table_name not found in flow options"));
-        }
+        };
 
         let _rows = self
             .pg
@@ -462,11 +462,7 @@ impl Catalog {
                     &source_peer_id,
                     &destination_peer_id,
                     &job.description,
-                    &job.flow_options
-                        .get("destination_table_name")
-                        .unwrap()
-                        .as_str()
-                        .unwrap(),
+                    &destination_table_name.as_str().unwrap(),
                     &job.query_string,
                     &serde_json::to_value(job.flow_options.clone())
                         .context("unable to serialize flow options")?,
