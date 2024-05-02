@@ -922,11 +922,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 .context("no port specified")?
                 .parse::<u32>()
                 .context("unable to parse port as valid int")?,
-            user: opts
-                .get("user")
-                .cloned()
-                .unwrap_or_default()
-                .to_string(),
+            user: opts.get("user").cloned().unwrap_or_default().to_string(),
             password: opts
                 .get("password")
                 .cloned()

@@ -15,11 +15,13 @@ fn json_to_expr(val: JsonValue) -> Expr {
         JsonValue::String(x) => Expr::Value(Value::SingleQuotedString(x)),
         JsonValue::Array(x) => Expr::Array(Array {
             elem: x.into_iter().map(json_to_expr).collect::<Vec<_>>(),
-            named: false
+            named: false,
         }),
         JsonValue::Object(x) => Expr::Cast {
             data_type: DataType::JSON,
-            expr: Box::new(Expr::Value(Value::SingleQuotedString(JsonValue::Object(x).to_string()))),
+            expr: Box::new(Expr::Value(Value::SingleQuotedString(
+                JsonValue::Object(x).to_string(),
+            ))),
             format: None,
         },
     }
@@ -27,13 +29,12 @@ fn json_to_expr(val: JsonValue) -> Expr {
 
 pub fn rewrite_query(peername: &str, query: &mut Query) {
     visit_relations_mut(query, |table| {
-        if table.0.len() > 1 {
-            // if peer name is first part of table name, remove first part
-            if peername.eq_ignore_ascii_case(&table.0[0].value) {
-                table.0.remove(0);
-            } else if table.0[0].value == "public" {
-                table.0.remove(0);
-            }
+        // if peer name is first part of table name, remove first part
+        // remove `public.` to facilitate mysql global function push down
+        if table.0.len() > 1
+            && (peername.eq_ignore_ascii_case(&table.0[0].value) || table.0[0].value == "public")
+        {
+            table.0.remove(0);
         }
         ControlFlow::<()>::Continue(())
     });
@@ -57,7 +58,12 @@ pub fn rewrite_query(peername: &str, query: &mut Query) {
                     named: true,
                 };
                 *node = FunctionArgExpr::Expr(Expr::Array(rewritten_array));
-            } else if let Expr::Cast { data_type: DataType::JSONB, expr, .. } = arg_expr {
+            } else if let Expr::Cast {
+                data_type: DataType::JSONB,
+                expr,
+                ..
+            } = arg_expr
+            {
                 *node = match **expr {
                     Expr::Value(Value::SingleQuotedString(ref s)) => {
                         if let Ok(val) = serde_json::from_str::<JsonValue>(s) {
@@ -65,8 +71,8 @@ pub fn rewrite_query(peername: &str, query: &mut Query) {
                         } else {
                             FunctionArgExpr::Expr((**expr).clone())
                         }
-                    },
-                    _ => FunctionArgExpr::Expr((**expr).clone())
+                    }
+                    _ => FunctionArgExpr::Expr((**expr).clone()),
                 };
             }
         }
