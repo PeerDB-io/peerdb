@@ -572,7 +572,7 @@ impl NexusBackend {
                     match qrep_config {
                         Some(mut qrep_config) => {
                             if query_string.is_some() {
-                                qrep_config.query = query_string.as_ref().unwrap().clone();
+                                qrep_config.query.clone_from(query_string.as_ref().unwrap());
                             }
                             qrep_config.dst_table_full_resync = true;
 
