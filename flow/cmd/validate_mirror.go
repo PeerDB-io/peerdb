@@ -10,11 +10,30 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared/telemetry"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, error) {
+	mirrorExists, existCheckErr := h.CheckIfMirrorNameExists(ctx, req.ConnectionConfigs.FlowJobName)
+	if existCheckErr != nil {
+		slog.Error("/validatecdc failed to check if mirror name exists", slog.Any("error", existCheckErr))
+		return &protos.ValidateCDCMirrorResponse{
+			Ok: false,
+		}, existCheckErr
+	}
+
+	if mirrorExists {
+		displayErr := fmt.Errorf("mirror with name %s already exists", req.ConnectionConfigs.FlowJobName)
+		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
+			fmt.Sprint(displayErr),
+		)
+		return &protos.ValidateCDCMirrorResponse{
+			Ok: false,
+		}, displayErr
+	}
+
 	if req.ConnectionConfigs == nil {
 		slog.Error("/validatecdc connection configs is nil")
 		return &protos.ValidateCDCMirrorResponse{
@@ -97,4 +116,14 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	return &protos.ValidateCDCMirrorResponse{
 		Ok: true,
 	}, nil
+}
+
+func (h *FlowRequestHandler) CheckIfMirrorNameExists(ctx context.Context, mirrorName string) (bool, error) {
+	var nameCount pgtype.Int4
+	err := h.pool.QueryRow(ctx, "SELECT COUNT(*) FROM flows WHERE name = $1", mirrorName).Scan(&nameCount)
+	if err != nil {
+		return true, fmt.Errorf("failed to check if mirror name exists: %v", err)
+	}
+
+	return nameCount.Int32 > 0, nil
 }
