@@ -43,11 +43,10 @@ type CdcCacheEntry struct {
 }
 
 type OtelManager struct {
-	MetricsProvider            *sdkmetric.MeterProvider
-	SlotLagMeter               metric.Meter
-	OpenConnectionsMeter       metric.Meter
-	SlotLagGaugesCache         map[string]*shared.Float64Gauge
-	OpenConnectionsGaugesCache map[string]*shared.Int64Gauge
+	MetricsProvider    *sdkmetric.MeterProvider
+	Meter              metric.Meter
+	Float64GaugesCache map[string]*shared.Float64Gauge
+	Int64GaugesCache   map[string]*shared.Int64Gauge
 }
 
 type FlowableActivity struct {
@@ -607,20 +606,20 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			var slotLagGauge *shared.Float64Gauge
 			var openConnectionsGauge *shared.Int64Gauge
 			if a.OtelManager != nil {
-				slotLagGauge, err = shared.GetOrInitFloat64Gauge(a.OtelManager.SlotLagMeter,
-					a.OtelManager.SlotLagGaugesCache,
-					fmt.Sprintf("%s_slotlag_%s", peerName, slotName),
+				slotLagGauge, err = shared.GetOrInitFloat64Gauge(a.OtelManager.Meter,
+					a.OtelManager.Float64GaugesCache,
+					"cdc_slotlag",
 					metric.WithUnit("MB"),
-					metric.WithDescription(fmt.Sprintf("Slot lag for slot %s on %s", slotName, peerName)))
+					metric.WithDescription("Postgres replication slot lag in MB"))
 				if err != nil {
 					logger.Error("Failed to get slot lag gauge", slog.Any("error", err))
 					return
 				}
 
-				openConnectionsGauge, err = shared.GetOrInitInt64Gauge(a.OtelManager.OpenConnectionsMeter,
-					a.OtelManager.OpenConnectionsGaugesCache,
-					peerName+"_open_connections", metric.WithUnit("connections"),
-					metric.WithDescription("Current open connections for PeerDB user on "+peerName))
+				openConnectionsGauge, err = shared.GetOrInitInt64Gauge(a.OtelManager.Meter,
+					a.OtelManager.Int64GaugesCache,
+					"open_connections",
+					metric.WithDescription("Current open connections for PeerDB user"))
 				if err != nil {
 					logger.Error("Failed to get open connections gauge", slog.Any("error", err))
 					return

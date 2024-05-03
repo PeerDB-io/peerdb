@@ -182,11 +182,10 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 			return nil, err
 		}
 		otelManager = &activities.OtelManager{
-			MetricsProvider:            metricsProvider,
-			SlotLagMeter:               metricsProvider.Meter("flow-worker/cdc/slot-lag"),
-			OpenConnectionsMeter:       metricsProvider.Meter("flow-worker/open-connections"),
-			SlotLagGaugesCache:         make(map[string]*shared.Float64Gauge),
-			OpenConnectionsGaugesCache: make(map[string]*shared.Int64Gauge),
+			MetricsProvider:    metricsProvider,
+			Meter:              metricsProvider.Meter("flow-worker"),
+			Float64GaugesCache: make(map[string]*shared.Float64Gauge),
+			Int64GaugesCache:   make(map[string]*shared.Int64Gauge),
 		}
 	}
 	w.RegisterActivity(&activities.FlowableActivity{

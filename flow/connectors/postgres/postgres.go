@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
@@ -26,6 +27,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -1127,7 +1129,10 @@ func (c *PostgresConnector) HandleSlotInfo(
 
 	logger.Info(fmt.Sprintf("Checking %s lag for %s", slotName, peerName), slog.Float64("LagInMB", float64(slotInfo[0].LagInMb)))
 	alerter.AlertIfSlotLag(ctx, peerName, slotInfo[0])
-	slotLagGauge.Set(float64(slotInfo[0].LagInMb))
+	slotLagGauge.Set(float64(slotInfo[0].LagInMb), attribute.NewSet(
+		attribute.String("peerName", peerName),
+		attribute.String("slotName", slotName),
+		attribute.String("deploymentUID", peerdbenv.PeerDBDeploymentUID())))
 
 	// Also handles alerts for PeerDB user connections exceeding a given limit here
 	res, err := getOpenConnectionsForUser(ctx, c.conn, c.config.User)
@@ -1136,7 +1141,9 @@ func (c *PostgresConnector) HandleSlotInfo(
 		return err
 	}
 	alerter.AlertIfOpenConnections(ctx, peerName, res)
-	openConnectionsGauge.Set(res.CurrentOpenConnections)
+	openConnectionsGauge.Set(res.CurrentOpenConnections, attribute.NewSet(
+		attribute.String("peerName", peerName),
+		attribute.String("deploymentUID", peerdbenv.PeerDBDeploymentUID())))
 
 	return monitoring.AppendSlotSizeInfo(ctx, catalogPool, peerName, slotInfo[0])
 }

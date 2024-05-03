@@ -6,6 +6,7 @@ import (
 	"math"
 	"sync/atomic"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
@@ -14,7 +15,7 @@ import (
 // but the callback is just a wrapper around the current value, so we can control by calling Set()
 type Int64Gauge struct {
 	observableGauge metric.Int64ObservableGauge
-	currentVal      atomic.Int64
+	observations    map[attribute.Set]*atomic.Int64
 }
 
 func NewInt64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Int64ObservableGaugeOption) (*Int64Gauge, error) {
@@ -24,24 +25,32 @@ func NewInt64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Int6
 		return nil, fmt.Errorf("failed to create Int64SyncGauge: %w", err)
 	}
 	syncGauge.observableGauge = observableGauge
+	syncGauge.observations = make(map[attribute.Set]*atomic.Int64)
 	return syncGauge, nil
 }
 
 func (g *Int64Gauge) callback(ctx context.Context, o metric.Int64Observer) error {
-	o.Observe(g.currentVal.Load())
+	for attrs, val := range g.observations {
+		o.Observe(val.Load(), metric.WithAttributeSet(attrs))
+	}
 	return nil
 }
 
-func (g *Int64Gauge) Set(val int64) {
+func (g *Int64Gauge) Set(input int64, attrs attribute.Set) {
 	if g == nil {
 		return
 	}
-	g.currentVal.Store(val)
+	val, ok := g.observations[attrs]
+	if !ok {
+		val = &atomic.Int64{}
+		g.observations[attrs] = val
+	}
+	val.Store(input)
 }
 
 type Float64Gauge struct {
-	observableGauge metric.Float64ObservableGauge
-	currentValAsU64 atomic.Uint64
+	observableGauge      metric.Float64ObservableGauge
+	observationsAsUint64 map[attribute.Set]*atomic.Uint64
 }
 
 func NewFloat64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Float64ObservableGaugeOption) (*Float64Gauge, error) {
@@ -51,19 +60,27 @@ func NewFloat64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Fl
 		return nil, fmt.Errorf("failed to create Int64SyncGauge: %w", err)
 	}
 	syncGauge.observableGauge = observableGauge
+	syncGauge.observationsAsUint64 = make(map[attribute.Set]*atomic.Uint64)
 	return syncGauge, nil
 }
 
 func (g *Float64Gauge) callback(ctx context.Context, o metric.Float64Observer) error {
-	o.Observe(math.Float64frombits(g.currentValAsU64.Load()))
+	for attrs, val := range g.observationsAsUint64 {
+		o.Observe(math.Float64frombits(val.Load()), metric.WithAttributeSet(attrs))
+	}
 	return nil
 }
 
-func (g *Float64Gauge) Set(val float64) {
+func (g *Float64Gauge) Set(input float64, attrs attribute.Set) {
 	if g == nil {
 		return
 	}
-	g.currentValAsU64.Store(math.Float64bits(val))
+	val, ok := g.observationsAsUint64[attrs]
+	if !ok {
+		val = &atomic.Uint64{}
+		g.observationsAsUint64[attrs] = val
+	}
+	val.Store(math.Float64bits(input))
 }
 
 func GetOrInitInt64Gauge(meter metric.Meter, cache map[string]*Int64Gauge,
