@@ -28,7 +28,7 @@ export const qrepSettings: MirrorSetting[] = [
     required: true,
   },
   {
-    label: 'Create Destination Table',
+    label: 'Create Watermark Table On Destination',
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({
         ...curr,
@@ -36,7 +36,7 @@ export const qrepSettings: MirrorSetting[] = [
       })),
     tips: 'Specify if you want to create the watermark table on the destination as-is, can be used for some queries.',
     type: 'switch',
-    default: true,
+    default: false,
   },
   {
     label: 'Destination Table Name',

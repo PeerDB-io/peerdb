@@ -206,7 +206,7 @@ export const handleCreateQRep = async (
     return;
   }
 
-  if (query === QRepQueryTemplate) {
+  if (query === QRepQueryTemplate && !xmin) {
     notifyErr('Please fill in the query box');
     return;
   }
