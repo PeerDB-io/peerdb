@@ -3,7 +3,7 @@ package shared
 import (
 	"context"
 	"fmt"
-	"sync"
+	"math"
 	"sync/atomic"
 
 	"go.opentelemetry.io/otel/metric"
@@ -41,8 +41,7 @@ func (g *Int64Gauge) Set(val int64) {
 
 type Float64Gauge struct {
 	observableGauge metric.Float64ObservableGauge
-	floatMutex      sync.Mutex
-	currentVal      float64
+	currentValAsU64 atomic.Uint64
 }
 
 func NewFloat64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Float64ObservableGaugeOption) (*Float64Gauge, error) {
@@ -56,9 +55,7 @@ func NewFloat64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Fl
 }
 
 func (g *Float64Gauge) callback(ctx context.Context, o metric.Float64Observer) error {
-	g.floatMutex.Lock()
-	defer g.floatMutex.Unlock()
-	o.Observe(g.currentVal)
+	o.Observe(math.Float64frombits(g.currentValAsU64.Load()))
 	return nil
 }
 
@@ -66,7 +63,5 @@ func (g *Float64Gauge) Set(val float64) {
 	if g == nil {
 		return
 	}
-	g.floatMutex.Lock()
-	defer g.floatMutex.Unlock()
-	g.currentVal = val
+	g.currentValAsU64.Store(math.Float64bits(val))
 }
