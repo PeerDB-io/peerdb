@@ -17,22 +17,24 @@ import (
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, error) {
-	mirrorExists, existCheckErr := h.CheckIfMirrorNameExists(ctx, req.ConnectionConfigs.FlowJobName)
-	if existCheckErr != nil {
-		slog.Error("/validatecdc failed to check if mirror name exists", slog.Any("error", existCheckErr))
-		return &protos.ValidateCDCMirrorResponse{
-			Ok: false,
-		}, existCheckErr
-	}
+	if req.CreateCatalogEntry {
+		mirrorExists, existCheckErr := h.CheckIfMirrorNameExists(ctx, req.ConnectionConfigs.FlowJobName)
+		if existCheckErr != nil {
+			slog.Error("/validatecdc failed to check if mirror name exists", slog.Any("error", existCheckErr))
+			return &protos.ValidateCDCMirrorResponse{
+				Ok: false,
+			}, existCheckErr
+		}
 
-	if mirrorExists {
-		displayErr := fmt.Errorf("mirror with name %s already exists", req.ConnectionConfigs.FlowJobName)
-		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			fmt.Sprint(displayErr),
-		)
-		return &protos.ValidateCDCMirrorResponse{
-			Ok: false,
-		}, displayErr
+		if mirrorExists {
+			displayErr := fmt.Errorf("mirror with name %s already exists", req.ConnectionConfigs.FlowJobName)
+			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
+				fmt.Sprint(displayErr),
+			)
+			return &protos.ValidateCDCMirrorResponse{
+				Ok: false,
+			}, displayErr
+		}
 	}
 
 	if req.ConnectionConfigs == nil {
