@@ -11,6 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/metric"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
@@ -40,10 +42,19 @@ type CdcCacheEntry struct {
 	done      chan struct{}
 }
 
+type OtelManager struct {
+	MetricsProvider            *sdkmetric.MeterProvider
+	SlotLagMeter               metric.Meter
+	OpenConnectionsMeter       metric.Meter
+	SlotLagGaugesCache         map[string]*shared.Float64Gauge
+	OpenConnectionsGaugesCache map[string]*shared.Int64Gauge
+}
+
 type FlowableActivity struct {
 	CatalogPool *pgxpool.Pool
 	Alerter     *alerting.Alerter
 	CdcCache    map[string]CdcCacheEntry
+	OtelManager *OtelManager
 	CdcCacheRw  sync.RWMutex
 }
 
@@ -592,7 +603,36 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return
 			}
-			err = srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, slotName, peerName)
+
+			slotLagGaugeKey := fmt.Sprintf("%s_slotlag_%s", peerName, slotName)
+			slotLagGauge, ok := a.OtelManager.SlotLagGaugesCache[slotLagGaugeKey]
+			if !ok {
+				slotLagGauge, err = shared.NewFloat64SyncGauge(a.OtelManager.SlotLagMeter,
+					slotLagGaugeKey,
+					metric.WithUnit("MB"),
+					metric.WithDescription(fmt.Sprintf("Slot lag for slot %s on %s", slotName, peerName)))
+				if err != nil {
+					logger.Error("Failed to create slot lag gauge", slog.Any("error", err))
+					return
+				}
+				a.OtelManager.SlotLagGaugesCache[slotLagGaugeKey] = slotLagGauge
+			}
+
+			openConnectionsGaugeKey := fmt.Sprintf("%s_open_connections", peerName)
+			openConnectionsGauge, ok := a.OtelManager.OpenConnectionsGaugesCache[openConnectionsGaugeKey]
+			if !ok {
+				openConnectionsGauge, err = shared.NewInt64SyncGauge(a.OtelManager.SlotLagMeter,
+					openConnectionsGaugeKey,
+					metric.WithUnit("connections"),
+					metric.WithDescription(fmt.Sprintf("Current open connections for PeerDB user on %s", peerName)))
+				if err != nil {
+					logger.Error("Failed to create open connections gauge", slog.Any("error", err))
+					return
+				}
+				a.OtelManager.OpenConnectionsGaugesCache[openConnectionsGaugeKey] = openConnectionsGauge
+			}
+
+			err = srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, slotName, peerName, slotLagGauge, openConnectionsGauge)
 			if err != nil {
 				logger.Error("Failed to handle slot info", slog.Any("error", err))
 			}

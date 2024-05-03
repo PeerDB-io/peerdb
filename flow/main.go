@@ -83,7 +83,7 @@ func main() {
 				Name: "worker",
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
-					c, w, err := cmd.WorkerMain(&cmd.WorkerOptions{
+					res, err := cmd.WorkerSetup(&cmd.WorkerSetupOptions{
 						TemporalHostPort:                   temporalHostPort,
 						EnableProfiling:                    clicmd.Bool("enable-profiling"),
 						PyroscopeServer:                    clicmd.String("pyroscope-server-address"),
@@ -96,8 +96,8 @@ func main() {
 					if err != nil {
 						return err
 					}
-					defer c.Close()
-					return w.Run(worker.InterruptCh())
+					defer res.Cleanup()
+					return res.Worker.Run(worker.InterruptCh())
 				},
 				Flags: []cli.Flag{
 					temporalHostPortFlag,
