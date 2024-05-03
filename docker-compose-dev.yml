@@ -1,5 +1,7 @@
 version: "3.9"
 
+name: peerdb-quickstart-dev
+
 x-minio-config: &minio-config
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID: _peerdb_minioadmin
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: _peerdb_minioadmin
@@ -145,42 +147,14 @@ services:
       temporal-admin-tools:
         condition: service_healthy
 
-  flow-worker1:
-    container_name: flow-worker1
+  flow-worker:
+    container_name: flow-worker
     build:
       context: .
       dockerfile: stacks/flow.Dockerfile
       target: flow-worker
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
-    depends_on:
-      temporal-admin-tools:
-        condition: service_healthy
-
-  flow-worker2:
-    container_name: flow-worker2
-    build:
-      context: .
-      dockerfile: stacks/flow.Dockerfile
-      target: flow-worker
-    environment:
-      <<: [*catalog-config, *flow-worker-env, *minio-config]
-    profiles:
-      - multi
-    depends_on:
-      temporal-admin-tools:
-        condition: service_healthy
-
-  flow-worker3:
-    container_name: flow-worker3
-    build:
-      context: .
-      dockerfile: stacks/flow.Dockerfile
-      target: flow-worker
-    environment:
-      <<: [*catalog-config, *flow-worker-env, *minio-config]
-    profiles:
-      - multi
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
@@ -244,3 +218,8 @@ services:
 volumes:
   pgdata:
   minio-data:
+
+networks:
+  default:
+    external: true
+    name: peerdb_network
