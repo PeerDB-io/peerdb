@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared/telemetry"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func (h *FlowRequestHandler) ValidateCDCMirror(
@@ -119,11 +120,11 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 }
 
 func (h *FlowRequestHandler) CheckIfMirrorNameExists(ctx context.Context, mirrorName string) (bool, error) {
-	var nameCount pgtype.Int4
-	err := h.pool.QueryRow(ctx, "SELECT COUNT(*) FROM flows WHERE name = $1", mirrorName).Scan(&nameCount)
+	var nameExists pgtype.Bool
+	err := h.pool.QueryRow(ctx, "SELECT EXISTS(SELECT * FROM flows WHERE name = $1)", mirrorName).Scan(&nameExists)
 	if err != nil {
 		return true, fmt.Errorf("failed to check if mirror name exists: %v", err)
 	}
 
-	return nameCount.Int32 > 0, nil
+	return nameExists.Bool, nil
 }
