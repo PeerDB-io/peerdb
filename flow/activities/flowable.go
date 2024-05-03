@@ -604,35 +604,42 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				return
 			}
 
-			slotLagGaugeKey := fmt.Sprintf("%s_slotlag_%s", peerName, slotName)
-			slotLagGauge, ok := a.OtelManager.SlotLagGaugesCache[slotLagGaugeKey]
-			if !ok {
-				slotLagGauge, err = shared.NewFloat64SyncGauge(a.OtelManager.SlotLagMeter,
-					slotLagGaugeKey,
-					metric.WithUnit("MB"),
-					metric.WithDescription(fmt.Sprintf("Slot lag for slot %s on %s", slotName, peerName)))
-				if err != nil {
-					logger.Error("Failed to create slot lag gauge", slog.Any("error", err))
-					return
+			var slotLagGauge *shared.Float64Gauge
+			var openConnectionsGauge *shared.Int64Gauge
+			if a.OtelManager != nil {
+				// seriously
+				var ok bool
+				slotLagGaugeKey := fmt.Sprintf("%s_slotlag_%s", peerName, slotName)
+				slotLagGauge, ok = a.OtelManager.SlotLagGaugesCache[slotLagGaugeKey]
+				if !ok {
+					slotLagGauge, err = shared.NewFloat64SyncGauge(a.OtelManager.SlotLagMeter,
+						slotLagGaugeKey,
+						metric.WithUnit("MB"),
+						metric.WithDescription(fmt.Sprintf("Slot lag for slot %s on %s", slotName, peerName)))
+					if err != nil {
+						logger.Error("Failed to create slot lag gauge", slog.Any("error", err))
+						return
+					}
+					a.OtelManager.SlotLagGaugesCache[slotLagGaugeKey] = slotLagGauge
 				}
-				a.OtelManager.SlotLagGaugesCache[slotLagGaugeKey] = slotLagGauge
+
+				openConnectionsGaugeKey := peerName + "_open_connections"
+				openConnectionsGauge, ok = a.OtelManager.OpenConnectionsGaugesCache[openConnectionsGaugeKey]
+				if !ok {
+					openConnectionsGauge, err = shared.NewInt64SyncGauge(a.OtelManager.SlotLagMeter,
+						openConnectionsGaugeKey,
+						metric.WithUnit("connections"),
+						metric.WithDescription("Current open connections for PeerDB user on "+peerName))
+					if err != nil {
+						logger.Error("Failed to create open connections gauge", slog.Any("error", err))
+						return
+					}
+					a.OtelManager.OpenConnectionsGaugesCache[openConnectionsGaugeKey] = openConnectionsGauge
+				}
 			}
 
-			openConnectionsGaugeKey := fmt.Sprintf("%s_open_connections", peerName)
-			openConnectionsGauge, ok := a.OtelManager.OpenConnectionsGaugesCache[openConnectionsGaugeKey]
-			if !ok {
-				openConnectionsGauge, err = shared.NewInt64SyncGauge(a.OtelManager.SlotLagMeter,
-					openConnectionsGaugeKey,
-					metric.WithUnit("connections"),
-					metric.WithDescription(fmt.Sprintf("Current open connections for PeerDB user on %s", peerName)))
-				if err != nil {
-					logger.Error("Failed to create open connections gauge", slog.Any("error", err))
-					return
-				}
-				a.OtelManager.OpenConnectionsGaugesCache[openConnectionsGaugeKey] = openConnectionsGauge
-			}
-
-			err = srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, slotName, peerName, slotLagGauge, openConnectionsGauge)
+			err = srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, slotName, peerName,
+				slotLagGauge, openConnectionsGauge)
 			if err != nil {
 				logger.Error("Failed to handle slot info", slog.Any("error", err))
 			}

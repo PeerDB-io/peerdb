@@ -19,7 +19,7 @@ type Int64Gauge struct {
 
 func NewInt64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Int64ObservableGaugeOption) (*Int64Gauge, error) {
 	syncGauge := &Int64Gauge{}
-	observableGauge, err := meter.Int64ObservableGauge(gaugeName, append(opts, metric.WithInt64Callback(syncGauge.Callback))...)
+	observableGauge, err := meter.Int64ObservableGauge(gaugeName, append(opts, metric.WithInt64Callback(syncGauge.callback))...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Int64SyncGauge: %w", err)
 	}
@@ -27,12 +27,15 @@ func NewInt64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Int6
 	return syncGauge, nil
 }
 
-func (g *Int64Gauge) Callback(ctx context.Context, o metric.Int64Observer) error {
+func (g *Int64Gauge) callback(ctx context.Context, o metric.Int64Observer) error {
 	o.Observe(g.currentVal.Load())
 	return nil
 }
 
 func (g *Int64Gauge) Set(val int64) {
+	if g == nil {
+		return
+	}
 	g.currentVal.Store(val)
 }
 
@@ -44,7 +47,7 @@ type Float64Gauge struct {
 
 func NewFloat64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Float64ObservableGaugeOption) (*Float64Gauge, error) {
 	syncGauge := &Float64Gauge{}
-	observableGauge, err := meter.Float64ObservableGauge(gaugeName, append(opts, metric.WithFloat64Callback(syncGauge.Callback))...)
+	observableGauge, err := meter.Float64ObservableGauge(gaugeName, append(opts, metric.WithFloat64Callback(syncGauge.callback))...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Int64SyncGauge: %w", err)
 	}
@@ -52,7 +55,7 @@ func NewFloat64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Fl
 	return syncGauge, nil
 }
 
-func (g *Float64Gauge) Callback(ctx context.Context, o metric.Float64Observer) error {
+func (g *Float64Gauge) callback(ctx context.Context, o metric.Float64Observer) error {
 	g.floatMutex.Lock()
 	defer g.floatMutex.Unlock()
 	o.Observe(g.currentVal)
@@ -60,6 +63,9 @@ func (g *Float64Gauge) Callback(ctx context.Context, o metric.Float64Observer) e
 }
 
 func (g *Float64Gauge) Set(val float64) {
+	if g == nil {
+		return
+	}
 	g.floatMutex.Lock()
 	defer g.floatMutex.Unlock()
 	g.currentVal = val

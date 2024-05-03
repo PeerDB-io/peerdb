@@ -47,6 +47,12 @@ func main() {
 		Usage:   "Enable profiling for the application",
 		Sources: cli.EnvVars("ENABLE_PROFILING"),
 	}
+	otelMetricsFlag := &cli.BoolFlag{
+		Name:    "enable-otel-metrics",
+		Value:   false, // Default is off
+		Usage:   "Enable OpenTelemetry metrics for the application",
+		Sources: cli.EnvVars("ENABLE_OTEL_METRICS"),
+	}
 
 	pyroscopeServerFlag := &cli.StringFlag{
 		Name:    "pyroscope-server-address",
@@ -86,6 +92,7 @@ func main() {
 					res, err := cmd.WorkerSetup(&cmd.WorkerSetupOptions{
 						TemporalHostPort:                   temporalHostPort,
 						EnableProfiling:                    clicmd.Bool("enable-profiling"),
+						EnableOtelMetrics:                  clicmd.Bool("enable-otel-metrics"),
 						PyroscopeServer:                    clicmd.String("pyroscope-server-address"),
 						TemporalNamespace:                  clicmd.String("temporal-namespace"),
 						TemporalCert:                       clicmd.String("temporal-cert"),
@@ -102,6 +109,7 @@ func main() {
 				Flags: []cli.Flag{
 					temporalHostPortFlag,
 					profilingFlag,
+					otelMetricsFlag,
 					pyroscopeServerFlag,
 					temporalNamespaceFlag,
 					&temporalCertFlag,

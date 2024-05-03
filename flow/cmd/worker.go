@@ -35,6 +35,7 @@ type WorkerSetupOptions struct {
 	TemporalMaxConcurrentActivities    int
 	TemporalMaxConcurrentWorkflowTasks int
 	EnableProfiling                    bool
+	EnableOtelMetrics                  bool
 }
 
 type workerSetupResponse struct {
@@ -149,11 +150,6 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
 
-	metricsProvider, err := setupOtelMetricsExporter()
-	if err != nil {
-		return nil, err
-	}
-
 	c, err := client.Dial(clientOptions)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create Temporal client: %w", err)
@@ -178,24 +174,38 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 	})
 	peerflow.RegisterFlowWorkerWorkflows(w)
 
-	w.RegisterActivity(&activities.FlowableActivity{
-		CatalogPool: conn,
-		Alerter:     alerting.NewAlerter(context.Background(), conn),
-		CdcCache:    make(map[string]activities.CdcCacheEntry),
-		OtelManager: &activities.OtelManager{
+	var metricsProvider *sdkmetric.MeterProvider
+	var otelManager *activities.OtelManager
+	if opts.EnableOtelMetrics {
+		metricsProvider, err = setupOtelMetricsExporter()
+		if err != nil {
+			return nil, err
+		}
+		otelManager = &activities.OtelManager{
 			MetricsProvider:            metricsProvider,
 			SlotLagMeter:               metricsProvider.Meter("flow-worker/cdc/slot-lag"),
 			OpenConnectionsMeter:       metricsProvider.Meter("flow-worker/open-connections"),
 			SlotLagGaugesCache:         make(map[string]*shared.Float64Gauge),
 			OpenConnectionsGaugesCache: make(map[string]*shared.Int64Gauge),
-		},
+		}
+	}
+	w.RegisterActivity(&activities.FlowableActivity{
+		CatalogPool: conn,
+		Alerter:     alerting.NewAlerter(context.Background(), conn),
+		CdcCache:    make(map[string]activities.CdcCacheEntry),
+		OtelManager: otelManager,
 	})
 
 	return &workerSetupResponse{
 		Client: c,
 		Worker: w,
 		Cleanup: func() {
-			metricsProvider.Shutdown(context.Background())
+			if otelManager != nil {
+				err := otelManager.MetricsProvider.Shutdown(context.Background())
+				if err != nil {
+					slog.Error("Failed to shutdown metrics provider", slog.Any("error", err))
+				}
+			}
 			c.Close()
 		},
 	}, nil
