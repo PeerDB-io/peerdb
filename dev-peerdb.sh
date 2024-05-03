@@ -23,5 +23,11 @@ else
     EXTRA_ARGS=""
 fi
 
+# check if peerdb_network exists if not create it
+if ! $DOCKER network inspect peerdb_network &> /dev/null
+then
+    $DOCKER network create peerdb_network
+fi
+
 export PEERDB_VERSION_SHA_SHORT=local-$(git rev-parse --short HEAD)
 exec $DOCKER -f docker-compose-dev.yml up --build $EXTRA_ARGS
