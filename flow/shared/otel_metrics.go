@@ -65,3 +65,33 @@ func (g *Float64Gauge) Set(val float64) {
 	}
 	g.currentValAsU64.Store(math.Float64bits(val))
 }
+
+func GetOrInitInt64Gauge(meter metric.Meter, cache map[string]*Int64Gauge,
+	name string, opts ...metric.Int64ObservableGaugeOption,
+) (*Int64Gauge, error) {
+	gauge, ok := cache[name]
+	if !ok {
+		var err error
+		gauge, err = NewInt64SyncGauge(meter, name, opts...)
+		if err != nil {
+			return nil, err
+		}
+		cache[name] = gauge
+	}
+	return gauge, nil
+}
+
+func GetOrInitFloat64Gauge(meter metric.Meter, cache map[string]*Float64Gauge,
+	name string, opts ...metric.Float64ObservableGaugeOption,
+) (*Float64Gauge, error) {
+	gauge, ok := cache[name]
+	if !ok {
+		var err error
+		gauge, err = NewFloat64SyncGauge(meter, name, opts...)
+		if err != nil {
+			return nil, err
+		}
+		cache[name] = gauge
+	}
+	return gauge, nil
+}
