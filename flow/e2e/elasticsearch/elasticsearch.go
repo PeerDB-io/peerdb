@@ -83,8 +83,10 @@ func (s elasticsearchSuite) Peer() *protos.Peer {
 func (s elasticsearchSuite) countDocumentsInIndex(index string) int64 {
 	res, err := s.esClient.Count().Index(index).Do(context.Background())
 	// index may not exist yet, don't error out for that
-	if err != nil && strings.Contains(err.Error(), "index_not_found_exception") {
-		return 0
+	// search can occasionally fail, retry for that
+	if err != nil && (strings.Contains(err.Error(), "index_not_found_exception") ||
+		strings.Contains(err.Error(), "search_phase_execution_exception")) {
+		return -1
 	}
 	require.NoError(s.t, err, "failed to get count of documents in index")
 	return res.Count
