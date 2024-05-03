@@ -17,7 +17,7 @@ import (
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, error) {
-	if req.CreateCatalogEntry {
+	if req.CreateCatalogEntry && !req.ConnectionConfigs.Resync {
 		mirrorExists, existCheckErr := h.CheckIfMirrorNameExists(ctx, req.ConnectionConfigs.FlowJobName)
 		if existCheckErr != nil {
 			slog.Error("/validatecdc failed to check if mirror name exists", slog.Any("error", existCheckErr))
