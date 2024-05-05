@@ -22,7 +22,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peer-flow/otel_metrics"
 )
 
 var ErrUnsupportedFunctionality = errors.New("requested connector does not support functionality")
@@ -75,8 +75,8 @@ type CDCPullConnectorCore interface {
 
 	// HandleSlotInfo update monitoring info on slot size etc
 	HandleSlotInfo(ctx context.Context, alerter *alerting.Alerter,
-		catalogPool *pgxpool.Pool, slotName string, peerName string, slotLagGauge *shared.Float64Gauge,
-		openConnectionsGauge *shared.Int64Gauge) error
+		catalogPool *pgxpool.Pool, slotName string, peerName string,
+		slotLagGauge *otel_metrics.Float64Gauge, openConnectionsGauge *otel_metrics.Int64Gauge) error
 
 	// GetSlotInfo returns the WAL (or equivalent) info of a slot for the connector.
 	GetSlotInfo(ctx context.Context, slotName string) ([]*protos.SlotInfo, error)

@@ -8,19 +8,16 @@ import (
 	"log/slog"
 	"os"
 	"runtime"
-	"time"
 
 	"github.com/grafana/pyroscope-go"
-	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 
 	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/alerting"
 	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/otel_metrics"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
@@ -85,40 +82,6 @@ func setupPyroscope(opts *WorkerSetupOptions) {
 	}
 }
 
-// newResource returns a resource describing this application.
-func newOtelResource(otelServiceName string) (*resource.Resource, error) {
-	r, err := resource.Merge(
-		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceNameKey.String(otelServiceName),
-		),
-	)
-
-	return r, err
-}
-
-func setupOtelMetricsExporter() (*sdkmetric.MeterProvider, error) {
-	metricExporter, err := otlpmetrichttp.New(context.Background(),
-		otlpmetrichttp.WithCompression(otlpmetrichttp.GzipCompression),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create OpenTelemetry metrics exporter: %w", err)
-	}
-
-	resource, err := newOtelResource("flow-worker")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
-	}
-
-	meterProvider := sdkmetric.NewMeterProvider(
-		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter,
-			sdkmetric.WithInterval(1*time.Minute))),
-		sdkmetric.WithResource(resource),
-	)
-	return meterProvider, nil
-}
-
 func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 	if opts.EnableProfiling {
 		setupPyroscope(opts)
@@ -175,17 +138,17 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 	peerflow.RegisterFlowWorkerWorkflows(w)
 
 	var metricsProvider *sdkmetric.MeterProvider
-	var otelManager *activities.OtelManager
+	var otelManager *otel_metrics.OtelManager
 	if opts.EnableOtelMetrics {
-		metricsProvider, err = setupOtelMetricsExporter()
+		metricsProvider, err = otel_metrics.SetupOtelMetricsExporter()
 		if err != nil {
 			return nil, err
 		}
-		otelManager = &activities.OtelManager{
+		otelManager = &otel_metrics.OtelManager{
 			MetricsProvider:    metricsProvider,
-			Meter:              metricsProvider.Meter("flow-worker"),
-			Float64GaugesCache: make(map[string]*shared.Float64Gauge),
-			Int64GaugesCache:   make(map[string]*shared.Int64Gauge),
+			Meter:              metricsProvider.Meter("io.peerdb.flow-worker"),
+			Float64GaugesCache: make(map[string]*otel_metrics.Float64Gauge),
+			Int64GaugesCache:   make(map[string]*otel_metrics.Int64Gauge),
 		}
 	}
 	w.RegisterActivity(&activities.FlowableActivity{

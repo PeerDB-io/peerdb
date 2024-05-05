@@ -12,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/metric"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
@@ -28,6 +27,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/otel_metrics"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -42,18 +42,11 @@ type CdcCacheEntry struct {
 	done      chan struct{}
 }
 
-type OtelManager struct {
-	MetricsProvider    *sdkmetric.MeterProvider
-	Meter              metric.Meter
-	Float64GaugesCache map[string]*shared.Float64Gauge
-	Int64GaugesCache   map[string]*shared.Int64Gauge
-}
-
 type FlowableActivity struct {
 	CatalogPool *pgxpool.Pool
 	Alerter     *alerting.Alerter
 	CdcCache    map[string]CdcCacheEntry
-	OtelManager *OtelManager
+	OtelManager *otel_metrics.OtelManager
 	CdcCacheRw  sync.RWMutex
 }
 
@@ -603,12 +596,12 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				return
 			}
 
-			var slotLagGauge *shared.Float64Gauge
-			var openConnectionsGauge *shared.Int64Gauge
+			var slotLagGauge *otel_metrics.Float64Gauge
+			var openConnectionsGauge *otel_metrics.Int64Gauge
 			if a.OtelManager != nil {
-				slotLagGauge, err = shared.GetOrInitFloat64Gauge(a.OtelManager.Meter,
+				slotLagGauge, err = otel_metrics.GetOrInitFloat64Gauge(a.OtelManager.Meter,
 					a.OtelManager.Float64GaugesCache,
-					"cdc_slotlag",
+					"cdc_slot_lag",
 					metric.WithUnit("MB"),
 					metric.WithDescription("Postgres replication slot lag in MB"))
 				if err != nil {
@@ -616,7 +609,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 					return
 				}
 
-				openConnectionsGauge, err = shared.GetOrInitInt64Gauge(a.OtelManager.Meter,
+				openConnectionsGauge, err = otel_metrics.GetOrInitInt64Gauge(a.OtelManager.Meter,
 					a.OtelManager.Int64GaugesCache,
 					"open_connections",
 					metric.WithDescription("Current open connections for PeerDB user"))

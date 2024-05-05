@@ -1,4 +1,4 @@
-package shared
+package otel_metrics
 
 import (
 	"context"
