@@ -19,7 +19,8 @@ func AttachToStream(ls *lua.LState, lfn *lua.LFunction, stream *model.QRecordStr
 			ls.Push(lfn)
 			ls.Push(LuaRow.New(ls, row))
 			if err := ls.PCall(1, 0, nil); err != nil {
-				panic(err.Error()) // TODO error handling
+				output.Close(err)
+				return
 			}
 			for i, field := range schema.Fields {
 				record[i] = row.GetColumnValue(field.Name)

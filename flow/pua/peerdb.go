@@ -3,6 +3,7 @@ package pua
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"math/big"
 	"time"
 
@@ -158,6 +159,20 @@ func LuaRowIndex(ls *lua.LState) int {
 	return 1
 }
 
+func LVAsTime(ls *lua.LState, lv lua.LValue) time.Time {
+	switch v := lv.(type) {
+	case lua.LNumber:
+		ipart, fpart := math.Modf(float64(v))
+		return time.Unix(int64(ipart), int64(fpart*1e9))
+	case *lua.LUserData:
+		if tm, ok := v.Value.(time.Time); ok {
+			return tm
+		}
+	}
+	ls.RaiseError("Cannot convert %T to time.Time", lv)
+	return time.Time{}
+}
+
 func LuaRowNewIndex(ls *lua.LState) int {
 	_, row := LuaRow.Check(ls, 1)
 	key := ls.CheckString(2)
@@ -209,18 +224,16 @@ func LuaRowNewIndex(ls *lua.LState) int {
 		}
 	case qvalue.QValueKindString:
 		newqv = qvalue.QValueString{Val: lua.LVAsString(val)}
-		/* TODO time
-		case qvalue.QValueKindTimestamp:
-			newqv = qvalue.QValueTimestamp{Val:}
-		case qvalue.QValueKindTimestampTZ:
-			newqv = qvalue.QValueTimestampTZ{Val:}
-		case qvalue.QValueKindDate:
-			newqv = qvalue.QValueDate{Val:}
-		case qvalue.QValueKindTime:
-			newqv = qvalue.QValueTime{Val:}
-		case qvalue.QValueKindTimeTZ:
-			newqv = qvalue.QValueTimeTZ{Val:}
-		*/
+	case qvalue.QValueKindTimestamp:
+		newqv = qvalue.QValueTimestamp{Val: LVAsTime(ls, val)}
+	case qvalue.QValueKindTimestampTZ:
+		newqv = qvalue.QValueTimestampTZ{Val: LVAsTime(ls, val)}
+	case qvalue.QValueKindDate:
+		newqv = qvalue.QValueDate{Val: LVAsTime(ls, val)}
+	case qvalue.QValueKindTime:
+		newqv = qvalue.QValueTime{Val: LVAsTime(ls, val)}
+	case qvalue.QValueKindTimeTZ:
+		newqv = qvalue.QValueTimeTZ{Val: LVAsTime(ls, val)}
 	case qvalue.QValueKindNumeric:
 		if ud, ok := val.(*lua.LUserData); ok {
 			if num, ok := ud.Value.(decimal.Decimal); ok {
@@ -287,14 +300,24 @@ func LuaRowNewIndex(ls *lua.LState) int {
 				}),
 			}
 		}
-		/* TODO TIME
-		case qvalue.QValueKindArrayDate:
-			newqv = qvalue.QValueArrayDate{Val:}
-		case qvalue.QValueKindArrayTimestamp:
-			newqv = qvalue.QValueArrayTimestamp{Val:}
-		case qvalue.QValueKindArrayTimestampTZ:
-			newqv = qvalue.QValueArrayTimestampTZ{Val:}
-		*/
+	case qvalue.QValueKindArrayDate:
+		if tbl, ok := val.(*lua.LTable); ok {
+			newqv = qvalue.QValueArrayDate{
+				Val: shared.LTableToSlice(ls, tbl, LVAsTime),
+			}
+		}
+	case qvalue.QValueKindArrayTimestamp:
+		if tbl, ok := val.(*lua.LTable); ok {
+			newqv = qvalue.QValueArrayDate{
+				Val: shared.LTableToSlice(ls, tbl, LVAsTime),
+			}
+		}
+	case qvalue.QValueKindArrayTimestampTZ:
+		if tbl, ok := val.(*lua.LTable); ok {
+			newqv = qvalue.QValueArrayDate{
+				Val: shared.LTableToSlice(ls, tbl, LVAsTime),
+			}
+		}
 	case qvalue.QValueKindArrayBoolean:
 		if tbl, ok := val.(*lua.LTable); ok {
 			newqv = qvalue.QValueArrayBoolean{
