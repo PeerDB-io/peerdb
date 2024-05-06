@@ -728,24 +728,23 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .to_string(),
                 s3_path: opts
                     .get("s3_path")
-                    .context("no s3 path specified")?
-                    .to_string(),
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
                 access_key_id: opts
                     .get("access_key_id")
-                    .context("no access key id specified")?
-                    .to_string(),
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
                 secret_access_key: opts
                     .get("secret_access_key")
-                    .context("no secret access key specified")?
-                    .to_string(),
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
                 region: opts
                     .get("region")
-                    .context("no region specified")?
-                    .to_string(),
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
                 disable_tls: opts
                     .get("disable_tls")
-                    .and_then(|s| s.parse::<bool>().ok())
-                    .unwrap_or_default(),
+                    .map(|s| s.parse::<bool>().unwrap_or_default()).unwrap_or_default(),
                 endpoint: opts.get("endpoint").map(|s| s.to_string()),
             };
             Config::ClickhouseConfig(clickhouse_config)
