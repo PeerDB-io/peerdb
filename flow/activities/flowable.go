@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
@@ -26,6 +27,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/otel_metrics"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -44,6 +46,7 @@ type FlowableActivity struct {
 	CatalogPool *pgxpool.Pool
 	Alerter     *alerting.Alerter
 	CdcCache    map[string]CdcCacheEntry
+	OtelManager *otel_metrics.OtelManager
 	CdcCacheRw  sync.RWMutex
 }
 
@@ -592,7 +595,32 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return
 			}
-			err = srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, slotName, peerName)
+
+			var slotLagGauge *otel_metrics.Float64Gauge
+			var openConnectionsGauge *otel_metrics.Int64Gauge
+			if a.OtelManager != nil {
+				slotLagGauge, err = otel_metrics.GetOrInitFloat64Gauge(a.OtelManager.Meter,
+					a.OtelManager.Float64GaugesCache,
+					"cdc_slot_lag",
+					metric.WithUnit("MB"),
+					metric.WithDescription("Postgres replication slot lag in MB"))
+				if err != nil {
+					logger.Error("Failed to get slot lag gauge", slog.Any("error", err))
+					return
+				}
+
+				openConnectionsGauge, err = otel_metrics.GetOrInitInt64Gauge(a.OtelManager.Meter,
+					a.OtelManager.Int64GaugesCache,
+					"open_connections",
+					metric.WithDescription("Current open connections for PeerDB user"))
+				if err != nil {
+					logger.Error("Failed to get open connections gauge", slog.Any("error", err))
+					return
+				}
+			}
+
+			err = srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, slotName, peerName,
+				slotLagGauge, openConnectionsGauge)
 			if err != nil {
 				logger.Error("Failed to handle slot info", slog.Any("error", err))
 			}
