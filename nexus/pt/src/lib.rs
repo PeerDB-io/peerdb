@@ -31,6 +31,7 @@ impl From<PeerType> for DbType {
             PeerType::Eventhubs => DbType::Eventhubs,
             PeerType::PubSub => DbType::Pubsub,
             PeerType::Elasticsearch => DbType::Elasticsearch,
+            PeerType::Clickhouse => DbType::Clickhouse,
         }
     }
 }
