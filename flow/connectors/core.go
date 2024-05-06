@@ -25,8 +25,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/otel_metrics"
 )
 
-var ErrUnsupportedFunctionality = errors.New("requested connector does not support functionality")
-
 type Connector interface {
 	Close() error
 	ConnectionActive(context.Context) error
@@ -245,7 +243,7 @@ func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 	case *protos.Peer_ElasticsearchConfig:
 		return connelasticsearch.NewElasticsearchConnector(ctx, inner.ElasticsearchConfig)
 	default:
-		return nil, ErrUnsupportedFunctionality
+		return nil, errors.ErrUnsupported
 	}
 }
 
@@ -259,7 +257,7 @@ func GetAs[T Connector](ctx context.Context, config *protos.Peer) (T, error) {
 	if conn, ok := conn.(T); ok {
 		return conn, nil
 	} else {
-		return none, ErrUnsupportedFunctionality
+		return none, errors.ErrUnsupported
 	}
 }
 

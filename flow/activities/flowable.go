@@ -154,7 +154,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
 	conn, err := connectors.GetAs[connectors.NormalizedTablesConnector](ctx, config.PeerConnectionConfig)
 	if err != nil {
-		if err == connectors.ErrUnsupportedFunctionality {
+		if errors.Is(err, errors.ErrUnsupported) {
 			logger.Info("Connector does not implement normalized tables")
 			return nil, nil
 		}
@@ -298,7 +298,7 @@ func (a *FlowableActivity) StartNormalize(
 	logger := activity.GetLogger(ctx)
 
 	dstConn, err := connectors.GetCDCNormalizeConnector(ctx, conn.Destination)
-	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
+	if errors.Is(err, errors.ErrUnsupported) {
 		err = monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName,
 			input.SyncBatchID)
 		return nil, err
@@ -441,7 +441,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	dstConn, err := connectors.GetQRepConsolidateConnector(ctx, config.DestinationPeer)
-	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
+	if errors.Is(err, errors.ErrUnsupported) {
 		return monitoring.UpdateEndTimeForQRepRun(ctx, a.CatalogPool, runUUID)
 	} else if err != nil {
 		return err
@@ -465,7 +465,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	dst, err := connectors.GetQRepConsolidateConnector(ctx, config.DestinationPeer)
-	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
+	if errors.Is(err, errors.ErrUnsupported) {
 		return nil
 	} else if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -578,7 +578,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		func() {
 			srcConn, err := connectors.GetCDCPullConnector(ctx, config.Source)
 			if err != nil {
-				if err != connectors.ErrUnsupportedFunctionality {
+				if !errors.Is(err, errors.ErrUnsupported) {
 					logger.Error("Failed to create connector to handle slot info", slog.Any("error", err))
 				}
 				return
