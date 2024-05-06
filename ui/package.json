@@ -10,7 +10,7 @@
     "format": "prettier --write ."
   },
   "dependencies": {
-    "@grpc/grpc-js": "^1.10.6",
+    "@grpc/grpc-js": "^1.10.7",
     "@monaco-editor/react": "^4.6.0",
     "@prisma/client": "^5.13.0",
     "@radix-ui/react-checkbox": "^1.0.4",
@@ -29,7 +29,7 @@
     "@radix-ui/react-toggle-group": "^1.0.4",
     "@radix-ui/react-tooltip": "^1.0.7",
     "@tremor/react": "^3.16.2",
-    "@types/node": "^20.12.7",
+    "@types/node": "^20.12.8",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.0",
     "classnames": "^2.5.1",
@@ -50,7 +50,7 @@
     "styled-components": "^6.1.9",
     "swr": "^2.2.5",
     "usehooks-ts": "^3.1.0",
-    "zod": "^3.23.5"
+    "zod": "^3.23.6"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.19",
