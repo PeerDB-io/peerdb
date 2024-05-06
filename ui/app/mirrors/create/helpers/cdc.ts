@@ -38,6 +38,7 @@ export const cdcSettings: MirrorSetting[] = [
     type: 'number',
     default: '60',
     required: true,
+    advanced: 'queue',
   },
   {
     label: 'Publication Name',

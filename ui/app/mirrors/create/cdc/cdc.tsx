@@ -46,19 +46,14 @@ export default function CDCConfigForm({
   };
 
   const normalSettings = useMemo(() => {
-    return settings!
-      .map((setting) => {
-        if (
-          IsQueuePeer(mirrorConfig.destination?.type) &&
-          setting.label === 'Sync Interval (Seconds)'
-        ) {
-          return;
-        }
-        if (setting.advanced != true) {
-          return setting;
-        }
-      })
-      .filter((setting) => setting !== undefined);
+    return settings!.filter(
+      (setting) =>
+        !(
+          (IsQueuePeer(mirrorConfig.destination?.type) &&
+            setting.advanced === 'queue') ||
+          setting.advanced === true
+        )
+    );
   }, [settings, mirrorConfig.destination?.type]);
 
   const advancedSettings = useMemo(() => {
@@ -66,12 +61,12 @@ export default function CDCConfigForm({
       .map((setting) => {
         if (
           IsQueuePeer(mirrorConfig.destination?.type) &&
-          setting.label === 'Sync Interval (Seconds)'
+          setting.advanced === 'queue'
         ) {
           setting.stateHandler(600, setter);
           return { ...setting, default: 600 };
         }
-        if (setting.advanced == true) {
+        if (setting.advanced === true) {
           return setting;
         }
       })

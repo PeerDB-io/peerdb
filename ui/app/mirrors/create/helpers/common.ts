@@ -1,5 +1,6 @@
 import { FlowConnectionConfigs, TypeSystem } from '@/grpc_generated/flow';
 
+export type AdvancedSettingType = boolean | 'queue';
 export interface MirrorSetting {
   label: string;
   stateHandler: (value: any, setter: any) => void;
@@ -8,7 +9,7 @@ export interface MirrorSetting {
   tips?: string;
   helpfulLink?: string;
   default?: string | number | boolean;
-  advanced?: boolean; // whether it should come under an 'Advanced' section
+  advanced?: AdvancedSettingType; // whether it should come under an 'Advanced' section
   command?: string;
 }
 
