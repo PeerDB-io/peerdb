@@ -140,7 +140,7 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 	var metricsProvider *sdkmetric.MeterProvider
 	var otelManager *otel_metrics.OtelManager
 	if opts.EnableOtelMetrics {
-		metricsProvider, err = otel_metrics.SetupOtelMetricsExporter()
+		metricsProvider, err = otel_metrics.SetupOtelMetricsExporter("flow-worker")
 		if err != nil {
 			return nil, err
 		}

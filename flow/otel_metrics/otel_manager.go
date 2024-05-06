@@ -32,7 +32,7 @@ func newOtelResource(otelServiceName string) (*resource.Resource, error) {
 	return r, err
 }
 
-func SetupOtelMetricsExporter() (*sdkmetric.MeterProvider, error) {
+func SetupOtelMetricsExporter(otelServiceName string) (*sdkmetric.MeterProvider, error) {
 	metricExporter, err := otlpmetrichttp.New(context.Background(),
 		otlpmetrichttp.WithCompression(otlpmetrichttp.GzipCompression),
 	)
@@ -40,7 +40,7 @@ func SetupOtelMetricsExporter() (*sdkmetric.MeterProvider, error) {
 		return nil, fmt.Errorf("failed to create OpenTelemetry metrics exporter: %w", err)
 	}
 
-	resource, err := newOtelResource("flow-worker")
+	resource, err := newOtelResource(otelServiceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
