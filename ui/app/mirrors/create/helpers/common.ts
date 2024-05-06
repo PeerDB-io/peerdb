@@ -1,6 +1,11 @@
 import { FlowConnectionConfigs, TypeSystem } from '@/grpc_generated/flow';
 
-export type AdvancedSettingType = boolean | 'queue';
+export enum AdvancedSettingType {
+  QUEUE = 'queue',
+  ALL = 'all',
+  NONE = 'none',
+}
+
 export interface MirrorSetting {
   label: string;
   stateHandler: (value: any, setter: any) => void;

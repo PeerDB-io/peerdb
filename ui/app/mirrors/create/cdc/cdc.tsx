@@ -5,7 +5,7 @@ import { Icon } from '@/lib/Icon';
 import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
 import { CDCConfig, MirrorSetter, TableMapRow } from '../../../dto/MirrorsDTO';
 import { IsQueuePeer, fetchPublications } from '../handlers';
-import { MirrorSetting } from '../helpers/common';
+import { AdvancedSettingType, MirrorSetting } from '../helpers/common';
 import CDCField from './fields';
 import TableMapping from './tablemapping';
 
@@ -50,8 +50,8 @@ export default function CDCConfigForm({
       (setting) =>
         !(
           (IsQueuePeer(mirrorConfig.destination?.type) &&
-            setting.advanced === 'queue') ||
-          setting.advanced === true
+            setting.advanced === AdvancedSettingType.QUEUE) ||
+          setting.advanced === AdvancedSettingType.ALL
         )
     );
   }, [settings, mirrorConfig.destination?.type]);
@@ -61,12 +61,12 @@ export default function CDCConfigForm({
       .map((setting) => {
         if (
           IsQueuePeer(mirrorConfig.destination?.type) &&
-          setting.advanced === 'queue'
+          setting.advanced === AdvancedSettingType.QUEUE
         ) {
           setting.stateHandler(600, setter);
           return { ...setting, default: 600 };
         }
-        if (setting.advanced === true) {
+        if (setting.advanced === AdvancedSettingType.ALL) {
           return setting;
         }
       })
