@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -167,13 +166,11 @@ func lvalueToKafkaRecord(ls *lua.LState, value lua.LValue) (*kgo.Record, error) 
 }
 
 func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
-	var wg sync.WaitGroup
 	wgCtx, wgErr := context.WithCancelCause(ctx)
 	produceCb := func(_ *kgo.Record, err error) {
 		if err != nil {
 			wgErr(err)
 		}
-		wg.Done()
 	}
 
 	numRecords := atomic.Int64{}
@@ -197,7 +194,6 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 		}
 		return ls, nil
 	}, func(krs []*kgo.Record) {
-		wg.Add(len(krs))
 		for _, kr := range krs {
 			c.client.Produce(wgCtx, kr, produceCb)
 		}
@@ -295,16 +291,6 @@ Loop:
 	}
 	if err := c.client.Flush(wgCtx); err != nil {
 		return nil, fmt.Errorf("[kafka] final flush error: %w", err)
-	}
-	waitChan := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(waitChan)
-	}()
-	select {
-	case <-wgCtx.Done():
-		return nil, wgCtx.Err()
-	case <-waitChan:
 	}
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()

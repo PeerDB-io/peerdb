@@ -125,7 +125,7 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 
 	err = s.connector.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime)
 	if err != nil {
-		return -1, err
+		return 0, err
 	}
 
 	activity.RecordHeartbeat(ctx, "finished syncing records")
