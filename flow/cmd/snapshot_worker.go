@@ -33,7 +33,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (client.Client, worker.Work
 	}
 
 	if opts.TemporalCert != "" && opts.TemporalKey != "" {
-		certs, err := Base64DecodeCertAndKey(opts.TemporalCert, opts.TemporalKey)
+		certs, err := base64DecodeCertAndKey(opts.TemporalCert, opts.TemporalKey)
 		if err != nil {
 			return nil, nil, fmt.Errorf("unable to process certificate and key: %w", err)
 		}
