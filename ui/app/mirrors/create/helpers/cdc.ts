@@ -1,6 +1,6 @@
 import { TypeSystem } from '@/grpc_generated/flow';
 import { CDCConfig } from '../../../dto/MirrorsDTO';
-import { MirrorSetting } from './common';
+import { AdvancedSettingType, MirrorSetting } from './common';
 export const cdcSettings: MirrorSetting[] = [
   {
     label: 'Initial Copy',
@@ -24,7 +24,7 @@ export const cdcSettings: MirrorSetting[] = [
     tips: 'The number of rows PeerDB will pull from source at a time. If left empty, the default value is 1,000,000 rows.',
     type: 'number',
     default: '1000000',
-    advanced: true,
+    advanced: AdvancedSettingType.ALL,
   },
   {
     label: 'Sync Interval (Seconds)',
@@ -38,6 +38,7 @@ export const cdcSettings: MirrorSetting[] = [
     type: 'number',
     default: '60',
     required: true,
+    advanced: AdvancedSettingType.QUEUE,
   },
   {
     label: 'Publication Name',
@@ -71,7 +72,7 @@ export const cdcSettings: MirrorSetting[] = [
     tips: 'PeerDB splits up table data into partitions for increased performance. This setting controls the number of rows per partition. The default value is 1000000.',
     default: '1000000',
     type: 'number',
-    advanced: true,
+    advanced: AdvancedSettingType.ALL,
   },
   {
     label: 'Parallelism for Initial Load',
@@ -95,7 +96,7 @@ export const cdcSettings: MirrorSetting[] = [
     tips: 'Specify the number of tables to sync perform initial load for, in parallel. The default value is 1.',
     default: '1',
     type: 'number',
-    advanced: true,
+    advanced: AdvancedSettingType.ALL,
   },
   {
     label: 'Snapshot Staging Path',
@@ -105,7 +106,7 @@ export const cdcSettings: MirrorSetting[] = [
         snapshotStagingPath: value as string | '',
       })),
     tips: 'You can specify staging path for Snapshot sync mode AVRO. For Snowflake as destination peer, this must be either empty or an S3 bucket URL. For BigQuery, this must be either empty or an existing GCS bucket name. In both cases, if empty, the local filesystem will be used.',
-    advanced: true,
+    advanced: AdvancedSettingType.ALL,
   },
   {
     label: 'CDC Staging Path',
@@ -115,7 +116,7 @@ export const cdcSettings: MirrorSetting[] = [
         cdcStagingPath: (value as string) || '',
       })),
     tips: 'You can specify staging path for CDC sync mode AVRO. For Snowflake as destination peer, this must be either empty or an S3 bucket URL. For BigQuery, this must be either empty or an existing GCS bucket name. In both cases, if empty, the local filesystem will be used.',
-    advanced: true,
+    advanced: AdvancedSettingType.ALL,
   },
   {
     label: 'Soft Delete',
@@ -138,7 +139,7 @@ export const cdcSettings: MirrorSetting[] = [
       })),
     tips: 'If set, PeerDB will only perform initial load and will not perform CDC sync.',
     type: 'switch',
-    advanced: true,
+    advanced: AdvancedSettingType.ALL,
   },
   {
     label: 'Script',
@@ -148,7 +149,7 @@ export const cdcSettings: MirrorSetting[] = [
         script: (value as string) || '',
       })),
     tips: 'Associate PeerDB script with this mirror.',
-    advanced: true,
+    advanced: AdvancedSettingType.ALL,
   },
   {
     label: 'Use Postgres type system',
@@ -160,7 +161,7 @@ export const cdcSettings: MirrorSetting[] = [
     type: 'switch',
     default: false,
     tips: 'Decide if PeerDB should use native Postgres types directly',
-    advanced: true,
+    advanced: AdvancedSettingType.ALL,
   },
   {
     label: 'Synced-At Column Name',
@@ -170,7 +171,7 @@ export const cdcSettings: MirrorSetting[] = [
         syncedAtColName: value as string | '',
       })),
     tips: 'A field to set the name of PeerDBs synced_at column. If not set, a default name will be set',
-    advanced: true,
+    advanced: AdvancedSettingType.ALL,
   },
   {
     label: 'Soft Delete Column Name',
@@ -180,6 +181,6 @@ export const cdcSettings: MirrorSetting[] = [
         softDeleteColName: value as string | '',
       })),
     tips: 'A field to set the name of PeerDBs soft delete column.',
-    advanced: true,
+    advanced: AdvancedSettingType.ALL,
   },
 ];
