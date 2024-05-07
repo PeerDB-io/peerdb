@@ -114,7 +114,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH protos.DBType, preci
 			}, nil
 		}
 		return "string", nil
-	case QValueKindHStore, QValueKindJSON, QValueKindStruct:
+	case QValueKindHStore, QValueKindJSON, QValueKindJSONB, QValueKindStruct:
 		return "string", nil
 	case QValueKindArrayFloat32:
 		return AvroSchemaArray{
