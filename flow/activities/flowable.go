@@ -643,7 +643,7 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
-	if config.SourcePeer.Type != protos.DBType_POSTGRES {
+	if config.SourcePeer.Type != protos.DBType_POSTGRES || last == nil || last.Range == nil {
 		return QRepWaitUntilNewRowsResult{Found: true}, nil
 	}
 
