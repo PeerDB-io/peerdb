@@ -1,5 +1,5 @@
 #!/bin/sh
-set -Eeux
+set -Eeu
 
 DOCKER="docker"
 
