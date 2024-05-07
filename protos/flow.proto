@@ -297,6 +297,7 @@ message QRepConfig {
   string soft_delete_col_name = 17;
 
   TypeSystem system = 18;
+  string script = 19;
 }
 
 message QRepPartition {

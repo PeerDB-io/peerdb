@@ -205,11 +205,13 @@ func (h *FlowRequestHandler) GetColumns(
 		pg_attribute
 	JOIN
 		pg_class ON pg_attribute.attrelid = pg_class.oid
+	JOIN
+		 pg_namespace on pg_class.relnamespace = pg_namespace.oid
 	LEFT JOIN
 		pg_constraint ON pg_attribute.attrelid = pg_constraint.conrelid
 		AND pg_attribute.attnum = ANY(pg_constraint.conkey)
 	WHERE
-		relnamespace::regnamespace::text = $1
+	pg_namespace.nspname = $1
 		AND
 		relname = $2
 		AND pg_attribute.attnum > 0

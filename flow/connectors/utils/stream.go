@@ -130,11 +130,7 @@ func recordToQRecordOrError[Items model.Items](batchID int64, record model.Recor
 func InitialiseTableRowsMap(tableMaps []*protos.TableMapping) map[string]*model.RecordTypeCounts {
 	tableNameRowsMapping := make(map[string]*model.RecordTypeCounts, len(tableMaps))
 	for _, mapping := range tableMaps {
-		tableNameRowsMapping[mapping.DestinationTableIdentifier] = &model.RecordTypeCounts{
-			InsertCount: 0,
-			UpdateCount: 0,
-			DeleteCount: 0,
-		}
+		tableNameRowsMapping[mapping.DestinationTableIdentifier] = &model.RecordTypeCounts{}
 	}
 
 	return tableNameRowsMapping
