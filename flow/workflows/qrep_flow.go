@@ -570,7 +570,7 @@ func QRepFlowWorkflow(
 		return err
 	}
 
-	if state.LastPartition != nil {
+	if !config.InitialCopyOnly && state.LastPartition != nil {
 		if err := q.waitForNewRows(ctx, signalChan, state.LastPartition); err != nil {
 			return err
 		}
