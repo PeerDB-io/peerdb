@@ -1,33 +1,27 @@
 #!/bin/sh
-if test -z "$USE_PODMAN"
+set -Eeu
+
+DOCKER="docker"
+EXTRA_ARGS="--no-attach temporal --no-attach pyroscope --no-attach temporal-ui"
+
+if test -n "${USE_PODMAN:=}"
 then
-    if ! command -v docker &> /dev/null
-    then
-        if command -v podman-compose
-        then
-            echo "docker could not be found on PATH, using podman-compose"
+   # 0 is found, checking for not found so we check for podman then
+    if $(docker compose &>/dev/null) && [ $? -ne 0 ]; then
+        if $(podman compose &>/dev/null) && [ $? -eq 0 ]; then
+            echo "docker could not be found on PATH, using podman compose"
             USE_PODMAN=1
         else
-            echo "docker could not be found on PATH"
+            echo "docker compose could not be found on PATH"
             exit 1
         fi
     fi
 fi
 
-if test -z "$USE_PODMAN"
-then
-    DOCKER="docker compose"
-    EXTRA_ARGS="--no-attach temporal --no-attach pyroscope --no-attach temporal-ui"
-else
-    DOCKER="podman-compose --podman-run-args=--replace"
-    EXTRA_ARGS=""
-fi
-
-# check if peerdb_network exists if not create it
-if ! $DOCKER network inspect peerdb_network &> /dev/null
-then
-    $DOCKER network create peerdb_network
+if test -n "$USE_PODMAN"; then
+    DOCKER="podman"
+    EXTRA_ARGS="--podman-run-args=--replace"
 fi
 
 export PEERDB_VERSION_SHA_SHORT=local-$(git rev-parse --short HEAD)
-exec $DOCKER -f docker-compose-dev.yml up --build $EXTRA_ARGS
+exec $DOCKER compose -f docker-compose-dev.yml up --build $EXTRA_ARGS
