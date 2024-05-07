@@ -283,12 +283,12 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		tstzrangeObject := value.(pgtype.Range[interface{}])
 		lowerBoundType := tstzrangeObject.LowerType
 		upperBoundType := tstzrangeObject.UpperType
-		lowerTime, err := ConvertTimeRangeBounds(tstzrangeObject.Lower)
+		lowerTime, err := convertTimeRangeBounds(tstzrangeObject.Lower)
 		if err != nil {
 			return nil, fmt.Errorf("[tstzrange]error for lower time bound: %v", err)
 		}
 
-		upperTime, err := ConvertTimeRangeBounds(tstzrangeObject.Upper)
+		upperTime, err := convertTimeRangeBounds(tstzrangeObject.Upper)
 		if err != nil {
 			return nil, fmt.Errorf("[tstzrange]error for upper time bound: %v", err)
 		}
@@ -515,8 +515,8 @@ func customTypeToQKind(typeName string) qvalue.QValueKind {
 
 // Postgres does not like timestamps of the form 2006-01-02 15:04:05 +0000 UTC
 // in tstzrange.
-// ConvertTimeRangeBounds removes the +0000 UTC part
-func ConvertTimeRangeBounds(timeBound interface{}) (string, error) {
+// convertTimeRangeBounds removes the +0000 UTC part
+func convertTimeRangeBounds(timeBound interface{}) (string, error) {
 	layout := "2006-01-02 15:04:05 -0700 MST"
 	postgresFormat := "2006-01-02 15:04:05"
 	var convertedTime string
