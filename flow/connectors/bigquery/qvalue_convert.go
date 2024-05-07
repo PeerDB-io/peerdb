@@ -23,7 +23,7 @@ func qValueKindToBigQueryType(colType string) bigquery.FieldType {
 	case qvalue.QValueKindString:
 		return bigquery.StringFieldType
 	// json also is stored as string for now
-	case qvalue.QValueKindJSON, qvalue.QValueKindHStore:
+	case qvalue.QValueKindJSON, qvalue.QValueKindJSONB, qvalue.QValueKindHStore:
 		return bigquery.JSONFieldType
 	// time related
 	case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ:
