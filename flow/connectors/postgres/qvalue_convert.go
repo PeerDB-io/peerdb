@@ -513,6 +513,9 @@ func customTypeToQKind(typeName string) qvalue.QValueKind {
 	}
 }
 
+// Postgres does not like timestamps of the form 2006-01-02 15:04:05 +0000 UTC
+// in tstzrange.
+// ConvertTimeRangeBounds removes the +0000 UTC part
 func ConvertTimeRangeBounds(timeBound interface{}) (string, error) {
 	layout := "2006-01-02 15:04:05 -0700 MST"
 	postgresFormat := "2006-01-02 15:04:05"
