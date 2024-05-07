@@ -108,6 +108,8 @@ func (c *PostgresConnector) postgresOIDToQValueKind(recvOID uint32) qvalue.QValu
 		return qvalue.QValueKindArrayString
 	case pgtype.IntervalOID:
 		return qvalue.QValueKindInterval
+	case pgtype.TstzrangeOID:
+		return qvalue.QValueKindTSTZRange
 	default:
 		typeName, ok := pgtype.NewMap().TypeForOID(recvOID)
 		if !ok {
@@ -273,6 +275,31 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		}
 
 		return qvalue.QValueString{Val: string(intervalJSON)}, nil
+	case qvalue.QValueKindTSTZRange:
+		tstzrangeObject := value.(pgtype.Range[interface{}])
+		lowerBoundType := tstzrangeObject.LowerType
+		upperBoundType := tstzrangeObject.UpperType
+		lowerTime, err := ConvertTimeRangeBounds(tstzrangeObject.Lower)
+		if err != nil {
+			return nil, fmt.Errorf("[tstzrange]error for lower time bound: %v", err)
+		}
+
+		upperTime, err := ConvertTimeRangeBounds(tstzrangeObject.Upper)
+		if err != nil {
+			return nil, fmt.Errorf("[tstzrange]error for upper time bound: %v", err)
+		}
+
+		lowerBracket := "["
+		if lowerBoundType == pgtype.Exclusive {
+			lowerBracket = "("
+		}
+		upperBracket := "]"
+		if upperBoundType == pgtype.Exclusive {
+			upperBracket = ")"
+		}
+		tstzrangeStr := fmt.Sprintf("%s%v,%v%s",
+			lowerBracket, lowerTime, upperTime, upperBracket)
+		return qvalue.QValueTSTZRange{Val: tstzrangeStr}, nil
 	case qvalue.QValueKindDate:
 		date := value.(time.Time)
 		return qvalue.QValueDate{Val: date}, nil
@@ -480,4 +507,21 @@ func customTypeToQKind(typeName string) qvalue.QValueKind {
 	default:
 		return qvalue.QValueKindString
 	}
+}
+
+func ConvertTimeRangeBounds(timeBound interface{}) (string, error) {
+	layout := "2006-01-02 15:04:05 -0700 MST"
+	postgresFormat := "2006-01-02 15:04:05"
+	var convertedTime string
+	if timeBound != nil {
+		lowerParsed, err := time.Parse(layout, fmt.Sprint(timeBound))
+		if err != nil {
+			return "", fmt.Errorf("Unexpected lower bound value in tstzrange. Error: %v", err)
+		}
+		convertedTime = lowerParsed.Format(postgresFormat)
+	} else {
+		convertedTime = ""
+	}
+
+	return convertedTime, nil
 }

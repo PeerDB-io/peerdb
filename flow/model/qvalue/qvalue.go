@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/glua64"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -291,6 +291,22 @@ func (v QValueInterval) Value() any {
 }
 
 func (v QValueInterval) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
+}
+
+type QValueTSTZRange struct {
+	Val string
+}
+
+func (QValueTSTZRange) Kind() QValueKind {
+	return QValueKindInterval
+}
+
+func (v QValueTSTZRange) Value() any {
+	return v.Val
+}
+
+func (v QValueTSTZRange) LValue(ls *lua.LState) lua.LValue {
 	return lua.LString(v.Val)
 }
 

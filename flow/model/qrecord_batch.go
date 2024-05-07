@@ -118,6 +118,8 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			values[i] = pgtype.Timestamp{Time: v.Val, Valid: true}
 		case qvalue.QValueTimestampTZ:
 			values[i] = pgtype.Timestamptz{Time: v.Val, Valid: true}
+		case qvalue.QValueTSTZRange:
+			values[i] = v.Val
 		case qvalue.QValueUUID:
 			values[i] = uuid.UUID(v.Val)
 		case qvalue.QValueNumeric:
