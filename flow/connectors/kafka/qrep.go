@@ -3,14 +3,12 @@ package connkafka
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/pua"
@@ -27,43 +25,16 @@ func (c *KafkaConnector) SyncQRepRecords(
 	stream *model.QRecordStream,
 ) (int, error) {
 	startTime := time.Now()
+	numRecords := atomic.Int64{}
 	schema := stream.Schema()
 
 	wgCtx, wgErr := context.WithCancelCause(ctx)
-	produceCb := func(_ *kgo.Record, err error) {
-		if err != nil {
-			wgErr(err)
-		}
-	}
-
-	pool, err := utils.LuaPool(func() (*lua.LState, error) {
-		ls, err := utils.LoadScript(wgCtx, config.Script, func(ls *lua.LState) int {
-			top := ls.GetTop()
-			ss := make([]string, top)
-			for i := range top {
-				ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
-			}
-			_ = c.LogFlowInfo(ctx, config.FlowJobName, strings.Join(ss, "\t"))
-			return 0
-		})
-		if err != nil {
-			return nil, err
-		}
-		if config.Script == "" {
-			ls.Env.RawSetString("onRecord", ls.NewFunction(utils.DefaultOnRecord))
-		}
-		return ls, nil
-	}, func(krs []*kgo.Record) {
-		for _, kr := range krs {
-			c.client.Produce(wgCtx, kr, produceCb)
-		}
-	})
+	pool, err := c.createPool(wgCtx, config.Script, config.FlowJobName, wgErr)
 	if err != nil {
 		return 0, err
 	}
 	defer pool.Close()
 
-	numRecords := atomic.Int64{}
 Loop:
 	for {
 		select {

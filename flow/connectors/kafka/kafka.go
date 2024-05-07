@@ -165,39 +165,48 @@ func lvalueToKafkaRecord(ls *lua.LState, value lua.LValue) (*kgo.Record, error) 
 	return kr, nil
 }
 
-func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
-	wgCtx, wgErr := context.WithCancelCause(ctx)
+func (c *KafkaConnector) createPool(
+	ctx context.Context,
+	script string,
+	flowJobName string,
+	wgErr func(error),
+) (*utils.LPool[[]*kgo.Record], error) {
 	produceCb := func(_ *kgo.Record, err error) {
 		if err != nil {
 			wgErr(err)
 		}
 	}
 
-	numRecords := atomic.Int64{}
-	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
-
-	pool, err := utils.LuaPool(func() (*lua.LState, error) {
-		ls, err := utils.LoadScript(wgCtx, req.Script, func(ls *lua.LState) int {
+	return utils.LuaPool(func() (*lua.LState, error) {
+		ls, err := utils.LoadScript(ctx, script, func(ls *lua.LState) int {
 			top := ls.GetTop()
 			ss := make([]string, top)
 			for i := range top {
 				ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
 			}
-			_ = c.LogFlowInfo(ctx, req.FlowJobName, strings.Join(ss, "\t"))
+			_ = c.LogFlowInfo(ctx, flowJobName, strings.Join(ss, "\t"))
 			return 0
 		})
 		if err != nil {
 			return nil, err
 		}
-		if req.Script == "" {
+		if script == "" {
 			ls.Env.RawSetString("onRecord", ls.NewFunction(utils.DefaultOnRecord))
 		}
 		return ls, nil
 	}, func(krs []*kgo.Record) {
 		for _, kr := range krs {
-			c.client.Produce(wgCtx, kr, produceCb)
+			c.client.Produce(ctx, kr, produceCb)
 		}
 	})
+}
+
+func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
+	numRecords := atomic.Int64{}
+	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
+
+	wgCtx, wgErr := context.WithCancelCause(ctx)
+	pool, err := c.createPool(wgCtx, req.Script, req.FlowJobName, wgErr)
 	if err != nil {
 		return nil, err
 	}
