@@ -83,10 +83,10 @@ export default function CDCConfigForm({
         !isQueue) ||
       (label.includes('staging path') &&
         defaultSyncMode(mirrorConfig.destination?.type) !== 'AVRO') ||
-      (isQueue &&
+      (isQueue && label.includes('soft delete')) ||
+      (mirrorConfig.destination?.type === DBType.EVENTHUBS &&
         (label.includes('initial copy') ||
           label.includes('initial load') ||
-          label.includes('soft delete') ||
           label.includes('snapshot'))) ||
       ((mirrorConfig.source?.type !== DBType.POSTGRES ||
         mirrorConfig.destination?.type !== DBType.POSTGRES) &&
