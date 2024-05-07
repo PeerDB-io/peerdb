@@ -49,8 +49,9 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	s.connector.logger.Info(
 		fmt.Sprintf("Obtaining Avro schema for destination table %s and sync batch ID %d",
 			rawTableName, syncBatchID))
+	sourceSchema := stream.Schema()
 	// You will need to define your Avro schema as a string
-	avroSchema, err := DefineAvroSchema(rawTableName, dstTableMetadata, "", "")
+	avroSchema, err := DefineAvroSchema(rawTableName, &sourceSchema, "", "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
@@ -160,8 +161,10 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 		slog.String(string(shared.PartitionIDKey), partition.PartitionId),
 		slog.String("destinationTable", dstTableName),
 	)
+
+	sourceSchema := stream.Schema()
 	// You will need to define your Avro schema as a string
-	avroSchema, err := DefineAvroSchema(dstTableName, dstTableMetadata, syncedAtCol, softDeleteCol)
+	avroSchema, err := DefineAvroSchema(dstTableName, &sourceSchema, syncedAtCol, softDeleteCol)
 	if err != nil {
 		return 0, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
@@ -245,22 +248,22 @@ type AvroSchema struct {
 }
 
 func DefineAvroSchema(dstTableName string,
-	dstTableMetadata *bigquery.TableMetadata,
+	schema *qvalue.QRecordSchema,
 	syncedAtCol string,
 	softDeleteCol string,
 ) (*model.QRecordAvroSchemaDefinition, error) {
-	avroFields := make([]AvroField, 0, len(dstTableMetadata.Schema))
+	avroFields := make([]AvroField, 0, len(schema.Fields))
 	qFields := make([]qvalue.QField, 0, len(avroFields))
-	for _, bqField := range dstTableMetadata.Schema {
-		if bqField.Name == syncedAtCol || bqField.Name == softDeleteCol {
+	for _, sourceField := range schema.Fields {
+		if sourceField.Name == syncedAtCol || sourceField.Name == softDeleteCol {
 			continue
 		}
-		avroField, err := GetAvroField(bqField)
+		avroField, err := GetAvroField(&sourceField)
 		if err != nil {
 			return nil, err
 		}
 		avroFields = append(avroFields, avroField)
-		qFields = append(qFields, BigQueryFieldToQField(bqField))
+		qFields = append(qFields, sourceField)
 	}
 
 	avroSchema := AvroSchema{
@@ -280,9 +283,9 @@ func DefineAvroSchema(dstTableName string,
 	}, nil
 }
 
-func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
-	avroNumericPrecision := int16(bqField.Precision)
-	avroNumericScale := int16(bqField.Scale)
+func GetAvroType(sourceField *qvalue.QField) (interface{}, error) {
+	avroNumericPrecision := int16(sourceField.Precision)
+	avroNumericScale := int16(sourceField.Scale)
 	bqNumeric := numeric.BigQueryNumericCompatibility{}
 	if !bqNumeric.IsValidPrevisionAndScale(avroNumericPrecision, avroNumericScale) {
 		avroNumericPrecision, avroNumericScale = bqNumeric.DefaultPrecisionAndScale()
@@ -299,6 +302,7 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 		}
 	}
 
+	bqField := qValueKindToBigQueryType(string(sourceField.Type))
 	switch bqField.Type {
 	case bigquery.StringFieldType, bigquery.GeographyFieldType, bigquery.JSONFieldType:
 		return considerRepeated("string", bqField.Repeated), nil
@@ -364,42 +368,22 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 			Precision:   avroNumericPrecision,
 			Scale:       avroNumericScale,
 		}, nil
-	case bigquery.RecordFieldType:
-		avroFields := []qvalue.AvroSchemaField{}
-		for _, bqSubField := range bqField.Schema {
-			avroType, err := GetAvroType(bqSubField)
-			if err != nil {
-				return nil, err
-			}
-			avroFields = append(avroFields, qvalue.AvroSchemaField{
-				Name: bqSubField.Name,
-				Type: avroType,
-			})
-		}
-		return qvalue.AvroSchemaRecord{
-			Type:   "record",
-			Name:   bqField.Name,
-			Fields: avroFields,
-		}, nil
 
 	default:
-		return nil, fmt.Errorf("unsupported BigQuery field type: %s", bqField.Type)
+		return nil, fmt.Errorf("[bq:defineAvro]unsupported BigQuery field type: " + string(bqField.Type))
 	}
 }
 
-func GetAvroField(bqField *bigquery.FieldSchema) (AvroField, error) {
-	avroType, err := GetAvroType(bqField)
+func GetAvroField(sourceField *qvalue.QField) (AvroField, error) {
+	avroType, err := GetAvroType(sourceField)
 	if err != nil {
 		return AvroField{}, err
 	}
 
-	// If a field is nullable, its Avro type should be ["null", actualType]
-	if !bqField.Required {
-		avroType = []interface{}{"null", avroType}
-	}
+	avroType = []interface{}{"null", avroType}
 
 	return AvroField{
-		Name: bqField.Name,
+		Name: sourceField.Name,
 		Type: avroType,
 	}, nil
 }
@@ -413,6 +397,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	stream *model.QRecordStream,
 	flowName string,
 ) (int, error) {
+	stream.Schema()
 	var avroFile *avro.AvroFile
 	ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressNone, protos.DBType_BIGQUERY)
 	idLog := slog.Group("write-metadata",

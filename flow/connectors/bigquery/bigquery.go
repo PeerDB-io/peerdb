@@ -647,8 +647,8 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 		} else {
 			columns = append(columns, &bigquery.FieldSchema{
 				Name:     column.Name,
-				Type:     qValueKindToBigQueryType(genericColType),
-				Repeated: qvalue.QValueKind(genericColType).IsArray(),
+				Type:     qValueKindToBigQueryType(genericColType).Type,
+				Repeated: qValueKindToBigQueryType(genericColType).Repeated,
 			})
 		}
 	}

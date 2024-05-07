@@ -6,56 +6,81 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
-func qValueKindToBigQueryType(colType string) bigquery.FieldType {
+func qValueKindToBigQueryType(colType string) bigquery.FieldSchema {
 	switch qvalue.QValueKind(colType) {
-	// boolean
 	case qvalue.QValueKindBoolean:
-		return bigquery.BooleanFieldType
-	// integer types
+		return bigquery.FieldSchema{
+			Type: bigquery.BooleanFieldType,
+		}
 	case qvalue.QValueKindInt16, qvalue.QValueKindInt32, qvalue.QValueKindInt64:
-		return bigquery.IntegerFieldType
-	// decimal types
+		return bigquery.FieldSchema{
+			Type: bigquery.IntegerFieldType,
+		}
 	case qvalue.QValueKindFloat32, qvalue.QValueKindFloat64:
-		return bigquery.FloatFieldType
+		return bigquery.FieldSchema{
+			Type: bigquery.FloatFieldType,
+		}
 	case qvalue.QValueKindNumeric:
-		return bigquery.BigNumericFieldType
-	// string related
+		return bigquery.FieldSchema{
+			Type: bigquery.NumericFieldType,
+		}
 	case qvalue.QValueKindString:
-		return bigquery.StringFieldType
-	// json also is stored as string for now
+		return bigquery.FieldSchema{
+			Type: bigquery.StringFieldType,
+		}
 	case qvalue.QValueKindJSON, qvalue.QValueKindHStore:
-		return bigquery.JSONFieldType
-	// time related
+		return bigquery.FieldSchema{
+			Type: bigquery.JSONFieldType,
+		}
 	case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ:
-		return bigquery.TimestampFieldType
-	// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - DATE support is incomplete
+		return bigquery.FieldSchema{
+			Type: bigquery.TimestampFieldType,
+		}
 	case qvalue.QValueKindDate:
-		return bigquery.DateFieldType
-	// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - TIME/TIMETZ support is incomplete
+		return bigquery.FieldSchema{
+			Type: bigquery.DateFieldType,
+		}
 	case qvalue.QValueKindTime, qvalue.QValueKindTimeTZ:
-		return bigquery.TimeFieldType
-	// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - handle INTERVAL types again,
-	// bytes
+		return bigquery.FieldSchema{
+			Type: bigquery.TimeFieldType,
+		}
 	case qvalue.QValueKindBit, qvalue.QValueKindBytes:
-		return bigquery.BytesFieldType
-	// For Arrays we return the types of the individual elements,
-	// and wherever this function is called, the 'Repeated' attribute of
-	// FieldSchema must be set to true.
+		return bigquery.FieldSchema{
+			Type: bigquery.BytesFieldType,
+		}
 	case qvalue.QValueKindArrayInt16, qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64:
-		return bigquery.IntegerFieldType
+		return bigquery.FieldSchema{
+			Type:     bigquery.IntegerFieldType,
+			Repeated: true,
+		}
 	case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64:
-		return bigquery.FloatFieldType
+		return bigquery.FieldSchema{
+			Type:     bigquery.FloatFieldType,
+			Repeated: true,
+		}
 	case qvalue.QValueKindArrayBoolean:
-		return bigquery.BooleanFieldType
+		return bigquery.FieldSchema{
+			Type:     bigquery.BooleanFieldType,
+			Repeated: true,
+		}
 	case qvalue.QValueKindArrayTimestamp, qvalue.QValueKindArrayTimestampTZ:
-		return bigquery.TimestampFieldType
+		return bigquery.FieldSchema{
+			Type:     bigquery.TimestampFieldType,
+			Repeated: true,
+		}
 	case qvalue.QValueKindArrayDate:
-		return bigquery.DateFieldType
+		return bigquery.FieldSchema{
+			Type:     bigquery.DateFieldType,
+			Repeated: true,
+		}
 	case qvalue.QValueKindGeography, qvalue.QValueKindGeometry, qvalue.QValueKindPoint:
-		return bigquery.GeographyFieldType
-	// rest will be strings
+		return bigquery.FieldSchema{
+			Type: bigquery.GeographyFieldType,
+		}
 	default:
-		return bigquery.StringFieldType
+		return bigquery.FieldSchema{
+			Type: bigquery.StringFieldType,
+		}
 	}
 }
 
@@ -92,7 +117,7 @@ func BigQueryTypeToQValueKind(fieldType bigquery.FieldType) qvalue.QValueKind {
 }
 
 func qValueKindToBigQueryTypeString(colType string) string {
-	bqType := qValueKindToBigQueryType(colType)
+	bqType := qValueKindToBigQueryType(colType).Type
 	bqTypeAsString := string(bqType)
 	// string(bigquery.FloatFieldType) is "FLOAT" which is not a BigQuery type.
 	if bqType == bigquery.FloatFieldType {
