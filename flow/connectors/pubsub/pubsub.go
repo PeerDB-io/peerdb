@@ -127,7 +127,7 @@ func (c *PubSubConnector) createPool(
 	flowJobName string,
 	topiccache *topicCache,
 	publish chan<- *pubsub.PublishResult,
-	wgErr func(error),
+	queueErr func(error),
 ) (*utils.LPool[[]PubSubMessage], error) {
 	return utils.LuaPool(func() (*lua.LState, error) {
 		ls, err := utils.LoadScript(ctx, script, func(ls *lua.LState) int {
@@ -163,7 +163,7 @@ func (c *PubSubConnector) createPool(
 				return topicClient, nil
 			})
 			if err != nil {
-				wgErr(err)
+				queueErr(err)
 				return
 			}
 
@@ -228,8 +228,8 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 	publish := make(chan *pubsub.PublishResult, 32)
 	waitChan := make(chan struct{})
 
-	wgCtx, wgErr := context.WithCancelCause(ctx)
-	pool, err := c.createPool(wgCtx, req.Script, req.FlowJobName, &topiccache, publish, wgErr)
+	queueCtx, queueErr := context.WithCancelCause(ctx)
+	pool, err := c.createPool(queueCtx, req.Script, req.FlowJobName, &topiccache, publish, queueErr)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +238,7 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 	go func() {
 		for curpub := range publish {
 			if _, err := curpub.Get(ctx); err != nil {
-				wgErr(err)
+				queueErr(err)
 				break
 			}
 		}
@@ -285,7 +285,7 @@ Loop:
 				lfn := ls.Env.RawGetString("onRecord")
 				fn, ok := lfn.(*lua.LFunction)
 				if !ok {
-					wgErr(fmt.Errorf("script should define `onRecord` as function, not %s", lfn))
+					queueErr(fmt.Errorf("script should define `onRecord` as function, not %s", lfn))
 					return nil
 				}
 
@@ -293,7 +293,7 @@ Loop:
 				ls.Push(pua.LuaRecord.New(ls, record))
 				err := ls.PCall(1, -1, nil)
 				if err != nil {
-					wgErr(fmt.Errorf("script failed: %w", err))
+					queueErr(fmt.Errorf("script failed: %w", err))
 					return nil
 				}
 
@@ -302,7 +302,7 @@ Loop:
 				for i := range args {
 					msg, err := lvalueToPubSubMessage(ls, ls.Get(i-args))
 					if err != nil {
-						wgErr(err)
+						queueErr(err)
 						return nil
 					}
 					if msg.Message != nil {
@@ -319,20 +319,20 @@ Loop:
 				return results
 			})
 
-		case <-wgCtx.Done():
+		case <-queueCtx.Done():
 			break Loop
 		}
 	}
 
 	close(flushLoopDone)
-	if err := pool.Wait(wgCtx); err != nil {
+	if err := pool.Wait(queueCtx); err != nil {
 		return nil, err
 	}
 	close(publish)
-	topiccache.Stop(wgCtx)
+	topiccache.Stop(queueCtx)
 	select {
-	case <-wgCtx.Done():
-		return nil, wgCtx.Err()
+	case <-queueCtx.Done():
+		return nil, queueCtx.Err()
 	case <-waitChan:
 	}
 

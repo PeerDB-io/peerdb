@@ -28,8 +28,8 @@ func (c *KafkaConnector) SyncQRepRecords(
 	numRecords := atomic.Int64{}
 	schema := stream.Schema()
 
-	wgCtx, wgErr := context.WithCancelCause(ctx)
-	pool, err := c.createPool(wgCtx, config.Script, config.FlowJobName, wgErr)
+	queueCtx, queueErr := context.WithCancelCause(ctx)
+	pool, err := c.createPool(queueCtx, config.Script, config.FlowJobName, queueErr)
 	if err != nil {
 		return 0, err
 	}
@@ -60,7 +60,7 @@ Loop:
 				lfn := ls.Env.RawGetString("onRecord")
 				fn, ok := lfn.(*lua.LFunction)
 				if !ok {
-					wgErr(fmt.Errorf("script should define `onRecord` as function, not %s", lfn))
+					queueErr(fmt.Errorf("script should define `onRecord` as function, not %s", lfn))
 					return nil
 				}
 
@@ -68,7 +68,7 @@ Loop:
 				ls.Push(pua.LuaRecord.New(ls, record))
 				err := ls.PCall(1, -1, nil)
 				if err != nil {
-					wgErr(fmt.Errorf("script failed: %w", err))
+					queueErr(fmt.Errorf("script failed: %w", err))
 					return nil
 				}
 
@@ -77,7 +77,7 @@ Loop:
 				for i := range args {
 					kr, err := lvalueToKafkaRecord(ls, ls.Get(i-args))
 					if err != nil {
-						wgErr(err)
+						queueErr(err)
 						return nil
 					}
 					if kr != nil {
@@ -92,15 +92,15 @@ Loop:
 				return results
 			})
 
-		case <-wgCtx.Done():
+		case <-queueCtx.Done():
 			break Loop
 		}
 	}
 
-	if err := pool.Wait(wgCtx); err != nil {
+	if err := pool.Wait(queueCtx); err != nil {
 		return 0, err
 	}
-	if err := c.client.Flush(wgCtx); err != nil {
+	if err := c.client.Flush(queueCtx); err != nil {
 		return 0, fmt.Errorf("[kafka] final flush error: %w", err)
 	}
 

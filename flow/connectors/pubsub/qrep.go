@@ -31,8 +31,8 @@ func (c *PubSubConnector) SyncQRepRecords(
 	publish := make(chan *pubsub.PublishResult, 32)
 	waitChan := make(chan struct{})
 
-	wgCtx, wgErr := context.WithCancelCause(ctx)
-	pool, err := c.createPool(wgCtx, config.Script, config.FlowJobName, &topiccache, publish, wgErr)
+	queueCtx, queueErr := context.WithCancelCause(ctx)
+	pool, err := c.createPool(queueCtx, config.Script, config.FlowJobName, &topiccache, publish, queueErr)
 	if err != nil {
 		return 0, err
 	}
@@ -41,7 +41,7 @@ func (c *PubSubConnector) SyncQRepRecords(
 	go func() {
 		for curpub := range publish {
 			if _, err := curpub.Get(ctx); err != nil {
-				wgErr(err)
+				queueErr(err)
 				break
 			}
 		}
@@ -73,7 +73,7 @@ Loop:
 				lfn := ls.Env.RawGetString("onRecord")
 				fn, ok := lfn.(*lua.LFunction)
 				if !ok {
-					wgErr(fmt.Errorf("script should define `onRecord` as function, not %s", lfn))
+					queueErr(fmt.Errorf("script should define `onRecord` as function, not %s", lfn))
 					return nil
 				}
 
@@ -81,7 +81,7 @@ Loop:
 				ls.Push(pua.LuaRecord.New(ls, record))
 				err := ls.PCall(1, -1, nil)
 				if err != nil {
-					wgErr(fmt.Errorf("script failed: %w", err))
+					queueErr(fmt.Errorf("script failed: %w", err))
 					return nil
 				}
 
@@ -90,7 +90,7 @@ Loop:
 				for i := range args {
 					msg, err := lvalueToPubSubMessage(ls, ls.Get(i-args))
 					if err != nil {
-						wgErr(err)
+						queueErr(err)
 						return nil
 					}
 					if msg.Message != nil {
@@ -105,19 +105,19 @@ Loop:
 				return results
 			})
 
-		case <-wgCtx.Done():
+		case <-queueCtx.Done():
 			break Loop
 		}
 	}
 
-	if err := pool.Wait(wgCtx); err != nil {
+	if err := pool.Wait(queueCtx); err != nil {
 		return 0, err
 	}
 	close(publish)
-	topiccache.Stop(wgCtx)
+	topiccache.Stop(queueCtx)
 	select {
-	case <-wgCtx.Done():
-		return 0, wgCtx.Err()
+	case <-queueCtx.Done():
+		return 0, queueCtx.Err()
 	case <-waitChan:
 	}
 
