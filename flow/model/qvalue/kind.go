@@ -71,6 +71,7 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindQChar:       "CHAR",
 	QValueKindString:      "STRING",
 	QValueKindJSON:        "VARIANT",
+	QValueKindJSONB:       "VARIANT",
 	QValueKindTimestamp:   "TIMESTAMP_NTZ",
 	QValueKindTimestampTZ: "TIMESTAMP_TZ",
 	QValueKindInterval:    "VARIANT",
