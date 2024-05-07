@@ -329,8 +329,9 @@ var (
 	_ QRepSyncConnector = &connpostgres.PostgresConnector{}
 	_ QRepSyncConnector = &connbigquery.BigQueryConnector{}
 	_ QRepSyncConnector = &connsnowflake.SnowflakeConnector{}
-	_ QRepSyncConnector = &connclickhouse.ClickhouseConnector{}
+	_ QRepSyncConnector = &connkafka.KafkaConnector{}
 	_ QRepSyncConnector = &conns3.S3Connector{}
+	_ QRepSyncConnector = &connclickhouse.ClickhouseConnector{}
 	_ QRepSyncConnector = &connelasticsearch.ElasticsearchConnector{}
 
 	_ QRepConsolidateConnector = &connsnowflake.SnowflakeConnector{}

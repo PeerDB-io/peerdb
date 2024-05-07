@@ -199,6 +199,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		SoftDeleteColName:          s.config.SoftDeleteColName,
 		WriteMode:                  snapshotWriteMode,
 		System:                     s.config.System,
+		Script:                     s.config.Script,
 	}
 
 	state := NewQRepFlowState()

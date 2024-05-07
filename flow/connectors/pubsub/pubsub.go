@@ -121,6 +121,57 @@ func lvalueToPubSubMessage(ls *lua.LState, value lua.LValue) (PubSubMessage, err
 	}, nil
 }
 
+func (c *PubSubConnector) createPool(
+	ctx context.Context,
+	script string,
+	flowJobName string,
+	topiccache *topicCache,
+	publish chan<- *pubsub.PublishResult,
+	queueErr func(error),
+) (*utils.LPool[[]PubSubMessage], error) {
+	return utils.LuaPool(func() (*lua.LState, error) {
+		ls, err := utils.LoadScript(ctx, script, func(ls *lua.LState) int {
+			top := ls.GetTop()
+			ss := make([]string, top)
+			for i := range top {
+				ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
+			}
+			_ = c.LogFlowInfo(ctx, flowJobName, strings.Join(ss, "\t"))
+			return 0
+		})
+		if err != nil {
+			return nil, err
+		}
+		if script == "" {
+			ls.Env.RawSetString("onRecord", ls.NewFunction(utils.DefaultOnRecord))
+		}
+		return ls, nil
+	}, func(messages []PubSubMessage) {
+		for _, message := range messages {
+			topicClient, err := topiccache.GetOrSet(message.Topic, func() (*pubsub.Topic, error) {
+				topicClient := c.client.Topic(message.Topic)
+				exists, err := topicClient.Exists(ctx)
+				if err != nil {
+					return nil, fmt.Errorf("error checking if topic exists: %w", err)
+				}
+				if !exists {
+					topicClient, err = c.client.CreateTopic(ctx, message.Topic)
+					if err != nil {
+						return nil, fmt.Errorf("error creating topic: %w", err)
+					}
+				}
+				return topicClient, nil
+			})
+			if err != nil {
+				queueErr(err)
+				return
+			}
+
+			publish <- topicClient.Publish(ctx, message.Message)
+		}
+	})
+}
+
 type topicCache struct {
 	cache map[string]*pubsub.Topic
 	lock  sync.RWMutex
@@ -175,51 +226,10 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	topiccache := topicCache{cache: make(map[string]*pubsub.Topic)}
 	publish := make(chan *pubsub.PublishResult, 32)
-
 	waitChan := make(chan struct{})
-	wgCtx, wgErr := context.WithCancelCause(ctx)
 
-	pool, err := utils.LuaPool(func() (*lua.LState, error) {
-		ls, err := utils.LoadScript(ctx, req.Script, func(ls *lua.LState) int {
-			top := ls.GetTop()
-			ss := make([]string, top)
-			for i := range top {
-				ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
-			}
-			_ = c.LogFlowInfo(ctx, req.FlowJobName, strings.Join(ss, "\t"))
-			return 0
-		})
-		if err != nil {
-			return nil, err
-		}
-		if req.Script == "" {
-			ls.Env.RawSetString("onRecord", ls.NewFunction(utils.DefaultOnRecord))
-		}
-		return ls, nil
-	}, func(messages []PubSubMessage) {
-		for _, message := range messages {
-			topicClient, err := topiccache.GetOrSet(message.Topic, func() (*pubsub.Topic, error) {
-				topicClient := c.client.Topic(message.Topic)
-				exists, err := topicClient.Exists(wgCtx)
-				if err != nil {
-					return nil, fmt.Errorf("error checking if topic exists: %w", err)
-				}
-				if !exists {
-					topicClient, err = c.client.CreateTopic(wgCtx, message.Topic)
-					if err != nil {
-						return nil, fmt.Errorf("error creating topic: %w", err)
-					}
-				}
-				return topicClient, nil
-			})
-			if err != nil {
-				wgErr(err)
-				return
-			}
-
-			publish <- topicClient.Publish(ctx, message.Message)
-		}
-	})
+	queueCtx, queueErr := context.WithCancelCause(ctx)
+	pool, err := c.createPool(queueCtx, req.Script, req.FlowJobName, &topiccache, publish, queueErr)
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +238,7 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 	go func() {
 		for curpub := range publish {
 			if _, err := curpub.Get(ctx); err != nil {
-				wgErr(err)
+				queueErr(err)
 				break
 			}
 		}
@@ -275,7 +285,7 @@ Loop:
 				lfn := ls.Env.RawGetString("onRecord")
 				fn, ok := lfn.(*lua.LFunction)
 				if !ok {
-					wgErr(fmt.Errorf("script should define `onRecord` as function, not %s", lfn))
+					queueErr(fmt.Errorf("script should define `onRecord` as function, not %s", lfn))
 					return nil
 				}
 
@@ -283,7 +293,7 @@ Loop:
 				ls.Push(pua.LuaRecord.New(ls, record))
 				err := ls.PCall(1, -1, nil)
 				if err != nil {
-					wgErr(fmt.Errorf("script failed: %w", err))
+					queueErr(fmt.Errorf("script failed: %w", err))
 					return nil
 				}
 
@@ -292,7 +302,7 @@ Loop:
 				for i := range args {
 					msg, err := lvalueToPubSubMessage(ls, ls.Get(i-args))
 					if err != nil {
-						wgErr(err)
+						queueErr(err)
 						return nil
 					}
 					if msg.Message != nil {
@@ -309,20 +319,20 @@ Loop:
 				return results
 			})
 
-		case <-wgCtx.Done():
+		case <-queueCtx.Done():
 			break Loop
 		}
 	}
 
 	close(flushLoopDone)
-	close(publish)
-	if err := pool.Wait(wgCtx); err != nil {
+	if err := pool.Wait(queueCtx); err != nil {
 		return nil, err
 	}
-	topiccache.Stop(wgCtx)
+	close(publish)
+	topiccache.Stop(queueCtx)
 	select {
-	case <-wgCtx.Done():
-		return nil, wgCtx.Err()
+	case <-queueCtx.Done():
+		return nil, queueCtx.Err()
 	case <-waitChan:
 	}
 

@@ -237,3 +237,73 @@ func (s PubSubSuite) TestSimple() {
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
 }
+
+func (s PubSubSuite) TestInitialLoad() {
+	srcTableName := e2e.AttachSchema(s, "psinitial")
+
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			val text
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	sa, err := ServiceAccount()
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values
+	('e2e_psinitial', 'lua', 'function onRecord(r) return r.row and r.row.val end') on conflict do nothing`)
+	require.NoError(s.t, err)
+
+	flowName := e2e.AddSuffix(s, "e2epsinitial")
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      flowName,
+		TableNameMapping: map[string]string{srcTableName: flowName},
+		Destination:      s.Peer(sa),
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig.Script = "e2e_psinitial"
+	flowConnConfig.DoInitialSnapshot = true
+
+	psclient, err := sa.CreatePubSubClient(context.Background())
+	require.NoError(s.t, err)
+	defer psclient.Close()
+	topic, err := psclient.CreateTopic(context.Background(), flowName)
+	require.NoError(s.t, err)
+	sub, err := psclient.CreateSubscription(context.Background(), flowName, pubsub.SubscriptionConfig{
+		Topic:             topic,
+		RetentionDuration: 10 * time.Minute,
+		ExpirationPolicy:  24 * time.Hour,
+	})
+	require.NoError(s.t, err)
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO %s (id, val) VALUES (1, 'testval')
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	msgs := make(chan *pubsub.Message)
+	go func() {
+		_ = sub.Receive(ctx, func(_ context.Context, m *pubsub.Message) {
+			msgs <- m
+		})
+	}()
+	select {
+	case msg := <-msgs:
+		require.NotNil(s.t, msg)
+		require.Equal(s.t, "testval", string(msg.Data))
+	case <-ctx.Done():
+		s.t.Log("UNEXPECTED TIMEOUT PubSub subscription waiting on message")
+		s.t.Fail()
+	}
+
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
+}
