@@ -31,6 +31,7 @@ const (
 	QValueKindBytes       QValueKind = "bytes"
 	QValueKindUUID        QValueKind = "uuid"
 	QValueKindJSON        QValueKind = "json"
+	QValueKindJSONB       QValueKind = "jsonb"
 	QValueKindBit         QValueKind = "bit"
 	QValueKindHStore      QValueKind = "hstore"
 	QValueKindGeography   QValueKind = "geography"

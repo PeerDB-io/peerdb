@@ -62,8 +62,10 @@ func (c *PostgresConnector) postgresOIDToQValueKind(recvOID uint32) qvalue.QValu
 		return qvalue.QValueKindString
 	case pgtype.ByteaOID:
 		return qvalue.QValueKindBytes
-	case pgtype.JSONOID, pgtype.JSONBOID:
+	case pgtype.JSONOID:
 		return qvalue.QValueKindJSON
+	case pgtype.JSONBOID:
+		return qvalue.QValueKindJSONB
 	case pgtype.UUIDOID:
 		return qvalue.QValueKindUUID
 	case pgtype.TimeOID:
@@ -165,6 +167,8 @@ func qValueKindToPostgresType(colTypeStr string) string {
 		return "BYTEA"
 	case qvalue.QValueKindJSON:
 		return "JSON"
+	case qvalue.QValueKindJSONB:
+		return "JSONB"
 	case qvalue.QValueKindHStore:
 		return "HSTORE"
 	case qvalue.QValueKindUUID:
@@ -325,7 +329,7 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 	case qvalue.QValueKindBoolean:
 		boolVal := value.(bool)
 		return qvalue.QValueBoolean{Val: boolVal}, nil
-	case qvalue.QValueKindJSON:
+	case qvalue.QValueKindJSON, qvalue.QValueKindJSONB:
 		tmp, err := parseJSON(value)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse JSON: %w", err)
