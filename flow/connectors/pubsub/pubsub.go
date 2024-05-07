@@ -325,10 +325,10 @@ Loop:
 	}
 
 	close(flushLoopDone)
-	close(publish)
 	if err := pool.Wait(wgCtx); err != nil {
 		return nil, err
 	}
+	close(publish)
 	topiccache.Stop(wgCtx)
 	select {
 	case <-wgCtx.Done():

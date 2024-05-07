@@ -278,7 +278,6 @@ func (s PubSubSuite) TestInitialLoad() {
 	})
 	require.NoError(s.t, err)
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-
 		INSERT INTO %s (id, val) VALUES (1, 'testval')
 	`, srcTableName))
 	require.NoError(s.t, err)
