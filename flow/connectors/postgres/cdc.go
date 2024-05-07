@@ -407,7 +407,7 @@ func PullCdcRecords[Items model.Items](
 
 		pingCtx, pingCancel := context.WithTimeout(ctx, 30*time.Second)
 		defer pingCancel()
-		err := conn.Ping(pingCtx)
+		err := conn.Exec(pingCtx, "SELECT 1").Close()
 		if err != nil {
 			logger.Error(fmt.Sprintf("[%s] error pinging postgres: %+v", p.flowJobName, err))
 			return fmt.Errorf("[%s] error pinging postgres: %w", p.flowJobName, err)
