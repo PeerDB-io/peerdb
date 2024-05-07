@@ -405,6 +405,14 @@ func PullCdcRecords[Items model.Items](
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
 		}
 
+		pingCtx, pingCancel := context.WithTimeout(ctx, 30*time.Second)
+		defer pingCancel()
+		err := conn.Ping(pingCtx)
+		if err != nil {
+			logger.Error(fmt.Sprintf("[%s] error pinging postgres: %+v", p.flowJobName, err))
+			return fmt.Errorf("[%s] error pinging postgres: %w", p.flowJobName, err)
+		}
+
 		var receiveCtx context.Context
 		var cancel context.CancelFunc
 		if cdcRecordsStorage.IsEmpty() {
