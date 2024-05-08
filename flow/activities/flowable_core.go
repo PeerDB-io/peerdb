@@ -364,13 +364,9 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 			return err
 		}
 		lfn := ls.Env.RawGetString("transformRow")
-		fn, ok := lfn.(*lua.LFunction)
-		if !ok {
-			err := fmt.Errorf("script should define `transformRow` as function, not %s", lfn)
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return err
+		if fn, ok := lfn.(*lua.LFunction); ok {
+			outstream = pua.AttachToStream(ls, fn, stream)
 		}
-		outstream = pua.AttachToStream(ls, fn, stream)
 	}
 
 	var rowsSynced int
