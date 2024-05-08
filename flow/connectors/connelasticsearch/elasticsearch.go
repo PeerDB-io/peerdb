@@ -279,7 +279,6 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 		esc.logger.Error("[es] failed to close bulk indexer(s)")
 		return nil, errors.New("[es] failed to close bulk indexer(s)")
 	}
-	bulkIndexersHaveShutdown = true
 	if len(bulkIndexErrors) > 0 {
 		for _, err := range bulkIndexErrors {
 			esc.logger.Error("[es] failed to index record", slog.Any("err", err))
