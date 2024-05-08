@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -350,15 +349,9 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	stream := model.NewQRecordStream(bufferSize)
 	outstream := stream
 	if config.Script != "" {
-		ls, err := utils.LoadScript(ctx, config.Script, func(ls *lua.LState) int {
-			top := ls.GetTop()
-			ss := make([]string, top)
-			for i := range top {
-				ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
-			}
-			a.Alerter.LogFlowInfo(ctx, config.FlowJobName, strings.Join(ss, "\t"))
-			return 0
-		})
+		ls, err := utils.LoadScript(ctx, config.Script, utils.LuaPrintFn(func(s string) {
+			a.Alerter.LogFlowInfo(ctx, config.FlowJobName, s)
+		}))
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return err
