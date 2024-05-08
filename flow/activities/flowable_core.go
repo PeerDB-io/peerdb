@@ -145,8 +145,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 	if !hasRecords {
 		// wait for the pull goroutine to finish
-		err = errGroup.Wait()
-		if err != nil {
+		if err := errGroup.Wait(); err != nil {
 			a.Alerter.LogFlowError(ctx, flowName, err)
 			if temporal.IsApplicationError(err) {
 				return nil, err
@@ -207,8 +206,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		return nil
 	})
 
-	err = errGroup.Wait()
-	if err != nil {
+	if err := errGroup.Wait(); err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		if temporal.IsApplicationError(err) {
 			return nil, err
