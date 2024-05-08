@@ -52,6 +52,7 @@ export const clickhouseSetting: PeerSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, s3Path: value as string })),
     tips: `This is an S3 bucket/object URL field. This bucket will be used as our intermediate stage for CDC`,
+    placeholder: 's3://<bucket-name>',
   },
   {
     label: 'Access Key ID',
