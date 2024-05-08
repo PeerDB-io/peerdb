@@ -680,11 +680,9 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .to_string(),
                 metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
                 transaction_snapshot: "".to_string(),
-                ssh_config: ssh_fields
+                ssh_config: ssh_fields,
             };
 
-            // log postgres config
-            println!("postgres_config: {:#?}", postgres_config);
             Config::PostgresConfig(postgres_config)
         }
         DbType::S3 => {
@@ -760,7 +758,8 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .unwrap_or_default(),
                 disable_tls: opts
                     .get("disable_tls")
-                    .map(|s| s.parse::<bool>().unwrap_or_default()).unwrap_or_default(),
+                    .map(|s| s.parse::<bool>().unwrap_or_default())
+                    .unwrap_or_default(),
                 endpoint: opts.get("endpoint").map(|s| s.to_string()),
             };
             Config::ClickhouseConfig(clickhouse_config)
