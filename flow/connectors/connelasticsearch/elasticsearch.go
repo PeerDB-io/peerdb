@@ -289,7 +289,6 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 	if err := esc.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
 		return nil, err
 	}
-	esc.logger.Info("[es] SyncRecords done", slog.Int64("numRecords", numRecords))
 
 	return &model.SyncResponse{
 		CurrentSyncBatchID:     req.SyncBatchID,
