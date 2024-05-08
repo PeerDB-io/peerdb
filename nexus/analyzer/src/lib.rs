@@ -11,7 +11,7 @@ use pt::{
     peerdb_peers::{
         peer::Config, BigqueryConfig, ClickhouseConfig, DbType, EventHubConfig, GcpServiceAccount,
         KafkaConfig, MongoConfig, Peer, PostgresConfig, PubSubConfig, S3Config, SnowflakeConfig,
-        SqlServerConfig,
+        SqlServerConfig, SshConfig,
     },
 };
 use qrep::process_options;
@@ -646,6 +646,19 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
             Config::MongoConfig(mongo_config)
         }
         DbType::Postgres => {
+            let ssh_fields: Option<SshConfig> = match opts.get("ssh_config") {
+                Some(ssh_config) => {
+                    let ssh_config_str = ssh_config.to_string();
+                    if ssh_config_str.is_empty() {
+                        None
+                    } else {
+                        serde_json::from_str(&ssh_config_str)
+                            .context("failed to deserialize ssh_config")?
+                    }
+                }
+                None => None,
+            };
+
             let postgres_config = PostgresConfig {
                 host: opts.get("host").context("no host specified")?.to_string(),
                 port: opts
@@ -667,8 +680,11 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .to_string(),
                 metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
                 transaction_snapshot: "".to_string(),
-                ssh_config: None,
+                ssh_config: ssh_fields
             };
+
+            // log postgres config
+            println!("postgres_config: {:#?}", postgres_config);
             Config::PostgresConfig(postgres_config)
         }
         DbType::S3 => {
