@@ -121,11 +121,9 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 	req *model.SyncRecordsRequest[model.RecordItems],
 ) (*model.SyncResponse, error) {
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
-	// atomics for counts will be unnecessary in other destinations, using a mutex instead
-	var recordCountsUpdateMutex sync.Mutex
-	// we're taking a mutex anyway, avoid atomic
 	var lastSeenLSN atomic.Int64
 	var numRecords atomic.Int64
+	var loopNumRecords int64
 
 	// no I don't like this either
 	esBulkIndexerCache := make(map[string]esutil.BulkIndexer)
@@ -238,8 +236,6 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 			OnSuccess: func(_ context.Context, _ esutil.BulkIndexerItem, _ esutil.BulkIndexerResponseItem) {
 				shared.AtomicInt64Max(&lastSeenLSN, record.GetCheckpointID())
 				numRecords.Add(1)
-				recordCountsUpdateMutex.Lock()
-				defer recordCountsUpdateMutex.Unlock()
 				record.PopulateCountMap(tableNameRowsMapping)
 			},
 			// OnFailure is called for each failed operation, log and let parent handle
@@ -276,6 +272,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 			esc.logger.Error("[es] fatal error while indexing record", slog.Any("error", bulkIndexFatalError))
 			return nil, fmt.Errorf("[es] fatal error while indexing record: %w", bulkIndexFatalError)
 		}
+		loopNumRecords++
 	}
 	// "Receive on a closed channel yields the zero value after all elements in the channel are received."
 	close(flushLoopDone)
@@ -295,6 +292,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 	if err := esc.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
 		return nil, err
 	}
+	esc.logger.Info("[es] SyncRecords done", slog.Int64("numRecords", numRecords.Load()), slog.Int64("loopNumRecords", loopNumRecords))
 
 	return &model.SyncResponse{
 		CurrentSyncBatchID:     req.SyncBatchID,
