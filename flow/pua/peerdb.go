@@ -235,11 +235,7 @@ func LuaRowNewIndex(ls *lua.LState) int {
 	case qvalue.QValueKindTimeTZ:
 		newqv = qvalue.QValueTimeTZ{Val: LVAsTime(ls, val)}
 	case qvalue.QValueKindNumeric:
-		if ud, ok := val.(*lua.LUserData); ok {
-			if num, ok := ud.Value.(decimal.Decimal); ok {
-				newqv = qvalue.QValueNumeric{Val: num}
-			}
-		}
+		newqv = qvalue.QValueNumeric{Val: LVAsDecimal(ls, val)}
 	case qvalue.QValueKindBytes:
 		newqv = qvalue.QValueBytes{Val: []byte(lua.LVAsString(val))}
 	case qvalue.QValueKindUUID:
