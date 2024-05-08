@@ -122,8 +122,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 ) (*model.SyncResponse, error) {
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	var lastSeenLSN atomic.Int64
-	var numRecords atomic.Int64
-	var loopNumRecords int64
+	var numRecords int64
 
 	// no I don't like this either
 	esBulkIndexerCache := make(map[string]esutil.BulkIndexer)
@@ -131,13 +130,14 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 	// true if we saw errors while closing
 	cacheCloser := func() bool {
 		closeHasErrors := false
-		if bulkIndexersHaveShutdown {
+		if !bulkIndexersHaveShutdown {
 			for _, esBulkIndexer := range maps.Values(esBulkIndexerCache) {
 				err := esBulkIndexer.Close(context.Background())
 				if err != nil {
 					esc.logger.Error("[es] failed to close bulk indexer", slog.Any("error", err))
 					closeHasErrors = true
 				}
+				numRecords += int64(esBulkIndexer.Stats().NumFlushed)
 			}
 			bulkIndexersHaveShutdown = true
 		}
@@ -235,7 +235,6 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 
 			OnSuccess: func(_ context.Context, _ esutil.BulkIndexerItem, _ esutil.BulkIndexerResponseItem) {
 				shared.AtomicInt64Max(&lastSeenLSN, record.GetCheckpointID())
-				numRecords.Add(1)
 				record.PopulateCountMap(tableNameRowsMapping)
 			},
 			// OnFailure is called for each failed operation, log and let parent handle
@@ -272,7 +271,6 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 			esc.logger.Error("[es] fatal error while indexing record", slog.Any("error", bulkIndexFatalError))
 			return nil, fmt.Errorf("[es] fatal error while indexing record: %w", bulkIndexFatalError)
 		}
-		loopNumRecords++
 	}
 	// "Receive on a closed channel yields the zero value after all elements in the channel are received."
 	close(flushLoopDone)
@@ -292,12 +290,12 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 	if err := esc.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
 		return nil, err
 	}
-	esc.logger.Info("[es] SyncRecords done", slog.Int64("numRecords", numRecords.Load()), slog.Int64("loopNumRecords", loopNumRecords))
+	esc.logger.Info("[es] SyncRecords done", slog.Int64("numRecords", numRecords))
 
 	return &model.SyncResponse{
 		CurrentSyncBatchID:     req.SyncBatchID,
 		LastSyncedCheckpointID: lastCheckpoint,
-		NumRecordsSynced:       numRecords.Load(),
+		NumRecordsSynced:       numRecords,
 		TableNameRowsMapping:   tableNameRowsMapping,
 		TableSchemaDeltas:      req.Records.SchemaDeltas,
 	}, nil
