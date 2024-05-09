@@ -6,7 +6,7 @@ use peer_postgres::{self, ast};
 use pgwire::error::PgWireResult;
 use postgres_connection::{connect_postgres, get_pg_connection_string};
 use pt::{
-    flow_model::{FlowJob, QRepFlowJob},
+    flow_model::QRepFlowJob,
     peerdb_peers::PostgresConfig,
     peerdb_peers::{peer::Config, DbType, Peer},
     prost::Message,
@@ -330,70 +330,6 @@ impl Catalog {
         } else {
             None
         })
-    }
-
-    async fn normalize_schema_for_table_identifier(
-        &self,
-        table_identifier: &str,
-        peer_id: i32,
-    ) -> anyhow::Result<String> {
-        let peer_dbtype = self.get_peer_type_for_id(peer_id).await?;
-
-        if !table_identifier.contains('.') && peer_dbtype != DbType::Bigquery {
-            Ok(format!("public.{}", table_identifier))
-        } else {
-            Ok(String::from(table_identifier))
-        }
-    }
-
-    pub async fn create_cdc_flow_job_entry(&self, job: &FlowJob) -> anyhow::Result<()> {
-        let source_peer_id = self
-            .get_peer_id_i32(&job.source_peer)
-            .await
-            .context("unable to get source peer id")?;
-        let destination_peer_id = self
-            .get_peer_id_i32(&job.target_peer)
-            .await
-            .context("unable to get destination peer id")?;
-
-        let stmt = self
-            .pg
-            .prepare_typed(
-                "INSERT INTO flows (name, source_peer, destination_peer, description,
-                     source_table_identifier, destination_table_identifier) VALUES ($1, $2, $3, $4, $5, $6)",
-                &[types::Type::TEXT, types::Type::INT4, types::Type::INT4, types::Type::TEXT,
-                 types::Type::TEXT, types::Type::TEXT],
-            )
-            .await?;
-
-        for table_mapping in &job.table_mappings {
-            let _rows = self
-                .pg
-                .execute(
-                    &stmt,
-                    &[
-                        &job.name,
-                        &source_peer_id,
-                        &destination_peer_id,
-                        &job.description,
-                        &self
-                            .normalize_schema_for_table_identifier(
-                                &table_mapping.source_table_identifier,
-                                source_peer_id,
-                            )
-                            .await?,
-                        &self
-                            .normalize_schema_for_table_identifier(
-                                &table_mapping.destination_table_identifier,
-                                destination_peer_id,
-                            )
-                            .await?,
-                    ],
-                )
-                .await?;
-        }
-
-        Ok(())
     }
 
     pub async fn get_qrep_flow_job_by_name(
