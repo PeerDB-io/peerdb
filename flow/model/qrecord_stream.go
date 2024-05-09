@@ -1,13 +1,15 @@
 package model
 
 import (
+	"sync/atomic"
+
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 type RecordTypeCounts struct {
-	InsertCount int
-	UpdateCount int
-	DeleteCount int
+	InsertCount atomic.Int32
+	UpdateCount atomic.Int32
+	DeleteCount atomic.Int32
 }
 
 type QRecordStream struct {

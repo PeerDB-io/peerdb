@@ -11,7 +11,6 @@ export async function POST(request: NextRequest) {
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
   const req: CreateCDCFlowRequest = {
     connectionConfigs: config,
-    createCatalogEntry: false,
   };
   try {
     const validateResponse: ValidateCDCMirrorResponse = await fetch(

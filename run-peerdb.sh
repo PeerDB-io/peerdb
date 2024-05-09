@@ -1,17 +1,24 @@
 #!/bin/sh
 set -Eeu
 
-if ! command -v docker &> /dev/null
+DOCKER="docker"
+
+if test -n "${USE_PODMAN:=}"
 then
-    echo "docker could not be found on PATH"
-    exit 1
+    if ! (command -v docker &> /dev/null); then
+        if (command -v podman &> /dev/null); then
+            echo "docker could not be found on PATH, using podman"
+            USE_PODMAN=1
+        else
+            echo "docker could not be found on PATH"
+            exit 1
+        fi
+    fi
 fi
 
-# check if peerdb_network exists if not create it
-if ! docker network inspect peerdb_network &> /dev/null
-then
-    docker network create peerdb_network
+if test -n "$USE_PODMAN"; then
+    DOCKER="podman"
 fi
 
-docker compose pull
-docker compose -f docker-compose.yml up --no-attach catalog --no-attach temporal --no-attach temporal-ui --no-attach temporal-admin-tools
+$DOCKER compose pull
+exec $DOCKER compose -f docker-compose.yml up --no-attach catalog --no-attach temporal --no-attach temporal-ui --no-attach temporal-admin-tools

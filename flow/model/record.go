@@ -58,7 +58,7 @@ func (r *InsertRecord[T]) GetItems() T {
 func (r *InsertRecord[T]) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
 	recordCount, ok := mapOfCounts[r.DestinationTableName]
 	if ok {
-		recordCount.InsertCount++
+		recordCount.InsertCount.Add(1)
 	}
 }
 
@@ -91,7 +91,7 @@ func (r *UpdateRecord[T]) GetItems() T {
 func (r *UpdateRecord[T]) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
 	recordCount, ok := mapOfCounts[r.DestinationTableName]
 	if ok {
-		recordCount.UpdateCount++
+		recordCount.UpdateCount.Add(1)
 	}
 }
 
@@ -122,7 +122,7 @@ func (r *DeleteRecord[T]) GetItems() T {
 func (r *DeleteRecord[T]) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
 	recordCount, ok := mapOfCounts[r.DestinationTableName]
 	if ok {
-		recordCount.DeleteCount++
+		recordCount.DeleteCount.Add(1)
 	}
 }
 

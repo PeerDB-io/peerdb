@@ -79,7 +79,6 @@ impl FlowGrpcClient {
     ) -> anyhow::Result<String> {
         let create_peer_flow_req = pt::peerdb_route::CreateCdcFlowRequest {
             connection_configs: Some(peer_flow_config),
-            create_catalog_entry: false,
         };
         let response = self.client.create_cdc_flow(create_peer_flow_req).await?;
         let workflow_id = response.into_inner().workflow_id;
@@ -176,7 +175,7 @@ impl FlowGrpcClient {
             initial_snapshot_only: job.initial_snapshot_only,
             script: job.script.clone(),
             system: system as i32,
-            ..Default::default()
+            idle_timeout_seconds: job.sync_interval.unwrap_or_default(),
         };
 
         self.start_peer_flow(flow_conn_cfg).await
