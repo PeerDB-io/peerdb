@@ -154,15 +154,13 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		req.ConnectionConfigs.SyncedAtColName = strings.ToUpper(req.ConnectionConfigs.SyncedAtColName)
 	}
 
-	if req.CreateCatalogEntry {
-		err := h.createCdcJobEntry(ctx, req, workflowID)
-		if err != nil {
-			slog.Error("unable to create flow job entry", slog.Any("error", err))
-			return nil, fmt.Errorf("unable to create flow job entry: %w", err)
-		}
+	err := h.createCdcJobEntry(ctx, req, workflowID)
+	if err != nil {
+		slog.Error("unable to create flow job entry", slog.Any("error", err))
+		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 	}
 
-	err := h.updateFlowConfigInCatalog(ctx, cfg)
+	err = h.updateFlowConfigInCatalog(ctx, cfg)
 	if err != nil {
 		slog.Error("unable to update flow config in catalog", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)

@@ -17,7 +17,7 @@ import (
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, error) {
-	if req.CreateCatalogEntry && !req.ConnectionConfigs.Resync {
+	if !req.ConnectionConfigs.Resync {
 		mirrorExists, existCheckErr := h.CheckIfMirrorNameExists(ctx, req.ConnectionConfigs.FlowJobName)
 		if existCheckErr != nil {
 			slog.Error("/validatecdc failed to check if mirror name exists", slog.Any("error", existCheckErr))
@@ -46,7 +46,9 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	sourcePeerConfig := req.ConnectionConfigs.Source.GetPostgresConfig()
 	if sourcePeerConfig == nil {
 		slog.Error("/validatecdc source peer config is nil", slog.Any("peer", req.ConnectionConfigs.Source))
-		return nil, errors.New("source peer config is nil")
+		return &protos.ValidateCDCMirrorResponse{
+			Ok: false,
+		}, errors.New("source peer config is nil")
 	}
 
 	pgPeer, err := connpostgres.NewPostgresConnector(ctx, sourcePeerConfig)
@@ -103,17 +105,17 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	}
 
 	pubName := req.ConnectionConfigs.PublicationName
-	if pubName != "" {
-		err = pgPeer.CheckSourceTables(ctx, sourceTables, pubName)
-		if err != nil {
-			displayErr := fmt.Errorf("provided source tables invalidated: %v", err)
-			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-				fmt.Sprint(displayErr),
-			)
-			return &protos.ValidateCDCMirrorResponse{
-				Ok: false,
-			}, displayErr
-		}
+
+	err = pgPeer.CheckSourceTables(ctx, sourceTables, pubName)
+	if err != nil {
+		displayErr := fmt.Errorf("provided source tables invalidated: %v", err)
+		slog.Error(displayErr.Error())
+		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
+			fmt.Sprint(displayErr),
+		)
+		return &protos.ValidateCDCMirrorResponse{
+			Ok: false,
+		}, displayErr
 	}
 
 	return &protos.ValidateCDCMirrorResponse{

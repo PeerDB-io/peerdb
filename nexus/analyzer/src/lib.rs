@@ -300,6 +300,11 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => None,
                         };
 
+                        let sync_interval: Option<u64> = match raw_options.remove("sync_interval") {
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u64>()?),
+                            _ => None,
+                        };
+
                         let soft_delete_col_name: Option<String> = match raw_options
                             .remove("soft_delete_col_name")
                         {
@@ -347,6 +352,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             push_batch_size,
                             push_parallelism,
                             max_batch_size,
+                            sync_interval,
                             resync,
                             soft_delete_col_name,
                             synced_at_col_name,

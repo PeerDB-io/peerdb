@@ -30,6 +30,7 @@ pub struct FlowJob {
     pub push_parallelism: Option<i64>,
     pub push_batch_size: Option<i64>,
     pub max_batch_size: Option<u32>,
+    pub sync_interval: Option<u64>,
     pub resync: bool,
     pub soft_delete_col_name: Option<String>,
     pub synced_at_col_name: Option<String>,
