@@ -25,13 +25,11 @@ import {
 } from './schema';
 
 export const IsQueuePeer = (peerType?: DBType): boolean => {
-  if (!peerType) {
-    return false;
-  }
   return (
-    peerType === DBType.KAFKA ||
-    peerType === DBType.PUBSUB ||
-    peerType === DBType.EVENTHUBS
+    !!peerType &&
+    (peerType === DBType.KAFKA ||
+      peerType === DBType.PUBSUB ||
+      peerType === DBType.EVENTHUBS)
   );
 };
 
