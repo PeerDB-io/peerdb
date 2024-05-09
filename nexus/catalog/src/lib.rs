@@ -6,7 +6,7 @@ use peer_postgres::{self, ast};
 use pgwire::error::PgWireResult;
 use postgres_connection::{connect_postgres, get_pg_connection_string};
 use pt::{
-    flow_model::{FlowJob, QRepFlowJob},
+    flow_model::QRepFlowJob,
     peerdb_peers::PostgresConfig,
     peerdb_peers::{peer::Config, DbType, Peer},
     prost::Message,
