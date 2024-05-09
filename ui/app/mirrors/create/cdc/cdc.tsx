@@ -92,7 +92,6 @@ export default function CDCConfigForm({
         mirrorConfig.destination?.type !== DBType.POSTGRES) &&
         label.includes('type system')) ||
       (mirrorConfig.destination?.type !== DBType.BIGQUERY &&
-        mirrorConfig.destination?.type !== DBType.SNOWFLAKE &&
         label.includes('column name'))
     ) {
       return false;
