@@ -1,10 +1,9 @@
 # syntax=docker/dockerfile:1.2
 
 # Base stage
-FROM node:20-bookworm-slim AS base
+FROM node:20-alpine AS base
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
-RUN apt-get update && \
-  apt-get install -y openssl && \
+RUN apk add --no-cache openssl && \
   mkdir /app && \
   chown -R node:node /app
 ENV NEXT_TELEMETRY_DISABLED 1
