@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.2
 
-FROM golang:1.22-bookworm AS builder
-RUN apt-get update && apt-get install -y gcc libgeos-dev
+FROM golang:1.22-alpine AS builder
+RUN apk add --no-cache gcc geos-dev musl-dev
 WORKDIR /root/flow
 
 # first copy only go.mod and go.sum to cache dependencies
@@ -18,8 +18,8 @@ WORKDIR /root/flow
 ENV CGO_ENABLED=1
 RUN go build -ldflags="-s -w" -o /root/peer-flow
 
-FROM debian:bookworm-slim AS flow-base
-RUN apt-get update && apt-get install -y ca-certificates libgeos-c1v5
+FROM alpine:3.19 AS flow-base
+RUN apk add --no-cache ca-certificates geos
 WORKDIR /root
 COPY --from=builder /root/peer-flow .
 
