@@ -1,10 +1,9 @@
 # syntax=docker/dockerfile:1.2
 
 # Base stage
-FROM node:20-bookworm-slim AS base
+FROM node:20-alpine AS base
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
-RUN apt-get update && \
-  apt-get install -y openssl && \
+RUN apk add --no-cache openssl && \
   mkdir /app && \
   chown -R node:node /app
 ENV NEXT_TELEMETRY_DISABLED 1
@@ -13,7 +12,7 @@ WORKDIR /app
 
 # Dependencies stage
 FROM base AS builder
-COPY --chown=node:node ui/package.json ui/package-lock.json .
+COPY --chown=node:node ui/package.json ui/package-lock.json ./
 RUN npm ci
 COPY --chown=node:node ui/ .
 
