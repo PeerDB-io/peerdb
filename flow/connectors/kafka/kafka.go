@@ -165,18 +165,18 @@ func lvalueToKafkaRecord(ls *lua.LState, value lua.LValue) (*kgo.Record, error) 
 	return kr, nil
 }
 
+type poolResult struct {
+	records []*kgo.Record
+	lsn     int64
+}
+
 func (c *KafkaConnector) createPool(
 	ctx context.Context,
 	script string,
 	flowJobName string,
+	lastSeenLSN *atomic.Int64,
 	queueErr func(error),
-) (*utils.LPool[[]*kgo.Record], error) {
-	produceCb := func(_ *kgo.Record, err error) {
-		if err != nil {
-			queueErr(err)
-		}
-	}
-
+) (*utils.LPool[poolResult], error) {
 	return utils.LuaPool(func() (*lua.LState, error) {
 		ls, err := utils.LoadScript(ctx, script, func(ls *lua.LState) int {
 			top := ls.GetTop()
@@ -194,25 +194,40 @@ func (c *KafkaConnector) createPool(
 			ls.Env.RawSetString("onRecord", ls.NewFunction(utils.DefaultOnRecord))
 		}
 		return ls, nil
-	}, func(krs []*kgo.Record) {
-		for _, kr := range krs {
-			c.client.Produce(ctx, kr, produceCb)
+	}, func(result poolResult) {
+		lenRecords := int32(len(result.records))
+		if lenRecords == 0 {
+			if lastSeenLSN != nil {
+				shared.AtomicInt64Max(lastSeenLSN, result.lsn)
+			}
+		} else {
+			recordCounter := atomic.Int32{}
+			recordCounter.Store(lenRecords)
+			for _, kr := range result.records {
+				c.client.Produce(ctx, kr, func(_ *kgo.Record, err error) {
+					if err != nil {
+						queueErr(err)
+					} else if recordCounter.Add(-1) == 0 && lastSeenLSN != nil {
+						shared.AtomicInt64Max(lastSeenLSN, result.lsn)
+					}
+				})
+			}
 		}
 	})
 }
 
 func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
 	numRecords := atomic.Int64{}
-	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
+	lastSeenLSN := atomic.Int64{}
 
 	queueCtx, queueErr := context.WithCancelCause(ctx)
-	pool, err := c.createPool(queueCtx, req.Script, req.FlowJobName, queueErr)
+	pool, err := c.createPool(queueCtx, req.Script, req.FlowJobName, &lastSeenLSN, queueErr)
 	if err != nil {
 		return nil, err
 	}
 	defer pool.Close()
 
-	lastSeenLSN := atomic.Int64{}
+	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	flushLoopDone := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(peerdbenv.PeerDBQueueFlushTimeoutSeconds())
@@ -251,12 +266,12 @@ Loop:
 				break Loop
 			}
 
-			pool.Run(func(ls *lua.LState) []*kgo.Record {
+			pool.Run(func(ls *lua.LState) poolResult {
 				lfn := ls.Env.RawGetString("onRecord")
 				fn, ok := lfn.(*lua.LFunction)
 				if !ok {
 					queueErr(fmt.Errorf("script should define `onRecord` as function, not %s", lfn))
-					return nil
+					return poolResult{}
 				}
 
 				ls.Push(fn)
@@ -264,7 +279,7 @@ Loop:
 				err := ls.PCall(1, -1, nil)
 				if err != nil {
 					queueErr(fmt.Errorf("script failed: %w", err))
-					return nil
+					return poolResult{}
 				}
 
 				args := ls.GetTop()
@@ -273,7 +288,7 @@ Loop:
 					kr, err := lvalueToKafkaRecord(ls, ls.Get(i-args))
 					if err != nil {
 						queueErr(err)
-						return nil
+						return poolResult{}
 					}
 					if kr != nil {
 						if kr.Topic == "" {
@@ -285,8 +300,10 @@ Loop:
 				}
 				ls.SetTop(0)
 				numRecords.Add(1)
-				shared.AtomicInt64Max(&lastSeenLSN, record.GetCheckpointID())
-				return results
+				return poolResult{
+					records: results,
+					lsn:     record.GetCheckpointID(),
+				}
 			})
 
 		case <-queueCtx.Done():

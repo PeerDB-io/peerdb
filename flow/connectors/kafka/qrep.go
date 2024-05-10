@@ -29,7 +29,7 @@ func (c *KafkaConnector) SyncQRepRecords(
 	schema := stream.Schema()
 
 	queueCtx, queueErr := context.WithCancelCause(ctx)
-	pool, err := c.createPool(queueCtx, config.Script, config.FlowJobName, queueErr)
+	pool, err := c.createPool(queueCtx, config.Script, config.FlowJobName, nil, queueErr)
 	if err != nil {
 		return 0, err
 	}
@@ -44,7 +44,7 @@ Loop:
 				break Loop
 			}
 
-			pool.Run(func(ls *lua.LState) []*kgo.Record {
+			pool.Run(func(ls *lua.LState) poolResult {
 				items := model.NewRecordItems(len(qrecord))
 				for i, val := range qrecord {
 					items.AddColumn(schema.Fields[i].Name, val)
@@ -61,7 +61,7 @@ Loop:
 				fn, ok := lfn.(*lua.LFunction)
 				if !ok {
 					queueErr(fmt.Errorf("script should define `onRecord` as function, not %s", lfn))
-					return nil
+					return poolResult{}
 				}
 
 				ls.Push(fn)
@@ -69,7 +69,7 @@ Loop:
 				err := ls.PCall(1, -1, nil)
 				if err != nil {
 					queueErr(fmt.Errorf("script failed: %w", err))
-					return nil
+					return poolResult{}
 				}
 
 				args := ls.GetTop()
@@ -78,7 +78,7 @@ Loop:
 					kr, err := lvalueToKafkaRecord(ls, ls.Get(i-args))
 					if err != nil {
 						queueErr(err)
-						return nil
+						return poolResult{}
 					}
 					if kr != nil {
 						if kr.Topic == "" {
@@ -89,7 +89,7 @@ Loop:
 				}
 				ls.SetTop(0)
 				numRecords.Add(1)
-				return results
+				return poolResult{records: results}
 			})
 
 		case <-queueCtx.Done():
