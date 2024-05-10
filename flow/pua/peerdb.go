@@ -183,7 +183,7 @@ func LuaRowNewIndex(ls *lua.LState) int {
 		row.AddColumn(key, qvalue.QValueNull(kind))
 	}
 	var newqv qvalue.QValue
-	switch qv.Kind() {
+	switch kind {
 	case qvalue.QValueKindInvalid:
 		newqv = qvalue.QValueInvalid{Val: lua.LVAsString(val)}
 	case qvalue.QValueKindFloat32:
