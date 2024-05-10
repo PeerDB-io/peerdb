@@ -142,27 +142,19 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 
 	if req.ConnectionConfigs.SoftDeleteColName == "" {
 		req.ConnectionConfigs.SoftDeleteColName = "_PEERDB_IS_DELETED"
-	} else {
-		// make them all uppercase
-		req.ConnectionConfigs.SoftDeleteColName = strings.ToUpper(req.ConnectionConfigs.SoftDeleteColName)
 	}
 
 	if req.ConnectionConfigs.SyncedAtColName == "" {
 		req.ConnectionConfigs.SyncedAtColName = "_PEERDB_SYNCED_AT"
-	} else {
-		// make them all uppercase
-		req.ConnectionConfigs.SyncedAtColName = strings.ToUpper(req.ConnectionConfigs.SyncedAtColName)
 	}
 
-	if req.CreateCatalogEntry {
-		err := h.createCdcJobEntry(ctx, req, workflowID)
-		if err != nil {
-			slog.Error("unable to create flow job entry", slog.Any("error", err))
-			return nil, fmt.Errorf("unable to create flow job entry: %w", err)
-		}
+	err := h.createCdcJobEntry(ctx, req, workflowID)
+	if err != nil {
+		slog.Error("unable to create flow job entry", slog.Any("error", err))
+		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 	}
 
-	err := h.updateFlowConfigInCatalog(ctx, cfg)
+	err = h.updateFlowConfigInCatalog(ctx, cfg)
 	if err != nil {
 		slog.Error("unable to update flow config in catalog", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
@@ -258,10 +250,8 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 
 	if req.QrepConfig.SyncedAtColName == "" {
 		cfg.SyncedAtColName = "_PEERDB_SYNCED_AT"
-	} else {
-		// make them all uppercase
-		cfg.SyncedAtColName = strings.ToUpper(req.QrepConfig.SyncedAtColName)
 	}
+
 	_, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowFn, cfg, state)
 	if err != nil {
 		slog.Error("unable to start QRepFlow workflow",

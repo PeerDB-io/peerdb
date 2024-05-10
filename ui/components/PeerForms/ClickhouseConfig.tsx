@@ -8,6 +8,7 @@ import { RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
+import Link from 'next/link';
 import { useState } from 'react';
 import { InfoPopover } from '../InfoPopover';
 interface ConfigProps {
@@ -122,6 +123,14 @@ export default function ClickhouseForm({ settings, setter }: ConfigProps) {
         <br></br>
         If you want this stage to belong to you, you can configure a bucket
         below.
+        <br></br>
+        <Link
+          style={{ color: 'teal', cursor: 'pointer' }}
+          target='_blank'
+          href='https://docs.peerdb.io/connect/s3'
+        >
+          Setting up an S3 bucket
+        </Link>
       </Label>
       <Button
         className='IconButton'
@@ -164,6 +173,7 @@ export default function ClickhouseForm({ settings, setter }: ConfigProps) {
                       handleChange(e.target.value, setting)
                     }
                     type={setting.type}
+                    placeholder={setting.placeholder}
                   />
                   {setting.tips && <InfoPopover tips={setting.tips} />}
                 </div>

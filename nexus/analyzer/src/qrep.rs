@@ -196,7 +196,10 @@ pub fn process_options(
 
     // If mode is upsert, we need unique key columns
     if opts.get("mode") == Some(&Value::String(String::from("upsert")))
-        && opts.get("unique_key_columns").map(|ukc| ukc == &Value::Array(Vec::new())).unwrap_or(true)
+        && opts
+            .get("unique_key_columns")
+            .map(|ukc| ukc == &Value::Array(Vec::new()))
+            .unwrap_or(true)
     {
         anyhow::bail!("For upsert mode, unique_key_columns must be specified");
     }

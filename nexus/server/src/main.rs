@@ -413,15 +413,6 @@ impl NexusBackend {
                             }
                         }
 
-                        self.catalog
-                            .create_cdc_flow_job_entry(flow_job)
-                            .await
-                            .map_err(|err| {
-                                PgWireError::ApiError(
-                                    format!("unable to create mirror job entry: {:?}", err).into(),
-                                )
-                            })?;
-
                         // get source and destination peers
                         let (src_peer, dst_peer) = join!(
                             Self::get_peer_of_mirror(self.catalog.as_ref(), &flow_job.source_peer),
@@ -432,21 +423,12 @@ impl NexusBackend {
 
                         // make a request to the flow service to start the job.
                         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
-                        let workflow_id = flow_handler
+                        flow_handler
                             .start_peer_flow_job(flow_job, src_peer, dst_peer)
                             .await
                             .map_err(|err| {
                                 PgWireError::ApiError(
-                                    format!("unable to submit job: {:?}", err).into(),
-                                )
-                            })?;
-
-                        self.catalog
-                            .update_workflow_id_for_flow_job(&flow_job.name, &workflow_id)
-                            .await
-                            .map_err(|err| {
-                                PgWireError::ApiError(
-                                    format!("unable to save job metadata: {:?}", err).into(),
+                                    format!("unable to submit job: {:?}", err.to_string()).into(),
                                 )
                             })?;
 
