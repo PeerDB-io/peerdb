@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.2
 
 FROM golang:1.22-alpine AS builder
-RUN apk add --no-cache gcc geos-dev
+RUN apk add --no-cache gcc geos-dev musl-dev
 WORKDIR /root/flow
 
 # first copy only go.mod and go.sum to cache dependencies
