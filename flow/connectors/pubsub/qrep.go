@@ -28,7 +28,7 @@ func (c *PubSubConnector) SyncQRepRecords(
 	numRecords := atomic.Int64{}
 	schema := stream.Schema()
 	topiccache := topicCache{cache: make(map[string]*pubsub.Topic)}
-	publish := make(chan *pubsub.PublishResult, 32)
+	publish := make(chan publishResult, 32)
 	waitChan := make(chan struct{})
 
 	queueCtx, queueErr := context.WithCancelCause(ctx)
@@ -40,9 +40,11 @@ func (c *PubSubConnector) SyncQRepRecords(
 
 	go func() {
 		for curpub := range publish {
-			if _, err := curpub.Get(ctx); err != nil {
-				queueErr(err)
-				break
+			if curpub.PublishResult != nil {
+				if _, err := curpub.Get(ctx); err != nil {
+					queueErr(err)
+					break
+				}
 			}
 		}
 		close(waitChan)
@@ -57,7 +59,7 @@ Loop:
 				break Loop
 			}
 
-			pool.Run(func(ls *lua.LState) []PubSubMessage {
+			pool.Run(func(ls *lua.LState) poolResult {
 				items := model.NewRecordItems(len(qrecord))
 				for i, val := range qrecord {
 					items.AddColumn(schema.Fields[i].Name, val)
@@ -74,7 +76,7 @@ Loop:
 				fn, ok := lfn.(*lua.LFunction)
 				if !ok {
 					queueErr(fmt.Errorf("script should define `onRecord` as function, not %s", lfn))
-					return nil
+					return poolResult{}
 				}
 
 				ls.Push(fn)
@@ -82,7 +84,7 @@ Loop:
 				err := ls.PCall(1, -1, nil)
 				if err != nil {
 					queueErr(fmt.Errorf("script failed: %w", err))
-					return nil
+					return poolResult{}
 				}
 
 				args := ls.GetTop()
@@ -91,7 +93,7 @@ Loop:
 					msg, err := lvalueToPubSubMessage(ls, ls.Get(i-args))
 					if err != nil {
 						queueErr(err)
-						return nil
+						return poolResult{}
 					}
 					if msg.Message != nil {
 						if msg.Topic == "" {
@@ -102,7 +104,7 @@ Loop:
 				}
 				ls.SetTop(0)
 				numRecords.Add(1)
-				return results
+				return poolResult{messages: results}
 			})
 
 		case <-queueCtx.Done():

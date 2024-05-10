@@ -76,6 +76,16 @@ type PubSubMessage struct {
 	Topic string
 }
 
+type poolResult struct {
+	messages []PubSubMessage
+	lsn      int64
+}
+
+type publishResult struct {
+	*pubsub.PublishResult
+	lsn int64
+}
+
 func lvalueToPubSubMessage(ls *lua.LState, value lua.LValue) (PubSubMessage, error) {
 	var topic string
 	var msg *pubsub.Message
@@ -125,9 +135,9 @@ func (c *PubSubConnector) createPool(
 	script string,
 	flowJobName string,
 	topiccache *topicCache,
-	publish chan<- *pubsub.PublishResult,
+	publish chan<- publishResult,
 	queueErr func(error),
-) (*utils.LPool[[]PubSubMessage], error) {
+) (*utils.LPool[poolResult], error) {
 	return utils.LuaPool(func() (*lua.LState, error) {
 		ls, err := utils.LoadScript(ctx, script, utils.LuaPrintFn(func(s string) {
 			_ = c.LogFlowInfo(ctx, flowJobName, s)
@@ -139,10 +149,14 @@ func (c *PubSubConnector) createPool(
 			ls.Env.RawSetString("onRecord", ls.NewFunction(utils.DefaultOnRecord))
 		}
 		return ls, nil
-	}, func(messages []PubSubMessage) {
-		for _, message := range messages {
+	}, func(result poolResult) {
+		for _, message := range result.messages {
 			topicClient, err := topiccache.GetOrSet(message.Topic, func() (*pubsub.Topic, error) {
 				topicClient := c.client.Topic(message.Topic)
+				if message.OrderingKey != "" {
+					topicClient.EnableMessageOrdering = true
+				}
+
 				exists, err := topicClient.Exists(ctx)
 				if err != nil {
 					return nil, fmt.Errorf("error checking if topic exists: %w", err)
@@ -160,7 +174,12 @@ func (c *PubSubConnector) createPool(
 				return
 			}
 
-			publish <- topicClient.Publish(ctx, message.Message)
+			publish <- publishResult{
+				PublishResult: topicClient.Publish(ctx, message.Message),
+			}
+		}
+		publish <- publishResult{
+			lsn: result.lsn,
 		}
 	})
 }
@@ -216,9 +235,10 @@ func (tc *topicCache) GetOrSet(topic string, f func() (*pubsub.Topic, error)) (*
 
 func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
 	numRecords := atomic.Int64{}
+	lastSeenLSN := atomic.Int64{}
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	topiccache := topicCache{cache: make(map[string]*pubsub.Topic)}
-	publish := make(chan *pubsub.PublishResult, 32)
+	publish := make(chan publishResult, 32)
 	waitChan := make(chan struct{})
 
 	queueCtx, queueErr := context.WithCancelCause(ctx)
@@ -230,7 +250,9 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 
 	go func() {
 		for curpub := range publish {
-			if _, err := curpub.Get(ctx); err != nil {
+			if curpub.PublishResult == nil {
+				shared.AtomicInt64Max(&lastSeenLSN, curpub.lsn)
+			} else if _, err := curpub.Get(ctx); err != nil {
 				queueErr(err)
 				break
 			}
@@ -238,7 +260,6 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 		close(waitChan)
 	}()
 
-	lastSeenLSN := atomic.Int64{}
 	flushLoopDone := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(peerdbenv.PeerDBQueueFlushTimeoutSeconds())
@@ -274,12 +295,12 @@ Loop:
 				break Loop
 			}
 
-			pool.Run(func(ls *lua.LState) []PubSubMessage {
+			pool.Run(func(ls *lua.LState) poolResult {
 				lfn := ls.Env.RawGetString("onRecord")
 				fn, ok := lfn.(*lua.LFunction)
 				if !ok {
 					queueErr(fmt.Errorf("script should define `onRecord` as function, not %s", lfn))
-					return nil
+					return poolResult{}
 				}
 
 				ls.Push(fn)
@@ -287,7 +308,7 @@ Loop:
 				err := ls.PCall(1, -1, nil)
 				if err != nil {
 					queueErr(fmt.Errorf("script failed: %w", err))
-					return nil
+					return poolResult{}
 				}
 
 				args := ls.GetTop()
@@ -296,7 +317,7 @@ Loop:
 					msg, err := lvalueToPubSubMessage(ls, ls.Get(i-args))
 					if err != nil {
 						queueErr(err)
-						return nil
+						return poolResult{}
 					}
 					if msg.Message != nil {
 						if msg.Topic == "" {
@@ -308,8 +329,10 @@ Loop:
 				}
 				ls.SetTop(0)
 				numRecords.Add(1)
-				shared.AtomicInt64Max(&lastSeenLSN, record.GetCheckpointID())
-				return results
+				return poolResult{
+					messages: results,
+					lsn:      record.GetCheckpointID(),
+				}
 			})
 
 		case <-queueCtx.Done():
