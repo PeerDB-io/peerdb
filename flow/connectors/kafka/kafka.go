@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -178,15 +177,9 @@ func (c *KafkaConnector) createPool(
 	queueErr func(error),
 ) (*utils.LPool[poolResult], error) {
 	return utils.LuaPool(func() (*lua.LState, error) {
-		ls, err := utils.LoadScript(ctx, script, func(ls *lua.LState) int {
-			top := ls.GetTop()
-			ss := make([]string, top)
-			for i := range top {
-				ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
-			}
-			_ = c.LogFlowInfo(ctx, flowJobName, strings.Join(ss, "\t"))
-			return 0
-		})
+		ls, err := utils.LoadScript(ctx, script, utils.LuaPrintFn(func(s string) {
+			_ = c.LogFlowInfo(ctx, flowJobName, s)
+		}))
 		if err != nil {
 			return nil, err
 		}

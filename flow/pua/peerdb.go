@@ -3,6 +3,7 @@ package pua
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"math/big"
 	"time"
 
@@ -52,6 +53,7 @@ func RegisterTypes(ls *lua.LState) {
 
 	mt = LuaRow.NewMetatable(ls)
 	mt.RawSetString("__index", ls.NewFunction(LuaRowIndex))
+	mt.RawSetString("__newindex", ls.NewFunction(LuaRowNewIndex))
 	mt.RawSetString("__len", ls.NewFunction(LuaRowLen))
 
 	mt = shared.LuaUuid.NewMetatable(ls)
@@ -154,6 +156,178 @@ func GetRowQ(ls *lua.LState, row model.RecordItems, col string) qvalue.QValue {
 func LuaRowIndex(ls *lua.LState) int {
 	row, key := LuaRow.StartIndex(ls)
 	ls.Push(GetRowQ(ls, row, key).LValue(ls))
+	return 1
+}
+
+func LVAsTime(ls *lua.LState, lv lua.LValue) time.Time {
+	switch v := lv.(type) {
+	case lua.LNumber:
+		ipart, fpart := math.Modf(float64(v))
+		return time.Unix(int64(ipart), int64(fpart*1e9))
+	case *lua.LUserData:
+		if tm, ok := v.Value.(time.Time); ok {
+			return tm
+		}
+	}
+	ls.RaiseError("Cannot convert %T to time.Time", lv)
+	return time.Time{}
+}
+
+func LuaRowNewIndex(ls *lua.LState) int {
+	_, row := LuaRow.Check(ls, 1)
+	key := ls.CheckString(2)
+	val := ls.Get(3)
+	qv := row.GetColumnValue(key)
+	kind := qv.Kind()
+	if val == lua.LNil {
+		row.AddColumn(key, qvalue.QValueNull(kind))
+	}
+	var newqv qvalue.QValue
+	switch kind {
+	case qvalue.QValueKindInvalid:
+		newqv = qvalue.QValueInvalid{Val: lua.LVAsString(val)}
+	case qvalue.QValueKindFloat32:
+		newqv = qvalue.QValueFloat32{Val: float32(lua.LVAsNumber(val))}
+	case qvalue.QValueKindFloat64:
+		newqv = qvalue.QValueFloat64{Val: float64(lua.LVAsNumber(val))}
+	case qvalue.QValueKindInt16:
+		newqv = qvalue.QValueInt16{Val: int16(lua.LVAsNumber(val))}
+	case qvalue.QValueKindInt32:
+		newqv = qvalue.QValueInt32{Val: int32(lua.LVAsNumber(val))}
+	case qvalue.QValueKindInt64:
+		switch v := val.(type) {
+		case lua.LNumber:
+			newqv = qvalue.QValueInt64{Val: int64(v)}
+		case *lua.LUserData:
+			switch i64 := v.Value.(type) {
+			case int64:
+				newqv = qvalue.QValueInt64{Val: i64}
+			case uint64:
+				newqv = qvalue.QValueInt64{Val: int64(i64)}
+			}
+		}
+		if newqv == nil {
+			ls.RaiseError("invalid int64")
+		}
+	case qvalue.QValueKindBoolean:
+		newqv = qvalue.QValueBoolean{Val: lua.LVAsBool(val)}
+	case qvalue.QValueKindQChar:
+		switch v := val.(type) {
+		case lua.LNumber:
+			newqv = qvalue.QValueQChar{Val: uint8(v)}
+		case lua.LString:
+			if len(v) > 0 {
+				newqv = qvalue.QValueQChar{Val: v[0]}
+			}
+		default:
+			ls.RaiseError("invalid \"char\"")
+		}
+	case qvalue.QValueKindString:
+		newqv = qvalue.QValueString{Val: lua.LVAsString(val)}
+	case qvalue.QValueKindTimestamp:
+		newqv = qvalue.QValueTimestamp{Val: LVAsTime(ls, val)}
+	case qvalue.QValueKindTimestampTZ:
+		newqv = qvalue.QValueTimestampTZ{Val: LVAsTime(ls, val)}
+	case qvalue.QValueKindDate:
+		newqv = qvalue.QValueDate{Val: LVAsTime(ls, val)}
+	case qvalue.QValueKindTime:
+		newqv = qvalue.QValueTime{Val: LVAsTime(ls, val)}
+	case qvalue.QValueKindTimeTZ:
+		newqv = qvalue.QValueTimeTZ{Val: LVAsTime(ls, val)}
+	case qvalue.QValueKindNumeric:
+		newqv = qvalue.QValueNumeric{Val: LVAsDecimal(ls, val)}
+	case qvalue.QValueKindBytes:
+		newqv = qvalue.QValueBytes{Val: []byte(lua.LVAsString(val))}
+	case qvalue.QValueKindUUID:
+		if ud, ok := val.(*lua.LUserData); ok {
+			if id, ok := ud.Value.(uuid.UUID); ok {
+				newqv = qvalue.QValueUUID{Val: [16]byte(id)}
+			}
+		}
+	case qvalue.QValueKindJSON:
+		newqv = qvalue.QValueJSON{Val: lua.LVAsString(val)}
+	case qvalue.QValueKindBit:
+		newqv = qvalue.QValueBit{Val: []byte(lua.LVAsString(val))}
+	case qvalue.QValueKindArrayFloat32:
+		if tbl, ok := val.(*lua.LTable); ok {
+			newqv = qvalue.QValueArrayFloat32{
+				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) float32 {
+					return float32(lua.LVAsNumber(v))
+				}),
+			}
+		}
+	case qvalue.QValueKindArrayFloat64:
+		if tbl, ok := val.(*lua.LTable); ok {
+			newqv = qvalue.QValueArrayFloat64{
+				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) float64 {
+					return float64(lua.LVAsNumber(v))
+				}),
+			}
+		}
+	case qvalue.QValueKindArrayInt16:
+		if tbl, ok := val.(*lua.LTable); ok {
+			newqv = qvalue.QValueArrayFloat64{
+				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) float64 {
+					return float64(lua.LVAsNumber(v))
+				}),
+			}
+		}
+	case qvalue.QValueKindArrayInt32:
+		if tbl, ok := val.(*lua.LTable); ok {
+			newqv = qvalue.QValueArrayFloat64{
+				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) float64 {
+					return float64(lua.LVAsNumber(v))
+				}),
+			}
+		}
+	case qvalue.QValueKindArrayInt64:
+		if tbl, ok := val.(*lua.LTable); ok {
+			newqv = qvalue.QValueArrayFloat64{
+				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) float64 {
+					return float64(lua.LVAsNumber(v))
+				}),
+			}
+		}
+	case qvalue.QValueKindArrayString:
+		if tbl, ok := val.(*lua.LTable); ok {
+			newqv = qvalue.QValueArrayString{
+				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) string {
+					return lua.LVAsString(v)
+				}),
+			}
+		}
+	case qvalue.QValueKindArrayDate:
+		if tbl, ok := val.(*lua.LTable); ok {
+			newqv = qvalue.QValueArrayDate{
+				Val: shared.LTableToSlice(ls, tbl, LVAsTime),
+			}
+		}
+	case qvalue.QValueKindArrayTimestamp:
+		if tbl, ok := val.(*lua.LTable); ok {
+			newqv = qvalue.QValueArrayDate{
+				Val: shared.LTableToSlice(ls, tbl, LVAsTime),
+			}
+		}
+	case qvalue.QValueKindArrayTimestampTZ:
+		if tbl, ok := val.(*lua.LTable); ok {
+			newqv = qvalue.QValueArrayDate{
+				Val: shared.LTableToSlice(ls, tbl, LVAsTime),
+			}
+		}
+	case qvalue.QValueKindArrayBoolean:
+		if tbl, ok := val.(*lua.LTable); ok {
+			newqv = qvalue.QValueArrayBoolean{
+				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) bool {
+					return lua.LVAsBool(v)
+				}),
+			}
+		}
+	default:
+		ls.RaiseError(fmt.Sprintf("no support for reassigning %s", kind))
+		return 0
+	}
+
+	row.AddColumn(key, newqv)
 	return 1
 }
 

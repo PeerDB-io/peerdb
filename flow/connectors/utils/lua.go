@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/yuin/gopher-lua"
 
@@ -32,6 +33,18 @@ func LVAsStringOrNil(ls *lua.LState, v lua.LValue) (string, error) {
 		return "", nil
 	} else {
 		return "", fmt.Errorf("invalid bytes, must be nil or string: %s", v)
+	}
+}
+
+func LuaPrintFn(fn func(string)) lua.LGFunction {
+	return func(ls *lua.LState) int {
+		top := ls.GetTop()
+		ss := make([]string, top)
+		for i := range top {
+			ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
+		}
+		fn(strings.Join(ss, "\t"))
+		return 0
 	}
 }
 

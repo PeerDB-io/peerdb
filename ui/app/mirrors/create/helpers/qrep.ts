@@ -123,8 +123,14 @@ export const qrepSettings: MirrorSetting[] = [
         ...curr,
         waitBetweenBatchesSeconds: parseInt(value as string, 10) || 30,
       })),
-    tips: 'Time to wait (in seconds) between getting partitions to process. The default is 30 seconds',
+    tips: 'Time to wait (in seconds) between getting partitions to process. The default is 30 seconds.',
     default: 30,
     type: 'number',
+  },
+  {
+    label: 'Script',
+    stateHandler: (value, setter) =>
+      setter((curr: QRepConfig) => ({ ...curr, script: value as string })),
+    tips: 'Script to use for row transformations. The default is no scripting.',
   },
 ];

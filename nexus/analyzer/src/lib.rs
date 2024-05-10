@@ -11,7 +11,7 @@ use pt::{
     peerdb_peers::{
         peer::Config, BigqueryConfig, ClickhouseConfig, DbType, EventHubConfig, GcpServiceAccount,
         KafkaConfig, MongoConfig, Peer, PostgresConfig, PubSubConfig, S3Config, SnowflakeConfig,
-        SqlServerConfig,
+        SqlServerConfig, SshConfig,
     },
 };
 use qrep::process_options;
@@ -300,6 +300,11 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => None,
                         };
 
+                        let sync_interval: Option<u64> = match raw_options.remove("sync_interval") {
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u64>()?),
+                            _ => None,
+                        };
+
                         let soft_delete_col_name: Option<String> = match raw_options
                             .remove("soft_delete_col_name")
                         {
@@ -347,6 +352,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             push_batch_size,
                             push_parallelism,
                             max_batch_size,
+                            sync_interval,
                             resync,
                             soft_delete_col_name,
                             synced_at_col_name,
@@ -646,6 +652,19 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
             Config::MongoConfig(mongo_config)
         }
         DbType::Postgres => {
+            let ssh_fields: Option<SshConfig> = match opts.get("ssh_config") {
+                Some(ssh_config) => {
+                    let ssh_config_str = ssh_config.to_string();
+                    if ssh_config_str.is_empty() {
+                        None
+                    } else {
+                        serde_json::from_str(&ssh_config_str)
+                            .context("failed to deserialize ssh_config")?
+                    }
+                }
+                None => None,
+            };
+
             let postgres_config = PostgresConfig {
                 host: opts.get("host").context("no host specified")?.to_string(),
                 port: opts
@@ -667,8 +686,9 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .to_string(),
                 metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
                 transaction_snapshot: "".to_string(),
-                ssh_config: None,
+                ssh_config: ssh_fields,
             };
+
             Config::PostgresConfig(postgres_config)
         }
         DbType::S3 => {
@@ -744,7 +764,8 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .unwrap_or_default(),
                 disable_tls: opts
                     .get("disable_tls")
-                    .map(|s| s.parse::<bool>().unwrap_or_default()).unwrap_or_default(),
+                    .map(|s| s.parse::<bool>().unwrap_or_default())
+                    .unwrap_or_default(),
                 endpoint: opts.get("endpoint").map(|s| s.to_string()),
             };
             Config::ClickhouseConfig(clickhouse_config)
