@@ -12,7 +12,7 @@ WORKDIR /app
 
 # Dependencies stage
 FROM base AS builder
-COPY --chown=node:node ui/package.json ui/package-lock.json .
+COPY --chown=node:node ui/package.json ui/package-lock.json ./
 RUN npm ci
 COPY --chown=node:node ui/ .
 
