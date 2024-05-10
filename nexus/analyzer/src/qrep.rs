@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use serde_json::Value;
-use sqlparser::ast::Value as SqlValue;
+use sqlparser::ast;
 
 enum QRepOptionType {
     String {
@@ -96,7 +96,7 @@ const QREP_OPTIONS: &[QRepOptionType] = &[
 ];
 
 pub fn process_options(
-    mut raw_opts: HashMap<&str, &SqlValue>,
+    mut raw_opts: HashMap<&str, &ast::Value>,
 ) -> anyhow::Result<HashMap<String, Value>> {
     let mut opts: HashMap<String, Value> = HashMap::new();
 
@@ -109,7 +109,7 @@ pub fn process_options(
                 accepted_values,
             } => {
                 if let Some(raw_value) = raw_opts.remove(*name) {
-                    if let SqlValue::SingleQuotedString(str) = raw_value {
+                    if let ast::Value::SingleQuotedString(str) = raw_value {
                         if let Some(values) = accepted_values {
                             if !values.contains(&str.as_str()) {
                                 anyhow::bail!("{} must be one of {:?}", name, values);
@@ -132,7 +132,7 @@ pub fn process_options(
                 required,
             } => {
                 if let Some(raw_value) = raw_opts.remove(*name) {
-                    if let SqlValue::Number(num_str, _) = raw_value {
+                    if let ast::Value::Number(num_str, _) = raw_value {
                         let num = num_str.parse::<u32>()?;
                         if let Some(min) = min_value {
                             if num < *min {
@@ -153,7 +153,7 @@ pub fn process_options(
             QRepOptionType::StringArray { name } => {
                 // read it as a string and split on comma
                 if let Some(raw_value) = raw_opts.remove(*name) {
-                    if let SqlValue::SingleQuotedString(str) = raw_value {
+                    if let ast::Value::SingleQuotedString(str) = raw_value {
                         let values: Vec<Value> = str
                             .split(',')
                             .map(|s| Value::String(s.trim().to_string()))
@@ -170,7 +170,7 @@ pub fn process_options(
                 required,
             } => {
                 if let Some(raw_value) = raw_opts.remove(*name) {
-                    if let SqlValue::Boolean(b) = raw_value {
+                    if let ast::Value::Boolean(b) = raw_value {
                         opts.insert(name.to_string(), Value::Bool(*b));
                     } else {
                         anyhow::bail!("Invalid value for {}", name);
@@ -196,8 +196,10 @@ pub fn process_options(
 
     // If mode is upsert, we need unique key columns
     if opts.get("mode") == Some(&Value::String(String::from("upsert")))
-        && (opts.get("unique_key_columns").is_none()
-            || opts.get("unique_key_columns") == Some(&Value::Array(vec![])))
+        && opts
+            .get("unique_key_columns")
+            .map(|ukc| ukc == &Value::Array(Vec::new()))
+            .unwrap_or(true)
     {
         anyhow::bail!("For upsert mode, unique_key_columns must be specified");
     }

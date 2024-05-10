@@ -79,7 +79,6 @@ impl FlowGrpcClient {
     ) -> anyhow::Result<String> {
         let create_peer_flow_req = pt::peerdb_route::CreateCdcFlowRequest {
             connection_configs: Some(peer_flow_config),
-            create_catalog_entry: false,
         };
         let response = self.client.create_cdc_flow(create_peer_flow_req).await?;
         let workflow_id = response.into_inner().workflow_id;
@@ -176,7 +175,7 @@ impl FlowGrpcClient {
             initial_snapshot_only: job.initial_snapshot_only,
             script: job.script.clone(),
             system: system as i32,
-            ..Default::default()
+            idle_timeout_seconds: job.sync_interval.unwrap_or_default(),
         };
 
         self.start_peer_flow(flow_conn_cfg).await
@@ -199,9 +198,9 @@ impl FlowGrpcClient {
         for (key, value) in &job.flow_options {
             match value {
                 Value::String(s) => match key.as_str() {
-                    "destination_table_name" => cfg.destination_table_identifier = s.clone(),
-                    "watermark_column" => cfg.watermark_column = s.clone(),
-                    "watermark_table_name" => cfg.watermark_table = s.clone(),
+                    "destination_table_name" => cfg.destination_table_identifier.clone_from(s),
+                    "watermark_column" => cfg.watermark_column.clone_from(s),
+                    "watermark_table_name" => cfg.watermark_table.clone_from(s),
                     "mode" => {
                         let mut wm = QRepWriteMode {
                             write_type: QRepWriteType::QrepWriteModeAppend as i32,
@@ -229,7 +228,7 @@ impl FlowGrpcClient {
                             _ => return anyhow::Result::Err(anyhow::anyhow!("invalid mode {}", s)),
                         }
                     }
-                    "staging_path" => cfg.staging_path = s.clone(),
+                    "staging_path" => cfg.staging_path.clone_from(s),
                     _ => return anyhow::Result::Err(anyhow::anyhow!("invalid str option {}", key)),
                 },
                 Value::Number(n) => match key.as_str() {

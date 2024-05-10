@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
@@ -26,6 +27,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/otel_metrics"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -44,6 +46,7 @@ type FlowableActivity struct {
 	CatalogPool *pgxpool.Pool
 	Alerter     *alerting.Alerter
 	CdcCache    map[string]CdcCacheEntry
+	OtelManager *otel_metrics.OtelManager
 	CdcCacheRw  sync.RWMutex
 }
 
@@ -151,7 +154,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
 	conn, err := connectors.GetAs[connectors.NormalizedTablesConnector](ctx, config.PeerConnectionConfig)
 	if err != nil {
-		if err == connectors.ErrUnsupportedFunctionality {
+		if errors.Is(err, errors.ErrUnsupported) {
 			logger.Info("Connector does not implement normalized tables")
 			return nil, nil
 		}
@@ -295,7 +298,7 @@ func (a *FlowableActivity) StartNormalize(
 	logger := activity.GetLogger(ctx)
 
 	dstConn, err := connectors.GetCDCNormalizeConnector(ctx, conn.Destination)
-	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
+	if errors.Is(err, errors.ErrUnsupported) {
 		err = monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName,
 			input.SyncBatchID)
 		return nil, err
@@ -438,7 +441,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	dstConn, err := connectors.GetQRepConsolidateConnector(ctx, config.DestinationPeer)
-	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
+	if errors.Is(err, errors.ErrUnsupported) {
 		return monitoring.UpdateEndTimeForQRepRun(ctx, a.CatalogPool, runUUID)
 	} else if err != nil {
 		return err
@@ -462,7 +465,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	dst, err := connectors.GetQRepConsolidateConnector(ctx, config.DestinationPeer)
-	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
+	if errors.Is(err, errors.ErrUnsupported) {
 		return nil
 	} else if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -575,7 +578,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		func() {
 			srcConn, err := connectors.GetCDCPullConnector(ctx, config.Source)
 			if err != nil {
-				if err != connectors.ErrUnsupportedFunctionality {
+				if !errors.Is(err, errors.ErrUnsupported) {
 					logger.Error("Failed to create connector to handle slot info", slog.Any("error", err))
 				}
 				return
@@ -592,7 +595,32 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return
 			}
-			err = srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, slotName, peerName)
+
+			var slotLagGauge *otel_metrics.Float64Gauge
+			var openConnectionsGauge *otel_metrics.Int64Gauge
+			if a.OtelManager != nil {
+				slotLagGauge, err = otel_metrics.GetOrInitFloat64Gauge(a.OtelManager.Meter,
+					a.OtelManager.Float64GaugesCache,
+					"cdc_slot_lag",
+					metric.WithUnit("MB"),
+					metric.WithDescription("Postgres replication slot lag in MB"))
+				if err != nil {
+					logger.Error("Failed to get slot lag gauge", slog.Any("error", err))
+					return
+				}
+
+				openConnectionsGauge, err = otel_metrics.GetOrInitInt64Gauge(a.OtelManager.Meter,
+					a.OtelManager.Int64GaugesCache,
+					"open_connections",
+					metric.WithDescription("Current open connections for PeerDB user"))
+				if err != nil {
+					logger.Error("Failed to get open connections gauge", slog.Any("error", err))
+					return
+				}
+			}
+
+			err = srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, slotName, peerName,
+				slotLagGauge, openConnectionsGauge)
 			if err != nil {
 				logger.Error("Failed to handle slot info", slog.Any("error", err))
 			}
@@ -615,7 +643,7 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
-	if config.SourcePeer.Type != protos.DBType_POSTGRES || last.Range == nil {
+	if config.SourcePeer.Type != protos.DBType_POSTGRES {
 		return QRepWaitUntilNewRowsResult{Found: true}, nil
 	}
 

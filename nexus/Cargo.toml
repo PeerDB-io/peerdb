@@ -4,9 +4,11 @@ members = [
   "catalog",
   "flow-rs",
   "parser",
+  "peer-ast",
   "peer-bigquery",
   "peer-connections",
   "peer-cursor",
+  "peer-mysql",
   "peer-postgres",
   "peer-snowflake",
   "postgres-connection",
@@ -18,6 +20,16 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-chrono = { version = "0.4", default-features = false, features = ["serde", "std"] }
-sqlparser = { git = "https://github.com/peerdb-io/sqlparser-rs.git", branch = "ps-es-parsing" }
-pgwire = "0.19"
+chrono = { version = "0.4", default-features = false, features = [
+  "serde",
+  "std",
+] }
+dashmap = "5.0"
+rust_decimal = { version = "1", default-features = false, features = [
+  "tokio-pg",
+] }
+sqlparser = { git = "https://github.com/peerdb-io/sqlparser-rs.git", branch = "main" }
+tracing = "0.1"
+pgwire = { version = "0.22", default-features = false, features = [
+  "server-api-ring",
+] }

@@ -26,10 +26,12 @@ impl From<PeerType> for DbType {
             PeerType::Postgres => DbType::Postgres,
             PeerType::S3 => DbType::S3,
             PeerType::SQLServer => DbType::Sqlserver,
+            PeerType::MySql => DbType::Mysql,
             PeerType::Kafka => DbType::Kafka,
             PeerType::Eventhubs => DbType::Eventhubs,
             PeerType::PubSub => DbType::Pubsub,
             PeerType::Elasticsearch => DbType::Elasticsearch,
+            PeerType::Clickhouse => DbType::Clickhouse,
         }
     }
 }

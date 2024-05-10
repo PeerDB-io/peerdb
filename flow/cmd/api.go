@@ -96,7 +96,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 	if args.TemporalCert != "" && args.TemporalKey != "" {
 		slog.Info("Using temporal certificate/key for authentication")
 
-		certs, err := Base64DecodeCertAndKey(args.TemporalCert, args.TemporalKey)
+		certs, err := base64DecodeCertAndKey(args.TemporalCert, args.TemporalKey)
 		if err != nil {
 			return fmt.Errorf("unable to base64 decode certificate and key: %w", err)
 		}

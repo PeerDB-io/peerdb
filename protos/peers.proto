@@ -126,6 +126,17 @@ message SqlServerConfig {
   string database = 5;
 }
 
+message MySqlConfig {
+  string host = 1;
+  uint32 port = 2;
+  string user = 3;
+  string password = 4;
+  string database = 5;
+  repeated string setup = 6;
+  uint32 compression = 7;
+  bool disable_tls = 8;
+}
+
 message KafkaConfig {
   repeated string servers = 1;
   string username = 2;
@@ -158,6 +169,7 @@ enum DBType {
   POSTGRES = 3;
   S3 = 5;
   SQLSERVER = 6;
+  MYSQL = 7;
   CLICKHOUSE = 8;
   KAFKA = 9;
   PUBSUB = 10;
@@ -173,7 +185,6 @@ message Peer {
     BigqueryConfig bigquery_config = 4;
     MongoConfig mongo_config = 5;
     PostgresConfig postgres_config = 6;
-    EventHubConfig eventhub_config = 7;
     S3Config s3_config = 8;
     SqlServerConfig sqlserver_config = 9;
     EventHubGroupConfig eventhub_group_config = 10;
@@ -181,5 +192,6 @@ message Peer {
     KafkaConfig kafka_config = 12;
     PubSubConfig pubsub_config = 13;
     ElasticsearchConfig elasticsearch_config = 14;
+    MySqlConfig mysql_config = 15;
   }
 }

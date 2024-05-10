@@ -15,6 +15,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 
@@ -25,6 +27,8 @@ import (
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/otel_metrics"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -58,11 +62,11 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	// create a separate connection pool for non-replication queries as replication connections cannot
 	// be used for extended query protocol, i.e. prepared statements
 	connConfig, err := pgx.ParseConfig(connectionString)
-	replConfig := connConfig.Copy()
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 
+	replConfig := connConfig.Copy()
 	runtimeParams := connConfig.Config.RuntimeParams
 	runtimeParams["idle_in_transaction_session_timeout"] = "0"
 	runtimeParams["statement_timeout"] = "0"
@@ -706,7 +710,7 @@ func (c *PostgresConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 	_, err = createRawTableTx.Exec(ctx, fmt.Sprintf(createRawTableDstTableIndexSQL, rawTableIdentifier,
 		c.metadataSchema, rawTableIdentifier))
 	if err != nil {
-		return nil, fmt.Errorf("error creating destion table index on raw table: %w", err)
+		return nil, fmt.Errorf("error creating destination table index on raw table: %w", err)
 	}
 
 	err = createRawTableTx.Commit(ctx)
@@ -723,6 +727,9 @@ func (c *PostgresConnector) GetTableSchema(
 ) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
+		if activity.IsActivity(ctx) {
+			activity.RecordHeartbeat(ctx, "fetching schema for table "+tableName)
+		}
 		tableSchema, err := c.getTableSchemaForTable(ctx, tableName, req.System)
 		if err != nil {
 			return nil, err
@@ -1105,6 +1112,8 @@ func (c *PostgresConnector) HandleSlotInfo(
 	catalogPool *pgxpool.Pool,
 	slotName string,
 	peerName string,
+	slotLagGauge *otel_metrics.Float64Gauge,
+	openConnectionsGauge *otel_metrics.Int64Gauge,
 ) error {
 	logger := logger.LoggerFromCtx(ctx)
 
@@ -1121,6 +1130,10 @@ func (c *PostgresConnector) HandleSlotInfo(
 
 	logger.Info(fmt.Sprintf("Checking %s lag for %s", slotName, peerName), slog.Float64("LagInMB", float64(slotInfo[0].LagInMb)))
 	alerter.AlertIfSlotLag(ctx, peerName, slotInfo[0])
+	slotLagGauge.Set(float64(slotInfo[0].LagInMb), attribute.NewSet(
+		attribute.String("peerName", peerName),
+		attribute.String("slotName", slotName),
+		attribute.String("deploymentUID", peerdbenv.PeerDBDeploymentUID())))
 
 	// Also handles alerts for PeerDB user connections exceeding a given limit here
 	res, err := getOpenConnectionsForUser(ctx, c.conn, c.config.User)
@@ -1129,6 +1142,9 @@ func (c *PostgresConnector) HandleSlotInfo(
 		return err
 	}
 	alerter.AlertIfOpenConnections(ctx, peerName, res)
+	openConnectionsGauge.Set(res.CurrentOpenConnections, attribute.NewSet(
+		attribute.String("peerName", peerName),
+		attribute.String("deploymentUID", peerdbenv.PeerDBDeploymentUID())))
 
 	return monitoring.AppendSlotSizeInfo(ctx, catalogPool, peerName, slotInfo[0])
 }

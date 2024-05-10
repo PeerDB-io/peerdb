@@ -1,20 +1,18 @@
 use std::time::Duration;
 
 use anyhow::Context;
-use cursor::BigQueryCursorManager;
 use gcp_bigquery_client::{
     model::{query_request::QueryRequest, query_response::ResultSet},
-    Client,
+    yup_oauth2, Client,
 };
 use peer_connections::PeerConnectionTracker;
-use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, Schema};
+use peer_cursor::{CursorManager, CursorModification, QueryExecutor, QueryOutput, Schema};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pt::peerdb_peers::BigqueryConfig;
-use sqlparser::ast::{CloseCursor, Expr, FetchDirection, Statement, Value};
+use sqlparser::ast::{CloseCursor, Declare, Expr, FetchDirection, Statement, Value};
 use stream::{BqRecordStream, BqSchema};
 
 mod ast;
-mod cursor;
 mod stream;
 
 pub struct BigQueryQueryExecutor {
@@ -23,7 +21,7 @@ pub struct BigQueryQueryExecutor {
     dataset_id: String,
     peer_connections: PeerConnectionTracker,
     client: Box<Client>,
-    cursor_manager: BigQueryCursorManager,
+    cursor_manager: CursorManager,
 }
 
 pub async fn bq_client_from_config(config: &BigqueryConfig) -> anyhow::Result<Client> {
@@ -53,15 +51,14 @@ impl BigQueryQueryExecutor {
         peer_connections: PeerConnectionTracker,
     ) -> anyhow::Result<Self> {
         let client = bq_client_from_config(config).await?;
-        let client = Box::new(client);
-        let cursor_manager = BigQueryCursorManager::new();
+
         Ok(Self {
             peer_name,
             project_id: config.project_id.clone(),
             dataset_id: config.dataset_id.clone(),
             peer_connections,
-            client,
-            cursor_manager,
+            client: Box::new(client),
+            cursor_manager: Default::default(),
         })
     }
 
@@ -100,8 +97,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
         match stmt {
             Statement::Query(query) => {
                 let mut query = query.clone();
-                let bq_ast = ast::BigqueryAst::default();
-                bq_ast
+                ast::BigqueryAst
                     .rewrite(&self.dataset_id, &mut query)
                     .context("unable to rewrite query")
                     .map_err(|err| PgWireError::ApiError(err.into()))?;
@@ -119,15 +115,31 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 );
                 Ok(QueryOutput::Stream(Box::pin(cursor)))
             }
-            Statement::Declare { name, query, .. } => {
-                let query_stmt = Statement::Query(query.clone());
-                self.cursor_manager
-                    .create_cursor(&name.value, &query_stmt, self)
-                    .await?;
+            Statement::Declare { stmts } => {
+                if stmts.len() != 1 {
+                    Err(PgWireError::ApiError(
+                        "peerdb only supports singular declare statements".into(),
+                    ))
+                } else if let Declare {
+                    ref names,
+                    for_query: Some(ref query),
+                    ..
+                } = stmts[0]
+                {
+                    let name = &names[0];
+                    let query_stmt = Statement::Query(query.clone());
+                    self.cursor_manager
+                        .create_cursor(&name.value, &query_stmt, self)
+                        .await?;
 
-                Ok(QueryOutput::Cursor(CursorModification::Created(
-                    name.value.clone(),
-                )))
+                    Ok(QueryOutput::Cursor(CursorModification::Created(
+                        name.value.clone(),
+                    )))
+                } else {
+                    Err(PgWireError::ApiError(
+                        "peerdb only supports declare for query statements".into(),
+                    ))
+                }
             }
             Statement::Fetch {
                 name, direction, ..
@@ -136,12 +148,16 @@ impl QueryExecutor for BigQueryQueryExecutor {
 
                 // Attempt to extract the count from the direction
                 let count = match direction {
+                    FetchDirection::ForwardAll | FetchDirection::All => usize::MAX,
+                    FetchDirection::Next | FetchDirection::Forward { limit: None } => 1,
                     FetchDirection::Count {
                         limit: sqlparser::ast::Value::Number(n, _),
                     }
                     | FetchDirection::Forward {
                         limit: Some(sqlparser::ast::Value::Number(n, _)),
-                    } => n.parse::<usize>(),
+                    } => n
+                        .parse::<usize>()
+                        .map_err(|err| PgWireError::ApiError(err.into()))?,
                     _ => {
                         return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                             "ERROR".to_owned(),
@@ -149,12 +165,6 @@ impl QueryExecutor for BigQueryQueryExecutor {
                             "only FORWARD count and COUNT count are supported in FETCH".to_owned(),
                         ))))
                     }
-                };
-
-                // If parsing the count resulted in an error, return an internal error
-                let count = match count {
-                    Ok(c) => c,
-                    Err(err) => return Err(PgWireError::ApiError(err.into())),
                 };
 
                 tracing::info!("fetching {} rows", count);
@@ -166,14 +176,11 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 Ok(QueryOutput::Records(records))
             }
             Statement::Close { cursor } => {
-                let mut closed_cursors = vec![];
-                match cursor {
-                    CloseCursor::All => {
-                        closed_cursors = self.cursor_manager.close_all_cursors().await?;
-                    }
+                let closed_cursors = match cursor {
+                    CloseCursor::All => self.cursor_manager.close_all_cursors().await?,
                     CloseCursor::Specific { name } => {
                         self.cursor_manager.close(&name.value).await?;
-                        closed_cursors.push(name.value.clone());
+                        vec![name.value.clone()]
                     }
                 };
                 Ok(QueryOutput::Cursor(CursorModification::Closed(
@@ -202,8 +209,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
         match stmt {
             Statement::Query(query) => {
                 let mut query = query.clone();
-                let bq_ast = ast::BigqueryAst::default();
-                bq_ast
+                ast::BigqueryAst
                     .rewrite(&self.dataset_id, &mut query)
                     .context("unable to rewrite query")
                     .map_err(|err| PgWireError::ApiError(err.into()))?;
@@ -222,9 +228,23 @@ impl QueryExecutor for BigQueryQueryExecutor {
 
                 Ok(Some(schema.schema()))
             }
-            Statement::Declare { query, .. } => {
-                let query_stmt = Statement::Query(query.clone());
-                self.describe(&query_stmt).await
+            Statement::Declare { stmts } => {
+                if stmts.len() != 1 {
+                    Err(PgWireError::ApiError(
+                        "peerdb only supports singular declare statements".into(),
+                    ))
+                } else if let Declare {
+                    for_query: Some(ref query),
+                    ..
+                } = stmts[0]
+                {
+                    let query_stmt = Statement::Query(query.clone());
+                    self.describe(&query_stmt).await
+                } else {
+                    Err(PgWireError::ApiError(
+                        "peerdb only supports declare for query statements".into(),
+                    ))
+                }
             }
             _ => PgWireResult::Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),

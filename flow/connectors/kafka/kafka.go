@@ -5,8 +5,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log/slog"
-	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -166,48 +164,63 @@ func lvalueToKafkaRecord(ls *lua.LState, value lua.LValue) (*kgo.Record, error) 
 	return kr, nil
 }
 
-func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
-	var wg sync.WaitGroup
-	wgCtx, wgErr := context.WithCancelCause(ctx)
-	produceCb := func(_ *kgo.Record, err error) {
-		if err != nil {
-			wgErr(err)
-		}
-		wg.Done()
-	}
+type poolResult struct {
+	records []*kgo.Record
+	lsn     int64
+}
 
-	numRecords := atomic.Int64{}
-	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
-
-	pool, err := utils.LuaPool(func() (*lua.LState, error) {
-		ls, err := utils.LoadScript(wgCtx, req.Script, func(ls *lua.LState) int {
-			top := ls.GetTop()
-			ss := make([]string, top)
-			for i := range top {
-				ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
-			}
-			_ = c.LogFlowInfo(ctx, req.FlowJobName, strings.Join(ss, "\t"))
-			return 0
-		})
+func (c *KafkaConnector) createPool(
+	ctx context.Context,
+	script string,
+	flowJobName string,
+	lastSeenLSN *atomic.Int64,
+	queueErr func(error),
+) (*utils.LPool[poolResult], error) {
+	return utils.LuaPool(func() (*lua.LState, error) {
+		ls, err := utils.LoadScript(ctx, script, utils.LuaPrintFn(func(s string) {
+			_ = c.LogFlowInfo(ctx, flowJobName, s)
+		}))
 		if err != nil {
 			return nil, err
 		}
-		if req.Script == "" {
+		if script == "" {
 			ls.Env.RawSetString("onRecord", ls.NewFunction(utils.DefaultOnRecord))
 		}
 		return ls, nil
-	}, func(krs []*kgo.Record) {
-		wg.Add(len(krs))
-		for _, kr := range krs {
-			c.client.Produce(wgCtx, kr, produceCb)
+	}, func(result poolResult) {
+		lenRecords := int32(len(result.records))
+		if lenRecords == 0 {
+			if lastSeenLSN != nil {
+				shared.AtomicInt64Max(lastSeenLSN, result.lsn)
+			}
+		} else {
+			recordCounter := atomic.Int32{}
+			recordCounter.Store(lenRecords)
+			for _, kr := range result.records {
+				c.client.Produce(ctx, kr, func(_ *kgo.Record, err error) {
+					if err != nil {
+						queueErr(err)
+					} else if recordCounter.Add(-1) == 0 && lastSeenLSN != nil {
+						shared.AtomicInt64Max(lastSeenLSN, result.lsn)
+					}
+				})
+			}
 		}
 	})
+}
+
+func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
+	numRecords := atomic.Int64{}
+	lastSeenLSN := atomic.Int64{}
+
+	queueCtx, queueErr := context.WithCancelCause(ctx)
+	pool, err := c.createPool(queueCtx, req.Script, req.FlowJobName, &lastSeenLSN, queueErr)
 	if err != nil {
 		return nil, err
 	}
 	defer pool.Close()
 
-	lastSeenLSN := atomic.Int64{}
+	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	flushLoopDone := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(peerdbenv.PeerDBQueueFlushTimeoutSeconds())
@@ -246,20 +259,20 @@ Loop:
 				break Loop
 			}
 
-			pool.Run(func(ls *lua.LState) []*kgo.Record {
+			pool.Run(func(ls *lua.LState) poolResult {
 				lfn := ls.Env.RawGetString("onRecord")
 				fn, ok := lfn.(*lua.LFunction)
 				if !ok {
-					wgErr(fmt.Errorf("script should define `onRecord` as function, not %s", lfn))
-					return nil
+					queueErr(fmt.Errorf("script should define `onRecord` as function, not %s", lfn))
+					return poolResult{}
 				}
 
 				ls.Push(fn)
 				ls.Push(pua.LuaRecord.New(ls, record))
 				err := ls.PCall(1, -1, nil)
 				if err != nil {
-					wgErr(fmt.Errorf("script failed: %w", err))
-					return nil
+					queueErr(fmt.Errorf("script failed: %w", err))
+					return poolResult{}
 				}
 
 				args := ls.GetTop()
@@ -267,8 +280,8 @@ Loop:
 				for i := range args {
 					kr, err := lvalueToKafkaRecord(ls, ls.Get(i-args))
 					if err != nil {
-						wgErr(err)
-						return nil
+						queueErr(err)
+						return poolResult{}
 					}
 					if kr != nil {
 						if kr.Topic == "" {
@@ -280,31 +293,23 @@ Loop:
 				}
 				ls.SetTop(0)
 				numRecords.Add(1)
-				shared.AtomicInt64Max(&lastSeenLSN, record.GetCheckpointID())
-				return results
+				return poolResult{
+					records: results,
+					lsn:     record.GetCheckpointID(),
+				}
 			})
 
-		case <-wgCtx.Done():
+		case <-queueCtx.Done():
 			break Loop
 		}
 	}
 
 	close(flushLoopDone)
-	if err := pool.Wait(wgCtx); err != nil {
+	if err := pool.Wait(queueCtx); err != nil {
 		return nil, err
 	}
-	if err := c.client.Flush(wgCtx); err != nil {
+	if err := c.client.Flush(queueCtx); err != nil {
 		return nil, fmt.Errorf("[kafka] final flush error: %w", err)
-	}
-	waitChan := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(waitChan)
-	}()
-	select {
-	case <-wgCtx.Done():
-		return nil, wgCtx.Err()
-	case <-waitChan:
 	}
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()

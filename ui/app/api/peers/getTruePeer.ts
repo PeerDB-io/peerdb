@@ -6,6 +6,7 @@ import {
   EventHubConfig,
   EventHubGroupConfig,
   KafkaConfig,
+  MySqlConfig,
   Peer,
   PostgresConfig,
   PubSubConfig,
@@ -26,6 +27,7 @@ export const getTruePeer = (peer: CatalogPeer) => {
     | EventHubConfig
     | EventHubGroupConfig
     | KafkaConfig
+    | MySqlConfig
     | PostgresConfig
     | PubSubConfig
     | S3Config
@@ -45,10 +47,6 @@ export const getTruePeer = (peer: CatalogPeer) => {
       config = PostgresConfig.decode(options);
       newPeer.postgresConfig = config;
       break;
-    case 4:
-      config = EventHubConfig.decode(options);
-      newPeer.eventhubConfig = config;
-      break;
     case 5:
       config = S3Config.decode(options);
       newPeer.s3Config = config;
@@ -58,8 +56,8 @@ export const getTruePeer = (peer: CatalogPeer) => {
       newPeer.sqlserverConfig = config;
       break;
     case 7:
-      config = EventHubGroupConfig.decode(options);
-      newPeer.eventhubGroupConfig = config;
+      config = MySqlConfig.decode(options);
+      newPeer.mysqlConfig = config;
       break;
     case 8:
       config = ClickhouseConfig.decode(options);

@@ -191,6 +191,11 @@ export default function CreateMirrors() {
                 Write a query whose results will be replicated to a target
                 table.
                 <br></br>
+                For append and upsert modes, make sure the query{' '}
+                <b>includes the start and end placeholders</b> in the query.
+                PeerDB uses these placeholders for partitioning query results
+                for performance.
+                <br></br>
                 In most cases, you will require a watermark table and a
                 watermark column in that table.
                 <br></br>

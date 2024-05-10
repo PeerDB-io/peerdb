@@ -25,13 +25,11 @@ import {
 } from './schema';
 
 export const IsQueuePeer = (peerType?: DBType): boolean => {
-  if (!peerType) {
-    return false;
-  }
   return (
-    peerType === DBType.KAFKA ||
-    peerType === DBType.PUBSUB ||
-    peerType === DBType.EVENTHUBS
+    !!peerType &&
+    (peerType === DBType.KAFKA ||
+      peerType === DBType.PUBSUB ||
+      peerType === DBType.EVENTHUBS)
   );
 };
 
@@ -206,8 +204,19 @@ export const handleCreateQRep = async (
     return;
   }
 
-  if (query === QRepQueryTemplate) {
+  if (query === QRepQueryTemplate && !xmin) {
     notifyErr('Please fill in the query box');
+    return;
+  }
+
+  if (
+    !xmin &&
+    config.writeMode?.writeType != QRepWriteType.QREP_WRITE_MODE_OVERWRITE &&
+    !(query.includes('{{.start}}') && query.includes('{{.end}}'))
+  ) {
+    notifyErr(
+      'Please include placeholders {{.start}} and {{.end}} in the query'
+    );
     return;
   }
 

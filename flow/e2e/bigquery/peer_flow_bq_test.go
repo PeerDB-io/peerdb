@@ -1110,8 +1110,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 		Source:            e2e.GeneratePostgresPeer(),
 		CdcStagingPath:    connectionGen.CdcStagingPath,
 		SoftDelete:        true,
-		SoftDeleteColName: "_PEERDB_IS_DELETED",
-		SyncedAtColName:   "_PEERDB_SYNCED_AT",
+		SoftDeleteColName: "_custom_deleted",
+		SyncedAtColName:   "_custom_synced",
 		MaxBatchSize:      100,
 	}
 
@@ -1141,7 +1141,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 	e2e.EnvWaitForEqualTables(env, s, "normalizing tx", "test_softdel_iud", "id,c1,c2,t")
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "checking soft delete", func() bool {
 		newerSyncedAtQuery := fmt.Sprintf(
-			"SELECT COUNT(*) FROM `%s.%s` WHERE _PEERDB_IS_DELETED",
+			"SELECT COUNT(*) FROM `%s.%s` WHERE _custom_deleted",
 			s.bqHelper.Config.DatasetId, dstTableName)
 		numNewRows, err := s.bqHelper.RunInt64Query(newerSyncedAtQuery)
 		e2e.EnvNoError(s.t, env, err)
@@ -1231,7 +1231,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 		s.bqHelper.Config.DatasetId, dstName)
 	numNewRows, err := s.bqHelper.RunInt64Query(newerSyncedAtQuery)
 	require.NoError(s.t, err)
-	require.Equal(s.t, int64(0), numNewRows)
+	require.Equal(s.t, int64(1), numNewRows)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {

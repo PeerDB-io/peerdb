@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
-rust_decimal = { version = "1.30.0", features = [ "tokio-pg" ] }
+rust_decimal.workspace = true
 bytes = "1.0"
 chrono.workspace = true
 futures = "0.3"
@@ -28,6 +28,6 @@ tokio-postgres = { version = "0.7.6", features = [
   "with-serde_json-1",
   "with-uuid-1",
 ] }
-tracing = "0.1"
+tracing.workspace = true
 uuid = { version = "1.0", features = ["serde", "v4"] }
 value = { path = "../value" }

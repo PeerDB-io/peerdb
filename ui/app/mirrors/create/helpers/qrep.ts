@@ -28,7 +28,7 @@ export const qrepSettings: MirrorSetting[] = [
     required: true,
   },
   {
-    label: 'Create Destination Table',
+    label: 'Create Watermark Table On Destination',
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({
         ...curr,
@@ -36,7 +36,7 @@ export const qrepSettings: MirrorSetting[] = [
       })),
     tips: 'Specify if you want to create the watermark table on the destination as-is, can be used for some queries.',
     type: 'switch',
-    default: true,
+    default: false,
   },
   {
     label: 'Destination Table Name',
@@ -123,8 +123,14 @@ export const qrepSettings: MirrorSetting[] = [
         ...curr,
         waitBetweenBatchesSeconds: parseInt(value as string, 10) || 30,
       })),
-    tips: 'Time to wait (in seconds) between getting partitions to process. The default is 30 seconds',
+    tips: 'Time to wait (in seconds) between getting partitions to process. The default is 30 seconds.',
     default: 30,
     type: 'number',
+  },
+  {
+    label: 'Script',
+    stateHandler: (value, setter) =>
+      setter((curr: QRepConfig) => ({ ...curr, script: value as string })),
+    tips: 'Script to use for row transformations. The default is no scripting.',
   },
 ];

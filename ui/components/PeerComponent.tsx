@@ -37,7 +37,7 @@ export const DBTypeToImageMapping = (peerType: DBType | string) => {
       return '/svgs/ms.svg';
     case DBType.KAFKA:
     case 'KAFKA':
-      return '/svgs/kafka.svg';
+      return '/svgs/redpanda.svg';
     case DBType.PUBSUB:
     case 'PUBSUB':
       return '/svgs/pubsub.svg';

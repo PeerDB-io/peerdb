@@ -5,7 +5,10 @@ use pgwire::{api::results::FieldInfo, error::PgWireResult};
 use sqlparser::ast::Statement;
 use value::Value;
 
+mod manager;
 pub mod util;
+
+pub use manager::CursorManager;
 
 pub type Schema = Arc<Vec<FieldInfo>>;
 
@@ -45,4 +48,10 @@ pub enum QueryOutput {
 pub trait QueryExecutor: Send + Sync {
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput>;
     async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<Schema>>;
+}
+
+pub struct Cursor {
+    position: usize,
+    stream: SendableStream,
+    schema: Schema,
 }

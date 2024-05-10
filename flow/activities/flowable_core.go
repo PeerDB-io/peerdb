@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/yuin/gopher-lua"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
@@ -23,6 +24,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/pua"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -187,13 +189,14 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 		syncStartTime = time.Now()
 		res, err = sync(dstConn, errCtx, &model.SyncRecordsRequest[Items]{
-			SyncBatchID:    syncBatchID,
-			Records:        recordBatch,
-			ConsumedOffset: &consumedOffset,
-			FlowJobName:    flowName,
-			TableMappings:  options.TableMappings,
-			StagingPath:    config.CdcStagingPath,
-			Script:         config.Script,
+			SyncBatchID:            syncBatchID,
+			Records:                recordBatch,
+			ConsumedOffset:         &consumedOffset,
+			FlowJobName:            flowName,
+			TableMappings:          options.TableMappings,
+			StagingPath:            config.CdcStagingPath,
+			Script:                 config.Script,
+			TableNameSchemaMapping: options.TableNameSchemaMapping,
 		})
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, flowName, err)
@@ -342,10 +345,25 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	})
 	defer shutdown()
 
-	var rowsSynced int
 	bufferSize := shared.FetchAndChannelSize
-	errGroup, errCtx := errgroup.WithContext(ctx)
 	stream := model.NewQRecordStream(bufferSize)
+	outstream := stream
+	if config.Script != "" {
+		ls, err := utils.LoadScript(ctx, config.Script, utils.LuaPrintFn(func(s string) {
+			a.Alerter.LogFlowInfo(ctx, config.FlowJobName, s)
+		}))
+		if err != nil {
+			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+			return err
+		}
+		lfn := ls.Env.RawGetString("transformRow")
+		if fn, ok := lfn.(*lua.LFunction); ok {
+			outstream = pua.AttachToStream(ls, fn, stream)
+		}
+	}
+
+	var rowsSynced int
+	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
 		tmp, err := srcConn.PullQRepRecords(errCtx, config, partition, stream)
 		if err != nil {
@@ -362,7 +380,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	})
 
 	errGroup.Go(func() error {
-		rowsSynced, err = dstConn.SyncQRepRecords(errCtx, config, partition, stream)
+		rowsSynced, err = dstConn.SyncQRepRecords(errCtx, config, partition, outstream)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return fmt.Errorf("failed to sync records: %w", err)

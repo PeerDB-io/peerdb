@@ -3,7 +3,6 @@
 use std::{
     collections::{HashMap, HashSet},
     ops::ControlFlow,
-    vec,
 };
 
 use anyhow::Context;
@@ -12,12 +11,15 @@ use pt::{
     peerdb_peers::{
         peer::Config, BigqueryConfig, ClickhouseConfig, DbType, EventHubConfig, GcpServiceAccount,
         KafkaConfig, MongoConfig, Peer, PostgresConfig, PubSubConfig, S3Config, SnowflakeConfig,
-        SqlServerConfig,
+        SqlServerConfig, SshConfig,
     },
 };
 use qrep::process_options;
-use sqlparser::ast::CreateMirror::{Select, CDC};
-use sqlparser::ast::{visit_relations, visit_statements, FetchDirection, SqlOption, Statement};
+use sqlparser::ast::{
+    self, visit_relations, visit_statements,
+    CreateMirror::{Select, CDC},
+    Expr, FetchDirection, SqlOption, Statement,
+};
 
 mod qrep;
 
@@ -51,26 +53,38 @@ impl<'a> StatementAnalyzer for PeerExistanceAnalyzer<'a> {
 
     fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output> {
         let mut peers_touched: HashSet<String> = HashSet::new();
+        let mut analyze_name = |name: &str| {
+            let name = name.to_lowercase();
+            if self.peers.contains_key(&name) {
+                peers_touched.insert(name);
+            }
+        };
 
-        // This is necessary as visit relations was not visiting drop table's object names,
-        // causing DROP commands for Postgres peer being interpreted as
-        // catalog queries.
+        // Necessary as visit_relations fails to deeply visit some structures.
         visit_statements(statement, |stmt| {
-            if let &Statement::Drop { names, .. } = &stmt {
-                for name in names {
-                    let peer_name = name.0[0].value.to_lowercase();
-                    if self.peers.contains_key(&peer_name) {
-                        peers_touched.insert(peer_name);
+            match stmt {
+                Statement::Drop { names, .. } => {
+                    for name in names {
+                        analyze_name(&name.0[0].value);
                     }
                 }
+                Statement::Declare { stmts } => {
+                    for stmt in stmts {
+                        if let Some(ref query) = stmt.for_query {
+                            visit_relations(query, |relation| {
+                                analyze_name(&relation.0[0].value);
+                                ControlFlow::<()>::Continue(())
+                            });
+                        }
+                    }
+                }
+                _ => (),
             }
             ControlFlow::<()>::Continue(())
         });
+
         visit_relations(statement, |relation| {
-            let peer_name = relation.0[0].value.to_lowercase();
-            if self.peers.contains_key(&peer_name) {
-                peers_touched.insert(peer_name);
-            }
+            analyze_name(&relation.0[0].value);
             ControlFlow::<()>::Continue(())
         });
 
@@ -162,9 +176,10 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
             } => {
                 match create_mirror {
                     CDC(cdc) => {
-                        let mut flow_job_table_mappings = vec![];
-                        for table_mapping in &cdc.mapping_options {
-                            flow_job_table_mappings.push(FlowJobTableMapping {
+                        let flow_job_table_mappings = cdc
+                            .mapping_options
+                            .iter()
+                            .map(|table_mapping| FlowJobTableMapping {
                                 source_table_identifier: table_mapping.source.to_string(),
                                 destination_table_identifier: table_mapping.destination.to_string(),
                                 partition_key: table_mapping
@@ -176,8 +191,8 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                                     .as_ref()
                                     .map(|ss| ss.iter().map(|s| s.value.clone()).collect())
                                     .unwrap_or_default(),
-                            });
-                        }
+                            })
+                            .collect::<Vec<_>>();
 
                         // get do_initial_copy from with_options
                         let mut raw_options = HashMap::with_capacity(cdc.with_options.len());
@@ -185,9 +200,9 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             raw_options.insert(&option.name.value as &str, &option.value);
                         }
                         let do_initial_copy = match raw_options.remove("do_initial_copy") {
-                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            Some(Expr::Value(ast::Value::Boolean(b))) => *b,
                             // also support "true" and "false" as strings
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => {
                                 match s.as_ref() {
                                     "true" => true,
                                     "false" => false,
@@ -203,9 +218,9 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
 
                         // bool resync true or false, default to false if not in opts
                         let resync = match raw_options.remove("resync") {
-                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            Some(Expr::Value(ast::Value::Boolean(b))) => *b,
                             // also support "true" and "false" as strings
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => {
                                 match s.as_ref() {
                                     "true" => true,
                                     "false" => false,
@@ -218,99 +233,104 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                         let publication_name: Option<String> = match raw_options
                             .remove("publication_name")
                         {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
                             _ => None,
                         };
 
                         let replication_slot_name: Option<String> = match raw_options
                             .remove("replication_slot_name")
                         {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
                             _ => None,
                         };
 
                         let snapshot_num_rows_per_partition: Option<u32> = match raw_options
                             .remove("snapshot_num_rows_per_partition")
                         {
-                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
                             _ => None,
                         };
 
                         let snapshot_num_tables_in_parallel: Option<u32> = match raw_options
                             .remove("snapshot_num_tables_in_parallel")
                         {
-                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
                             _ => None,
                         };
                         let snapshot_staging_path =
                             match raw_options.remove("snapshot_staging_path") {
-                                Some(sqlparser::ast::Value::SingleQuotedString(s)) => s.clone(),
+                                Some(Expr::Value(ast::Value::SingleQuotedString(s))) => s.clone(),
                                 _ => String::new(),
                             };
 
                         let snapshot_max_parallel_workers: Option<u32> = match raw_options
                             .remove("snapshot_max_parallel_workers")
                         {
-                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
                             _ => None,
                         };
 
                         let cdc_staging_path = match raw_options.remove("cdc_staging_path") {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
                             _ => Some("".to_string()),
                         };
 
                         let soft_delete = match raw_options.remove("soft_delete") {
-                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            Some(Expr::Value(ast::Value::Boolean(b))) => *b,
                             _ => false,
                         };
 
                         let push_parallelism: Option<i64> = match raw_options
                             .remove("push_parallelism")
                         {
-                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<i64>()?),
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<i64>()?),
                             _ => None,
                         };
 
                         let push_batch_size: Option<i64> = match raw_options
                             .remove("push_batch_size")
                         {
-                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<i64>()?),
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<i64>()?),
                             _ => None,
                         };
 
                         let max_batch_size: Option<u32> = match raw_options.remove("max_batch_size")
                         {
-                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
+                            _ => None,
+                        };
+
+                        let sync_interval: Option<u64> = match raw_options.remove("sync_interval") {
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u64>()?),
                             _ => None,
                         };
 
                         let soft_delete_col_name: Option<String> = match raw_options
                             .remove("soft_delete_col_name")
                         {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
                             _ => None,
                         };
 
                         let synced_at_col_name: Option<String> = match raw_options
                             .remove("synced_at_col_name")
                         {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
                             _ => None,
                         };
 
                         let initial_copy_only = match raw_options.remove("initial_copy_only") {
-                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            Some(Expr::Value(ast::Value::Boolean(b))) => *b,
                             _ => false,
                         };
 
                         let script = match raw_options.remove("script") {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => s.clone(),
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => s.clone(),
                             _ => String::new(),
                         };
 
                         let system = match raw_options.remove("system") {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => s.clone(),
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => s.clone(),
                             _ => "Q".to_string(),
                         };
 
@@ -332,6 +352,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             push_batch_size,
                             push_parallelism,
                             max_batch_size,
+                            sync_interval,
                             resync,
                             soft_delete_col_name,
                             synced_at_col_name,
@@ -352,15 +373,15 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                     Select(select) => {
                         let mut raw_options = HashMap::with_capacity(select.with_options.len());
                         for option in &select.with_options {
-                            raw_options.insert(&option.name.value as &str, &option.value);
+                            if let Expr::Value(ref value) = option.value {
+                                raw_options.insert(&option.name.value as &str, value);
+                            }
                         }
 
                         // we treat disabled as a special option, and do not pass it to the
                         // flow server, this is primarily used for external orchestration.
                         let mut disabled = false;
-                        if let Some(sqlparser::ast::Value::Boolean(b)) =
-                            raw_options.remove("disabled")
-                        {
+                        if let Some(ast::Value::Boolean(b)) = raw_options.remove("disabled") {
                             disabled = *b;
                         }
 
@@ -411,7 +432,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                 }
 
                 let query_string = match raw_options.remove("query_string") {
-                    Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                    Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
                     _ => None,
                 };
 
@@ -468,12 +489,14 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
                 name, direction, ..
             } => {
                 let count = match direction {
+                    FetchDirection::ForwardAll | FetchDirection::All => usize::MAX,
+                    FetchDirection::Next | FetchDirection::Forward { limit: None } => 1,
                     FetchDirection::Count {
-                        limit: sqlparser::ast::Value::Number(n, _),
+                        limit: ast::Value::Number(n, _),
                     }
                     | FetchDirection::Forward {
-                        limit: Some(sqlparser::ast::Value::Number(n, _)),
-                    } => n.parse::<usize>(),
+                        limit: Some(ast::Value::Number(n, _)),
+                    } => n.parse::<usize>()?,
                     _ => {
                         return Err(anyhow::anyhow!(
                             "invalid fetch direction for cursor: {:?}",
@@ -481,11 +504,11 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
                         ))
                     }
                 };
-                Ok(Some(CursorEvent::Fetch(name.value.clone(), count?)))
+                Ok(Some(CursorEvent::Fetch(name.value.clone(), count)))
             }
             Statement::Close { cursor } => match cursor {
-                sqlparser::ast::CloseCursor::All => Ok(Some(CursorEvent::CloseAll)),
-                sqlparser::ast::CloseCursor::Specific { name } => {
+                ast::CloseCursor::All => Ok(Some(CursorEvent::CloseAll)),
+                ast::CloseCursor::Specific { name } => {
                     Ok(Some(CursorEvent::Close(name.to_string())))
                 }
             },
@@ -498,15 +521,10 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
     let mut opts: HashMap<&str, &str> = HashMap::with_capacity(with_options.len());
     for opt in with_options {
         let val = match opt.value {
-            sqlparser::ast::Value::SingleQuotedString(ref str) => str,
-            sqlparser::ast::Value::Number(ref v, _) => v,
-            sqlparser::ast::Value::Boolean(v) => {
-                if v {
-                    "true"
-                } else {
-                    "false"
-                }
-            }
+            Expr::Value(ast::Value::SingleQuotedString(ref str)) => str,
+            Expr::Value(ast::Value::Number(ref v, _)) => v,
+            Expr::Value(ast::Value::Boolean(true)) => "true",
+            Expr::Value(ast::Value::Boolean(false)) => "false",
             _ => panic!("invalid option type for peer"),
         };
         opts.insert(&opt.name.value, val);
@@ -634,6 +652,19 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
             Config::MongoConfig(mongo_config)
         }
         DbType::Postgres => {
+            let ssh_fields: Option<SshConfig> = match opts.get("ssh_config") {
+                Some(ssh_config) => {
+                    let ssh_config_str = ssh_config.to_string();
+                    if ssh_config_str.is_empty() {
+                        None
+                    } else {
+                        serde_json::from_str(&ssh_config_str)
+                            .context("failed to deserialize ssh_config")?
+                    }
+                }
+                None => None,
+            };
+
             let postgres_config = PostgresConfig {
                 host: opts.get("host").context("no host specified")?.to_string(),
                 port: opts
@@ -655,8 +686,9 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .to_string(),
                 metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
                 transaction_snapshot: "".to_string(),
-                ssh_config: None,
+                ssh_config: ssh_fields,
             };
+
             Config::PostgresConfig(postgres_config)
         }
         DbType::S3 => {
@@ -716,23 +748,23 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .to_string(),
                 s3_path: opts
                     .get("s3_path")
-                    .context("no s3 path specified")?
-                    .to_string(),
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
                 access_key_id: opts
                     .get("access_key_id")
-                    .context("no access key id specified")?
-                    .to_string(),
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
                 secret_access_key: opts
                     .get("secret_access_key")
-                    .context("no secret access key specified")?
-                    .to_string(),
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
                 region: opts
                     .get("region")
-                    .context("no region specified")?
-                    .to_string(),
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
                 disable_tls: opts
                     .get("disable_tls")
-                    .and_then(|s| s.parse::<bool>().ok())
+                    .map(|s| s.parse::<bool>().unwrap_or_default())
                     .unwrap_or_default(),
                 endpoint: opts.get("endpoint").map(|s| s.to_string()),
             };
@@ -903,5 +935,36 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 })
             }
         }
+        DbType::Mysql => Config::MysqlConfig(pt::peerdb_peers::MySqlConfig {
+            host: opts.get("host").context("no host specified")?.to_string(),
+            port: opts
+                .get("port")
+                .context("no port specified")?
+                .parse::<u32>()
+                .context("unable to parse port as valid int")?,
+            user: opts.get("user").cloned().unwrap_or_default().to_string(),
+            password: opts
+                .get("password")
+                .cloned()
+                .unwrap_or_default()
+                .to_string(),
+            database: opts
+                .get("database")
+                .cloned()
+                .unwrap_or_default()
+                .to_string(),
+            setup: opts
+                .get("setup")
+                .map(|s| s.split(';').map(String::from).collect::<Vec<_>>())
+                .unwrap_or_default(),
+            compression: opts
+                .get("compression")
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or_default(),
+            disable_tls: opts
+                .get("disable_tls")
+                .and_then(|s| s.parse::<bool>().ok())
+                .unwrap_or_default(),
+        }),
     }))
 }

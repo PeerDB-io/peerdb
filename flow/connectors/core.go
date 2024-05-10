@@ -13,6 +13,7 @@ import (
 	connelasticsearch "github.com/PeerDB-io/peer-flow/connectors/connelasticsearch"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
 	connkafka "github.com/PeerDB-io/peer-flow/connectors/kafka"
+	connmysql "github.com/PeerDB-io/peer-flow/connectors/mysql"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connpubsub "github.com/PeerDB-io/peer-flow/connectors/pubsub"
 	conns3 "github.com/PeerDB-io/peer-flow/connectors/s3"
@@ -21,9 +22,8 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/otel_metrics"
 )
-
-var ErrUnsupportedFunctionality = errors.New("requested connector does not support functionality")
 
 type Connector interface {
 	Close() error
@@ -72,7 +72,9 @@ type CDCPullConnectorCore interface {
 	PullFlowCleanup(ctx context.Context, jobName string) error
 
 	// HandleSlotInfo update monitoring info on slot size etc
-	HandleSlotInfo(ctx context.Context, alerter *alerting.Alerter, catalogPool *pgxpool.Pool, slotName string, peerName string) error
+	HandleSlotInfo(ctx context.Context, alerter *alerting.Alerter,
+		catalogPool *pgxpool.Pool, slotName string, peerName string,
+		slotLagGauge *otel_metrics.Float64Gauge, openConnectionsGauge *otel_metrics.Int64Gauge) error
 
 	// GetSlotInfo returns the WAL (or equivalent) info of a slot for the connector.
 	GetSlotInfo(ctx context.Context, slotName string) ([]*protos.SlotInfo, error)
@@ -224,14 +226,14 @@ func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 		return connbigquery.NewBigQueryConnector(ctx, inner.BigqueryConfig)
 	case *protos.Peer_SnowflakeConfig:
 		return connsnowflake.NewSnowflakeConnector(ctx, inner.SnowflakeConfig)
-	case *protos.Peer_EventhubConfig:
-		return nil, errors.New("use eventhub group config instead")
 	case *protos.Peer_EventhubGroupConfig:
 		return conneventhub.NewEventHubConnector(ctx, inner.EventhubGroupConfig)
 	case *protos.Peer_S3Config:
 		return conns3.NewS3Connector(ctx, inner.S3Config)
 	case *protos.Peer_SqlserverConfig:
 		return connsqlserver.NewSQLServerConnector(ctx, inner.SqlserverConfig)
+	case *protos.Peer_MysqlConfig:
+		return connmysql.MySqlConnector{}, nil
 	case *protos.Peer_ClickhouseConfig:
 		return connclickhouse.NewClickhouseConnector(ctx, inner.ClickhouseConfig)
 	case *protos.Peer_KafkaConfig:
@@ -241,7 +243,7 @@ func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 	case *protos.Peer_ElasticsearchConfig:
 		return connelasticsearch.NewElasticsearchConnector(ctx, inner.ElasticsearchConfig)
 	default:
-		return nil, ErrUnsupportedFunctionality
+		return nil, errors.ErrUnsupported
 	}
 }
 
@@ -255,7 +257,7 @@ func GetAs[T Connector](ctx context.Context, config *protos.Peer) (T, error) {
 	if conn, ok := conn.(T); ok {
 		return conn, nil
 	} else {
-		return none, ErrUnsupportedFunctionality
+		return none, errors.ErrUnsupported
 	}
 }
 
@@ -304,6 +306,7 @@ var (
 	_ CDCSyncConnector = &connpubsub.PubSubConnector{}
 	_ CDCSyncConnector = &conns3.S3Connector{}
 	_ CDCSyncConnector = &connclickhouse.ClickhouseConnector{}
+	_ CDCSyncConnector = &connelasticsearch.ElasticsearchConnector{}
 
 	_ CDCSyncPgConnector = &connpostgres.PostgresConnector{}
 
@@ -326,8 +329,9 @@ var (
 	_ QRepSyncConnector = &connpostgres.PostgresConnector{}
 	_ QRepSyncConnector = &connbigquery.BigQueryConnector{}
 	_ QRepSyncConnector = &connsnowflake.SnowflakeConnector{}
-	_ QRepSyncConnector = &connclickhouse.ClickhouseConnector{}
+	_ QRepSyncConnector = &connkafka.KafkaConnector{}
 	_ QRepSyncConnector = &conns3.S3Connector{}
+	_ QRepSyncConnector = &connclickhouse.ClickhouseConnector{}
 	_ QRepSyncConnector = &connelasticsearch.ElasticsearchConnector{}
 
 	_ QRepConsolidateConnector = &connsnowflake.SnowflakeConnector{}
@@ -340,4 +344,6 @@ var (
 	_ ValidationConnector = &connclickhouse.ClickhouseConnector{}
 	_ ValidationConnector = &connbigquery.BigQueryConnector{}
 	_ ValidationConnector = &conns3.S3Connector{}
+
+	_ Connector = &connmysql.MySqlConnector{}
 )

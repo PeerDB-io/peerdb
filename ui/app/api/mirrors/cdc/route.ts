@@ -12,7 +12,6 @@ export async function POST(request: Request) {
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
   const req: CreateCDCFlowRequest = {
     connectionConfigs: config,
-    createCatalogEntry: true,
   };
   try {
     const createStatus: CreateCDCFlowResponse = await fetch(

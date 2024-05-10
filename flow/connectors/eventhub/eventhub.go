@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -196,15 +195,9 @@ func (c *EventHubConnector) processBatch(
 	var fn *lua.LFunction
 	if req.Script != "" {
 		var err error
-		ls, err = utils.LoadScript(ctx, req.Script, func(ls *lua.LState) int {
-			top := ls.GetTop()
-			ss := make([]string, top)
-			for i := range top {
-				ss[i] = ls.ToStringMeta(ls.Get(i + 1)).String()
-			}
-			_ = c.LogFlowInfo(ctx, req.FlowJobName, strings.Join(ss, "\t"))
-			return 0
-		})
+		ls, err = utils.LoadScript(ctx, req.Script, utils.LuaPrintFn(func(s string) {
+			_ = c.LogFlowInfo(ctx, req.FlowJobName, s)
+		}))
 		if err != nil {
 			return 0, err
 		}

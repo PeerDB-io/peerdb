@@ -10,18 +10,20 @@ import (
 	"runtime"
 
 	"github.com/grafana/pyroscope-go"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 
 	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/alerting"
 	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/otel_metrics"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
 
-type WorkerOptions struct {
+type WorkerSetupOptions struct {
 	TemporalHostPort                   string
 	PyroscopeServer                    string
 	TemporalNamespace                  string
@@ -30,9 +32,16 @@ type WorkerOptions struct {
 	TemporalMaxConcurrentActivities    int
 	TemporalMaxConcurrentWorkflowTasks int
 	EnableProfiling                    bool
+	EnableOtelMetrics                  bool
 }
 
-func setupPyroscope(opts *WorkerOptions) {
+type workerSetupResponse struct {
+	Client  client.Client
+	Worker  worker.Worker
+	Cleanup func()
+}
+
+func setupPyroscope(opts *WorkerSetupOptions) {
 	if opts.PyroscopeServer == "" {
 		log.Fatal("pyroscope server address is not set but profiling is enabled")
 	}
@@ -73,7 +82,7 @@ func setupPyroscope(opts *WorkerOptions) {
 	}
 }
 
-func WorkerMain(opts *WorkerOptions) (client.Client, worker.Worker, error) {
+func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 	if opts.EnableProfiling {
 		setupPyroscope(opts)
 	}
@@ -86,9 +95,9 @@ func WorkerMain(opts *WorkerOptions) (client.Client, worker.Worker, error) {
 
 	if opts.TemporalCert != "" && opts.TemporalKey != "" {
 		slog.Info("Using temporal certificate/key for authentication")
-		certs, err := Base64DecodeCertAndKey(opts.TemporalCert, opts.TemporalKey)
+		certs, err := base64DecodeCertAndKey(opts.TemporalCert, opts.TemporalKey)
 		if err != nil {
-			return nil, nil, fmt.Errorf("unable to process certificate and key: %w", err)
+			return nil, fmt.Errorf("unable to process certificate and key: %w", err)
 		}
 		connOptions := client.ConnectionOptions{
 			TLS: &tls.Config{
@@ -101,12 +110,12 @@ func WorkerMain(opts *WorkerOptions) (client.Client, worker.Worker, error) {
 
 	conn, err := peerdbenv.GetCatalogConnectionPoolFromEnv(context.Background())
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
+		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
 
 	c, err := client.Dial(clientOptions)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to create Temporal client: %w", err)
+		return nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 	slog.Info("Created temporal client")
 
@@ -128,11 +137,38 @@ func WorkerMain(opts *WorkerOptions) (client.Client, worker.Worker, error) {
 	})
 	peerflow.RegisterFlowWorkerWorkflows(w)
 
+	var metricsProvider *sdkmetric.MeterProvider
+	var otelManager *otel_metrics.OtelManager
+	if opts.EnableOtelMetrics {
+		metricsProvider, err = otel_metrics.SetupOtelMetricsExporter("flow-worker")
+		if err != nil {
+			return nil, err
+		}
+		otelManager = &otel_metrics.OtelManager{
+			MetricsProvider:    metricsProvider,
+			Meter:              metricsProvider.Meter("io.peerdb.flow-worker"),
+			Float64GaugesCache: make(map[string]*otel_metrics.Float64Gauge),
+			Int64GaugesCache:   make(map[string]*otel_metrics.Int64Gauge),
+		}
+	}
 	w.RegisterActivity(&activities.FlowableActivity{
 		CatalogPool: conn,
 		Alerter:     alerting.NewAlerter(context.Background(), conn),
 		CdcCache:    make(map[string]activities.CdcCacheEntry),
+		OtelManager: otelManager,
 	})
 
-	return c, w, nil
+	return &workerSetupResponse{
+		Client: c,
+		Worker: w,
+		Cleanup: func() {
+			if otelManager != nil {
+				err := otelManager.MetricsProvider.Shutdown(context.Background())
+				if err != nil {
+					slog.Error("Failed to shutdown metrics provider", slog.Any("error", err))
+				}
+			}
+			c.Close()
+		},
+	}, nil
 }
