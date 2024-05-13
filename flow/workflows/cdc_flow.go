@@ -508,7 +508,7 @@ func CDCFlowWorkflow(
 		normDoneChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
 		normDoneChan.Drain()
 		normDoneChan.AddToSelector(mainLoopSelector, func(x struct{}, _ bool) {
-			if syncCount == int(syncCountLimit) {
+			if syncCount == syncCountLimit {
 				logger.Info("sync count limit reached, pausing",
 					slog.Int("limit", syncCountLimit),
 					slog.Int("count", syncCount))
