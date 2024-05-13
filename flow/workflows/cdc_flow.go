@@ -221,7 +221,6 @@ func CDCFlowWorkflow(
 
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
 	flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
-
 	err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (CDCFlowWorkflowState, error) {
 		return *state, nil
 	})
@@ -246,11 +245,20 @@ func CDCFlowWorkflow(
 		shared.MirrorNameSearchAttribute: cfg.FlowJobName,
 	}
 
+	var syncCountLimit int
 	if state.ActiveSignal == model.PauseSignal {
 		selector := workflow.NewNamedSelector(ctx, "PauseLoop")
 		selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
-		flowSignalChan.AddToSelector(selector, func(val model.CDCFlowSignal, _ bool) {
-			state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, logger)
+		flowSignalChan.AddToSelector(selector, func(val model.CDCFlowSignalProperties, _ bool) {
+			cdcFlowData := model.FlowSignalHandler(state.ActiveSignal, val.Signal, logger)
+			slog.Info("value of signal", slog.Any("signal", cdcFlowData.Signal))
+			slog.Info("cdc signal val", slog.Any("val", val))
+			state.ActiveSignal = cdcFlowData.Signal
+			syncCountLimit = val.CustomNumberOfSyncs
+			if syncCountLimit <= 0 {
+				syncCountLimit = MaxSyncsPerCdcFlow
+			}
+			slog.Info("sync limit reception inside pause", slog.Int("limit", syncCountLimit))
 		})
 		addCdcPropertiesSignalListener(ctx, logger, selector, state)
 
@@ -407,7 +415,6 @@ func CDCFlowWorkflow(
 
 	var restart, finished bool
 	syncCount := 0
-
 	syncFlowOpts := workflow.ChildWorkflowOptions{
 		WorkflowID:        syncFlowID,
 		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
@@ -476,13 +483,20 @@ func CDCFlowWorkflow(
 		}
 
 		logger.Info("normalize finished, finishing")
+		if syncCount == int(syncCountLimit) {
+			logger.Info("sync count limit reached, pausing",
+				slog.Int("limit", syncCountLimit),
+				slog.Int("count", syncCount))
+			state.ActiveSignal = model.PauseSignal
+		}
 		normFlowFuture = nil
 		restart = true
 		finished = true
 	})
 
-	flowSignalChan.AddToSelector(mainLoopSelector, func(val model.CDCFlowSignal, _ bool) {
-		state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, logger)
+	flowSignalChan.AddToSelector(mainLoopSelector, func(val model.CDCFlowSignalProperties, _ bool) {
+		cdcFlowData := model.FlowSignalHandler(state.ActiveSignal, val.Signal, logger)
+		state.ActiveSignal = cdcFlowData.Signal
 	})
 
 	syncResultChan := model.SyncResultSignal.GetSignalChannel(ctx)

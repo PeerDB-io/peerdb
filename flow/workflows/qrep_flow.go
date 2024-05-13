@@ -322,7 +322,7 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 
 func (q *QRepFlowExecution) waitForNewRows(
 	ctx workflow.Context,
-	signalChan model.TypedReceiveChannel[model.CDCFlowSignal],
+	signalChan model.TypedReceiveChannel[model.CDCFlowSignalProperties],
 	lastPartition *protos.QRepPartition,
 ) error {
 	ctx = workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
@@ -336,8 +336,8 @@ func (q *QRepFlowExecution) waitForNewRows(
 	var newRows bool
 	var waitErr error
 	waitSelector := workflow.NewNamedSelector(ctx, "WaitForRows")
-	signalChan.AddToSelector(waitSelector, func(val model.CDCFlowSignal, _ bool) {
-		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
+	signalChan.AddToSelector(waitSelector, func(val model.CDCFlowSignalProperties, _ bool) {
+		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val.Signal, q.logger).Signal
 	})
 	waitSelector.AddFuture(future, func(f workflow.Future) {
 		newRows = true
@@ -545,7 +545,7 @@ func QRepFlowWorkflow(
 			// only place we block on receive, so signal processing is immediate
 			val, ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute)
 			if ok {
-				q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
+				q.activeSignal = model.FlowSignalHandler(q.activeSignal, val.Signal, q.logger).Signal
 			} else if err := ctx.Err(); err != nil {
 				return state, err
 			}
@@ -621,7 +621,7 @@ func QRepFlowWorkflow(
 		if !ok {
 			break
 		}
-		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
+		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val.Signal, q.logger).Signal
 	}
 
 	logger.Info("Continuing as new workflow",

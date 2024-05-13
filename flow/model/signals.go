@@ -100,6 +100,10 @@ func (self TypedReceiveChannel[T]) AddToSelector(selector workflow.Selector, f f
 }
 
 type CDCFlowSignal int64
+type CDCFlowSignalProperties struct {
+	Signal              CDCFlowSignal
+	CustomNumberOfSyncs int
+}
 
 const (
 	NoopSignal CDCFlowSignal = iota
@@ -109,25 +113,31 @@ const (
 
 func FlowSignalHandler(activeSignal CDCFlowSignal,
 	v CDCFlowSignal, logger log.Logger,
-) CDCFlowSignal {
+) CDCFlowSignalProperties {
 	switch v {
 	case PauseSignal:
 		logger.Info("received pause signal")
 		if activeSignal == NoopSignal {
 			logger.Info("workflow was running, pausing it")
-			return v
+			return CDCFlowSignalProperties{
+				Signal: v,
+			}
 		}
 	case NoopSignal:
 		logger.Info("received resume signal")
 		if activeSignal == PauseSignal {
 			logger.Info("workflow was paused, resuming it")
-			return v
+			return CDCFlowSignalProperties{
+				Signal: v,
+			}
 		}
 	}
-	return activeSignal
+	return CDCFlowSignalProperties{
+		Signal: activeSignal,
+	}
 }
 
-var FlowSignal = TypedSignal[CDCFlowSignal]{
+var FlowSignal = TypedSignal[CDCFlowSignalProperties]{
 	Name: "peer-flow-signal",
 }
 

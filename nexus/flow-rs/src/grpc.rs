@@ -114,6 +114,7 @@ impl FlowGrpcClient {
             source_peer: Some(workflow_details.source_peer),
             destination_peer: Some(workflow_details.destination_peer),
             flow_config_update,
+            custom_number_of_syncs:0,
         };
         let response = self.client.flow_state_change(state_change_req).await?;
         let state_change_response = response.into_inner();
@@ -178,7 +179,7 @@ impl FlowGrpcClient {
             initial_snapshot_only: job.initial_snapshot_only,
             script: job.script.clone(),
             system: system as i32,
-            idle_timeout_seconds: job.sync_interval.unwrap_or_default(),
+            idle_timeout_seconds: job.sync_interval.unwrap_or_default()
         };
 
         if job.soft_delete && job.soft_delete_col_name.is_none() {
