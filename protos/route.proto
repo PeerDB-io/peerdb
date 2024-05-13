@@ -228,7 +228,6 @@ message FlowStateChangeRequest {
   peerdb_peers.Peer destination_peer = 4;
   // only can be sent in certain situations
   optional peerdb_flow.FlowConfigUpdate flow_config_update = 5;
-  int32 customNumberOfSyncs = 6;
 }
 
 message FlowStateChangeResponse {

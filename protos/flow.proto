@@ -111,6 +111,7 @@ message SyncFlowOptions {
   map<uint32, string> src_table_id_name_mapping = 4;
   map<string, TableSchema> table_name_schema_mapping = 5;
   repeated TableMapping table_mappings = 6;
+  int32 number_of_syncs = 7;
 }
 
 message StartNormalizeInput {
@@ -371,6 +372,7 @@ message CDCFlowConfigUpdate {
   repeated TableMapping additional_tables = 1;
   uint32 batch_size = 2;
   uint64 idle_timeout = 3;
+  int32 number_of_syncs = 4;
 }
 
 message QRepFlowConfigUpdate {

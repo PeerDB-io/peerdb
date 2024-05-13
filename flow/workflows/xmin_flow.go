@@ -42,7 +42,7 @@ func XminFlowWorkflow(
 			// only place we block on receive, so signal processing is immediate
 			val, ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute)
 			if ok {
-				q.activeSignal = model.FlowSignalHandler(q.activeSignal, val.Signal, logger).Signal
+				q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, logger)
 			} else if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -109,7 +109,7 @@ func XminFlowWorkflow(
 		if !ok {
 			break
 		}
-		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val.Signal, q.logger).Signal
+		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
 	}
 
 	logger.Info("Continuing as new workflow",

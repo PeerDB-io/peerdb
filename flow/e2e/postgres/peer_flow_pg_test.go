@@ -991,9 +991,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 
 	if !s.t.Failed() {
 		addRows(1)
-		e2e.SignalWorkflow(env, model.FlowSignal, model.CDCFlowSignalProperties{
-			Signal: model.PauseSignal,
-		})
+		e2e.SignalWorkflow(env, model.FlowSignal, model.PauseSignal)
 		addRows(1)
 		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "paused workflow", func() bool {
 			// keep adding 1 more row - finishing another sync
@@ -1017,9 +1015,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		// add rows to both tables before resuming - should handle
 		addRows(18)
 
-		e2e.SignalWorkflow(env, model.FlowSignal, model.CDCFlowSignalProperties{
-			Signal: model.NoopSignal,
-		})
+		e2e.SignalWorkflow(env, model.FlowSignal, model.NoopSignal)
 
 		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "resumed workflow", func() bool {
 			return getFlowStatus() == protos.FlowStatus_STATUS_RUNNING

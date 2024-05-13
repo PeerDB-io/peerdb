@@ -430,9 +430,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				h.temporalClient,
 				workflowID,
 				"",
-				model.CDCFlowSignalProperties{
-					Signal: model.PauseSignal,
-				},
+				model.PauseSignal,
 			)
 		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_RUNNING &&
 			currState == protos.FlowStatus_STATUS_PAUSED {
@@ -441,10 +439,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				h.temporalClient,
 				workflowID,
 				"",
-				model.CDCFlowSignalProperties{
-					Signal:              model.NoopSignal,
-					CustomNumberOfSyncs: int(req.CustomNumberOfSyncs),
-				},
+				model.NoopSignal,
 			)
 		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED &&
 			(currState != protos.FlowStatus_STATUS_TERMINATED) {
