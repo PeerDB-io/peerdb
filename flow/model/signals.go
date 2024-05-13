@@ -100,6 +100,7 @@ func (self TypedReceiveChannel[T]) AddToSelector(selector workflow.Selector, f f
 }
 
 type CDCFlowSignal int64
+
 type CDCFlowSignalProperties struct {
 	Signal              CDCFlowSignal
 	CustomNumberOfSyncs int
