@@ -30,13 +30,15 @@ func (h *FlowRequestHandler) MirrorStatus(
 
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
-		return nil, err
+		return &protos.MirrorStatusResponse{
+			ErrorMessage: "unable to get workflow ID " + err.Error(),
+		}, nil
 	}
 
 	currState, err := h.getWorkflowStatus(ctx, workflowID)
 	if err != nil {
 		return &protos.MirrorStatusResponse{
-			ErrorMessage: "unable to get flow state: " + err.Error(),
+			ErrorMessage: "unable to get workflow status " + err.Error(),
 		}, nil
 	}
 

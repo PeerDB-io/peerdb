@@ -25,6 +25,18 @@ message CreateQRepFlowResponse {
   string workflow_id = 1;
 }
 
+message CreateCustomFlowRequest {
+  string flow_job_name = 1;
+  int32 number_of_syncs = 2;
+}
+
+message CreateCustomFlowResponse {
+  string flow_job_name = 1;
+  int32 number_of_syncs = 2;
+  string error_message = 3;
+  bool ok = 4;
+}
+
 message ShutdownRequest {
   string workflow_id = 1;
   string flow_job_name = 2;
@@ -216,6 +228,7 @@ message FlowStateChangeRequest {
   peerdb_peers.Peer destination_peer = 4;
   // only can be sent in certain situations
   optional peerdb_flow.FlowConfigUpdate flow_config_update = 5;
+  int32 customNumberOfSyncs = 6;
 }
 
 message FlowStateChangeResponse {
@@ -237,7 +250,7 @@ service FlowService {
       body: "*"
      };
   }
-    rpc ValidateCDCMirror(CreateCDCFlowRequest) returns (ValidateCDCMirrorResponse) {
+  rpc ValidateCDCMirror(CreateCDCFlowRequest) returns (ValidateCDCMirrorResponse) {
     option (google.api.http) = {
       post: "/v1/mirrors/cdc/validate",
       body: "*"
@@ -255,6 +268,7 @@ service FlowService {
       body: "*"
     };
   }
+
   rpc CreateCDCFlow(CreateCDCFlowRequest) returns (CreateCDCFlowResponse) {
     option (google.api.http) = {
       post: "/v1/flows/cdc/create",
@@ -264,6 +278,12 @@ service FlowService {
   rpc CreateQRepFlow(CreateQRepFlowRequest) returns (CreateQRepFlowResponse) {
     option (google.api.http) = {
       post: "/v1/flows/qrep/create",
+      body: "*"
+     };
+  }
+  rpc CustomSyncFlow(CreateCustomFlowRequest) returns (CreateCustomFlowResponse) {
+    option (google.api.http) = {
+      post: "/v1/flows/cdc/create/custom",
       body: "*"
      };
   }
@@ -294,6 +314,7 @@ service FlowService {
   rpc GetStatInfo(PostgresPeerActivityInfoRequest) returns (PeerStatResponse) {
     option (google.api.http) = { get: "/v1/peers/stats/{peer_name}" };
   }
+
   rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {
     option (google.api.http) = { post: "/v1/mirrors/drop", body: "*" };
   }

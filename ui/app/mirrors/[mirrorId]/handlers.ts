@@ -28,6 +28,7 @@ export const changeFlowState = async (
     sourcePeer: mirrorConfig.source,
     destinationPeer: mirrorConfig.destination,
     requestedFlowState: flowState,
+    customNumberOfSyncs:0
   };
   await fetch(`/api/mirrors/state_change`, {
     method: 'POST',

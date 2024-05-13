@@ -248,6 +248,9 @@ type RenameTablesConnector interface {
 }
 
 func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
+	if config == nil {
+		return nil, errors.ErrUnsupported
+	}
 	switch inner := config.Config.(type) {
 	case *protos.Peer_PostgresConfig:
 		return connpostgres.NewPostgresConnector(ctx, inner.PostgresConfig)
