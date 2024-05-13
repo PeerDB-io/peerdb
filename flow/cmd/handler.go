@@ -436,7 +436,6 @@ func (h *FlowRequestHandler) FlowStateChange(
 			)
 		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_RUNNING &&
 			currState == protos.FlowStatus_STATUS_PAUSED {
-			slog.Info("Resume handler", slog.Int("customNumberOfSyncs", int(req.CustomNumberOfSyncs)))
 			err = model.FlowSignal.SignalClientWorkflow(
 				ctx,
 				h.temporalClient,
