@@ -47,6 +47,7 @@ func NewCDCFlowWorkflowState(cfg *protos.FlowConnectionConfigs) *CDCFlowWorkflow
 			BatchSize:          cfg.MaxBatchSize,
 			IdleTimeoutSeconds: cfg.IdleTimeoutSeconds,
 			TableMappings:      tableMappings,
+			NumberOfSyncs:      0,
 		},
 	}
 }
@@ -168,13 +169,16 @@ func addCdcPropertiesSignalListener(
 		if cdcConfigUpdate.IdleTimeout > 0 {
 			state.SyncFlowOptions.IdleTimeoutSeconds = cdcConfigUpdate.IdleTimeout
 		}
+		if cdcConfigUpdate.NumberOfSyncs > 0 {
+			state.SyncFlowOptions.NumberOfSyncs = cdcConfigUpdate.NumberOfSyncs
+		}
 		// do this irrespective of additional tables being present, for auto unpausing
 		state.FlowConfigUpdate = cdcConfigUpdate
-
 		logger.Info("CDC Signal received. Parameters on signal reception:",
 			slog.Int("BatchSize", int(state.SyncFlowOptions.BatchSize)),
 			slog.Int("IdleTimeout", int(state.SyncFlowOptions.IdleTimeoutSeconds)),
-			slog.Any("AdditionalTables", cdcConfigUpdate.AdditionalTables))
+			slog.Any("AdditionalTables", cdcConfigUpdate.AdditionalTables),
+			slog.Int("NumberOfSyncs", int(state.SyncFlowOptions.NumberOfSyncs)))
 	})
 }
 
@@ -249,16 +253,11 @@ func CDCFlowWorkflow(
 	if state.ActiveSignal == model.PauseSignal {
 		selector := workflow.NewNamedSelector(ctx, "PauseLoop")
 		selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
-		flowSignalChan.AddToSelector(selector, func(val model.CDCFlowSignalProperties, _ bool) {
-			cdcFlowData := model.FlowSignalHandler(state.ActiveSignal, val.Signal, logger)
-			state.ActiveSignal = cdcFlowData.Signal
-			syncCountLimit = val.CustomNumberOfSyncs
-			if syncCountLimit <= 0 {
-				syncCountLimit = MaxSyncsPerCdcFlow
-			}
+		flowSignalChan.AddToSelector(selector, func(val model.CDCFlowSignal, _ bool) {
+			state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, logger)
 		})
 		addCdcPropertiesSignalListener(ctx, logger, selector, state)
-
+		syncCountLimit = int(state.SyncFlowOptions.NumberOfSyncs)
 		startTime := workflow.Now(ctx)
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
 
@@ -485,9 +484,8 @@ func CDCFlowWorkflow(
 		finished = true
 	})
 
-	flowSignalChan.AddToSelector(mainLoopSelector, func(val model.CDCFlowSignalProperties, _ bool) {
-		cdcFlowData := model.FlowSignalHandler(state.ActiveSignal, val.Signal, logger)
-		state.ActiveSignal = cdcFlowData.Signal
+	flowSignalChan.AddToSelector(mainLoopSelector, func(val model.CDCFlowSignal, _ bool) {
+		state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, logger)
 	})
 
 	syncResultChan := model.SyncResultSignal.GetSignalChannel(ctx)

@@ -416,9 +416,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Pause() {
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.RunQRepFlowWorkflow(tc, config)
-	e2e.SignalWorkflow(env, model.FlowSignal, model.CDCFlowSignalProperties{
-		Signal: model.PauseSignal,
-	})
+	e2e.SignalWorkflow(env, model.FlowSignal, model.PauseSignal)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing", func() bool {
 		response, err := env.Query(shared.QRepFlowStateQuery)
@@ -433,9 +431,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Pause() {
 		}
 		return state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSED
 	})
-	e2e.SignalWorkflow(env, model.FlowSignal, model.CDCFlowSignalProperties{
-		Signal: model.NoopSignal,
-	})
+	e2e.SignalWorkflow(env, model.FlowSignal, model.NoopSignal)
 	e2e.EnvWaitFor(s.t, env, time.Minute, "unpausing", func() bool {
 		response, err := env.Query(shared.QRepFlowStateQuery)
 		if err != nil {

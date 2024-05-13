@@ -78,10 +78,15 @@ func (h *FlowRequestHandler) CustomSyncFlow(
 
 	// Resume mirror with custom sync number
 	_, err = h.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
-		FlowJobName:         req.FlowJobName,
-		RequestedFlowState:  protos.FlowStatus_STATUS_RUNNING,
-		FlowConfigUpdate:    nil,
-		CustomNumberOfSyncs: req.NumberOfSyncs,
+		FlowJobName:        req.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+					NumberOfSyncs: req.NumberOfSyncs,
+				},
+			},
+		},
 	})
 	if err != nil {
 		return &protos.CreateCustomFlowResponse{
