@@ -98,6 +98,14 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		metadataSchema = *pgConfig.MetadataSchema
 	}
 
+	// set intervalstyle to postgres
+	// for this connection, so that we can get the interval in the format we expect
+	_, err = conn.Exec(ctx, "SET intervalstyle = 'postgres'")
+	if err != nil {
+		logger.Error("failed to set intervalstyle", slog.Any("error", err))
+		return nil, fmt.Errorf("failed to set intervalstyle: %w", err)
+	}
+
 	return &PostgresConnector{
 		connStr:                connectionString,
 		config:                 pgConfig,
