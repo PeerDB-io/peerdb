@@ -195,7 +195,7 @@ func (h *FlowRequestHandler) GetColumns(
 
 	rows, err := peerConn.Query(ctx, `
 	SELECT
-    attname AS column_name,
+    distinct attname AS column_name,
     format_type(atttypid, atttypmod) AS data_type,
     CASE
         WHEN attnum = ANY(conkey) THEN true
@@ -217,7 +217,7 @@ func (h *FlowRequestHandler) GetColumns(
 		AND pg_attribute.attnum > 0
 		AND NOT attisdropped
 	ORDER BY
-    attnum;
+    column_name;
 	`, req.SchemaName, req.TableName)
 	if err != nil {
 		return &protos.TableColumnsResponse{Columns: nil}, err
