@@ -94,7 +94,9 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	FROM pg_class t
 	LEFT JOIN pg_namespace n ON t.relnamespace = n.oid
 	LEFT JOIN pg_constraint con ON con.conrelid = t.oid
-	WHERE n.nspname = $1 AND t.relkind = 'r' ORDER BY t.relname, can_mirror DESC;
+	WHERE n.nspname = $1 AND `+
+		relKindFilterClause+
+		`AND t.relispartition IS NOT TRUE ORDER BY t.relname, can_mirror DESC;
 `, req.SchemaName)
 	if err != nil {
 		slog.Info("failed to fetch publications", slog.Any("error", err))
