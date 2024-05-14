@@ -86,6 +86,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	// ensure that replication is set to database
 	replConfig.Config.RuntimeParams["replication"] = "database"
 	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
+	replConfig.Config.RuntimeParams["intervalstyle"] = "postgres"
 
 	customTypeMap, err := shared.GetCustomDataTypes(ctx, conn)
 	if err != nil {
