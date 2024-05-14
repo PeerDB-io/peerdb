@@ -456,7 +456,8 @@ func PullCdcRecords[Items model.Items](
 
 			logger.Debug(fmt.Sprintf("XLogData => WALStart %s ServerWALEnd %s ServerTime %s\n",
 				xld.WALStart, xld.ServerWALEnd, xld.ServerTime))
-			if err := processXLogData(ctx, p, records, xld, clientXLogPos, req.TableNameSchemaMapping, req.TableNameMapping, cdcRecordStore, addRecordWithKey, processor); err != nil {
+			if err := processXLogData(ctx, p, records, xld, clientXLogPos,
+				req.TableNameSchemaMapping, req.TableNameMapping, cdcRecordStore, addRecordWithKey, processor); err != nil {
 				return fmt.Errorf("error processing message: %w", err)
 			}
 
@@ -500,7 +501,8 @@ func processXLogData[Items model.Items](
 	if err != nil {
 		return fmt.Errorf("error parsing logical message: %w", err)
 	}
-	return processMessage(ctx, p, batch, xld, logicalMsg, currentClientXlogPos, tableNameSchemaMapping, tableNameMapping, cdcRecordStore, addRecordWithKey, processor)
+	return processMessage(ctx, p, batch, xld, logicalMsg, currentClientXlogPos,
+		tableNameSchemaMapping, tableNameMapping, cdcRecordStore, addRecordWithKey, processor)
 }
 
 func processMessage[Items model.Items](
@@ -543,7 +545,8 @@ func processMessage[Items model.Items](
 		p.commitLock = nil
 	case *pglogrepl.StreamCommitMessageV2:
 		for _, m := range p.txBuffer[msg.Xid] {
-			if err := processMessage(ctx, p, batch, xld, m, currentClientXlogPos, tableNameSchemaMapping, tableNameMapping, cdcRecordStore, addRecordWithKey, processor); err != nil {
+			if err := processMessage(ctx, p, batch, xld, m, currentClientXlogPos,
+				tableNameSchemaMapping, tableNameMapping, cdcRecordStore, addRecordWithKey, processor); err != nil {
 				return err
 			}
 		}

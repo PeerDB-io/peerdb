@@ -160,7 +160,9 @@ func (c *PostgresConnector) MaybeStartReplication(
 		c.replState.Slot != slotName ||
 		c.replState.Version != version ||
 		c.replState.Publication != publicationName) {
-		msg := fmt.Sprintf("replState changed, reset connector. slot name: old=%s new=%s, version: old=%d new=%d, publication: old=%s new=%s, offset: old=%d new=%d",
+		msg := fmt.Sprintf(
+			"replState changed, reset connector. "+
+				"slot name: old=%s new=%s, version: old=%d new=%d, publication: old=%s new=%s, offset: old=%d new=%d",
 			c.replState.Slot, slotName, c.replState.Version, version, c.replState.Publication, publicationName, c.replState.Offset, lastOffset,
 		)
 		c.logger.Info(msg)
