@@ -168,7 +168,7 @@ func (qProcessor) Process(
 		// bytea also appears here as a hex
 		data, err := p.decodeColumnData(tuple.Data, col.DataType, pgtype.TextFormatCode)
 		if err != nil {
-			slog.Error("error decoding text column data", slog.Any("error", err),
+			p.logger.Error("error decoding text column data", slog.Any("error", err),
 				slog.Any("columnName", col.Name))
 			return fmt.Errorf("error decoding text column data: %w", err)
 		}
