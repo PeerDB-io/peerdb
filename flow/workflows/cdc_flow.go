@@ -261,7 +261,6 @@ func CDCFlowWorkflow(
 			state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, logger)
 		})
 		addCdcPropertiesSignalListener(ctx, logger, selector, state)
-		syncCountLimit = int(state.SyncFlowOptions.NumberOfSyncs)
 		startTime := workflow.Now(ctx)
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
 
@@ -287,6 +286,7 @@ func CDCFlowWorkflow(
 				if err != nil {
 					return state, err
 				}
+				syncCountLimit = int(state.SyncFlowOptions.NumberOfSyncs)
 				logger.Info("wiping flow state after state update processing")
 				// finished processing, wipe it
 				state.FlowConfigUpdate = nil
