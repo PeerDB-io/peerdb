@@ -12,6 +12,7 @@ import (
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName string) (*protos.PostgresConfig, error) {
@@ -87,6 +88,17 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	defer tunnel.Close()
 	defer peerConn.Close(ctx)
 
+	pgVersion, err := shared.GetMajorVersion(ctx, peerConn)
+	if err != nil {
+		slog.Error("unable to get pgversion for schema tables", slog.Any("error", err))
+		return &protos.SchemaTablesResponse{Tables: nil}, err
+	}
+
+	relKindFilterClause := "t.relkind IN ('r', 'p')"
+	if pgVersion <= shared.POSTGRES_12 {
+		relKindFilterClause = "t.relkind = 'r'"
+	}
+
 	rows, err := peerConn.Query(ctx, `SELECT DISTINCT ON (t.relname)
 		t.relname,
 		(con.contype = 'p' OR t.relreplident in ('i', 'f')) AS can_mirror,
@@ -94,8 +106,9 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	FROM pg_class t
 	LEFT JOIN pg_namespace n ON t.relnamespace = n.oid
 	LEFT JOIN pg_constraint con ON con.conrelid = t.oid
-	WHERE n.nspname = $1 AND t.relkind = 'r' AND t.relispartition != true
-	ORDER BY t.relname, can_mirror DESC;
+	WHERE n.nspname = $1 AND `+
+		relKindFilterClause+
+		` ORDER BY t.relname, can_mirror DESC;
 `, req.SchemaName)
 	if err != nil {
 		slog.Info("failed to fetch publications", slog.Any("error", err))
@@ -182,7 +195,7 @@ func (h *FlowRequestHandler) GetColumns(
 
 	rows, err := peerConn.Query(ctx, `
 	SELECT
-    distinct attname AS column_name,
+    attname AS column_name,
     format_type(atttypid, atttypmod) AS data_type,
     CASE
         WHEN attnum = ANY(conkey) THEN true
@@ -204,7 +217,7 @@ func (h *FlowRequestHandler) GetColumns(
 		AND pg_attribute.attnum > 0
 		AND NOT attisdropped
 	ORDER BY
-    column_name;
+    attnum;
 	`, req.SchemaName, req.TableName)
 	if err != nil {
 		return &protos.TableColumnsResponse{Columns: nil}, err
