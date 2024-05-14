@@ -82,6 +82,10 @@ const CDCCheck = (
     config.replicationSlotName = '';
   }
 
+  if (IsQueuePeer(config.destination?.type)) {
+    config.softDelete = false;
+  }
+
   return '';
 };
 
