@@ -12,6 +12,7 @@ import (
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName string) (*protos.PostgresConfig, error) {
@@ -86,6 +87,17 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	}
 	defer tunnel.Close()
 	defer peerConn.Close(ctx)
+
+	pgVersion, err := shared.GetMajorVersion(ctx, peerConn)
+	if err != nil {
+		slog.Error("unable to get pgversion for schema tables", slog.Any("error", err))
+		return &protos.SchemaTablesResponse{Tables: nil}, err
+	}
+
+	relKindFilterClause := "t.relkind IN ('r', 'p')"
+	if pgVersion <= shared.POSTGRES_12 {
+		relKindFilterClause = "t.relkind = 'r'"
+	}
 
 	rows, err := peerConn.Query(ctx, `SELECT DISTINCT ON (t.relname)
 		t.relname,
@@ -183,7 +195,7 @@ func (h *FlowRequestHandler) GetColumns(
 
 	rows, err := peerConn.Query(ctx, `
 	SELECT
-    distinct attname AS column_name,
+    attname AS column_name,
     format_type(atttypid, atttypmod) AS data_type,
     CASE
         WHEN attnum = ANY(conkey) THEN true
@@ -205,7 +217,7 @@ func (h *FlowRequestHandler) GetColumns(
 		AND pg_attribute.attnum > 0
 		AND NOT attisdropped
 	ORDER BY
-    column_name;
+    attnum;
 	`, req.SchemaName, req.TableName)
 	if err != nil {
 		return &protos.TableColumnsResponse{Columns: nil}, err
