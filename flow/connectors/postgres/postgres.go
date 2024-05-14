@@ -70,6 +70,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	runtimeParams := connConfig.Config.RuntimeParams
 	runtimeParams["idle_in_transaction_session_timeout"] = "0"
 	runtimeParams["statement_timeout"] = "0"
+	runtimeParams["intervalstyle"] = "postgres"
 
 	tunnel, err := NewSSHTunnel(ctx, pgConfig.SshConfig)
 	if err != nil {
@@ -86,13 +87,6 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	// ensure that replication is set to database
 	replConfig.Config.RuntimeParams["replication"] = "database"
 	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
-	// set intervalstyle to postgres
-	// for this connection, so that we can get the interval in the format we expect
-	_, err = conn.Exec(ctx, "SET intervalstyle = 'postgres'")
-	if err != nil {
-		logger.Error("failed to set intervalstyle", slog.Any("error", err))
-		return nil, fmt.Errorf("failed to set intervalstyle: %w", err)
-	}
 
 	customTypeMap, err := shared.GetCustomDataTypes(ctx, conn)
 	if err != nil {
