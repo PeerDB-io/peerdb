@@ -3,7 +3,6 @@ package otel_metrics
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/metric"
@@ -15,8 +14,8 @@ import (
 type OtelManager struct {
 	MetricsProvider    *sdkmetric.MeterProvider
 	Meter              metric.Meter
-	Float64GaugesCache map[string]*Float64Gauge
-	Int64GaugesCache   map[string]*Int64Gauge
+	Float64GaugesCache map[string]*Float64SyncGauge
+	Int64GaugesCache   map[string]*Int64SyncGauge
 }
 
 // newOtelResource returns a resource describing this application.
@@ -40,15 +39,15 @@ func SetupOtelMetricsExporter(otelServiceName string) (*sdkmetric.MeterProvider,
 		return nil, fmt.Errorf("failed to create OpenTelemetry metrics exporter: %w", err)
 	}
 
-	resource, err := newOtelResource(otelServiceName)
+	otelResource, err := newOtelResource(otelServiceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
 
 	meterProvider := sdkmetric.NewMeterProvider(
-		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter,
-			sdkmetric.WithInterval(3*time.Second))),
-		sdkmetric.WithResource(resource),
+		// Set env OTEL_METRIC_EXPORT_INTERVAL (in milliseconds) to change export interval, default is 60 seconds
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
+		sdkmetric.WithResource(otelResource),
 	)
 	return meterProvider, nil
 }

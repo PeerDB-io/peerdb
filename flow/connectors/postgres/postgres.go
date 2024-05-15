@@ -1113,14 +1113,8 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 	return nil
 }
 
-func (c *PostgresConnector) HandleSlotInfo(
-	ctx context.Context,
-	alerter *alerting.Alerter,
-	catalogPool *pgxpool.Pool,
-	slotName string,
-	peerName string,
-	slotLagGauge *otel_metrics.Float64Gauge,
-	openConnectionsGauge *otel_metrics.Int64Gauge,
+func (c *PostgresConnector) HandleSlotInfo(ctx context.Context, alerter *alerting.Alerter, catalogPool *pgxpool.Pool,
+	slotName string, peerName string, slotLagGauge *otel_metrics.Float64SyncGauge, openConnectionsGauge *otel_metrics.Int64SyncGauge,
 ) error {
 	logger := logger.LoggerFromCtx(ctx)
 

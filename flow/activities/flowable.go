@@ -596,10 +596,10 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				return
 			}
 
-			var slotLagGauge *otel_metrics.Float64Gauge
-			var openConnectionsGauge *otel_metrics.Int64Gauge
+			var slotLagGauge *otel_metrics.Float64SyncGauge
+			var openConnectionsGauge *otel_metrics.Int64SyncGauge
 			if a.OtelManager != nil {
-				slotLagGauge, err = otel_metrics.GetOrInitFloat64Gauge(a.OtelManager.Meter,
+				slotLagGauge, err = otel_metrics.GetOrInitFloat64SyncGauge(a.OtelManager.Meter,
 					a.OtelManager.Float64GaugesCache,
 					"cdc_slot_lag",
 					metric.WithUnit("MB"),
@@ -609,7 +609,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 					return
 				}
 
-				openConnectionsGauge, err = otel_metrics.GetOrInitInt64Gauge(a.OtelManager.Meter,
+				openConnectionsGauge, err = otel_metrics.GetOrInitInt64SyncGauge(a.OtelManager.Meter,
 					a.OtelManager.Int64GaugesCache,
 					"open_connections",
 					metric.WithDescription("Current open connections for PeerDB user"))

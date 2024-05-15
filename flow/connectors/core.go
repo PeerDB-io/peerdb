@@ -72,9 +72,8 @@ type CDCPullConnectorCore interface {
 	PullFlowCleanup(ctx context.Context, jobName string) error
 
 	// HandleSlotInfo update monitoring info on slot size etc
-	HandleSlotInfo(ctx context.Context, alerter *alerting.Alerter,
-		catalogPool *pgxpool.Pool, slotName string, peerName string,
-		slotLagGauge *otel_metrics.Float64Gauge, openConnectionsGauge *otel_metrics.Int64Gauge) error
+	HandleSlotInfo(ctx context.Context, alerter *alerting.Alerter, catalogPool *pgxpool.Pool, slotName string, peerName string,
+		slotLagGauge *otel_metrics.Float64SyncGauge, openConnectionsGauge *otel_metrics.Int64SyncGauge) error
 
 	// GetSlotInfo returns the WAL (or equivalent) info of a slot for the connector.
 	GetSlotInfo(ctx context.Context, slotName string) ([]*protos.SlotInfo, error)
