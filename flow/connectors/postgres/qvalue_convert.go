@@ -247,11 +247,19 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 
 	switch qvalueKind {
 	case qvalue.QValueKindTimestamp:
-		timestamp := value.(time.Time)
-		return qvalue.QValueTimestamp{Val: timestamp}, nil
+		switch val := value.(type) {
+		case time.Time:
+			return qvalue.QValueTimestamp{Val: val}, nil
+		case pgtype.InfinityModifier:
+			return qvalue.QValueNull(qvalueKind), nil
+		}
 	case qvalue.QValueKindTimestampTZ:
-		timestamp := value.(time.Time)
-		return qvalue.QValueTimestampTZ{Val: timestamp}, nil
+		switch val := value.(type) {
+		case time.Time:
+			return qvalue.QValueTimestampTZ{Val: val}, nil
+		case pgtype.InfinityModifier:
+			return qvalue.QValueNull(qvalueKind), nil
+		}
 	case qvalue.QValueKindInterval:
 		intervalObject := value.(pgtype.Interval)
 		var interval datatypes.PeerDBInterval
@@ -274,8 +282,12 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 
 		return qvalue.QValueString{Val: string(intervalJSON)}, nil
 	case qvalue.QValueKindDate:
-		date := value.(time.Time)
-		return qvalue.QValueDate{Val: date}, nil
+		switch val := value.(type) {
+		case time.Time:
+			return qvalue.QValueDate{Val: val}, nil
+		case pgtype.InfinityModifier:
+			return qvalue.QValueNull(qvalueKind), nil
+		}
 	case qvalue.QValueKindTime:
 		timeVal := value.(pgtype.Time)
 		if timeVal.Valid {
