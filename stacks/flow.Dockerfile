@@ -19,9 +19,11 @@ ENV CGO_ENABLED=1
 RUN go build -ldflags="-s -w" -o /root/peer-flow
 
 FROM alpine:3.19 AS flow-base
-RUN apk add --no-cache ca-certificates geos
-WORKDIR /root
-COPY --from=builder /root/peer-flow .
+RUN apk add --no-cache ca-certificates geos && \
+  adduser -s /bin/sh -D peerdb
+USER peerdb
+WORKDIR /home/peerdb
+COPY --from=builder --chown=peerdb /root/peer-flow .
 
 FROM flow-base AS flow-api
 
