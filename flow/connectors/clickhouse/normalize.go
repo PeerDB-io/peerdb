@@ -215,7 +215,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.N
 
 		insertIntoSelectQuery := strings.Builder{}
 		insertIntoSelectQuery.WriteString("INSERT INTO ")
-		insertIntoSelectQuery.WriteString(tbl)
+		insertIntoSelectQuery.WriteString(fmt.Sprintf("`%s`", tbl))
 		insertIntoSelectQuery.WriteString(colSelector.String())
 		insertIntoSelectQuery.WriteString(selectQuery.String())
 

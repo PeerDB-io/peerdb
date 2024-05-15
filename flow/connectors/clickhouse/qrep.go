@@ -70,7 +70,7 @@ func (c *ClickhouseConnector) createMetadataInsertStatement(
 
 func (c *ClickhouseConnector) getTableSchema(tableName string) ([]*sql.ColumnType, error) {
 	//nolint:gosec
-	queryString := fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName)
+	queryString := fmt.Sprintf("SELECT * FROM `%s` LIMIT 0", tableName)
 	//nolint:rowserrcheck
 	rows, err := c.database.Query(queryString)
 	if err != nil {
