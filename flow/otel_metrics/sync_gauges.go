@@ -7,8 +7,6 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-
-	"github.com/PeerDB-io/peer-flow/logger"
 )
 
 type ObservationMapValue[V comparable] struct {
@@ -25,29 +23,20 @@ type SyncGauge[V comparable, O metric.Observable] struct {
 }
 
 func (a *SyncGauge[V, O]) Callback(ctx context.Context, observeFunc func(value V, options ...metric.ObserveOption)) error {
-	logger.LoggerFromCtx(ctx).Info("[MetricsTest]Observing SyncGauge", "gauge", a, "guageName", a.name)
-	var count int
 	a.observations.Range(func(key, value interface{}) bool {
 		attrs := key.(attribute.Set)
 		val := value.(*ObservationMapValue[V])
-		count++
 		observeFunc(val.Value, metric.WithAttributeSet(attrs))
 		// If the pointer is still same we can safely delete, else it means that the value was overwritten in parallel
 		a.observations.CompareAndDelete(attrs, val)
 		return true
 	})
-	logger.LoggerFromCtx(ctx).Info("[MetricsTest]Observed SyncGauge", "gauge", a, "count", count, "guageName", a.name)
 	return nil
 }
 
 func (a *SyncGauge[V, O]) Set(input V, attrs attribute.Set) {
-	if a == nil {
-		return
-	}
-	logger.LoggerFromCtx(context.Background()).Info("[MetricsTest]Setting SyncGauge", "gauge", a, "guageName", a.name)
 	val := ObservationMapValue[V]{Value: input}
 	a.observations.Store(attrs, &val)
-	logger.LoggerFromCtx(context.Background()).Info("[MetricsTest]Set SyncGauge", "gauge", a, "guageName", a.name)
 }
 
 type Int64SyncGauge struct {
@@ -55,6 +44,9 @@ type Int64SyncGauge struct {
 }
 
 func (a *Int64SyncGauge) Set(input int64, attrs attribute.Set) {
+	if a == nil {
+		return
+	}
 	a.syncGuage.Set(input, attrs)
 }
 
@@ -80,6 +72,9 @@ type Float64SyncGauge struct {
 }
 
 func (a *Float64SyncGauge) Set(input float64, attrs attribute.Set) {
+	if a == nil {
+		return
+	}
 	a.syncGuage.Set(input, attrs)
 }
 
