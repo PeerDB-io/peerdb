@@ -11,7 +11,6 @@ import (
 
 type ObservationMapValue[V comparable] struct {
 	Value V
-	// Observed bool
 }
 
 // SyncGauge is a generic synchronous gauge that can be used to observe any type of value
