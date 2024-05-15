@@ -69,7 +69,7 @@ func (BigQueryNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
 }
 
 func (BigQueryNumericCompatibility) IsValidPrevisionAndScale(precision, scale int16) bool {
-	return precision > 0 && precision <= 38 && scale <= 20
+	return precision > 0 && precision <= 38 && scale <= 20 && scale < precision
 }
 
 type DefaultNumericCompatibility struct{}
