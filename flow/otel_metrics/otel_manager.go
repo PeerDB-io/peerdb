@@ -3,14 +3,15 @@ package otel_metrics
 import (
 	"context"
 	"fmt"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 type OtelManager struct {
@@ -44,7 +45,8 @@ func setupGrpcOtelMetricsExporter() (sdkmetric.Exporter, error) {
 }
 
 func SetupOtelMetricsExporter(otelServiceName string) (*sdkmetric.MeterProvider, error) {
-	otlpMetricProtocol := peerdbenv.GetEnvString("OTEL_EXPORTER_OTLP_PROTOCOL", peerdbenv.GetEnvString("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf"))
+	otlpMetricProtocol := peerdbenv.GetEnvString("OTEL_EXPORTER_OTLP_PROTOCOL",
+		peerdbenv.GetEnvString("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf"))
 	var metricExporter sdkmetric.Exporter
 	var err error
 	switch otlpMetricProtocol {
