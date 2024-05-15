@@ -3,6 +3,8 @@ package otel_metrics
 import (
 	"context"
 	"fmt"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/metric"
@@ -31,21 +33,38 @@ func newOtelResource(otelServiceName string) (*resource.Resource, error) {
 	return r, err
 }
 
+// TODO set either OTEL_EXPORTER_OTLP_COMPRESSION or OTEL_EXPORTER_OTLP_METRICS_COMPRESSION to "gzip" to enable compression
+
+func setupHttpOtelMetricsExporter() (sdkmetric.Exporter, error) {
+	return otlpmetrichttp.New(context.Background())
+}
+
+func setupGrpcOtelMetricsExporter() (sdkmetric.Exporter, error) {
+	return otlpmetricgrpc.New(context.Background())
+}
+
 func SetupOtelMetricsExporter(otelServiceName string) (*sdkmetric.MeterProvider, error) {
-	metricExporter, err := otlpmetrichttp.New(context.Background(),
-		otlpmetrichttp.WithCompression(otlpmetrichttp.GzipCompression),
-	)
+	otlpMetricProtocol := peerdbenv.GetEnvString("OTEL_EXPORTER_OTLP_PROTOCOL", peerdbenv.GetEnvString("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf"))
+	var metricExporter sdkmetric.Exporter
+	var err error
+	switch otlpMetricProtocol {
+	case "http/protobuf":
+		metricExporter, err = setupHttpOtelMetricsExporter()
+	case "grpc":
+		metricExporter, err = setupGrpcOtelMetricsExporter()
+	default:
+		return nil, fmt.Errorf("unsupported otel metric protocol: %s", otlpMetricProtocol)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry metrics exporter: %w", err)
 	}
-
 	otelResource, err := newOtelResource(otelServiceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
 
 	meterProvider := sdkmetric.NewMeterProvider(
-		// Set env OTEL_METRIC_EXPORT_INTERVAL (in milliseconds) to change export interval, default is 60 seconds
+		// TODO Set env OTEL_METRIC_EXPORT_INTERVAL (in milliseconds) to change export interval, default is 60 seconds
 		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
 		sdkmetric.WithResource(otelResource),
 	)
