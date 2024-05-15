@@ -512,13 +512,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 		return err
 	}
 
-	command := `
-		BEGIN;
-		DROP AGGREGATE IF EXISTS PEERDB_EPHEMERAL_HEARTBEAT(float4);
-		CREATE AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4) (SFUNC = float4pl, STYPE = float4);
-		DROP AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4);
-		END;
-		`
+	command := peerdbenv.PeerDBWALHeartbeatQuery()
 	// run above command for each Postgres peer
 	for _, pgPeer := range pgPeers {
 		activity.RecordHeartbeat(ctx, pgPeer.Name)
