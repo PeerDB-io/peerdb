@@ -653,7 +653,14 @@ func (c *PostgresConnector) NormalizeRecords(
 		for _, normalizeStatement := range normalizeStatements {
 			ct, err := normalizeRecordsTx.Exec(ctx, normalizeStatement, normBatchID, req.SyncBatchID, destinationTableName)
 			if err != nil {
-				return nil, fmt.Errorf("error executing normalize statement: %w", err)
+				c.logger.Error("error executing normalize statement",
+					slog.String("statement", normalizeStatement),
+					slog.Int64("normBatchID", normBatchID),
+					slog.Int64("syncBatchID", req.SyncBatchID),
+					slog.String("destinationTableName", destinationTableName),
+					slog.Any("error", err),
+				)
+				return nil, fmt.Errorf("error executing normalize statement for table %s: %w", destinationTableName, err)
 			}
 			totalRowsAffected += int(ct.RowsAffected())
 		}
