@@ -34,8 +34,6 @@ func newOtelResource(otelServiceName string) (*resource.Resource, error) {
 	return r, err
 }
 
-// TODO set either OTEL_EXPORTER_OTLP_COMPRESSION or OTEL_EXPORTER_OTLP_METRICS_COMPRESSION to "gzip" to enable compression
-
 func setupHttpOtelMetricsExporter() (sdkmetric.Exporter, error) {
 	return otlpmetrichttp.New(context.Background())
 }
@@ -66,7 +64,6 @@ func SetupOtelMetricsExporter(otelServiceName string) (*sdkmetric.MeterProvider,
 	}
 
 	meterProvider := sdkmetric.NewMeterProvider(
-		// TODO Set env OTEL_METRIC_EXPORT_INTERVAL (in milliseconds) to change export interval, default is 60 seconds
 		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
 		sdkmetric.WithResource(otelResource),
 	)

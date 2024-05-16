@@ -62,8 +62,7 @@ func GlobalScheduleManagerWorkflow(ctx workflow.Context) error {
 
 	slotSizeCtx := withCronOptions(ctx,
 		"record-slot-size-"+info.OriginalRunID,
-		// TODO revert this back to 5 minutes?
-		"*/1 * * * *")
+		"*/5 * * * *")
 	workflow.ExecuteChildWorkflow(slotSizeCtx, RecordSlotSizeWorkflow)
 
 	ctx.Done().Receive(ctx, nil)
