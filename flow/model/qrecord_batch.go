@@ -215,6 +215,8 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			values[i] = a
 		case qvalue.QValueJSON:
 			values[i] = v.Val
+		case qvalue.QValueInterval:
+			values[i] = v.Val
 
 		// And so on for the other types...
 		default:
