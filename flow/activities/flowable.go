@@ -28,6 +28,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/otel_metrics"
+	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_guages"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -596,31 +597,41 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				return
 			}
 
-			var slotLagGauge *otel_metrics.Float64SyncGauge
-			var openConnectionsGauge *otel_metrics.Int64SyncGauge
+			slotMetricGuages := peerdb_guages.SlotMetricGuages{}
 			if a.OtelManager != nil {
-				slotLagGauge, err = otel_metrics.GetOrInitFloat64SyncGauge(a.OtelManager.Meter,
+				slotLagGauge, err := otel_metrics.GetOrInitFloat64SyncGauge(a.OtelManager.Meter,
 					a.OtelManager.Float64GaugesCache,
-					"cdc_slot_lag",
+					peerdb_guages.SlotLagGuageName,
 					metric.WithUnit("MB"),
 					metric.WithDescription("Postgres replication slot lag in MB"))
 				if err != nil {
 					logger.Error("Failed to get slot lag gauge", slog.Any("error", err))
 					return
 				}
+				slotMetricGuages.SlotLagGuage = slotLagGauge
 
-				openConnectionsGauge, err = otel_metrics.GetOrInitInt64SyncGauge(a.OtelManager.Meter,
+				openConnectionsGauge, err := otel_metrics.GetOrInitInt64SyncGauge(a.OtelManager.Meter,
 					a.OtelManager.Int64GaugesCache,
-					"open_connections",
+					peerdb_guages.OpenConnectionsGuageName,
 					metric.WithDescription("Current open connections for PeerDB user"))
 				if err != nil {
 					logger.Error("Failed to get open connections gauge", slog.Any("error", err))
 					return
 				}
+				slotMetricGuages.OpenConnectionsGuage = openConnectionsGauge
+
+				openReplicationConnectionsGauge, err := otel_metrics.GetOrInitInt64SyncGauge(a.OtelManager.Meter,
+					a.OtelManager.Int64GaugesCache,
+					peerdb_guages.OpenReplicationConnectionsGuageName,
+					metric.WithDescription("Current open replication connections for PeerDB user"))
+				if err != nil {
+					logger.Error("Failed to get open replication connections gauge", slog.Any("error", err))
+					return
+				}
+				slotMetricGuages.OpenReplicationConnectionsGuage = openReplicationConnectionsGauge
 			}
 
-			err = srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, slotName, peerName,
-				slotLagGauge, openConnectionsGauge)
+			err = srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, slotName, peerName, slotMetricGuages)
 			if err != nil {
 				logger.Error("Failed to handle slot info", slog.Any("error", err))
 			}

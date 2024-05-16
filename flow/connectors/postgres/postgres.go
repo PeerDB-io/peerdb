@@ -27,7 +27,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/otel_metrics"
+	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_guages"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -1113,8 +1113,13 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 	return nil
 }
 
-func (c *PostgresConnector) HandleSlotInfo(ctx context.Context, alerter *alerting.Alerter, catalogPool *pgxpool.Pool,
-	slotName string, peerName string, slotLagGauge *otel_metrics.Float64SyncGauge, openConnectionsGauge *otel_metrics.Int64SyncGauge,
+func (c *PostgresConnector) HandleSlotInfo(
+	ctx context.Context,
+	alerter *alerting.Alerter,
+	catalogPool *pgxpool.Pool,
+	slotName string,
+	peerName string,
+	slotMetricGuages peerdb_guages.SlotMetricGuages,
 ) error {
 	logger := logger.LoggerFromCtx(ctx)
 
@@ -1131,10 +1136,10 @@ func (c *PostgresConnector) HandleSlotInfo(ctx context.Context, alerter *alertin
 
 	logger.Info(fmt.Sprintf("Checking %s lag for %s", slotName, peerName), slog.Float64("LagInMB", float64(slotInfo[0].LagInMb)))
 	alerter.AlertIfSlotLag(ctx, peerName, slotInfo[0])
-	slotLagGauge.Set(float64(slotInfo[0].LagInMb), attribute.NewSet(
-		attribute.String("peerName", peerName),
-		attribute.String("slotName", slotName),
-		attribute.String("deploymentUID", peerdbenv.PeerDBDeploymentUID())))
+	slotMetricGuages.SlotLagGuage.Set(float64(slotInfo[0].LagInMb), attribute.NewSet(
+		attribute.String(peerdb_guages.PeerNameKey, peerName),
+		attribute.String(peerdb_guages.SlotNameKey, slotName),
+		attribute.String(peerdb_guages.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
 
 	// Also handles alerts for PeerDB user connections exceeding a given limit here
 	res, err := getOpenConnectionsForUser(ctx, c.conn, c.config.User)
@@ -1143,9 +1148,19 @@ func (c *PostgresConnector) HandleSlotInfo(ctx context.Context, alerter *alertin
 		return err
 	}
 	alerter.AlertIfOpenConnections(ctx, peerName, res)
-	openConnectionsGauge.Set(res.CurrentOpenConnections, attribute.NewSet(
-		attribute.String("peerName", peerName),
-		attribute.String("deploymentUID", peerdbenv.PeerDBDeploymentUID())))
+	slotMetricGuages.OpenConnectionsGuage.Set(res.CurrentOpenConnections, attribute.NewSet(
+		attribute.String(peerdb_guages.PeerNameKey, peerName),
+		attribute.String(peerdb_guages.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
+
+	replicationRes, err := getOpenReplicationConnectionsForUser(ctx, c.conn, c.config.User)
+	if err != nil {
+		logger.Warn("warning: failed to get current open replication connections", "error", err)
+		return err
+	}
+
+	slotMetricGuages.OpenReplicationConnectionsGuage.Set(replicationRes.CurrentOpenConnections, attribute.NewSet(
+		attribute.String(peerdb_guages.PeerNameKey, peerName),
+		attribute.String(peerdb_guages.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
 
 	return monitoring.AppendSlotSizeInfo(ctx, catalogPool, peerName, slotInfo[0])
 }
@@ -1160,6 +1175,23 @@ func getOpenConnectionsForUser(ctx context.Context, conn *pgx.Conn, user string)
 		return nil, fmt.Errorf("error while reading result row: %w", err)
 	}
 
+	return &protos.GetOpenConnectionsForUserResult{
+		UserName:               user,
+		CurrentOpenConnections: result.Int64,
+	}, nil
+}
+
+func getOpenReplicationConnectionsForUser(ctx context.Context, conn *pgx.Conn, user string) (*protos.GetOpenConnectionsForUserResult, error) {
+	row := conn.QueryRow(ctx, getNumReplicationConnections, user)
+
+	// COUNT() returns BIGINT
+	var result pgtype.Int8
+	err := row.Scan(&result)
+	if err != nil {
+		return nil, fmt.Errorf("error while reading result row: %w", err)
+	}
+
+	// Re-using the proto for now as the response is the same, can create later if needed
 	return &protos.GetOpenConnectionsForUserResult{
 		UserName:               user,
 		CurrentOpenConnections: result.Int64,
