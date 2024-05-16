@@ -19,6 +19,16 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
+var ClickhouseQuerySettings = clickhouse.Settings{
+	"max_memory_usage":                     PeerDBClickhouseQueryMaxMemoryUsage,
+	"max_block_size":                       PeerDBClickhouseMaxBlockSize,
+	"max_insert_block_size":                PeerDBClickhouseMaxInsertBlockSize,
+	"max_insert_threads":                   PeerDBClickhouseMaxInsertThreads,
+	"max_server_memory_usage":              PeerDBClickhouseMaxServerMemoryUsage,
+	"max_server_memory_usage_to_ram_ratio": PeerDBClickhouseMemoryRamRatio,
+	"memory_overcommit_ratio_denominator":  PeerDBClickhouseMemoryOvercommitRatioDenominator,
+}
+
 type ClickhouseAvroSyncMethod struct {
 	config    *protos.QRepConfig
 	connector *ClickhouseConnector
@@ -54,12 +64,7 @@ func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
 	}
 
-	insertSelectQueryCtx := clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{
-		"max_memory_usage":      PeerDBClickhouseQueryMaxMemoryUsage,
-		"max_block_size":        PeerDBClickhouseMaxBlockSize,
-		"max_insert_block_size": PeerDBClickhouseMaxInsertBlockSize,
-		"max_insert_threads":    PeerDBClickhouseMaxInsertThreads,
-	}))
+	insertSelectQueryCtx := clickhouse.Context(ctx, clickhouse.WithSettings(ClickhouseQuerySettings))
 	//nolint:gosec
 	query := fmt.Sprintf("INSERT INTO `%s` SELECT * FROM s3('%s','%s','%s'%s, 'Avro')",
 		s.config.DestinationTableIdentifier, avroFileUrl,
@@ -156,12 +161,7 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
 	}
 
-	insertSelectQueryCtx := clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{
-		"max_memory_usage":      PeerDBClickhouseQueryMaxMemoryUsage,
-		"max_block_size":        PeerDBClickhouseMaxBlockSize,
-		"max_insert_block_size": PeerDBClickhouseMaxInsertBlockSize,
-		"max_insert_threads":    PeerDBClickhouseMaxInsertThreads,
-	}))
+	insertSelectQueryCtx := clickhouse.Context(ctx, clickhouse.WithSettings(ClickhouseQuerySettings))
 	//nolint:gosec
 	query := fmt.Sprintf("INSERT INTO `%s`(%s) SELECT %s FROM s3('%s','%s','%s'%s, 'Avro')",
 		config.DestinationTableIdentifier, selectorStr, selectorStr, avroFileUrl,
