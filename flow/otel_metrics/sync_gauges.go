@@ -3,89 +3,100 @@ package otel_metrics
 import (
 	"context"
 	"fmt"
-	"math"
-	"sync/atomic"
+	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
-// synchronous gauges are what we want, so we can control when the value is updated
-// but they are "experimental", so we resort to using the asynchronous gauges
-// but the callback is just a wrapper around the current value, so we can control by calling Set()
-type Int64Gauge struct {
-	observableGauge metric.Int64ObservableGauge
-	observations    map[attribute.Set]*atomic.Int64
+type ObservationMapValue[V comparable] struct {
+	Value V
 }
 
-func NewInt64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Int64ObservableGaugeOption) (*Int64Gauge, error) {
-	syncGauge := &Int64Gauge{}
-	observableGauge, err := meter.Int64ObservableGauge(gaugeName, append(opts, metric.WithInt64Callback(syncGauge.callback))...)
+// SyncGauge is a generic synchronous gauge that can be used to observe any type of value
+// Inspired from https://github.com/open-telemetry/opentelemetry-go/issues/3984#issuecomment-1743231837
+type SyncGauge[V comparable, O metric.Observable] struct {
+	observableGauge O
+	observations    sync.Map
+	name            string
+}
+
+func (a *SyncGauge[V, O]) Callback(ctx context.Context, observeFunc func(value V, options ...metric.ObserveOption)) error {
+	a.observations.Range(func(key, value interface{}) bool {
+		attrs := key.(attribute.Set)
+		val := value.(*ObservationMapValue[V])
+		observeFunc(val.Value, metric.WithAttributeSet(attrs))
+		// If the pointer is still same we can safely delete, else it means that the value was overwritten in parallel
+		a.observations.CompareAndDelete(attrs, val)
+		return true
+	})
+	return nil
+}
+
+func (a *SyncGauge[V, O]) Set(input V, attrs attribute.Set) {
+	val := ObservationMapValue[V]{Value: input}
+	a.observations.Store(attrs, &val)
+}
+
+type Int64SyncGauge struct {
+	syncGuage *SyncGauge[int64, metric.Int64Observable]
+}
+
+func (a *Int64SyncGauge) Set(input int64, attrs attribute.Set) {
+	if a == nil {
+		return
+	}
+	a.syncGuage.Set(input, attrs)
+}
+
+func NewInt64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Int64ObservableGaugeOption) (*Int64SyncGauge, error) {
+	syncGauge := &SyncGauge[int64, metric.Int64Observable]{
+		name: gaugeName,
+	}
+	observableGauge, err := meter.Int64ObservableGauge(gaugeName,
+		append(opts, metric.WithInt64Callback(func(ctx context.Context, observer metric.Int64Observer) error {
+			return syncGauge.Callback(ctx, func(value int64, options ...metric.ObserveOption) {
+				observer.Observe(value, options...)
+			})
+		}))...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Int64SyncGauge: %w", err)
 	}
 	syncGauge.observableGauge = observableGauge
-	syncGauge.observations = make(map[attribute.Set]*atomic.Int64)
-	return syncGauge, nil
+	return &Int64SyncGauge{syncGuage: syncGauge}, nil
 }
 
-func (g *Int64Gauge) callback(ctx context.Context, o metric.Int64Observer) error {
-	for attrs, val := range g.observations {
-		o.Observe(val.Load(), metric.WithAttributeSet(attrs))
-	}
-	return nil
+type Float64SyncGauge struct {
+	syncGuage *SyncGauge[float64, metric.Float64Observable]
 }
 
-func (g *Int64Gauge) Set(input int64, attrs attribute.Set) {
-	if g == nil {
+func (a *Float64SyncGauge) Set(input float64, attrs attribute.Set) {
+	if a == nil {
 		return
 	}
-	val, ok := g.observations[attrs]
-	if !ok {
-		val = &atomic.Int64{}
-		g.observations[attrs] = val
+	a.syncGuage.Set(input, attrs)
+}
+
+func NewFloat64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Float64ObservableGaugeOption) (*Float64SyncGauge, error) {
+	syncGauge := &SyncGauge[float64, metric.Float64Observable]{
+		name: gaugeName,
 	}
-	val.Store(input)
-}
-
-type Float64Gauge struct {
-	observableGauge      metric.Float64ObservableGauge
-	observationsAsUint64 map[attribute.Set]*atomic.Uint64
-}
-
-func NewFloat64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Float64ObservableGaugeOption) (*Float64Gauge, error) {
-	syncGauge := &Float64Gauge{}
-	observableGauge, err := meter.Float64ObservableGauge(gaugeName, append(opts, metric.WithFloat64Callback(syncGauge.callback))...)
+	observableGauge, err := meter.Float64ObservableGauge(gaugeName,
+		append(opts, metric.WithFloat64Callback(func(ctx context.Context, observer metric.Float64Observer) error {
+			return syncGauge.Callback(ctx, func(value float64, options ...metric.ObserveOption) {
+				observer.Observe(value, options...)
+			})
+		}))...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Int64SyncGauge: %w", err)
+		return nil, fmt.Errorf("failed to create Float64SyncGauge: %w", err)
 	}
 	syncGauge.observableGauge = observableGauge
-	syncGauge.observationsAsUint64 = make(map[attribute.Set]*atomic.Uint64)
-	return syncGauge, nil
+	return &Float64SyncGauge{syncGuage: syncGauge}, nil
 }
 
-func (g *Float64Gauge) callback(ctx context.Context, o metric.Float64Observer) error {
-	for attrs, val := range g.observationsAsUint64 {
-		o.Observe(math.Float64frombits(val.Load()), metric.WithAttributeSet(attrs))
-	}
-	return nil
-}
-
-func (g *Float64Gauge) Set(input float64, attrs attribute.Set) {
-	if g == nil {
-		return
-	}
-	val, ok := g.observationsAsUint64[attrs]
-	if !ok {
-		val = &atomic.Uint64{}
-		g.observationsAsUint64[attrs] = val
-	}
-	val.Store(math.Float64bits(input))
-}
-
-func GetOrInitInt64Gauge(meter metric.Meter, cache map[string]*Int64Gauge,
-	name string, opts ...metric.Int64ObservableGaugeOption,
-) (*Int64Gauge, error) {
+func GetOrInitInt64SyncGauge(meter metric.Meter, cache map[string]*Int64SyncGauge, name string,
+	opts ...metric.Int64ObservableGaugeOption,
+) (*Int64SyncGauge, error) {
 	gauge, ok := cache[name]
 	if !ok {
 		var err error
@@ -98,9 +109,9 @@ func GetOrInitInt64Gauge(meter metric.Meter, cache map[string]*Int64Gauge,
 	return gauge, nil
 }
 
-func GetOrInitFloat64Gauge(meter metric.Meter, cache map[string]*Float64Gauge,
+func GetOrInitFloat64SyncGauge(meter metric.Meter, cache map[string]*Float64SyncGauge,
 	name string, opts ...metric.Float64ObservableGaugeOption,
-) (*Float64Gauge, error) {
+) (*Float64SyncGauge, error) {
 	gauge, ok := cache[name]
 	if !ok {
 		var err error

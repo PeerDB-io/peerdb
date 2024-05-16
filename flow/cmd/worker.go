@@ -10,7 +10,6 @@ import (
 	"runtime"
 
 	"github.com/grafana/pyroscope-go"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 
@@ -137,18 +136,24 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 	})
 	peerflow.RegisterFlowWorkerWorkflows(w)
 
-	var metricsProvider *sdkmetric.MeterProvider
+	cleanupOtelManagerFunc := func() {}
 	var otelManager *otel_metrics.OtelManager
 	if opts.EnableOtelMetrics {
-		metricsProvider, err = otel_metrics.SetupOtelMetricsExporter("flow-worker")
-		if err != nil {
-			return nil, err
+		metricsProvider, metricErr := otel_metrics.SetupOtelMetricsExporter("flow-worker")
+		if metricErr != nil {
+			return nil, metricErr
 		}
 		otelManager = &otel_metrics.OtelManager{
 			MetricsProvider:    metricsProvider,
 			Meter:              metricsProvider.Meter("io.peerdb.flow-worker"),
-			Float64GaugesCache: make(map[string]*otel_metrics.Float64Gauge),
-			Int64GaugesCache:   make(map[string]*otel_metrics.Int64Gauge),
+			Float64GaugesCache: make(map[string]*otel_metrics.Float64SyncGauge),
+			Int64GaugesCache:   make(map[string]*otel_metrics.Int64SyncGauge),
+		}
+		cleanupOtelManagerFunc = func() {
+			shutDownErr := otelManager.MetricsProvider.Shutdown(context.Background())
+			if shutDownErr != nil {
+				slog.Error("Failed to shutdown metrics provider", slog.Any("error", shutDownErr))
+			}
 		}
 	}
 	w.RegisterActivity(&activities.FlowableActivity{
@@ -162,12 +167,7 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 		Client: c,
 		Worker: w,
 		Cleanup: func() {
-			if otelManager != nil {
-				err := otelManager.MetricsProvider.Shutdown(context.Background())
-				if err != nil {
-					slog.Error("Failed to shutdown metrics provider", slog.Any("error", err))
-				}
-			}
+			cleanupOtelManagerFunc()
 			c.Close()
 		},
 	}, nil
