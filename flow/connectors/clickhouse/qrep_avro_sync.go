@@ -10,6 +10,7 @@ import (
 
 	"go.temporal.io/sdk/activity"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -52,12 +53,19 @@ func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 	if creds.AWS.SessionToken != "" {
 		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
 	}
+
+	insertSelectQueryCtx := clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{
+		"max_memory_usage":      PeerDBClickhouseQueryMaxMemoryUsage,
+		"max_block_size":        PeerDBClickhouseMaxBlockSize,
+		"max_insert_block_size": PeerDBClickhouseMaxInsertBlockSize,
+		"max_insert_threads":    PeerDBClickhouseMaxInsertThreads,
+	}))
 	//nolint:gosec
 	query := fmt.Sprintf("INSERT INTO `%s` SELECT * FROM s3('%s','%s','%s'%s, 'Avro')",
 		s.config.DestinationTableIdentifier, avroFileUrl,
 		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
 
-	_, err = s.connector.database.ExecContext(ctx, query)
+	_, err = s.connector.database.ExecContext(insertSelectQueryCtx, query)
 
 	return err
 }
@@ -147,12 +155,19 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	if creds.AWS.SessionToken != "" {
 		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
 	}
+
+	insertSelectQueryCtx := clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{
+		"max_memory_usage":      PeerDBClickhouseQueryMaxMemoryUsage,
+		"max_block_size":        PeerDBClickhouseMaxBlockSize,
+		"max_insert_block_size": PeerDBClickhouseMaxInsertBlockSize,
+		"max_insert_threads":    PeerDBClickhouseMaxInsertThreads,
+	}))
 	//nolint:gosec
 	query := fmt.Sprintf("INSERT INTO `%s`(%s) SELECT %s FROM s3('%s','%s','%s'%s, 'Avro')",
 		config.DestinationTableIdentifier, selectorStr, selectorStr, avroFileUrl,
 		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
 
-	_, err = s.connector.database.ExecContext(ctx, query)
+	_, err = s.connector.database.ExecContext(insertSelectQueryCtx, query)
 	if err != nil {
 		s.connector.logger.Error("Failed to insert into select for Clickhouse: ", err)
 		return 0, err
