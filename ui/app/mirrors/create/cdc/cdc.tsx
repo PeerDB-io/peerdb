@@ -79,8 +79,7 @@ export default function CDCConfigForm({
     if (
       (label.includes('snapshot') && mirrorConfig.doInitialSnapshot !== true) ||
       (label === 'replication slot name' &&
-        mirrorConfig.doInitialSnapshot === true &&
-        !isQueue) ||
+        mirrorConfig.doInitialSnapshot === true) ||
       (label.includes('staging path') &&
         defaultSyncMode(mirrorConfig.destination?.type) !== 'AVRO') ||
       (isQueue && label.includes('soft delete')) ||

@@ -23,7 +23,9 @@ RUN CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse cargo build --release --bin peerd
 
 FROM alpine:3.19
 RUN apk add --no-cache ca-certificates postgresql-client curl iputils && \
-  mkdir -p /var/log/peerdb
-WORKDIR /root
-COPY --from=builder /root/nexus/target/release/peerdb-server .
+  adduser -s /bin/sh -D peerdb && \
+  install -d -m 0755 -o peerdb /var/log/peerdb
+USER peerdb
+WORKDIR /home/peerdb
+COPY --from=builder --chown=peerdb /root/nexus/target/release/peerdb-server .
 CMD ["./peerdb-server"]
