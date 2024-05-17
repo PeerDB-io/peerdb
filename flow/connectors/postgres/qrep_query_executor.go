@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -129,12 +130,14 @@ func (qe *QRepQueryExecutor) ProcessRows(
 	return batch, nil
 }
 
-func (qe *QRepQueryExecutor) processRowsStream(
+func processRowsStream[T any](
+	qe *QRepQueryExecutor,
 	ctx context.Context,
 	cursorName string,
-	stream *model.QRecordStream,
+	stream *model.RecordStream[T],
 	rows pgx.Rows,
 	fieldDescriptions []pgconn.FieldDescription,
+	mapRow func(*QRepQueryExecutor, pgx.Rows, []pgconn.FieldDescription) ([]T, error),
 ) (int, error) {
 	numRows := 0
 	const heartBeatNumRows = 10000
@@ -145,7 +148,7 @@ func (qe *QRepQueryExecutor) processRowsStream(
 			return numRows, err
 		}
 
-		record, err := qe.mapRowToQRecord(rows, fieldDescriptions)
+		record, err := mapRow(qe, rows, fieldDescriptions)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
 			stream.Close(fmt.Errorf("failed to map row to QRecord: %w", err))
@@ -165,13 +168,15 @@ func (qe *QRepQueryExecutor) processRowsStream(
 	return numRows, nil
 }
 
-func (qe *QRepQueryExecutor) processFetchedRows(
+func processFetchedRows[T any](
+	qe *QRepQueryExecutor,
 	ctx context.Context,
 	query string,
 	tx pgx.Tx,
 	cursorName string,
 	fetchSize int,
-	stream *model.QRecordStream,
+	stream *model.RecordStream[T],
+	mapRow func(*QRepQueryExecutor, pgx.Rows, []pgconn.FieldDescription) ([]T, error),
 ) (int, error) {
 	rows, err := qe.executeQueryInTx(ctx, tx, cursorName, fetchSize)
 	if err != nil {
@@ -188,7 +193,7 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 		stream.SetSchema(qe.fieldDescriptionsToSchema(fieldDescriptions))
 	}
 
-	numRows, err := qe.processRowsStream(ctx, cursorName, stream, rows, fieldDescriptions)
+	numRows, err := processRowsStream(qe, ctx, cursorName, stream, rows, fieldDescriptions, mapRow)
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to process rows", slog.Any("error", err))
 		return 0, fmt.Errorf("failed to process rows: %w", err)
@@ -216,7 +221,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	// must wait on errors to close before returning to maintain qe.conn exclusion
 	go func() {
 		defer close(errors)
-		_, err := qe.ExecuteAndProcessQueryStream(ctx, stream, query, args...)
+		_, err := executeAndProcessQueryStream(qe, ctx, stream, (*QRepQueryExecutor).mapRowToQRecord, query, args...)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to execute and process query stream", slog.Any("error", err))
 			errors <- err
@@ -244,9 +249,11 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	}
 }
 
-func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
+func executeAndProcessQueryStream[T any](
+	qe *QRepQueryExecutor,
 	ctx context.Context,
-	stream *model.QRecordStream,
+	stream *model.RecordStream[T],
+	mapRow func(*QRepQueryExecutor, pgx.Rows, []pgconn.FieldDescription) ([]T, error),
 	query string,
 	args ...interface{},
 ) (int, error) {
@@ -262,12 +269,14 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 		return 0, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 	}
 
-	return qe.ExecuteAndProcessQueryStreamWithTx(ctx, tx, stream, query, args...)
+	return executeAndProcessQueryStreamWithTx(qe, ctx, tx, stream, mapRow, query, args...)
 }
 
-func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamGettingCurrentSnapshotXmin(
+func executeAndProcessQueryStreamGettingCurrentSnapshotXmin[T any](
+	qe *QRepQueryExecutor,
 	ctx context.Context,
-	stream *model.QRecordStream,
+	stream *model.RecordStream[T],
+	mapRow func(*QRepQueryExecutor, pgx.Rows, []pgconn.FieldDescription) ([]T, error),
 	query string,
 	args ...interface{},
 ) (int, int64, error) {
@@ -290,23 +299,23 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamGettingCurrentSnapshotX
 		return 0, currentSnapshotXmin.Int64, err
 	}
 
-	totalRecordsFetched, err := qe.ExecuteAndProcessQueryStreamWithTx(ctx, tx, stream, query, args...)
+	totalRecordsFetched, err := executeAndProcessQueryStreamWithTx(qe, ctx, tx, stream, mapRow, query, args...)
 	return totalRecordsFetched, currentSnapshotXmin.Int64, err
 }
 
-func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
+func executeAndProcessQueryStreamWithTx[T any](
+	qe *QRepQueryExecutor,
 	ctx context.Context,
 	tx pgx.Tx,
-	stream *model.QRecordStream,
+	stream *model.RecordStream[T],
+	mapRow func(*QRepQueryExecutor, pgx.Rows, []pgconn.FieldDescription) ([]T, error),
 	query string,
 	args ...interface{},
 ) (int, error) {
-	var err error
-
 	defer shared.RollbackTx(tx, qe.logger)
 
 	if qe.snapshot != "" {
-		_, err = tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+QuoteLiteral(qe.snapshot))
+		_, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+QuoteLiteral(qe.snapshot))
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to set snapshot",
 				slog.Any("error", err), slog.String("query", query))
@@ -341,7 +350,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
 
 	totalRecordsFetched := 0
 	for {
-		numRows, err := qe.processFetchedRows(ctx, query, tx, cursorName, fetchSize, stream)
+		numRows, err := processFetchedRows(qe, ctx, query, tx, cursorName, fetchSize, stream, mapRow)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to process fetched rows", slog.Any("error", err))
 			return 0, err
@@ -418,4 +427,15 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 	}
 
 	return record, nil
+}
+
+func (qe *QRepQueryExecutor) mapRowToPgRecord(
+	row pgx.Rows,
+	_ []pgconn.FieldDescription,
+) ([][]byte, error) {
+	raw := row.RawValues()
+	for i, val := range raw {
+		raw[i] = slices.Clone(val)
+	}
+	return slices.Clone(raw), nil
 }

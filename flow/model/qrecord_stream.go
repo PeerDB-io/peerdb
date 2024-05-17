@@ -12,13 +12,18 @@ type RecordTypeCounts struct {
 	DeleteCount atomic.Int32
 }
 
-type QRecordStream struct {
+type RecordStream[T any] struct {
 	schemaLatch chan struct{}
-	Records     chan []qvalue.QValue
+	Records     chan []T
 	err         error
 	schema      qvalue.QRecordSchema
 	schemaSet   bool
 }
+
+type (
+	QRecordStream  = RecordStream[qvalue.QValue]
+	PgRecordStream = RecordStream[[]byte]
+)
 
 type RecordsToStreamRequest[T Items] struct {
 	records      <-chan Record[T]
@@ -42,22 +47,26 @@ func (r *RecordsToStreamRequest[T]) GetRecords() <-chan Record[T] {
 	return r.records
 }
 
-func NewQRecordStream(buffer int) *QRecordStream {
-	return &QRecordStream{
+func NewRecordStream[T any](buffer int) *RecordStream[T] {
+	return &RecordStream[T]{
 		schemaLatch: make(chan struct{}),
-		Records:     make(chan []qvalue.QValue, buffer),
+		Records:     make(chan []T, buffer),
 		schema:      qvalue.QRecordSchema{},
 		err:         nil,
 		schemaSet:   false,
 	}
 }
 
-func (s *QRecordStream) Schema() qvalue.QRecordSchema {
+func NewQRecordStream(buffer int) *QRecordStream {
+	return NewRecordStream[qvalue.QValue](buffer)
+}
+
+func (s *RecordStream[T]) Schema() qvalue.QRecordSchema {
 	<-s.schemaLatch
 	return s.schema
 }
 
-func (s *QRecordStream) SetSchema(schema qvalue.QRecordSchema) {
+func (s *RecordStream[T]) SetSchema(schema qvalue.QRecordSchema) {
 	if !s.schemaSet {
 		s.schema = schema
 		close(s.schemaLatch)
@@ -65,22 +74,22 @@ func (s *QRecordStream) SetSchema(schema qvalue.QRecordSchema) {
 	}
 }
 
-func (s *QRecordStream) IsSchemaSet() bool {
+func (s *RecordStream[T]) IsSchemaSet() bool {
 	return s.schemaSet
 }
 
-func (s *QRecordStream) SchemaChan() <-chan struct{} {
+func (s *RecordStream[T]) SchemaChan() <-chan struct{} {
 	return s.schemaLatch
 }
 
-func (s *QRecordStream) Err() error {
+func (s *RecordStream[T]) Err() error {
 	return s.err
 }
 
 // Set error & close stream. Calling with multiple errors only tracks first error & does not panic.
 // Close(nil) after an error won't panic, but Close after Close(nil) will panic,
 // this is enough to be able to safely `defer stream.Close(nil)`.
-func (s *QRecordStream) Close(err error) {
+func (s *RecordStream[T]) Close(err error) {
 	if s.err == nil {
 		s.err = err
 		close(s.Records)

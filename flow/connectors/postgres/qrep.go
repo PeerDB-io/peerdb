@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -51,8 +52,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 	}
 	defer shared.RollbackTx(getPartitionsTx, c.logger)
 
-	err = c.setTransactionSnapshot(ctx, getPartitionsTx)
-	if err != nil {
+	if err := c.setTransactionSnapshot(ctx, getPartitionsTx); err != nil {
 		return nil, fmt.Errorf("failed to set transaction snapshot: %w", err)
 	}
 
@@ -316,14 +316,35 @@ func (c *PostgresConnector) PullQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
+	return corePullQRepRecords(c, ctx, config, partition, stream,
+		(*QRepQueryExecutor).mapRowToQRecord)
+}
+
+func (c *PostgresConnector) PullPgQRepRecords(
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	stream *model.PgRecordStream,
+) (int, error) {
+	return corePullQRepRecords(c, ctx, config, partition, stream,
+		(*QRepQueryExecutor).mapRowToPgRecord)
+}
+
+func corePullQRepRecords[T any](
+	c *PostgresConnector,
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	stream *model.RecordStream[T],
+	mapRow func(*QRepQueryExecutor, pgx.Rows, []pgconn.FieldDescription) ([]T, error),
+) (int, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
 		executor := c.NewQRepQueryExecutorSnapshot(c.config.TransactionSnapshot,
 			config.FlowJobName, partition.PartitionId)
 
-		query := config.Query
-		_, err := executor.ExecuteAndProcessQueryStream(ctx, stream, query)
+		_, err := executeAndProcessQueryStream(executor, ctx, stream, mapRow, config.Query)
 		return 0, err
 	}
 	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
@@ -364,7 +385,7 @@ func (c *PostgresConnector) PullQRepRecords(
 	executor := c.NewQRepQueryExecutorSnapshot(c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
 
-	numRecords, err := executor.ExecuteAndProcessQueryStream(ctx, stream, query, rangeStart, rangeEnd)
+	numRecords, err := executeAndProcessQueryStream(executor, ctx, stream, mapRow, query, rangeStart, rangeEnd)
 	if err != nil {
 		return 0, err
 	}
@@ -378,6 +399,26 @@ func (c *PostgresConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
+) (int, error) {
+	return syncQRepRecords(c, ctx, config, partition, stream, model.NewQRecordCopyFromSource(stream))
+}
+
+func (c *PostgresConnector) SyncPgQRepRecords(
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	stream *model.PgRecordStream,
+) (int, error) {
+	return syncQRepRecords(c, ctx, config, partition, stream, model.NewPgRecordCopyFromSource(stream))
+}
+
+func syncQRepRecords[T any](
+	c *PostgresConnector,
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	stream *model.RecordStream[T],
+	copySource pgx.CopyFromSource,
 ) (int, error) {
 	dstTable, err := utils.ParseSchemaTable(config.DestinationTableIdentifier)
 	if err != nil {
@@ -415,8 +456,7 @@ func (c *PostgresConnector) SyncQRepRecords(
 	}
 	defer txConn.Close(ctx)
 
-	err = shared.RegisterHStore(ctx, txConn)
-	if err != nil {
+	if err := shared.RegisterHStore(ctx, txConn); err != nil {
 		return 0, fmt.Errorf("failed to register hstore: %w", err)
 	}
 
@@ -433,16 +473,14 @@ func (c *PostgresConnector) SyncQRepRecords(
 		}
 	}()
 
-	// Step 2: Insert records into the destination table.
-	copySource := model.NewQRecordBatchCopyFromSource(stream)
-
+	// Step 2: Insert records into destination table
 	var numRowsSynced int64
 
 	if writeMode == nil ||
 		writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_APPEND ||
 		writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
 		if writeMode != nil && writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-			// Truncate the destination table before copying records
+			// Truncate destination table before copying records
 			c.logger.Info(fmt.Sprintf("Truncating table %s for overwrite mode", dstTable), syncLog)
 			_, err = tx.Exec(ctx,
 				"TRUNCATE TABLE "+dstTable.String())
@@ -451,7 +489,6 @@ func (c *PostgresConnector) SyncQRepRecords(
 			}
 		}
 
-		// Perform the COPY FROM operation
 		numRowsSynced, err = tx.CopyFrom(
 			ctx,
 			pgx.Identifier{dstTable.Schema, dstTable.Table},
@@ -481,7 +518,7 @@ func (c *PostgresConnector) SyncQRepRecords(
 		dstTableIdentifier := pgx.Identifier{dstTable.Schema, dstTable.Table}
 
 		createStagingTableStmt := fmt.Sprintf(
-			"CREATE UNLOGGED TABLE %s (LIKE %s);",
+			"CREATE TEMP UNLOGGED TABLE %s (LIKE %s);",
 			stagingTableIdentifier.Sanitize(),
 			dstTableIdentifier.Sanitize(),
 		)
@@ -500,7 +537,7 @@ func (c *PostgresConnector) SyncQRepRecords(
 			schema.GetColumnNames(),
 			copySource,
 		)
-		if err != nil || numRowsSynced != int64(copySource.NumRecords()) {
+		if err != nil {
 			return -1, fmt.Errorf("failed to copy records into staging table: %w", err)
 		}
 
@@ -538,22 +575,9 @@ func (c *PostgresConnector) SyncQRepRecords(
 			setClause,
 		)
 		c.logger.Info("Performing upsert operation", slog.String("upsertStmt", upsertStmt), syncLog)
-		res, err := tx.Exec(ctx, upsertStmt)
+		_, err := tx.Exec(ctx, upsertStmt)
 		if err != nil {
 			return -1, fmt.Errorf("failed to perform upsert operation: %w", err)
-		}
-
-		numRowsSynced = res.RowsAffected()
-
-		// Step 2.4: Drop the staging table
-		dropStagingTableStmt := fmt.Sprintf(
-			"DROP TABLE %s;",
-			stagingTableIdentifier.Sanitize(),
-		)
-		c.logger.Info("Dropping staging table", slog.String("stagingTable", stagingTableName), syncLog)
-		_, err = tx.Exec(ctx, dropStagingTableStmt)
-		if err != nil {
-			return -1, fmt.Errorf("failed to drop staging table: %w", err)
 		}
 	}
 
@@ -584,14 +608,12 @@ func (c *PostgresConnector) SyncQRepRecords(
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %w", err)
 	}
 
-	err = tx.Commit(ctx)
-	if err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return -1, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	numRowsInserted := copySource.NumRecords()
-	c.logger.Info(fmt.Sprintf("pushed %d records to %s", numRowsInserted, dstTable), syncLog)
-	return numRowsInserted, nil
+	c.logger.Info(fmt.Sprintf("pushed %d records to %s", numRowsSynced, dstTable), syncLog)
+	return int(numRowsSynced), nil
 }
 
 // SetupQRepMetadataTables function for postgres connector
@@ -625,6 +647,18 @@ func (c *PostgresConnector) PullXminRecordStream(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, int64, error) {
+	return pullXminRecordStream(c, ctx, config, partition, stream,
+		(*QRepQueryExecutor).mapRowToQRecord)
+}
+
+func pullXminRecordStream[T any](
+	c *PostgresConnector,
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	stream *model.RecordStream[T],
+	mapRow func(*QRepQueryExecutor, pgx.Rows, []pgconn.FieldDescription) ([]T, error),
+) (int, int64, error) {
 	var currentSnapshotXmin int64
 	query := config.Query
 	oldxid := ""
@@ -639,16 +673,20 @@ func (c *PostgresConnector) PullXminRecordStream(
 	var err error
 	var numRecords int
 	if partition.Range != nil {
-		numRecords, currentSnapshotXmin, err = executor.ExecuteAndProcessQueryStreamGettingCurrentSnapshotXmin(
+		numRecords, currentSnapshotXmin, err = executeAndProcessQueryStreamGettingCurrentSnapshotXmin(
+			executor,
 			ctx,
 			stream,
+			mapRow,
 			query,
 			oldxid,
 		)
 	} else {
-		numRecords, currentSnapshotXmin, err = executor.ExecuteAndProcessQueryStreamGettingCurrentSnapshotXmin(
+		numRecords, currentSnapshotXmin, err = executeAndProcessQueryStreamGettingCurrentSnapshotXmin(
+			executor,
 			ctx,
 			stream,
+			mapRow,
 			query,
 		)
 	}
