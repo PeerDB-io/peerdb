@@ -27,8 +27,8 @@ jobs:
           go-version: "1.22"
           cache: false
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.57
+          version: v1.58
           working-directory: ./flow
           args: --timeout=10m
