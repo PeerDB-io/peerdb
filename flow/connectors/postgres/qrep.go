@@ -651,6 +651,16 @@ func (c *PostgresConnector) PullXminRecordStream(
 		(*QRepQueryExecutor).mapRowToQRecord)
 }
 
+func (c *PostgresConnector) PullXminPgRecordStream(
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	stream *model.PgRecordStream,
+) (int, int64, error) {
+	return pullXminRecordStream(c, ctx, config, partition, stream,
+		(*QRepQueryExecutor).mapRowToPgRecord)
+}
+
 func pullXminRecordStream[T any](
 	c *PostgresConnector,
 	ctx context.Context,
