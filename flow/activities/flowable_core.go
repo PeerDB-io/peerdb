@@ -11,7 +11,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/yuin/gopher-lua"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
@@ -25,7 +24,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/pua"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -293,12 +291,23 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 }
 
 // replicateQRepPartition replicates a QRepPartition from the source to the destination.
-func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
+func replicateQRepPartition[T any, TSync connectors.QRepSyncConnectorCore, TPull connectors.QRepPullConnectorCore](
+	ctx context.Context,
+	a *FlowableActivity,
 	config *protos.QRepConfig,
 	idx int,
 	total int,
 	partition *protos.QRepPartition,
 	runUUID string,
+	stream *model.RecordStream[T],
+	outstream *model.RecordStream[T],
+	pullRecords func(
+		TPull,
+		context.Context, *protos.QRepConfig,
+		*protos.QRepPartition,
+		*model.RecordStream[T],
+	) (int, error),
+	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, *model.RecordStream[T]) (int, error),
 ) error {
 	msg := fmt.Sprintf("replicating partition - %s: %d of %d total.", partition.PartitionId, idx, total)
 	activity.RecordHeartbeat(ctx, msg)
@@ -306,14 +315,14 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
-	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
+	srcConn, err := connectors.GetAs[TPull](ctx, config.SourcePeer)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return fmt.Errorf("failed to get qrep source connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	dstConn, err := connectors.GetQRepSyncConnector(ctx, config.DestinationPeer)
+	dstConn, err := connectors.GetAs[TSync](ctx, config.DestinationPeer)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return fmt.Errorf("failed to get qrep destination connector: %w", err)
@@ -346,27 +355,10 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	})
 	defer shutdown()
 
-	bufferSize := shared.FetchAndChannelSize
-	stream := model.NewQRecordStream(bufferSize)
-	outstream := stream
-	if config.Script != "" {
-		ls, err := utils.LoadScript(ctx, config.Script, utils.LuaPrintFn(func(s string) {
-			a.Alerter.LogFlowInfo(ctx, config.FlowJobName, s)
-		}))
-		if err != nil {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return err
-		}
-		lfn := ls.Env.RawGetString("transformRow")
-		if fn, ok := lfn.(*lua.LFunction); ok {
-			outstream = pua.AttachToStream(ls, fn, stream)
-		}
-	}
-
 	var rowsSynced int
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
-		tmp, err := srcConn.PullQRepRecords(errCtx, config, partition, stream)
+		tmp, err := pullRecords(srcConn, errCtx, config, partition, stream)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return fmt.Errorf("failed to pull records: %w", err)
@@ -381,7 +373,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	})
 
 	errGroup.Go(func() error {
-		rowsSynced, err = dstConn.SyncQRepRecords(errCtx, config, partition, outstream)
+		rowsSynced, err = syncRecords(dstConn, errCtx, config, partition, outstream)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return fmt.Errorf("failed to sync records: %w", err)

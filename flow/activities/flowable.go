@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/yuin/gopher-lua"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
@@ -29,6 +30,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/otel_metrics"
 	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_guages"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/pua"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -426,7 +428,41 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	)
 	for i, p := range partitions.Partitions {
 		logger.Info(fmt.Sprintf("batch-%d - replicating partition - %s", partitions.BatchId, p.PartitionId))
-		err := a.replicateQRepPartition(ctx, config, i+1, numPartitions, p, runUUID)
+		var err error
+		switch config.System {
+		case protos.TypeSystem_Q:
+
+			stream := model.NewQRecordStream(shared.FetchAndChannelSize)
+			outstream := stream
+			if config.Script != "" {
+				ls, err := utils.LoadScript(ctx, config.Script, utils.LuaPrintFn(func(s string) {
+					a.Alerter.LogFlowInfo(ctx, config.FlowJobName, s)
+				}))
+				if err != nil {
+					a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+					return err
+				}
+				lfn := ls.Env.RawGetString("transformRow")
+				if fn, ok := lfn.(*lua.LFunction); ok {
+					outstream = pua.AttachToStream(ls, fn, stream)
+				}
+			}
+			err = replicateQRepPartition(ctx, a, config, i+1, numPartitions, p, runUUID,
+				stream, outstream,
+				connectors.QRepPullConnector.PullQRepRecords,
+				connectors.QRepSyncConnector.SyncQRepRecords,
+			)
+		case protos.TypeSystem_PG:
+			stream := model.NewRecordStream[[]byte](shared.FetchAndChannelSize)
+			err = replicateQRepPartition(ctx, a, config, i+1, numPartitions, p, runUUID,
+				stream, stream,
+				connectors.QRepPullPgConnector.PullPgQRepRecords,
+				connectors.QRepSyncPgConnector.SyncPgQRepRecords,
+			)
+
+		default:
+			err = fmt.Errorf("unknown type system %d", config.System)
+		}
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return err
