@@ -1,12 +1,8 @@
 package model
 
-import (
-	"github.com/PeerDB-io/peer-flow/shared"
-)
-
 type PgRecordCopyFromSource struct {
 	stream        *PgRecordStream
-	currentRecord [][]byte
+	currentRecord []any
 }
 
 func NewPgRecordCopyFromSource(
@@ -21,19 +17,11 @@ func NewPgRecordCopyFromSource(
 func (src *PgRecordCopyFromSource) Next() bool {
 	rec, ok := <-src.stream.Records
 	src.currentRecord = rec
-	return ok
+	return ok || src.Err() != nil
 }
 
 func (src *PgRecordCopyFromSource) Values() ([]interface{}, error) {
-	if err := src.Err(); err != nil {
-		return nil, err
-	}
-
-	values := make([]interface{}, len(src.currentRecord))
-	for i, val := range src.currentRecord {
-		values[i] = shared.UnsafeFastReadOnlyBytesToString(val)
-	}
-	return values, nil
+	return src.currentRecord, src.Err()
 }
 
 func (src *PgRecordCopyFromSource) Err() error {

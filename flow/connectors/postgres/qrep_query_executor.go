@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"slices"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -432,10 +431,6 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 func (qe *QRepQueryExecutor) mapRowToPgRecord(
 	row pgx.Rows,
 	_ []pgconn.FieldDescription,
-) ([][]byte, error) {
-	raw := row.RawValues()
-	for i, val := range raw {
-		raw[i] = slices.Clone(val)
-	}
-	return slices.Clone(raw), nil
+) ([]any, error) {
+	return row.Values()
 }

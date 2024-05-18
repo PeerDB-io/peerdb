@@ -453,7 +453,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 				connectors.QRepSyncConnector.SyncQRepRecords,
 			)
 		case protos.TypeSystem_PG:
-			stream := model.NewRecordStream[[]byte](shared.FetchAndChannelSize)
+			stream := model.NewRecordStream[any](shared.FetchAndChannelSize)
 			err = replicateQRepPartition(ctx, a, config, i+1, numPartitions, p, runUUID,
 				stream, stream,
 				connectors.QRepPullPgConnector.PullPgQRepRecords,
@@ -776,7 +776,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 			connectors.QRepSyncConnector.SyncQRepRecords)
 	case protos.TypeSystem_PG:
 		return replicateXminPartition(ctx, a, config, partition, runUUID,
-			model.NewRecordStream[[]byte](shared.FetchAndChannelSize),
+			model.NewRecordStream[any](shared.FetchAndChannelSize),
 			(*connpostgres.PostgresConnector).PullXminPgRecordStream,
 			connectors.QRepSyncPgConnector.SyncPgQRepRecords)
 	default:

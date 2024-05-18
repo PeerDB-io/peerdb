@@ -22,7 +22,7 @@ type RecordStream[T any] struct {
 
 type (
 	QRecordStream  = RecordStream[qvalue.QValue]
-	PgRecordStream = RecordStream[[]byte]
+	PgRecordStream = RecordStream[any]
 )
 
 type RecordsToStreamRequest[T Items] struct {
