@@ -2,8 +2,11 @@ import {
   QRepConfig,
   QRepWriteMode,
   QRepWriteType,
+  TypeSystem,
 } from '@/grpc_generated/flow';
-import { MirrorSetting } from './common';
+
+import { AdvancedSettingType, MirrorSetting } from './common';
+
 export const qrepSettings: MirrorSetting[] = [
   {
     label: 'Source Table',
@@ -132,5 +135,18 @@ export const qrepSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({ ...curr, script: value as string })),
     tips: 'Script to use for row transformations. The default is no scripting.',
+    advanced: AdvancedSettingType.ALL,
+  },
+  {
+    label: 'Use Postgres type system',
+    stateHandler: (value, setter) =>
+      setter((curr: QRepConfig) => ({
+        ...curr,
+        system: value === true ? TypeSystem.PG : TypeSystem.Q,
+      })),
+    type: 'switch',
+    default: false,
+    tips: 'Decide if PeerDB should use native Postgres types directly',
+    advanced: AdvancedSettingType.ALL,
   },
 ];
