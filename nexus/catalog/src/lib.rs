@@ -85,7 +85,7 @@ impl Catalog {
         run_migrations(&mut self.pg).await
     }
 
-    pub async fn create_peer(&self, peer: &Peer) -> anyhow::Result<i64> {
+    pub async fn create_peer(&self, peer: &Peer, if_not_exists: bool) -> anyhow::Result<i64> {
         let config_blob = {
             let config = peer.config.as_ref().context("invalid peer config")?;
             match config {
@@ -116,9 +116,17 @@ impl Catalog {
             )
             .await?;
 
-        self.pg
+        if let Err(err) = self
+            .pg
             .execute(&stmt, &[&peer.name, &peer.r#type, &config_blob])
-            .await?;
+            .await
+        {
+            if !if_not_exists
+                || err.code() != Some(&tokio_postgres::error::SqlState::UNIQUE_VIOLATION)
+            {
+                return Err(err.into());
+            }
+        }
 
         self.get_peer_id(&peer.name).await
     }
