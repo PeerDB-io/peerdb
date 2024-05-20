@@ -9,6 +9,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 	lua "github.com/yuin/gopher-lua"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/pua"
@@ -27,6 +28,11 @@ func (c *KafkaConnector) SyncQRepRecords(
 	startTime := time.Now()
 	numRecords := atomic.Int64{}
 	schema := stream.Schema()
+
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
+		return fmt.Sprintf("sent %d records to %s", numRecords.Load(), config.DestinationTableIdentifier)
+	})
+	defer shutdown()
 
 	queueCtx, queueErr := context.WithCancelCause(ctx)
 	pool, err := c.createPool(queueCtx, config.Script, config.FlowJobName, nil, queueErr)
