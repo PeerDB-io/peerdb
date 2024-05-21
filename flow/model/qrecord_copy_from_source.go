@@ -42,7 +42,7 @@ func NewQRecordCopyFromSource(
 func (src *QRecordCopyFromSource) Next() bool {
 	rec, ok := <-src.stream.Records
 	src.currentRecord = rec
-	return ok && src.Err() != nil
+	return ok || src.Err() != nil
 }
 
 func (src *QRecordCopyFromSource) Values() ([]interface{}, error) {
