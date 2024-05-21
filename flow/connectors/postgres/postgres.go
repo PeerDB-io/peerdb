@@ -16,7 +16,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
-	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 
@@ -735,9 +734,6 @@ func (c *PostgresConnector) GetTableSchema(
 ) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
-		if activity.IsActivity(ctx) {
-			activity.RecordHeartbeat(ctx, "fetching schema for table "+tableName)
-		}
 		tableSchema, err := c.getTableSchemaForTable(ctx, tableName, req.System)
 		if err != nil {
 			return nil, err
@@ -951,8 +947,7 @@ func (c *PostgresConnector) EnsurePullability(
 		}
 
 		if !req.CheckConstraints {
-			msg := "[no-constraints] ensured pullability table " + tableName
-			utils.RecordHeartbeat(ctx, msg)
+			logger.LoggerFromCtx(ctx).Info("[no-constraints] ensured pullability table " + tableName)
 			continue
 		}
 
@@ -971,8 +966,6 @@ func (c *PostgresConnector) EnsurePullability(
 		if len(pKeyCols) == 0 && replicaIdentity != ReplicaIdentityFull {
 			return nil, fmt.Errorf("table %s has no primary keys and does not have REPLICA IDENTITY FULL", schemaTable)
 		}
-
-		utils.RecordHeartbeat(ctx, "ensured pullability table "+tableName)
 	}
 
 	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil
