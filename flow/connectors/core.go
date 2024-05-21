@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opencensus.io/trace"
 
 	"github.com/PeerDB-io/peer-flow/alerting"
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
@@ -267,6 +268,8 @@ func GetAs[T Connector](ctx context.Context, config *protos.Peer) (T, error) {
 }
 
 func GetCDCPullConnector(ctx context.Context, config *protos.Peer) (CDCPullConnector, error) {
+	ctx, span := trace.StartSpan(ctx, "connectors.GetCDCPullConnector")
+	defer span.End()
 	return GetAs[CDCPullConnector](ctx, config)
 }
 

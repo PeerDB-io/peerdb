@@ -26,6 +26,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/instrumentation/tracing"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/otel_metrics"
 	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_guages"
@@ -55,6 +56,8 @@ func (a *FlowableActivity) CheckConnection(
 	ctx context.Context,
 	config *protos.SetupInput,
 ) (*CheckConnectionResult, error) {
+	ctx, span := tracing.Tracer().Start(ctx, "CheckConnection")
+	defer span.End()
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.Peer)
 	if err != nil {
@@ -71,6 +74,8 @@ func (a *FlowableActivity) CheckConnection(
 }
 
 func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *protos.SetupInput) error {
+	ctx, span := tracing.Tracer().Start(ctx, "SetupMetadataTables")
+	defer span.End()
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.Peer)
 	if err != nil {
@@ -90,6 +95,8 @@ func (a *FlowableActivity) EnsurePullability(
 	ctx context.Context,
 	config *protos.EnsurePullabilityBatchInput,
 ) (*protos.EnsurePullabilityBatchOutput, error) {
+	ctx, span := tracing.Tracer().Start(ctx, "EnsurePullability")
+	defer span.End()
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	srcConn, err := connectors.GetCDCPullConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {
@@ -274,6 +281,8 @@ func (a *FlowableActivity) SyncRecords(
 	options *protos.SyncFlowOptions,
 	sessionID string,
 ) (*model.SyncResponse, error) {
+	ctx, span := tracing.Tracer().Start(ctx, "SyncRecords")
+	defer span.End()
 	return syncCore(ctx, a, config, options, sessionID,
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
