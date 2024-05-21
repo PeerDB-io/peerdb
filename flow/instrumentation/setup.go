@@ -22,19 +22,13 @@ func SetupInstrumentation(ctx context.Context, serviceName string, config Config
 		return err
 	}
 
-	var err error
-	handleErr := func(inErr error) {
-		err = errors.Join(inErr, shutdown(ctx))
-	}
-
 	if config.EnableTracing {
 		traceShutdown, err := tracing.SetupOtelTraceProviderExporter(serviceName)
 		if err != nil {
-			handleErr(err)
-			return shutdown, err
+			return shutdown, errors.Join(err, shutdown(ctx))
 		}
 		shutdownFuncs = append(shutdownFuncs, traceShutdown)
 	}
 	// Setup other stuff here in the future like metrics, logs etc
-	return shutdown, err
+	return shutdown, nil
 }
