@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
-	"github.com/PeerDB-io/peer-flow/instrumentation/common"
+	"github.com/PeerDB-io/peer-flow/instrumentation/otel_common"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
@@ -44,7 +44,7 @@ func SetupOtelMetricsExporter(otelServiceName string) (*sdkmetric.MeterProvider,
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry metrics exporter: %w", err)
 	}
-	otelResource, err := common.NewOtelResource(otelServiceName)
+	otelResource, err := otel_common.NewOtelResource(otelServiceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}

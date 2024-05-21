@@ -11,7 +11,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/PeerDB-io/peer-flow/instrumentation/common"
+	"github.com/PeerDB-io/peer-flow/instrumentation/otel_common"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
@@ -61,7 +61,7 @@ func SetupOtelTraceProviderExporter(otelServiceName string) (func(ctx context.Co
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry trace exporter: %w", err)
 	}
-	otelResource, err := common.NewOtelResource(otelServiceName)
+	otelResource, err := otel_common.NewOtelResource(otelServiceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}

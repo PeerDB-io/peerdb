@@ -1,4 +1,4 @@
-package common
+package otel_common
 
 import (
 	"go.opentelemetry.io/otel/sdk/resource"
