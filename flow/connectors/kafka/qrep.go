@@ -3,6 +3,7 @@ package connkafka
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -30,13 +31,16 @@ func (c *KafkaConnector) SyncQRepRecords(
 	schema := stream.Schema()
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("sent %d records to %s", numRecords.Load(), config.DestinationTableIdentifier)
+		msg := fmt.Sprintf("sent %d records to %s", numRecords.Load(), config.DestinationTableIdentifier)
+		c.logger.Info(msg)
+		return msg
 	})
 	defer shutdown()
 
 	queueCtx, queueErr := context.WithCancelCause(ctx)
 	pool, err := c.createPool(queueCtx, config.Script, config.FlowJobName, nil, queueErr)
 	if err != nil {
+		c.logger.Error("failed to create pool", slog.Any("error", err))
 		return 0, err
 	}
 	defer pool.Close()

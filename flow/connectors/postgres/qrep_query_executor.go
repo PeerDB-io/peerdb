@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/log"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	datatypes "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -136,13 +138,19 @@ func (qe *QRepQueryExecutor) processRowsStream(
 	rows pgx.Rows,
 	fieldDescriptions []pgconn.FieldDescription,
 ) (int, error) {
-	numRows := 0
-	const heartBeatNumRows = 10000
+	var numRows atomic.Int64
+
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
+		msg := fmt.Sprintf("processed %d rows", numRows.Load())
+		qe.logger.Info(msg)
+		return msg
+	})
+	defer shutdown()
 
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			qe.logger.Info("Context canceled, exiting processRowsStream early")
-			return numRows, err
+			return int(numRows.Load()), err
 		}
 
 		record, err := qe.mapRowToQRecord(rows, fieldDescriptions)
@@ -153,16 +161,11 @@ func (qe *QRepQueryExecutor) processRowsStream(
 		}
 
 		stream.Records <- record
-
-		if numRows%heartBeatNumRows == 0 {
-			qe.logger.Info("processing row stream", slog.String("cursor", cursorName), slog.Int("records", numRows))
-		}
-
-		numRows++
+		numRows.Add(1)
 	}
 
-	qe.logger.Info("processed row stream", slog.String("cursor", cursorName), slog.Int("records", numRows))
-	return numRows, nil
+	qe.logger.Info("processed row stream", slog.String("cursor", cursorName), slog.Int64("records", numRows.Load()))
+	return int(numRows.Load()), nil
 }
 
 func (qe *QRepQueryExecutor) processFetchedRows(
