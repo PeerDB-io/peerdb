@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -12,7 +13,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -316,27 +316,26 @@ func (c *PostgresConnector) PullQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
-	return corePullQRepRecords(c, ctx, config, partition, stream,
-		(*QRepQueryExecutor).mapRowToQRecord)
+	return corePullQRepRecords(c, ctx, config, partition, &RecordStreamSink{
+		QRecordStream: stream,
+	})
 }
 
 func (c *PostgresConnector) PullPgQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	stream *model.PgRecordStream,
+	stream *io.PipeReader,
 ) (int, error) {
-	return corePullQRepRecords(c, ctx, config, partition, stream,
-		(*QRepQueryExecutor).mapRowToPgRecord)
+	return corePullQRepRecords(c, ctx, config, partition, &PgCopySinkWrite{PipeReader: stream})
 }
 
-func corePullQRepRecords[T any](
+func corePullQRepRecords(
 	c *PostgresConnector,
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	stream *model.RecordStream[T],
-	mapRow func(*QRepQueryExecutor, pgx.Rows, []pgconn.FieldDescription) ([]T, error),
+	sink QuerySinkWrite,
 ) (int, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	if partition.FullTablePartition {
@@ -344,7 +343,7 @@ func corePullQRepRecords[T any](
 		executor := c.NewQRepQueryExecutorSnapshot(c.config.TransactionSnapshot,
 			config.FlowJobName, partition.PartitionId)
 
-		_, err := executeAndProcessQueryStream(executor, ctx, stream, mapRow, config.Query)
+		_, err := sink.ExecuteQuery(ctx, executor, config.Query)
 		return 0, err
 	}
 	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
@@ -385,8 +384,8 @@ func corePullQRepRecords[T any](
 	executor := c.NewQRepQueryExecutorSnapshot(c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
 
-	numRecords, err := executeAndProcessQueryStream(executor, ctx, stream, mapRow, query, rangeStart, rangeEnd)
-	if err != nil {
+	var numRecords int
+	if err := executor.conn.QueryRow(ctx, query, rangeStart, rangeEnd).Scan(&numRecords); err != nil {
 		return 0, err
 	}
 
@@ -400,25 +399,24 @@ func (c *PostgresConnector) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
-	return syncQRepRecords(c, ctx, config, partition, stream, model.NewQRecordCopyFromSource(stream))
+	return syncQRepRecords(c, ctx, config, partition, model.NewQRecordCopyFromSource(stream))
 }
 
 func (c *PostgresConnector) SyncPgQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	stream *model.PgRecordStream,
+	pipe *io.PipeReader,
 ) (int, error) {
-	return syncQRepRecords(c, ctx, config, partition, stream, model.NewPgRecordCopyFromSource(stream))
+	return syncQRepRecords(c, ctx, config, partition, model.NewPgRecordCopyFromSource(pipe))
 }
 
-func syncQRepRecords[T any](
+func syncQRepRecords(
 	c *PostgresConnector,
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	stream *model.RecordStream[T],
-	copySource pgx.CopyFromSource,
+	sink QuerySinkRead,
 ) (int, error) {
 	dstTable, err := utils.ParseSchemaTable(config.DestinationTableIdentifier)
 	if err != nil {
@@ -447,7 +445,6 @@ func syncQRepRecords[T any](
 	)
 	partitionID := partition.PartitionId
 	startTime := time.Now()
-	schema := stream.Schema()
 
 	txConfig := c.conn.Config()
 	txConn, err := pgx.ConnectConfig(ctx, txConfig)
@@ -489,11 +486,10 @@ func syncQRepRecords[T any](
 			}
 		}
 
-		numRowsSynced, err = tx.CopyFrom(
+		numRowsSynced, err = sink.CopyInto(
 			ctx,
+			tx,
 			pgx.Identifier{dstTable.Schema, dstTable.Table},
-			schema.GetColumnNames(),
-			copySource,
 		)
 		if err != nil {
 			return -1, fmt.Errorf("failed to copy records into destination table: %w", err)
@@ -531,11 +527,10 @@ func syncQRepRecords[T any](
 		}
 
 		// Step 2.2: Insert records into the staging table
-		numRowsSynced, err = tx.CopyFrom(
+		numRowsSynced, err = sink.CopyInto(
 			ctx,
+			tx,
 			stagingTableIdentifier,
-			schema.GetColumnNames(),
-			copySource,
 		)
 		if err != nil {
 			return -1, fmt.Errorf("failed to copy records into staging table: %w", err)
@@ -550,7 +545,7 @@ func syncQRepRecords[T any](
 
 		setClauseArray := make([]string, 0)
 		selectStrArray := make([]string, 0)
-		for _, col := range schema.GetColumnNames() {
+		for _, col := range sink.GetColumnNames() {
 			_, ok := upsertMatchCols[col]
 			quotedCol := QuoteIdentifier(col)
 			if !ok {
@@ -647,27 +642,24 @@ func (c *PostgresConnector) PullXminRecordStream(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, int64, error) {
-	return pullXminRecordStream(c, ctx, config, partition, stream,
-		(*QRepQueryExecutor).mapRowToQRecord)
+	return pullXminRecordStream(c, ctx, config, partition, stream)
 }
 
 func (c *PostgresConnector) PullXminPgRecordStream(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	stream *model.PgRecordStream,
+	pipe *io.PipeWriter,
 ) (int, int64, error) {
-	return pullXminRecordStream(c, ctx, config, partition, stream,
-		(*QRepQueryExecutor).mapRowToPgRecord)
+	return pullXminRecordStream(c, ctx, config, partition, pipe)
 }
 
-func pullXminRecordStream[T any](
+func pullXminRecordStream(
 	c *PostgresConnector,
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	stream *model.RecordStream[T],
-	mapRow func(*QRepQueryExecutor, pgx.Rows, []pgconn.FieldDescription) ([]T, error),
+	sink QuerySinkWrite,
 ) (int, int64, error) {
 	var currentSnapshotXmin int64
 	query := config.Query
@@ -683,20 +675,16 @@ func pullXminRecordStream[T any](
 	var err error
 	var numRecords int
 	if partition.Range != nil {
-		numRecords, currentSnapshotXmin, err = executeAndProcessQueryStreamGettingCurrentSnapshotXmin(
-			executor,
+		numRecords, currentSnapshotXmin, err = executor.executeAndProcessQueryStreamGettingCurrentSnapshotXmin(
 			ctx,
-			stream,
-			mapRow,
+			sink,
 			query,
 			oldxid,
 		)
 	} else {
-		numRecords, currentSnapshotXmin, err = executeAndProcessQueryStreamGettingCurrentSnapshotXmin(
-			executor,
+		numRecords, currentSnapshotXmin, err = executor.executeAndProcessQueryStreamGettingCurrentSnapshotXmin(
 			ctx,
-			stream,
-			mapRow,
+			sink,
 			query,
 		)
 	}

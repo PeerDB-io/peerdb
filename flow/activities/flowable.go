@@ -453,9 +453,9 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 				connectors.QRepSyncConnector.SyncQRepRecords,
 			)
 		case protos.TypeSystem_PG:
-			stream := model.NewRecordStream[any](shared.FetchAndChannelSize)
+			read, write := connpostgres.NewPgCopyPipe()
 			err = replicateQRepPartition(ctx, a, config, i+1, numPartitions, p, runUUID,
-				stream, stream,
+				write, read,
 				connectors.QRepPullPgConnector.PullPgQRepRecords,
 				connectors.QRepSyncPgConnector.SyncPgQRepRecords,
 			)

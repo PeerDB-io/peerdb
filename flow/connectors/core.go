@@ -200,7 +200,7 @@ type QRepPullPgConnector interface {
 	QRepPullConnectorCore
 
 	// PullPgQRepRecords returns the records for a given partition.
-	PullPgQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, *model.PgRecordStream) (int, error)
+	PullPgQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, connpostgres.PgCopyWriter) (int, error)
 }
 
 type QRepSyncConnectorCore interface {
@@ -228,7 +228,7 @@ type QRepSyncPgConnector interface {
 	// SyncPgQRepRecords syncs the records for a given partition.
 	// returns the number of records synced.
 	SyncPgQRepRecords(ctx context.Context, config *protos.QRepConfig, partition *protos.QRepPartition,
-		stream *model.PgRecordStream) (int, error)
+		stream connpostgres.PgCopyReader) (int, error)
 }
 
 type QRepConsolidateConnector interface {

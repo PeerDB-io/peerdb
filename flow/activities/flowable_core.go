@@ -291,7 +291,7 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 }
 
 // replicateQRepPartition replicates a QRepPartition from the source to the destination.
-func replicateQRepPartition[T any, TSync connectors.QRepSyncConnectorCore, TPull connectors.QRepPullConnectorCore](
+func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConnectorCore, TPull connectors.QRepPullConnectorCore](
 	ctx context.Context,
 	a *FlowableActivity,
 	config *protos.QRepConfig,
@@ -299,15 +299,15 @@ func replicateQRepPartition[T any, TSync connectors.QRepSyncConnectorCore, TPull
 	total int,
 	partition *protos.QRepPartition,
 	runUUID string,
-	stream *model.RecordStream[T],
-	outstream *model.RecordStream[T],
+	stream TWrite,
+	outstream TRead,
 	pullRecords func(
 		TPull,
 		context.Context, *protos.QRepConfig,
 		*protos.QRepPartition,
-		*model.RecordStream[T],
+		TWrite,
 	) (int, error),
-	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, *model.RecordStream[T]) (int, error),
+	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
 ) error {
 	msg := fmt.Sprintf("replicating partition - %s: %d of %d total.", partition.PartitionId, idx, total)
 	activity.RecordHeartbeat(ctx, msg)
@@ -398,19 +398,20 @@ func replicateQRepPartition[T any, TSync connectors.QRepSyncConnectorCore, TPull
 }
 
 // replicateXminPartition replicates a XminPartition from the source to the destination.
-func replicateXminPartition[T any, TSync connectors.QRepSyncConnectorCore](ctx context.Context,
+func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConnectorCore](ctx context.Context,
 	a *FlowableActivity,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	runUUID string,
-	stream *model.RecordStream[T],
+	stream TWrite,
+	outstream TRead,
 	pullRecords func(
 		*connpostgres.PostgresConnector,
 		context.Context, *protos.QRepConfig,
 		*protos.QRepPartition,
-		*model.RecordStream[T],
+		TWrite,
 	) (int, int64, error),
-	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, *model.RecordStream[T]) (int, error),
+	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
 ) (int64, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := activity.GetLogger(ctx)
@@ -483,7 +484,7 @@ func replicateXminPartition[T any, TSync connectors.QRepSyncConnectorCore](ctx c
 	})
 	defer shutdown()
 
-	rowsSynced, err := syncRecords(dstConn, ctx, config, partition, stream)
+	rowsSynced, err := syncRecords(dstConn, ctx, config, partition, outstream)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return 0, fmt.Errorf("failed to sync records: %w", err)
