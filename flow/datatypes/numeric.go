@@ -15,7 +15,7 @@ type WarehouseNumericCompatibility interface {
 	MaxPrecision() int16
 	MaxScale() int16
 	DefaultPrecisionAndScale() (int16, int16)
-	IsValidPrevisionAndScale(precision, scale int16) bool
+	IsValidPrecisionAndScale(precision, scale int16) bool
 }
 
 type ClickHouseNumericCompatibility struct{}
@@ -32,7 +32,7 @@ func (ClickHouseNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) 
 	return PeerDBClickhousePrecision, PeerDBClickhouseScale
 }
 
-func (ClickHouseNumericCompatibility) IsValidPrevisionAndScale(precision, scale int16) bool {
+func (ClickHouseNumericCompatibility) IsValidPrecisionAndScale(precision, scale int16) bool {
 	return precision > 0 && precision <= PeerDBClickhousePrecision && scale < precision
 }
 
@@ -50,7 +50,7 @@ func (SnowflakeNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
 	return PeerDBSnowflakePrecision, PeerDBSnowflakeScale
 }
 
-func (SnowflakeNumericCompatibility) IsValidPrevisionAndScale(precision, scale int16) bool {
+func (SnowflakeNumericCompatibility) IsValidPrecisionAndScale(precision, scale int16) bool {
 	return precision > 0 && precision <= 38 && scale < precision
 }
 
@@ -68,8 +68,9 @@ func (BigQueryNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
 	return PeerDBBigQueryPrecision, PeerDBBigQueryScale
 }
 
-func (BigQueryNumericCompatibility) IsValidPrevisionAndScale(precision, scale int16) bool {
-	return precision > 0 && precision <= 38 && scale <= 20 && scale < precision
+func (BigQueryNumericCompatibility) IsValidPrecisionAndScale(precision, scale int16) bool {
+	return precision > 0 && precision <= PeerDBBigQueryPrecision &&
+		scale <= PeerDBBigQueryScale && scale < precision
 }
 
 type DefaultNumericCompatibility struct{}
@@ -86,7 +87,7 @@ func (DefaultNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
 	return 38, 20
 }
 
-func (DefaultNumericCompatibility) IsValidPrevisionAndScale(precision, scale int16) bool {
+func (DefaultNumericCompatibility) IsValidPrecisionAndScale(precision, scale int16) bool {
 	return true
 }
 
@@ -112,7 +113,7 @@ func GetNumericTypeForWarehouse(typmod int32, warehouseNumeric WarehouseNumericC
 	}
 
 	precision, scale := ParseNumericTypmod(typmod)
-	if !warehouseNumeric.IsValidPrevisionAndScale(precision, scale) {
+	if !warehouseNumeric.IsValidPrecisionAndScale(precision, scale) {
 		return warehouseNumeric.DefaultPrecisionAndScale()
 	}
 
