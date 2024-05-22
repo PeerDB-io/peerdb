@@ -34,6 +34,12 @@ export const s3Setting: PeerSetting[] = [
     tips: 'The region where your bucket is located. For example, us-east-1. In case of GCS, this will be set to auto, which detects where your bucket it.',
   },
   {
+    label: 'Endpoint',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, endpoint: value as string })),
+    tips: 'The endpoint of your S3 bucket. This is optional.',
+  },
+  {
     label: 'Role ARN',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, roleArn: value as string })),

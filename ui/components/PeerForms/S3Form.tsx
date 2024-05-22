@@ -16,26 +16,18 @@ const S3Form = ({ setter }: S3Props) => {
   const [storageType, setStorageType] = useState<'S3' | 'GCS'>('S3');
   const displayCondition = (label: string) => {
     return !(
-      (label === 'Region' || label === 'Role ARN') &&
+      (label === 'Region' || label === 'Role ARN' || label === 'Endpoint') &&
       storageType === 'GCS'
     );
   };
 
   useEffect(() => {
-    const endpoint =
-      storageType === 'S3' ? '' : 'https://storage.googleapis.com';
-    setter((prev) => {
-      return {
-        ...prev,
-        endpoint,
-      };
-    });
-
     if (storageType === 'GCS') {
       setter((prev) => {
         return {
           ...prev,
           region: 'auto',
+          endpoint: GCS_ENDPOINT,
         };
       });
     }
