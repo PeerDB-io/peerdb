@@ -14,7 +14,6 @@ import (
 	"go.temporal.io/sdk/activity"
 
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
-	numeric "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -281,12 +280,8 @@ func DefineAvroSchema(dstTableName string,
 }
 
 func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
-	avroNumericPrecision := int16(bqField.Precision)
-	avroNumericScale := int16(bqField.Scale)
-	bqNumeric := numeric.BigQueryNumericCompatibility{}
-	if !bqNumeric.IsValidPrevisionAndScale(avroNumericPrecision, avroNumericScale) {
-		avroNumericPrecision, avroNumericScale = bqNumeric.DefaultPrecisionAndScale()
-	}
+	avroNumericPrecision, avroNumericScale := qvalue.DetermineNumericSettingForDWH(
+		int16(bqField.Precision), int16(bqField.Scale), protos.DBType_BIGQUERY)
 
 	considerRepeated := func(typ string, repeated bool) interface{} {
 		if repeated {
