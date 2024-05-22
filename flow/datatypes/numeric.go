@@ -8,6 +8,8 @@ const (
 	PeerDBSnowflakeScale      = 20
 	PeerDBClickhousePrecision = 76
 	PeerDBClickhouseScale     = 38
+	BigQueryNumericUpperBound = 999999999999999999.99999999999999999999
+	BigQueryNumericLowerBound = -999999999999999999.99999999999999999999
 	VARHDRSZ                  = 4
 )
 
@@ -69,7 +71,8 @@ func (BigQueryNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
 }
 
 func (BigQueryNumericCompatibility) IsValidPrevisionAndScale(precision, scale int16) bool {
-	return precision > 0 && precision <= 38 && scale <= 20 && scale < precision
+	return precision > 0 && precision <= PeerDBBigQueryPrecision &&
+		scale <= PeerDBBigQueryScale && scale < precision
 }
 
 type DefaultNumericCompatibility struct{}

@@ -52,6 +52,21 @@ type AvroSchemaField struct {
 	LogicalType string      `json:"logicalType,omitempty"`
 }
 
+func TruncateOrLogNumeric(num decimal.Decimal, precision int16, scale int16, targetDB protos.DBType) (decimal.Decimal, error) {
+	if targetDB == protos.DBType_SNOWFLAKE || targetDB == protos.DBType_BIGQUERY {
+		bidigi := datatypes.CountDigits(num.BigInt())
+		avroPrecision, avroScale := DetermineNumericSettingForDWH(precision, scale, targetDB)
+		if bidigi+int(avroScale) > int(avroPrecision) {
+			slog.Warn("Clearing NUMERIC value with too many digits", slog.Any("number", num))
+			return num, errors.New("invalid numeric")
+		} else if num.Exponent() < -int32(avroScale) {
+			num = num.Truncate(int32(avroScale))
+			slog.Info("Truncated NUMERIC value", slog.Any("number", num))
+		}
+	}
+	return num, nil
+}
+
 // GetAvroSchemaFromQValueKind returns the Avro schema for a given QValueKind.
 // The function takes in two parameters, a QValueKind and a boolean indicating if the
 // Avro schema should respect null values. It returns a QValueKindAvroSchema object
@@ -458,17 +473,11 @@ func countDigits(bi *big.Int) int {
 }
 
 func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) interface{} {
-	if c.TargetDWH == protos.DBType_SNOWFLAKE {
-		bidigi := countDigits(num.BigInt())
-		avroPrecision, avroScale := DetermineNumericSettingForDWH(c.Precision, c.Scale, c.TargetDWH)
-
-		if bidigi+int(avroScale) > int(avroPrecision) {
-			slog.Warn("Clearing NUMERIC value with too many digits for Snowflake!", slog.Any("number", num))
-			return nil
-		} else if num.Exponent() < -int32(avroScale) {
-			num = num.Round(int32(avroScale))
-		}
+	num, err := TruncateOrLogNumeric(num, c.Precision, c.Scale, c.TargetDWH)
+	if err != nil {
+		return nil
 	}
+
 	rat := num.Rat()
 	if c.Nullable {
 		return goavro.Union("bytes.decimal", rat)
