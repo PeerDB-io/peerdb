@@ -56,14 +56,6 @@ func (c *PostgresConnector) GetQRepPartitions(
 		return nil, fmt.Errorf("failed to set transaction snapshot: %w", err)
 	}
 
-	// TODO re-enable locking of the watermark table.
-	// // lock the table while we get the partitions.
-	// lockQuery := fmt.Sprintf("LOCK %s IN EXCLUSIVE MODE", config.WatermarkTable)
-	// if _, err = tx.Exec(c.ctx, lockQuery); err != nil {
-	// 	// if we aren't able to lock, just log the error and continue
-	// 	log.Warnf("failed to lock table %s: %v", config.WatermarkTable, err)
-	// }
-
 	return c.getNumRowsPartitions(ctx, getPartitionsTx, config, last)
 }
 
@@ -335,7 +327,7 @@ func corePullQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	sink QuerySinkWrite,
+	sink QuerySinkWriter,
 ) (int, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	if partition.FullTablePartition {
@@ -416,7 +408,7 @@ func syncQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	sink QuerySinkRead,
+	sink QuerySinkReader,
 ) (int, error) {
 	dstTable, err := utils.ParseSchemaTable(config.DestinationTableIdentifier)
 	if err != nil {
@@ -642,14 +634,16 @@ func (c *PostgresConnector) PullXminRecordStream(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, int64, error) {
-	return pullXminRecordStream(c, ctx, config, partition, stream)
+	return pullXminRecordStream(c, ctx, config, partition, RecordStreamSink{
+		QRecordStream: stream,
+	})
 }
 
 func (c *PostgresConnector) PullXminPgRecordStream(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	pipe *io.PipeWriter,
+	pipe PgCopyWriter,
 ) (int, int64, error) {
 	return pullXminRecordStream(c, ctx, config, partition, pipe)
 }
@@ -659,7 +653,7 @@ func pullXminRecordStream(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	sink QuerySinkWrite,
+	sink QuerySinkWriter,
 ) (int, int64, error) {
 	var currentSnapshotXmin int64
 	query := config.Query
@@ -675,7 +669,7 @@ func pullXminRecordStream(
 	var err error
 	var numRecords int
 	if partition.Range != nil {
-		numRecords, currentSnapshotXmin, err = executor.executeAndProcessQueryStreamGettingCurrentSnapshotXmin(
+		numRecords, currentSnapshotXmin, err = executor.ExecuteAndProcessQueryStreamGettingCurrentSnapshotXmin(
 			ctx,
 			sink,
 			query,
