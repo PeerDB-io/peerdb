@@ -8,8 +8,6 @@ const (
 	PeerDBSnowflakeScale      = 20
 	PeerDBClickhousePrecision = 76
 	PeerDBClickhouseScale     = 38
-	BigQueryNumericUpperBound = 999999999999999999.99999999999999999999
-	BigQueryNumericLowerBound = -999999999999999999.99999999999999999999
 	VARHDRSZ                  = 4
 )
 
