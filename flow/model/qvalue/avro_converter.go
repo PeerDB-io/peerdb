@@ -433,26 +433,28 @@ func (c *QValueAvroConverter) processNullableUnion(
 var tenInt = big.NewInt(10)
 
 func countDigits(bi *big.Int) int {
-	if bi.IsUint64() {
-		u64 := bi.Uint64()
-		if u64 < (1 << 53) {
-			if u64 == 0 {
+	if bi.IsInt64() {
+		i64 := bi.Int64()
+		// restrict fast path to integers with exact conversion to float64
+		if i64 <= (1<<53) && i64 >= -(1<<53) {
+			if i64 == 0 {
 				return 1
 			}
-			return int(math.Log10(float64(u64))) + 1
-		}
-	} else if bi.IsInt64() {
-		i64 := bi.Int64()
-		if i64 > -(1 << 53) {
-			return int(math.Log10(float64(-i64))) + 1
+			return int(math.Log10(math.Abs(float64(i64)))) + 1
 		}
 	}
 
-	abs := new(big.Int).Abs(bi)
-	// lg10 may be off by 1, need to verify
-	lg10 := int(float64(abs.BitLen()) / math.Log2(10))
-	check := big.NewInt(int64(lg10))
-	return lg10 + abs.Cmp(check.Exp(tenInt, check, nil))
+	estimatedNumDigits := int(float64(bi.BitLen()) / math.Log2(10))
+
+	// estimatedNumDigits (lg10) may be off by 1, need to verify
+	digitsBigInt := big.NewInt(int64(estimatedNumDigits))
+	errorCorrectionUnit := digitsBigInt.Exp(tenInt, digitsBigInt, nil)
+
+	if bi.CmpAbs(errorCorrectionUnit) >= 0 {
+		return estimatedNumDigits + 1
+	}
+
+	return estimatedNumDigits
 }
 
 func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) interface{} {
