@@ -61,7 +61,7 @@ func TruncateOrLogNumeric(num decimal.Decimal, precision int16, scale int16, tar
 			return num, errors.New("invalid numeric")
 		} else if num.Exponent() < -int32(avroScale) {
 			num = num.Truncate(int32(avroScale))
-			slog.Info("Truncated NUMERIC value", slog.Any("number", num))
+			slog.Warn("Truncated NUMERIC value", slog.Any("number", num))
 		}
 	}
 	return num, nil
