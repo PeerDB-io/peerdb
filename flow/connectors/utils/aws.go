@@ -176,7 +176,7 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 			AWS:         peerCredentials.Credentials,
 			EndpointUrl: peerCredentials.EndpointUrl,
 		}, peerCredentials.Region)
-		if peerCredentials.RoleArn == nil {
+		if peerCredentials.RoleArn == nil || *peerCredentials.RoleArn == "" {
 			logger.LoggerFromCtx(ctx).Info("Received AWS credentials from peer for connector: " + connectorName)
 			return staticProvider, nil
 		}
