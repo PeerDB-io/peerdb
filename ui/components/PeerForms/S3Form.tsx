@@ -1,6 +1,7 @@
 'use client';
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { s3Setting } from '@/app/peers/create/[peerType]/helpers/s3';
+import { GCS_ENDPOINT } from '@/app/utils/gcsEndpoint';
 import { Label } from '@/lib/Label';
 import { RowWithRadiobutton, RowWithTextField } from '@/lib/Layout';
 import { RadioButton, RadioButtonGroup } from '@/lib/RadioButtonGroup';

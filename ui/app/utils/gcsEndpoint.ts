@@ -1,1 +1,1 @@
-const GCS_ENDPOINT = 'https://storage.googleapis.com';
+export const GCS_ENDPOINT = 'https://storage.googleapis.com';
