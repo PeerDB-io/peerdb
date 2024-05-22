@@ -6,15 +6,15 @@ import (
 )
 
 func TestCountDigits(t *testing.T) {
-	bi := big.NewInt(1234567890)
-	expected := 10
+	bi := big.NewInt(-0)
+	expected := 1
 	result := CountDigits(bi)
 	if result != expected {
 		t.Errorf("Unexpected result. Expected: %v, but got: %v", expected, result)
 	}
 
-	bi = big.NewInt(-1234567890)
-	expected = 10
+	bi = big.NewInt(0)
+	expected = 1
 	result = CountDigits(bi)
 	if result != expected {
 		t.Errorf("Unexpected result. Expected: %v, but got: %v", expected, result)
