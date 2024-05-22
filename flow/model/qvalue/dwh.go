@@ -22,7 +22,7 @@ func DetermineNumericSettingForDWH(precision int16, scale int16, dwh protos.DBTy
 		warehouseNumeric = numeric.DefaultNumericCompatibility{}
 	}
 
-	if !warehouseNumeric.IsValidPrevisionAndScale(precision, scale) {
+	if !warehouseNumeric.IsValidPrecisionAndScale(precision, scale) {
 		precision, scale = warehouseNumeric.DefaultPrecisionAndScale()
 	}
 
