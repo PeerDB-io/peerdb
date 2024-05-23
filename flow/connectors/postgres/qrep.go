@@ -317,9 +317,9 @@ func (c *PostgresConnector) PullPgQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	stream *io.PipeReader,
+	stream *io.PipeWriter,
 ) (int, error) {
-	return corePullQRepRecords(c, ctx, config, partition, &PgCopySinkWrite{PipeReader: stream})
+	return corePullQRepRecords(c, ctx, config, partition, PgCopyWriter{PipeWriter: stream})
 }
 
 func corePullQRepRecords(
@@ -335,7 +335,7 @@ func corePullQRepRecords(
 		executor := c.NewQRepQueryExecutorSnapshot(c.config.TransactionSnapshot,
 			config.FlowJobName, partition.PartitionId)
 
-		_, err := sink.ExecuteQuery(ctx, executor, config.Query)
+		_, err := executor.ExecuteQueryIntoSink(ctx, sink, config.Query)
 		return 0, err
 	}
 	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
@@ -391,16 +391,18 @@ func (c *PostgresConnector) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
-	return syncQRepRecords(c, ctx, config, partition, model.NewQRecordCopyFromSource(stream))
+	return syncQRepRecords(c, ctx, config, partition, RecordStreamSink{
+		QRecordStream: stream,
+	})
 }
 
 func (c *PostgresConnector) SyncPgQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	pipe *io.PipeReader,
+	pipe PgCopyReader,
 ) (int, error) {
-	return syncQRepRecords(c, ctx, config, partition, model.NewPgRecordCopyFromSource(pipe))
+	return syncQRepRecords(c, ctx, config, partition, pipe)
 }
 
 func syncQRepRecords(
@@ -669,14 +671,14 @@ func pullXminRecordStream(
 	var err error
 	var numRecords int
 	if partition.Range != nil {
-		numRecords, currentSnapshotXmin, err = executor.ExecuteAndProcessQueryStreamGettingCurrentSnapshotXmin(
+		numRecords, currentSnapshotXmin, err = executor.ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 			ctx,
 			sink,
 			query,
 			oldxid,
 		)
 	} else {
-		numRecords, currentSnapshotXmin, err = executor.executeAndProcessQueryStreamGettingCurrentSnapshotXmin(
+		numRecords, currentSnapshotXmin, err = executor.ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 			ctx,
 			sink,
 			query,
