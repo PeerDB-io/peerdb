@@ -22,6 +22,11 @@ const GuideForDestinationSetup = ({
         return 'https://docs.peerdb.io/connect/cloudsql_postgres';
       case 'CRUNCHY POSTGRES':
         return 'https://docs.peerdb.io/connect/crunchy_bridge';
+      case 'CONFLUENT':
+        return 'https://docs.peerdb.io/connect/confluent-cloud';
+      case 'REDPANDA':
+      case 'KAFKA':
+        return 'https://docs.peerdb.io/connect/kafka';
       default:
         return '';
     }
