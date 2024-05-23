@@ -355,7 +355,7 @@ impl NexusBackend {
             NexusStatement::PeerDDL { stmt: _, ref ddl } => match ddl.as_ref() {
                 PeerDDL::CreatePeer {
                     peer,
-                    if_not_exists: _,
+                    if_not_exists,
                 } => {
                     self.validate_peer(peer).await.map_err(|e| {
                         PgWireError::UserError(Box::new(ErrorInfo::new(
@@ -365,13 +365,16 @@ impl NexusBackend {
                         )))
                     })?;
 
-                    self.catalog.create_peer(peer.as_ref()).await.map_err(|e| {
-                        PgWireError::UserError(Box::new(ErrorInfo::new(
-                            "ERROR".to_owned(),
-                            "internal_error".to_owned(),
-                            e.to_string(),
-                        )))
-                    })?;
+                    self.catalog
+                        .create_peer(peer.as_ref(), *if_not_exists)
+                        .await
+                        .map_err(|e| {
+                            PgWireError::UserError(Box::new(ErrorInfo::new(
+                                "ERROR".to_owned(),
+                                "internal_error".to_owned(),
+                                e.to_string(),
+                            )))
+                        })?;
                     Ok(vec![Response::Execution(Tag::new("OK"))])
                 }
                 PeerDDL::CreateMirrorForCDC {
