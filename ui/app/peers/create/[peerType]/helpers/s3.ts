@@ -38,6 +38,7 @@ export const s3Setting: PeerSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, endpoint: value as string })),
     tips: 'The endpoint of your S3 bucket. This is optional.',
+    optional: true,
   },
   {
     label: 'Role ARN',
