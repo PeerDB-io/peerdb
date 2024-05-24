@@ -213,6 +213,10 @@ func (p PgCopyReader) GetColumnNames() []string {
 
 func (p PgCopyReader) CopyInto(ctx context.Context, c *PostgresConnector, tx pgx.Tx, table pgx.Identifier) (int64, error) {
 	<-p.schema.schemaLatch
-	_, err := c.conn.PgConn().CopyFrom(ctx, p.PipeReader, fmt.Sprintf("COPY %s (%s) FROM STDIN", table.Sanitize(), strings.Join(p.schema.schema, ",")))
+	_, err := c.conn.PgConn().CopyFrom(
+		ctx,
+		p.PipeReader,
+		fmt.Sprintf("COPY %s (%s) FROM STDIN", table.Sanitize(), strings.Join(p.schema.schema, ",")),
+	)
 	return 0, err
 }
