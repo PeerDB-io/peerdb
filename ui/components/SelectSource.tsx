@@ -42,7 +42,7 @@ const dbTypes = [
     'CRUNCHY POSTGRES',
   ],
   ['Warehouses', 'SNOWFLAKE', 'BIGQUERY', 'S3', 'CLICKHOUSE', 'ELASTICSEARCH'],
-  ['Queues', 'KAFKA', 'EVENTHUBS', 'PUBSUB'],
+  ['Queues', 'REDPANDA', 'CONFLUENT', 'KAFKA', 'EVENTHUBS', 'PUBSUB'],
 ];
 
 const gridContainerStyle = {
