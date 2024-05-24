@@ -375,8 +375,8 @@ func corePullQRepRecords(
 	executor := c.NewQRepQueryExecutorSnapshot(c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
 
-	var numRecords int
-	if err := executor.conn.QueryRow(ctx, query, rangeStart, rangeEnd).Scan(&numRecords); err != nil {
+	numRecords, err := executor.ExecuteQueryIntoSink(ctx, sink, query, rangeStart, rangeEnd)
+	if err != nil {
 		return 0, err
 	}
 

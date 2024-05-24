@@ -138,10 +138,6 @@ func (p PgCopyWriter) SetSchema(schema []string) {
 	}
 }
 
-func (p PgCopyWriter) IsSchemaSet() bool {
-	return p.schema.schemaSet
-}
-
 func (p PgCopyWriter) ExecuteQueryWithTx(
 	ctx context.Context,
 	qe *QRepQueryExecutor,
@@ -162,8 +158,7 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 		}
 	}
 
-	schemaQuery := query + " limit 0"
-	norows, err := tx.Query(ctx, schemaQuery, args...)
+	norows, err := tx.Query(ctx, query+" limit 0", args...)
 	if err != nil {
 		return 0, err
 	}
@@ -173,9 +168,7 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 	for _, fd := range fieldDescriptions {
 		cols = append(cols, QuoteIdentifier(fd.Name))
 	}
-	if !p.IsSchemaSet() {
-		p.SetSchema(cols)
-	}
+	p.SetSchema(cols)
 	norows.Close()
 
 	// TODO use pgx simple query arg parsing code (it's internal, need to copy)
@@ -187,9 +180,9 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 	copyQuery := fmt.Sprintf("COPY %s (%s) TO STDOUT", query, strings.Join(cols, ","))
 	qe.logger.Info(fmt.Sprintf("[pg_query_executor] executing cursor declaration for %v with args %v", copyQuery, args))
 	if _, err := qe.conn.PgConn().CopyTo(ctx, p.PipeWriter, copyQuery); err != nil {
-		qe.logger.Info("[pg_query_executor] failed to declare cursor",
+		qe.logger.Info("[pg_query_executor] failed to copy",
 			slog.String("copyQuery", copyQuery), slog.Any("error", err))
-		err = fmt.Errorf("[pg_query_executor] failed to declare cursor: %w", err)
+		err = fmt.Errorf("[pg_query_executor] failed to copy: %w", err)
 		p.Close(err)
 		return 0, err
 	}
@@ -220,10 +213,6 @@ func (p PgCopyReader) GetColumnNames() []string {
 
 func (p PgCopyReader) CopyInto(ctx context.Context, c *PostgresConnector, tx pgx.Tx, table pgx.Identifier) (int64, error) {
 	<-p.schema.schemaLatch
-	cols := make([]string, 0, len(p.schema.schema))
-	for _, col := range p.schema.schema {
-		cols = append(cols, QuoteIdentifier(col))
-	}
-	_, err := c.conn.PgConn().CopyFrom(ctx, p.PipeReader, fmt.Sprintf("COPY %s (%s) FROM STDIN", table.Sanitize(), strings.Join(cols, ",")))
+	_, err := c.conn.PgConn().CopyFrom(ctx, p.PipeReader, fmt.Sprintf("COPY %s (%s) FROM STDIN", table.Sanitize(), strings.Join(p.schema.schema, ",")))
 	return 0, err
 }

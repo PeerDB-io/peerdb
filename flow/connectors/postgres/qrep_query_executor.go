@@ -286,35 +286,6 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSink(
 	return sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
 }
 
-func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamGettingCurrentSnapshotXmin(
-	ctx context.Context,
-	stream *model.QRecordStream,
-	query string,
-	args ...interface{},
-) (int, int64, error) {
-	var currentSnapshotXmin pgtype.Int8
-	qe.logger.Info("Executing and processing query stream", slog.String("query", query))
-	defer stream.Close(nil)
-
-	tx, err := qe.conn.BeginTx(ctx, pgx.TxOptions{
-		AccessMode: pgx.ReadOnly,
-		IsoLevel:   pgx.RepeatableRead,
-	})
-	if err != nil {
-		qe.logger.Error("[pg_query_executor] failed to begin transaction", slog.Any("error", err))
-		return 0, currentSnapshotXmin.Int64, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
-	}
-
-	err = tx.QueryRow(ctx, "select txid_snapshot_xmin(txid_current_snapshot())").Scan(&currentSnapshotXmin)
-	if err != nil {
-		qe.logger.Error("[pg_query_executor] failed to get current snapshot xmin", slog.Any("error", err))
-		return 0, currentSnapshotXmin.Int64, err
-	}
-
-	totalRecordsFetched, err := qe.ExecuteAndProcessQueryStreamWithTx(ctx, tx, stream, query, args...)
-	return totalRecordsFetched, currentSnapshotXmin.Int64, err
-}
-
 func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 	ctx context.Context,
 	sink QuerySinkWriter,
