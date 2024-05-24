@@ -770,13 +770,15 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 ) (int64, error) {
 	switch config.System {
 	case protos.TypeSystem_Q:
+		stream := model.NewQRecordStream(shared.FetchAndChannelSize)
 		return replicateXminPartition(ctx, a, config, partition, runUUID,
-			model.NewQRecordStream(shared.FetchAndChannelSize),
+			stream, stream,
 			(*connpostgres.PostgresConnector).PullXminRecordStream,
 			connectors.QRepSyncConnector.SyncQRepRecords)
 	case protos.TypeSystem_PG:
+		pgread, pgwrite := connpostgres.NewPgCopyPipe()
 		return replicateXminPartition(ctx, a, config, partition, runUUID,
-			model.NewRecordStream[any](shared.FetchAndChannelSize),
+			pgwrite, pgread,
 			(*connpostgres.PostgresConnector).PullXminPgRecordStream,
 			connectors.QRepSyncPgConnector.SyncPgQRepRecords)
 	default:

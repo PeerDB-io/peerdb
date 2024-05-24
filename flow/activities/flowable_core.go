@@ -398,7 +398,8 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 }
 
 // replicateXminPartition replicates a XminPartition from the source to the destination.
-func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConnectorCore](ctx context.Context,
+func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConnectorCore](
+	ctx context.Context,
 	a *FlowableActivity,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,

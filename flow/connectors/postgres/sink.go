@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -21,7 +20,7 @@ type QuerySinkWriter interface {
 
 type QuerySinkReader interface {
 	GetColumnNames() []string
-	CopyInto(context.Context, pgx.Tx, pgx.Identifier) (int64, error)
+	CopyInto(context.Context, *PostgresConnector, pgx.Tx, pgx.Identifier) (int64, error)
 }
 
 type RecordStreamSink struct {
@@ -29,10 +28,9 @@ type RecordStreamSink struct {
 }
 
 type PgCopyShared struct {
-	schema      []pgconn.FieldDescription
-	schemaSet   bool
 	schemaLatch chan struct{}
-	err         error
+	schema      []string
+	schemaSet   bool
 }
 
 type PgCopyWriter struct {
@@ -124,7 +122,7 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 	return totalRecordsFetched, nil
 }
 
-func (stream RecordStreamSink) CopyInto(ctx context.Context, tx pgx.Tx, table pgx.Identifier) (int64, error) {
+func (stream RecordStreamSink) CopyInto(ctx context.Context, _ *PostgresConnector, tx pgx.Tx, table pgx.Identifier) (int64, error) {
 	return tx.CopyFrom(ctx, table, stream.GetColumnNames(), model.NewQRecordCopyFromSource(stream.QRecordStream))
 }
 
@@ -132,7 +130,7 @@ func (stream RecordStreamSink) GetColumnNames() []string {
 	return stream.Schema().GetColumnNames()
 }
 
-func (p PgCopyWriter) SetSchema(schema []pgconn.FieldDescription) {
+func (p PgCopyWriter) SetSchema(schema []string) {
 	if !p.schema.schemaSet {
 		p.schema.schema = schema
 		close(p.schema.schemaLatch)
@@ -169,20 +167,21 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 	if err != nil {
 		return 0, err
 	}
+
 	fieldDescriptions := norows.FieldDescriptions()
 	cols := make([]string, 0, len(fieldDescriptions))
 	for _, fd := range fieldDescriptions {
 		cols = append(cols, QuoteIdentifier(fd.Name))
 	}
 	if !p.IsSchemaSet() {
-		p.SetSchema(fieldDescriptions)
+		p.SetSchema(cols)
 	}
 	norows.Close()
 
 	// TODO use pgx simple query arg parsing code (it's internal, need to copy)
 	// TODO correctly interpolate
 	for i, arg := range args {
-		query = strings.Replace(query, fmt.Sprintf("$%d", i), fmt.Sprint(arg), -1)
+		query = strings.ReplaceAll(query, fmt.Sprintf("$%d", i), fmt.Sprint(arg))
 	}
 
 	copyQuery := fmt.Sprintf("COPY %s (%s) TO STDOUT", query, strings.Join(cols, ","))
@@ -215,12 +214,16 @@ func (p PgCopyWriter) Close(err error) {
 	p.PipeWriter.CloseWithError(err)
 }
 
-func (p PgCopyReader) CopyInto(ctx context.Context, qe *QRepQueryExecutor, tx pgx.Tx, table pgx.Identifier) (int64, error) {
+func (p PgCopyReader) GetColumnNames() []string {
+	return p.schema.schema
+}
+
+func (p PgCopyReader) CopyInto(ctx context.Context, c *PostgresConnector, tx pgx.Tx, table pgx.Identifier) (int64, error) {
 	<-p.schema.schemaLatch
 	cols := make([]string, 0, len(p.schema.schema))
-	for _, fd := range p.schema.schema {
-		cols = append(cols, QuoteIdentifier(fd.Name))
+	for _, col := range p.schema.schema {
+		cols = append(cols, QuoteIdentifier(col))
 	}
-	_, err := qe.conn.PgConn().CopyFrom(ctx, p.PipeReader, fmt.Sprintf("COPY %s (%s) FROM STDIN", table.Sanitize(), strings.Join(cols, ",")))
+	_, err := c.conn.PgConn().CopyFrom(ctx, p.PipeReader, fmt.Sprintf("COPY %s (%s) FROM STDIN", table.Sanitize(), strings.Join(cols, ",")))
 	return 0, err
 }

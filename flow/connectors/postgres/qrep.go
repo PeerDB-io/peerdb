@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -317,9 +316,9 @@ func (c *PostgresConnector) PullPgQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	stream *io.PipeWriter,
+	stream PgCopyWriter,
 ) (int, error) {
-	return corePullQRepRecords(c, ctx, config, partition, PgCopyWriter{PipeWriter: stream})
+	return corePullQRepRecords(c, ctx, config, partition, stream)
 }
 
 func corePullQRepRecords(
@@ -482,6 +481,7 @@ func syncQRepRecords(
 
 		numRowsSynced, err = sink.CopyInto(
 			ctx,
+			c,
 			tx,
 			pgx.Identifier{dstTable.Schema, dstTable.Table},
 		)
@@ -523,6 +523,7 @@ func syncQRepRecords(
 		// Step 2.2: Insert records into the staging table
 		numRowsSynced, err = sink.CopyInto(
 			ctx,
+			c,
 			tx,
 			stagingTableIdentifier,
 		)
