@@ -52,6 +52,9 @@ export default function CreateConfig({
     if (peerType.includes('POSTGRES') || peerType.includes('TEMBO')) {
       return 'POSTGRES';
     }
+    if (peerType === 'CONFLUENT' || peerType === 'REDPANDA') {
+      return 'KAFKA';
+    }
     return peerType;
   };
 
