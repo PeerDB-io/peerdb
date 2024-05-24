@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/concurrency"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	peerdb_mirror_defaults "github.com/PeerDB-io/peer-flow/defaultparameters"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -161,12 +162,12 @@ func (s *SnapshotFlowExecution) cloneTable(
 			from, parsedSrcTable.String(), mapping.PartitionKey)
 	}
 
-	numWorkers := uint32(8)
+	numWorkers := uint32(peerdb_mirror_defaults.DefaultSnapshotParallelWorkers)
 	if s.config.SnapshotMaxParallelWorkers > 0 {
 		numWorkers = s.config.SnapshotMaxParallelWorkers
 	}
 
-	numRowsPerPartition := uint32(500000)
+	numRowsPerPartition := uint32(peerdb_mirror_defaults.DefaultSnapshotNumRowsPerPartition)
 	if s.config.SnapshotNumRowsPerPartition > 0 {
 		numRowsPerPartition = s.config.SnapshotNumRowsPerPartition
 	}
@@ -296,7 +297,8 @@ func SnapshotFlowWorkflow(
 			slog.String(string(shared.FlowNameKey), config.FlowJobName)),
 	}
 
-	numTablesInParallel := int(max(config.SnapshotNumTablesInParallel, 1))
+	numTablesInParallel := int(max(config.SnapshotNumTablesInParallel,
+		peerdb_mirror_defaults.DefaultSnapshotNumTablesInParallel))
 
 	if !config.DoInitialSnapshot {
 		_, err := se.setupReplication(ctx)

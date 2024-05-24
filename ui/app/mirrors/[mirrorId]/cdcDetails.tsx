@@ -21,7 +21,7 @@ type props = {
   mirrorStatus: FlowStatus;
 };
 function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
-  const [syncInterval, getSyncInterval] = useState<number>();
+  const [syncInterval, setSyncInterval] = useState<number>();
 
   let rowsSynced = syncs.reduce((acc, sync) => {
     if (sync.endTime !== null) {
@@ -33,7 +33,7 @@ function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
   const tablesSynced = mirrorConfig.tableMappings;
   useEffect(() => {
     getCurrentIdleTimeout(mirrorConfig.flowJobName).then((res) => {
-      getSyncInterval(res);
+      setSyncInterval(res);
     });
   }, [mirrorConfig.flowJobName]);
   return (

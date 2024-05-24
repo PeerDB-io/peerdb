@@ -15,7 +15,7 @@ const MirrorInfo = ({ configs }: InfoPopoverProps) => {
   return (
     <Dialog
       noInteract={false}
-      size='large'
+      size='xLarge'
       triggerButton={
         <Button style={{ backgroundColor: 'white', border: '1px solid gray' }}>
           <Label variant='body'>View More</Label>

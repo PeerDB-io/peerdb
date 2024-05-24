@@ -11,7 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
@@ -21,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
+	peerdb_mirror_defaults "github.com/PeerDB-io/peer-flow/defaultparameters"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
@@ -106,7 +107,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 	batchSize := options.BatchSize
 	if batchSize == 0 {
-		batchSize = 1_000_000
+		batchSize = peerdb_mirror_defaults.DefaultPullBatchSize
 	}
 
 	lastOffset, err := dstConn.GetLastOffset(ctx, config.FlowJobName)
