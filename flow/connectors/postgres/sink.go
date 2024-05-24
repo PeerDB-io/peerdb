@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -174,7 +176,24 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 	// TODO use pgx simple query arg parsing code (it's internal, need to copy)
 	// TODO correctly interpolate
 	for i, arg := range args {
-		query = strings.ReplaceAll(query, fmt.Sprintf("$%d", i+1), fmt.Sprint(arg))
+		var str string
+		switch arg := arg.(type) {
+		case nil:
+			str = "null"
+		case int64:
+			str = strconv.FormatInt(arg, 10)
+		case float64:
+			str = strconv.FormatFloat(arg, 'f', -1, 64)
+		case bool:
+			str = strconv.FormatBool(arg)
+		case string:
+			str = QuoteLiteral(arg)
+		case time.Time:
+			str = arg.Truncate(time.Microsecond).Format("'2006-01-02 15:04:05.999999999Z07:00:00'")
+		default:
+			return 0, fmt.Errorf("invalid arg type: %T", arg)
+		}
+		query = strings.ReplaceAll(query, fmt.Sprintf("$%d", i+1), str)
 	}
 
 	copyQuery := fmt.Sprintf("COPY %s (%s) TO STDOUT", query, strings.Join(cols, ","))
