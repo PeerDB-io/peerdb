@@ -11,7 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
@@ -143,11 +143,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	hasRecords := !recordBatch.WaitAndCheckEmpty()
 	logger.Info("current sync flow has records?", slog.Bool("hasRecords", hasRecords))
 
-	dstConn, err = connectors.GetAs[TSync](ctx, config.Destination)
-	if err != nil {
-		return nil, fmt.Errorf("failed to recreate destination connector: %w", err)
-	}
-
 	if !hasRecords {
 		// wait for the pull goroutine to finish
 		err = errGroup.Wait()
@@ -160,6 +155,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			}
 		}
 		logger.Info("no records to push")
+
+		dstConn, err = connectors.GetAs[TSync](ctx, config.Destination)
+		if err != nil {
+			return nil, fmt.Errorf("failed to recreate destination connector: %w", err)
+		}
 
 		err := dstConn.ReplayTableSchemaDeltas(ctx, flowName, recordBatch.SchemaDeltas)
 		if err != nil {
