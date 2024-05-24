@@ -1,5 +1,6 @@
 'use client';
 import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
+import { DefaultSyncInterval } from '@/app/utils/defaultMirrorSettings';
 import MirrorInfo from '@/components/MirrorInfo';
 import PeerButton from '@/components/PeerComponent';
 import TimeLabel from '@/components/TimeComponent';
@@ -21,7 +22,7 @@ type props = {
   mirrorStatus: FlowStatus;
 };
 function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
-  const [syncInterval, setSyncInterval] = useState<number>();
+  const [syncInterval, setSyncInterval] = useState<number>(DefaultSyncInterval);
 
   let rowsSynced = syncs.reduce((acc, sync) => {
     if (sync.endTime !== null) {
@@ -33,9 +34,9 @@ function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
   const tablesSynced = mirrorConfig.tableMappings;
   useEffect(() => {
     getCurrentIdleTimeout(mirrorConfig.flowJobName).then((res) => {
-      setSyncInterval(res);
+      if (res > 0) setSyncInterval(res);
     });
-  }, [mirrorConfig.flowJobName]);
+  }, [mirrorConfig.flowJobName, setSyncInterval]);
   return (
     <>
       <div className='mt-10'>

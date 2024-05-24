@@ -1,6 +1,8 @@
 import {
   DefaultPullBatchSize,
+  DefaultSnapshotMaxParallelWorkers,
   DefaultSnapshotNumRowsPerPartition,
+  DefaultSnapshotNumTablesInParallel,
 } from '@/app/utils/defaultMirrorSettings';
 import { FlowConnectionConfigs } from '@/grpc_generated/flow';
 
@@ -15,11 +17,11 @@ const MirrorValues = (mirrorConfig: FlowConnectionConfigs | undefined) => {
       label: 'Snapshot Rows Per Partition',
     },
     {
-      value: `${mirrorConfig?.snapshotNumTablesInParallel} table(s)`,
+      value: `${mirrorConfig?.snapshotNumTablesInParallel || DefaultSnapshotNumTablesInParallel} table(s)`,
       label: 'Snapshot Tables In Parallel',
     },
     {
-      value: `${mirrorConfig?.snapshotMaxParallelWorkers} worker(s)`,
+      value: `${mirrorConfig?.snapshotMaxParallelWorkers || DefaultSnapshotMaxParallelWorkers} worker(s)`,
       label: 'Snapshot Parallel Workers',
     },
     {

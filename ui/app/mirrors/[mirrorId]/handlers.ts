@@ -1,4 +1,3 @@
-import { DefaultSyncInterval } from '@/app/utils/defaultMirrorSettings';
 import { FlowConnectionConfigs, FlowStatus } from '@/grpc_generated/flow';
 import {
   FlowStateChangeRequest,
@@ -15,12 +14,10 @@ export const getMirrorState = async (mirrorId: string) => {
 };
 
 export const getCurrentIdleTimeout = async (mirrorId: string) => {
-  return await getMirrorState(mirrorId).then((res) => {
-    return (
-      (res as MirrorStatusResponse).cdcStatus?.config?.idleTimeoutSeconds ||
-      DefaultSyncInterval
-    );
-  });
+  return await getMirrorState(mirrorId).then(
+    (res) =>
+      (res as MirrorStatusResponse).cdcStatus?.config?.idleTimeoutSeconds || 0
+  );
 };
 
 export const changeFlowState = async (
