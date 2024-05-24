@@ -45,7 +45,7 @@ type PgCopyReader struct {
 
 func NewPgCopyPipe() (PgCopyReader, PgCopyWriter) {
 	read, write := io.Pipe()
-	schema := PgCopyShared{}
+	schema := PgCopyShared{schemaLatch: make(chan struct{}, 0)}
 	return PgCopyReader{PipeReader: read, schema: &schema},
 		PgCopyWriter{PipeWriter: write, schema: &schema}
 }

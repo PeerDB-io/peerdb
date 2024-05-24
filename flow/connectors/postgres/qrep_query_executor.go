@@ -148,8 +148,9 @@ func (qe *QRepQueryExecutor) processRowsStream(
 		record, err := qe.mapRowToQRecord(rows, fieldDescriptions)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
-			stream.Close(fmt.Errorf("failed to map row to QRecord: %w", err))
-			return 0, fmt.Errorf("failed to map row to QRecord: %w", err)
+			err := fmt.Errorf("failed to map row to QRecord: %w", err)
+			stream.Close(err)
+			return 0, err
 		}
 
 		stream.Records <- record
