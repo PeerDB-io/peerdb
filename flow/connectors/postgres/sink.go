@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/PeerDB-io/peer-flow/connectors/postgres/sanitize"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -173,26 +172,9 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 	p.SetSchema(cols)
 	norows.Close()
 
-	// TODO use pgx simple query arg parsing code (it's internal, need to copy)
-	for i, arg := range args {
-		var str string
-		switch arg := arg.(type) {
-		case nil:
-			str = "null"
-		case int64:
-			str = strconv.FormatInt(arg, 10)
-		case float64:
-			str = strconv.FormatFloat(arg, 'f', -1, 64)
-		case bool:
-			str = strconv.FormatBool(arg)
-		case string:
-			str = QuoteLiteral(arg)
-		case time.Time:
-			str = arg.Truncate(time.Microsecond).Format("'2006-01-02 15:04:05.999999999Z07:00:00'")
-		default:
-			return 0, fmt.Errorf("invalid arg type: %T", arg)
-		}
-		query = strings.ReplaceAll(query, fmt.Sprintf("$%d", i+1), str)
+	query, err = sanitize.SanitizeSQL(query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("failed to apply parameters to copy subquery: %w", err)
 	}
 
 	copyQuery := fmt.Sprintf("COPY (%s) TO STDOUT", query)
