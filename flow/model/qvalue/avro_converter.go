@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
-	"math/big"
 	"time"
 
 	"github.com/google/uuid"
@@ -50,6 +48,21 @@ type AvroSchemaField struct {
 	Name        string      `json:"name"`
 	Type        interface{} `json:"type"`
 	LogicalType string      `json:"logicalType,omitempty"`
+}
+
+func TruncateOrLogNumeric(num decimal.Decimal, precision int16, scale int16, targetDB protos.DBType) (decimal.Decimal, error) {
+	if targetDB == protos.DBType_SNOWFLAKE || targetDB == protos.DBType_BIGQUERY {
+		bidigi := datatypes.CountDigits(num.BigInt())
+		avroPrecision, avroScale := DetermineNumericSettingForDWH(precision, scale, targetDB)
+		if bidigi+int(avroScale) > int(avroPrecision) {
+			slog.Warn("Clearing NUMERIC value with too many digits", slog.Any("number", num))
+			return num, errors.New("invalid numeric")
+		} else if num.Exponent() < -int32(avroScale) {
+			num = num.Truncate(int32(avroScale))
+			slog.Warn("Truncated NUMERIC value", slog.Any("number", num))
+		}
+	}
+	return num, nil
 }
 
 // GetAvroSchemaFromQValueKind returns the Avro schema for a given QValueKind.
@@ -430,43 +443,12 @@ func (c *QValueAvroConverter) processNullableUnion(
 	return value, nil
 }
 
-var tenInt = big.NewInt(10)
-
-func countDigits(bi *big.Int) int {
-	if bi.IsUint64() {
-		u64 := bi.Uint64()
-		if u64 < (1 << 53) {
-			if u64 == 0 {
-				return 1
-			}
-			return int(math.Log10(float64(u64))) + 1
-		}
-	} else if bi.IsInt64() {
-		i64 := bi.Int64()
-		if i64 > -(1 << 53) {
-			return int(math.Log10(float64(-i64))) + 1
-		}
-	}
-
-	abs := new(big.Int).Abs(bi)
-	// lg10 may be off by 1, need to verify
-	lg10 := int(float64(abs.BitLen()) / math.Log2(10))
-	check := big.NewInt(int64(lg10))
-	return lg10 + abs.Cmp(check.Exp(tenInt, check, nil))
-}
-
 func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) interface{} {
-	if c.TargetDWH == protos.DBType_SNOWFLAKE {
-		bidigi := countDigits(num.BigInt())
-		avroPrecision, avroScale := DetermineNumericSettingForDWH(c.Precision, c.Scale, c.TargetDWH)
-
-		if bidigi+int(avroScale) > int(avroPrecision) {
-			slog.Warn("Clearing NUMERIC value with too many digits for Snowflake!", slog.Any("number", num))
-			return nil
-		} else if num.Exponent() < -int32(avroScale) {
-			num = num.Round(int32(avroScale))
-		}
+	num, err := TruncateOrLogNumeric(num, c.Precision, c.Scale, c.TargetDWH)
+	if err != nil {
+		return nil
 	}
+
 	rat := num.Rat()
 	if c.Nullable {
 		return goavro.Union("bytes.decimal", rat)

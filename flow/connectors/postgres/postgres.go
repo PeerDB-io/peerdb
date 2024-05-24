@@ -736,6 +736,7 @@ func (c *PostgresConnector) GetTableSchema(
 	for _, tableName := range req.TableIdentifiers {
 		tableSchema, err := c.getTableSchemaForTable(ctx, tableName, req.System)
 		if err != nil {
+			c.logger.Info("error fetching schema for table "+tableName, slog.Any("error", err))
 			return nil, err
 		}
 		res[tableName] = tableSchema
