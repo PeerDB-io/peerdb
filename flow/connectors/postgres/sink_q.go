@@ -1,7 +1,14 @@
 package connpostgres
 
 import (
+	"context"
+	"fmt"
+	"log/slog"
+
+	"github.com/jackc/pgx/v5"
+
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type RecordStreamSink struct {

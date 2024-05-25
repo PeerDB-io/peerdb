@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/PeerDB-io/peer-flow/connectors/postgres/sanitize"
-	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
