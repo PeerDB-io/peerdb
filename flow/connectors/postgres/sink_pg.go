@@ -72,7 +72,7 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 	fieldDescriptions := norows.FieldDescriptions()
 	cols := make([]string, 0, len(fieldDescriptions))
 	for _, fd := range fieldDescriptions {
-		cols = append(cols, QuoteIdentifier(fd.Name))
+		cols = append(cols, fd.Name)
 	}
 	p.SetSchema(cols)
 	norows.Close()
@@ -112,15 +112,20 @@ func (p PgCopyWriter) Close(err error) {
 }
 
 func (p PgCopyReader) GetColumnNames() []string {
+	<-p.schema.schemaLatch
 	return p.schema.schema
 }
 
 func (p PgCopyReader) CopyInto(ctx context.Context, c *PostgresConnector, tx pgx.Tx, table pgx.Identifier) (int64, error) {
-	<-p.schema.schemaLatch
+	cols := p.GetColumnNames()
+	quotedCols := make([]string, 0, len(cols))
+	for _, col := range cols {
+		quotedCols = append(cols, QuoteIdentifier(col))
+	}
 	ct, err := c.conn.PgConn().CopyFrom(
 		ctx,
 		p.PipeReader,
-		fmt.Sprintf("COPY %s (%s) FROM STDIN", table.Sanitize(), strings.Join(p.schema.schema, ",")),
+		fmt.Sprintf("COPY %s (%s) FROM STDIN", table.Sanitize(), strings.Join(quotedCols, ",")),
 	)
 	return ct.RowsAffected(), err
 }

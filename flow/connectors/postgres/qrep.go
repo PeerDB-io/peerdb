@@ -123,7 +123,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 
 	if totalRows.Int64 == 0 {
 		c.logger.Warn("no records to replicate, returning")
-		return make([]*protos.QRepPartition, 0), nil
+		return nil, nil
 	}
 
 	// Calculate the number of partitions
@@ -543,14 +543,15 @@ func syncQRepRecords(
 
 		// construct the SET clause for the upsert operation
 		upsertMatchColsList := writeMode.UpsertKeyColumns
-		upsertMatchCols := make(map[string]struct{})
+		upsertMatchCols := make(map[string]struct{}, len(upsertMatchColsList))
 		for _, col := range upsertMatchColsList {
 			upsertMatchCols[col] = struct{}{}
 		}
 
-		setClauseArray := make([]string, 0)
-		selectStrArray := make([]string, 0)
-		for _, col := range sink.GetColumnNames() {
+		columnNames := sink.GetColumnNames()
+		setClauseArray := make([]string, 0, len(upsertMatchColsList)+1)
+		selectStrArray := make([]string, 0, len(columnNames))
+		for _, col := range columnNames {
 			_, ok := upsertMatchCols[col]
 			quotedCol := QuoteIdentifier(col)
 			if !ok {
