@@ -268,7 +268,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 
 func (qe *QRepQueryExecutor) ExecuteQueryIntoSink(
 	ctx context.Context,
-	sink QuerySinkWriter,
+	sink QRepPullSink,
 	query string,
 	args ...interface{},
 ) (int, error) {
@@ -289,7 +289,7 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSink(
 
 func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 	ctx context.Context,
-	sink QuerySinkWriter,
+	sink QRepPullSink,
 	query string,
 	args ...interface{},
 ) (int, int64, error) {

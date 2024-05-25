@@ -26,6 +26,16 @@ import (
 
 const qRepMetadataTableName = "_peerdb_query_replication_metadata"
 
+type QRepPullSink interface {
+	Close(error)
+	ExecuteQueryWithTx(context.Context, *QRepQueryExecutor, pgx.Tx, string, ...interface{}) (int, error)
+}
+
+type QRepSyncSink interface {
+	GetColumnNames() []string
+	CopyInto(context.Context, *PostgresConnector, pgx.Tx, pgx.Identifier) (int64, error)
+}
+
 func (c *PostgresConnector) GetQRepPartitions(
 	ctx context.Context,
 	config *protos.QRepConfig,
@@ -326,7 +336,7 @@ func corePullQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	sink QuerySinkWriter,
+	sink QRepPullSink,
 ) (int, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	if partition.FullTablePartition {
@@ -409,7 +419,7 @@ func syncQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	sink QuerySinkReader,
+	sink QRepSyncSink,
 ) (int, error) {
 	dstTable, err := utils.ParseSchemaTable(config.DestinationTableIdentifier)
 	if err != nil {
@@ -656,7 +666,7 @@ func pullXminRecordStream(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	sink QuerySinkWriter,
+	sink QRepPullSink,
 ) (int, int64, error) {
 	var currentSnapshotXmin int64
 	query := config.Query
