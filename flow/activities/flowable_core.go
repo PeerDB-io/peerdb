@@ -486,7 +486,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		return context.Canceled
 	})
 
-	if err := errGroup.Wait(); err != nil {
+	if err := errGroup.Wait(); err != nil && err != context.Canceled {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return 0, err
 	}
