@@ -30,38 +30,30 @@ func SyncFlowWorkflow(
 	parent := workflow.GetInfo(ctx).ParentWorkflowExecution
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
-	enableOneSync := GetSideEffect(ctx, func(_ workflow.Context) bool {
-		return !peerdbenv.PeerDBDisableOneSync()
-	})
-	var fMaintain workflow.Future
-	var sessionID string
-	syncSessionCtx := ctx
-	if enableOneSync {
-		sessionOptions := &workflow.SessionOptions{
-			CreationTimeout:  5 * time.Minute,
-			ExecutionTimeout: 144 * time.Hour,
-			HeartbeatTimeout: time.Minute,
-		}
-		var err error
-		syncSessionCtx, err = workflow.CreateSession(ctx, sessionOptions)
-		if err != nil {
-			return err
-		}
-		defer workflow.CompleteSession(syncSessionCtx)
-		sessionID = workflow.GetSessionInfo(syncSessionCtx).SessionID
-
-		maintainCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
-			StartToCloseTimeout: 14 * 24 * time.Hour,
-			HeartbeatTimeout:    time.Minute,
-			WaitForCancellation: true,
-		})
-		fMaintain = workflow.ExecuteActivity(
-			maintainCtx,
-			flowable.MaintainPull,
-			config,
-			sessionID,
-		)
+	sessionOptions := &workflow.SessionOptions{
+		CreationTimeout:  5 * time.Minute,
+		ExecutionTimeout: 14 * 24 * time.Hour,
+		HeartbeatTimeout: time.Minute,
 	}
+
+	syncSessionCtx, err := workflow.CreateSession(ctx, sessionOptions)
+	if err != nil {
+		return err
+	}
+	defer workflow.CompleteSession(syncSessionCtx)
+
+	sessionID := workflow.GetSessionInfo(syncSessionCtx).SessionID
+	maintainCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
+		StartToCloseTimeout: 14 * 24 * time.Hour,
+		HeartbeatTimeout:    time.Minute,
+		WaitForCancellation: true,
+	})
+	fMaintain := workflow.ExecuteActivity(
+		maintainCtx,
+		flowable.MaintainPull,
+		config,
+		sessionID,
+	)
 
 	var stop, syncErr bool
 	currentSyncFlowNum := 0

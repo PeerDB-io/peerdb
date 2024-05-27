@@ -14,7 +14,6 @@ import (
 	"github.com/aws/smithy-go/ptr"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/snowflakedb/gosnowflake"
-	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"golang.org/x/sync/errgroup"
 
@@ -734,9 +733,6 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 
 			c.logger.Info(fmt.Sprintf("setting synced at column for table '%s'...", resyncTblName))
 
-			activity.RecordHeartbeat(ctx, fmt.Sprintf("setting synced at column for table '%s'...",
-				resyncTblName))
-
 			_, err = renameTablesTx.ExecContext(ctx,
 				fmt.Sprintf("UPDATE %s SET %s = CURRENT_TIMESTAMP", resyncTblName, *req.SyncedAtColName))
 			if err != nil {
@@ -765,8 +761,6 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 
 			c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
 
-			activity.RecordHeartbeat(ctx, fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
-
 			_, err = renameTablesTx.ExecContext(ctx,
 				fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
 					src, fmt.Sprintf("%s,%s", allCols, *req.SoftDeleteColName), allCols, *req.SoftDeleteColName,
@@ -783,8 +777,6 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 		dst := renameRequest.NewName
 
 		c.logger.Info(fmt.Sprintf("renaming table '%s' to '%s'...", src, dst))
-
-		activity.RecordHeartbeat(ctx, fmt.Sprintf("renaming table '%s' to '%s'...", src, dst))
 
 		// drop the dst table if exists
 		_, err = renameTablesTx.ExecContext(ctx, "DROP TABLE IF EXISTS "+dst)
@@ -827,8 +819,6 @@ func (c *SnowflakeConnector) CreateTablesFromExisting(ctx context.Context, req *
 
 	for newTable, existingTable := range req.NewToExistingTableMapping {
 		c.logger.Info(fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
-
-		activity.RecordHeartbeat(ctx, fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
 
 		// rename the src table to dst
 		_, err = createTablesFromExistingTx.ExecContext(ctx,

@@ -12,7 +12,6 @@ import (
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/api/iterator"
 
@@ -740,9 +739,6 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 		c.logger.Info(fmt.Sprintf("renaming table '%s' to '%s'...", srcDatasetTable.string(),
 			dstDatasetTable.string()))
 
-		activity.RecordHeartbeat(ctx, fmt.Sprintf("renaming table '%s' to '%s'...", srcDatasetTable.string(),
-			dstDatasetTable.string()))
-
 		// if source table does not exist, log and continue.
 		dataset := c.client.DatasetInProject(c.projectID, srcDatasetTable.dataset)
 		_, err := dataset.Table(srcDatasetTable.table).Metadata(ctx)
@@ -775,8 +771,6 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 			}
 
 			c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dstDatasetTable.string()))
-
-			activity.RecordHeartbeat(ctx, fmt.Sprintf("handling soft-deletes for table '%s'...", dstDatasetTable.string()))
 
 			pkeyOnClauseBuilder := strings.Builder{}
 			ljWhereClauseBuilder := strings.Builder{}
@@ -818,12 +812,6 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 		if req.SyncedAtColName != nil {
 			c.logger.Info(fmt.Sprintf("setting synced at column for table '%s'...", srcDatasetTable.string()))
 
-			activity.RecordHeartbeat(ctx, fmt.Sprintf("setting synced at column for table '%s'...",
-				srcDatasetTable.string()))
-
-			c.logger.Info(
-				fmt.Sprintf("UPDATE %s SET %s = CURRENT_TIMESTAMP WHERE %s IS NULL", srcDatasetTable.string(),
-					*req.SyncedAtColName, *req.SyncedAtColName))
 			query := c.client.Query(
 				fmt.Sprintf("UPDATE %s SET %s = CURRENT_TIMESTAMP WHERE %s IS NULL", srcDatasetTable.string(),
 					*req.SyncedAtColName, *req.SyncedAtColName))
@@ -876,8 +864,6 @@ func (c *BigQueryConnector) CreateTablesFromExisting(
 		newDatasetTable, _ := c.convertToDatasetTable(newTable)
 		existingDatasetTable, _ := c.convertToDatasetTable(existingTable)
 		c.logger.Info(fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
-
-		activity.RecordHeartbeat(ctx, fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
 
 		// rename the src table to dst
 		query := c.client.Query(fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s` LIKE `%s`",

@@ -11,7 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
@@ -27,6 +27,21 @@ import (
 	"github.com/PeerDB-io/peer-flow/pua"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
+
+func heartbeatRoutine(
+	ctx context.Context,
+	message func() string,
+) func() {
+	counter := 0
+	return shared.Interval(
+		ctx,
+		15*time.Second,
+		func() {
+			counter += 1
+			activity.RecordHeartbeat(ctx, fmt.Sprintf("heartbeat #%d: %s", counter, message()))
+		},
+	)
+}
 
 func waitForCdcCache[TPull connectors.CDCPullConnectorCore](ctx context.Context, a *FlowableActivity, sessionID string) (TPull, error) {
 	var none TPull
@@ -66,7 +81,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	flowName := config.FlowJobName
 	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
 	logger := activity.GetLogger(ctx)
-	activity.RecordHeartbeat(ctx, "starting flow...")
+	shutdown := heartbeatRoutine(ctx, func() string {
+		return "transferring records for job"
+	})
+	defer shutdown()
+
 	dstConn, err := connectors.GetAs[TSync](ctx, config.Destination)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
@@ -78,31 +97,13 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
 	}
 
-	var srcConn TPull
-	if sessionID == "" {
-		srcConn, err = connectors.GetAs[TPull](ctx, config.Source)
-		if err != nil {
-			return nil, err
-		}
-		defer connectors.CloseConnector(ctx, srcConn)
-
-		if err := srcConn.SetupReplConn(ctx); err != nil {
-			return nil, err
-		}
-	} else {
-		srcConn, err = waitForCdcCache[TPull](ctx, a, sessionID)
-		if err != nil {
-			return nil, err
-		}
-		if err := srcConn.ConnectionActive(ctx); err != nil {
-			return nil, temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", nil)
-		}
+	srcConn, err := waitForCdcCache[TPull](ctx, a, sessionID)
+	if err != nil {
+		return nil, err
 	}
-
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return "transferring records for job"
-	})
-	defer shutdown()
+	if err := srcConn.ConnectionActive(ctx); err != nil {
+		return nil, temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", nil)
+	}
 
 	batchSize := options.BatchSize
 	if batchSize == 0 {
@@ -299,11 +300,14 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) error {
-	msg := fmt.Sprintf("replicating partition - %s: %d of %d total.", partition.PartitionId, idx, total)
-	activity.RecordHeartbeat(ctx, msg)
-
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
+
+	logger.Info("replicating partition " + partition.PartitionId)
+	shutdown := heartbeatRoutine(ctx, func() string {
+		return fmt.Sprintf("syncing partition - %s: %d of %d total.", partition.PartitionId, idx, total)
+	})
+	defer shutdown()
 
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {
@@ -338,12 +342,6 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return fmt.Errorf("failed to update start time for partition: %w", err)
 	}
-
-	logger.Info("replicating partition " + partition.PartitionId)
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("syncing partition - %s: %d of %d total.", partition.PartitionId, idx, total)
-	})
-	defer shutdown()
 
 	bufferSize := shared.FetchAndChannelSize
 	stream := model.NewQRecordStream(bufferSize)
