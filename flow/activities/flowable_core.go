@@ -486,12 +486,12 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		return context.Canceled
 	})
 
-	if rowsSynced > 0 {
-		if err := errGroup.Wait(); err != nil {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return 0, err
-		}
+	if err := errGroup.Wait(); err != nil {
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		return 0, err
+	}
 
+	if rowsSynced > 0 {
 		err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition)
 		if err != nil {
 			return 0, err
