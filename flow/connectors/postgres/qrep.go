@@ -669,7 +669,6 @@ func pullXminRecordStream(
 	partition *protos.QRepPartition,
 	sink QRepPullSink,
 ) (int, int64, error) {
-	var currentSnapshotXmin int64
 	query := config.Query
 	oldxid := ""
 	if partition.Range != nil {
@@ -681,6 +680,7 @@ func pullXminRecordStream(
 		config.FlowJobName, partition.PartitionId)
 
 	var err error
+	var currentSnapshotXmin int64
 	var numRecords int
 	if partition.Range != nil {
 		numRecords, currentSnapshotXmin, err = executor.ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
