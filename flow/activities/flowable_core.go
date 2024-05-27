@@ -432,9 +432,9 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		var numRecords int
 		numRecords, currentSnapshotXmin, pullErr = pullRecords(srcConn, ctx, config, partition, stream)
 		if pullErr != nil {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			logger.Warn(fmt.Sprintf("[xmin] failed to pull records: %v", err))
-			return err
+			a.Alerter.LogFlowError(ctx, config.FlowJobName, pullErr)
+			logger.Warn(fmt.Sprintf("[xmin] failed to pull recordS: %v", pullErr))
+			return pullErr
 		}
 
 		// The first sync of an XMIN mirror will have a partition without a range
@@ -485,13 +485,12 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	if rowsSynced == 0 {
 		logger.Info("no records to push for xmin")
 	} else {
-		err := errGroup.Wait()
-		if err != nil {
+		if err := errGroup.Wait(); err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return 0, err
 		}
 
-		err = monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition)
+		err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition)
 		if err != nil {
 			return 0, err
 		}
@@ -499,8 +498,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		logger.Info(fmt.Sprintf("pushed %d records", rowsSynced))
 	}
 
-	err = monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition)
-	if err != nil {
+	if err := monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition); err != nil {
 		return 0, err
 	}
 
