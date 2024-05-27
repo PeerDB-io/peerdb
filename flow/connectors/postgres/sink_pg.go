@@ -120,7 +120,7 @@ func (p PgCopyReader) CopyInto(ctx context.Context, c *PostgresConnector, tx pgx
 	cols := p.GetColumnNames()
 	quotedCols := make([]string, 0, len(cols))
 	for _, col := range cols {
-		quotedCols = append(cols, QuoteIdentifier(col))
+		quotedCols = append(quotedCols, QuoteIdentifier(col))
 	}
 	ct, err := c.conn.PgConn().CopyFrom(
 		ctx,
