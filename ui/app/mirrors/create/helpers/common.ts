@@ -1,3 +1,10 @@
+import {
+  DefaultPullBatchSize,
+  DefaultSnapshotMaxParallelWorkers,
+  DefaultSnapshotNumRowsPerPartition,
+  DefaultSnapshotNumTablesInParallel,
+  DefaultSyncInterval,
+} from '@/app/utils/defaultMirrorSettings';
 import { FlowConnectionConfigs, TypeSystem } from '@/grpc_generated/flow';
 
 export enum AdvancedSettingType {
@@ -23,12 +30,12 @@ export const blankCDCSetting: FlowConnectionConfigs = {
   destination: undefined,
   flowJobName: '',
   tableMappings: [],
-  maxBatchSize: 1000000,
+  maxBatchSize: DefaultPullBatchSize,
   doInitialSnapshot: true,
   publicationName: '',
-  snapshotNumRowsPerPartition: 1000000,
-  snapshotMaxParallelWorkers: 4,
-  snapshotNumTablesInParallel: 1,
+  snapshotNumRowsPerPartition: DefaultSnapshotNumRowsPerPartition,
+  snapshotMaxParallelWorkers: DefaultSnapshotMaxParallelWorkers,
+  snapshotNumTablesInParallel: DefaultSnapshotNumTablesInParallel,
   snapshotStagingPath: '',
   cdcStagingPath: '',
   softDelete: true,
@@ -37,7 +44,7 @@ export const blankCDCSetting: FlowConnectionConfigs = {
   softDeleteColName: '',
   syncedAtColName: '',
   initialSnapshotOnly: false,
-  idleTimeoutSeconds: 60,
+  idleTimeoutSeconds: DefaultSyncInterval,
   script: '',
   system: TypeSystem.Q,
 };
