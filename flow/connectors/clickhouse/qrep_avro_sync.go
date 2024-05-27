@@ -62,7 +62,6 @@ func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 
 func (s *ClickhouseAvroSyncMethod) SyncRecords(
 	ctx context.Context,
-	dstTableSchema []*sql.ColumnType,
 	stream *model.QRecordStream,
 	flowJobName string,
 ) (int, error) {
