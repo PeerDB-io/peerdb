@@ -131,6 +131,7 @@ services:
       - 8113:8113
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
+      PEERDB_PASSWORD: peerdb
     depends_on:
       temporal-admin-tools:
         condition: service_healthy

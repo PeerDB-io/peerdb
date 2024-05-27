@@ -31,17 +31,18 @@ func AuthenticateSyncRequest(ctx context.Context) error {
 		token = values[0]
 	}
 
-	deploymentUid := peerdbenv.PeerDBDeploymentUID()
+	peerdbPassword := peerdbenv.PeerDBPassword()
 	hash := sha256.New()
-	_, err := hash.Write([]byte(deploymentUid))
+	_, err := hash.Write([]byte(peerdbPassword))
 	if err != nil {
 		slog.Error("Server error: unable to verify authorization", slog.Any("error", err))
 		return errors.New("server error: unable to verify authorization. Please try again.")
 	}
 
-	deploymentUidHashed := hex.EncodeToString(hash.Sum(nil))
-	if token != "Bearer "+deploymentUidHashed {
-		slog.Error("Unauthorized: invalid authorization token", slog.String("token", token))
+	passwordHashed := hex.EncodeToString(hash.Sum(nil))
+	if token != "Bearer "+passwordHashed {
+		slog.Error("Unauthorized: invalid authorization token", slog.String("token", token),
+			slog.String("expected_token", "Bearer "+passwordHashed))
 		return errors.New("unauthorized: invalid authorization token. Please check the token and try again.")
 	}
 
