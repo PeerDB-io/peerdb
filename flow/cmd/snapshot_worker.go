@@ -27,9 +27,10 @@ type SnapshotWorkerOptions struct {
 
 func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (client.Client, worker.Worker, error) {
 	clientOptions := client.Options{
-		HostPort:  opts.TemporalHostPort,
-		Namespace: opts.TemporalNamespace,
-		Logger:    slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))),
+		HostPort:     opts.TemporalHostPort,
+		Namespace:    opts.TemporalNamespace,
+		Logger:       slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))),
+		Interceptors: GetTemporalClientInterceptors(),
 	}
 
 	if opts.TemporalCert != "" && opts.TemporalKey != "" {

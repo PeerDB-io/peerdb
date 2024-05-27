@@ -87,9 +87,10 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 	}
 
 	clientOptions := client.Options{
-		HostPort:  opts.TemporalHostPort,
-		Namespace: opts.TemporalNamespace,
-		Logger:    slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))),
+		HostPort:     opts.TemporalHostPort,
+		Namespace:    opts.TemporalNamespace,
+		Logger:       slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))),
+		Interceptors: GetTemporalClientInterceptors(),
 	}
 
 	if opts.TemporalCert != "" && opts.TemporalKey != "" {
@@ -117,7 +118,6 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 		return nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 	slog.Info("Created temporal client")
-
 	taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
 	slog.Info(
 		fmt.Sprintf("Creating temporal worker for queue %v: %v workflow workers %v activity workers",

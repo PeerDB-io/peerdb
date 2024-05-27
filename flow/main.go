@@ -14,6 +14,7 @@ import (
 	_ "go.uber.org/automaxprocs"
 
 	"github.com/PeerDB-io/peer-flow/cmd"
+	"github.com/PeerDB-io/peer-flow/instrumentation"
 	"github.com/PeerDB-io/peer-flow/logger"
 )
 
@@ -47,6 +48,14 @@ func main() {
 		Usage:   "Enable profiling for the application",
 		Sources: cli.EnvVars("ENABLE_PROFILING"),
 	}
+
+	otelTracingFlag := &cli.BoolFlag{
+		Name:    "enable-otel-tracing",
+		Value:   false, // Default is off
+		Usage:   "Enable OpenTelemetry tracing for the application",
+		Sources: cli.EnvVars("ENABLE_OTEL_TRACING"),
+	}
+
 	otelMetricsFlag := &cli.BoolFlag{
 		Name:    "enable-otel-metrics",
 		Value:   false, // Default is off
@@ -82,6 +91,12 @@ func main() {
 		Sources: cli.EnvVars("TEMPORAL_MAX_CONCURRENT_WORKFLOW_TASKS"),
 	}
 
+	buildInstrumentationConfig := func(clicmd *cli.Command) instrumentation.Config {
+		return instrumentation.Config{
+			EnableTracing: clicmd.Bool(otelTracingFlag.Name),
+		}
+	}
+
 	app := &cli.Command{
 		Name: "PeerDB Flows CLI",
 		Commands: []*cli.Command{
@@ -89,6 +104,12 @@ func main() {
 				Name: "worker",
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
+					shutdownFunc, err := instrumentation.SetupInstrumentation(ctx, "flow-"+clicmd.Name, buildInstrumentationConfig(clicmd))
+					if err != nil {
+						return err
+					}
+					// TODO make sure that this shutdown completes?
+					defer shutdownFunc(ctx)
 					res, err := cmd.WorkerSetup(&cmd.WorkerSetupOptions{
 						TemporalHostPort:                   temporalHostPort,
 						EnableProfiling:                    clicmd.Bool("enable-profiling"),
@@ -122,6 +143,11 @@ func main() {
 				Name: "snapshot-worker",
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
+					shutdownFunc, err := instrumentation.SetupInstrumentation(ctx, "flow-"+clicmd.Name, buildInstrumentationConfig(clicmd))
+					if err != nil {
+						return err
+					}
+					defer shutdownFunc(ctx)
 					c, w, err := cmd.SnapshotWorkerMain(&cmd.SnapshotWorkerOptions{
 						TemporalHostPort:  temporalHostPort,
 						TemporalNamespace: clicmd.String("temporal-namespace"),
@@ -161,7 +187,11 @@ func main() {
 				},
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
-
+					shutdownFunc, err := instrumentation.SetupInstrumentation(ctx, "flow-"+clicmd.Name, buildInstrumentationConfig(clicmd))
+					if err != nil {
+						return err
+					}
+					defer shutdownFunc(ctx)
 					return cmd.APIMain(ctx, &cmd.APIServerParams{
 						Port:              uint16(clicmd.Uint("port")),
 						TemporalHostPort:  temporalHostPort,
@@ -172,6 +202,9 @@ func main() {
 					})
 				},
 			},
+		},
+		Flags: []cli.Flag{
+			otelTracingFlag,
 		},
 	}
 

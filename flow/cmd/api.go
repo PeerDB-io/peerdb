@@ -89,9 +89,10 @@ func killExistingScheduleFlows(
 
 func APIMain(ctx context.Context, args *APIServerParams) error {
 	clientOptions := client.Options{
-		HostPort:  args.TemporalHostPort,
-		Namespace: args.TemporalNamespace,
-		Logger:    slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))),
+		HostPort:     args.TemporalHostPort,
+		Namespace:    args.TemporalNamespace,
+		Logger:       slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))),
+		Interceptors: GetTemporalClientInterceptors(),
 	}
 	if args.TemporalCert != "" && args.TemporalKey != "" {
 		slog.Info("Using temporal certificate/key for authentication")
