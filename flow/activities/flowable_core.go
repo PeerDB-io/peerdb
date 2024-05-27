@@ -422,6 +422,10 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	defer connectors.CloseConnector(ctx, dstConn)
 
 	logger.Info("replicating xmin")
+	shutdown := heartbeatRoutine(ctx, func() string {
+		return "syncing xmin"
+	})
+	defer shutdown()
 
 	errGroup, errCtx := errgroup.WithContext(ctx)
 
@@ -482,9 +486,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		return context.Canceled
 	})
 
-	if rowsSynced == 0 {
-		logger.Info("no records to push for xmin")
-	} else {
+	if rowsSynced > 0 {
 		if err := errGroup.Wait(); err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return 0, err
