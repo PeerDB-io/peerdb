@@ -289,10 +289,21 @@ func (a *FlowableActivity) SyncRecords(
 					a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 					return nil, err
 				}
-				lfn := ls.Env.RawGetString("transformRecord")
-				if fn, ok := lfn.(*lua.LFunction); ok {
+				if fn, ok := ls.Env.RawGetString("transformRecord").(*lua.LFunction); ok {
 					return pua.AttachToCdcStream(ls, fn, stream), nil
-				} // TODO else check for transformRow, wrap to apply to record's rows
+				} else if fn, ok := ls.Env.RawGetString("transformRow").(*lua.LFunction); ok {
+					return pua.AttachToCdcStream(ls, ls.NewFunction(func(ls *lua.LState) int {
+						ud, _ := pua.LuaRecord.Check(ls, 1)
+						for _, key := range []string{"old", "new"} {
+							if row := ls.GetField(ud, key); row != lua.LNil {
+								ls.Push(fn)
+								ls.Push(row)
+								ls.Call(1, 0)
+							}
+						}
+						return 0
+					}), stream), nil
+				}
 			}
 			return stream, nil
 		},
