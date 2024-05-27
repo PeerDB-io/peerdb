@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jmoiron/sqlx"
 	"github.com/shopspring/decimal"
-	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peer-flow/model"
@@ -166,7 +165,7 @@ func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (qvalue
 	}, nil
 }
 
-func (g *GenericSQLQueryExecutor) processRows(ctx context.Context, rows *sqlx.Rows) (*model.QRecordBatch, error) {
+func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBatch, error) {
 	dbColTypes, err := rows.ColumnTypes()
 	if err != nil {
 		return nil, err
@@ -186,7 +185,7 @@ func (g *GenericSQLQueryExecutor) processRows(ctx context.Context, rows *sqlx.Ro
 
 	var records [][]qvalue.QValue
 	totalRowsProcessed := 0
-	const heartBeatNumRows = 25000
+	const logEveryNumRows = 50000
 
 	for rows.Next() {
 		columns, err := rows.Columns()
@@ -251,8 +250,8 @@ func (g *GenericSQLQueryExecutor) processRows(ctx context.Context, rows *sqlx.Ro
 		records = append(records, qValues)
 		totalRowsProcessed += 1
 
-		if totalRowsProcessed%heartBeatNumRows == 0 {
-			activity.RecordHeartbeat(ctx, fmt.Sprintf("processed %d rows", totalRowsProcessed))
+		if totalRowsProcessed%logEveryNumRows == 0 {
+			g.logger.Info("processed rows", slog.Int("rows", totalRowsProcessed))
 		}
 	}
 
@@ -278,7 +277,7 @@ func (g *GenericSQLQueryExecutor) ExecuteAndProcessQuery(
 	}
 	defer rows.Close()
 
-	return g.processRows(ctx, rows)
+	return g.processRows(rows)
 }
 
 func (g *GenericSQLQueryExecutor) NamedExecuteAndProcessQuery(
@@ -292,7 +291,7 @@ func (g *GenericSQLQueryExecutor) NamedExecuteAndProcessQuery(
 	}
 	defer rows.Close()
 
-	return g.processRows(ctx, rows)
+	return g.processRows(rows)
 }
 
 func (g *GenericSQLQueryExecutor) ExecuteQuery(ctx context.Context, query string, args ...interface{}) error {
