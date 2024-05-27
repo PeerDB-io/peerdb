@@ -1,6 +1,8 @@
 package pua
 
 import (
+	"context"
+
 	"github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/peer-flow/model"
@@ -32,22 +34,36 @@ func AttachToStream(ls *lua.LState, lfn *lua.LFunction, stream *model.QRecordStr
 	return output
 }
 
-func AttachToCdcStream(ls *lua.LState, lfn *lua.LFunction, stream *model.CDCStream[model.RecordItems]) *model.CDCStream[model.RecordItems] {
-	// TODO no buffering on output stream
-	outstream := model.NewCDCStream[model.RecordItems]()
+func AttachToCdcStream(
+	ctx context.Context,
+	ls *lua.LState,
+	lfn *lua.LFunction,
+	stream *model.CDCStream[model.RecordItems],
+	onErr context.CancelCauseFunc,
+) *model.CDCStream[model.RecordItems] {
+	outstream := model.NewCDCStream[model.RecordItems](0)
 	go func() {
-		// TODO change to latch, fix Close race
 		if stream.WaitAndCheckEmpty() {
 			outstream.SignalAsEmpty()
+			<-stream.GetRecords() // needed because empty signal comes before Close
 		} else {
 			outstream.SignalAsNotEmpty()
+			var err error
 			for record := range stream.GetRecords() {
-				// TODO call lfn
-				// what to do about errors?
+				if err == nil {
+					continue
+				}
+				ls.Push(lfn)
+				ls.Push(LuaRecord.New(ls, record))
+				if err = ls.PCall(1, 0, nil); err != nil {
+					onErr(err)
+					<-ctx.Done()
+					// keep polling GetRecords to make sure source closes first
+					continue
+				}
 				outstream.AddRecord(record)
 			}
 		}
-		<-stream.GetRecords() // TODO needed because empty signal comes before Close
 		outstream.SchemaDeltas = stream.SchemaDeltas
 		outstream.UpdateLatestCheckpoint(stream.GetLastCheckpoint())
 		outstream.Close()

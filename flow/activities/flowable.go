@@ -279,6 +279,10 @@ func (a *FlowableActivity) SyncRecords(
 	options *protos.SyncFlowOptions,
 	sessionID string,
 ) (*model.SyncResponse, error) {
+	var onErr context.CancelCauseFunc
+	if config.Script != "" {
+		ctx, onErr = context.WithCancelCause(ctx)
+	}
 	return syncCore(ctx, a, config, options, sessionID,
 		func(stream *model.CDCStream[model.RecordItems]) (*model.CDCStream[model.RecordItems], error) {
 			if config.Script != "" {
@@ -290,9 +294,9 @@ func (a *FlowableActivity) SyncRecords(
 					return nil, err
 				}
 				if fn, ok := ls.Env.RawGetString("transformRecord").(*lua.LFunction); ok {
-					return pua.AttachToCdcStream(ls, fn, stream), nil
+					return pua.AttachToCdcStream(ctx, ls, fn, stream, onErr), nil
 				} else if fn, ok := ls.Env.RawGetString("transformRow").(*lua.LFunction); ok {
-					return pua.AttachToCdcStream(ls, ls.NewFunction(func(ls *lua.LState) int {
+					return pua.AttachToCdcStream(ctx, ls, ls.NewFunction(func(ls *lua.LState) int {
 						ud, _ := pua.LuaRecord.Check(ls, 1)
 						for _, key := range []string{"old", "new"} {
 							if row := ls.GetField(ud, key); row != lua.LNil {
@@ -302,7 +306,7 @@ func (a *FlowableActivity) SyncRecords(
 							}
 						}
 						return 0
-					}), stream), nil
+					}), stream, onErr), nil
 				}
 			}
 			return stream, nil
