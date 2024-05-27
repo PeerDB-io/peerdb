@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/yuin/gopher-lua"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
@@ -29,6 +30,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/otel_metrics"
 	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_guages"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/pua"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -278,6 +280,22 @@ func (a *FlowableActivity) SyncRecords(
 	sessionID string,
 ) (*model.SyncResponse, error) {
 	return syncCore(ctx, a, config, options, sessionID,
+		func(stream *model.CDCStream[model.RecordItems]) (*model.CDCStream[model.RecordItems], error) {
+			if config.Script != "" {
+				ls, err := utils.LoadScript(ctx, config.Script, utils.LuaPrintFn(func(s string) {
+					a.Alerter.LogFlowInfo(ctx, config.FlowJobName, s)
+				}))
+				if err != nil {
+					a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+					return nil, err
+				}
+				lfn := ls.Env.RawGetString("transformRecord")
+				if fn, ok := lfn.(*lua.LFunction); ok {
+					return pua.AttachToCdcStream(ls, fn, stream), nil
+				} // TODO else check for transformRow, wrap to apply to record's rows
+			}
+			return stream, nil
+		},
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
 }
@@ -289,6 +307,9 @@ func (a *FlowableActivity) SyncPg(
 	sessionID string,
 ) (*model.SyncResponse, error) {
 	return syncCore(ctx, a, config, options, sessionID,
+		func(stream *model.CDCStream[model.PgItems]) (*model.CDCStream[model.PgItems], error) {
+			return stream, nil
+		},
 		connectors.CDCPullPgConnector.PullPg,
 		connectors.CDCSyncPgConnector.SyncPg)
 }
