@@ -77,25 +77,12 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
 	}
 
-	var srcConn TPull
-	if sessionID == "" {
-		srcConn, err = connectors.GetAs[TPull](ctx, config.Source)
-		if err != nil {
-			return nil, err
-		}
-		defer connectors.CloseConnector(ctx, srcConn)
-
-		if err := srcConn.SetupReplConn(ctx); err != nil {
-			return nil, err
-		}
-	} else {
-		srcConn, err = waitForCdcCache[TPull](ctx, a, sessionID)
-		if err != nil {
-			return nil, err
-		}
-		if err := srcConn.ConnectionActive(ctx); err != nil {
-			return nil, temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", nil)
-		}
+	srcConn, err := waitForCdcCache[TPull](ctx, a, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if err := srcConn.ConnectionActive(ctx); err != nil {
+		return nil, temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", nil)
 	}
 
 	shutdown := utils.HeartbeatRoutine(ctx, func() string {
