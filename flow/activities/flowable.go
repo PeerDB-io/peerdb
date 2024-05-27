@@ -140,9 +140,13 @@ func (a *FlowableActivity) GetTableSchema(
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
 	srcConn, err := connectors.GetAs[connectors.GetTableSchemaConnector](ctx, config.PeerConnectionConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get CDCPullPgConnector: %w", err)
+		return nil, fmt.Errorf("failed to get GetTableSchemaConnector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
+
+	heartbeatRoutine(ctx, func() string {
+		return "getting table schema"
+	})
 
 	return srcConn.GetTableSchema(ctx, config)
 }
@@ -172,7 +176,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 	numTablesSetup := atomic.Uint32{}
 	totalTables := uint32(len(config.TableNameSchemaMapping))
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
+	shutdown := heartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("setting up normalized tables - %d of %d done",
 			numTablesSetup.Load(), totalTables)
 	})
@@ -309,7 +313,7 @@ func (a *FlowableActivity) StartNormalize(
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
+	shutdown := heartbeatRoutine(ctx, func() string {
 		return "normalizing records from batch for job"
 	})
 	defer shutdown()
@@ -381,7 +385,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
+	shutdown := heartbeatRoutine(ctx, func() string {
 		return "getting partitions for job"
 	})
 	defer shutdown()
@@ -426,7 +430,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	logger.Info(fmt.Sprintf("replicating partitions for batch %d - size: %d",
 		partitions.BatchId, numPartitions),
 	)
-	for i, p := range partitions.Partitions {
+	for _, p := range partitions.Partitions {
 		logger.Info(fmt.Sprintf("batch-%d - replicating partition - %s", partitions.BatchId, p.PartitionId))
 		var err error
 		switch config.System {
@@ -447,15 +451,13 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 					outstream = pua.AttachToStream(ls, fn, stream)
 				}
 			}
-			err = replicateQRepPartition(ctx, a, config, i+1, numPartitions, p, runUUID,
-				stream, outstream,
+			err = replicateQRepPartition(ctx, a, config, p, runUUID, stream, outstream,
 				connectors.QRepPullConnector.PullQRepRecords,
 				connectors.QRepSyncConnector.SyncQRepRecords,
 			)
 		case protos.TypeSystem_PG:
 			read, write := connpostgres.NewPgCopyPipe()
-			err = replicateQRepPartition(ctx, a, config, i+1, numPartitions, p, runUUID,
-				write, read,
+			err = replicateQRepPartition(ctx, a, config, p, runUUID, write, read,
 				connectors.QRepPullPgConnector.PullPgQRepRecords,
 				connectors.QRepSyncPgConnector.SyncPgQRepRecords,
 			)
@@ -484,7 +486,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
+	shutdown := heartbeatRoutine(ctx, func() string {
 		return "consolidating partitions for job"
 	})
 	defer shutdown()
@@ -696,7 +698,7 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
+	shutdown := heartbeatRoutine(ctx, func() string {
 		return "scanning for new rows"
 	})
 	defer shutdown()
@@ -722,7 +724,7 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	}
 	defer connectors.CloseConnector(ctx, conn)
 
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
+	shutdown := heartbeatRoutine(ctx, func() string {
 		return "renaming tables for job"
 	})
 	defer shutdown()

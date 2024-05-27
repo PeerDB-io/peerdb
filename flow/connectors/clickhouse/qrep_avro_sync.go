@@ -8,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"go.temporal.io/sdk/activity"
-
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -162,8 +160,6 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	if err != nil {
 		return -1, err
 	}
-
-	activity.RecordHeartbeat(ctx, "finished syncing records")
 
 	return avroFile.NumRecords, nil
 }

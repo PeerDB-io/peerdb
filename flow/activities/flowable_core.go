@@ -19,13 +19,27 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
+
+func heartbeatRoutine(
+	ctx context.Context,
+	message func() string,
+) func() {
+	counter := 0
+	return shared.Interval(
+		ctx,
+		15*time.Second,
+		func() {
+			counter += 1
+			activity.RecordHeartbeat(ctx, fmt.Sprintf("heartbeat #%d: %s", counter, message()))
+		},
+	)
+}
 
 func waitForCdcCache[TPull connectors.CDCPullConnectorCore](ctx context.Context, a *FlowableActivity, sessionID string) (TPull, error) {
 	var none TPull
@@ -65,7 +79,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	flowName := config.FlowJobName
 	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
 	logger := activity.GetLogger(ctx)
-	activity.RecordHeartbeat(ctx, "starting flow...")
+	shutdown := heartbeatRoutine(ctx, func() string {
+		return "transferring records for job"
+	})
+	defer shutdown()
+
 	dstConn, err := connectors.GetAs[TSync](ctx, config.Destination)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
@@ -84,11 +102,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	if err := srcConn.ConnectionActive(ctx); err != nil {
 		return nil, temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", nil)
 	}
-
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return "transferring records for job"
-	})
-	defer shutdown()
 
 	batchSize := options.BatchSize
 	if batchSize == 0 {
@@ -282,8 +295,6 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	ctx context.Context,
 	a *FlowableActivity,
 	config *protos.QRepConfig,
-	idx int,
-	total int,
 	partition *protos.QRepPartition,
 	runUUID string,
 	stream TWrite,
@@ -296,9 +307,6 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	) (int, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
 ) error {
-	msg := fmt.Sprintf("replicating partition - %s: %d of %d total.", partition.PartitionId, idx, total)
-	activity.RecordHeartbeat(ctx, msg)
-
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
@@ -337,10 +345,6 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	}
 
 	logger.Info("replicating partition " + partition.PartitionId)
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("syncing partition - %s: %d of %d total.", partition.PartitionId, idx, total)
-	})
-	defer shutdown()
 
 	var rowsSynced int
 	errGroup, errCtx := errgroup.WithContext(ctx)
@@ -422,6 +426,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	errGroup, errCtx := errgroup.WithContext(ctx)
 
 	var currentSnapshotXmin int64
+	var rowsSynced int
 	errGroup.Go(func() error {
 		var pullErr error
 		var numRecords int
@@ -467,16 +472,15 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		return nil
 	})
 
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return "syncing xmin."
+	errGroup.Go(func() error {
+		var err error
+		rowsSynced, err = syncRecords(dstConn, ctx, config, partition, outstream)
+		if err != nil {
+			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+			return fmt.Errorf("failed to sync records: %w", err)
+		}
+		return context.Canceled
 	})
-	defer shutdown()
-
-	rowsSynced, err := syncRecords(dstConn, ctx, config, partition, outstream)
-	if err != nil {
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return 0, fmt.Errorf("failed to sync records: %w", err)
-	}
 
 	if rowsSynced == 0 {
 		logger.Info("no records to push for xmin")
