@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -9,9 +11,9 @@ import (
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 
-	"google.golang.org/grpc/metadata"
-	//sha256
 	"crypto/sha256"
+
+	"google.golang.org/grpc/metadata"
 )
 
 const peerdbPauseGuideDocLink = "https://docs.peerdb.io/features/pause-mirror"
@@ -34,13 +36,13 @@ func AuthenticateSyncRequest(ctx context.Context) error {
 	_, err := hash.Write([]byte(deploymentUid))
 	if err != nil {
 		slog.Error("Server error: unable to verify authorization", slog.Any("error", err))
-		return fmt.Errorf("Server error: unable to verify authorization. Please try again.")
+		return errors.New("server error: unable to verify authorization. Please try again.")
 	}
 
-	deploymentUidHashed := fmt.Sprintf("%x", hash.Sum(nil))
+	deploymentUidHashed := hex.EncodeToString(hash.Sum(nil))
 	if token != "Bearer "+deploymentUidHashed {
 		slog.Error("Unauthorized: invalid authorization token", slog.String("token", token))
-		return fmt.Errorf("Unauthorized: invalid authorization token. Please check the token and try again.")
+		return errors.New("unauthorized: invalid authorization token. Please check the token and try again.")
 	}
 
 	return nil
