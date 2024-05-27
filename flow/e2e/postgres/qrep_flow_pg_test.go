@@ -447,7 +447,7 @@ func (s PeerFlowE2ETestSuitePG) TestTransform() {
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for first sync to complete", func() bool {
-		err = s.compareCounts(dstSchemaQualified, int64(numRows))
+		err := s.compareCounts(dstSchemaQualified, int64(numRows))
 		return err == nil
 	})
 	require.NoError(s.t, env.Error())
