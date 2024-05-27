@@ -116,8 +116,8 @@ jobs:
           temporal operator search-attribute create --name MirrorName --type Text --namespace default
           ./peer-flow worker &
           ./peer-flow snapshot-worker &
-          go test -p 8 ./... -timeout 900s
-        working-directory: ./flow/e2e/postgres
+          go test -p 8 ./e2e/postgres -timeout 900s
+        working-directory: ./flow
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
