@@ -10,7 +10,7 @@ jobs:
   flow_test:
     strategy:
       matrix:
-        runner: [ubicloud-standard-16-ubuntu-2204-arm, ubuntu-latest]
+        runner: [ubicloud-standard-16-ubuntu-2204-arm]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
@@ -116,7 +116,7 @@ jobs:
           temporal operator search-attribute create --name MirrorName --type Text --namespace default
           ./peer-flow worker &
           ./peer-flow snapshot-worker &
-          go test -p 8 ./e2e/s3 -timeout 900s
+          go test -p 32 ./... -timeout 900s
         working-directory: ./flow
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
