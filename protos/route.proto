@@ -91,6 +91,7 @@ message CreatePeerResponse {
 
 message MirrorStatusRequest {
   string flow_job_name = 1;
+  bool include_flow_info = 2;
 }
 
 message PartitionStatus {
@@ -215,13 +216,7 @@ message MirrorStatusResponse {
   }
   string error_message = 4;
   peerdb_flow.FlowStatus current_flow_state = 5;
-}
-
-message CDCStatusResponse {
-  string flow_job_name = 1;
-  peerdb_flow.FlowStatus current_flow_state = 2;
-  string error_message = 3;
-  bool ok = 4;
+  bool ok = 6;
 }
 
 message ValidateCDCMirrorResponse{
@@ -329,9 +324,6 @@ service FlowService {
   }
   rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {
     option (google.api.http) = { get: "/v1/mirrors/{flow_job_name}" };
-  }
-  rpc CDCMirrorStatus(MirrorStatusRequest) returns (CDCStatusResponse) {
-    option (google.api.http) = { get: "/v1/flows/cdc/{flow_job_name}" };
   }
 
   rpc GetVersion(PeerDBVersionRequest) returns (PeerDBVersionResponse) {
