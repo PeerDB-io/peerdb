@@ -9,7 +9,10 @@ on:
     - cron: '15 17 * * 2'
 
 jobs:
+  hydrate-protos:
+    uses: ./.github/workflows/_generate_protos.yml
   analyze:
+    needs: hydrate-protos
     name: Analyze (${{ matrix.language }})
     runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubicloud-standard-16' }}
     timeout-minutes: ${{ (matrix.language == 'swift' && 120) || 360 }}
@@ -36,11 +39,15 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - uses: bufbuild/buf-setup-action@v1.29.0-1
+    - name: hydrate protos from cache
+      uses: actions/cache/restore@v4
       with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-
-    - run: buf generate protos
+        path: |
+          ./flow/generated/protos
+          ./nexus/pt/src/gen
+          ./ui/grpc_generated
+        key: ${{ runner.os }}-build-genprotos-${{ hashFiles('./protos/peers.proto', './protos/flow.proto', './protos/route.proto') }}
+        fail-on-cache-miss: true
 
     - name: install lib-geos
       run: |

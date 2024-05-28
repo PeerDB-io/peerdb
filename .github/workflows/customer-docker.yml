@@ -9,7 +9,10 @@ on:
      - 'customer-*'
 
 jobs:
+  hydrate-protos:
+    uses: ./.github/workflows/_generate_protos.yml
   docker-build:
+    needs: hydrate-protos
     strategy:
       matrix:
         runner: [ubuntu-latest]
@@ -20,17 +23,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: bufbuild/buf-setup-action@v1.29.0-1
-      - uses: dtolnay/rust-toolchain@stable
-      - name: install protobuf plugins and generate protos
-        id: install-protobuf-plugins
-        run: |
-          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.34
-          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.3
-          go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@v2.20.0
-          npm install ts-proto
-          cargo install protoc-gen-prost protoc-gen-tonic protoc-gen-prost-serde
-          PATH="$(go env GOPATH)/bin:$HOME/.cargo/bin:$PATH" buf generate --template buf.gen-local.yaml --debug protos
+      - name: hydrate protos from cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ./flow/generated/protos
+            ./nexus/pt/src/gen
+            ./ui/grpc_generated
+          key: ${{ runner.os }}-build-genprotos-${{ hashFiles('./protos/peers.proto', './protos/flow.proto', './protos/route.proto') }}
+          fail-on-cache-miss: true
 
       - uses: depot/setup-action@v1
 
