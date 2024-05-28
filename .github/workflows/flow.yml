@@ -92,6 +92,8 @@ jobs:
         run: |
           go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.34
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.3
+          go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@v2.20.0
+          npm install ts-proto
           PATH="$PATH:$(go env GOPATH)/bin" buf generate --template buf.gen-local.yaml --debug protos
 
       - name: create hstore extension, increase logical replication limits, and setup catalog database

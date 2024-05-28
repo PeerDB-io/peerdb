@@ -24,12 +24,14 @@ plugins:
     out: nexus/pt/src/gen
     opt:
       - ignore_unknown_fields=true
-  - plugin: buf.build/community/stephenh-ts-proto:v1.167.9
+  - name: ts
     out: ui/grpc_generated
+    strategy: all
+    path: ../node_modules/ts-proto/protoc-gen-ts_proto
     opt:
       - esModuleInterop=true
       - outputServices=grpc-js
-  - plugin: buf.build/grpc-ecosystem/gateway:v2.19.1
+  - plugin: grpc-gateway
     out: flow/generated/protos
     opt:
       - paths=source_relative
