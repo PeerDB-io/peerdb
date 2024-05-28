@@ -7,10 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  hydrate-protos:
-    uses: ./.github/workflows/_generate_protos.yml
   flow_test:
-    needs: hydrate-protos
     strategy:
       matrix:
         runner: [ubicloud-standard-16-ubuntu-2204-arm]
@@ -37,15 +34,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: hydrate protos from cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ./flow/generated/protos
-            ./nexus/pt/src/gen
-            ./ui/grpc_generated
-          key: ${{ runner.os }}-build-genprotos-${{ hashFiles('./protos/peers.proto', './protos/flow.proto', './protos/route.proto') }}
-          fail-on-cache-miss: true
+      - name: generate protos
+        uses: ./.github/actions/genprotos
 
       - uses: actions/setup-go@v5
         with:
