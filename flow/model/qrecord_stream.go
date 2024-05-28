@@ -1,16 +1,8 @@
 package model
 
 import (
-	"sync/atomic"
-
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
-
-type RecordTypeCounts struct {
-	InsertCount atomic.Int32
-	UpdateCount atomic.Int32
-	DeleteCount atomic.Int32
-}
 
 type QRecordStream struct {
 	schemaLatch chan struct{}
@@ -18,28 +10,6 @@ type QRecordStream struct {
 	err         error
 	schema      qvalue.QRecordSchema
 	schemaSet   bool
-}
-
-type RecordsToStreamRequest[T Items] struct {
-	records      <-chan Record[T]
-	TableMapping map[string]*RecordTypeCounts
-	BatchID      int64
-}
-
-func NewRecordsToStreamRequest[T Items](
-	records <-chan Record[T],
-	tableMapping map[string]*RecordTypeCounts,
-	batchID int64,
-) *RecordsToStreamRequest[T] {
-	return &RecordsToStreamRequest[T]{
-		records:      records,
-		TableMapping: tableMapping,
-		BatchID:      batchID,
-	}
-}
-
-func (r *RecordsToStreamRequest[T]) GetRecords() <-chan Record[T] {
-	return r.records
 }
 
 func NewQRecordStream(buffer int) *QRecordStream {

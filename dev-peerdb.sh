@@ -24,4 +24,4 @@ if test -n "$USE_PODMAN"; then
 fi
 
 export PEERDB_VERSION_SHA_SHORT=local-$(git rev-parse --short HEAD)
-exec $DOCKER compose -f docker-compose-dev.yml up --build $EXTRA_ARGS
+exec $DOCKER compose $EXTRA_ARGS -f docker-compose-dev.yml up --build
