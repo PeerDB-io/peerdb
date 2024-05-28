@@ -11,7 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
@@ -558,19 +558,14 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 
 		func() {
 			pgConfig := pgPeer.GetPostgresConfig()
-			peerConn, peerErr := pgx.Connect(ctx, shared.GetPGConnectionString(pgConfig))
+			pgConn, peerErr := connpostgres.NewPostgresConnector(ctx, pgConfig)
 			if peerErr != nil {
-				logger.Error(fmt.Sprintf("error creating pool for postgres peer %v with host %v: %v",
+				logger.Error(fmt.Sprintf("error creating connector for postgres peer %v with host %v: %v",
 					pgPeer.Name, pgConfig.Host, peerErr))
 				return
 			}
-			defer peerConn.Close(ctx)
-
-			_, err := peerConn.Exec(ctx, command)
-			if err != nil {
-				logger.Warn(fmt.Sprintf("could not send walheartbeat to peer %v: %v", pgPeer.Name, err))
-			}
-
+			defer pgConn.Close()
+			pgConn.ExecuteCommand(ctx, command, pgPeer.Name)
 			logger.Info(fmt.Sprintf("sent walheartbeat to peer %v", pgPeer.Name))
 		}()
 	}
