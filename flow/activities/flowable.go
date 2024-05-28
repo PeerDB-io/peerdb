@@ -479,8 +479,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 					a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 					return err
 				}
-				lfn := ls.Env.RawGetString("transformRow")
-				if fn, ok := lfn.(*lua.LFunction); ok {
+				if fn, ok := ls.Env.RawGetString("transformRow").(*lua.LFunction); ok {
 					outstream = pua.AttachToStream(ls, fn, stream)
 				}
 			}
