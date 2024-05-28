@@ -27,8 +27,8 @@ import (
 )
 
 type TxBuffer struct {
-	Lsn     pglogrepl.LSN
 	Streams [][]byte
+	Lsn     pglogrepl.LSN
 }
 
 type PostgresCDCSource struct {
