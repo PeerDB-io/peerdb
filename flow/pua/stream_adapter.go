@@ -1,6 +1,8 @@
 package pua
 
 import (
+	"context"
+
 	"github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/peer-flow/model"
@@ -30,4 +32,39 @@ func AttachToStream(ls *lua.LState, lfn *lua.LFunction, stream *model.QRecordStr
 		output.Close(stream.Err())
 	}()
 	return output
+}
+
+func AttachToCdcStream(
+	ctx context.Context,
+	ls *lua.LState,
+	lfn *lua.LFunction,
+	stream *model.CDCStream[model.RecordItems],
+	onErr context.CancelCauseFunc,
+) *model.CDCStream[model.RecordItems] {
+	outstream := model.NewCDCStream[model.RecordItems](0)
+	go func() {
+		if stream.WaitAndCheckEmpty() {
+			outstream.SignalAsEmpty()
+			<-stream.GetRecords() // needed because empty signal comes before Close
+		} else {
+			outstream.SignalAsNotEmpty()
+			for record := range stream.GetRecords() {
+				ls.Push(lfn)
+				ls.Push(LuaRecord.New(ls, record))
+				if err := ls.PCall(1, 0, nil); err != nil {
+					onErr(err)
+					<-ctx.Done()
+					for range stream.GetRecords() {
+						// still read records to make sure input closes first
+					}
+					break
+				}
+				outstream.AddRecord(record)
+			}
+		}
+		outstream.SchemaDeltas = stream.SchemaDeltas
+		outstream.UpdateLatestCheckpoint(stream.GetLastCheckpoint())
+		outstream.Close()
+	}()
+	return outstream
 }

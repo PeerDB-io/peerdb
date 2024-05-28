@@ -73,6 +73,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
 	sessionID string,
+	adaptStream func(*model.CDCStream[Items]) (*model.CDCStream[Items], error),
 	pull func(TPull, context.Context, *pgxpool.Pool, *model.PullRecordsRequest[Items]) error,
 	sync func(TSync, context.Context, *model.SyncRecordsRequest[Items]) (*model.SyncResponse, error),
 ) (*model.SyncResponse, error) {
@@ -116,7 +117,14 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	consumedOffset := atomic.Int64{}
 	consumedOffset.Store(lastOffset)
 
-	recordBatch := model.NewCDCStream[Items]()
+	recordBatchPull := model.NewCDCStream[Items](peerdbenv.PeerDBCDCChannelBufferSize())
+	recordBatchSync := recordBatchPull
+	if adaptStream != nil {
+		var err error
+		if recordBatchSync, err = adaptStream(recordBatchPull); err != nil {
+			return nil, err
+		}
+	}
 	startTime := time.Now()
 
 	errGroup, errCtx := errgroup.WithContext(ctx)
@@ -134,17 +142,16 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			TableNameSchemaMapping:      options.TableNameSchemaMapping,
 			OverridePublicationName:     config.PublicationName,
 			OverrideReplicationSlotName: config.ReplicationSlotName,
-			RecordStream:                recordBatch,
+			RecordStream:                recordBatchPull,
 		})
 	})
 
-	hasRecords := !recordBatch.WaitAndCheckEmpty()
+	hasRecords := !recordBatchSync.WaitAndCheckEmpty()
 	logger.Info("current sync flow has records?", slog.Bool("hasRecords", hasRecords))
 
 	if !hasRecords {
 		// wait for the pull goroutine to finish
-		err = errGroup.Wait()
-		if err != nil {
+		if err := errGroup.Wait(); err != nil {
 			a.Alerter.LogFlowError(ctx, flowName, err)
 			if temporal.IsApplicationError(err) {
 				return nil, err
@@ -154,14 +161,14 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 		logger.Info("no records to push")
 
-		err := dstConn.ReplayTableSchemaDeltas(ctx, flowName, recordBatch.SchemaDeltas)
+		err := dstConn.ReplayTableSchemaDeltas(ctx, flowName, recordBatchSync.SchemaDeltas)
 		if err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
 		return &model.SyncResponse{
 			CurrentSyncBatchID: -1,
-			TableSchemaDeltas:  recordBatch.SchemaDeltas,
+			TableSchemaDeltas:  recordBatchSync.SchemaDeltas,
 		}, nil
 	}
 
@@ -189,7 +196,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		syncStartTime = time.Now()
 		res, err = sync(dstConn, errCtx, &model.SyncRecordsRequest[Items]{
 			SyncBatchID:            syncBatchID,
-			Records:                recordBatch,
+			Records:                recordBatchSync,
 			ConsumedOffset:         &consumedOffset,
 			FlowJobName:            flowName,
 			TableMappings:          options.TableMappings,
@@ -205,8 +212,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		return nil
 	})
 
-	err = errGroup.Wait()
-	if err != nil {
+	if err := errGroup.Wait(); err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		if temporal.IsApplicationError(err) {
 			return nil, err
@@ -220,7 +226,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 	logger.Info(fmt.Sprintf("pushed %d records in %d seconds", numRecords, int(syncDuration.Seconds())))
 
-	lastCheckpoint := recordBatch.GetLastCheckpoint()
+	lastCheckpoint := recordBatchSync.GetLastCheckpoint()
 	srcConn.UpdateReplStateLastOffset(lastCheckpoint)
 
 	err = monitoring.UpdateNumRowsAndEndLSNForCDCBatch(
