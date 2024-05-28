@@ -105,13 +105,17 @@ func CreatePeerNoValidate(
 		return nil, encodingErr
 	}
 
-	_, err := pool.Exec(ctx, "INSERT INTO peers (name, type, options) VALUES ($1, $2, $3)",
+	_, err := pool.Exec(ctx, `
+		INSERT INTO peers (name, type, options) 
+		VALUES ($1, $2, $3)
+		ON CONFLICT (name) DO UPDATE 
+		SET type = $2, options = $3`,
 		peer.Name, peerType, encodedConfig,
 	)
 	if err != nil {
 		return &protos.CreatePeerResponse{
 			Status: protos.CreatePeerStatus_FAILED,
-			Message: fmt.Sprintf("failed to insert into peers table for %s peer %s: %s",
+			Message: fmt.Sprintf("failed to upsert into peers table for %s peer %s: %s",
 				peer.Type, peer.Name, err.Error()),
 		}, nil
 	}
