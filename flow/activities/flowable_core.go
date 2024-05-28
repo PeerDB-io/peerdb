@@ -118,9 +118,12 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	consumedOffset.Store(lastOffset)
 
 	recordBatchPull := model.NewCDCStream[Items](peerdbenv.PeerDBCDCChannelBufferSize())
-	recordBatchSync, err := adaptStream(recordBatchPull)
-	if err != nil {
-		return nil, err
+	recordBatchSync := recordBatchPull
+	if adaptStream != nil {
+		var err error
+		if recordBatchSync, err = adaptStream(recordBatchPull); err != nil {
+			return nil, err
+		}
 	}
 	startTime := time.Now()
 
