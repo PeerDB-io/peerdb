@@ -279,7 +279,37 @@ func (a *FlowableActivity) SyncRecords(
 	options *protos.SyncFlowOptions,
 	sessionID string,
 ) (*model.SyncResponse, error) {
-	return syncCore(ctx, a, config, options, sessionID,
+	var adaptStream func(stream *model.CDCStream[model.RecordItems]) (*model.CDCStream[model.RecordItems], error)
+	if config.Script != "" {
+		var onErr context.CancelCauseFunc
+		ctx, onErr = context.WithCancelCause(ctx)
+		adaptStream = func(stream *model.CDCStream[model.RecordItems]) (*model.CDCStream[model.RecordItems], error) {
+			ls, err := utils.LoadScript(ctx, config.Script, utils.LuaPrintFn(func(s string) {
+				a.Alerter.LogFlowInfo(ctx, config.FlowJobName, s)
+			}))
+			if err != nil {
+				a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+				return nil, err
+			}
+			if fn, ok := ls.Env.RawGetString("transformRecord").(*lua.LFunction); ok {
+				return pua.AttachToCdcStream(ctx, ls, fn, stream, onErr), nil
+			} else if fn, ok := ls.Env.RawGetString("transformRow").(*lua.LFunction); ok {
+				return pua.AttachToCdcStream(ctx, ls, ls.NewFunction(func(ls *lua.LState) int {
+					ud, _ := pua.LuaRecord.Check(ls, 1)
+					for _, key := range []string{"old", "new"} {
+						if row := ls.GetField(ud, key); row != lua.LNil {
+							ls.Push(fn)
+							ls.Push(row)
+							ls.Call(1, 0)
+						}
+					}
+					return 0
+				}), stream, onErr), nil
+			}
+			return stream, nil
+		}
+	}
+	return syncCore(ctx, a, config, options, sessionID, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
 }
@@ -290,7 +320,7 @@ func (a *FlowableActivity) SyncPg(
 	options *protos.SyncFlowOptions,
 	sessionID string,
 ) (*model.SyncResponse, error) {
-	return syncCore(ctx, a, config, options, sessionID,
+	return syncCore(ctx, a, config, options, sessionID, nil,
 		connectors.CDCPullPgConnector.PullPg,
 		connectors.CDCSyncPgConnector.SyncPg)
 }
@@ -445,8 +475,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 					a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 					return err
 				}
-				lfn := ls.Env.RawGetString("transformRow")
-				if fn, ok := lfn.(*lua.LFunction); ok {
+				if fn, ok := ls.Env.RawGetString("transformRow").(*lua.LFunction); ok {
 					outstream = pua.AttachToStream(ls, fn, stream)
 				}
 			}

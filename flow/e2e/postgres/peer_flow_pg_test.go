@@ -1086,3 +1086,101 @@ func (s PeerFlowE2ETestSuitePG) Test_TypeSystem_PG() {
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
 }
+
+func (s PeerFlowE2ETestSuitePG) Test_TransformRecordScript() {
+	srcTableName := s.attachSchemaSuffix("test_transrecord_pg")
+	dstTableName := s.attachSchemaSuffix("test_transrecord_pg_dst")
+
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		create table %[1]s (
+			id uuid not null primary key default gen_random_uuid(),
+			val int
+		)`, srcTableName))
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values
+		('cdc_transform_record', 'lua', 'function transformRecord(r) r.row.val = 1729 end') on conflict do nothing`)
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_transrecord_pg"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.peer,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig.Script = "cdc_transform_record"
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+
+	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf("insert into %s (val) values (1)", srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize rows", func() bool {
+		err := s.compareCounts(dstTableName, 1)
+		if err != nil {
+			s.t.Log(err.Error())
+		}
+		return err == nil
+	})
+
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
+
+	var exists bool
+	err = s.Conn().QueryRow(context.Background(),
+		fmt.Sprintf("select exists(select * from %s where val <> 1729)", dstTableName)).Scan(&exists)
+	require.NoError(s.t, err)
+	require.False(s.t, exists)
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_TransformRowScript() {
+	srcTableName := s.attachSchemaSuffix("test_transrow_pg")
+	dstTableName := s.attachSchemaSuffix("test_transrow_pg_dst")
+
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		create table %[1]s (
+			id uuid not null primary key default gen_random_uuid(),
+			val int
+		)`, srcTableName))
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values
+	('cdc_transform_row', 'lua', 'function transformRow(r) r.val = 1729 end') on conflict do nothing`)
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_transrow_pg"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.peer,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig.Script = "cdc_transform_row"
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+
+	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf("insert into %s (val) values (1)", srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize rows", func() bool {
+		err := s.compareCounts(dstTableName, 1)
+		if err != nil {
+			s.t.Log(err.Error())
+		}
+		return err == nil
+	})
+
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
+
+	var exists bool
+	err = s.Conn().QueryRow(context.Background(),
+		fmt.Sprintf("select exists(select * from %s where val <> 1729)", dstTableName)).Scan(&exists)
+	require.NoError(s.t, err)
+	require.False(s.t, exists)
+}
