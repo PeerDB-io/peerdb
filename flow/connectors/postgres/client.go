@@ -617,9 +617,7 @@ func (c *PostgresConnector) getDefaultPublicationName(jobName string) string {
 	return "peerflow_pub_" + jobName
 }
 
-func (c *PostgresConnector) ExecuteCommand(ctx context.Context, command string, peerName string) {
+func (c *PostgresConnector) ExecuteCommand(ctx context.Context, command string) error {
 	_, err := c.conn.Exec(ctx, command)
-	if err != nil {
-		c.logger.Warn(fmt.Sprintf("could not send walheartbeat to peer %v: %v", peerName, err))
-	}
+	return err
 }

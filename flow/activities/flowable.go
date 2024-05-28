@@ -565,7 +565,10 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 				return
 			}
 			defer pgConn.Close()
-			pgConn.ExecuteCommand(ctx, command, pgPeer.Name)
+			cmdErr := pgConn.ExecuteCommand(ctx, command)
+			if cmdErr != nil {
+				logger.Warn(fmt.Sprintf("could not send walheartbeat to peer %v: %v", pgPeer.Name, cmdErr))
+			}
 			logger.Info(fmt.Sprintf("sent walheartbeat to peer %v", pgPeer.Name))
 		}()
 	}
