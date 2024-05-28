@@ -16,20 +16,21 @@ jobs:
         runner: [ubicloud-standard-4-ubuntu-2204-arm]
     runs-on: ${{ matrix.runner }}
     steps:
-      - name: checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      - uses: actions/checkout@v4
 
       - uses: bufbuild/buf-setup-action@v1.29.0-1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - run: buf generate protos
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - name: install protobuf plugins and generate protos
+        id: install-protobuf-plugins
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.34
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.3
+          go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@v2.20.0
+          npm install ts-proto
+          cargo install protoc-gen-prost protoc-gen-tonic protoc-gen-prost-serde
+          PATH="$(go env GOPATH)/bin:$HOME/.cargo/bin:$PATH" buf generate --template buf.gen-local.yaml --debug protos
 
       - name: clippy
         run: cargo clippy -- -D warnings

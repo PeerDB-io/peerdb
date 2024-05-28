@@ -20,7 +20,7 @@ We support different modes of streaming - log based (CDC), cursor based (timesta
 ## Get started
 
 ```bash
-git clone --recursive git@github.com:PeerDB-io/peerdb.git
+git clone git@github.com:PeerDB-io/peerdb.git
 cd peerdb
 
 # Run docker containers: postgres as catalog, temporal, PeerDB server, PeerDB flow API + workers, PeerDB UI

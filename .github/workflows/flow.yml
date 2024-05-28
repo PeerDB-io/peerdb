@@ -32,19 +32,12 @@ jobs:
           xpack.security.enrollment.enabled: false
 
     steps:
-      - name: checkout sources
-        uses: actions/checkout@v4
-
-      - uses: bufbuild/buf-setup-action@v1.29.0-1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22.3'
           cache-dependency-path: flow/go.sum
-
-      - uses: dtolnay/rust-toolchain@stable
 
       - name: install lib-geos
         run: |
@@ -89,6 +82,8 @@ jobs:
           name: "eh_creds.json"
           json: ${{ secrets.EH_CREDS }}
 
+      - uses: bufbuild/buf-setup-action@v1.29.0-1
+      - uses: dtolnay/rust-toolchain@stable
       - name: install protobuf plugins and generate protos
         id: install-protobuf-plugins
         run: |
