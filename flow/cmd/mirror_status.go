@@ -19,60 +19,97 @@ func (h *FlowRequestHandler) MirrorStatus(
 	ctx context.Context,
 	req *protos.MirrorStatusRequest,
 ) (*protos.MirrorStatusResponse, error) {
-	slog.Info("Mirror status endpoint called", slog.String(string(shared.FlowNameKey), req.FlowJobName))
-	cdcFlow, err := h.isCDCFlow(ctx, req.FlowJobName)
+	slog.Info("Mirror status endpoint called",
+		slog.Bool("includeFlowInfo", req.IncludeFlowInfo),
+		slog.String(string(shared.FlowNameKey), req.FlowJobName))
+
+	err := AuthenticateSyncRequest(ctx)
 	if err != nil {
-		slog.Error("unable to query flow", slog.Any("error", err))
 		return &protos.MirrorStatusResponse{
-			ErrorMessage: "unable to query flow: " + err.Error(),
+			FlowJobName:      req.FlowJobName,
+			CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
+			ErrorMessage:     "Unauthorized: invalid authorization token. Please check the token and try again.",
+			Ok:               false,
 		}, nil
 	}
 
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
 		return &protos.MirrorStatusResponse{
-			ErrorMessage: "unable to get workflow ID " + err.Error(),
+			FlowJobName:      req.FlowJobName,
+			CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
+			ErrorMessage:     "unable to get the workflow ID of mirror " + req.FlowJobName,
+			Ok:               false,
 		}, nil
 	}
 
 	currState, err := h.getWorkflowStatus(ctx, workflowID)
 	if err != nil {
 		return &protos.MirrorStatusResponse{
-			ErrorMessage: "unable to get workflow status " + err.Error(),
+			FlowJobName:      req.FlowJobName,
+			CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
+			ErrorMessage:     "unable to get the running status of mirror " + req.FlowJobName,
+			Ok:               false,
 		}, nil
 	}
 
-	if cdcFlow {
-		cdcStatus, err := h.CDCFlowStatus(ctx, req)
+	if req.IncludeFlowInfo {
+		cdcFlow, err := h.isCDCFlow(ctx, req.FlowJobName)
 		if err != nil {
+			slog.Error("unable to query flow", slog.Any("error", err))
 			return &protos.MirrorStatusResponse{
-				ErrorMessage: "unable to query flow: " + err.Error(),
+				FlowJobName:      req.FlowJobName,
+				CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
+				ErrorMessage:     "unable to determine if mirror" + req.FlowJobName + "is of type CDC.",
+				Ok:               false,
 			}, nil
 		}
+		if cdcFlow {
+			cdcStatus, err := h.CDCFlowStatus(ctx, req)
+			if err != nil {
+				return &protos.MirrorStatusResponse{
+					FlowJobName:      req.FlowJobName,
+					CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
+					ErrorMessage:     "unable to obtain CDC information for mirror " + req.FlowJobName,
+					Ok:               false,
+				}, nil
+			}
 
-		return &protos.MirrorStatusResponse{
-			FlowJobName: req.FlowJobName,
-			Status: &protos.MirrorStatusResponse_CdcStatus{
-				CdcStatus: cdcStatus,
-			},
-			CurrentFlowState: currState,
-		}, nil
-	} else {
-		qrepStatus, err := h.QRepFlowStatus(ctx, req)
-		if err != nil {
 			return &protos.MirrorStatusResponse{
-				ErrorMessage: "unable to query flow: " + err.Error(),
+				FlowJobName: req.FlowJobName,
+				Status: &protos.MirrorStatusResponse_CdcStatus{
+					CdcStatus: cdcStatus,
+				},
+				CurrentFlowState: currState,
+				Ok:               true,
+			}, nil
+		} else {
+			qrepStatus, err := h.QRepFlowStatus(ctx, req)
+			if err != nil {
+				return &protos.MirrorStatusResponse{
+					FlowJobName:      req.FlowJobName,
+					CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
+					ErrorMessage:     "unable to obtain snapshot information for mirror " + req.FlowJobName,
+					Ok:               false,
+				}, nil
+			}
+
+			return &protos.MirrorStatusResponse{
+				FlowJobName: req.FlowJobName,
+				Status: &protos.MirrorStatusResponse_QrepStatus{
+					QrepStatus: qrepStatus,
+				},
+				CurrentFlowState: currState,
+				Ok:               true,
 			}, nil
 		}
-
-		return &protos.MirrorStatusResponse{
-			FlowJobName: req.FlowJobName,
-			Status: &protos.MirrorStatusResponse_QrepStatus{
-				QrepStatus: qrepStatus,
-			},
-			CurrentFlowState: currState,
-		}, nil
 	}
+
+	return &protos.MirrorStatusResponse{
+		FlowJobName:      req.FlowJobName,
+		CurrentFlowState: currState,
+		Ok:               true,
+	}, nil
 }
 
 func (h *FlowRequestHandler) CDCFlowStatus(
@@ -406,52 +443,4 @@ func (h *FlowRequestHandler) getCDCWorkflowState(ctx context.Context,
 			fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
 	}
 	return &state, nil
-}
-
-func (h *FlowRequestHandler) getRunningStatus(
-	ctx context.Context,
-	flowName string,
-) (*protos.FlowStatus, error) {
-	workflowID, err := h.getWorkflowID(ctx, flowName)
-	if err != nil {
-		return nil, err
-	}
-
-	currState, err := h.getWorkflowStatus(ctx, workflowID)
-	if err != nil {
-		return nil, err
-	}
-
-	return &currState, nil
-}
-
-func (h *FlowRequestHandler) CDCMirrorStatus(ctx context.Context, req *protos.MirrorStatusRequest) (*protos.CDCStatusResponse, error) {
-	err := AuthenticateSyncRequest(ctx)
-	if err != nil {
-		return &protos.CDCStatusResponse{
-			FlowJobName:      req.FlowJobName,
-			CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
-			ErrorMessage:     "Unauthorized: invalid authorization token. Please check the token and try again.",
-			Ok:               false,
-		}, nil
-	}
-
-	cdcState, err := h.getRunningStatus(ctx, req.FlowJobName)
-	if err != nil {
-		slog.Error("Error fetching status of mirror",
-			slog.String(string(shared.FlowNameKey), req.FlowJobName),
-			slog.Any("error", err))
-		return &protos.CDCStatusResponse{
-			FlowJobName:      req.FlowJobName,
-			CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
-			Ok:               false,
-			ErrorMessage:     fmt.Sprintf("Error fetching status of mirror %s: %v", req.FlowJobName, err)}, err
-	}
-
-	return &protos.CDCStatusResponse{
-		FlowJobName:      req.FlowJobName,
-		CurrentFlowState: *cdcState,
-		Ok:               true,
-		ErrorMessage:     "",
-	}, nil
 }
