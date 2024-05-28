@@ -49,7 +49,7 @@ func LuaPrintFn(fn func(string)) lua.LGFunction {
 }
 
 func LoadScript(ctx context.Context, script string, printfn lua.LGFunction) (*lua.LState, error) {
-	ls := lua.NewState(lua.Options{SkipOpenLibs: true, IncludeGoStackTrace: true})
+	ls := lua.NewState(lua.Options{SkipOpenLibs: true})
 	ls.SetContext(ctx)
 	for _, pair := range []struct {
 		f lua.LGFunction

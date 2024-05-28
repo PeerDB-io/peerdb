@@ -49,7 +49,6 @@ func AttachToCdcStream(
 		} else {
 			outstream.SignalAsNotEmpty()
 			for record := range stream.GetRecords() {
-				ls.SetTop(0)
 				ls.Push(lfn)
 				ls.Push(LuaRecord.New(ls, record))
 				if err := ls.PCall(1, 0, nil); err != nil {
