@@ -58,7 +58,7 @@ const dropStyle = css<BaseStyleProps>`
   --focus-border-color: ${({ theme }) => theme.colors.accent.border.normal};
   --text-color: ${({ theme }) => theme.colors.base.text.highContrast};
   --background-color-default: ${({ theme, $loading }) =>
-    $loading ? theme.colors.base.surface.selected : 'transparent'};
+    $loading ? theme.colors.base.surface.selected : '#FFE6E2'};
   --background-color-hover: ${({ theme }) =>
     theme.colors.destructive.surface.hovered};
   --background-color-focus: transparent;
@@ -94,6 +94,15 @@ const peerSolidStyle = css<BaseStyleProps>`
   --background-color-default: ${({ theme, $loading }) =>
     $loading ? 'rgba(0,0,0,0.07)' : 'rgba(0,0,0,0.03)'};
   --background-color-hover: ${({ theme }) => 'rgba(0,0,0,0.07)'};
+  --background-color-focus: ${({ theme }) => theme.colors.accent.fill.normal};
+`;
+
+const blueSolidStyle = css<BaseStyleProps>`
+  --focus-border-color: ${({ theme }) => theme.colors.accent.border.normal};
+  --text-color: ${({ theme }) => theme.colors.special.fixed.white};
+  --background-color-default: ${({ theme, $loading }) =>
+    $loading ? 'rgba(74, 176, 240,0.8)' : 'rgba(74, 176, 240,0.8)'};
+  --background-color-hover: ${({ theme }) => 'rgba(74, 176, 240,1)'};
   --background-color-focus: ${({ theme }) => theme.colors.accent.fill.normal};
 `;
 
@@ -138,6 +147,7 @@ const variants = {
   peer: peerSolidStyle,
   normalBorderless: normalBorderlessStyle,
   destructiveBorderless: destructiveBorderlessStyle,
+  blue: blueSolidStyle,
 } as const;
 
 export type ButtonVariant = keyof typeof variants;

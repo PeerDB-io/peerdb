@@ -1,9 +1,22 @@
 'use client';
 import { PeerConfig } from '@/app/dto/PeersDTO';
+import GuideForDestinationSetup from '@/app/mirrors/create/cdc/guide';
 import BigqueryForm from '@/components/PeerForms/BigqueryConfig';
+import ClickhouseForm from '@/components/PeerForms/ClickhouseConfig';
+import KafkaForm from '@/components/PeerForms/KafkaConfig';
 import PostgresForm from '@/components/PeerForms/PostgresForm';
+import PubSubForm from '@/components/PeerForms/PubSubConfig';
 import S3Form from '@/components/PeerForms/S3Form';
 import SnowflakeForm from '@/components/PeerForms/SnowflakeForm';
+
+import { notifyErr } from '@/app/utils/notify';
+import TitleCase from '@/app/utils/titlecase';
+import ElasticsearchConfigForm from '@/components/PeerForms/ElasticsearchConfigForm';
+import EventhubsForm from '@/components/PeerForms/Eventhubs/EventhubGroupConfig';
+import {
+  ElasticsearchConfig,
+  EventHubGroupConfig,
+} from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
 import { Label } from '@/lib/Label';
@@ -14,7 +27,10 @@ import { Tooltip } from '@/lib/Tooltip';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 import { handleCreate, handleValidate } from './handlers';
+import { clickhouseSetting } from './helpers/ch';
 import { getBlankSetting } from './helpers/common';
 import { postgresSetting } from './helpers/pg';
 import { snowflakeSetting } from './helpers/sf';
@@ -27,25 +43,59 @@ export default function CreateConfig({
   params: { peerType },
 }: CreateConfigProps) {
   const router = useRouter();
-  const dbType = peerType;
-  const blankSetting = getBlankSetting(dbType);
+  const blankSetting = getBlankSetting(peerType);
   const [name, setName] = useState<string>('');
   const [config, setConfig] = useState<PeerConfig>(blankSetting);
-  const [formMessage, setFormMessage] = useState<{ ok: boolean; msg: string }>({
-    ok: true,
-    msg: '',
-  });
   const [loading, setLoading] = useState<boolean>(false);
-  const configComponentMap = (dbType: string) => {
-    switch (dbType) {
+  const peerLabel = peerType.toUpperCase().replaceAll('%20', ' ');
+  const getDBType = () => {
+    if (peerType.includes('POSTGRES') || peerType.includes('TEMBO')) {
+      return 'POSTGRES';
+    }
+    if (peerType === 'CONFLUENT' || peerType === 'REDPANDA') {
+      return 'KAFKA';
+    }
+    return peerType;
+  };
+
+  const configComponentMap = (peerType: string) => {
+    switch (getDBType()) {
       case 'POSTGRES':
-        return <PostgresForm settings={postgresSetting} setter={setConfig} />;
+        return (
+          <PostgresForm
+            settings={postgresSetting}
+            setter={setConfig}
+            type={peerType}
+          />
+        );
       case 'SNOWFLAKE':
         return <SnowflakeForm settings={snowflakeSetting} setter={setConfig} />;
       case 'BIGQUERY':
         return <BigqueryForm setter={setConfig} />;
+      case 'CLICKHOUSE':
+        return (
+          <ClickhouseForm settings={clickhouseSetting} setter={setConfig} />
+        );
       case 'S3':
         return <S3Form setter={setConfig} />;
+      case 'KAFKA':
+        return <KafkaForm setter={setConfig} />;
+      case 'PUBSUB':
+        return <PubSubForm setter={setConfig} />;
+      case 'EVENTHUBS':
+        return (
+          <EventhubsForm
+            groupConfig={config as EventHubGroupConfig}
+            setter={setConfig}
+          />
+        );
+      case 'ELASTICSEARCH':
+        return (
+          <ElasticsearchConfigForm
+            config={config as ElasticsearchConfig}
+            setter={setConfig}
+          />
+        );
       default:
         return <></>;
     }
@@ -60,18 +110,19 @@ export default function CreateConfig({
       style={{
         display: 'flex',
         flexDirection: 'column',
-        alignSelf: 'center',
-        justifySelf: 'center',
-        width: '45%',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '100%',
+        height: '100%',
       }}
     >
-      <Panel>
-        <Label variant='title3'>
-          Setup a new{' '}
-          {dbType.charAt(0).toUpperCase() + dbType.slice(1).toLowerCase()} peer
+      <Panel style={{ rowGap: '0.5rem' }}>
+        <Label variant='title3' as='label' style={{ marginBottom: '2rem' }}>
+          Setup a {TitleCase(peerLabel)} peer
         </Label>
-      </Panel>
-      <Panel>
+
+        <GuideForDestinationSetup createPeerType={peerLabel} />
+
         <RowWithTextField
           label={
             <Label>
@@ -101,17 +152,17 @@ export default function CreateConfig({
         <Label colorName='lowContrast' variant='subheadline'>
           Configuration
         </Label>
-        {configComponentMap(dbType)}
-      </Panel>
-      <Panel>
+
+        <div style={{ minWidth: '40vw' }}>{configComponentMap(peerType)}</div>
+
         <ButtonGroup>
           <Button as={Link} href='/peers/create'>
             Back
           </Button>
           <Button
-            style={{ backgroundColor: 'gold' }}
+            style={{ backgroundColor: 'wheat' }}
             onClick={() =>
-              handleValidate(dbType, config, setFormMessage, setLoading, name)
+              handleValidate(getDBType(), config, notifyErr, setLoading, name)
             }
           >
             Validate
@@ -120,16 +171,16 @@ export default function CreateConfig({
             variant='normalSolid'
             onClick={() =>
               handleCreate(
-                dbType,
+                getDBType(),
                 config,
-                setFormMessage,
+                notifyErr,
                 setLoading,
                 listPeersRoute,
                 name
               )
             }
           >
-            Create
+            Create peer
           </Button>
         </ButtonGroup>
         <Panel>
@@ -142,17 +193,9 @@ export default function CreateConfig({
               Validating...
             </Label>
           )}
-          {!loading && formMessage.msg.length > 0 && (
-            <Label
-              colorName='lowContrast'
-              colorSet={formMessage.ok === true ? 'positive' : 'destructive'}
-              variant='subheadline'
-            >
-              {formMessage.msg}
-            </Label>
-          )}
         </Panel>
       </Panel>
+      <ToastContainer style={{ minWidth: '20%' }} />
     </div>
   );
 }

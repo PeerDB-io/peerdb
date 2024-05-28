@@ -81,12 +81,11 @@ type LayoutProps = PropsWithChildren<{
 }>;
 export function Layout({ sidebar, children }: LayoutProps) {
   const Sidebar = isDefined(sidebar) && sidebar;
-  const fullWidth = !isDefined(sidebar);
 
   return (
     <LayoutWrapper>
       {Sidebar}
-      <ContentWrapper $fullWidth={fullWidth}>{children}</ContentWrapper>
+      <ContentWrapper>{children}</ContentWrapper>
     </LayoutWrapper>
   );
 }

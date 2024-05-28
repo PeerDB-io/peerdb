@@ -8,9 +8,14 @@ import {
 import prisma from '@/app/utils/prisma';
 import {
   BigqueryConfig,
+  ClickhouseConfig,
   DBType,
+  ElasticsearchConfig,
+  EventHubGroupConfig,
+  KafkaConfig,
   Peer,
   PostgresConfig,
+  PubSubConfig,
   S3Config,
   SnowflakeConfig,
 } from '@/grpc_generated/peers';
@@ -50,11 +55,41 @@ const constructPeer = (
         type: DBType.BIGQUERY,
         bigqueryConfig: config as BigqueryConfig,
       };
+    case 'CLICKHOUSE':
+      return {
+        name,
+        type: DBType.CLICKHOUSE,
+        clickhouseConfig: config as ClickhouseConfig,
+      };
     case 'S3':
       return {
         name,
         type: DBType.S3,
         s3Config: config as S3Config,
+      };
+    case 'KAFKA':
+      return {
+        name,
+        type: DBType.KAFKA,
+        kafkaConfig: config as KafkaConfig,
+      };
+    case 'PUBSUB':
+      return {
+        name,
+        type: DBType.PUBSUB,
+        pubsubConfig: config as PubSubConfig,
+      };
+    case 'EVENTHUBS':
+      return {
+        name,
+        type: DBType.EVENTHUBS,
+        eventhubGroupConfig: config as EventHubGroupConfig,
+      };
+    case 'ELASTICSEARCH':
+      return {
+        name,
+        type: DBType.ELASTICSEARCH,
+        elasticsearchConfig: config as ElasticsearchConfig,
       };
     default:
       return;
@@ -65,7 +100,6 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
   const body = await request.json();
-  console.log('POST Validate Peer:', body);
   const { name, type, config, mode } = body;
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
   const peer = constructPeer(name, type, config);
@@ -93,7 +127,6 @@ export async function POST(request: Request) {
     }
   } else if (mode === 'create') {
     const req: CreatePeerRequest = { peer };
-    console.log('/peer/create req:', req);
     try {
       const createStatus: CreatePeerResponse = await fetch(
         `${flowServiceAddr}/v1/peers/create`,

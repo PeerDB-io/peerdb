@@ -1,100 +1,240 @@
 package peerflow
 
 import (
-	"fmt"
+	"log/slog"
 	"time"
+
+	"go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/temporal"
+	"go.temporal.io/sdk/workflow"
+	"golang.org/x/exp/maps"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	"go.temporal.io/sdk/log"
-	"go.temporal.io/sdk/workflow"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-type SyncFlowState struct {
-	CDCFlowName string
-	Progress    []string
-}
+// For now cdc restarts sync flow whenever it itself restarts,
+// set this value high enough to never be met, relying on cdc restarts.
+// In the future cdc flow restarts could be decoupled from sync flow restarts.
+const (
+	maxSyncsPerSyncFlow = 64
+)
 
-type SyncFlowExecution struct {
-	SyncFlowState
-	executionID string
-	logger      log.Logger
-}
-
-// NewSyncFlowExecution creates a new instance of SyncFlowExecution.
-func NewSyncFlowExecution(ctx workflow.Context, state *SyncFlowState) *SyncFlowExecution {
-	return &SyncFlowExecution{
-		SyncFlowState: *state,
-		executionID:   workflow.GetInfo(ctx).WorkflowExecution.ID,
-		logger:        workflow.GetLogger(ctx),
-	}
-}
-
-// executeSyncFlow executes the sync flow.
-func (s *SyncFlowExecution) executeSyncFlow(
+func SyncFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
-	opts *protos.SyncFlowOptions,
-	relationMessageMapping model.RelationMessageMapping,
-) (*model.SyncResponse, error) {
-	s.logger.Info("executing sync flow - ", s.CDCFlowName)
-
-	syncMetaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 1 * time.Minute,
-		WaitForCancellation: true,
-	})
-
-	// execute GetLastSyncedID on destination peer
-	lastSyncInput := &protos.GetLastSyncedIDInput{
-		PeerConnectionConfig: config.Destination,
-		FlowJobName:          s.CDCFlowName,
-	}
-
-	lastSyncFuture := workflow.ExecuteActivity(syncMetaCtx, flowable.GetLastSyncedID, lastSyncInput)
-	var dstSyncState *protos.LastSyncState
-	if err := lastSyncFuture.Get(syncMetaCtx, &dstSyncState); err != nil {
-		return nil, fmt.Errorf("failed to get last synced ID from destination peer: %w", err)
-	}
-
-	if dstSyncState != nil {
-		msg := fmt.Sprintf("last synced ID from destination peer - %d\n", dstSyncState.Checkpoint)
-		s.logger.Info(msg)
-	} else {
-		s.logger.Info("no last synced ID from destination peer")
-	}
-
-	startFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 72 * time.Hour,
-		HeartbeatTimeout:    30 * time.Second,
-		WaitForCancellation: true,
-	})
-
-	// execute StartFlow on the peers to start the flow
-	startFlowInput := &protos.StartFlowInput{
-		FlowConnectionConfigs:  config,
-		LastSyncState:          dstSyncState,
-		SyncFlowOptions:        opts,
-		RelationMessageMapping: relationMessageMapping,
-	}
-	fStartFlow := workflow.ExecuteActivity(startFlowCtx, flowable.StartFlow, startFlowInput)
-
-	var syncRes *model.SyncResponse
-	if err := fStartFlow.Get(startFlowCtx, &syncRes); err != nil {
-		return nil, fmt.Errorf("failed to flow: %w", err)
-	}
-	return syncRes, nil
-}
-
-// SyncFlowWorkflow is the synchronization workflow for a peer flow.
-// This workflow assumes that the metadata tables have already been setup,
-// and the checkpoint for the source peer is known.
-func SyncFlowWorkflow(ctx workflow.Context,
-	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
-) (*model.SyncResponse, error) {
-	s := NewSyncFlowExecution(ctx, &SyncFlowState{
-		CDCFlowName: config.FlowJobName,
-		Progress:    []string{},
+) error {
+	parent := workflow.GetInfo(ctx).ParentWorkflowExecution
+	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
+
+	sessionOptions := &workflow.SessionOptions{
+		CreationTimeout:  5 * time.Minute,
+		ExecutionTimeout: 14 * 24 * time.Hour,
+		HeartbeatTimeout: time.Minute,
+	}
+
+	syncSessionCtx, err := workflow.CreateSession(ctx, sessionOptions)
+	if err != nil {
+		return err
+	}
+	defer workflow.CompleteSession(syncSessionCtx)
+
+	sessionID := workflow.GetSessionInfo(syncSessionCtx).SessionID
+	maintainCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
+		StartToCloseTimeout: 14 * 24 * time.Hour,
+		HeartbeatTimeout:    time.Minute,
+		WaitForCancellation: true,
 	})
-	return s.executeSyncFlow(ctx, config, options, options.RelationMessageMapping)
+	fMaintain := workflow.ExecuteActivity(
+		maintainCtx,
+		flowable.MaintainPull,
+		config,
+		sessionID,
+	)
+
+	var stop, syncErr bool
+	currentSyncFlowNum := 0
+	totalRecordsSynced := int64(0)
+
+	selector := workflow.NewNamedSelector(ctx, "SyncLoop")
+	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+	if fMaintain != nil {
+		selector.AddFuture(fMaintain, func(f workflow.Future) {
+			err := f.Get(ctx, nil)
+			if err != nil {
+				logger.Error("MaintainPull failed", slog.Any("error", err))
+				syncErr = true
+			}
+		})
+	}
+
+	stopChan := model.SyncStopSignal.GetSignalChannel(ctx)
+	stopChan.AddToSelector(selector, func(_ struct{}, _ bool) {
+		stop = true
+	})
+
+	var waitSelector workflow.Selector
+	parallel := GetSideEffect(ctx, func(_ workflow.Context) bool {
+		return peerdbenv.PeerDBEnableParallelSyncNormalize()
+	})
+	if !parallel {
+		waitSelector = workflow.NewNamedSelector(ctx, "NormalizeWait")
+		waitSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+		waitChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
+		waitChan.Drain()
+		waitChan.AddToSelector(waitSelector, func(_ struct{}, _ bool) {})
+		stopChan.AddToSelector(waitSelector, func(_ struct{}, _ bool) {
+			stop = true
+		})
+	}
+
+	for !stop && ctx.Err() == nil {
+		var syncDone bool
+		mustWait := waitSelector != nil
+
+		// execute the sync flow
+		currentSyncFlowNum += 1
+		logger.Info("executing sync flow", slog.Int("count", currentSyncFlowNum))
+
+		syncFlowCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
+			StartToCloseTimeout: 72 * time.Hour,
+			HeartbeatTimeout:    time.Minute,
+			WaitForCancellation: true,
+		})
+
+		var syncFlowFuture workflow.Future
+		if config.System == protos.TypeSystem_Q {
+			syncFlowFuture = workflow.ExecuteActivity(syncFlowCtx, flowable.SyncRecords, config, options, sessionID)
+		} else {
+			syncFlowFuture = workflow.ExecuteActivity(syncFlowCtx, flowable.SyncPg, config, options, sessionID)
+		}
+		selector.AddFuture(syncFlowFuture, func(f workflow.Future) {
+			syncDone = true
+
+			var childSyncFlowRes *model.SyncResponse
+			if err := f.Get(ctx, &childSyncFlowRes); err != nil {
+				logger.Error("failed to execute sync flow", slog.Any("error", err))
+				_ = model.SyncResultSignal.SignalExternalWorkflow(
+					ctx,
+					parent.ID,
+					"",
+					nil,
+				).Get(ctx, nil)
+				syncErr = true
+			} else if childSyncFlowRes != nil {
+				_ = model.SyncResultSignal.SignalExternalWorkflow(
+					ctx,
+					parent.ID,
+					"",
+					childSyncFlowRes,
+				).Get(ctx, nil)
+				totalRecordsSynced += childSyncFlowRes.NumRecordsSynced
+				logger.Info("Total records synced: ",
+					slog.Int64("totalRecordsSynced", totalRecordsSynced))
+
+				tableSchemaDeltasCount := len(childSyncFlowRes.TableSchemaDeltas)
+
+				// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
+				if tableSchemaDeltasCount > 0 {
+					modifiedSrcTables := make([]string, 0, tableSchemaDeltasCount)
+					for _, tableSchemaDelta := range childSyncFlowRes.TableSchemaDeltas {
+						modifiedSrcTables = append(modifiedSrcTables, tableSchemaDelta.SrcTableName)
+					}
+
+					getModifiedSchemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+						StartToCloseTimeout: 5 * time.Minute,
+					})
+					getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.GetTableSchema,
+						&protos.GetTableSchemaBatchInput{
+							PeerConnectionConfig: config.Source,
+							TableIdentifiers:     modifiedSrcTables,
+							FlowName:             config.FlowJobName,
+							System:               config.System,
+						})
+
+					var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
+					if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {
+						logger.Error("failed to execute schema update at source", slog.Any("error", err))
+						_ = model.SyncResultSignal.SignalExternalWorkflow(
+							ctx,
+							parent.ID,
+							"",
+							nil,
+						).Get(ctx, nil)
+					} else {
+						processedSchemaMapping := shared.BuildProcessedSchemaMapping(options.TableMappings,
+							getModifiedSchemaRes.TableNameSchemaMapping, logger)
+						maps.Copy(options.TableNameSchemaMapping, processedSchemaMapping)
+					}
+				}
+
+				err := model.NormalizeSignal.SignalExternalWorkflow(
+					ctx,
+					parent.ID,
+					"",
+					model.NormalizePayload{
+						Done:                   false,
+						SyncBatchID:            childSyncFlowRes.CurrentSyncBatchID,
+						TableNameSchemaMapping: options.TableNameSchemaMapping,
+					},
+				).Get(ctx, nil)
+				if err != nil {
+					logger.Error("failed to trigger normalize, so skip wait", slog.Any("error", err))
+					mustWait = false
+				}
+			} else {
+				mustWait = false
+			}
+		})
+
+		for ctx.Err() == nil && ((!syncDone && !syncErr) || selector.HasPending()) {
+			selector.Select(ctx)
+		}
+		if ctx.Err() != nil {
+			break
+		}
+
+		restart := currentSyncFlowNum >= maxSyncsPerSyncFlow || syncErr
+		if !stop && !syncErr && mustWait {
+			waitSelector.Select(ctx)
+			if restart {
+				// must flush selector for signals received while waiting
+				for ctx.Err() == nil && selector.HasPending() {
+					selector.Select(ctx)
+				}
+				break
+			}
+		} else if restart {
+			break
+		}
+	}
+
+	if err := ctx.Err(); err != nil {
+		logger.Info("sync canceled", slog.Any("error", err))
+		return err
+	}
+
+	if fMaintain != nil {
+		unmaintainCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
+			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+			StartToCloseTimeout: time.Minute,
+			HeartbeatTimeout:    time.Minute,
+			WaitForCancellation: true,
+		})
+		if err := workflow.ExecuteActivity(
+			unmaintainCtx,
+			flowable.UnmaintainPull,
+			sessionID,
+		).Get(unmaintainCtx, nil); err != nil {
+			logger.Warn("UnmaintainPull failed", slog.Any("error", err))
+		}
+	}
+
+	if stop {
+		return nil
+	}
+	return workflow.NewContinueAsNewError(ctx, SyncFlowWorkflow, config, options)
 }

@@ -3,18 +3,20 @@ package e2e_snowflake
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/stretchr/testify/require"
 )
 
-const schemaDeltaTestSchemaName = "PUBLIC"
+const (
+	schemaDeltaTestSchemaName            = "PUBLIC"
+	numericAddedColumnTypeModifier int32 = 1048587 // Numeric(16,7)
+)
 
 type SnowflakeSchemaDeltaTestSuite struct {
 	t *testing.T
@@ -28,8 +30,7 @@ func setupSchemaDeltaSuite(t *testing.T) SnowflakeSchemaDeltaTestSuite {
 
 	sfTestHelper, err := NewSnowflakeTestHelper()
 	if err != nil {
-		slog.Error("Error in test", slog.Any("error", err))
-		t.FailNow()
+		t.Fatalf("Error in test: %v", err)
 	}
 
 	connector, err := connsnowflake.NewSnowflakeConnector(
@@ -37,8 +38,7 @@ func setupSchemaDeltaSuite(t *testing.T) SnowflakeSchemaDeltaTestSuite {
 		sfTestHelper.Config,
 	)
 	if err != nil {
-		slog.Error("Error in test", slog.Any("error", err))
-		t.FailNow()
+		t.Fatalf("Error in test: %v", err)
 	}
 
 	return SnowflakeSchemaDeltaTestSuite{
@@ -49,72 +49,134 @@ func setupSchemaDeltaSuite(t *testing.T) SnowflakeSchemaDeltaTestSuite {
 }
 
 func (s SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
-	tableName := fmt.Sprintf("%s.SIMPLE_ADD_COLUMN", schemaDeltaTestSchemaName)
+	tableName := schemaDeltaTestSchemaName + ".SIMPLE_ADD_COLUMN"
 	err := s.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(ID TEXT PRIMARY KEY)", tableName))
 	require.NoError(s.t, err)
 
-	err = s.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
+	err = s.connector.ReplayTableSchemaDeltas(context.Background(), "schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
-		AddedColumns: []*protos.DeltaAddedColumn{{
-			ColumnName: "HI",
-			ColumnType: string(qvalue.QValueKindJSON),
-		}},
+		AddedColumns: []*protos.FieldDescription{
+			{
+				Name:         "HI",
+				Type:         string(qvalue.QValueKindJSON),
+				TypeModifier: -1,
+			},
+		},
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+	output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
 	})
 	require.NoError(s.t, err)
 	require.Equal(s.t, &protos.TableSchema{
 		TableIdentifier: tableName,
-		ColumnNames:     []string{"ID", "HI"},
-		ColumnTypes:     []string{string(qvalue.QValueKindString), string(qvalue.QValueKindJSON)},
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         "ID",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "HI",
+				Type:         string(qvalue.QValueKindJSON),
+				TypeModifier: -1,
+			},
+		},
 	}, output.TableNameSchemaMapping[tableName])
 }
 
 func (s SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
-	tableName := fmt.Sprintf("%s.ADD_DROP_ALL_COLUMN_TYPES", schemaDeltaTestSchemaName)
+	tableName := schemaDeltaTestSchemaName + ".ADD_DROP_ALL_COLUMN_TYPES"
 	err := s.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(ID TEXT PRIMARY KEY)", tableName))
 	require.NoError(s.t, err)
 
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
-		// goal is to test all types we're currently mapping to, not all QValue types
-		ColumnNames: []string{"ID", "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10"},
-		ColumnTypes: []string{
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindBoolean),
-			string(qvalue.QValueKindBytes),
-			string(qvalue.QValueKindDate),
-			string(qvalue.QValueKindFloat64),
-			string(qvalue.QValueKindJSON),
-			string(qvalue.QValueKindNumeric),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindTime),
-			string(qvalue.QValueKindTimestamp),
-			string(qvalue.QValueKindTimestampTZ),
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         "ID",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C1",
+				Type:         string(qvalue.QValueKindBoolean),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C2",
+				Type:         string(qvalue.QValueKindBytes),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C3",
+				Type:         string(qvalue.QValueKindDate),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C4",
+				Type:         string(qvalue.QValueKindFloat64),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C5",
+				Type:         string(qvalue.QValueKindJSON),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C6",
+				Type:         string(qvalue.QValueKindNumeric),
+				TypeModifier: numericAddedColumnTypeModifier, // Numeric(16,7)
+			},
+			{
+				Name:         "C7",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C8",
+				Type:         string(qvalue.QValueKindTime),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C9",
+				Type:         string(qvalue.QValueKindTimestamp),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C10",
+				Type:         string(qvalue.QValueKindTimestampTZ),
+				TypeModifier: -1,
+			},
 		},
 	}
-	addedColumns := make([]*protos.DeltaAddedColumn, 0)
-	utils.IterColumns(expectedTableSchema, func(columnName, columnType string) {
-		if columnName != "ID" {
-			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
-				ColumnName: columnName,
-				ColumnType: columnType,
-			})
+	addedColumns := make([]*protos.FieldDescription, 0)
+	for _, column := range expectedTableSchema.Columns {
+		if column.Name != "ID" {
+			var typeModifierOfAddedCol int32
+			typeModifierOfAddedCol = -1
+			if column.Type == string(qvalue.QValueKindNumeric) {
+				typeModifierOfAddedCol = numericAddedColumnTypeModifier
+			}
+			addedColumns = append(addedColumns, &protos.FieldDescription{
+				Name:         column.Name,
+				Type:         column.Type,
+				TypeModifier: typeModifierOfAddedCol,
+			},
+			)
 		}
-	})
+	}
 
-	err = s.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
+	err = s.connector.ReplayTableSchemaDeltas(context.Background(), "schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+	output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
 	})
 	require.NoError(s.t, err)
@@ -122,54 +184,80 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 }
 
 func (s SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
-	tableName := fmt.Sprintf("%s.ADD_DROP_TRICKY_COLUMN_NAMES", schemaDeltaTestSchemaName)
+	tableName := schemaDeltaTestSchemaName + ".ADD_DROP_TRICKY_COLUMN_NAMES"
 	err := s.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(id TEXT PRIMARY KEY)", tableName))
 	require.NoError(s.t, err)
 
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
-		// strings.ToUpper also does Unicode uppercasing :)
-		ColumnNames: []string{
-			"ID",
-			"C1",
-			"C 1",
-			"RIGHT",
-			"SELECT",
-			"XMIN",
-			"CARIÑO",
-			"±ªÞ³§",
-			"カラム",
-		},
-		ColumnTypes: []string{
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         "ID",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C1",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "C 1",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "RIGHT",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "SELECT",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "XMIN",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "CARIÑO",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "±ªÞ³§",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "カラム",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
 		},
 	}
-	addedColumns := make([]*protos.DeltaAddedColumn, 0)
-	utils.IterColumns(expectedTableSchema, func(columnName, columnType string) {
-		if columnName != "ID" {
-			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
-				ColumnName: columnName,
-				ColumnType: columnType,
-			})
+	addedColumns := make([]*protos.FieldDescription, 0)
+	for _, column := range expectedTableSchema.Columns {
+		if column.Name != "ID" {
+			addedColumns = append(addedColumns, &protos.FieldDescription{
+				Name:         column.Name,
+				Type:         column.Type,
+				TypeModifier: -1,
+			},
+			)
 		}
-	})
+	}
 
-	err = s.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
+	err = s.connector.ReplayTableSchemaDeltas(context.Background(), "schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+	output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
 	})
 	require.NoError(s.t, err)
@@ -177,47 +265,67 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 }
 
 func (s SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
-	tableName := fmt.Sprintf("%s.ADD_DROP_WHITESPACE_COLUMN_NAMES", schemaDeltaTestSchemaName)
+	tableName := schemaDeltaTestSchemaName + ".ADD_DROP_WHITESPACE_COLUMN_NAMES"
 	err := s.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(\" \" TEXT PRIMARY KEY)", tableName))
 	require.NoError(s.t, err)
 
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
-		ColumnNames:     []string{" ", "  ", "   ", "\t"},
-		ColumnTypes: []string{
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindString),
-			string(qvalue.QValueKindTime),
-			string(qvalue.QValueKindDate),
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         " ",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "  ",
+				Type:         string(qvalue.QValueKindString),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "   ",
+				Type:         string(qvalue.QValueKindTime),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "\t",
+				Type:         string(qvalue.QValueKindDate),
+				TypeModifier: -1,
+			},
 		},
 	}
-	addedColumns := make([]*protos.DeltaAddedColumn, 0)
-	utils.IterColumns(expectedTableSchema, func(columnName, columnType string) {
-		if columnName != " " {
-			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
-				ColumnName: columnName,
-				ColumnType: columnType,
-			})
-		}
-	})
 
-	err = s.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
+	addedColumns := make([]*protos.FieldDescription, 0)
+	for _, column := range expectedTableSchema.Columns {
+		if column.Name != " " {
+			addedColumns = append(addedColumns, &protos.FieldDescription{
+				Name:         column.Name,
+				Type:         column.Type,
+				TypeModifier: -1,
+			},
+			)
+		}
+	}
+
+	err = s.connector.ReplayTableSchemaDeltas(context.Background(), "schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+	output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
 	})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
+func (s SnowflakeSchemaDeltaTestSuite) Teardown() {
+	require.NoError(s.t, s.sfTestHelper.Cleanup())
+	require.NoError(s.t, s.connector.Close())
+}
+
 func TestSnowflakeSchemaDeltaTestSuite(t *testing.T) {
-	e2eshared.RunSuite(t, setupSchemaDeltaSuite, func(s SnowflakeSchemaDeltaTestSuite) {
-		require.NoError(s.t, s.sfTestHelper.Cleanup())
-		require.NoError(s.t, s.connector.Close())
-	})
+	e2eshared.RunSuite(t, setupSchemaDeltaSuite)
 }

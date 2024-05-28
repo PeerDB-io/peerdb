@@ -1,16 +1,18 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use anyhow::{anyhow, Context};
-use peer_cursor::QueryExecutor;
-use peer_postgres::PostgresQueryExecutor;
+use peer_cursor::{QueryExecutor, QueryOutput, Schema};
+use peer_postgres::{self, ast};
+use pgwire::error::PgWireResult;
 use postgres_connection::{connect_postgres, get_pg_connection_string};
-use prost::Message;
 use pt::{
-    flow_model::{FlowJob, QRepFlowJob},
+    flow_model::QRepFlowJob,
     peerdb_peers::PostgresConfig,
     peerdb_peers::{peer::Config, DbType, Peer},
+    prost::Message,
 };
 use serde_json::Value;
+use sqlparser::ast::Statement;
 use tokio_postgres::{types, Client};
 
 mod embedded {
@@ -19,8 +21,7 @@ mod embedded {
 }
 
 pub struct Catalog {
-    pg: Box<Client>,
-    executor: Arc<dyn QueryExecutor>,
+    pg: Client,
 }
 
 async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
@@ -77,76 +78,34 @@ impl<'a> CatalogConfig<'a> {
 impl Catalog {
     pub async fn new(pt_config: pt::peerdb_peers::PostgresConfig) -> anyhow::Result<Self> {
         let client = connect_postgres(&pt_config).await?;
-        let executor = PostgresQueryExecutor::new(None, &pt_config).await?;
-
-        Ok(Self {
-            pg: Box::new(client),
-            executor: Arc::new(executor),
-        })
+        Ok(Self { pg: client })
     }
 
     pub async fn run_migrations(&mut self) -> anyhow::Result<()> {
         run_migrations(&mut self.pg).await
     }
 
-    pub fn get_executor(&self) -> &Arc<dyn QueryExecutor> {
-        &self.executor
-    }
-
-    pub async fn create_peer(&self, peer: &Peer) -> anyhow::Result<i64> {
+    pub async fn create_peer(&self, peer: &Peer, if_not_exists: bool) -> anyhow::Result<i64> {
         let config_blob = {
-            let config = peer.config.clone().context("invalid peer config")?;
-            let mut buf = Vec::new();
-
+            let config = peer.config.as_ref().context("invalid peer config")?;
             match config {
-                Config::SnowflakeConfig(snowflake_config) => {
-                    let config_len = snowflake_config.encoded_len();
-                    buf.reserve(config_len);
-                    snowflake_config.encode(&mut buf)?;
-                }
-                Config::BigqueryConfig(bigquery_config) => {
-                    let config_len = bigquery_config.encoded_len();
-                    buf.reserve(config_len);
-                    bigquery_config.encode(&mut buf)?;
-                }
-                Config::MongoConfig(mongo_config) => {
-                    let config_len = mongo_config.encoded_len();
-                    buf.reserve(config_len);
-                    mongo_config.encode(&mut buf)?;
-                }
-                Config::PostgresConfig(postgres_config) => {
-                    let config_len = postgres_config.encoded_len();
-                    buf.reserve(config_len);
-                    postgres_config.encode(&mut buf)?;
-                }
-                Config::EventhubConfig(eventhub_config) => {
-                    let config_len = eventhub_config.encoded_len();
-                    buf.reserve(config_len);
-                    eventhub_config.encode(&mut buf)?;
-                }
-                Config::S3Config(s3_config) => {
-                    let config_len = s3_config.encoded_len();
-                    buf.reserve(config_len);
-                    s3_config.encode(&mut buf)?;
-                }
-                Config::SqlserverConfig(sqlserver_config) => {
-                    let config_len = sqlserver_config.encoded_len();
-                    buf.reserve(config_len);
-                    sqlserver_config.encode(&mut buf)?;
-                }
+                Config::SnowflakeConfig(snowflake_config) => snowflake_config.encode_to_vec(),
+                Config::BigqueryConfig(bigquery_config) => bigquery_config.encode_to_vec(),
+                Config::MongoConfig(mongo_config) => mongo_config.encode_to_vec(),
+                Config::PostgresConfig(postgres_config) => postgres_config.encode_to_vec(),
+                Config::S3Config(s3_config) => s3_config.encode_to_vec(),
+                Config::SqlserverConfig(sqlserver_config) => sqlserver_config.encode_to_vec(),
                 Config::EventhubGroupConfig(eventhub_group_config) => {
-                    let config_len = eventhub_group_config.encoded_len();
-                    buf.reserve(config_len);
-                    eventhub_group_config.encode(&mut buf)?;
+                    eventhub_group_config.encode_to_vec()
                 }
-                Config::ClickhouseConfig(clickhouse_config) => {
-                    let config_len = clickhouse_config.encoded_len();
-                    buf.reserve(config_len);
-                    clickhouse_config.encode(&mut buf)?;
+                Config::ClickhouseConfig(clickhouse_config) => clickhouse_config.encode_to_vec(),
+                Config::KafkaConfig(kafka_config) => kafka_config.encode_to_vec(),
+                Config::PubsubConfig(pubsub_config) => pubsub_config.encode_to_vec(),
+                Config::ElasticsearchConfig(elasticsearch_config) => {
+                    elasticsearch_config.encode_to_vec()
                 }
-            };
-
-            buf
+                Config::MysqlConfig(mysql_config) => mysql_config.encode_to_vec(),
+            }
         };
 
         let stmt = self
@@ -157,9 +116,17 @@ impl Catalog {
             )
             .await?;
 
-        self.pg
+        if let Err(err) = self
+            .pg
             .execute(&stmt, &[&peer.name, &peer.r#type, &config_blob])
-            .await?;
+            .await
+        {
+            if !if_not_exists
+                || err.code() != Some(&tokio_postgres::error::SqlState::UNIQUE_VIOLATION)
+            {
+                return Err(err.into());
+            }
+        }
 
         self.get_peer_id(&peer.name).await
     }
@@ -173,7 +140,10 @@ impl Catalog {
     pub async fn get_peer_id_i32(&self, peer_name: &str) -> anyhow::Result<i32> {
         let stmt = self
             .pg
-            .prepare_typed("SELECT id FROM peers WHERE name = $1", &[types::Type::TEXT])
+            .prepare_typed(
+                "SELECT id FROM public.peers WHERE name = $1",
+                &[types::Type::TEXT],
+            )
             .await?;
 
         self.pg
@@ -187,7 +157,10 @@ impl Catalog {
     pub async fn get_peer_type_for_id(&self, peer_id: i32) -> anyhow::Result<DbType> {
         let stmt = self
             .pg
-            .prepare_typed("SELECT type FROM peers WHERE id = $1", &[types::Type::INT4])
+            .prepare_typed(
+                "SELECT type FROM public.peers WHERE id = $1",
+                &[types::Type::INT4],
+            )
             .await?;
 
         self.pg
@@ -201,7 +174,7 @@ impl Catalog {
     pub async fn get_peers(&self) -> anyhow::Result<HashMap<String, Peer>> {
         let stmt = self
             .pg
-            .prepare_typed("SELECT id, name, type, options FROM peers", &[])
+            .prepare_typed("SELECT id, name, type, options FROM public.peers", &[])
             .await?;
 
         let rows = self.pg.query(&stmt, &[]).await?;
@@ -230,7 +203,7 @@ impl Catalog {
         let stmt = self
             .pg
             .prepare_typed(
-                "SELECT id, name, type, options FROM peers WHERE name = $1",
+                "SELECT id, name, type, options FROM public.peers WHERE name = $1",
                 &[],
             )
             .await?;
@@ -259,7 +232,10 @@ impl Catalog {
     pub async fn get_peer_by_id(&self, peer_id: i32) -> anyhow::Result<Peer> {
         let stmt = self
             .pg
-            .prepare_typed("SELECT name, type, options FROM peers WHERE id = $1", &[])
+            .prepare_typed(
+                "SELECT name, type, options FROM public.peers WHERE id = $1",
+                &[],
+            )
             .await?;
 
         let rows = self.pg.query(&stmt, &[&peer_id]).await?;
@@ -289,132 +265,79 @@ impl Catalog {
         name: &str,
         options: &[u8],
     ) -> anyhow::Result<Option<Config>> {
-        match db_type {
-            Some(DbType::Snowflake) => {
-                let err = format!("unable to decode {} options for peer {}", "snowflake", name);
-                let snowflake_config =
-                    pt::peerdb_peers::SnowflakeConfig::decode(options).context(err)?;
-                Ok(Some(Config::SnowflakeConfig(snowflake_config)))
-            }
-            Some(DbType::Bigquery) => {
-                let err = format!("unable to decode {} options for peer {}", "bigquery", name);
-                let bigquery_config =
-                    pt::peerdb_peers::BigqueryConfig::decode(options).context(err)?;
-                Ok(Some(Config::BigqueryConfig(bigquery_config)))
-            }
-            Some(DbType::Mongo) => {
-                let err = format!("unable to decode {} options for peer {}", "mongo", name);
-                let mongo_config = pt::peerdb_peers::MongoConfig::decode(options).context(err)?;
-                Ok(Some(Config::MongoConfig(mongo_config)))
-            }
-            Some(DbType::Eventhub) => {
-                let err = format!("unable to decode {} options for peer {}", "eventhub", name);
-                let eventhub_config =
-                    pt::peerdb_peers::EventHubConfig::decode(options).context(err)?;
-                Ok(Some(Config::EventhubConfig(eventhub_config)))
-            }
-            Some(DbType::Postgres) => {
-                let err = format!("unable to decode {} options for peer {}", "postgres", name);
-                let postgres_config =
-                    pt::peerdb_peers::PostgresConfig::decode(options).context(err)?;
-                Ok(Some(Config::PostgresConfig(postgres_config)))
-            }
-            Some(DbType::S3) => {
-                let err = format!("unable to decode {} options for peer {}", "s3", name);
-                let s3_config = pt::peerdb_peers::S3Config::decode(options).context(err)?;
-                Ok(Some(Config::S3Config(s3_config)))
-            }
-            Some(DbType::Sqlserver) => {
-                let err = format!("unable to decode {} options for peer {}", "sqlserver", name);
-                let sqlserver_config =
-                    pt::peerdb_peers::SqlServerConfig::decode(options).context(err)?;
-                Ok(Some(Config::SqlserverConfig(sqlserver_config)))
-            }
-            Some(DbType::EventhubGroup) => {
-                let err = format!(
+        Ok(if let Some(db_type) = db_type {
+            let err = || {
+                format!(
                     "unable to decode {} options for peer {}",
-                    "eventhub_group", name
-                );
-                let eventhub_group_config =
-                    pt::peerdb_peers::EventHubGroupConfig::decode(options).context(err)?;
-                Ok(Some(Config::EventhubGroupConfig(eventhub_group_config)))
-            }
-            Some(DbType::Clickhouse) => {
-                let err = format!(
-                    "unable to decode {} options for peer {}",
-                    "clickhouse", name
-                );
-                let clickhouse_config =
-                    pt::peerdb_peers::ClickhouseConfig::decode(options).context(err)?;
-                Ok(Some(Config::ClickhouseConfig(clickhouse_config)))
-            }
-            None => Ok(None),
-        }
-    }
-
-    async fn normalize_schema_for_table_identifier(
-        &self,
-        table_identifier: &str,
-        peer_id: i32,
-    ) -> anyhow::Result<String> {
-        let peer_dbtype = self.get_peer_type_for_id(peer_id).await?;
-
-        let mut table_identifier_parts = table_identifier.split('.').collect::<Vec<&str>>();
-        if table_identifier_parts.len() == 1 && (peer_dbtype != DbType::Bigquery) {
-            table_identifier_parts.insert(0, "public");
-        }
-
-        Ok(table_identifier_parts.join("."))
-    }
-
-    pub async fn create_cdc_flow_job_entry(&self, job: &FlowJob) -> anyhow::Result<()> {
-        let source_peer_id = self
-            .get_peer_id_i32(&job.source_peer)
-            .await
-            .context("unable to get source peer id")?;
-        let destination_peer_id = self
-            .get_peer_id_i32(&job.target_peer)
-            .await
-            .context("unable to get destination peer id")?;
-
-        let stmt = self
-            .pg
-            .prepare_typed(
-                "INSERT INTO flows (name, source_peer, destination_peer, description,
-                     source_table_identifier, destination_table_identifier) VALUES ($1, $2, $3, $4, $5, $6)",
-                &[types::Type::TEXT, types::Type::INT4, types::Type::INT4, types::Type::TEXT,
-                 types::Type::TEXT, types::Type::TEXT],
-            )
-            .await?;
-
-        for table_mapping in &job.table_mappings {
-            let _rows = self
-                .pg
-                .execute(
-                    &stmt,
-                    &[
-                        &job.name,
-                        &source_peer_id,
-                        &destination_peer_id,
-                        &job.description,
-                        &self
-                            .normalize_schema_for_table_identifier(
-                                &table_mapping.source_table_identifier,
-                                source_peer_id,
-                            )
-                            .await?,
-                        &self
-                            .normalize_schema_for_table_identifier(
-                                &table_mapping.destination_table_identifier,
-                                destination_peer_id,
-                            )
-                            .await?,
-                    ],
+                    db_type.as_str_name(),
+                    name
                 )
-                .await?;
-        }
-
-        Ok(())
+            };
+            Some(match db_type {
+                DbType::Snowflake => {
+                    let snowflake_config =
+                        pt::peerdb_peers::SnowflakeConfig::decode(options).with_context(err)?;
+                    Config::SnowflakeConfig(snowflake_config)
+                }
+                DbType::Bigquery => {
+                    let bigquery_config =
+                        pt::peerdb_peers::BigqueryConfig::decode(options).with_context(err)?;
+                    Config::BigqueryConfig(bigquery_config)
+                }
+                DbType::Mongo => {
+                    let mongo_config =
+                        pt::peerdb_peers::MongoConfig::decode(options).with_context(err)?;
+                    Config::MongoConfig(mongo_config)
+                }
+                DbType::Postgres => {
+                    let postgres_config =
+                        pt::peerdb_peers::PostgresConfig::decode(options).with_context(err)?;
+                    Config::PostgresConfig(postgres_config)
+                }
+                DbType::S3 => {
+                    let s3_config =
+                        pt::peerdb_peers::S3Config::decode(options).with_context(err)?;
+                    Config::S3Config(s3_config)
+                }
+                DbType::Sqlserver => {
+                    let sqlserver_config =
+                        pt::peerdb_peers::SqlServerConfig::decode(options).with_context(err)?;
+                    Config::SqlserverConfig(sqlserver_config)
+                }
+                DbType::Eventhubs => {
+                    let eventhub_group_config =
+                        pt::peerdb_peers::EventHubGroupConfig::decode(options).with_context(err)?;
+                    Config::EventhubGroupConfig(eventhub_group_config)
+                }
+                DbType::Clickhouse => {
+                    let clickhouse_config =
+                        pt::peerdb_peers::ClickhouseConfig::decode(options).with_context(err)?;
+                    Config::ClickhouseConfig(clickhouse_config)
+                }
+                DbType::Kafka => {
+                    let kafka_config =
+                        pt::peerdb_peers::KafkaConfig::decode(options).with_context(err)?;
+                    Config::KafkaConfig(kafka_config)
+                }
+                DbType::Pubsub => {
+                    let pubsub_config =
+                        pt::peerdb_peers::PubSubConfig::decode(options).with_context(err)?;
+                    Config::PubsubConfig(pubsub_config)
+                }
+                DbType::Elasticsearch => {
+                    let elasticsearch_config =
+                        pt::peerdb_peers::ElasticsearchConfig::decode(options).with_context(err)?;
+                    Config::ElasticsearchConfig(elasticsearch_config)
+                }
+                DbType::Mysql => {
+                    let mysql_config =
+                        pt::peerdb_peers::MySqlConfig::decode(options).with_context(err)?;
+                    Config::MysqlConfig(mysql_config)
+                }
+            })
+        } else {
+            None
+        })
     }
 
     pub async fn get_qrep_flow_job_by_name(
@@ -423,9 +346,9 @@ impl Catalog {
     ) -> anyhow::Result<Option<QRepFlowJob>> {
         let stmt = self
             .pg
-            .prepare_typed("SELECT f.*, sp.name as source_peer_name, dp.name as destination_peer_name FROM flows as f
-                            INNER JOIN peers as sp ON f.source_peer = sp.id
-                            INNER JOIN peers as dp ON f.destination_peer = dp.id
+            .prepare_typed("SELECT f.*, sp.name as source_peer_name, dp.name as destination_peer_name FROM public.flows as f
+                            INNER JOIN public.peers as sp ON f.source_peer = sp.id
+                            INNER JOIN public.peers as dp ON f.destination_peer = dp.id
                             WHERE f.name = $1 AND f.query_string IS NOT NULL", &[types::Type::TEXT])
             .await?;
 
@@ -470,9 +393,9 @@ impl Catalog {
             )
             .await?;
 
-        if job.flow_options.get("destination_table_name").is_none() {
+        let Some(destination_table_name) = job.flow_options.get("destination_table_name") else {
             return Err(anyhow!("destination_table_name not found in flow options"));
-        }
+        };
 
         let _rows = self
             .pg
@@ -483,11 +406,7 @@ impl Catalog {
                     &source_peer_id,
                     &destination_peer_id,
                     &job.description,
-                    &job.flow_options
-                        .get("destination_table_name")
-                        .unwrap()
-                        .as_str()
-                        .unwrap(),
+                    &destination_table_name.as_str().unwrap(),
                     &job.query_string,
                     &serde_json::to_value(job.flow_options.clone())
                         .context("unable to serialize flow options")?,
@@ -523,7 +442,7 @@ impl Catalog {
         let rows = self
             .pg
             .query(
-                "SELECT workflow_id, source_peer, destination_peer FROM flows WHERE NAME = $1",
+                "SELECT workflow_id, source_peer, destination_peer FROM public.flows WHERE NAME = $1",
                 &[&flow_job_name],
             )
             .await?;
@@ -565,7 +484,10 @@ impl Catalog {
     pub async fn delete_flow_job_entry(&self, flow_job_name: &str) -> anyhow::Result<()> {
         let rows = self
             .pg
-            .execute("DELETE FROM FLOWS WHERE NAME = $1", &[&flow_job_name])
+            .execute(
+                "DELETE FROM public.flows WHERE name = $1",
+                &[&flow_job_name],
+            )
             .await?;
         if rows == 0 {
             return Err(anyhow!("unable to delete flow job metadata"));
@@ -576,7 +498,10 @@ impl Catalog {
     pub async fn check_peer_entry(&self, peer_name: &str) -> anyhow::Result<i64> {
         let peer_check = self
             .pg
-            .query_one("SELECT COUNT(*) FROM PEERS WHERE NAME = $1", &[&peer_name])
+            .query_one(
+                "SELECT COUNT(*) FROM public.peers WHERE name = $1",
+                &[&peer_name],
+            )
             .await?;
         let peer_count: i64 = peer_check.get(0);
         Ok(peer_count)
@@ -589,7 +514,7 @@ impl Catalog {
         let row = self
             .pg
             .query_opt(
-                "SELECT config_proto FROM flows WHERE name=$1 AND query_string IS NOT NULL",
+                "SELECT config_proto FROM public.flows WHERE name = $1 AND query_string IS NOT NULL",
                 &[&flow_job_name],
             )
             .await?;
@@ -600,5 +525,17 @@ impl Catalog {
             )?),
             None => None,
         })
+    }
+}
+
+#[async_trait::async_trait]
+impl QueryExecutor for Catalog {
+    #[tracing::instrument(skip(self, stmt), fields(stmt = %stmt))]
+    async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
+        peer_postgres::pg_execute(&self.pg, ast::PostgresAst { peername: None }, stmt).await
+    }
+
+    async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<Schema>> {
+        peer_postgres::pg_describe(&self.pg, stmt).await
     }
 }

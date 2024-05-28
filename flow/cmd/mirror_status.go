@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"context"
@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pgx/v5/pgtype"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
+	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
 
 func (h *FlowRequestHandler) MirrorStatus(
@@ -20,9 +22,9 @@ func (h *FlowRequestHandler) MirrorStatus(
 	slog.Info("Mirror status endpoint called", slog.String(string(shared.FlowNameKey), req.FlowJobName))
 	cdcFlow, err := h.isCDCFlow(ctx, req.FlowJobName)
 	if err != nil {
-		slog.Error(fmt.Sprintf("unable to query flow: %s", err.Error()))
+		slog.Error("unable to query flow", slog.Any("error", err))
 		return &protos.MirrorStatusResponse{
-			ErrorMessage: fmt.Sprintf("unable to query flow: %s", err.Error()),
+			ErrorMessage: "unable to query flow: " + err.Error(),
 		}, nil
 	}
 
@@ -34,7 +36,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 	currState, err := h.getWorkflowStatus(ctx, workflowID)
 	if err != nil {
 		return &protos.MirrorStatusResponse{
-			ErrorMessage: fmt.Sprintf("unable to get flow state: %s", err.Error()),
+			ErrorMessage: "unable to get flow state: " + err.Error(),
 		}, nil
 	}
 
@@ -42,7 +44,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 		cdcStatus, err := h.CDCFlowStatus(ctx, req)
 		if err != nil {
 			return &protos.MirrorStatusResponse{
-				ErrorMessage: fmt.Sprintf("unable to query flow: %s", err.Error()),
+				ErrorMessage: "unable to query flow: " + err.Error(),
 			}, nil
 		}
 
@@ -51,13 +53,13 @@ func (h *FlowRequestHandler) MirrorStatus(
 			Status: &protos.MirrorStatusResponse_CdcStatus{
 				CdcStatus: cdcStatus,
 			},
-			CurrentFlowState: *currState,
+			CurrentFlowState: currState,
 		}, nil
 	} else {
 		qrepStatus, err := h.QRepFlowStatus(ctx, req)
 		if err != nil {
 			return &protos.MirrorStatusResponse{
-				ErrorMessage: fmt.Sprintf("unable to query flow: %s", err.Error()),
+				ErrorMessage: "unable to query flow: " + err.Error(),
 			}, nil
 		}
 
@@ -66,7 +68,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 			Status: &protos.MirrorStatusResponse_QrepStatus{
 				QrepStatus: qrepStatus,
 			},
-			CurrentFlowState: *currState,
+			CurrentFlowState: currState,
 		}, nil
 	}
 }
@@ -76,9 +78,24 @@ func (h *FlowRequestHandler) CDCFlowStatus(
 	req *protos.MirrorStatusRequest,
 ) (*protos.CDCMirrorStatus, error) {
 	slog.Info("CDC mirror status endpoint called", slog.String(string(shared.FlowNameKey), req.FlowJobName))
-	config, err := h.getFlowConfigFromCatalog(req.FlowJobName)
+	config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
 	if err != nil {
 		return nil, err
+	}
+	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+	state, err := h.getCDCWorkflowState(ctx, workflowID)
+	if err != nil {
+		return nil, err
+	}
+
+	// patching config to show latest values from state
+	if state.SyncFlowOptions != nil {
+		config.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
+		config.MaxBatchSize = state.SyncFlowOptions.BatchSize
+		config.TableMappings = state.SyncFlowOptions.TableMappings
 	}
 
 	var initialCopyStatus *protos.SnapshotStatus
@@ -104,27 +121,24 @@ func (h *FlowRequestHandler) cloneTableSummary(
 ) ([]*protos.CloneTableSummary, error) {
 	q := `
 	SELECT
-		qp.flow_name,
+		distinct qr.flow_name,
 		qr.config_proto,
-		MIN(qp.start_time) AS StartTime,
-		COUNT(*) AS NumPartitionsTotal,
+		qr.start_time AS StartTime,
+		qr.fetch_complete as FetchCompleted,
+		qr.consolidate_complete as ConsolidateCompleted,
+		COUNT(CASE WHEN qp.flow_name IS NOT NULL THEN 1 END) AS NumPartitionsTotal,
 		COUNT(CASE WHEN qp.end_time IS NOT NULL THEN 1 END) AS NumPartitionsCompleted,
 		SUM(qp.rows_in_partition) FILTER (WHERE qp.end_time IS NOT NULL) AS NumRowsSynced,
 		AVG(EXTRACT(EPOCH FROM (qp.end_time - qp.start_time)) * 1000) FILTER (WHERE qp.end_time IS NOT NULL) AS AvgTimePerPartitionMs
-	FROM
-		peerdb_stats.qrep_partitions qp
-	JOIN
-		peerdb_stats.qrep_runs qr
-	ON
-		qp.flow_name = qr.flow_name
-	WHERE
-		qp.flow_name ILIKE $1
-	GROUP BY
-		qp.flow_name, qr.config_proto;
+	FROM peerdb_stats.qrep_partitions qp
+	RIGHT JOIN peerdb_stats.qrep_runs qr ON qp.flow_name = qr.flow_name
+	WHERE qr.flow_name ILIKE $1
+	GROUP BY qr.flow_name, qr.config_proto, qr.start_time, qr.fetch_complete, qr.consolidate_complete;
 	`
-
 	var flowName pgtype.Text
 	var configBytes []byte
+	var fetchCompleted pgtype.Bool
+	var consolidateCompleted pgtype.Bool
 	var startTime pgtype.Timestamp
 	var numPartitionsTotal pgtype.Int8
 	var numPartitionsCompleted pgtype.Int8
@@ -133,7 +147,8 @@ func (h *FlowRequestHandler) cloneTableSummary(
 
 	rows, err := h.pool.Query(ctx, q, "clone_"+flowJobName+"_%")
 	if err != nil {
-		slog.Error(fmt.Sprintf("unable to query initial load partition - %s: %s", flowJobName, err.Error()))
+		slog.Error("unable to query initial load partition",
+			slog.String(string(shared.FlowNameKey), flowJobName), slog.Any("error", err))
 		return nil, fmt.Errorf("unable to query initial load partition - %s: %w", flowJobName, err)
 	}
 
@@ -145,6 +160,8 @@ func (h *FlowRequestHandler) cloneTableSummary(
 			&flowName,
 			&configBytes,
 			&startTime,
+			&fetchCompleted,
+			&consolidateCompleted,
 			&numPartitionsTotal,
 			&numPartitionsCompleted,
 			&numRowsSynced,
@@ -160,6 +177,14 @@ func (h *FlowRequestHandler) cloneTableSummary(
 		}
 		if startTime.Valid {
 			res.StartTime = timestamppb.New(startTime.Time)
+		}
+
+		if fetchCompleted.Valid {
+			res.FetchCompleted = fetchCompleted.Bool
+		}
+
+		if consolidateCompleted.Valid {
+			res.ConsolidateCompleted = consolidateCompleted.Bool
 		}
 
 		if numPartitionsTotal.Valid {
@@ -181,10 +206,11 @@ func (h *FlowRequestHandler) cloneTableSummary(
 		if configBytes != nil {
 			var config protos.QRepConfig
 			if err := proto.Unmarshal(configBytes, &config); err != nil {
-				slog.Error(fmt.Sprintf("unable to unmarshal config: %s", err.Error()))
+				slog.Error("unable to unmarshal config", slog.Any("error", err))
 				return nil, fmt.Errorf("unable to unmarshal config: %w", err)
 			}
 			res.TableName = config.DestinationTableIdentifier
+			res.SourceTable = config.WatermarkTable
 		}
 
 		cloneStatuses = append(cloneStatuses, &res)
@@ -206,7 +232,7 @@ func (h *FlowRequestHandler) QRepFlowStatus(
 	return &protos.QRepMirrorStatus{
 		// The clone table jobs that are children of the CDC snapshot flow
 		// do not have a config entry, so allow this to be nil.
-		Config:     h.getQRepConfigFromCatalog(req.FlowJobName),
+		Config:     h.getQRepConfigFromCatalog(ctx, req.FlowJobName),
 		Partitions: partitionStatuses,
 	}, nil
 }
@@ -256,29 +282,30 @@ func (h *FlowRequestHandler) getPartitionStatuses(
 }
 
 func (h *FlowRequestHandler) getFlowConfigFromCatalog(
+	ctx context.Context,
 	flowJobName string,
 ) (*protos.FlowConnectionConfigs, error) {
 	var configBytes sql.RawBytes
 	var err error
 	var config protos.FlowConnectionConfigs
 
-	err = h.pool.QueryRow(context.Background(),
+	err = h.pool.QueryRow(ctx,
 		"SELECT config_proto FROM flows WHERE name = $1", flowJobName).Scan(&configBytes)
 	if err != nil {
-		slog.Error(fmt.Sprintf("unable to query flow config from catalog: %s", err.Error()))
+		slog.Error("unable to query flow config from catalog", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to query flow config from catalog: %w", err)
 	}
 
 	err = proto.Unmarshal(configBytes, &config)
 	if err != nil {
-		slog.Error(fmt.Sprintf("unable to unmarshal flow config: %s", err.Error()))
+		slog.Error("unable to unmarshal flow config", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to unmarshal flow config: %w", err)
 	}
 
 	return &config, nil
 }
 
-func (h *FlowRequestHandler) getQRepConfigFromCatalog(flowJobName string) *protos.QRepConfig {
+func (h *FlowRequestHandler) getQRepConfigFromCatalog(ctx context.Context, flowJobName string) *protos.QRepConfig {
 	var configBytes []byte
 	var config protos.QRepConfig
 
@@ -298,7 +325,7 @@ func (h *FlowRequestHandler) getQRepConfigFromCatalog(flowJobName string) *proto
 
 	// Iterate over queries and attempt to fetch the config
 	for _, qInfo := range queryInfos {
-		err := h.pool.QueryRow(context.Background(), qInfo.Query, flowJobName).Scan(&configBytes)
+		err := h.pool.QueryRow(ctx, qInfo.Query, flowJobName).Scan(&configBytes)
 		if err == nil {
 			break
 		}
@@ -320,31 +347,29 @@ func (h *FlowRequestHandler) getQRepConfigFromCatalog(flowJobName string) *proto
 }
 
 func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) (bool, error) {
-	var query pgtype.Text
-	err := h.pool.QueryRow(ctx, "SELECT query_string FROM flows WHERE name = $1", flowJobName).Scan(&query)
+	var isCdc bool
+	err := h.pool.QueryRow(ctx, "SELECT exists(SELECT * FROM flows WHERE name=$1 and coalesce(query_string, '')='')",
+		flowJobName).Scan(&isCdc)
 	if err != nil {
-		slog.Error(fmt.Sprintf("unable to query flow: %s", err.Error()))
+		slog.Error("unable to query flow", slog.Any("error", err))
 		return false, fmt.Errorf("unable to query flow: %w", err)
 	}
-
-	if !query.Valid || len(query.String) == 0 {
-		return true, nil
-	}
-
-	return false, nil
+	return isCdc, nil
 }
 
-func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID string) (*protos.FlowStatus, error) {
+func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID string) (protos.FlowStatus, error) {
 	res, err := h.temporalClient.QueryWorkflow(ctx, workflowID, "", shared.FlowStatusQuery)
 	if err != nil {
-		slog.Error(fmt.Sprintf("failed to get state in workflow with ID %s: %s", workflowID, err.Error()))
-		return nil, fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
+		slog.Error(fmt.Sprintf("failed to get status in workflow with ID %s: %s", workflowID, err.Error()))
+		return protos.FlowStatus_STATUS_UNKNOWN,
+			fmt.Errorf("failed to get status in workflow with ID %s: %w", workflowID, err)
 	}
-	var state *protos.FlowStatus
+	var state protos.FlowStatus
 	err = res.Get(&state)
 	if err != nil {
-		slog.Error(fmt.Sprintf("failed to get state in workflow with ID %s: %s", workflowID, err.Error()))
-		return nil, fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
+		slog.Error(fmt.Sprintf("failed to get status in workflow with ID %s: %s", workflowID, err.Error()))
+		return protos.FlowStatus_STATUS_UNKNOWN,
+			fmt.Errorf("failed to get status in workflow with ID %s: %w", workflowID, err)
 	}
 	return state, nil
 }
@@ -360,4 +385,23 @@ func (h *FlowRequestHandler) updateWorkflowStatus(
 		return fmt.Errorf("failed to update state in workflow with ID %s: %w", workflowID, err)
 	}
 	return nil
+}
+
+func (h *FlowRequestHandler) getCDCWorkflowState(ctx context.Context,
+	workflowID string,
+) (*peerflow.CDCFlowWorkflowState, error) {
+	res, err := h.temporalClient.QueryWorkflow(ctx, workflowID, "", shared.CDCFlowStateQuery)
+	if err != nil {
+		slog.Error(fmt.Sprintf("failed to get state in workflow with ID %s: %s", workflowID, err.Error()))
+		return nil,
+			fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
+	}
+	var state peerflow.CDCFlowWorkflowState
+	err = res.Get(&state)
+	if err != nil {
+		slog.Error(fmt.Sprintf("failed to get state in workflow with ID %s: %s", workflowID, err.Error()))
+		return nil,
+			fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
+	}
+	return &state, nil
 }

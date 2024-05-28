@@ -1,48 +1,41 @@
 'use client';
 import { DropDialog } from '@/components/DropDialog';
 import MirrorLink from '@/components/MirrorLink';
+import NewButton from '@/components/NewButton';
 import PeerButton from '@/components/PeerComponent';
 import TimeLabel from '@/components/TimeComponent';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
-import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { MirrorType } from '../dto/MirrorsDTO';
+import { tableStyle } from '../peers/[peerName]/style';
 
 export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const mirrors = useMemo(
-    () =>
-      cdcFlows.filter((flow: any) => {
-        return flow.name.toLowerCase().includes(searchQuery.toLowerCase());
-      }),
-    [searchQuery, cdcFlows]
-  );
+  if (cdcFlows?.length === 0) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          rowGap: '1rem',
+          width: 'fit-content',
+        }}
+      >
+        <Label variant='headline'>Change-data capture</Label>
+        <NewButton
+          targetPage={`/mirrors/create?type=${MirrorType.CDC}`}
+          buttonText={`Create your first CDC mirror`}
+        />
+      </div>
+    );
+  }
 
   return (
     <>
       <Label variant='headline'>Change-data capture</Label>
-      <div
-        style={{
-          maxHeight: '35vh',
-          overflow: 'scroll',
-          width: '100%',
-          marginTop: '1rem',
-        }}
-      >
+      <div style={{ ...tableStyle, maxHeight: '35vh' }}>
         <Table
-          toolbar={{
-            left: <></>,
-            right: (
-              <SearchField
-                placeholder='Search by flow name'
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setSearchQuery(e.target.value)
-                }
-              />
-            ),
-          }}
           header={
             <TableRow>
               {['Name', 'Source', 'Destination', 'Start Time', 'Logs', ''].map(
@@ -63,7 +56,7 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
             </TableRow>
           }
         >
-          {mirrors.map((flow: any) => (
+          {cdcFlows.map((flow: any) => (
             <TableRow key={flow.id}>
               <TableCell>
                 <MirrorLink flowName={flow?.name} />
@@ -115,37 +108,30 @@ export function QRepFlows({
   qrepFlows: any;
   title: string;
 }) {
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const mirrors = useMemo(
-    () =>
-      qrepFlows.filter((flow: any) => {
-        return flow.name.toLowerCase().includes(searchQuery.toLowerCase());
-      }),
-    [searchQuery, qrepFlows]
-  );
+  if (qrepFlows?.length === 0) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          rowGap: '1rem',
+          width: 'fit-content',
+        }}
+      >
+        <Label variant='headline'>{title}</Label>
+        <NewButton
+          targetPage={`/mirrors/create?type=${title === 'XMIN Mirrors' ? MirrorType.XMin : MirrorType.QRep}`}
+          buttonText={`Create your first ${title === 'XMIN Mirrors' ? 'XMIN mirror' : 'query replication'}`}
+        />
+      </div>
+    );
+  }
+
   return (
     <>
       <Label variant='headline'>{title}</Label>
-      <div
-        style={{
-          maxHeight: '35vh',
-          overflow: 'scroll',
-          width: '100%',
-          marginTop: '1rem',
-        }}
-      >
+      <div style={{ ...tableStyle, maxHeight: '35vh' }}>
         <Table
-          toolbar={{
-            left: <></>,
-            right: (
-              <SearchField
-                placeholder='Search by flow name'
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setSearchQuery(e.target.value)
-                }
-              />
-            ),
-          }}
           header={
             <TableRow>
               {['Name', 'Source', 'Destination', 'Start Time', ''].map(
@@ -160,7 +146,7 @@ export function QRepFlows({
             </TableRow>
           }
         >
-          {mirrors.map((flow: any) => (
+          {qrepFlows.map((flow: any) => (
             <TableRow key={flow.id}>
               <TableCell>
                 <MirrorLink flowName={flow?.name} />

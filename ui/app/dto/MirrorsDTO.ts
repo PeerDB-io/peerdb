@@ -1,8 +1,19 @@
 import { FlowConnectionConfigs, QRepConfig } from '@/grpc_generated/flow';
 import { Dispatch, SetStateAction } from 'react';
 
+export enum MirrorType {
+  CDC = 'CDC',
+  QRep = 'Query Replication',
+  XMin = 'XMin',
+}
+
 export type UCreateMirrorResponse = {
   created: boolean;
+};
+
+export type UValidateMirrorResponse = {
+  ok: boolean;
+  errorMessage: string;
 };
 
 export type UDropMirrorResponse = {
@@ -18,9 +29,10 @@ export type TableMapRow = {
   source: string;
   destination: string;
   partitionKey: string;
-  exclude: string[];
+  exclude: Set<string>;
   selected: boolean;
   canMirror: boolean;
+  tableSize: string;
 };
 
 export type SyncStatusRow = {
@@ -28,4 +40,12 @@ export type SyncStatusRow = {
   startTime: Date;
   endTime: Date | null;
   numRows: number;
+};
+
+export type MirrorRowsData = {
+  destinationTableName: string;
+  insertCount: number;
+  updateCount: number;
+  deleteCount: number;
+  totalCount: number;
 };

@@ -1,15 +1,9 @@
 'use client';
+import { notifyErr } from '@/app/utils/notify';
 import { Button } from '@/lib/Button';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { useState } from 'react';
-import { toast } from 'react-toastify';
-
-const notifyErr = (errMsg: string) => {
-  toast.error(errMsg, {
-    position: toast.POSITION.BOTTOM_CENTER,
-  });
-};
 
 const AckButton = ({ ack, id }: { ack: boolean; id: number | bigint }) => {
   const [loading, setLoading] = useState(false);

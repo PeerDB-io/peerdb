@@ -1,0 +1,1 @@
+CREATE INDEX index_slot_updated_at ON peerdb_stats.peer_slot_size (updated_at);

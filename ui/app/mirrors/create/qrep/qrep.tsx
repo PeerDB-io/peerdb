@@ -1,6 +1,7 @@
 'use client';
+import SelectTheme from '@/app/styles/select';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
-import { QRepConfig, QRepSyncMode, QRepWriteType } from '@/grpc_generated/flow';
+import { QRepConfig, QRepWriteType } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
@@ -15,13 +16,6 @@ import { defaultSyncMode } from '../cdc/cdc';
 import { fetchAllTables, fetchColumns } from '../handlers';
 import { MirrorSetting, blankQRepSetting } from '../helpers/common';
 import UpsertColsDisplay from './upsertcols';
-
-interface QRepConfigProps {
-  settings: MirrorSetting[];
-  mirrorConfig: QRepConfig;
-  setter: MirrorSetter;
-  xmin?: boolean;
-}
 
 interface QRepConfigProps {
   settings: MirrorSetting[];
@@ -51,8 +45,7 @@ export default function QRepConfigForm({
   const [loading, setLoading] = useState(false);
 
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
-    let stateVal: string | boolean | QRepSyncMode | QRepWriteType | string[] =
-      val;
+    let stateVal: string | boolean | QRepWriteType | string[] = val;
     if (setting.label.includes('Write Type')) {
       switch (val) {
         case 'Upsert':
@@ -111,7 +104,7 @@ export default function QRepConfigForm({
     setting: MirrorSetting
   ) => {
     if (val) {
-      if (setting.label === 'Table') {
+      if (setting.label.includes('Table')) {
         if (mirrorConfig.destinationPeer?.type === DBType.BIGQUERY) {
           setter((curr) => ({
             ...curr,
@@ -134,20 +127,6 @@ export default function QRepConfigForm({
       setSourceTables(tables?.map((table) => ({ value: table, label: table })))
     );
   }, [mirrorConfig.sourcePeer]);
-
-  useEffect(() => {
-    if (mirrorConfig.destinationPeer?.type === DBType.BIGQUERY) {
-      setter((curr) => ({
-        ...curr,
-        destinationTableIdentifier: mirrorConfig.watermarkTable?.split('.')[1],
-      }));
-    } else {
-      setter((curr) => ({
-        ...curr,
-        destinationTableIdentifier: mirrorConfig.watermarkTable,
-      }));
-    }
-  }, [mirrorConfig.destinationPeer, mirrorConfig.watermarkTable, setter]);
 
   useEffect(() => {
     // set defaults
@@ -217,6 +196,7 @@ export default function QRepConfigForm({
                             val && handleChange(val.value, setting)
                           }
                           options={WriteModes}
+                          theme={SelectTheme}
                         />
                       ) : setting.label === 'Upsert Key Columns' ? (
                         <UpsertColsDisplay
@@ -241,6 +221,7 @@ export default function QRepConfigForm({
                               ? watermarkColumns
                               : sourceTables
                           }
+                          theme={SelectTheme}
                         />
                       )}
                     </div>
@@ -282,11 +263,7 @@ export default function QRepConfigForm({
                     <TextField
                       variant='simple'
                       type={setting.type}
-                      defaultValue={
-                        setting.label === 'Destination Table Name'
-                          ? mirrorConfig.destinationTableIdentifier
-                          : (setting.default as string)
-                      }
+                      defaultValue={setting.default as string}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                         handleChange(e.target.value, setting)
                       }

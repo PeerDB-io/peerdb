@@ -1,517 +1,667 @@
 package qvalue
 
 import (
-	"bytes"
-	"fmt"
-	"math"
-	"math/big"
-	"reflect"
-	"strconv"
+	"encoding/json"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/geo"
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
+	"github.com/yuin/gopher-lua"
+
+	"github.com/PeerDB-io/glua64"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-// if new types are added, register them in gob - cdc_records_storage.go
-type QValue struct {
-	Kind  QValueKind
-	Value interface{}
+// if new types are added, register them in gob - cdc_store.go
+type QValue interface {
+	Kind() QValueKind
+	Value() any
+	LValue(ls *lua.LState) lua.LValue
 }
 
-func (q QValue) Equals(other QValue) bool {
-	switch q.Kind {
-	case QValueKindEmpty:
-		return other.Kind == QValueKindEmpty
-	case QValueKindInvalid:
-		return true
-	case QValueKindFloat32:
-		return compareFloat32(q.Value, other.Value)
-	case QValueKindFloat64:
-		return compareFloat64(q.Value, other.Value)
-	case QValueKindInt16:
-		return compareInt16(q.Value, other.Value)
-	case QValueKindInt32:
-		return compareInt32(q.Value, other.Value)
-	case QValueKindInt64:
-		return compareInt64(q.Value, other.Value)
-	case QValueKindBoolean:
-		return compareBoolean(q.Value, other.Value)
-	case QValueKindStruct:
-		return compareStruct(q.Value, other.Value)
-	case QValueKindString:
-		return compareString(q.Value, other.Value)
-	// all internally represented as a Golang time.Time
-	case QValueKindTime, QValueKindTimeTZ, QValueKindDate,
-		QValueKindTimestamp, QValueKindTimestampTZ:
-		return compareGoTime(q.Value, other.Value)
-	case QValueKindNumeric:
-		return compareNumeric(q.Value, other.Value)
-	case QValueKindBytes:
-		return compareBytes(q.Value, other.Value)
-	case QValueKindUUID:
-		return compareUUID(q.Value, other.Value)
-	case QValueKindJSON:
-		return compareJSON(q.Value, other.Value)
-	case QValueKindBit:
-		return compareBit(q.Value, other.Value)
-	case QValueKindHStore:
-		return compareHStore(q.Value, other.Value)
-	case QValueKindArrayFloat32:
-		return compareNumericArrays(q.Value, other.Value)
-	case QValueKindArrayFloat64:
-		return compareNumericArrays(q.Value, other.Value)
-	case QValueKindArrayInt32:
-		return compareNumericArrays(q.Value, other.Value)
-	case QValueKindArrayInt64:
-		return compareNumericArrays(q.Value, other.Value)
-	case QValueKindArrayString:
-		return compareArrayString(q.Value, other.Value)
-	}
+type QValueNull QValueKind
 
-	return false
+func (v QValueNull) Kind() QValueKind {
+	return QValueKind(v)
 }
 
-func (q QValue) GoTimeConvert() (string, error) {
-	if q.Kind == QValueKindTime || q.Kind == QValueKindTimeTZ {
-		return q.Value.(time.Time).Format("15:04:05.999999"), nil
-		// no connector supports time with timezone yet
-		// } else if q.Kind == QValueKindTimeTZ {
-		// 	return q.Value.(time.Time).Format("15:04:05.999999-0700"), nil
-	} else if q.Kind == QValueKindDate {
-		return q.Value.(time.Time).Format("2006-01-02"), nil
-	} else if q.Kind == QValueKindTimestamp {
-		return q.Value.(time.Time).Format("2006-01-02 15:04:05.999999"), nil
-	} else if q.Kind == QValueKindTimestampTZ {
-		return q.Value.(time.Time).Format("2006-01-02 15:04:05.999999-0700"), nil
+func (QValueNull) Value() any {
+	return nil
+}
+
+func (QValueNull) LValue(ls *lua.LState) lua.LValue {
+	return lua.LNil
+}
+
+type QValueInvalid struct {
+	Val string
+}
+
+func (QValueInvalid) Kind() QValueKind {
+	return QValueKindInvalid
+}
+
+func (v QValueInvalid) Value() any {
+	return v.Val
+}
+
+func (v QValueInvalid) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
+}
+
+type QValueFloat32 struct {
+	Val float32
+}
+
+func (QValueFloat32) Kind() QValueKind {
+	return QValueKindFloat32
+}
+
+func (v QValueFloat32) Value() any {
+	return v.Val
+}
+
+func (v QValueFloat32) LValue(ls *lua.LState) lua.LValue {
+	return lua.LNumber(v.Val)
+}
+
+type QValueFloat64 struct {
+	Val float64
+}
+
+func (QValueFloat64) Kind() QValueKind {
+	return QValueKindFloat64
+}
+
+func (v QValueFloat64) Value() any {
+	return v.Val
+}
+
+func (v QValueFloat64) LValue(ls *lua.LState) lua.LValue {
+	return lua.LNumber(v.Val)
+}
+
+type QValueInt16 struct {
+	Val int16
+}
+
+func (QValueInt16) Kind() QValueKind {
+	return QValueKindInt16
+}
+
+func (v QValueInt16) Value() any {
+	return v.Val
+}
+
+func (v QValueInt16) LValue(ls *lua.LState) lua.LValue {
+	return lua.LNumber(v.Val)
+}
+
+type QValueInt32 struct {
+	Val int32
+}
+
+func (QValueInt32) Kind() QValueKind {
+	return QValueKindInt32
+}
+
+func (v QValueInt32) Value() any {
+	return v.Val
+}
+
+func (v QValueInt32) LValue(ls *lua.LState) lua.LValue {
+	return lua.LNumber(v.Val)
+}
+
+type QValueInt64 struct {
+	Val int64
+}
+
+func (QValueInt64) Kind() QValueKind {
+	return QValueKindInt64
+}
+
+func (v QValueInt64) Value() any {
+	return v.Val
+}
+
+func (v QValueInt64) LValue(ls *lua.LState) lua.LValue {
+	return glua64.I64.New(ls, v.Val)
+}
+
+type QValueBoolean struct {
+	Val bool
+}
+
+func (QValueBoolean) Kind() QValueKind {
+	return QValueKindBoolean
+}
+
+func (v QValueBoolean) Value() any {
+	return v.Val
+}
+
+func (v QValueBoolean) LValue(ls *lua.LState) lua.LValue {
+	return lua.LBool(v.Val)
+}
+
+type QValueStruct struct {
+	Val map[string]interface{}
+}
+
+func (QValueStruct) Kind() QValueKind {
+	return QValueKindStruct
+}
+
+func (v QValueStruct) Value() any {
+	return v.Val
+}
+
+func (v QValueStruct) LValue(ls *lua.LState) lua.LValue {
+	bytes, err := json.Marshal(v.Val)
+	if err != nil {
+		return lua.LString(err.Error())
 	} else {
-		return "", fmt.Errorf("unsupported QValueKind: %s", q.Kind)
+		return lua.LString(shared.UnsafeFastReadOnlyBytesToString(bytes))
 	}
 }
 
-func compareInt16(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	int1, ok1 := getInt16(value1)
-	int2, ok2 := getInt16(value2)
-	return ok1 && ok2 && int1 == int2
+type QValueQChar struct {
+	Val uint8
 }
 
-func compareInt32(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	int1, ok1 := getInt32(value1)
-	int2, ok2 := getInt32(value2)
-	return ok1 && ok2 && int1 == int2
+func (QValueQChar) Kind() QValueKind {
+	return QValueKindQChar
 }
 
-func compareInt64(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	int1, ok1 := getInt64(value1)
-	int2, ok2 := getInt64(value2)
-	return ok1 && ok2 && int1 == int2
+func (v QValueQChar) Value() any {
+	return v.Val
 }
 
-func compareFloat32(value1, value2 interface{}) bool {
-	float1, ok1 := getFloat32(value1)
-	float2, ok2 := getFloat32(value2)
-	return ok1 && ok2 && float1 == float2
+func (v QValueQChar) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
 }
 
-func compareFloat64(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	float1, ok1 := getFloat64(value1)
-	float2, ok2 := getFloat64(value2)
-	return ok1 && ok2 && float1 == float2
+type QValueString struct {
+	Val string
 }
 
-func compareGoTime(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	et1, ok1 := value1.(time.Time)
-	et2, ok2 := value2.(time.Time)
-
-	if !ok1 || !ok2 {
-		return false
-	}
-
-	// TODO: this is a hack, we should be comparing the actual time values
-	// currently this is only used for testing so that is OK.
-	t1 := et1.UnixMicro()
-	t2 := et2.UnixMicro()
-
-	return t1 == t2
+func (QValueString) Kind() QValueKind {
+	return QValueKindString
 }
 
-func compareUUID(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	uuid1, ok1 := getUUID(value1)
-	uuid2, ok2 := getUUID(value2)
-
-	return ok1 && ok2 && uuid1 == uuid2
+func (v QValueString) Value() any {
+	return v.Val
 }
 
-func compareBoolean(value1, value2 interface{}) bool {
-	bool1, ok1 := value1.(bool)
-	bool2, ok2 := value2.(bool)
-
-	return ok1 && ok2 && bool1 == bool2
+func (v QValueString) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
 }
 
-func compareBytes(value1, value2 interface{}) bool {
-	bytes1, ok1 := getBytes(value1)
-	bytes2, ok2 := getBytes(value2)
-
-	return ok1 && ok2 && bytes.Equal(bytes1, bytes2)
+type QValueTimestamp struct {
+	Val time.Time
 }
 
-func compareNumeric(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	rat1, ok1 := getRat(value1)
-	rat2, ok2 := getRat(value2)
-
-	if !ok1 || !ok2 {
-		return false
-	}
-
-	// check if the difference is less than 1e-9
-	diff := new(big.Rat).Sub(rat1, rat2)
-	return diff.Abs(diff).Cmp(big.NewRat(1, 1000000000)) < 0
+func (QValueTimestamp) Kind() QValueKind {
+	return QValueKindTimestamp
 }
 
-func compareString(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	str1, ok1 := value1.(string)
-	str2, ok2 := value2.(string)
-	if !ok1 || !ok2 {
-		return false
-	}
-	if str1 == str2 {
-		return true
-	}
-
-	// Catch matching WKB(in Postgres)-WKT(in destination) geo values
-	geoConvertedWKT, err := geo.GeoValidate(str1)
-	return err == nil && geo.GeoCompare(geoConvertedWKT, str2)
+func (v QValueTimestamp) Value() any {
+	return v.Val
 }
 
-func compareStruct(value1, value2 interface{}) bool {
-	struct1, ok1 := value1.(map[string]interface{})
-	struct2, ok2 := value2.(map[string]interface{})
-	if !ok1 || !ok2 || len(struct1) != len(struct2) {
-		return false
-	}
-	for k, v1 := range struct1 {
-		v2, ok := struct2[k]
-		if !ok {
-			return false
-		}
-		q1, ok1 := v1.(QValue)
-		q2, ok2 := v2.(QValue)
-		if !ok1 || !ok2 || !q1.Equals(q2) {
-			return false
-		}
-	}
-	return true
+func (v QValueTimestamp) LValue(ls *lua.LState) lua.LValue {
+	return shared.LuaTime.New(ls, v.Val)
 }
 
-func compareJSON(value1, value2 interface{}) bool {
-	// TODO (kaushik): fix for tests
-	return true
+type QValueTimestampTZ struct {
+	Val time.Time
 }
 
-func compareBit(value1, value2 interface{}) bool {
-	bit1, ok1 := value1.(int)
-	bit2, ok2 := value2.(int)
-
-	if !ok1 || !ok2 {
-		return false
-	}
-
-	return bit1^bit2 == 0
+func (QValueTimestampTZ) Kind() QValueKind {
+	return QValueKindTimestampTZ
 }
 
-func compareHStore(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	hstore1, ok1 := value1.(map[string]string)
-	hstore2, ok2 := value2.(map[string]string)
-
-	if !ok1 || !ok2 {
-		return false
-	}
-
-	return reflect.DeepEqual(hstore1, hstore2)
+func (v QValueTimestampTZ) Value() any {
+	return v.Val
 }
 
-func compareNumericArrays(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	if value1 == nil && value2 == "null" {
-		return true
-	}
-
-	if value1 == nil && value2 == "" {
-		return true
-	}
-
-	// Helper function to convert a value to float64
-	convertToFloat64 := func(val interface{}) []float64 {
-		switch v := val.(type) {
-		case []int32:
-			result := make([]float64, len(v))
-			for i, value := range v {
-				result[i] = float64(value)
-			}
-			return result
-		case []int64:
-			result := make([]float64, len(v))
-			for i, value := range v {
-				result[i] = float64(value)
-			}
-			return result
-		case []float32:
-			result := make([]float64, len(v))
-			for i, value := range v {
-				result[i] = float64(value)
-			}
-			return result
-		case []float64:
-			return v
-		default:
-			return nil
-		}
-	}
-
-	array1 := convertToFloat64(value1)
-	array2 := convertToFloat64(value2)
-
-	if array1 == nil || array2 == nil || len(array1) != len(array2) {
-		return false
-	}
-
-	for i := range array1 {
-		if math.Abs(array1[i]-array2[i]) >= 1e9 {
-			return false
-		}
-	}
-
-	return true
+func (v QValueTimestampTZ) LValue(ls *lua.LState) lua.LValue {
+	return shared.LuaTime.New(ls, v.Val)
 }
 
-func compareArrayString(value1, value2 interface{}) bool {
-	if value1 == nil && value2 == nil {
-		return true
-	}
-
-	// also return true if value2 is string null
-	if value1 == nil && value2 == "null" {
-		return true
-	}
-
-	// nulls end up as empty 'variants' in snowflake
-	if value1 == nil && value2 == "" {
-		return true
-	}
-
-	array1, ok1 := value1.([]string)
-	array2, ok2 := value2.([]string)
-
-	if !ok1 || !ok2 {
-		return false
-	}
-
-	return reflect.DeepEqual(array1, array2)
+type QValueDate struct {
+	Val time.Time
 }
 
-func getInt16(v interface{}) (int16, bool) {
-	switch value := v.(type) {
-	case int16:
-		return value, true
-	case int32:
-		return int16(value), true
-	case int64:
-		return int16(value), true
-	case *big.Rat:
-		return int16(value.Num().Int64()), true
-	case string:
-		parsed, err := strconv.ParseInt(value, 10, 16)
-		if err == nil {
-			return int16(parsed), true
-		}
-	}
-	return 0, false
+func (QValueDate) Kind() QValueKind {
+	return QValueKindDate
 }
 
-func getInt32(v interface{}) (int32, bool) {
-	switch value := v.(type) {
-	case int32:
-		return value, true
-	case int64:
-		return int32(value), true
-	case *big.Rat:
-		return int32(value.Num().Int64()), true
-	case string:
-		parsed, err := strconv.ParseInt(value, 10, 32)
-		if err == nil {
-			return int32(parsed), true
-		}
-	}
-	return 0, false
+func (v QValueDate) Value() any {
+	return v.Val
 }
 
-func getInt64(v interface{}) (int64, bool) {
-	switch value := v.(type) {
-	case int64:
-		return value, true
-	case int32:
-		return int64(value), true
-	case *big.Rat:
-		return value.Num().Int64(), true
-	case string:
-		parsed, err := strconv.ParseInt(value, 10, 64)
-		if err == nil {
-			return parsed, true
-		}
-	}
-	return 0, false
+func (v QValueDate) LValue(ls *lua.LState) lua.LValue {
+	return shared.LuaTime.New(ls, v.Val)
 }
 
-func getFloat32(v interface{}) (float32, bool) {
-	switch value := v.(type) {
-	case float32:
-		return value, true
-	case float64:
-		return float32(value), true
-	case string:
-		parsed, err := strconv.ParseFloat(value, 32)
-		if err == nil {
-			return float32(parsed), true
-		}
-	}
-	return 0, false
+type QValueTime struct {
+	Val time.Time
 }
 
-func getFloat64(v interface{}) (float64, bool) {
-	switch value := v.(type) {
-	case float64:
-		return value, true
-	case float32:
-		return float64(value), true
-	case string:
-		parsed, err := strconv.ParseFloat(value, 64)
-		if err == nil {
-			return parsed, true
-		}
-	}
-	return 0, false
+func (QValueTime) Kind() QValueKind {
+	return QValueKindTime
 }
 
-func getBytes(v interface{}) ([]byte, bool) {
-	switch value := v.(type) {
-	case []byte:
-		return value, true
-	case string:
-		return []byte(value), true
-	case nil:
-		// return empty byte array
-		return []byte{}, true
-	default:
-		return nil, false
-	}
+func (v QValueTime) Value() any {
+	return v.Val
 }
 
-func getUUID(v interface{}) (uuid.UUID, bool) {
-	switch value := v.(type) {
-	case uuid.UUID:
-		return value, true
-	case string:
-		parsed, err := uuid.Parse(value)
-		if err == nil {
-			return parsed, true
-		}
-	case [16]byte:
-		parsed, err := uuid.FromBytes(value[:])
-		if err == nil {
-			return parsed, true
-		}
-	}
-
-	return uuid.UUID{}, false
+func (v QValueTime) LValue(ls *lua.LState) lua.LValue {
+	return shared.LuaTime.New(ls, v.Val)
 }
 
-// getRat attempts to parse a big.Rat from an interface
-func getRat(v interface{}) (*big.Rat, bool) {
-	switch value := v.(type) {
-	case *big.Rat:
-		return value, true
-	case string:
-		//nolint:gosec
-		parsed, ok := new(big.Rat).SetString(value)
-		if ok {
-			return parsed, true
-		}
-	case float64:
-		rat := new(big.Rat)
-		return rat.SetFloat64(value), true
-	case int64:
-		rat := new(big.Rat)
-		return rat.SetInt64(value), true
-	case uint64:
-		rat := new(big.Rat)
-		return rat.SetUint64(value), true
-	case float32:
-		rat := new(big.Rat)
-		return rat.SetFloat64(float64(value)), true
-	case int32:
-		rat := new(big.Rat)
-		return rat.SetInt64(int64(value)), true
-	case uint32:
-		rat := new(big.Rat)
-		return rat.SetUint64(uint64(value)), true
-	case int:
-		rat := new(big.Rat)
-		return rat.SetInt64(int64(value)), true
-	case uint:
-		rat := new(big.Rat)
-		return rat.SetUint64(uint64(value)), true
-	case int8:
-		rat := new(big.Rat)
-		return rat.SetInt64(int64(value)), true
-	case uint8:
-		rat := new(big.Rat)
-		return rat.SetUint64(uint64(value)), true
-	case int16:
-		rat := new(big.Rat)
-		return rat.SetInt64(int64(value)), true
-	case uint16:
-		rat := new(big.Rat)
-		return rat.SetUint64(uint64(value)), true
-	}
-	return nil, false
+type QValueTimeTZ struct {
+	Val time.Time
+}
+
+func (QValueTimeTZ) Kind() QValueKind {
+	return QValueKindTimeTZ
+}
+
+func (v QValueTimeTZ) Value() any {
+	return v.Val
+}
+
+func (v QValueTimeTZ) LValue(ls *lua.LState) lua.LValue {
+	return shared.LuaTime.New(ls, v.Val)
+}
+
+type QValueInterval struct {
+	Val string
+}
+
+func (QValueInterval) Kind() QValueKind {
+	return QValueKindInterval
+}
+
+func (v QValueInterval) Value() any {
+	return v.Val
+}
+
+func (v QValueInterval) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
+}
+
+type QValueNumeric struct {
+	Val decimal.Decimal
+}
+
+func (QValueNumeric) Kind() QValueKind {
+	return QValueKindNumeric
+}
+
+func (v QValueNumeric) Value() any {
+	return v.Val
+}
+
+func (v QValueNumeric) LValue(ls *lua.LState) lua.LValue {
+	return shared.LuaDecimal.New(ls, v.Val)
+}
+
+type QValueBytes struct {
+	Val []byte
+}
+
+func (QValueBytes) Kind() QValueKind {
+	return QValueKindBytes
+}
+
+func (v QValueBytes) Value() any {
+	return v.Val
+}
+
+func (v QValueBytes) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(shared.UnsafeFastReadOnlyBytesToString(v.Val))
+}
+
+type QValueUUID struct {
+	Val [16]byte
+}
+
+func (QValueUUID) Kind() QValueKind {
+	return QValueKindUUID
+}
+
+func (v QValueUUID) Value() any {
+	return v.Val
+}
+
+func (v QValueUUID) LValue(ls *lua.LState) lua.LValue {
+	return shared.LuaUuid.New(ls, uuid.UUID(v.Val))
+}
+
+type QValueJSON struct {
+	Val string
+}
+
+func (QValueJSON) Kind() QValueKind {
+	return QValueKindJSON
+}
+
+func (v QValueJSON) Value() any {
+	return v.Val
+}
+
+func (v QValueJSON) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
+}
+
+type QValueBit struct {
+	Val []byte
+}
+
+func (QValueBit) Kind() QValueKind {
+	return QValueKindBit
+}
+
+func (v QValueBit) Value() any {
+	return v.Val
+}
+
+func (v QValueBit) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(shared.UnsafeFastReadOnlyBytesToString(v.Val))
+}
+
+type QValueHStore struct {
+	Val string
+}
+
+func (QValueHStore) Kind() QValueKind {
+	return QValueKindHStore
+}
+
+func (v QValueHStore) Value() any {
+	return v.Val
+}
+
+func (v QValueHStore) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
+}
+
+type QValueGeography struct {
+	Val string
+}
+
+func (QValueGeography) Kind() QValueKind {
+	return QValueKindGeography
+}
+
+func (v QValueGeography) Value() any {
+	return v.Val
+}
+
+func (v QValueGeography) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
+}
+
+type QValueGeometry struct {
+	Val string
+}
+
+func (QValueGeometry) Kind() QValueKind {
+	return QValueKindGeometry
+}
+
+func (v QValueGeometry) Value() any {
+	return v.Val
+}
+
+func (v QValueGeometry) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
+}
+
+type QValuePoint struct {
+	Val string
+}
+
+func (QValuePoint) Kind() QValueKind {
+	return QValueKindPoint
+}
+
+func (v QValuePoint) Value() any {
+	return v.Val
+}
+
+func (v QValuePoint) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
+}
+
+type QValueCIDR struct {
+	Val string
+}
+
+func (QValueCIDR) Kind() QValueKind {
+	return QValueKindCIDR
+}
+
+func (v QValueCIDR) Value() any {
+	return v.Val
+}
+
+func (v QValueCIDR) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
+}
+
+type QValueINET struct {
+	Val string
+}
+
+func (QValueINET) Kind() QValueKind {
+	return QValueKindINET
+}
+
+func (v QValueINET) Value() any {
+	return v.Val
+}
+
+func (v QValueINET) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
+}
+
+type QValueMacaddr struct {
+	Val string
+}
+
+func (QValueMacaddr) Kind() QValueKind {
+	return QValueKindMacaddr
+}
+
+func (v QValueMacaddr) Value() any {
+	return v.Val
+}
+
+func (v QValueMacaddr) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
+}
+
+type QValueArrayFloat32 struct {
+	Val []float32
+}
+
+func (QValueArrayFloat32) Kind() QValueKind {
+	return QValueKindArrayFloat32
+}
+
+func (v QValueArrayFloat32) Value() any {
+	return v.Val
+}
+
+func (v QValueArrayFloat32) LValue(ls *lua.LState) lua.LValue {
+	return shared.SliceToLTable(ls, v.Val, func(f float32) lua.LValue {
+		return lua.LNumber(f)
+	})
+}
+
+type QValueArrayFloat64 struct {
+	Val []float64
+}
+
+func (QValueArrayFloat64) Kind() QValueKind {
+	return QValueKindArrayFloat64
+}
+
+func (v QValueArrayFloat64) Value() any {
+	return v.Val
+}
+
+func (v QValueArrayFloat64) LValue(ls *lua.LState) lua.LValue {
+	return shared.SliceToLTable(ls, v.Val, func(x float64) lua.LValue {
+		return lua.LNumber(x)
+	})
+}
+
+type QValueArrayInt16 struct {
+	Val []int16
+}
+
+func (QValueArrayInt16) Kind() QValueKind {
+	return QValueKindInt16
+}
+
+func (v QValueArrayInt16) Value() any {
+	return v.Val
+}
+
+func (v QValueArrayInt16) LValue(ls *lua.LState) lua.LValue {
+	return shared.SliceToLTable(ls, v.Val, func(x int16) lua.LValue {
+		return lua.LNumber(x)
+	})
+}
+
+type QValueArrayInt32 struct {
+	Val []int32
+}
+
+func (QValueArrayInt32) Kind() QValueKind {
+	return QValueKindInt32
+}
+
+func (v QValueArrayInt32) Value() any {
+	return v.Val
+}
+
+func (v QValueArrayInt32) LValue(ls *lua.LState) lua.LValue {
+	return shared.SliceToLTable(ls, v.Val, func(x int32) lua.LValue {
+		return lua.LNumber(x)
+	})
+}
+
+type QValueArrayInt64 struct {
+	Val []int64
+}
+
+func (QValueArrayInt64) Kind() QValueKind {
+	return QValueKindArrayInt64
+}
+
+func (v QValueArrayInt64) Value() any {
+	return v.Val
+}
+
+func (v QValueArrayInt64) LValue(ls *lua.LState) lua.LValue {
+	return shared.SliceToLTable(ls, v.Val, func(x int64) lua.LValue {
+		return glua64.I64.New(ls, x)
+	})
+}
+
+type QValueArrayString struct {
+	Val []string
+}
+
+func (QValueArrayString) Kind() QValueKind {
+	return QValueKindArrayString
+}
+
+func (v QValueArrayString) Value() any {
+	return v.Val
+}
+
+func (v QValueArrayString) LValue(ls *lua.LState) lua.LValue {
+	return shared.SliceToLTable(ls, v.Val, func(x string) lua.LValue {
+		return lua.LString(x)
+	})
+}
+
+type QValueArrayDate struct {
+	Val []time.Time
+}
+
+func (QValueArrayDate) Kind() QValueKind {
+	return QValueKindArrayDate
+}
+
+func (v QValueArrayDate) Value() any {
+	return v.Val
+}
+
+func (v QValueArrayDate) LValue(ls *lua.LState) lua.LValue {
+	return shared.SliceToLTable(ls, v.Val, func(x time.Time) lua.LValue {
+		return shared.LuaTime.New(ls, x)
+	})
+}
+
+type QValueArrayTimestamp struct {
+	Val []time.Time
+}
+
+func (QValueArrayTimestamp) Kind() QValueKind {
+	return QValueKindArrayTimestamp
+}
+
+func (v QValueArrayTimestamp) Value() any {
+	return v.Val
+}
+
+func (v QValueArrayTimestamp) LValue(ls *lua.LState) lua.LValue {
+	return shared.SliceToLTable(ls, v.Val, func(x time.Time) lua.LValue {
+		return shared.LuaTime.New(ls, x)
+	})
+}
+
+type QValueArrayTimestampTZ struct {
+	Val []time.Time
+}
+
+func (QValueArrayTimestampTZ) Kind() QValueKind {
+	return QValueKindArrayTimestampTZ
+}
+
+func (v QValueArrayTimestampTZ) Value() any {
+	return v.Val
+}
+
+func (v QValueArrayTimestampTZ) LValue(ls *lua.LState) lua.LValue {
+	return shared.SliceToLTable(ls, v.Val, func(x time.Time) lua.LValue {
+		return shared.LuaTime.New(ls, x)
+	})
+}
+
+type QValueArrayBoolean struct {
+	Val []bool
+}
+
+func (QValueArrayBoolean) Kind() QValueKind {
+	return QValueKindArrayBoolean
+}
+
+func (v QValueArrayBoolean) Value() any {
+	return v.Val
+}
+
+func (v QValueArrayBoolean) LValue(ls *lua.LState) lua.LValue {
+	return shared.SliceToLTable(ls, v.Val, func(x bool) lua.LValue {
+		return lua.LBool(x)
+	})
 }

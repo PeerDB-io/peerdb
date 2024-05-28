@@ -6,63 +6,60 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math/big"
 	"strings"
+	"time"
 
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jmoiron/sqlx"
+	"github.com/shopspring/decimal"
+	"go.temporal.io/sdk/log"
 
-	"go.temporal.io/sdk/activity"
+	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 type SQLQueryExecutor interface {
-	ConnectionActive() error
+	ConnectionActive(context.Context) error
 	Close() error
 
-	CreateSchema(schemaName string) error
-	DropSchema(schemaName string) error
-	CheckSchemaExists(schemaName string) (bool, error)
-	RecreateSchema(schemaName string) error
+	CreateSchema(ctx context.Context, schemaName string) error
+	DropSchema(ctx context.Context, schemaName string) error
+	CheckSchemaExists(ctx context.Context, schemaName string) (bool, error)
+	RecreateSchema(ctx context.Context, schemaName string) error
 
-	CreateTable(schema *model.QRecordSchema, schemaName string, tableName string) error
-	CountRows(schemaName string, tableName string) (int64, error)
+	CreateTable(ctx context.Context, schema *qvalue.QRecordSchema, schemaName string, tableName string) error
+	CountRows(ctx context.Context, schemaName string, tableName string) (int64, error)
 
-	ExecuteAndProcessQuery(query string, args ...interface{}) (*model.QRecordBatch, error)
-	NamedExecuteAndProcessQuery(query string, arg interface{}) (*model.QRecordBatch, error)
-	ExecuteQuery(query string, args ...interface{}) error
-	NamedExec(query string, arg interface{}) (sql.Result, error)
+	ExecuteAndProcessQuery(ctx context.Context, query string, args ...interface{}) (*model.QRecordBatch, error)
+	NamedExecuteAndProcessQuery(ctx context.Context, query string, arg interface{}) (*model.QRecordBatch, error)
+	ExecuteQuery(ctx context.Context, query string, args ...interface{}) error
+	NamedExec(ctx context.Context, query string, arg interface{}) (sql.Result, error)
 }
 
 type GenericSQLQueryExecutor struct {
-	ctx                context.Context
 	db                 *sqlx.DB
 	dbtypeToQValueKind map[string]qvalue.QValueKind
 	qvalueKindToDBType map[qvalue.QValueKind]string
-	logger             slog.Logger
+	logger             log.Logger
 }
 
 func NewGenericSQLQueryExecutor(
-	ctx context.Context,
+	logger log.Logger,
 	db *sqlx.DB,
 	dbtypeToQValueKind map[string]qvalue.QValueKind,
 	qvalueKindToDBType map[qvalue.QValueKind]string,
 ) *GenericSQLQueryExecutor {
-	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &GenericSQLQueryExecutor{
-		ctx:                ctx,
 		db:                 db,
 		dbtypeToQValueKind: dbtypeToQValueKind,
 		qvalueKindToDBType: qvalueKindToDBType,
-		logger:             *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
+		logger:             logger,
 	}
 }
 
-func (g *GenericSQLQueryExecutor) ConnectionActive() bool {
-	err := g.db.PingContext(g.ctx)
+func (g *GenericSQLQueryExecutor) ConnectionActive(ctx context.Context) bool {
+	err := g.db.PingContext(ctx)
 	return err == nil
 }
 
@@ -70,32 +67,32 @@ func (g *GenericSQLQueryExecutor) Close() error {
 	return g.db.Close()
 }
 
-func (g *GenericSQLQueryExecutor) CreateSchema(schemaName string) error {
-	_, err := g.db.ExecContext(g.ctx, "CREATE SCHEMA "+schemaName)
+func (g *GenericSQLQueryExecutor) CreateSchema(ctx context.Context, schemaName string) error {
+	_, err := g.db.ExecContext(ctx, "CREATE SCHEMA "+schemaName)
 	return err
 }
 
-func (g *GenericSQLQueryExecutor) DropSchema(schemaName string) error {
-	_, err := g.db.ExecContext(g.ctx, "DROP SCHEMA IF EXISTS "+schemaName+" CASCADE")
+func (g *GenericSQLQueryExecutor) DropSchema(ctx context.Context, schemaName string) error {
+	_, err := g.db.ExecContext(ctx, "DROP SCHEMA IF EXISTS "+schemaName+" CASCADE")
 	return err
 }
 
 // the SQL query this function executes appears to be MySQL/MariaDB specific.
-func (g *GenericSQLQueryExecutor) CheckSchemaExists(schemaName string) (bool, error) {
+func (g *GenericSQLQueryExecutor) CheckSchemaExists(ctx context.Context, schemaName string) (bool, error) {
 	var exists pgtype.Bool
 	// use information schemata to check if schema exists
-	err := g.db.QueryRowxContext(g.ctx,
+	err := g.db.QueryRowxContext(ctx,
 		"SELECT EXISTS(SELECT 1 FROM information_schema.schemata WHERE schema_name = $1)", schemaName).Scan(&exists)
 	return exists.Bool, err
 }
 
-func (g *GenericSQLQueryExecutor) RecreateSchema(schemaName string) error {
-	err := g.DropSchema(schemaName)
+func (g *GenericSQLQueryExecutor) RecreateSchema(ctx context.Context, schemaName string) error {
+	err := g.DropSchema(ctx, schemaName)
 	if err != nil {
 		return fmt.Errorf("failed to drop schema: %w", err)
 	}
 
-	err = g.CreateSchema(schemaName)
+	err = g.CreateSchema(ctx, schemaName)
 	if err != nil {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
@@ -103,7 +100,7 @@ func (g *GenericSQLQueryExecutor) RecreateSchema(schemaName string) error {
 	return nil
 }
 
-func (g *GenericSQLQueryExecutor) CreateTable(schema *model.QRecordSchema, schemaName string, tableName string) error {
+func (g *GenericSQLQueryExecutor) CreateTable(ctx context.Context, schema *qvalue.QRecordSchema, schemaName string, tableName string) error {
 	fields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
 		dbType, ok := g.qvalueKindToDBType[field.Type]
@@ -115,7 +112,7 @@ func (g *GenericSQLQueryExecutor) CreateTable(schema *model.QRecordSchema, schem
 
 	command := fmt.Sprintf("CREATE TABLE %s.%s (%s)", schemaName, tableName, strings.Join(fields, ", "))
 
-	_, err := g.db.ExecContext(g.ctx, command)
+	_, err := g.db.ExecContext(ctx, command)
 	if err != nil {
 		return fmt.Errorf("failed to create table: %w", err)
 	}
@@ -123,32 +120,45 @@ func (g *GenericSQLQueryExecutor) CreateTable(schema *model.QRecordSchema, schem
 	return nil
 }
 
-func (g *GenericSQLQueryExecutor) CountRows(schemaName string, tableName string) (int64, error) {
+func (g *GenericSQLQueryExecutor) CountRows(ctx context.Context, schemaName string, tableName string) (int64, error) {
 	var count pgtype.Int8
-	err := g.db.QueryRowx("SELECT COUNT(*) FROM " + schemaName + "." + tableName).Scan(&count)
+	err := g.db.QueryRowxContext(ctx, "SELECT COUNT(*) FROM "+schemaName+"."+tableName).Scan(&count)
 	return count.Int64, err
 }
 
 func (g *GenericSQLQueryExecutor) CountNonNullRows(
+	ctx context.Context,
 	schemaName string,
 	tableName string,
 	columnName string,
 ) (int64, error) {
 	var count pgtype.Int8
-	err := g.db.QueryRowx("SELECT COUNT(CASE WHEN " + columnName +
-		" IS NOT NULL THEN 1 END) AS non_null_count FROM " + schemaName + "." + tableName).Scan(&count)
+	err := g.db.QueryRowxContext(ctx, "SELECT COUNT(CASE WHEN "+columnName+
+		" IS NOT NULL THEN 1 END) AS non_null_count FROM "+schemaName+"."+tableName).Scan(&count)
 	return count.Int64, err
 }
 
-func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (model.QField, error) {
+func (g *GenericSQLQueryExecutor) CountSRIDs(
+	ctx context.Context,
+	schemaName string,
+	tableName string,
+	columnName string,
+) (int64, error) {
+	var count pgtype.Int8
+	err := g.db.QueryRowxContext(ctx, "SELECT COUNT(CASE WHEN ST_SRID("+columnName+
+		") <> 0 THEN 1 END) AS not_zero FROM "+schemaName+"."+tableName).Scan(&count)
+	return count.Int64, err
+}
+
+func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (qvalue.QField, error) {
 	qvKind, ok := g.dbtypeToQValueKind[ct.DatabaseTypeName()]
 	if !ok {
-		return model.QField{}, fmt.Errorf("unsupported database type %s", ct.DatabaseTypeName())
+		return qvalue.QField{}, fmt.Errorf("unsupported database type %s", ct.DatabaseTypeName())
 	}
 
 	nullable, ok := ct.Nullable()
 
-	return model.QField{
+	return qvalue.QField{
 		Name:     ct.Name(),
 		Type:     qvKind,
 		Nullable: ok && nullable,
@@ -162,7 +172,7 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 	}
 
 	// Convert dbColTypes to QFields
-	qfields := make([]model.QField, len(dbColTypes))
+	qfields := make([]qvalue.QField, len(dbColTypes))
 	for i, ct := range dbColTypes {
 		qfield, err := g.columnTypeToQField(ct)
 		if err != nil {
@@ -173,9 +183,9 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 		qfields[i] = qfield
 	}
 
-	var records []model.QRecord
+	var records [][]qvalue.QValue
 	totalRowsProcessed := 0
-	const heartBeatNumRows = 25000
+	const logEveryNumRows = 50000
 
 	for rows.Next() {
 		columns, err := rows.Columns()
@@ -208,13 +218,13 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 			case qvalue.QValueKindBoolean:
 				var b sql.NullBool
 				values[i] = &b
-			case qvalue.QValueKindString:
+			case qvalue.QValueKindString, qvalue.QValueKindHStore:
 				var s sql.NullString
 				values[i] = &s
 			case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 				values[i] = new([]byte)
 			case qvalue.QValueKindNumeric:
-				var s sql.NullString
+				var s sql.Null[decimal.Decimal]
 				values[i] = &s
 			case qvalue.QValueKindUUID:
 				values[i] = new([]byte)
@@ -237,17 +247,11 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 			qValues[i] = qv
 		}
 
-		// Create a QRecord
-		record := model.NewQRecord(len(qValues))
-		for i, qv := range qValues {
-			record.Set(i, qv)
-		}
-
-		records = append(records, record)
+		records = append(records, qValues)
 		totalRowsProcessed += 1
 
-		if totalRowsProcessed%heartBeatNumRows == 0 {
-			activity.RecordHeartbeat(g.ctx, fmt.Sprintf("processed %d rows", totalRowsProcessed))
+		if totalRowsProcessed%logEveryNumRows == 0 {
+			g.logger.Info("processed rows", slog.Int("rows", totalRowsProcessed))
 		}
 	}
 
@@ -256,18 +260,18 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 		return nil, err
 	}
 
-	// Return a QRecordBatch
 	return &model.QRecordBatch{
-		NumRecords: uint32(len(records)),
-		Records:    records,
-		Schema:     model.NewQRecordSchema(qfields),
+		Schema:  qvalue.NewQRecordSchema(qfields),
+		Records: records,
 	}, nil
 }
 
 func (g *GenericSQLQueryExecutor) ExecuteAndProcessQuery(
-	query string, args ...interface{},
+	ctx context.Context,
+	query string,
+	args ...interface{},
 ) (*model.QRecordBatch, error) {
-	rows, err := g.db.QueryxContext(g.ctx, query, args...)
+	rows, err := g.db.QueryxContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -277,9 +281,11 @@ func (g *GenericSQLQueryExecutor) ExecuteAndProcessQuery(
 }
 
 func (g *GenericSQLQueryExecutor) NamedExecuteAndProcessQuery(
-	query string, arg interface{},
+	ctx context.Context,
+	query string,
+	arg interface{},
 ) (*model.QRecordBatch, error) {
-	rows, err := g.db.NamedQueryContext(g.ctx, query, arg)
+	rows, err := g.db.NamedQueryContext(ctx, query, arg)
 	if err != nil {
 		return nil, err
 	}
@@ -288,23 +294,23 @@ func (g *GenericSQLQueryExecutor) NamedExecuteAndProcessQuery(
 	return g.processRows(rows)
 }
 
-func (g *GenericSQLQueryExecutor) ExecuteQuery(query string, args ...interface{}) error {
-	_, err := g.db.ExecContext(g.ctx, query, args...)
+func (g *GenericSQLQueryExecutor) ExecuteQuery(ctx context.Context, query string, args ...interface{}) error {
+	_, err := g.db.ExecContext(ctx, query, args...)
 	return err
 }
 
-func (g *GenericSQLQueryExecutor) NamedExec(query string, arg interface{}) (sql.Result, error) {
-	return g.db.NamedExecContext(g.ctx, query, arg)
+func (g *GenericSQLQueryExecutor) NamedExec(ctx context.Context, query string, arg interface{}) (sql.Result, error) {
+	return g.db.NamedExecContext(ctx, query, arg)
 }
 
 // returns true if any of the columns are null in value
-func (g *GenericSQLQueryExecutor) CheckNull(schema string, tableName string, colNames []string) (bool, error) {
+func (g *GenericSQLQueryExecutor) CheckNull(ctx context.Context, schema string, tableName string, colNames []string) (bool, error) {
 	var count pgtype.Int8
 	joinedString := strings.Join(colNames, " is null or ") + " is null"
 	query := fmt.Sprintf("SELECT COUNT(*) FROM %s.%s WHERE %s",
 		schema, tableName, joinedString)
 
-	err := g.db.QueryRowxContext(g.ctx, query).Scan(&count)
+	err := g.db.QueryRowxContext(ctx, query).Scan(&count)
 	if err != nil {
 		return false, err
 	}
@@ -313,85 +319,125 @@ func (g *GenericSQLQueryExecutor) CheckNull(schema string, tableName string, col
 }
 
 func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
+	if val == nil {
+		return qvalue.QValueNull(kind), nil
+	}
 	switch kind {
 	case qvalue.QValueKindInt32:
 		if v, ok := val.(*sql.NullInt32); ok {
 			if v.Valid {
-				return qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: v.Int32}, nil
+				return qvalue.QValueInt32{Val: v.Int32}, nil
 			} else {
-				return qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: nil}, nil
+				return qvalue.QValueNull(qvalue.QValueKindInt32), nil
 			}
 		}
 	case qvalue.QValueKindInt64:
 		if v, ok := val.(*sql.NullInt64); ok {
 			if v.Valid {
-				return qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: v.Int64}, nil
+				return qvalue.QValueInt64{Val: v.Int64}, nil
 			} else {
-				return qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: nil}, nil
+				return qvalue.QValueNull(qvalue.QValueKindInt64), nil
 			}
 		}
 	case qvalue.QValueKindFloat32:
 		if v, ok := val.(*sql.NullFloat64); ok {
 			if v.Valid {
-				return qvalue.QValue{Kind: qvalue.QValueKindFloat32, Value: float32(v.Float64)}, nil
+				return qvalue.QValueFloat32{Val: float32(v.Float64)}, nil
 			} else {
-				return qvalue.QValue{Kind: qvalue.QValueKindFloat32, Value: nil}, nil
+				return qvalue.QValueNull(qvalue.QValueKindFloat32), nil
 			}
 		}
 	case qvalue.QValueKindFloat64:
 		if v, ok := val.(*sql.NullFloat64); ok {
 			if v.Valid {
-				return qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: v.Float64}, nil
+				return qvalue.QValueFloat64{Val: v.Float64}, nil
 			} else {
-				return qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: nil}, nil
+				return qvalue.QValueNull(qvalue.QValueKindFloat64), nil
 			}
+		}
+	case qvalue.QValueKindQChar:
+		if v, ok := val.(uint8); ok {
+			return qvalue.QValueQChar{Val: v}, nil
 		}
 	case qvalue.QValueKindString:
 		if v, ok := val.(*sql.NullString); ok {
 			if v.Valid {
-				return qvalue.QValue{Kind: qvalue.QValueKindString, Value: v.String}, nil
+				return qvalue.QValueString{Val: v.String}, nil
 			} else {
-				return qvalue.QValue{Kind: qvalue.QValueKindString, Value: nil}, nil
+				return qvalue.QValueNull(qvalue.QValueKindString), nil
 			}
 		}
 	case qvalue.QValueKindBoolean:
 		if v, ok := val.(*sql.NullBool); ok {
 			if v.Valid {
-				return qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: v.Bool}, nil
+				return qvalue.QValueBoolean{Val: v.Bool}, nil
 			} else {
-				return qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: nil}, nil
+				return qvalue.QValueNull(qvalue.QValueKindBoolean), nil
 			}
 		}
-	case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindDate,
-		qvalue.QValueKindTime, qvalue.QValueKindTimeTZ:
+	case qvalue.QValueKindTimestamp:
 		if t, ok := val.(*sql.NullTime); ok {
 			if t.Valid {
-				return qvalue.QValue{
-					Kind:  kind,
-					Value: t.Time,
+				return qvalue.QValueTimestamp{Val: t.Time}, nil
+			} else {
+				return qvalue.QValueNull(kind), nil
+			}
+		}
+	case qvalue.QValueKindTimestampTZ:
+		if t, ok := val.(*sql.NullTime); ok {
+			if t.Valid {
+				return qvalue.QValueTimestampTZ{Val: t.Time}, nil
+			} else {
+				return qvalue.QValueNull(kind), nil
+			}
+		}
+	case qvalue.QValueKindDate:
+		if t, ok := val.(*sql.NullTime); ok {
+			if t.Valid {
+				return qvalue.QValueDate{Val: t.Time}, nil
+			} else {
+				return qvalue.QValueNull(kind), nil
+			}
+		}
+	case qvalue.QValueKindTime:
+		if t, ok := val.(*sql.NullTime); ok {
+			if t.Valid {
+				tt := t.Time
+				// anchor on unix epoch, some drivers anchor on 0001-01-01
+				return qvalue.QValueTimeTZ{
+					Val: time.Date(1970, time.January, 1, tt.Hour(), tt.Minute(), tt.Second(), tt.Nanosecond(), time.UTC),
 				}, nil
 			} else {
-				return qvalue.QValue{
-					Kind:  kind,
-					Value: nil,
+				return qvalue.QValueNull(kind), nil
+			}
+		}
+	case qvalue.QValueKindTimeTZ:
+		if t, ok := val.(*sql.NullTime); ok {
+			if t.Valid {
+				tt := t.Time
+				// anchor on unix epoch, some drivers anchor on 0001-01-01
+				return qvalue.QValueTimeTZ{
+					Val: time.Date(1970, time.January, 1, tt.Hour(), tt.Minute(), tt.Second(), tt.Nanosecond(), tt.Location()),
 				}, nil
+			} else {
+				return qvalue.QValueNull(kind), nil
 			}
 		}
 	case qvalue.QValueKindNumeric:
-		if v, ok := val.(*sql.NullString); ok {
+		if v, ok := val.(*sql.Null[decimal.Decimal]); ok {
 			if v.Valid {
-				numeric := new(big.Rat)
-				if _, ok := numeric.SetString(v.String); !ok {
-					return qvalue.QValue{}, fmt.Errorf("failed to parse numeric: %v", v.String)
-				}
-				return qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: numeric}, nil
+				return qvalue.QValueNumeric{Val: v.V}, nil
 			} else {
-				return qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: nil}, nil
+				return qvalue.QValueNull(qvalue.QValueKindNumeric), nil
 			}
 		}
-	case qvalue.QValueKindBytes, qvalue.QValueKindBit:
+	case qvalue.QValueKindBytes:
 		if v, ok := val.(*[]byte); ok && v != nil {
-			return qvalue.QValue{Kind: kind, Value: *v}, nil
+			return qvalue.QValueBytes{Val: *v}, nil
+		}
+	case qvalue.QValueKindBit:
+		if v, ok := val.(*[]byte); ok && v != nil {
+			return qvalue.QValueBit{Val: *v}, nil
 		}
 
 	case qvalue.QValueKindUUID:
@@ -399,13 +445,9 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 			// convert byte array to string
 			uuidVal, err := uuid.FromBytes(*v)
 			if err != nil {
-				return qvalue.QValue{}, fmt.Errorf("failed to parse uuid: %v", *v)
+				return nil, fmt.Errorf("failed to parse uuid: %v", *v)
 			}
-			return qvalue.QValue{Kind: qvalue.QValueKindString, Value: uuidVal.String()}, nil
-		}
-
-		if v, ok := val.(*[16]byte); ok && v != nil {
-			return qvalue.QValue{Kind: qvalue.QValueKindString, Value: *v}, nil
+			return qvalue.QValueUUID{Val: [16]byte(uuidVal)}, nil
 		}
 
 	case qvalue.QValueKindJSON:
@@ -420,7 +462,7 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 			var v []interface{}
 			err := json.Unmarshal([]byte(vstring), &v)
 			if err != nil {
-				return qvalue.QValue{}, fmt.Errorf("failed to parse json array: %v", vstring)
+				return nil, fmt.Errorf("failed to parse json array: %v", vstring)
 			}
 
 			// assume all elements in the array are of the same type
@@ -432,6 +474,8 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 					kind = qvalue.QValueKindArrayFloat32
 				case float64:
 					kind = qvalue.QValueKindArrayFloat64
+				case int16:
+					kind = qvalue.QValueKindArrayInt16
 				case int32:
 					kind = qvalue.QValueKindArrayInt32
 				case int64:
@@ -444,96 +488,114 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 			}
 		}
 
-		return qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: vstring}, nil
+		return qvalue.QValueJSON{Val: vstring}, nil
 
 	case qvalue.QValueKindHStore:
-		// TODO fix this.
-		return qvalue.QValue{Kind: qvalue.QValueKindHStore, Value: val}, nil
+		vraw := val.(*interface{})
+		vstring, ok := (*vraw).(string)
+		if !ok {
+			slog.Warn("A parsed hstore value was not a string. Likely a null field value")
+		}
+
+		return qvalue.QValueHStore{Val: vstring}, nil
 
 	case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64,
+		qvalue.QValueKindArrayInt16,
 		qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64,
 		qvalue.QValueKindArrayString:
-		// TODO fix this.
 		return toQValueArray(kind, val)
 	}
 
 	// If type is unsupported or doesn't match the specified kind, return error
-	return qvalue.QValue{}, fmt.Errorf("unsupported type %T for kind %s", val, kind)
+	return nil, fmt.Errorf("unsupported type %T for kind %s", val, kind)
 }
 
 func toQValueArray(kind qvalue.QValueKind, value interface{}) (qvalue.QValue, error) {
-	var result interface{}
 	switch kind {
 	case qvalue.QValueKindArrayFloat32:
 		switch v := value.(type) {
 		case []float32:
-			result = v
+			return qvalue.QValueArrayFloat32{Val: v}, nil
 		case []interface{}:
 			float32Array := make([]float32, len(v))
 			for i, val := range v {
 				float32Array[i] = val.(float32)
 			}
-			result = float32Array
+			return qvalue.QValueArrayFloat32{Val: float32Array}, nil
 		default:
-			return qvalue.QValue{}, fmt.Errorf("failed to parse array float32: %v", value)
+			return nil, fmt.Errorf("failed to parse array float32: %v", value)
 		}
 
 	case qvalue.QValueKindArrayFloat64:
 		switch v := value.(type) {
 		case []float64:
-			result = v
+			return qvalue.QValueArrayFloat64{Val: v}, nil
 		case []interface{}:
 			float64Array := make([]float64, len(v))
 			for i, val := range v {
 				float64Array[i] = val.(float64)
 			}
-			result = float64Array
+			return qvalue.QValueArrayFloat64{Val: float64Array}, nil
 		default:
-			return qvalue.QValue{}, fmt.Errorf("failed to parse array float64: %v", value)
+			return nil, fmt.Errorf("failed to parse array float64: %v", value)
+		}
+
+	case qvalue.QValueKindArrayInt16:
+		switch v := value.(type) {
+		case []int16:
+			return qvalue.QValueArrayInt16{Val: v}, nil
+		case []interface{}:
+			int16Array := make([]int16, len(v))
+			for i, val := range v {
+				int16Array[i] = val.(int16)
+			}
+			return qvalue.QValueArrayInt16{Val: int16Array}, nil
+		default:
+			return nil, fmt.Errorf("failed to parse array int16: %v", value)
 		}
 
 	case qvalue.QValueKindArrayInt32:
 		switch v := value.(type) {
 		case []int32:
-			result = v
+			return qvalue.QValueArrayInt32{Val: v}, nil
 		case []interface{}:
 			int32Array := make([]int32, len(v))
 			for i, val := range v {
 				int32Array[i] = val.(int32)
 			}
-			result = int32Array
+			return qvalue.QValueArrayInt32{Val: int32Array}, nil
 		default:
-			return qvalue.QValue{}, fmt.Errorf("failed to parse array int32: %v", value)
+			return nil, fmt.Errorf("failed to parse array int32: %v", value)
 		}
 
 	case qvalue.QValueKindArrayInt64:
 		switch v := value.(type) {
 		case []int64:
-			result = v
+			return qvalue.QValueArrayInt64{Val: v}, nil
 		case []interface{}:
 			int64Array := make([]int64, len(v))
 			for i, val := range v {
 				int64Array[i] = val.(int64)
 			}
-			result = int64Array
+			return qvalue.QValueArrayInt64{Val: int64Array}, nil
 		default:
-			return qvalue.QValue{}, fmt.Errorf("failed to parse array int64: %v", value)
+			return nil, fmt.Errorf("failed to parse array int64: %v", value)
 		}
 
 	case qvalue.QValueKindArrayString:
 		switch v := value.(type) {
 		case []string:
-			result = v
+			return qvalue.QValueArrayString{Val: v}, nil
 		case []interface{}:
 			stringArray := make([]string, len(v))
 			for i, val := range v {
 				stringArray[i] = val.(string)
 			}
-			result = stringArray
+			return qvalue.QValueArrayString{Val: stringArray}, nil
 		default:
-			return qvalue.QValue{}, fmt.Errorf("failed to parse array string: %v", value)
+			return nil, fmt.Errorf("failed to parse array string: %v", value)
 		}
 	}
 
-	return qvalue.QValue{Kind: kind, Value: result}, nil
+	return qvalue.QValueNull(kind), nil
 }

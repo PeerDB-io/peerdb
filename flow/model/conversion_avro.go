@@ -4,56 +4,56 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"go.temporal.io/sdk/log"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 type QRecordAvroConverter struct {
-	QRecord        QRecord
-	TargetDWH      qvalue.QDWHType
-	NullableFields map[string]struct{}
-	ColNames       []string
+	logger    log.Logger
+	Schema    *QRecordAvroSchemaDefinition
+	ColNames  []string
+	TargetDWH protos.DBType
 }
 
 func NewQRecordAvroConverter(
-	q QRecord,
-	targetDWH qvalue.QDWHType,
-	nullableFields map[string]struct{},
+	schema *QRecordAvroSchemaDefinition,
+	targetDWH protos.DBType,
 	colNames []string,
+	logger log.Logger,
 ) *QRecordAvroConverter {
 	return &QRecordAvroConverter{
-		QRecord:        q,
-		TargetDWH:      targetDWH,
-		NullableFields: nullableFields,
-		ColNames:       colNames,
+		Schema:    schema,
+		TargetDWH: targetDWH,
+		ColNames:  colNames,
+		logger:    logger,
 	}
 }
 
-func (qac *QRecordAvroConverter) Convert() (map[string]interface{}, error) {
-	m := map[string]interface{}{}
+func (qac *QRecordAvroConverter) Convert(qrecord []qvalue.QValue) (map[string]interface{}, error) {
+	m := make(map[string]interface{}, len(qrecord))
 
-	for idx := range qac.QRecord.Entries {
-		key := qac.ColNames[idx]
-		_, nullable := qac.NullableFields[key]
-
-		avroConverter := qvalue.NewQValueAvroConverter(
-			qac.QRecord.Entries[idx],
+	for idx, val := range qrecord {
+		avroVal, err := qvalue.QValueToAvro(
+			val,
+			&qac.Schema.Fields[idx],
 			qac.TargetDWH,
-			nullable,
+			qac.logger,
 		)
-		avroVal, err := avroConverter.ToAvroValue()
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert QValue to Avro-compatible value: %v", err)
+			return nil, fmt.Errorf("failed to convert QValue to Avro-compatible value: %w", err)
 		}
 
-		m[key] = avroVal
+		m[qac.ColNames[idx]] = avroVal
 	}
 
 	return m, nil
 }
 
 type QRecordAvroField struct {
-	Name string      `json:"name"`
 	Type interface{} `json:"type"`
+	Name string      `json:"name"`
 }
 
 type QRecordAvroSchema struct {
@@ -63,26 +63,25 @@ type QRecordAvroSchema struct {
 }
 
 type QRecordAvroSchemaDefinition struct {
-	Schema         string
-	NullableFields map[string]struct{}
+	Schema string
+	Fields []qvalue.QField
 }
 
 func GetAvroSchemaDefinition(
 	dstTableName string,
-	qRecordSchema *QRecordSchema,
+	qRecordSchema qvalue.QRecordSchema,
+	targetDWH protos.DBType,
 ) (*QRecordAvroSchemaDefinition, error) {
 	avroFields := make([]QRecordAvroField, 0, len(qRecordSchema.Fields))
-	nullableFields := make(map[string]struct{})
 
 	for _, qField := range qRecordSchema.Fields {
-		avroType, err := qvalue.GetAvroSchemaFromQValueKind(qField.Type)
+		avroType, err := qvalue.GetAvroSchemaFromQValueKind(qField.Type, targetDWH, qField.Precision, qField.Scale)
 		if err != nil {
 			return nil, err
 		}
 
 		if qField.Nullable {
 			avroType = []interface{}{"null", avroType}
-			nullableFields[qField.Name] = struct{}{}
 		}
 
 		avroFields = append(avroFields, QRecordAvroField{
@@ -99,11 +98,11 @@ func GetAvroSchemaDefinition(
 
 	avroSchemaJSON, err := json.Marshal(avroSchema)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal Avro schema to JSON: %v", err)
+		return nil, fmt.Errorf("failed to marshal Avro schema to JSON: %w", err)
 	}
 
 	return &QRecordAvroSchemaDefinition{
-		Schema:         string(avroSchemaJSON),
-		NullableFields: nullableFields,
+		Schema: string(avroSchemaJSON),
+		Fields: qRecordSchema.Fields,
 	}, nil
 }

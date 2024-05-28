@@ -3,10 +3,9 @@ package e2e_snowflake
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"math/big"
 	"os"
-	"time"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
@@ -34,7 +33,7 @@ type SnowflakeTestHelper struct {
 func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
 	jsonPath := os.Getenv("TEST_SF_CREDS")
 	if jsonPath == "" {
-		return nil, fmt.Errorf("TEST_SF_CREDS env var not set")
+		return nil, errors.New("TEST_SF_CREDS env var not set")
 	}
 
 	content, err := e2eshared.ReadFileToBytes(jsonPath)
@@ -60,7 +59,10 @@ func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Snowflake client: %w", err)
 	}
-	err = adminClient.ExecuteQuery(fmt.Sprintf("CREATE DATABASE %s", testDatabaseName))
+	err = adminClient.ExecuteQuery(
+		context.Background(),
+		fmt.Sprintf("CREATE TRANSIENT DATABASE %s DATA_RETENTION_TIME_IN_DAYS = 0", testDatabaseName),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Snowflake test database: %w", err)
 	}
@@ -99,7 +101,7 @@ func (s *SnowflakeTestHelper) Cleanup() error {
 	if err != nil {
 		return err
 	}
-	err = s.adminClient.ExecuteQuery(fmt.Sprintf("DROP DATABASE %s", s.testDatabaseName))
+	err = s.adminClient.ExecuteQuery(context.Background(), "DROP DATABASE "+s.testDatabaseName)
 	if err != nil {
 		return err
 	}
@@ -108,12 +110,12 @@ func (s *SnowflakeTestHelper) Cleanup() error {
 
 // RunCommand runs the given command.
 func (s *SnowflakeTestHelper) RunCommand(command string) error {
-	return s.testClient.ExecuteQuery(command)
+	return s.testClient.ExecuteQuery(context.Background(), command)
 }
 
 // CountRows(tableName) returns the number of rows in the given table.
 func (s *SnowflakeTestHelper) CountRows(tableName string) (int, error) {
-	res, err := s.testClient.CountRows(s.testSchemaName, tableName)
+	res, err := s.testClient.CountRows(context.Background(), s.testSchemaName, tableName)
 	if err != nil {
 		return 0, err
 	}
@@ -123,7 +125,16 @@ func (s *SnowflakeTestHelper) CountRows(tableName string) (int, error) {
 
 // CountRows(tableName) returns the non-null number of rows in the given table.
 func (s *SnowflakeTestHelper) CountNonNullRows(tableName string, columnName string) (int, error) {
-	res, err := s.testClient.CountNonNullRows(s.testSchemaName, tableName, columnName)
+	res, err := s.testClient.CountNonNullRows(context.Background(), s.testSchemaName, tableName, columnName)
+	if err != nil {
+		return 0, err
+	}
+
+	return int(res), nil
+}
+
+func (s *SnowflakeTestHelper) CountSRIDs(tableName string, columnName string) (int, error) {
+	res, err := s.testClient.CountSRIDs(context.Background(), s.testSchemaName, tableName, columnName)
 	if err != nil {
 		return 0, err
 	}
@@ -132,20 +143,20 @@ func (s *SnowflakeTestHelper) CountNonNullRows(tableName string, columnName stri
 }
 
 func (s *SnowflakeTestHelper) CheckNull(tableName string, colNames []string) (bool, error) {
-	return s.testClient.CheckNull(s.testSchemaName, tableName, colNames)
+	return s.testClient.CheckNull(context.Background(), s.testSchemaName, tableName, colNames)
 }
 
 func (s *SnowflakeTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecordBatch, error) {
-	return s.testClient.ExecuteAndProcessQuery(query)
+	return s.testClient.ExecuteAndProcessQuery(context.Background(), query)
 }
 
-func (s *SnowflakeTestHelper) CreateTable(tableName string, schema *model.QRecordSchema) error {
-	return s.testClient.CreateTable(schema, s.testSchemaName, tableName)
+func (s *SnowflakeTestHelper) CreateTable(tableName string, schema *qvalue.QRecordSchema) error {
+	return s.testClient.CreateTable(context.Background(), schema, s.testSchemaName, tableName)
 }
 
 // runs a query that returns an int result
 func (s *SnowflakeTestHelper) RunIntQuery(query string) (int, error) {
-	rows, err := s.testClient.ExecuteAndProcessQuery(query)
+	rows, err := s.testClient.ExecuteAndProcessQuery(context.Background(), query)
 	if err != nil {
 		return 0, err
 	}
@@ -159,39 +170,51 @@ func (s *SnowflakeTestHelper) RunIntQuery(query string) (int, error) {
 	}
 
 	rec := rows.Records[0]
-	if rec.NumEntries != 1 {
-		return 0, fmt.Errorf("failed to execute query: %s, returned %d != 1 columns", query, rec.NumEntries)
+	if len(rec) != 1 {
+		return 0, fmt.Errorf("failed to execute query: %s, returned %d != 1 columns", query, len(rec))
 	}
 
-	switch rec.Entries[0].Kind {
-	case qvalue.QValueKindInt32:
-		return int(rec.Entries[0].Value.(int32)), nil
-	case qvalue.QValueKindInt64:
-		return int(rec.Entries[0].Value.(int64)), nil
-	case qvalue.QValueKindNumeric:
-		// get big.Rat and convert to int
-		rat := rec.Entries[0].Value.(*big.Rat)
-		return int(rat.Num().Int64() / rat.Denom().Int64()), nil
+	switch v := rec[0].(type) {
+	case qvalue.QValueInt32:
+		return int(v.Val), nil
+	case qvalue.QValueInt64:
+		return int(v.Val), nil
+	case qvalue.QValueNumeric:
+		return int(v.Val.IntPart()), nil
 	default:
-		return 0, fmt.Errorf("failed to execute query: %s, returned value of type %s", query, rec.Entries[0].Kind)
+		return 0, fmt.Errorf("failed to execute query: %s, returned value of type %s", query, rec[0].Kind())
 	}
 }
 
-// runs a query that returns an int result
 func (s *SnowflakeTestHelper) checkSyncedAt(query string) error {
-	recordBatch, err := s.testClient.ExecuteAndProcessQuery(query)
+	recordBatch, err := s.testClient.ExecuteAndProcessQuery(context.Background(), query)
 	if err != nil {
 		return err
 	}
 
 	for _, record := range recordBatch.Records {
-		for _, entry := range record.Entries {
-			if entry.Kind != qvalue.QValueKindTimestamp {
-				return fmt.Errorf("synced_at column check failed: _PEERDB_SYNCED_AT is not timestamp")
-			}
-			_, ok := entry.Value.(time.Time)
+		for _, entry := range record {
+			_, ok := entry.(qvalue.QValueTimestamp)
 			if !ok {
-				return fmt.Errorf("synced_at column failed: _PEERDB_SYNCED_AT is not valid")
+				return errors.New("synced_at column failed: _PEERDB_SYNCED_AT is not a timestamp")
+			}
+		}
+	}
+
+	return nil
+}
+
+func (s *SnowflakeTestHelper) checkIsDeleted(query string) error {
+	recordBatch, err := s.testClient.ExecuteAndProcessQuery(context.Background(), query)
+	if err != nil {
+		return err
+	}
+
+	for _, record := range recordBatch.Records {
+		for _, entry := range record {
+			_, ok := entry.(qvalue.QValueBoolean)
+			if !ok {
+				return errors.New("is_deleted column failed: _PEERDB_IS_DELETED is not a boolean")
 			}
 		}
 	}

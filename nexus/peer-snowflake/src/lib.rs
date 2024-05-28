@@ -1,10 +1,7 @@
 use anyhow::Context;
 use async_recursion::async_recursion;
-use cursor::SnowflakeCursorManager;
-use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, Schema};
+use peer_cursor::{CursorManager, CursorModification, QueryExecutor, QueryOutput, Schema};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
-use sqlparser::dialect::GenericDialect;
-use sqlparser::parser;
 use std::cmp::min;
 use std::time::Duration;
 use stream::SnowflakeDataType;
@@ -14,7 +11,7 @@ use pt::peerdb_peers::SnowflakeConfig;
 use reqwest::{header, StatusCode};
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
-use sqlparser::ast::{CloseCursor, FetchDirection, Query, Statement};
+use sqlparser::ast::{CloseCursor, Declare, FetchDirection, Query, Statement};
 use tokio::time::sleep;
 use tracing::info;
 
@@ -22,7 +19,6 @@ use crate::stream::SnowflakeSchema;
 
 mod ast;
 mod auth;
-mod cursor;
 mod stream;
 
 const DEFAULT_REFRESH_THRESHOLD: u64 = 3000;
@@ -103,7 +99,7 @@ pub struct SnowflakeQueryExecutor {
     auth: SnowflakeAuth,
     query_timeout: u64,
     reqwest_client: reqwest::Client,
-    cursor_manager: SnowflakeCursorManager,
+    cursor_manager: CursorManager,
 }
 
 enum QueryAttemptResult {
@@ -129,7 +125,7 @@ impl SnowflakeQueryExecutor {
             .gzip(true)
             .default_headers(default_headers)
             .build()?;
-        let cursor_manager = SnowflakeCursorManager::new();
+
         Ok(Self {
             config: config.clone(),
             partition_number: 0,
@@ -148,7 +144,7 @@ impl SnowflakeQueryExecutor {
             )?,
             query_timeout: config.query_timeout,
             reqwest_client,
-            cursor_manager,
+            cursor_manager: Default::default(),
         })
     }
 
@@ -202,8 +198,7 @@ impl SnowflakeQueryExecutor {
     pub async fn query(&self, query: &Query) -> PgWireResult<ResultSet> {
         let mut query = query.clone();
 
-        let ast = ast::SnowflakeAst::default();
-        let _ = ast.rewrite(&mut query);
+        let _ = ast::SnowflakeAst.rewrite(&mut query);
 
         let query_str: String = query.to_string();
         info!("Processing SnowFlake query: {}", query_str);
@@ -303,8 +298,7 @@ impl QueryExecutor for SnowflakeQueryExecutor {
             Statement::Query(query) => {
                 let mut new_query = query.clone();
 
-                let snowflake_ast = ast::SnowflakeAst::default();
-                snowflake_ast
+                ast::SnowflakeAst
                     .rewrite(&mut new_query)
                     .context("unable to rewrite query")
                     .map_err(|err| PgWireError::ApiError(err.into()))?;
@@ -320,15 +314,31 @@ impl QueryExecutor for SnowflakeQueryExecutor {
                 );
                 Ok(QueryOutput::Stream(Box::pin(cursor)))
             }
-            Statement::Declare { name, query, .. } => {
-                let query_stmt = Statement::Query(query.clone());
-                self.cursor_manager
-                    .create_cursor(&name.value, &query_stmt, self)
-                    .await?;
+            Statement::Declare { stmts } => {
+                if stmts.len() != 1 {
+                    Err(PgWireError::ApiError(
+                        "peerdb only supports singular declare statements".into(),
+                    ))
+                } else if let Declare {
+                    ref names,
+                    for_query: Some(ref query),
+                    ..
+                } = stmts[0]
+                {
+                    let name = &names[0];
+                    let query_stmt = Statement::Query(query.clone());
+                    self.cursor_manager
+                        .create_cursor(&name.value, &query_stmt, self)
+                        .await?;
 
-                Ok(QueryOutput::Cursor(CursorModification::Created(
-                    name.value.clone(),
-                )))
+                    Ok(QueryOutput::Cursor(CursorModification::Created(
+                        name.value.clone(),
+                    )))
+                } else {
+                    Err(PgWireError::ApiError(
+                        "peerdb only supports declare for query statements".into(),
+                    ))
+                }
             }
             Statement::Fetch {
                 name, direction, ..
@@ -337,12 +347,16 @@ impl QueryExecutor for SnowflakeQueryExecutor {
 
                 // Attempt to extract the count from the direction
                 let count = match direction {
+                    FetchDirection::ForwardAll | FetchDirection::All => usize::MAX,
+                    FetchDirection::Next | FetchDirection::Forward { limit: None } => 1,
                     FetchDirection::Count {
                         limit: sqlparser::ast::Value::Number(n, _),
                     }
                     | FetchDirection::Forward {
                         limit: Some(sqlparser::ast::Value::Number(n, _)),
-                    } => n.parse::<usize>(),
+                    } => n
+                        .parse::<usize>()
+                        .map_err(|err| PgWireError::ApiError(err.into()))?,
                     _ => {
                         return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                             "ERROR".to_owned(),
@@ -350,12 +364,6 @@ impl QueryExecutor for SnowflakeQueryExecutor {
                             "only FORWARD count and COUNT count are supported in FETCH".to_owned(),
                         ))))
                     }
-                };
-
-                // If parsing the count resulted in an error, return an internal error
-                let count = match count {
-                    Ok(c) => c,
-                    Err(err) => return Err(PgWireError::ApiError(err.into())),
                 };
 
                 tracing::info!("fetching {} rows", count);
@@ -367,14 +375,11 @@ impl QueryExecutor for SnowflakeQueryExecutor {
                 Ok(QueryOutput::Records(records))
             }
             Statement::Close { cursor } => {
-                let mut closed_cursors = vec![];
-                match cursor {
-                    CloseCursor::All => {
-                        closed_cursors = self.cursor_manager.close_all_cursors().await?;
-                    }
+                let closed_cursors = match cursor {
+                    CloseCursor::All => self.cursor_manager.close_all_cursors().await?,
                     CloseCursor::Specific { name } => {
                         self.cursor_manager.close(&name.value).await?;
-                        closed_cursors.push(name.value.clone());
+                        vec![name.value.clone()]
                     }
                 };
                 Ok(QueryOutput::Cursor(CursorModification::Closed(
@@ -399,22 +404,33 @@ impl QueryExecutor for SnowflakeQueryExecutor {
         match stmt {
             Statement::Query(query) => {
                 let mut new_query = query.clone();
-                let sf_ast = ast::SnowflakeAst::default();
-                sf_ast
+                ast::SnowflakeAst
                     .rewrite(&mut new_query)
                     .context("unable to rewrite query")
                     .map_err(|err| PgWireError::ApiError(err.into()))?;
-
-                // new_query.limit = Some(Expr::Value(Value::Number("1".to_owned(), false)));
 
                 let result_set = self.query(&new_query).await?;
                 let schema = SnowflakeSchema::from_result_set(&result_set);
 
                 Ok(Some(schema.schema()))
             }
-            Statement::Declare { query, .. } => {
-                let query_stmt = Statement::Query(query.clone());
-                self.describe(&query_stmt).await
+            Statement::Declare { stmts } => {
+                if stmts.len() != 1 {
+                    Err(PgWireError::ApiError(
+                        "peerdb only supports singular declare statements".into(),
+                    ))
+                } else if let Declare {
+                    for_query: Some(ref query),
+                    ..
+                } = stmts[0]
+                {
+                    let query_stmt = Statement::Query(query.clone());
+                    self.describe(&query_stmt).await
+                } else {
+                    Err(PgWireError::ApiError(
+                        "peerdb only supports declare for query statements".into(),
+                    ))
+                }
             }
             _ => PgWireResult::Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
@@ -422,12 +438,5 @@ impl QueryExecutor for SnowflakeQueryExecutor {
                 "only SELECT statements are supported in snowflake".to_owned(),
             )))),
         }
-    }
-
-    async fn is_connection_valid(&self) -> anyhow::Result<bool> {
-        let sql = "SELECT 1;";
-        let test_stmt = parser::Parser::parse_sql(&GenericDialect {}, sql)?;
-        let _ = self.execute(&test_stmt[0]).await?;
-        Ok(true)
     }
 }

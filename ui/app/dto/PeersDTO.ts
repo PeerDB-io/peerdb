@@ -1,6 +1,12 @@
 import {
   BigqueryConfig,
+  ClickhouseConfig,
+  ElasticsearchConfig,
+  EventHubConfig,
+  EventHubGroupConfig,
+  KafkaConfig,
   PostgresConfig,
+  PubSubConfig,
   S3Config,
   SnowflakeConfig,
 } from '@/grpc_generated/peers';
@@ -41,7 +47,13 @@ export type PeerConfig =
   | PostgresConfig
   | SnowflakeConfig
   | BigqueryConfig
-  | S3Config;
+  | ClickhouseConfig
+  | S3Config
+  | KafkaConfig
+  | PubSubConfig
+  | EventHubConfig
+  | EventHubGroupConfig
+  | ElasticsearchConfig;
 export type CatalogPeer = {
   id: number;
   name: string;
@@ -49,3 +61,12 @@ export type CatalogPeer = {
   options: Buffer;
 };
 export type PeerSetter = React.Dispatch<React.SetStateAction<PeerConfig>>;
+
+export type SlotLagPoint = {
+  updatedAt: number;
+  slotSize: number;
+};
+
+export type UPublicationsResponse = {
+  publicationNames: string[];
+};

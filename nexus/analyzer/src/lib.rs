@@ -3,20 +3,23 @@
 use std::{
     collections::{HashMap, HashSet},
     ops::ControlFlow,
-    vec,
 };
 
 use anyhow::Context;
 use pt::{
     flow_model::{FlowJob, FlowJobTableMapping, QRepFlowJob},
     peerdb_peers::{
-        peer::Config, BigqueryConfig, ClickhouseConfig, DbType, EventHubConfig, MongoConfig, Peer,
-        PostgresConfig, S3Config, SnowflakeConfig, SqlServerConfig,
+        peer::Config, BigqueryConfig, ClickhouseConfig, DbType, EventHubConfig, GcpServiceAccount,
+        KafkaConfig, MongoConfig, Peer, PostgresConfig, PubSubConfig, S3Config, SnowflakeConfig,
+        SqlServerConfig, SshConfig,
     },
 };
 use qrep::process_options;
-use sqlparser::ast::CreateMirror::{Select, CDC};
-use sqlparser::ast::{visit_relations, visit_statements, FetchDirection, SqlOption, Statement};
+use sqlparser::ast::{
+    self, visit_relations, visit_statements,
+    CreateMirror::{Select, CDC},
+    Expr, FetchDirection, SqlOption, Statement,
+};
 
 mod qrep;
 
@@ -50,26 +53,38 @@ impl<'a> StatementAnalyzer for PeerExistanceAnalyzer<'a> {
 
     fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output> {
         let mut peers_touched: HashSet<String> = HashSet::new();
+        let mut analyze_name = |name: &str| {
+            let name = name.to_lowercase();
+            if self.peers.contains_key(&name) {
+                peers_touched.insert(name);
+            }
+        };
 
-        // This is necessary as visit relations was not visiting drop table's object names,
-        // causing DROP commands for Postgres peer being interpreted as
-        // catalog queries.
+        // Necessary as visit_relations fails to deeply visit some structures.
         visit_statements(statement, |stmt| {
-            if let &Statement::Drop { names, .. } = &stmt {
-                for name in names {
-                    let peer_name = name.0[0].value.to_lowercase();
-                    if self.peers.contains_key(&peer_name) {
-                        peers_touched.insert(peer_name);
+            match stmt {
+                Statement::Drop { names, .. } => {
+                    for name in names {
+                        analyze_name(&name.0[0].value);
                     }
                 }
+                Statement::Declare { stmts } => {
+                    for stmt in stmts {
+                        if let Some(ref query) = stmt.for_query {
+                            visit_relations(query, |relation| {
+                                analyze_name(&relation.0[0].value);
+                                ControlFlow::<()>::Continue(())
+                            });
+                        }
+                    }
+                }
+                _ => (),
             }
             ControlFlow::<()>::Continue(())
         });
+
         visit_relations(statement, |relation| {
-            let peer_name = relation.0[0].value.to_lowercase();
-            if self.peers.contains_key(&peer_name) {
-                peers_touched.insert(peer_name);
-            }
+            analyze_name(&relation.0[0].value);
             ControlFlow::<()>::Continue(())
         });
 
@@ -88,15 +103,8 @@ impl<'a> StatementAnalyzer for PeerExistanceAnalyzer<'a> {
 /// PeerDDLAnalyzer is a statement analyzer that checks if the given
 /// statement is a PeerDB DDL statement. If it is, it returns the type of
 /// DDL statement.
-pub struct PeerDDLAnalyzer<'a> {
-    peers: &'a HashMap<String, Peer>,
-}
-
-impl<'a> PeerDDLAnalyzer<'a> {
-    pub fn new(peers: &'a HashMap<String, Peer>) -> Self {
-        Self { peers }
-    }
-}
+#[derive(Default)]
+pub struct PeerDDLAnalyzer;
 
 #[derive(Debug, Clone)]
 pub enum PeerDDL {
@@ -110,11 +118,11 @@ pub enum PeerDDL {
     },
     CreateMirrorForCDC {
         if_not_exists: bool,
-        flow_job: FlowJob,
+        flow_job: Box<FlowJob>,
     },
     CreateMirrorForSelect {
         if_not_exists: bool,
-        qrep_flow_job: QRepFlowJob,
+        qrep_flow_job: Box<QRepFlowJob>,
     },
     ExecuteMirrorForSelect {
         flow_job_name: String,
@@ -138,7 +146,7 @@ pub enum PeerDDL {
     },
 }
 
-impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
+impl StatementAnalyzer for PeerDDLAnalyzer {
     type Output = Option<PeerDDL>;
 
     fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output> {
@@ -150,7 +158,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                 with_options,
             } => {
                 let db_type = DbType::from(peer_type.clone());
-                let config = parse_db_options(self.peers, db_type, with_options)?;
+                let config = parse_db_options(db_type, with_options)?;
                 let peer = Peer {
                     name: peer_name.to_string().to_lowercase(),
                     r#type: db_type as i32,
@@ -168,22 +176,23 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
             } => {
                 match create_mirror {
                     CDC(cdc) => {
-                        let mut flow_job_table_mappings = vec![];
-                        for table_mapping in &cdc.mapping_options {
-                            flow_job_table_mappings.push(FlowJobTableMapping {
+                        let flow_job_table_mappings = cdc
+                            .mapping_options
+                            .iter()
+                            .map(|table_mapping| FlowJobTableMapping {
                                 source_table_identifier: table_mapping.source.to_string(),
                                 destination_table_identifier: table_mapping.destination.to_string(),
                                 partition_key: table_mapping
                                     .partition_key
                                     .as_ref()
-                                    .map(|s| s.to_string()),
+                                    .map(|s| s.value.clone()),
                                 exclude: table_mapping
                                     .exclude
                                     .as_ref()
-                                    .map(|ss| ss.iter().map(|s| s.to_string()).collect())
+                                    .map(|ss| ss.iter().map(|s| s.value.clone()).collect())
                                     .unwrap_or_default(),
-                            });
-                        }
+                            })
+                            .collect::<Vec<_>>();
 
                         // get do_initial_copy from with_options
                         let mut raw_options = HashMap::with_capacity(cdc.with_options.len());
@@ -191,9 +200,9 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             raw_options.insert(&option.name.value as &str, &option.value);
                         }
                         let do_initial_copy = match raw_options.remove("do_initial_copy") {
-                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            Some(Expr::Value(ast::Value::Boolean(b))) => *b,
                             // also support "true" and "false" as strings
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => {
                                 match s.as_ref() {
                                     "true" => true,
                                     "false" => false,
@@ -209,9 +218,9 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
 
                         // bool resync true or false, default to false if not in opts
                         let resync = match raw_options.remove("resync") {
-                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            Some(Expr::Value(ast::Value::Boolean(b))) => *b,
                             // also support "true" and "false" as strings
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => {
                                 match s.as_ref() {
                                     "true" => true,
                                     "false" => false,
@@ -224,91 +233,105 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                         let publication_name: Option<String> = match raw_options
                             .remove("publication_name")
                         {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
                             _ => None,
                         };
 
                         let replication_slot_name: Option<String> = match raw_options
                             .remove("replication_slot_name")
                         {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
                             _ => None,
                         };
 
                         let snapshot_num_rows_per_partition: Option<u32> = match raw_options
                             .remove("snapshot_num_rows_per_partition")
                         {
-                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
                             _ => None,
                         };
 
                         let snapshot_num_tables_in_parallel: Option<u32> = match raw_options
                             .remove("snapshot_num_tables_in_parallel")
                         {
-                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
                             _ => None,
                         };
-                        let snapshot_staging_path = match raw_options
-                            .remove("snapshot_staging_path")
-                        {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
-                            _ => Some("".to_string()),
-                        };
+                        let snapshot_staging_path =
+                            match raw_options.remove("snapshot_staging_path") {
+                                Some(Expr::Value(ast::Value::SingleQuotedString(s))) => s.clone(),
+                                _ => String::new(),
+                            };
 
                         let snapshot_max_parallel_workers: Option<u32> = match raw_options
                             .remove("snapshot_max_parallel_workers")
                         {
-                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
                             _ => None,
                         };
 
                         let cdc_staging_path = match raw_options.remove("cdc_staging_path") {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
                             _ => Some("".to_string()),
                         };
 
                         let soft_delete = match raw_options.remove("soft_delete") {
-                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            Some(Expr::Value(ast::Value::Boolean(b))) => *b,
                             _ => false,
                         };
 
                         let push_parallelism: Option<i64> = match raw_options
                             .remove("push_parallelism")
                         {
-                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<i64>()?),
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<i64>()?),
                             _ => None,
                         };
 
                         let push_batch_size: Option<i64> = match raw_options
                             .remove("push_batch_size")
                         {
-                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<i64>()?),
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<i64>()?),
                             _ => None,
                         };
 
                         let max_batch_size: Option<u32> = match raw_options.remove("max_batch_size")
                         {
-                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
+                            _ => None,
+                        };
+
+                        let sync_interval: Option<u64> = match raw_options.remove("sync_interval") {
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u64>()?),
                             _ => None,
                         };
 
                         let soft_delete_col_name: Option<String> = match raw_options
                             .remove("soft_delete_col_name")
                         {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
                             _ => None,
                         };
 
                         let synced_at_col_name: Option<String> = match raw_options
                             .remove("synced_at_col_name")
                         {
-                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
                             _ => None,
                         };
 
                         let initial_copy_only = match raw_options.remove("initial_copy_only") {
-                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            Some(Expr::Value(ast::Value::Boolean(b))) => *b,
                             _ => false,
+                        };
+
+                        let script = match raw_options.remove("script") {
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => s.clone(),
+                            _ => String::new(),
+                        };
+
+                        let system = match raw_options.remove("system") {
+                            Some(Expr::Value(ast::Value::SingleQuotedString(s))) => s.clone(),
+                            _ => "Q".to_string(),
                         };
 
                         let flow_job = FlowJob {
@@ -329,10 +352,13 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             push_batch_size,
                             push_parallelism,
                             max_batch_size,
+                            sync_interval,
                             resync,
                             soft_delete_col_name,
                             synced_at_col_name,
-                            initial_copy_only,
+                            initial_snapshot_only: initial_copy_only,
+                            script,
+                            system,
                         };
 
                         if initial_copy_only && !do_initial_copy {
@@ -341,21 +367,21 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
 
                         Ok(Some(PeerDDL::CreateMirrorForCDC {
                             if_not_exists: *if_not_exists,
-                            flow_job,
+                            flow_job: Box::new(flow_job),
                         }))
                     }
                     Select(select) => {
                         let mut raw_options = HashMap::with_capacity(select.with_options.len());
                         for option in &select.with_options {
-                            raw_options.insert(&option.name.value as &str, &option.value);
+                            if let Expr::Value(ref value) = option.value {
+                                raw_options.insert(&option.name.value as &str, value);
+                            }
                         }
 
                         // we treat disabled as a special option, and do not pass it to the
                         // flow server, this is primarily used for external orchestration.
                         let mut disabled = false;
-                        if let Some(sqlparser::ast::Value::Boolean(b)) =
-                            raw_options.remove("disabled")
-                        {
+                        if let Some(ast::Value::Boolean(b)) = raw_options.remove("disabled") {
                             disabled = *b;
                         }
 
@@ -373,7 +399,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
 
                         Ok(Some(PeerDDL::CreateMirrorForSelect {
                             if_not_exists: *if_not_exists,
-                            qrep_flow_job,
+                            qrep_flow_job: Box::new(qrep_flow_job),
                         }))
                     }
                 }
@@ -406,7 +432,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                 }
 
                 let query_string = match raw_options.remove("query_string") {
-                    Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                    Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
                     _ => None,
                 };
 
@@ -463,12 +489,14 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
                 name, direction, ..
             } => {
                 let count = match direction {
+                    FetchDirection::ForwardAll | FetchDirection::All => usize::MAX,
+                    FetchDirection::Next | FetchDirection::Forward { limit: None } => 1,
                     FetchDirection::Count {
-                        limit: sqlparser::ast::Value::Number(n, _),
+                        limit: ast::Value::Number(n, _),
                     }
                     | FetchDirection::Forward {
-                        limit: Some(sqlparser::ast::Value::Number(n, _)),
-                    } => n.parse::<usize>(),
+                        limit: Some(ast::Value::Number(n, _)),
+                    } => n.parse::<usize>()?,
                     _ => {
                         return Err(anyhow::anyhow!(
                             "invalid fetch direction for cursor: {:?}",
@@ -476,11 +504,11 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
                         ))
                     }
                 };
-                Ok(Some(CursorEvent::Fetch(name.value.clone(), count?)))
+                Ok(Some(CursorEvent::Fetch(name.value.clone(), count)))
             }
             Statement::Close { cursor } => match cursor {
-                sqlparser::ast::CloseCursor::All => Ok(Some(CursorEvent::CloseAll)),
-                sqlparser::ast::CloseCursor::Specific { name } => {
+                ast::CloseCursor::All => Ok(Some(CursorEvent::CloseAll)),
+                ast::CloseCursor::Specific { name } => {
                     Ok(Some(CursorEvent::Close(name.to_string())))
                 }
             },
@@ -489,29 +517,20 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
     }
 }
 
-fn parse_db_options(
-    peers: &HashMap<String, Peer>,
-    db_type: DbType,
-    with_options: &[SqlOption],
-) -> anyhow::Result<Option<Config>> {
+fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Result<Option<Config>> {
     let mut opts: HashMap<&str, &str> = HashMap::with_capacity(with_options.len());
     for opt in with_options {
         let val = match opt.value {
-            sqlparser::ast::Value::SingleQuotedString(ref str) => str,
-            sqlparser::ast::Value::Number(ref v, _) => v,
-            sqlparser::ast::Value::Boolean(v) => {
-                if v {
-                    "true"
-                } else {
-                    "false"
-                }
-            }
+            Expr::Value(ast::Value::SingleQuotedString(ref str)) => str,
+            Expr::Value(ast::Value::Number(ref v, _)) => v,
+            Expr::Value(ast::Value::Boolean(true)) => "true",
+            Expr::Value(ast::Value::Boolean(false)) => "false",
             _ => panic!("invalid option type for peer"),
         };
         opts.insert(&opt.name.value, val);
     }
 
-    let config = match db_type {
+    Ok(Some(match db_type {
         DbType::Bigquery => {
             let pem_str = opts
                 .get("private_key")
@@ -565,8 +584,7 @@ fn parse_db_options(
                     .ok_or_else(|| anyhow::anyhow!("missing dataset_id in peer options"))?
                     .to_string(),
             };
-            let config = Config::BigqueryConfig(bq_config);
-            Some(config)
+            Config::BigqueryConfig(bq_config)
         }
         DbType::Snowflake => {
             let s3_int = opts
@@ -605,8 +623,7 @@ fn parse_db_options(
                 metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
                 s3_integration: s3_int,
             };
-            let config = Config::SnowflakeConfig(snowflake_config);
-            Some(config)
+            Config::SnowflakeConfig(snowflake_config)
         }
         DbType::Mongo => {
             let mongo_config = MongoConfig {
@@ -632,10 +649,22 @@ fn parse_db_options(
                     .parse::<i32>()
                     .context("unable to parse port as valid int")?,
             };
-            let config = Config::MongoConfig(mongo_config);
-            Some(config)
+            Config::MongoConfig(mongo_config)
         }
         DbType::Postgres => {
+            let ssh_fields: Option<SshConfig> = match opts.get("ssh_config") {
+                Some(ssh_config) => {
+                    let ssh_config_str = ssh_config.to_string();
+                    if ssh_config_str.is_empty() {
+                        None
+                    } else {
+                        serde_json::from_str(&ssh_config_str)
+                            .context("failed to deserialize ssh_config")?
+                    }
+                }
+                None => None,
+            };
+
             let postgres_config = PostgresConfig {
                 host: opts.get("host").context("no host specified")?.to_string(),
                 port: opts
@@ -657,57 +686,12 @@ fn parse_db_options(
                     .to_string(),
                 metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
                 transaction_snapshot: "".to_string(),
-                ssh_config: None,
+                ssh_config: ssh_fields,
             };
-            let config = Config::PostgresConfig(postgres_config);
-            Some(config)
-        }
-        DbType::Eventhub => {
-            let conn_str = opts.get("metadata_db");
-            let metadata_db = parse_metadata_db_info(conn_str.copied())?;
-            let subscription_id = opts
-                .get("subscription_id")
-                .map(|s| s.to_string())
-                .unwrap_or_default();
 
-            // partition_count default to 3 if not set, parse as int
-            let partition_count = opts
-                .get("partition_count")
-                .unwrap_or(&"3")
-                .parse::<u32>()
-                .context("unable to parse partition_count as valid int")?;
-
-            // message_retention_in_days default to 7 if not set, parse as int
-            let message_retention_in_days = opts
-                .get("message_retention_in_days")
-                .unwrap_or(&"7")
-                .parse::<u32>()
-                .context("unable to parse message_retention_in_days as valid int")?;
-
-            let eventhub_config = EventHubConfig {
-                namespace: opts
-                    .get("namespace")
-                    .context("no namespace specified")?
-                    .to_string(),
-                resource_group: opts
-                    .get("resource_group")
-                    .context("no resource group specified")?
-                    .to_string(),
-                location: opts
-                    .get("location")
-                    .context("location not specified")?
-                    .to_string(),
-                metadata_db,
-                subscription_id,
-                partition_count,
-                message_retention_in_days,
-            };
-            let config = Config::EventhubConfig(eventhub_config);
-            Some(config)
+            Config::PostgresConfig(postgres_config)
         }
         DbType::S3 => {
-            let s3_conn_str = opts.get("metadata_db");
-            let metadata_db = parse_metadata_db_info(s3_conn_str.copied())?;
             let s3_config = S3Config {
                 url: opts
                     .get("url")
@@ -718,10 +702,8 @@ fn parse_db_options(
                 region: opts.get("region").map(|s| s.to_string()),
                 role_arn: opts.get("role_arn").map(|s| s.to_string()),
                 endpoint: opts.get("endpoint").map(|s| s.to_string()),
-                metadata_db,
             };
-            let config = Config::S3Config(s3_config);
-            Some(config)
+            Config::S3Config(s3_config)
         }
         DbType::Sqlserver => {
             let port_str = opts.get("port").context("port not specified")?;
@@ -742,58 +724,9 @@ fn parse_db_options(
                     .context("database is not specified")?
                     .to_string(),
             };
-            let config = Config::SqlserverConfig(sqlserver_config);
-            Some(config)
-        }
-        DbType::EventhubGroup => {
-            let conn_str = opts.get("metadata_db");
-            let metadata_db = parse_metadata_db_info(conn_str.copied())?;
-
-            // split comma separated list of columns and trim
-            let unnest_columns = opts
-                .get("unnest_columns")
-                .map(|columns| {
-                    columns
-                        .split(',')
-                        .map(|column| column.trim().to_string())
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-
-            let mut eventhubs: HashMap<String, EventHubConfig> = HashMap::new();
-            for (key, _) in opts {
-                if matches!(key, "metadata_db" | "unnest_columns") {
-                    continue;
-                }
-
-                // check if peers contains key and if it does
-                // then add it to the eventhubs hashmap, if not error
-                if let Some(peer) = peers.get(key) {
-                    let eventhub_config = peer.config.as_ref().unwrap();
-                    if let Config::EventhubConfig(eventhub_config) = eventhub_config {
-                        eventhubs.insert(key.to_string(), eventhub_config.clone());
-                    } else {
-                        anyhow::bail!("Peer '{}' is not an eventhub", key);
-                    }
-                } else {
-                    anyhow::bail!("Peer '{}' does not exist", key);
-                }
-            }
-
-            let eventhub_group_config = pt::peerdb_peers::EventHubGroupConfig {
-                eventhubs,
-                metadata_db,
-                unnest_columns,
-            };
-            let config = Config::EventhubGroupConfig(eventhub_group_config);
-            Some(config)
+            Config::SqlserverConfig(sqlserver_config)
         }
         DbType::Clickhouse => {
-            let s3_int = opts
-                .get("s3_integration")
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-
             let clickhouse_config = ClickhouseConfig {
                 host: opts.get("host").context("no host specified")?.to_string(),
                 port: opts
@@ -813,51 +746,225 @@ fn parse_db_options(
                     .get("database")
                     .context("no default database specified")?
                     .to_string(),
-                s3_integration: s3_int,
+                s3_path: opts
+                    .get("s3_path")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
+                access_key_id: opts
+                    .get("access_key_id")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
+                secret_access_key: opts
+                    .get("secret_access_key")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
+                region: opts
+                    .get("region")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
+                disable_tls: opts
+                    .get("disable_tls")
+                    .map(|s| s.parse::<bool>().unwrap_or_default())
+                    .unwrap_or_default(),
+                endpoint: opts.get("endpoint").map(|s| s.to_string()),
             };
-            let config = Config::ClickhouseConfig(clickhouse_config);
-            Some(config)
+            Config::ClickhouseConfig(clickhouse_config)
         }
-    };
+        DbType::Kafka => {
+            let kafka_config = KafkaConfig {
+                servers: opts
+                    .get("servers")
+                    .context("no servers specified")?
+                    .split(',')
+                    .map(String::from)
+                    .collect::<Vec<_>>(),
+                username: opts.get("user").cloned().unwrap_or_default().to_string(),
+                password: opts
+                    .get("password")
+                    .cloned()
+                    .unwrap_or_default()
+                    .to_string(),
+                sasl: opts
+                    .get("sasl_mechanism")
+                    .cloned()
+                    .unwrap_or_default()
+                    .to_string(),
+                partitioner: opts
+                    .get("sasl_mechanism")
+                    .cloned()
+                    .unwrap_or_default()
+                    .to_string(),
+                disable_tls: opts
+                    .get("disable_tls")
+                    .and_then(|s| s.parse::<bool>().ok())
+                    .unwrap_or_default(),
+            };
+            Config::KafkaConfig(kafka_config)
+        }
+        DbType::Pubsub => {
+            let pem_str = opts
+                .get("private_key")
+                .ok_or_else(|| anyhow::anyhow!("missing private_key option for bigquery"))?;
+            pem::parse(pem_str.as_bytes())
+                .map_err(|err| anyhow::anyhow!("unable to parse private_key: {:?}", err))?;
+            let ps_config = PubSubConfig {
+                service_account: Some(GcpServiceAccount {
+                    auth_type: opts
+                        .get("type")
+                        .ok_or_else(|| anyhow::anyhow!("missing type option for bigquery"))?
+                        .to_string(),
+                    project_id: opts
+                        .get("project_id")
+                        .ok_or_else(|| anyhow::anyhow!("missing project_id in peer options"))?
+                        .to_string(),
+                    private_key_id: opts
+                        .get("private_key_id")
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("missing private_key_id option for bigquery")
+                        })?
+                        .to_string(),
+                    private_key: pem_str.to_string(),
+                    client_email: opts
+                        .get("client_email")
+                        .ok_or_else(|| anyhow::anyhow!("missing client_email option for bigquery"))?
+                        .to_string(),
+                    client_id: opts
+                        .get("client_id")
+                        .ok_or_else(|| anyhow::anyhow!("missing client_id option for bigquery"))?
+                        .to_string(),
+                    auth_uri: opts
+                        .get("auth_uri")
+                        .ok_or_else(|| anyhow::anyhow!("missing auth_uri option for bigquery"))?
+                        .to_string(),
+                    token_uri: opts
+                        .get("token_uri")
+                        .ok_or_else(|| anyhow::anyhow!("missing token_uri option for bigquery"))?
+                        .to_string(),
+                    auth_provider_x509_cert_url: opts
+                        .get("auth_provider_x509_cert_url")
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "missing auth_provider_x509_cert_url option for bigquery"
+                            )
+                        })?
+                        .to_string(),
+                    client_x509_cert_url: opts
+                        .get("client_x509_cert_url")
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("missing client_x509_cert_url option for bigquery")
+                        })?
+                        .to_string(),
+                }),
+            };
+            Config::PubsubConfig(ps_config)
+        }
+        DbType::Eventhubs => {
+            let unnest_columns = opts
+                .get("unnest_columns")
+                .map(|columns| {
+                    columns
+                        .split(',')
+                        .map(|column| column.trim().to_string())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
 
-    Ok(config)
-}
+            let eventhubs: Vec<EventHubConfig> = serde_json::from_str(
+                opts.get("eventhubs")
+                    .context("no eventhubs specified")?
+                    .to_string()
+                    .as_str(),
+            )
+            .context("unable to parse eventhubs as valid json")?;
 
-fn parse_metadata_db_info(conn_str: Option<&str>) -> anyhow::Result<Option<PostgresConfig>> {
-    let conn_str = match conn_str {
-        Some(conn_str) => conn_str,
-        None => return Ok(None),
-    };
+            let mut eventhubs_map: HashMap<String, EventHubConfig> = HashMap::new();
+            for eventhub in eventhubs {
+                eventhubs_map.insert(eventhub.namespace.clone(), eventhub);
+            }
 
-    if conn_str.is_empty() {
-        return Ok(None);
-    }
+            let eventhub_group_config = pt::peerdb_peers::EventHubGroupConfig {
+                eventhubs: eventhubs_map,
+                unnest_columns,
+            };
 
-    let mut metadata_db = PostgresConfig::default();
-    let param_pairs: Vec<&str> = conn_str.split_whitespace().collect();
-    match param_pairs.len() {
-                5 => Ok(true),
-                _ => Err(anyhow::Error::msg("Invalid connection string. Check formatting and if the required parameters have been specified.")),
-            }?;
+            Config::EventhubGroupConfig(eventhub_group_config)
+        }
+        DbType::Elasticsearch => {
+            let addresses = opts
+                .get("addresses")
+                .map(|columns| {
+                    columns
+                        .split(',')
+                        .map(|column| column.trim().to_string())
+                        .collect::<Vec<_>>()
+                })
+                .ok_or_else(|| anyhow::anyhow!("missing connection addresses for Elasticsearch"))?;
 
-    for pair in param_pairs {
-        let key_value: Vec<&str> = pair.trim().split('=').collect();
-        match key_value.len() {
-            2 => Ok(true),
-            _ => Err(anyhow::Error::msg(
-                "Invalid config setting for PG. Check the formatting",
-            )),
-        }?;
-        let value = key_value[1].to_string();
-        match key_value[0] {
-            "host" => metadata_db.host = value,
-            "port" => metadata_db.port = value.parse().context("Invalid PG Port")?,
-            "database" => metadata_db.database = value,
-            "user" => metadata_db.user = value,
-            "password" => metadata_db.password = value,
-            _ => (),
-        };
-    }
-
-    Ok(Some(metadata_db))
+            // either basic auth or API key auth, not both
+            let api_key = opts.get("api_key").map(|s| s.to_string());
+            let username = opts.get("username").map(|s| s.to_string());
+            let password = opts.get("password").map(|s| s.to_string());
+            if api_key.is_some() {
+                if username.is_some() || password.is_some() {
+                    return Err(anyhow::anyhow!(
+                        "both API key auth and basic auth specified"
+                    ));
+                }
+                Config::ElasticsearchConfig(pt::peerdb_peers::ElasticsearchConfig {
+                    addresses,
+                    auth_type: pt::peerdb_peers::ElasticsearchAuthType::Apikey.into(),
+                    username: None,
+                    password: None,
+                    api_key,
+                })
+            } else if username.is_some() && password.is_some() {
+                Config::ElasticsearchConfig(pt::peerdb_peers::ElasticsearchConfig {
+                    addresses,
+                    auth_type: pt::peerdb_peers::ElasticsearchAuthType::Basic.into(),
+                    username,
+                    password,
+                    api_key: None,
+                })
+            } else {
+                Config::ElasticsearchConfig(pt::peerdb_peers::ElasticsearchConfig {
+                    addresses,
+                    auth_type: pt::peerdb_peers::ElasticsearchAuthType::None.into(),
+                    username: None,
+                    password: None,
+                    api_key: None,
+                })
+            }
+        }
+        DbType::Mysql => Config::MysqlConfig(pt::peerdb_peers::MySqlConfig {
+            host: opts.get("host").context("no host specified")?.to_string(),
+            port: opts
+                .get("port")
+                .context("no port specified")?
+                .parse::<u32>()
+                .context("unable to parse port as valid int")?,
+            user: opts.get("user").cloned().unwrap_or_default().to_string(),
+            password: opts
+                .get("password")
+                .cloned()
+                .unwrap_or_default()
+                .to_string(),
+            database: opts
+                .get("database")
+                .cloned()
+                .unwrap_or_default()
+                .to_string(),
+            setup: opts
+                .get("setup")
+                .map(|s| s.split(';').map(String::from).collect::<Vec<_>>())
+                .unwrap_or_default(),
+            compression: opts
+                .get("compression")
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or_default(),
+            disable_tls: opts
+                .get("disable_tls")
+                .and_then(|s| s.parse::<bool>().ok())
+                .unwrap_or_default(),
+        }),
+    }))
 }

@@ -1,8 +1,8 @@
 use catalog::WorkflowDetails;
 use pt::{
     flow_model::{FlowJob, QRepFlowJob},
-    peerdb_flow::{QRepWriteMode, QRepWriteType},
-    peerdb_route,
+    peerdb_flow::{QRepWriteMode, QRepWriteType, TypeSystem},
+    peerdb_route, tonic,
 };
 use serde_json::Value;
 use tonic_health::pb::health_client;
@@ -51,7 +51,7 @@ impl FlowGrpcClient {
             create_catalog_entry: false,
         };
         let response = self.client.create_q_rep_flow(create_qrep_flow_req).await?;
-        let workflow_id = response.into_inner().worflow_id;
+        let workflow_id = response.into_inner().workflow_id;
         Ok(workflow_id)
     }
 
@@ -79,10 +79,9 @@ impl FlowGrpcClient {
     ) -> anyhow::Result<String> {
         let create_peer_flow_req = pt::peerdb_route::CreateCdcFlowRequest {
             connection_configs: Some(peer_flow_config),
-            create_catalog_entry: false,
         };
         let response = self.client.create_cdc_flow(create_peer_flow_req).await?;
-        let workflow_id = response.into_inner().worflow_id;
+        let workflow_id = response.into_inner().workflow_id;
         Ok(workflow_id)
     }
 
@@ -107,13 +106,14 @@ impl FlowGrpcClient {
         flow_job_name: &str,
         workflow_details: WorkflowDetails,
         state: pt::peerdb_flow::FlowStatus,
+        flow_config_update: Option<pt::peerdb_flow::FlowConfigUpdate>,
     ) -> anyhow::Result<()> {
         let state_change_req = pt::peerdb_route::FlowStateChangeRequest {
             flow_job_name: flow_job_name.to_owned(),
             requested_flow_state: state.into(),
             source_peer: Some(workflow_details.source_peer),
             destination_peer: Some(workflow_details.destination_peer),
-            flow_state_update: None,
+            flow_config_update,
         };
         let response = self.client.flow_state_change(state_change_req).await?;
         let state_change_response = response.into_inner();
@@ -133,45 +133,49 @@ impl FlowGrpcClient {
         src: pt::peerdb_peers::Peer,
         dst: pt::peerdb_peers::Peer,
     ) -> anyhow::Result<String> {
-        let mut table_mappings: Vec<pt::peerdb_flow::TableMapping> = vec![];
-        job.table_mappings.iter().for_each(|mapping| {
-            table_mappings.push(pt::peerdb_flow::TableMapping {
+        let table_mappings: Vec<pt::peerdb_flow::TableMapping> = job
+            .table_mappings
+            .iter()
+            .map(|mapping| pt::peerdb_flow::TableMapping {
                 source_table_identifier: mapping.source_table_identifier.clone(),
                 destination_table_identifier: mapping.destination_table_identifier.clone(),
                 partition_key: mapping.partition_key.clone().unwrap_or_default(),
                 exclude: mapping.exclude.clone(),
-            });
-        });
+            })
+            .collect::<Vec<_>>();
 
-        let do_initial_copy = job.do_initial_copy;
+        let do_initial_snapshot = job.do_initial_copy;
         let publication_name = job.publication_name.clone();
         let replication_slot_name = job.replication_slot_name.clone();
         let snapshot_num_rows_per_partition = job.snapshot_num_rows_per_partition;
         let snapshot_max_parallel_workers = job.snapshot_max_parallel_workers;
         let snapshot_num_tables_in_parallel = job.snapshot_num_tables_in_parallel;
+        let Some(system) = TypeSystem::from_str_name(&job.system) else {
+            return anyhow::Result::Err(anyhow::anyhow!("invalid system {}", job.system));
+        };
 
         let flow_conn_cfg = pt::peerdb_flow::FlowConnectionConfigs {
             source: Some(src),
             destination: Some(dst),
             flow_job_name: job.name.clone(),
             table_mappings,
-            do_initial_copy,
+            do_initial_snapshot,
             publication_name: publication_name.unwrap_or_default(),
             snapshot_num_rows_per_partition: snapshot_num_rows_per_partition.unwrap_or(0),
             snapshot_max_parallel_workers: snapshot_max_parallel_workers.unwrap_or(0),
             snapshot_num_tables_in_parallel: snapshot_num_tables_in_parallel.unwrap_or(0),
-            snapshot_staging_path: job.snapshot_staging_path.clone().unwrap_or_default(),
+            snapshot_staging_path: job.snapshot_staging_path.clone(),
             cdc_staging_path: job.cdc_staging_path.clone().unwrap_or_default(),
             soft_delete: job.soft_delete,
             replication_slot_name: replication_slot_name.unwrap_or_default(),
-            push_batch_size: job.push_batch_size.unwrap_or_default(),
-            push_parallelism: job.push_parallelism.unwrap_or_default(),
             max_batch_size: job.max_batch_size.unwrap_or_default(),
             resync: job.resync,
             soft_delete_col_name: job.soft_delete_col_name.clone().unwrap_or_default(),
             synced_at_col_name: job.synced_at_col_name.clone().unwrap_or_default(),
-            initial_copy_only: job.initial_copy_only,
-            ..Default::default()
+            initial_snapshot_only: job.initial_snapshot_only,
+            script: job.script.clone(),
+            system: system as i32,
+            idle_timeout_seconds: job.sync_interval.unwrap_or_default(),
         };
 
         self.start_peer_flow(flow_conn_cfg).await
@@ -194,9 +198,9 @@ impl FlowGrpcClient {
         for (key, value) in &job.flow_options {
             match value {
                 Value::String(s) => match key.as_str() {
-                    "destination_table_name" => cfg.destination_table_identifier = s.clone(),
-                    "watermark_column" => cfg.watermark_column = s.clone(),
-                    "watermark_table_name" => cfg.watermark_table = s.clone(),
+                    "destination_table_name" => cfg.destination_table_identifier.clone_from(s),
+                    "watermark_column" => cfg.watermark_column.clone_from(s),
+                    "watermark_table_name" => cfg.watermark_table.clone_from(s),
                     "mode" => {
                         let mut wm = QRepWriteMode {
                             write_type: QRepWriteType::QrepWriteModeAppend as i32,
@@ -224,7 +228,7 @@ impl FlowGrpcClient {
                             _ => return anyhow::Result::Err(anyhow::anyhow!("invalid mode {}", s)),
                         }
                     }
-                    "staging_path" => cfg.staging_path = s.clone(),
+                    "staging_path" => cfg.staging_path.clone_from(s),
                     _ => return anyhow::Result::Err(anyhow::anyhow!("invalid str option {}", key)),
                 },
                 Value::Number(n) => match key.as_str() {

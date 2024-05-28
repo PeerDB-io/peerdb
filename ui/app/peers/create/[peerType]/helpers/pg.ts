@@ -6,13 +6,13 @@ export const postgresSetting: PeerSetting[] = [
   {
     label: 'Host',
     stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, host: value })),
+      setter((curr) => ({ ...curr, host: value as string })),
     tips: 'Specifies the IP host name or address on which postgres is to listen for TCP/IP connections from client applications. Ensure that this host has us whitelisted so we can connect to it.',
   },
   {
     label: 'Port',
     stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, port: parseInt(value, 10) })),
+      setter((curr) => ({ ...curr, port: parseInt(value as string, 10) })),
     type: 'number', // type for textfield
     default: 5432,
     tips: 'Specifies the TCP/IP port or local Unix domain socket file extension on which postgres is listening for connections from client applications.',
@@ -20,14 +20,14 @@ export const postgresSetting: PeerSetting[] = [
   {
     label: 'User',
     stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, user: value })),
+      setter((curr) => ({ ...curr, user: value as string })),
     tips: 'Specify the user that we should use to connect to this host.',
     helpfulLink: 'https://www.postgresql.org/docs/8.0/user-manag.html',
   },
   {
     label: 'Password',
     stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, password: value })),
+      setter((curr) => ({ ...curr, password: value as string })),
     type: 'password',
     tips: 'Password associated with the user you provided.',
     helpfulLink: 'https://www.postgresql.org/docs/current/auth-password.html',
@@ -35,26 +35,29 @@ export const postgresSetting: PeerSetting[] = [
   {
     label: 'Database',
     stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, database: value })),
+      setter((curr) => ({ ...curr, database: value as string })),
     tips: 'Specify which database to associate with this peer.',
     helpfulLink:
       'https://www.postgresql.org/docs/current/sql-createdatabase.html',
   },
-  {
-    label: 'Transaction Snapshot',
-    stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, transactionSnapshot: value })),
-    optional: true,
-    tips: 'This is optional and only needed if this peer is part of any query replication mirror.',
-  },
 ];
 
-type sshSetter = Dispatch<SetStateAction<SSHConfig>>;
-export const sshSetting = [
+export type sshSetter = Dispatch<SetStateAction<SSHConfig>>;
+export interface SSHSetting {
+  label: string;
+  stateHandler: (value: string, setter: sshSetter) => void;
+  type?: string;
+  optional?: boolean;
+  tips?: string;
+  helpfulLink?: string;
+  default?: string | number;
+}
+
+export const sshSetting: SSHSetting[] = [
   {
     label: 'Host',
     stateHandler: (value: string, setter: sshSetter) =>
-      setter((curr: SSHConfig) => ({ ...curr, host: value })),
+      setter((curr: SSHConfig) => ({ ...curr, host: value as string })),
     tips: 'Specifies the IP host name or address of your instance.',
   },
   {
@@ -68,23 +71,32 @@ export const sshSetting = [
   {
     label: 'User',
     stateHandler: (value: string, setter: sshSetter) =>
-      setter((curr) => ({ ...curr, user: value })),
+      setter((curr) => ({ ...curr, user: value as string })),
     tips: 'Specify the user that we should use to connect to this host.',
   },
   {
     label: 'Password',
     stateHandler: (value: string, setter: sshSetter) =>
-      setter((curr) => ({ ...curr, password: value })),
+      setter((curr) => ({ ...curr, password: value as string })),
     type: 'password',
     optional: true,
     tips: 'Password associated with the user you provided.',
   },
   {
-    label: 'BASE64 Private Key',
+    label: 'SSH Private Key',
     stateHandler: (value: string, setter: sshSetter) =>
-      setter((curr) => ({ ...curr, privateKey: value })),
+      setter((curr) => ({ ...curr, privateKey: value as string })),
     optional: true,
-    tips: 'Private key as a BASE64 string for authentication in order to SSH into your machine.',
+    type: 'file',
+    tips: 'Private key for authentication in order to SSH into your machine.',
+  },
+  {
+    label: "Host's Public Key",
+    stateHandler: (value: string, setter: sshSetter) =>
+      setter((curr) => ({ ...curr, hostKey: value as string })),
+    optional: true,
+    type: 'textarea',
+    tips: 'Public key of host to mitigate MITM attacks when SSHing into your machine. It generally resides at /etc/ssh/ssh_host_[algo]_key.pub',
   },
 ];
 
@@ -94,6 +106,7 @@ export const blankSSHConfig: SSHConfig = {
   user: '',
   password: '',
   privateKey: '',
+  hostKey: '',
 };
 
 export const blankPostgresSetting: PostgresConfig = {

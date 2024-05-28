@@ -8,7 +8,7 @@ import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 export async function POST(request: Request) {
   const body = await request.json();
   const { config } = body;
-  console.log('/qrep/post config:', config);
+
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
   const req: CreateQRepFlowRequest = {
     qrepConfig: config,
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
       return res.json();
     });
     let response: UCreateMirrorResponse = {
-      created: !!createStatus.worflowId,
+      created: !!createStatus.workflowId,
     };
 
     return new Response(JSON.stringify(response));

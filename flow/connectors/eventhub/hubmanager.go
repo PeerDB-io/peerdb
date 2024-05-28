@@ -12,15 +12,17 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub"
+	cmap "github.com/orcaman/concurrent-map/v2"
+
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	cmap "github.com/orcaman/concurrent-map/v2"
+	"github.com/PeerDB-io/peer-flow/logger"
 )
 
 type EventHubManager struct {
 	creds *azidentity.DefaultAzureCredential
-	// eventhub peer name -> config
-	peerConfig cmap.ConcurrentMap[string, *protos.EventHubConfig]
+	// eventhub namespace name -> config
+	namespaceToEventhubMap cmap.ConcurrentMap[string, *protos.EventHubConfig]
 	// eventhub name -> client
 	hubs sync.Map
 }
@@ -29,22 +31,22 @@ func NewEventHubManager(
 	creds *azidentity.DefaultAzureCredential,
 	groupConfig *protos.EventHubGroupConfig,
 ) *EventHubManager {
-	peerConfig := cmap.New[*protos.EventHubConfig]()
+	namespaceToEventhubMap := cmap.New[*protos.EventHubConfig]()
 
 	for name, config := range groupConfig.Eventhubs {
-		peerConfig.Set(name, config)
+		namespaceToEventhubMap.Set(name, config)
 	}
 
 	return &EventHubManager{
-		creds:      creds,
-		peerConfig: peerConfig,
+		creds:                  creds,
+		namespaceToEventhubMap: namespaceToEventhubMap,
 	}
 }
 
 func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedEventhub) (
 	*azeventhubs.ProducerClient, error,
 ) {
-	ehConfig, ok := m.peerConfig.Get(name.PeerName)
+	ehConfig, ok := m.namespaceToEventhubMap.Get(name.NamespaceName)
 	if !ok {
 		return nil, fmt.Errorf("eventhub '%s' not configured", name.Eventhub)
 	}
@@ -53,7 +55,7 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 	// if the namespace isn't fully qualified, add the `.servicebus.windows.net`
 	// check by counting the number of '.' in the namespace
 	if strings.Count(namespace, ".") < 2 {
-		namespace = fmt.Sprintf("%s.servicebus.windows.net", namespace)
+		namespace += ".servicebus.windows.net"
 	}
 
 	var hubConnectOK bool
@@ -63,12 +65,13 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 		hubTmp := hub.(*azeventhubs.ProducerClient)
 		_, err := hubTmp.GetEventHubProperties(ctx, nil)
 		if err != nil {
-			slog.Info(fmt.Sprintf("eventhub %s", name)+
-				"not reachable. Will re-establish connection and re-create it.",
+			logger := logger.LoggerFromCtx(ctx)
+			logger.Info(
+				fmt.Sprintf("eventhub %s not reachable. Will re-establish connection and re-create it.", name),
 				slog.Any("error", err))
 			closeError := m.closeProducerClient(ctx, hubTmp)
 			if closeError != nil {
-				slog.Error("failed to close producer client", slog.Any("error", closeError))
+				logger.Error("failed to close producer client", slog.Any("error", closeError))
 			}
 			m.hubs.Delete(name)
 			hubConnectOK = false
@@ -103,13 +106,12 @@ func (m *EventHubManager) closeProducerClient(ctx context.Context, pc *azeventhu
 
 func (m *EventHubManager) Close(ctx context.Context) error {
 	var allErrors error
-
 	m.hubs.Range(func(key any, value any) bool {
 		name := key.(ScopedEventhub)
 		hub := value.(*azeventhubs.ProducerClient)
 		err := m.closeProducerClient(ctx, hub)
 		if err != nil {
-			slog.Error(fmt.Sprintf("failed to close eventhub client for %v", name), slog.Any("error", err))
+			logger.LoggerFromCtx(ctx).Error(fmt.Sprintf("failed to close eventhub client for %v", name), slog.Any("error", err))
 			allErrors = errors.Join(allErrors, err)
 		}
 		return true
@@ -142,9 +144,9 @@ func (m *EventHubManager) CreateEventDataBatch(ctx context.Context, destination 
 
 // EnsureEventHubExists ensures that the eventhub exists.
 func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedEventhub) error {
-	cfg, ok := m.peerConfig.Get(name.PeerName)
+	cfg, ok := m.namespaceToEventhubMap.Get(name.NamespaceName)
 	if !ok {
-		return fmt.Errorf("eventhub peer '%s' not configured", name.PeerName)
+		return fmt.Errorf("eventhub namespace '%s' not registered", name.NamespaceName)
 	}
 
 	hubClient, err := m.getEventHubMgmtClient(cfg.SubscriptionId)
@@ -159,6 +161,7 @@ func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedE
 
 	partitionCount := int64(cfg.PartitionCount)
 	retention := int64(cfg.MessageRetentionInDays)
+	logger := logger.LoggerFromCtx(ctx)
 	if err != nil {
 		opts := armeventhub.Eventhub{
 			Properties: &armeventhub.Properties{
@@ -173,9 +176,9 @@ func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedE
 			return err
 		}
 
-		slog.Info("event hub created", slog.Any("name", name))
+		logger.Info("event hub created", slog.Any("name", name))
 	} else {
-		slog.Info("event hub exists already", slog.Any("name", name))
+		logger.Info("event hub exists already", slog.Any("name", name))
 	}
 
 	return nil

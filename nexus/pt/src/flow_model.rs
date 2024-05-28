@@ -12,43 +12,6 @@ pub struct FlowJobTableMapping {
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
-pub enum FlowSyncMode {
-    Avro,
-    SQL,
-}
-
-impl FlowSyncMode {
-    pub fn parse_string(s: &str) -> Result<FlowSyncMode, String> {
-        match s {
-            "avro" => Ok(FlowSyncMode::Avro),
-            "sql" => Ok(FlowSyncMode::SQL),
-            _ => Err(format!("{} is not a valid FlowSyncMode", s)),
-        }
-    }
-}
-
-impl std::str::FromStr for FlowSyncMode {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "avro" => Ok(FlowSyncMode::Avro),
-            "default" => Ok(FlowSyncMode::SQL),
-            _ => Err(format!("{} is not a valid FlowSyncMode", s)),
-        }
-    }
-}
-
-impl ToString for FlowSyncMode {
-    fn to_string(&self) -> String {
-        match self {
-            FlowSyncMode::Avro => "avro".to_string(),
-            FlowSyncMode::SQL => "default".to_string(),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub struct FlowJob {
     pub name: String,
     pub source_peer: String,
@@ -60,17 +23,20 @@ pub struct FlowJob {
     pub snapshot_num_rows_per_partition: Option<u32>,
     pub snapshot_max_parallel_workers: Option<u32>,
     pub snapshot_num_tables_in_parallel: Option<u32>,
-    pub snapshot_staging_path: Option<String>,
+    pub snapshot_staging_path: String,
     pub cdc_staging_path: Option<String>,
     pub soft_delete: bool,
     pub replication_slot_name: Option<String>,
     pub push_parallelism: Option<i64>,
     pub push_batch_size: Option<i64>,
     pub max_batch_size: Option<u32>,
+    pub sync_interval: Option<u64>,
     pub resync: bool,
     pub soft_delete_col_name: Option<String>,
     pub synced_at_col_name: Option<String>,
-    pub initial_copy_only: bool,
+    pub initial_snapshot_only: bool,
+    pub script: String,
+    pub system: String,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	azeventhubs "github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
+
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -28,7 +30,7 @@ func NewHubBatches(manager *EventHubManager) *HubBatches {
 func (h *HubBatches) AddEvent(
 	ctx context.Context,
 	destination ScopedEventhub,
-	event string,
+	event *azeventhubs.EventData,
 	// this is true when we are retrying to send the event after the batch size exceeded
 	// this should initially be false, and then true when we are retrying.
 	retryForBatchSizeExceed bool,
@@ -43,7 +45,7 @@ func (h *HubBatches) AddEvent(
 		h.batch[destination] = batch
 	}
 
-	err := tryAddEventToBatch(event, batch)
+	err := batch.AddEventData(event, nil)
 	if err == nil {
 		// we successfully added the event to the batch, so we're done.
 		return nil
@@ -104,8 +106,8 @@ func (h *HubBatches) sendBatch(
 		return err
 	}
 
-	slog.InfoContext(ctx, "sendBatch",
-		slog.Int("events sent", int(events.NumEvents())), slog.String("event hub topic ", tblName.ToString()))
+	logger.LoggerFromCtx(ctx).Info("sendBatch",
+		slog.Int("events sent", int(events.NumEvents())), slog.String("event hub topic", tblName.ToString()))
 	return nil
 }
 
@@ -113,8 +115,9 @@ func (h *HubBatches) flushAllBatches(
 	ctx context.Context,
 	flowName string,
 ) error {
+	logger := logger.LoggerFromCtx(ctx)
 	if h.Len() == 0 {
-		slog.Info("no events to send", slog.String(string(shared.FlowNameKey), flowName))
+		logger.Info("no events to send", slog.String(string(shared.FlowNameKey), flowName))
 		return nil
 	}
 
@@ -131,7 +134,7 @@ func (h *HubBatches) flushAllBatches(
 			}
 
 			numEventsPushed.Add(numEvents)
-			slog.Info("flushAllBatches",
+			logger.Info("flushAllBatches",
 				slog.String(string(shared.FlowNameKey), flowName),
 				slog.Int("events sent", int(numEvents)),
 				slog.String("event hub topic ", destination.ToString()))
@@ -143,7 +146,7 @@ func (h *HubBatches) flushAllBatches(
 	if err != nil {
 		return fmt.Errorf("failed to flushAllBatches: %v", err)
 	}
-	slog.Info("hub batches flush",
+	logger.Info("hub batches flush",
 		slog.String(string(shared.FlowNameKey), flowName),
 		slog.Int("events sent", int(numEventsPushed.Load())))
 
@@ -153,17 +156,5 @@ func (h *HubBatches) flushAllBatches(
 
 // Clear removes all batches from the HubBatches
 func (h *HubBatches) Clear() {
-	h.batch = make(map[ScopedEventhub]*azeventhubs.EventDataBatch)
-}
-
-func tryAddEventToBatch(event string, batch *azeventhubs.EventDataBatch) error {
-	eventData := eventDataFromString(event)
-	opts := &azeventhubs.AddEventDataOptions{}
-	return batch.AddEventData(eventData, opts)
-}
-
-func eventDataFromString(s string) *azeventhubs.EventData {
-	return &azeventhubs.EventData{
-		Body: []byte(s),
-	}
+	clear(h.batch)
 }

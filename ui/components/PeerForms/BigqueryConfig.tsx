@@ -29,7 +29,7 @@ export default function BigqueryForm(props: BQProps) {
           return;
         }
         const bqConfig: BigqueryConfig = {
-          authType: bqJson.type,
+          authType: bqJson.type ?? bqJson.auth_type,
           projectId: bqJson.project_id,
           privateKeyId: bqJson.private_key_id,
           privateKey: bqJson.private_key,
@@ -55,13 +55,13 @@ export default function BigqueryForm(props: BQProps) {
         A service account JSON file in BigQuery is a file that contains
         information which allows PeerDB to securely access BigQuery resources.
       </Label>
-      <Label
-        as={Link}
+      <Link
         style={{ color: 'teal', textDecoration: 'underline' }}
         href='https://cloud.google.com/bigquery/docs/authentication/service-account-file'
+        target='_blank'
       >
         Creating a service account file
-      </Label>
+      </Link>
       <RowWithTextField
         label={
           <Label>

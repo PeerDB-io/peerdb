@@ -33,6 +33,9 @@ pub enum NexusStatement {
         stmt: Statement,
         cursor: CursorEvent,
     },
+    Rollback {
+        stmt: Statement,
+    },
     Empty,
 }
 
@@ -41,16 +44,13 @@ impl NexusStatement {
         peers: HashMap<String, pt::peerdb_peers::Peer>,
         stmt: &Statement,
     ) -> PgWireResult<Self> {
-        let ddl = {
-            let pdl: PeerDDLAnalyzer = PeerDDLAnalyzer::new(&peers);
-            pdl.analyze(stmt).map_err(|e| {
-                PgWireError::UserError(Box::new(ErrorInfo::new(
-                    "ERROR".to_owned(),
-                    "internal_error".to_owned(),
-                    e.to_string(),
-                )))
-            })
-        }?;
+        let ddl = PeerDDLAnalyzer.analyze(stmt).map_err(|e| {
+            PgWireError::UserError(Box::new(ErrorInfo::new(
+                "ERROR".to_owned(),
+                "internal_error".to_owned(),
+                e.to_string(),
+            )))
+        })?;
 
         if let Some(ddl) = ddl {
             return Ok(NexusStatement::PeerDDL {
@@ -59,8 +59,7 @@ impl NexusStatement {
             });
         }
 
-        let peer_cursor: PeerCursorAnalyzer = Default::default();
-        if let Ok(Some(cursor)) = peer_cursor.analyze(stmt) {
+        if let Ok(Some(cursor)) = PeerCursorAnalyzer.analyze(stmt) {
             return Ok(NexusStatement::PeerCursor {
                 stmt: stmt.clone(),
                 cursor,
@@ -126,12 +125,19 @@ impl NexusQueryParser {
             })
         } else {
             let stmt = stmts.remove(0);
-            let peers = self.get_peers_bridge().await?;
-            let nexus_stmt = NexusStatement::new(peers, &stmt)?;
-            Ok(NexusParsedStatement {
-                statement: nexus_stmt,
-                query: sql.to_owned(),
-            })
+            if matches!(stmt, Statement::Rollback { .. }) {
+                Ok(NexusParsedStatement {
+                    statement: NexusStatement::Rollback { stmt },
+                    query: sql.to_owned(),
+                })
+            } else {
+                let peers = self.get_peers_bridge().await?;
+                let nexus_stmt = NexusStatement::new(peers, &stmt)?;
+                Ok(NexusParsedStatement {
+                    statement: nexus_stmt,
+                    query: sql.to_owned(),
+                })
+            }
         }
     }
 }

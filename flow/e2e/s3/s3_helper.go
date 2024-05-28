@@ -4,16 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 const (
@@ -21,7 +22,7 @@ const (
 )
 
 type S3TestHelper struct {
-	client     *s3.S3
+	client     *s3.Client
 	s3Config   *protos.S3Config
 	bucketName string
 	prefix     string
@@ -49,7 +50,19 @@ func NewS3TestHelper(switchToGCS bool) (*S3TestHelper, error) {
 	if switchToGCS {
 		endpoint = "https://storage.googleapis.com"
 	}
-	client, err := utils.CreateS3Client(config)
+	var endpointUrlPtr *string
+	if endpoint != "" {
+		endpointUrlPtr = &endpoint
+	}
+	provider := utils.NewStaticAWSCredentialsProvider(utils.AWSCredentials{
+		AWS: aws.Credentials{
+			AccessKeyID:     config.AccessKeyID,
+			SecretAccessKey: config.SecretAccessKey,
+			SessionToken:    config.SessionToken,
+		},
+		EndpointUrl: endpointUrlPtr,
+	}, config.Region)
+	client, err := utils.CreateS3Client(context.Background(), provider)
 	if err != nil {
 		return nil, err
 	}
@@ -61,14 +74,7 @@ func NewS3TestHelper(switchToGCS bool) (*S3TestHelper, error) {
 			AccessKeyId:     &config.AccessKeyID,
 			SecretAccessKey: &config.SecretAccessKey,
 			Region:          &config.Region,
-			Endpoint:        &endpoint,
-			MetadataDb: &protos.PostgresConfig{
-				Host:     "localhost",
-				Port:     7132,
-				Password: "postgres",
-				User:     "postgres",
-				Database: "postgres",
-			},
+			Endpoint:        endpointUrlPtr,
 		},
 		bucketName,
 		prefix,
@@ -90,47 +96,43 @@ func (h *S3TestHelper) GetPeer() *protos.Peer {
 func (h *S3TestHelper) ListAllFiles(
 	ctx context.Context,
 	jobName string,
-) ([]*s3.Object, error) {
+) ([]s3types.Object, error) {
 	Bucket := h.bucketName
 	Prefix := fmt.Sprintf("%s/%s/", h.prefix, jobName)
-	files, err := h.client.ListObjects(&s3.ListObjectsInput{
+	files, err := h.client.ListObjects(ctx, &s3.ListObjectsInput{
 		Bucket: &Bucket,
 		Prefix: &Prefix,
 	})
 	if err != nil {
-		slog.Error("failed to list bucket files", slog.Any("error", err))
 		return nil, err
 	}
-	slog.Info(fmt.Sprintf("Files in ListAllFiles in S3 test: %v", files))
 	return files.Contents, nil
 }
 
 // Delete all generated objects during the test
-func (h *S3TestHelper) CleanUp() error {
+func (h *S3TestHelper) CleanUp(ctx context.Context) error {
 	Bucket := h.bucketName
 	Prefix := h.prefix
-	files, err := h.client.ListObjects(&s3.ListObjectsInput{
+	files, err := h.client.ListObjects(ctx, &s3.ListObjectsInput{
 		Bucket: &Bucket,
 		Prefix: &Prefix,
 	})
 	if err != nil {
-		slog.Error("failed to list bucket files", slog.Any("error", err))
 		return err
 	}
 
 	// Delete each object
 	for _, obj := range files.Contents {
 		deleteInput := &s3.DeleteObjectInput{
-			Bucket: aws.String(Bucket),
+			Bucket: &Bucket,
 			Key:    obj.Key,
 		}
 
-		_, err := h.client.DeleteObject(deleteInput)
+		_, err := h.client.DeleteObject(ctx, deleteInput)
 		if err != nil {
 			return err
 		}
 	}
 
-	slog.Info("Deletion completed.")
 	return nil
 }

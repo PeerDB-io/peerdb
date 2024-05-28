@@ -9,7 +9,7 @@ import (
 	peersql "github.com/PeerDB-io/peer-flow/connectors/sql"
 	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -41,7 +41,7 @@ func NewSQLServerHelper(name string) (*SQLServerHelper, error) {
 		return nil, err
 	}
 
-	connErr := connector.ConnectionActive()
+	connErr := connector.ConnectionActive(context.Background())
 	if connErr != nil {
 		return nil, fmt.Errorf("invalid connection configs: %v", connErr)
 	}
@@ -52,7 +52,7 @@ func NewSQLServerHelper(name string) (*SQLServerHelper, error) {
 	}
 
 	testSchema := fmt.Sprintf("e2e_test_%d", rndNum)
-	err = connector.CreateSchema(testSchema)
+	err = connector.CreateSchema(context.Background(), testSchema)
 	if err != nil {
 		return nil, err
 	}
@@ -65,8 +65,8 @@ func NewSQLServerHelper(name string) (*SQLServerHelper, error) {
 	}, nil
 }
 
-func (h *SQLServerHelper) CreateTable(schema *model.QRecordSchema, tableName string) error {
-	err := h.E.CreateTable(schema, h.SchemaName, tableName)
+func (h *SQLServerHelper) CreateTable(schema *qvalue.QRecordSchema, tableName string) error {
+	err := h.E.CreateTable(context.Background(), schema, h.SchemaName, tableName)
 	if err != nil {
 		return err
 	}
@@ -87,14 +87,14 @@ func (h *SQLServerHelper) GetPeer() *protos.Peer {
 
 func (h *SQLServerHelper) CleanUp() error {
 	for _, tbl := range h.tables {
-		err := h.E.ExecuteQuery(fmt.Sprintf("DROP TABLE %s.%s", h.SchemaName, tbl))
+		err := h.E.ExecuteQuery(context.Background(), fmt.Sprintf("DROP TABLE %s.%s", h.SchemaName, tbl))
 		if err != nil {
 			return err
 		}
 	}
 
 	if h.SchemaName != "" {
-		return h.E.ExecuteQuery(fmt.Sprintf("DROP SCHEMA %s", h.SchemaName))
+		return h.E.ExecuteQuery(context.Background(), "DROP SCHEMA "+h.SchemaName)
 	}
 
 	return nil

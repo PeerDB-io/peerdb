@@ -13,8 +13,6 @@ import ReactSelect from 'react-select';
 
 export type QRepPartitionStatus = {
   partitionId: string;
-  runUuid: string;
-  status: string;
   startTime: Date | null;
   endTime: Date | null;
   pulledRows: number | null;
@@ -31,8 +29,6 @@ function TimeOrProgressBar({ time }: { time: Date | null }) {
 
 function RowPerPartition({
   partitionId,
-  runUuid,
-  status,
   startTime,
   endTime,
   pulledRows: numRows,
@@ -50,11 +46,6 @@ function RowPerPartition({
       <TableCell>
         <Label as='label' style={{ fontSize: 15 }}>
           {partitionId}
-        </Label>
-      </TableCell>
-      <TableCell>
-        <Label as='label' style={{ fontSize: 15 }}>
-          {runUuid}
         </Label>
       </TableCell>
       <TableCell>
@@ -81,10 +72,7 @@ type QRepStatusTableProps = {
   partitions: QRepPartitionStatus[];
 };
 
-export default function QRepStatusTable({
-  flowJobName,
-  partitions,
-}: QRepStatusTableProps) {
+export default function QRepStatusTable({ partitions }: QRepStatusTableProps) {
   const ROWS_PER_PAGE = 10;
   const [currentPage, setCurrentPage] = useState(1);
   const totalPages = Math.ceil(partitions.length / ROWS_PER_PAGE);
@@ -100,8 +88,7 @@ export default function QRepStatusTable({
   );
   const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
   const displayedPartitions = useMemo(() => {
-    let currentPartitions = [...visiblePartitions];
-    currentPartitions = currentPartitions.filter(
+    const currentPartitions = visiblePartitions.filter(
       (partition: QRepPartitionStatus) => {
         return partition.partitionId
           .toLowerCase()
@@ -163,9 +150,6 @@ export default function QRepStatusTable({
             >
               <Icon name='refresh' />
             </Button>
-            <Button variant='normalBorderless' disabled>
-              <Icon name='download' />
-            </Button>
             <div style={{ minWidth: '10em' }}>
               <ReactSelect
                 options={sortOptions}
@@ -218,7 +202,6 @@ export default function QRepStatusTable({
         <TableRow>
           {[
             'Partition UUID',
-            'Run UUID',
             'Duration',
             'Start Time',
             'End Time',

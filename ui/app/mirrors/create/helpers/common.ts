@@ -1,52 +1,45 @@
-import {
-  FlowConnectionConfigs,
-  QRepSyncMode,
-  QRepWriteType,
-} from '@/grpc_generated/flow';
-import { Peer } from '@/grpc_generated/peers';
+import { FlowConnectionConfigs, TypeSystem } from '@/grpc_generated/flow';
+
+export enum AdvancedSettingType {
+  QUEUE = 'queue',
+  ALL = 'all',
+  NONE = 'none',
+}
 
 export interface MirrorSetting {
   label: string;
-  stateHandler: (
-    value: string | string[] | Peer | boolean | QRepSyncMode | QRepWriteType,
-    setter: any
-  ) => void;
+  stateHandler: (value: any, setter: any) => void;
   type?: string;
   required?: boolean;
   tips?: string;
   helpfulLink?: string;
   default?: string | number | boolean;
-  advanced?: boolean; // whether it should come under an 'Advanced' section
+  advanced?: AdvancedSettingType; // whether it should come under an 'Advanced' section
+  command?: string;
 }
 
 export const blankCDCSetting: FlowConnectionConfigs = {
   source: undefined,
   destination: undefined,
   flowJobName: '',
-  tableSchema: undefined,
   tableMappings: [],
-  srcTableIdNameMapping: {},
-  tableNameSchemaMapping: {},
-  metadataPeer: undefined,
-  maxBatchSize: 100000,
-  doInitialCopy: true,
+  maxBatchSize: 1000000,
+  doInitialSnapshot: true,
   publicationName: '',
-  snapshotNumRowsPerPartition: 500000,
-  snapshotMaxParallelWorkers: 1,
-  snapshotNumTablesInParallel: 4,
-  snapshotSyncMode: 0,
-  cdcSyncMode: 0,
+  snapshotNumRowsPerPartition: 1000000,
+  snapshotMaxParallelWorkers: 4,
+  snapshotNumTablesInParallel: 1,
   snapshotStagingPath: '',
   cdcStagingPath: '',
-  softDelete: false,
+  softDelete: true,
   replicationSlotName: '',
-  pushBatchSize: 0,
-  pushParallelism: 0,
   resync: false,
   softDeleteColName: '',
   syncedAtColName: '',
-  initialCopyOnly: false,
+  initialSnapshotOnly: false,
   idleTimeoutSeconds: 60,
+  script: '',
+  system: TypeSystem.Q,
 };
 
 export const blankQRepSetting = {

@@ -17,15 +17,14 @@ func TestGenerateMergeUpdateStatement(t *testing.T) {
 		THEN UPDATE SET "col1"=src."col1","col2"=src."col2","col3"=src."col3",
 		 "_peerdb_synced_at"=CURRENT_TIMESTAMP`,
 	}
-	normalizeGen := &normalizeStmtGenerator{
-		unchangedToastColumns: unchangedToastCols,
+	normalizeGen := normalizeStmtGenerator{
 		peerdbCols: &protos.PeerDBColumns{
 			SoftDelete:        false,
 			SyncedAtColName:   "_peerdb_synced_at",
 			SoftDeleteColName: "_peerdb_soft_delete",
 		},
 	}
-	result := normalizeGen.generateUpdateStatements(allCols)
+	result := normalizeGen.generateUpdateStatements(allCols, unchangedToastCols)
 
 	for i := range expected {
 		expected[i] = utils.RemoveSpacesTabsNewlines(expected[i])
@@ -49,15 +48,14 @@ func TestGenerateMergeUpdateStatement_WithSoftDelete(t *testing.T) {
 		 THEN UPDATE SET "col1"=src."col1","col2"=src."col2","col3"=src."col3",
 		  "_peerdb_synced_at"=CURRENT_TIMESTAMP,"_peerdb_soft_delete"=TRUE`,
 	}
-	normalizeGen := &normalizeStmtGenerator{
-		unchangedToastColumns: unchangedToastCols,
+	normalizeGen := normalizeStmtGenerator{
 		peerdbCols: &protos.PeerDBColumns{
 			SoftDelete:        true,
 			SyncedAtColName:   "_peerdb_synced_at",
 			SoftDeleteColName: "_peerdb_soft_delete",
 		},
 	}
-	result := normalizeGen.generateUpdateStatements(allCols)
+	result := normalizeGen.generateUpdateStatements(allCols, unchangedToastCols)
 
 	for i := range expected {
 		expected[i] = utils.RemoveSpacesTabsNewlines(expected[i])
@@ -83,15 +81,14 @@ func TestGenerateMergeUpdateStatement_WithUnchangedToastCols(t *testing.T) {
 		`WHEN MATCHED AND src._peerdb_record_type!=2 AND _peerdb_unchanged_toast_columns='col3'
 		 THEN UPDATE SET "col1"=src."col1","col2"=src."col2","_peerdb_synced_at"=CURRENT_TIMESTAMP`,
 	}
-	normalizeGen := &normalizeStmtGenerator{
-		unchangedToastColumns: unchangedToastCols,
+	normalizeGen := normalizeStmtGenerator{
 		peerdbCols: &protos.PeerDBColumns{
 			SoftDelete:        false,
 			SyncedAtColName:   "_peerdb_synced_at",
 			SoftDeleteColName: "_peerdb_soft_delete",
 		},
 	}
-	result := normalizeGen.generateUpdateStatements(allCols)
+	result := normalizeGen.generateUpdateStatements(allCols, unchangedToastCols)
 
 	for i := range expected {
 		expected[i] = utils.RemoveSpacesTabsNewlines(expected[i])
@@ -127,15 +124,14 @@ func TestGenerateMergeUpdateStatement_WithUnchangedToastColsAndSoftDelete(t *tes
 		`WHEN MATCHED AND src._peerdb_record_type=2 AND _peerdb_unchanged_toast_columns='col3'
 		 THEN UPDATE SET "col1"=src."col1","col2"=src."col2","_peerdb_synced_at"=CURRENT_TIMESTAMP,"_peerdb_soft_delete"=TRUE`,
 	}
-	normalizeGen := &normalizeStmtGenerator{
-		unchangedToastColumns: unchangedToastCols,
+	normalizeGen := normalizeStmtGenerator{
 		peerdbCols: &protos.PeerDBColumns{
 			SoftDelete:        true,
 			SyncedAtColName:   "_peerdb_synced_at",
 			SoftDeleteColName: "_peerdb_soft_delete",
 		},
 	}
-	result := normalizeGen.generateUpdateStatements(allCols)
+	result := normalizeGen.generateUpdateStatements(allCols, unchangedToastCols)
 
 	for i := range expected {
 		expected[i] = utils.RemoveSpacesTabsNewlines(expected[i])

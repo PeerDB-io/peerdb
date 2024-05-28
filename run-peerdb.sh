@@ -1,11 +1,24 @@
-#!/bin/bash
-set -Eeuo pipefail
+#!/bin/sh
+set -Eeu
 
-if ! command -v docker &> /dev/null
+DOCKER="docker"
+
+if test -n "${USE_PODMAN:=}"
 then
-    echo "docker could not be found on PATH"
-    exit 1
+    if ! (command -v docker &> /dev/null); then
+        if (command -v podman &> /dev/null); then
+            echo "docker could not be found on PATH, using podman"
+            USE_PODMAN=1
+        else
+            echo "docker could not be found on PATH"
+            exit 1
+        fi
+    fi
 fi
 
-docker compose pull
-docker compose -f docker-compose.yml up --no-attach catalog --no-attach temporal --no-attach temporal-ui --no-attach temporal-admin-tools
+if test -n "$USE_PODMAN"; then
+    DOCKER="podman"
+fi
+
+$DOCKER compose pull
+exec $DOCKER compose -f docker-compose.yml up --no-attach catalog --no-attach temporal --no-attach temporal-ui --no-attach temporal-admin-tools

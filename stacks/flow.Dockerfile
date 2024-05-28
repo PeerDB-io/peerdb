@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.2
 
-FROM golang:1.21-bookworm AS builder
-RUN apt-get update && apt-get install -y gcc libgeos-dev
+FROM golang:1.22-alpine AS builder
+RUN apk add --no-cache gcc geos-dev musl-dev
 WORKDIR /root/flow
 
 # first copy only go.mod and go.sum to cache dependencies
@@ -13,15 +13,17 @@ RUN go mod download
 # Copy all the code
 COPY flow .
 
-# build the binary from cmd folder
-WORKDIR /root/flow/cmd
+# build the binary from flow folder
+WORKDIR /root/flow
 ENV CGO_ENABLED=1
-RUN go build -ldflags="-s -w" -o /root/peer-flow .
+RUN go build -ldflags="-s -w" -o /root/peer-flow
 
-FROM debian:bookworm-slim AS flow-base
-RUN apt-get update && apt-get install -y ca-certificates libgeos-c1v5
-WORKDIR /root
-COPY --from=builder /root/peer-flow .
+FROM alpine:3.19 AS flow-base
+RUN apk add --no-cache ca-certificates geos && \
+  adduser -s /bin/sh -D peerdb
+USER peerdb
+WORKDIR /home/peerdb
+COPY --from=builder --chown=peerdb /root/peer-flow .
 
 FROM flow-base AS flow-api
 
@@ -39,6 +41,11 @@ ENTRYPOINT [\
   ]
 
 FROM flow-base AS flow-worker
+
+# Sane defaults for OpenTelemetry
+ENV OTEL_METRIC_EXPORT_INTERVAL=10000
+ENV OTEL_EXPORTER_OTLP_COMPRESSION=gzip
+
 ENTRYPOINT [\
   "./peer-flow",\
   "worker"\

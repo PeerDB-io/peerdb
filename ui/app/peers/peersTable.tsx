@@ -10,6 +10,7 @@ import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
+import SelectTheme from '../styles/select';
 
 function PeerRow({ peer }: { peer: Peer }) {
   return (
@@ -32,7 +33,7 @@ function PeerRow({ peer }: { peer: Peer }) {
   );
 }
 
-function PeersTable({ title, peers }: { title: string; peers: Peer[] }) {
+function PeersTable({ peers }: { peers: Peer[] }) {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [filteredType, setFilteredType] = useState<DBType | undefined>(
     undefined
@@ -55,8 +56,9 @@ function PeersTable({ title, peers }: { title: string; peers: Peer[] }) {
   const availableTypes: { value: DBType | undefined; label: string }[] =
     Array.from(
       new Map( // Map filters out duplicates
-        peers.flatMap((peer) => [
-          [peer.type, { value: peer.type, label: DBTypeToGoodText(peer.type) }],
+        peers.map((peer) => [
+          peer.type,
+          { value: peer.type, label: DBTypeToGoodText(peer.type) },
         ])
       ).values()
     );
@@ -64,7 +66,6 @@ function PeersTable({ title, peers }: { title: string; peers: Peer[] }) {
 
   return (
     <Table
-      title={<Label variant='headline'>{title}</Label>}
       toolbar={{
         left: <></>,
         right: (
@@ -76,6 +77,7 @@ function PeersTable({ title, peers }: { title: string; peers: Peer[] }) {
                 setFilteredType(val?.value);
               }}
               defaultValue={allTypesOption}
+              theme={SelectTheme}
             />
             <SearchField
               placeholder='Search by peer name'

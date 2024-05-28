@@ -35,6 +35,7 @@ interface SchemaBoxProps {
     SetStateAction<{ tableName: string; columns: string[] }[]>
   >;
   peerType?: DBType;
+  omitAdditionalTables: string[] | undefined;
 }
 const SchemaBox = ({
   sourcePeer,
@@ -44,13 +45,12 @@ const SchemaBox = ({
   setRows,
   tableColumns,
   setTableColumns,
+  omitAdditionalTables,
 }: SchemaBoxProps) => {
   const [tablesLoading, setTablesLoading] = useState(false);
   const [columnsLoading, setColumnsLoading] = useState(false);
   const [expandedSchemas, setExpandedSchemas] = useState<string[]>([]);
   const [tableQuery, setTableQuery] = useState<string>('');
-
-  const [handlingAll, setHandlingAll] = useState(false);
 
   const searchedTables = useMemo(() => {
     const tableQueryLower = tableQuery.toLowerCase();
@@ -125,17 +125,16 @@ const SchemaBox = ({
     e: React.MouseEvent<HTMLInputElement, MouseEvent>,
     schemaName: string
   ) => {
-    setHandlingAll(true);
     const newRows = [...rows];
-    for (const row of newRows) {
-      if (row.schema === schemaName) {
-        row.selected = e.currentTarget.checked;
+    for (let i = 0; i < newRows.length; i++) {
+      const row = newRows[i];
+      if (row.schema === schemaName && row.canMirror) {
+        newRows[i] = { ...row, selected: e.currentTarget.checked };
         if (e.currentTarget.checked) addTableColumns(row.source);
         else removeTableColumns(row.source);
       }
     }
     setRows(newRows);
-    setHandlingAll(false);
   };
 
   const rowsDoNotHaveSchemaTables = (schema: string) => {
@@ -149,6 +148,11 @@ const SchemaBox = ({
       if (rowsDoNotHaveSchemaTables(schemaName)) {
         setTablesLoading(true);
         fetchTables(sourcePeer, schemaName, peerType).then((newRows) => {
+          for (const row of newRows) {
+            if (omitAdditionalTables?.includes(row.source)) {
+              row.canMirror = false;
+            }
+          }
           setRows((oldRows) => [
             ...oldRows.filter((oldRow) => oldRow.schema !== schema),
             ...newRows,
@@ -199,8 +203,7 @@ const SchemaBox = ({
           </div>
         </div>
         {/* TABLE BOX */}
-        {handlingAll && <BarLoader />}
-        {!handlingAll && schemaIsExpanded(schema) && (
+        {schemaIsExpanded(schema) && (
           <div className='ml-5 mt-3' style={{ width: '90%' }}>
             {searchedTables.length ? (
               searchedTables.map((row) => {
@@ -233,6 +236,13 @@ const SchemaBox = ({
                               }}
                             >
                               {row.source}
+                            </Label>
+                            <Label
+                              as='label'
+                              colorName='lowContrast'
+                              style={{ fontSize: 13 }}
+                            >
+                              {row.tableSize}
                             </Label>
                           </Tooltip>
                         }

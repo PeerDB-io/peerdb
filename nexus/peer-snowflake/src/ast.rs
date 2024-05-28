@@ -5,8 +5,7 @@ use sqlparser::ast::{
     FunctionArg, FunctionArgExpr, Ident, JsonOperator, ObjectName, Query, Statement, TimezoneInfo,
 };
 
-#[derive(Default)]
-pub struct SnowflakeAst {}
+pub struct SnowflakeAst;
 
 impl SnowflakeAst {
     pub fn rewrite(&self, query: &mut Query) -> anyhow::Result<()> {

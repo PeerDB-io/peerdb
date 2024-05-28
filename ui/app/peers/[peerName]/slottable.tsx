@@ -6,7 +6,7 @@ import { tableStyle } from './style';
 
 const SlotTable = ({ data }: { data: SlotInfo[] }) => {
   return (
-    <div style={{ height: '30%', marginTop: '2rem', marginBottom: '1rem' }}>
+    <div style={{ minHeight: '10%', marginTop: '2rem', marginBottom: '2rem' }}>
       <Label
         as='label'
         variant='subheadline'

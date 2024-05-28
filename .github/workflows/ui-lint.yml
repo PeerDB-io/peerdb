@@ -22,11 +22,11 @@ jobs:
       - name: checkout
         uses: actions/checkout@v4
 
-      - uses: bufbuild/buf-setup-action@v1.28.1
+      - uses: bufbuild/buf-setup-action@v1.29.0-1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: setup protos
-        run: |
-          ./generate_protos.sh
+      - run: buf generate protos
 
       - name: Install Node.js dependencies
         working-directory: ui
@@ -41,3 +41,4 @@ jobs:
           prettier_dir: ui
           eslint_args: "--max-warnings 0"
           eslint_extensions: js,ts,jsx,tsx
+          prettier_extensions: js,ts,jsx,tsx,json

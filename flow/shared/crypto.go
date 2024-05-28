@@ -3,6 +3,7 @@ package shared
 import (
 	"crypto/rsa"
 	"encoding/pem"
+	"errors"
 	"fmt"
 
 	"github.com/youmark/pkcs8"
@@ -11,7 +12,7 @@ import (
 func DecodePKCS8PrivateKey(rawKey []byte, password *string) (*rsa.PrivateKey, error) {
 	PEMBlock, _ := pem.Decode(rawKey)
 	if PEMBlock == nil {
-		return nil, fmt.Errorf("failed to decode private key PEM block")
+		return nil, errors.New("failed to decode private key PEM block")
 	}
 
 	var privateKey *rsa.PrivateKey

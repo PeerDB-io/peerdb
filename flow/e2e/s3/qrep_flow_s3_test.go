@@ -3,23 +3,22 @@ package e2e_s3
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
+	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
-	"github.com/stretchr/testify/require"
 )
 
 type PeerFlowE2ETestSuiteS3 struct {
 	t *testing.T
 
-	pool     *pgxpool.Pool
+	conn     *connpostgres.PostgresConnector
 	s3Helper *S3TestHelper
 	suffix   string
 }
@@ -28,51 +27,35 @@ func (s PeerFlowE2ETestSuiteS3) T() *testing.T {
 	return s.t
 }
 
-func (s PeerFlowE2ETestSuiteS3) Pool() *pgxpool.Pool {
-	return s.pool
+func (s PeerFlowE2ETestSuiteS3) Connector() *connpostgres.PostgresConnector {
+	return s.conn
 }
 
 func (s PeerFlowE2ETestSuiteS3) Suffix() string {
 	return s.suffix
 }
 
-func tearDownSuite(s PeerFlowE2ETestSuiteS3) {
-	e2e.TearDownPostgres(s)
-
-	err := s.s3Helper.CleanUp()
-	if err != nil {
-		require.Fail(s.t, "failed to clean up s3", err)
-	}
-}
-
 func TestPeerFlowE2ETestSuiteS3(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSuiteS3, tearDownSuite)
+	e2eshared.RunSuite(t, SetupSuiteS3)
 }
 
 func TestPeerFlowE2ETestSuiteGCS(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSuiteGCS, tearDownSuite)
+	e2eshared.RunSuite(t, SetupSuiteGCS)
 }
 
 func (s PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int) {
-	err := e2e.CreateTableForQRep(s.pool, s.suffix, tableName)
+	err := e2e.CreateTableForQRep(s.conn.Conn(), s.suffix, tableName)
 	require.NoError(s.t, err)
-	err = e2e.PopulateSourceTable(s.pool, s.suffix, tableName, rowCount)
+	err = e2e.PopulateSourceTable(s.conn.Conn(), s.suffix, tableName, rowCount)
 	require.NoError(s.t, err)
 }
 
 func setupSuite(t *testing.T, gcs bool) PeerFlowE2ETestSuiteS3 {
 	t.Helper()
 
-	err := godotenv.Load()
-	if err != nil {
-		// it's okay if the .env file is not present
-		// we will use the default values
-		slog.Info("Unable to load .env file, using default values from env")
-	}
-
 	suffix := "s3_" + strings.ToLower(shared.RandomString(8))
-	pool, err := e2e.SetupPostgres(suffix)
-	if err != nil || pool == nil {
+	conn, err := e2e.SetupPostgres(t, suffix)
+	if err != nil || conn == nil {
 		require.Fail(t, "failed to setup postgres", err)
 	}
 
@@ -83,9 +66,18 @@ func setupSuite(t *testing.T, gcs bool) PeerFlowE2ETestSuiteS3 {
 
 	return PeerFlowE2ETestSuiteS3{
 		t:        t,
-		pool:     pool,
+		conn:     conn,
 		s3Helper: helper,
 		suffix:   suffix,
+	}
+}
+
+func (s PeerFlowE2ETestSuiteS3) Teardown() {
+	e2e.TearDownPostgres(s)
+
+	err := s.s3Helper.CleanUp(context.Background())
+	if err != nil {
+		require.Fail(s.t, "failed to clean up s3", err)
 	}
 }
 
@@ -104,8 +96,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 		s.t.Skip("Skipping S3 test")
 	}
 
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	tc := e2e.NewTemporalClient(s.t)
 
 	jobName := "test_complete_flow_s3"
 	schemaQualifiedName := fmt.Sprintf("e2e_test_%s.%s", s.suffix, jobName)
@@ -122,17 +113,14 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 		"stage",
 		false,
 		"",
+		"",
 	)
 	require.NoError(s.t, err)
 	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
 
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	require.NoError(s.t, err)
+	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.NoError(s.t, env.Error())
 
 	// Verify destination has 1 file
 	// make context with timeout
@@ -143,7 +131,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 
 	require.NoError(s.t, err)
 
-	require.Equal(s.t, 1, len(files))
+	require.Len(s.t, files, 1)
 }
 
 func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
@@ -151,8 +139,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 		s.t.Skip("Skipping S3 test")
 	}
 
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	tc := e2e.NewTemporalClient(s.t)
 
 	jobName := "test_complete_flow_s3_ctid"
 	schemaQualifiedName := fmt.Sprintf("e2e_test_%s.%s", s.suffix, jobName)
@@ -168,6 +155,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 		"stage",
 		false,
 		"",
+		"",
 	)
 	require.NoError(s.t, err)
 	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
@@ -175,13 +163,9 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 	qrepConfig.InitialCopyOnly = true
 	qrepConfig.WatermarkColumn = "ctid"
 
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	require.NoError(s.t, err)
+	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.NoError(s.t, env.Error())
 
 	// Verify destination has 1 file
 	// make context with timeout
@@ -192,5 +176,5 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 
 	require.NoError(s.t, err)
 
-	require.Equal(s.t, 10, len(files))
+	require.Len(s.t, files, 10)
 }

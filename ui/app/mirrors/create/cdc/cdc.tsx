@@ -1,12 +1,12 @@
 'use client';
-import { QRepSyncMode } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
-import { Dispatch, SetStateAction, useMemo, useState } from 'react';
+import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
 import { CDCConfig, MirrorSetter, TableMapRow } from '../../../dto/MirrorsDTO';
-import { MirrorSetting } from '../helpers/common';
-import CDCFields from './fields';
+import { IsQueuePeer, fetchPublications } from '../handlers';
+import { AdvancedSettingType, MirrorSetting } from '../helpers/common';
+import CDCField from './fields';
 import TableMapping from './tablemapping';
 
 interface MirrorConfigProps {
@@ -37,42 +37,91 @@ export default function CDCConfigForm({
   rows,
   setRows,
 }: MirrorConfigProps) {
+  const [publications, setPublications] = useState<string[]>();
+  const [pubLoading, setPubLoading] = useState(true);
   const [show, setShow] = useState(false);
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
-    let stateVal: string | boolean | QRepSyncMode = val;
+    let stateVal: string | boolean = val;
     setting.stateHandler(stateVal, setter);
   };
 
   const normalSettings = useMemo(() => {
-    return settings.filter((setting) => setting.advanced != true);
-  }, [settings]);
+    return settings!.filter(
+      (setting) =>
+        !(
+          (IsQueuePeer(mirrorConfig.destination?.type) &&
+            setting.advanced === AdvancedSettingType.QUEUE) ||
+          setting.advanced === AdvancedSettingType.ALL
+        )
+    );
+  }, [settings, mirrorConfig.destination?.type]);
 
   const advancedSettings = useMemo(() => {
-    return settings.filter((setting) => setting.advanced == true);
-  }, [settings]);
+    return settings!
+      .map((setting) => {
+        if (
+          IsQueuePeer(mirrorConfig.destination?.type) &&
+          setting.advanced === AdvancedSettingType.QUEUE
+        ) {
+          setting.stateHandler(600, setter);
+          return { ...setting, default: 600 };
+        }
+        if (setting.advanced === AdvancedSettingType.ALL) {
+          return setting;
+        }
+      })
+      .filter((setting) => setting !== undefined);
+  }, [settings, mirrorConfig.destination?.type, setter]);
 
   const paramDisplayCondition = (setting: MirrorSetting) => {
     const label = setting.label.toLowerCase();
+    const isQueue = IsQueuePeer(mirrorConfig.destination?.type);
     if (
-      (label.includes('snapshot') && mirrorConfig.doInitialCopy !== true) ||
+      (label.includes('snapshot') && mirrorConfig.doInitialSnapshot !== true) ||
+      (label === 'replication slot name' &&
+        mirrorConfig.doInitialSnapshot === true) ||
       (label.includes('staging path') &&
-        defaultSyncMode(mirrorConfig.destination?.type) !== 'AVRO')
+        defaultSyncMode(mirrorConfig.destination?.type) !== 'AVRO') ||
+      (isQueue && label.includes('soft delete')) ||
+      (mirrorConfig.destination?.type === DBType.EVENTHUBS &&
+        (label.includes('initial copy') ||
+          label.includes('initial load') ||
+          label.includes('snapshot'))) ||
+      ((mirrorConfig.source?.type !== DBType.POSTGRES ||
+        mirrorConfig.destination?.type !== DBType.POSTGRES) &&
+        label.includes('type system')) ||
+      (mirrorConfig.destination?.type !== DBType.BIGQUERY &&
+        label.includes('column name'))
     ) {
       return false;
     }
     return true;
   };
 
+  useEffect(() => {
+    setPubLoading(true);
+    fetchPublications(mirrorConfig.source?.name || '').then((pubs) => {
+      setPublications(pubs);
+      setPubLoading(false);
+    });
+  }, [mirrorConfig.source?.name]);
+
   if (mirrorConfig.source != undefined && mirrorConfig.destination != undefined)
     return (
       <>
-        {normalSettings.map((setting, id) => {
+        {normalSettings!.map((setting, id) => {
           return (
-            paramDisplayCondition(setting) && (
-              <CDCFields
+            paramDisplayCondition(setting!) && (
+              <CDCField
                 key={id}
                 handleChange={handleChange}
-                setting={setting}
+                setting={setting!}
+                options={
+                  setting?.label === 'Publication Name'
+                    ? publications
+                    : undefined
+                }
+                optionsLoading={pubLoading}
               />
             )
           );
@@ -97,13 +146,15 @@ export default function CDCConfigForm({
         </Button>
 
         {show &&
-          advancedSettings.map((setting, id) => {
+          advancedSettings!.map((setting, id) => {
             return (
-              <CDCFields
-                key={id}
-                handleChange={handleChange}
-                setting={setting}
-              />
+              paramDisplayCondition(setting!) && (
+                <CDCField
+                  key={setting?.label}
+                  handleChange={handleChange}
+                  setting={setting!}
+                />
+              )
             );
           })}
 
@@ -112,6 +163,7 @@ export default function CDCConfigForm({
           rows={rows}
           setRows={setRows}
           peerType={mirrorConfig.destination?.type}
+          omitAdditionalTablesMapping={new Map<string, string[]>()}
         />
       </>
     );

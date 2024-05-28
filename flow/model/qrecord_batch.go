@@ -1,50 +1,56 @@
 package model
 
 import (
+	"errors"
 	"fmt"
-	"log/slog"
-	"math/big"
+	"strings"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	geo "github.com/PeerDB-io/peer-flow/datatypes"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
-// QRecordBatch holds a batch of QRecord objects.
+// QRecordBatch holds a batch of []QValue slices
 type QRecordBatch struct {
-	NumRecords uint32 // NumRecords represents the number of records in the batch.
-	Records    []QRecord
-	Schema     *QRecordSchema
+	Schema  qvalue.QRecordSchema
+	Records [][]qvalue.QValue
 }
 
-func (q *QRecordBatch) ToQRecordStream(buffer int) (*QRecordStream, error) {
-	stream := NewQRecordStream(buffer)
+func (q *QRecordBatch) ToQRecordStream(buffer int) *QRecordStream {
+	stream := NewQRecordStream(min(buffer, len(q.Records)))
+	go q.FeedToQRecordStream(stream)
+	return stream
+}
 
-	slog.Info(fmt.Sprintf("Converting %d records to QRecordStream", q.NumRecords))
+func (q *QRecordBatch) FeedToQRecordStream(stream *QRecordStream) {
+	stream.SetSchema(q.Schema)
 
-	go func() {
-		err := stream.SetSchema(q.Schema)
-		if err != nil {
-			slog.Warn(err.Error())
-		}
+	for _, record := range q.Records {
+		stream.Records <- record
+	}
+	close(stream.Records)
+}
 
-		for _, record := range q.Records {
-			stream.Records <- QRecordOrError{
-				Record: record,
-			}
-		}
-		close(stream.Records)
-	}()
-
-	return stream, nil
+func constructArray[T any](qValue qvalue.QValue, typeName string) (*pgtype.Array[T], error) {
+	v, ok := qValue.Value().([]T)
+	if !ok {
+		return nil, fmt.Errorf("invalid %s value", typeName)
+	}
+	return &pgtype.Array[T]{
+		Elements: v,
+		Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
+		Valid:    true,
+	}, nil
 }
 
 type QRecordBatchCopyFromSource struct {
-	numRecords    int
-	stream        *QRecordStream
-	currentRecord QRecordOrError
 	err           error
+	stream        *QRecordStream
+	currentRecord []qvalue.QValue
+	numRecords    int
 }
 
 func NewQRecordBatchCopyFromSource(
@@ -53,7 +59,7 @@ func NewQRecordBatchCopyFromSource(
 	return &QRecordBatchCopyFromSource{
 		numRecords:    0,
 		stream:        stream,
-		currentRecord: QRecordOrError{},
+		currentRecord: nil,
 		err:           nil,
 	}
 }
@@ -61,6 +67,7 @@ func NewQRecordBatchCopyFromSource(
 func (src *QRecordBatchCopyFromSource) Next() bool {
 	rec, ok := <-src.stream.Records
 	if !ok {
+		src.err = src.stream.Err()
 		return false
 	}
 
@@ -70,198 +77,148 @@ func (src *QRecordBatchCopyFromSource) Next() bool {
 }
 
 func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
-	if src.currentRecord.Err != nil {
-		src.err = src.currentRecord.Err
+	if src.err != nil {
 		return nil, src.err
 	}
 
-	record := src.currentRecord.Record
-	numEntries := len(record.Entries)
-
-	values := make([]interface{}, numEntries)
-	for i, qValue := range record.Entries {
-		if qValue.Value == nil {
+	values := make([]interface{}, len(src.currentRecord))
+	for i, qValue := range src.currentRecord {
+		if qValue.Value() == nil {
 			values[i] = nil
 			continue
 		}
 
-		switch qValue.Kind {
-		case qvalue.QValueKindFloat32:
-			v, ok := qValue.Value.(float32)
+		switch v := qValue.(type) {
+		case qvalue.QValueFloat32:
+			values[i] = v.Val
+		case qvalue.QValueFloat64:
+			values[i] = v.Val
+		case qvalue.QValueInt16:
+			values[i] = v.Val
+		case qvalue.QValueInt32:
+			values[i] = v.Val
+		case qvalue.QValueInt64:
+			values[i] = v.Val
+		case qvalue.QValueBoolean:
+			values[i] = v.Val
+		case qvalue.QValueQChar:
+			values[i] = rune(v.Val)
+		case qvalue.QValueString:
+			values[i] = v.Val
+		case qvalue.QValueCIDR, qvalue.QValueINET, qvalue.QValueMacaddr:
+			str, ok := v.Value().(string)
 			if !ok {
-				src.err = fmt.Errorf("invalid float32 value")
+				src.err = errors.New("invalid INET/CIDR/MACADDR value")
 				return nil, src.err
 			}
-			values[i] = v
-
-		case qvalue.QValueKindFloat64:
-			v, ok := qValue.Value.(float64)
+			values[i] = str
+		case qvalue.QValueTime:
+			values[i] = pgtype.Time{Microseconds: v.Val.UnixMicro(), Valid: true}
+		case qvalue.QValueTimestamp:
+			values[i] = pgtype.Timestamp{Time: v.Val, Valid: true}
+		case qvalue.QValueTimestampTZ:
+			values[i] = pgtype.Timestamptz{Time: v.Val, Valid: true}
+		case qvalue.QValueUUID:
+			values[i] = uuid.UUID(v.Val)
+		case qvalue.QValueNumeric:
+			values[i] = v.Val
+		case qvalue.QValueBit:
+			values[i] = v.Val
+		case qvalue.QValueBytes:
+			values[i] = v.Val
+		case qvalue.QValueDate:
+			values[i] = pgtype.Date{Time: v.Val, Valid: true}
+		case qvalue.QValueHStore:
+			values[i] = v.Val
+		case qvalue.QValueGeography, qvalue.QValueGeometry, qvalue.QValuePoint:
+			geoWkt, ok := v.Value().(string)
 			if !ok {
-				src.err = fmt.Errorf("invalid float64 value")
+				src.err = errors.New("invalid Geospatial value")
 				return nil, src.err
 			}
-			values[i] = v
 
-		case qvalue.QValueKindInt16, qvalue.QValueKindInt32:
-			v, ok := qValue.Value.(int32)
-			if !ok {
-				src.err = fmt.Errorf("invalid int32 value")
+			if strings.HasPrefix(geoWkt, "SRID=") {
+				_, wkt, found := strings.Cut(geoWkt, ";")
+				if found {
+					geoWkt = wkt
+				}
+			}
+
+			wkb, err := geo.GeoToWKB(geoWkt)
+			if err != nil {
+				src.err = fmt.Errorf("failed to convert Geospatial value to wkb: %v", err)
 				return nil, src.err
 			}
-			values[i] = v
 
-		case qvalue.QValueKindInt64:
-			v, ok := qValue.Value.(int64)
-			if !ok {
-				src.err = fmt.Errorf("invalid int64 value")
+			values[i] = wkb
+		case qvalue.QValueArrayString:
+			a, err := constructArray[string](qValue, "ArrayString")
+			if err != nil {
+				src.err = err
 				return nil, src.err
 			}
-			values[i] = v
+			values[i] = a
 
-		case qvalue.QValueKindBoolean:
-			v, ok := qValue.Value.(bool)
-			if !ok {
-				src.err = fmt.Errorf("invalid boolean value")
+		case qvalue.QValueArrayDate, qvalue.QValueArrayTimestamp, qvalue.QValueArrayTimestampTZ:
+			a, err := constructArray[time.Time](qValue, "ArrayTime")
+			if err != nil {
+				src.err = err
 				return nil, src.err
 			}
-			values[i] = v
+			values[i] = a
 
-		case qvalue.QValueKindString:
-			v, ok := qValue.Value.(string)
-			if !ok {
-				src.err = fmt.Errorf("invalid string value")
+		case qvalue.QValueArrayInt16:
+			a, err := constructArray[int16](qValue, "ArrayInt16")
+			if err != nil {
+				src.err = err
 				return nil, src.err
 			}
-			values[i] = v
+			values[i] = a
 
-		case qvalue.QValueKindTimestamp:
-			t, ok := qValue.Value.(time.Time)
-			if !ok {
-				src.err = fmt.Errorf("invalid ExtendedTime value")
+		case qvalue.QValueArrayInt32:
+			a, err := constructArray[int32](qValue, "ArrayInt32")
+			if err != nil {
+				src.err = err
 				return nil, src.err
 			}
-			timestamp := pgtype.Timestamp{Time: t, Valid: true}
-			values[i] = timestamp
+			values[i] = a
 
-		case qvalue.QValueKindTimestampTZ:
-			t, ok := qValue.Value.(time.Time)
-			if !ok {
-				src.err = fmt.Errorf("invalid ExtendedTime value")
+		case qvalue.QValueArrayInt64:
+			a, err := constructArray[int64](qValue, "ArrayInt64")
+			if err != nil {
+				src.err = err
 				return nil, src.err
 			}
-			timestampTZ := pgtype.Timestamptz{Time: t, Valid: true}
-			values[i] = timestampTZ
+			values[i] = a
 
-		case qvalue.QValueKindUUID:
-			if qValue.Value == nil {
-				values[i] = nil
-				break
-			}
-
-			v, ok := qValue.Value.([16]byte) // treat it as byte slice
-			if !ok {
-				src.err = fmt.Errorf("invalid UUID value %v", qValue.Value)
+		case qvalue.QValueArrayFloat32:
+			a, err := constructArray[float32](qValue, "ArrayFloat32")
+			if err != nil {
+				src.err = err
 				return nil, src.err
 			}
-			values[i] = uuid.UUID(v)
+			values[i] = a
 
-		case qvalue.QValueKindNumeric:
-			v, ok := qValue.Value.(*big.Rat)
-			if !ok {
-				src.err = fmt.Errorf("invalid Numeric value %v", qValue.Value)
+		case qvalue.QValueArrayFloat64:
+			a, err := constructArray[float64](qValue, "ArrayFloat64")
+			if err != nil {
+				src.err = err
 				return nil, src.err
 			}
-			// TODO: account for precision and scale issues.
-			values[i] = v.FloatString(38)
-
-		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
-			v, ok := qValue.Value.([]byte)
-			if !ok {
-				src.err = fmt.Errorf("invalid Bytes value")
+			values[i] = a
+		case qvalue.QValueArrayBoolean:
+			a, err := constructArray[bool](qValue, "ArrayBool")
+			if err != nil {
+				src.err = err
 				return nil, src.err
 			}
-			values[i] = v
-
-		case qvalue.QValueKindDate:
-			t, ok := qValue.Value.(time.Time)
-			if !ok {
-				src.err = fmt.Errorf("invalid Date value")
-				return nil, src.err
-			}
-			date := pgtype.Date{Time: t, Valid: true}
-			values[i] = date
-
-		case qvalue.QValueKindArrayString:
-			v, ok := qValue.Value.([]string)
-			if !ok {
-				src.err = fmt.Errorf("invalid ArrayString value")
-				return nil, src.err
-			}
-			values[i] = pgtype.Array[string]{
-				Elements: v,
-				Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
-				Valid:    true,
-			}
-
-		case qvalue.QValueKindArrayInt32:
-			v, ok := qValue.Value.([]int32)
-			if !ok {
-				src.err = fmt.Errorf("invalid ArrayInt32 value")
-				return nil, src.err
-			}
-			values[i] = pgtype.Array[int32]{
-				Elements: v,
-				Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
-				Valid:    true,
-			}
-
-		case qvalue.QValueKindArrayInt64:
-			v, ok := qValue.Value.([]int64)
-			if !ok {
-				src.err = fmt.Errorf("invalid ArrayInt64 value")
-				return nil, src.err
-			}
-			values[i] = pgtype.Array[int64]{
-				Elements: v,
-				Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
-				Valid:    true,
-			}
-
-		case qvalue.QValueKindArrayFloat32:
-			v, ok := qValue.Value.([]float32)
-			if !ok {
-				src.err = fmt.Errorf("invalid ArrayFloat32 value")
-				return nil, src.err
-			}
-			values[i] = pgtype.Array[float32]{
-				Elements: v,
-				Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
-				Valid:    true,
-			}
-
-		case qvalue.QValueKindArrayFloat64:
-			v, ok := qValue.Value.([]float64)
-			if !ok {
-				src.err = fmt.Errorf("invalid ArrayFloat64 value")
-				return nil, src.err
-			}
-			values[i] = pgtype.Array[float64]{
-				Elements: v,
-				Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
-				Valid:    true,
-			}
-
-		case qvalue.QValueKindJSON:
-			v, ok := qValue.Value.(string)
-			if !ok {
-				src.err = fmt.Errorf("invalid JSON value")
-				return nil, src.err
-			}
-			values[i] = v
+			values[i] = a
+		case qvalue.QValueJSON:
+			values[i] = v.Val
 
 		// And so on for the other types...
 		default:
-			src.err = fmt.Errorf("unsupported value type %s", qValue.Kind)
+			src.err = fmt.Errorf("unsupported value type %T", qValue)
 			return nil, src.err
 		}
 	}

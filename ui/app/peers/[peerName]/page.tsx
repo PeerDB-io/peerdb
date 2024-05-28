@@ -1,8 +1,9 @@
+import { PeerInfo } from '@/components/PeerInfo';
 import ReloadButton from '@/components/ReloadButton';
 import { PeerSlotResponse, PeerStatResponse } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
-import Link from 'next/link';
+import LagGraph from './lagGraph';
 import SlotTable from './slottable';
 import StatTable from './stattable';
 
@@ -56,40 +57,46 @@ const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
   const stats = await getStatData();
 
   return (
-    <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column' }}>
+    <div
+      style={{
+        padding: '2rem',
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-        <div style={{ fontSize: 20, fontWeight: 'bold' }}>{peerName}</div>
-        <ReloadButton />
-      </div>
-      {slots && stats ? (
         <div
           style={{
+            fontSize: 20,
+            fontWeight: 'bold',
             display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-            height: '70vh',
+            alignItems: 'center',
+            columnGap: '1rem',
           }}
         >
+          <div>{peerName}</div>
+          <PeerInfo peerName={peerName} />
+        </div>
+        <ReloadButton />
+      </div>
+
+      {slots && stats ? (
+        <div>
           <SlotTable data={slots} />
+          <LagGraph slotNames={slots.map((slot) => slot.slotName)} />
           <StatTable data={stats} />
         </div>
       ) : (
-        <div style={{ fontSize: 15, marginTop: '2rem' }}>
-          We do not have stats to show for this peer at the moment. Please check
-          if your PostgreSQL peer is open for connections. Note that peer
-          replication slot information and stat activity is currently only
-          supported for PostgreSQL peers.
+        <div>
           <Label
-            as={Link}
-            style={{
-              color: 'teal',
-              cursor: 'pointer',
-              textDecoration: 'underline',
-            }}
-            target='_blank'
-            href='https://docs.peerdb.io/sql/commands/supported-connectors'
+            as='label'
+            style={{ fontSize: 18, marginTop: '1rem', display: 'block' }}
           >
-            More information about PeerDB connector support
+            Peer Statistics
+          </Label>
+          <Label as='label' style={{ fontSize: 15, marginTop: '1rem' }}>
+            No stats to show
           </Label>
         </div>
       )}

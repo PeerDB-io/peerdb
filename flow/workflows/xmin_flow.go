@@ -3,62 +3,53 @@ package peerflow
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/google/uuid"
-	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
-
-type XminFlowExecution struct {
-	config          *protos.QRepConfig
-	flowExecutionID string
-	logger          log.Logger
-	runUUID         string
-	// being tracked for future workflow signalling
-	childPartitionWorkflows []workflow.ChildWorkflowFuture
-	// Current signalled state of the peer flow.
-	activeSignal shared.CDCFlowSignal
-}
-
-// NewXminFlowExecution creates a new instance of XminFlowExecution.
-func NewXminFlowExecution(ctx workflow.Context, config *protos.QRepConfig, runUUID string) *XminFlowExecution {
-	return &XminFlowExecution{
-		config:                  config,
-		flowExecutionID:         workflow.GetInfo(ctx).WorkflowExecution.ID,
-		logger:                  workflow.GetLogger(ctx),
-		runUUID:                 runUUID,
-		childPartitionWorkflows: nil,
-		activeSignal:            shared.NoopSignal,
-	}
-}
 
 func XminFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.QRepConfig,
 	state *protos.QRepFlowState,
 ) error {
+	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	// Support a Query for the current state of the xmin flow.
+
 	err := setWorkflowQueries(ctx, state)
 	if err != nil {
 		return err
 	}
 
-	// get xmin run uuid via side-effect
-	runUUIDSideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
-		return uuid.New().String()
-	})
-	var runUUID string
-	if err := runUUIDSideEffect.Get(&runUUID); err != nil {
-		return fmt.Errorf("failed to get run uuid: %w", err)
+	signalChan := model.FlowSignal.GetSignalChannel(ctx)
+
+	q := NewQRepFlowExecution(ctx, config, originalRunID)
+	logger := q.logger
+
+	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSING ||
+		state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSED {
+		startTime := workflow.Now(ctx)
+		q.activeSignal = model.PauseSignal
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+
+		for q.activeSignal == model.PauseSignal {
+			logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
+			// only place we block on receive, so signal processing is immediate
+			val, ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute)
+			if ok {
+				q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, logger)
+			} else if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 	}
 
-	x := NewXminFlowExecution(ctx, config, runUUID)
-
-	q := NewQRepFlowExecution(ctx, config, runUUID)
 	err = q.SetupWatermarkTableOnDestination(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to setup watermark table: %w", err)
@@ -68,7 +59,7 @@ func XminFlowWorkflow(
 	if err != nil {
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
-	x.logger.Info("metadata tables setup for peer flow - ", config.FlowJobName)
+	logger.Info("metadata tables setup for peer flow")
 
 	err = q.handleTableCreationForResync(ctx, state)
 	if err != nil {
@@ -78,25 +69,25 @@ func XminFlowWorkflow(
 	var lastPartition int64
 	replicateXminPartitionCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * 5 * time.Hour,
-		HeartbeatTimeout:    5 * time.Minute,
+		HeartbeatTimeout:    time.Minute,
 	})
 	err = workflow.ExecuteActivity(
 		replicateXminPartitionCtx,
 		flowable.ReplicateXminPartition,
-		x.config,
+		q.config,
 		state.LastPartition,
-		x.runUUID,
+		q.runUUID,
 	).Get(ctx, &lastPartition)
 	if err != nil {
 		return fmt.Errorf("xmin replication failed: %w", err)
 	}
 
-	if err = q.consolidatePartitions(ctx); err != nil {
+	if err := q.consolidatePartitions(ctx); err != nil {
 		return err
 	}
 
 	if config.InitialCopyOnly {
-		x.logger.Info("initial copy completed for peer flow - ", config.FlowJobName)
+		logger.Info("initial copy completed for peer flow")
 		return nil
 	}
 
@@ -106,36 +97,27 @@ func XminFlowWorkflow(
 	}
 
 	state.LastPartition = &protos.QRepPartition{
-		PartitionId: x.runUUID,
+		PartitionId: q.runUUID,
 		Range:       &protos.PartitionRange{Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: lastPartition}}},
 	}
 
-	workflow.GetLogger(ctx).Info("Continuing as new workflow",
-		"Last Partition", state.LastPartition,
-		"Number of Partitions Processed", state.NumPartitionsProcessed)
-
-	// here, we handle signals after the end of the flow because a new workflow does not inherit the signals
-	// and the chance of missing a signal is much higher if the check is before the time consuming parts run
-	q.receiveAndHandleSignalAsync(ctx)
-	if x.activeSignal == shared.PauseSignal {
-		startTime := time.Now()
-		signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
-		var signalVal shared.CDCFlowSignal
-
-		for x.activeSignal == shared.PauseSignal {
-			x.logger.Info("mirror has been paused for ", time.Since(startTime))
-			// only place we block on receive, so signal processing is immediate
-			ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute, &signalVal)
-			if ok {
-				x.activeSignal = shared.FlowSignalHandler(x.activeSignal, signalVal, x.logger)
-			}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	for {
+		val, ok := signalChan.ReceiveAsync()
+		if !ok {
+			break
 		}
-	}
-	if x.activeSignal == shared.ShutdownSignal {
-		x.logger.Info("terminating workflow - ", config.FlowJobName)
-		return nil
+		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
 	}
 
-	// Continue the workflow with new state
+	logger.Info("Continuing as new workflow",
+		slog.Any("Last Partition", state.LastPartition),
+		slog.Uint64("Number of Partitions Processed", state.NumPartitionsProcessed))
+
+	if q.activeSignal == model.PauseSignal {
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+	}
 	return workflow.NewContinueAsNewError(ctx, XminFlowWorkflow, config, state)
 }

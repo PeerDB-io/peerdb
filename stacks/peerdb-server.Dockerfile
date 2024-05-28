@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM lukemathwalker/cargo-chef:latest-rust-1.75-slim-bookworm as chef
+FROM lukemathwalker/cargo-chef:latest-rust-alpine3.19 as chef
 WORKDIR /root
 
 FROM chef as planner
@@ -9,10 +9,7 @@ WORKDIR /root/nexus
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef as builder
-RUN apt-get update \
-  && DEBIAN_FRONTEND=noninteractive \
-  apt-get install --assume-yes --no-install-recommends \
-  build-essential libssl-dev pkg-config curl unzip
+RUN apk add --no-cache build-base pkgconfig curl unzip
 WORKDIR /root/nexus
 COPY scripts /root/scripts
 RUN /root/scripts/install-protobuf.sh
@@ -24,10 +21,11 @@ COPY protos /root/protos
 WORKDIR /root/nexus
 RUN CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse cargo build --release --bin peerdb-server
 
-FROM debian:bookworm-slim
-RUN apt-get update && \
-  apt-get install -y ca-certificates postgresql-client curl iputils-ping && \
-  mkdir -p /var/log/peerdb
-WORKDIR /root
-COPY --from=builder /root/nexus/target/release/peerdb-server .
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates postgresql-client curl iputils && \
+  adduser -s /bin/sh -D peerdb && \
+  install -d -m 0755 -o peerdb /var/log/peerdb
+USER peerdb
+WORKDIR /home/peerdb
+COPY --from=builder --chown=peerdb /root/nexus/target/release/peerdb-server .
 CMD ["./peerdb-server"]

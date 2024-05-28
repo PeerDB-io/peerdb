@@ -1,5 +1,14 @@
 version: "3.9"
 
+name: peerdb-quickstart
+
+x-minio-config: &minio-config
+  PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID: _peerdb_minioadmin
+  PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: _peerdb_minioadmin
+  PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION: us-east-1
+  PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://host.docker.internal:9001
+  PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME: peerdbbucket
+
 x-catalog-config: &catalog-config
   PEERDB_CATALOG_HOST: catalog
   PEERDB_CATALOG_PORT: 5432
@@ -26,6 +35,7 @@ services:
   catalog:
     container_name: catalog
     image: debezium/postgres:16-alpine
+    restart: unless-stopped
     ports:
       - 9901:5432
     environment:
@@ -45,6 +55,7 @@ services:
 
   temporal:
     container_name: temporal
+    restart: unless-stopped
     depends_on:
       catalog:
         condition: service_healthy
@@ -65,6 +76,7 @@ services:
 
   temporal-admin-tools:
     container_name: temporal-admin-tools
+    restart: unless-stopped
     depends_on:
       - temporal
     environment:
@@ -86,6 +98,7 @@ services:
 
   temporal-ui:
     container_name: temporal-ui
+    restart: unless-stopped
     depends_on:
       - temporal
     environment:
@@ -99,11 +112,12 @@ services:
   flow-api:
     container_name: flow_api
     image: ghcr.io/peerdb-io/flow-api:latest-dev
+    restart: unless-stopped
     ports:
       - 8112:8112
       - 8113:8113
     environment:
-      <<: [*catalog-config, *flow-worker-env]
+      <<: [*catalog-config, *flow-worker-env, *minio-config]
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
@@ -111,39 +125,19 @@ services:
   flow-snapshot-worker:
     container_name: flow-snapshot-worker
     image: ghcr.io/peerdb-io/flow-snapshot-worker:latest-dev
+    restart: unless-stopped
     environment:
-      <<: [*catalog-config, *flow-worker-env]
+      <<: [*catalog-config, *flow-worker-env, *minio-config]
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
 
-  flow-worker1:
-    container_name: flow-worker1
+  flow-worker:
+    container_name: flow-worker
     image: ghcr.io/peerdb-io/flow-worker:latest-dev
+    restart: unless-stopped
     environment:
-      <<: [*catalog-config, *flow-worker-env]
-    depends_on:
-      temporal-admin-tools:
-        condition: service_healthy
-
-  flow-worker2:
-    container_name: flow-worker2
-    image: ghcr.io/peerdb-io/flow-worker:latest-dev
-    environment:
-      <<: [*catalog-config, *flow-worker-env]
-    profiles:
-      - multi
-    depends_on:
-      temporal-admin-tools:
-        condition: service_healthy
-
-  flow-worker3:
-    container_name: flow-worker3
-    image: ghcr.io/peerdb-io/flow-worker:latest-dev
-    environment:
-      <<: [*catalog-config, *flow-worker-env]
-    profiles:
-      - multi
+      <<: [*catalog-config, *flow-worker-env, *minio-config]
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
@@ -152,6 +146,7 @@ services:
     container_name: peerdb-server
     stop_signal: SIGINT
     image: ghcr.io/peerdb-io/peerdb-server:latest-dev
+    restart: unless-stopped
     environment:
       <<: *catalog-config
       PEERDB_LOG_DIR: /var/log/peerdb
@@ -168,6 +163,7 @@ services:
   peerdb-ui:
     container_name: peerdb-ui
     image: ghcr.io/peerdb-io/peerdb-ui:latest-dev
+    restart: unless-stopped
     ports:
       - 3000:3000
     environment:
@@ -179,6 +175,31 @@ services:
     depends_on:
       - flow-api
 
+  minio:
+    image: minio/minio
+    restart: unless-stopped
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9001:9000"
+      - "9002:36987"
+    environment:
+      <<: *minio-config
+    entrypoint: >
+      /bin/sh -c "
+      export MINIO_ROOT_USER=$$PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID;
+      export MINIO_ROOT_PASSWORD=$$PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY;
+      minio server /data --console-address=":36987" &
+      sleep 2;
+      /usr/bin/mc alias set myminiopeerdb http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD;
+      /usr/bin/mc mb myminiopeerdb/$$PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME;
+      wait
+      "
+
 volumes:
   pgdata:
-  prometheusdata:
+  minio-data:
+
+networks:
+  default:
+    name: peerdb_network

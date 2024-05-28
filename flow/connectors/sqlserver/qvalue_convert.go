@@ -10,6 +10,7 @@ var qValueKindToSQLServerTypeMap = map[qvalue.QValueKind]string{
 	qvalue.QValueKindFloat32:     "REAL",
 	qvalue.QValueKindFloat64:     "FLOAT",
 	qvalue.QValueKindNumeric:     "DECIMAL(38, 9)",
+	qvalue.QValueKindQChar:       "CHAR",
 	qvalue.QValueKindString:      "NTEXT",
 	qvalue.QValueKindJSON:        "NTEXT", // SQL Server doesn't have a native JSON type
 	qvalue.QValueKindTimestamp:   "DATETIME2",
@@ -51,7 +52,7 @@ var sqlServerTypeToQValueKindMap = map[string]qvalue.QValueKind{
 	"UNIQUEIDENTIFIER": qvalue.QValueKindUUID,
 	"SMALLINT":         qvalue.QValueKindInt32,
 	"TINYINT":          qvalue.QValueKindInt32,
-	"CHAR":             qvalue.QValueKindString,
+	"CHAR":             qvalue.QValueKindQChar,
 	"VARCHAR":          qvalue.QValueKindString,
 	"NCHAR":            qvalue.QValueKindString,
 	"NVARCHAR":         qvalue.QValueKindString,

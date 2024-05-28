@@ -3,28 +3,28 @@ package e2e_sqlserver
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/stretchr/testify/require"
+
+	"github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
-	"github.com/stretchr/testify/require"
 )
 
 type PeerFlowE2ETestSuiteSQLServer struct {
 	t *testing.T
 
-	pool       *pgxpool.Pool
+	conn       *connpostgres.PostgresConnector
 	sqlsHelper *SQLServerHelper
 	suffix     string
 }
@@ -33,8 +33,12 @@ func (s PeerFlowE2ETestSuiteSQLServer) T() *testing.T {
 	return s.t
 }
 
-func (s PeerFlowE2ETestSuiteSQLServer) Pool() *pgxpool.Pool {
-	return s.pool
+func (s PeerFlowE2ETestSuiteSQLServer) Conn() *pgx.Conn {
+	return s.conn.Conn()
+}
+
+func (s PeerFlowE2ETestSuiteSQLServer) Connector() *connpostgres.PostgresConnector {
+	return s.conn
 }
 
 func (s PeerFlowE2ETestSuiteSQLServer) Suffix() string {
@@ -42,28 +46,23 @@ func (s PeerFlowE2ETestSuiteSQLServer) Suffix() string {
 }
 
 func TestCDCFlowE2ETestSuiteSQLServer(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSuite, func(s PeerFlowE2ETestSuiteSQLServer) {
-		e2e.TearDownPostgres(s)
+	e2eshared.RunSuite(t, SetupSuite)
+}
 
-		if s.sqlsHelper != nil {
-			err := s.sqlsHelper.CleanUp()
-			require.NoError(s.t, err)
-		}
-	})
+func (s PeerFlowE2ETestSuiteSQLServer) Teardown() {
+	e2e.TearDownPostgres(s)
+
+	if s.sqlsHelper != nil {
+		err := s.sqlsHelper.CleanUp()
+		require.NoError(s.t, err)
+	}
 }
 
 func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSQLServer {
 	t.Helper()
 
-	err := godotenv.Load()
-	if err != nil {
-		// it's okay if the .env file is not present
-		// we will use the default values
-		slog.Info("Unable to load .env file, using default values from env")
-	}
-
 	suffix := "sqls_" + strings.ToLower(shared.RandomString(8))
-	pool, err := e2e.SetupPostgres(suffix)
+	conn, err := e2e.SetupPostgres(t, suffix)
 	if err != nil {
 		require.NoError(t, err)
 	}
@@ -79,7 +78,7 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSQLServer {
 
 	return PeerFlowE2ETestSuiteSQLServer{
 		t:          t,
-		pool:       pool,
+		conn:       conn,
 		sqlsHelper: sqlsHelper,
 		suffix:     suffix,
 	}
@@ -93,15 +92,17 @@ func (s PeerFlowE2ETestSuiteSQLServer) setupSQLServerTable(tableName string) {
 
 func (s PeerFlowE2ETestSuiteSQLServer) insertRowsIntoSQLServerTable(tableName string, numRows int) {
 	schemaQualified := fmt.Sprintf("%s.%s", s.sqlsHelper.SchemaName, tableName)
-	for i := 0; i < numRows; i++ {
-		params := make(map[string]interface{})
-		params["id"] = "test_id_" + fmt.Sprintf("%d", i)
-		params["card_id"] = "test_card_id_" + fmt.Sprintf("%d", i)
-		params["v_from"] = time.Now()
-		params["price"] = 100.00
-		params["status"] = 1
+	for i := range numRows {
+		params := map[string]interface{}{
+			"id":      "test_id_" + strconv.Itoa(i),
+			"card_id": "test_card_id_" + strconv.Itoa(i),
+			"v_from":  time.Now(),
+			"price":   100.00,
+			"status":  1,
+		}
 
 		_, err := s.sqlsHelper.E.NamedExec(
+			context.Background(),
 			"INSERT INTO "+schemaQualified+" (id, card_id, v_from, price, status) VALUES (:id, :card_id, :v_from, :price, :status)",
 			params,
 		)
@@ -113,18 +114,18 @@ func (s PeerFlowE2ETestSuiteSQLServer) insertRowsIntoSQLServerTable(tableName st
 func (s PeerFlowE2ETestSuiteSQLServer) setupPGDestinationTable(tableName string) {
 	ctx := context.Background()
 
-	_, err := s.pool.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS e2e_test_%s.%s", s.suffix, tableName))
+	_, err := s.Conn().Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS e2e_test_%s.%s", s.suffix, tableName))
 	require.NoError(s.t, err)
 
-	_, err = s.pool.Exec(ctx,
+	_, err = s.Conn().Exec(ctx,
 		fmt.Sprintf("CREATE TABLE e2e_test_%s.%s (id TEXT, card_id TEXT, v_from TIMESTAMP, price NUMERIC, status INT)",
 			s.suffix, tableName))
 	require.NoError(s.t, err)
 }
 
-func getSimpleTableSchema() *model.QRecordSchema {
-	return &model.QRecordSchema{
-		Fields: []model.QField{
+func getSimpleTableSchema() *qvalue.QRecordSchema {
+	return &qvalue.QRecordSchema{
+		Fields: []qvalue.QField{
 			{Name: "id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "card_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "v_from", Type: qvalue.QValueKindTimestamp, Nullable: true},
@@ -139,8 +140,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 		s.t.Skip("Skipping SQL Server test")
 	}
 
-	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+	tc := e2e.NewTemporalClient(s.t)
 
 	numRows := 10
 	tblName := "test_qrep_flow_avro_ss_append"
@@ -155,7 +155,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 	query := fmt.Sprintf("SELECT * FROM %s.%s WHERE v_from BETWEEN {{.start}} AND {{.end}}",
 		s.sqlsHelper.SchemaName, tblName)
 
-	postgresPeer := e2e.GeneratePostgresPeer(e2e.PostgresPort)
+	postgresPeer := e2e.GeneratePostgresPeer()
 
 	qrepConfig := &protos.QRepConfig{
 		FlowJobName:                tblName,
@@ -171,18 +171,14 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 		WaitBetweenBatchesSeconds:  5,
 	}
 
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-
-	err := env.GetWorkflowError()
-	require.NoError(s.t, err)
+	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.NoError(s.t, env.Error())
 
 	// Verify that the destination table has the same number of rows as the source table
 	var numRowsInDest pgtype.Int8
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s", dstTableName)
-	err = s.pool.QueryRow(context.Background(), countQuery).Scan(&numRowsInDest)
+	countQuery := "SELECT COUNT(*) FROM " + dstTableName
+	err := s.Conn().QueryRow(context.Background(), countQuery).Scan(&numRowsInDest)
 	require.NoError(s.t, err)
 
 	require.Equal(s.t, numRows, int(numRowsInDest.Int64))

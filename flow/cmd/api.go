@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"context"
@@ -8,41 +8,39 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
-	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
-	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/google/uuid"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/reflection"
-
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/reflection"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/shared"
+	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
 
 type APIServerParams struct {
-	ctx               context.Context
-	Port              uint16
-	GatewayPort       uint16
 	TemporalHostPort  string
 	TemporalNamespace string
 	TemporalCert      string
 	TemporalKey       string
+	Port              uint16
+	GatewayPort       uint16
 }
 
 // setupGRPCGatewayServer sets up the grpc-gateway mux
 func setupGRPCGatewayServer(args *APIServerParams) (*http.Server, error) {
-	conn, err := grpc.DialContext(
-		context.Background(),
+	conn, err := grpc.NewClient(
 		fmt.Sprintf("0.0.0.0:%d", args.Port),
-		grpc.WithBlock(),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
@@ -63,7 +61,7 @@ func setupGRPCGatewayServer(args *APIServerParams) (*http.Server, error) {
 	return server, nil
 }
 
-func killExistingHeartbeatFlows(
+func killExistingScheduleFlows(
 	ctx context.Context,
 	tc client.Client,
 	namespace string,
@@ -72,33 +70,33 @@ func killExistingHeartbeatFlows(
 	listRes, err := tc.ListWorkflow(ctx,
 		&workflowservice.ListWorkflowExecutionsRequest{
 			Namespace: namespace,
-			Query:     "WorkflowType = 'HeartbeatFlowWorkflow' AND TaskQueue = '" + taskQueue + "'",
+			Query:     "WorkflowType = 'GlobalScheduleManagerWorkflow' AND TaskQueue = '" + taskQueue + "'",
 		})
 	if err != nil {
 		return fmt.Errorf("unable to list workflows: %w", err)
 	}
-	slog.Info("Requesting cancellation of pre-existing heartbeat flows")
+	slog.Info("Requesting cancellation of pre-existing scheduler flows")
 	for _, workflow := range listRes.Executions {
 		slog.Info("Cancelling workflow", slog.String("workflowId", workflow.Execution.WorkflowId))
 		err := tc.CancelWorkflow(ctx,
 			workflow.Execution.WorkflowId, workflow.Execution.RunId)
 		if err != nil && err.Error() != "workflow execution already completed" {
-			return fmt.Errorf("unable to terminate workflow: %w", err)
+			return fmt.Errorf("unable to cancel workflow: %w", err)
 		}
 	}
 	return nil
 }
 
-func APIMain(args *APIServerParams) error {
-	ctx := args.ctx
+func APIMain(ctx context.Context, args *APIServerParams) error {
 	clientOptions := client.Options{
 		HostPort:  args.TemporalHostPort,
 		Namespace: args.TemporalNamespace,
+		Logger:    slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))),
 	}
 	if args.TemporalCert != "" && args.TemporalKey != "" {
 		slog.Info("Using temporal certificate/key for authentication")
 
-		certs, err := Base64DecodeCertAndKey(args.TemporalCert, args.TemporalKey)
+		certs, err := base64DecodeCertAndKey(args.TemporalCert, args.TemporalKey)
 		if err != nil {
 			return fmt.Errorf("unable to base64 decode certificate and key: %w", err)
 		}
@@ -119,36 +117,32 @@ func APIMain(args *APIServerParams) error {
 
 	grpcServer := grpc.NewServer()
 
-	catalogConn, err := utils.GetCatalogConnectionPoolFromEnv()
+	catalogConn, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to get catalog connection pool: %w", err)
 	}
 
-	taskQueue, err := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
-	if err != nil {
-		return err
-	}
-
+	taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
 	flowHandler := NewFlowRequestHandler(tc, catalogConn, taskQueue)
 
-	err = killExistingHeartbeatFlows(ctx, tc, args.TemporalNamespace, taskQueue)
+	err = killExistingScheduleFlows(ctx, tc, args.TemporalNamespace, taskQueue)
 	if err != nil {
-		return fmt.Errorf("unable to kill existing heartbeat flows: %w", err)
+		return fmt.Errorf("unable to kill existing scheduler flows: %w", err)
 	}
 
-	workflowID := fmt.Sprintf("heartbeatflow-%s", uuid.New())
+	workflowID := fmt.Sprintf("scheduler-%s", uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
 		TaskQueue: taskQueue,
 	}
 
 	_, err = flowHandler.temporalClient.ExecuteWorkflow(
-		ctx,                            // context
-		workflowOptions,                // workflow start options
-		peerflow.HeartbeatFlowWorkflow, // workflow function
+		ctx,
+		workflowOptions,
+		peerflow.GlobalScheduleManagerWorkflow,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to start heartbeat workflow: %w", err)
+		return fmt.Errorf("unable to start scheduler workflow: %w", err)
 	}
 
 	protos.RegisterFlowServiceServer(grpcServer, flowHandler)

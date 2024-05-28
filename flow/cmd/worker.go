@@ -1,37 +1,46 @@
-package main
+package cmd
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"log"
 	"log/slog"
 	"os"
-	"os/signal"
 	"runtime"
-	"syscall"
-
-	"github.com/PeerDB-io/peer-flow/activities"
-	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
-	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/PeerDB-io/peer-flow/shared/alerting"
-	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 
 	"github.com/grafana/pyroscope-go"
-
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
+
+	"github.com/PeerDB-io/peer-flow/activities"
+	"github.com/PeerDB-io/peer-flow/alerting"
+	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/otel_metrics"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/shared"
+	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
 
-type WorkerOptions struct {
-	TemporalHostPort  string
-	EnableProfiling   bool
-	PyroscopeServer   string
-	TemporalNamespace string
-	TemporalCert      string
-	TemporalKey       string
+type WorkerSetupOptions struct {
+	TemporalHostPort                   string
+	PyroscopeServer                    string
+	TemporalNamespace                  string
+	TemporalCert                       string
+	TemporalKey                        string
+	TemporalMaxConcurrentActivities    int
+	TemporalMaxConcurrentWorkflowTasks int
+	EnableProfiling                    bool
+	EnableOtelMetrics                  bool
 }
 
-func setupPyroscope(opts *WorkerOptions) {
+type workerSetupResponse struct {
+	Client  client.Client
+	Worker  worker.Worker
+	Cleanup func()
+}
+
+func setupPyroscope(opts *WorkerSetupOptions) {
 	if opts.PyroscopeServer == "" {
 		log.Fatal("pyroscope server address is not set but profiling is enabled")
 	}
@@ -72,32 +81,22 @@ func setupPyroscope(opts *WorkerOptions) {
 	}
 }
 
-func WorkerMain(opts *WorkerOptions) error {
+func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 	if opts.EnableProfiling {
 		setupPyroscope(opts)
 	}
 
-	go func() {
-		sigs := make(chan os.Signal, 1)
-		signal.Notify(sigs, syscall.SIGQUIT)
-		buf := make([]byte, 1<<20)
-		for {
-			<-sigs
-			stacklen := runtime.Stack(buf, true)
-			log.Printf("=== received SIGQUIT ===\n*** goroutine dump...\n%s\n*** end\n", buf[:stacklen])
-		}
-	}()
-
 	clientOptions := client.Options{
 		HostPort:  opts.TemporalHostPort,
 		Namespace: opts.TemporalNamespace,
+		Logger:    slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))),
 	}
 
 	if opts.TemporalCert != "" && opts.TemporalKey != "" {
 		slog.Info("Using temporal certificate/key for authentication")
-		certs, err := Base64DecodeCertAndKey(opts.TemporalCert, opts.TemporalKey)
+		certs, err := base64DecodeCertAndKey(opts.TemporalCert, opts.TemporalKey)
 		if err != nil {
-			return fmt.Errorf("unable to process certificate and key: %w", err)
+			return nil, fmt.Errorf("unable to process certificate and key: %w", err)
 		}
 		connOptions := client.ConnectionOptions{
 			TLS: &tls.Config{
@@ -108,48 +107,68 @@ func WorkerMain(opts *WorkerOptions) error {
 		clientOptions.ConnectionOptions = connOptions
 	}
 
-	conn, err := utils.GetCatalogConnectionPoolFromEnv()
+	conn, err := peerdbenv.GetCatalogConnectionPoolFromEnv(context.Background())
 	if err != nil {
-		return fmt.Errorf("unable to create catalog connection pool: %w", err)
+		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
 
 	c, err := client.Dial(clientOptions)
 	if err != nil {
-		return fmt.Errorf("unable to create Temporal client: %w", err)
+		return nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 	slog.Info("Created temporal client")
-	defer c.Close()
 
-	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
-	if queueErr != nil {
-		return queueErr
+	taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
+	slog.Info(
+		fmt.Sprintf("Creating temporal worker for queue %v: %v workflow workers %v activity workers",
+			taskQueue,
+			opts.TemporalMaxConcurrentWorkflowTasks,
+			opts.TemporalMaxConcurrentActivities,
+		),
+	)
+	w := worker.New(c, taskQueue, worker.Options{
+		EnableSessionWorker:                    true,
+		MaxConcurrentActivityExecutionSize:     opts.TemporalMaxConcurrentActivities,
+		MaxConcurrentWorkflowTaskExecutionSize: opts.TemporalMaxConcurrentWorkflowTasks,
+		OnFatalError: func(err error) {
+			slog.Error("Peerflow Worker failed", slog.Any("error", err))
+		},
+	})
+	peerflow.RegisterFlowWorkerWorkflows(w)
+
+	cleanupOtelManagerFunc := func() {}
+	var otelManager *otel_metrics.OtelManager
+	if opts.EnableOtelMetrics {
+		metricsProvider, metricErr := otel_metrics.SetupOtelMetricsExporter("flow-worker")
+		if metricErr != nil {
+			return nil, metricErr
+		}
+		otelManager = &otel_metrics.OtelManager{
+			MetricsProvider:    metricsProvider,
+			Meter:              metricsProvider.Meter("io.peerdb.flow-worker"),
+			Float64GaugesCache: make(map[string]*otel_metrics.Float64SyncGauge),
+			Int64GaugesCache:   make(map[string]*otel_metrics.Int64SyncGauge),
+		}
+		cleanupOtelManagerFunc = func() {
+			shutDownErr := otelManager.MetricsProvider.Shutdown(context.Background())
+			if shutDownErr != nil {
+				slog.Error("Failed to shutdown metrics provider", slog.Any("error", shutDownErr))
+			}
+		}
 	}
-
-	w := worker.New(c, taskQueue, worker.Options{})
-	w.RegisterWorkflow(peerflow.CDCFlowWorkflowWithConfig)
-	w.RegisterWorkflow(peerflow.SyncFlowWorkflow)
-	w.RegisterWorkflow(peerflow.SetupFlowWorkflow)
-	w.RegisterWorkflow(peerflow.NormalizeFlowWorkflow)
-	w.RegisterWorkflow(peerflow.QRepFlowWorkflow)
-	w.RegisterWorkflow(peerflow.QRepPartitionWorkflow)
-	w.RegisterWorkflow(peerflow.XminFlowWorkflow)
-	w.RegisterWorkflow(peerflow.DropFlowWorkflow)
-	w.RegisterWorkflow(peerflow.HeartbeatFlowWorkflow)
-
-	alerter, err := alerting.NewAlerter(conn)
-	if err != nil {
-		return fmt.Errorf("unable to create alerter: %w", err)
-	}
-
 	w.RegisterActivity(&activities.FlowableActivity{
 		CatalogPool: conn,
-		Alerter:     alerter,
+		Alerter:     alerting.NewAlerter(context.Background(), conn),
+		CdcCache:    make(map[string]activities.CdcCacheEntry),
+		OtelManager: otelManager,
 	})
 
-	err = w.Run(worker.InterruptCh())
-	if err != nil {
-		return fmt.Errorf("worker run error: %w", err)
-	}
-
-	return nil
+	return &workerSetupResponse{
+		Client: c,
+		Worker: w,
+		Cleanup: func() {
+			cleanupOtelManagerFunc()
+			c.Close()
+		},
+	}, nil
 }

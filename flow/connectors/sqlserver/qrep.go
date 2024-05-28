@@ -2,20 +2,23 @@ package connsqlserver
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
-	"log/slog"
 	"text/template"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jmoiron/sqlx"
+	"go.temporal.io/sdk/log"
 
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jmoiron/sqlx"
 )
 
 func (c *SQLServerConnector) GetQRepPartitions(
-	config *protos.QRepConfig, last *protos.QRepPartition,
+	ctx context.Context, config *protos.QRepConfig, last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
 	if config.WatermarkTable == "" {
 		c.logger.Info("watermark table is empty, doing full table refresh")
@@ -28,7 +31,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 	}
 
 	if config.NumRowsPerPartition <= 0 {
-		return nil, fmt.Errorf("num rows per partition must be greater than 0 for sql server")
+		return nil, errors.New("num rows per partition must be greater than 0 for sql server")
 	}
 
 	var err error
@@ -56,20 +59,26 @@ func (c *SQLServerConnector) GetQRepPartitions(
 			"minVal": minVal,
 		}
 
-		rows, err := c.db.NamedQuery(countQuery, params)
+		err := func() error {
+			//nolint:sqlclosecheck
+			rows, err := c.db.NamedQuery(countQuery, params)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+
+			if rows.Next() {
+				if err := rows.Scan(&totalRows); err != nil {
+					return err
+				}
+			}
+			return rows.Err()
+		}()
 		if err != nil {
 			return nil, fmt.Errorf("failed to query for total rows: %w", err)
 		}
-
-		defer rows.Close()
-
-		if rows.Next() {
-			if err = rows.Scan(&totalRows); err != nil {
-				return nil, fmt.Errorf("failed to query for total rows: %w", err)
-			}
-		}
 	} else {
-		row := c.db.QueryRow(countQuery)
+		row := c.db.QueryRowContext(ctx, countQuery)
 		if err = row.Scan(&totalRows); err != nil {
 			return nil, fmt.Errorf("failed to query for total rows: %w", err)
 		}
@@ -150,18 +159,26 @@ func (c *SQLServerConnector) GetQRepPartitions(
 }
 
 func (c *SQLServerConnector) PullQRepRecords(
-	config *protos.QRepConfig, partition *protos.QRepPartition,
-) (*model.QRecordBatch, error) {
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	stream *model.QRecordStream,
+) (int, error) {
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
-	query, err := BuildQuery(config.Query)
+	query, err := BuildQuery(c.logger, config.Query)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	if partition.FullTablePartition {
 		// this is a full table partition, so just run the query
-		return c.ExecuteAndProcessQuery(query)
+		qbatch, err := c.ExecuteAndProcessQuery(ctx, query)
+		if err != nil {
+			return 0, err
+		}
+		qbatch.FeedToQRecordStream(stream)
+		return len(qbatch.Records), nil
 	}
 
 	var rangeStart interface{}
@@ -176,7 +193,7 @@ func (c *SQLServerConnector) PullQRepRecords(
 		rangeStart = x.TimestampRange.Start.AsTime()
 		rangeEnd = x.TimestampRange.End.AsTime()
 	default:
-		return nil, fmt.Errorf("unknown range type: %v", x)
+		return 0, fmt.Errorf("unknown range type: %v", x)
 	}
 
 	rangeParams := map[string]interface{}{
@@ -184,10 +201,15 @@ func (c *SQLServerConnector) PullQRepRecords(
 		"endRange":   rangeEnd,
 	}
 
-	return c.NamedExecuteAndProcessQuery(query, rangeParams)
+	qbatch, err := c.NamedExecuteAndProcessQuery(ctx, query, rangeParams)
+	if err != nil {
+		return 0, err
+	}
+	qbatch.FeedToQRecordStream(stream)
+	return len(qbatch.Records), nil
 }
 
-func BuildQuery(query string) (string, error) {
+func BuildQuery(logger log.Logger, query string) (string, error) {
 	tmpl, err := template.New("query").Parse(query)
 	if err != nil {
 		return "", err
@@ -206,6 +228,6 @@ func BuildQuery(query string) (string, error) {
 	}
 	res := buf.String()
 
-	slog.Info("templated query: " + res)
+	logger.Info("templated query: " + res)
 	return res, nil
 }

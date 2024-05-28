@@ -5,97 +5,97 @@ import (
 	"strings"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	numeric "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type mergeStmtGenerator struct {
-	rawTableName string
-	// destination table name, used to retrieve records from raw table
-	dstTableName string
-	// last synced batchID.
-	syncBatchID int64
-	// last normalized batchID.
-	normalizeBatchID int64
 	// the schema of the table to merge into
-	normalizedTableSchema *protos.TableSchema
+	tableSchemaMapping map[string]*protos.TableSchema
 	// array of toast column combinations that are unchanged
-	unchangedToastColumns []string
+	unchangedToastColumnsMap map[string][]string
 	// _PEERDB_IS_DELETED and _SYNCED_AT columns
 	peerdbCols *protos.PeerDBColumns
+	// _PEERDB_RAW_...
+	rawTableName string
+	// Id of the currently merging batch
+	mergeBatchId int64
 }
 
-func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
-	parsedDstTable, _ := utils.ParseSchemaTable(m.dstTableName)
-	columnNames := utils.TableSchemaColumnNames(m.normalizedTableSchema)
+func (m *mergeStmtGenerator) generateMergeStmt(dstTable string) (string, error) {
+	parsedDstTable, _ := utils.ParseSchemaTable(dstTable)
+	normalizedTableSchema := m.tableSchemaMapping[dstTable]
+	unchangedToastColumns := m.unchangedToastColumnsMap[dstTable]
+	columns := normalizedTableSchema.Columns
 
-	flattenedCastsSQLArray := make([]string, 0, utils.TableSchemaColumns(m.normalizedTableSchema))
-	err := utils.IterColumnsError(m.normalizedTableSchema, func(columnName, genericColumnType string) error {
+	flattenedCastsSQLArray := make([]string, 0, len(columns))
+	for _, column := range columns {
+		genericColumnType := column.Type
 		qvKind := qvalue.QValueKind(genericColumnType)
-		sfType, err := qValueKindToSnowflakeType(qvKind)
+		sfType, err := qvKind.ToDWHColumnType(protos.DBType_SNOWFLAKE)
 		if err != nil {
-			return fmt.Errorf("failed to convert column type %s to snowflake type: %w", genericColumnType, err)
+			return "", fmt.Errorf("failed to convert column type %s to snowflake type: %w", genericColumnType, err)
 		}
 
-		targetColumnName := SnowflakeIdentifierNormalize(columnName)
-		switch qvalue.QValueKind(genericColumnType) {
+		targetColumnName := SnowflakeIdentifierNormalize(column.Name)
+		switch qvKind {
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:\"%s\") "+
-				"AS %s,", toVariantColumnName, columnName, targetColumnName))
+				"AS %s", toVariantColumnName, column.Name, targetColumnName))
 		case qvalue.QValueKindGeography:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
-				fmt.Sprintf("TO_GEOGRAPHY(CAST(%s:\"%s\" AS STRING),true) AS %s,",
-					toVariantColumnName, columnName, targetColumnName))
+				fmt.Sprintf("TO_GEOGRAPHY(CAST(%s:\"%s\" AS STRING),true) AS %s",
+					toVariantColumnName, column.Name, targetColumnName))
 		case qvalue.QValueKindGeometry:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
-				fmt.Sprintf("TO_GEOMETRY(CAST(%s:\"%s\" AS STRING),true) AS %s,",
-					toVariantColumnName, columnName, targetColumnName))
-		case qvalue.QValueKindJSON, qvalue.QValueKindHStore:
+				fmt.Sprintf("TO_GEOMETRY(CAST(%s:\"%s\" AS STRING),true) AS %s",
+					toVariantColumnName, column.Name, targetColumnName))
+		case qvalue.QValueKindJSON, qvalue.QValueKindHStore, qvalue.QValueKindInterval:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
-				fmt.Sprintf("PARSE_JSON(CAST(%s:\"%s\" AS STRING)) AS %s,",
-					toVariantColumnName, columnName, targetColumnName))
+				fmt.Sprintf("PARSE_JSON(CAST(%s:\"%s\" AS STRING)) AS %s",
+					toVariantColumnName, column.Name, targetColumnName))
 		// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - handle time types and interval types
 		// case model.ColumnTypeTime:
 		// 	flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("TIME_FROM_PARTS(0,0,0,%s:%s:"+
 		// 		"Microseconds*1000) "+
-		// 		"AS %s,", toVariantColumnName, columnName, columnName))
+		// 		"AS %s", toVariantColumnName, columnName, columnName))
+		case qvalue.QValueKindNumeric:
+			precision, scale := numeric.GetNumericTypeForWarehouse(column.TypeModifier, numeric.SnowflakeNumericCompatibility{})
+			numericType := fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
+				fmt.Sprintf("TRY_CAST((%s:\"%s\")::text AS %s) AS %s",
+					toVariantColumnName, column.Name, numericType, targetColumnName))
 		default:
-			if qvKind == qvalue.QValueKindNumeric {
-				flattenedCastsSQLArray = append(flattenedCastsSQLArray,
-					fmt.Sprintf("TRY_CAST((%s:\"%s\")::text AS %s) AS %s,",
-						toVariantColumnName, columnName, sfType, targetColumnName))
-			} else {
-				flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:\"%s\" AS %s) AS %s,",
-					toVariantColumnName, columnName, sfType, targetColumnName))
-			}
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:\"%s\" AS %s) AS %s",
+				toVariantColumnName, column.Name, sfType, targetColumnName))
 		}
-		return nil
-	})
-	if err != nil {
-		return "", err
 	}
-	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ""), ",")
+	flattenedCastsSQL := strings.Join(flattenedCastsSQLArray, ",")
 
-	quotedUpperColNames := make([]string, 0, len(columnNames))
-	for _, columnName := range columnNames {
-		quotedUpperColNames = append(quotedUpperColNames, SnowflakeIdentifierNormalize(columnName))
+	quotedUpperColNames := make([]string, 0, len(columns))
+	columnNames := make([]string, 0, len(columns))
+	for _, column := range columns {
+		quotedUpperColNames = append(quotedUpperColNames, SnowflakeIdentifierNormalize(column.Name))
+		columnNames = append(columnNames, column.Name)
 	}
 	// append synced_at column
 	quotedUpperColNames = append(quotedUpperColNames,
 		fmt.Sprintf(`"%s"`, strings.ToUpper(m.peerdbCols.SyncedAtColName)),
 	)
 
-	insertColumnsSQL := strings.TrimSuffix(strings.Join(quotedUpperColNames, ","), ",")
+	insertColumnsSQL := strings.Join(quotedUpperColNames, ",")
 
-	insertValuesSQLArray := make([]string, 0, len(columnNames))
-	for _, columnName := range columnNames {
-		normalizedColName := SnowflakeIdentifierNormalize(columnName)
-		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("SOURCE.%s", normalizedColName))
+	insertValuesSQLArray := make([]string, 0, len(columns))
+	for _, column := range columns {
+		normalizedColName := SnowflakeIdentifierNormalize(column.Name)
+		insertValuesSQLArray = append(insertValuesSQLArray, "SOURCE."+normalizedColName)
 	}
 	// fill in synced_at column
 	insertValuesSQLArray = append(insertValuesSQLArray, "CURRENT_TIMESTAMP")
 	insertValuesSQL := strings.Join(insertValuesSQLArray, ",")
-	updateStatementsforToastCols := m.generateUpdateStatements(columnNames)
+	updateStatementsforToastCols := m.generateUpdateStatements(columnNames, unchangedToastColumns)
 
 	// handling the case when an insert and delete happen in the same batch, with updates in the middle
 	// with soft-delete, we want the row to be in the destination with SOFT_DELETE true
@@ -110,9 +110,9 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 	}
 	updateStringToastCols := strings.Join(updateStatementsforToastCols, " ")
 
-	normalizedpkeyColsArray := make([]string, 0, len(m.normalizedTableSchema.PrimaryKeyColumns))
-	pkeySelectSQLArray := make([]string, 0, len(m.normalizedTableSchema.PrimaryKeyColumns))
-	for _, pkeyColName := range m.normalizedTableSchema.PrimaryKeyColumns {
+	normalizedpkeyColsArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
+	pkeySelectSQLArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
+	for _, pkeyColName := range normalizedTableSchema.PrimaryKeyColumns {
 		normalizedPkeyColName := SnowflakeIdentifierNormalize(pkeyColName)
 		normalizedpkeyColsArray = append(normalizedpkeyColsArray, normalizedPkeyColName)
 		pkeySelectSQLArray = append(pkeySelectSQLArray, fmt.Sprintf("TARGET.%s = SOURCE.%s",
@@ -131,7 +131,7 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 	}
 
 	mergeStatement := fmt.Sprintf(mergeStatementSQL, snowflakeSchemaTableNormalize(parsedDstTable),
-		toVariantColumnName, m.rawTableName, m.normalizeBatchID, m.syncBatchID, flattenedCastsSQL,
+		toVariantColumnName, m.rawTableName, m.mergeBatchId, flattenedCastsSQL,
 		fmt.Sprintf("(%s)", strings.Join(normalizedpkeyColsArray, ",")),
 		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
 
@@ -162,19 +162,17 @@ and updating the other columns.
 6. Repeat steps 1-5 for each unique set of unchanged toast column groups.
 7. Return the list of generated update statements.
 */
-func (m *mergeStmtGenerator) generateUpdateStatements(allCols []string) []string {
+func (m *mergeStmtGenerator) generateUpdateStatements(allCols []string, unchangedToastColumns []string) []string {
 	handleSoftDelete := m.peerdbCols.SoftDelete && (m.peerdbCols.SoftDeleteColName != "")
-	// weird way of doing it but avoids prealloc lint
-	updateStmts := make([]string, 0, func() int {
-		if handleSoftDelete {
-			return 2 * len(m.unchangedToastColumns)
-		}
-		return len(m.unchangedToastColumns)
-	}())
+	stmtCount := len(unchangedToastColumns)
+	if handleSoftDelete {
+		stmtCount *= 2
+	}
+	updateStmts := make([]string, 0, stmtCount)
 
-	for _, cols := range m.unchangedToastColumns {
+	for _, cols := range unchangedToastColumns {
 		unchangedColsArray := strings.Split(cols, ",")
-		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
+		otherCols := shared.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0, len(otherCols)+2)
 		for _, colName := range otherCols {
 			normalizedColName := SnowflakeIdentifierNormalize(colName)

@@ -1,10 +1,15 @@
 import { CatalogPeer } from '@/app/dto/PeersDTO';
 import {
   BigqueryConfig,
+  ClickhouseConfig,
+  ElasticsearchConfig,
   EventHubConfig,
   EventHubGroupConfig,
+  KafkaConfig,
+  MySqlConfig,
   Peer,
   PostgresConfig,
+  PubSubConfig,
   S3Config,
   SnowflakeConfig,
   SqlServerConfig,
@@ -18,12 +23,17 @@ export const getTruePeer = (peer: CatalogPeer) => {
   const options = peer.options;
   let config:
     | BigqueryConfig
-    | SnowflakeConfig
-    | PostgresConfig
+    | ClickhouseConfig
     | EventHubConfig
+    | EventHubGroupConfig
+    | KafkaConfig
+    | MySqlConfig
+    | PostgresConfig
+    | PubSubConfig
     | S3Config
+    | SnowflakeConfig
     | SqlServerConfig
-    | EventHubGroupConfig;
+    | ElasticsearchConfig;
   switch (peer.type) {
     case 0:
       config = BigqueryConfig.decode(options);
@@ -37,10 +47,6 @@ export const getTruePeer = (peer: CatalogPeer) => {
       config = PostgresConfig.decode(options);
       newPeer.postgresConfig = config;
       break;
-    case 4:
-      config = EventHubConfig.decode(options);
-      newPeer.eventhubConfig = config;
-      break;
     case 5:
       config = S3Config.decode(options);
       newPeer.s3Config = config;
@@ -50,8 +56,28 @@ export const getTruePeer = (peer: CatalogPeer) => {
       newPeer.sqlserverConfig = config;
       break;
     case 7:
+      config = MySqlConfig.decode(options);
+      newPeer.mysqlConfig = config;
+      break;
+    case 8:
+      config = ClickhouseConfig.decode(options);
+      newPeer.clickhouseConfig = config;
+      break;
+    case 9:
+      config = KafkaConfig.decode(options);
+      newPeer.kafkaConfig = config;
+      break;
+    case 10:
+      config = PubSubConfig.decode(options);
+      newPeer.pubsubConfig = config;
+      break;
+    case 11:
       config = EventHubGroupConfig.decode(options);
       newPeer.eventhubGroupConfig = config;
+      break;
+    case 12:
+      config = ElasticsearchConfig.decode(options);
+      newPeer.elasticsearchConfig = config;
       break;
     default:
       return newPeer;

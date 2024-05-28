@@ -19,7 +19,7 @@ export const SlotNameDisplay = ({ slotName }: { slotName: string }) => {
         fontSize: 13,
         fontWeight: 'bold',
       }}
-      href={`/mirrors/edit/${flowName}`}
+      href={`/mirrors/${flowName}`}
     >
       {slotName}
     </Label>

@@ -1,48 +1,81 @@
 'use client';
-import { DBType } from '@/grpc_generated/peers';
+import TitleCase from '@/app/utils/titlecase';
+import { Button } from '@/lib/Button/Button';
 import Image from 'next/image';
-import { Dispatch, SetStateAction } from 'react';
-import ReactSelect from 'react-select';
+import Link from 'next/link';
 import { DBTypeToImageMapping } from './PeerComponent';
 
-interface SelectSourceProps {
-  peerType: string;
-  setPeerType: Dispatch<SetStateAction<string>>;
+function SourceLabel({ label }: { label: string }) {
+  const peerLogo = DBTypeToImageMapping(label);
+  return (
+    <Button
+      as={Link}
+      href={`/peers/create/${label}`}
+      style={{
+        justifyContent: 'space-between',
+        padding: '0.5rem',
+        backgroundColor: 'white',
+        borderRadius: '1rem',
+        border: '1px solid rgba(0,0,0,0.1)',
+      }}
+    >
+      <Image
+        src={peerLogo}
+        alt='peer'
+        width={20}
+        height={20}
+        objectFit='cover'
+      />
+      <div>{TitleCase(label)}</div>
+    </Button>
+  );
 }
 
-function SourceLabel({ value }: { value: string }) {
-  const peerLogo = DBTypeToImageMapping(value);
-  return (
-    <div style={{ display: 'flex', alignItems: 'center' }}>
-      <Image src={peerLogo} alt='peer' height={15} width={15} />
-      <div style={{ marginLeft: 10 }}>{value}</div>
+const dbTypes = [
+  [
+    'Postgres',
+    'POSTGRESQL',
+    'RDS POSTGRESQL',
+    'GOOGLE CLOUD POSTGRESQL',
+    'AZURE FLEXIBLE POSTGRESQL',
+    'TEMBO',
+    'CRUNCHY POSTGRES',
+  ],
+  ['Warehouses', 'SNOWFLAKE', 'BIGQUERY', 'S3', 'CLICKHOUSE', 'ELASTICSEARCH'],
+  ['Queues', 'REDPANDA', 'CONFLUENT', 'KAFKA', 'EVENTHUBS', 'PUBSUB'],
+];
+
+const gridContainerStyle = {
+  display: 'flex',
+  gap: '20px',
+  flexWrap: 'wrap',
+  border: 'solid #18794e',
+  borderRadius: '20px',
+  position: 'relative',
+  padding: '20px',
+  marginTop: '20px',
+} as const;
+const gridHeaderStyle = {
+  position: 'absolute',
+  top: '-15px',
+  height: '30px',
+  display: 'flex',
+  alignItems: 'center',
+  color: '#fff',
+  backgroundColor: '#18794e',
+  borderRadius: '15px',
+  marginLeft: '10px',
+  paddingLeft: '10px',
+  paddingRight: '10px',
+} as const;
+
+export default function SelectSource() {
+  return dbTypes.map(([category, ...items]) => (
+    <div key={category} style={gridContainerStyle}>
+      <div style={gridHeaderStyle}>{category}</div>
+      {items.map((item) => (
+        <SourceLabel key={item} label={item} />
+      ))}
     </div>
-  );
-}
-
-export default function SelectSource({
-  peerType,
-  setPeerType,
-}: SelectSourceProps) {
-  const dbTypes = Object.values(DBType)
-    .filter(
-      (value): value is string =>
-        typeof value === 'string' &&
-        (value === 'POSTGRES' ||
-          value === 'SNOWFLAKE' ||
-          value === 'BIGQUERY' ||
-          value === 'S3')
-    )
-    .map((value) => ({ label: value, value }));
-
-  return (
-    <ReactSelect
-      className='w-1/2'
-      placeholder='Select a source'
-      options={dbTypes}
-      defaultValue={dbTypes.find((opt) => opt.value === peerType)}
-      onChange={(val, _) => val && setPeerType(val.value)}
-      formatOptionLabel={SourceLabel}
-    />
-  );
+  ));
 }

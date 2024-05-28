@@ -1,11 +1,12 @@
 import { CSSProperties } from 'styled-components';
 
-export const tableStyle = {
-  maxHeight: '100%',
-  overflow: 'scroll',
+export const tableStyle: CSSProperties = {
+  maxHeight: '35vh',
   padding: '0.5rem',
+  overflowY: 'auto',
   borderRadius: '0.5rem',
   border: '1px solid rgba(0,0,0,0.1)',
+  marginTop: '0.5rem',
 };
 
 export const connStringStyle: CSSProperties = {

@@ -9,28 +9,20 @@ import (
 	"testing"
 
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 type Suite interface {
-	T() *testing.T
-	Pool() *pgxpool.Pool
-	Suffix() string
+	Teardown()
 }
 
-type RowSource interface {
-	Suite
-	GetRows(table, cols string) (*model.QRecordBatch, error)
-}
-
-func RunSuite[T any](t *testing.T, setup func(t *testing.T) T, teardown func(T)) {
+func RunSuite[T Suite](t *testing.T, setup func(t *testing.T) T) {
 	t.Helper()
 	t.Parallel()
 
-	// can be replaced with reflect.TypeFor[T]() in go 1.22
-	typ := reflect.TypeOf((*T)(nil)).Elem()
+	typ := reflect.TypeFor[T]()
 	mcount := typ.NumMethod()
-	for i := 0; i < mcount; i++ {
+	for i := range mcount {
 		m := typ.Method(i)
 		if strings.HasPrefix(m.Name, "Test") {
 			if m.Type.NumIn() == 1 && m.Type.NumOut() == 0 {
@@ -38,7 +30,7 @@ func RunSuite[T any](t *testing.T, setup func(t *testing.T) T, teardown func(T))
 					subtest.Parallel()
 					suite := setup(subtest)
 					subtest.Cleanup(func() {
-						teardown(suite)
+						suite.Teardown()
 					})
 					m.Func.Call([]reflect.Value{reflect.ValueOf(suite)})
 				})
@@ -67,18 +59,18 @@ func ReadFileToBytes(path string) ([]byte, error) {
 }
 
 // checks if two QRecords are identical
-func CheckQRecordEquality(t *testing.T, q model.QRecord, other model.QRecord) bool {
+func CheckQRecordEquality(t *testing.T, q []qvalue.QValue, other []qvalue.QValue) bool {
 	t.Helper()
 
-	if q.NumEntries != other.NumEntries {
-		t.Logf("unequal entry count: %d != %d", q.NumEntries, other.NumEntries)
+	if len(q) != len(other) {
+		t.Logf("unequal entry count: %d != %d", len(q), len(other))
 		return false
 	}
 
-	for i, entry := range q.Entries {
-		otherEntry := other.Entries[i]
-		if !entry.Equals(otherEntry) {
-			t.Logf("entry %d: %v != %v", i, entry, otherEntry)
+	for i, entry := range q {
+		otherEntry := other[i]
+		if !qvalue.Equals(entry, otherEntry) {
+			t.Logf("entry %d: %T %+v != %T %+v", i, entry, entry, otherEntry, otherEntry)
 			return false
 		}
 	}
@@ -96,10 +88,10 @@ func CheckEqualRecordBatches(t *testing.T, q *model.QRecordBatch, other *model.Q
 	}
 
 	// First check simple attributes
-	if q.NumRecords != other.NumRecords {
+	if len(q.Records) != len(other.Records) {
 		// print num records
-		t.Logf("q.NumRecords: %d", q.NumRecords)
-		t.Logf("other.NumRecords: %d", other.NumRecords)
+		t.Logf("q.NumRecords: %d", len(q.Records))
+		t.Logf("other.NumRecords: %d", len(other.Records))
 		return false
 	}
 

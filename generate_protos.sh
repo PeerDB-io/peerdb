@@ -1,5 +1,5 @@
-#!/bin/bash
-set -xeuo pipefail
+#!/bin/sh
+set -xeu
 
 # check if buf is installed
 if ! command -v buf &> /dev/null
@@ -9,4 +9,4 @@ then
     exit
 fi
 
-buf generate protos
+exec buf generate protos

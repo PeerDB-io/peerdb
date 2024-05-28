@@ -1,6 +1,7 @@
 package connpostgres
 
 import (
+	"log/slog"
 	"testing"
 )
 
@@ -34,7 +35,7 @@ func TestBuildQuery(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			actual, err := BuildQuery(tc.query, "test_flow")
+			actual, err := BuildQuery(slog.Default(), tc.query, "test_flow")
 			if err != nil {
 				t.Fatalf("Error returned by BuildQuery: %v", err)
 			}
