@@ -39,11 +39,9 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - run: buf generate protos
-
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: '1.22.3'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos
@@ -88,6 +86,13 @@ jobs:
         with:
           name: "eh_creds.json"
           json: ${{ secrets.EH_CREDS }}
+
+      - name: install protobuf plugins and generate protos
+        id: install-protobuf-plugins
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.34
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.3
+          PATH="$PATH:$(go env GOPATH)/bin" buf generate --config buf.gen-local.yaml protos
 
       - name: create hstore extension, increase logical replication limits, and setup catalog database
         run: >
