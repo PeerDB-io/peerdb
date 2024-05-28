@@ -27,7 +27,7 @@ plugins:
   - name: ts
     out: ui/grpc_generated
     strategy: all
-    path: ../node_modules/ts-proto/protoc-gen-ts_proto
+    path: ./node_modules/ts-proto/protoc-gen-ts_proto
     opt:
       - esModuleInterop=true
       - outputServices=grpc-js
