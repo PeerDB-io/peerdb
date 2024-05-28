@@ -6,10 +6,10 @@ managed:
     except:
       - buf.build/googleapis/googleapis
 plugins:
-  - local: protoc-gen-go
+  - plugin: go
     out: flow/generated/protos
     opt: paths=source_relative
-  - local: protoc-gen-go-grpc
+  - plugin: go-grpc
     out: flow/generated/protos
     opt:
       - paths=source_relative
