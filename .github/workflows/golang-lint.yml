@@ -24,7 +24,7 @@ jobs:
           sudo apt-get install libgeos-dev
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: '1.22.3'
           cache: false
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
