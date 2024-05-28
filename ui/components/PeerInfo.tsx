@@ -4,9 +4,9 @@ import { Button } from '@/lib/Button';
 import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import ConfigJSONView from './ConfigJSONView';
-import Link from 'next/link';
 
 export const PeerInfo = ({ peerName }: { peerName: string }) => {
   const [info, setInfo] = useState<Peer>();
@@ -30,7 +30,13 @@ export const PeerInfo = ({ peerName }: { peerName: string }) => {
   );
 };
 
-const EditPeerButton = ({ peerName, peerType }: { peerName: string; peerType?: DBType }) => {
+const EditPeerButton = ({
+  peerName,
+  peerType,
+}: {
+  peerName: string;
+  peerType?: DBType;
+}) => {
   if (peerType === undefined) {
     return null;
   }
@@ -41,9 +47,14 @@ const EditPeerButton = ({ peerName, peerType }: { peerName: string; peerType?: D
 
   const dbTypeName: string = DBType[peerType];
   return (
-    <Link href={{ pathname: `/peers/create/${dbTypeName}`, query: { update: peerName } }}>
+    <Link
+      href={{
+        pathname: `/peers/create/${dbTypeName}`,
+        query: { update: peerName },
+      }}
+    >
       <a>
-        <Button variant="normal">Edit Peer</Button>
+        <Button variant='normal'>Edit Peer</Button>
       </a>
     </Link>
   );
@@ -61,7 +72,13 @@ const PeerConfigDialog = ({ peerInfo }: { peerInfo?: Peer }) => (
     }
   >
     <div style={{ display: 'flex', flexDirection: 'column', padding: '1rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          marginBottom: '0.5rem',
+        }}
+      >
         <Label variant='headline'>Configuration</Label>
         <DialogClose>
           <button className='IconButton' aria-label='Close'>

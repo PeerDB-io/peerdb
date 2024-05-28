@@ -25,7 +25,7 @@ import { Panel } from '@/lib/Panel';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -34,8 +34,6 @@ import { clickhouseSetting } from './helpers/ch';
 import { getBlankSetting } from './helpers/common';
 import { postgresSetting } from './helpers/pg';
 import { snowflakeSetting } from './helpers/sf';
-import { useSearchParams } from 'next/navigation'
-
 
 type CreateConfigProps = {
   params: { peerType: string };
@@ -151,7 +149,7 @@ export default function CreateConfig({
               onChange={
                 peerName === null
                   ? (e: React.ChangeEvent<HTMLInputElement>) =>
-                    setName(e.target.value)
+                      setName(e.target.value)
                   : undefined
               }
               readOnly={peerName !== null}
@@ -160,7 +158,8 @@ export default function CreateConfig({
         />
         {peerName && (
           <Label colorName='lowContrast' colorSet='destructive'>
-            Warning: Changes will only be reflected if you pause and resume the mirrors using this peer.
+            Warning: Changes will only be reflected if you pause and resume the
+            mirrors using this peer.
           </Label>
         )}
         <Label colorName='lowContrast' variant='subheadline'>
