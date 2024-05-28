@@ -1,6 +1,7 @@
 version: v1
 managed:
   enabled: true
+  optimize_for: SPEED
   go_package_prefix:
     default: generated/protos
     except:
@@ -13,14 +14,14 @@ plugins:
     out: flow/generated/protos
     opt:
       - paths=source_relative
-  - plugin: buf.build/community/neoeinstein-prost:v0.3.1
+  - plugin: prost
     out: nexus/pt/src/gen
     opt:
       - compile_well_known_types
       - extern_path=.google.protobuf=::pbjson_types
-  - plugin: buf.build/community/neoeinstein-tonic:v0.4.0
+  - plugin: tonic
     out: nexus/pt/src/gen
-  - plugin: buf.build/community/neoeinstein-prost-serde:v0.3.0
+  - plugin: prost-serde
     out: nexus/pt/src/gen
     opt:
       - ignore_unknown_fields=true
