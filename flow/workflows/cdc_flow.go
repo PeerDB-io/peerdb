@@ -187,23 +187,23 @@ func reloadPeers(ctx workflow.Context, logger log.Logger, cfg *protos.FlowConnec
 		StartToCloseTimeout: 5 * time.Minute,
 	})
 
-	logger.Info("reloading source peer " + cfg.Source.Name)
+	logger.Info("reloading source peer", slog.String("peerName", cfg.Source.Name))
 	srcFuture := workflow.ExecuteActivity(reloadPeersCtx, flowable.LoadPeer, cfg.Source.Name)
 	var srcPeer *protos.Peer
 	if err := srcFuture.Get(reloadPeersCtx, &srcPeer); err != nil {
 		logger.Error("failed to load source peer", slog.Any("error", err))
 		return fmt.Errorf("failed to load source peer: %w", err)
 	}
-	logger.Info("reloaded peer " + cfg.Source.Name)
+	logger.Info("reloaded peer", slog.String("peerName", cfg.Source.Name))
 
-	logger.Info("reloading destination peer " + cfg.Destination.Name)
+	logger.Info("reloading destination peer", slog.String("peerName", cfg.Destination.Name))
 	dstFuture := workflow.ExecuteActivity(reloadPeersCtx, flowable.LoadPeer, cfg.Destination.Name)
 	var dstPeer *protos.Peer
 	if err := dstFuture.Get(reloadPeersCtx, &dstPeer); err != nil {
 		logger.Error("failed to load destination peer", slog.Any("error", err))
 		return fmt.Errorf("failed to load destination peer: %w", err)
 	}
-	logger.Info("reloaded peer " + cfg.Destination.Name)
+	logger.Info("reloaded peer", slog.String("peerName", cfg.Destination.Name))
 
 	cfg.Source = srcPeer
 	cfg.Destination = dstPeer
