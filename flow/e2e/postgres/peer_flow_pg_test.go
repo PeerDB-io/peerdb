@@ -13,9 +13,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
@@ -905,6 +907,17 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		FlowJobName: s.attachSuffix("test_dynconfig"),
 	}
 
+	sourcePeer := e2e.GeneratePostgresPeer()
+
+	conn, err := peerdbenv.GetCatalogConnectionPoolFromEnv(context.Background())
+	require.NoError(s.t, err)
+
+	_, err = utils.CreatePeerNoValidate(context.Background(), conn, sourcePeer)
+	require.NoError(s.t, err)
+
+	_, err = utils.CreatePeerNoValidate(context.Background(), conn, s.peer)
+	require.NoError(s.t, err)
+
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName: connectionGen.FlowJobName,
 		Destination: s.peer,
@@ -914,7 +927,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 				DestinationTableIdentifier: dstTable1Name,
 			},
 		},
-		Source:                      e2e.GeneratePostgresPeer(),
+		Source:                      sourcePeer,
 		CdcStagingPath:              connectionGen.CdcStagingPath,
 		MaxBatchSize:                6,
 		IdleTimeoutSeconds:          7,

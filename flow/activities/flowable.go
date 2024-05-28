@@ -11,7 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
@@ -587,19 +587,17 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 
 		func() {
 			pgConfig := pgPeer.GetPostgresConfig()
-			peerConn, peerErr := pgx.Connect(ctx, shared.GetPGConnectionString(pgConfig))
+			pgConn, peerErr := connpostgres.NewPostgresConnector(ctx, pgConfig)
 			if peerErr != nil {
-				logger.Error(fmt.Sprintf("error creating pool for postgres peer %v with host %v: %v",
+				logger.Error(fmt.Sprintf("error creating connector for postgres peer %v with host %v: %v",
 					pgPeer.Name, pgConfig.Host, peerErr))
 				return
 			}
-			defer peerConn.Close(ctx)
-
-			_, err := peerConn.Exec(ctx, command)
-			if err != nil {
-				logger.Warn(fmt.Sprintf("could not send walheartbeat to peer %v: %v", pgPeer.Name, err))
+			defer pgConn.Close()
+			cmdErr := pgConn.ExecuteCommand(ctx, command)
+			if cmdErr != nil {
+				logger.Warn(fmt.Sprintf("could not send walheartbeat to peer %v: %v", pgPeer.Name, cmdErr))
 			}
-
 			logger.Info(fmt.Sprintf("sent walheartbeat to peer %v", pgPeer.Name))
 		}()
 	}
@@ -829,4 +827,96 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 	}
 	return err
+}
+
+func (a *FlowableActivity) LoadPeer(ctx context.Context, peerName string) (*protos.Peer, error) {
+	row := a.CatalogPool.QueryRow(ctx, `
+		SELECT name, type, options
+		FROM peers
+		WHERE name = $1`, peerName)
+
+	var peer protos.Peer
+	var peerOptions []byte
+	if err := row.Scan(&peer.Name, &peer.Type, &peerOptions); err != nil {
+		return nil, fmt.Errorf("failed to load peer: %w", err)
+	}
+
+	switch peer.Type {
+	case protos.DBType_BIGQUERY:
+		var config protos.BigqueryConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal BigQuery config: %w", err)
+		}
+		peer.Config = &protos.Peer_BigqueryConfig{BigqueryConfig: &config}
+	case protos.DBType_SNOWFLAKE:
+		var config protos.SnowflakeConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal Snowflake config: %w", err)
+		}
+		peer.Config = &protos.Peer_SnowflakeConfig{SnowflakeConfig: &config}
+	case protos.DBType_MONGO:
+		var config protos.MongoConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal MongoDB config: %w", err)
+		}
+		peer.Config = &protos.Peer_MongoConfig{MongoConfig: &config}
+	case protos.DBType_POSTGRES:
+		var config protos.PostgresConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal Postgres config: %w", err)
+		}
+		peer.Config = &protos.Peer_PostgresConfig{PostgresConfig: &config}
+	case protos.DBType_S3:
+		var config protos.S3Config
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal S3 config: %w", err)
+		}
+		peer.Config = &protos.Peer_S3Config{S3Config: &config}
+	case protos.DBType_SQLSERVER:
+		var config protos.SqlServerConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal SQL Server config: %w", err)
+		}
+		peer.Config = &protos.Peer_SqlserverConfig{SqlserverConfig: &config}
+	case protos.DBType_MYSQL:
+		var config protos.MySqlConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal MySQL config: %w", err)
+		}
+		peer.Config = &protos.Peer_MysqlConfig{MysqlConfig: &config}
+	case protos.DBType_CLICKHOUSE:
+		var config protos.ClickhouseConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal ClickHouse config: %w", err)
+		}
+		peer.Config = &protos.Peer_ClickhouseConfig{ClickhouseConfig: &config}
+	case protos.DBType_KAFKA:
+		var config protos.KafkaConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal Kafka config: %w", err)
+		}
+		peer.Config = &protos.Peer_KafkaConfig{KafkaConfig: &config}
+	case protos.DBType_PUBSUB:
+		var config protos.PubSubConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal Pub/Sub config: %w", err)
+		}
+		peer.Config = &protos.Peer_PubsubConfig{PubsubConfig: &config}
+	case protos.DBType_EVENTHUBS:
+		var config protos.EventHubGroupConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal Event Hubs config: %w", err)
+		}
+		peer.Config = &protos.Peer_EventhubGroupConfig{EventhubGroupConfig: &config}
+	case protos.DBType_ELASTICSEARCH:
+		var config protos.ElasticsearchConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal Elasticsearch config: %w", err)
+		}
+		peer.Config = &protos.Peer_ElasticsearchConfig{ElasticsearchConfig: &config}
+	default:
+		return nil, fmt.Errorf("unsupported peer type: %s", peer.Type)
+	}
+
+	return &peer, nil
 }
