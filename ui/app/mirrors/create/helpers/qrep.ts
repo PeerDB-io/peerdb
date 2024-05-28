@@ -2,8 +2,11 @@ import {
   QRepConfig,
   QRepWriteMode,
   QRepWriteType,
+  TypeSystem,
 } from '@/grpc_generated/flow';
-import { MirrorSetting } from './common';
+
+import { AdvancedSettingType, MirrorSetting } from './common';
+
 export const qrepSettings: MirrorSetting[] = [
   {
     label: 'Source Table',
@@ -34,6 +37,7 @@ export const qrepSettings: MirrorSetting[] = [
         ...curr,
         setupWatermarkTableOnDestination: value as boolean,
       })),
+    checked: (state) => state.setupWatermarkTableOnDestination,
     tips: 'Specify if you want to create the watermark table on the destination as-is, can be used for some queries.',
     type: 'switch',
     default: false,
@@ -45,6 +49,7 @@ export const qrepSettings: MirrorSetting[] = [
         ...curr,
         destinationTableIdentifier: value as string,
       })),
+    checked: (state) => state.destinationTableIdentifier,
     tips: 'Name of the destination. For any destination peer apart from BigQuery, this must be schema-qualified. Example: public.users',
     required: true,
   },
@@ -113,6 +118,7 @@ export const qrepSettings: MirrorSetting[] = [
         ...curr,
         initialCopyOnly: (value as boolean) || false,
       })),
+    checked: (state) => state.initialCopyOnly,
     tips: 'Specify if you want query replication to stop at initial load.',
     type: 'switch',
   },
@@ -132,5 +138,19 @@ export const qrepSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({ ...curr, script: value as string })),
     tips: 'Script to use for row transformations. The default is no scripting.',
+    advanced: AdvancedSettingType.ALL,
+  },
+  {
+    label: 'Use Postgres type system',
+    stateHandler: (value, setter) =>
+      setter((curr: QRepConfig) => ({
+        ...curr,
+        system: value === true ? TypeSystem.PG : TypeSystem.Q,
+      })),
+    checked: (state) => state.system === TypeSystem.PG,
+    type: 'switch',
+    default: false,
+    tips: 'Decide if PeerDB should use native Postgres types directly',
+    advanced: AdvancedSettingType.ALL,
   },
 ];

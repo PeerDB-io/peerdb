@@ -27,6 +27,34 @@ func NewNameAndExclude(name string, exclude []string) NameAndExclude {
 	return NameAndExclude{Name: name, Exclude: exset}
 }
 
+type RecordTypeCounts struct {
+	InsertCount atomic.Int32
+	UpdateCount atomic.Int32
+	DeleteCount atomic.Int32
+}
+
+type RecordsToStreamRequest[T Items] struct {
+	records      <-chan Record[T]
+	TableMapping map[string]*RecordTypeCounts
+	BatchID      int64
+}
+
+func NewRecordsToStreamRequest[T Items](
+	records <-chan Record[T],
+	tableMapping map[string]*RecordTypeCounts,
+	batchID int64,
+) *RecordsToStreamRequest[T] {
+	return &RecordsToStreamRequest[T]{
+		records:      records,
+		TableMapping: tableMapping,
+		BatchID:      batchID,
+	}
+}
+
+func (r *RecordsToStreamRequest[T]) GetRecords() <-chan Record[T] {
+	return r.records
+}
+
 type PullRecordsRequest[T Items] struct {
 	// record batch for pushing changes into
 	RecordStream *CDCStream[T]

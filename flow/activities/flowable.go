@@ -11,11 +11,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/yuin/gopher-lua"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peer-flow/alerting"
@@ -23,12 +23,14 @@ import (
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/otel_metrics"
 	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_guages"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/pua"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -428,9 +430,40 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	logger.Info(fmt.Sprintf("replicating partitions for batch %d - size: %d",
 		partitions.BatchId, numPartitions),
 	)
-	for i, p := range partitions.Partitions {
+	for _, p := range partitions.Partitions {
 		logger.Info(fmt.Sprintf("batch-%d - replicating partition - %s", partitions.BatchId, p.PartitionId))
-		err := a.replicateQRepPartition(ctx, config, i+1, numPartitions, p, runUUID)
+		var err error
+		switch config.System {
+		case protos.TypeSystem_Q:
+			stream := model.NewQRecordStream(shared.FetchAndChannelSize)
+			outstream := stream
+			if config.Script != "" {
+				ls, err := utils.LoadScript(ctx, config.Script, utils.LuaPrintFn(func(s string) {
+					a.Alerter.LogFlowInfo(ctx, config.FlowJobName, s)
+				}))
+				if err != nil {
+					a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+					return err
+				}
+				lfn := ls.Env.RawGetString("transformRow")
+				if fn, ok := lfn.(*lua.LFunction); ok {
+					outstream = pua.AttachToStream(ls, fn, stream)
+				}
+			}
+			err = replicateQRepPartition(ctx, a, config, p, runUUID, stream, outstream,
+				connectors.QRepPullConnector.PullQRepRecords,
+				connectors.QRepSyncConnector.SyncQRepRecords,
+			)
+		case protos.TypeSystem_PG:
+			read, write := connpostgres.NewPgCopyPipe()
+			err = replicateQRepPartition(ctx, a, config, p, runUUID, write, read,
+				connectors.QRepPullPgConnector.PullPgQRepRecords,
+				connectors.QRepSyncPgConnector.SyncPgQRepRecords,
+			)
+		default:
+			err = fmt.Errorf("unknown type system %d", config.System)
+		}
+
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return err
@@ -725,115 +758,27 @@ func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *pr
 	return nil, errors.New("create tables from existing is only supported on snowflake and bigquery")
 }
 
-// ReplicateXminPartition replicates a XminPartition from the source to the destination.
 func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) (int64, error) {
-	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	logger := activity.GetLogger(ctx)
-
-	logger.Info("replicating xmin")
-	shutdown := heartbeatRoutine(ctx, func() string {
-		return "syncing xmin"
-	})
-	defer shutdown()
-
-	startTime := time.Now()
-	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get qrep source connector: %w", err)
+	switch config.System {
+	case protos.TypeSystem_Q:
+		stream := model.NewQRecordStream(shared.FetchAndChannelSize)
+		return replicateXminPartition(ctx, a, config, partition, runUUID,
+			stream, stream,
+			(*connpostgres.PostgresConnector).PullXminRecordStream,
+			connectors.QRepSyncConnector.SyncQRepRecords)
+	case protos.TypeSystem_PG:
+		pgread, pgwrite := connpostgres.NewPgCopyPipe()
+		return replicateXminPartition(ctx, a, config, partition, runUUID,
+			pgwrite, pgread,
+			(*connpostgres.PostgresConnector).PullXminPgRecordStream,
+			connectors.QRepSyncPgConnector.SyncPgQRepRecords)
+	default:
+		return 0, fmt.Errorf("unknown type system %d", config.System)
 	}
-	defer connectors.CloseConnector(ctx, srcConn)
-
-	dstConn, err := connectors.GetQRepSyncConnector(ctx, config.DestinationPeer)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get qrep destination connector: %w", err)
-	}
-	defer connectors.CloseConnector(ctx, dstConn)
-
-	bufferSize := shared.FetchAndChannelSize
-	errGroup, errCtx := errgroup.WithContext(ctx)
-
-	stream := model.NewQRecordStream(bufferSize)
-
-	var currentSnapshotXmin int64
-	var rowsSynced int
-	errGroup.Go(func() error {
-		pgConn := srcConn.(*connpostgres.PostgresConnector)
-		var pullErr error
-		var numRecords int
-		numRecords, currentSnapshotXmin, pullErr = pgConn.PullXminRecordStream(ctx, config, partition, stream)
-		if pullErr != nil {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			logger.Warn(fmt.Sprintf("[xmin] failed to pull records: %v", err))
-			return err
-		}
-
-		// The first sync of an XMIN mirror will have a partition without a range
-		// A nil range is not supported by the catalog mirror monitor functions below
-		// So I'm creating a partition with a range of 0 to numRecords
-		partitionForMetrics := partition
-		if partition.Range == nil {
-			partitionForMetrics = &protos.QRepPartition{
-				PartitionId: partition.PartitionId,
-				Range: &protos.PartitionRange{
-					Range: &protos.PartitionRange_IntRange{
-						IntRange: &protos.IntPartitionRange{Start: 0, End: int64(numRecords)},
-					},
-				},
-			}
-		}
-		updateErr := monitoring.InitializeQRepRun(
-			ctx, a.CatalogPool, config, runUUID, []*protos.QRepPartition{partitionForMetrics})
-		if updateErr != nil {
-			return updateErr
-		}
-
-		err := monitoring.UpdateStartTimeForPartition(ctx, a.CatalogPool, runUUID, partition, startTime)
-		if err != nil {
-			return fmt.Errorf("failed to update start time for partition: %w", err)
-		}
-
-		err = monitoring.UpdatePullEndTimeAndRowsForPartition(
-			errCtx, a.CatalogPool, runUUID, partition, int64(numRecords))
-		if err != nil {
-			logger.Error(err.Error())
-			return err
-		}
-
-		return nil
-	})
-
-	errGroup.Go(func() error {
-		rowsSynced, err = dstConn.SyncQRepRecords(ctx, config, partition, stream)
-		if err != nil {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return fmt.Errorf("failed to sync records: %w", err)
-		}
-		return context.Canceled
-	})
-
-	if err := errGroup.Wait(); err != nil && err != context.Canceled {
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return 0, err
-	}
-
-	if rowsSynced > 0 {
-		logger.Info(fmt.Sprintf("pushed %d records", rowsSynced))
-		err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition)
-		if err != nil {
-			return 0, err
-		}
-	}
-
-	err = monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition)
-	if err != nil {
-		return 0, err
-	}
-
-	return currentSnapshotXmin, nil
 }
 
 func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *protos.FlowConnectionConfigs,
