@@ -34,15 +34,20 @@ import { clickhouseSetting } from './helpers/ch';
 import { getBlankSetting } from './helpers/common';
 import { postgresSetting } from './helpers/pg';
 import { snowflakeSetting } from './helpers/sf';
+import { useSearchParams } from 'next/navigation'
+
 
 type CreateConfigProps = {
   params: { peerType: string };
 };
 
+// when updating a peer we get ?update=<peer_name>
 export default function CreateConfig({
   params: { peerType },
 }: CreateConfigProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const peerName = searchParams.get('update');
   const blankSetting = getBlankSetting(peerType);
   const [name, setName] = useState<string>('');
   const [config, setConfig] = useState<PeerConfig>(blankSetting);
@@ -127,7 +132,7 @@ export default function CreateConfig({
           label={
             <Label>
               Name
-              {
+              {peerName === null && (
                 <Tooltip
                   style={{ width: '100%' }}
                   content={'Peer name is a required field.'}
@@ -136,19 +141,28 @@ export default function CreateConfig({
                     *
                   </Label>
                 </Tooltip>
-              }
+              )}
             </Label>
           }
           action={
             <TextField
               variant='simple'
-              value={name}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setName(e.target.value)
+              value={peerName ?? name}
+              onChange={
+                peerName === null
+                  ? (e: React.ChangeEvent<HTMLInputElement>) =>
+                    setName(e.target.value)
+                  : undefined
               }
+              readOnly={peerName !== null}
             />
           }
         />
+        {peerName && (
+          <Label colorName='lowContrast' colorSet='destructive'>
+            Warning: Changes will only be reflected if you pause and resume the mirrors using this peer.
+          </Label>
+        )}
         <Label colorName='lowContrast' variant='subheadline'>
           Configuration
         </Label>
@@ -180,7 +194,7 @@ export default function CreateConfig({
               )
             }
           >
-            Create peer
+            {peerName ? 'Update peer' : 'Create peer'}
           </Button>
         </ButtonGroup>
         <Panel>
