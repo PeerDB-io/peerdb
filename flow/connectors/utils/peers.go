@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
 func CreatePeerNoValidate(
