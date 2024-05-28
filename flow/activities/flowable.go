@@ -435,7 +435,6 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		var err error
 		switch config.System {
 		case protos.TypeSystem_Q:
-
 			stream := model.NewQRecordStream(shared.FetchAndChannelSize)
 			outstream := stream
 			if config.Script != "" {
@@ -461,10 +460,10 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 				connectors.QRepPullPgConnector.PullPgQRepRecords,
 				connectors.QRepSyncPgConnector.SyncPgQRepRecords,
 			)
-
 		default:
 			err = fmt.Errorf("unknown type system %d", config.System)
 		}
+
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return err
