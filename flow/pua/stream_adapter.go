@@ -48,18 +48,17 @@ func AttachToCdcStream(
 			<-stream.GetRecords() // needed because empty signal comes before Close
 		} else {
 			outstream.SignalAsNotEmpty()
-			var err error
 			for record := range stream.GetRecords() {
-				if err == nil {
-					continue
-				}
+				ls.SetTop(0)
 				ls.Push(lfn)
 				ls.Push(LuaRecord.New(ls, record))
-				if err = ls.PCall(1, 0, nil); err != nil {
+				if err := ls.PCall(1, 0, nil); err != nil {
 					onErr(err)
 					<-ctx.Done()
-					// keep polling GetRecords to make sure source closes first
-					continue
+					for range stream.GetRecords() {
+						// still read records to make sure input closes first
+					}
+					break
 				}
 				outstream.AddRecord(record)
 			}
