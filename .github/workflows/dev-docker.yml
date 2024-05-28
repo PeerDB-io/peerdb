@@ -7,10 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  hydrate-protos:
-    uses: ./.github/workflows/_generate_protos.yml
   docker-build:
-    needs: hydrate-protos
     strategy:
       matrix:
         # ubuntu-latest leverages larger GH runner pool & completes in ~30s instead of ~3m
@@ -22,15 +19,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: hydrate protos from cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ./flow/generated/protos
-            ./nexus/pt/src/gen
-            ./ui/grpc_generated
-          key: ${{ runner.os }}-build-genprotos-${{ hashFiles('./protos/peers.proto', './protos/flow.proto', './protos/route.proto') }}
-          fail-on-cache-miss: true
+      - name: generate or hydrate protos
+        uses: ./.github/actions/genprotos
 
       - uses: depot/setup-action@v1
 
