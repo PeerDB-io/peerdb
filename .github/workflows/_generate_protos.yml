@@ -19,6 +19,10 @@ jobs:
           key: ${{ runner.os }}-build-genprotos-${{ hashFiles('./protos/peers.proto', './protos/flow.proto', './protos/route.proto') }}
 
       - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.3'
+      - if: steps.cache.outputs.cache-hit != 'true'
         uses: bufbuild/buf-setup-action@v1.29.0-1
       - if: steps.cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@stable
