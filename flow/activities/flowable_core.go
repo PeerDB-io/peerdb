@@ -28,6 +28,21 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
+func heartbeatRoutine(
+	ctx context.Context,
+	message func() string,
+) func() {
+	counter := 0
+	return shared.Interval(
+		ctx,
+		15*time.Second,
+		func() {
+			counter += 1
+			activity.RecordHeartbeat(ctx, fmt.Sprintf("heartbeat #%d: %s", counter, message()))
+		},
+	)
+}
+
 func waitForCdcCache[TPull connectors.CDCPullConnectorCore](ctx context.Context, a *FlowableActivity, sessionID string) (TPull, error) {
 	var none TPull
 	logger := activity.GetLogger(ctx)
@@ -66,7 +81,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	flowName := config.FlowJobName
 	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
 	logger := activity.GetLogger(ctx)
-	activity.RecordHeartbeat(ctx, "starting flow...")
+	shutdown := heartbeatRoutine(ctx, func() string {
+		return "transferring records for job"
+	})
+	defer shutdown()
+
 	dstConn, err := connectors.GetAs[TSync](ctx, config.Destination)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
@@ -85,11 +104,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	if err := srcConn.ConnectionActive(ctx); err != nil {
 		return nil, temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", nil)
 	}
-
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return "transferring records for job"
-	})
-	defer shutdown()
 
 	batchSize := options.BatchSize
 	if batchSize == 0 {
@@ -292,11 +306,14 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) error {
-	msg := fmt.Sprintf("replicating partition - %s: %d of %d total.", partition.PartitionId, idx, total)
-	activity.RecordHeartbeat(ctx, msg)
-
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
+
+	logger.Info("replicating partition " + partition.PartitionId)
+	shutdown := heartbeatRoutine(ctx, func() string {
+		return fmt.Sprintf("syncing partition - %s: %d of %d total.", partition.PartitionId, idx, total)
+	})
+	defer shutdown()
 
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {
@@ -331,12 +348,6 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return fmt.Errorf("failed to update start time for partition: %w", err)
 	}
-
-	logger.Info("replicating partition " + partition.PartitionId)
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("syncing partition - %s: %d of %d total.", partition.PartitionId, idx, total)
-	})
-	defer shutdown()
 
 	bufferSize := shared.FetchAndChannelSize
 	stream := model.NewQRecordStream(bufferSize)

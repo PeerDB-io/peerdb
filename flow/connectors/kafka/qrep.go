@@ -9,10 +9,10 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/pua"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 func (*KafkaConnector) SetupQRepMetadataTables(_ context.Context, _ *protos.QRepConfig) error {
@@ -29,17 +29,17 @@ func (c *KafkaConnector) SyncQRepRecords(
 	numRecords := atomic.Int64{}
 	schema := stream.Schema()
 
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("sent %d records to %s", numRecords.Load(), config.DestinationTableIdentifier)
-	})
-	defer shutdown()
-
 	queueCtx, queueErr := context.WithCancelCause(ctx)
 	pool, err := c.createPool(queueCtx, config.Script, config.FlowJobName, nil, queueErr)
 	if err != nil {
 		return 0, err
 	}
 	defer pool.Close()
+
+	shutdown := shared.Interval(ctx, time.Minute, func() {
+		c.logger.Info(fmt.Sprintf("sent %d records", numRecords.Load()))
+	})
+	defer shutdown()
 
 Loop:
 	for {
