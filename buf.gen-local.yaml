@@ -1,7 +1,6 @@
 version: v1
 managed:
   enabled: true
-  optimize_for: SPEED
   go_package_prefix:
     default: generated/protos
     except:
