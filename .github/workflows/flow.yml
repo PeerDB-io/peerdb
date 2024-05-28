@@ -84,6 +84,7 @@ jobs:
 
       - uses: bufbuild/buf-setup-action@v1.29.0-1
       - uses: dtolnay/rust-toolchain@stable
+      - uses: cargo-bins/cargo-binstall@main
       - name: install protobuf plugins and generate protos
         id: install-protobuf-plugins
         run: |
@@ -91,7 +92,7 @@ jobs:
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.3
           go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@v2.20.0
           npm install ts-proto
-          cargo install protoc-gen-prost protoc-gen-tonic protoc-gen-prost-serde
+          cargo binstall protoc-gen-prost protoc-gen-tonic protoc-gen-prost-serde
           PATH="$(go env GOPATH)/bin:$HOME/.cargo/bin:$PATH" buf generate --template buf.gen-local.yaml --debug protos
 
       - name: create hstore extension, increase logical replication limits, and setup catalog database
