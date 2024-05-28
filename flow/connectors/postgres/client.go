@@ -616,3 +616,8 @@ func (c *PostgresConnector) getCurrentLSN(ctx context.Context) (pglogrepl.LSN, e
 func (c *PostgresConnector) getDefaultPublicationName(jobName string) string {
 	return "peerflow_pub_" + jobName
 }
+
+func (c *PostgresConnector) ExecuteCommand(ctx context.Context, command string) error {
+	_, err := c.conn.Exec(ctx, command)
+	return err
+}
