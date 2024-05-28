@@ -1102,12 +1102,14 @@ func (s PeerFlowE2ETestSuitePG) Test_TransformRecordScript() {
 
 	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		insert into %s (val) values (1)`, srcTableName))
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf("insert into %s (val) values (1)", srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize rows", func() bool {
 		err := s.compareCounts(dstTableName, 1)
+		if err != nil {
+			s.t.Log(err.Error())
+		}
 		return err == nil
 	})
 
@@ -1149,12 +1151,14 @@ func (s PeerFlowE2ETestSuitePG) Test_TransformRowScript() {
 
 	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		insert into %s (val) values (1)`, srcTableName))
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf("insert into %s (val) values (1)", srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize rows", func() bool {
 		err := s.compareCounts(dstTableName, 1)
+		if err != nil {
+			s.t.Log(err.Error())
+		}
 		return err == nil
 	})
 
