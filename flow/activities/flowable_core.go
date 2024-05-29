@@ -113,6 +113,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	if err != nil {
 		return nil, err
 	}
+	connectors.CloseConnector(ctx, dstConn)
 	logger.Info("pulling records...", slog.Int64("LastOffset", lastOffset))
 	consumedOffset := atomic.Int64{}
 	consumedOffset.Store(lastOffset)
@@ -148,6 +149,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 	hasRecords := !recordBatchSync.WaitAndCheckEmpty()
 	logger.Info("current sync flow has records?", slog.Bool("hasRecords", hasRecords))
+
+	dstConn, err = connectors.GetAs[TSync](ctx, config.Destination)
+	if err != nil {
+		return nil, fmt.Errorf("failed to recreate destination connector: %w", err)
+	}
 
 	if !hasRecords {
 		// wait for the pull goroutine to finish
