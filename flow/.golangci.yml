@@ -1,6 +1,7 @@
 issues:
   exclude-dirs:
     - generated
+    - connectors/postgres/sanitize
 linters:
   enable:
     - containedctx

@@ -9,6 +9,7 @@ export enum AdvancedSettingType {
 export interface MirrorSetting {
   label: string;
   stateHandler: (value: any, setter: any) => void;
+  checked?: (setting: any) => boolean;
   type?: string;
   required?: boolean;
   tips?: string;
@@ -57,5 +58,4 @@ export const blankQRepSetting = {
   stagingPath: '',
   numRowsPerPartition: 100000,
   setupWatermarkTableOnDestination: false,
-  dstTableFullResync: false,
 };

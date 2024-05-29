@@ -15,16 +15,10 @@ jobs:
       contents: read
       packages: write
     steps:
-      - name: checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      - uses: actions/checkout@v4
 
-      - uses: bufbuild/buf-setup-action@v1.29.0-1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - run: buf generate protos
+      - name: generate or hydrate protos
+        uses: ./.github/actions/genprotos
 
       - uses: depot/setup-action@v1
 
