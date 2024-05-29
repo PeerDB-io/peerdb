@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	utils "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -419,7 +420,7 @@ func (c *ClickhouseConnector) copyAvroStageToDestination(ctx context.Context, fl
 	}
 	defer avroFile.Cleanup()
 
-	err = avroSynvMethod.CopyStageToDestination(ctx, avroFile)
+	err = avroSynvMethod.CopyStageToDestination(ctx, []*utils.AvroFile{avroFile})
 	if err != nil {
 		return fmt.Errorf("failed to copy stage to destination: %w", err)
 	}
