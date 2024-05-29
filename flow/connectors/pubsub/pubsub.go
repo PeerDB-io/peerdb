@@ -143,6 +143,7 @@ func (c *PubSubConnector) createPool(
 			_ = c.LogFlowInfo(ctx, flowJobName, s)
 		}))
 		if err != nil {
+			c.logger.Error("[pubsub] error loading script", slog.Any("error", err))
 			return nil, err
 		}
 		if script == "" {
@@ -170,6 +171,7 @@ func (c *PubSubConnector) createPool(
 				return topicClient, nil
 			})
 			if err != nil {
+				c.logger.Error("[pubsub] error getting topic", slog.Any("error", err))
 				queueErr(err)
 				return
 			}
@@ -253,6 +255,7 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 			if curpub.PublishResult == nil {
 				shared.AtomicInt64Max(&lastSeenLSN, curpub.lsn)
 			} else if _, err := curpub.Get(ctx); err != nil {
+				c.logger.Error("[pubsub] error publishing message", slog.Any("error", err))
 				queueErr(err)
 				break
 			}
@@ -299,6 +302,7 @@ Loop:
 				lfn := ls.Env.RawGetString("onRecord")
 				fn, ok := lfn.(*lua.LFunction)
 				if !ok {
+					c.logger.Error("[pubsub] script should define `onRecord` as function", slog.String("function", lfn.String()))
 					queueErr(fmt.Errorf("script should define `onRecord` as function, not %s", lfn))
 					return poolResult{}
 				}
@@ -307,6 +311,7 @@ Loop:
 				ls.Push(pua.LuaRecord.New(ls, record))
 				err := ls.PCall(1, -1, nil)
 				if err != nil {
+					c.logger.Error("[pubsub] script failed", slog.Any("error", err))
 					queueErr(fmt.Errorf("script failed: %w", err))
 					return poolResult{}
 				}
@@ -316,6 +321,7 @@ Loop:
 				for i := range args {
 					msg, err := lvalueToPubSubMessage(ls, ls.Get(i-args))
 					if err != nil {
+						c.logger.Error("[pubsub] error creating message", slog.Any("error", err))
 						queueErr(err)
 						return poolResult{}
 					}
@@ -342,12 +348,14 @@ Loop:
 
 	close(flushLoopDone)
 	if err := pool.Wait(queueCtx); err != nil {
+		c.logger.Error("[pubsub] pool.Wait error", slog.Any("error", err))
 		return nil, err
 	}
 	close(publish)
 	topiccache.Stop(queueCtx)
 	select {
 	case <-queueCtx.Done():
+		c.logger.Error("[pubsub] queueCtx.Done", slog.Any("error", queueCtx.Err()))
 		return nil, queueCtx.Err()
 	case <-waitChan:
 	}
