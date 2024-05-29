@@ -299,7 +299,7 @@ Loop:
 				lfn := ls.Env.RawGetString("onRecord")
 				fn, ok := lfn.(*lua.LFunction)
 				if !ok {
-					queueErr(fmt.Errorf("script should define `onRecord` as function, not %s", lfn))
+					queueErr(fmt.Errorf("script should define `onRecord` as function, not %v", lfn))
 					return poolResult{}
 				}
 
