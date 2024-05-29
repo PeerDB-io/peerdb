@@ -11,6 +11,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/google/uuid"
 )
 
 func XminFlowWorkflow(
@@ -21,6 +22,12 @@ func XminFlowWorkflow(
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 
+	if state == nil {
+		state = newQRepFlowState()
+		// needed only for xmin mirrors
+		state.LastPartition.PartitionId = uuid.New().String()
+	}
+
 	err := setWorkflowQueries(ctx, state)
 	if err != nil {
 		return err
@@ -28,7 +35,7 @@ func XminFlowWorkflow(
 
 	signalChan := model.FlowSignal.GetSignalChannel(ctx)
 
-	q := NewQRepFlowExecution(ctx, config, originalRunID)
+	q := newQRepFlowExecution(ctx, config, originalRunID)
 	logger := q.logger
 
 	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSING ||
@@ -50,7 +57,7 @@ func XminFlowWorkflow(
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 	}
 
-	err = q.SetupWatermarkTableOnDestination(ctx)
+	err = q.setupWatermarkTableOnDestination(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to setup watermark table: %w", err)
 	}

@@ -13,24 +13,28 @@ type BoundSelector struct {
 	count    int
 }
 
-func NewBoundSelector(ctx workflow.Context, limit int) *BoundSelector {
+func NewBoundSelector(ctx workflow.Context, selectorName string, limit int) *BoundSelector {
 	return &BoundSelector{
 		limit:    limit,
-		selector: workflow.NewSelector(ctx),
+		selector: workflow.NewNamedSelector(ctx, selectorName),
 	}
 }
 
-func (s *BoundSelector) SpawnChild(ctx workflow.Context, w interface{}, args ...interface{}) {
-	if s.count >= s.limit {
+func (s *BoundSelector) SpawnChild(ctx workflow.Context, w interface{}, futureCallback func(workflow.Future), args ...interface{}) {
+	if s.limit > 0 && s.count >= s.limit {
 		s.waitOne(ctx)
 	}
 
 	future := workflow.ExecuteChildWorkflow(ctx, w, args...)
-	s.selector.AddFuture(future, func(f workflow.Future) {
-		if err := f.Get(ctx, nil); err != nil {
-			s.ferrors = append(s.ferrors, err)
-		}
-	})
+	if futureCallback != nil {
+		s.selector.AddFuture(future, futureCallback)
+	} else {
+		s.selector.AddFuture(future, func(f workflow.Future) {
+			if err := f.Get(ctx, nil); err != nil {
+				s.ferrors = append(s.ferrors, err)
+			}
+		})
+	}
 	s.count += 1
 }
 
