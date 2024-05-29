@@ -14,17 +14,17 @@ jobs:
     runs-on: [ubicloud-standard-4-ubuntu-2204-arm]
     steps:
       - uses: actions/checkout@v4
-      - uses: bufbuild/buf-setup-action@v1.29.0-1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-      - run: buf generate protos
+
+      - name: generate or hydrate protos
+        uses: ./.github/actions/genprotos
+
       - name: install lib-geos
         run: |
           sudo apt-get update
           sudo apt-get install libgeos-dev
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: '1.22.3'
           cache: false
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6

@@ -11,11 +11,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	lua "github.com/yuin/gopher-lua"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peer-flow/alerting"
@@ -23,12 +23,14 @@ import (
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/otel_metrics"
 	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_guages"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/pua"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -277,7 +279,37 @@ func (a *FlowableActivity) SyncRecords(
 	options *protos.SyncFlowOptions,
 	sessionID string,
 ) (*model.SyncResponse, error) {
-	return syncCore(ctx, a, config, options, sessionID,
+	var adaptStream func(stream *model.CDCStream[model.RecordItems]) (*model.CDCStream[model.RecordItems], error)
+	if config.Script != "" {
+		var onErr context.CancelCauseFunc
+		ctx, onErr = context.WithCancelCause(ctx)
+		adaptStream = func(stream *model.CDCStream[model.RecordItems]) (*model.CDCStream[model.RecordItems], error) {
+			ls, err := utils.LoadScript(ctx, config.Script, utils.LuaPrintFn(func(s string) {
+				a.Alerter.LogFlowInfo(ctx, config.FlowJobName, s)
+			}))
+			if err != nil {
+				a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+				return nil, err
+			}
+			if fn, ok := ls.Env.RawGetString("transformRecord").(*lua.LFunction); ok {
+				return pua.AttachToCdcStream(ctx, ls, fn, stream, onErr), nil
+			} else if fn, ok := ls.Env.RawGetString("transformRow").(*lua.LFunction); ok {
+				return pua.AttachToCdcStream(ctx, ls, ls.NewFunction(func(ls *lua.LState) int {
+					ud, _ := pua.LuaRecord.Check(ls, 1)
+					for _, key := range []string{"old", "new"} {
+						if row := ls.GetField(ud, key); row != lua.LNil {
+							ls.Push(fn)
+							ls.Push(row)
+							ls.Call(1, 0)
+						}
+					}
+					return 0
+				}), stream, onErr), nil
+			}
+			return stream, nil
+		}
+	}
+	return syncCore(ctx, a, config, options, sessionID, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
 }
@@ -288,7 +320,7 @@ func (a *FlowableActivity) SyncPg(
 	options *protos.SyncFlowOptions,
 	sessionID string,
 ) (*model.SyncResponse, error) {
-	return syncCore(ctx, a, config, options, sessionID,
+	return syncCore(ctx, a, config, options, sessionID, nil,
 		connectors.CDCPullPgConnector.PullPg,
 		connectors.CDCSyncPgConnector.SyncPg)
 }
@@ -428,9 +460,39 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	logger.Info(fmt.Sprintf("replicating partitions for batch %d - size: %d",
 		partitions.BatchId, numPartitions),
 	)
-	for i, p := range partitions.Partitions {
+	for _, p := range partitions.Partitions {
 		logger.Info(fmt.Sprintf("batch-%d - replicating partition - %s", partitions.BatchId, p.PartitionId))
-		err := a.replicateQRepPartition(ctx, config, i+1, numPartitions, p, runUUID)
+		var err error
+		switch config.System {
+		case protos.TypeSystem_Q:
+			stream := model.NewQRecordStream(shared.FetchAndChannelSize)
+			outstream := stream
+			if config.Script != "" {
+				ls, err := utils.LoadScript(ctx, config.Script, utils.LuaPrintFn(func(s string) {
+					a.Alerter.LogFlowInfo(ctx, config.FlowJobName, s)
+				}))
+				if err != nil {
+					a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+					return err
+				}
+				if fn, ok := ls.Env.RawGetString("transformRow").(*lua.LFunction); ok {
+					outstream = pua.AttachToStream(ls, fn, stream)
+				}
+			}
+			err = replicateQRepPartition(ctx, a, config, p, runUUID, stream, outstream,
+				connectors.QRepPullConnector.PullQRepRecords,
+				connectors.QRepSyncConnector.SyncQRepRecords,
+			)
+		case protos.TypeSystem_PG:
+			read, write := connpostgres.NewPgCopyPipe()
+			err = replicateQRepPartition(ctx, a, config, p, runUUID, write, read,
+				connectors.QRepPullPgConnector.PullPgQRepRecords,
+				connectors.QRepSyncPgConnector.SyncPgQRepRecords,
+			)
+		default:
+			err = fmt.Errorf("unknown type system %d", config.System)
+		}
+
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return err
@@ -525,19 +587,17 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 
 		func() {
 			pgConfig := pgPeer.GetPostgresConfig()
-			peerConn, peerErr := pgx.Connect(ctx, shared.GetPGConnectionString(pgConfig))
+			pgConn, peerErr := connpostgres.NewPostgresConnector(ctx, pgConfig)
 			if peerErr != nil {
-				logger.Error(fmt.Sprintf("error creating pool for postgres peer %v with host %v: %v",
+				logger.Error(fmt.Sprintf("error creating connector for postgres peer %v with host %v: %v",
 					pgPeer.Name, pgConfig.Host, peerErr))
 				return
 			}
-			defer peerConn.Close(ctx)
-
-			_, err := peerConn.Exec(ctx, command)
-			if err != nil {
-				logger.Warn(fmt.Sprintf("could not send walheartbeat to peer %v: %v", pgPeer.Name, err))
+			defer pgConn.Close()
+			cmdErr := pgConn.ExecuteCommand(ctx, command)
+			if cmdErr != nil {
+				logger.Warn(fmt.Sprintf("could not send walheartbeat to peer %v: %v", pgPeer.Name, cmdErr))
 			}
-
 			logger.Info(fmt.Sprintf("sent walheartbeat to peer %v", pgPeer.Name))
 		}()
 	}
@@ -725,115 +785,27 @@ func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *pr
 	return nil, errors.New("create tables from existing is only supported on snowflake and bigquery")
 }
 
-// ReplicateXminPartition replicates a XminPartition from the source to the destination.
 func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) (int64, error) {
-	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	logger := activity.GetLogger(ctx)
-
-	logger.Info("replicating xmin")
-	shutdown := heartbeatRoutine(ctx, func() string {
-		return "syncing xmin"
-	})
-	defer shutdown()
-
-	startTime := time.Now()
-	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get qrep source connector: %w", err)
+	switch config.System {
+	case protos.TypeSystem_Q:
+		stream := model.NewQRecordStream(shared.FetchAndChannelSize)
+		return replicateXminPartition(ctx, a, config, partition, runUUID,
+			stream, stream,
+			(*connpostgres.PostgresConnector).PullXminRecordStream,
+			connectors.QRepSyncConnector.SyncQRepRecords)
+	case protos.TypeSystem_PG:
+		pgread, pgwrite := connpostgres.NewPgCopyPipe()
+		return replicateXminPartition(ctx, a, config, partition, runUUID,
+			pgwrite, pgread,
+			(*connpostgres.PostgresConnector).PullXminPgRecordStream,
+			connectors.QRepSyncPgConnector.SyncPgQRepRecords)
+	default:
+		return 0, fmt.Errorf("unknown type system %d", config.System)
 	}
-	defer connectors.CloseConnector(ctx, srcConn)
-
-	dstConn, err := connectors.GetQRepSyncConnector(ctx, config.DestinationPeer)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get qrep destination connector: %w", err)
-	}
-	defer connectors.CloseConnector(ctx, dstConn)
-
-	bufferSize := shared.FetchAndChannelSize
-	errGroup, errCtx := errgroup.WithContext(ctx)
-
-	stream := model.NewQRecordStream(bufferSize)
-
-	var currentSnapshotXmin int64
-	var rowsSynced int
-	errGroup.Go(func() error {
-		pgConn := srcConn.(*connpostgres.PostgresConnector)
-		var pullErr error
-		var numRecords int
-		numRecords, currentSnapshotXmin, pullErr = pgConn.PullXminRecordStream(ctx, config, partition, stream)
-		if pullErr != nil {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			logger.Warn(fmt.Sprintf("[xmin] failed to pull records: %v", err))
-			return err
-		}
-
-		// The first sync of an XMIN mirror will have a partition without a range
-		// A nil range is not supported by the catalog mirror monitor functions below
-		// So I'm creating a partition with a range of 0 to numRecords
-		partitionForMetrics := partition
-		if partition.Range == nil {
-			partitionForMetrics = &protos.QRepPartition{
-				PartitionId: partition.PartitionId,
-				Range: &protos.PartitionRange{
-					Range: &protos.PartitionRange_IntRange{
-						IntRange: &protos.IntPartitionRange{Start: 0, End: int64(numRecords)},
-					},
-				},
-			}
-		}
-		updateErr := monitoring.InitializeQRepRun(
-			ctx, a.CatalogPool, config, runUUID, []*protos.QRepPartition{partitionForMetrics})
-		if updateErr != nil {
-			return updateErr
-		}
-
-		err := monitoring.UpdateStartTimeForPartition(ctx, a.CatalogPool, runUUID, partition, startTime)
-		if err != nil {
-			return fmt.Errorf("failed to update start time for partition: %w", err)
-		}
-
-		err = monitoring.UpdatePullEndTimeAndRowsForPartition(
-			errCtx, a.CatalogPool, runUUID, partition, int64(numRecords))
-		if err != nil {
-			logger.Error(err.Error())
-			return err
-		}
-
-		return nil
-	})
-
-	errGroup.Go(func() error {
-		rowsSynced, err = dstConn.SyncQRepRecords(ctx, config, partition, stream)
-		if err != nil {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return fmt.Errorf("failed to sync records: %w", err)
-		}
-		return context.Canceled
-	})
-
-	if err := errGroup.Wait(); err != nil && err != context.Canceled {
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return 0, err
-	}
-
-	if rowsSynced > 0 {
-		logger.Info(fmt.Sprintf("pushed %d records", rowsSynced))
-		err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition)
-		if err != nil {
-			return 0, err
-		}
-	}
-
-	err = monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition)
-	if err != nil {
-		return 0, err
-	}
-
-	return currentSnapshotXmin, nil
 }
 
 func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *protos.FlowConnectionConfigs,
@@ -855,4 +827,96 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 	}
 	return err
+}
+
+func (a *FlowableActivity) LoadPeer(ctx context.Context, peerName string) (*protos.Peer, error) {
+	row := a.CatalogPool.QueryRow(ctx, `
+		SELECT name, type, options
+		FROM peers
+		WHERE name = $1`, peerName)
+
+	var peer protos.Peer
+	var peerOptions []byte
+	if err := row.Scan(&peer.Name, &peer.Type, &peerOptions); err != nil {
+		return nil, fmt.Errorf("failed to load peer: %w", err)
+	}
+
+	switch peer.Type {
+	case protos.DBType_BIGQUERY:
+		var config protos.BigqueryConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal BigQuery config: %w", err)
+		}
+		peer.Config = &protos.Peer_BigqueryConfig{BigqueryConfig: &config}
+	case protos.DBType_SNOWFLAKE:
+		var config protos.SnowflakeConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal Snowflake config: %w", err)
+		}
+		peer.Config = &protos.Peer_SnowflakeConfig{SnowflakeConfig: &config}
+	case protos.DBType_MONGO:
+		var config protos.MongoConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal MongoDB config: %w", err)
+		}
+		peer.Config = &protos.Peer_MongoConfig{MongoConfig: &config}
+	case protos.DBType_POSTGRES:
+		var config protos.PostgresConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal Postgres config: %w", err)
+		}
+		peer.Config = &protos.Peer_PostgresConfig{PostgresConfig: &config}
+	case protos.DBType_S3:
+		var config protos.S3Config
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal S3 config: %w", err)
+		}
+		peer.Config = &protos.Peer_S3Config{S3Config: &config}
+	case protos.DBType_SQLSERVER:
+		var config protos.SqlServerConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal SQL Server config: %w", err)
+		}
+		peer.Config = &protos.Peer_SqlserverConfig{SqlserverConfig: &config}
+	case protos.DBType_MYSQL:
+		var config protos.MySqlConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal MySQL config: %w", err)
+		}
+		peer.Config = &protos.Peer_MysqlConfig{MysqlConfig: &config}
+	case protos.DBType_CLICKHOUSE:
+		var config protos.ClickhouseConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal ClickHouse config: %w", err)
+		}
+		peer.Config = &protos.Peer_ClickhouseConfig{ClickhouseConfig: &config}
+	case protos.DBType_KAFKA:
+		var config protos.KafkaConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal Kafka config: %w", err)
+		}
+		peer.Config = &protos.Peer_KafkaConfig{KafkaConfig: &config}
+	case protos.DBType_PUBSUB:
+		var config protos.PubSubConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal Pub/Sub config: %w", err)
+		}
+		peer.Config = &protos.Peer_PubsubConfig{PubsubConfig: &config}
+	case protos.DBType_EVENTHUBS:
+		var config protos.EventHubGroupConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal Event Hubs config: %w", err)
+		}
+		peer.Config = &protos.Peer_EventhubGroupConfig{EventhubGroupConfig: &config}
+	case protos.DBType_ELASTICSEARCH:
+		var config protos.ElasticsearchConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal Elasticsearch config: %w", err)
+		}
+		peer.Config = &protos.Peer_ElasticsearchConfig{ElasticsearchConfig: &config}
+	default:
+		return nil, fmt.Errorf("unsupported peer type: %s", peer.Type)
+	}
+
+	return &peer, nil
 }
