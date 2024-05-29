@@ -47,16 +47,15 @@ const EditPeerButton = ({
 
   const dbTypeName: string = DBType[peerType];
   return (
-    <Link
+    <Button
+      as={Link}
       href={{
         pathname: `/peers/create/${dbTypeName}`,
         query: { update: peerName },
       }}
     >
-      <a>
-        <Button variant='normal'>Edit Peer</Button>
-      </a>
-    </Link>
+      Edit Peer
+    </Button>
   );
 };
 

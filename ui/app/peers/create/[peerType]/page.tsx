@@ -47,7 +47,7 @@ export default function CreateConfig({
   const searchParams = useSearchParams();
   const peerName = searchParams.get('update');
   const blankSetting = getBlankSetting(peerType);
-  const [name, setName] = useState<string>('');
+  const [name, setName] = useState<string>(peerName ?? '');
   const [config, setConfig] = useState<PeerConfig>(blankSetting);
   const [loading, setLoading] = useState<boolean>(false);
   const peerLabel = peerType.toUpperCase().replaceAll('%20', ' ');
