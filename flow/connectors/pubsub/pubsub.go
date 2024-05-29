@@ -60,7 +60,7 @@ func (c *PubSubConnector) Close() error {
 func (c *PubSubConnector) ConnectionActive(ctx context.Context) error {
 	topic := c.client.Topic("test")
 	_, err := topic.Exists(ctx)
-	return err
+	return fmt.Errorf("pubsub connection active check failure: %w", err)
 }
 
 func (c *PubSubConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
@@ -143,8 +143,7 @@ func (c *PubSubConnector) createPool(
 			_ = c.LogFlowInfo(ctx, flowJobName, s)
 		}))
 		if err != nil {
-			c.logger.Error("[pubsub] error loading script", slog.Any("error", err))
-			return nil, err
+			return nil, fmt.Errorf("[pubsub] error loading script: %w", err)
 		}
 		if script == "" {
 			ls.Env.RawSetString("onRecord", ls.NewFunction(utils.DefaultOnRecord))
@@ -171,8 +170,7 @@ func (c *PubSubConnector) createPool(
 				return topicClient, nil
 			})
 			if err != nil {
-				c.logger.Error("[pubsub] error getting topic", slog.Any("error", err))
-				queueErr(err)
+				queueErr(fmt.Errorf("[pubsub] error getting topic: %w", err))
 				return
 			}
 
@@ -255,8 +253,7 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 			if curpub.PublishResult == nil {
 				shared.AtomicInt64Max(&lastSeenLSN, curpub.lsn)
 			} else if _, err := curpub.Get(ctx); err != nil {
-				c.logger.Error("[pubsub] error publishing message", slog.Any("error", err))
-				queueErr(err)
+				queueErr(fmt.Errorf("[pubsub] error publishing message: %w", err))
 				break
 			}
 		}
@@ -302,7 +299,6 @@ Loop:
 				lfn := ls.Env.RawGetString("onRecord")
 				fn, ok := lfn.(*lua.LFunction)
 				if !ok {
-					c.logger.Error("[pubsub] script should define `onRecord` as function", slog.String("function", lfn.String()))
 					queueErr(fmt.Errorf("script should define `onRecord` as function, not %s", lfn))
 					return poolResult{}
 				}
@@ -311,7 +307,6 @@ Loop:
 				ls.Push(pua.LuaRecord.New(ls, record))
 				err := ls.PCall(1, -1, nil)
 				if err != nil {
-					c.logger.Error("[pubsub] script failed", slog.Any("error", err))
 					queueErr(fmt.Errorf("script failed: %w", err))
 					return poolResult{}
 				}
@@ -321,8 +316,7 @@ Loop:
 				for i := range args {
 					msg, err := lvalueToPubSubMessage(ls, ls.Get(i-args))
 					if err != nil {
-						c.logger.Error("[pubsub] error creating message", slog.Any("error", err))
-						queueErr(err)
+						queueErr(fmt.Errorf("[pubsub] error creating message: %w", err))
 						return poolResult{}
 					}
 					if msg.Message != nil {
@@ -348,21 +342,19 @@ Loop:
 
 	close(flushLoopDone)
 	if err := pool.Wait(queueCtx); err != nil {
-		c.logger.Error("[pubsub] pool.Wait error", slog.Any("error", err))
-		return nil, err
+		return nil, fmt.Errorf("[pubsub] pool.Wait error: %w", err)
 	}
 	close(publish)
 	topiccache.Stop(queueCtx)
 	select {
 	case <-queueCtx.Done():
-		c.logger.Error("[pubsub] queueCtx.Done", slog.Any("error", queueCtx.Err()))
-		return nil, queueCtx.Err()
+		return nil, fmt.Errorf("[pubsub] queueCtx.Done: %w", queueCtx.Err())
 	case <-waitChan:
 	}
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
 	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("[pubsub] FinishBatch error: %w", err)
 	}
 
 	return &model.SyncResponse{
