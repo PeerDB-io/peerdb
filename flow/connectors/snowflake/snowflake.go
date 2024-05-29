@@ -693,7 +693,7 @@ func generateCreateTableSQLForNormalizedTable(
 	// this is a timestamp column that is used to mark records as synced
 	// default value is the current timestamp (snowflake)
 	if syncedAtColName != "" {
-		createTableSQLArray = append(createTableSQLArray, syncedAtColName+" TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+		createTableSQLArray = append(createTableSQLArray, syncedAtColName+" TIMESTAMP DEFAULT SYSDATE()")
 	}
 
 	// add composite primary key to the table
