@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { DBTypeToImageMapping } from './PeerComponent';
 
+// label corresponds to PeerType
 function SourceLabel({ label }: { label: string }) {
   const peerLogo = DBTypeToImageMapping(label);
   return (

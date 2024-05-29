@@ -25,7 +25,7 @@ import { Panel } from '@/lib/Panel';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -39,12 +39,15 @@ type CreateConfigProps = {
   params: { peerType: string };
 };
 
+// when updating a peer we get ?update=<peer_name>
 export default function CreateConfig({
   params: { peerType },
 }: CreateConfigProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const peerName = searchParams.get('update');
   const blankSetting = getBlankSetting(peerType);
-  const [name, setName] = useState<string>('');
+  const [name, setName] = useState<string>(peerName ?? '');
   const [config, setConfig] = useState<PeerConfig>(blankSetting);
   const [loading, setLoading] = useState<boolean>(false);
   const peerLabel = peerType.toUpperCase().replaceAll('%20', ' ');
@@ -127,7 +130,7 @@ export default function CreateConfig({
           label={
             <Label>
               Name
-              {
+              {peerName === null && (
                 <Tooltip
                   style={{ width: '100%' }}
                   content={'Peer name is a required field.'}
@@ -136,19 +139,29 @@ export default function CreateConfig({
                     *
                   </Label>
                 </Tooltip>
-              }
+              )}
             </Label>
           }
           action={
             <TextField
               variant='simple'
-              value={name}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setName(e.target.value)
+              value={peerName ?? name}
+              onChange={
+                peerName === null
+                  ? (e: React.ChangeEvent<HTMLInputElement>) =>
+                      setName(e.target.value)
+                  : undefined
               }
+              readOnly={peerName !== null}
             />
           }
         />
+        {peerName && (
+          <Label colorName='lowContrast' colorSet='destructive'>
+            Warning: Changes will only be reflected if you pause and resume the
+            mirrors using this peer.
+          </Label>
+        )}
         <Label colorName='lowContrast' variant='subheadline'>
           Configuration
         </Label>
@@ -180,7 +193,7 @@ export default function CreateConfig({
               )
             }
           >
-            Create peer
+            {peerName ? 'Update peer' : 'Create peer'}
           </Button>
         </ButtonGroup>
         <Panel>
