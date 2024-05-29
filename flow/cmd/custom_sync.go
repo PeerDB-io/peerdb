@@ -2,45 +2,20 @@ package cmd
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
+	"strings"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
-
-	"crypto/sha256"
+	"golang.org/x/crypto/bcrypt"
 
 	"google.golang.org/grpc/metadata"
 )
 
 const peerdbPauseGuideDocLink = "https://docs.peerdb.io/features/pause-mirror"
-
-// Memoization map and mutex for storing and accessing hashed passwords
-var (
-	passwordHashes = make(map[string]string)
-	hashMutex      sync.Mutex
-)
-
-func getHashedPassword() string {
-	hashMutex.Lock()
-	defer hashMutex.Unlock()
-
-	password := peerdbenv.PeerDBPassword()
-	if hashed, exists := passwordHashes[password]; exists {
-		return hashed
-	}
-
-	hash := sha256.New()
-	hash.Write([]byte(password))
-
-	hashedPassword := hex.EncodeToString(hash.Sum(nil))
-	passwordHashes[password] = hashedPassword
-	return hashedPassword
-}
 
 func AuthenticateSyncRequest(ctx context.Context) error {
 	var values []string
@@ -55,10 +30,11 @@ func AuthenticateSyncRequest(ctx context.Context) error {
 		token = values[0]
 	}
 
-	passwordHashed := getHashedPassword()
-	if token != "Bearer "+passwordHashed {
+	password := peerdbenv.PeerDBPassword()
+	_, hashedKey, _ := strings.Cut(token, " ")
+	if bcrypt.CompareHashAndPassword([]byte(hashedKey), []byte(password)) != nil {
 		slog.Error("Unauthorized: invalid authorization token")
-		return errors.New("unauthorized: invalid authorization token. Please check the token and try again.")
+		return errors.New("unauthorized: invalid authorization token. Please check the token and try again")
 	}
 
 	return nil

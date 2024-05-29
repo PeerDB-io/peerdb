@@ -1,4 +1,4 @@
-import { GetHashedPeerDBPasswordFromEnv } from '@/app/utils/passwordFromEnv';
+import { GetAPIToken } from '@/app/utils/apitoken';
 import {
   MirrorStatusRequest,
   MirrorStatusResponse,
@@ -8,7 +8,7 @@ import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 export async function POST(request: Request) {
   const body: MirrorStatusRequest = await request.json();
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
-  const authToken = GetHashedPeerDBPasswordFromEnv();
+  const authToken = GetAPIToken();
   try {
     const res: MirrorStatusResponse = await fetch(
       `${flowServiceAddr}/v1/mirrors/${body.flowJobName}?` +
