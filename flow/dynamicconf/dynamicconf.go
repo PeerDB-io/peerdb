@@ -13,6 +13,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
+//nolint:unused
 func dynamicConfSigned[T constraints.Signed](ctx context.Context, key string) (T, error) {
 	conn, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
