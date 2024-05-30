@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"text/template"
 	"time"
 
@@ -13,15 +14,27 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/log"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	partition_utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 const qRepMetadataTableName = "_peerdb_query_replication_metadata"
+
+type QRepPullSink interface {
+	Close(error)
+	ExecuteQueryWithTx(context.Context, *QRepQueryExecutor, pgx.Tx, string, ...interface{}) (int, error)
+}
+
+type QRepSyncSink interface {
+	GetColumnNames() []string
+	CopyInto(context.Context, *PostgresConnector, pgx.Tx, pgx.Identifier) (int64, error)
+}
 
 func (c *PostgresConnector) GetQRepPartitions(
 	ctx context.Context,
@@ -48,18 +61,9 @@ func (c *PostgresConnector) GetQRepPartitions(
 	}
 	defer shared.RollbackTx(getPartitionsTx, c.logger)
 
-	err = c.setTransactionSnapshot(ctx, getPartitionsTx)
-	if err != nil {
+	if err := c.setTransactionSnapshot(ctx, getPartitionsTx); err != nil {
 		return nil, fmt.Errorf("failed to set transaction snapshot: %w", err)
 	}
-
-	// TODO re-enable locking of the watermark table.
-	// // lock the table while we get the partitions.
-	// lockQuery := fmt.Sprintf("LOCK %s IN EXCLUSIVE MODE", config.WatermarkTable)
-	// if _, err = tx.Exec(c.ctx, lockQuery); err != nil {
-	// 	// if we aren't able to lock, just log the error and continue
-	// 	log.Warnf("failed to lock table %s: %v", config.WatermarkTable, err)
-	// }
 
 	return c.getNumRowsPartitions(ctx, getPartitionsTx, config, last)
 }
@@ -119,7 +123,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 
 	if totalRows.Int64 == 0 {
 		c.logger.Warn("no records to replicate, returning")
-		return make([]*protos.QRepPartition, 0), nil
+		return nil, nil
 	}
 
 	// Calculate the number of partitions
@@ -313,14 +317,34 @@ func (c *PostgresConnector) PullQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
+	return corePullQRepRecords(c, ctx, config, partition, &RecordStreamSink{
+		QRecordStream: stream,
+	})
+}
+
+func (c *PostgresConnector) PullPgQRepRecords(
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	stream PgCopyWriter,
+) (int, error) {
+	return corePullQRepRecords(c, ctx, config, partition, stream)
+}
+
+func corePullQRepRecords(
+	c *PostgresConnector,
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	sink QRepPullSink,
+) (int, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
 		executor := c.NewQRepQueryExecutorSnapshot(c.config.TransactionSnapshot,
 			config.FlowJobName, partition.PartitionId)
 
-		query := config.Query
-		_, err := executor.ExecuteAndProcessQueryStream(ctx, stream, query)
+		_, err := executor.ExecuteQueryIntoSink(ctx, sink, config.Query)
 		return 0, err
 	}
 	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
@@ -361,7 +385,7 @@ func (c *PostgresConnector) PullQRepRecords(
 	executor := c.NewQRepQueryExecutorSnapshot(c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
 
-	numRecords, err := executor.ExecuteAndProcessQueryStream(ctx, stream, query, rangeStart, rangeEnd)
+	numRecords, err := executor.ExecuteQueryIntoSink(ctx, sink, query, rangeStart, rangeEnd)
 	if err != nil {
 		return 0, err
 	}
@@ -375,6 +399,27 @@ func (c *PostgresConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
+) (int, error) {
+	return syncQRepRecords(c, ctx, config, partition, RecordStreamSink{
+		QRecordStream: stream,
+	})
+}
+
+func (c *PostgresConnector) SyncPgQRepRecords(
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	pipe PgCopyReader,
+) (int, error) {
+	return syncQRepRecords(c, ctx, config, partition, pipe)
+}
+
+func syncQRepRecords(
+	c *PostgresConnector,
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	sink QRepSyncSink,
 ) (int, error) {
 	dstTable, err := utils.ParseSchemaTable(config.DestinationTableIdentifier)
 	if err != nil {
@@ -392,10 +437,184 @@ func (c *PostgresConnector) SyncQRepRecords(
 
 	c.logger.Info("SyncRecords called and initial checks complete.")
 
-	stagingTableSync := &QRepStagingTableSync{connector: c}
-	return stagingTableSync.SyncQRepRecords(ctx,
-		config.FlowJobName, dstTable, partition, stream,
-		config.WriteMode, config.SyncedAtColName)
+	flowJobName := config.FlowJobName
+	writeMode := config.WriteMode
+	syncedAtCol := config.SyncedAtColName
+
+	syncLog := slog.Group("sync-qrep-log",
+		slog.String(string(shared.FlowNameKey), flowJobName),
+		slog.String(string(shared.PartitionIDKey), partition.PartitionId),
+		slog.String("destinationTable", dstTable.String()),
+	)
+	partitionID := partition.PartitionId
+	startTime := time.Now()
+
+	txConfig := c.conn.Config()
+	txConn, err := pgx.ConnectConfig(ctx, txConfig)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create tx pool: %w", err)
+	}
+	defer txConn.Close(ctx)
+
+	if err := shared.RegisterHStore(ctx, txConn); err != nil {
+		return 0, fmt.Errorf("failed to register hstore: %w", err)
+	}
+
+	// Second transaction - to handle rest of the processing
+	tx, err := txConn.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(context.Background()); err != nil {
+			if err != pgx.ErrTxClosed {
+				logger.LoggerFromCtx(ctx).Error("failed to rollback transaction tx2", slog.Any("error", err), syncLog)
+			}
+		}
+	}()
+
+	// Step 2: Insert records into destination table
+	var numRowsSynced int64
+
+	if writeMode == nil ||
+		writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_APPEND ||
+		writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
+		if writeMode != nil && writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
+			// Truncate destination table before copying records
+			c.logger.Info(fmt.Sprintf("Truncating table %s for overwrite mode", dstTable), syncLog)
+			_, err = tx.Exec(ctx,
+				"TRUNCATE TABLE "+dstTable.String())
+			if err != nil {
+				return -1, fmt.Errorf("failed to TRUNCATE table before copy: %w", err)
+			}
+		}
+
+		numRowsSynced, err = sink.CopyInto(
+			ctx,
+			c,
+			tx,
+			pgx.Identifier{dstTable.Schema, dstTable.Table},
+		)
+		if err != nil {
+			return -1, fmt.Errorf("failed to copy records into destination table: %w", err)
+		}
+
+		if syncedAtCol != "" {
+			updateSyncedAtStmt := fmt.Sprintf(
+				`UPDATE %s SET %s = CURRENT_TIMESTAMP WHERE %s IS NULL;`,
+				pgx.Identifier{dstTable.Schema, dstTable.Table}.Sanitize(),
+				QuoteIdentifier(syncedAtCol),
+				QuoteIdentifier(syncedAtCol),
+			)
+			_, err = tx.Exec(ctx, updateSyncedAtStmt)
+			if err != nil {
+				return -1, fmt.Errorf("failed to update synced_at column: %w", err)
+			}
+		}
+	} else {
+		// Step 2.1: Create a temp staging table
+		stagingTableName := "_peerdb_staging_" + shared.RandomString(8)
+		stagingTableIdentifier := pgx.Identifier{c.metadataSchema, stagingTableName}
+		dstTableIdentifier := pgx.Identifier{dstTable.Schema, dstTable.Table}
+
+		createStagingTableStmt := fmt.Sprintf(
+			"CREATE TEMP UNLOGGED TABLE %s (LIKE %s);",
+			stagingTableIdentifier.Sanitize(),
+			dstTableIdentifier.Sanitize(),
+		)
+
+		c.logger.Info(fmt.Sprintf("Creating staging table %s - '%s'",
+			stagingTableName, createStagingTableStmt), syncLog)
+		_, err = tx.Exec(ctx, createStagingTableStmt)
+		if err != nil {
+			return -1, fmt.Errorf("failed to create staging table: %w", err)
+		}
+
+		// Step 2.2: Insert records into the staging table
+		numRowsSynced, err = sink.CopyInto(
+			ctx,
+			c,
+			tx,
+			stagingTableIdentifier,
+		)
+		if err != nil {
+			return -1, fmt.Errorf("failed to copy records into staging table: %w", err)
+		}
+
+		// construct the SET clause for the upsert operation
+		upsertMatchColsList := writeMode.UpsertKeyColumns
+		upsertMatchCols := make(map[string]struct{}, len(upsertMatchColsList))
+		for _, col := range upsertMatchColsList {
+			upsertMatchCols[col] = struct{}{}
+		}
+
+		columnNames := sink.GetColumnNames()
+		setClauseArray := make([]string, 0, len(upsertMatchColsList)+1)
+		selectStrArray := make([]string, 0, len(columnNames))
+		for _, col := range columnNames {
+			_, ok := upsertMatchCols[col]
+			quotedCol := QuoteIdentifier(col)
+			if !ok {
+				setClauseArray = append(setClauseArray, fmt.Sprintf(`%s = EXCLUDED.%s`, quotedCol, quotedCol))
+			}
+			selectStrArray = append(selectStrArray, quotedCol)
+		}
+		setClauseArray = append(setClauseArray,
+			QuoteIdentifier(syncedAtCol)+`= CURRENT_TIMESTAMP`)
+		setClause := strings.Join(setClauseArray, ",")
+		selectSQL := strings.Join(selectStrArray, ",")
+
+		// Step 2.3: Perform the upsert operation, ON CONFLICT UPDATE
+		upsertStmt := fmt.Sprintf(
+			`INSERT INTO %s (%s, %s) SELECT %s, CURRENT_TIMESTAMP FROM %s ON CONFLICT (%s) DO UPDATE SET %s;`,
+			dstTableIdentifier.Sanitize(),
+			selectSQL,
+			QuoteIdentifier(syncedAtCol),
+			selectSQL,
+			stagingTableIdentifier.Sanitize(),
+			strings.Join(writeMode.UpsertKeyColumns, ", "),
+			setClause,
+		)
+		c.logger.Info("Performing upsert operation", slog.String("upsertStmt", upsertStmt), syncLog)
+		_, err := tx.Exec(ctx, upsertStmt)
+		if err != nil {
+			return -1, fmt.Errorf("failed to perform upsert operation: %w", err)
+		}
+	}
+
+	c.logger.Info(fmt.Sprintf("pushed %d records to %s", numRowsSynced, dstTable), syncLog)
+
+	// marshal the partition to json using protojson
+	pbytes, err := protojson.Marshal(partition)
+	if err != nil {
+		return -1, fmt.Errorf("failed to marshal partition to json: %w", err)
+	}
+
+	metadataTableIdentifier := pgx.Identifier{c.metadataSchema, qRepMetadataTableName}
+	insertMetadataStmt := fmt.Sprintf(
+		"INSERT INTO %s VALUES ($1, $2, $3, $4, $5);",
+		metadataTableIdentifier.Sanitize(),
+	)
+	c.logger.Info("Executing transaction inside QRep sync", syncLog)
+	_, err = tx.Exec(
+		ctx,
+		insertMetadataStmt,
+		flowJobName,
+		partitionID,
+		string(pbytes),
+		startTime,
+		time.Now(),
+	)
+	if err != nil {
+		return -1, fmt.Errorf("failed to execute statements in a transaction: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return -1, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	c.logger.Info(fmt.Sprintf("pushed %d records to %s", numRowsSynced, dstTable), syncLog)
+	return int(numRowsSynced), nil
 }
 
 // SetupQRepMetadataTables function for postgres connector
@@ -429,7 +648,27 @@ func (c *PostgresConnector) PullXminRecordStream(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, int64, error) {
-	var currentSnapshotXmin int64
+	return pullXminRecordStream(c, ctx, config, partition, RecordStreamSink{
+		QRecordStream: stream,
+	})
+}
+
+func (c *PostgresConnector) PullXminPgRecordStream(
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	pipe PgCopyWriter,
+) (int, int64, error) {
+	return pullXminRecordStream(c, ctx, config, partition, pipe)
+}
+
+func pullXminRecordStream(
+	c *PostgresConnector,
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	sink QRepPullSink,
+) (int, int64, error) {
 	query := config.Query
 	oldxid := ""
 	if partition.Range != nil {
@@ -441,18 +680,19 @@ func (c *PostgresConnector) PullXminRecordStream(
 		config.FlowJobName, partition.PartitionId)
 
 	var err error
+	var currentSnapshotXmin int64
 	var numRecords int
 	if partition.Range != nil {
-		numRecords, currentSnapshotXmin, err = executor.ExecuteAndProcessQueryStreamGettingCurrentSnapshotXmin(
+		numRecords, currentSnapshotXmin, err = executor.ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 			ctx,
-			stream,
+			sink,
 			query,
 			oldxid,
 		)
 	} else {
-		numRecords, currentSnapshotXmin, err = executor.ExecuteAndProcessQueryStreamGettingCurrentSnapshotXmin(
+		numRecords, currentSnapshotXmin, err = executor.ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 			ctx,
-			stream,
+			sink,
 			query,
 		)
 	}

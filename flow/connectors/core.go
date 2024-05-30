@@ -22,7 +22,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/otel_metrics"
+	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_guages"
 )
 
 type Connector interface {
@@ -72,9 +72,14 @@ type CDCPullConnectorCore interface {
 	PullFlowCleanup(ctx context.Context, jobName string) error
 
 	// HandleSlotInfo update monitoring info on slot size etc
-	HandleSlotInfo(ctx context.Context, alerter *alerting.Alerter,
-		catalogPool *pgxpool.Pool, slotName string, peerName string,
-		slotLagGauge *otel_metrics.Float64Gauge, openConnectionsGauge *otel_metrics.Int64Gauge) error
+	HandleSlotInfo(
+		ctx context.Context,
+		alerter *alerting.Alerter,
+		catalogPool *pgxpool.Pool,
+		slotName string,
+		peerName string,
+		slotMetricGuages peerdb_guages.SlotMetricGuages,
+	) error
 
 	// GetSlotInfo returns the WAL (or equivalent) info of a slot for the connector.
 	GetSlotInfo(ctx context.Context, slotName string) ([]*protos.SlotInfo, error)
@@ -177,17 +182,28 @@ type CDCNormalizeConnector interface {
 	NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error)
 }
 
-type QRepPullConnector interface {
+type QRepPullConnectorCore interface {
 	Connector
 
 	// GetQRepPartitions returns the partitions for a given table that haven't been synced yet.
 	GetQRepPartitions(ctx context.Context, config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error)
+}
+
+type QRepPullConnector interface {
+	QRepPullConnectorCore
 
 	// PullQRepRecords returns the records for a given partition.
 	PullQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, *model.QRecordStream) (int, error)
 }
 
-type QRepSyncConnector interface {
+type QRepPullPgConnector interface {
+	QRepPullConnectorCore
+
+	// PullPgQRepRecords returns the records for a given partition.
+	PullPgQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, connpostgres.PgCopyWriter) (int, error)
+}
+
+type QRepSyncConnectorCore interface {
 	Connector
 
 	// IsQRepPartitionSynced returns true if a partition has already been synced
@@ -195,11 +211,24 @@ type QRepSyncConnector interface {
 
 	// SetupQRepMetadataTables sets up the metadata tables for QRep.
 	SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error
+}
+
+type QRepSyncConnector interface {
+	QRepSyncConnectorCore
 
 	// SyncQRepRecords syncs the records for a given partition.
 	// returns the number of records synced.
 	SyncQRepRecords(ctx context.Context, config *protos.QRepConfig, partition *protos.QRepPartition,
 		stream *model.QRecordStream) (int, error)
+}
+
+type QRepSyncPgConnector interface {
+	QRepSyncConnectorCore
+
+	// SyncPgQRepRecords syncs the records for a given partition.
+	// returns the number of records synced.
+	SyncPgQRepRecords(ctx context.Context, config *protos.QRepConfig, partition *protos.QRepPartition,
+		stream connpostgres.PgCopyReader) (int, error)
 }
 
 type QRepConsolidateConnector interface {
@@ -326,6 +355,8 @@ var (
 	_ QRepPullConnector = &connpostgres.PostgresConnector{}
 	_ QRepPullConnector = &connsqlserver.SQLServerConnector{}
 
+	_ QRepPullPgConnector = &connpostgres.PostgresConnector{}
+
 	_ QRepSyncConnector = &connpostgres.PostgresConnector{}
 	_ QRepSyncConnector = &connbigquery.BigQueryConnector{}
 	_ QRepSyncConnector = &connsnowflake.SnowflakeConnector{}
@@ -333,6 +364,8 @@ var (
 	_ QRepSyncConnector = &conns3.S3Connector{}
 	_ QRepSyncConnector = &connclickhouse.ClickhouseConnector{}
 	_ QRepSyncConnector = &connelasticsearch.ElasticsearchConnector{}
+
+	_ QRepSyncPgConnector = &connpostgres.PostgresConnector{}
 
 	_ QRepConsolidateConnector = &connsnowflake.SnowflakeConnector{}
 	_ QRepConsolidateConnector = &connclickhouse.ClickhouseConnector{}

@@ -30,10 +30,9 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: generate or hydrate protos
+        uses: ./.github/actions/genprotos
 
       - name: install system dependencies
         run: |
@@ -60,11 +59,6 @@ jobs:
         with:
           workspaces: nexus
 
-      - uses: bufbuild/buf-setup-action@v1.29.0-1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - run: buf generate protos
 
       - name: cargo check
         run: cargo check

@@ -12,7 +12,6 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peer-flow/activities"
-	"github.com/PeerDB-io/peer-flow/concurrency"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -102,7 +101,7 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 
 func (s *SnapshotFlowExecution) cloneTable(
 	ctx workflow.Context,
-	boundSelector *concurrency.BoundSelector,
+	boundSelector *shared.BoundSelector,
 	snapshotName string,
 	mapping *protos.TableMapping,
 ) error {
@@ -219,7 +218,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 			cloneTablesInput.snapshotName)
 	}
 
-	boundSelector := concurrency.NewBoundSelector(ctx, cloneTablesInput.maxParallelClones)
+	boundSelector := shared.NewBoundSelector(ctx, cloneTablesInput.maxParallelClones)
 
 	defaultPartitionCol := "ctid"
 	if !cloneTablesInput.supportsTIDScans {

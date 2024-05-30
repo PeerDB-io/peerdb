@@ -21,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type PostgresCDCSource struct {
@@ -168,6 +169,8 @@ func (qProcessor) Process(
 		// bytea also appears here as a hex
 		data, err := p.decodeColumnData(tuple.Data, col.DataType, pgtype.TextFormatCode)
 		if err != nil {
+			p.logger.Error("error decoding text column data", slog.Any("error", err),
+				slog.String("columnName", col.Name), slog.Int64("dataType", int64(col.DataType)))
 			return fmt.Errorf("error decoding text column data: %w", err)
 		}
 		items.AddColumn(col.Name, data)
@@ -321,11 +324,8 @@ func PullCdcRecords[Items model.Items](
 		}
 	}()
 
-	shutdown := utils.HeartbeatRoutine(ctx, func() string {
-		currRecords := cdcRecordsStorage.Len()
-		msg := fmt.Sprintf("pulling records, currently have %d records", currRecords)
-		logger.Info(msg)
-		return msg
+	shutdown := shared.Interval(ctx, time.Minute, func() {
+		logger.Info(fmt.Sprintf("pulling records, currently have %d records", cdcRecordsStorage.Len()))
 	})
 	defer shutdown()
 

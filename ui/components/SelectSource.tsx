@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { DBTypeToImageMapping } from './PeerComponent';
 
+// label corresponds to PeerType
 function SourceLabel({ label }: { label: string }) {
   const peerLogo = DBTypeToImageMapping(label);
   return (
@@ -42,7 +43,7 @@ const dbTypes = [
     'CRUNCHY POSTGRES',
   ],
   ['Warehouses', 'SNOWFLAKE', 'BIGQUERY', 'S3', 'CLICKHOUSE', 'ELASTICSEARCH'],
-  ['Queues', 'KAFKA', 'EVENTHUBS', 'PUBSUB'],
+  ['Queues', 'REDPANDA', 'CONFLUENT', 'KAFKA', 'EVENTHUBS', 'PUBSUB'],
 ];
 
 const gridContainerStyle = {

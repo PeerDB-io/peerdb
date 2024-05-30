@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/pua"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 func (*KafkaConnector) SetupQRepMetadataTables(_ context.Context, _ *protos.QRepConfig) error {
@@ -34,6 +35,11 @@ func (c *KafkaConnector) SyncQRepRecords(
 		return 0, err
 	}
 	defer pool.Close()
+
+	shutdown := shared.Interval(ctx, time.Minute, func() {
+		c.logger.Info(fmt.Sprintf("sent %d records", numRecords.Load()))
+	})
+	defer shutdown()
 
 Loop:
 	for {

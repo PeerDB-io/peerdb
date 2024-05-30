@@ -16,7 +16,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
-	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 
@@ -27,7 +26,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/otel_metrics"
+	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_guages"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -86,6 +85,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	// ensure that replication is set to database
 	replConfig.Config.RuntimeParams["replication"] = "database"
 	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
+	replConfig.Config.RuntimeParams["intervalstyle"] = "postgres"
 
 	customTypeMap, err := shared.GetCustomDataTypes(ctx, conn)
 	if err != nil {
@@ -653,7 +653,14 @@ func (c *PostgresConnector) NormalizeRecords(
 		for _, normalizeStatement := range normalizeStatements {
 			ct, err := normalizeRecordsTx.Exec(ctx, normalizeStatement, normBatchID, req.SyncBatchID, destinationTableName)
 			if err != nil {
-				return nil, fmt.Errorf("error executing normalize statement: %w", err)
+				c.logger.Error("error executing normalize statement",
+					slog.String("statement", normalizeStatement),
+					slog.Int64("normBatchID", normBatchID),
+					slog.Int64("syncBatchID", req.SyncBatchID),
+					slog.String("destinationTableName", destinationTableName),
+					slog.Any("error", err),
+				)
+				return nil, fmt.Errorf("error executing normalize statement for table %s: %w", destinationTableName, err)
 			}
 			totalRowsAffected += int(ct.RowsAffected())
 		}
@@ -727,11 +734,9 @@ func (c *PostgresConnector) GetTableSchema(
 ) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
-		if activity.IsActivity(ctx) {
-			activity.RecordHeartbeat(ctx, "fetching schema for table "+tableName)
-		}
 		tableSchema, err := c.getTableSchemaForTable(ctx, tableName, req.System)
 		if err != nil {
+			c.logger.Info("error fetching schema for table "+tableName, slog.Any("error", err))
 			return nil, err
 		}
 		res[tableName] = tableSchema
@@ -943,8 +948,7 @@ func (c *PostgresConnector) EnsurePullability(
 		}
 
 		if !req.CheckConstraints {
-			msg := "[no-constraints] ensured pullability table " + tableName
-			utils.RecordHeartbeat(ctx, msg)
+			logger.LoggerFromCtx(ctx).Info("[no-constraints] ensured pullability table " + tableName)
 			continue
 		}
 
@@ -963,8 +967,6 @@ func (c *PostgresConnector) EnsurePullability(
 		if len(pKeyCols) == 0 && replicaIdentity != ReplicaIdentityFull {
 			return nil, fmt.Errorf("table %s has no primary keys and does not have REPLICA IDENTITY FULL", schemaTable)
 		}
-
-		utils.RecordHeartbeat(ctx, "ensured pullability table "+tableName)
 	}
 
 	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil
@@ -1112,8 +1114,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 	catalogPool *pgxpool.Pool,
 	slotName string,
 	peerName string,
-	slotLagGauge *otel_metrics.Float64Gauge,
-	openConnectionsGauge *otel_metrics.Int64Gauge,
+	slotMetricGuages peerdb_guages.SlotMetricGuages,
 ) error {
 	logger := logger.LoggerFromCtx(ctx)
 
@@ -1130,10 +1131,10 @@ func (c *PostgresConnector) HandleSlotInfo(
 
 	logger.Info(fmt.Sprintf("Checking %s lag for %s", slotName, peerName), slog.Float64("LagInMB", float64(slotInfo[0].LagInMb)))
 	alerter.AlertIfSlotLag(ctx, peerName, slotInfo[0])
-	slotLagGauge.Set(float64(slotInfo[0].LagInMb), attribute.NewSet(
-		attribute.String("peerName", peerName),
-		attribute.String("slotName", slotName),
-		attribute.String("deploymentUID", peerdbenv.PeerDBDeploymentUID())))
+	slotMetricGuages.SlotLagGuage.Set(float64(slotInfo[0].LagInMb), attribute.NewSet(
+		attribute.String(peerdb_guages.PeerNameKey, peerName),
+		attribute.String(peerdb_guages.SlotNameKey, slotName),
+		attribute.String(peerdb_guages.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
 
 	// Also handles alerts for PeerDB user connections exceeding a given limit here
 	res, err := getOpenConnectionsForUser(ctx, c.conn, c.config.User)
@@ -1142,9 +1143,19 @@ func (c *PostgresConnector) HandleSlotInfo(
 		return err
 	}
 	alerter.AlertIfOpenConnections(ctx, peerName, res)
-	openConnectionsGauge.Set(res.CurrentOpenConnections, attribute.NewSet(
-		attribute.String("peerName", peerName),
-		attribute.String("deploymentUID", peerdbenv.PeerDBDeploymentUID())))
+	slotMetricGuages.OpenConnectionsGuage.Set(res.CurrentOpenConnections, attribute.NewSet(
+		attribute.String(peerdb_guages.PeerNameKey, peerName),
+		attribute.String(peerdb_guages.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
+
+	replicationRes, err := getOpenReplicationConnectionsForUser(ctx, c.conn, c.config.User)
+	if err != nil {
+		logger.Warn("warning: failed to get current open replication connections", "error", err)
+		return err
+	}
+
+	slotMetricGuages.OpenReplicationConnectionsGuage.Set(replicationRes.CurrentOpenConnections, attribute.NewSet(
+		attribute.String(peerdb_guages.PeerNameKey, peerName),
+		attribute.String(peerdb_guages.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
 
 	return monitoring.AppendSlotSizeInfo(ctx, catalogPool, peerName, slotInfo[0])
 }
@@ -1159,6 +1170,23 @@ func getOpenConnectionsForUser(ctx context.Context, conn *pgx.Conn, user string)
 		return nil, fmt.Errorf("error while reading result row: %w", err)
 	}
 
+	return &protos.GetOpenConnectionsForUserResult{
+		UserName:               user,
+		CurrentOpenConnections: result.Int64,
+	}, nil
+}
+
+func getOpenReplicationConnectionsForUser(ctx context.Context, conn *pgx.Conn, user string) (*protos.GetOpenConnectionsForUserResult, error) {
+	row := conn.QueryRow(ctx, getNumReplicationConnections, user)
+
+	// COUNT() returns BIGINT
+	var result pgtype.Int8
+	err := row.Scan(&result)
+	if err != nil {
+		return nil, fmt.Errorf("error while reading result row: %w", err)
+	}
+
+	// Re-using the proto for now as the response is the same, can create later if needed
 	return &protos.GetOpenConnectionsForUserResult{
 		UserName:               user,
 		CurrentOpenConnections: result.Int64,

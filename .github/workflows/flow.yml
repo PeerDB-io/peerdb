@@ -32,18 +32,14 @@ jobs:
           xpack.security.enrollment.enabled: false
 
     steps:
-      - name: checkout sources
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - uses: bufbuild/buf-setup-action@v1.29.0-1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - run: buf generate protos
+      - name: generate or hydrate protos
+        uses: ./.github/actions/genprotos
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: '1.22.3'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos

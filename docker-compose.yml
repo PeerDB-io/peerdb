@@ -35,6 +35,7 @@ services:
   catalog:
     container_name: catalog
     image: debezium/postgres:16-alpine
+    restart: unless-stopped
     ports:
       - 9901:5432
     environment:
@@ -54,6 +55,7 @@ services:
 
   temporal:
     container_name: temporal
+    restart: unless-stopped
     depends_on:
       catalog:
         condition: service_healthy
@@ -74,6 +76,7 @@ services:
 
   temporal-admin-tools:
     container_name: temporal-admin-tools
+    restart: unless-stopped
     depends_on:
       - temporal
     environment:
@@ -83,7 +86,6 @@ services:
     image: temporalio/admin-tools:1.22
     stdin_open: true
     tty: true
-    restart: on-failure
     entrypoint: /etc/temporal/entrypoint.sh
     healthcheck:
       test: ["CMD", "tctl", "workflow", "list"]
@@ -95,6 +97,7 @@ services:
 
   temporal-ui:
     container_name: temporal-ui
+    restart: unless-stopped
     depends_on:
       - temporal
     environment:
@@ -108,6 +111,7 @@ services:
   flow-api:
     container_name: flow_api
     image: ghcr.io/peerdb-io/flow-api:latest-dev
+    restart: unless-stopped
     ports:
       - 8112:8112
       - 8113:8113
@@ -120,6 +124,7 @@ services:
   flow-snapshot-worker:
     container_name: flow-snapshot-worker
     image: ghcr.io/peerdb-io/flow-snapshot-worker:latest-dev
+    restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
     depends_on:
@@ -129,6 +134,7 @@ services:
   flow-worker:
     container_name: flow-worker
     image: ghcr.io/peerdb-io/flow-worker:latest-dev
+    restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
     depends_on:
@@ -139,6 +145,7 @@ services:
     container_name: peerdb-server
     stop_signal: SIGINT
     image: ghcr.io/peerdb-io/peerdb-server:latest-dev
+    restart: unless-stopped
     environment:
       <<: *catalog-config
       PEERDB_LOG_DIR: /var/log/peerdb
@@ -155,6 +162,7 @@ services:
   peerdb-ui:
     container_name: peerdb-ui
     image: ghcr.io/peerdb-io/peerdb-ui:latest-dev
+    restart: unless-stopped
     ports:
       - 3000:3000
     environment:
@@ -168,6 +176,7 @@ services:
 
   minio:
     image: minio/minio
+    restart: unless-stopped
     volumes:
       - minio-data:/data
     ports:

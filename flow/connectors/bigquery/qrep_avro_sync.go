@@ -11,10 +11,8 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
-	"go.temporal.io/sdk/activity"
 
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
-	numeric "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -49,6 +47,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	s.connector.logger.Info(
 		fmt.Sprintf("Obtaining Avro schema for destination table %s and sync batch ID %d",
 			rawTableName, syncBatchID))
+
 	// You will need to define your Avro schema as a string
 	avroSchema, err := DefineAvroSchema(rawTableName, dstTableMetadata, "", "")
 	if err != nil {
@@ -70,12 +69,6 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	datasetID := s.connector.datasetID
 	insertStmt := fmt.Sprintf("INSERT INTO `%s` SELECT * FROM `%s`;",
 		rawTableName, stagingTable)
-
-	activity.RecordHeartbeat(ctx,
-		fmt.Sprintf("Flow job %s: performing insert and update transaction"+
-			" for destination table %s and sync batch ID %d",
-			req.FlowJobName, rawTableName, syncBatchID),
-	)
 
 	query := bqClient.Query(insertStmt)
 	query.DefaultDatasetID = s.connector.datasetID
@@ -165,8 +158,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	if err != nil {
 		return 0, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
-	s.connector.logger.Info("Obtained Avro schema for destination table", flowLog)
-	s.connector.logger.Info(fmt.Sprintf("Avro schema: %v\n", avroSchema), flowLog)
+	s.connector.logger.Info("Obtained Avro schema for destination table", flowLog, slog.Any("avroSchema", avroSchema))
 	// create a staging table name with partitionID replace hyphens with underscores
 	dstDatasetTable, _ := s.connector.convertToDatasetTable(dstTableName)
 	stagingDatasetTable := &datasetTable{
@@ -180,11 +172,6 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	if err != nil {
 		return -1, fmt.Errorf("failed to push to avro stage: %w", err)
 	}
-	activity.RecordHeartbeat(ctx, fmt.Sprintf(
-		"Flow job %s: running insert-into-select transaction for"+
-			" destination table %s and partition ID %s",
-		flowJobName, dstTableName, partition.PartitionId),
-	)
 	bqClient := s.connector.client
 
 	insertColumns := make([]string, 0, len(dstTableMetadata.Schema))
@@ -281,12 +268,8 @@ func DefineAvroSchema(dstTableName string,
 }
 
 func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
-	avroNumericPrecision := int16(bqField.Precision)
-	avroNumericScale := int16(bqField.Scale)
-	bqNumeric := numeric.BigQueryNumericCompatibility{}
-	if !bqNumeric.IsValidPrevisionAndScale(avroNumericPrecision, avroNumericScale) {
-		avroNumericPrecision, avroNumericScale = bqNumeric.DefaultPrecisionAndScale()
-	}
+	avroNumericPrecision, avroNumericScale := qvalue.DetermineNumericSettingForDWH(
+		int16(bqField.Precision), int16(bqField.Scale), protos.DBType_BIGQUERY)
 
 	considerRepeated := func(typ string, repeated bool) interface{} {
 		if repeated {

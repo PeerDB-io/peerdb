@@ -4,7 +4,6 @@ import (
 	"sync/atomic"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -19,8 +18,7 @@ type CDCStream[T Items] struct {
 	lastCheckpointID atomic.Int64
 }
 
-func NewCDCStream[T Items]() *CDCStream[T] {
-	channelBuffer := peerdbenv.PeerDBCDCChannelBufferSize()
+func NewCDCStream[T Items](channelBuffer int) *CDCStream[T] {
 	return &CDCStream[T]{
 		records:           make(chan Record[T], channelBuffer),
 		SchemaDeltas:      make([]*protos.TableSchemaDelta, 0),
