@@ -1,7 +1,7 @@
+import bcrypt from 'bcrypt';
 import 'server-only';
-import bcrypt from "bcrypt";
 
-function hashPassword(password:string, salt:number) {
+function hashPassword(password: string, salt: number) {
   var hashed = bcrypt.hashSync(password, salt); // GOOD
   return hashed;
 }
