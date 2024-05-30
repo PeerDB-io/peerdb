@@ -12,6 +12,7 @@ import (
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 
 	"golang.org/x/crypto/bcrypt"
+
 	"google.golang.org/grpc/metadata"
 )
 
