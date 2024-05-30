@@ -10,9 +10,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
-
 	"golang.org/x/crypto/bcrypt"
-
 	"google.golang.org/grpc/metadata"
 )
 
