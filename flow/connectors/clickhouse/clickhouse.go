@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -184,6 +185,8 @@ func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, err
 				{Name: "peerdb"},
 			},
 		},
+		DialTimeout: 3600 * time.Second,
+		ReadTimeout: 3600 * time.Second,
 	})
 
 	if err := conn.PingContext(ctx); err != nil {
