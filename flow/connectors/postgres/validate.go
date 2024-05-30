@@ -143,7 +143,7 @@ func (c *PostgresConnector) CheckIfTablesAreMirrorable(
 	ctx context.Context,
 	tables []*utils.SchemaTable,
 ) error {
-	var badTables []string
+	badTables := make([]string, 0, len(tables))
 	for _, table := range tables {
 		var canMirror sql.NullBool
 		err := c.conn.QueryRow(ctx, `SELECT
@@ -159,7 +159,7 @@ func (c *PostgresConnector) CheckIfTablesAreMirrorable(
 		}
 
 		if !canMirror.Bool || !canMirror.Valid {
-			badTables = append(badTables, table.Table)
+			badTables = append(badTables, table.Schema+"."+table.Table)
 		}
 	}
 
@@ -167,5 +167,5 @@ func (c *PostgresConnector) CheckIfTablesAreMirrorable(
 		return nil
 	}
 
-	return fmt.Errorf("tables %v do not have a primary key nor REPLICA IDENTITY FULL", badTables)
+	return fmt.Errorf("tables %s do not have a primary key nor REPLICA IDENTITY FULL", strings.Join(badTables, ","))
 }
