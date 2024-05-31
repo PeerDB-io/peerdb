@@ -739,10 +739,10 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 
 	if req.SyncedAtColName != nil {
 		for _, renameRequest := range req.RenameTableOptions {
-			resyncTblName := renameRequest.CurrentName
-			schema, table, foundDot := strings.Cut(renameRequest.CurrentName, ".")
-			if foundDot {
-				resyncTblName = SnowflakeIdentifierNormalize(schema) + "." + SnowflakeIdentifierNormalize(table)
+			resyncSchemaTable, err := utils.ParseSchemaTable(renameRequest.CurrentName)
+			resyncTblName := snowflakeSchemaTableNormalize(resyncSchemaTable)
+			if err != nil {
+				return nil, fmt.Errorf("unable to parse schema table for table %s: %w", renameRequest.CurrentName, err)
 			}
 
 			c.logger.Info(fmt.Sprintf("setting synced at column for table '%s'...", resyncTblName))
@@ -757,8 +757,10 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 
 	if req.SoftDeleteColName != nil {
 		for _, renameRequest := range req.RenameTableOptions {
-			src := renameRequest.CurrentName
-			dst := renameRequest.NewName
+			srcTable, err := utils.ParseSchemaTable(renameRequest.CurrentName)
+			dstTable, err := utils.ParseSchemaTable(renameRequest.NewName)
+			src := snowflakeSchemaTableNormalize(srcTable)
+			dst := snowflakeSchemaTableNormalize(dstTable)
 
 			columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
 			for _, col := range renameRequest.TableSchema.Columns {
@@ -787,8 +789,10 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 
 	// renaming and dropping such that the _resync table is the new destination
 	for _, renameRequest := range req.RenameTableOptions {
-		src := renameRequest.CurrentName
-		dst := renameRequest.NewName
+		srcTable, err := utils.ParseSchemaTable(renameRequest.CurrentName)
+		dstTable, err := utils.ParseSchemaTable(renameRequest.NewName)
+		src := snowflakeSchemaTableNormalize(srcTable)
+		dst := snowflakeSchemaTableNormalize(dstTable)
 
 		c.logger.Info(fmt.Sprintf("renaming table '%s' to '%s'...", src, dst))
 
