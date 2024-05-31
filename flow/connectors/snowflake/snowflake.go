@@ -406,8 +406,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 }
 
 func (c *SnowflakeConnector) withMirrorNameQueryTag(ctx context.Context, mirrorName string) context.Context {
-	ctx = gosnowflake.WithQueryTag(ctx, fmt.Sprintf("peerdb-mirror-%s", mirrorName))
-	return ctx
+	return gosnowflake.WithQueryTag(ctx, "peerdb-mirror-"+mirrorName)
 }
 
 func (c *SnowflakeConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
