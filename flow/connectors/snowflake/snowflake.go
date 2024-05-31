@@ -740,6 +740,10 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 	if req.SyncedAtColName != nil {
 		for _, renameRequest := range req.RenameTableOptions {
 			resyncTblName := renameRequest.CurrentName
+			schema, table, foundDot := strings.Cut(renameRequest.CurrentName, ".")
+			if foundDot {
+				resyncTblName = SnowflakeIdentifierNormalize(schema) + "." + SnowflakeIdentifierNormalize(table)
+			}
 
 			c.logger.Info(fmt.Sprintf("setting synced at column for table '%s'...", resyncTblName))
 
