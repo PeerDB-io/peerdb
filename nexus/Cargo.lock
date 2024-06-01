@@ -2250,6 +2250,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3770f56e1e8a608c6de40011b9a00c6b669c14d121024411701b4bc3b2a5be99"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "bytes",
  "chrono",
  "derive-new",
@@ -2259,10 +2260,12 @@ dependencies = [
  "postgres-types",
  "rand",
  "ring",
+ "stringprep",
  "thiserror",
  "tokio",
  "tokio-rustls 0.26.0",
  "tokio-util",
+ "x509-certificate",
 ]
 
 [[package]]
