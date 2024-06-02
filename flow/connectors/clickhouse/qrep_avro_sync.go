@@ -64,6 +64,7 @@ func (s *ClickhouseAvroSyncMethod) SyncRecords(
 	ctx context.Context,
 	stream *model.QRecordStream,
 	flowJobName string,
+	syncBatchID int64,
 ) (int, error) {
 	tableLog := slog.String("destinationTable", s.config.DestinationTableIdentifier)
 	dstTableName := s.config.DestinationTableIdentifier
@@ -82,11 +83,10 @@ func (s *ClickhouseAvroSyncMethod) SyncRecords(
 		return 0, err
 	}
 
-	defer avroFile.Cleanup()
 	s.connector.logger.Info(fmt.Sprintf("written %d records to Avro file", avroFile.NumRecords), tableLog)
-	err = s.CopyStageToDestination(ctx, avroFile)
+	err = s.connector.s3Stage.SetAvroStage(ctx, flowJobName, syncBatchID, avroFile)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to set avro stage: %w", err)
 	}
 
 	return avroFile.NumRecords, nil
