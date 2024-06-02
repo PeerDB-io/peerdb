@@ -611,6 +611,8 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 }
 
 func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
+	logger := activity.GetLogger(ctx)
+
 	rows, err := a.CatalogPool.Query(ctx, "SELECT DISTINCT ON (name) name, config_proto FROM flows WHERE query_string IS NULL")
 	if err != nil {
 		return err
@@ -627,6 +629,21 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		var config protos.FlowConnectionConfigs
 		err = proto.Unmarshal(configProto, &config)
 		if err != nil {
+			logger.Error("failed to unmarshal flow connection config", slog.Any("error", err))
+			return nil, err
+		}
+
+		logger.Info("reloading source peer config", slog.Any("peerName", config.Source.Name))
+		config.Source, err = a.LoadPeer(ctx, config.Source.Name)
+		if err != nil {
+			logger.Error("failed to load source peer config", slog.Any("error", err))
+			return nil, err
+		}
+
+		logger.Info("reloading destination peer config", slog.Any("peerName", config.Destination.Name))
+		config.Destination, err = a.LoadPeer(ctx, config.Destination.Name)
+		if err != nil {
+			logger.Error("failed to load destination peer config", slog.Any("error", err))
 			return nil, err
 		}
 
@@ -636,8 +653,15 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		return err
 	}
 
-	logger := activity.GetLogger(ctx)
+	recordedPeers := make(map[string]bool)
+
 	for _, config := range configs {
+		peerName := config.Source.Name
+		if recordedPeers[peerName] {
+			continue
+		}
+		recordedPeers[peerName] = true
+
 		func() {
 			srcConn, err := connectors.GetCDCPullConnector(ctx, config.Source)
 			if err != nil {
@@ -652,7 +676,6 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			if config.ReplicationSlotName != "" {
 				slotName = config.ReplicationSlotName
 			}
-			peerName := config.Source.Name
 
 			activity.RecordHeartbeat(ctx, fmt.Sprintf("checking %s on %s", slotName, peerName))
 			if ctx.Err() != nil {
