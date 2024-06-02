@@ -294,7 +294,6 @@ func (c *ClickhouseConnector) copyAvroStageToDestination(ctx context.Context, fl
 	if err != nil {
 		return fmt.Errorf("failed to get avro stage: %w", err)
 	}
-
 	defer avroFile.Cleanup()
 
 	err = avroSynvMethod.CopyStageToDestination(ctx, avroFile)
