@@ -80,6 +80,9 @@ func NewKafkaConnector(
 	}
 
 	adminClient, err := kadm.NewOptClient(optionalOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create kafka admin client: %w", err)
+	}
 
 	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
