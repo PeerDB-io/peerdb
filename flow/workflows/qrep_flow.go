@@ -34,7 +34,7 @@ type QRepPartitionFlowExecution struct {
 }
 
 // returns a new empty QRepFlowState
-func NewQRepFlowState() *protos.QRepFlowState {
+func newQRepFlowState() *protos.QRepFlowState {
 	return &protos.QRepFlowState{
 		LastPartition: &protos.QRepPartition{
 			PartitionId: "not-applicable-partition",
@@ -46,8 +46,8 @@ func NewQRepFlowState() *protos.QRepFlowState {
 	}
 }
 
-// NewQRepFlowExecution creates a new instance of QRepFlowExecution.
-func NewQRepFlowExecution(ctx workflow.Context, config *protos.QRepConfig, runUUID string) *QRepFlowExecution {
+// newQRepFlowExecution creates a new instance of QRepFlowExecution.
+func newQRepFlowExecution(ctx workflow.Context, config *protos.QRepConfig, runUUID string) *QRepFlowExecution {
 	return &QRepFlowExecution{
 		config:          config,
 		flowExecutionID: workflow.GetInfo(ctx).WorkflowExecution.ID,
@@ -58,7 +58,7 @@ func NewQRepFlowExecution(ctx workflow.Context, config *protos.QRepConfig, runUU
 }
 
 // NewQRepFlowExecution creates a new instance of QRepFlowExecution.
-func NewQRepPartitionFlowExecution(ctx workflow.Context,
+func newQRepPartitionFlowExecution(ctx workflow.Context,
 	config *protos.QRepConfig, runUUID string,
 ) *QRepPartitionFlowExecution {
 	return &QRepPartitionFlowExecution{
@@ -123,7 +123,7 @@ func (q *QRepFlowExecution) getTableSchema(ctx workflow.Context, tableName strin
 	return tblSchemaOutput.TableNameSchemaMapping[tableName], nil
 }
 
-func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Context) error {
+func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Context) error {
 	if q.config.SetupWatermarkTableOnDestination {
 		q.logger.Info("setting up watermark table on destination for qrep flow")
 
@@ -166,8 +166,8 @@ func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Contex
 	return nil
 }
 
-// GetPartitions returns the partitions to replicate.
-func (q *QRepFlowExecution) GetPartitions(
+// getPartitions returns the partitions to replicate.
+func (q *QRepFlowExecution) getPartitions(
 	ctx workflow.Context,
 	last *protos.QRepPartition,
 ) (*protos.QRepParitionResult, error) {
@@ -195,8 +195,8 @@ func (q *QRepFlowExecution) GetPartitions(
 	return partitions, nil
 }
 
-// ReplicatePartitions replicates the partition batch.
-func (q *QRepPartitionFlowExecution) ReplicatePartitions(ctx workflow.Context,
+// replicatePartitions replicates the partition batch.
+func (q *QRepPartitionFlowExecution) replicatePartitions(ctx workflow.Context,
 	partitions *protos.QRepPartitionBatch,
 ) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -509,7 +509,7 @@ func QRepFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.QRepConfig,
 	state *protos.QRepFlowState,
-) error {
+) (*protos.QRepFlowState, error) {
 	// The structure of this workflow is as follows:
 	//   1. Start the loop to continuously run the replication flow.
 	//   2. In the loop, query the source database to get the partitions to replicate.
@@ -520,14 +520,18 @@ func QRepFlowWorkflow(
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 
+	if state == nil {
+		state = newQRepFlowState()
+	}
+
 	err := setWorkflowQueries(ctx, state)
 	if err != nil {
-		return err
+		return state, err
 	}
 
 	signalChan := model.FlowSignal.GetSignalChannel(ctx)
 
-	q := NewQRepFlowExecution(ctx, config, originalRunID)
+	q := newQRepFlowExecution(ctx, config, originalRunID)
 	logger := q.logger
 
 	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSING ||
@@ -543,7 +547,7 @@ func QRepFlowWorkflow(
 			if ok {
 				q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
 			} else if err := ctx.Err(); err != nil {
-				return err
+				return state, err
 			}
 		}
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
@@ -554,53 +558,53 @@ func QRepFlowWorkflow(
 		maxParallelWorkers = int(config.MaxParallelWorkers)
 	}
 
-	err = q.SetupWatermarkTableOnDestination(ctx)
+	err = q.setupWatermarkTableOnDestination(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to setup watermark table: %w", err)
+		return state, fmt.Errorf("failed to setup watermark table: %w", err)
 	}
 
 	err = q.SetupMetadataTables(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to setup metadata tables: %w", err)
+		return state, fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
 	logger.Info("metadata tables setup for peer flow")
 
 	err = q.handleTableCreationForResync(ctx, state)
 	if err != nil {
-		return err
+		return state, err
 	}
 
 	if !config.InitialCopyOnly && state.LastPartition != nil {
 		if err := q.waitForNewRows(ctx, signalChan, state.LastPartition); err != nil {
-			return err
+			return state, err
 		}
 	}
 
 	if q.activeSignal != model.PauseSignal {
 		logger.Info("fetching partitions to replicate for peer flow")
-		partitions, err := q.GetPartitions(ctx, state.LastPartition)
+		partitions, err := q.getPartitions(ctx, state.LastPartition)
 		if err != nil {
-			return fmt.Errorf("failed to get partitions: %w", err)
+			return state, fmt.Errorf("failed to get partitions: %w", err)
 		}
 
 		logger.Info(fmt.Sprintf("%d partitions to replicate", len(partitions.Partitions)))
 		if err := q.processPartitions(ctx, maxParallelWorkers, partitions.Partitions); err != nil {
-			return err
+			return state, err
 		}
 
 		logger.Info("consolidating partitions for peer flow")
 		if err := q.consolidatePartitions(ctx); err != nil {
-			return err
+			return state, err
 		}
 
 		if config.InitialCopyOnly {
 			logger.Info("initial copy completed for peer flow")
-			return nil
+			return state, nil
 		}
 
 		err = q.handleTableRenameForResync(ctx, state)
 		if err != nil {
-			return err
+			return state, err
 		}
 
 		logger.Info(fmt.Sprintf("%d partitions processed", len(partitions.Partitions)))
@@ -627,7 +631,7 @@ func QRepFlowWorkflow(
 	if q.activeSignal == model.PauseSignal {
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
 	}
-	return workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
+	return state, workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
 }
 
 // QRepPartitionWorkflow replicate a partition batch
@@ -638,6 +642,6 @@ func QRepPartitionWorkflow(
 	runUUID string,
 ) error {
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	q := NewQRepPartitionFlowExecution(ctx, config, runUUID)
-	return q.ReplicatePartitions(ctx, partitions)
+	q := newQRepPartitionFlowExecution(ctx, config, runUUID)
+	return q.replicatePartitions(ctx, partitions)
 }

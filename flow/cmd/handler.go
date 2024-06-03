@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 	"time"
 
@@ -224,26 +223,8 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 			return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 		}
 	}
-
-	state := peerflow.NewQRepFlowState()
-	preColon, postColon, hasColon := strings.Cut(cfg.WatermarkColumn, "::")
 	var workflowFn interface{}
-	if cfg.SourcePeer.Type == protos.DBType_POSTGRES &&
-		preColon == "xmin" {
-		state.LastPartition.PartitionId = uuid.New().String()
-		if hasColon {
-			// hack to facilitate migrating from existing xmin sync
-			txid, err := strconv.ParseInt(postColon, 10, 64)
-			if err != nil {
-				slog.Error("invalid xmin txid for xmin rep",
-					slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
-				return nil, fmt.Errorf("invalid xmin txid for xmin rep: %w", err)
-			}
-			state.LastPartition.Range = &protos.PartitionRange{
-				Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: txid}},
-			}
-		}
-
+	if cfg.SourcePeer.Type == protos.DBType_POSTGRES && cfg.WatermarkColumn == "xmin" {
 		workflowFn = peerflow.XminFlowWorkflow
 	} else {
 		workflowFn = peerflow.QRepFlowWorkflow
@@ -253,7 +234,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		cfg.SyncedAtColName = "_PEERDB_SYNCED_AT"
 	}
 
-	_, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowFn, cfg, state)
+	_, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowFn, cfg, nil)
 	if err != nil {
 		slog.Error("unable to start QRepFlow workflow",
 			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
