@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
@@ -27,9 +28,10 @@ import (
 
 type KafkaConnector struct {
 	*metadataStore.PostgresMetadata
-	client     *kgo.Client
-	logger     log.Logger
-	partitions int32
+	client      *kgo.Client
+	adminClient *kadm.Client
+	logger      log.Logger
+	partitions  int32
 }
 
 func NewKafkaConnector(
@@ -78,6 +80,8 @@ func NewKafkaConnector(
 		return nil, fmt.Errorf("failed to create kafka client: %w", err)
 	}
 
+	adminClient, err := kadm.NewOptClient(optionalOpts...)
+
 	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
 		return nil, err
@@ -86,6 +90,7 @@ func NewKafkaConnector(
 	return &KafkaConnector{
 		PostgresMetadata: pgMetadata,
 		client:           client,
+		adminClient:      adminClient,
 		logger:           logger.LoggerFromCtx(ctx),
 		partitions:       config.Partitions,
 	}, nil
