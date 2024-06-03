@@ -428,14 +428,11 @@ func CreateQRepWorkflowConfig(
 }
 
 func RunQRepFlowWorkflow(tc client.Client, config *protos.QRepConfig) WorkflowRun {
-	state := peerflow.NewQRepFlowState()
-	return ExecutePeerflow(tc, peerflow.QRepFlowWorkflow, config, state)
+	return ExecutePeerflow(tc, peerflow.QRepFlowWorkflow, config, nil)
 }
 
 func RunXminFlowWorkflow(tc client.Client, config *protos.QRepConfig) WorkflowRun {
-	state := peerflow.NewQRepFlowState()
-	state.LastPartition.PartitionId = uuid.New().String()
-	return ExecutePeerflow(tc, peerflow.XminFlowWorkflow, config, state)
+	return ExecutePeerflow(tc, peerflow.XminFlowWorkflow, config, nil)
 }
 
 func GetOwnersSchema() *qvalue.QRecordSchema {
