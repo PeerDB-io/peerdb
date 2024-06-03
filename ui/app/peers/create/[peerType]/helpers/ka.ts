@@ -61,6 +61,14 @@ export const kaSetting: PeerSetting[] = [
     tips: 'If you are using a non-TLS connection for Kafka server, check this box.',
     optional: true,
   },
+  {
+    label: 'Partitions',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, partitions: parseInt(value as string) })),
+    type: 'number',
+    default:'5',
+    optional: true,
+  },
 ];
 
 export const blankKafkaSetting: KafkaConfig = {
@@ -70,4 +78,5 @@ export const blankKafkaSetting: KafkaConfig = {
   sasl: 'PLAIN',
   partitioner: '',
   disableTls: false,
+  partitions: 5,
 };

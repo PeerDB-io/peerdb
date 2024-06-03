@@ -46,11 +46,7 @@ export default function CreateConfig({
   const router = useRouter();
   const searchParams = useSearchParams();
   const peerName = searchParams.get('update');
-  const blankSetting = getBlankSetting(peerType);
-  const [name, setName] = useState<string>(peerName ?? '');
-  const [config, setConfig] = useState<PeerConfig>(blankSetting);
-  const [loading, setLoading] = useState<boolean>(false);
-  const peerLabel = peerType.toUpperCase().replaceAll('%20', ' ');
+
   const getDBType = () => {
     if (peerType.includes('POSTGRES') || peerType.includes('TEMBO')) {
       return 'POSTGRES';
@@ -60,6 +56,13 @@ export default function CreateConfig({
     }
     return peerType;
   };
+
+  const blankSetting = getBlankSetting(getDBType());
+  const [name, setName] = useState<string>(peerName ?? '');
+  const [config, setConfig] = useState<PeerConfig>(blankSetting);
+  const [loading, setLoading] = useState<boolean>(false);
+  const peerLabel = peerType.toUpperCase().replaceAll('%20', ' ');
+
 
   const configComponentMap = (peerType: string) => {
     switch (getDBType()) {

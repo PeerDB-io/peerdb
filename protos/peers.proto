@@ -144,6 +144,7 @@ message KafkaConfig {
   string sasl = 4;
   bool disable_tls = 5;
   string partitioner = 6;
+  int32 partitions = 7;
 }
 
 enum ElasticsearchAuthType {

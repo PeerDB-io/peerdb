@@ -351,6 +351,7 @@ var (
 	_ NormalizedTablesConnector = &connbigquery.BigQueryConnector{}
 	_ NormalizedTablesConnector = &connsnowflake.SnowflakeConnector{}
 	_ NormalizedTablesConnector = &connclickhouse.ClickhouseConnector{}
+	_ NormalizedTablesConnector = &connkafka.KafkaConnector{}
 
 	_ QRepPullConnector = &connpostgres.PostgresConnector{}
 	_ QRepPullConnector = &connsqlserver.SQLServerConnector{}

@@ -798,6 +798,10 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("disable_tls")
                     .and_then(|s| s.parse::<bool>().ok())
                     .unwrap_or_default(),
+                partitions: opts
+                    .get("partitions")
+                    .and_then(|s| s.parse::<i32>().ok())
+                    .unwrap_or_default(),
             };
             Config::KafkaConfig(kafka_config)
         }

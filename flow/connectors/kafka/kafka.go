@@ -27,8 +27,9 @@ import (
 
 type KafkaConnector struct {
 	*metadataStore.PostgresMetadata
-	client *kgo.Client
-	logger log.Logger
+	client     *kgo.Client
+	logger     log.Logger
+	partitions int32
 }
 
 func NewKafkaConnector(
@@ -40,7 +41,7 @@ func NewKafkaConnector(
 		kgo.SeedBrokers(config.Servers...),
 		kgo.AllowAutoTopicCreation(),
 		kgo.WithLogger(kslog.New(slog.Default())), // TODO use logger.LoggerFromCtx
-		kgo.SoftwareNameAndVersion("peerdb", peerdbenv.PeerDBVersionShaShort()),
+		//kgo.SoftwareNameAndVersion("peerdb", peerdbenv.PeerDBVersionShaShort()),
 	)
 	if !config.DisableTls {
 		optionalOpts = append(optionalOpts, kgo.DialTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12}))
@@ -86,6 +87,7 @@ func NewKafkaConnector(
 		PostgresMetadata: pgMetadata,
 		client:           client,
 		logger:           logger.LoggerFromCtx(ctx),
+		partitions:       config.Partitions,
 	}, nil
 }
 
