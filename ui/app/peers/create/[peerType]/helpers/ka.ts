@@ -66,7 +66,7 @@ export const kaSetting: PeerSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, partitions: parseInt(value as string) })),
     type: 'number',
-    default:'5',
+    default: '5',
     optional: true,
   },
 ];

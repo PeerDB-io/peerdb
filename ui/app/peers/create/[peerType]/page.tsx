@@ -63,7 +63,6 @@ export default function CreateConfig({
   const [loading, setLoading] = useState<boolean>(false);
   const peerLabel = peerType.toUpperCase().replaceAll('%20', ' ');
 
-
   const configComponentMap = (peerType: string) => {
     switch (getDBType()) {
       case 'POSTGRES':
