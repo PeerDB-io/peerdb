@@ -43,7 +43,6 @@ func NewKafkaConnector(
 		kgo.SeedBrokers(config.Servers...),
 		kgo.AllowAutoTopicCreation(),
 		kgo.WithLogger(kslog.New(slog.Default())), // TODO use logger.LoggerFromCtx
-		//kgo.SoftwareNameAndVersion("peerdb", peerdbenv.PeerDBVersionShaShort()),
 	)
 	if !config.DisableTls {
 		optionalOpts = append(optionalOpts, kgo.DialTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12}))

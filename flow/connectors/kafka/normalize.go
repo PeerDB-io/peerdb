@@ -27,17 +27,27 @@ func (c *KafkaConnector) SetupNormalizedTable(
 	softDeleteColName string,
 	syncedAtColName string,
 ) (bool, error) {
-	_, err := c.adminClient.DescribeTopicConfigs(ctx, tableIdentifier)
-	if err != nil && err != kerr.UnknownTopicOrPartition {
+	topicExists := true
+	res, err := c.adminClient.DescribeTopicConfigs(ctx, tableIdentifier)
+	if err == kerr.UnknownTopicOrPartition || res[0].Err == kerr.UnknownTopicOrPartition {
+		c.logger.Info("topic does not exist, creating", "topic", tableIdentifier)
+		topicExists = false
+	} else if err != nil {
 		return false, fmt.Errorf("failed to check topic existence: %w", err)
+	} else if res[0].Err != nil {
+		return false, fmt.Errorf("[topicErr]failed to check topic existence: %w", res[0].Err)
 	}
 
-	res, err := c.adminClient.CreateTopics(ctx, c.partitions, 1, nil, tableIdentifier)
-	if err != nil {
-		return false, fmt.Errorf("failed to create topic: %w", err)
-	}
-	if res.Error() != nil {
-		return false, fmt.Errorf("failed to create topic: %w", res.Error())
+	if !topicExists {
+		res, err := c.adminClient.CreateTopics(ctx, c.partitions, 3, nil, tableIdentifier)
+		if err != nil {
+			return false, fmt.Errorf("failed to create topic: %w", err)
+		}
+		if res.Error() != nil {
+			return false, fmt.Errorf("failed to create topic: %w", res.Error())
+		}
+	} else {
+		c.logger.Info("topic exists, skipping creation", "topic", tableIdentifier)
 	}
 
 	return false, nil
