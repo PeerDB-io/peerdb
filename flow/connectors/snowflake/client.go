@@ -99,20 +99,3 @@ func snowflakeSchemaTableNormalize(schemaTable *utils.SchemaTable) string {
 	return fmt.Sprintf(`%s.%s`, SnowflakeIdentifierNormalize(schemaTable.Schema),
 		SnowflakeIdentifierNormalize(schemaTable.Table))
 }
-
-func normalizeSrcAndDst(source, destination string) (string, string, error) {
-	srcTable, err := utils.ParseSchemaTable(source)
-	if err != nil {
-		return "", "", fmt.Errorf("unable to parse source %s: %w", source, err)
-	}
-
-	dstTable, err := utils.ParseSchemaTable(destination)
-	if err != nil {
-		return "", "", fmt.Errorf("unable to parse destination %s: %w", destination, err)
-	}
-
-	src := snowflakeSchemaTableNormalize(srcTable)
-	dst := snowflakeSchemaTableNormalize(dstTable)
-
-	return src, dst, nil
-}

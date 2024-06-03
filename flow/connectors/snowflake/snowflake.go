@@ -737,31 +737,31 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 		}
 	}()
 
-	if req.SyncedAtColName != nil {
-		for _, renameRequest := range req.RenameTableOptions {
-			resyncSchemaTable, err := utils.ParseSchemaTable(renameRequest.CurrentName)
-			resyncTblName := snowflakeSchemaTableNormalize(resyncSchemaTable)
-			if err != nil {
-				return nil, fmt.Errorf("unable to parse schema table for table %s: %w", renameRequest.CurrentName, err)
-			}
+	for _, renameRequest := range req.RenameTableOptions {
+		srcTable, err := utils.ParseSchemaTable(renameRequest.CurrentName)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse source %s: %w", renameRequest.CurrentName, err)
+		}
 
-			c.logger.Info(fmt.Sprintf("setting synced at column for table '%s'...", resyncTblName))
+		dstTable, err := utils.ParseSchemaTable(renameRequest.NewName)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse destination %s: %w", renameRequest.NewName, err)
+		}
 
+		src := snowflakeSchemaTableNormalize(srcTable)
+		dst := snowflakeSchemaTableNormalize(dstTable)
+
+		c.logger.Info(fmt.Sprintf("setting synced at column for table '%s'...", src))
+
+		if req.SyncedAtColName != nil {
 			_, err = renameTablesTx.ExecContext(ctx,
-				fmt.Sprintf("UPDATE %s SET %s = CURRENT_TIMESTAMP", resyncTblName, *req.SyncedAtColName))
+				fmt.Sprintf("UPDATE %s SET %s = CURRENT_TIMESTAMP", src, *req.SyncedAtColName))
 			if err != nil {
-				return nil, fmt.Errorf("unable to set synced at column for table %s: %w", resyncTblName, err)
+				return nil, fmt.Errorf("unable to set synced at column for table %s: %w", src, err)
 			}
 		}
-	}
 
-	if req.SoftDeleteColName != nil {
-		for _, renameRequest := range req.RenameTableOptions {
-			src, dst, err := normalizeSrcAndDst(renameRequest.CurrentName, renameRequest.NewName)
-			if err != nil {
-				return nil, err
-			}
-
+		if req.SoftDeleteColName != nil {
 			columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
 			for _, col := range renameRequest.TableSchema.Columns {
 				columnNames = append(columnNames, SnowflakeIdentifierNormalize(col.Name))
@@ -785,15 +785,8 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 				return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
 			}
 		}
-	}
 
-	// renaming and dropping such that the _resync table is the new destination
-	for _, renameRequest := range req.RenameTableOptions {
-		src, dst, err := normalizeSrcAndDst(renameRequest.CurrentName, renameRequest.NewName)
-		if err != nil {
-			return nil, err
-		}
-
+		// renaming and dropping such that the _resync table is the new destination
 		c.logger.Info(fmt.Sprintf("renaming table '%s' to '%s'...", src, dst))
 
 		// drop the dst table if exists
