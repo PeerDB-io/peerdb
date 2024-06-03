@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -66,10 +65,18 @@ func (c *ClickhouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 	}, nil
 }
 
+func (c *ClickhouseConnector) avroSyncMethod(flowJobName string) *ClickhouseAvroSyncMethod {
+	qrepConfig := &protos.QRepConfig{
+		StagingPath:                c.credsProvider.BucketPath,
+		FlowJobName:                flowJobName,
+		DestinationTableIdentifier: c.getRawTableName(flowJobName),
+	}
+	return NewClickhouseAvroSyncMethod(qrepConfig, c)
+}
+
 func (c *ClickhouseConnector) syncRecordsViaAvro(
 	ctx context.Context,
 	req *model.SyncRecordsRequest[model.RecordItems],
-	rawTableIdentifier string,
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
@@ -79,13 +86,8 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
 
-	qrepConfig := &protos.QRepConfig{
-		StagingPath:                c.credsProvider.BucketPath,
-		FlowJobName:                req.FlowJobName,
-		DestinationTableIdentifier: strings.ToLower(rawTableIdentifier),
-	}
-	avroSyncer := NewClickhouseAvroSyncMethod(qrepConfig, c)
-	numRecords, err := avroSyncer.SyncRecords(ctx, stream, req.FlowJobName)
+	avroSyncer := c.avroSyncMethod(req.FlowJobName)
+	numRecords, err := avroSyncer.SyncRecords(ctx, stream, req.FlowJobName, syncBatchID)
 	if err != nil {
 		return nil, err
 	}
@@ -105,10 +107,7 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 }
 
 func (c *ClickhouseConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
-	rawTableName := c.getRawTableName(req.FlowJobName)
-	c.logger.Info("pushing records to Clickhouse table " + rawTableName)
-
-	res, err := c.syncRecordsViaAvro(ctx, req, rawTableName, req.SyncBatchID)
+	res, err := c.syncRecordsViaAvro(ctx, req, req.SyncBatchID)
 	if err != nil {
 		return nil, err
 	}
