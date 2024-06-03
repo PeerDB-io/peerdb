@@ -10,19 +10,27 @@ export async function POST(request: Request) {
   const alertReq: MirrorLogsRequest = body;
   const skip = (alertReq.page - 1) * alertReq.numPerPage;
 
-  const mirrorErrors: MirrorLog[] = await prisma.flow_errors.findMany({
-    where: {
-      OR: [
-        {
-          flow_name: {
-            contains: alertReq.flowJobName,
+  const whereClause: any = alertReq.flowJobName
+    ? {
+        OR: [
+          {
+            flow_name: {
+              contains: alertReq.flowJobName,
+            },
           },
-        },
-        {
-          flow_name: alertReq.flowJobName,
-        },
-      ],
-    },
+          {
+            flow_name: alertReq.flowJobName,
+          },
+        ],
+      }
+    : {};
+
+  if (alertReq.natureOfLog && alertReq.natureOfLog !== 'ALL') {
+    whereClause['error_type'] = alertReq.natureOfLog.toLowerCase();
+  }
+
+  const mirrorErrors: MirrorLog[] = await prisma.flow_errors.findMany({
+    where: whereClause,
     orderBy: {
       error_timestamp: 'desc',
     },
@@ -32,16 +40,13 @@ export async function POST(request: Request) {
       error_message: true,
       error_type: true,
       error_timestamp: true,
-      ack: true,
     },
     take: alertReq.numPerPage,
     skip,
   });
 
   const total = await prisma.flow_errors.count({
-    where: {
-      flow_name: alertReq.flowJobName,
-    },
+    where: whereClause,
   });
 
   const alertRes: MirrorLogsResponse = {

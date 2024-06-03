@@ -5,26 +5,12 @@ import {
   MirrorLogsRequest,
   MirrorLogsResponse,
 } from '@/app/dto/AlertDTO';
-import TimeLabel from '@/components/TimeComponent';
-import { Button } from '@/lib/Button';
-import { Icon } from '@/lib/Icon';
+import LogsTable from '@/components/LogsTable';
 import { Label } from '@/lib/Label';
-import { Table, TableCell, TableRow } from '@/lib/Table';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-
-const colorForErrorType = (errorType: string) => {
-  const errorUpper = errorType.toUpperCase();
-  if (errorUpper === 'ERROR') {
-    return '#F45156';
-  } else if (errorUpper === 'WARNING') {
-    return '#FFC107';
-  } else {
-    return '#4CAF50';
-  }
-};
 
 export default function MirrorError() {
   const params = useParams<{ mirrorName: string }>();
@@ -65,18 +51,6 @@ export default function MirrorError() {
     fetchData();
   }, [currentPage, params.mirrorName]);
 
-  const handleNextPage = () => {
-    if (currentPage < totalPages) {
-      setCurrentPage(currentPage + 1);
-    }
-  };
-
-  const handlePrevPage = () => {
-    if (currentPage > 1) {
-      setCurrentPage(currentPage - 1);
-    }
-  };
-
   return (
     <>
       <div style={{ padding: '2rem' }}>
@@ -98,61 +72,12 @@ export default function MirrorError() {
             </Label>
           </div>
 
-          <Table
-            header={
-              <TableRow style={{ textAlign: 'left' }}>
-                <TableCell>Type</TableCell>
-                <TableCell>
-                  <Label as='label' style={{ fontSize: 15 }}>
-                    Time
-                  </Label>
-                </TableCell>
-                <TableCell>Message</TableCell>
-                <TableCell></TableCell>
-              </TableRow>
-            }
-            toolbar={{
-              left: (
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <Button variant='normalBorderless' onClick={handlePrevPage}>
-                    <Icon name='chevron_left' />
-                  </Button>
-                  <Button variant='normalBorderless' onClick={handleNextPage}>
-                    <Icon name='chevron_right' />
-                  </Button>
-                  <Label>{`${currentPage} of ${totalPages}`}</Label>
-                  <Button
-                    variant='normalBorderless'
-                    onClick={() => window.location.reload()}
-                  >
-                    <Icon name='refresh' />
-                  </Button>
-                </div>
-              ),
-            }}
-          >
-            {mirrorErrors.map((mirrorError, idx) => (
-              <TableRow key={`${currentPage}_${idx}`}>
-                <TableCell
-                  style={{
-                    color: colorForErrorType(mirrorError.error_type),
-                    width: '10%',
-                  }}
-                >
-                  {mirrorError.error_type.toUpperCase()}
-                </TableCell>
-                <TableCell style={{ width: '20%' }}>
-                  <TimeLabel
-                    fontSize={14}
-                    timeVal={mirrorError.error_timestamp}
-                  />
-                </TableCell>
-                <TableCell style={{ width: '50%', fontSize: 13 }}>
-                  {mirrorError.error_message}
-                </TableCell>
-              </TableRow>
-            ))}
-          </Table>
+          <LogsTable
+            logs={mirrorErrors}
+            currentPage={currentPage}
+            totalPages={totalPages}
+            setCurrentPage={setCurrentPage}
+          />
         </div>
       </div>
       <ToastContainer />

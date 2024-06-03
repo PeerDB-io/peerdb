@@ -6,8 +6,16 @@ export type UAlertConfigResponse = {
   service_config: Prisma.JsonValue;
 };
 
+export enum LogType {
+  ERROR = 'ERROR',
+  WARNING = 'WARNING',
+  INFO = 'INFO',
+  ALL = 'ALL',
+}
+
 export type MirrorLogsRequest = {
   flowJobName: string;
+  natureOfLog?: LogType;
   page: number;
   numPerPage: number;
 };
@@ -17,7 +25,6 @@ export type MirrorLog = {
   error_message: string;
   error_type: string;
   error_timestamp: Date;
-  ack: boolean;
 };
 
 export type MirrorLogsResponse = {
