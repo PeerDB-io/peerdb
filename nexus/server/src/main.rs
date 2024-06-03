@@ -23,7 +23,7 @@ use peerdb_parser::{NexusParsedStatement, NexusQueryParser, NexusStatement};
 use pgwire::{
     api::{
         auth::{
-            md5pass::{hash_md5_password, MakeMd5PasswordAuthStartupHandler},
+            scram::{gen_salted_password, MakeSASLScramAuthStartupHandler},
             AuthSource, LoginInfo, Password, ServerParameterProvider,
         },
         portal::Portal,
@@ -68,8 +68,8 @@ impl AuthSource for FixedPasswordAuthSource {
         // randomly generate a 4 byte salt
         let salt = rand::thread_rng().gen::<[u8; 4]>();
         let password = &self.password;
-        let hash_password = hash_md5_password(login_info.user().unwrap_or(""), password, &salt);
-        Ok(Password::new(Some(salt.to_vec()), Vec::from(hash_password)))
+        let hash_password = gen_salted_password(password, &salt, 4096);
+        Ok(Password::new(Some(salt.to_vec()), hash_password))
     }
 }
 
@@ -1193,7 +1193,7 @@ pub async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let _guard = setup_tracing(&args.log_dir);
 
-    let authenticator = MakeMd5PasswordAuthStartupHandler::new(
+    let authenticator = MakeSASLScramAuthStartupHandler::new(
         Arc::new(FixedPasswordAuthSource::new(args.peerdb_password.clone())),
         Arc::new(NexusServerParameterProvider),
     );
