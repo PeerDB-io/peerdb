@@ -514,11 +514,16 @@ func syncQRepRecords(
 	} else {
 		// Step 2.1: Create a temp staging table
 		stagingTableName := "_peerdb_staging_" + shared.RandomString(8)
-		stagingTableIdentifier := pgx.Identifier{c.metadataSchema, stagingTableName}
+		stagingTableIdentifier := pgx.Identifier{stagingTableName}
 		dstTableIdentifier := pgx.Identifier{dstTable.Schema, dstTable.Table}
 
+		_, err = tx.Exec(ctx, "SET temp_buffers = '4GB';")
+		if err != nil {
+			return -1, fmt.Errorf("failed to set temp_buffers: %w", err)
+		}
+
 		createStagingTableStmt := fmt.Sprintf(
-			"CREATE TEMP UNLOGGED TABLE %s (LIKE %s);",
+			"CREATE TEMP TABLE %s (LIKE %s);",
 			stagingTableIdentifier.Sanitize(),
 			dstTableIdentifier.Sanitize(),
 		)
