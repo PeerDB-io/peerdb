@@ -517,6 +517,8 @@ func syncQRepRecords(
 		stagingTableIdentifier := pgx.Identifier{stagingTableName}
 		dstTableIdentifier := pgx.Identifier{dstTable.Schema, dstTable.Table}
 
+		// From PG docs: The cost of setting a large value in sessions that do not actually need many
+		// temporary buffers is only a buffer descriptor, or about 64 bytes, per increment in temp_buffers.
 		_, err = tx.Exec(ctx, "SET temp_buffers = '4GB';")
 		if err != nil {
 			return -1, fmt.Errorf("failed to set temp_buffers: %w", err)
