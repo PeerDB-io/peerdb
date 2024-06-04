@@ -1,16 +1,18 @@
 package peerflow
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 // getChildWorkflowID returns the child workflow ID for a new sync flow.
@@ -29,7 +31,7 @@ func MultiQRepFlowWorkflow(
 	config *protos.MultiQRepConfig,
 ) error {
 	if config.Mode != protos.MultiQRepConfigMode_CONFIG_GLOBAL {
-		return fmt.Errorf("invalid/unsupported mode for multi qrep flow")
+		return errors.New("invalid/unsupported mode for multi qrep flow")
 	}
 
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey),
@@ -64,7 +66,7 @@ func MultiQRepFlowWorkflow(
 			childWorkflowConfig.Query = mapping.Query
 			// full table partition, doesn't make much sense unless overwrite mode
 		} else if mapping.WatermarkColumn == "" {
-			childWorkflowConfig.Query = fmt.Sprintf("SELECT * FROM %s", mapping.WatermarkTableIdentifier)
+			childWorkflowConfig.Query = "SELECT * FROM " + mapping.WatermarkTableIdentifier
 			// Postgres enforces pkey so APPEND will fail when updates are also happening.
 		} else {
 			childWorkflowConfig.Query = fmt.Sprintf("SELECT * FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
@@ -170,7 +172,7 @@ func MultiQRepFlowWorkflow(
 	// if initial copy is enabled then this selector will eventually finish waiting
 	// if initial copy is disabled then this selector will keep waiting until an error
 	// wait workflows won't return, so don't wait on selector and rely on cancel propagation from when we return
-	syncSelector.Wait(ctx)
+	_ = syncSelector.Wait(ctx)
 	workflowChan.Close()
 
 	return childWorkflowError

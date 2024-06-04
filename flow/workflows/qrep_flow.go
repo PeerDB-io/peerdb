@@ -617,7 +617,6 @@ func QRepFlowWorkflow(
 		if err != nil {
 			return state, err
 		}
-
 	}
 
 	// flush signal, after this workflow must not yield

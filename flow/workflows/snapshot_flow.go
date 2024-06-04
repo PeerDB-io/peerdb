@@ -100,7 +100,7 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 }
 
 func (s *SnapshotFlowExecution) genGlobalConfig(snapshotName string) *protos.QRepConfig {
-	snapshotMultiFlowName := fmt.Sprintf("%s-snapshot", s.config.FlowJobName)
+	snapshotMultiFlowName := s.config.FlowJobName + "-snapshot"
 
 	// we know that the source is postgres as setup replication output is non-nil
 	// only for postgres
