@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -30,6 +31,7 @@ type ClickhouseConnector struct {
 	logger             log.Logger
 	config             *protos.ClickhouseConfig
 	credsProvider      *utils.ClickHouseS3Credentials
+	s3Stage            *ClickHouseS3Stage
 }
 
 func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error {
@@ -159,6 +161,7 @@ func NewClickhouseConnector(
 		config:             config,
 		logger:             logger,
 		credsProvider:      &clickHouseS3CredentialsNew,
+		s3Stage:            NewClickHouseS3Stage(),
 	}, nil
 }
 
@@ -184,6 +187,8 @@ func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, err
 				{Name: "peerdb"},
 			},
 		},
+		DialTimeout: 3600 * time.Second,
+		ReadTimeout: 3600 * time.Second,
 	})
 
 	if err := conn.PingContext(ctx); err != nil {

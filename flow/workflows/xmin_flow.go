@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -17,18 +18,24 @@ func XminFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.QRepConfig,
 	state *protos.QRepFlowState,
-) error {
+) (*protos.QRepFlowState, error) {
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 
+	if state == nil {
+		state = newQRepFlowState()
+		// needed only for xmin mirrors
+		state.LastPartition.PartitionId = uuid.New().String()
+	}
+
 	err := setWorkflowQueries(ctx, state)
 	if err != nil {
-		return err
+		return state, err
 	}
 
 	signalChan := model.FlowSignal.GetSignalChannel(ctx)
 
-	q := NewQRepFlowExecution(ctx, config, originalRunID)
+	q := newQRepFlowExecution(ctx, config, originalRunID)
 	logger := q.logger
 
 	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSING ||
@@ -44,26 +51,26 @@ func XminFlowWorkflow(
 			if ok {
 				q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, logger)
 			} else if err := ctx.Err(); err != nil {
-				return err
+				return state, err
 			}
 		}
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 	}
 
-	err = q.SetupWatermarkTableOnDestination(ctx)
+	err = q.setupWatermarkTableOnDestination(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to setup watermark table: %w", err)
+		return state, fmt.Errorf("failed to setup watermark table: %w", err)
 	}
 
 	err = q.SetupMetadataTables(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to setup metadata tables: %w", err)
+		return state, fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
 	logger.Info("metadata tables setup for peer flow")
 
 	err = q.handleTableCreationForResync(ctx, state)
 	if err != nil {
-		return err
+		return state, err
 	}
 
 	var lastPartition int64
@@ -79,21 +86,21 @@ func XminFlowWorkflow(
 		q.runUUID,
 	).Get(ctx, &lastPartition)
 	if err != nil {
-		return fmt.Errorf("xmin replication failed: %w", err)
+		return state, fmt.Errorf("xmin replication failed: %w", err)
 	}
 
 	if err := q.consolidatePartitions(ctx); err != nil {
-		return err
+		return state, err
 	}
 
 	if config.InitialCopyOnly {
 		logger.Info("initial copy completed for peer flow")
-		return nil
+		return state, nil
 	}
 
 	err = q.handleTableRenameForResync(ctx, state)
 	if err != nil {
-		return err
+		return state, err
 	}
 
 	state.LastPartition = &protos.QRepPartition{
@@ -102,7 +109,7 @@ func XminFlowWorkflow(
 	}
 
 	if err := ctx.Err(); err != nil {
-		return err
+		return state, err
 	}
 	for {
 		val, ok := signalChan.ReceiveAsync()
@@ -119,5 +126,5 @@ func XminFlowWorkflow(
 	if q.activeSignal == model.PauseSignal {
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
 	}
-	return workflow.NewContinueAsNewError(ctx, XminFlowWorkflow, config, state)
+	return state, workflow.NewContinueAsNewError(ctx, XminFlowWorkflow, config, state)
 }
