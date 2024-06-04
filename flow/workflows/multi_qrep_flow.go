@@ -18,7 +18,7 @@ import (
 // getChildWorkflowID returns the child workflow ID for a new sync flow.
 func getChildWorkflowID(ctx workflow.Context, flowJobName string) string {
 	id := GetUUID(ctx)
-	return fmt.Sprintf("%s-%s", flowJobName, id)
+	return fmt.Sprintf("%s_%s", flowJobName, id)
 }
 
 type workflowChanInput struct {
@@ -60,7 +60,7 @@ func MultiQRepFlowWorkflow(
 		childWorkflowConfig.WatermarkTable = mapping.WatermarkTableIdentifier
 		childWorkflowConfig.WatermarkColumn = mapping.WatermarkColumn
 		childWorkflowConfig.WriteMode = mapping.WriteMode
-		childWorkflowConfig.FlowJobName = fmt.Sprintf("%s-qrepflow-%s-%s", config.GlobalConfig.FlowJobName,
+		childWorkflowConfig.FlowJobName = fmt.Sprintf("%s_qrepflow_%s_%s", config.GlobalConfig.FlowJobName,
 			mapping.WatermarkTableIdentifier, mapping.DestinationTableIdentifier)
 		if mapping.Query != "" {
 			childWorkflowConfig.Query = mapping.Query
@@ -110,6 +110,10 @@ func MultiQRepFlowWorkflow(
 	if !config.GlobalConfig.InitialCopyOnly {
 		for {
 			if childWorkflowError != nil {
+				break
+			}
+			if err := ctx.Err(); err != nil {
+				logger.Info("Context canceled, waiting on existing sync workflows before exiting")
 				break
 			}
 
@@ -170,7 +174,7 @@ func MultiQRepFlowWorkflow(
 	}
 
 	// if initial copy is enabled then this selector will eventually finish waiting
-	// if initial copy is disabled then this selector will keep waiting until an error
+	// otherwise it will keep waiting until an error
 	// wait workflows won't return, so don't wait on selector and rely on cancel propagation from when we return
 	_ = syncSelector.Wait(ctx)
 	workflowChan.Close()
