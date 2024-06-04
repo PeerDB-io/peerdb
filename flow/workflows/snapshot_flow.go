@@ -201,8 +201,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		Script:                     s.config.Script,
 	}
 
-	state := NewQRepFlowState()
-	boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, config, state)
+	boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, nil, config, nil)
 	return nil
 }
 
@@ -218,7 +217,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 			cloneTablesInput.snapshotName)
 	}
 
-	boundSelector := shared.NewBoundSelector(ctx, cloneTablesInput.maxParallelClones)
+	boundSelector := shared.NewBoundSelector(ctx, "CloneTablesSelector", cloneTablesInput.maxParallelClones)
 
 	defaultPartitionCol := "ctid"
 	if !cloneTablesInput.supportsTIDScans {
