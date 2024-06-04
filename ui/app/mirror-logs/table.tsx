@@ -11,10 +11,11 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
 import 'react-toastify/dist/ReactToastify.css';
+import useSWR from 'swr';
 import { useLocalStorage } from 'usehooks-ts';
+import { fetcher } from '../utils/swr';
 
-export default function LogsView({ mirrors }: { mirrors: string[] }) {
-  const [isMounted, setIsMounted] = useState(false);
+export default function LogsView() {
   const [logs, setLogs] = useState<MirrorLog[]>([]);
   const [mirrorName, setMirrorName] = useLocalStorage<string>(
     'peerdbMirrorNameFilterForLogs',
@@ -26,9 +27,12 @@ export default function LogsView({ mirrors }: { mirrors: string[] }) {
   );
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const { data: mirrors }: { data: string[]; error: any } = useSWR(
+    '/api/mirrors/names',
+    fetcher
+  );
 
   useEffect(() => {
-    setIsMounted(true);
     setCurrentPage(1);
   }, [mirrorName]);
 
@@ -62,7 +66,7 @@ export default function LogsView({ mirrors }: { mirrors: string[] }) {
     fetchData();
   }, [currentPage, mirrorName, natureOfLog]);
 
-  if (!isMounted) {
+  if (!mirrors) {
     return <ProgressCircle variant='determinate_progress_circle' />;
   }
   return (

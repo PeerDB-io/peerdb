@@ -17,6 +17,13 @@ const colorForErrorType = (errorType: string) => {
   }
 };
 
+const extractFromCloneName = (mirrorOrCloneName: string) => {
+  if (mirrorOrCloneName.includes('clone_')) {
+    return mirrorOrCloneName.split('_')[1] + ' (initial load)';
+  }
+  return mirrorOrCloneName;
+};
+
 const LogsTable = ({
   logs,
   currentPage,
@@ -49,7 +56,7 @@ const LogsTable = ({
               Time
             </Label>
           </TableCell>
-
+          <TableCell>Mirror</TableCell>
           <TableCell>Message</TableCell>
           <TableCell></TableCell>
         </TableRow>
@@ -80,14 +87,22 @@ const LogsTable = ({
             style={{
               color: colorForErrorType(log.error_type),
               width: '5%',
+              fontSize: 14,
             }}
           >
             {log.error_type.toUpperCase()}
           </TableCell>
-          <TableCell>
+          <TableCell style={{ width: '10%' }}>
             <TimeLabel fontSize={13} timeVal={log.error_timestamp} />
           </TableCell>
-
+          <TableCell style={{ width: '15%' }}>
+            <Label
+              as='label'
+              style={{ fontSize: 13, width: '90%', overflow: 'auto' }}
+            >
+              {extractFromCloneName(log.flow_name)}
+            </Label>
+          </TableCell>
           <TableCell style={{ width: '60%', fontSize: 13 }}>
             {log.error_message}
           </TableCell>
