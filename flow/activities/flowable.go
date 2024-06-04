@@ -729,11 +729,6 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	shutdown := heartbeatRoutine(ctx, func() string {
-		return "scanning for new rows"
-	})
-	defer shutdown()
-
 	pgSrcConn := srcConn.(*connpostgres.PostgresConnector)
 	result, err := pgSrcConn.CheckForUpdatedMaxValue(ctx, config, last)
 	if err != nil {

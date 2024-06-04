@@ -52,3 +52,9 @@ func (s *BoundSelector) Wait(ctx workflow.Context) error {
 
 	return errors.Join(s.ferrors...)
 }
+
+func (s *BoundSelector) DrainAsync(ctx workflow.Context) {
+	for s.selector.HasPending() {
+		s.waitOne(ctx)
+	}
+}

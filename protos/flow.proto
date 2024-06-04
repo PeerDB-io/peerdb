@@ -404,3 +404,32 @@ message ExportTxSnapshotOutput {
   bool supports_tid_scans = 2;
 }
 
+message MultiQRepTableMapping {
+  string watermark_table_identifier = 1;
+  string destination_table_identifier = 2;
+  string watermark_column = 3;
+  QRepWriteMode write_mode = 4;
+  string query = 5;
+}
+
+enum MultiQRepConfigMode {
+  CONFIG_UNKNOWN = 0;
+  // everything except table mappings and write mode and query is global, so we refer to global_config
+  // queries are set to `SELECT * FROM watermark_table_identifier WHERE watermark_column BETWEEN {{start}} AND {{end}}`
+  // unless explicitly set
+  CONFIG_GLOBAL = 1;
+  // everything is referred from per_table_configs, except stuff like source and target peers for sanity reasons
+  // maximal control but difficult to interface with
+  CONFIG_PER_TABLE = 2;
+}
+
+message MultiQRepConfig {
+  QRepConfig global_config = 1;
+  MultiQRepConfigMode mode = 2;
+  uint32 table_parallelism = 3;
+  // no support for repeated fields in a oneof yet - https://github.com/protocolbuffers/protobuf/issues/2592
+  repeated MultiQRepTableMapping table_mappings = 4;
+  repeated QRepConfig per_table_configs = 5;
+}
+
+

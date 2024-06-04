@@ -1,6 +1,7 @@
 package peerflow
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -466,7 +467,7 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 16 * 365 * 24 * time.Hour, // 16 years
+		StartToCloseTimeout: 1 * time.Minute,
 		HeartbeatTimeout:    time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
@@ -516,6 +517,10 @@ func QRepFlowWorkflow(
 	//   3. For each partition, start a new workflow to replicate the partition.
 	//	 4. Wait for all the workflows to complete.
 	//   5. Sleep for a while and repeat the loop.
+
+	if config == nil {
+		return nil, errors.New("config can't be nil")
+	}
 
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
@@ -597,6 +602,12 @@ func QRepFlowWorkflow(
 			return state, err
 		}
 
+		logger.Info(fmt.Sprintf("%d partitions processed", len(partitions.Partitions)))
+		state.NumPartitionsProcessed += uint64(len(partitions.Partitions))
+		if len(partitions.Partitions) > 0 {
+			state.LastPartition = partitions.Partitions[len(partitions.Partitions)-1]
+		}
+
 		if config.InitialCopyOnly {
 			logger.Info("initial copy completed for peer flow")
 			return state, nil
@@ -607,12 +618,6 @@ func QRepFlowWorkflow(
 			return state, err
 		}
 
-		logger.Info(fmt.Sprintf("%d partitions processed", len(partitions.Partitions)))
-		state.NumPartitionsProcessed += uint64(len(partitions.Partitions))
-
-		if len(partitions.Partitions) > 0 {
-			state.LastPartition = partitions.Partitions[len(partitions.Partitions)-1]
-		}
 	}
 
 	// flush signal, after this workflow must not yield

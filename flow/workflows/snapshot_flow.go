@@ -99,66 +99,13 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 	return nil
 }
 
-func (s *SnapshotFlowExecution) cloneTable(
-	ctx workflow.Context,
-	boundSelector *shared.BoundSelector,
-	snapshotName string,
-	mapping *protos.TableMapping,
-) error {
-	flowName := s.config.FlowJobName
-	cloneLog := slog.Group("clone-log",
-		slog.String(string(shared.FlowNameKey), flowName),
-		slog.String("snapshotName", snapshotName))
-
-	srcName := mapping.SourceTableIdentifier
-	dstName := mapping.DestinationTableIdentifier
-	originalRunID := workflow.GetInfo(ctx).OriginalRunID
-
-	childWorkflowID := fmt.Sprintf("clone_%s_%s_%s", flowName, dstName, originalRunID)
-	childWorkflowID = shared.ReplaceIllegalCharactersWithUnderscores(childWorkflowID)
-
-	s.logger.Info(fmt.Sprintf("Obtained child id %s for source table %s and destination table %s",
-		childWorkflowID, srcName, dstName), cloneLog)
-
-	taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
-	childCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
-		WorkflowID:          childWorkflowID,
-		WorkflowTaskTimeout: 5 * time.Minute,
-		TaskQueue:           taskQueue,
-	})
+func (s *SnapshotFlowExecution) genGlobalConfig(snapshotName string) *protos.QRepConfig {
+	snapshotMultiFlowName := fmt.Sprintf("%s-snapshot", s.config.FlowJobName)
 
 	// we know that the source is postgres as setup replication output is non-nil
 	// only for postgres
 	sourcePostgres := s.config.Source
 	sourcePostgres.GetPostgresConfig().TransactionSnapshot = snapshotName
-
-	parsedSrcTable, err := utils.ParseSchemaTable(srcName)
-	if err != nil {
-		s.logger.Error("unable to parse source table", slog.Any("error", err), cloneLog)
-		return fmt.Errorf("unable to parse source table: %w", err)
-	}
-	from := "*"
-	if len(mapping.Exclude) != 0 {
-		for _, v := range s.tableNameSchemaMapping {
-			if v.TableIdentifier == srcName {
-				quotedColumns := make([]string, 0, len(v.Columns))
-				for _, col := range v.Columns {
-					if !slices.Contains(mapping.Exclude, col.Name) {
-						quotedColumns = append(quotedColumns, connpostgres.QuoteIdentifier(col.Name))
-					}
-				}
-				from = strings.Join(quotedColumns, ",")
-				break
-			}
-		}
-	}
-	var query string
-	if mapping.PartitionKey == "" {
-		query = fmt.Sprintf("SELECT %s FROM %s", from, parsedSrcTable.String())
-	} else {
-		query = fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
-			from, parsedSrcTable.String(), mapping.PartitionKey)
-	}
 
 	numWorkers := uint32(8)
 	if s.config.SnapshotMaxParallelWorkers > 0 {
@@ -170,39 +117,24 @@ func (s *SnapshotFlowExecution) cloneTable(
 		numRowsPerPartition = s.config.SnapshotNumRowsPerPartition
 	}
 
-	snapshotWriteMode := &protos.QRepWriteMode{
-		WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
-	}
-	// ensure document IDs are synchronized across initial load and CDC
-	// for the same document
-	if s.config.Destination.Type == protos.DBType_ELASTICSEARCH {
-		snapshotWriteMode = &protos.QRepWriteMode{
-			WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
-			UpsertKeyColumns: s.tableNameSchemaMapping[mapping.DestinationTableIdentifier].PrimaryKeyColumns,
-		}
-	}
-
-	config := &protos.QRepConfig{
-		FlowJobName:                childWorkflowID,
+	return &protos.QRepConfig{
+		FlowJobName:                snapshotMultiFlowName,
 		SourcePeer:                 sourcePostgres,
 		DestinationPeer:            s.config.Destination,
-		Query:                      query,
-		WatermarkColumn:            mapping.PartitionKey,
-		WatermarkTable:             srcName,
+		Query:                      "",
+		WatermarkColumn:            "",
+		WatermarkTable:             "",
 		InitialCopyOnly:            true,
-		DestinationTableIdentifier: dstName,
+		DestinationTableIdentifier: "",
 		NumRowsPerPartition:        numRowsPerPartition,
 		MaxParallelWorkers:         numWorkers,
 		StagingPath:                s.config.SnapshotStagingPath,
 		SyncedAtColName:            s.config.SyncedAtColName,
 		SoftDeleteColName:          s.config.SoftDeleteColName,
-		WriteMode:                  snapshotWriteMode,
+		WriteMode:                  nil,
 		System:                     s.config.System,
 		Script:                     s.config.Script,
 	}
-
-	boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, nil, config, nil)
-	return nil
 }
 
 func (s *SnapshotFlowExecution) cloneTables(
@@ -217,40 +149,88 @@ func (s *SnapshotFlowExecution) cloneTables(
 			cloneTablesInput.snapshotName)
 	}
 
-	boundSelector := shared.NewBoundSelector(ctx, "CloneTablesSelector", cloneTablesInput.maxParallelClones)
-
 	defaultPartitionCol := "ctid"
 	if !cloneTablesInput.supportsTIDScans {
 		s.logger.Info("Postgres version too old for TID scans, might use full table partitions!")
 		defaultPartitionCol = ""
 	}
 
-	snapshotName := cloneTablesInput.snapshotName
-	for _, v := range s.config.TableMappings {
-		source := v.SourceTableIdentifier
-		destination := v.DestinationTableIdentifier
-		s.logger.Info(fmt.Sprintf(
-			"Cloning table with source table %s and destination table name %s",
-			source, destination),
-			slog.String("snapshotName", snapshotName),
-		)
-		if v.PartitionKey == "" {
-			v.PartitionKey = defaultPartitionCol
-		}
-		err := s.cloneTable(ctx, boundSelector, snapshotName, v)
+	globalConfig := s.genGlobalConfig(cloneTablesInput.snapshotName)
+	multiQRepMappings := make([]*protos.MultiQRepTableMapping, 0, len(s.config.TableMappings))
+	for _, mapping := range s.config.TableMappings {
+		parsedSrcTable, err := utils.ParseSchemaTable(mapping.SourceTableIdentifier)
 		if err != nil {
-			s.logger.Error("failed to start clone child workflow: ", err)
-			continue
+			s.logger.Error("unable to parse source table", slog.Any("error", err),
+				slog.String(string(shared.FlowNameKey), s.config.FlowJobName),
+				slog.String("snapshotName", cloneTablesInput.snapshotName))
+			return fmt.Errorf("unable to parse source table: %w", err)
 		}
+		if mapping.PartitionKey == "" {
+			mapping.PartitionKey = defaultPartitionCol
+		}
+
+		snapshotWriteMode := &protos.QRepWriteMode{
+			WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
+		}
+		// ensure document IDs are synchronized across initial load and CDC
+		// for the same document
+		if s.config.Destination.Type == protos.DBType_ELASTICSEARCH {
+			snapshotWriteMode = &protos.QRepWriteMode{
+				WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
+				UpsertKeyColumns: s.tableNameSchemaMapping[mapping.DestinationTableIdentifier].PrimaryKeyColumns,
+			}
+		}
+
+		from := "*"
+		if len(mapping.Exclude) != 0 {
+			for _, v := range s.tableNameSchemaMapping {
+				if v.TableIdentifier == mapping.SourceTableIdentifier {
+					quotedColumns := make([]string, 0, len(v.Columns))
+					for _, col := range v.Columns {
+						if !slices.Contains(mapping.Exclude, col.Name) {
+							quotedColumns = append(quotedColumns, connpostgres.QuoteIdentifier(col.Name))
+						}
+					}
+					from = strings.Join(quotedColumns, ",")
+					break
+				}
+			}
+		}
+		var customQuery string
+		if mapping.PartitionKey == "" {
+			customQuery = fmt.Sprintf("SELECT %s FROM %s", from, parsedSrcTable.String())
+		} else {
+			customQuery = fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
+				from, parsedSrcTable.String(), mapping.PartitionKey)
+		}
+
+		multiQRepMappings = append(multiQRepMappings, &protos.MultiQRepTableMapping{
+			WatermarkTableIdentifier:   mapping.SourceTableIdentifier,
+			DestinationTableIdentifier: mapping.DestinationTableIdentifier,
+			WatermarkColumn:            mapping.PartitionKey,
+			WriteMode:                  snapshotWriteMode,
+			Query:                      customQuery,
+		})
 	}
 
-	if err := boundSelector.Wait(ctx); err != nil {
-		s.logger.Error("failed to clone some tables", "error", err)
-		return err
-	}
+	multiQRepWorkflowCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+		WorkflowID:          getChildWorkflowID(ctx, globalConfig.FlowJobName),
+		WorkflowTaskTimeout: 5 * time.Minute,
+		TaskQueue:           peerdbenv.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue),
+		SearchAttributes: map[string]interface{}{
+			shared.MirrorNameSearchAttribute: s.config.FlowJobName,
+		},
+	})
+	future := workflow.ExecuteChildWorkflow(multiQRepWorkflowCtx, MultiQRepFlowWorkflow, &protos.MultiQRepConfig{
+		Mode:             protos.MultiQRepConfigMode_CONFIG_GLOBAL,
+		GlobalConfig:     globalConfig,
+		TableMappings:    multiQRepMappings,
+		TableParallelism: uint32(cloneTablesInput.maxParallelClones),
+	})
+	err := future.Get(ctx, nil)
 
 	s.logger.Info("finished cloning tables")
-	return nil
+	return err
 }
 
 func (s *SnapshotFlowExecution) cloneTablesWithSlot(
