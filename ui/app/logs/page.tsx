@@ -1,10 +1,8 @@
 import { Header } from '@/lib/Header';
-import 'react-toastify/dist/ReactToastify.css';
 import prisma from '../utils/prisma';
 import LogsView from './table';
-export const revalidate = 10;
 
-export default async function MirrorLogs() {
+const fetchMirrors = async () => {
   const mirrorNames = await prisma.flows.findMany({
     select: {
       name: true,
@@ -12,6 +10,11 @@ export default async function MirrorLogs() {
     distinct: ['name'],
   });
 
+  return mirrorNames.map((mirror) => mirror.name);
+};
+
+const MirrorLogs = async () => {
+  const mirrorNames = await fetchMirrors();
   return (
     <div
       style={{
@@ -25,4 +28,6 @@ export default async function MirrorLogs() {
       <LogsView mirrors={mirrorNames} />
     </div>
   );
-}
+};
+
+export default MirrorLogs;

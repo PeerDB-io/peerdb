@@ -13,13 +13,7 @@ import ReactSelect from 'react-select';
 import 'react-toastify/dist/ReactToastify.css';
 import { useLocalStorage } from 'usehooks-ts';
 
-export default function LogsView({
-  mirrors,
-}: {
-  mirrors: {
-    name: string;
-  }[];
-}) {
+export default function LogsView({ mirrors }: { mirrors: string[] }) {
   const [isMounted, setIsMounted] = useState(false);
   const [logs, setLogs] = useState<MirrorLog[]>([]);
   const [mirrorName, setMirrorName] = useLocalStorage<string>(
@@ -88,8 +82,8 @@ export default function LogsView({
               mirrorName ? { value: mirrorName, label: mirrorName } : undefined
             }
             options={mirrors.map((mirror) => ({
-              value: mirror.name,
-              label: mirror.name,
+              value: mirror,
+              label: mirror,
             }))}
             onChange={(selectedOption) =>
               setMirrorName(selectedOption?.value ?? '')
