@@ -14,6 +14,7 @@ func RegisterFlowWorkerWorkflows(w worker.WorkflowRegistry) {
 	w.RegisterWorkflow(QRepWaitForNewRowsWorkflow)
 	w.RegisterWorkflow(QRepPartitionWorkflow)
 	w.RegisterWorkflow(XminFlowWorkflow)
+	w.RegisterWorkflow(MultiQRepFlowWorkflow)
 
 	w.RegisterWorkflow(GlobalScheduleManagerWorkflow)
 	w.RegisterWorkflow(HeartbeatFlowWorkflow)
