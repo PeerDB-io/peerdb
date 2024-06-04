@@ -54,14 +54,13 @@ func MultiQRepFlowWorkflow(
 		childWorkflowError = err
 	}
 
-	for _, mapping := range config.TableMappings {
+	for i, mapping := range config.TableMappings {
 		childWorkflowConfig := proto.Clone(config.GlobalConfig).(*protos.QRepConfig)
 		childWorkflowConfig.DestinationTableIdentifier = mapping.DestinationTableIdentifier
 		childWorkflowConfig.WatermarkTable = mapping.WatermarkTableIdentifier
 		childWorkflowConfig.WatermarkColumn = mapping.WatermarkColumn
 		childWorkflowConfig.WriteMode = mapping.WriteMode
-		childWorkflowConfig.FlowJobName = fmt.Sprintf("%s_qrepflow_%s_%s", config.GlobalConfig.FlowJobName,
-			mapping.WatermarkTableIdentifier, mapping.DestinationTableIdentifier)
+		childWorkflowConfig.FlowJobName = fmt.Sprintf("%s_qrepflow_%d", config.GlobalConfig.FlowJobName, i)
 		if mapping.Query != "" {
 			childWorkflowConfig.Query = mapping.Query
 			// full table partition, doesn't make much sense unless overwrite mode
