@@ -27,8 +27,9 @@ import (
 )
 
 type TxBuffer struct {
-	Streams [][]byte
-	Lsn     pglogrepl.LSN
+	Streams      [][]byte
+	Lsn          pglogrepl.LSN
+	FirstSegment bool
 }
 
 type PostgresCDCSource struct {
@@ -36,7 +37,7 @@ type PostgresCDCSource struct {
 	*PostgresCDCConfig
 	typeMap    *pgtype.Map
 	commitLock *pglogrepl.BeginMessage
-	txBuffer   map[uint32][]TxBuffer
+	txBuffer   map[uint32]*TxBuffer
 	inStream   bool
 }
 
@@ -62,9 +63,9 @@ type startReplicationOpts struct {
 }
 
 func (c *PostgresConnector) NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) *PostgresCDCSource {
-	var txBuffer map[uint32][]TxBuffer
+	var txBuffer map[uint32]*TxBuffer
 	if cdcConfig.Version >= 2 {
-		txBuffer = make(map[uint32][]TxBuffer)
+		txBuffer = make(map[uint32]*TxBuffer)
 	}
 	return &PostgresCDCSource{
 		PostgresConnector: c,
@@ -487,18 +488,16 @@ func PullCdcRecords[Items model.Items](
 		}
 	}
 
-	for xid, txbufs := range p.txBuffer {
-		for _, txbuf := range txbufs {
-			if _, err := p.CatalogPool.Exec(
-				ctx,
-				"insert into v2cdc (flow_name, xid, lsn, stream) values ($1, $2, $3, $4) on conflict do nothing",
-				p.FlowJobName,
-				xid,
-				txbuf.Lsn,
-				txbuf.Streams,
-			); err != nil {
-				return err
-			}
+	for xid, txbuf := range p.txBuffer {
+		if _, err := p.CatalogPool.Exec(
+			ctx,
+			"insert into v2cdc (flow_name, xid, lsn, stream) values ($1, $2, $3, $4) on conflict do nothing",
+			p.FlowJobName,
+			xid,
+			txbuf.Lsn,
+			txbuf.Streams,
+		); err != nil {
+			return err
 		}
 	}
 
@@ -534,9 +533,8 @@ func (rp *cdcRecordProcessor[Items]) processXLogData(
 				xld.WALData[0] == byte(pglogrepl.MessageTypeDelete) ||
 				xld.WALData[0] == byte(pglogrepl.MessageTypeRelation)) {
 			xid := binary.BigEndian.Uint32(xld.WALData[1:])
-			txbufs := p.txBuffer[xid]
-			idx := len(txbufs) - 1
-			txbufs[idx].Streams = append(txbufs[idx].Streams, xldbytes)
+			txbuf := p.txBuffer[xid]
+			txbuf.Streams = append(txbuf.Streams, xldbytes)
 		} else {
 			logicalMsg, err = pglogrepl.ParseV2(xld.WALData, p.inStream)
 		}
@@ -580,48 +578,51 @@ func (rp *cdcRecordProcessor[Items]) processMessage(
 		rp.records.UpdateLatestCheckpoint(int64(msg.CommitLSN))
 		p.commitLock = nil
 	case *pglogrepl.StreamCommitMessageV2:
-		// TODO track first stream bit so we can skip reading catalog when transaction is in single batch
-		rows, err := p.CatalogPool.Query(ctx,
-			"select stream from v2cdc where flow_name = $1 and xid = $2 order by lsn",
-			p.FlowJobName, msg.Xid)
-		if err != nil {
-			return err
-		}
-		for rows.Next() {
-			var stream [][]byte
-			if err := rows.Scan(&stream); err != nil {
+		txbuf := p.txBuffer[msg.Xid]
+
+		if !txbuf.FirstSegment {
+			rows, err := p.CatalogPool.Query(ctx,
+				"select stream from v2cdc where flow_name = $1 and xid = $2 order by lsn",
+				p.FlowJobName, msg.Xid)
+			if err != nil {
 				return err
 			}
+			for rows.Next() {
+				var stream [][]byte
+				if err := rows.Scan(&stream); err != nil {
+					return err
+				}
 
-			for _, m := range stream {
-				mxld, err := pglogrepl.ParseXLogData(m)
-				if err != nil {
-					return err
+				for _, m := range stream {
+					mxld, err := pglogrepl.ParseXLogData(m)
+					if err != nil {
+						return err
+					}
+					logicalMsg, err = pglogrepl.ParseV2(mxld.WALData, p.inStream)
+					if err != nil {
+						return err
+					}
+					if err := rp.processMessage(ctx, p, mxld.WALStart, logicalMsg, currentClientXlogPos); err != nil {
+						return err
+					}
 				}
-				logicalMsg, err = pglogrepl.ParseV2(mxld.WALData, p.inStream)
-				if err != nil {
-					return err
-				}
-				if err := rp.processMessage(ctx, p, mxld.WALStart, logicalMsg, currentClientXlogPos); err != nil {
-					return err
-				}
+			}
+			if err := rows.Err(); err != nil {
+				return err
 			}
 		}
 
-		txbufs := p.txBuffer[msg.Xid]
-		for _, txbuf := range txbufs {
-			for _, m := range txbuf.Streams {
-				mxld, err := pglogrepl.ParseXLogData(m)
-				if err != nil {
-					return err
-				}
-				logicalMsg, err = pglogrepl.ParseV2(mxld.WALData, p.inStream)
-				if err != nil {
-					return err
-				}
-				if err := rp.processMessage(ctx, p, mxld.WALStart, logicalMsg, currentClientXlogPos); err != nil {
-					return err
-				}
+		for _, m := range txbuf.Streams {
+			mxld, err := pglogrepl.ParseXLogData(m)
+			if err != nil {
+				return err
+			}
+			logicalMsg, err = pglogrepl.ParseV2(mxld.WALData, p.inStream)
+			if err != nil {
+				return err
+			}
+			if err := rp.processMessage(ctx, p, mxld.WALStart, logicalMsg, currentClientXlogPos); err != nil {
+				return err
 			}
 		}
 		rp.records.UpdateLatestCheckpoint(int64(msg.CommitLSN))
@@ -633,7 +634,9 @@ func (rp *cdcRecordProcessor[Items]) processMessage(
 	case *pglogrepl.RelationMessageV2:
 		return rp.processRelationMessage(ctx, p, currentClientXlogPos, &msg.RelationMessage)
 	case *pglogrepl.StreamStartMessageV2:
-		p.txBuffer[msg.Xid] = append(p.txBuffer[msg.Xid], TxBuffer{Lsn: lsn})
+		if _, ok := p.txBuffer[msg.Xid]; !ok {
+			p.txBuffer[msg.Xid] = &TxBuffer{Lsn: lsn, FirstSegment: msg.FirstSegment != 0}
+		}
 		p.inStream = true
 	case *pglogrepl.StreamStopMessageV2:
 		p.inStream = false
