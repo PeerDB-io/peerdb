@@ -207,18 +207,15 @@ func (c *KafkaConnector) createPool(
 				var handler func(*kgo.Record, error)
 				handler = func(_ *kgo.Record, err error) {
 					if err != nil {
-						c.logger.Warn("[kafka] produce error", slog.Any("error", err))
 						var success bool
-						force, envErr := peerdbenv.PeerDBQueueForceTopicCreation(ctx)
-						if envErr != nil {
-							queueErr(envErr)
-							return
-						}
-						if force {
-							if errors.Is(err, kerr.UnknownTopicOrPartition) {
-								aclient := kadm.NewClient(c.client)
-								_, err := aclient.CreateTopic(ctx, 1, 1, nil, kr.Topic)
-								if err != nil && errors.Is(err, kerr.TopicAlreadyExists) {
+						c.logger.Warn("[kafka] produce error", slog.Any("error", err))
+						if errors.Is(err, kerr.UnknownTopicOrPartition) {
+							force, envErr := peerdbenv.PeerDBQueueForceTopicCreation(ctx)
+							c.logger.Warn("[kafka] force", slog.Any("error", envErr), slog.Bool("force", force))
+							if envErr != nil && force {
+								_, err := kadm.NewClient(c.client).CreateTopic(ctx, 1, 1, nil, kr.Topic)
+								if err != nil && !errors.Is(err, kerr.TopicAlreadyExists) {
+									c.logger.Warn("[kafka] create error", slog.Any("error", err))
 									queueErr(err)
 									return
 								}
