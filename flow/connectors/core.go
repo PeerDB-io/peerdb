@@ -3,6 +3,7 @@ package connectors
 import (
 	"context"
 	"errors"
+	"github.com/PeerDB-io/peer-flow/connectors/iceberg"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -271,6 +272,8 @@ func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 		return connpubsub.NewPubSubConnector(ctx, inner.PubsubConfig)
 	case *protos.Peer_ElasticsearchConfig:
 		return connelasticsearch.NewElasticsearchConnector(ctx, inner.ElasticsearchConfig)
+	case *protos.Peer_IcebergConfig:
+		return iceberg.NewIcebergConnector(ctx, inner.IcebergConfig)
 	default:
 		return nil, errors.ErrUnsupported
 	}
@@ -336,6 +339,7 @@ var (
 	_ CDCSyncConnector = &conns3.S3Connector{}
 	_ CDCSyncConnector = &connclickhouse.ClickhouseConnector{}
 	_ CDCSyncConnector = &connelasticsearch.ElasticsearchConnector{}
+	_ CDCSyncConnector = &iceberg.IcebergConnector{}
 
 	_ CDCSyncPgConnector = &connpostgres.PostgresConnector{}
 
@@ -364,6 +368,7 @@ var (
 	_ QRepSyncConnector = &conns3.S3Connector{}
 	_ QRepSyncConnector = &connclickhouse.ClickhouseConnector{}
 	_ QRepSyncConnector = &connelasticsearch.ElasticsearchConnector{}
+	_ QRepSyncConnector = &iceberg.IcebergConnector{}
 
 	_ QRepSyncPgConnector = &connpostgres.PostgresConnector{}
 
@@ -377,6 +382,7 @@ var (
 	_ ValidationConnector = &connclickhouse.ClickhouseConnector{}
 	_ ValidationConnector = &connbigquery.BigQueryConnector{}
 	_ ValidationConnector = &conns3.S3Connector{}
+	_ ValidationConnector = &iceberg.IcebergConnector{}
 
 	_ Connector = &connmysql.MySqlConnector{}
 )

@@ -2,6 +2,10 @@ syntax = "proto3";
 
 package peerdb_peers;
 
+option java_multiple_files = true;
+option java_package = "io.peerdb.flow.peers";
+
+
 message SSHConfig {
   string host = 1;
   uint32 port = 2;
@@ -162,6 +166,64 @@ message ElasticsearchConfig {
   optional string api_key = 5;
 }
 
+message IcebergConfig {
+  IcebergCatalog catalog_config = 1;
+}
+
+message IcebergS3IoConfig {
+  optional string access_key_id = 1;
+  optional string secret_access_key = 2;
+  optional string region = 3;
+  optional string endpoint = 4;
+  // Set to true to use for services like MinIO
+  optional string path_style_access = 5;
+}
+
+message IcebergIOConfig {
+  oneof config {
+    IcebergS3IoConfig s3 = 1;
+  }
+}
+
+message CommonIcebergCatalog {
+  string uri = 1;
+  string warehouse_location = 2;
+  optional int32 client_pool_size = 3;
+  optional bool cache_enabled = 4;
+  map<string, string> additional_properties = 5;
+}
+
+message HiveIcebergCatalog {}
+
+message HadoopIcebergCatalog {}
+
+message RestIcebergCatalog {}
+
+message GlueIcebergCatalog {}
+
+message JdbcIcebergCatalog {
+  optional string user = 1;
+  optional string password = 2;
+  optional bool use_ssl = 3;
+  optional bool verify_server_certificate = 4;
+}
+
+message NessieIcebergCatalog {}
+
+message IcebergCatalog {
+  CommonIcebergCatalog common_config = 1;
+  peerdb_peers.IcebergIOConfig io_config = 2;
+  oneof config {
+    HiveIcebergCatalog hive = 3;
+    HadoopIcebergCatalog hadoop = 4;
+    RestIcebergCatalog rest = 5;
+    GlueIcebergCatalog glue = 6;
+    JdbcIcebergCatalog jdbc = 7;
+    NessieIcebergCatalog nessie = 8;
+  }
+}
+
+
 enum DBType {
   BIGQUERY = 0;
   SNOWFLAKE = 1;
@@ -175,6 +237,7 @@ enum DBType {
   PUBSUB = 10;
   EVENTHUBS = 11;
   ELASTICSEARCH = 12;
+  ICEBERG = 13;
 }
 
 message Peer {
@@ -193,5 +256,6 @@ message Peer {
     PubSubConfig pubsub_config = 13;
     ElasticsearchConfig elasticsearch_config = 14;
     MySqlConfig mysql_config = 15;
+    IcebergConfig iceberg_config = 16;
   }
 }

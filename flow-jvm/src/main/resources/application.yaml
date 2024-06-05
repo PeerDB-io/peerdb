@@ -1,0 +1,24 @@
+quarkus:
+  generate-code:
+    grpc:
+      scan-for-imports: all
+  grpc:
+    server:
+      port: ${FLOW_JVM_GRPC_PORT:9801}
+
+      # 512 MB
+      max-inbound-message-size: 536870912
+  log:
+    level: INFO
+    category:
+      "io.peerdb":
+        level: ${PEERDB_LOG_LEVEL:INFO}
+        min-level: ${PEERDB_LOG_LEVEL:TRACE}
+    console:
+      level: ${PEERDB_LOG_LEVEL:TRACE}
+  http:
+    port: ${FLOW_JVM_HTTP_PORT:9802}
+
+  test:
+    continuous-testing:
+      enabled: disabled

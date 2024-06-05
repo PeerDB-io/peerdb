@@ -1,0 +1,302 @@
+package iceberg
+
+import (
+	"context"
+	"fmt"
+	"github.com/PeerDB-io/peer-flow/alerting"
+	"github.com/PeerDB-io/peer-flow/datatypes"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_guages"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"log/slog"
+	"strconv"
+	"time"
+
+	"go.temporal.io/sdk/log"
+
+	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/model"
+)
+
+type IcebergConnector struct {
+	*metadataStore.PostgresMetadata
+	logger         log.Logger
+	config         *protos.IcebergConfig
+	grpcConnection *grpc.ClientConn
+	proxyClient    protos.IcebergProxyServiceClient
+}
+
+func (c *IcebergConnector) GetTableSchema(ctx context.Context, req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *IcebergConnector) EnsurePullability(ctx context.Context, req *protos.EnsurePullabilityBatchInput) (*protos.EnsurePullabilityBatchOutput, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *IcebergConnector) ExportTxSnapshot(ctx context.Context) (*protos.ExportTxSnapshotOutput, any, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *IcebergConnector) FinishExport(a any) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *IcebergConnector) SetupReplConn(ctx context.Context) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *IcebergConnector) ReplPing(ctx context.Context) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *IcebergConnector) UpdateReplStateLastOffset(lastOffset int64) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *IcebergConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *IcebergConnector) HandleSlotInfo(ctx context.Context, alerter *alerting.Alerter, catalogPool *pgxpool.Pool, slotName string, peerName string, slotMetricGuages peerdb_guages.SlotMetricGuages) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *IcebergConnector) GetSlotInfo(ctx context.Context, slotName string) ([]*protos.SlotInfo, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *IcebergConnector) AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *IcebergConnector) PullRecords(ctx context.Context, catalogPool *pgxpool.Pool, req *model.PullRecordsRequest[model.RecordItems]) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *IcebergConnector) StartSetupNormalizedTables(ctx context.Context) (any, error) {
+	return nil, nil
+}
+
+func (c *IcebergConnector) CleanupSetupNormalizedTables(ctx context.Context, tx any) {
+	return
+
+}
+
+func (c *IcebergConnector) FinishSetupNormalizedTables(ctx context.Context, tx any) error {
+	return nil
+}
+
+func (c *IcebergConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
+	err := c.PostgresMetadata.SyncFlowCleanup(ctx, jobName)
+	if err != nil {
+		return fmt.Errorf("unable to clear metadata for sync flow cleanup : %w", err)
+	}
+	// TODO implement this
+	c.logger.Debug("SyncFlowCleanup for Iceberg is a no-op")
+	return nil
+}
+
+func (c *IcebergConnector) SetupNormalizedTable(ctx context.Context, tx any, tableIdentifier string, tableSchema *protos.TableSchema, softDeleteColName string, syncedAtColName string) (bool, error) {
+	// TODO add soft delete column in the schema
+	qFields := make([]qvalue.QField, len(tableSchema.Columns))
+	for i, fieldDescription := range tableSchema.Columns {
+		colName := fieldDescription.Name
+		qValueKind := qvalue.QValueKind(fieldDescription.Type)
+		var precision, scale int16
+		if qValueKind == qvalue.QValueKindNumeric {
+			precision, scale = datatypes.ParseNumericTypmod(fieldDescription.TypeModifier)
+		}
+		qField := qvalue.QField{
+			Name:      colName,
+			Type:      qValueKind,
+			Precision: precision,
+			Scale:     scale,
+			// TODO check this
+			Nullable: true,
+		}
+		qFields[i] = qField
+	}
+
+	qFields = append(qFields, qvalue.QField{
+		Name:     softDeleteColName,
+		Type:     qvalue.QValueKindBoolean,
+		Nullable: true,
+	})
+
+	qFields = append(qFields, qvalue.QField{
+		Name:     syncedAtColName,
+		Type:     qvalue.QValueKindTimestamp,
+		Nullable: true,
+	})
+
+	avroSchema, err := getAvroSchema(tableIdentifier, qvalue.NewQRecordSchema(qFields))
+	if err != nil {
+		return false, err
+	}
+
+	// TODO save to a buffer and call when Finish is called
+	// TODO maybe can later migrate to a streaming rpc with transaction support
+	tableResponse, err := c.proxyClient.CreateTable(ctx, &protos.CreateTableRequest{
+		TableInfo: &protos.TableInfo{
+			Namespace:      nil,
+			TableName:      tableIdentifier,
+			IcebergCatalog: c.config.CatalogConfig,
+			PrimaryKey:     tableSchema.GetPrimaryKeyColumns(),
+		},
+		Schema: avroSchema.Schema,
+	})
+	if err != nil {
+		return false, err
+	}
+	c.logger.Debug("Created iceberg table", slog.String("table", tableResponse.TableName))
+	// TODO need to re-enable this and see why it is failing
+	//if tableResponse.TableName != tableIdentifier {
+	//	return false, fmt.Errorf("created table name mismatch: %s != %s", tableResponse.TableName, tableIdentifier)
+	//}
+	return true, nil
+}
+
+func NewIcebergConnector(
+	ctx context.Context,
+	config *protos.IcebergConfig,
+) (*IcebergConnector, error) {
+	logger := logger.LoggerFromCtx(ctx)
+	conn, err := grpc.NewClient("localhost:9801", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to Iceberg proxy: %w", err)
+	}
+	client := protos.NewIcebergProxyServiceClient(conn)
+
+	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
+	if err != nil {
+		logger.Error("failed to create postgres metadata store", "error", err)
+		return nil, err
+	}
+
+	return &IcebergConnector{
+		PostgresMetadata: pgMetadata,
+		logger:           logger,
+		config:           config,
+		grpcConnection:   conn,
+		proxyClient:      client,
+	}, nil
+}
+
+func (c *IcebergConnector) CreateRawTable(_ context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
+	// TODO
+	c.logger.Info("CreateRawTable for S3 is a no-op")
+	return nil, nil
+}
+
+func (c *IcebergConnector) Close() error {
+	return c.grpcConnection.Close()
+}
+
+func (c *IcebergConnector) ValidateCheck(ctx context.Context) error {
+	// Create a table with a random name based on current time
+	tableName := fmt.Sprintf("peerdb_test_flow_%d", time.Now().Unix())
+	c.logger.Debug("Will try to create iceberg table", "table", tableName)
+	table, err := c.proxyClient.CreateTable(ctx,
+		&protos.CreateTableRequest{
+			TableInfo: &protos.TableInfo{
+				Namespace:      nil,
+				TableName:      tableName,
+				IcebergCatalog: c.config.CatalogConfig,
+				PrimaryKey:     nil,
+			},
+			Schema: "{\n  \"type\": \"record\",\n  \"name\": \"TestObject\",\n  \"namespace\": \"ca.dataedu\",\n  \"fields\": [\n    {\n      \"name\": \"hello\",\n      \"type\": [\n        \"null\",\n        \"int\"\n      ],\n      \"default\": null\n    },\n    {\n      \"name\": \"some\",\n      \"type\": [\n        \"null\",\n        \"string\"\n      ],\n      \"default\": null\n    }\n  ]\n}",
+		})
+	if err != nil {
+		return err
+	}
+	c.logger.Debug("Created iceberg table", slog.String("table", table.TableName))
+	c.logger.Debug("Will try to drop iceberg table", "table", tableName)
+	dropTable, err := c.proxyClient.DropTable(ctx,
+		&protos.DropTableRequest{
+			TableInfo: &protos.TableInfo{
+				Namespace:      nil,
+				TableName:      tableName,
+				IcebergCatalog: c.config.CatalogConfig,
+				PrimaryKey:     nil,
+			},
+			Purge: true,
+		},
+	)
+	if err != nil {
+		return err
+	}
+	if !dropTable.Success {
+		return fmt.Errorf("failed to drop table %s", tableName)
+	}
+	c.logger.Debug("Dropped iceberg table", slog.String("table", tableName))
+	return nil
+}
+
+func (c *IcebergConnector) ConnectionActive(ctx context.Context) error {
+	// TODO
+	return nil
+}
+
+func (c *IcebergConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
+	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
+	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, req.SyncBatchID)
+	records := req.Records.GetRecords()
+	a := <-records
+
+	items := a.GetItems()
+	qValue := items.GetColumnValue("asd")
+	req.TableNameSchemaMapping["asd"].Columns
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
+	}
+	qrepConfig := &protos.QRepConfig{
+		FlowJobName:                req.FlowJobName,
+		DestinationTableIdentifier: "raw_table_" + req.FlowJobName,
+	}
+	partition := &protos.QRepPartition{
+		PartitionId: strconv.FormatInt(req.SyncBatchID, 10),
+	}
+	numRecords, err := c.SyncQRepRecords(ctx, qrepConfig, partition, recordStream)
+	if err != nil {
+		return nil, err
+	}
+	c.logger.Info(fmt.Sprintf("Synced %d records", numRecords))
+
+	lastCheckpoint := req.Records.GetLastCheckpoint()
+	err = c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
+	if err != nil {
+		c.logger.Error("failed to increment id", "error", err)
+		return nil, err
+	}
+
+	return &model.SyncResponse{
+		LastSyncedCheckpointID: lastCheckpoint,
+		NumRecordsSynced:       int64(numRecords),
+		TableNameRowsMapping:   tableNameRowsMapping,
+		TableSchemaDeltas:      req.Records.SchemaDeltas,
+	}, nil
+}
+
+func (c *IcebergConnector) ReplayTableSchemaDeltas(_ context.Context, flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error {
+	c.logger.Info("ReplayTableSchemaDeltas for S3 is a no-op")
+	return nil
+}

@@ -1,0 +1,69 @@
+plugins {
+    id 'java'
+    id 'io.quarkus'
+}
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+}
+
+ext {
+    icebergLibVersion = '1.4.2'
+}
+
+
+dependencies {
+    implementation 'io.quarkus:quarkus-config-yaml'
+    implementation enforcedPlatform("${quarkusPlatformGroupId}:${quarkusPlatformArtifactId}:${quarkusPlatformVersion}")
+    implementation 'io.quarkus:quarkus-arc'
+    implementation 'io.quarkus:quarkus-grpc'
+    implementation 'io.quarkus:quarkus-rest'
+
+    implementation "org.apache.iceberg:iceberg-core:${icebergLibVersion}"
+    implementation "org.apache.iceberg:iceberg-common:${icebergLibVersion}"
+    implementation "org.apache.iceberg:iceberg-data:${icebergLibVersion}"
+    implementation "org.apache.iceberg:iceberg-parquet:${icebergLibVersion}"
+
+    implementation 'org.apache.avro:avro:1.11.3'
+
+    implementation 'org.apache.hadoop:hadoop-client:3.4.0'
+
+    // JDBC Drivers
+    runtimeOnly 'org.postgresql:postgresql:42.7.3'
+
+    // AWS Dependencies
+    implementation "org.apache.iceberg:iceberg-aws:${icebergLibVersion}"
+    runtimeOnly 'software.amazon.awssdk:bundle:2.25.60'
+
+
+    testImplementation 'io.quarkus:quarkus-junit5'
+    testImplementation 'io.rest-assured:rest-assured'
+
+}
+
+group 'io.peerdb'
+version '0.0.1-SNAPSHOT'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+test {
+    systemProperty "java.util.logging.manager", "org.jboss.logmanager.LogManager"
+}
+compileJava {
+    options.encoding = 'UTF-8'
+    options.compilerArgs << '-parameters'
+}
+
+compileTestJava {
+    options.encoding = 'UTF-8'
+}
+
+
+
+quarkus {
+    quarkusBuildProperties.put("quarkus.grpc.codegen.proto-directory", "${project.projectDir}/../protos")
+}

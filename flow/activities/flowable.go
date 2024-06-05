@@ -919,6 +919,13 @@ func (a *FlowableActivity) LoadPeer(ctx context.Context, peerName string) (*prot
 			return nil, fmt.Errorf("failed to unmarshal Elasticsearch config: %w", err)
 		}
 		peer.Config = &protos.Peer_ElasticsearchConfig{ElasticsearchConfig: &config}
+	case protos.DBType_ICEBERG:
+		var config protos.IcebergConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal Iceberg config: %w", err)
+
+		}
+		peer.Config = &protos.Peer_IcebergConfig{IcebergConfig: &config}
 	default:
 		return nil, fmt.Errorf("unsupported peer type: %s", peer.Type)
 	}
