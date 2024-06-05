@@ -208,19 +208,20 @@ func (c *KafkaConnector) createPool(
 				handler = func(_ *kgo.Record, err error) {
 					if err != nil {
 						var success bool
-						c.logger.Warn("[kafka] produce error", slog.Any("error", err))
 						if errors.Is(err, kerr.UnknownTopicOrPartition) {
 							force, envErr := peerdbenv.PeerDBQueueForceTopicCreation(ctx)
-							c.logger.Warn("[kafka] force", slog.Any("error", envErr), slog.Bool("force", force))
 							if envErr == nil && force {
+								c.logger.Info("[kafka] force topic creation", slog.String("topic", kr.Topic))
 								_, err := kadm.NewClient(c.client).CreateTopic(ctx, 1, 3, nil, kr.Topic)
 								if err != nil && !errors.Is(err, kerr.TopicAlreadyExists) {
-									c.logger.Warn("[kafka] create error", slog.Any("error", err))
+									c.logger.Warn("[kafka] topic create error", slog.Any("error", err))
 									queueErr(err)
 									return
 								}
 								success = true
 							}
+						} else {
+							c.logger.Warn("[kafka] produce error", slog.Any("error", err))
 						}
 						if success {
 							time.Sleep(time.Second) // topic creation can take time to propagate, throttle
