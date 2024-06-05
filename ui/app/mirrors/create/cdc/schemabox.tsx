@@ -67,7 +67,7 @@ const SchemaBox = ({
           row.source.toLowerCase().includes(tableQueryLower)
       )
       .sort((a, b) => a.source.localeCompare(b.source));
-  }, [rows, tableQuery]);
+  }, [schema, rows, tableQuery]);
 
   const schemaIsExpanded = useCallback(
     (schema: string) => {
@@ -161,30 +161,33 @@ const SchemaBox = ({
     }
   };
 
-  const fetchTablesForSchema = (schemaName: string) => {
-    setTablesLoading(true);
-    fetchTables(sourcePeer, schemaName, defaultTargetSchema, peerType).then(
-      (newRows) => {
-        for (const row of newRows) {
-          if (omitAdditionalTables?.includes(row.source)) {
-            row.canMirror = false;
+  const fetchTablesForSchema = useCallback(
+    (schemaName: string) => {
+      setTablesLoading(true);
+      fetchTables(sourcePeer, schemaName, defaultTargetSchema, peerType).then(
+        (newRows) => {
+          for (const row of newRows) {
+            if (omitAdditionalTables?.includes(row.source)) {
+              row.canMirror = false;
+            }
           }
+          setRows((oldRows) => {
+            const filteredRows = oldRows.filter(
+              (oldRow) => oldRow.schema !== schemaName
+            );
+            const updatedRows = [...filteredRows, ...newRows];
+            return updatedRows;
+          });
+          setTablesLoading(false);
         }
-        setRows((oldRows) => {
-          const filteredRows = oldRows.filter(
-            (oldRow) => oldRow.schema !== schemaName
-          );
-          const updatedRows = [...filteredRows, ...newRows];
-          return updatedRows;
-        });
-        setTablesLoading(false);
-      }
-    );
-  };
+      );
+    },
+    [setRows, sourcePeer, defaultTargetSchema, peerType, omitAdditionalTables]
+  );
 
   useEffect(() => {
     fetchTablesForSchema(schema);
-  }, [defaultTargetSchema]);
+  }, [schema, fetchTablesForSchema]);
 
   return (
     <div style={schemaBoxStyle}>
