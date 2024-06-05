@@ -11,6 +11,11 @@ const variants = {
     min-width: ${({ theme }) => theme.size.xxSmall};
     max-width: ${({ theme }) => theme.size.xSmall};
   `,
+  mirror_name: css`
+    overflow: auto;
+    min-width: ${({ theme }) => theme.size.small};
+    max-width: ${({ theme }) => theme.size.medium};
+  `,
 };
 
 export type TableCellVariant = keyof typeof variants;
@@ -18,7 +23,6 @@ type BaseTableCellProps = {
   $variant: TableCellVariant;
 };
 export const BaseTableCell = styled.td<BaseTableCellProps>`
-  border-collapse: collapse;
   overflow: hidden;
   ${({ $variant }) => variants[$variant]}
 `;
