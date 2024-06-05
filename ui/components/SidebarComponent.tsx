@@ -150,6 +150,13 @@ export default function SidebarComponent() {
         >
           {sidebarState === 'open' && 'Scripts'}
         </SidebarItem>
+        <SidebarItem
+          as={Link}
+          href={'/mirror-logs'}
+          leadingIcon={<Icon name='receipt' />}
+        >
+          {sidebarState === 'open' && 'Logs'}
+        </SidebarItem>
       </Sidebar>
     </SessionProvider>
   );
