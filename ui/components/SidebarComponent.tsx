@@ -157,6 +157,13 @@ export default function SidebarComponent() {
         >
           {sidebarState === 'open' && 'Logs'}
         </SidebarItem>
+        <SidebarItem
+          as={Link}
+          href={'/settings'}
+          leadingIcon={<Icon name='settings' />}
+        >
+          {sidebarState === 'open' && 'Settings'}
+        </SidebarItem>
       </Sidebar>
     </SessionProvider>
   );
