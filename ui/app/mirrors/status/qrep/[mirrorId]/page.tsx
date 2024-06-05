@@ -33,7 +33,7 @@ export default async function QRepMirrorStatus({
       startTime: run.start_time,
       endTime: run.end_time,
       pulledRows: run.rows_in_partition,
-      syncedRows: run.rows_synced,
+      syncedRows: Number(run.rows_synced),
     };
     return ret;
   });
