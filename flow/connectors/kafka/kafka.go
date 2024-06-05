@@ -74,6 +74,11 @@ func NewKafkaConnector(
 			return nil, fmt.Errorf("unsupported SASL mechanism: %s", config.Sasl)
 		}
 	}
+	force, err := peerdbenv.PeerDBQueueForceTopicCreation(ctx)
+	if err == nil && force {
+		optionalOpts = append(optionalOpts, kgo.UnknownTopicRetries(0))
+	}
+
 	client, err := kgo.NewClient(optionalOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kafka client: %w", err)
