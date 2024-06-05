@@ -3,11 +3,14 @@ package connkafka
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync/atomic"
 	"time"
 
+	"github.com/twmb/franz-go/pkg/kadm"
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
@@ -197,13 +200,38 @@ func (c *KafkaConnector) createPool(
 			recordCounter := atomic.Int32{}
 			recordCounter.Store(lenRecords)
 			for _, kr := range result.records {
-				c.client.Produce(ctx, kr, func(_ *kgo.Record, err error) {
+				var handler func(*kgo.Record, error)
+				handler = func(_ *kgo.Record, err error) {
 					if err != nil {
-						queueErr(err)
+						var success bool
+						force, envErr := peerdbenv.PeerDBQueueForceTopicCreation(ctx)
+						if envErr != nil {
+							queueErr(envErr)
+							return
+						}
+						if force {
+							var kErr *kerr.Error
+							if errors.As(err, &kErr) && kErr == kerr.UnknownTopicOrPartition {
+								aclient := kadm.NewClient(c.client)
+								_, err := aclient.CreateTopic(ctx, 1, 1, nil, kr.Topic)
+								if err != nil && (!errors.As(err, &kErr) || kErr != kerr.TopicAlreadyExists) {
+									queueErr(err)
+									return
+								}
+								success = true
+							}
+						}
+						if success {
+							time.Sleep(time.Second) // topic creation can take time to propagate, throttle
+							c.client.Produce(ctx, kr, handler)
+						} else {
+							queueErr(err)
+						}
 					} else if recordCounter.Add(-1) == 0 && lastSeenLSN != nil {
 						shared.AtomicInt64Max(lastSeenLSN, result.lsn)
 					}
-				})
+				}
+				c.client.Produce(ctx, kr, handler)
 			}
 		}
 	})

@@ -157,14 +157,20 @@ func (c *PubSubConnector) createPool(
 					topicClient.EnableMessageOrdering = true
 				}
 
-				exists, err := topicClient.Exists(ctx)
-				if err != nil {
-					return nil, fmt.Errorf("error checking if topic exists: %w", err)
+				force, envErr := peerdbenv.PeerDBQueueForceTopicCreation(ctx)
+				if envErr != nil {
+					return nil, envErr
 				}
-				if !exists {
-					topicClient, err = c.client.CreateTopic(ctx, message.Topic)
+				if force {
+					exists, err := topicClient.Exists(ctx)
 					if err != nil {
-						return nil, fmt.Errorf("error creating topic: %w", err)
+						return nil, fmt.Errorf("error checking if topic exists: %w", err)
+					}
+					if !exists {
+						topicClient, err = c.client.CreateTopic(ctx, message.Topic)
+						if err != nil {
+							return nil, fmt.Errorf("error creating topic: %w", err)
+						}
 					}
 				}
 				return topicClient, nil

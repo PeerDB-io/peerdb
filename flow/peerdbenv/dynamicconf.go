@@ -112,3 +112,9 @@ func PeerDBOpenConnectionsAlertThreshold(ctx context.Context) (uint32, error) {
 func PeerDBBigQueryEnableSyncedAtPartitioning(ctx context.Context) (bool, error) {
 	return dynamicConfBool(ctx, "PEERDB_BIGQUERY_ENABLE_SYNCED_AT_PARTITIONING_BY_DAYS")
 }
+
+// Kafka has topic auto create as an option, auto.create.topics.enable
+// But non-dedicated cluster maybe can't set config, may want peerdb to create topic. Similar for PubSub
+func PeerDBQueueForceTopicCreation(ctx context.Context) (bool, error) {
+	return dynamicConfBool(ctx, "PEERDB_QUEUE_FORCE_TOPIC_CREATION")
+}
