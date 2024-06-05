@@ -163,7 +163,6 @@ const SettingsPage = () => {
 
   return (
     <div>
-      <h1>Settings</h1>
       <Table
         title={<Label variant='headline'>Settings List</Label>}
         toolbar={{
