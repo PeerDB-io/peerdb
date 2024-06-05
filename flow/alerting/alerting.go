@@ -12,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/PeerDB-io/peer-flow/dynamicconf"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
@@ -123,7 +122,7 @@ func (a *Alerter) AlertIfSlotLag(ctx context.Context, peerName string, slotInfo 
 		deploymentUIDPrefix = fmt.Sprintf("[%s] ", peerdbenv.PeerDBDeploymentUID())
 	}
 
-	defaultSlotLagMBAlertThreshold, err := dynamicconf.PeerDBSlotLagMBAlertThreshold(ctx)
+	defaultSlotLagMBAlertThreshold, err := peerdbenv.PeerDBSlotLagMBAlertThreshold(ctx)
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Warn("failed to get slot lag alert threshold from catalog", slog.Any("error", err))
 		return
@@ -175,7 +174,7 @@ func (a *Alerter) AlertIfOpenConnections(ctx context.Context, peerName string,
 	}
 
 	// same as with slot lag, use lowest threshold for catalog
-	defaultOpenConnectionsThreshold, err := dynamicconf.PeerDBOpenConnectionsAlertThreshold(ctx)
+	defaultOpenConnectionsThreshold, err := peerdbenv.PeerDBOpenConnectionsAlertThreshold(ctx)
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Warn("failed to get open connections alert threshold from catalog", slog.Any("error", err))
 		return
@@ -224,7 +223,7 @@ func (a *Alerter) alertToProvider(ctx context.Context, alertSenderConfig AlertSe
 // in the past X minutes, where X is configurable and defaults to 15 minutes
 // returns true if alert added to catalog, so proceed with processing alerts to slack
 func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId int64, alertKey string, alertMessage string) bool {
-	dur, err := dynamicconf.PeerDBAlertingGapMinutesAsDuration(ctx)
+	dur, err := peerdbenv.PeerDBAlertingGapMinutesAsDuration(ctx)
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Warn("failed to get alerting gap duration from catalog", slog.Any("error", err))
 		return false

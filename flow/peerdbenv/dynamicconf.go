@@ -1,89 +1,89 @@
-package dynamicconf
+package peerdbenv
 
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/exp/constraints"
 
 	"github.com/PeerDB-io/peer-flow/logger"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
-//nolint:unused
-func dynamicConfSigned[T constraints.Signed](ctx context.Context, key string) (T, error) {
-	conn, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+func dynLookup(ctx context.Context, key string) (string, error) {
+	conn, err := GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool: %v", err)
-		return 0, fmt.Errorf("failed to get catalog connection pool: %w", err)
+		return "", fmt.Errorf("failed to get catalog connection pool: %w", err)
 	}
 
 	var value pgtype.Text
-	query := "SELECT coalesce(config_value,config_default_value) FROM dynamic_settings WHERE config_name=$1"
-	err = conn.QueryRow(ctx, query, key).Scan(&value)
+	var default_value pgtype.Text
+	query := "SELECT config_value, config_default_value FROM dynamic_settings WHERE config_name=$1"
+	err = conn.QueryRow(ctx, query, key).Scan(&value, &default_value)
 	if err != nil {
+		if err == pgx.ErrNoRows {
+			if val, ok := os.LookupEnv(key); ok {
+				return val, nil
+			}
+		}
 		logger.LoggerFromCtx(ctx).Error("Failed to get key: %v", err)
-		return 0, fmt.Errorf("failed to get key: %w", err)
+		return "", fmt.Errorf("failed to get key: %w", err)
 	}
+	if !value.Valid {
+		if val, ok := os.LookupEnv(key); ok {
+			return val, nil
+		}
+		return default_value.String, nil
+	}
+	return value.String, nil
+}
 
-	result, err := strconv.ParseInt(value.String, 10, 64)
+func dynLookupConvert[T any](ctx context.Context, key string, fn func(string) (T, error)) (T, error) {
+	value, err := dynLookup(ctx, key)
+	if err != nil {
+		var none T
+		return none, err
+	}
+	return fn(value)
+}
+
+func dynamicConfSigned[T constraints.Signed](ctx context.Context, key string) (T, error) {
+	value, err := dynLookupConvert(ctx, key, func(value string) (int64, error) {
+		return strconv.ParseInt(value, 10, 64)
+	})
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Error("Failed to parse as int64: %v", err)
 		return 0, fmt.Errorf("failed to parse as int64: %w", err)
 	}
 
-	return T(result), nil
+	return T(value), nil
 }
 
 func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, key string) (T, error) {
-	conn, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
-	if err != nil {
-		logger.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool: %v", err)
-		return 0, fmt.Errorf("failed to get catalog connection pool: %w", err)
-	}
-
-	var value pgtype.Text
-	query := "SELECT coalesce(config_value,config_default_value) FROM dynamic_settings WHERE config_name=$1"
-	err = conn.QueryRow(ctx, query, key).Scan(&value)
-	if err != nil {
-		logger.LoggerFromCtx(ctx).Error("Failed to get key: %v", err)
-		return 0, fmt.Errorf("failed to get key: %w", err)
-	}
-
-	result, err := strconv.ParseUint(value.String, 10, 64)
+	value, err := dynLookupConvert(ctx, key, func(value string) (uint64, error) {
+		return strconv.ParseUint(value, 10, 64)
+	})
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Error("Failed to parse as int64: %v", err)
 		return 0, fmt.Errorf("failed to parse as int64: %w", err)
 	}
 
-	return T(result), nil
+	return T(value), nil
 }
 
 func dynamicConfBool(ctx context.Context, key string) (bool, error) {
-	conn, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
-	if err != nil {
-		logger.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool: %v", err)
-		return false, fmt.Errorf("failed to get catalog connection pool: %w", err)
-	}
-
-	var value pgtype.Text
-	query := "SELECT coalesce(config_value,config_default_value) FROM dynamic_settings WHERE config_name = $1"
-	err = conn.QueryRow(ctx, query, key).Scan(&value)
-	if err != nil {
-		logger.LoggerFromCtx(ctx).Error("Failed to get key: %v", err)
-		return false, fmt.Errorf("failed to get key: %w", err)
-	}
-
-	result, err := strconv.ParseBool(value.String)
+	value, err := dynLookupConvert(ctx, key, strconv.ParseBool)
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Error("Failed to parse bool: %v", err)
 		return false, fmt.Errorf("failed to parse bool: %w", err)
 	}
 
-	return result, nil
+	return value, nil
 }
 
 // PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD, 0 disables slot lag alerting entirely
@@ -93,11 +93,11 @@ func PeerDBSlotLagMBAlertThreshold(ctx context.Context) (uint32, error) {
 
 // PEERDB_ALERTING_GAP_MINUTES, 0 disables all alerting entirely
 func PeerDBAlertingGapMinutesAsDuration(ctx context.Context) (time.Duration, error) {
-	why, err := dynamicConfUnsigned[uint32](ctx, "PEERDB_ALERTING_GAP_MINUTES")
+	why, err := dynamicConfSigned[int64](ctx, "PEERDB_ALERTING_GAP_MINUTES")
 	if err != nil {
 		return 0, err
 	}
-	return time.Duration(int64(why)) * time.Minute, nil
+	return time.Duration(why) * time.Minute, nil
 }
 
 // PEERDB_PGPEER_OPEN_CONNECTIONS_ALERT_THRESHOLD, 0 disables open connections alerting entirely
