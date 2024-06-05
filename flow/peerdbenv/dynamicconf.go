@@ -43,50 +43,47 @@ func dynLookup(ctx context.Context, key string) (string, error) {
 	return value.String, nil
 }
 
-//nolint:unused
-func dynamicConfSigned[T constraints.Signed](ctx context.Context, key string) (T, error) {
+func dynLookupConvert[T any](ctx context.Context, key string, fn func(string) (T, error)) (T, error) {
 	value, err := dynLookup(ctx, key)
 	if err != nil {
-		return 0, err
+		var none T
+		return none, err
 	}
+	return fn(value)
+}
 
-	result, err := strconv.ParseInt(value, 10, 64)
+func dynamicConfSigned[T constraints.Signed](ctx context.Context, key string) (T, error) {
+	value, err := dynLookupConvert(ctx, key, func(value string) (int64, error) {
+		return strconv.ParseInt(value, 10, 64)
+	})
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Error("Failed to parse as int64: %v", err)
 		return 0, fmt.Errorf("failed to parse as int64: %w", err)
 	}
 
-	return T(result), nil
+	return T(value), nil
 }
 
 func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, key string) (T, error) {
-	value, err := dynLookup(ctx, key)
-	if err != nil {
-		return 0, err
-	}
-
-	result, err := strconv.ParseUint(value, 10, 64)
+	value, err := dynLookupConvert(ctx, key, func(value string) (uint64, error) {
+		return strconv.ParseUint(value, 10, 64)
+	})
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Error("Failed to parse as int64: %v", err)
 		return 0, fmt.Errorf("failed to parse as int64: %w", err)
 	}
 
-	return T(result), nil
+	return T(value), nil
 }
 
 func dynamicConfBool(ctx context.Context, key string) (bool, error) {
-	value, err := dynLookup(ctx, key)
-	if err != nil {
-		return false, err
-	}
-
-	result, err := strconv.ParseBool(value)
+	value, err := dynLookupConvert(ctx, key, strconv.ParseBool)
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Error("Failed to parse bool: %v", err)
 		return false, fmt.Errorf("failed to parse bool: %w", err)
 	}
 
-	return result, nil
+	return value, nil
 }
 
 // PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD, 0 disables slot lag alerting entirely
@@ -96,11 +93,11 @@ func PeerDBSlotLagMBAlertThreshold(ctx context.Context) (uint32, error) {
 
 // PEERDB_ALERTING_GAP_MINUTES, 0 disables all alerting entirely
 func PeerDBAlertingGapMinutesAsDuration(ctx context.Context) (time.Duration, error) {
-	why, err := dynamicConfUnsigned[uint32](ctx, "PEERDB_ALERTING_GAP_MINUTES")
+	why, err := dynamicConfSigned[int64](ctx, "PEERDB_ALERTING_GAP_MINUTES")
 	if err != nil {
 		return 0, err
 	}
-	return time.Duration(int64(why)) * time.Minute, nil
+	return time.Duration(why) * time.Minute, nil
 }
 
 // PEERDB_PGPEER_OPEN_CONNECTIONS_ALERT_THRESHOLD, 0 disables open connections alerting entirely
