@@ -1,5 +1,6 @@
 'use client';
 
+import { DynconfApplyMode } from '@/grpc_generated/flow';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
@@ -18,20 +19,20 @@ const ApplyModeIconWithTooltip = ({ applyMode }: { applyMode: number }) => {
   let iconName: MaterialSymbol = 'help';
 
   switch (applyMode) {
-    case 1:
+    case DynconfApplyMode.APPLY_MODE_IMMEDIATE:
       tooltipText = 'Changes to this configuration will apply immediately';
       iconName = 'bolt';
       break;
-    case 2:
+    case DynconfApplyMode.APPLY_MODE_AFTER_RESUME:
       tooltipText = 'Changes to this configuration will apply after resume';
       iconName = 'cached';
       break;
-    case 3:
+    case DynconfApplyMode.APPLY_MODE_RESTART:
       tooltipText =
         'Changes to this configuration will apply after server restart.';
       iconName = 'restart_alt';
       break;
-    case 4:
+    case DynconfApplyMode.APPLY_MODE_NEW_MIRROR:
       tooltipText =
         'Changes to this configuration will apply only to new mirrors';
       iconName = 'new_window';
