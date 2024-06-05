@@ -404,3 +404,23 @@ message ExportTxSnapshotOutput {
   bool supports_tid_scans = 2;
 }
 
+enum DynconfValueType {
+  UNKNOWN = 0;
+  STRING = 1;
+  INT = 2;
+  UINT = 3;
+  BOOL = 4;
+}
+
+enum DynconfApplyMode {
+  APPLY_MODE_UNKNOWN = 0;
+  // should apply immediately
+  APPLY_MODE_IMMEDIATE = 1;
+  // should apply after the mirror is paused and resumed
+  APPLY_MODE_AFTER_RESUME = 2;
+  // should apply after pod is restarted
+  APPLY_MODE_RESTART = 3;
+  // only applies to newly created mirrors
+  APPLY_MODE_NEW_MIRROR = 4;
+}
+

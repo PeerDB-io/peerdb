@@ -681,7 +681,10 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 		}
 	}
 
-	timePartitionEnabled := dynamicconf.PeerDBBigQueryEnableSyncedAtPartitioning(ctx)
+	timePartitionEnabled, err := dynamicconf.PeerDBBigQueryEnableSyncedAtPartitioning(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to get dynamic setting for BigQuery time partitioning: %w", err)
+	}
 	var timePartitioning *bigquery.TimePartitioning
 	if timePartitionEnabled && syncedAtColName != "" {
 		timePartitioning = &bigquery.TimePartitioning{
