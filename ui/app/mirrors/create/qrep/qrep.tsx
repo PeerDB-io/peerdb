@@ -105,17 +105,6 @@ export default function QRepConfigForm({
   ) => {
     if (val) {
       if (setting.label.includes('Table')) {
-        if (mirrorConfig.destinationPeer?.type === DBType.BIGQUERY) {
-          setter((curr) => ({
-            ...curr,
-            destinationTableIdentifier: val.split('.')[1],
-          }));
-        } else {
-          setter((curr) => ({
-            ...curr,
-            destinationTableIdentifier: val,
-          }));
-        }
         loadColumnOptions(val);
       }
       handleChange(val, setting);
