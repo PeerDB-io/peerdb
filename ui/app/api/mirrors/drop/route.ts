@@ -1,11 +1,14 @@
 import { UDropMirrorResponse } from '@/app/dto/MirrorsDTO';
 import { ShutdownRequest, ShutdownResponse } from '@/grpc_generated/route';
-import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
+import {
+  GetFlowServiceHttpClient,
+  ParseFlowServiceErrorMessage,
+} from '@/rpc/http';
 
 export async function POST(request: Request) {
   const body = await request.json();
   const { workflowId, flowJobName, sourcePeer, destinationPeer } = body;
-  const flowServiceAddr = GetFlowHttpAddressFromEnv();
+  const flowServiceClient = GetFlowServiceHttpClient();
   const req: ShutdownRequest = {
     workflowId,
     flowJobName,
@@ -15,15 +18,9 @@ export async function POST(request: Request) {
   };
 
   try {
-    const dropStatus: ShutdownResponse = await fetch(
-      `${flowServiceAddr}/v1/mirrors/drop`,
-      {
-        method: 'POST',
-        body: JSON.stringify(req),
-      }
-    ).then((res) => {
-      return res.json();
-    });
+    const dropStatus: ShutdownResponse = await flowServiceClient
+      .post<ShutdownResponse>(`/v1/mirrors/drop`, req)
+      .then((res) => res.data);
     let response: UDropMirrorResponse = {
       dropped: dropStatus.ok,
       errorMessage: dropStatus.errorMessage,
@@ -31,6 +28,7 @@ export async function POST(request: Request) {
 
     return new Response(JSON.stringify(response));
   } catch (e) {
-    console.log(e);
+    const message = ParseFlowServiceErrorMessage(e);
+    console.error(message, e);
   }
 }

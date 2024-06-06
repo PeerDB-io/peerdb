@@ -2,29 +2,27 @@ import {
   CreateCDCFlowRequest,
   ValidateCDCMirrorResponse,
 } from '@/grpc_generated/route';
-import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
+import {
+  GetFlowServiceHttpClient,
+  ParseFlowServiceErrorMessage,
+} from '@/rpc/http';
 import { NextRequest } from 'next/server';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
   const { config } = body;
-  const flowServiceAddr = GetFlowHttpAddressFromEnv();
+  const flowServiceClient = GetFlowServiceHttpClient();
   const req: CreateCDCFlowRequest = {
     connectionConfigs: config,
   };
   try {
-    const validateResponse: ValidateCDCMirrorResponse = await fetch(
-      `${flowServiceAddr}/v1/mirrors/cdc/validate`,
-      {
-        method: 'POST',
-        body: JSON.stringify(req),
-      }
-    ).then((res) => {
-      return res.json();
-    });
+    const validateResponse: ValidateCDCMirrorResponse = await flowServiceClient
+      .post<ValidateCDCMirrorResponse>(`/v1/mirrors/cdc/validate`, req)
+      .then((res) => res.data);
 
     return new Response(JSON.stringify(validateResponse));
   } catch (e) {
-    console.log(e);
+    const message = ParseFlowServiceErrorMessage(e);
+    console.log(message, e);
   }
 }

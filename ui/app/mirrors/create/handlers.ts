@@ -433,6 +433,7 @@ export const handleValidateCDC = async (
 };
 
 export const fetchPublications = async (peerName: string) => {
+  if (!peerName || peerName.length === 0) return [];
   const publicationsRes: UPublicationsResponse = await fetch(
     '/api/peers/publications',
     {

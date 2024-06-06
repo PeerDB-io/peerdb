@@ -29,7 +29,10 @@ import {
   createPeerStatusFromJSON,
   validatePeerStatusFromJSON,
 } from '@/grpc_generated/route';
-import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
+import {
+  GetFlowServiceHttpClient,
+  ParseFlowServiceErrorMessage,
+} from '@/rpc/http';
 
 const constructPeer = (
   name: string,
@@ -101,20 +104,16 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
   const body = await request.json();
   const { name, type, config, mode } = body;
-  const flowServiceAddr = GetFlowHttpAddressFromEnv();
+  const flowServiceClient = GetFlowServiceHttpClient();
   const peer = constructPeer(name, type, config);
   if (mode === 'validate') {
     const validateReq: ValidatePeerRequest = { peer };
     try {
-      const validateStatus: ValidatePeerResponse = await fetch(
-        `${flowServiceAddr}/v1/peers/validate`,
-        {
-          method: 'POST',
-          body: JSON.stringify(validateReq),
-        }
-      ).then((res) => {
-        return res.json();
-      });
+      const validateStatus: ValidatePeerResponse = await flowServiceClient
+        .post<ValidatePeerResponse>(`/v1/peers/validate`, validateReq)
+        .then((res) => {
+          return res.data;
+        });
       let response: UValidatePeerResponse = {
         valid:
           validatePeerStatusFromJSON(validateStatus.status) ===
@@ -123,20 +122,15 @@ export async function POST(request: Request) {
       };
       return new Response(JSON.stringify(response));
     } catch (error) {
-      console.error('Error validating peer:', error);
+      const message = ParseFlowServiceErrorMessage(error);
+      console.error('Error validating peer:', message, error);
     }
   } else if (mode === 'create') {
     const req: CreatePeerRequest = { peer };
     try {
-      const createStatus: CreatePeerResponse = await fetch(
-        `${flowServiceAddr}/v1/peers/create`,
-        {
-          method: 'POST',
-          body: JSON.stringify(req),
-        }
-      ).then((res) => {
-        return res.json();
-      });
+      const createStatus = await flowServiceClient
+        .post<CreatePeerResponse>(`/v1/peers/create`, req)
+        .then((res) => res.data);
       let response: UCreatePeerResponse = {
         created:
           createPeerStatusFromJSON(createStatus.status) ===
@@ -145,7 +139,8 @@ export async function POST(request: Request) {
       };
       return new Response(JSON.stringify(response));
     } catch (error) {
-      console.error('Error creating peer:', error);
+      const message = ParseFlowServiceErrorMessage(error);
+      console.error('Error creating peer:', message, error);
     }
   }
 }

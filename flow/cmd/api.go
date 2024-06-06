@@ -23,6 +23,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/middleware"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
@@ -115,7 +116,16 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		return fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	healthMethods := []string{
+		grpc_health_v1.Health_Check_FullMethodName,
+		grpc_health_v1.Health_Watch_FullMethodName,
+	}
+	grpcServer := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(
+			middleware.CreateRequestLoggingInterceptor(healthMethods),
+			middleware.CreateAuthServerInterceptor(ctx, peerdbenv.PeerDBPassword(), healthMethods),
+		),
+	)
 
 	catalogConn, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {

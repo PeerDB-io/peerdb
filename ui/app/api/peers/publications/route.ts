@@ -1,22 +1,27 @@
 import { UPublicationsResponse } from '@/app/dto/PeersDTO';
 import { PeerPublicationsResponse } from '@/grpc_generated/route';
-import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
+import {
+  GetFlowServiceHttpClient,
+  ParseFlowServiceErrorMessage,
+} from '@/rpc/http';
 
 export async function POST(request: Request) {
   const body = await request.json();
   const { peerName } = body;
-  const flowServiceAddr = GetFlowHttpAddressFromEnv();
+  const flowServiceClient = GetFlowServiceHttpClient();
   try {
-    const publicationList: PeerPublicationsResponse = await fetch(
-      `${flowServiceAddr}/v1/peers/publications?peer_name=${peerName}`
-    ).then((res) => {
-      return res.json();
-    });
+    const publicationList: PeerPublicationsResponse = await flowServiceClient
+      .get<PeerPublicationsResponse>(
+        `/v1/peers/publications?peer_name=${peerName}`
+      )
+      .then((res) => res.data);
     let response: UPublicationsResponse = {
       publicationNames: publicationList.publicationNames,
     };
+    console.log(response);
     return new Response(JSON.stringify(response));
   } catch (e) {
-    console.log(e);
+    const message = ParseFlowServiceErrorMessage(e);
+    console.log(message, e);
   }
 }

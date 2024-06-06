@@ -3,26 +3,23 @@ import {
   CreateCDCFlowRequest,
   CreateCDCFlowResponse,
 } from '@/grpc_generated/route';
-import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
+import {
+  GetFlowServiceHttpClient,
+  ParseFlowServiceErrorMessage,
+} from '@/rpc/http';
 
 export async function POST(request: Request) {
   const body = await request.json();
   const { config } = body;
 
-  const flowServiceAddr = GetFlowHttpAddressFromEnv();
+  const flowServiceClient = GetFlowServiceHttpClient();
   const req: CreateCDCFlowRequest = {
     connectionConfigs: config,
   };
   try {
-    const createStatus: CreateCDCFlowResponse = await fetch(
-      `${flowServiceAddr}/v1/flows/cdc/create`,
-      {
-        method: 'POST',
-        body: JSON.stringify(req),
-      }
-    ).then((res) => {
-      return res.json();
-    });
+    const createStatus = await flowServiceClient
+      .post<CreateCDCFlowResponse>(`/v1/flows/cdc/create`, req)
+      .then((res) => res.data);
 
     if (!createStatus.workflowId) {
       return new Response(JSON.stringify(createStatus));
@@ -33,6 +30,7 @@ export async function POST(request: Request) {
 
     return new Response(JSON.stringify(response));
   } catch (e) {
-    console.log(e);
+    const message = ParseFlowServiceErrorMessage(e);
+    console.log(message, e);
   }
 }

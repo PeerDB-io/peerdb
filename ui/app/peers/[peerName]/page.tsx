@@ -2,7 +2,10 @@ import { PeerInfo } from '@/components/PeerInfo';
 import ReloadButton from '@/components/ReloadButton';
 import { PeerSlotResponse, PeerStatResponse } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
-import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
+import {
+  GetFlowServiceHttpClient,
+  ParseFlowServiceErrorMessage,
+} from '@/rpc/http';
 import LagGraph from './lagGraph';
 import SlotTable from './slottable';
 import StatTable from './stattable';
@@ -13,44 +16,58 @@ type DataConfigProps = {
 
 const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
   const getSlotData = async () => {
-    const flowServiceAddr = GetFlowHttpAddressFromEnv();
+    const flowServiceClient = GetFlowServiceHttpClient();
+    try {
+      const peerSlots: PeerSlotResponse = await flowServiceClient
+        .get<PeerSlotResponse>(`/v1/peers/slots/${peerName}`, {
+          headers: {
+            cache: 'no-store',
+          },
+        })
+        .then((res) => res.data);
 
-    const peerSlots: PeerSlotResponse = await fetch(
-      `${flowServiceAddr}/v1/peers/slots/${peerName}`,
-      {
-        cache: 'no-store',
-      }
-    ).then((res) => res.json());
-
-    const slotArray = peerSlots.slotData;
-    // slots with 'peerflow_slot' should come first
-    slotArray?.sort((slotA, slotB) => {
-      if (
-        slotA.slotName.startsWith('peerflow_slot') &&
-        !slotB.slotName.startsWith('peerflow_slot')
-      ) {
-        return -1;
-      } else if (
-        !slotA.slotName.startsWith('peerflow_slot') &&
-        slotB.slotName.startsWith('peerflow_slot')
-      ) {
-        return 1;
-      } else {
-        return 0;
-      }
-    });
-    return slotArray;
+      const slotArray = peerSlots.slotData;
+      // slots with 'peerflow_slot' should come first
+      slotArray?.sort((slotA, slotB) => {
+        if (
+          slotA.slotName.startsWith('peerflow_slot') &&
+          !slotB.slotName.startsWith('peerflow_slot')
+        ) {
+          return -1;
+        } else if (
+          !slotA.slotName.startsWith('peerflow_slot') &&
+          slotB.slotName.startsWith('peerflow_slot')
+        ) {
+          return 1;
+        } else {
+          return 0;
+        }
+      });
+      return slotArray;
+    } catch (e) {
+      const message = ParseFlowServiceErrorMessage(e);
+      console.error(message, e);
+      return [];
+    }
   };
 
   const getStatData = async () => {
-    const flowServiceAddr = GetFlowHttpAddressFromEnv();
+    const flowServiceClient = GetFlowServiceHttpClient();
+    try {
+      const peerStats: PeerStatResponse = await flowServiceClient
+        .get<PeerStatResponse>(`/v1/peers/stats/${peerName}`, {
+          headers: {
+            cache: 'no-store',
+          },
+        })
+        .then((res) => res.data);
 
-    const peerStats: PeerStatResponse = await fetch(
-      `${flowServiceAddr}/v1/peers/stats/${peerName}`,
-      { cache: 'no-store' }
-    ).then((res) => res.json());
-
-    return peerStats.statData;
+      return peerStats.statData;
+    } catch (e) {
+      const message = ParseFlowServiceErrorMessage(e);
+      console.error(message, e);
+      return [];
+    }
   };
 
   const slots = await getSlotData();

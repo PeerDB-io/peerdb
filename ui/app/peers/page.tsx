@@ -4,20 +4,19 @@ import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { LayoutMain } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
+import { ProgressCircle } from '@/lib/ProgressCircle';
 import Link from 'next/link';
 import { Header } from '../../lib/Header';
 import PeersTable from './peersTable';
-export const dynamic = 'force-dynamic';
-
-import { ProgressCircle } from '@/lib/ProgressCircle';
 
 import NewButton from '@/components/NewButton';
 import useSWR from 'swr';
 import { fetcher } from '../utils/swr';
 
+export const dynamic = 'force-dynamic';
+
 export default function Peers() {
   const { data: peers, error, isLoading } = useSWR('/api/peers', fetcher);
-
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start'>
       <Panel style={{ width: '100%' }}>

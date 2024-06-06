@@ -7,7 +7,10 @@ import { DBType } from '@/grpc_generated/peers';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { Header } from '@/lib/Header';
 import { LayoutMain } from '@/lib/Layout';
-import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
+import {
+  GetFlowServiceHttpClient,
+  ParseFlowServiceErrorMessage,
+} from '@/rpc/http';
 import { redirect } from 'next/navigation';
 import { CDCMirror } from './cdc';
 import NoMirror from './nomirror';
@@ -18,25 +21,29 @@ type EditMirrorProps = {
 };
 
 function getMirrorStatusUrl(mirrorId: string) {
-  let base = GetFlowHttpAddressFromEnv();
-  return `${base}/v1/mirrors/${mirrorId}?include_flow_info=true`;
+  return `/v1/mirrors/${mirrorId}?include_flow_info=true`;
 }
 
 async function getMirrorStatus(mirrorId: string) {
   const url = getMirrorStatusUrl(mirrorId);
+  const flowServiceClient = GetFlowServiceHttpClient();
   const apiToken = GetAPIToken();
-  const resp = await fetch(url, {
-    cache: 'no-store',
-    headers: { Authorization: `Bearer ${apiToken}` },
-  });
-  const json = await resp.json();
-  return json;
+  try {
+    return await flowServiceClient
+      .get<MirrorStatusResponse>(url, {
+        headers: { cache: 'no-store' },
+      })
+      .then((res) => res.data);
+  } catch (e) {
+    const message = ParseFlowServiceErrorMessage(e);
+    console.error(message, e);
+  }
 }
 
 export default async function ViewMirror({
   params: { mirrorId },
 }: EditMirrorProps) {
-  const mirrorStatus: MirrorStatusResponse = await getMirrorStatus(mirrorId);
+  const mirrorStatus = await getMirrorStatus(mirrorId);
   if (!mirrorStatus) {
     return <div>No mirror status found!</div>;
   }

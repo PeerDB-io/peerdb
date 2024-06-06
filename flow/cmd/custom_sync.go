@@ -2,13 +2,8 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
-
-	"golang.org/x/crypto/bcrypt"
-	"google.golang.org/grpc/metadata"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
@@ -16,29 +11,6 @@ import (
 )
 
 const peerdbPauseGuideDocLink = "https://docs.peerdb.io/features/pause-mirror"
-
-func AuthenticateSyncRequest(ctx context.Context) error {
-	var values []string
-	var token string
-
-	md, ok := metadata.FromIncomingContext(ctx)
-	if ok {
-		values = md.Get("authorization")
-	}
-
-	if len(values) > 0 {
-		token = values[0]
-	}
-
-	password := peerdbenv.PeerDBPassword()
-	_, hashedKey, _ := strings.Cut(token, " ")
-	if bcrypt.CompareHashAndPassword([]byte(hashedKey), []byte(password)) != nil {
-		slog.Error("Unauthorized: invalid authorization token")
-		return errors.New("unauthorized: invalid authorization token. Please check the token and try again")
-	}
-
-	return nil
-}
 
 func (h *FlowRequestHandler) CustomSyncFlow(
 	ctx context.Context, req *protos.CreateCustomSyncRequest,
@@ -49,13 +21,7 @@ func (h *FlowRequestHandler) CustomSyncFlow(
 		ErrorMessage:  "error while processing request",
 		Ok:            false,
 	}
-	err := AuthenticateSyncRequest(ctx)
-	if err != nil {
-		errResponse.ErrorMessage = err.Error()
-		return errResponse, nil
-	}
 
-	// ---- REQUEST VALIDATION ----
 	if req.FlowJobName == "" {
 		errResponse.ErrorMessage = "Mirror name cannot be empty."
 		return errResponse, nil
