@@ -138,5 +138,5 @@ jobs:
           PEERDB_CATALOG_USER: postgres
           PEERDB_CATALOG_PASSWORD: postgres
           PEERDB_CATALOG_DATABASE: postgres
-          PEERDB_QUEUE_FORCE_TOPIC_CREATION: "false"
+          PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
