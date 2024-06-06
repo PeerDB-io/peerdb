@@ -1,7 +1,6 @@
 package peerflow
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -503,14 +502,7 @@ func CDCFlowWorkflow(
 		maps.Copy(state.SyncFlowOptions.TableNameSchemaMapping, payload.TableNameSchemaMapping)
 	})
 
-	parallel := GetSideEffect(ctx, func(_ workflow.Context) bool {
-		res, err := peerdbenv.PeerDBEnableParallelSyncNormalize(context.Background())
-		if err != nil {
-			logger.Warn("failed to get status of parallel sync normalize", slog.Any("error", err))
-			return false
-		}
-		return res
-	})
+	parallel := getParallelSyncNormalize(ctx, logger)
 	if !parallel {
 		normDoneChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
 		normDoneChan.Drain()

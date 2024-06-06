@@ -183,7 +183,12 @@ func (c *KafkaConnector) createPool(
 	lastSeenLSN *atomic.Int64,
 	queueErr func(error),
 ) (*utils.LPool[poolResult], error) {
-	return utils.LuaPool(ctx, func() (*lua.LState, error) {
+	maxSize, err := peerdbenv.PeerDBQueueParallelism(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get parallelism: %w", err)
+	}
+
+	return utils.LuaPool(int(maxSize), func() (*lua.LState, error) {
 		ls, err := utils.LoadScript(ctx, script, utils.LuaPrintFn(func(s string) {
 			_ = c.LogFlowInfo(ctx, flowJobName, s)
 		}))

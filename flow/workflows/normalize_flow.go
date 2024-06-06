@@ -1,7 +1,6 @@
 package peerflow
 
 import (
-	"context"
 	"log/slog"
 	"time"
 
@@ -10,7 +9,6 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -109,14 +107,7 @@ func NormalizeFlowWorkflow(
 	}
 
 	if ctx.Err() == nil && !state.Stop {
-		parallel := GetSideEffect(ctx, func(_ workflow.Context) bool {
-			res, err := peerdbenv.PeerDBEnableParallelSyncNormalize(context.Background())
-			if err != nil {
-				logger.Warn("failed to get status of parallel sync normalize", slog.Any("error", err))
-				return false
-			}
-			return res
-		})
+		parallel := getParallelSyncNormalize(ctx, logger)
 
 		if !parallel {
 			_ = model.NormalizeDoneSignal.SignalExternalWorkflow(

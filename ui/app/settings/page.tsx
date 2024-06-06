@@ -83,7 +83,6 @@ const DynamicSettingItem = ({
       return true;
     } else if (setting.config_value_type === DynconfValueType.UINT) {
       const a = parseInt(Number(notNullValue).toString());
-      console.log(a);
       if (isNaN(a) || a > Number.MAX_SAFE_INTEGER || a < 0) {
         notifyErr(
           'Invalid value. Please enter a valid 64-bit unsigned integer.'
@@ -164,7 +163,6 @@ const DynamicSettingItem = ({
 
 const SettingsPage = () => {
   const [settings, setSettings] = useState<dynamic_settings[]>([]);
-  const [totalPages, setTotalPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('asc');
@@ -174,17 +172,22 @@ const SettingsPage = () => {
     const response = await fetch('/api/settings');
     const data = await response.json();
     setSettings(data);
-    setTotalPages(Math.ceil(data.length / ROWS_PER_PAGE));
   };
 
   useEffect(() => {
     fetchSettings();
   }, []);
 
-  const displayedSettings = useMemo(() => {
-    const filteredSettings = settings.filter((setting) =>
+  const filteredSettings = useMemo(() => {
+    return settings.filter((setting) =>
       setting.config_name.toLowerCase().includes(searchQuery.toLowerCase())
     );
+  }, [settings, searchQuery]);
+  const totalPages = useMemo(
+    () => Math.ceil(filteredSettings.length / ROWS_PER_PAGE),
+    [filteredSettings]
+  );
+  const displayedSettings = useMemo(() => {
     filteredSettings.sort((a, b) => {
       const aValue = a[sortField];
       const bValue = b[sortField];
@@ -194,11 +197,10 @@ const SettingsPage = () => {
       return 0;
     });
 
-    setTotalPages(Math.ceil(filteredSettings.length / ROWS_PER_PAGE));
     const startRow = (currentPage - 1) * ROWS_PER_PAGE;
     const endRow = startRow + ROWS_PER_PAGE;
     return filteredSettings.slice(startRow, endRow);
-  }, [settings, currentPage, searchQuery, sortField, sortDir]);
+  }, [filteredSettings, currentPage, sortDir]);
 
   const handlePrevPage = () => {
     if (currentPage > 1) setCurrentPage(currentPage - 1);

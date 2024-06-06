@@ -10,7 +10,6 @@ import (
 	"github.com/PeerDB-io/gluaflatbuffers"
 	"github.com/PeerDB-io/gluajson"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/pua"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -109,12 +108,7 @@ type LPool[T any] struct {
 	closed   bool
 }
 
-func LuaPool[T any](ctx context.Context, cons func() (*lua.LState, error), merge func(T)) (*LPool[T], error) {
-	maxSize, err := peerdbenv.PeerDBQueueParallelism(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get parallelism: %w", err)
-	}
-
+func LuaPool[T any](maxSize int, cons func() (*lua.LState, error), merge func(T)) (*LPool[T], error) {
 	returns := make(chan (<-chan T), maxSize)
 	wait := make(chan struct{})
 	go func() {
@@ -131,7 +125,7 @@ func LuaPool[T any](ctx context.Context, cons func() (*lua.LState, error), merge
 		returns:  returns,
 		wait:     wait,
 		cons:     cons,
-		maxSize:  int(maxSize),
+		maxSize:  maxSize,
 		size:     0,
 		closed:   false,
 	}
