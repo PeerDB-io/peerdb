@@ -183,7 +183,12 @@ func (c *KafkaConnector) createPool(
 	lastSeenLSN *atomic.Int64,
 	queueErr func(error),
 ) (*utils.LPool[poolResult], error) {
-	return utils.LuaPool(func() (*lua.LState, error) {
+	maxSize, err := peerdbenv.PeerDBQueueParallelism(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get parallelism: %w", err)
+	}
+
+	return utils.LuaPool(int(maxSize), func() (*lua.LState, error) {
 		ls, err := utils.LoadScript(ctx, script, utils.LuaPrintFn(func(s string) {
 			_ = c.LogFlowInfo(ctx, flowJobName, s)
 		}))
@@ -253,7 +258,12 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	flushLoopDone := make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(peerdbenv.PeerDBQueueFlushTimeoutSeconds())
+		flushTimeout, err := peerdbenv.PeerDBQueueFlushTimeoutSeconds(ctx)
+		if err != nil {
+			c.logger.Warn("[kafka] failed to get flush timeout, no periodic flushing", slog.Any("error", err))
+			return
+		}
+		ticker := time.NewTicker(flushTimeout)
 		defer ticker.Stop()
 
 		for {

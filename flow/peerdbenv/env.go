@@ -41,22 +41,6 @@ func getEnvUint[T constraints.Unsigned](name string, defaultValue T) T {
 	return T(i)
 }
 
-// getEnvBool returns the value of the environment variable with the given name
-// or defaultValue if the environment variable is not set or is not a valid value.
-func getEnvBool(name string, defaultValue bool) bool {
-	val, ok := os.LookupEnv(name)
-	if !ok {
-		return defaultValue
-	}
-
-	b, err := strconv.ParseBool(val)
-	if err != nil {
-		return defaultValue
-	}
-
-	return b
-}
-
 // GetEnvString returns the value of the environment variable with the given name
 // or defaultValue if the environment variable is not set.
 func GetEnvString(name string, defaultValue string) string {

@@ -1,6 +1,6 @@
 'use client';
 
-import { DynconfApplyMode } from '@/grpc_generated/flow';
+import { DynconfApplyMode, DynconfValueType } from '@/grpc_generated/flow';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
@@ -11,6 +11,9 @@ import { Tooltip } from '@/lib/Tooltip';
 import { dynamic_settings } from '@prisma/client';
 import { MaterialSymbol } from 'material-symbols';
 import { useEffect, useMemo, useState } from 'react';
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
+import { notifyErr } from '../utils/notify';
 
 const ROWS_PER_PAGE = 7;
 
@@ -65,7 +68,48 @@ const DynamicSettingItem = ({
     setEditMode(true);
   };
 
+  const validateNewValue = (): boolean => {
+    const notNullValue = newValue ?? '';
+    if (setting.config_value_type === DynconfValueType.INT) {
+      const a = parseInt(Number(notNullValue).toString());
+      if (
+        isNaN(a) ||
+        a > Number.MAX_SAFE_INTEGER ||
+        a < Number.MIN_SAFE_INTEGER
+      ) {
+        notifyErr('Invalid value. Please enter a valid 64-bit signed integer.');
+        return false;
+      }
+      return true;
+    } else if (setting.config_value_type === DynconfValueType.UINT) {
+      const a = parseInt(Number(notNullValue).toString());
+      if (isNaN(a) || a > Number.MAX_SAFE_INTEGER || a < 0) {
+        notifyErr(
+          'Invalid value. Please enter a valid 64-bit unsigned integer.'
+        );
+        return false;
+      }
+      return true;
+    } else if (setting.config_value_type === DynconfValueType.BOOL) {
+      if (notNullValue !== 'true' && notNullValue !== 'false') {
+        notifyErr('Invalid value. Please enter true or false.');
+        return false;
+      }
+      return true;
+    } else if (setting.config_value_type === DynconfValueType.STRING) {
+      return true;
+    } else {
+      notifyErr('Invalid value type');
+      return false;
+    }
+  };
+
   const handleSave = async () => {
+    if (!validateNewValue() || newValue === setting.config_value) {
+      setNewValue(setting.config_value);
+      setEditMode(false);
+      return;
+    }
     const updatedSetting = { ...setting, config_value: newValue };
     await fetch('/api/settings', {
       method: 'POST',
@@ -80,14 +124,14 @@ const DynamicSettingItem = ({
 
   return (
     <TableRow key={setting.id}>
-      <TableCell style={{ width: '35%' }}>
+      <TableCell style={{ width: '15%' }}>
         <Label>{setting.config_name}</Label>
       </TableCell>
       <TableCell style={{ width: '10%' }}>
         {editMode ? (
           <div style={{ display: 'flex', alignItems: 'center' }}>
             <TextField
-              value={newValue || undefined}
+              value={newValue ?? ''}
               onChange={(e) => setNewValue(e.target.value)}
               variant='simple'
             />
@@ -104,10 +148,10 @@ const DynamicSettingItem = ({
           </div>
         )}
       </TableCell>
-      <TableCell style={{ width: '10%' }}>
+      <TableCell style={{ width: '20%' }}>
         {setting.config_default_value || 'N/A'}
       </TableCell>
-      <TableCell style={{ width: '35%' }}>
+      <TableCell style={{ width: '45%' }}>
         {setting.config_description || 'N/A'}
       </TableCell>
       <TableCell style={{ width: '10%' }}>
@@ -134,12 +178,13 @@ const SettingsPage = () => {
     fetchSettings();
   }, []);
 
-  const totalPages = Math.ceil(settings.length / ROWS_PER_PAGE);
-
-  const displayedSettings = useMemo(() => {
-    const filteredSettings = settings.filter((setting) =>
+  const filteredSettings = useMemo(() => {
+    return settings.filter((setting) =>
       setting.config_name.toLowerCase().includes(searchQuery.toLowerCase())
     );
+  }, [settings, searchQuery]);
+  const totalPages = Math.ceil(filteredSettings.length / ROWS_PER_PAGE);
+  const displayedSettings = useMemo(() => {
     filteredSettings.sort((a, b) => {
       const aValue = a[sortField];
       const bValue = b[sortField];
@@ -152,7 +197,7 @@ const SettingsPage = () => {
     const startRow = (currentPage - 1) * ROWS_PER_PAGE;
     const endRow = startRow + ROWS_PER_PAGE;
     return filteredSettings.slice(startRow, endRow);
-  }, [settings, currentPage, searchQuery, sortField, sortDir]);
+  }, [filteredSettings, currentPage, sortDir]);
 
   const handlePrevPage = () => {
     if (currentPage > 1) setCurrentPage(currentPage - 1);
@@ -228,6 +273,7 @@ const SettingsPage = () => {
           />
         ))}
       </Table>
+      <ToastContainer />
     </div>
   );
 };
