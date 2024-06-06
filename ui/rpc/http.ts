@@ -1,17 +1,6 @@
+import { GetAPIToken } from '@/rpc/token';
 import { ServiceError } from '@grpc/grpc-js';
 import axios from 'axios';
-import bcrypt from 'bcrypt';
-import 'server-only';
-
-function hashPassword(password: string, rounds: number) {
-  return bcrypt.hashSync(password, rounds);
-}
-
-export function GetAPIToken() {
-  const password = process.env.PEERDB_PASSWORD!;
-  const hashedPassword = hashPassword(password, 10);
-  return Buffer.from(hashedPassword).toString('base64');
-}
 
 export function GetFlowHttpAddressFromEnv() {
   return process.env.PEERDB_FLOW_SERVER_HTTP!;
