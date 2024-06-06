@@ -332,6 +332,10 @@ const getDefaultDestinationTable = (
     return `<namespace>.${schemaName}_${tableName}.<partition_column>`;
   }
 
+  if (schemaName.length === 0) {
+    return tableName;
+  }
+
   return `${schemaName}.${tableName}`;
 };
 
