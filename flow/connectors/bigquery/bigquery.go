@@ -793,7 +793,7 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 				} else {
 					pkeyOnClauseBuilder.WriteString("_pt.")
 					pkeyOnClauseBuilder.WriteString(col)
-					pkeyOnClauseBuilder.WriteString(" = _resync.")
+					pkeyOnClauseBuilder.WriteString("=_resync.")
 					pkeyOnClauseBuilder.WriteString(col)
 				}
 
