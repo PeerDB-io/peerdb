@@ -10,3 +10,5 @@ tracing.workspace = true
 tonic-health = "0.11"
 pt = { path = "../pt" }
 catalog = { path = "../catalog" }
+bcrypt = "0.15.1"
+base64 = "0.22.1"

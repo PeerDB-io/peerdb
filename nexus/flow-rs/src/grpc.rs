@@ -1,11 +1,15 @@
+use std::str::FromStr;
+
+use base64::Engine;
+use serde_json::Value;
+use tonic_health::pb::health_client;
+
 use catalog::WorkflowDetails;
 use pt::{
     flow_model::{FlowJob, QRepFlowJob},
     peerdb_flow::{QRepWriteMode, QRepWriteType, TypeSystem},
     peerdb_route, tonic,
 };
-use serde_json::Value;
-use tonic_health::pb::health_client;
 
 pub enum PeerValidationResult {
     Valid,
@@ -13,13 +17,29 @@ pub enum PeerValidationResult {
 }
 
 pub struct FlowGrpcClient {
-    client: peerdb_route::flow_service_client::FlowServiceClient<tonic::transport::Channel>,
+    client: peerdb_route::flow_service_client::FlowServiceClient<
+        tonic::codegen::InterceptedService<tonic::transport::Channel, BearerAuthInterceptor>,
+    >,
     health_client: health_client::HealthClient<tonic::transport::Channel>,
+}
+
+struct BearerAuthInterceptor {
+    token: String,
+}
+
+impl tonic::service::Interceptor for BearerAuthInterceptor {
+    fn call(&mut self, mut request: tonic::Request<()>) -> Result<tonic::Request<()>, tonic::Status> {
+        request.metadata_mut().insert(
+            "authorization",
+            tonic::metadata::MetadataValue::from_str(format!("Bearer {0}", self.token).as_str()).unwrap(),
+        );
+        Ok(request)
+    }
 }
 
 impl FlowGrpcClient {
     // create a new grpc client to the flow server using flow server address
-    pub async fn new(flow_server_addr: &str) -> anyhow::Result<Self> {
+    pub async fn new(flow_server_addr: &str, password: String) -> anyhow::Result<Self> {
         // change protocol to grpc
         let flow_server_addr = flow_server_addr.replace("http", "grpc");
 
@@ -30,12 +50,16 @@ impl FlowGrpcClient {
         // Create a gRPC channel
         let channel = tonic::transport::Channel::from_shared(grpc_endpoint.clone())?.connect_lazy();
 
-        // construct a grpc client to the flow server
-        let client = peerdb_route::flow_service_client::FlowServiceClient::new(channel.clone());
+        // Setup the token by hashing the password and base64 encoding it
+        let hashed_password = bcrypt::hash(password, bcrypt::DEFAULT_COST).unwrap();
+        let token = base64::prelude::BASE64_STANDARD.encode(hashed_password.as_bytes());
 
-        // construct a health client to the flow server, use the grpc endpoint
+        // use the token in all requests
+        let interceptor = BearerAuthInterceptor { token };
+
+        // construct a grpc client to the flow server with an interceptor
+        let client= peerdb_route::flow_service_client::FlowServiceClient::with_interceptor(channel.clone(), interceptor);
         let health_client = health_client::HealthClient::new(channel);
-
         Ok(Self {
             client,
             health_client,
@@ -267,9 +291,9 @@ impl FlowGrpcClient {
         }
         if !cfg.initial_copy_only {
             if let Some(QRepWriteMode {
-                write_type: wt,
-                upsert_key_columns: _,
-            }) = cfg.write_mode
+                            write_type: wt,
+                            upsert_key_columns: _,
+                        }) = cfg.write_mode
             {
                 if wt == QRepWriteType::QrepWriteModeOverwrite as i32 {
                     return anyhow::Result::Err(anyhow::anyhow!(

@@ -1214,7 +1214,10 @@ pub async fn main() -> anyhow::Result<()> {
     // log that we accept mirror commands if we have a flow server
     let flow_handler = if let Some(ref addr) = args.flow_api_url {
         tracing::info!("MIRROR commands enabled");
-        Some(Arc::new(Mutex::new(FlowGrpcClient::new(addr).await?)))
+        let password = args.peerdb_password.clone();
+        Some(Arc::new(Mutex::new(
+            FlowGrpcClient::new(addr, password).await?,
+        )))
     } else {
         tracing::info!("MIRROR commands disabled");
         None
