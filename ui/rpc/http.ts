@@ -20,18 +20,18 @@ class Client {
     this.headers = headers;
   }
 
-  raw(path: string, headers?: { [key: string]: any }) {
-    return fetch(this.baseUrl + path, { ...this.headers, ...headers });
+  raw(path: string, options?: { [key: string]: any }) {
+    return fetch(this.baseUrl + path, { headers: this.headers, ...options });
   }
 
-  get(path: string, headers?: { [key: string]: any }) {
-    return this.raw(path, headers).then(handleResponse);
+  get(path: string, options?: { [key: string]: any }) {
+    return this.raw(path, options).then(handleResponse);
   }
 
-  post(path: string, headers?: { [key: string]: any }) {
+  post(path: string, options?: { [key: string]: any }) {
     return this.raw(path, {
       method: 'POST',
-      ...headers,
+      ...options,
     }).then(handleResponse);
   }
 }

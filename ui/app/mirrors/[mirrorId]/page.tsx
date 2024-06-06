@@ -26,9 +26,7 @@ async function getMirrorStatus(mirrorId: string) {
   const url = getMirrorStatusUrl(mirrorId);
   const flowServiceClient = GetFlowServiceHttpClient();
   try {
-    return await flowServiceClient.get(url, {
-      headers: { cache: 'no-store' },
-    });
+    return await flowServiceClient.get(url, { cache: 'no-store' });
   } catch (e) {
     const message = await ParseFlowServiceErrorMessage(e);
     console.error(message, e);
