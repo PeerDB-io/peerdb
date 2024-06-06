@@ -49,3 +49,10 @@ export type MirrorRowsData = {
   deleteCount: number;
   totalCount: number;
 };
+
+export type MirrorLogsType = {
+  flow_name: string;
+  error_message: string;
+  error_type: string;
+  error_timestamp: Date;
+}[];

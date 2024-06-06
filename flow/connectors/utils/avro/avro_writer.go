@@ -51,9 +51,9 @@ type peerDBOCFWriter struct {
 }
 
 type AvroFile struct {
-	FilePath        string
-	StorageLocation AvroStorageLocation
-	NumRecords      int
+	FilePath        string              `json:"filePath"`
+	StorageLocation AvroStorageLocation `json:"storageLocation"`
+	NumRecords      int                 `json:"numRecords"`
 }
 
 func (l *AvroFile) Cleanup() {
