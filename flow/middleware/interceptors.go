@@ -15,21 +15,19 @@ import (
 func CreateAuthServerInterceptor(ctx context.Context, plaintext string, unauthenticatedMethods []string) grpc.UnaryServerInterceptor {
 	if plaintext == "" {
 		logger.LoggerFromCtx(ctx).Warn("Authentication is disabled")
-		//nolint:nonamedreturns
-		return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
+		return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 			return handler(ctx, req)
 		}
 	}
-	unauthenticatedMethodsMap := make(map[string]bool)
+	unauthenticatedMethodsSet := make(map[string]struct{})
 	for _, method := range unauthenticatedMethods {
-		unauthenticatedMethodsMap[method] = true
+		unauthenticatedMethodsSet[method] = struct{}{}
 	}
-	//nolint:nonamedreturns
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
-		if _, ok := unauthenticatedMethodsMap[info.FullMethod]; ok {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if _, ok := unauthenticatedMethodsSet[info.FullMethod]; ok {
 			return handler(ctx, req)
 		}
-		ctx, err = Authorize(ctx, plaintext)
+		ctx, err := Authorize(ctx, plaintext)
 		if err != nil {
 			return nil, err
 		}
@@ -40,13 +38,12 @@ func CreateAuthServerInterceptor(ctx context.Context, plaintext string, unauthen
 // CreateRequestLoggingInterceptor logs all requests
 // this is important for monitoring, debugging and auditing
 func CreateRequestLoggingInterceptor(ignoredMethods []string) grpc.UnaryServerInterceptor {
-	ignoredMethodsMap := make(map[string]bool)
+	ignoredMethodsSet := make(map[string]struct{})
 	for _, method := range ignoredMethods {
-		ignoredMethodsMap[method] = true
+		ignoredMethodsSet[method] = struct{}{}
 	}
-	//nolint:nonamedreturns
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
-		if _, ok := ignoredMethodsMap[info.FullMethod]; ok {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if _, ok := ignoredMethodsSet[info.FullMethod]; ok {
 			return handler(ctx, req)
 		}
 		start := time.Now()
@@ -54,7 +51,7 @@ func CreateRequestLoggingInterceptor(ignoredMethods []string) grpc.UnaryServerIn
 			"Received request",
 			slog.String("grpc.method", info.FullMethod),
 		)
-		resp, err = handler(ctx, req)
+		resp, err := handler(ctx, req)
 		var errorCode string
 		if err != nil {
 			// if error is a grpc error, extract the error code

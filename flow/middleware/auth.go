@@ -21,12 +21,10 @@ func Authorize(ctx context.Context, plaintext string) (context.Context, error) {
 		return nil, status.Errorf(codes.Unauthenticated, "Authorization token is required")
 	}
 	headerValue := md["authorization"][0]
-	bearerPrefix := "Bearer "
-	if !strings.HasPrefix(headerValue, bearerPrefix) {
+	base64Token, hasPrefix := strings.CutPrefix(headerValue, "Bearer ")
+	if !hasPrefix {
 		return nil, status.Errorf(codes.Unauthenticated, "Unsupported authorization type")
-	}
-	base64Token := strings.TrimPrefix(headerValue, bearerPrefix)
-	if base64Token == "" {
+	} else if base64Token == "" {
 		return nil, status.Errorf(codes.Unauthenticated, "Authorization token is required")
 	}
 	// Always a good practice to have the actual token in base64
@@ -35,10 +33,8 @@ func Authorize(ctx context.Context, plaintext string) (context.Context, error) {
 		logger.LoggerFromCtx(ctx).Warn("Error decoding token", slog.String("token", base64Token), slog.Any("error", err))
 		return nil, status.Errorf(codes.Unauthenticated, "Authentication failed")
 	}
-	token := string(tokenBytes)
-	err = bcrypt.CompareHashAndPassword([]byte(token), []byte(plaintext))
-	if err != nil {
-		logger.LoggerFromCtx(ctx).Warn("Error validating token", slog.String("token", token), slog.Any("error", err))
+	if err := bcrypt.CompareHashAndPassword(tokenBytes, []byte(plaintext)); err != nil {
+		logger.LoggerFromCtx(ctx).Warn("Error validating token", slog.String("token", string(tokenBytes)), slog.Any("error", err))
 		return nil, status.Errorf(codes.Unauthenticated, "Authentication failed")
 	}
 	return ctx, nil
