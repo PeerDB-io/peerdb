@@ -32,7 +32,6 @@
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
-    "axios": "^1.7.2",
     "bcrypt": "^5.1.1",
     "classnames": "^2.5.1",
     "long": "^5.2.3",

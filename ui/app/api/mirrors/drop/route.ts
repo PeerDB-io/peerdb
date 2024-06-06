@@ -18,9 +18,8 @@ export async function POST(request: Request) {
   };
 
   try {
-    const dropStatus: ShutdownResponse = await flowServiceClient
-      .post<ShutdownResponse>(`/v1/mirrors/drop`, req)
-      .then((res) => res.data);
+    const dropStatus: ShutdownResponse =
+      await flowServiceClient.post(`/v1/mirrors/drop`, req);
     let response: UDropMirrorResponse = {
       dropped: dropStatus.ok,
       errorMessage: dropStatus.errorMessage,
@@ -28,7 +27,7 @@ export async function POST(request: Request) {
 
     return new Response(JSON.stringify(response));
   } catch (e) {
-    const message = ParseFlowServiceErrorMessage(e);
+    const message = await ParseFlowServiceErrorMessage(e);
     console.error(message, e);
   }
 }

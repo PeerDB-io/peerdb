@@ -10,18 +10,17 @@ export async function POST(request: Request) {
   const { peerName } = body;
   const flowServiceClient = GetFlowServiceHttpClient();
   try {
-    const publicationList: PeerPublicationsResponse = await flowServiceClient
-      .get<PeerPublicationsResponse>(
+    const publicationList: PeerPublicationsResponse =
+      await flowServiceClient.get(
         `/v1/peers/publications?peer_name=${peerName}`
-      )
-      .then((res) => res.data);
+      );
     let response: UPublicationsResponse = {
       publicationNames: publicationList.publicationNames,
     };
     console.log(response);
     return new Response(JSON.stringify(response));
   } catch (e) {
-    const message = ParseFlowServiceErrorMessage(e);
+    const message = await ParseFlowServiceErrorMessage(e);
     console.log(message, e);
   }
 }

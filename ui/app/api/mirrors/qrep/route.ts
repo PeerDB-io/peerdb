@@ -18,16 +18,18 @@ export async function POST(request: Request) {
     createCatalogEntry: true,
   };
   try {
-    const createStatus: CreateQRepFlowResponse = await flowServiceClient
-      .post<CreateQRepFlowResponse>(`/v1/flows/qrep/create`, req)
-      .then((res) => res.data);
+    const createStatus: CreateQRepFlowResponse =
+      await flowServiceClient.post(
+        `/v1/flows/qrep/create`,
+        req
+      );
     let response: UCreateMirrorResponse = {
       created: !!createStatus.workflowId,
     };
 
     return new Response(JSON.stringify(response));
   } catch (e) {
-    const message = ParseFlowServiceErrorMessage(e);
+    const message = await ParseFlowServiceErrorMessage(e);
     console.error(message, e);
   }
 }

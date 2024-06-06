@@ -16,13 +16,14 @@ export async function POST(request: NextRequest) {
     connectionConfigs: config,
   };
   try {
-    const validateResponse: ValidateCDCMirrorResponse = await flowServiceClient
-      .post<ValidateCDCMirrorResponse>(`/v1/mirrors/cdc/validate`, req)
-      .then((res) => res.data);
-
+    const validateResponse: ValidateCDCMirrorResponse =
+      await flowServiceClient.post(
+        `/v1/mirrors/cdc/validate`,
+        req
+      );
     return new Response(JSON.stringify(validateResponse));
   } catch (e) {
-    const message = ParseFlowServiceErrorMessage(e);
+    const message = await ParseFlowServiceErrorMessage(e);
     console.log(message, e);
   }
 }

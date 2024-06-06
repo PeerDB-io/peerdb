@@ -10,17 +10,16 @@ export async function POST(request: Request) {
   const { peerName, schemaName, tableName } = body;
   const flowServiceClient = GetFlowServiceHttpClient();
   try {
-    const columnsList: TableColumnsResponse = await flowServiceClient
-      .get<TableColumnsResponse>(
+    const columnsList: TableColumnsResponse =
+      await flowServiceClient.get(
         `/v1/peers/columns?peer_name=${peerName}&schema_name=${schemaName}&table_name=${tableName}`
-      )
-      .then((res) => res.data);
+      );
     let response: UColumnsResponse = {
       columns: columnsList.columns,
     };
     return new Response(JSON.stringify(response));
   } catch (e) {
-    const message = ParseFlowServiceErrorMessage(e);
+    const message = await ParseFlowServiceErrorMessage(e);
     console.log(message, e);
   }
 }

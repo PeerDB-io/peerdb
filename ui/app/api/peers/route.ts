@@ -110,7 +110,7 @@ export async function POST(request: Request) {
     const validateReq: ValidatePeerRequest = { peer };
     try {
       const validateStatus: ValidatePeerResponse = await flowServiceClient
-        .post<ValidatePeerResponse>(`/v1/peers/validate`, validateReq)
+        .post(`/v1/peers/validate`, validateReq)
         .then((res) => {
           return res.data;
         });
@@ -122,15 +122,16 @@ export async function POST(request: Request) {
       };
       return new Response(JSON.stringify(response));
     } catch (error) {
-      const message = ParseFlowServiceErrorMessage(error);
+      const message = await ParseFlowServiceErrorMessage(error);
       console.error('Error validating peer:', message, error);
     }
   } else if (mode === 'create') {
     const req: CreatePeerRequest = { peer };
     try {
-      const createStatus = await flowServiceClient
-        .post<CreatePeerResponse>(`/v1/peers/create`, req)
-        .then((res) => res.data);
+      const createStatus = await flowServiceClient.post(
+        `/v1/peers/create`,
+        req
+      );
       let response: UCreatePeerResponse = {
         created:
           createPeerStatusFromJSON(createStatus.status) ===
@@ -139,7 +140,7 @@ export async function POST(request: Request) {
       };
       return new Response(JSON.stringify(response));
     } catch (error) {
-      const message = ParseFlowServiceErrorMessage(error);
+      const message = await ParseFlowServiceErrorMessage(error);
       console.error('Error creating peer:', message, error);
     }
   }

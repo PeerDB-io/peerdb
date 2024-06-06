@@ -10,15 +10,15 @@ export async function POST(request: Request) {
   const { peerName } = body;
   const flowServiceClient = GetFlowServiceHttpClient();
   try {
-    const schemaList = await flowServiceClient
-      .get<PeerSchemasResponse>(`/v1/peers/schemas?peer_name=${peerName}`)
-      .then((res) => res.data);
+    const schemaList = await flowServiceClient.get(
+      `/v1/peers/schemas?peer_name=${peerName}`
+    );
     let response: USchemasResponse = {
       schemas: schemaList.schemas,
     };
     return new Response(JSON.stringify(response));
   } catch (e) {
-    const message = ParseFlowServiceErrorMessage(e);
+    const message = await ParseFlowServiceErrorMessage(e);
     console.log(message, e);
   }
 }

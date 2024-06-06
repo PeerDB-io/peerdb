@@ -18,14 +18,11 @@ const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
   const getSlotData = async () => {
     const flowServiceClient = GetFlowServiceHttpClient();
     try {
-      const peerSlots: PeerSlotResponse = await flowServiceClient
-        .get<PeerSlotResponse>(`/v1/peers/slots/${peerName}`, {
-          headers: {
-            cache: 'no-store',
-          },
-        })
-        .then((res) => res.data);
-
+      const peerSlots: PeerSlotResponse =
+        await flowServiceClient.get(
+          `/v1/peers/slots/${peerName}`,
+          { cache: 'no-store' }
+        );
       const slotArray = peerSlots.slotData;
       // slots with 'peerflow_slot' should come first
       slotArray?.sort((slotA, slotB) => {
@@ -45,7 +42,7 @@ const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
       });
       return slotArray;
     } catch (e) {
-      const message = ParseFlowServiceErrorMessage(e);
+      const message = await ParseFlowServiceErrorMessage(e);
       console.error(message, e);
       return [];
     }
@@ -54,17 +51,14 @@ const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
   const getStatData = async () => {
     const flowServiceClient = GetFlowServiceHttpClient();
     try {
-      const peerStats: PeerStatResponse = await flowServiceClient
-        .get<PeerStatResponse>(`/v1/peers/stats/${peerName}`, {
-          headers: {
-            cache: 'no-store',
-          },
-        })
-        .then((res) => res.data);
-
+      const peerStats: PeerStatResponse =
+        await flowServiceClient.get(
+          `/v1/peers/stats/${peerName}`,
+          { cache: 'no-store' }
+        );
       return peerStats.statData;
     } catch (e) {
-      const message = ParseFlowServiceErrorMessage(e);
+      const message = await ParseFlowServiceErrorMessage(e);
       console.error(message, e);
       return [];
     }

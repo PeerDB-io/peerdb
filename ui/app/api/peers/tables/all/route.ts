@@ -10,15 +10,16 @@ export async function POST(request: Request) {
   const { peerName } = body;
   const flowServiceClient = GetFlowServiceHttpClient();
   try {
-    const tableList: AllTablesResponse = await flowServiceClient
-      .get<AllTablesResponse>(`/v1/peers/tables/all?peer_name=${peerName}`)
-      .then((res) => res.data);
+    const tableList: AllTablesResponse =
+      await flowServiceClient.get(
+        `/v1/peers/tables/all?peer_name=${peerName}`
+      );
     let response: UTablesAllResponse = {
       tables: tableList.tables,
     };
     return new Response(JSON.stringify(response));
   } catch (e) {
-    const message = ParseFlowServiceErrorMessage(e);
+    const message = await ParseFlowServiceErrorMessage(e);
     console.error(message, e);
   }
 }

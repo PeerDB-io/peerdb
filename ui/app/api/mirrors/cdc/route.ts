@@ -1,8 +1,5 @@
 import { UCreateMirrorResponse } from '@/app/dto/MirrorsDTO';
-import {
-  CreateCDCFlowRequest,
-  CreateCDCFlowResponse,
-} from '@/grpc_generated/route';
+import { CreateCDCFlowRequest } from '@/grpc_generated/route';
 import {
   GetFlowServiceHttpClient,
   ParseFlowServiceErrorMessage,
@@ -17,10 +14,10 @@ export async function POST(request: Request) {
     connectionConfigs: config,
   };
   try {
-    const createStatus = await flowServiceClient
-      .post<CreateCDCFlowResponse>(`/v1/flows/cdc/create`, req)
-      .then((res) => res.data);
-
+    const createStatus = await flowServiceClient.post(
+      `/v1/flows/cdc/create`,
+      req
+    );
     if (!createStatus.workflowId) {
       return new Response(JSON.stringify(createStatus));
     }
@@ -30,7 +27,7 @@ export async function POST(request: Request) {
 
     return new Response(JSON.stringify(response));
   } catch (e) {
-    const message = ParseFlowServiceErrorMessage(e);
+    const message = await ParseFlowServiceErrorMessage(e);
     console.log(message, e);
   }
 }
