@@ -13,5 +13,6 @@ DROP AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4);
 END;',1,'SQL statement to run during each WAL heartbeat',1),
 ('PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE','false',4,'Advanced setting: enables experimental parallel sync (moving rows to target) and normalize (updating rows in target table)',2),
 ('PEERDB_SNOWFLAKE_MERGE_PARALLELISM','8',2,'Number of MERGE statements to run in parallel, applies to CDC mirrors with Snowflake targets. -1 means no limit',1),
-('PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME','',1,'S3 buckets to store Avro files for mirrors with ClickHouse target',1)
+('PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME','',1,'S3 buckets to store Avro files for mirrors with ClickHouse target',1),
+('PEERDB_QUEUE_FORCE_TOPIC_CREATION','false',4,'Force auto topic creation in mirrors, applies to Kafka and PubSub mirrors',4)
  ON CONFLICT DO NOTHING;
