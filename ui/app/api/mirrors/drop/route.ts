@@ -18,8 +18,10 @@ export async function POST(request: Request) {
   };
 
   try {
-    const dropStatus: ShutdownResponse =
-      await flowServiceClient.post(`/v1/mirrors/drop`, req);
+    const dropStatus: ShutdownResponse = await flowServiceClient.post(
+      `/v1/mirrors/drop`,
+      req
+    );
     let response: UDropMirrorResponse = {
       dropped: dropStatus.ok,
       errorMessage: dropStatus.errorMessage,

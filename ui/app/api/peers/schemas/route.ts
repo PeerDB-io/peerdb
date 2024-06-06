@@ -1,5 +1,4 @@
 import { USchemasResponse } from '@/app/dto/PeersDTO';
-import { PeerSchemasResponse } from '@/grpc_generated/route';
 import {
   GetFlowServiceHttpClient,
   ParseFlowServiceErrorMessage,

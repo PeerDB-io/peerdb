@@ -18,11 +18,10 @@ export async function POST(request: Request) {
     createCatalogEntry: true,
   };
   try {
-    const createStatus: CreateQRepFlowResponse =
-      await flowServiceClient.post(
-        `/v1/flows/qrep/create`,
-        req
-      );
+    const createStatus: CreateQRepFlowResponse = await flowServiceClient.post(
+      `/v1/flows/qrep/create`,
+      req
+    );
     let response: UCreateMirrorResponse = {
       created: !!createStatus.workflowId,
     };

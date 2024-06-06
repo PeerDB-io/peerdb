@@ -17,10 +17,7 @@ export async function POST(request: NextRequest) {
   };
   try {
     const validateResponse: ValidateCDCMirrorResponse =
-      await flowServiceClient.post(
-        `/v1/mirrors/cdc/validate`,
-        req
-      );
+      await flowServiceClient.post(`/v1/mirrors/cdc/validate`, req);
     return new Response(JSON.stringify(validateResponse));
   } catch (e) {
     const message = await ParseFlowServiceErrorMessage(e);

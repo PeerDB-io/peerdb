@@ -1,5 +1,5 @@
 import { UDropPeerResponse } from '@/app/dto/PeersDTO';
-import { DropPeerRequest, DropPeerResponse } from '@/grpc_generated/route';
+import { DropPeerRequest } from '@/grpc_generated/route';
 import {
   GetFlowServiceHttpClient,
   ParseFlowServiceErrorMessage,
@@ -14,10 +14,7 @@ export async function POST(request: Request) {
   };
   console.log('/drop/peer: req:', req);
   try {
-    const dropStatus = await flowServiceClient.post(
-      `/v1/peers/drop`,
-      req
-    );
+    const dropStatus = await flowServiceClient.post(`/v1/peers/drop`, req);
     let response: UDropPeerResponse = {
       dropped: dropStatus.ok,
       errorMessage: dropStatus.errorMessage,

@@ -21,7 +21,6 @@ import {
 } from '@/grpc_generated/peers';
 import {
   CreatePeerRequest,
-  CreatePeerResponse,
   CreatePeerStatus,
   ValidatePeerRequest,
   ValidatePeerResponse,

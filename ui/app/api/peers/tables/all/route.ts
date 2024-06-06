@@ -10,10 +10,9 @@ export async function POST(request: Request) {
   const { peerName } = body;
   const flowServiceClient = GetFlowServiceHttpClient();
   try {
-    const tableList: AllTablesResponse =
-      await flowServiceClient.get(
-        `/v1/peers/tables/all?peer_name=${peerName}`
-      );
+    const tableList: AllTablesResponse = await flowServiceClient.get(
+      `/v1/peers/tables/all?peer_name=${peerName}`
+    );
     let response: UTablesAllResponse = {
       tables: tableList.tables,
     };

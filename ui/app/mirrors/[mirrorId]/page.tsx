@@ -3,7 +3,6 @@ import prisma from '@/app/utils/prisma';
 import MirrorActions from '@/components/MirrorActionsDropdown';
 import { FlowConnectionConfigs, FlowStatus } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
-import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { Header } from '@/lib/Header';
 import { LayoutMain } from '@/lib/Layout';
 import {
