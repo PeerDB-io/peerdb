@@ -3,8 +3,8 @@ import axios from 'axios';
 import bcrypt from 'bcrypt';
 import 'server-only';
 
-function hashPassword(password: string, salt: number) {
-  return bcrypt.hashSync(password, salt);
+function hashPassword(password: string, rounds: number) {
+  return bcrypt.hashSync(password, rounds);
 }
 
 export function GetAPIToken() {
