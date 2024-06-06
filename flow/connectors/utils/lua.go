@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/gluaflatbuffers"
 	"github.com/PeerDB-io/gluajson"
@@ -109,8 +109,12 @@ type LPool[T any] struct {
 	closed   bool
 }
 
-func LuaPool[T any](cons func() (*lua.LState, error), merge func(T)) (*LPool[T], error) {
-	maxSize := peerdbenv.PeerDBQueueParallelism()
+func LuaPool[T any](ctx context.Context, cons func() (*lua.LState, error), merge func(T)) (*LPool[T], error) {
+	maxSize, err := peerdbenv.PeerDBQueueParallelism(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get parallelism: %w", err)
+	}
+
 	returns := make(chan (<-chan T), maxSize)
 	wait := make(chan struct{})
 	go func() {
@@ -127,7 +131,7 @@ func LuaPool[T any](cons func() (*lua.LState, error), merge func(T)) (*LPool[T],
 		returns:  returns,
 		wait:     wait,
 		cons:     cons,
-		maxSize:  maxSize,
+		maxSize:  int(maxSize),
 		size:     0,
 		closed:   false,
 	}

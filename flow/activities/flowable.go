@@ -570,19 +570,27 @@ func (a *FlowableActivity) DropFlowDestination(ctx context.Context, config *prot
 
 func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 	logger := activity.GetLogger(ctx)
-	if !peerdbenv.PeerDBEnableWALHeartbeat() {
+	walHeartbeatEnabled, err := peerdbenv.PeerDBEnableWALHeartbeat(ctx)
+	if err != nil {
+		logger.Warn("unable to fetch wal heartbeat config. Skipping walheartbeat send.", slog.Any("error", err))
+		return err
+	}
+	if !walHeartbeatEnabled {
 		logger.Info("wal heartbeat is disabled")
 		return nil
+	}
+	walHeartbeatStatement, err := peerdbenv.PeerDBWALHeartbeatQuery(ctx)
+	if err != nil {
+		logger.Warn("unable to fetch wal heartbeat config. Skipping walheartbeat send.", slog.Any("error", err))
+		return err
 	}
 
 	pgPeers, err := a.getPostgresPeerConfigs(ctx)
 	if err != nil {
-		logger.Warn("[sendwalheartbeat] unable to fetch peers. " +
-			"Skipping walheartbeat send. Error: " + err.Error())
+		logger.Warn("[sendwalheartbeat] unable to fetch peers. Skipping walheartbeat send.", slog.Any("error", err))
 		return err
 	}
 
-	command := peerdbenv.PeerDBWALHeartbeatQuery()
 	// run above command for each Postgres peer
 	for _, pgPeer := range pgPeers {
 		activity.RecordHeartbeat(ctx, pgPeer.Name)
@@ -599,7 +607,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 				return
 			}
 			defer pgConn.Close()
-			cmdErr := pgConn.ExecuteCommand(ctx, command)
+			cmdErr := pgConn.ExecuteCommand(ctx, walHeartbeatStatement)
 			if cmdErr != nil {
 				logger.Warn(fmt.Sprintf("could not send walheartbeat to peer %v: %v", pgPeer.Name, cmdErr))
 			}

@@ -114,6 +114,50 @@ func PeerDBBigQueryEnableSyncedAtPartitioning(ctx context.Context) (bool, error)
 	return dynamicConfBool(ctx, "PEERDB_BIGQUERY_ENABLE_SYNCED_AT_PARTITIONING_BY_DAYS")
 }
 
+func PeerDBCDCChannelBufferSize(ctx context.Context) (int64, error) {
+	return dynamicConfSigned[int64](ctx, "PEERDB_CDC_CHANNEL_BUFFER_SIZE")
+}
+
+func PeerDBQueueFlushTimeoutSeconds(ctx context.Context) (time.Duration, error) {
+	x, err := dynamicConfSigned[int64](ctx, "PEERDB_QUEUE_FLUSH_TIMEOUT_SECONDS")
+	if err != nil {
+		return 0, err
+	}
+	return time.Duration(x) * time.Second, nil
+}
+
+func PeerDBQueueParallelism(ctx context.Context) (int64, error) {
+	return dynamicConfSigned[int64](ctx, "PEERDB_QUEUE_PARALLELISM")
+}
+
+func PeerDBCDCDiskSpillRecordsThreshold(ctx context.Context) (int64, error) {
+	return dynamicConfSigned[int64](ctx, "PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD")
+}
+
+func PeerDBCDCDiskSpillMemPercentThreshold(ctx context.Context) (int64, error) {
+	return dynamicConfSigned[int64](ctx, "PEERDB_CDC_DISK_SPILL_MEM_PERCENT_THRESHOLD")
+}
+
+func PeerDBEnableWALHeartbeat(ctx context.Context) (bool, error) {
+	return dynamicConfBool(ctx, "PEERDB_ENABLE_WAL_HEARTBEAT")
+}
+
+func PeerDBWALHeartbeatQuery(ctx context.Context) (string, error) {
+	return dynLookup(ctx, "PEERDB_WAL_HEARTBEAT_QUERY")
+}
+
+func PeerDBEnableParallelSyncNormalize(ctx context.Context) (bool, error) {
+	return dynamicConfBool(ctx, "PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE")
+}
+
+func PeerDBSnowflakeMergeParallelism(ctx context.Context) (int64, error) {
+	return dynamicConfSigned[int64](ctx, "PEERDB_SNOWFLAKE_MERGE_PARALLELISM")
+}
+
+func PeerDBClickhouseAWSS3BucketName(ctx context.Context) (string, error) {
+	return dynLookup(ctx, "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
+}
+
 // Kafka has topic auto create as an option, auto.create.topics.enable
 // But non-dedicated cluster maybe can't set config, may want peerdb to create topic. Similar for PubSub
 func PeerDBQueueForceTopicCreation(ctx context.Context) (bool, error) {

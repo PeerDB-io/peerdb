@@ -1,6 +1,7 @@
 package peerflow
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
@@ -78,7 +79,12 @@ func SyncFlowWorkflow(
 
 	var waitSelector workflow.Selector
 	parallel := GetSideEffect(ctx, func(_ workflow.Context) bool {
-		return peerdbenv.PeerDBEnableParallelSyncNormalize()
+		res, err := peerdbenv.PeerDBEnableParallelSyncNormalize(context.Background())
+		if err != nil {
+			logger.Warn("failed to get status of parallel sync normalize", slog.Any("error", err))
+			return false
+		}
+		return res
 	})
 	if !parallel {
 		waitSelector = workflow.NewNamedSelector(ctx, "NormalizeWait")

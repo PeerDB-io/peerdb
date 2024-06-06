@@ -5,8 +5,6 @@ import (
 
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/workflow"
-
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 // RecordSlotSizeWorkflow monitors replication slot size
@@ -47,18 +45,13 @@ func withCronOptions(ctx workflow.Context, workflowID string, cron string) workf
 func GlobalScheduleManagerWorkflow(ctx workflow.Context) error {
 	info := workflow.GetInfo(ctx)
 
-	walHeartbeatEnabled := GetSideEffect(ctx, func(_ workflow.Context) bool {
-		return peerdbenv.PeerDBEnableWALHeartbeat()
-	})
-	if walHeartbeatEnabled {
-		heartbeatCtx := withCronOptions(ctx,
-			"wal-heartbeat-"+info.OriginalRunID,
-			"*/12 * * * *")
-		workflow.ExecuteChildWorkflow(
-			heartbeatCtx,
-			HeartbeatFlowWorkflow,
-		)
-	}
+	heartbeatCtx := withCronOptions(ctx,
+		"wal-heartbeat-"+info.OriginalRunID,
+		"*/12 * * * *")
+	workflow.ExecuteChildWorkflow(
+		heartbeatCtx,
+		HeartbeatFlowWorkflow,
+	)
 
 	slotSizeCtx := withCronOptions(ctx,
 		"record-slot-size-"+info.OriginalRunID,

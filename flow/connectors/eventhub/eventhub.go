@@ -184,7 +184,11 @@ func (c *EventHubConnector) processBatch(
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns, false)
 
-	ticker := time.NewTicker(peerdbenv.PeerDBQueueFlushTimeoutSeconds())
+	flushTimeout, err := peerdbenv.PeerDBQueueFlushTimeoutSeconds(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get flush timeout: %w", err)
+	}
+	ticker := time.NewTicker(flushTimeout)
 	defer ticker.Stop()
 
 	lastSeenLSN := int64(0)
