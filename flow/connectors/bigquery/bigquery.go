@@ -673,12 +673,12 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 
 	// cluster by the primary key if < 4 columns.
 	var clustering *bigquery.Clustering
-	// numPkeyCols := len(tableSchema.PrimaryKeyColumns)
-	// if numPkeyCols > 0 && numPkeyCols < 4 {
-	// 	clustering = &bigquery.Clustering{
-	// 		Fields: tableSchema.PrimaryKeyColumns,
-	// 	}
-	// }
+	numPkeyCols := len(tableSchema.PrimaryKeyColumns)
+	if numPkeyCols > 0 && numPkeyCols < 4 {
+		clustering = &bigquery.Clustering{
+			Fields: tableSchema.PrimaryKeyColumns,
+		}
+	}
 
 	timePartitionEnabled, err := peerdbenv.PeerDBBigQueryEnableSyncedAtPartitioning(ctx)
 	if err != nil {
