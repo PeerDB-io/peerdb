@@ -183,10 +183,7 @@ const SettingsPage = () => {
       setting.config_name.toLowerCase().includes(searchQuery.toLowerCase())
     );
   }, [settings, searchQuery]);
-  const totalPages = useMemo(
-    () => Math.ceil(filteredSettings.length / ROWS_PER_PAGE),
-    [filteredSettings]
-  );
+  const totalPages = Math.ceil(filteredSettings.length / ROWS_PER_PAGE);
   const displayedSettings = useMemo(() => {
     filteredSettings.sort((a, b) => {
       const aValue = a[sortField];
