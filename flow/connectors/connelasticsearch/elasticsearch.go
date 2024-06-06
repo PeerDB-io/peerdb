@@ -146,8 +146,6 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 	defer cacheCloser()
 
 	flushLoopDone := make(chan struct{})
-	// we only update lastSeenLSN in the OnSuccess call, so this should be safe even if race
-	// between loop breaking and closing flushLoopDone
 	go func() {
 		flushTimeout, err := peerdbenv.PeerDBQueueFlushTimeoutSeconds(ctx)
 		if err != nil {
