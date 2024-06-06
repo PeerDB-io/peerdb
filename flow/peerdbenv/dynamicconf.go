@@ -3,6 +3,7 @@ package peerdbenv
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"time"
@@ -17,7 +18,7 @@ import (
 func dynLookup(ctx context.Context, key string) (string, error) {
 	conn, err := GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool: %v", err)
+		logger.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool", slog.Any("error", err))
 		return "", fmt.Errorf("failed to get catalog connection pool: %w", err)
 	}
 
@@ -31,7 +32,7 @@ func dynLookup(ctx context.Context, key string) (string, error) {
 				return val, nil
 			}
 		}
-		logger.LoggerFromCtx(ctx).Error("Failed to get key: %v", err)
+		logger.LoggerFromCtx(ctx).Error("Failed to get key", slog.Any("error", err))
 		return "", fmt.Errorf("failed to get key: %w", err)
 	}
 	if !value.Valid {
@@ -57,7 +58,7 @@ func dynamicConfSigned[T constraints.Signed](ctx context.Context, key string) (T
 		return strconv.ParseInt(value, 10, 64)
 	})
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Error("Failed to parse as int64: %v", err)
+		logger.LoggerFromCtx(ctx).Error("Failed to parse as int64", slog.Any("error", err))
 		return 0, fmt.Errorf("failed to parse as int64: %w", err)
 	}
 
@@ -69,8 +70,8 @@ func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, key string
 		return strconv.ParseUint(value, 10, 64)
 	})
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Error("Failed to parse as int64: %v", err)
-		return 0, fmt.Errorf("failed to parse as int64: %w", err)
+		logger.LoggerFromCtx(ctx).Error("Failed to parse as uint64", slog.Any("error", err))
+		return 0, fmt.Errorf("failed to parse as uint64: %w", err)
 	}
 
 	return T(value), nil
@@ -79,7 +80,7 @@ func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, key string
 func dynamicConfBool(ctx context.Context, key string) (bool, error) {
 	value, err := dynLookupConvert(ctx, key, strconv.ParseBool)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Error("Failed to parse bool: %v", err)
+		logger.LoggerFromCtx(ctx).Error("Failed to parse bool", slog.Any("error", err))
 		return false, fmt.Errorf("failed to parse bool: %w", err)
 	}
 
@@ -111,4 +112,10 @@ func PeerDBOpenConnectionsAlertThreshold(ctx context.Context) (uint32, error) {
 // If false, the target tables will not be partitioned
 func PeerDBBigQueryEnableSyncedAtPartitioning(ctx context.Context) (bool, error) {
 	return dynamicConfBool(ctx, "PEERDB_BIGQUERY_ENABLE_SYNCED_AT_PARTITIONING_BY_DAYS")
+}
+
+// Kafka has topic auto create as an option, auto.create.topics.enable
+// But non-dedicated cluster maybe can't set config, may want peerdb to create topic. Similar for PubSub
+func PeerDBQueueForceTopicCreation(ctx context.Context) (bool, error) {
+	return dynamicConfBool(ctx, "PEERDB_QUEUE_FORCE_TOPIC_CREATION")
 }
