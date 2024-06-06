@@ -752,7 +752,7 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 		// For a table with replica identity full and a JSON column
 		// the equals to comparison we do down below will fail
 		// so we need to use TO_JSON_STRING for those columns
-		var columnIsJSON = make(map[string]bool, len(renameRequest.TableSchema.Columns))
+		columnIsJSON := make(map[string]bool, len(renameRequest.TableSchema.Columns))
 		columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
 		for _, col := range renameRequest.TableSchema.Columns {
 			quotedCol := "`" + col.Name + "`"
