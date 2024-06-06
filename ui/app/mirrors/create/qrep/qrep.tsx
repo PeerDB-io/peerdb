@@ -2,7 +2,6 @@
 import SelectTheme from '@/app/styles/select';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepConfig, QRepWriteType } from '@/grpc_generated/flow';
-import { DBType } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch';
