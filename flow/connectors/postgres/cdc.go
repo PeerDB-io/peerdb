@@ -641,6 +641,11 @@ func processMessage[Items model.Items](
 			msg.RelationID, msg.Namespace, msg.RelationName, msg.Columns))
 
 		return processRelationMessage[Items](ctx, p, currentClientXlogPos, msg)
+	case *pglogrepl.LogicalDecodingMessage:
+		if !msg.Transactional {
+			batch.UpdateLatestCheckpoint(int64(msg.LSN))
+		}
+		return &model.MessageRecord[Items]{BaseRecord: p.baseRecord(msg.LSN)}, nil
 
 	case *pglogrepl.TruncateMessage:
 		logger.Warn("TruncateMessage not supported")
@@ -824,7 +829,7 @@ func processRelationMessage[Items model.Items](
 	schemaDelta := &protos.TableSchemaDelta{
 		SrcTableName: p.srcTableIDNameMapping[currRel.RelationID],
 		DstTableName: p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name,
-		AddedColumns: make([]*protos.FieldDescription, 0),
+		AddedColumns: nil,
 		System:       prevSchema.System,
 	}
 	for _, column := range currRel.Columns {
