@@ -1,5 +1,4 @@
 import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
-import { GetAPIToken } from '@/app/utils/apitoken';
 import prisma from '@/app/utils/prisma';
 import MirrorActions from '@/components/MirrorActionsDropdown';
 import { FlowConnectionConfigs, FlowStatus } from '@/grpc_generated/flow';
@@ -27,7 +26,6 @@ function getMirrorStatusUrl(mirrorId: string) {
 async function getMirrorStatus(mirrorId: string) {
   const url = getMirrorStatusUrl(mirrorId);
   const flowServiceClient = GetFlowServiceHttpClient();
-  const apiToken = GetAPIToken();
   try {
     return await flowServiceClient
       .get<MirrorStatusResponse>(url, {
