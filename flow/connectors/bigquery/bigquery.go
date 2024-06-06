@@ -787,7 +787,7 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 					// We need to use TO_JSON_STRING for comparing JSON columns
 					pkeyOnClauseBuilder.WriteString("TO_JSON_STRING(_pt.")
 					pkeyOnClauseBuilder.WriteString(col)
-					pkeyOnClauseBuilder.WriteString(") = TO_JSON_STRING(_resync.")
+					pkeyOnClauseBuilder.WriteString(")=TO_JSON_STRING(_resync.")
 					pkeyOnClauseBuilder.WriteString(col)
 					pkeyOnClauseBuilder.WriteString(")")
 				} else {
