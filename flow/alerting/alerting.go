@@ -12,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/PeerDB-io/peer-flow/dynamicconf"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
@@ -123,7 +122,11 @@ func (a *Alerter) AlertIfSlotLag(ctx context.Context, peerName string, slotInfo 
 		deploymentUIDPrefix = fmt.Sprintf("[%s] ", peerdbenv.PeerDBDeploymentUID())
 	}
 
-	defaultSlotLagMBAlertThreshold := dynamicconf.PeerDBSlotLagMBAlertThreshold(ctx)
+	defaultSlotLagMBAlertThreshold, err := peerdbenv.PeerDBSlotLagMBAlertThreshold(ctx)
+	if err != nil {
+		logger.LoggerFromCtx(ctx).Warn("failed to get slot lag alert threshold from catalog", slog.Any("error", err))
+		return
+	}
 	// catalog cannot use default threshold to space alerts properly, use the lowest set threshold instead
 	lowestSlotLagMBAlertThreshold := defaultSlotLagMBAlertThreshold
 	for _, alertSender := range alertSenderConfigs {
@@ -171,7 +174,11 @@ func (a *Alerter) AlertIfOpenConnections(ctx context.Context, peerName string,
 	}
 
 	// same as with slot lag, use lowest threshold for catalog
-	defaultOpenConnectionsThreshold := dynamicconf.PeerDBOpenConnectionsAlertThreshold(ctx)
+	defaultOpenConnectionsThreshold, err := peerdbenv.PeerDBOpenConnectionsAlertThreshold(ctx)
+	if err != nil {
+		logger.LoggerFromCtx(ctx).Warn("failed to get open connections alert threshold from catalog", slog.Any("error", err))
+		return
+	}
 	lowestOpenConnectionsThreshold := defaultOpenConnectionsThreshold
 	for _, alertSender := range alertSenderConfigs {
 		if alertSender.Sender.getOpenConnectionsAlertThreshold() > 0 {
@@ -216,7 +223,11 @@ func (a *Alerter) alertToProvider(ctx context.Context, alertSenderConfig AlertSe
 // in the past X minutes, where X is configurable and defaults to 15 minutes
 // returns true if alert added to catalog, so proceed with processing alerts to slack
 func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId int64, alertKey string, alertMessage string) bool {
-	dur := dynamicconf.PeerDBAlertingGapMinutesAsDuration(ctx)
+	dur, err := peerdbenv.PeerDBAlertingGapMinutesAsDuration(ctx)
+	if err != nil {
+		logger.LoggerFromCtx(ctx).Warn("failed to get alerting gap duration from catalog", slog.Any("error", err))
+		return false
+	}
 	if dur == 0 {
 		logger.LoggerFromCtx(ctx).Warn("Alerting disabled via environment variable, returning")
 		return false
@@ -227,7 +238,7 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId i
 		 ORDER BY created_timestamp DESC LIMIT 1`,
 		alertKey, alertConfigId)
 	var createdTimestamp time.Time
-	err := row.Scan(&createdTimestamp)
+	err = row.Scan(&createdTimestamp)
 	if err != nil && err != pgx.ErrNoRows {
 		logger.LoggerFromCtx(ctx).Warn("failed to send alert: ", slog.String("err", err.Error()))
 		return false

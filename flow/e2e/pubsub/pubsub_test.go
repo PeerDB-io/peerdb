@@ -159,7 +159,6 @@ func (s PubSubSuite) TestCreateTopic() {
 		require.NoError(s.t, err)
 		topic := psclient.Topic(flowName)
 		exists, err := topic.Exists(context.Background())
-		s.t.Log("WWWW exists", exists)
 		require.NoError(s.t, err)
 		return exists
 	})

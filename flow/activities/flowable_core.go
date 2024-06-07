@@ -118,7 +118,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	consumedOffset := atomic.Int64{}
 	consumedOffset.Store(lastOffset)
 
-	recordBatchPull := model.NewCDCStream[Items](peerdbenv.PeerDBCDCChannelBufferSize())
+	channelBufferSize, err := peerdbenv.PeerDBCDCChannelBufferSize(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get CDC channel buffer size: %w", err)
+	}
+	recordBatchPull := model.NewCDCStream[Items](int(channelBufferSize))
 	recordBatchSync := recordBatchPull
 	if adaptStream != nil {
 		var err error

@@ -78,6 +78,7 @@ const CDCField = ({
               getOptionValue={(option) => option.option}
               theme={SelectTheme}
               isLoading={optionsLoading}
+              isClearable={true}
             />
           </div>
           {setting.tips && (

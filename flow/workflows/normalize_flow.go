@@ -9,7 +9,6 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -108,9 +107,7 @@ func NormalizeFlowWorkflow(
 	}
 
 	if ctx.Err() == nil && !state.Stop {
-		parallel := GetSideEffect(ctx, func(_ workflow.Context) bool {
-			return peerdbenv.PeerDBEnableParallelSyncNormalize()
-		})
+		parallel := getParallelSyncNormalize(ctx, logger)
 
 		if !parallel {
 			_ = model.NormalizeDoneSignal.SignalExternalWorkflow(

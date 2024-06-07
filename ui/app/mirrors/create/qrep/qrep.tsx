@@ -2,7 +2,6 @@
 import SelectTheme from '@/app/styles/select';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepConfig, QRepWriteType } from '@/grpc_generated/flow';
-import { DBType } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch';
@@ -105,17 +104,6 @@ export default function QRepConfigForm({
   ) => {
     if (val) {
       if (setting.label.includes('Table')) {
-        if (mirrorConfig.destinationPeer?.type === DBType.BIGQUERY) {
-          setter((curr) => ({
-            ...curr,
-            destinationTableIdentifier: val.split('.')[1],
-          }));
-        } else {
-          setter((curr) => ({
-            ...curr,
-            destinationTableIdentifier: val,
-          }));
-        }
         loadColumnOptions(val);
       }
       handleChange(val, setting);
