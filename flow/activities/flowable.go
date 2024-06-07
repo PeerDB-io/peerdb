@@ -653,14 +653,14 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		return err
 	}
 
-	recordedPeers := make(map[string]bool)
+	recordedPeers := make(map[string]struct{}, len(configs))
 
 	for _, config := range configs {
 		peerName := config.Source.Name
-		if recordedPeers[peerName] {
+		if _, ok := recordedPeers[peerName]; !ok {
 			continue
 		}
-		recordedPeers[peerName] = true
+		recordedPeers[peerName] = struct{}{}
 
 		func() {
 			srcConn, err := connectors.GetCDCPullConnector(ctx, config.Source)
