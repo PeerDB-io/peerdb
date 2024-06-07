@@ -535,7 +535,11 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 
 	var totalRowsAffected int64 = 0
 	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(peerdbenv.PeerDBSnowflakeMergeParallelism())
+	mergeParallelism, err := peerdbenv.PeerDBSnowflakeMergeParallelism(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get merge parallelism: %w", err)
+	}
+	g.SetLimit(int(mergeParallelism))
 
 	mergeGen := &mergeStmtGenerator{
 		rawTableName:             getRawTableIdentifier(flowName),

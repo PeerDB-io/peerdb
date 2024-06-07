@@ -3,11 +3,14 @@ package connkafka
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync/atomic"
 	"time"
 
+	"github.com/twmb/franz-go/pkg/kadm"
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
@@ -40,7 +43,6 @@ func NewKafkaConnector(
 		kgo.SeedBrokers(config.Servers...),
 		kgo.AllowAutoTopicCreation(),
 		kgo.WithLogger(kslog.New(slog.Default())), // TODO use logger.LoggerFromCtx
-		kgo.SoftwareNameAndVersion("peerdb", peerdbenv.PeerDBVersionShaShort()),
 	)
 	if !config.DisableTls {
 		optionalOpts = append(optionalOpts, kgo.DialTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12}))
@@ -72,6 +74,11 @@ func NewKafkaConnector(
 			return nil, fmt.Errorf("unsupported SASL mechanism: %s", config.Sasl)
 		}
 	}
+	force, err := peerdbenv.PeerDBQueueForceTopicCreation(ctx)
+	if err == nil && force {
+		optionalOpts = append(optionalOpts, kgo.UnknownTopicRetries(0))
+	}
+
 	client, err := kgo.NewClient(optionalOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kafka client: %w", err)
@@ -176,7 +183,12 @@ func (c *KafkaConnector) createPool(
 	lastSeenLSN *atomic.Int64,
 	queueErr func(error),
 ) (*utils.LPool[poolResult], error) {
-	return utils.LuaPool(func() (*lua.LState, error) {
+	maxSize, err := peerdbenv.PeerDBQueueParallelism(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get parallelism: %w", err)
+	}
+
+	return utils.LuaPool(int(maxSize), func() (*lua.LState, error) {
 		ls, err := utils.LoadScript(ctx, script, utils.LuaPrintFn(func(s string) {
 			_ = c.LogFlowInfo(ctx, flowJobName, s)
 		}))
@@ -197,13 +209,36 @@ func (c *KafkaConnector) createPool(
 			recordCounter := atomic.Int32{}
 			recordCounter.Store(lenRecords)
 			for _, kr := range result.records {
-				c.client.Produce(ctx, kr, func(_ *kgo.Record, err error) {
+				var handler func(*kgo.Record, error)
+				handler = func(_ *kgo.Record, err error) {
 					if err != nil {
-						queueErr(err)
+						var success bool
+						if errors.Is(err, kerr.UnknownTopicOrPartition) {
+							force, envErr := peerdbenv.PeerDBQueueForceTopicCreation(ctx)
+							if envErr == nil && force {
+								c.logger.Info("[kafka] force topic creation", slog.String("topic", kr.Topic))
+								_, err := kadm.NewClient(c.client).CreateTopic(ctx, 1, 3, nil, kr.Topic)
+								if err != nil && !errors.Is(err, kerr.TopicAlreadyExists) {
+									c.logger.Warn("[kafka] topic create error", slog.Any("error", err))
+									queueErr(err)
+									return
+								}
+								success = true
+							}
+						} else {
+							c.logger.Warn("[kafka] produce error", slog.Any("error", err))
+						}
+						if success {
+							time.Sleep(time.Second) // topic creation can take time to propagate, throttle
+							c.client.Produce(ctx, kr, handler)
+						} else {
+							queueErr(err)
+						}
 					} else if recordCounter.Add(-1) == 0 && lastSeenLSN != nil {
 						shared.AtomicInt64Max(lastSeenLSN, result.lsn)
 					}
-				})
+				}
+				c.client.Produce(ctx, kr, handler)
 			}
 		}
 	})
@@ -223,7 +258,12 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	flushLoopDone := make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(peerdbenv.PeerDBQueueFlushTimeoutSeconds())
+		flushTimeout, err := peerdbenv.PeerDBQueueFlushTimeoutSeconds(ctx)
+		if err != nil {
+			c.logger.Warn("[kafka] failed to get flush timeout, no periodic flushing", slog.Any("error", err))
+			return
+		}
+		ticker := time.NewTicker(flushTimeout)
 		defer ticker.Stop()
 
 		for {

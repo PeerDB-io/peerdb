@@ -91,13 +91,11 @@ pub async fn connect_postgres(config: &PostgresConfig) -> anyhow::Result<tokio_p
         .await
         .map_err(|e| anyhow::anyhow!("error encountered while connecting to postgres {:?}", e))?;
 
-    tokio::task::Builder::new()
-        .name("PostgresQueryExecutor connection")
-        .spawn(async move {
-            if let Err(e) = connection.await {
-                tracing::info!("connection error: {}", e)
-            }
-        })?;
+    tokio::task::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::info!("connection error: {}", e)
+        }
+    });
 
     Ok(client)
 }

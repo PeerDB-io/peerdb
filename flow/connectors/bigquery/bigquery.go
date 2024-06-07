@@ -18,7 +18,6 @@ import (
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	numeric "github.com/PeerDB-io/peer-flow/datatypes"
-	"github.com/PeerDB-io/peer-flow/dynamicconf"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -681,7 +680,10 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 		}
 	}
 
-	timePartitionEnabled := dynamicconf.PeerDBBigQueryEnableSyncedAtPartitioning(ctx)
+	timePartitionEnabled, err := peerdbenv.PeerDBBigQueryEnableSyncedAtPartitioning(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to get dynamic setting for BigQuery time partitioning: %w", err)
+	}
 	var timePartitioning *bigquery.TimePartitioning
 	if timePartitionEnabled && syncedAtColName != "" {
 		timePartitioning = &bigquery.TimePartitioning{
@@ -747,9 +749,15 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 			continue
 		}
 
+		// For a table with replica identity full and a JSON column
+		// the equals to comparison we do down below will fail
+		// so we need to use TO_JSON_STRING for those columns
+		columnIsJSON := make(map[string]bool, len(renameRequest.TableSchema.Columns))
 		columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
 		for _, col := range renameRequest.TableSchema.Columns {
-			columnNames = append(columnNames, "`"+col.Name+"`")
+			quotedCol := "`" + col.Name + "`"
+			columnNames = append(columnNames, quotedCol)
+			columnIsJSON[quotedCol] = (col.Type == "json" || col.Type == "jsonb")
 		}
 
 		if req.SoftDeleteColName != nil {
@@ -775,10 +783,19 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 			pkeyOnClauseBuilder := strings.Builder{}
 			ljWhereClauseBuilder := strings.Builder{}
 			for idx, col := range pkeyCols {
-				pkeyOnClauseBuilder.WriteString("_pt.")
-				pkeyOnClauseBuilder.WriteString(col)
-				pkeyOnClauseBuilder.WriteString(" = _resync.")
-				pkeyOnClauseBuilder.WriteString(col)
+				if columnIsJSON[col] {
+					// We need to use TO_JSON_STRING for comparing JSON columns
+					pkeyOnClauseBuilder.WriteString("TO_JSON_STRING(_pt.")
+					pkeyOnClauseBuilder.WriteString(col)
+					pkeyOnClauseBuilder.WriteString(")=TO_JSON_STRING(_resync.")
+					pkeyOnClauseBuilder.WriteString(col)
+					pkeyOnClauseBuilder.WriteString(")")
+				} else {
+					pkeyOnClauseBuilder.WriteString("_pt.")
+					pkeyOnClauseBuilder.WriteString(col)
+					pkeyOnClauseBuilder.WriteString("=_resync.")
+					pkeyOnClauseBuilder.WriteString(col)
+				}
 
 				ljWhereClauseBuilder.WriteString("_resync.")
 				ljWhereClauseBuilder.WriteString(col)

@@ -332,7 +332,10 @@ func PullCdcRecords[Items model.Items](
 	}
 
 	var standByLastLogged time.Time
-	cdcRecordStore := utils.NewCDCStore[Items](p.FlowJobName)
+	cdcRecordStore, err := utils.NewCDCStore[Items](ctx, p.FlowJobName)
+	if err != nil {
+		return err
+	}
 	defer func() {
 		if cdcRecordStore.IsEmpty() {
 			records.SignalAsEmpty()

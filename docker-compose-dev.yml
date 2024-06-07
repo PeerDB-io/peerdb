@@ -1,5 +1,3 @@
-version: "3.9"
-
 name: peerdb-quickstart-dev
 
 x-minio-config: &minio-config

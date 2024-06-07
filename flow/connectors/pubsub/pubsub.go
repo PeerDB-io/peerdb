@@ -60,7 +60,7 @@ func (c *PubSubConnector) Close() error {
 func (c *PubSubConnector) ConnectionActive(ctx context.Context) error {
 	topic := c.client.Topic("test")
 	_, err := topic.Exists(ctx)
-	return err
+	return fmt.Errorf("pubsub connection active check failure: %w", err)
 }
 
 func (c *PubSubConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
@@ -138,12 +138,17 @@ func (c *PubSubConnector) createPool(
 	publish chan<- publishResult,
 	queueErr func(error),
 ) (*utils.LPool[poolResult], error) {
-	return utils.LuaPool(func() (*lua.LState, error) {
+	maxSize, err := peerdbenv.PeerDBQueueParallelism(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get parallelism: %w", err)
+	}
+
+	return utils.LuaPool(int(maxSize), func() (*lua.LState, error) {
 		ls, err := utils.LoadScript(ctx, script, utils.LuaPrintFn(func(s string) {
 			_ = c.LogFlowInfo(ctx, flowJobName, s)
 		}))
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("[pubsub] error loading script: %w", err)
 		}
 		if script == "" {
 			ls.Env.RawSetString("onRecord", ls.NewFunction(utils.DefaultOnRecord))
@@ -157,20 +162,26 @@ func (c *PubSubConnector) createPool(
 					topicClient.EnableMessageOrdering = true
 				}
 
-				exists, err := topicClient.Exists(ctx)
-				if err != nil {
-					return nil, fmt.Errorf("error checking if topic exists: %w", err)
+				force, envErr := peerdbenv.PeerDBQueueForceTopicCreation(ctx)
+				if envErr != nil {
+					return nil, envErr
 				}
-				if !exists {
-					topicClient, err = c.client.CreateTopic(ctx, message.Topic)
+				if force {
+					exists, err := topicClient.Exists(ctx)
 					if err != nil {
-						return nil, fmt.Errorf("error creating topic: %w", err)
+						return nil, fmt.Errorf("error checking if topic exists: %w", err)
+					}
+					if !exists {
+						topicClient, err = c.client.CreateTopic(ctx, message.Topic)
+						if err != nil {
+							return nil, fmt.Errorf("error creating topic: %w", err)
+						}
 					}
 				}
 				return topicClient, nil
 			})
 			if err != nil {
-				queueErr(err)
+				queueErr(fmt.Errorf("[pubsub] error getting topic: %w", err))
 				return
 			}
 
@@ -253,7 +264,7 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 			if curpub.PublishResult == nil {
 				shared.AtomicInt64Max(&lastSeenLSN, curpub.lsn)
 			} else if _, err := curpub.Get(ctx); err != nil {
-				queueErr(err)
+				queueErr(fmt.Errorf("[pubsub] error publishing message: %w", err))
 				break
 			}
 		}
@@ -262,7 +273,12 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 
 	flushLoopDone := make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(peerdbenv.PeerDBQueueFlushTimeoutSeconds())
+		flushTimeout, err := peerdbenv.PeerDBQueueFlushTimeoutSeconds(ctx)
+		if err != nil {
+			c.logger.Warn("[pubsub] failed to get flush timeout, no periodic flushing", slog.Any("error", err))
+			return
+		}
+		ticker := time.NewTicker(flushTimeout)
 		defer ticker.Stop()
 
 		for {
@@ -299,7 +315,7 @@ Loop:
 				lfn := ls.Env.RawGetString("onRecord")
 				fn, ok := lfn.(*lua.LFunction)
 				if !ok {
-					queueErr(fmt.Errorf("script should define `onRecord` as function, not %s", lfn))
+					queueErr(fmt.Errorf("script should define `onRecord` as function, not %v", lfn))
 					return poolResult{}
 				}
 
@@ -316,7 +332,7 @@ Loop:
 				for i := range args {
 					msg, err := lvalueToPubSubMessage(ls, ls.Get(i-args))
 					if err != nil {
-						queueErr(err)
+						queueErr(fmt.Errorf("[pubsub] error creating message: %w", err))
 						return poolResult{}
 					}
 					if msg.Message != nil {
@@ -342,19 +358,19 @@ Loop:
 
 	close(flushLoopDone)
 	if err := pool.Wait(queueCtx); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("[pubsub] pool.Wait error: %w", err)
 	}
 	close(publish)
 	topiccache.Stop(queueCtx)
 	select {
 	case <-queueCtx.Done():
-		return nil, queueCtx.Err()
+		return nil, fmt.Errorf("[pubsub] queueCtx.Done: %w", queueCtx.Err())
 	case <-waitChan:
 	}
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
 	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("[pubsub] FinishBatch error: %w", err)
 	}
 
 	return &model.SyncResponse{

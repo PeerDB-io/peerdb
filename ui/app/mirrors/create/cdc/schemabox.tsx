@@ -1,4 +1,5 @@
 'use client';
+
 import { TableMapRow } from '@/app/dto/MirrorsDTO';
 import { DBType } from '@/grpc_generated/peers';
 import { Checkbox } from '@/lib/Checkbox';
@@ -12,12 +13,14 @@ import {
   Dispatch,
   SetStateAction,
   useCallback,
+  useEffect,
   useMemo,
   useState,
 } from 'react';
 import { BarLoader } from 'react-spinners/';
 import { fetchColumns, fetchTables } from '../handlers';
 import ColumnBox from './columnbox';
+import { SchemaSettings } from './schemasettings';
 import {
   expandableStyle,
   schemaBoxStyle,
@@ -37,6 +40,7 @@ interface SchemaBoxProps {
   peerType?: DBType;
   omitAdditionalTables: string[] | undefined;
 }
+
 const SchemaBox = ({
   sourcePeer,
   peerType,
@@ -51,6 +55,8 @@ const SchemaBox = ({
   const [columnsLoading, setColumnsLoading] = useState(false);
   const [expandedSchemas, setExpandedSchemas] = useState<string[]>([]);
   const [tableQuery, setTableQuery] = useState<string>('');
+  const [defaultTargetSchema, setDefaultTargetSchema] =
+    useState<string>(schema);
 
   const searchedTables = useMemo(() => {
     const tableQueryLower = tableQuery.toLowerCase();
@@ -146,19 +152,7 @@ const SchemaBox = ({
       setExpandedSchemas((curr) => [...curr, schemaName]);
 
       if (rowsDoNotHaveSchemaTables(schemaName)) {
-        setTablesLoading(true);
-        fetchTables(sourcePeer, schemaName, peerType).then((newRows) => {
-          for (const row of newRows) {
-            if (omitAdditionalTables?.includes(row.source)) {
-              row.canMirror = false;
-            }
-          }
-          setRows((oldRows) => [
-            ...oldRows.filter((oldRow) => oldRow.schema !== schema),
-            ...newRows,
-          ]);
-          setTablesLoading(false);
-        });
+        fetchTablesForSchema(schemaName);
       }
     } else {
       setExpandedSchemas((curr) =>
@@ -166,6 +160,34 @@ const SchemaBox = ({
       );
     }
   };
+
+  const fetchTablesForSchema = useCallback(
+    (schemaName: string) => {
+      setTablesLoading(true);
+      fetchTables(sourcePeer, schemaName, defaultTargetSchema, peerType).then(
+        (newRows) => {
+          for (const row of newRows) {
+            if (omitAdditionalTables?.includes(row.source)) {
+              row.canMirror = false;
+            }
+          }
+          setRows((oldRows) => {
+            const filteredRows = oldRows.filter(
+              (oldRow) => oldRow.schema !== schemaName
+            );
+            const updatedRows = [...filteredRows, ...newRows];
+            return updatedRows;
+          });
+          setTablesLoading(false);
+        }
+      );
+    },
+    [setRows, sourcePeer, defaultTargetSchema, peerType, omitAdditionalTables]
+  );
+
+  useEffect(() => {
+    fetchTablesForSchema(schema);
+  }, [schema, fetchTablesForSchema]);
 
   return (
     <div style={schemaBoxStyle}>
@@ -200,6 +222,12 @@ const SchemaBox = ({
                 setTableQuery(e.target.value)
               }
             />
+            <div style={{ alignSelf: 'center', cursor: 'pointer' }}>
+              <SchemaSettings
+                schema={defaultTargetSchema}
+                setTargetSchemaOverride={setDefaultTargetSchema}
+              />
+            </div>
           </div>
         </div>
         {/* TABLE BOX */}
@@ -273,7 +301,7 @@ const SchemaBox = ({
                           }}
                           variant='simple'
                           placeholder={'Enter target table'}
-                          defaultValue={row.destination}
+                          value={row.destination}
                           onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                             updateDestination(row.source, e.target.value)
                           }
