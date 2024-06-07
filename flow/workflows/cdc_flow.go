@@ -502,9 +502,7 @@ func CDCFlowWorkflow(
 		maps.Copy(state.SyncFlowOptions.TableNameSchemaMapping, payload.TableNameSchemaMapping)
 	})
 
-	parallel := GetSideEffect(ctx, func(_ workflow.Context) bool {
-		return peerdbenv.PeerDBEnableParallelSyncNormalize()
-	})
+	parallel := getParallelSyncNormalize(ctx, logger)
 	if !parallel {
 		normDoneChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
 		normDoneChan.Drain()

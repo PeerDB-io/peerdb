@@ -122,7 +122,7 @@ model qrep_partitions {
   restart_count     Int
   metadata          Json?
   id                Int       @id @default(autoincrement())
-  rows_synced       Int?
+  rows_synced       BigInt?
   qrep_runs         qrep_runs @relation(fields: [flow_name, run_uuid], references: [flow_name, run_uuid], onDelete: Cascade, onUpdate: NoAction, map: "fk_qrep_partitions_run")
 
   @@unique([run_uuid, partition_uuid])
@@ -213,20 +213,14 @@ model schema_deltas_audit_log {
   @@schema("peerdb_stats")
 }
 
-model alerting_settings {
-  id           Int    @id(map: "alerting_settings_pkey1") @default(autoincrement())
-  config_name  String
-  config_value String
-
-  @@schema("public")
-}
-
 model dynamic_settings {
-  id                  Int      @id(map: "alerting_settings_pkey") @default(autoincrement())
-  config_name         String   @unique(map: "idx_alerting_settings_config_name")
-  config_value        String
-  setting_description String?
-  needs_restart       Boolean?
+  id                   Int     @id(map: "alerting_settings_pkey") @default(autoincrement())
+  config_name          String  @unique(map: "idx_alerting_settings_config_name")
+  config_value         String?
+  config_default_value String?
+  config_value_type    Int?
+  config_description   String?
+  config_apply_mode    Int?
 
   @@schema("public")
 }
@@ -258,6 +252,19 @@ model scripts {
   name   String      @unique
   source Bytes
 
+  @@schema("public")
+}
+
+model ch_s3_stage {
+  id            Int      @id @default(autoincrement())
+  flow_job_name String
+  sync_batch_id BigInt
+  avro_file     Json
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([flow_job_name, sync_batch_id])
+  @@index([flow_job_name])
+  @@index([sync_batch_id])
   @@schema("public")
 }
 

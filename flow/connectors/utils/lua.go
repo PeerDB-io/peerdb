@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/gluaflatbuffers"
 	"github.com/PeerDB-io/gluajson"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/pua"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -109,8 +108,7 @@ type LPool[T any] struct {
 	closed   bool
 }
 
-func LuaPool[T any](cons func() (*lua.LState, error), merge func(T)) (*LPool[T], error) {
-	maxSize := peerdbenv.PeerDBQueueParallelism()
+func LuaPool[T any](maxSize int, cons func() (*lua.LState, error), merge func(T)) (*LPool[T], error) {
 	returns := make(chan (<-chan T), maxSize)
 	wait := make(chan struct{})
 	go func() {

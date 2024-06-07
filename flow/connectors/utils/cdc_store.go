@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"context"
 	"encoding/gob"
 	"errors"
 	"fmt"
@@ -43,16 +44,24 @@ type cdcStore[Items model.Items] struct {
 	numRecordsSwitchThreshold int
 }
 
-func NewCDCStore[Items model.Items](flowJobName string) *cdcStore[Items] {
+func NewCDCStore[Items model.Items](ctx context.Context, flowJobName string) (*cdcStore[Items], error) {
+	numRecordsSwitchThreshold, err := peerdbenv.PeerDBCDCDiskSpillRecordsThreshold(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get CDC disk spill records threshold: %w", err)
+	}
+	memPercent, err := peerdbenv.PeerDBCDCDiskSpillMemPercentThreshold(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get CDC disk spill memory percent threshold: %w", err)
+	}
+
 	return &cdcStore[Items]{
 		inMemoryRecords:           make(map[model.TableWithPkey]model.Record[Items]),
 		pebbleDB:                  nil,
 		numRecords:                atomic.Int32{},
 		flowJobName:               flowJobName,
 		dbFolderName:              fmt.Sprintf("%s/%s_%s", os.TempDir(), flowJobName, shared.RandomString(8)),
-		numRecordsSwitchThreshold: peerdbenv.PeerDBCDCDiskSpillRecordsThreshold(),
+		numRecordsSwitchThreshold: int(numRecordsSwitchThreshold),
 		memThresholdBytes: func() uint64 {
-			memPercent := peerdbenv.PeerDBCDCDiskSpillMemPercentThreshold()
 			maxMemBytes := peerdbenv.PeerDBFlowWorkerMaxMemBytes()
 			if memPercent > 0 && maxMemBytes > 0 {
 				return maxMemBytes * uint64(memPercent) / 100
@@ -61,7 +70,7 @@ func NewCDCStore[Items model.Items](flowJobName string) *cdcStore[Items] {
 		}(),
 		thresholdReason: "",
 		memStats:        []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}},
-	}
+	}, nil
 }
 
 func init() {

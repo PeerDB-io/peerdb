@@ -1,5 +1,3 @@
-version: "3.9"
-
 name: peerdb-quickstart
 
 x-minio-config: &minio-config
@@ -175,7 +173,7 @@ services:
       - flow-api
 
   minio:
-    image: minio/minio
+    image: minio/minio:latest
     restart: unless-stopped
     volumes:
       - minio-data:/data

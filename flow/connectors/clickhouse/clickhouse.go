@@ -115,7 +115,10 @@ func NewClickhouseConnector(
 		bucketPathSuffix := fmt.Sprintf("%s/%s",
 			url.PathEscape(deploymentUID), url.PathEscape(flowName))
 		// Fallback: Get S3 credentials from environment
-		awsBucketName := peerdbenv.PeerDBClickhouseAWSS3BucketName()
+		awsBucketName, err := peerdbenv.PeerDBClickhouseAWSS3BucketName(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get PeerDB Clickhouse Bucket Name: %w", err)
+		}
 		if awsBucketName == "" {
 			return nil, errors.New("PeerDB Clickhouse Bucket Name not set")
 		}
