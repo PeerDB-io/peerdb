@@ -122,6 +122,7 @@ type NormalizedTablesConnector interface {
 		tx any,
 		tableIdentifier string,
 		tableSchema *protos.TableSchema,
+		softDeleteEnabled bool,
 		softDeleteColName string,
 		syncedAtColName string,
 	) (bool, error)

@@ -589,6 +589,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	tx interface{},
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
+	softDeleteEnabled bool,
 	softDeleteColName string,
 	syncedAtColName string,
 ) (bool, error) {
@@ -651,7 +652,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 		}
 	}
 
-	if softDeleteColName != "" {
+	if softDeleteEnabled {
 		columns = append(columns, &bigquery.FieldSchema{
 			Name:                   softDeleteColName,
 			Type:                   bigquery.BooleanFieldType,
@@ -760,7 +761,7 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 			columnIsJSON[quotedCol] = (col.Type == "json" || col.Type == "jsonb")
 		}
 
-		if req.SoftDeleteColName != nil {
+		if req.SoftDeleteColName != nil && req.SoftDeleteEnabled {
 			allColsBuilder := strings.Builder{}
 			for idx, col := range columnNames {
 				allColsBuilder.WriteString("_pt.")

@@ -369,6 +369,7 @@ func CDCFlowWorkflow(
 			renameOpts.Peer = cfg.Destination
 			if cfg.SoftDelete {
 				renameOpts.SoftDeleteColName = &cfg.SoftDeleteColName
+				renameOpts.SoftDeleteEnabled = cfg.SoftDelete
 			}
 			renameOpts.SyncedAtColName = &cfg.SyncedAtColName
 			correctedTableNameSchemaMapping := make(map[string]*protos.TableSchema)

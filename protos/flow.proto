@@ -87,6 +87,7 @@ message RenameTablesInput {
   repeated RenameTableOption rename_table_options = 3;
   optional string soft_delete_col_name = 4;
   optional string synced_at_col_name = 5;
+  bool soft_delete_enabled = 7;
 }
 
 message RenameTablesOutput {
@@ -192,6 +193,7 @@ message SetupNormalizedTableBatchInput {
   string soft_delete_col_name = 4;
   string synced_at_col_name = 5;
   string flow_name = 6;
+  bool soft_delete_enabled = 7;
 }
 
 message SetupNormalizedTableOutput {

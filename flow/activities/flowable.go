@@ -190,6 +190,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 			tx,
 			tableIdentifier,
 			tableSchema,
+			config.SoftDeleteEnabled,
 			config.SoftDeleteColName,
 			config.SyncedAtColName,
 		)

@@ -431,6 +431,7 @@ func getRawTableIdentifier(jobName string) string {
 func generateCreateTableSQLForNormalizedTable(
 	sourceTableIdentifier string,
 	sourceTableSchema *protos.TableSchema,
+	softDeleteEnabled bool,
 	softDeleteColName string,
 	syncedAtColName string,
 ) string {
@@ -448,7 +449,7 @@ func generateCreateTableSQLForNormalizedTable(
 			fmt.Sprintf("%s %s", QuoteIdentifier(column.Name), pgColumnType))
 	}
 
-	if softDeleteColName != "" {
+	if softDeleteEnabled {
 		createTableSQLArray = append(createTableSQLArray,
 			QuoteIdentifier(softDeleteColName)+` BOOL DEFAULT FALSE`)
 	}

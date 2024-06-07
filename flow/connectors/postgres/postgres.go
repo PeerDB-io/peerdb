@@ -847,6 +847,7 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	tx any,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
+	softDeleteEnabled bool,
 	softDeleteColName string,
 	syncedAtColName string,
 ) (bool, error) {
@@ -866,7 +867,7 @@ func (c *PostgresConnector) SetupNormalizedTable(
 
 	// convert the column names and types to Postgres types
 	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
-		parsedNormalizedTable.String(), tableSchema, softDeleteColName, syncedAtColName)
+		parsedNormalizedTable.String(), tableSchema, softDeleteEnabled, softDeleteColName, syncedAtColName)
 	_, err = createNormalizedTablesTx.Exec(ctx, normalizedTableCreateSQL)
 	if err != nil {
 		return false, fmt.Errorf("error while creating normalized table: %w", err)

@@ -318,6 +318,7 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 	tx interface{},
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
+	softDeleteEnabled bool,
 	softDeleteColName string,
 	syncedAtColName string,
 ) (bool, error) {
@@ -334,7 +335,7 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 	}
 
 	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
-		normalizedSchemaTable, tableSchema, softDeleteColName, syncedAtColName)
+		normalizedSchemaTable, tableSchema, softDeleteEnabled, softDeleteColName, syncedAtColName)
 	_, err = c.database.ExecContext(ctx, normalizedTableCreateSQL)
 	if err != nil {
 		return false, fmt.Errorf("[sf] error while creating normalized table: %w", err)
@@ -675,6 +676,7 @@ func (c *SnowflakeConnector) checkIfTableExists(
 func generateCreateTableSQLForNormalizedTable(
 	dstSchemaTable *utils.SchemaTable,
 	sourceTableSchema *protos.TableSchema,
+	softDeleteEnabled bool,
 	softDeleteColName string,
 	syncedAtColName string,
 ) string {
@@ -699,7 +701,7 @@ func generateCreateTableSQLForNormalizedTable(
 
 	// add a _peerdb_is_deleted column to the normalized table
 	// this is boolean default false, and is used to mark records as deleted
-	if softDeleteColName != "" {
+	if softDeleteEnabled {
 		createTableSQLArray = append(createTableSQLArray, softDeleteColName+" BOOLEAN DEFAULT FALSE")
 	}
 
@@ -765,7 +767,7 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 			}
 		}
 
-		if req.SoftDeleteColName != nil {
+		if req.SoftDeleteColName != nil && req.SoftDeleteEnabled {
 			columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
 			for _, col := range renameRequest.TableSchema.Columns {
 				columnNames = append(columnNames, SnowflakeIdentifierNormalize(col.Name))

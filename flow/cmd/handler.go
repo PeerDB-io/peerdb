@@ -140,7 +140,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		},
 	}
 
-	if req.ConnectionConfigs.SoftDeleteColName == "" {
+	if req.ConnectionConfigs.SoftDeleteColName == "" && req.ConnectionConfigs.SoftDelete == true {
 		req.ConnectionConfigs.SoftDeleteColName = "_PEERDB_IS_DELETED"
 	}
 

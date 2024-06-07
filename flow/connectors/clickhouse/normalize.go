@@ -37,6 +37,7 @@ func (c *ClickhouseConnector) SetupNormalizedTable(
 	tx interface{},
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
+	softDeleteEnabled bool,
 	softDeleteColName string,
 	syncedAtColName string,
 ) (bool, error) {

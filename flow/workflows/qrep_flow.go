@@ -151,6 +151,7 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 			TableNameSchemaMapping: map[string]*protos.TableSchema{
 				q.config.DestinationTableIdentifier: watermarkTableSchema,
 			},
+			SoftDeleteEnabled: false,
 			SyncedAtColName:   q.config.SyncedAtColName,
 			SoftDeleteColName: q.config.SoftDeleteColName,
 			FlowName:          q.config.FlowJobName,
