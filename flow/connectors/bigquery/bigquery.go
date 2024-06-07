@@ -761,7 +761,7 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 			columnIsJSON[quotedCol] = (col.Type == "json" || col.Type == "jsonb")
 		}
 
-		if req.SoftDeleteColName != nil && req.SoftDeleteEnabled {
+		if req.SoftDeleteColName != nil {
 			allColsBuilder := strings.Builder{}
 			for idx, col := range columnNames {
 				allColsBuilder.WriteString("_pt.")

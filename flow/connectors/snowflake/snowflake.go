@@ -767,7 +767,7 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 			}
 		}
 
-		if req.SoftDeleteColName != nil && req.SoftDeleteEnabled {
+		if req.SoftDeleteColName != nil {
 			columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
 			for _, col := range renameRequest.TableSchema.Columns {
 				columnNames = append(columnNames, SnowflakeIdentifierNormalize(col.Name))
