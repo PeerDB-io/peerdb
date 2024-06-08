@@ -41,6 +41,7 @@ export const blankCDCSetting: FlowConnectionConfigs = {
   idleTimeoutSeconds: 60,
   script: '',
   system: TypeSystem.Q,
+  disablePeerdbColumns: false,
 };
 
 export const blankQRepSetting = {

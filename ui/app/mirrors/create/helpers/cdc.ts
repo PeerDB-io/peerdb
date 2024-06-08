@@ -183,4 +183,16 @@ export const cdcSettings: MirrorSetting[] = [
     tips: 'A field to set the name of PeerDBs soft delete column.',
     advanced: AdvancedSettingType.ALL,
   },
+  {
+    label: 'Disable all PeerDB columns (overrides any other setting)',
+    stateHandler: (value, setter) =>
+      setter((curr: CDCConfig) => ({
+        ...curr,
+        disablePeerdbColumns: value as boolean,
+      })),
+    type: 'switch',
+    default: false,
+    tips: 'Disables columns like synced_at, soft_delete etc. from being added to the destination table',
+    advanced: AdvancedSettingType.ALL,
+  },
 ];

@@ -117,6 +117,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 	flowConnConfig.MaxBatchSize = 100
+	flowConnConfig.DisablePeerdbColumns = true
 
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
@@ -1030,6 +1031,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TypeSystem_PG() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.System = protos.TypeSystem_PG
+	flowConnConfig.DisablePeerdbColumns = true
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -1045,7 +1047,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TypeSystem_PG() {
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize rows", func() bool {
 		err := s.comparePGTables(srcTableName, dstTableName, "id,created_at,updated_at,j::text,jb,aa32,currency")
 		if err != nil {
-			s.t.Log("PGPGPG", err)
+			s.t.Log("error while comparing rows", err)
 		}
 		return err == nil
 	})

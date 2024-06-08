@@ -226,6 +226,14 @@ func CDCFlowWorkflow(
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
 	flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
 
+	// ugly, find a better way to represent this later
+	if cfg.DisablePeerdbColumns {
+		logger.Info("force disabling peerdb columns")
+		cfg.SoftDelete = false
+		cfg.SoftDeleteColName = ""
+		cfg.SyncedAtColName = ""
+	}
+
 	err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (CDCFlowWorkflowState, error) {
 		return *state, nil
 	})

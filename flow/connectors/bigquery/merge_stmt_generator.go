@@ -156,10 +156,12 @@ func (m *mergeStmtGenerator) generateMergeStmt(dstTable string, dstDatasetTable 
 		shortBacktickColNames = append(shortBacktickColNames, fmt.Sprintf("`%s`", shortCol))
 		pureColNames = append(pureColNames, col.Name)
 	}
-	csep := strings.Join(backtickColNames, ", ")
-	shortCsep := strings.Join(shortBacktickColNames, ", ")
-	insertColumnsSQL := csep + fmt.Sprintf(", `%s`", m.peerdbCols.SyncedAtColName)
-	insertValuesSQL := shortCsep + ",CURRENT_TIMESTAMP"
+	insertColumnsSQL := strings.Join(backtickColNames, ", ")
+	insertValuesSQL := strings.Join(shortBacktickColNames, ", ")
+	if m.peerdbCols.SyncedAtColName != "" {
+		insertColumnsSQL = insertColumnsSQL + fmt.Sprintf(", `%s`", m.peerdbCols.SyncedAtColName)
+		insertValuesSQL = insertValuesSQL + ",CURRENT_TIMESTAMP"
+	}
 
 	updateStatementsforToastCols := m.generateUpdateStatements(pureColNames, unchangedToastColumns)
 	if m.peerdbCols.SoftDelete {

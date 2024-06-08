@@ -80,10 +80,12 @@ func (m *mergeStmtGenerator) generateMergeStmt(dstTable string) (string, error) 
 		quotedUpperColNames = append(quotedUpperColNames, SnowflakeIdentifierNormalize(column.Name))
 		columnNames = append(columnNames, column.Name)
 	}
-	// append synced_at column
-	quotedUpperColNames = append(quotedUpperColNames,
-		fmt.Sprintf(`"%s"`, strings.ToUpper(m.peerdbCols.SyncedAtColName)),
-	)
+	if m.peerdbCols.SyncedAtColName != "" {
+		// append synced_at column
+		quotedUpperColNames = append(quotedUpperColNames,
+			fmt.Sprintf(`"%s"`, strings.ToUpper(m.peerdbCols.SyncedAtColName)),
+		)
+	}
 
 	insertColumnsSQL := strings.Join(quotedUpperColNames, ",")
 
@@ -92,8 +94,10 @@ func (m *mergeStmtGenerator) generateMergeStmt(dstTable string) (string, error) 
 		normalizedColName := SnowflakeIdentifierNormalize(column.Name)
 		insertValuesSQLArray = append(insertValuesSQLArray, "SOURCE."+normalizedColName)
 	}
-	// fill in synced_at column
-	insertValuesSQLArray = append(insertValuesSQLArray, "CURRENT_TIMESTAMP")
+	if m.peerdbCols.SyncedAtColName != "" {
+		// fill in synced_at column
+		insertValuesSQLArray = append(insertValuesSQLArray, "CURRENT_TIMESTAMP")
+	}
 	insertValuesSQL := strings.Join(insertValuesSQLArray, ",")
 	updateStatementsforToastCols := m.generateUpdateStatements(columnNames, unchangedToastColumns)
 
