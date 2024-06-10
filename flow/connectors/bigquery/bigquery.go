@@ -229,7 +229,7 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 				}
 			}
 
-			addedColumnBigQueryType := qValueKindToBigQueryTypeString(addedColumn)
+			addedColumnBigQueryType := qValueKindToBigQueryTypeString(addedColumn, false)
 			query := c.client.Query(fmt.Sprintf(
 				"ALTER TABLE %s ADD COLUMN IF NOT EXISTS `%s` %s",
 				dstDatasetTable.table, addedColumn.Name, addedColumnBigQueryType))

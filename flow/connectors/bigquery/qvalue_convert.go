@@ -26,7 +26,7 @@ func qValueKindToBigQueryType(columnDescription *protos.FieldDescription) bigque
 		bqField.Type = bigquery.FloatFieldType
 	case qvalue.QValueKindNumeric:
 		precision, scale := datatypes.GetNumericTypeForWarehouse(columnDescription.TypeModifier, datatypes.BigQueryNumericCompatibility{})
-		bqField.Type = bigquery.NumericFieldType
+		bqField.Type = bigquery.BigNumericFieldType
 		bqField.Precision = int64(precision)
 		bqField.Scale = int64(scale)
 	// string related
@@ -126,19 +126,23 @@ func BigQueryTypeToQValueKind(fieldSchema *bigquery.FieldSchema) qvalue.QValueKi
 	}
 }
 
-func qValueKindToBigQueryTypeString(columnDescription *protos.FieldDescription) string {
+func createTableCompatibleTypeName(schemaType bigquery.FieldType) string {
+	if schemaType == bigquery.FloatFieldType {
+		return "FLOAT64"
+	}
+	if schemaType == bigquery.BooleanFieldType {
+		return "BOOL"
+	}
+	return string(schemaType)
+}
+
+func qValueKindToBigQueryTypeString(columnDescription *protos.FieldDescription, forMerge bool) string {
 	bqTypeSchema := qValueKindToBigQueryType(columnDescription)
-	bqType := string(bqTypeSchema.Type)
-	if bqTypeSchema.Type == bigquery.FloatFieldType {
-		bqType = "FLOAT64"
-	}
-	if bqTypeSchema.Type == bigquery.BooleanFieldType {
-		bqType = "BOOL"
-	}
-	if bqTypeSchema.Type == bigquery.BigNumericFieldType {
+	bqType := createTableCompatibleTypeName(bqTypeSchema.Type)
+	if bqTypeSchema.Type == bigquery.BigNumericFieldType && !forMerge {
 		bqType = fmt.Sprintf("BIGNUMERIC(%d,%d)", bqTypeSchema.Precision, bqTypeSchema.Scale)
 	}
-	if bqTypeSchema.Repeated {
+	if bqTypeSchema.Repeated && !forMerge {
 		return "ARRAY<" + bqType + ">"
 	}
 	return bqType
