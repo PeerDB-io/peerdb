@@ -771,18 +771,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_All_Types_Schema_Changes_BQ() {
 	e2e.EnvNoError(s.t, env, err)
 	s.t.Log("Inserted rows of various types from c2 to c6 in the source table")
 
-	e2e.EnvWaitFor(s.t, env, 5*time.Minute, "normalize altered row c2 to c6 row count", func() bool {
-		rows, err := s.bqHelper.countRows(tableName)
-		if err != nil {
-			s.t.Log(err)
-			return false
-		}
-		if rows != 2 {
-			return false
-		}
-		return true
-	})
-
 	e2e.EnvWaitForEqualTables(env, s, "normalize altered row c2 to c6 table check", tableName,
 		"id,c1,c2,c3,c4,c5,c6")
 
