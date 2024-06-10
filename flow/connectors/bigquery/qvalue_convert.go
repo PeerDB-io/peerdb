@@ -77,7 +77,7 @@ func qValueKindToBigQueryType(columnDescription *protos.FieldDescription) bigque
 }
 
 // BigQueryTypeToQValueKind converts a bigquery.FieldType to a QValueKind
-func BigQueryTypeToQValueKind(fieldSchema bigquery.FieldSchema) qvalue.QValueKind {
+func BigQueryTypeToQValueKind(fieldSchema *bigquery.FieldSchema) qvalue.QValueKind {
 	switch fieldSchema.Type {
 	case bigquery.StringFieldType:
 		if fieldSchema.Repeated {
@@ -147,7 +147,7 @@ func qValueKindToBigQueryTypeString(columnDescription *protos.FieldDescription) 
 func BigQueryFieldToQField(bqField *bigquery.FieldSchema) qvalue.QField {
 	return qvalue.QField{
 		Name:      bqField.Name,
-		Type:      BigQueryTypeToQValueKind(*bqField),
+		Type:      BigQueryTypeToQValueKind(bqField),
 		Precision: int16(bqField.Precision),
 		Scale:     int16(bqField.Scale),
 		Nullable:  !bqField.Required,

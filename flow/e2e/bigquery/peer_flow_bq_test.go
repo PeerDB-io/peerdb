@@ -763,7 +763,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_All_Types_Schema_Changes_BQ() {
 		ADD COLUMN c11 JSON,
 		ADD COLUMN c12 FLOAT,
 		ADD COLUMN c13 DATE,
-		ADD COLUMN c14 TIMESTAMP,
+		ADD COLUMN c14 TIMESTAMP;
 		`,
 		srcTableName))
 	e2e.EnvNoError(s.t, env, err)
