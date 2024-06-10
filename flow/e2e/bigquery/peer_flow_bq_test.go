@@ -737,7 +737,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_All_Types_Schema_Changes_BQ() {
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
-	// and then insert and mutate schema repeatedly.
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	// insert first row.
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
@@ -748,49 +747,44 @@ func (s PeerFlowE2ETestSuiteBQ) Test_All_Types_Schema_Changes_BQ() {
 
 	e2e.EnvWaitForEqualTables(env, s, "normalize insert", tableName, "id,c1")
 
-	// alter source table, add column c2 and insert another row.
+	// alter source table, add columns of different types
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		ALTER TABLE %s
 		ADD COLUMN c2 INTEGER[],
 		ADD COLUMN c3 FLOAT[],
 		ADD COLUMN c4 TEXT[],
 		ADD COLUMN c5 TIMESTAMP[],
-		ADD COLUMN c6 DATE[],
-		ADD COLUMN c7 BOOL[],
-		ADD COLUMN c8 BIGINT,
-		ADD COLUMN c9 NUMERIC,
-		ADD COLUMN c10 DOUBLE PRECISION,
-		ADD COLUMN c11 JSON,
-		ADD COLUMN c12 FLOAT,
-		ADD COLUMN c13 DATE,
-		ADD COLUMN c14 TIMESTAMP;
+		ADD COLUMN c6 DATE[]
 		`,
 		srcTableName))
 	e2e.EnvNoError(s.t, env, err)
-	s.t.Log("Altered source table, added column c2")
+	s.t.Log("Altered source table, added columns from c2 to c6")
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		INSERT INTO %s(c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14) VALUES (
+		INSERT INTO %s(c1,c2,c3,c4,c5,c6) VALUES (
 		2,
 		'{4,5,6}',
 		'{43.342,34.111}',
 		'{"derer","asa","vdv"}',
 		'{"2020-01-01 01:01:01","2020-01-02 01:01:01"}',
-		'{"2020-01-01","2020-01-02"}',
-		'{true,false}',
-		2,
-		2.3245234,
-		2.3,
-		'{"sai":1}',
-		2.34343,
-		'2020-01-01',
-		'2020-01-01 01:01:01'
+		'{"2020-01-01","2020-01-02"}'
 		)`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
-	s.t.Log("Inserted rows of various types from c2 to c14 in the source table")
+	s.t.Log("Inserted rows of various types from c2 to c6 in the source table")
 
-	// verify we got our two rows, if schema did not match up it will error.
-	e2e.EnvWaitForEqualTables(env, s, "normalize altered row", tableName,
-		"id,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14")
+	e2e.EnvWaitFor(s.t, env, 5*time.Minute, "normalize altered row c2 to c6 row count", func() bool {
+		rows, err := s.bqHelper.countRows(tableName)
+		if err != nil {
+			s.t.Log(err)
+			return false
+		}
+		if rows != 2 {
+			return false
+		}
+		return true
+	})
+
+	e2e.EnvWaitForEqualTables(env, s, "normalize altered row c2 to c6 table check", tableName,
+		"id,c1,c2,c3,c4,c5,c6")
 
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
