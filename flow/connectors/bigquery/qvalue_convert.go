@@ -1,103 +1,79 @@
 package connbigquery
 
 import (
+	"fmt"
+
 	"cloud.google.com/go/bigquery"
 
+	"github.com/PeerDB-io/peer-flow/datatypes"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
-func qValueKindToBigQueryType(colType string) bigquery.FieldSchema {
-	switch qvalue.QValueKind(colType) {
+func qValueKindToBigQueryType(columnDescription *protos.FieldDescription) bigquery.FieldSchema {
+	bqField := bigquery.FieldSchema{
+		Name: columnDescription.Name,
+	}
+	switch qvalue.QValueKind(columnDescription.Type) {
 	// boolean
 	case qvalue.QValueKindBoolean:
-		return bigquery.FieldSchema{
-			Type: bigquery.BooleanFieldType,
-		}
+		bqField.Type = bigquery.BooleanFieldType
 	// integer types
 	case qvalue.QValueKindInt16, qvalue.QValueKindInt32, qvalue.QValueKindInt64:
-		return bigquery.FieldSchema{
-			Type: bigquery.IntegerFieldType,
-		}
+		bqField.Type = bigquery.IntegerFieldType
 	// decimal types
 	case qvalue.QValueKindFloat32, qvalue.QValueKindFloat64:
-		return bigquery.FieldSchema{
-			Type: bigquery.FloatFieldType,
-		}
+		bqField.Type = bigquery.FloatFieldType
 	case qvalue.QValueKindNumeric:
-		return bigquery.FieldSchema{
-			Type: bigquery.BigNumericFieldType,
-		}
+		precision, scale := datatypes.GetNumericTypeForWarehouse(columnDescription.TypeModifier, datatypes.BigQueryNumericCompatibility{})
+		bqField.Type = bigquery.NumericFieldType
+		bqField.Precision = int64(precision)
+		bqField.Scale = int64(scale)
 	// string related
 	case qvalue.QValueKindString:
-		return bigquery.FieldSchema{
-			Type: bigquery.StringFieldType,
-		}
+		bqField.Type = bigquery.StringFieldType
 	// json also is stored as string for now
 	case qvalue.QValueKindJSON, qvalue.QValueKindHStore:
-		return bigquery.FieldSchema{
-			Type: bigquery.JSONFieldType,
-		}
+		bqField.Type = bigquery.JSONFieldType
 	// time related
 	case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ:
-		return bigquery.FieldSchema{
-			Type: bigquery.TimestampFieldType,
-		}
+		bqField.Type = bigquery.TimestampFieldType
 	// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - DATE support is incomplete
 	case qvalue.QValueKindDate:
-		return bigquery.FieldSchema{
-			Type: bigquery.DateFieldType,
-		}
+		bqField.Type = bigquery.DateFieldType
 	// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - TIME/TIMETZ support is incomplete
 	case qvalue.QValueKindTime, qvalue.QValueKindTimeTZ:
-		return bigquery.FieldSchema{
-			Type: bigquery.TimeFieldType,
-		}
+		bqField.Type = bigquery.TimeFieldType
 	// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - handle INTERVAL types again,
 	// bytes
 	case qvalue.QValueKindBit, qvalue.QValueKindBytes:
-		return bigquery.FieldSchema{
-			Type: bigquery.BytesFieldType,
-		}
+		bqField.Type = bigquery.BytesFieldType
 	case qvalue.QValueKindArrayInt16, qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64:
-		return bigquery.FieldSchema{
-			Type:     bigquery.IntegerFieldType,
-			Repeated: true,
-		}
+		bqField.Type = bigquery.IntegerFieldType
+		bqField.Repeated = true
 	case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64:
-		return bigquery.FieldSchema{
-			Type:     bigquery.FloatFieldType,
-			Repeated: true,
-		}
+		bqField.Type = bigquery.FloatFieldType
+		bqField.Repeated = true
 	case qvalue.QValueKindArrayBoolean:
-		return bigquery.FieldSchema{
-			Type:     bigquery.BooleanFieldType,
-			Repeated: true,
-		}
+		bqField.Type = bigquery.BooleanFieldType
+		bqField.Repeated = true
 	case qvalue.QValueKindArrayTimestamp, qvalue.QValueKindArrayTimestampTZ:
-		return bigquery.FieldSchema{
-			Type:     bigquery.TimestampFieldType,
-			Repeated: true,
-		}
+		bqField.Type = bigquery.TimestampFieldType
+		bqField.Repeated = true
 	case qvalue.QValueKindArrayDate:
-		return bigquery.FieldSchema{
-			Type:     bigquery.DateFieldType,
-			Repeated: true,
-		}
+		bqField.Type = bigquery.DateFieldType
+		bqField.Repeated = true
 	case qvalue.QValueKindArrayString:
-		return bigquery.FieldSchema{
-			Type:     bigquery.StringFieldType,
-			Repeated: true,
-		}
+		bqField.Type = bigquery.StringFieldType
+		bqField.Repeated = true
 	case qvalue.QValueKindGeography, qvalue.QValueKindGeometry, qvalue.QValueKindPoint:
-		return bigquery.FieldSchema{
-			Type: bigquery.GeographyFieldType,
-		}
+		bqField.Type = bigquery.GeographyFieldType
 	// rest will be strings
 	default:
-		return bigquery.FieldSchema{
-			Type: bigquery.StringFieldType,
-		}
+		bqField.Type = bigquery.StringFieldType
 	}
+
+	return bqField
 }
 
 // BigQueryTypeToQValueKind converts a bigquery.FieldType to a QValueKind
@@ -150,14 +126,17 @@ func BigQueryTypeToQValueKind(fieldSchema bigquery.FieldSchema) qvalue.QValueKin
 	}
 }
 
-func qValueKindToBigQueryTypeString(colType string) string {
-	bqTypeSchema := qValueKindToBigQueryType(colType)
+func qValueKindToBigQueryTypeString(columnDescription *protos.FieldDescription) string {
+	bqTypeSchema := qValueKindToBigQueryType(columnDescription)
 	bqType := string(bqTypeSchema.Type)
 	if bqTypeSchema.Type == bigquery.FloatFieldType {
 		bqType = "FLOAT64"
 	}
 	if bqTypeSchema.Type == bigquery.BooleanFieldType {
 		bqType = "BOOL"
+	}
+	if bqTypeSchema.Type == bigquery.BigNumericFieldType {
+		bqType = fmt.Sprintf("BIGNUMERIC(%d,%d)", bqTypeSchema.Precision, bqTypeSchema.Scale)
 	}
 	if bqTypeSchema.Repeated {
 		return "ARRAY<" + bqType + ">"

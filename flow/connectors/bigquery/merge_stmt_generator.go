@@ -30,7 +30,7 @@ func (m *mergeStmtGenerator) generateFlattenedCTE(dstTable string, normalizedTab
 
 	for _, column := range normalizedTableSchema.Columns {
 		colType := column.Type
-		bqTypeString := qValueKindToBigQueryTypeString(colType)
+		bqTypeString := qValueKindToBigQueryTypeString(column)
 		var castStmt string
 		shortCol := m.shortColumn[column.Name]
 		switch qvalue.QValueKind(colType) {
@@ -46,7 +46,7 @@ func (m *mergeStmtGenerator) generateFlattenedCTE(dstTable string, normalizedTab
 			qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64, qvalue.QValueKindArrayString,
 			qvalue.QValueKindArrayBoolean, qvalue.QValueKindArrayTimestamp, qvalue.QValueKindArrayTimestampTZ,
 			qvalue.QValueKindArrayDate:
-			bqArrayElementType := qValueKindToBigQueryType(colType).Type
+			bqArrayElementType := qValueKindToBigQueryType(column).Type
 			castStmt = fmt.Sprintf("ARRAY(SELECT CAST(element AS %s) FROM "+
 				"UNNEST(CAST(JSON_VALUE_ARRAY(_peerdb_data, '$.%s') AS ARRAY<STRING>)) AS element WHERE element IS NOT null) AS `%s`",
 				bqArrayElementType, column.Name, shortCol)
