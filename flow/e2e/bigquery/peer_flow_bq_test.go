@@ -113,14 +113,13 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
 		FlowJobName:      s.attachSuffix("test_complete_flow_no_data"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.bqHelper.Peer,
-		CdcStagingPath:   "",
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 	flowConnConfig.MaxBatchSize = 1
 
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	e2e.EnvWaitForEqualTables(env, s, "create table", dstTableName, "id,key,value")
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
@@ -145,14 +144,13 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 		FlowJobName:      s.attachSuffix("test_char_table"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.bqHelper.Peer,
-		CdcStagingPath:   "",
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 	flowConnConfig.MaxBatchSize = 1
 
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	e2e.EnvWaitForEqualTables(env, s, "create table", dstTableName, "id,key,value")
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
@@ -178,7 +176,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 		FlowJobName:      s.attachSuffix("test_toast_bq_1"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.bqHelper.Peer,
-		CdcStagingPath:   "",
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
@@ -187,7 +184,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 	// wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	/*
 		Executing a transaction which
 		1. changes both toast column
@@ -230,7 +227,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 		FlowJobName:      s.attachSuffix("test_toast_bq_3"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.bqHelper.Peer,
-		CdcStagingPath:   "",
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
@@ -239,7 +235,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 	// wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	// complex transaction with random DMLs on a table with toast columns
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			BEGIN;
@@ -287,7 +283,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 		FlowJobName:      s.attachSuffix("test_toast_bq_4"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.bqHelper.Peer,
-		CdcStagingPath:   "",
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
@@ -296,7 +291,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 	// wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	// complex transaction with random DMLs on a table with toast columns
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			BEGIN;
@@ -338,7 +333,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 		FlowJobName:      s.attachSuffix("test_toast_bq_5"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.bqHelper.Peer,
-		CdcStagingPath:   "",
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
@@ -347,7 +341,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 	// wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	/*
 		transaction updating a single row
 		multiple times with changed/unchanged toast columns
@@ -395,7 +389,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		FlowJobName:      s.attachSuffix("test_types_bq"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.bqHelper.Peer,
-		CdcStagingPath:   "",
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
@@ -404,7 +397,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	// wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	/* test inserting various types*/
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s SELECT 2,2,b'1',b'101',
@@ -478,7 +471,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles_BQ() {
 		FlowJobName:      s.attachSuffix("test_nans_bq"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.bqHelper.Peer,
-		CdcStagingPath:   "",
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
@@ -487,7 +479,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles_BQ() {
 	// wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	// test inserting various types
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -531,7 +523,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 		FlowJobName:      s.attachSuffix("test_invalid_geo_bq_avro_cdc"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.bqHelper.Peer,
-		CdcStagingPath:   "",
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
@@ -540,7 +531,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert 10 rows into the source table
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	// insert 4 invalid shapes and 6 valid shapes into the source table
 	for range 4 {
 		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -608,7 +599,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 		FlowJobName:      s.attachSuffix("test_multi_table_bq"),
 		TableNameMapping: map[string]string{srcTable1Name: dstTable1Name, srcTable2Name: dstTable2Name},
 		Destination:      s.bqHelper.Peer,
-		CdcStagingPath:   "",
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
@@ -617,7 +607,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 	// wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	/* inserting across multiple tables*/
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s (c1,c2) VALUES (1,'dummy_1');
@@ -663,7 +653,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 		FlowJobName:      s.attachSuffix(tableName),
 		TableNameMapping: map[string]string{srcTableName: tableName},
 		Destination:      s.bqHelper.Peer,
-		CdcStagingPath:   "",
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
@@ -673,7 +662,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 	// and then insert and mutate schema repeatedly.
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	// insert first row.
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1) VALUES (1)`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
@@ -745,7 +734,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 		FlowJobName:      s.attachSuffix("test_cpkey_flow"),
 		TableNameMapping: map[string]string{srcTableName: tableName},
 		Destination:      s.bqHelper.Peer,
-		CdcStagingPath:   "",
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
@@ -754,7 +742,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	// insert 10 rows into the source table
 	for i := range 10 {
 		testValue := fmt.Sprintf("test_value_%d", i)
@@ -802,7 +790,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 		FlowJobName:      s.attachSuffix("test_cpkey_toast1_flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.bqHelper.Peer,
-		CdcStagingPath:   "",
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
@@ -811,7 +798,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	rowsTx, err := s.Conn().Begin(context.Background())
 	e2e.EnvNoError(s.t, env, err)
 
@@ -861,7 +848,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
 		FlowJobName:      s.attachSuffix("test_cpkey_toast2_flow"),
 		TableNameMapping: map[string]string{srcTableName: tableName},
 		Destination:      s.bqHelper.Peer,
-		CdcStagingPath:   "",
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
@@ -870,7 +856,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	// insert 10 rows into the source table
 	for i := range 10 {
@@ -919,7 +905,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Columns_BQ() {
 	flowConnConfig.MaxBatchSize = 100
 
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	// insert 1 row into the source table
 	testKey := fmt.Sprintf("test_key_%d", 1)
 	testValue := fmt.Sprintf("test_value_%d", 1)
@@ -962,8 +948,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
 			srcTable1Name: dstTable1Name,
 			srcTable2Name: fmt.Sprintf("%s.%s", secondDataset, dstTable2Name),
 		},
-		Destination:    s.bqHelper.Peer,
-		CdcStagingPath: "",
+		Destination: s.bqHelper.Peer,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
@@ -972,7 +957,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
 	// wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	/* inserting across multiple tables*/
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s (c1,c2) VALUES (1,'dummy_1');
@@ -1017,12 +1002,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 	`, srcTableName))
 	require.NoError(s.t, err)
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName: s.attachSuffix(tableName),
-	}
-
 	config := &protos.FlowConnectionConfigs{
-		FlowJobName: connectionGen.FlowJobName,
+		FlowJobName: s.attachSuffix(tableName),
 		Destination: s.bqHelper.Peer,
 		TableMappings: []*protos.TableMapping{
 			{
@@ -1031,7 +1012,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 			},
 		},
 		Source:            e2e.GeneratePostgresPeer(),
-		CdcStagingPath:    connectionGen.CdcStagingPath,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -1041,7 +1021,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, config, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
@@ -1094,12 +1074,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 	`, srcTableName))
 	require.NoError(s.t, err)
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName: s.attachSuffix("test_softdel_iud"),
-	}
-
 	config := &protos.FlowConnectionConfigs{
-		FlowJobName: connectionGen.FlowJobName,
+		FlowJobName: s.attachSuffix("test_softdel_iud"),
 		Destination: s.bqHelper.Peer,
 		TableMappings: []*protos.TableMapping{
 			{
@@ -1108,7 +1084,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 			},
 		},
 		Source:            e2e.GeneratePostgresPeer(),
-		CdcStagingPath:    connectionGen.CdcStagingPath,
 		SoftDelete:        true,
 		SoftDeleteColName: "_custom_deleted",
 		SyncedAtColName:   "_custom_synced",
@@ -1118,7 +1093,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, config, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
 
 	insertTx, err := s.Conn().Begin(context.Background())
 	e2e.EnvNoError(s.t, env, err)
@@ -1169,12 +1144,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 	`, srcTableName))
 	require.NoError(s.t, err)
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName: s.attachSuffix(dstName),
-	}
-
 	config := &protos.FlowConnectionConfigs{
-		FlowJobName: connectionGen.FlowJobName,
+		FlowJobName: s.attachSuffix(dstName),
 		Destination: s.bqHelper.Peer,
 		TableMappings: []*protos.TableMapping{
 			{
@@ -1183,7 +1154,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 			},
 		},
 		Source:            e2e.GeneratePostgresPeer(),
-		CdcStagingPath:    connectionGen.CdcStagingPath,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -1193,7 +1163,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, config, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
@@ -1250,12 +1220,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 	`, srcTableName))
 	require.NoError(s.t, err)
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName: s.attachSuffix(tableName),
-	}
-
 	config := &protos.FlowConnectionConfigs{
-		FlowJobName: connectionGen.FlowJobName,
+		FlowJobName: s.attachSuffix(tableName),
 		Destination: s.bqHelper.Peer,
 		TableMappings: []*protos.TableMapping{
 			{
@@ -1264,7 +1230,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 			},
 		},
 		Source:            e2e.GeneratePostgresPeer(),
-		CdcStagingPath:    connectionGen.CdcStagingPath,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -1274,7 +1239,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert and delete rows in the table.
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, config, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
@@ -1333,7 +1298,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_JSON_PKey_BQ() {
 		FlowJobName:      s.attachSuffix("test_json_pkey_flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.bqHelper.Peer,
-		CdcStagingPath:   "",
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
@@ -1342,7 +1306,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_JSON_PKey_BQ() {
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	// insert 10 rows into the source table
 	for i := range 10 {
 		testKey := fmt.Sprintf("test_key_%d", i)

@@ -164,7 +164,6 @@ type FlowConnectionGenerationConfig struct {
 	FlowJobName      string
 	TableNameMapping map[string]string
 	Destination      *protos.Peer
-	CdcStagingPath   string
 	TableMappings    []*protos.TableMapping
 	SoftDelete       bool
 }
@@ -199,7 +198,6 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() *protos
 		TableMappings:      tblMappings,
 		Source:             GeneratePostgresPeer(),
 		Destination:        c.Destination,
-		CdcStagingPath:     c.CdcStagingPath,
 		SoftDelete:         c.SoftDelete,
 		SyncedAtColName:    "_PEERDB_SYNCED_AT",
 		IdleTimeoutSeconds: 15,

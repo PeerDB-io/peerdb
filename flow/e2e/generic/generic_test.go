@@ -9,9 +9,9 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors"
 	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/e2e/bigquery"
-	"github.com/PeerDB-io/peer-flow/e2e/postgres"
-	"github.com/PeerDB-io/peer-flow/e2e/snowflake"
+	e2e_bigquery "github.com/PeerDB-io/peer-flow/e2e/bigquery"
+	e2e_postgres "github.com/PeerDB-io/peer-flow/e2e/postgres"
+	e2e_snowflake "github.com/PeerDB-io/peer-flow/e2e/snowflake"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -67,7 +67,7 @@ func (s Generic) Test_Simple_Flow() {
 	tc := e2e.NewTemporalClient(t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 
-	e2e.SetupCDCFlowStatusQuery(t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	// insert 10 rows into the source table
 	for i := range 10 {
 		testKey := fmt.Sprintf("test_key_%d", i)
@@ -117,7 +117,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	// and then insert and mutate schema repeatedly.
 	tc := e2e.NewTemporalClient(t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	_, err = s.Connector().Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1) VALUES ($1)`, srcTableName), 1)
 	e2e.EnvNoError(t, env, err)
