@@ -46,9 +46,10 @@ func (m *mergeStmtGenerator) generateFlattenedCTE(dstTable string, normalizedTab
 			qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64, qvalue.QValueKindArrayString,
 			qvalue.QValueKindArrayBoolean, qvalue.QValueKindArrayTimestamp, qvalue.QValueKindArrayTimestampTZ,
 			qvalue.QValueKindArrayDate:
+			bqArrayElementType := qValueKindToBigQueryType(colType).Type
 			castStmt = fmt.Sprintf("ARRAY(SELECT CAST(element AS %s) FROM "+
 				"UNNEST(CAST(JSON_VALUE_ARRAY(_peerdb_data, '$.%s') AS ARRAY<STRING>)) AS element WHERE element IS NOT null) AS `%s`",
-				bqTypeString, column.Name, shortCol)
+				bqArrayElementType, column.Name, shortCol)
 		case qvalue.QValueKindGeography, qvalue.QValueKindGeometry, qvalue.QValueKindPoint:
 			castStmt = fmt.Sprintf("CAST(ST_GEOGFROMTEXT(JSON_VALUE(_peerdb_data, '$.%s')) AS %s) AS `%s`",
 				column.Name, bqTypeString, shortCol)

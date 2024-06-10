@@ -243,7 +243,7 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 					schemaDelta.DstTableName, err)
 			}
 			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s to table %s",
-				addedColumn.Name, addedColumn.Type, schemaDelta.DstTableName))
+				addedColumn.Name, addedColumnBigQueryType, schemaDelta.DstTableName))
 		}
 	}
 
@@ -643,10 +643,11 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 				Scale:     int64(scale),
 			})
 		} else {
+			bqFieldSchema := qValueKindToBigQueryType(genericColType)
 			columns = append(columns, &bigquery.FieldSchema{
 				Name:     column.Name,
-				Type:     qValueKindToBigQueryType(genericColType),
-				Repeated: qvalue.QValueKind(genericColType).IsArray(),
+				Type:     bqFieldSchema.Type,
+				Repeated: bqFieldSchema.Repeated,
 			})
 		}
 	}
