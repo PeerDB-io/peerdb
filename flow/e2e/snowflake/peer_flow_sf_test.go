@@ -1253,5 +1253,5 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion_With_Schema_Changes() {
 	for _, field := range sfRows.Schema.Fields {
 		require.NotEqual(s.t, "c2", field.Name)
 	}
-	require.Len(s.t, sfRows.Schema.Fields, 5)
+	require.Len(s.t, sfRows.Schema.Fields, 4)
 }
