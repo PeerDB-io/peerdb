@@ -1,12 +1,9 @@
-import bcrypt from 'bcrypt';
 import 'server-only';
 
-function hashPassword(password: string, rounds: number) {
-  return bcrypt.hashSync(password, rounds);
-}
-
-export function GetAPIToken() {
-  const password = process.env.PEERDB_PASSWORD ?? '';
-  const hashedPassword = hashPassword(password, 10);
-  return Buffer.from(hashedPassword).toString('base64');
+export function GetAuthorizationHeader() {
+  const password = process.env.PEERDB_PASSWORD;
+  if (!password) {
+    return '';
+  }
+  return `Bearer ${Buffer.from(password).toString('base64')}`;
 }

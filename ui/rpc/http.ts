@@ -1,4 +1,4 @@
-import { GetAPIToken } from '@/rpc/token';
+import { GetAuthorizationHeader } from '@/rpc/token';
 
 export function GetFlowHttpAddressFromEnv() {
   return process.env.PEERDB_FLOW_SERVER_HTTP!;
@@ -13,9 +13,9 @@ function handleResponse(res: Response) {
 
 class Client {
   baseUrl: string;
-  headers: { [key: string]: any };
+  headers: Headers;
 
-  constructor(baseUrl: string, headers: { [key: string]: any }) {
+  constructor(baseUrl: string, headers: Headers) {
     this.baseUrl = baseUrl;
     this.headers = headers;
   }
@@ -24,22 +24,30 @@ class Client {
     return fetch(this.baseUrl + path, { headers: this.headers, ...options });
   }
 
-  get(path: string, options?: { [key: string]: any }) {
-    return this.raw(path, options).then(handleResponse);
+  async get(path: string, options?: { [key: string]: any }) {
+    const res = await this.raw(path, options);
+    return handleResponse(res);
   }
 
-  post(path: string, options?: { [key: string]: any }) {
-    return this.raw(path, {
+  async post(path: string, options?: { [key: string]: any }) {
+    const res = await this.raw(path, {
       method: 'POST',
       ...options,
-    }).then(handleResponse);
+    });
+    return handleResponse(res);
   }
 }
 
-const flowServiceHttpClient = new Client(GetFlowHttpAddressFromEnv(), {
+const flowServiceHeaders = new Headers({
   'Content-Type': 'application/json',
-  Authorization: `Bearer ${GetAPIToken()}`,
 });
+if (GetAuthorizationHeader()) {
+  flowServiceHeaders.set('Authorization', GetAuthorizationHeader());
+}
+const flowServiceHttpClient = new Client(
+  GetFlowHttpAddressFromEnv(),
+  flowServiceHeaders
+);
 
 export function GetFlowServiceHttpClient() {
   return flowServiceHttpClient;

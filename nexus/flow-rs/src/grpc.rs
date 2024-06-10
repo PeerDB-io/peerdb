@@ -50,9 +50,8 @@ impl FlowGrpcClient {
         // Create a gRPC channel
         let channel = tonic::transport::Channel::from_shared(grpc_endpoint.clone())?.connect_lazy();
 
-        // Setup the token by hashing the password and base64 encoding it
-        let hashed_password = bcrypt::hash(password, bcrypt::DEFAULT_COST).unwrap();
-        let token = base64::prelude::BASE64_STANDARD.encode(hashed_password.as_bytes());
+        // encode the password to base64, to send in all requests
+        let token = base64::prelude::BASE64_STANDARD.encode(password.as_bytes());
 
         // use the token in all requests
         let interceptor = BearerAuthInterceptor { token };

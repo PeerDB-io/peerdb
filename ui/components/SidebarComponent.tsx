@@ -1,7 +1,6 @@
 'use client';
 
 import { UVersionResponse } from '@/app/dto/VersionDTO';
-import { fetcher } from '@/app/utils/swr';
 import Logout from '@/components/Logout';
 import { BrandLogo } from '@/lib/BrandLogo';
 import { Button } from '@/lib/Button';
@@ -29,9 +28,16 @@ export default function SidebarComponent() {
   const {
     data: version,
     isLoading,
+    error,
   }: { data: UVersionResponse; error: any; isLoading: boolean } = useSWR(
     '/api/version',
-    fetcher
+    async (url: string) => {
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error();
+      }
+      return res.json();
+    }
   );
 
   const [sidebarState, setSidebarState] = useLocalStorage(
@@ -114,7 +120,11 @@ export default function SidebarComponent() {
               <Label as='label' style={{ textAlign: 'center', fontSize: 15 }}>
                 {' '}
                 <b>Version: </b>
-                {isLoading ? 'Loading...' : version?.version}
+                {isLoading
+                  ? 'Loading...'
+                  : error
+                    ? 'Error loading version'
+                    : version?.version || 'Unknown'}
               </Label>
             </div>
           ) : (

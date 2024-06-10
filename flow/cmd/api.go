@@ -120,10 +120,14 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		grpc_health_v1.Health_Check_FullMethodName,
 		grpc_health_v1.Health_Watch_FullMethodName,
 	}
+	authInterceptor, err := middleware.CreateAuthServerInterceptor(ctx, healthMethods)
+	if err != nil {
+		return fmt.Errorf("unable to create auth middleware: %w", err)
+	}
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
 			middleware.CreateRequestLoggingInterceptor(healthMethods),
-			middleware.CreateAuthServerInterceptor(ctx, peerdbenv.PeerDBPassword(), healthMethods),
+			authInterceptor,
 		),
 	)
 

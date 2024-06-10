@@ -14,8 +14,12 @@ export async function GET() {
     };
     return new Response(JSON.stringify(response));
   } catch (error) {
+    if (error instanceof Response) {
+      return error;
+    }
+
     const message = await ParseFlowServiceErrorMessage(error);
     console.error('Error getting version:', message);
-    return new Response(JSON.stringify({ error: message }));
+    return new Response(JSON.stringify({ error: message }), { status: 500 });
   }
 }

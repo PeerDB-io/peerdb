@@ -21,7 +21,7 @@ func PeerDBDeploymentUID() string {
 	return GetEnvString("PEERDB_DEPLOYMENT_UID", "")
 }
 
-// PEERDB_PASSWORD
+// PEERDB_PASSWORD: use carefully, this is a secret
 func PeerDBPassword() string {
 	return GetEnvString("PEERDB_PASSWORD", "")
 }

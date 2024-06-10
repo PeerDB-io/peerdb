@@ -32,7 +32,6 @@
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
-    "bcrypt": "^5.1.1",
     "classnames": "^2.5.1",
     "long": "^5.2.3",
     "lucide-react": "^0.383.0",
@@ -54,7 +53,6 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/bcrypt": "^5.0.2",
     "autoprefixer": "^10.4.19",
     "copy-webpack-plugin": "^12.0.2",
     "eslint": "^8.57.0",

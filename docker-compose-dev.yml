@@ -168,7 +168,6 @@ services:
     environment:
       <<: *catalog-config
       PEERDB_LOG_DIR: /var/log/peerdb
-      PEERDB_PASSWORD: peerdb
       PEERDB_FLOW_SERVER_ADDRESS: grpc://flow_api:8112
       RUST_LOG: info
       RUST_BACKTRACE: 1
@@ -189,7 +188,6 @@ services:
       <<: *catalog-config
       DATABASE_URL: postgres://postgres:postgres@catalog:5432/postgres
       PEERDB_FLOW_SERVER_HTTP: http://flow_api:8113
-      PEERDB_PASSWORD:
       NEXTAUTH_SECRET: __changeme__
       NEXTAUTH_URL: http://localhost:3000
     depends_on:
