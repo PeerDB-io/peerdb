@@ -102,6 +102,11 @@ func (tunnel *SSHTunnel) NewPostgresConnFromConfig(
 			}
 			return &noDeadlineConn{Conn: conn}, nil
 		}
+		// DNS lookup seems to happen before connection is established which can be an issue if given host
+		// can only be resolved on the SSH host https://github.com/jackc/pgx/issues/1724
+		connConfig.LookupFunc = func(ctx context.Context, host string) (addrs []string, err error) {
+			return []string{host}, nil
+		}
 	}
 
 	logger := logger.LoggerFromCtx(ctx)
