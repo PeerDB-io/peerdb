@@ -43,7 +43,7 @@ func (s elasticsearchSuite) Test_Simple_PKey_CDC_Mirror() {
 	}
 
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	for i := range rowCount {
 		_, err := s.conn.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -112,7 +112,7 @@ func (s elasticsearchSuite) Test_Composite_PKey_CDC_Mirror() {
 	}
 
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	for i := range rowCount {
 		_, err := s.conn.Conn().Exec(context.Background(), fmt.Sprintf(`
