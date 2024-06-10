@@ -165,7 +165,7 @@ func (c *PostgresConnector) MaybeStartReplication(
 	}
 
 	if c.replState == nil {
-		replicationOpts, err := c.replicationOptions(publicationName)
+		replicationOpts, err := c.replicationOptions(ctx, publicationName)
 		if err != nil {
 			return fmt.Errorf("error getting replication options: %w", err)
 		}
@@ -210,7 +210,7 @@ func (c *PostgresConnector) startReplication(ctx context.Context, slotName strin
 	return nil
 }
 
-func (c *PostgresConnector) replicationOptions(publicationName string) (*pglogrepl.StartReplicationOptions, error) {
+func (c *PostgresConnector) replicationOptions(ctx context.Context, publicationName string) (*pglogrepl.StartReplicationOptions, error) {
 	pluginArguments := []string{
 		"proto_version '1'",
 	}
@@ -220,6 +220,13 @@ func (c *PostgresConnector) replicationOptions(publicationName string) (*pglogre
 		pluginArguments = append(pluginArguments, pubOpt)
 	} else {
 		return nil, errors.New("publication name is not set")
+	}
+
+	pgversion, err := c.MajorVersion(ctx)
+	if err != nil {
+		return nil, err
+	} else if pgversion >= shared.POSTGRES_14 {
+		pluginArguments = append(pluginArguments, "messages 'true'")
 	}
 
 	return &pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments}, nil
