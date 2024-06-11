@@ -8,17 +8,17 @@ import org.apache.iceberg.data.avro.DataReader;
 
 import java.io.IOException;
 
-public class AvroIcebergConverter {
+public class AvroIcebergRecordConverter {
     private final org.apache.iceberg.Schema icebergSchema;
     private final Schema icebergAvroSchema;
     private final DataReader<org.apache.iceberg.data.GenericRecord> dataReader;
 
-    public AvroIcebergConverter(String avroSchemaString, org.apache.iceberg.Schema icebergSchema, String tableName) {
+    public AvroIcebergRecordConverter(String avroSchemaString, org.apache.iceberg.Schema icebergSchema, String tableName) {
         this(new Schema.Parser().parse(avroSchemaString), icebergSchema, tableName);
 
     }
 
-    public AvroIcebergConverter(Schema sourceAvroSchema, org.apache.iceberg.Schema icebergSchema, String tableName) {
+    public AvroIcebergRecordConverter(Schema sourceAvroSchema, org.apache.iceberg.Schema icebergSchema, String tableName) {
         this.icebergSchema = icebergSchema;
         this.icebergAvroSchema = AvroSchemaUtil.convert(icebergSchema, tableName);
         this.dataReader = DataReader.create(icebergSchema, icebergAvroSchema);

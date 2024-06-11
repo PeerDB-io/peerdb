@@ -105,6 +105,7 @@ impl Catalog {
                     elasticsearch_config.encode_to_vec()
                 }
                 Config::MysqlConfig(mysql_config) => mysql_config.encode_to_vec(),
+                Config::IcebergConfig(iceberg_config) => {iceberg_config.encode_to_vec()}
             }
         };
 
@@ -333,6 +334,11 @@ impl Catalog {
                     let mysql_config =
                         pt::peerdb_peers::MySqlConfig::decode(options).with_context(err)?;
                     Config::MysqlConfig(mysql_config)
+                }
+                DbType::Iceberg => {
+                    let iceberg_config =
+                        pt::peerdb_peers::IcebergConfig::decode(options).with_context(err)?;
+                    Config::IcebergConfig(iceberg_config)
                 }
             })
         } else {

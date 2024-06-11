@@ -198,7 +198,8 @@ message CommonIcebergCatalog {
   string warehouse_location = 3;
   optional int32 client_pool_size = 4;
   optional bool cache_enabled = 5;
-  map<string, string> additional_properties = 6;
+  // This helps in testing, where we can pass additional properties to the catalog
+//  map<string, string> additional_properties = 6;
 }
 
 message HiveIcebergCatalog {}

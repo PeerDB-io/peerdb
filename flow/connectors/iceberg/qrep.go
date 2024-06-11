@@ -42,10 +42,11 @@ func (c *IcebergConnector) SyncQRepRecords(
 	}
 	binaryRecords := make([]*protos.InsertRecord, 0)
 	for record := range stream.Records {
-		// Add soft delete
-		record = append(record, qvalue.QValueBoolean{
-			Val: false,
-		}, // add synced at colname
+		record = append(record,
+			// Add soft delete
+			qvalue.QValueBoolean{
+				Val: false,
+			}, // add synced at colname
 			qvalue.QValueTimestampTZ{
 				Val: time.Now(),
 			})
@@ -105,13 +106,13 @@ func getAvroSchema(
 	return avroSchema, nil
 }
 
-// S3 just sets up destination, not metadata tables
+// Iceberg just sets up destination, not metadata tables
 func (c *IcebergConnector) SetupQRepMetadataTables(_ context.Context, config *protos.QRepConfig) error {
-	c.logger.Info("QRep metadata setup not needed for S3.")
+	c.logger.Info("QRep metadata setup not needed for Iceberg.")
 	return nil
 }
 
-// S3 doesn't check if partition is already synced, but file with same name is overwritten
+// Iceberg doesn't check if partition is already synced, but file with same name is overwritten
 func (c *IcebergConnector) IsQRepPartitionSynced(ctx context.Context,
 	config *protos.IsQRepPartitionSyncedInput,
 ) (bool, error) {

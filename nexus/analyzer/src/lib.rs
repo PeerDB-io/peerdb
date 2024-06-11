@@ -966,5 +966,9 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 .and_then(|s| s.parse::<bool>().ok())
                 .unwrap_or_default(),
         }),
+        // TODO complete this for iceberg once finalized
+        DbType::Iceberg => Config::IcebergConfig(pt::peerdb_peers::IcebergConfig {
+            catalog_config: None,
+        }),
     }))
 }

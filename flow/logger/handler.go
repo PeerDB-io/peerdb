@@ -23,9 +23,6 @@ func NewHandler(handler slog.Handler) slog.Handler {
 }
 
 func (h Handler) Enabled(ctx context.Context, level slog.Level) bool {
-	if level == slog.LevelDebug {
-		return true
-	}
 	return h.handler.Enabled(ctx, level)
 }
 

@@ -586,7 +586,7 @@ func (c *QValueAvroConverter) processHStore(hstore string) (interface{}, error) 
 func (c *QValueAvroConverter) processUUIDString(byteData [16]byte) interface{} {
 	uuidString := uuid.UUID(byteData).String()
 	if c.Nullable {
-		return goavro.Union("string.uuid", uuidString)
+		return goavro.Union("string", uuidString)
 	}
 	return uuidString
 }

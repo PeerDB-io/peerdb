@@ -4,7 +4,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 import com.google.common.collect.Streams;
 import io.peerdb.flow.jvm.grpc.*;
-import io.peerdb.flow.jvm.iceberg.avro.AvroIcebergConverter;
+import io.peerdb.flow.jvm.iceberg.avro.AvroIcebergRecordConverter;
 import io.peerdb.flow.jvm.iceberg.catalog.CatalogLoader;
 import io.peerdb.flow.jvm.iceberg.lock.LockManager;
 import io.peerdb.flow.jvm.iceberg.writer.RecordWriterFactory;
@@ -42,7 +42,7 @@ public class IcebergService {
     @Inject
     RecordWriterFactory recordWriterFactory;
 
-    private static void writeRecordStream(Stream<InsertRecord> recordStream, AvroIcebergConverter converter, TaskWriter<Record> writer) {
+    private static void writeRecordStream(Stream<InsertRecord> recordStream, AvroIcebergRecordConverter converter, TaskWriter<Record> writer) {
         recordStream.parallel().map(insertRecord -> {
             try {
                 return converter.toIcebergRecord(insertRecord.getRecord().toByteArray());
@@ -108,8 +108,11 @@ public class IcebergService {
             return true;
         }
         var recordStream = insertRecords.stream();
+
+        Log.infof("Converting append records to data files for table %s", table.name());
         var dataFiles = getAppendDataFiles(avroSchema, table, recordStream);
-        Log.infof("Completed writing %d records for table %s", Arrays.stream(dataFiles).map(ContentFile::recordCount).reduce(0L, Long::sum), table.name());
+        var recordCount = Arrays.stream(dataFiles).map(ContentFile::recordCount).reduce(0L, Long::sum);
+        Log.infof("Converted %d records to %d data files for table %s", recordCount, dataFiles.length, table.name());
 
 
         var lockKey = List.of(tableInfo.getIcebergCatalog().toString(), tableInfo.getNamespaceList(), tableInfo.getTableName());
@@ -155,7 +158,7 @@ public class IcebergService {
     private DataFile[] getAppendDataFiles(String avroSchema, Table table, Stream<InsertRecord> recordStream) {
         WriteResult writeResult;
         try (var writer = recordWriterFactory.createRecordWriter(table)) {
-            var converter = new AvroIcebergConverter(avroSchema, table.schema(), table.name());
+            var converter = new AvroIcebergRecordConverter(avroSchema, table.schema(), table.name());
             Log.infof("Will now write records to append to table %s", table.name());
             var stopwatch = Stopwatch.createStarted();
             writeRecordStream(recordStream, converter, writer);
@@ -222,7 +225,7 @@ public class IcebergService {
         }
         var writer = recordWriterFactory.createRecordWriter(table);
 
-        var converter = new AvroIcebergConverter(avroSchema, table.schema(), table.name());
+        var converter = new AvroIcebergRecordConverter(avroSchema, table.schema(), table.name());
         recordChanges.forEach(recordChange -> {
             switch (recordChange.getChangeCase()) {
                 case INSERT:
