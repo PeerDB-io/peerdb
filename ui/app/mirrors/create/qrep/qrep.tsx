@@ -27,6 +27,13 @@ const WriteModes = ['Append', 'Upsert', 'Overwrite'].map((value) => ({
   label: value,
   value,
 }));
+const allowedTypesForWatermarkColumn = [
+  'smallint',
+  'integer',
+  'bigint',
+  'timestamp without time zone',
+  'timestamp with time zone',
+];
 
 export default function QRepConfigForm({
   settings,
@@ -88,14 +95,17 @@ export default function QRepConfigForm({
       schema,
       table,
       setLoading
-    ).then((cols) =>
+    ).then((cols) => {
+      const filteredCols = cols?.filter((col) =>
+        allowedTypesForWatermarkColumn.includes(col.split(':')[1])
+      );
       setWatermarkColumns(
-        cols?.map((col) => ({
+        filteredCols.map((col) => ({
           value: col.split(':')[0],
           label: `${col.split(':')[0]} (${col.split(':')[1]})`,
         }))
-      )
-    );
+      );
+    });
   };
 
   const handleSourceChange = (
