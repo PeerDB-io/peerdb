@@ -50,6 +50,14 @@ type AvroSchemaField struct {
 	LogicalType string      `json:"logicalType,omitempty"`
 }
 
+// AvroSchemaFixed TODO this needs to be studied for Iceberg
+type AvroSchemaFixed struct {
+	Type        string `json:"type"`
+	Name        string `json:"name"`
+	Size        int    `json:"size"`
+	LogicalType string `json:"logicalType,omitempty"`
+}
+
 func TruncateOrLogNumeric(num decimal.Decimal, precision int16, scale int16, targetDB protos.DBType) (decimal.Decimal, error) {
 	if targetDB == protos.DBType_SNOWFLAKE || targetDB == protos.DBType_BIGQUERY {
 		bidigi := datatypes.CountDigits(num.BigInt())
@@ -81,6 +89,16 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH protos.DBType, preci
 	case QValueKindInterval:
 		return "string", nil
 	case QValueKindUUID:
+		if targetDWH == protos.DBType_ICEBERG {
+			return "string", nil
+			// TODO use proper fixed uuids for iceberg as below
+			//return AvroSchemaFixed{
+			//	Type:        "fixed",
+			//	Size:        16,
+			//	Name:        "uuid_fixed_" + name,
+			//	LogicalType: "uuid",
+			//}, nil
+		}
 		return AvroSchemaLogical{
 			Type:        "string",
 			LogicalType: "uuid",
@@ -120,10 +138,18 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH protos.DBType, preci
 		}
 		return "string", nil
 	case QValueKindTimestamp, QValueKindTimestampTZ:
-		if targetDWH == protos.DBType_CLICKHOUSE {
+		if targetDWH == protos.DBType_CLICKHOUSE || (targetDWH == protos.DBType_ICEBERG && kind == QValueKindTimestamp) {
 			return AvroSchemaLogical{
 				Type:        "long",
 				LogicalType: "timestamp-micros",
+			}, nil
+		}
+		if targetDWH == protos.DBType_ICEBERG {
+			// This is specific to Iceberg, to enable timestamp with timezone
+			return map[string]interface{}{
+				"type":          "long",
+				"logicalType":   "timestamp-micros",
+				"adjust-to-utc": true,
 			}, nil
 		}
 		return "string", nil
@@ -353,7 +379,17 @@ func QValueToAvro(value QValue, field *QField, targetDWH protos.DBType, logger l
 	case QValueArrayDate:
 		return c.processArrayDate(v.Val), nil
 	case QValueUUID:
-		return c.processUUID(v.Val), nil
+		if c.TargetDWH == protos.DBType_ICEBERG {
+			// TODO make this a fixed type for iceberg uuids
+			//return c.processUUID(v.Val, "uuid_fixed_"+field.Name), nil
+			genUuid, err := uuid.FromBytes(v.Val[:])
+			if err != nil {
+				return nil, fmt.Errorf("failed to convert UUID to string: %w", err)
+			}
+			return c.processNullableUnion("string", genUuid.String())
+
+		}
+		return c.processUUIDString(v.Val), nil
 	case QValueGeography, QValueGeometry, QValuePoint:
 		return c.processGeospatial(v.Value().(string)), nil
 	default:
@@ -548,12 +584,20 @@ func (c *QValueAvroConverter) processHStore(hstore string) (interface{}, error) 
 	return jsonString, nil
 }
 
-func (c *QValueAvroConverter) processUUID(byteData [16]byte) interface{} {
+func (c *QValueAvroConverter) processUUIDString(byteData [16]byte) interface{} {
 	uuidString := uuid.UUID(byteData).String()
 	if c.Nullable {
-		return goavro.Union("string", uuidString)
+		return goavro.Union("string.uuid", uuidString)
 	}
 	return uuidString
+}
+
+func (c *QValueAvroConverter) processUUID(byteData [16]byte, uuidTypeName string) interface{} {
+	if c.Nullable {
+		// Slice is required by goavro
+		return goavro.Union(uuidTypeName, byteData[:])
+	}
+	return byteData
 }
 
 func (c *QValueAvroConverter) processGeospatial(geoString string) interface{} {

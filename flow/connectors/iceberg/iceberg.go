@@ -11,7 +11,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"log/slog"
-	"strconv"
 	"time"
 
 	"go.temporal.io/sdk/log"
@@ -92,6 +91,7 @@ func (c *IcebergConnector) PullRecords(ctx context.Context, catalogPool *pgxpool
 }
 
 func (c *IcebergConnector) StartSetupNormalizedTables(ctx context.Context) (any, error) {
+	// TODO might be better to do all tables in 1 go
 	return nil, nil
 }
 
@@ -135,17 +135,7 @@ func (c *IcebergConnector) SetupNormalizedTable(ctx context.Context, tx any, tab
 		qFields[i] = qField
 	}
 
-	qFields = append(qFields, qvalue.QField{
-		Name:     softDeleteColName,
-		Type:     qvalue.QValueKindBoolean,
-		Nullable: true,
-	})
-
-	qFields = append(qFields, qvalue.QField{
-		Name:     syncedAtColName,
-		Type:     qvalue.QValueKindTimestamp,
-		Nullable: true,
-	})
+	qFields = addPeerMetaColumns(qFields, softDeleteColName, syncedAtColName)
 
 	avroSchema, err := getAvroSchema(tableIdentifier, qvalue.NewQRecordSchema(qFields))
 	if err != nil {
@@ -172,6 +162,21 @@ func (c *IcebergConnector) SetupNormalizedTable(ctx context.Context, tx any, tab
 	//	return false, fmt.Errorf("created table name mismatch: %s != %s", tableResponse.TableName, tableIdentifier)
 	//}
 	return true, nil
+}
+
+func addPeerMetaColumns(qFields []qvalue.QField, softDeleteColName string, syncedAtColName string) []qvalue.QField {
+	qFields = append(qFields, qvalue.QField{
+		Name:     softDeleteColName,
+		Type:     qvalue.QValueKindBoolean,
+		Nullable: true,
+	})
+
+	qFields = append(qFields, qvalue.QField{
+		Name:     syncedAtColName,
+		Type:     qvalue.QValueKindTimestampTZ,
+		Nullable: true,
+	})
+	return qFields
 }
 
 func NewIcebergConnector(
@@ -202,7 +207,7 @@ func NewIcebergConnector(
 
 func (c *IcebergConnector) CreateRawTable(_ context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
 	// TODO
-	c.logger.Info("CreateRawTable for S3 is a no-op")
+	c.logger.Info("CreateRawTable for Iceberg is a no-op")
 	return nil, nil
 }
 
@@ -212,7 +217,7 @@ func (c *IcebergConnector) Close() error {
 
 func (c *IcebergConnector) ValidateCheck(ctx context.Context) error {
 	// Create a table with a random name based on current time
-	tableName := fmt.Sprintf("peerdb_test_flow_%d", time.Now().Unix())
+	tableName := fmt.Sprintf("__peerdb_test_flow_%d", time.Now().Unix())
 	c.logger.Debug("Will try to create iceberg table", "table", tableName)
 	table, err := c.proxyClient.CreateTable(ctx,
 		&protos.CreateTableRequest{
@@ -257,37 +262,14 @@ func (c *IcebergConnector) ConnectionActive(ctx context.Context) error {
 
 func (c *IcebergConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
-	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, req.SyncBatchID)
-	records := req.Records.GetRecords()
-	a := <-records
-
-	items := a.GetItems()
-	qValue := items.GetColumnValue("asd")
-	req.TableNameSchemaMapping["asd"].Columns
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
-	}
-	qrepConfig := &protos.QRepConfig{
-		FlowJobName:                req.FlowJobName,
-		DestinationTableIdentifier: "raw_table_" + req.FlowJobName,
-	}
-	partition := &protos.QRepPartition{
-		PartitionId: strconv.FormatInt(req.SyncBatchID, 10),
-	}
-	numRecords, err := c.SyncQRepRecords(ctx, qrepConfig, partition, recordStream)
-	if err != nil {
-		return nil, err
-	}
-	c.logger.Info(fmt.Sprintf("Synced %d records", numRecords))
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
-	err = c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
+	err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
 	if err != nil {
 		c.logger.Error("failed to increment id", "error", err)
 		return nil, err
 	}
-
+	numRecords := 0
 	return &model.SyncResponse{
 		LastSyncedCheckpointID: lastCheckpoint,
 		NumRecordsSynced:       int64(numRecords),
@@ -297,6 +279,6 @@ func (c *IcebergConnector) SyncRecords(ctx context.Context, req *model.SyncRecor
 }
 
 func (c *IcebergConnector) ReplayTableSchemaDeltas(_ context.Context, flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error {
-	c.logger.Info("ReplayTableSchemaDeltas for S3 is a no-op")
+	c.logger.Info("ReplayTableSchemaDeltas for Iceberg is a no-op")
 	return nil
 }

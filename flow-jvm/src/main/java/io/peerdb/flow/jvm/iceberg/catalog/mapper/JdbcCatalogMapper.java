@@ -4,7 +4,6 @@ import io.peerdb.flow.peers.JdbcIcebergCatalog;
 import jakarta.inject.Singleton;
 import org.apache.iceberg.jdbc.JdbcCatalog;
 
-import java.util.Collections;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -17,7 +16,7 @@ public class JdbcCatalogMapper extends CatalogConfigMapper<JdbcIcebergCatalog> {
         return Map.of(
                 "user", config.getUser(),
                 "password", config.getPassword(),
-                "useSSL",  config.hasUseSsl() ? String.valueOf(config.getUseSsl()) : "true",
+                "useSSL", config.hasUseSsl() ? String.valueOf(config.getUseSsl()) : "true",
                 "verifyServerCertificate", config.hasVerifyServerCertificate() ? String.valueOf(config.getVerifyServerCertificate()) : "false"
 
         ).entrySet().stream().collect(Collectors.toMap(e -> JdbcCatalog.PROPERTY_PREFIX + e.getKey(), Map.Entry::getValue));

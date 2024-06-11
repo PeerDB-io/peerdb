@@ -99,6 +99,7 @@ message AppendRecordsRequest {
   TableInfo table_info = 1;
   string schema = 2;
   repeated InsertRecord records = 3;
+  optional string idempotency_key = 4;
 }
 
 message AppendRecordsResponse {

@@ -20,7 +20,7 @@ public abstract class FileIOConfigMapper<T> {
     public final Map<String, String> map(T config) {
         var map = new HashMap<>(mapCommon());
         map.putAll(this.mapSpecific(config));
-        Log.infof("Mapped IO config: %s", map);
+        Log.debugf("Mapped IO config: %s", map);
         return map;
     }
 

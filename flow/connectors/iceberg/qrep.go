@@ -6,6 +6,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/linkedin/goavro/v2"
 	"log/slog"
+	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -20,6 +21,7 @@ func (c *IcebergConnector) SyncQRepRecords(
 ) (int, error) {
 	schema := stream.Schema()
 
+	schema.Fields = addPeerMetaColumns(schema.Fields, config.SoftDeleteColName, config.SyncedAtColName)
 	dstTableName := config.DestinationTableIdentifier
 
 	avroSchema, err := getAvroSchema(dstTableName, schema)
@@ -39,9 +41,19 @@ func (c *IcebergConnector) SyncQRepRecords(
 	}
 	binaryRecords := make([]*protos.InsertRecord, 0)
 	for record := range stream.Records {
+
+		// Add soft delete
+		record = append(record, qvalue.QValueBoolean{
+			Val: false,
+		})
+		// add synced at colname
+		record = append(record, qvalue.QValueTimestampTZ{
+			Val: time.Now(),
+		})
+
 		converted, err := avroConverter.Convert(record)
 		if err != nil {
-			return 0, fmt.Errorf("failed to convert QRecord to Avro-compatible map: %w", err)
+			return 0, err
 		}
 		binaryData := make([]byte, 0)
 		native, err := codec.BinaryFromNative(binaryData, converted)
@@ -54,6 +66,8 @@ func (c *IcebergConnector) SyncQRepRecords(
 
 	}
 
+	requestIdempotencyKey := fmt.Sprintf("_peerdb_qrep-%s-%s", config.FlowJobName, partition.PartitionId)
+
 	appendRecordsResponse, err := c.proxyClient.AppendRecords(ctx,
 		&protos.AppendRecordsRequest{
 			TableInfo: &protos.TableInfo{
@@ -61,9 +75,11 @@ func (c *IcebergConnector) SyncQRepRecords(
 				TableName:      dstTableName,
 				IcebergCatalog: c.config.CatalogConfig,
 				//PrimaryKey:      nil,
+
 			},
-			Schema:  avroSchema.Schema,
-			Records: binaryRecords,
+			Schema:         avroSchema.Schema,
+			Records:        binaryRecords,
+			IdempotencyKey: &requestIdempotencyKey,
 		},
 	)
 
@@ -71,33 +87,14 @@ func (c *IcebergConnector) SyncQRepRecords(
 		return 0, err
 	}
 
-	logger.LoggerFromCtx(ctx).Info("AppendRecordsResponse", slog.Any("response", appendRecordsResponse))
+	logger.LoggerFromCtx(ctx).Info("AppendRecordsResponse", slog.Any("response", appendRecordsResponse.Success))
 
-	//numRecords, err := c.writeToAvroFile(ctx, stream, avroSchema, partition.PartitionId, config.FlowJobName)
-	//if err != nil {
-	//	return 0, err
-	//}
-
+	err = c.PostgresMetadata.FinishQRepPartition(ctx, partition, config.FlowJobName, time.Now())
+	if err != nil {
+		return 0, err
+	}
 	return len(binaryRecords), nil
 }
-
-//func (c *IcebergConnector) writeToIceberg(
-//	ctx context.Context,
-//	stream *model.QRecordStream,
-//	avroSchema *model.QRecordAvroSchemaDefinition,
-//	destinationTableName string,
-//) (int, error) {
-//	c.proxyClient.InsertChanges(ctx, &protos.InsertChangesRequest{
-//		TableInfo: &protos.TableInfo{
-//			Namespace:      nil,
-//			TableName:      destinationTableName,
-//			IcebergCatalog: c.config.CatalogConfig,
-//			PrimaryKey:,
-//		},
-//		Schema:  avroSchema.Schema,
-//		Changes: nil,
-//	})
-//}
 
 func getAvroSchema(
 	dstTableName string,
@@ -111,30 +108,6 @@ func getAvroSchema(
 	return avroSchema, nil
 }
 
-//func (c *IcebergConnector) writeToAvroFile(
-//	ctx context.Context,
-//	stream *model.QRecordStream,
-//	avroSchema *model.QRecordAvroSchemaDefinition,
-//	partitionID string,
-//	jobName string,
-//) (int, error) {
-//	s3o, err := utils.NewS3BucketAndPrefix(c.url)
-//	if err != nil {
-//		return 0, fmt.Errorf("failed to parse bucket path: %w", err)
-//	}
-//
-//	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, jobName, partitionID)
-//
-//	writer := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressNone, protos.DBType_SNOWFLAKE)
-//	avroFile, err := writer.WriteRecordsToS3(ctx, s3o.Bucket, s3AvroFileKey, c.credentialsProvider)
-//	if err != nil {
-//		return 0, fmt.Errorf("failed to write records to S3: %w", err)
-//	}
-//	defer avroFile.Cleanup()
-//
-//	return avroFile.NumRecords, nil
-//}
-
 // S3 just sets up destination, not metadata tables
 func (c *IcebergConnector) SetupQRepMetadataTables(_ context.Context, config *protos.QRepConfig) error {
 	c.logger.Info("QRep metadata setup not needed for S3.")
@@ -142,8 +115,9 @@ func (c *IcebergConnector) SetupQRepMetadataTables(_ context.Context, config *pr
 }
 
 // S3 doesn't check if partition is already synced, but file with same name is overwritten
-func (c *IcebergConnector) IsQRepPartitionSynced(_ context.Context,
+func (c *IcebergConnector) IsQRepPartitionSynced(ctx context.Context,
 	config *protos.IsQRepPartitionSyncedInput,
 ) (bool, error) {
-	return false, nil
+	// TODO look at this
+	return c.PostgresMetadata.IsQRepPartitionSynced(ctx, config)
 }

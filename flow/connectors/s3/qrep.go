@@ -79,5 +79,6 @@ func (c *S3Connector) SetupQRepMetadataTables(_ context.Context, config *protos.
 func (c *S3Connector) IsQRepPartitionSynced(_ context.Context,
 	config *protos.IsQRepPartitionSyncedInput,
 ) (bool, error) {
+	// TODO maybe we should actually check if the file exists instead of retrying blindly
 	return false, nil
 }

@@ -9,7 +9,7 @@ repositories {
 }
 
 ext {
-    icebergLibVersion = '1.4.2'
+    icebergLibVersion = '1.5.2'
 }
 
 
@@ -34,7 +34,13 @@ dependencies {
 
     // AWS Dependencies
     implementation "org.apache.iceberg:iceberg-aws:${icebergLibVersion}"
-    runtimeOnly 'software.amazon.awssdk:bundle:2.25.60'
+    runtimeOnly "org.apache.iceberg:iceberg-aws-bundle:${icebergLibVersion}"
+//    runtimeOnly 'software.amazon.awssdk:bundle:2.25.60'
+
+    // GCP Dependencies
+    implementation "org.apache.iceberg:iceberg-gcp:${icebergLibVersion}"
+    // This is currently causing issues with GRPC versions mismatch
+//    runtimeOnly "org.apache.iceberg:iceberg-gcp-bundle:${icebergLibVersion}"
 
 
     testImplementation 'io.quarkus:quarkus-junit5'

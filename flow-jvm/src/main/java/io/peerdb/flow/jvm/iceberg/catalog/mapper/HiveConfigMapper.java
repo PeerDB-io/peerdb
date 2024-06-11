@@ -11,6 +11,7 @@ import java.util.Map;
 public class HiveConfigMapper extends CatalogConfigMapper<HiveIcebergCatalog> {
     @Override
     protected Map<String, String> mapSpecific(HiveIcebergCatalog config) {
+        // TODO complete this
         return Collections.emptyMap();
     }
 

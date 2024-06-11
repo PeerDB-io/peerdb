@@ -179,18 +179,26 @@ message IcebergS3IoConfig {
   optional string path_style_access = 5;
 }
 
+message IcebergGCSIoConfig {
+  optional string project_id = 1;
+  optional string bucket = 2;
+  optional string credentials = 3;
+}
+
 message IcebergIOConfig {
   oneof config {
     IcebergS3IoConfig s3 = 1;
+    IcebergGCSIoConfig gcs = 2;
   }
 }
 
 message CommonIcebergCatalog {
-  string uri = 1;
-  string warehouse_location = 2;
-  optional int32 client_pool_size = 3;
-  optional bool cache_enabled = 4;
-  map<string, string> additional_properties = 5;
+  string name = 1;
+  string uri = 2;
+  string warehouse_location = 3;
+  optional int32 client_pool_size = 4;
+  optional bool cache_enabled = 5;
+  map<string, string> additional_properties = 6;
 }
 
 message HiveIcebergCatalog {}

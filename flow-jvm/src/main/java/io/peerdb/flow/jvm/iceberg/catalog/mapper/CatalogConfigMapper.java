@@ -19,7 +19,7 @@ public abstract class CatalogConfigMapper<T> {
             builder.put(CatalogProperties.CLIENT_POOL_SIZE, String.valueOf(config.getClientPoolSize()));
         }
         if (config.hasCacheEnabled()) {
-                builder.put(CatalogProperties.CACHE_ENABLED, String.valueOf(config.getCacheEnabled()));
+            builder.put(CatalogProperties.CACHE_ENABLED, String.valueOf(config.getCacheEnabled()));
         }
         builder.putAll(config.getAdditionalPropertiesMap());
         return builder.build();
@@ -29,7 +29,7 @@ public abstract class CatalogConfigMapper<T> {
         var map = new HashMap<>(mapCommon(commonConfig));
         map.putAll(this.mapSpecific(config));
         map.putAll(fileIoConfig);
-        Log.infof("Mapped catalog config: %s", map);
+        Log.debugf("Mapped catalog config: %s", map);
         return map;
     }
 

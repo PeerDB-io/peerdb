@@ -4,10 +4,12 @@ quarkus:
       scan-for-imports: all
   grpc:
     server:
-      port: ${FLOW_JVM_GRPC_PORT:9801}
+      port: ${FLOW_JVM_PORT:9801}
 
       # 512 MB
       max-inbound-message-size: 536870912
+
+      use-separate-server: false
   log:
     level: INFO
     category:
@@ -17,8 +19,9 @@ quarkus:
     console:
       level: ${PEERDB_LOG_LEVEL:TRACE}
   http:
-    port: ${FLOW_JVM_HTTP_PORT:9802}
+    port: ${FLOW_JVM_PORT:9801}
 
   test:
     continuous-testing:
       enabled: disabled
+

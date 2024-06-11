@@ -1,61 +1,43 @@
 package io.peerdb.flow.jvm.iceberg.avro;
 
-import io.quarkus.logging.Log;
 import org.apache.avro.Schema;
 import org.apache.avro.file.SeekableByteArrayInput;
-import org.apache.avro.generic.GenericDatumReader;
-import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.io.DecoderFactory;
-import org.apache.iceberg.data.Record;
+import org.apache.iceberg.avro.AvroSchemaUtil;
+import org.apache.iceberg.data.avro.DataReader;
 
 import java.io.IOException;
 
 public class AvroIcebergConverter {
     private final org.apache.iceberg.Schema icebergSchema;
-    private final Schema avroSchema;
+    private final Schema icebergAvroSchema;
+    private final DataReader<org.apache.iceberg.data.GenericRecord> dataReader;
 
-    public AvroIcebergConverter(String avroSchemaString, org.apache.iceberg.Schema icebergSchema) {
+    public AvroIcebergConverter(String avroSchemaString, org.apache.iceberg.Schema icebergSchema, String tableName) {
+        this(new Schema.Parser().parse(avroSchemaString), icebergSchema, tableName);
 
-        this.icebergSchema = icebergSchema;
-        var avroSchemaParser = new org.apache.avro.Schema.Parser();
-        this.avroSchema = avroSchemaParser.parse(avroSchemaString);
     }
 
-    public AvroIcebergConverter(Schema avroSchema, org.apache.iceberg.Schema icebergSchema) {
+    public AvroIcebergConverter(Schema sourceAvroSchema, org.apache.iceberg.Schema icebergSchema, String tableName) {
         this.icebergSchema = icebergSchema;
-        this.avroSchema = avroSchema;
+        this.icebergAvroSchema = AvroSchemaUtil.convert(icebergSchema, tableName);
+        this.dataReader = DataReader.create(icebergSchema, icebergAvroSchema);
+        this.dataReader.setSchema(sourceAvroSchema);
+
     }
 
-    public GenericRecord toAvroRecord(byte[] bytes) throws IOException {
-        var reader = new GenericDatumReader<GenericRecord>(avroSchema);
-        try (var byteStream = new SeekableByteArrayInput(bytes)) {
-        // The below code is for avro binary data files
-//                    var dataFileReader = DataFileReader.openReader(byteStream, reader);
-//                    if (!dataFileReader.hasNext()) {
-//                        Log.errorf("No records found!");
-//                        return;
-//                    }
-//                    var record = dataFileReader.next();
-
+    public org.apache.iceberg.data.GenericRecord toIcebergRecord(byte[] avroBytes) throws IOException {
+        try (var byteStream = new SeekableByteArrayInput(avroBytes)) {
             var binaryDecoder = DecoderFactory.get().binaryDecoder(byteStream, null);
-            return reader.read(null, binaryDecoder);
+            return this.dataReader.read(null, binaryDecoder);
         }
     }
 
-
-    public org.apache.iceberg.data.GenericRecord toIcebergRecord(GenericRecord avroRecord) {
-        var genericRecord = org.apache.iceberg.data.GenericRecord.create(icebergSchema);
-        for (var field : icebergSchema.columns()) {
-            var fieldName = field.name();
-            var fieldValue = avroRecord.get(fieldName);
-            Log.tracef("Will set Field: %s, Value: %s, Current Record: %s", fieldName, fieldValue, genericRecord);
-            genericRecord.setField(fieldName, fieldValue);
-        }
-        return genericRecord;
+    public org.apache.iceberg.Schema getIcebergSchema() {
+        return icebergSchema;
     }
 
-    public org.apache.iceberg.data.GenericRecord toIcebergRecord(byte[] bytes) throws IOException {
-        return toIcebergRecord(toAvroRecord(bytes));
+    public Schema getIcebergAvroSchema() {
+        return icebergAvroSchema;
     }
-
 }
