@@ -55,12 +55,6 @@ type PostgresCDCConfig struct {
 	Publication            string
 }
 
-type startReplicationOpts struct {
-	conn            *pgconn.PgConn
-	replicationOpts pglogrepl.StartReplicationOptions
-	startLSN        pglogrepl.LSN
-}
-
 // Create a new PostgresCDCSource
 func (c *PostgresConnector) NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) *PostgresCDCSource {
 	return &PostgresCDCSource{
