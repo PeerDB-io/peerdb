@@ -91,7 +91,11 @@ export default function CDCConfigForm({
         mirrorConfig.destination?.type !== DBType.POSTGRES) &&
         label.includes('type system')) ||
       (mirrorConfig.destination?.type !== DBType.BIGQUERY &&
-        label.includes('column name'))
+        label.includes('column name')) ||
+      (label.includes('soft delete') &&
+        ![DBType.BIGQUERY, DBType.POSTGRES, DBType.SNOWFLAKE].includes(
+          mirrorConfig.destination?.type ?? DBType.UNRECOGNIZED
+        ))
     ) {
       return false;
     }

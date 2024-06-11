@@ -55,12 +55,6 @@ type PostgresCDCConfig struct {
 	Publication            string
 }
 
-type startReplicationOpts struct {
-	conn            *pgconn.PgConn
-	replicationOpts pglogrepl.StartReplicationOptions
-	startLSN        pglogrepl.LSN
-}
-
 // Create a new PostgresCDCSource
 func (c *PostgresConnector) NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) *PostgresCDCSource {
 	return &PostgresCDCSource{
@@ -577,6 +571,11 @@ func PullCdcRecords[Items model.Items](
 							tableSchemaDelta.SrcTableName, tableSchemaDelta.AddedColumns))
 						records.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
 					}
+
+				case *model.MessageRecord[Items]:
+					if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
+						return err
+					}
 				}
 			}
 
@@ -614,8 +613,7 @@ func processMessage[Items model.Items](
 
 	switch msg := logicalMsg.(type) {
 	case *pglogrepl.BeginMessage:
-		logger.Debug(fmt.Sprintf("BeginMessage => FinalLSN: %v, XID: %v", msg.FinalLSN, msg.Xid))
-		logger.Debug("Locking PullRecords at BeginMessage, awaiting CommitMessage")
+		logger.Debug("BeginMessage", slog.Any("FinalLSN", msg.FinalLSN), slog.Any("XID", msg.Xid))
 		p.commitLock = msg
 	case *pglogrepl.InsertMessage:
 		return processInsertMessage(p, xld.WALStart, msg, processor)
@@ -625,8 +623,7 @@ func processMessage[Items model.Items](
 		return processDeleteMessage(p, xld.WALStart, msg, processor)
 	case *pglogrepl.CommitMessage:
 		// for a commit message, update the last checkpoint id for the record batch.
-		logger.Debug(fmt.Sprintf("CommitMessage => CommitLSN: %v, TransactionEndLSN: %v",
-			msg.CommitLSN, msg.TransactionEndLSN))
+		logger.Debug("CommitMessage", slog.Any("CommitLSN", msg.CommitLSN), slog.Any("TransactionEndLSN", msg.TransactionEndLSN))
 		batch.UpdateLatestCheckpoint(int64(msg.CommitLSN))
 		p.commitLock = nil
 	case *pglogrepl.RelationMessage:
@@ -637,13 +634,25 @@ func processMessage[Items model.Items](
 			return nil, nil
 		}
 
-		logger.Debug(fmt.Sprintf("RelationMessage => RelationID: %d, Namespace: %s, RelationName: %s, Columns: %v",
-			msg.RelationID, msg.Namespace, msg.RelationName, msg.Columns))
+		logger.Debug("RelationMessage",
+			slog.Any("RelationID", msg.RelationID),
+			slog.String("Namespace", msg.Namespace),
+			slog.String("RelationName", msg.RelationName),
+			slog.Any("Columns", msg.Columns))
 
 		return processRelationMessage[Items](ctx, p, currentClientXlogPos, msg)
+	case *pglogrepl.LogicalDecodingMessage:
+		logger.Info("LogicalDecodingMessage",
+			slog.Bool("Transactional", msg.Transactional),
+			slog.String("Prefix", msg.Prefix),
+			slog.Int64("LSN", int64(msg.LSN)))
+		if !msg.Transactional {
+			batch.UpdateLatestCheckpoint(int64(msg.LSN))
+		}
+		return &model.MessageRecord[Items]{BaseRecord: p.baseRecord(msg.LSN)}, nil
 
-	case *pglogrepl.TruncateMessage:
-		logger.Warn("TruncateMessage not supported")
+	default:
+		logger.Warn(fmt.Sprintf("%T not supported", msg))
 	}
 
 	return nil, nil
@@ -824,7 +833,7 @@ func processRelationMessage[Items model.Items](
 	schemaDelta := &protos.TableSchemaDelta{
 		SrcTableName: p.srcTableIDNameMapping[currRel.RelationID],
 		DstTableName: p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name,
-		AddedColumns: make([]*protos.FieldDescription, 0),
+		AddedColumns: nil,
 		System:       prevSchema.System,
 	}
 	for _, column := range currRel.Columns {

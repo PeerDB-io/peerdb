@@ -125,7 +125,7 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]interface{}, error) {
 			}
 		case qvalue.QValueJSON:
 			if len(v.Val) > 15*1024*1024 {
-				jsonStruct[col] = ""
+				jsonStruct[col] = "{}"
 			} else if _, ok := opts.UnnestColumns[col]; ok {
 				var unnestStruct map[string]interface{}
 				err := json.Unmarshal([]byte(v.Val), &unnestStruct)
