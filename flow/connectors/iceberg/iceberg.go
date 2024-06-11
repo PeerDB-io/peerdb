@@ -277,8 +277,7 @@ func (c *IcebergConnector) ValidateCheck(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	c.logger.Debug("Created iceberg table", slog.String("table", table.TableName))
-	c.logger.Debug("Will try to drop iceberg table", "table", tableName)
+	c.logger.Debug("Created iceberg table, will try to drop it now", "table", tableName)
 	dropTable, err := c.proxyClient.DropTable(ctx,
 		&protos.DropTableRequest{
 			TableInfo: &protos.TableInfo{

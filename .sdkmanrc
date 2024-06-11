@@ -2,3 +2,4 @@
 # Add key=value pairs of SDKs to use below
 java=21.0.3-tem
 quarkus=3.11.1
+gradle=8.6

@@ -2,7 +2,7 @@
 
 
 ## Dependencies
-Install sdkman and run `sdk env install` to setup the environment.
+Install sdkman and run `sdk env install` to setup the environment and run `gradle wrapper` to install gradle wrapper.
 
 
 
