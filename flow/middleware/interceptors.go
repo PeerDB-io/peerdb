@@ -2,11 +2,10 @@ package middleware
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"time"
 
-	"github.com/hashicorp/golang-lru/v2/expirable"
+	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
@@ -30,18 +29,16 @@ func CreateAuthServerInterceptor(ctx context.Context, unauthenticatedMethods []s
 		unauthenticatedMethodsSet[method] = struct{}{}
 	}
 
-	// accommodate live password changes and reduce time hash is in memory
-	hashCache := expirable.NewLRU[string, []byte](1, nil, 10*time.Minute)
-	_, err := getCachedHash(hashCache)
+	hash, err := bcrypt.GenerateFromPassword([]byte(plaintext), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, fmt.Errorf("error generating hash: %w", err)
+		return nil, err
 	}
 
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if _, ok := unauthenticatedMethodsSet[info.FullMethod]; ok {
 			return handler(ctx, req)
 		}
-		ctx, err := authorize(ctx, hashCache)
+		ctx, err := authorize(ctx, hash)
 		if err != nil {
 			return nil, err
 		}

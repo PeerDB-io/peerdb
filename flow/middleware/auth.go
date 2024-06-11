@@ -6,20 +6,16 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/hashicorp/golang-lru/v2/expirable"
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/PeerDB-io/peer-flow/logger"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
-const hashedKey = "sognodivolare"
-
 // authorize checks the authorization metadata and compares the incoming bearer token with the plaintext
-func authorize(ctx context.Context, hashCache *expirable.LRU[string, []byte]) (context.Context, error) {
+func authorize(ctx context.Context, hash []byte) (context.Context, error) {
 	md, _ := metadata.FromIncomingContext(ctx)
 	if len(md["authorization"]) == 0 {
 		return nil, status.Errorf(codes.Unauthenticated, "Authorization token is required")
@@ -38,30 +34,9 @@ func authorize(ctx context.Context, hashCache *expirable.LRU[string, []byte]) (c
 		return nil, status.Errorf(codes.Unauthenticated, "Authentication failed")
 	}
 
-	hash, err := getCachedHash(hashCache)
-	if err != nil || hash == nil {
-		logger.LoggerFromCtx(ctx).Warn("Error getting hash", slog.Any("error", err))
-		return nil, status.Errorf(codes.Unauthenticated, "Authentication failed")
-	}
 	if err := bcrypt.CompareHashAndPassword(hash, tokenBytes); err != nil {
 		logger.LoggerFromCtx(ctx).Warn("Error validating token", slog.String("token", string(tokenBytes)), slog.Any("error", err))
 		return nil, status.Errorf(codes.Unauthenticated, "Authentication failed")
 	}
 	return ctx, nil
-}
-
-func getCachedHash(hashCache *expirable.LRU[string, []byte]) ([]byte, error) {
-	if value, ok := hashCache.Get(hashedKey); ok {
-		return value, nil
-	}
-	plaintext := peerdbenv.PeerDBPassword()
-	if plaintext == "" {
-		return nil, nil
-	}
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(plaintext), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, err
-	}
-	hashCache.Add(hashedKey, hashedPassword)
-	return hashedPassword, nil
 }
