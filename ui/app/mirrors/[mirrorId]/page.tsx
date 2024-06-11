@@ -92,8 +92,10 @@ export default async function ViewMirror({
 
     const dbType = mirrorConfig.destination!.type;
     const canResync =
-      dbType.valueOf() === DBType.BIGQUERY.valueOf() ||
-      dbType.valueOf() === DBType.SNOWFLAKE.valueOf();
+      mirrorStatus.currentFlowState.toString() ===
+        FlowStatus[FlowStatus.STATUS_RUNNING] &&
+      (dbType.valueOf() === DBType.BIGQUERY.valueOf() ||
+        dbType.valueOf() === DBType.SNOWFLAKE.valueOf());
 
     const isNotPaused =
       mirrorStatus.currentFlowState.toString() !==
