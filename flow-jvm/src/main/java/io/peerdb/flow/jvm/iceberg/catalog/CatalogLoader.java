@@ -41,15 +41,15 @@ public class CatalogLoader {
             }
         };
 
-        var catalogconfig = switch (icebergCatalogConfig.getConfigCase()) {
+        var catalogConfig = switch (icebergCatalogConfig.getConfigCase()) {
             case HIVE ->
                     hiveConfigMapper.map(icebergCatalogConfig.getCommonConfig(), icebergCatalogConfig.getHive(), fileIoConfig);
             case JDBC ->
                     jdbcCatalogMapper.map(icebergCatalogConfig.getCommonConfig(), icebergCatalogConfig.getJdbc(), fileIoConfig);
             default ->
-                    throw new IllegalStateException("Unexpected value for catalog config: " + icebergCatalogConfig.getConfigCase());
+                    throw new IllegalArgumentException("Unexpected value for catalog config: " + icebergCatalogConfig.getConfigCase());
         };
         // TODO look at hadoop
-        return CatalogUtil.buildIcebergCatalog(icebergCatalogConfig.getCommonConfig().getName(), catalogconfig, null);
+        return CatalogUtil.buildIcebergCatalog(icebergCatalogConfig.getCommonConfig().getName(), catalogConfig, null);
     }
 }

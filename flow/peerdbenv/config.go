@@ -145,3 +145,8 @@ func PeerDBAlertingEmailSenderReplyToAddresses() string {
 func PeerDBClickhouseAWSS3BucketName() string {
 	return GetEnvString("PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME", "")
 }
+
+// PeerDBFlowJvmAddress is the URL of the gRPC server for the JVM-based proxy, Eg: "localhost:9801"
+func PeerDBFlowJvmAddress() string {
+	return GetEnvString("PEERDB_FLOW_JVM_ADDRESS", "")
+}

@@ -3,12 +3,13 @@ package iceberg
 import (
 	"context"
 	"fmt"
-	"github.com/PeerDB-io/peer-flow/logger"
-	"github.com/linkedin/goavro/v2"
 	"log/slog"
 	"time"
 
+	"github.com/linkedin/goavro/v2"
+
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
@@ -41,15 +42,13 @@ func (c *IcebergConnector) SyncQRepRecords(
 	}
 	binaryRecords := make([]*protos.InsertRecord, 0)
 	for record := range stream.Records {
-
 		// Add soft delete
 		record = append(record, qvalue.QValueBoolean{
 			Val: false,
-		})
-		// add synced at colname
-		record = append(record, qvalue.QValueTimestampTZ{
-			Val: time.Now(),
-		})
+		}, // add synced at colname
+			qvalue.QValueTimestampTZ{
+				Val: time.Now(),
+			})
 
 		converted, err := avroConverter.Convert(record)
 		if err != nil {
@@ -63,7 +62,6 @@ func (c *IcebergConnector) SyncQRepRecords(
 		binaryRecords = append(binaryRecords, &protos.InsertRecord{
 			Record: native,
 		})
-
 	}
 
 	requestIdempotencyKey := fmt.Sprintf("_peerdb_qrep-%s-%s", config.FlowJobName, partition.PartitionId)
@@ -71,10 +69,10 @@ func (c *IcebergConnector) SyncQRepRecords(
 	appendRecordsResponse, err := c.proxyClient.AppendRecords(ctx,
 		&protos.AppendRecordsRequest{
 			TableInfo: &protos.TableInfo{
-				//Namespace:       nil,
+				// Namespace:       nil,
 				TableName:      dstTableName,
 				IcebergCatalog: c.config.CatalogConfig,
-				//PrimaryKey:      nil,
+				// PrimaryKey:      nil,
 
 			},
 			Schema:         avroSchema.Schema,
@@ -82,7 +80,6 @@ func (c *IcebergConnector) SyncQRepRecords(
 			IdempotencyKey: &requestIdempotencyKey,
 		},
 	)
-
 	if err != nil {
 		return 0, err
 	}

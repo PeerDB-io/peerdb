@@ -54,8 +54,8 @@ type AvroSchemaField struct {
 type AvroSchemaFixed struct {
 	Type        string `json:"type"`
 	Name        string `json:"name"`
-	Size        int    `json:"size"`
 	LogicalType string `json:"logicalType,omitempty"`
+	Size        int    `json:"size"`
 }
 
 func TruncateOrLogNumeric(num decimal.Decimal, precision int16, scale int16, targetDB protos.DBType) (decimal.Decimal, error) {
@@ -92,12 +92,12 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH protos.DBType, preci
 		if targetDWH == protos.DBType_ICEBERG {
 			return "string", nil
 			// TODO use proper fixed uuids for iceberg as below
-			//return AvroSchemaFixed{
+			// return AvroSchemaFixed{
 			//	Type:        "fixed",
 			//	Size:        16,
 			//	Name:        "uuid_fixed_" + name,
 			//	LogicalType: "uuid",
-			//}, nil
+			// }, nil
 		}
 		return AvroSchemaLogical{
 			Type:        "string",
@@ -381,13 +381,12 @@ func QValueToAvro(value QValue, field *QField, targetDWH protos.DBType, logger l
 	case QValueUUID:
 		if c.TargetDWH == protos.DBType_ICEBERG {
 			// TODO make this a fixed type for iceberg uuids
-			//return c.processUUID(v.Val, "uuid_fixed_"+field.Name), nil
+			// return c.processUUID(v.Val, "uuid_fixed_"+field.Name), nil
 			genUuid, err := uuid.FromBytes(v.Val[:])
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert UUID to string: %w", err)
 			}
 			return c.processNullableUnion("string", genUuid.String())
-
 		}
 		return c.processUUIDString(v.Val), nil
 	case QValueGeography, QValueGeometry, QValuePoint:
@@ -592,6 +591,10 @@ func (c *QValueAvroConverter) processUUIDString(byteData [16]byte) interface{} {
 	return uuidString
 }
 
+// processUUID converts a UUID byte array to a string or a byte array based on the nullable flag
+// TODO it needs to be used once we have fixed types for Iceberg
+//
+//nolint:unused
 func (c *QValueAvroConverter) processUUID(byteData [16]byte, uuidTypeName string) interface{} {
 	if c.Nullable {
 		// Slice is required by goavro

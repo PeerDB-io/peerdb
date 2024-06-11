@@ -923,7 +923,6 @@ func (a *FlowableActivity) LoadPeer(ctx context.Context, peerName string) (*prot
 		var config protos.IcebergConfig
 		if err := proto.Unmarshal(peerOptions, &config); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal Iceberg config: %w", err)
-
 		}
 		peer.Config = &protos.Peer_IcebergConfig{IcebergConfig: &config}
 	default:

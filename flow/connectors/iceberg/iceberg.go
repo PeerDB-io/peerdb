@@ -3,23 +3,24 @@ package iceberg
 import (
 	"context"
 	"fmt"
-	"github.com/PeerDB-io/peer-flow/alerting"
-	"github.com/PeerDB-io/peer-flow/datatypes"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_guages"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/log"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/PeerDB-io/peer-flow/alerting"
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_guages"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 type IcebergConnector struct {
@@ -30,63 +31,80 @@ type IcebergConnector struct {
 	proxyClient    protos.IcebergProxyServiceClient
 }
 
-func (c *IcebergConnector) GetTableSchema(ctx context.Context, req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
-	//TODO implement me
+func (c *IcebergConnector) GetTableSchema(
+	ctx context.Context,
+	req *protos.GetTableSchemaBatchInput,
+) (*protos.GetTableSchemaBatchOutput, error) {
+	// TODO implement me
 	panic("implement me")
 }
 
-func (c *IcebergConnector) EnsurePullability(ctx context.Context, req *protos.EnsurePullabilityBatchInput) (*protos.EnsurePullabilityBatchOutput, error) {
-	//TODO implement me
+func (c *IcebergConnector) EnsurePullability(
+	ctx context.Context,
+	req *protos.EnsurePullabilityBatchInput,
+) (*protos.EnsurePullabilityBatchOutput, error) {
+	// TODO implement me
 	panic("implement me")
 }
 
 func (c *IcebergConnector) ExportTxSnapshot(ctx context.Context) (*protos.ExportTxSnapshotOutput, any, error) {
-	//TODO implement me
+	// TODO implement me
 	panic("implement me")
 }
 
 func (c *IcebergConnector) FinishExport(a any) error {
-	//TODO implement me
+	// TODO implement me
 	panic("implement me")
 }
 
 func (c *IcebergConnector) SetupReplConn(ctx context.Context) error {
-	//TODO implement me
+	// TODO implement me
 	panic("implement me")
 }
 
 func (c *IcebergConnector) ReplPing(ctx context.Context) error {
-	//TODO implement me
+	// TODO implement me
 	panic("implement me")
 }
 
 func (c *IcebergConnector) UpdateReplStateLastOffset(lastOffset int64) {
-	//TODO implement me
+	// TODO implement me
 	panic("implement me")
 }
 
 func (c *IcebergConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
-	//TODO implement me
+	// TODO implement me
 	panic("implement me")
 }
 
-func (c *IcebergConnector) HandleSlotInfo(ctx context.Context, alerter *alerting.Alerter, catalogPool *pgxpool.Pool, slotName string, peerName string, slotMetricGuages peerdb_guages.SlotMetricGuages) error {
-	//TODO implement me
+func (c *IcebergConnector) HandleSlotInfo(
+	ctx context.Context,
+	alerter *alerting.Alerter,
+	catalogPool *pgxpool.Pool,
+	slotName string,
+	peerName string,
+	slotMetricGuages peerdb_guages.SlotMetricGuages,
+) error {
+	// TODO implement me
 	panic("implement me")
 }
 
 func (c *IcebergConnector) GetSlotInfo(ctx context.Context, slotName string) ([]*protos.SlotInfo, error) {
-	//TODO implement me
+	// TODO implement me
 	panic("implement me")
 }
 
 func (c *IcebergConnector) AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error {
-	//TODO implement me
+	// TODO implement me
 	panic("implement me")
 }
 
-func (c *IcebergConnector) PullRecords(ctx context.Context, catalogPool *pgxpool.Pool, req *model.PullRecordsRequest[model.RecordItems]) error {
-	//TODO implement me
+func (c *IcebergConnector) PullRecords(
+	ctx context.Context,
+	catalogPool *pgxpool.Pool,
+	req *model.PullRecordsRequest[model.RecordItems],
+) error {
+	// TODO implement me
 	panic("implement me")
 }
 
@@ -95,10 +113,7 @@ func (c *IcebergConnector) StartSetupNormalizedTables(ctx context.Context) (any,
 	return nil, nil
 }
 
-func (c *IcebergConnector) CleanupSetupNormalizedTables(ctx context.Context, tx any) {
-	return
-
-}
+func (c *IcebergConnector) CleanupSetupNormalizedTables(ctx context.Context, tx any) {}
 
 func (c *IcebergConnector) FinishSetupNormalizedTables(ctx context.Context, tx any) error {
 	return nil
@@ -114,7 +129,14 @@ func (c *IcebergConnector) SyncFlowCleanup(ctx context.Context, jobName string) 
 	return nil
 }
 
-func (c *IcebergConnector) SetupNormalizedTable(ctx context.Context, tx any, tableIdentifier string, tableSchema *protos.TableSchema, softDeleteColName string, syncedAtColName string) (bool, error) {
+func (c *IcebergConnector) SetupNormalizedTable(
+	ctx context.Context,
+	tx any,
+	tableIdentifier string,
+	tableSchema *protos.TableSchema,
+	softDeleteColName string,
+	syncedAtColName string,
+) (bool, error) {
 	// TODO add soft delete column in the schema
 	qFields := make([]qvalue.QField, len(tableSchema.Columns))
 	for i, fieldDescription := range tableSchema.Columns {
@@ -158,24 +180,23 @@ func (c *IcebergConnector) SetupNormalizedTable(ctx context.Context, tx any, tab
 	}
 	c.logger.Debug("Created iceberg table", slog.String("table", tableResponse.TableName))
 	// TODO need to re-enable this and see why it is failing
-	//if tableResponse.TableName != tableIdentifier {
+	// if tableResponse.TableName != tableIdentifier {
 	//	return false, fmt.Errorf("created table name mismatch: %s != %s", tableResponse.TableName, tableIdentifier)
 	//}
 	return true, nil
 }
 
 func addPeerMetaColumns(qFields []qvalue.QField, softDeleteColName string, syncedAtColName string) []qvalue.QField {
-	qFields = append(qFields, qvalue.QField{
-		Name:     softDeleteColName,
-		Type:     qvalue.QValueKindBoolean,
-		Nullable: true,
-	})
-
-	qFields = append(qFields, qvalue.QField{
-		Name:     syncedAtColName,
-		Type:     qvalue.QValueKindTimestampTZ,
-		Nullable: true,
-	})
+	qFields = append(qFields,
+		qvalue.QField{
+			Name:     softDeleteColName,
+			Type:     qvalue.QValueKindBoolean,
+			Nullable: true,
+		}, qvalue.QField{
+			Name:     syncedAtColName,
+			Type:     qvalue.QValueKindTimestampTZ,
+			Nullable: true,
+		})
 	return qFields
 }
 
@@ -184,7 +205,10 @@ func NewIcebergConnector(
 	config *protos.IcebergConfig,
 ) (*IcebergConnector, error) {
 	logger := logger.LoggerFromCtx(ctx)
-	conn, err := grpc.NewClient("localhost:9801", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(
+		peerdbenv.PeerDBFlowJvmAddress(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Iceberg proxy: %w", err)
 	}
@@ -206,7 +230,6 @@ func NewIcebergConnector(
 }
 
 func (c *IcebergConnector) CreateRawTable(_ context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
-	// TODO
 	c.logger.Info("CreateRawTable for Iceberg is a no-op")
 	return nil, nil
 }
@@ -227,7 +250,29 @@ func (c *IcebergConnector) ValidateCheck(ctx context.Context) error {
 				IcebergCatalog: c.config.CatalogConfig,
 				PrimaryKey:     nil,
 			},
-			Schema: "{\n  \"type\": \"record\",\n  \"name\": \"TestObject\",\n  \"namespace\": \"ca.dataedu\",\n  \"fields\": [\n    {\n      \"name\": \"hello\",\n      \"type\": [\n        \"null\",\n        \"int\"\n      ],\n      \"default\": null\n    },\n    {\n      \"name\": \"some\",\n      \"type\": [\n        \"null\",\n        \"string\"\n      ],\n      \"default\": null\n    }\n  ]\n}",
+			Schema: `{
+  "type": "record",
+  "name": "TestObject",
+  "namespace": "",
+  "fields": [
+    {
+      "name": "hello",
+      "type": [
+        "null",
+        "int"
+      ],
+      "default": null
+    },
+    {
+      "name": "some",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    }
+  ]
+}`,
 		})
 	if err != nil {
 		return err
@@ -256,7 +301,7 @@ func (c *IcebergConnector) ValidateCheck(ctx context.Context) error {
 }
 
 func (c *IcebergConnector) ConnectionActive(ctx context.Context) error {
-	// TODO
+	// TODO implement this for iceberg
 	return nil
 }
 

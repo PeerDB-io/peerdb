@@ -3,7 +3,6 @@ package connectors
 import (
 	"context"
 	"errors"
-	"github.com/PeerDB-io/peer-flow/connectors/iceberg"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -13,6 +12,7 @@ import (
 	connclickhouse "github.com/PeerDB-io/peer-flow/connectors/clickhouse"
 	connelasticsearch "github.com/PeerDB-io/peer-flow/connectors/connelasticsearch"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
+	"github.com/PeerDB-io/peer-flow/connectors/iceberg"
 	connkafka "github.com/PeerDB-io/peer-flow/connectors/kafka"
 	connmysql "github.com/PeerDB-io/peer-flow/connectors/mysql"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
