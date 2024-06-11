@@ -642,8 +642,10 @@ func processMessage[Items model.Items](
 
 		return processRelationMessage[Items](ctx, p, currentClientXlogPos, msg)
 	case *pglogrepl.LogicalDecodingMessage:
-		// TODO remove
-		logger.Info("LogicalDecodingMessage", slog.Bool("Transactional", msg.Transactional), slog.String("Prefix", msg.Prefix))
+		logger.Info("LogicalDecodingMessage",
+			slog.Bool("Transactional", msg.Transactional),
+			slog.String("Prefix", msg.Prefix),
+			slog.Int64("LSN", int64(msg.LSN)))
 		if !msg.Transactional {
 			batch.UpdateLatestCheckpoint(int64(msg.LSN))
 		}
