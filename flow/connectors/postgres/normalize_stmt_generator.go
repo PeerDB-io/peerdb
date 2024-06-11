@@ -50,7 +50,7 @@ func (n *normalizeStmtGenerator) generateNormalizeStatements(dstTable string) []
 	}
 	n.Warn("Postgres version is not high enough to support MERGE, falling back to UPSERT+DELETE")
 	n.Warn("TOAST columns will not be updated properly, use REPLICA IDENTITY FULL or upgrade Postgres")
-	if n.peerdbCols.SoftDelete {
+	if n.peerdbCols.SoftDeleteColName != "" {
 		n.Warn("soft delete enabled with fallback statements! this combination is unsupported")
 	}
 	return n.generateFallbackStatements(dstTable, normalizedTableSchema)
@@ -101,7 +101,7 @@ func (n *normalizeStmtGenerator) generateFallbackStatements(
 
 	// make it update instead in case soft-delete is enabled
 	deleteUpdate := fmt.Sprintf(`DELETE FROM %s USING `, parsedDstTable.String())
-	if n.peerdbCols.SoftDelete {
+	if n.peerdbCols.SoftDeleteColName != "" {
 		deleteUpdate = fmt.Sprintf(`UPDATE %s SET %s=TRUE`,
 			parsedDstTable.String(), QuoteIdentifier(n.peerdbCols.SoftDeleteColName))
 		if n.peerdbCols.SyncedAtColName != "" {
@@ -167,7 +167,7 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 	insertColumnsSQL := strings.Join(quotedColumnNames, ",")
 	insertValuesSQL := strings.Join(insertValuesSQLArray, ",")
 
-	if n.peerdbCols.SoftDelete {
+	if n.peerdbCols.SoftDeleteColName != "" {
 		softDeleteInsertColumnsSQL := strings.Join(
 			append(quotedColumnNames, QuoteIdentifier(n.peerdbCols.SoftDeleteColName)), ",")
 		softDeleteInsertValuesSQL := strings.Join(append(insertValuesSQLArray, "TRUE"), ",")
@@ -179,7 +179,7 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 	updateStringToastCols := strings.Join(updateStatementsforToastCols, "\n")
 
 	conflictPart := "DELETE"
-	if n.peerdbCols.SoftDelete {
+	if n.peerdbCols.SoftDeleteColName != "" {
 		colName := n.peerdbCols.SoftDeleteColName
 		conflictPart = fmt.Sprintf(`UPDATE SET %s=TRUE`, QuoteIdentifier(colName))
 		if n.peerdbCols.SyncedAtColName != "" {
@@ -205,7 +205,7 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 }
 
 func (n *normalizeStmtGenerator) generateUpdateStatements(quotedCols []string, unchangedToastColumns []string) []string {
-	handleSoftDelete := n.peerdbCols.SoftDelete && (n.peerdbCols.SoftDeleteColName != "")
+	handleSoftDelete := n.peerdbCols.SoftDeleteColName != ""
 	stmtCount := len(unchangedToastColumns)
 	if handleSoftDelete {
 		stmtCount *= 2

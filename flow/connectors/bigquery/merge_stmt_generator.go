@@ -164,7 +164,7 @@ func (m *mergeStmtGenerator) generateMergeStmt(dstTable string, dstDatasetTable 
 	}
 
 	updateStatementsforToastCols := m.generateUpdateStatements(pureColNames, unchangedToastColumns)
-	if m.peerdbCols.SoftDelete {
+	if m.peerdbCols.SoftDeleteColName != "" {
 		softDeleteInsertColumnsSQL := insertColumnsSQL + fmt.Sprintf(",`%s`", m.peerdbCols.SoftDeleteColName)
 		softDeleteInsertValuesSQL := insertValuesSQL + ",TRUE"
 
@@ -179,7 +179,7 @@ func (m *mergeStmtGenerator) generateMergeStmt(dstTable string, dstDatasetTable 
 	pkeySelectSQL := strings.Join(pkeySelectSQLArray, " AND ")
 
 	deletePart := "DELETE"
-	if m.peerdbCols.SoftDelete {
+	if m.peerdbCols.SoftDeleteColName != "" {
 		colName := m.peerdbCols.SoftDeleteColName
 		deletePart = fmt.Sprintf("UPDATE SET %s=TRUE", colName)
 		if m.peerdbCols.SyncedAtColName != "" {

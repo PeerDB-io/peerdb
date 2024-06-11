@@ -1,4 +1,5 @@
 'use client';
+import { MirrorSetter } from '@/app/dto/MirrorsDTO';
 import SelectTheme from '@/app/styles/select';
 import {
   QRepConfig,
@@ -9,7 +10,6 @@ import { Badge } from '@/lib/Badge';
 import { Icon } from '@/lib/Icon';
 import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
-import { MirrorSetter } from '../../types';
 import { MirrorSetting } from '../helpers/common';
 
 interface UpsertColsProps {

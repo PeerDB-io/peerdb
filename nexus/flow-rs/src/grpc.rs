@@ -154,7 +154,7 @@ impl FlowGrpcClient {
             return anyhow::Result::Err(anyhow::anyhow!("invalid system {}", job.system));
         };
 
-        let flow_conn_cfg = pt::peerdb_flow::FlowConnectionConfigs {
+        let mut flow_conn_cfg = pt::peerdb_flow::FlowConnectionConfigs {
             source: Some(src),
             destination: Some(dst),
             flow_job_name: job.name.clone(),
@@ -171,13 +171,24 @@ impl FlowGrpcClient {
             max_batch_size: job.max_batch_size.unwrap_or_default(),
             resync: job.resync,
             soft_delete_col_name: job.soft_delete_col_name.clone().unwrap_or_default(),
-            synced_at_col_name: job.synced_at_col_name.clone().unwrap_or_default(),
+            synced_at_col_name: job
+                .synced_at_col_name
+                .clone()
+                .unwrap_or("_PEERDB_SYNCED_AT".to_string()),
             initial_snapshot_only: job.initial_snapshot_only,
             script: job.script.clone(),
             system: system as i32,
             idle_timeout_seconds: job.sync_interval.unwrap_or_default(),
-            disable_peerdb_columns: job.disable_peerdb_columns,
         };
+
+        if job.soft_delete && job.soft_delete_col_name.is_none() {
+            flow_conn_cfg.soft_delete_col_name = "_PEERDB_IS_DELETED".to_string();
+        }
+        if job.disable_peerdb_columns {
+            flow_conn_cfg.soft_delete = false;
+            flow_conn_cfg.soft_delete_col_name = "".to_string();
+            flow_conn_cfg.synced_at_col_name = "".to_string();
+        }
 
         self.start_peer_flow(flow_conn_cfg).await
     }

@@ -73,9 +73,6 @@ message FlowConnectionConfigs {
   string script = 20;
 
   TypeSystem system = 21;
-
-  // soft_delete, synced_at etc. should not be created in the destination table
-  bool disable_peerdb_columns = 22;
 }
 
 message RenameTableOption {

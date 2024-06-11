@@ -675,7 +675,9 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 	flowConnConfig.MaxBatchSize = 100
-	flowConnConfig.DisablePeerdbColumns = true
+	flowConnConfig.SoftDelete = false
+	flowConnConfig.SoftDeleteColName = ""
+	flowConnConfig.SyncedAtColName = ""
 
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
@@ -1204,10 +1206,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion_With_Schema_Changes() {
 				Exclude:                    []string{"c2"},
 			},
 		},
-		Source:               e2e.GeneratePostgresPeer(),
-		SyncedAtColName:      "_PEERDB_SYNCED_AT",
-		MaxBatchSize:         100,
-		DisablePeerdbColumns: true,
+		Source:       e2e.GeneratePostgresPeer(),
+		MaxBatchSize: 100,
 	}
 
 	// wait for PeerFlowStatusQuery to finish setup

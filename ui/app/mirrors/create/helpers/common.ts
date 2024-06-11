@@ -1,4 +1,5 @@
-import { FlowConnectionConfigs, TypeSystem } from '@/grpc_generated/flow';
+import { CDCConfig } from '@/app/dto/MirrorsDTO';
+import { TypeSystem } from '@/grpc_generated/flow';
 
 export enum AdvancedSettingType {
   QUEUE = 'queue',
@@ -19,7 +20,7 @@ export interface MirrorSetting {
   command?: string;
 }
 
-export const blankCDCSetting: FlowConnectionConfigs = {
+export const blankCDCSetting: CDCConfig = {
   source: undefined,
   destination: undefined,
   flowJobName: '',
@@ -35,13 +36,13 @@ export const blankCDCSetting: FlowConnectionConfigs = {
   softDelete: true,
   replicationSlotName: '',
   resync: false,
-  softDeleteColName: '',
-  syncedAtColName: '',
+  softDeleteColName: '_PEERDB_IS_DELETED',
+  syncedAtColName: '_PEERDB_SYNCED_AT',
   initialSnapshotOnly: false,
   idleTimeoutSeconds: 60,
   script: '',
   system: TypeSystem.Q,
-  disablePeerdbColumns: false,
+  disablePeerDBColumns: false,
 };
 
 export const blankQRepSetting = {

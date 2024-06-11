@@ -104,7 +104,7 @@ func (m *mergeStmtGenerator) generateMergeStmt(dstTable string) (string, error) 
 	// handling the case when an insert and delete happen in the same batch, with updates in the middle
 	// with soft-delete, we want the row to be in the destination with SOFT_DELETE true
 	// the current merge statement doesn't do that, so we add another case to insert the DeleteRecord
-	if m.peerdbCols.SoftDelete && (m.peerdbCols.SoftDeleteColName != "") {
+	if m.peerdbCols.SoftDeleteColName != "" {
 		softDeleteInsertColumnsSQL := strings.Join(append(quotedUpperColNames,
 			m.peerdbCols.SoftDeleteColName), ",")
 		softDeleteInsertValuesSQL := insertValuesSQL + ",TRUE"
@@ -126,7 +126,7 @@ func (m *mergeStmtGenerator) generateMergeStmt(dstTable string) (string, error) 
 	pkeySelectSQL := strings.Join(pkeySelectSQLArray, " AND ")
 
 	deletePart := "DELETE"
-	if m.peerdbCols.SoftDelete {
+	if m.peerdbCols.SoftDeleteColName != "" {
 		colName := m.peerdbCols.SoftDeleteColName
 		deletePart = fmt.Sprintf("UPDATE SET %s = TRUE", colName)
 		if m.peerdbCols.SyncedAtColName != "" {
@@ -167,7 +167,7 @@ and updating the other columns.
 7. Return the list of generated update statements.
 */
 func (m *mergeStmtGenerator) generateUpdateStatements(allCols []string, unchangedToastColumns []string) []string {
-	handleSoftDelete := m.peerdbCols.SoftDelete && (m.peerdbCols.SoftDeleteColName != "")
+	handleSoftDelete := m.peerdbCols.SoftDeleteColName != ""
 	stmtCount := len(unchangedToastColumns)
 	if handleSoftDelete {
 		stmtCount *= 2
