@@ -139,24 +139,25 @@ func (s KafkaSuite) TestSimple() {
 }
 
 func (s KafkaSuite) TestMessage() {
-	srcTableName := e2e.AttachSchema(s, "kamessage")
+	// srcTableName := e2e.AttachSchema(s, "kamessage")
 
-	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (
-			id SERIAL PRIMARY KEY,
-			val text
-		);
-	`, srcTableName))
-	require.NoError(s.t, err)
+	/*
+		_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+			CREATE TABLE IF NOT EXISTS %s (
+				id SERIAL PRIMARY KEY,
+				val text
+			);
+		`, srcTableName))
+		require.NoError(s.t, err) */
 
-	_, err = s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values
-	('e2e_kamessage', 'lua', 'function onRecord(r) return r.kind end') on conflict do nothing`)
+	_, err := s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values
+	('e2e_kamessage', 'lua', 'function onRecord(r) return { topic =	"topic", body = r.kind } end') on conflict do nothing`)
 	require.NoError(s.t, err)
 
 	flowName := e2e.AddSuffix(s, "kamessage")
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
-		TableNameMapping: map[string]string{srcTableName: flowName},
+		TableNameMapping: map[string]string{}, //srcTableName: flowName},
 		Destination:      s.Peer(),
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
@@ -172,7 +173,7 @@ func (s KafkaSuite) TestMessage() {
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize message", func() bool {
 		kafka, err := kgo.NewClient(
 			kgo.SeedBrokers("localhost:9092"),
-			kgo.ConsumeTopics(flowName),
+			kgo.ConsumeTopics("topic"),
 		)
 		if err != nil {
 			return false
@@ -183,7 +184,7 @@ func (s KafkaSuite) TestMessage() {
 		defer cancel()
 		fetches := kafka.PollFetches(ctx)
 		fetches.EachTopic(func(ft kgo.FetchTopic) {
-			require.Equal(s.t, flowName, ft.Topic)
+			require.Equal(s.t, "topic", ft.Topic)
 			ft.EachRecord(func(r *kgo.Record) {
 				require.Equal(s.t, "message", string(r.Value))
 			})
