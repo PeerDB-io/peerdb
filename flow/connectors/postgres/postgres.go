@@ -165,7 +165,7 @@ func (c *PostgresConnector) MaybeStartReplication(
 	}
 
 	if c.replState == nil {
-		replicationOpts, err := c.replicationOptions(publicationName)
+		replicationOpts, err := c.replicationOptions(ctx, publicationName)
 		if err != nil {
 			return fmt.Errorf("error getting replication options: %w", err)
 		}
@@ -176,15 +176,9 @@ func (c *PostgresConnector) MaybeStartReplication(
 			startLSN = pglogrepl.LSN(lastOffset + 1)
 		}
 
-		opts := startReplicationOpts{
-			conn:            c.replConn.PgConn(),
-			startLSN:        startLSN,
-			replicationOpts: *replicationOpts,
-		}
-
-		err = c.startReplication(ctx, slotName, opts)
-		if err != nil {
-			return fmt.Errorf("error starting replication: %w", err)
+		if err := pglogrepl.StartReplication(ctx, c.replConn.PgConn(), slotName, startLSN, replicationOpts); err != nil {
+			c.logger.Error("error starting replication", slog.Any("error", err))
+			return fmt.Errorf("error starting replication at startLsn - %d: %w", startLSN, err)
 		}
 
 		c.logger.Info(fmt.Sprintf("started replication on slot %s at startLSN: %d", slotName, startLSN))
@@ -199,30 +193,24 @@ func (c *PostgresConnector) MaybeStartReplication(
 	return nil
 }
 
-func (c *PostgresConnector) startReplication(ctx context.Context, slotName string, opts startReplicationOpts) error {
-	err := pglogrepl.StartReplication(ctx, opts.conn, slotName, opts.startLSN, opts.replicationOpts)
-	if err != nil {
-		c.logger.Error("error starting replication", slog.Any("error", err))
-		return fmt.Errorf("error starting replication at startLsn - %d: %w", opts.startLSN, err)
-	}
-
-	c.logger.Info(fmt.Sprintf("started replication on slot %s at startLSN: %d", slotName, opts.startLSN))
-	return nil
-}
-
-func (c *PostgresConnector) replicationOptions(publicationName string) (*pglogrepl.StartReplicationOptions, error) {
-	pluginArguments := []string{
-		"proto_version '1'",
-	}
+func (c *PostgresConnector) replicationOptions(ctx context.Context, publicationName string) (pglogrepl.StartReplicationOptions, error) {
+	pluginArguments := append(make([]string, 0, 3), "proto_version '1'")
 
 	if publicationName != "" {
 		pubOpt := "publication_names " + QuoteLiteral(publicationName)
 		pluginArguments = append(pluginArguments, pubOpt)
 	} else {
-		return nil, errors.New("publication name is not set")
+		return pglogrepl.StartReplicationOptions{}, errors.New("publication name is not set")
 	}
 
-	return &pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments}, nil
+	pgversion, err := c.MajorVersion(ctx)
+	if err != nil {
+		return pglogrepl.StartReplicationOptions{}, err
+	} else if pgversion >= shared.POSTGRES_14 {
+		pluginArguments = append(pluginArguments, "messages 'true'")
+	}
+
+	return pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments}, nil
 }
 
 // Close closes all connections.
