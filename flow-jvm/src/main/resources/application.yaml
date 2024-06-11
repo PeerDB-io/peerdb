@@ -21,7 +21,4 @@ quarkus:
   http:
     port: ${FLOW_JVM_PORT:9801}
 
-  test:
-    continuous-testing:
-      enabled: disabled
 

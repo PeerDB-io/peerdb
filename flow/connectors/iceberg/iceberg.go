@@ -242,7 +242,7 @@ func (c *IcebergConnector) ValidateCheck(ctx context.Context) error {
 	// Create a table with a random name based on current time
 	tableName := fmt.Sprintf("__peerdb_test_flow_%d", time.Now().Unix())
 	c.logger.Debug("Will try to create iceberg table", "table", tableName)
-	table, err := c.proxyClient.CreateTable(ctx,
+	_, err := c.proxyClient.CreateTable(ctx,
 		&protos.CreateTableRequest{
 			TableInfo: &protos.TableInfo{
 				Namespace:      nil,

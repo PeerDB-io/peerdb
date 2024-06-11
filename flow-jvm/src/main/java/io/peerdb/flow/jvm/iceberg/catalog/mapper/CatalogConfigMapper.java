@@ -21,7 +21,7 @@ public abstract class CatalogConfigMapper<T> {
         if (config.hasCacheEnabled()) {
             builder.put(CatalogProperties.CACHE_ENABLED, String.valueOf(config.getCacheEnabled()));
         }
-        builder.putAll(config.getAdditionalPropertiesMap());
+//        builder.putAll(config.getAdditionalPropertiesMap());
         return builder.build();
     }
 

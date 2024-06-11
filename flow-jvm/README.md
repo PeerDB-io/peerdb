@@ -10,7 +10,12 @@ This project uses Quarkus, the Supersonic Subatomic Java Framework.
 
 If you want to learn more about Quarkus, please visit its website: https://quarkus.io/ .
 
-## Running the application in dev mode
+
+## Generate the java code from proto files
+```shell script
+./gradlew quarkusGenerateCode
+```
+## Running the application in dev mode (`quarkusGenerateCode` can be skipped)
 
 You can run your application in dev mode that enables live coding using:
 ```shell script
