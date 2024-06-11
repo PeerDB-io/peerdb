@@ -321,24 +321,18 @@ func (c *PostgresConnector) createSlotAndPublication(
 	tableNameMapping map[string]model.NameAndExclude,
 	doInitialCopy bool,
 ) error {
-	/*
-		iterating through source tables and creating a publication.
-		expecting tablenames to be schema qualified
-	*/
+	// iterate through source tables and create publication,
+	// expecting tablenames to be schema qualified
 	if !s.PublicationExists {
-		var tableNameString string
-		if len(tableNameMapping) == 0 {
-			srcTableNames := make([]string, 0, len(tableNameMapping))
-			for srcTableName := range tableNameMapping {
-				parsedSrcTableName, err := utils.ParseSchemaTable(srcTableName)
-				if err != nil {
-					return fmt.Errorf("source table identifier %s is invalid", srcTableName)
-				}
-				srcTableNames = append(srcTableNames, parsedSrcTableName.String())
+		srcTableNames := make([]string, 0, len(tableNameMapping))
+		for srcTableName := range tableNameMapping {
+			parsedSrcTableName, err := utils.ParseSchemaTable(srcTableName)
+			if err != nil {
+				return fmt.Errorf("source table identifier %s is invalid", srcTableName)
 			}
-
-			tableNameString = " FOR TABLE " + strings.Join(srcTableNames, ", ")
+			srcTableNames = append(srcTableNames, parsedSrcTableName.String())
 		}
+		tableNameString := strings.Join(srcTableNames, ", ")
 
 		// check and enable publish_via_partition_root
 		pgversion, err := c.MajorVersion(ctx)
@@ -350,7 +344,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 			pubViaRootString = " WITH(publish_via_partition_root=true)"
 		}
 		// Create the publication to help filter changes only for the given tables
-		stmt := "CREATE PUBLICATION " + publication + tableNameString + pubViaRootString
+		stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s%s", publication, tableNameString, pubViaRootString)
 		if _, err = c.conn.Exec(ctx, stmt); err != nil {
 			c.logger.Warn(fmt.Sprintf("Error creating publication '%s': %v", publication, err))
 			return fmt.Errorf("error creating publication '%s' : %w", publication, err)

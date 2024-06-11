@@ -139,25 +139,24 @@ func (s KafkaSuite) TestSimple() {
 }
 
 func (s KafkaSuite) TestMessage() {
-	// srcTableName := e2e.AttachSchema(s, "kamessage")
+	srcTableName := e2e.AttachSchema(s, "kamessage")
 
-	/*
-		_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 			CREATE TABLE IF NOT EXISTS %s (
 				id SERIAL PRIMARY KEY,
 				val text
 			);
 		`, srcTableName))
-		require.NoError(s.t, err) */
+	require.NoError(s.t, err)
 
-	_, err := s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values
+	_, err = s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values
 	('e2e_kamessage', 'lua', 'function onRecord(r) return { topic =	"topic", body = r.kind } end') on conflict do nothing`)
 	require.NoError(s.t, err)
 
 	flowName := e2e.AddSuffix(s, "kamessage")
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
-		TableNameMapping: map[string]string{}, //srcTableName: flowName},
+		TableNameMapping: map[string]string{srcTableName: flowName},
 		Destination:      s.Peer(),
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
