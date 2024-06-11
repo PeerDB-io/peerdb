@@ -713,6 +713,71 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
+func (s PeerFlowE2ETestSuiteBQ) Test_All_Types_Schema_Changes_BQ() {
+	tc := e2e.NewTemporalClient(s.t)
+
+	tableName := "test_all_types_schema_changes"
+	srcTableName := s.attachSchemaSuffix(tableName)
+
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			c1 BIGINT
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(tableName),
+		TableNameMapping: map[string]string{srcTableName: tableName},
+		Destination:      s.bqHelper.Peer,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig.MaxBatchSize = 100
+
+	// wait for PeerFlowStatusQuery to finish setup
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	// insert first row.
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO %s(c1) VALUES (1)`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Inserted initial row in the source table")
+
+	e2e.EnvWaitForEqualTables(env, s, "normalize insert", tableName, "id,c1")
+
+	// alter source table, add columns of different types
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		ALTER TABLE %s
+		ADD COLUMN c2 INTEGER[],
+		ADD COLUMN c3 FLOAT[],
+		ADD COLUMN c4 TEXT[],
+		ADD COLUMN c5 TIMESTAMP[],
+		ADD COLUMN c6 DATE[]
+		`,
+		srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Altered source table, added columns from c2 to c6")
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO %s(c1,c2,c3,c4,c5,c6) VALUES (
+		2,
+		'{4,5,6}',
+		'{43.342,34.111}',
+		'{"derer","asa","vdv"}',
+		'{"2020-01-01 01:01:01","2020-01-02 01:01:01"}',
+		'{"2020-01-01","2020-01-02"}'
+		)`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Inserted rows of various types from c2 to c6 in the source table")
+
+	e2e.EnvWaitForEqualTables(env, s, "normalize altered row c2 to c6 table check", tableName,
+		"id,c1,c2,c3,c4,c5,c6")
+
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
 func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 	tc := e2e.NewTemporalClient(s.t)
 
