@@ -46,7 +46,7 @@ use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::TcpListener};
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{fmt, prelude::*};
 
 mod cursor;
 
@@ -1136,8 +1136,6 @@ struct TracerGuards {
 
 // setup tracing
 fn setup_tracing(log_dir: &str) -> TracerGuards {
-    let console_layer = console_subscriber::spawn();
-
     // also log to peerdb.log in log_dir
     let file_appender = tracing_appender::rolling::never(log_dir, "peerdb.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
@@ -1145,16 +1143,9 @@ fn setup_tracing(log_dir: &str) -> TracerGuards {
 
     let fmt_stdout_layer = fmt::layer().with_target(false).with_writer(std::io::stdout);
 
-    // add min tracing as info
-    let filter_layer = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new("info"))
-        .unwrap();
-
     tracing_subscriber::registry()
-        .with(console_layer)
         .with(fmt_stdout_layer)
         .with(fmt_file_layer)
-        .with(filter_layer)
         .init();
 
     // return guard so that the file appender is not dropped
@@ -1225,55 +1216,52 @@ pub async fn main() -> anyhow::Result<()> {
         let (mut socket, _) = tokio::select! {
             _ = sigintstream.recv() => return Ok(()),
             v = listener.accept() => v,
-        }
-        .unwrap();
+        }?;
         let conn_flow_handler = flow_handler.clone();
         let conn_peer_conns = peer_conns.clone();
         let peerdb_fdw_mode = args.peerdb_fwd_mode == "true";
         let authenticator_ref = authenticator.make();
         let pg_config = catalog_config.to_postgres_config();
 
-        tokio::task::Builder::new()
-            .name("tcp connection handler")
-            .spawn(async move {
-                match Catalog::new(pg_config).await {
-                    Ok(catalog) => {
-                        let conn_uuid = uuid::Uuid::new_v4();
-                        let tracker = PeerConnectionTracker::new(conn_uuid, conn_peer_conns);
+        tokio::task::spawn(async move {
+            match Catalog::new(pg_config).await {
+                Ok(catalog) => {
+                    let conn_uuid = uuid::Uuid::new_v4();
+                    let tracker = PeerConnectionTracker::new(conn_uuid, conn_peer_conns);
 
-                        let processor = Arc::new(NexusBackend::new(
-                            Arc::new(catalog),
-                            tracker,
-                            conn_flow_handler,
-                            peerdb_fdw_mode,
-                        ));
-                        process_socket(
-                            socket,
-                            None,
-                            authenticator_ref,
-                            processor.clone(),
-                            processor,
-                        )
-                        .await
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to connect to catalog: {}", e);
-
-                        let mut buf = BytesMut::with_capacity(1024);
-                        buf.put_u8(b'E');
-                        buf.put_i32(0);
-                        buf.put(&b"FATAL"[..]);
-                        buf.put_u8(0);
-                        write!(buf, "Failed to connect to catalog: {e}").ok();
-                        buf.put_u8(0);
-                        buf.put_u8(b'\0');
-
-                        socket.write_all(&buf).await?;
-                        socket.shutdown().await?;
-
-                        Ok(())
-                    }
+                    let processor = Arc::new(NexusBackend::new(
+                        Arc::new(catalog),
+                        tracker,
+                        conn_flow_handler,
+                        peerdb_fdw_mode,
+                    ));
+                    process_socket(
+                        socket,
+                        None,
+                        authenticator_ref,
+                        processor.clone(),
+                        processor,
+                    )
+                    .await
                 }
-            })?;
+                Err(e) => {
+                    tracing::error!("Failed to connect to catalog: {}", e);
+
+                    let mut buf = BytesMut::with_capacity(1024);
+                    buf.put_u8(b'E');
+                    buf.put_i32(0);
+                    buf.put(&b"FATAL"[..]);
+                    buf.put_u8(0);
+                    write!(buf, "Failed to connect to catalog: {e}").ok();
+                    buf.put_u8(0);
+                    buf.put_u8(b'\0');
+
+                    socket.write_all(&buf).await?;
+                    socket.shutdown().await?;
+
+                    Ok(())
+                }
+            }
+        });
     }
 }

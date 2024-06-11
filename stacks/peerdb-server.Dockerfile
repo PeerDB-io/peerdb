@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM lukemathwalker/cargo-chef:latest-rust-alpine3.19 as chef
+FROM lukemathwalker/cargo-chef:latest-rust-alpine3.20 as chef
 WORKDIR /root
 
 FROM chef as planner
@@ -21,7 +21,7 @@ COPY protos /root/protos
 WORKDIR /root/nexus
 RUN CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse cargo build --release --bin peerdb-server
 
-FROM alpine:3.19
+FROM alpine:3.20
 RUN apk add --no-cache ca-certificates postgresql-client curl iputils && \
   adduser -s /bin/sh -D peerdb && \
   install -d -m 0755 -o peerdb /var/log/peerdb

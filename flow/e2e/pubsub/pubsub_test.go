@@ -144,7 +144,7 @@ func (s PubSubSuite) TestCreateTopic() {
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s (id, val) VALUES (1, 'testval')
@@ -159,7 +159,6 @@ func (s PubSubSuite) TestCreateTopic() {
 		require.NoError(s.t, err)
 		topic := psclient.Topic(flowName)
 		exists, err := topic.Exists(context.Background())
-		s.t.Log("WWWW exists", exists)
 		require.NoError(s.t, err)
 		return exists
 	})
@@ -209,7 +208,7 @@ func (s PubSubSuite) TestSimple() {
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s (id, val) VALUES (1, 'testval')
@@ -284,7 +283,7 @@ func (s PubSubSuite) TestInitialLoad() {
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()

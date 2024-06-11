@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"crypto/rand"
 	"log/slog"
 	"testing"
@@ -67,11 +68,12 @@ func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record[model.RecordI
 
 func TestSingleRecord(t *testing.T) {
 	t.Parallel()
-	cdcRecordsStore := NewCDCStore[model.RecordItems]("test_single_record")
+	cdcRecordsStore, err := NewCDCStore[model.RecordItems](context.Background(), "test_single_record")
+	require.NoError(t, err)
 	cdcRecordsStore.numRecordsSwitchThreshold = 10
 
 	key, rec := genKeyAndRec(t)
-	err := cdcRecordsStore.Set(slog.Default(), key, rec)
+	err = cdcRecordsStore.Set(slog.Default(), key, rec)
 	require.NoError(t, err)
 	// should not spill into DB
 	require.Len(t, cdcRecordsStore.inMemoryRecords, 1)
@@ -87,7 +89,8 @@ func TestSingleRecord(t *testing.T) {
 
 func TestRecordsTillSpill(t *testing.T) {
 	t.Parallel()
-	cdcRecordsStore := NewCDCStore[model.RecordItems]("test_records_till_spill")
+	cdcRecordsStore, err := NewCDCStore[model.RecordItems](context.Background(), "test_records_till_spill")
+	require.NoError(t, err)
 	cdcRecordsStore.numRecordsSwitchThreshold = 10
 
 	// add records upto set limit
@@ -101,7 +104,7 @@ func TestRecordsTillSpill(t *testing.T) {
 
 	// this record should be spilled to DB
 	key, rec := genKeyAndRec(t)
-	err := cdcRecordsStore.Set(slog.Default(), key, rec)
+	err = cdcRecordsStore.Set(slog.Default(), key, rec)
 	require.NoError(t, err)
 	_, ok := cdcRecordsStore.inMemoryRecords[key]
 	require.False(t, ok)
@@ -118,11 +121,12 @@ func TestRecordsTillSpill(t *testing.T) {
 func TestTimeAndDecimalEncoding(t *testing.T) {
 	t.Parallel()
 
-	cdcRecordsStore := NewCDCStore[model.RecordItems]("test_time_encoding")
+	cdcRecordsStore, err := NewCDCStore[model.RecordItems](context.Background(), "test_time_encoding")
+	require.NoError(t, err)
 	cdcRecordsStore.numRecordsSwitchThreshold = 0
 
 	key, rec := genKeyAndRec(t)
-	err := cdcRecordsStore.Set(slog.Default(), key, rec)
+	err = cdcRecordsStore.Set(slog.Default(), key, rec)
 	require.NoError(t, err)
 
 	retreived, ok, err := cdcRecordsStore.Get(key)
@@ -139,11 +143,12 @@ func TestTimeAndDecimalEncoding(t *testing.T) {
 func TestNullKeyDoesntStore(t *testing.T) {
 	t.Parallel()
 
-	cdcRecordsStore := NewCDCStore[model.RecordItems]("test_time_encoding")
+	cdcRecordsStore, err := NewCDCStore[model.RecordItems](context.Background(), "test_time_encoding")
+	require.NoError(t, err)
 	cdcRecordsStore.numRecordsSwitchThreshold = 0
 
 	key, rec := genKeyAndRec(t)
-	err := cdcRecordsStore.Set(slog.Default(), model.TableWithPkey{}, rec)
+	err = cdcRecordsStore.Set(slog.Default(), model.TableWithPkey{}, rec)
 	require.NoError(t, err)
 
 	retreived, ok, err := cdcRecordsStore.Get(key)

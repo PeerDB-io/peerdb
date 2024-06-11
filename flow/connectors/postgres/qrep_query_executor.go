@@ -309,22 +309,6 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 	return totalRecordsFetched, currentSnapshotXmin.Int64, err
 }
 
-func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
-	ctx context.Context,
-	tx pgx.Tx,
-	stream *model.QRecordStream,
-	query string,
-	args ...interface{},
-) (int, error) {
-	return RecordStreamSink{QRecordStream: stream}.ExecuteQueryWithTx(
-		ctx,
-		qe,
-		tx,
-		query,
-		args...,
-	)
-}
-
 func (qe *QRepQueryExecutor) mapRowToQRecord(
 	row pgx.Rows,
 	fds []pgconn.FieldDescription,

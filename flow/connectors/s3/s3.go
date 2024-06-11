@@ -20,8 +20,8 @@ type S3Connector struct {
 	*metadataStore.PostgresMetadata
 	logger              log.Logger
 	credentialsProvider utils.AWSCredentialsProvider
-	url                 string
 	client              s3.Client
+	url                 string
 }
 
 func NewS3Connector(
