@@ -1022,6 +1022,14 @@ func (s PeerFlowE2ETestSuitePG) Test_TypeSystem_PG() {
 		)`, srcTableName))
 	require.NoError(s.t, err)
 
+	for range 3 {
+		_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		insert into %s (updated_at, j, jb, aa32, currency) values (
+			NOW(),'{"b" : 123}','{"b" : 123}','{{3,2,1},{6,5,4},{9,8,7}}','ISK'
+		)`, srcTableName))
+		require.NoError(s.t, err)
+	}
+
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_typesystem_pg"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
@@ -1045,7 +1053,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TypeSystem_PG() {
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize rows", func() bool {
 		err := s.comparePGTables(srcTableName, dstTableName, "id,created_at,updated_at,j::text,jb,aa32,currency")
 		if err != nil {
-			s.t.Log("PGPGPG", err)
+			s.t.Log(err.Error())
 		}
 		return err == nil
 	})
