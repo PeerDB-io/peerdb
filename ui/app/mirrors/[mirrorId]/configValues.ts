@@ -26,6 +26,12 @@ const MirrorValues = (mirrorConfig: FlowConnectionConfigs | undefined) => {
       value: mirrorConfig?.script,
       label: 'Script',
     },
+    {
+      value:
+        mirrorConfig?.publicationName ||
+        `peerflow_pub_${mirrorConfig?.flowJobName}`,
+      label: 'Publication Name',
+    },
   ];
 };
 export default MirrorValues;

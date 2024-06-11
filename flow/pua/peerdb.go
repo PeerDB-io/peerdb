@@ -387,16 +387,7 @@ func LuaRecordIndex(ls *lua.LState) int {
 	record, key := LuaRecord.StartIndex(ls)
 	switch key {
 	case "kind":
-		switch record.(type) {
-		case *model.InsertRecord[model.RecordItems]:
-			ls.Push(lua.LString("insert"))
-		case *model.UpdateRecord[model.RecordItems]:
-			ls.Push(lua.LString("update"))
-		case *model.DeleteRecord[model.RecordItems]:
-			ls.Push(lua.LString("delete"))
-		case *model.RelationRecord[model.RecordItems]:
-			ls.Push(lua.LString("relation"))
-		}
+		ls.Push(lua.LString(record.Kind()))
 	case "row":
 		items := record.GetItems()
 		if items.ColToVal != nil {
