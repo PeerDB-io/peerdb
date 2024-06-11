@@ -61,9 +61,7 @@ export default function MirrorError() {
             <b>Mirror name</b>:
           </Label>
           <Label variant='body'>
-            <a href={`/mirrors/edit/${params.mirrorName}`}>
-              {params.mirrorName}
-            </a>
+            <a href={`/mirrors/${params.mirrorName}`}>{params.mirrorName}</a>
           </Label>
 
           <div>
