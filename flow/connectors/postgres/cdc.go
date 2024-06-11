@@ -571,6 +571,11 @@ func PullCdcRecords[Items model.Items](
 							tableSchemaDelta.SrcTableName, tableSchemaDelta.AddedColumns))
 						records.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
 					}
+
+				case *model.MessageRecord[Items]:
+					if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
+						return err
+					}
 				}
 			}
 
