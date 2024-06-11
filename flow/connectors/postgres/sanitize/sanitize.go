@@ -35,6 +35,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // Part is either a string or an int. A string is raw SQL. An int is a
@@ -86,6 +88,9 @@ func (q *Query) Sanitize(args ...any) (string, error) {
 				str = QuoteString(arg)
 			case time.Time:
 				str = arg.Truncate(time.Microsecond).Format("'2006-01-02 15:04:05.999999999Z07:00:00'")
+			case pgtype.TID:
+				// this case patched on for initial load support in peerdb
+				str = fmt.Sprintf("'(%d,%d)'", arg.BlockNumber, arg.OffsetNumber)
 			default:
 				return "", fmt.Errorf("invalid arg type: %T", arg)
 			}

@@ -677,32 +677,21 @@ func pullXminRecordStream(
 	sink QRepPullSink,
 ) (int, int64, error) {
 	query := config.Query
-	oldxid := ""
+	var queryArgs []interface{}
 	if partition.Range != nil {
-		oldxid = strconv.FormatInt(partition.Range.Range.(*protos.PartitionRange_IntRange).IntRange.Start&0xffffffff, 10)
 		query += " WHERE age(xmin) > 0 AND age(xmin) <= age($1::xid)"
+		queryArgs = []interface{}{strconv.FormatInt(partition.Range.Range.(*protos.PartitionRange_IntRange).IntRange.Start&0xffffffff, 10)}
 	}
 
 	executor := c.NewQRepQueryExecutorSnapshot(c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
 
-	var err error
-	var currentSnapshotXmin int64
-	var numRecords int
-	if partition.Range != nil {
-		numRecords, currentSnapshotXmin, err = executor.ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
-			ctx,
-			sink,
-			query,
-			oldxid,
-		)
-	} else {
-		numRecords, currentSnapshotXmin, err = executor.ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
-			ctx,
-			sink,
-			query,
-		)
-	}
+	numRecords, currentSnapshotXmin, err := executor.ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
+		ctx,
+		sink,
+		query,
+		queryArgs...,
+	)
 	if err != nil {
 		return 0, currentSnapshotXmin, err
 	}
@@ -717,15 +706,11 @@ func BuildQuery(logger log.Logger, query string, flowJobName string) (string, er
 		return "", err
 	}
 
-	data := map[string]interface{}{
+	buf := new(bytes.Buffer)
+	if err := tmpl.Execute(buf, map[string]interface{}{
 		"start": "$1",
 		"end":   "$2",
-	}
-
-	buf := new(bytes.Buffer)
-
-	err = tmpl.Execute(buf, data)
-	if err != nil {
+	}); err != nil {
 		return "", err
 	}
 	res := buf.String()
@@ -741,7 +726,7 @@ func (c *PostgresConnector) IsQRepPartitionSynced(ctx context.Context,
 	// setup the query string
 	metadataTableIdentifier := pgx.Identifier{c.metadataSchema, qRepMetadataTableName}
 	queryString := fmt.Sprintf(
-		"SELECT COUNT(*)>0 FROM %s WHERE partitionID=$1;",
+		"SELECT EXISTS(SELECT * FROM %s WHERE partitionID=$1)",
 		metadataTableIdentifier.Sanitize(),
 	)
 
