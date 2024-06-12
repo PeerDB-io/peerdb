@@ -32,7 +32,8 @@ x-flow-worker-env: &flow-worker-env
 services:
   catalog:
     container_name: catalog
-    image: debezium/postgres:16-alpine
+    image: postgres:16-alpine
+    command: -c config_file=/etc/postgresql.conf
     restart: unless-stopped
     ports:
       - 9901:5432
@@ -40,10 +41,13 @@ services:
       PGUSER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
+      POSTGRES_INITDB_ARGS: --locale=C.UTF-8
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./volumes/postgresql.conf:/etc/postgresql.conf
+      - ./volumes/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD", "pg_isready", "-d", "postgres", "-U", "postgres"]
       interval: 10s
@@ -68,7 +72,7 @@ services:
     ports:
       - 7233:7233
     volumes:
-      - ./temporal-dynamicconfig:/etc/temporal/config/dynamicconfig
+      - ./volumes/temporal-dynamicconfig:/etc/temporal/config/dynamicconfig
     labels:
       kompose.volume.type: configMap
 
