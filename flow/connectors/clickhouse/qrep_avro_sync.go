@@ -66,11 +66,11 @@ func (s *ClickhouseAvroSyncMethod) SyncRecords(
 	flowJobName string,
 	syncBatchID int64,
 ) (int, error) {
-	tableLog := slog.String("destinationTable", s.config.DestinationTableIdentifier)
 	dstTableName := s.config.DestinationTableIdentifier
 
 	schema := stream.Schema()
-	s.connector.logger.Info("sync function called and schema acquired", tableLog)
+	s.connector.logger.Info("sync function called and schema acquired",
+		slog.String("dstTable", dstTableName))
 
 	avroSchema, err := s.getAvroSchema(dstTableName, schema)
 	if err != nil {
@@ -83,8 +83,12 @@ func (s *ClickhouseAvroSyncMethod) SyncRecords(
 		return 0, err
 	}
 
-	s.connector.logger.Info(fmt.Sprintf("written %d records to Avro file %s for sync batch id %d",
-		avroFile.NumRecords, avroFile.FilePath, syncBatchID), tableLog)
+	s.connector.logger.Info("[SyncRecords] written records to Avro file",
+		slog.String("dstTable", dstTableName),
+		slog.String("avroFile", avroFile.FilePath),
+		slog.Int("numRecords", avroFile.NumRecords),
+		slog.Int64("syncBatchID", syncBatchID))
+
 	err = s.connector.s3Stage.SetAvroStage(ctx, flowJobName, syncBatchID, avroFile)
 	if err != nil {
 		return 0, fmt.Errorf("failed to set avro stage: %w", err)
