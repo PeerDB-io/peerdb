@@ -174,7 +174,7 @@ func (q *QRepFlowExecution) getPartitions(
 	q.logger.Info("fetching partitions to replicate for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Hour,
+		StartToCloseTimeout: 72 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
