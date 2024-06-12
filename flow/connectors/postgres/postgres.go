@@ -433,11 +433,7 @@ func syncRecordsCore[Items model.Items](
 	numRecords := int64(0)
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	streamReadFunc := func() ([]any, error) {
-		record, ok := <-req.Records.GetRecords()
-
-		if !ok {
-			return nil, nil
-		} else {
+		for record := range req.Records.GetRecords() {
 			var row []any
 			switch typedRecord := record.(type) {
 			case *model.InsertRecord[Items]:
@@ -507,6 +503,9 @@ func syncRecordsCore[Items model.Items](
 					"",
 				}
 
+			case *model.MessageRecord[Items]:
+				continue
+
 			default:
 				return nil, fmt.Errorf("unsupported record type for Postgres flow connector: %T", typedRecord)
 			}
@@ -515,6 +514,8 @@ func syncRecordsCore[Items model.Items](
 			numRecords += 1
 			return row, nil
 		}
+
+		return nil, nil
 	}
 
 	syncRecordsTx, err := c.conn.Begin(ctx)
