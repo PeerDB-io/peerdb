@@ -21,7 +21,7 @@ func TestGenerateMergeUpdateStatement(t *testing.T) {
 		peerdbCols: &protos.PeerDBColumns{
 			SoftDelete:        false,
 			SyncedAtColName:   "_peerdb_synced_at",
-			SoftDeleteColName: "_peerdb_soft_delete",
+			SoftDeleteColName: "",
 		},
 	}
 	result := normalizeGen.generateUpdateStatements(allCols, unchangedToastCols)
