@@ -21,7 +21,9 @@ export type UDropMirrorResponse = {
   errorMessage: string;
 };
 
-export type CDCConfig = FlowConnectionConfigs;
+export type CDCConfig = FlowConnectionConfigs & {
+  disablePeerDBColumns: boolean;
+};
 export type MirrorConfig = CDCConfig | QRepConfig;
 export type MirrorSetter = Dispatch<SetStateAction<CDCConfig | QRepConfig>>;
 export type TableMapRow = {

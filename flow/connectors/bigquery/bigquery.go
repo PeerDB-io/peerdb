@@ -743,7 +743,7 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 			columnIsJSON[quotedCol] = (col.Type == "json" || col.Type == "jsonb")
 		}
 
-		if req.SoftDeleteColName != nil {
+		if req.SoftDeleteColName != nil && *req.SoftDeleteColName != "" {
 			allColsBuilder := strings.Builder{}
 			for idx, col := range columnNames {
 				allColsBuilder.WriteString("_pt.")
@@ -809,7 +809,7 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 			}
 		}
 
-		if req.SyncedAtColName != nil {
+		if req.SyncedAtColName != nil && *req.SyncedAtColName != "" {
 			c.logger.Info(fmt.Sprintf("setting synced at column for table '%s'...", srcDatasetTable.string()))
 
 			query := c.client.Query(
