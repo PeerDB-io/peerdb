@@ -199,7 +199,11 @@ func (c *PostgresConnector) MaybeStartReplication(
 	return nil
 }
 
-func (c *PostgresConnector) replicationOptions(ctx context.Context, version int32, publicationName string) (pglogrepl.StartReplicationOptions, error) {
+func (c *PostgresConnector) replicationOptions(
+	ctx context.Context,
+	version int32,
+	publicationName string,
+) (pglogrepl.StartReplicationOptions, error) {
 	var pluginArguments []string
 	switch version {
 	case 1:
