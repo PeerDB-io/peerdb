@@ -131,23 +131,29 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 
 	numRows := 0
 	for qrecord := range p.stream.Records {
-		avroMap, err := avroConverter.Convert(qrecord)
-		if err != nil {
-			logger.Error("failed to convert QRecord to Avro compatible map: ", slog.Any("error", err))
-			return 0, fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
-		}
+		if err := ctx.Err(); err != nil {
+			logger.Error("[writeRecordsToOCF] context cancelled", slog.Any("error", err))
+			return numRows, err
+		} else {
+			avroMap, err := avroConverter.Convert(qrecord)
+			if err != nil {
+				logger.Error("Failed to convert QRecord to Avro compatible map", slog.Any("error", err))
+				return numRows, fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
+			}
 
-		err = ocfWriter.Append([]interface{}{avroMap})
-		if err != nil {
-			logger.Error("failed to write record to OCF: ", slog.Any("error", err))
-			return 0, fmt.Errorf("failed to write record to OCF: %w", err)
-		}
+			err = ocfWriter.Append([]interface{}{avroMap})
+			if err != nil {
+				logger.Error("Failed to write record to OCF", slog.Any("error", err))
+				return numRows, fmt.Errorf("failed to write record to OCF: %w", err)
+			}
 
-		numRows += 1
+			numRows++
+		}
 	}
+
 	if err := p.stream.Err(); err != nil {
-		logger.Error("[avro] failed to get record from stream", slog.Any("error", err))
-		return 0, fmt.Errorf("[avro] failed to get record from stream: %w", err)
+		logger.Error("Failed to get record from stream", slog.Any("error", err))
+		return numRows, fmt.Errorf("failed to get record from stream: %w", err)
 	}
 
 	return numRows, nil
