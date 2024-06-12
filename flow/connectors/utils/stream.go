@@ -65,7 +65,7 @@ func RecordsToRawTableStream[Items model.Items](req *model.RecordsToStreamReques
 			if err != nil {
 				recordStream.Close(err)
 				return
-			} else {
+			} else if qRecord != nil {
 				recordStream.Records <- qRecord
 			}
 		}
@@ -114,6 +114,9 @@ func recordToQRecordOrError[Items model.Items](batchID int64, record model.Recor
 		entries[4] = qvalue.QValueInt64{Val: 2}
 		entries[5] = qvalue.QValueString{Val: itemsJSON}
 		entries[7] = qvalue.QValueString{Val: KeysToString(typedRecord.UnchangedToastColumns)}
+
+	case *model.MessageRecord[Items]:
+		return nil, nil
 
 	default:
 		return nil, fmt.Errorf("unknown record type: %T", typedRecord)

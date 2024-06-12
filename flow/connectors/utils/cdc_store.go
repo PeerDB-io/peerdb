@@ -127,6 +127,7 @@ func (c *cdcStore[T]) initPebbleDB() error {
 	gob.Register(&model.UpdateRecord[T]{})
 	gob.Register(&model.DeleteRecord[T]{})
 	gob.Register(&model.RelationRecord[T]{})
+	gob.Register(&model.MessageRecord[T]{})
 
 	var err error
 	// we don't want a WAL since cache, we don't want to overwrite another DB either
