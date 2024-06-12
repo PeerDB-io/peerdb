@@ -649,7 +649,11 @@ func processMessage[Items model.Items](
 		if !msg.Transactional {
 			batch.UpdateLatestCheckpoint(int64(msg.LSN))
 		}
-		return &model.MessageRecord[Items]{BaseRecord: p.baseRecord(msg.LSN)}, nil
+		return &model.MessageRecord[Items]{
+			BaseRecord: p.baseRecord(msg.LSN),
+			Prefix:     msg.Prefix,
+			Content:    msg.Content,
+		}, nil
 
 	default:
 		logger.Warn(fmt.Sprintf("%T not supported", msg))
