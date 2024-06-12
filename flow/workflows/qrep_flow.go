@@ -179,7 +179,7 @@ func (q *QRepFlowExecution) getPartitions(
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
-			MaximumInterval:        time.Hour,
+			MaximumInterval:        10 * time.Minute,
 			MaximumAttempts:        0,
 			NonRetryableErrorTypes: nil,
 		},
