@@ -23,16 +23,6 @@ func (h *FlowRequestHandler) MirrorStatus(
 		slog.Bool("includeFlowInfo", req.IncludeFlowInfo),
 		slog.String(string(shared.FlowNameKey), req.FlowJobName))
 
-	err := AuthenticateSyncRequest(ctx)
-	if err != nil {
-		return &protos.MirrorStatusResponse{
-			FlowJobName:      req.FlowJobName,
-			CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
-			ErrorMessage:     "Unauthorized: invalid authorization token. Please check the token and try again.",
-			Ok:               false,
-		}, nil
-	}
-
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
 		return &protos.MirrorStatusResponse{

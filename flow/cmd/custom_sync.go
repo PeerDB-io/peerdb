@@ -2,67 +2,15 @@ package cmd
 
 import (
 	"context"
-	"encoding/hex"
-	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
-
-	"crypto/sha256"
-
-	"google.golang.org/grpc/metadata"
 )
 
 const peerdbPauseGuideDocLink = "https://docs.peerdb.io/features/pause-mirror"
-
-// Memoization map and mutex for storing and accessing hashed passwords
-var (
-	passwordHashes = make(map[string]string)
-	hashMutex      sync.Mutex
-)
-
-func getHashedPassword() string {
-	hashMutex.Lock()
-	defer hashMutex.Unlock()
-
-	password := peerdbenv.PeerDBPassword()
-	if hashed, exists := passwordHashes[password]; exists {
-		return hashed
-	}
-
-	hash := sha256.New()
-	hash.Write([]byte(password))
-
-	hashedPassword := hex.EncodeToString(hash.Sum(nil))
-	passwordHashes[password] = hashedPassword
-	return hashedPassword
-}
-
-func AuthenticateSyncRequest(ctx context.Context) error {
-	var values []string
-	var token string
-
-	md, ok := metadata.FromIncomingContext(ctx)
-	if ok {
-		values = md.Get("authorization")
-	}
-
-	if len(values) > 0 {
-		token = values[0]
-	}
-
-	passwordHashed := getHashedPassword()
-	if token != "Bearer "+passwordHashed {
-		slog.Error("Unauthorized: invalid authorization token")
-		return errors.New("unauthorized: invalid authorization token. Please check the token and try again.")
-	}
-
-	return nil
-}
 
 func (h *FlowRequestHandler) CustomSyncFlow(
 	ctx context.Context, req *protos.CreateCustomSyncRequest,
@@ -72,11 +20,6 @@ func (h *FlowRequestHandler) CustomSyncFlow(
 		NumberOfSyncs: 0,
 		ErrorMessage:  "error while processing request",
 		Ok:            false,
-	}
-	err := AuthenticateSyncRequest(ctx)
-	if err != nil {
-		errResponse.ErrorMessage = err.Error()
-		return errResponse, nil
 	}
 
 	// ---- REQUEST VALIDATION ----
