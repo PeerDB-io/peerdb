@@ -150,7 +150,7 @@ func (s KafkaSuite) TestMessage() {
 	require.NoError(s.t, err)
 
 	_, err = s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values
-	('e2e_kamessage', 'lua', 'function onRecord(r) return { topic =	"topic", body = r.kind } end') on conflict do nothing`)
+	('e2e_kamessage', 'lua', 'function onRecord(r) return { topic =	"topic", value = r.kind } end') on conflict do nothing`)
 	require.NoError(s.t, err)
 
 	flowName := e2e.AddSuffix(s, "kamessage")
