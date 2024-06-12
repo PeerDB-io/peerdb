@@ -410,6 +410,9 @@ func PullCdcRecords[Items model.Items](
 			receiveCtx, cancel = context.WithDeadline(ctx, nextStandbyMessageDeadline)
 		}
 		rawMsg, err := conn.ReceiveMessage(receiveCtx)
+		if err != nil {
+			logger.Info(fmt.Sprintf("ReceiveMessage error received: %v", err))
+		}
 		cancel()
 
 		ctxErr := ctx.Err()
