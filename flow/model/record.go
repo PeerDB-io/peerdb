@@ -166,6 +166,8 @@ func (r *RelationRecord[T]) PopulateCountMap(mapOfCounts map[string]*RecordTypeC
 }
 
 type MessageRecord[T Items] struct {
+	Prefix  string
+	Content []byte
 	BaseRecord
 }
 

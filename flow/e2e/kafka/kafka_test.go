@@ -149,8 +149,9 @@ func (s KafkaSuite) TestMessage() {
 		`, srcTableName))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values
-	('e2e_kamessage', 'lua', 'function onRecord(r) return { topic =	"topic", value = r.kind } end') on conflict do nothing`)
+	_, err = s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values ('e2e_kamessage', 'lua',
+	'function onRecord(r) if r.kind == "message" then return { topic = r.prefix, value = r.content } end end'
+	) on conflict do nothing`)
 	require.NoError(s.t, err)
 
 	flowName := e2e.AddSuffix(s, "kamessage")
@@ -166,7 +167,7 @@ func (s KafkaSuite) TestMessage() {
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	_, err = s.Conn().Exec(context.Background(), "select pg_logical_emit_message(false, 'heartbeat', '')")
+	_, err = s.Conn().Exec(context.Background(), "select pg_logical_emit_message(false, 'topic', convert_to('heartbeat', 'utf-8'))")
 	require.NoError(s.t, err)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize message", func() bool {
@@ -185,7 +186,7 @@ func (s KafkaSuite) TestMessage() {
 		fetches.EachTopic(func(ft kgo.FetchTopic) {
 			require.Equal(s.t, "topic", ft.Topic)
 			ft.EachRecord(func(r *kgo.Record) {
-				require.Equal(s.t, "message", string(r.Value))
+				require.Equal(s.t, "heartbeat", string(r.Value))
 			})
 		})
 		return true

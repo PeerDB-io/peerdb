@@ -393,7 +393,7 @@ func LuaRecordIndex(ls *lua.LState) int {
 		if items.ColToVal != nil {
 			ls.Push(LuaRow.New(ls, items))
 		} else {
-			ls.Push(lua.LNil)
+			return 0
 		}
 	case "old":
 		var items model.RecordItems
@@ -406,7 +406,7 @@ func LuaRecordIndex(ls *lua.LState) int {
 		if items.ColToVal != nil {
 			ls.Push(LuaRow.New(ls, items))
 		} else {
-			ls.Push(lua.LNil)
+			return 0
 		}
 	case "new":
 		var items model.RecordItems
@@ -419,7 +419,7 @@ func LuaRecordIndex(ls *lua.LState) int {
 		if items.ColToVal != nil {
 			ls.Push(LuaRow.New(ls, items))
 		} else {
-			ls.Push(lua.LNil)
+			return 0
 		}
 	case "checkpoint":
 		ls.Push(glua64.I64.New(ls, record.GetCheckpointID()))
@@ -437,7 +437,19 @@ func LuaRecordIndex(ls *lua.LState) int {
 			}
 			ls.Push(tbl)
 		} else {
-			ls.Push(lua.LNil)
+			return 0
+		}
+	case "prefix":
+		if mr, ok := record.(*model.MessageRecord[model.RecordItems]); ok {
+			ls.Push(lua.LString(mr.Prefix))
+		} else {
+			return 0
+		}
+	case "content":
+		if mr, ok := record.(*model.MessageRecord[model.RecordItems]); ok {
+			ls.Push(lua.LString(shared.UnsafeFastReadOnlyBytesToString(mr.Content)))
+		} else {
+			return 0
 		}
 	default:
 		return 0
