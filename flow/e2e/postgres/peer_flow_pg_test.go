@@ -117,6 +117,9 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 	flowConnConfig.MaxBatchSize = 100
+	flowConnConfig.SoftDelete = false
+	flowConnConfig.SoftDeleteColName = ""
+	flowConnConfig.SyncedAtColName = ""
 
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
@@ -1038,6 +1041,9 @@ func (s PeerFlowE2ETestSuitePG) Test_TypeSystem_PG() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.System = protos.TypeSystem_PG
+	flowConnConfig.SoftDelete = false
+	flowConnConfig.SoftDeleteColName = ""
+	flowConnConfig.SyncedAtColName = ""
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
