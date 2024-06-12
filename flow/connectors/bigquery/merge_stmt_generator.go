@@ -212,7 +212,7 @@ and updating the other columns (not the unchanged toast columns)
 7. Return the list of generated update statements.
 */
 func (m *mergeStmtGenerator) generateUpdateStatements(allCols []string, unchangedToastColumns []string) []string {
-	handleSoftDelete := m.peerdbCols.SoftDelete && (m.peerdbCols.SoftDeleteColName != "")
+	handleSoftDelete := m.peerdbCols.SoftDeleteColName != ""
 	// weird way of doing it but avoids prealloc lint
 	updateStmts := make([]string, 0, func() int {
 		if handleSoftDelete {
