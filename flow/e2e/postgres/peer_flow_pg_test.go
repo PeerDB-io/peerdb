@@ -1074,7 +1074,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TransformRecordScript() {
 	require.NoError(s.t, err)
 
 	_, err = s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values
-		('cdc_transform_record', 'lua', 'function transformRecord(r) r.row.val = 1729 end') on conflict do nothing`)
+		('cdc_transform_record', 'lua', 'function transformRecord(r) if r.row then r.row.val = 1729 end end') on conflict do nothing`)
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
