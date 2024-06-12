@@ -69,7 +69,12 @@ func (h *FlowRequestHandler) CustomSyncFlow(
 	}
 
 	// Parallel sync-normalise should not be enabled
-	parallelSyncNormaliseEnabled := peerdbenv.PeerDBEnableParallelSyncNormalize()
+	parallelSyncNormaliseEnabled, err := peerdbenv.PeerDBEnableParallelSyncNormalize(ctx)
+	if err != nil {
+		slog.Error("Server error: unable to check if parallel sync-normalise is enabled", slog.Any("error", err))
+		errResponse.ErrorMessage = "Server error: unable to check if parallel sync-normalise is enabled."
+		return errResponse, nil
+	}
 	if parallelSyncNormaliseEnabled {
 		errResponse.ErrorMessage = "Parallel sync-normalise is enabled. Please contact PeerDB support to disable it to proceed."
 		return errResponse, nil
