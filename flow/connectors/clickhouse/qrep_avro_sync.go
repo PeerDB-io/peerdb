@@ -77,13 +77,14 @@ func (s *ClickhouseAvroSyncMethod) SyncRecords(
 		return 0, err
 	}
 
-	partitionID := shared.RandomString(16)
-	avroFile, err := s.writeToAvroFile(ctx, stream, avroSchema, partitionID, flowJobName)
+	batchIdentifierForFile := fmt.Sprintf("%s_%d", shared.RandomString(16), syncBatchID)
+	avroFile, err := s.writeToAvroFile(ctx, stream, avroSchema, batchIdentifierForFile, flowJobName)
 	if err != nil {
 		return 0, err
 	}
 
-	s.connector.logger.Info(fmt.Sprintf("written %d records to Avro file", avroFile.NumRecords), tableLog)
+	s.connector.logger.Info(fmt.Sprintf("written %d records to Avro file %s for sync batch id %d",
+		avroFile.NumRecords, avroFile.FilePath, syncBatchID), tableLog)
 	err = s.connector.s3Stage.SetAvroStage(ctx, flowJobName, syncBatchID, avroFile)
 	if err != nil {
 		return 0, fmt.Errorf("failed to set avro stage: %w", err)
@@ -178,7 +179,7 @@ func (s *ClickhouseAvroSyncMethod) writeToAvroFile(
 	ctx context.Context,
 	stream *model.QRecordStream,
 	avroSchema *model.QRecordAvroSchemaDefinition,
-	partitionID string,
+	identifierForFile string,
 	flowJobName string,
 ) (*avro.AvroFile, error) {
 	stagingPath := s.connector.credsProvider.BucketPath
@@ -188,7 +189,7 @@ func (s *ClickhouseAvroSyncMethod) writeToAvroFile(
 		return nil, fmt.Errorf("failed to parse staging path: %w", err)
 	}
 
-	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, flowJobName, partitionID)
+	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, flowJobName, identifierForFile)
 	s3AvroFileKey = strings.Trim(s3AvroFileKey, "/")
 	avroFile, err := ocfWriter.WriteRecordsToS3(ctx, s3o.Bucket, s3AvroFileKey, s.connector.credsProvider.Provider)
 	if err != nil {
