@@ -1079,11 +1079,8 @@ struct Args {
     tls_key: Option<String>,
 
     /// Path to the directory where peerdb logs will be written to.
-    ///
-    /// This is only respected in release mode. In debug mode the logs
-    /// will exlusively be written to stdout.
-    #[clap(short, long, default_value = "/var/log/peerdb", env = "PEERDB_LOG_DIR")]
-    log_dir: String,
+    #[clap(short, long, env = "PEERDB_LOG_DIR")]
+    log_dir: Option<String>,
 
     /// Password for the  postgres interface.
     ///
@@ -1130,28 +1127,28 @@ impl ServerParameterProvider for NexusServerParameterProvider {
     }
 }
 
-struct TracerGuards {
-    _rolling_guard: WorkerGuard,
-}
+type TracerGuards = Option<WorkerGuard>;
 
-// setup tracing
-fn setup_tracing(log_dir: &str) -> TracerGuards {
-    // also log to peerdb.log in log_dir
-    let file_appender = tracing_appender::rolling::never(log_dir, "peerdb.log");
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-    let fmt_file_layer = fmt::layer().with_target(false).with_writer(non_blocking);
-
+fn setup_tracing(log_dir: Option<&str>) -> TracerGuards {
     let fmt_stdout_layer = fmt::layer().with_target(false).with_writer(std::io::stdout);
 
-    tracing_subscriber::registry()
-        .with(fmt_stdout_layer)
-        .with(fmt_file_layer)
-        .init();
+    let tracing = tracing_subscriber::registry().with(fmt_stdout_layer);
+    
 
-    // return guard so that the file appender is not dropped
-    // and the file is not closed
-    TracerGuards {
-        _rolling_guard: _guard,
+    // return guard so file appender is not dropped, which would close file
+    match log_dir {
+        Some(log_dir) if !log_dir.is_empty() => {
+            // also log to peerdb.log in log_dir
+            let file_appender = tracing_appender::rolling::never(log_dir, "peerdb.log");
+            let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+            let fmt_file_layer = fmt::layer().with_target(false).with_writer(non_blocking);
+            tracing.with(fmt_file_layer).init();
+            Some(guard)
+        }
+        _ => {
+            tracing.init();
+            None
+        }
     }
 }
 
@@ -1182,7 +1179,7 @@ pub async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
     let args = Args::parse();
-    let _guard = setup_tracing(&args.log_dir);
+    let _guard = setup_tracing(args.log_dir.as_ref().map(|s| &s[..]));
 
     let authenticator = MakeSASLScramAuthStartupHandler::new(
         Arc::new(FixedPasswordAuthSource::new(args.peerdb_password.clone())),
