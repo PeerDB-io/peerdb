@@ -7,6 +7,7 @@ import (
 )
 
 type Record[T Items] interface {
+	Kind() string
 	GetCheckpointID() int64
 	GetCommitTime() time.Time
 	GetDestinationTableName() string
@@ -43,6 +44,10 @@ type InsertRecord[T Items] struct {
 	BaseRecord
 }
 
+func (*InsertRecord[T]) Kind() string {
+	return "insert"
+}
+
 func (r *InsertRecord[T]) GetDestinationTableName() string {
 	return r.DestinationTableName
 }
@@ -76,6 +81,10 @@ type UpdateRecord[T Items] struct {
 	BaseRecord
 }
 
+func (*UpdateRecord[T]) Kind() string {
+	return "update"
+}
+
 func (r *UpdateRecord[T]) GetDestinationTableName() string {
 	return r.DestinationTableName
 }
@@ -107,6 +116,10 @@ type DeleteRecord[T Items] struct {
 	BaseRecord
 }
 
+func (*DeleteRecord[T]) Kind() string {
+	return "delete"
+}
+
 func (r *DeleteRecord[T]) GetDestinationTableName() string {
 	return r.DestinationTableName
 }
@@ -132,6 +145,10 @@ type RelationRecord[T Items] struct {
 	BaseRecord
 }
 
+func (*RelationRecord[T]) Kind() string {
+	return "relation"
+}
+
 func (r *RelationRecord[T]) GetDestinationTableName() string {
 	return r.TableSchemaDelta.DstTableName
 }
@@ -146,4 +163,30 @@ func (r *RelationRecord[T]) GetItems() T {
 }
 
 func (r *RelationRecord[T]) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
+}
+
+type MessageRecord[T Items] struct {
+	Prefix  string
+	Content []byte
+	BaseRecord
+}
+
+func (*MessageRecord[T]) Kind() string {
+	return "message"
+}
+
+func (r *MessageRecord[T]) GetDestinationTableName() string {
+	return ""
+}
+
+func (r *MessageRecord[T]) GetSourceTableName() string {
+	return ""
+}
+
+func (r *MessageRecord[T]) GetItems() T {
+	var none T
+	return none
+}
+
+func (r *MessageRecord[T]) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
 }

@@ -1,5 +1,5 @@
 'use client';
-import { CDCConfig } from '@/app/dto/MirrorsDTO';
+import { FlowConnectionConfigs } from '@/grpc_generated/flow';
 import { Button } from '@/lib/Button';
 import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Label } from '@/lib/Label';
@@ -12,7 +12,7 @@ export const ResyncDialog = ({
   mirrorConfig,
   workflowId,
 }: {
-  mirrorConfig: CDCConfig;
+  mirrorConfig: FlowConnectionConfigs;
   workflowId: string;
 }) => {
   const [syncing, setSyncing] = useState(false);

@@ -19,7 +19,7 @@ func TestGenerateUpdateStatement(t *testing.T) {
 		},
 		peerdbCols: &protos.PeerDBColumns{
 			SoftDelete:        false,
-			SoftDeleteColName: "deleted",
+			SoftDeleteColName: "",
 			SyncedAtColName:   "synced_at",
 		},
 	}
@@ -100,7 +100,7 @@ func TestGenerateUpdateStatement_WithUnchangedToastCols(t *testing.T) {
 		},
 		peerdbCols: &protos.PeerDBColumns{
 			SoftDelete:        false,
-			SoftDeleteColName: "deleted",
+			SoftDeleteColName: "",
 			SyncedAtColName:   "synced_at",
 		},
 	}

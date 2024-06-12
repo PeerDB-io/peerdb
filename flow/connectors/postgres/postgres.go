@@ -170,7 +170,7 @@ func (c *PostgresConnector) MaybeStartReplication(
 	}
 
 	if c.replState == nil {
-		replicationOpts, err := c.replicationOptions(version, publicationName)
+		replicationOpts, err := c.replicationOptions(ctx, version, publicationName)
 		if err != nil {
 			return fmt.Errorf("error getting replication options: %w", err)
 		}
@@ -181,15 +181,9 @@ func (c *PostgresConnector) MaybeStartReplication(
 			startLSN = pglogrepl.LSN(lastOffset + 1)
 		}
 
-		opts := startReplicationOpts{
-			conn:            c.replConn.PgConn(),
-			startLSN:        startLSN,
-			replicationOpts: replicationOpts,
-		}
-
-		err = c.startReplication(ctx, slotName, opts)
-		if err != nil {
-			return fmt.Errorf("error starting replication: %w", err)
+		if err := pglogrepl.StartReplication(ctx, c.replConn.PgConn(), slotName, startLSN, replicationOpts); err != nil {
+			c.logger.Error("error starting replication", slog.Any("error", err))
+			return fmt.Errorf("error starting replication at startLsn - %d: %w", startLSN, err)
 		}
 
 		c.logger.Info(fmt.Sprintf("started replication on slot %s at startLSN: %d", slotName, startLSN))
@@ -205,24 +199,13 @@ func (c *PostgresConnector) MaybeStartReplication(
 	return nil
 }
 
-func (c *PostgresConnector) startReplication(ctx context.Context, slotName string, opts startReplicationOpts) error {
-	err := pglogrepl.StartReplication(ctx, opts.conn, slotName, opts.startLSN, opts.replicationOpts)
-	if err != nil {
-		c.logger.Error("error starting replication", slog.Any("error", err))
-		return fmt.Errorf("error starting replication at startLsn - %d: %w", opts.startLSN, err)
-	}
-
-	c.logger.Info(fmt.Sprintf("started replication on slot %s at startLSN: %d", slotName, opts.startLSN))
-	return nil
-}
-
-func (c *PostgresConnector) replicationOptions(version int32, publicationName string) (pglogrepl.StartReplicationOptions, error) {
+func (c *PostgresConnector) replicationOptions(ctx context.Context, version int32, publicationName string) (pglogrepl.StartReplicationOptions, error) {
 	var pluginArguments []string
 	switch version {
 	case 1:
-		pluginArguments = append(make([]string, 0, 2), "proto_version '1'")
+		pluginArguments = append(make([]string, 0, 3), "proto_version '1'")
 	case 2:
-		pluginArguments = append(make([]string, 0, 3), "proto_version '2'", "streaming 'true'")
+		pluginArguments = append(make([]string, 0, 4), "proto_version '2'", "streaming 'true'")
 	default:
 		return pglogrepl.StartReplicationOptions{}, errors.New("unsupported replication protocol version")
 	}
@@ -232,6 +215,13 @@ func (c *PostgresConnector) replicationOptions(version int32, publicationName st
 		pluginArguments = append(pluginArguments, pubOpt)
 	} else {
 		return pglogrepl.StartReplicationOptions{}, errors.New("publication name is not set")
+	}
+
+	pgversion, err := c.MajorVersion(ctx)
+	if err != nil {
+		return pglogrepl.StartReplicationOptions{}, err
+	} else if pgversion >= shared.POSTGRES_14 {
+		pluginArguments = append(pluginArguments, "messages 'true'")
 	}
 
 	return pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments}, nil
@@ -459,11 +449,7 @@ func syncRecordsCore[Items model.Items](
 	numRecords := int64(0)
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	streamReadFunc := func() ([]any, error) {
-		record, ok := <-req.Records.GetRecords()
-
-		if !ok {
-			return nil, nil
-		} else {
+		for record := range req.Records.GetRecords() {
 			var row []any
 			switch typedRecord := record.(type) {
 			case *model.InsertRecord[Items]:
@@ -533,6 +519,9 @@ func syncRecordsCore[Items model.Items](
 					"",
 				}
 
+			case *model.MessageRecord[Items]:
+				continue
+
 			default:
 				return nil, fmt.Errorf("unsupported record type for Postgres flow connector: %T", typedRecord)
 			}
@@ -541,6 +530,8 @@ func syncRecordsCore[Items model.Items](
 			numRecords += 1
 			return row, nil
 		}
+
+		return nil, nil
 	}
 
 	syncRecordsTx, err := c.conn.Begin(ctx)

@@ -85,13 +85,17 @@ func LoadScript(ctx context.Context, script string, printfn lua.LGFunction) (*lu
 
 func DefaultOnRecord(ls *lua.LState) int {
 	ud, record := pua.LuaRecord.Check(ls, 1)
-	if _, ok := record.(*model.RelationRecord[model.RecordItems]); ok {
+	switch record.(type) {
+	case *model.InsertRecord[model.RecordItems],
+		*model.UpdateRecord[model.RecordItems],
+		*model.DeleteRecord[model.RecordItems]:
+		ls.Push(ls.NewFunction(gluajson.LuaJsonEncode))
+		ls.Push(ud)
+		ls.Call(1, 1)
+		return 1
+	default:
 		return 0
 	}
-	ls.Push(ls.NewFunction(gluajson.LuaJsonEncode))
-	ls.Push(ud)
-	ls.Call(1, 1)
-	return 1
 }
 
 type LPoolMessage[T any] struct {

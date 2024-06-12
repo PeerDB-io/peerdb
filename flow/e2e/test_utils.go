@@ -185,14 +185,14 @@ func RequireEnvCanceled(t *testing.T, env WorkflowRun) {
 	}
 }
 
-func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, connectionGen FlowConnectionGenerationConfig) {
+func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, config *protos.FlowConnectionConfigs) {
 	t.Helper()
 	// errors expected while PeerFlowStatusQuery is setup
 	counter := 0
 	for {
 		time.Sleep(time.Second)
 		counter++
-		response, err := env.Query(shared.FlowStatusQuery, connectionGen.FlowJobName)
+		response, err := env.Query(shared.FlowStatusQuery, config.FlowJobName)
 		if err == nil {
 			var status protos.FlowStatus
 			err = response.Get(&status)

@@ -36,7 +36,7 @@ export const IsQueuePeer = (peerType?: DBType): boolean => {
 export const handlePeer = (
   peer: Peer | null,
   peerEnd: 'src' | 'dst',
-  setConfig: (value: SetStateAction<FlowConnectionConfigs | QRepConfig>) => void
+  setConfig: (value: SetStateAction<CDCConfig | QRepConfig>) => void
 ) => {
   if (!peer) return;
   if (peerEnd === 'dst') {
@@ -71,8 +71,8 @@ const CDCCheck = (
     return fieldErr;
   }
 
-  config['tableMappings'] = tableNameMapping as TableMapping[];
-  config['flowJobName'] = flowJobName;
+  config.tableMappings = tableNameMapping as TableMapping[];
+  config.flowJobName = flowJobName;
 
   if (config.doInitialSnapshot == false && config.initialSnapshotOnly == true) {
     return 'Initial Snapshot Only cannot be true if Initial Snapshot is false.';
@@ -149,6 +149,16 @@ export const reformattedTableMapping = (
   return mapping;
 };
 
+const processCDCConfig = (a: CDCConfig): FlowConnectionConfigs => {
+  const ret = a as FlowConnectionConfigs;
+  if (a.disablePeerDBColumns) {
+    ret.softDelete = false;
+    ret.softDeleteColName = '';
+    ret.syncedAtColName = '';
+  }
+  return ret;
+};
+
 export const handleCreateCDC = async (
   flowJobName: string,
   rows: TableMapRow[],
@@ -166,7 +176,7 @@ export const handleCreateCDC = async (
   const statusMessage = await fetch('/api/mirrors/cdc', {
     method: 'POST',
     body: JSON.stringify({
-      config,
+      config: processCDCConfig(config),
     }),
   }).then((res) => res.json());
   if (!statusMessage.created) {
@@ -430,7 +440,7 @@ export const handleValidateCDC = async (
   const status = await fetch('/api/mirrors/cdc/validate', {
     method: 'POST',
     body: JSON.stringify({
-      config,
+      config: processCDCConfig(config),
     }),
   })
     .then((res) => res.json())
