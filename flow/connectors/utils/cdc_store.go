@@ -169,8 +169,7 @@ func (c *CdcStore[T]) Set(logger log.Logger, key model.TableWithPkey, rec model.
 			if c.pebbleDB == nil {
 				logger.Info(c.thresholdReason,
 					slog.String(string(shared.FlowNameKey), c.flowJobName))
-				err := c.initPebbleDB()
-				if err != nil {
+				if err := c.initPebbleDB(); err != nil {
 					return err
 				}
 			}
@@ -228,8 +227,7 @@ func (c *CdcStore[T]) Get(key model.TableWithPkey) (model.Record[T], bool, error
 
 		dec := gob.NewDecoder(bytes.NewReader(encodedRec))
 		var rec model.Record[T]
-		err = dec.Decode(&rec)
-		if err != nil {
+		if err := dec.Decode(&rec); err != nil {
 			return nil, false, fmt.Errorf("failed to decode record: %w", err)
 		}
 
