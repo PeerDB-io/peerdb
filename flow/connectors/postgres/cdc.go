@@ -411,7 +411,7 @@ func PullCdcRecords[Items model.Items](
 		}
 		rawMsg, err := conn.ReceiveMessage(receiveCtx)
 		if err != nil {
-			logger.Info(fmt.Sprintf("ReceiveMessage error received: %v", err))
+			logger.Error(fmt.Sprintf("ReceiveMessage error received: %v", err))
 		}
 		cancel()
 
@@ -420,7 +420,7 @@ func PullCdcRecords[Items model.Items](
 			return fmt.Errorf("consumeStream preempted: %w", ctxErr)
 		}
 
-		if err != nil && p.commitLock == nil {
+		if err != nil {
 			if pgconn.Timeout(err) {
 				logger.Info(fmt.Sprintf("Stand-by deadline reached, returning currently accumulated records - %d",
 					cdcRecordsStorage.Len()))
@@ -437,6 +437,7 @@ func PullCdcRecords[Items model.Items](
 
 		msg, ok := rawMsg.(*pgproto3.CopyData)
 		if !ok {
+			logger.Warn("could not obtain CopyData message")
 			continue
 		}
 
