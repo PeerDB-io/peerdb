@@ -30,12 +30,12 @@ func authorize(ctx context.Context, hash []byte) (context.Context, error) {
 	// Always a good practice to have the actual token in base64
 	tokenBytes, err := base64.StdEncoding.DecodeString(base64Token)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Warn("Error decoding token", slog.String("token", base64Token), slog.Any("error", err))
+		logger.LoggerFromCtx(ctx).Warn("Error decoding token", slog.Any("error", err))
 		return nil, status.Errorf(codes.Unauthenticated, "Authentication failed")
 	}
 
 	if err := bcrypt.CompareHashAndPassword(hash, tokenBytes); err != nil {
-		logger.LoggerFromCtx(ctx).Warn("Error validating token", slog.String("token", string(tokenBytes)), slog.Any("error", err))
+		logger.LoggerFromCtx(ctx).Warn("Error validating token", slog.Any("error", err))
 		return nil, status.Errorf(codes.Unauthenticated, "Authentication failed")
 	}
 	return ctx, nil
