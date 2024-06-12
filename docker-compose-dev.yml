@@ -47,7 +47,7 @@ services:
       PGUSER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
-      POSTGRES_INITDB_ARGS: --locale=C.UTF8
+      POSTGRES_INITDB_ARGS: --locale=C.UTF-8
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
