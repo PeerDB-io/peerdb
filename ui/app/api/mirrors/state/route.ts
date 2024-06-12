@@ -1,4 +1,3 @@
-import { GetHashedPeerDBPasswordFromEnv } from '@/app/utils/passwordFromEnv';
 import {
   MirrorStatusRequest,
   MirrorStatusResponse,

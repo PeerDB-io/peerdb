@@ -1,5 +1,4 @@
 import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
-import { GetHashedPeerDBPasswordFromEnv } from '@/app/utils/passwordFromEnv';
 import prisma from '@/app/utils/prisma';
 import MirrorActions from '@/components/MirrorActionsDropdown';
 import { FlowConnectionConfigs, FlowStatus } from '@/grpc_generated/flow';
@@ -24,10 +23,8 @@ function getMirrorStatusUrl(mirrorId: string) {
 
 async function getMirrorStatus(mirrorId: string) {
   const url = getMirrorStatusUrl(mirrorId);
-  const hashedPassword = GetHashedPeerDBPasswordFromEnv();
   const resp = await fetch(url, {
     cache: 'no-store',
-    headers: { Authorization: `Bearer ${hashedPassword}` },
   });
   const json = await resp.json();
   return json;
