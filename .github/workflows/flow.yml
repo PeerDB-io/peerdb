@@ -22,6 +22,7 @@ jobs:
           PGUSER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
+          POSTGRES_INITDB_ARGS: --locale=C.UTF-8
       elasticsearch:
         image: elasticsearch:8.13.0
         ports:
