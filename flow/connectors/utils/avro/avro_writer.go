@@ -131,10 +131,9 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 
 	numRows := 0
 	for qrecord := range p.stream.Records {
-		select {
-		case <-ctx.Done():
+		if err := ctx.Err(); err != nil {
 			return numRows, ctx.Err()
-		default:
+		} else {
 			avroMap, err := avroConverter.Convert(qrecord)
 			if err != nil {
 				logger.Error("Failed to convert QRecord to Avro compatible map", slog.Any("error", err))
