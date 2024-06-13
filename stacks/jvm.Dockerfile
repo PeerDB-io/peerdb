@@ -1,18 +1,6 @@
 ####
 # This Dockerfile is used in order to build a container that runs the Quarkus application in JVM mode
 #
-# Before building the container image run:
-#
-# ./gradlew build
-#
-# Then, build the image with:
-#
-# docker build -f src/main/docker/Dockerfile.jvm -t quarkus/flow-jvm-jvm .
-#
-# Then run the container using:
-#
-# docker run -i --rm -p 8080:8080 quarkus/flow-jvm-jvm
-#
 # If you want to include the debug port into your docker image
 # you will have to expose the debug port (default 5005 being the default) like this :  EXPOSE 8080 5005.
 # Additionally you will have to set -e JAVA_DEBUG=true and -e JAVA_DEBUG_PORT=*:5005
@@ -87,6 +75,9 @@ WORKDIR /home/gradle/work
 COPY --chown=gradle:gradle flow-jvm/gradle gradle
 COPY --chown=gradle:gradle flow-jvm/*.gradle flow-jvm/gradle.properties ./
 
+# Build once to cache dependencies
+RUN gradle build -x quarkusGenerateCode -x quarkusGenerateCodeDev  --stacktrace --info
+
 # Gathers all proto files
 COPY --chown=gradle:gradle protos/*.proto ../protos/
 # Adds any extra configuration files if needed for build
@@ -98,7 +89,7 @@ RUN gradle quarkusGenerateCode -x quarkusGenerateCodeDev --stacktrace --info
 
 COPY --chown=gradle:gradle flow-jvm .
 # Finally build the project
-RUN gradle build -x quarkusGenerateCode -x quarkusGenerateCodeDev --stacktrace --info
+RUN gradle build --stacktrace --info
 
 
 FROM registry.access.redhat.com/ubi8/openjdk-21:1.19 as runner
@@ -119,6 +110,7 @@ EXPOSE 9801
 USER 185
 ENV JAVA_OPTS_APPEND="-Dquarkus.http.host=0.0.0.0 -Djava.util.logging.manager=org.jboss.logmanager.LogManager"
 ENV JAVA_APP_JAR="/deployments/quarkus-run.jar"
+ENV PEERDB_LOG_LEVEL="INFO"
 
 ENTRYPOINT [ "/opt/jboss/container/java/run/run-java.sh" ]
 

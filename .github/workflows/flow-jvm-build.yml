@@ -1,0 +1,33 @@
+name: Build & Test Flow JVM
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths: [flow-jvm/**, protos/**, .sdkmanrc]
+
+jobs:
+  build-test:
+    name: Build & Test Flow JVM
+    strategy:
+      matrix:
+        runner: [ubicloud-standard-2-ubuntu-2204-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SDKMAN and Install Dependencies
+        uses: sdkman/sdkman-action@main
+        id: sdkman
+      - name: Check dependency versions
+        run: |
+          sdk version
+          java -version
+          gradle -version
+          quarkus --version
+        working-directory: flow-jvm
+      - name: Build
+        working-directory: flow-jvm
+        run: ./gradlew build test --stacktrace --info

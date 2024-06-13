@@ -16,9 +16,11 @@ import org.apache.iceberg.DataFile;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.avro.AvroSchemaUtil;
+import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.data.IcebergGenerics;
 import org.apache.iceberg.data.Record;
+import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.io.TaskWriter;
 import org.apache.iceberg.io.WriteResult;
 
@@ -81,8 +83,21 @@ public class IcebergService {
 //        var icebergSchema = new Schema(fieldList, primaryKeyFieldIds);
         var icebergSchema = typeSchema;
         Preconditions.checkArgument(icebergSchema.asStruct().equals(typeSchema.asStruct()), "Primary key based schema not equivalent to type schema [%s!=%s]", icebergSchema.asStruct(), typeSchema.asStruct());
+
+        var tableIdentifier = getTableIdentifier(tableInfo);
+        // We create the namespace if needed
+        if (!tableIdentifier.namespace().isEmpty() && catalog instanceof SupportsNamespaces namespacedCatalog && namespacedCatalog.namespaceExists(tableIdentifier.namespace())) {
+            try {
+                Log.infof("Creating namespace %s", tableIdentifier.namespace());
+                namespacedCatalog.createNamespace(tableIdentifier.namespace());
+            } catch (AlreadyExistsException e) {
+                Log.warnf("Namespace %s already exists, skipping", tableIdentifier.namespace());
+            } catch (UnsupportedOperationException e) {
+                Log.warnf("Namespace creation not supported by catalog %s, skipping", icebergCatalog);
+            }
+        }
         Log.infof("Will now create table %s", tableInfo.getTableName());
-        var table = catalog.createTable(getTableIdentifier(tableInfo), icebergSchema);
+        var table = catalog.createTable(tableIdentifier, icebergSchema);
         Log.infof("Created table %s", tableInfo.getTableName());
         return table;
     }

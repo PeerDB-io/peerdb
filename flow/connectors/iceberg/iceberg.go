@@ -240,7 +240,9 @@ func (c *IcebergConnector) Close() error {
 
 func (c *IcebergConnector) ValidateCheck(ctx context.Context) error {
 	// Create a table with a random name based on current time
-	tableName := fmt.Sprintf("__peerdb_test_flow_%d", time.Now().Unix())
+	// TODO ask for namespace in the peer settings and use that instead of __peerdb_test
+	// Can also ask for a boolean if provided namespace is to be created or not
+	tableName := fmt.Sprintf("__peerdb_test_%d.__peerdb_test_flow_%d", time.Now().Unix(), time.Now().Unix())
 	c.logger.Debug("Will try to create iceberg table", "table", tableName)
 	_, err := c.proxyClient.CreateTable(ctx,
 		&protos.CreateTableRequest{

@@ -19,17 +19,22 @@ dependencies {
     implementation 'io.quarkus:quarkus-arc'
     implementation 'io.quarkus:quarkus-grpc'
     implementation 'io.quarkus:quarkus-rest'
+    implementation 'io.quarkus:quarkus-logging-json'
 
     implementation "org.apache.iceberg:iceberg-core:${icebergLibVersion}"
     implementation "org.apache.iceberg:iceberg-common:${icebergLibVersion}"
     implementation "org.apache.iceberg:iceberg-data:${icebergLibVersion}"
     implementation "org.apache.iceberg:iceberg-parquet:${icebergLibVersion}"
 
+    // This is forced due to version conflicts
+    implementation 'io.grpc:grpc-protobuf:1.63.0'
+
     implementation 'org.apache.avro:avro:1.11.3'
 
     implementation 'org.apache.hadoop:hadoop-client:3.4.0'
+    implementation 'org.apache.hadoop:hadoop-common:3.4.0'
 
-    // JDBC Drivers
+    // Drivers for JDBC Catalogs
     runtimeOnly 'org.postgresql:postgresql:42.7.3'
 
     // AWS Dependencies
@@ -37,10 +42,23 @@ dependencies {
     runtimeOnly "org.apache.iceberg:iceberg-aws-bundle:${icebergLibVersion}"
 //    runtimeOnly 'software.amazon.awssdk:bundle:2.25.60'
 
+//    // HIVE4 Dependencies
+//    implementation 'org.apache.hive:hive-iceberg-catalog:4.0.0'
+//    // DO NOT USE THE BELOW DEPENDENCIES https://github.com/apache/iceberg/issues/10429
+////    implementation "org.apache.iceberg:iceberg-hive-metastore:${icebergLibVersion}"
+////    runtimeOnly "org.apache.hive:hive-metastore:4.0.0"
+
+    // HIVE 3 Dependencies
+    implementation "org.apache.iceberg:iceberg-hive-metastore:${icebergLibVersion}"
+    runtimeOnly "org.apache.hive:hive-metastore:3.1.3"
+
+
+
+
     // GCP Dependencies
     implementation "org.apache.iceberg:iceberg-gcp:${icebergLibVersion}"
     // This is currently causing issues with GRPC versions mismatch
-//    runtimeOnly "org.apache.iceberg:iceberg-gcp-bundle:${icebergLibVersion}"
+    runtimeOnly "org.apache.iceberg:iceberg-gcp-bundle:${icebergLibVersion}"
 
 
     testImplementation 'io.quarkus:quarkus-junit5'
@@ -67,7 +85,6 @@ compileJava {
 compileTestJava {
     options.encoding = 'UTF-8'
 }
-
 
 
 quarkus {

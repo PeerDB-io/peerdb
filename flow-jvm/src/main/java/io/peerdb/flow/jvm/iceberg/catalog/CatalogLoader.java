@@ -9,10 +9,12 @@ import io.peerdb.flow.peers.IcebergCatalog;
 import io.quarkus.logging.Log;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
 
 import java.util.Collections;
+import java.util.Map;
 
 
 @Singleton
@@ -49,7 +51,14 @@ public class CatalogLoader {
             default ->
                     throw new IllegalArgumentException("Unexpected value for catalog config: " + icebergCatalogConfig.getConfigCase());
         };
-        // TODO look at hadoop
-        return CatalogUtil.buildIcebergCatalog(icebergCatalogConfig.getCommonConfig().getName(), catalogConfig, null);
+        var hadoopConfiguration = getHadoopConfiguration(icebergCatalogConfig.getCommonConfig().getHadoopPropertiesMap());
+        return CatalogUtil.buildIcebergCatalog(icebergCatalogConfig.getCommonConfig().getName(), catalogConfig, hadoopConfiguration);
     }
+
+    private Configuration getHadoopConfiguration(Map<String, String> hadoopConfig) {
+        var conf = new Configuration();
+        hadoopConfig.forEach(conf::set);
+        return conf;
+    }
+
 }

@@ -15,10 +15,24 @@ quarkus:
     category:
       "io.peerdb":
         level: ${PEERDB_LOG_LEVEL:INFO}
-        min-level: ${PEERDB_LOG_LEVEL:TRACE}
+        min-level: ${PEERDB_LOG_LEVEL:INFO}
+      "io.peerdb.flow.jvm.iceberg.catalog":
+        level: ${PEERDB_ICEBERG_CATALOG_LOG_LEVEL:INFO}
+        min-level: ${PEERDB_ICEBERG_CATALOG_LOG_LEVEL:INFO}
+
     console:
-      level: ${PEERDB_LOG_LEVEL:TRACE}
+      level: ${PEERDB_LOG_LEVEL:INFO}
   http:
     port: ${FLOW_JVM_PORT:9801}
 
 
+"%dev":
+  quarkus:
+    log:
+      console:
+        json: false
+"%test":
+  quarkus:
+    log:
+    console:
+      json: false

@@ -20,6 +20,10 @@ public class S3IOConfigMapper extends FileIOConfigMapper<IcebergS3IoConfig> {
         if (config.hasPathStyleAccess()) {
             builder.put(S3FileIOProperties.PATH_STYLE_ACCESS, config.getPathStyleAccess());
         }
+        if (config.hasCrossRegionAccessEnabled()) {
+            // This only works when https://github.com/apache/iceberg/issues/9785 is fixed or {@link io.peerdb.flow.jvm.iceberg.catalog.io.mapper.FixedS3FileIO} is added
+            builder.put("s3.cross-region-access-enabled", config.getCrossRegionAccessEnabled());
+        }
         return builder.build();
     }
 

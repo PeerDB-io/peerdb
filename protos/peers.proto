@@ -5,7 +5,6 @@ package peerdb_peers;
 option java_multiple_files = true;
 option java_package = "io.peerdb.flow.peers";
 
-
 message SSHConfig {
   string host = 1;
   uint32 port = 2;
@@ -108,7 +107,7 @@ message S3Config {
   optional string endpoint = 6;
 }
 
-message ClickhouseConfig{
+message ClickhouseConfig {
   string host = 1;
   uint32 port = 2;
   string user = 3;
@@ -173,10 +172,11 @@ message IcebergConfig {
 message IcebergS3IoConfig {
   optional string access_key_id = 1;
   optional string secret_access_key = 2;
-  optional string region = 3;
-  optional string endpoint = 4;
+  optional string endpoint = 3;
   // Set to true to use for services like MinIO
-  optional string path_style_access = 5;
+  optional string path_style_access = 4;
+  // For enabling cross region bucket access, works when https://github.com/apache/iceberg/issues/9785 is resolved
+  optional string cross_region_access_enabled = 5;
 }
 
 message IcebergGCSIoConfig {
@@ -198,8 +198,9 @@ message CommonIcebergCatalog {
   string warehouse_location = 3;
   optional int32 client_pool_size = 4;
   optional bool cache_enabled = 5;
+  map<string, string> hadoop_properties = 6;
   // This helps in testing, where we can pass additional properties to the catalog
-//  map<string, string> additional_properties = 6;
+  //  map<string, string> additional_properties = 6;
 }
 
 message HiveIcebergCatalog {}
@@ -231,7 +232,6 @@ message IcebergCatalog {
     NessieIcebergCatalog nessie = 8;
   }
 }
-
 
 enum DBType {
   BIGQUERY = 0;
