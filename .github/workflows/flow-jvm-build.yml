@@ -23,11 +23,16 @@ jobs:
         id: sdkman
       - name: Check dependency versions
         run: |
-          sdk version
+          export JAVA_HOME=$HOME/.sdkman/candidates/java/current
+          echo "JAVA_HOME=${JAVA_HOME}" >> $GITHUB_ENV
           java -version
           gradle -version
           quarkus --version
         working-directory: flow-jvm
+      - name: Download/Setup gradle wrapper
+        working-directory: flow-jvm
+        run: |
+          gradle wrapper
       - name: Build
         working-directory: flow-jvm
         run: ./gradlew build test --stacktrace --info
