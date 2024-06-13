@@ -49,8 +49,8 @@ func (s *SlackAlertSender) sendAlert(ctx context.Context, alertTitle string, ale
 		if len(s.members) == 0 {
 			ccMembersPart.WriteString("cc: <!channel>")
 		} else {
-			ccMembersPart.WriteString("cc: @" + s.members[0])
-			for _, member := range s.members[1:] {
+			ccMembersPart.WriteString("cc:")
+			for _, member := range s.members {
 				ccMembersPart.WriteString(" @" + member)
 			}
 		}
