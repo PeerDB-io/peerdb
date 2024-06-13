@@ -617,7 +617,7 @@ func processMessage[Items model.Items](
 
 	switch msg := logicalMsg.(type) {
 	case *pglogrepl.BeginMessage:
-		logger.Info("BeginMessage", slog.Any("FinalLSN", msg.FinalLSN), slog.Any("XID", msg.Xid))
+		//logger.Info("BeginMessage", slog.Any("FinalLSN", msg.FinalLSN), slog.Any("XID", msg.Xid))
 		p.commitLock = msg
 	case *pglogrepl.InsertMessage:
 		return processInsertMessage(p, xld.WALStart, msg, processor)
@@ -631,7 +631,7 @@ func processMessage[Items model.Items](
 		batch.UpdateLatestCheckpoint(int64(msg.CommitLSN))
 		p.commitLock = nil
 	case *pglogrepl.RelationMessage:
-		logger.Info("RelationMessage", slog.Any("RelationID", msg.RelationID), slog.String("Namespace", msg.Namespace))
+		//logger.Info("RelationMessage", slog.Any("RelationID", msg.RelationID), slog.String("Namespace", msg.Namespace))
 		// treat all relation messages as corresponding to parent if partitioned.
 		msg.RelationID = p.getParentRelIDIfPartitioned(msg.RelationID)
 
