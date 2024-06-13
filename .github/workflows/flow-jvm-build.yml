@@ -35,4 +35,4 @@ jobs:
           gradle wrapper
       - name: Build
         working-directory: flow-jvm
-        run: ./gradlew build test --stacktrace --info
+        run: ./gradlew quarkusGenerateCode --stacktrace --info && ./gradlew build test --stacktrace --info

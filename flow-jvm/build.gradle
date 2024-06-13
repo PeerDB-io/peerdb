@@ -28,6 +28,7 @@ dependencies {
 
     // This is forced due to version conflicts
     implementation 'io.grpc:grpc-protobuf:1.63.0'
+    implementation 'com.google.protobuf:protobuf-java:4.27.1'
 
     implementation 'org.apache.avro:avro:1.11.3'
 
@@ -89,4 +90,5 @@ compileTestJava {
 
 quarkus {
     quarkusBuildProperties.put("quarkus.grpc.codegen.proto-directory", "${project.projectDir}/../protos")
+    quarkusBuildProperties.put("quarkus.grpc.codegen.exclude-filter", ".*")
 }
