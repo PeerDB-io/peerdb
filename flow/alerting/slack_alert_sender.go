@@ -51,7 +51,8 @@ func (s *SlackAlertSender) sendAlert(ctx context.Context, alertTitle string, ale
 		} else {
 			ccMembersPart.WriteString("cc:")
 			for _, member := range s.members {
-				ccMembersPart.WriteString(" @" + member)
+				ccMembersPart.WriteString(" @")
+				ccMembersPart.WriteString(member)
 			}
 		}
 		_, _, _, err := s.client.SendMessageContext(ctx, channelID, slack.MsgOptionBlocks(
