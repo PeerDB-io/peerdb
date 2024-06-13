@@ -18,16 +18,16 @@ jobs:
       - name: checkout
         uses: actions/checkout@v4
 
-      - name: Setup SDKMAN and Install Dependencies
-        uses: sdkman/sdkman-action@main
-        id: sdkman
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
       - name: Check dependency versions
         run: |
-          export JAVA_HOME=$HOME/.sdkman/candidates/java/current
-          echo "JAVA_HOME=${JAVA_HOME}" >> $GITHUB_ENV
           java -version
           gradle -version
-          quarkus --version
         working-directory: flow-jvm
       - name: Download/Setup gradle wrapper
         working-directory: flow-jvm
