@@ -3,6 +3,7 @@ package alerting
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/slack-go/slack"
 )
@@ -44,16 +45,17 @@ func newSlackAlertSender(config *slackAlertConfig) *SlackAlertSender {
 
 func (s *SlackAlertSender) sendAlert(ctx context.Context, alertTitle string, alertMessage string) error {
 	for _, channelID := range s.channelIDs {
-		ccMembersPart := "cc: <!channel>"
+		var ccMembersPart strings.Builder
+		ccMembersPart.WriteString("cc: <!channel>")
 		if len(s.members) > 0 {
-			ccMembersPart = "cc: @" + s.members[0]
+			ccMembersPart.WriteString("cc: @" + s.members[0])
 			for _, member := range s.members[1:] {
-				ccMembersPart += " @" + member
+				ccMembersPart.WriteString(" @" + member)
 			}
 		}
 		_, _, _, err := s.client.SendMessageContext(ctx, channelID, slack.MsgOptionBlocks(
 			slack.NewHeaderBlock(slack.NewTextBlockObject("plain_text", ":rotating_light:Alert:rotating_light:: "+alertTitle, true, false)),
-			slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", alertMessage+"\n"+ccMembersPart, false, false), nil, nil),
+			slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", alertMessage+"\n"+ccMembersPart.String(), false, false), nil, nil),
 		))
 		if err != nil {
 			return fmt.Errorf("failed to send message to Slack channel %s: %w", channelID, err)
