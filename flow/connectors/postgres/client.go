@@ -87,6 +87,8 @@ const (
 	ReplicaIdentityNothing ReplicaIdentityType = 'n'
 )
 
+var ErrSlotAlreadyExists error = errors.New("slot already exists")
+
 // getRelIDForTable returns the relation ID for a table.
 func (c *PostgresConnector) getRelIDForTable(ctx context.Context, schemaTable *utils.SchemaTable) (uint32, error) {
 	var relID pgtype.Uint32
@@ -319,21 +321,19 @@ func (c *PostgresConnector) createSlotAndPublication(
 	tableNameMapping map[string]model.NameAndExclude,
 	doInitialCopy bool,
 ) error {
-	/*
-		iterating through source tables and creating a publication.
-		expecting tablenames to be schema qualified
-	*/
-	srcTableNames := make([]string, 0, len(tableNameMapping))
-	for srcTableName := range tableNameMapping {
-		parsedSrcTableName, err := utils.ParseSchemaTable(srcTableName)
-		if err != nil {
-			return fmt.Errorf("source table identifier %s is invalid", srcTableName)
-		}
-		srcTableNames = append(srcTableNames, parsedSrcTableName.String())
-	}
-	tableNameString := strings.Join(srcTableNames, ", ")
-
+	// iterate through source tables and create publication,
+	// expecting tablenames to be schema qualified
 	if !s.PublicationExists {
+		srcTableNames := make([]string, 0, len(tableNameMapping))
+		for srcTableName := range tableNameMapping {
+			parsedSrcTableName, err := utils.ParseSchemaTable(srcTableName)
+			if err != nil {
+				return fmt.Errorf("source table identifier %s is invalid", srcTableName)
+			}
+			srcTableNames = append(srcTableNames, parsedSrcTableName.String())
+		}
+		tableNameString := strings.Join(srcTableNames, ", ")
+
 		// check and enable publish_via_partition_root
 		pgversion, err := c.MajorVersion(ctx)
 		if err != nil {
@@ -341,12 +341,11 @@ func (c *PostgresConnector) createSlotAndPublication(
 		}
 		var pubViaRootString string
 		if pgversion >= shared.POSTGRES_13 {
-			pubViaRootString = "WITH(publish_via_partition_root=true)"
+			pubViaRootString = " WITH(publish_via_partition_root=true)"
 		}
 		// Create the publication to help filter changes only for the given tables
-		stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s %s", publication, tableNameString, pubViaRootString)
-		_, err = c.conn.Exec(ctx, stmt)
-		if err != nil {
+		stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s%s", publication, tableNameString, pubViaRootString)
+		if _, err = c.conn.Exec(ctx, stmt); err != nil {
 			c.logger.Warn(fmt.Sprintf("Error creating publication '%s': %v", publication, err))
 			return fmt.Errorf("error creating publication '%s' : %w", publication, err)
 		}
@@ -363,13 +362,11 @@ func (c *PostgresConnector) createSlotAndPublication(
 		c.logger.Warn(fmt.Sprintf("Creating replication slot '%s'", slot))
 
 		// THIS IS NOT IN A TX!
-		_, err = conn.Exec(ctx, "SET idle_in_transaction_session_timeout=0")
-		if err != nil {
+		if _, err = conn.Exec(ctx, "SET idle_in_transaction_session_timeout=0"); err != nil {
 			return fmt.Errorf("[slot] error setting idle_in_transaction_session_timeout: %w", err)
 		}
 
-		_, err = conn.Exec(ctx, "SET lock_timeout=0")
-		if err != nil {
+		if _, err := conn.Exec(ctx, "SET lock_timeout=0"); err != nil {
 			return fmt.Errorf("[slot] error setting lock_timeout: %w", err)
 		}
 
@@ -400,15 +397,14 @@ func (c *PostgresConnector) createSlotAndPublication(
 		c.logger.Info("Clone complete")
 	} else {
 		c.logger.Info(fmt.Sprintf("Replication slot '%s' already exists", slot))
-		var e error
-		if doInitialCopy {
-			e = errors.New("slot already exists")
-		}
 		slotDetails := SlotCreationResult{
 			SlotName:         slot,
 			SnapshotName:     "",
-			Err:              e,
+			Err:              nil,
 			SupportsTIDScans: false,
+		}
+		if doInitialCopy {
+			slotDetails.Err = ErrSlotAlreadyExists
 		}
 		signal.SlotCreated <- slotDetails
 	}

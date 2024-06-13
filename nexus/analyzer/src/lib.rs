@@ -280,20 +280,6 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => false,
                         };
 
-                        let push_parallelism: Option<i64> = match raw_options
-                            .remove("push_parallelism")
-                        {
-                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<i64>()?),
-                            _ => None,
-                        };
-
-                        let push_batch_size: Option<i64> = match raw_options
-                            .remove("push_batch_size")
-                        {
-                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<i64>()?),
-                            _ => None,
-                        };
-
                         let max_batch_size: Option<u32> = match raw_options.remove("max_batch_size")
                         {
                             Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
@@ -334,12 +320,17 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => "Q".to_string(),
                         };
 
+                        let disable_peerdb_columns =
+                            match raw_options.remove("disable_peerdb_columns") {
+                                Some(Expr::Value(ast::Value::Boolean(b))) => *b,
+                                _ => false,
+                            };
+
                         let flow_job = FlowJob {
                             name: cdc.mirror_name.to_string().to_lowercase(),
                             source_peer: cdc.source_peer.to_string().to_lowercase(),
                             target_peer: cdc.target_peer.to_string().to_lowercase(),
                             table_mappings: flow_job_table_mappings,
-                            description: "".to_string(), // TODO: add description
                             do_initial_copy,
                             publication_name,
                             snapshot_num_rows_per_partition,
@@ -349,8 +340,6 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             cdc_staging_path,
                             soft_delete,
                             replication_slot_name,
-                            push_batch_size,
-                            push_parallelism,
                             max_batch_size,
                             sync_interval,
                             resync,
@@ -359,6 +348,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             initial_snapshot_only: initial_copy_only,
                             script,
                             system,
+                            disable_peerdb_columns,
                         };
 
                         if initial_copy_only && !do_initial_copy {

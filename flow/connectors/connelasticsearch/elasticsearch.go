@@ -181,6 +181,10 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 	var bulkIndexOnFailureMutex sync.Mutex
 
 	for record := range req.Records.GetRecords() {
+		if _, ok := record.(*model.MessageRecord[model.RecordItems]); ok {
+			continue
+		}
+
 		var bodyBytes []byte
 		var err error
 		action := actionIndex

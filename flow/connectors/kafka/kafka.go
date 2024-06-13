@@ -208,36 +208,36 @@ func (c *KafkaConnector) createPool(
 		} else {
 			recordCounter := atomic.Int32{}
 			recordCounter.Store(lenRecords)
-			for _, kr := range result.records {
-				var handler func(*kgo.Record, error)
-				handler = func(_ *kgo.Record, err error) {
-					if err != nil {
-						var success bool
-						if errors.Is(err, kerr.UnknownTopicOrPartition) {
-							force, envErr := peerdbenv.PeerDBQueueForceTopicCreation(ctx)
-							if envErr == nil && force {
-								c.logger.Info("[kafka] force topic creation", slog.String("topic", kr.Topic))
-								_, err := kadm.NewClient(c.client).CreateTopic(ctx, 1, 3, nil, kr.Topic)
-								if err != nil && !errors.Is(err, kerr.TopicAlreadyExists) {
-									c.logger.Warn("[kafka] topic create error", slog.Any("error", err))
-									queueErr(err)
-									return
-								}
-								success = true
+			var handler func(*kgo.Record, error)
+			handler = func(kr *kgo.Record, err error) {
+				if err != nil {
+					var success bool
+					if errors.Is(err, kerr.UnknownTopicOrPartition) {
+						force, envErr := peerdbenv.PeerDBQueueForceTopicCreation(ctx)
+						if envErr == nil && force {
+							c.logger.Info("[kafka] force topic creation", slog.String("topic", kr.Topic))
+							_, err := kadm.NewClient(c.client).CreateTopic(ctx, 1, 3, nil, kr.Topic)
+							if err != nil && !errors.Is(err, kerr.TopicAlreadyExists) {
+								c.logger.Warn("[kafka] topic create error", slog.Any("error", err))
+								queueErr(err)
+								return
 							}
-						} else {
-							c.logger.Warn("[kafka] produce error", slog.Any("error", err))
+							success = true
 						}
-						if success {
-							time.Sleep(time.Second) // topic creation can take time to propagate, throttle
-							c.client.Produce(ctx, kr, handler)
-						} else {
-							queueErr(err)
-						}
-					} else if recordCounter.Add(-1) == 0 && lastSeenLSN != nil {
-						shared.AtomicInt64Max(lastSeenLSN, result.lsn)
+					} else {
+						c.logger.Warn("[kafka] produce error", slog.Any("error", err))
 					}
+					if success {
+						time.Sleep(time.Second) // topic creation can take time to propagate, throttle
+						c.client.Produce(ctx, kr, handler)
+					} else {
+						queueErr(err)
+					}
+				} else if recordCounter.Add(-1) == 0 && lastSeenLSN != nil {
+					shared.AtomicInt64Max(lastSeenLSN, result.lsn)
 				}
+			}
+			for _, kr := range result.records {
 				c.client.Produce(ctx, kr, handler)
 			}
 		}
