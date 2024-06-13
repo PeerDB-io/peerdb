@@ -16,9 +16,6 @@ quarkus:
       "io.peerdb":
         level: ${PEERDB_LOG_LEVEL:INFO}
         min-level: ${PEERDB_LOG_LEVEL:INFO}
-      "io.peerdb.flow.jvm.iceberg.catalog":
-        level: ${PEERDB_ICEBERG_CATALOG_LOG_LEVEL:INFO}
-        min-level: ${PEERDB_ICEBERG_CATALOG_LOG_LEVEL:INFO}
 
     console:
       level: ${PEERDB_LOG_LEVEL:INFO}
