@@ -29,6 +29,7 @@ export const slackServiceConfigSchema = z.intersection(
         }
       )
       .min(1, { message: 'Atleast one channel ID is needed' }),
+    members: z.array(z.string().trim()).optional(),
   })
 );
 

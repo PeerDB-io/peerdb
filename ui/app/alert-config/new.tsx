@@ -1,6 +1,8 @@
 import { Button } from '@/lib/Button';
+import { Label } from '@/lib/Label/Label';
 import { TextField } from '@/lib/TextField';
 import Image from 'next/image';
+import Link from 'next/link';
 import { Dispatch, SetStateAction, useState } from 'react';
 import ReactSelect from 'react-select';
 import { PulseLoader } from 'react-spinners';
@@ -77,6 +79,26 @@ function getSlackProps(
             setConfig((previous) => ({
               ...previous,
               channel_ids: e.target.value.split(','),
+            }));
+          }}
+        />
+      </div>
+      <div>
+        <p>Members</p>
+        <Label as='label' style={{ fontSize: 14 }}>
+          Slack usernames to ping for these alerts. If left empty, pings the
+          whole channel
+        </Label>
+        <TextField
+          key={'members'}
+          style={{ height: '2.5rem', marginTop: '0.5rem' }}
+          variant='simple'
+          placeholder='Comma separated'
+          value={config.members?.join(',')}
+          onChange={(e) => {
+            setConfig((previous) => ({
+              ...previous,
+              members: e.target.value.split(','),
             }));
           }}
         />
@@ -196,7 +218,7 @@ export function NewConfig(alertProps: AlertConfigProps) {
       style={{
         display: 'flex',
         flexDirection: 'column',
-        rowGap: '2rem',
+        rowGap: '1.5rem',
         marginTop: '3rem',
         width: '40%',
       }}
@@ -225,6 +247,16 @@ export function NewConfig(alertProps: AlertConfigProps) {
           theme={SelectTheme}
         />
       </div>
+      {serviceType === 'slack' && (
+        <Label
+          as={Link}
+          target='_blank'
+          href='https://docs.peerdb.io/features/alerting/slack-alerting'
+          style={{ color: 'teal', cursor: 'pointer', width: 'fit-content' }}
+        >
+          How to setup Slack alerting
+        </Label>
+      )}
       <div>
         <p>Slot Lag Alert Threshold (in GB)</p>
         <TextField
