@@ -46,7 +46,7 @@ use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::TcpListener};
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{fmt, prelude::*};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 mod cursor;
 
@@ -1132,8 +1132,14 @@ type TracerGuards = Option<WorkerGuard>;
 fn setup_tracing(log_dir: Option<&str>) -> TracerGuards {
     let fmt_stdout_layer = fmt::layer().with_target(false).with_writer(std::io::stdout);
 
-    let tracing = tracing_subscriber::registry().with(fmt_stdout_layer);
-    
+    // add min tracing as info
+    let env_filter = EnvFilter::try_from_default_env()
+        .or_else(|_| EnvFilter::try_new("info"))
+        .unwrap();
+
+    let tracing = tracing_subscriber::registry()
+        .with(fmt_stdout_layer)
+        .with(env_filter);
 
     // return guard so file appender is not dropped, which would close file
     match log_dir {
