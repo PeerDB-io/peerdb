@@ -46,8 +46,9 @@ func newSlackAlertSender(config *slackAlertConfig) *SlackAlertSender {
 func (s *SlackAlertSender) sendAlert(ctx context.Context, alertTitle string, alertMessage string) error {
 	for _, channelID := range s.channelIDs {
 		var ccMembersPart strings.Builder
-		ccMembersPart.WriteString("cc: <!channel>")
-		if len(s.members) > 0 {
+		if len(s.members) == 0 {
+			ccMembersPart.WriteString("cc: <!channel>")
+		} else {
 			ccMembersPart.WriteString("cc: @" + s.members[0])
 			for _, member := range s.members[1:] {
 				ccMembersPart.WriteString(" @" + member)
