@@ -12,9 +12,9 @@ type SlackAlertSender struct {
 	AlertSender
 	client                        *slack.Client
 	channelIDs                    []string
+	members                       []string
 	slotLagMBAlertThreshold       uint32
 	openConnectionsAlertThreshold uint32
-	members                       []string
 }
 
 func (s *SlackAlertSender) getSlotLagMBAlertThreshold() uint32 {
@@ -28,9 +28,9 @@ func (s *SlackAlertSender) getOpenConnectionsAlertThreshold() uint32 {
 type slackAlertConfig struct {
 	AuthToken                     string   `json:"auth_token"`
 	ChannelIDs                    []string `json:"channel_ids"`
+	Members                       []string `json:"members"`
 	SlotLagMBAlertThreshold       uint32   `json:"slot_lag_mb_alert_threshold"`
 	OpenConnectionsAlertThreshold uint32   `json:"open_connections_alert_threshold"`
-	Members                       []string `json:"members"`
 }
 
 func newSlackAlertSender(config *slackAlertConfig) *SlackAlertSender {
