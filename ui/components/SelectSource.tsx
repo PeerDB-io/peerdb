@@ -42,7 +42,15 @@ const dbTypes = [
     'TEMBO',
     'CRUNCHY POSTGRES',
   ],
-  ['Warehouses', 'SNOWFLAKE', 'BIGQUERY', 'S3', 'CLICKHOUSE', 'ELASTICSEARCH'],
+  [
+    'Warehouses',
+    'SNOWFLAKE',
+    'BIGQUERY',
+    'S3',
+    'CLICKHOUSE',
+    'ELASTICSEARCH',
+    'ICEBERG',
+  ],
   ['Queues', 'REDPANDA', 'CONFLUENT', 'KAFKA', 'EVENTHUBS', 'PUBSUB'],
 ];
 

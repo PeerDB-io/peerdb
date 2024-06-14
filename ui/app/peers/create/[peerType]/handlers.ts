@@ -81,6 +81,9 @@ const validateFields = (
         validationErr = esConfig.error.issues[0].message;
       }
       break;
+    case 'ICEBERG':
+      // TODO
+      break;
     default:
       validationErr = 'Unsupported peer type ' + type;
   }
