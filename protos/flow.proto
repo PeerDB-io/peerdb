@@ -1,7 +1,6 @@
 syntax = "proto3";
 
 import "google/protobuf/timestamp.proto";
-import "peers.proto";
 
 package peerdb_flow;
 
@@ -32,7 +31,7 @@ message TableMapping {
 }
 
 message SetupInput {
-  peerdb_peers.Peer peer = 1;
+  string peer = 1;
   string flow_name = 2;
 }
 
@@ -40,8 +39,8 @@ message FlowConnectionConfigs {
   string flow_job_name = 1;
 
   // source and destination peer
-  peerdb_peers.Peer source = 2;
-  peerdb_peers.Peer destination = 3;
+  string source = 2;
+  string destination = 3;
 
   // config for the CDC flow itself
   // currently, TableMappings, MaxBatchSize and IdleTimeoutSeconds are dynamic via Temporal signals
@@ -83,7 +82,7 @@ message RenameTableOption {
 
 message RenameTablesInput {
   string flow_job_name = 1;
-  peerdb_peers.Peer peer = 2;
+  string peer = 2;
   repeated RenameTableOption rename_table_options = 3;
   optional string soft_delete_col_name = 4;
   optional string synced_at_col_name = 5;
@@ -95,7 +94,7 @@ message RenameTablesOutput {
 
 message CreateTablesFromExistingInput {
   string flow_job_name = 1;
-  peerdb_peers.Peer peer = 2;
+  string peer = 2;
   map<string, string> new_to_existing_table_mapping = 3;
 }
 
@@ -121,7 +120,7 @@ message StartNormalizeInput {
 }
 
 message EnsurePullabilityBatchInput {
-  peerdb_peers.Peer peer_connection_config = 1;
+  string peer_connection_config = 1;
   string flow_job_name = 2;
   repeated string source_table_identifiers = 3;
   bool check_constraints = 4;
@@ -136,11 +135,11 @@ message EnsurePullabilityBatchOutput {
 }
 
 message SetupReplicationInput {
-  peerdb_peers.Peer peer_connection_config = 1;
+  string peer_connection_config = 1;
   string flow_job_name = 2;
   map<string, string> table_name_mapping = 3;
   // replicate to destination using ctid
-  peerdb_peers.Peer destination_peer = 4;
+  string destination_peer = 4;
   bool do_initial_snapshot = 5;
   string existing_publication_name = 6;
   string existing_replication_slot_name = 7;
@@ -153,7 +152,7 @@ message SetupReplicationOutput {
 }
 
 message CreateRawTableInput {
-  peerdb_peers.Peer peer_connection_config = 1;
+  string peer_connection_config = 1;
   string flow_job_name = 2;
   map<string, string> table_name_mapping = 3;
 }
@@ -175,7 +174,7 @@ message FieldDescription {
 }
 
 message GetTableSchemaBatchInput {
-  peerdb_peers.Peer peer_connection_config = 1;
+  string peer_connection_config = 1;
   repeated string table_identifiers = 2;
   string flow_name = 3;
   TypeSystem system = 4;
@@ -186,7 +185,7 @@ message GetTableSchemaBatchOutput {
 }
 
 message SetupNormalizedTableBatchInput {
-  peerdb_peers.Peer peer_connection_config = 1;
+  string peer_connection_config = 1;
   map<string, TableSchema> table_name_schema_mapping = 2;
 
   // migration related columns
@@ -255,8 +254,8 @@ enum TypeSystem {
 message QRepConfig {
   string flow_job_name = 1;
 
-  peerdb_peers.Peer source_peer = 2;
-  peerdb_peers.Peer destination_peer = 3;
+  string source_peer = 2;
+  string destination_peer = 3;
 
   string destination_table_identifier = 4;
 
