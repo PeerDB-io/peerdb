@@ -156,7 +156,6 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.N
 
 	// model the raw table data as inserts.
 	for _, tbl := range destinationTableNames {
-		// SELECT projection FROM raw_table WHERE _peerdb_batch_id > normalize_batch_id AND _peerdb_batch_id <= sync_batch_id
 		selectQuery := strings.Builder{}
 		selectQuery.WriteString("SELECT ")
 
@@ -233,8 +232,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.N
 		}
 	}
 
-	endNormalizeBatchId := normBatchID + 1
-	err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, endNormalizeBatchId)
+	err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, req.SyncBatchID)
 	if err != nil {
 		c.logger.Error("[clickhouse] error while updating normalize batch id", "error", err)
 		return nil, err
@@ -242,7 +240,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.N
 
 	return &model.NormalizeResponse{
 		Done:         true,
-		StartBatchID: endNormalizeBatchId,
+		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
 	}, nil
 }
