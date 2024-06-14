@@ -10,6 +10,7 @@ import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
+import { Tooltip } from '@/lib/Tooltip/Tooltip';
 import { useState } from 'react';
 import ReactSelect from 'react-select';
 
@@ -33,7 +34,7 @@ const IcebergConfigForm = ({ icebergConfig, setter }: IcebergConfigProps) => {
         padding: '1rem',
         display: 'flex',
         flexDirection: 'column',
-        rowGap: '2rem',
+        rowGap: '2.5rem',
       }}
     >
       <div>
@@ -41,7 +42,21 @@ const IcebergConfigForm = ({ icebergConfig, setter }: IcebergConfigProps) => {
         {CommonConfigSettings.map((setting) => (
           <RowWithTextField
             key={setting.label}
-            label={<Label as='label'>{setting.label}</Label>}
+            label={
+              <Label as='label'>
+                {setting.label}
+                {!setting.optional && (
+                  <Tooltip
+                    style={{ width: '100%' }}
+                    content={'This is a required field.'}
+                  >
+                    <Label colorName='lowContrast' colorSet='destructive'>
+                      *
+                    </Label>
+                  </Tooltip>
+                )}
+              </Label>
+            }
             action={
               <TextField
                 variant='simple'
@@ -58,7 +73,21 @@ const IcebergConfigForm = ({ icebergConfig, setter }: IcebergConfigProps) => {
         {FileIoSettings.map((setting) => (
           <RowWithTextField
             key={setting.label}
-            label={<Label as='label'>{setting.label}</Label>}
+            label={
+              <Label as='label'>
+                {setting.label}
+                {!setting.optional && (
+                  <Tooltip
+                    style={{ width: '100%' }}
+                    content={'This is a required field.'}
+                  >
+                    <Label colorName='lowContrast' colorSet='destructive'>
+                      *
+                    </Label>
+                  </Tooltip>
+                )}
+              </Label>
+            }
             action={
               <TextField
                 variant='simple'
@@ -70,11 +99,19 @@ const IcebergConfigForm = ({ icebergConfig, setter }: IcebergConfigProps) => {
         ))}
       </div>
 
-      <div>
+      <div style={{ display: 'flex', flexDirection: 'column', rowGap: '2rem' }}>
         <RowWithSelect
           label={
             <Label as='label' variant='subheadline'>
               Choose specific catalog
+              <Tooltip
+                style={{ width: '100%' }}
+                content={'This is a required field.'}
+              >
+                <Label colorName='lowContrast' colorSet='destructive'>
+                  *
+                </Label>
+              </Tooltip>
             </Label>
           }
           action={
@@ -92,37 +129,53 @@ const IcebergConfigForm = ({ icebergConfig, setter }: IcebergConfigProps) => {
           }
         />
 
-        {specificCatalog === 'jdbc' &&
-          JdbcConfigSettings.map((setting) =>
-            setting.type == 'switch' ? (
-              <RowWithSwitch
-                key={setting.label}
-                label={<Label as='label'>{setting.label}</Label>}
-                action={
-                  <Switch
-                    defaultChecked={false}
-                    onCheckedChange={(checked) =>
-                      setting.stateHandler(checked, setter)
-                    }
-                  />
-                }
-              />
-            ) : (
-              <RowWithTextField
-                key={setting.label}
-                label={<Label as='label'>{setting.label}</Label>}
-                action={
-                  <TextField
-                    variant='simple'
-                    type={setting.type}
-                    onChange={(e) =>
-                      setting.stateHandler(e.target.value, setter)
-                    }
-                  />
-                }
-              />
-            )
-          )}
+        <div>
+          {specificCatalog === 'jdbc' &&
+            JdbcConfigSettings.map((setting) =>
+              setting.type == 'switch' ? (
+                <RowWithSwitch
+                  key={setting.label}
+                  label={<Label as='label'>{setting.label}</Label>}
+                  action={
+                    <Switch
+                      defaultChecked={false}
+                      onCheckedChange={(checked) =>
+                        setting.stateHandler(checked, setter)
+                      }
+                    />
+                  }
+                />
+              ) : (
+                <RowWithTextField
+                  key={setting.label}
+                  label={
+                    <Label as='label'>
+                      {setting.label}
+                      {!setting.optional && (
+                        <Tooltip
+                          style={{ width: '100%' }}
+                          content={'This is a required field.'}
+                        >
+                          <Label colorName='lowContrast' colorSet='destructive'>
+                            *
+                          </Label>
+                        </Tooltip>
+                      )}
+                    </Label>
+                  }
+                  action={
+                    <TextField
+                      variant='simple'
+                      type={setting.type}
+                      onChange={(e) =>
+                        setting.stateHandler(e.target.value, setter)
+                      }
+                    />
+                  }
+                />
+              )
+            )}
+        </div>
       </div>
     </div>
   );
