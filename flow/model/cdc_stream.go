@@ -43,17 +43,20 @@ func (r *CDCStream[T]) GetLastCheckpoint() int64 {
 	return r.lastCheckpointID.Load()
 }
 
-func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) {
+func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
 	logger := logger.LoggerFromCtx(ctx)
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case r.records <- record:
-			return
-		case <-time.After(10 * time.Second):
+			return nil
+		case <-ticker.C:
 			logger.Warn("waiting on adding record to stream", slog.Any("record", record))
 		case <-ctx.Done():
 			logger.Warn("context cancelled while adding record to stream", slog.Any("record", record))
-			return
+			return ctx.Err()
 		}
 	}
 }

@@ -346,7 +346,10 @@ func PullCdcRecords[Items model.Items](
 		if err != nil {
 			return err
 		}
-		records.AddRecord(ctx, rec)
+		err = records.AddRecord(ctx, rec)
+		if err != nil {
+			return err
+		}
 
 		if cdcRecordsStorage.Len() == 1 {
 			records.SignalAsNotEmpty()
