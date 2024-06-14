@@ -95,6 +95,7 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	}
 
 	relKindFilterClause := "t.relkind IN ('r', 'p')"
+	// publish_via_partition_root is only available in PG13 and above
 	if pgVersion <= shared.POSTGRES_13 {
 		relKindFilterClause = "t.relkind = 'r'"
 	}
