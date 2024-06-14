@@ -86,7 +86,7 @@ public class IcebergService {
 
         var tableIdentifier = getTableIdentifier(tableInfo);
         // We create the namespace if needed
-        if (!tableIdentifier.namespace().isEmpty() && catalog instanceof SupportsNamespaces namespacedCatalog && namespacedCatalog.namespaceExists(tableIdentifier.namespace())) {
+        if (!tableIdentifier.namespace().isEmpty() && catalog instanceof SupportsNamespaces namespacedCatalog && !namespacedCatalog.namespaceExists(tableIdentifier.namespace())) {
             try {
                 Log.infof("Creating namespace %s", tableIdentifier.namespace());
                 namespacedCatalog.createNamespace(tableIdentifier.namespace());
