@@ -129,6 +129,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.N
 
 	// normalize has caught up with sync, chill until more records are loaded.
 	if normBatchID >= req.SyncBatchID {
+		c.logger.Warn("[clickhouse] encountered normBatchID >= req.SyncBatchID", "normBatchID", normBatchID, "syncBatchID", req.SyncBatchID)
 		return &model.NormalizeResponse{
 			Done:         false,
 			StartBatchID: normBatchID,
