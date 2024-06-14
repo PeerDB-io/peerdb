@@ -17,8 +17,9 @@ service IcebergProxyService {
   rpc InsertChanges(InsertChangesRequest) returns (InsertChangesResponse) {}
 
   rpc AppendRecords(AppendRecordsRequest) returns (AppendRecordsResponse) {}
-}
 
+  rpc StreamingAppendRecords(stream AppendRecordsStreamRequest) returns (AppendRecordsStreamResponse) {}
+}
 
 message TableInfo {
   repeated string namespace = 1;
@@ -44,7 +45,6 @@ message DropTableRequest {
 message DropTableResponse {
   bool success = 1;
 }
-
 
 message CountRecordRequest {
   TableInfo table_info = 1;
@@ -95,13 +95,29 @@ message InsertChangesResponse {
   bool success = 1;
 }
 
-message AppendRecordsRequest {
+message AppendRecordTableHeader {
   TableInfo table_info = 1;
   string schema = 2;
-  repeated InsertRecord records = 3;
-  optional string idempotency_key = 4;
+  optional string idempotency_key = 3;
+}
+
+message AppendRecordsRequest {
+  AppendRecordTableHeader table_header = 1;
+  repeated InsertRecord records = 2;
 }
 
 message AppendRecordsResponse {
+  bool success = 1;
+}
+
+
+message AppendRecordsStreamRequest {
+  oneof command {
+    AppendRecordTableHeader table_header = 1;
+    InsertRecord record = 2;
+  }
+}
+
+message AppendRecordsStreamResponse {
   bool success = 1;
 }

@@ -20,6 +20,16 @@ func (c *IcebergConnector) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
+	return c.streamRecords(ctx, config, partition, stream)
+}
+
+//nolint:unused
+func (c *IcebergConnector) sendRecordsJoined(
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	stream *model.QRecordStream,
+) (int, error) {
 	schema := stream.Schema()
 
 	schema.Fields = addPeerMetaColumns(schema.Fields, config.SoftDeleteColName, config.SyncedAtColName)
@@ -69,16 +79,17 @@ func (c *IcebergConnector) SyncQRepRecords(
 
 	appendRecordsResponse, err := c.proxyClient.AppendRecords(ctx,
 		&protos.AppendRecordsRequest{
-			TableInfo: &protos.TableInfo{
-				// Namespace:       nil,
-				TableName:      dstTableName,
-				IcebergCatalog: c.config.CatalogConfig,
-				// PrimaryKey:      nil,
-
+			TableHeader: &protos.AppendRecordTableHeader{
+				TableInfo: &protos.TableInfo{
+					// Namespace:       nil,
+					TableName:      dstTableName,
+					IcebergCatalog: c.config.CatalogConfig,
+					// PrimaryKey:      nil,
+				},
+				Schema:         avroSchema.Schema,
+				IdempotencyKey: &requestIdempotencyKey,
 			},
-			Schema:         avroSchema.Schema,
-			Records:        binaryRecords,
-			IdempotencyKey: &requestIdempotencyKey,
+			Records: binaryRecords,
 		},
 	)
 	if err != nil {
@@ -92,6 +103,103 @@ func (c *IcebergConnector) SyncQRepRecords(
 		return 0, err
 	}
 	return len(binaryRecords), nil
+}
+
+func (c *IcebergConnector) streamRecords(
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	stream *model.QRecordStream,
+) (int, error) {
+	schema := stream.Schema()
+
+	schema.Fields = addPeerMetaColumns(schema.Fields, config.SoftDeleteColName, config.SyncedAtColName)
+	dstTableName := config.DestinationTableIdentifier
+
+	avroSchema, err := getAvroSchema(dstTableName, schema)
+	if err != nil {
+		return 0, err
+	}
+
+	avroConverter := model.NewQRecordAvroConverter(
+		avroSchema,
+		protos.DBType_ICEBERG,
+		schema.GetColumnNames(),
+		logger.LoggerFromCtx(ctx),
+	)
+	codec, err := goavro.NewCodec(avroSchema.Schema)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create Avro codec: %w", err)
+	}
+	requestIdempotencyKey := fmt.Sprintf("_peerdb_qrep-%s-%s", config.FlowJobName, partition.PartitionId)
+
+	tableHeader := &protos.AppendRecordTableHeader{
+		TableInfo: &protos.TableInfo{
+			// Namespace:       nil,
+			TableName:      dstTableName,
+			IcebergCatalog: c.config.CatalogConfig,
+			// PrimaryKey:      nil,
+		},
+		Schema:         avroSchema.Schema,
+		IdempotencyKey: &requestIdempotencyKey,
+	}
+	recordStream, err := c.proxyClient.StreamingAppendRecords(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	err = recordStream.Send(&protos.AppendRecordsStreamRequest{
+		Command: tableHeader,
+	})
+	// TODO what to do with recordStream?
+	if err != nil {
+		return 0, err
+	}
+
+	recordCount := 0
+	for record := range stream.Records {
+		record = append(record,
+			// Add soft delete
+			qvalue.QValueBoolean{
+				Val: false,
+			}, // add synced at colname
+			qvalue.QValueTimestampTZ{
+				Val: time.Now(),
+			})
+
+		converted, err := avroConverter.Convert(record)
+		if err != nil {
+			return 0, err
+		}
+		binaryData := make([]byte, 0)
+		native, err := codec.BinaryFromNative(binaryData, converted)
+		if err != nil {
+			return 0, fmt.Errorf("failed to convert Avro map to binary: %w", err)
+		}
+		insertRecord := &protos.InsertRecord{
+			Record: native,
+		}
+		err = recordStream.Send(&protos.AppendRecordsStreamRequest{
+			Command: insertRecord,
+		})
+		if err != nil {
+			return 0, err
+		}
+		recordCount++
+	}
+
+	appendRecordsStreamResponse, err := recordStream.CloseAndRecv()
+	if err != nil {
+		return 0, err
+	}
+
+	logger.LoggerFromCtx(ctx).Info("AppendRecordsResponse", slog.Any("response", appendRecordsStreamResponse.Success))
+
+	err = c.PostgresMetadata.FinishQRepPartition(ctx, partition, config.FlowJobName, time.Now())
+	if err != nil {
+		return 0, err
+	}
+	return recordCount, nil
 }
 
 func getAvroSchema(

@@ -9,6 +9,9 @@ import io.peerdb.flow.jvm.iceberg.catalog.CatalogLoader;
 import io.peerdb.flow.jvm.iceberg.lock.LockManager;
 import io.peerdb.flow.jvm.iceberg.writer.RecordWriterFactory;
 import io.quarkus.logging.Log;
+import io.smallrye.mutiny.Multi;
+import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.unchecked.Unchecked;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.apache.iceberg.ContentFile;
@@ -115,14 +118,35 @@ public class IcebergService {
                 Optional.ofNullable(request.hasIdempotencyKey() ? request.getIdempotencyKey() : null));
     }
 
+    public boolean processAppendRecordsStreamRequest(Multi<AppendRecordsStreamRequest> request) {
+        var firstMessage = Uni.createFrom().multi(request).await().indefinitely();
+        if (!firstMessage.hasTableHeader()) {
+            throw new IllegalArgumentException("TableHeader should be present in the first message");
+        }
+        var tableHeader = firstMessage.getTableHeader();
+        var tableInfo = tableHeader.getTableInfo();
+        var avroSchema = tableHeader.getSchema();
+        var insertRecordStream = request.map(Unchecked.function(message -> {
+            if (message.hasRecord()) {
+                return message.getRecord();
+            } else {
+                throw new IllegalArgumentException("Only InsertRecord is supported");
+            }
+        })).subscribe().asStream();
+        return appendRecords(tableInfo, avroSchema, insertRecordStream, Optional.ofNullable(tableHeader.hasIdempotencyKey() ? tableHeader.getIdempotencyKey() : null));
+    }
+
     private boolean appendRecords(TableInfo tableInfo, String avroSchema, List<InsertRecord> insertRecords, Optional<String> idempotencyKey) {
+        return appendRecords(tableInfo, avroSchema, insertRecords.stream(), idempotencyKey);
+    }
+
+    public boolean appendRecords(TableInfo tableInfo, String avroSchema, Stream<InsertRecord> recordStream, Optional<String> idempotencyKey) {
         var icebergCatalog = catalogLoader.loadCatalog(tableInfo.getIcebergCatalog());
         var table = icebergCatalog.loadTable(getTableIdentifier(tableInfo));
 
         if (isAppendAlreadyDone(table, idempotencyKey)) {
             return true;
         }
-        var recordStream = insertRecords.stream();
 
         Log.infof("Converting append records to data files for table %s", table.name());
         var dataFiles = getAppendDataFiles(avroSchema, table, recordStream);
@@ -165,7 +189,7 @@ public class IcebergService {
             return true;
         } finally {
             lock.unlock();
-            Log.infof("Released lock for table %s by idempotency key %s", table.name(), idempotencyKey.get());
+            Log.infof("Released lock for table %s by idempotency key %s", table.name(), idempotencyKey.orElse("<not present>"));
         }
 
     }
@@ -187,8 +211,7 @@ public class IcebergService {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
-        var dataFiles = writeResult.dataFiles();
-        return dataFiles;
+        return writeResult.dataFiles();
     }
 
     private boolean isAppendAlreadyDone(Table table, Optional<String> idempotencyKey) {
