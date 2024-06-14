@@ -130,6 +130,7 @@ const IcebergConfigForm = ({ icebergConfig, setter }: IcebergConfigProps) => {
         />
 
         <div>
+          <Label variant='subheadline'>JDBC Settings</Label>
           {specificCatalog === 'jdbc' &&
             JdbcConfigSettings.map((setting) =>
               setting.type == 'switch' ? (
