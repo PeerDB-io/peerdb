@@ -20,16 +20,16 @@ export default async function middleware(req: NextRequest, resp: NextResponse) {
   const xForwardedFor = req.headers.get('x-forwarded-for');
 
   if (Configuration.authentication.PEERDB_PASSWORD) {
-    let authenticated = false;
     const authheader = req.headers.get('authorization');
     if (authheader && /^basic /i.test(authheader)) {
       const auth = atob(authheader.slice(6));
-      authenticated =
-        auth[0] === ':' &&
-        safeEqual(auth.slice(1), Configuration.authentication.PEERDB_PASSWORD);
-    }
-
-    if (!authenticated) {
+      if (
+        auth[0] !== ':' ||
+        !safeEqual(auth.slice(1), Configuration.authentication.PEERDB_PASSWORD)
+      ) {
+        return new NextResponse(null, { status: 403 });
+      }
+    } else {
       const authRes = await (authMiddleware as any)(req);
       if (authRes) return authRes;
     }
