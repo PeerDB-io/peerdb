@@ -346,7 +346,6 @@ func PullCdcRecords[Items model.Items](
 		if err != nil {
 			return err
 		}
-		time.Sleep(time.Duration(cdcRecordsStorage.Len()) * time.Second)
 		records.AddRecord(ctx, rec)
 
 		if cdcRecordsStorage.Len() == 1 {
@@ -692,7 +691,7 @@ func processInsertMessage[Items model.Items](
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Info(fmt.Sprintf("InsertMessage => LSN: %d, RelationID: %d, Relation Name: %s",
+	p.logger.Debug(fmt.Sprintf("InsertMessage => LSN: %d, RelationID: %d, Relation Name: %s",
 		lsn, relID, tableName))
 
 	rel, ok := p.relationMessageMapping[relID]
@@ -728,7 +727,7 @@ func processUpdateMessage[Items model.Items](
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Info(fmt.Sprintf("UpdateMessage => LSN: %d, RelationID: %d, Relation Name: %s",
+	p.logger.Debug(fmt.Sprintf("UpdateMessage => LSN: %d, RelationID: %d, Relation Name: %s",
 		lsn, relID, tableName))
 
 	rel, ok := p.relationMessageMapping[relID]
