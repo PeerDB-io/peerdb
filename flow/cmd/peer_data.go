@@ -95,7 +95,7 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	}
 
 	relKindFilterClause := "t.relkind IN ('r', 'p')"
-	if pgVersion <= shared.POSTGRES_12 {
+	if pgVersion <= shared.POSTGRES_13 {
 		relKindFilterClause = "t.relkind = 'r'"
 	}
 
