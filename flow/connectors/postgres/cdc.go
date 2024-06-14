@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/jackc/pglogrepl"
@@ -288,20 +289,31 @@ func PullCdcRecords[Items model.Items](
 	p *PostgresCDCSource,
 	req *model.PullRecordsRequest[Items],
 	processor replProcessor[Items],
+	replLock *sync.Mutex,
 ) error {
 	logger := logger.LoggerFromCtx(ctx)
+	// use only with taking replLock
 	conn := p.replConn.PgConn()
+	sendStandbyAfterReplLock := func(updateType string) error {
+		replLock.Lock()
+		defer replLock.Unlock()
+		err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
+			pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load())})
+		if err != nil {
+			return fmt.Errorf("[%s] SendStandbyStatusUpdate failed: %w", updateType, err)
+		}
+		return nil
+	}
+
 	records := req.RecordStream
 	// clientXLogPos is the last checkpoint id, we need to ack that we have processed
 	// until clientXLogPos each time we send a standby status update.
 	var clientXLogPos pglogrepl.LSN
 	if req.LastOffset > 0 {
 		clientXLogPos = pglogrepl.LSN(req.LastOffset)
-
-		err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
-			pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load())})
+		err := sendStandbyAfterReplLock("initial-flush")
 		if err != nil {
-			return fmt.Errorf("[initial-flush] SendStandbyStatusUpdate failed: %w", err)
+			return err
 		}
 	}
 
@@ -334,7 +346,8 @@ func PullCdcRecords[Items model.Items](
 		if err != nil {
 			return err
 		}
-		records.AddRecord(rec)
+		time.Sleep(time.Duration(cdcRecordsStorage.Len()) * time.Second)
+		records.AddRecord(ctx, rec)
 
 		if cdcRecordsStorage.Len() == 1 {
 			records.SignalAsNotEmpty()
@@ -349,10 +362,9 @@ func PullCdcRecords[Items model.Items](
 
 	for {
 		if pkmRequiresResponse {
-			err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
-				pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load())})
+			err := sendStandbyAfterReplLock("pkm-response")
 			if err != nil {
-				return fmt.Errorf("SendStandbyStatusUpdate failed: %w", err)
+				return err
 			}
 			pkmRequiresResponse = false
 
@@ -409,7 +421,11 @@ func PullCdcRecords[Items model.Items](
 		} else {
 			receiveCtx, cancel = context.WithDeadline(ctx, nextStandbyMessageDeadline)
 		}
-		rawMsg, err := conn.ReceiveMessage(receiveCtx)
+		rawMsg, err := func() (pgproto3.BackendMessage, error) {
+			replLock.Lock()
+			defer replLock.Unlock()
+			return conn.ReceiveMessage(receiveCtx)
+		}()
 		cancel()
 
 		ctxErr := ctx.Err()
@@ -676,7 +692,7 @@ func processInsertMessage[Items model.Items](
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug(fmt.Sprintf("InsertMessage => LSN: %d, RelationID: %d, Relation Name: %s",
+	p.logger.Info(fmt.Sprintf("InsertMessage => LSN: %d, RelationID: %d, Relation Name: %s",
 		lsn, relID, tableName))
 
 	rel, ok := p.relationMessageMapping[relID]
@@ -712,7 +728,7 @@ func processUpdateMessage[Items model.Items](
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug(fmt.Sprintf("UpdateMessage => LSN: %d, RelationID: %d, Relation Name: %s",
+	p.logger.Info(fmt.Sprintf("UpdateMessage => LSN: %d, RelationID: %d, Relation Name: %s",
 		lsn, relID, tableName))
 
 	rel, ok := p.relationMessageMapping[relID]

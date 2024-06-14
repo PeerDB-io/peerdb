@@ -1,9 +1,13 @@
 package model
 
 import (
+	"context"
+	"log/slog"
 	"sync/atomic"
+	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -39,8 +43,19 @@ func (r *CDCStream[T]) GetLastCheckpoint() int64 {
 	return r.lastCheckpointID.Load()
 }
 
-func (r *CDCStream[T]) AddRecord(record Record[T]) {
-	r.records <- record
+func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) {
+	logger := logger.LoggerFromCtx(ctx)
+	for {
+		select {
+		case r.records <- record:
+			return
+		case <-time.After(10 * time.Second):
+			logger.Warn("waiting on adding record to stream", slog.Any("record", record))
+		case <-ctx.Done():
+			logger.Warn("context cancelled while adding record to stream", slog.Any("record", record))
+			return
+		}
+	}
 }
 
 func (r *CDCStream[T]) SignalAsEmpty() {

@@ -3,7 +3,7 @@ package pua
 import (
 	"context"
 
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/peer-flow/model"
 )
@@ -59,7 +59,7 @@ func AttachToCdcStream(
 					}
 					break
 				}
-				outstream.AddRecord(record)
+				outstream.AddRecord(ctx, record)
 			}
 		}
 		outstream.SchemaDeltas = stream.SchemaDeltas
