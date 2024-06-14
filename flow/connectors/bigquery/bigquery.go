@@ -426,7 +426,7 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 	}
 
 	return &model.NormalizeResponse{
-		Done:         true,
+		Done:         retErr == nil,
 		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
 	}, retErr

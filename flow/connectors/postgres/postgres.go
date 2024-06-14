@@ -578,10 +578,10 @@ func (c *PostgresConnector) NormalizeRecords(
 	}
 	// no SyncFlow has run, chill until more records are loaded.
 	if !jobMetadataExists {
-		c.logger.Info("no metadata found for mirror")
+		c.logger.Warn("no metadata found for mirror")
 		return &model.NormalizeResponse{
 			Done: false,
-		}, nil
+		}, shared.ErrUnusualNormalize
 	}
 
 	normBatchID, err := c.GetLastNormalizeBatchID(ctx, req.FlowJobName)

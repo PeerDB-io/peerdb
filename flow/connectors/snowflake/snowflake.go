@@ -518,7 +518,7 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 	}
 
 	return &model.NormalizeResponse{
-		Done:         true,
+		Done:         retErr == nil,
 		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
 	}, retErr
