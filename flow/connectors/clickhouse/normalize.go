@@ -141,20 +141,39 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.N
 		return nil, fmt.Errorf("failed to copy avro stages to destination: %w", err)
 	}
 
+	for batchId := normBatchID + 1; batchId <= req.SyncBatchID; batchId++ {
+		// model the raw table data as inserts.
+		err = c.normalizeTablesInBatch(ctx, batchId, req)
+		if err != nil {
+			c.logger.Error("[clickhouse] error while normalizing tables in batch", "error", err)
+			return nil, err
+		}
+		err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId)
+		if err != nil {
+			c.logger.Error("[clickhouse] error while updating normalize batch id", "error", err)
+			return nil, err
+		}
+	}
+
+	return &model.NormalizeResponse{
+		Done:         true,
+		StartBatchID: normBatchID + 1,
+		EndBatchID:   req.SyncBatchID,
+	}, nil
+}
+
+func (c *ClickhouseConnector) normalizeTablesInBatch(ctx context.Context, batchId int64, req *model.NormalizeRecordsRequest) error {
 	destinationTableNames, err := c.getDistinctTableNamesInBatch(
 		ctx,
 		req.FlowJobName,
-		req.SyncBatchID,
-		normBatchID,
+		batchId,
 	)
 	if err != nil {
 		c.logger.Error("[clickhouse] error while getting distinct table names in batch", "error", err)
-		return nil, err
+		return err
 	}
 
 	rawTbl := c.getRawTableName(req.FlowJobName)
-
-	// model the raw table data as inserts.
 	for _, tbl := range destinationTableNames {
 		// SELECT projection FROM raw_table WHERE _peerdb_batch_id > normalize_batch_id AND _peerdb_batch_id <= sync_batch_id
 		selectQuery := strings.Builder{}
@@ -175,7 +194,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.N
 			colType := qvalue.QValueKind(ct)
 			clickhouseType, err := colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
 			if err != nil {
-				return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
+				return fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 			}
 
 			switch clickhouseType {
@@ -208,10 +227,8 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.N
 		selectQuery.WriteString(projection.String())
 		selectQuery.WriteString(" FROM ")
 		selectQuery.WriteString(rawTbl)
-		selectQuery.WriteString(" WHERE _peerdb_batch_id > ")
-		selectQuery.WriteString(strconv.FormatInt(normBatchID, 10))
-		selectQuery.WriteString(" AND _peerdb_batch_id <= ")
-		selectQuery.WriteString(strconv.FormatInt(req.SyncBatchID, 10))
+		selectQuery.WriteString(" WHERE _peerdb_batch_id = ")
+		selectQuery.WriteString(strconv.FormatInt(batchId, 10))
 		selectQuery.WriteString(" AND _peerdb_destination_table_name = '")
 		selectQuery.WriteString(tbl)
 		selectQuery.WriteString("'")
@@ -227,38 +244,25 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.N
 		q := insertIntoSelectQuery.String()
 		c.logger.Info("[clickhouse] insert into select query " + q)
 
-		_, err = c.database.ExecContext(ctx, q)
+		_, err := c.database.ExecContext(ctx, q)
 		if err != nil {
-			return nil, fmt.Errorf("error while inserting into normalized table: %w", err)
+			return fmt.Errorf("error while inserting into normalized table: %w", err)
 		}
 	}
-
-	endNormalizeBatchId := normBatchID + 1
-	err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, endNormalizeBatchId)
-	if err != nil {
-		c.logger.Error("[clickhouse] error while updating normalize batch id", "error", err)
-		return nil, err
-	}
-
-	return &model.NormalizeResponse{
-		Done:         true,
-		StartBatchID: endNormalizeBatchId,
-		EndBatchID:   req.SyncBatchID,
-	}, nil
+	return nil
 }
 
 func (c *ClickhouseConnector) getDistinctTableNamesInBatch(
 	ctx context.Context,
 	flowJobName string,
-	syncBatchID int64,
-	normalizeBatchID int64,
+	batchId int64,
 ) ([]string, error) {
 	rawTbl := c.getRawTableName(flowJobName)
 
 	//nolint:gosec
 	q := fmt.Sprintf(
-		`SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d`,
-		rawTbl, normalizeBatchID, syncBatchID)
+		`SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id = %d`,
+		rawTbl, batchId)
 
 	rows, err := c.database.QueryContext(ctx, q)
 	if err != nil {
