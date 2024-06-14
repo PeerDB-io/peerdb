@@ -392,15 +392,18 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 
 	// normalize has caught up with sync, chill until more records are loaded.
 	if normBatchID >= req.SyncBatchID {
+		c.logger.Warn("[bigquery] normalize has nothing to do",
+			slog.Int64("syncBatchID", req.SyncBatchID), slog.Int64("normBatchID", normBatchID))
 		return &model.NormalizeResponse{
 			Done:         false,
 			StartBatchID: normBatchID,
 			EndBatchID:   req.SyncBatchID,
-		}, nil
+		}, shared.ErrUnusualNormalize
 	}
 
+	var retErr error
 	for batchId := normBatchID + 1; batchId <= req.SyncBatchID; batchId++ {
-		mergeErr := c.mergeTablesInThisBatch(ctx, batchId,
+		numTables, mergeErr := c.mergeTablesInThisBatch(ctx, batchId,
 			req.FlowJobName, rawTableName, req.TableNameSchemaMapping,
 			&protos.PeerDBColumns{
 				SoftDeleteColName: req.SoftDeleteColName,
@@ -409,6 +412,11 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 			})
 		if mergeErr != nil {
 			return nil, mergeErr
+		}
+		if numTables == 0 {
+			c.logger.Warn("[bigquery] no tables to normalize in batch",
+				slog.Int64("batchId", batchId))
+			retErr = shared.ErrUnusualNormalize
 		}
 
 		err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId)
@@ -421,7 +429,7 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 		Done:         true,
 		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
-	}, nil
+	}, retErr
 }
 
 func (c *BigQueryConnector) mergeTablesInThisBatch(
@@ -431,14 +439,14 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 	rawTableName string,
 	tableToSchema map[string]*protos.TableSchema,
 	peerdbColumns *protos.PeerDBColumns,
-) error {
+) (int, error) {
 	tableNames, err := c.getDistinctTableNamesInBatch(
 		ctx,
 		flowName,
 		batchId,
 	)
 	if err != nil {
-		return fmt.Errorf("couldn't get distinct table names to normalize: %w", err)
+		return 0, fmt.Errorf("couldn't get distinct table names to normalize: %w", err)
 	}
 
 	tableNametoUnchangedToastCols, err := c.getTableNametoUnchangedCols(
@@ -447,7 +455,7 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 		batchId,
 	)
 	if err != nil {
-		return fmt.Errorf("couldn't get tablename to unchanged cols mapping: %w", err)
+		return 0, fmt.Errorf("couldn't get tablename to unchanged cols mapping: %w", err)
 	}
 
 	mergeGen := &mergeStmtGenerator{
@@ -487,14 +495,14 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 			return nil
 		})
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
 
 	// append all the statements to one list
 	c.logger.Info(fmt.Sprintf("merged raw records to corresponding tables: %s %s %v",
 		c.datasetID, rawTableName, tableNames))
-	return nil
+	return len(tableNames), nil
 }
 
 // CreateRawTable creates a raw table, implementing the Connector interface.

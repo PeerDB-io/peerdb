@@ -591,19 +591,29 @@ func (c *PostgresConnector) NormalizeRecords(
 
 	// normalize has caught up with sync, chill until more records are loaded.
 	if normBatchID >= req.SyncBatchID {
-		c.logger.Info(fmt.Sprintf("no records to normalize: syncBatchID %d, normalizeBatchID %d",
-			req.SyncBatchID, normBatchID))
+		c.logger.Warn("[postgres] normalize has nothing to do",
+			slog.Int64("syncBatchID", req.SyncBatchID), slog.Int64("normBatchID", normBatchID))
 		return &model.NormalizeResponse{
 			Done:         false,
 			StartBatchID: normBatchID,
 			EndBatchID:   req.SyncBatchID,
-		}, nil
+		}, shared.ErrUnusualNormalize
 	}
 
 	destinationTableNames, err := c.getDistinctTableNamesInBatch(
 		ctx, req.FlowJobName, req.SyncBatchID, normBatchID)
 	if err != nil {
 		return nil, err
+	}
+	if len(destinationTableNames) == 0 {
+		c.logger.Warn("[postgres] no distinct table names in batch, returning",
+			slog.Int64("syncBatchID", req.SyncBatchID), slog.Int64("normBatchID", normBatchID),
+		)
+		return &model.NormalizeResponse{
+			Done:         false,
+			StartBatchID: normBatchID,
+			EndBatchID:   req.SyncBatchID,
+		}, shared.ErrUnusualNormalize
 	}
 	unchangedToastColumnsMap, err := c.getTableNametoUnchangedCols(ctx, req.FlowJobName,
 		req.SyncBatchID, normBatchID)

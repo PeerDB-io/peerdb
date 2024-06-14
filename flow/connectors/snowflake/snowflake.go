@@ -482,16 +482,19 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 
 	// normalize has caught up with sync, chill until more records are loaded.
 	if normBatchID >= req.SyncBatchID {
+		c.logger.Warn("[snowflake] normalize has nothing to do",
+			slog.Int64("syncBatchID", req.SyncBatchID), slog.Int64("normBatchID", normBatchID))
 		return &model.NormalizeResponse{
 			Done:         false,
 			StartBatchID: normBatchID,
 			EndBatchID:   req.SyncBatchID,
-		}, nil
+		}, shared.ErrUnusualNormalize
 	}
 
+	var retErr error
 	for batchId := normBatchID + 1; batchId <= req.SyncBatchID; batchId++ {
 		c.logger.Info(fmt.Sprintf("normalizing records for batch %d [of %d]", batchId, req.SyncBatchID))
-		mergeErr := c.mergeTablesForBatch(ctx, batchId,
+		numTables, mergeErr := c.mergeTablesForBatch(ctx, batchId,
 			req.FlowJobName, req.TableNameSchemaMapping,
 			&protos.PeerDBColumns{
 				SoftDelete:        req.SoftDelete,
@@ -501,6 +504,11 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 		)
 		if mergeErr != nil {
 			return nil, mergeErr
+		}
+		if numTables == 0 {
+			c.logger.Warn("[snowflake] no tables to normalize in batch",
+				slog.Int64("batchId", batchId))
+			retErr = shared.ErrUnusualNormalize
 		}
 
 		err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId)
@@ -513,7 +521,7 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 		Done:         true,
 		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
-	}, nil
+	}, retErr
 }
 
 func (c *SnowflakeConnector) mergeTablesForBatch(
@@ -522,22 +530,22 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 	flowName string,
 	tableToSchema map[string]*protos.TableSchema,
 	peerdbCols *protos.PeerDBColumns,
-) error {
+) (int, error) {
 	destinationTableNames, err := c.getDistinctTableNamesInBatch(ctx, flowName, batchId)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	tableNameToUnchangedToastCols, err := c.getTableNameToUnchangedCols(ctx, flowName, batchId)
 	if err != nil {
-		return fmt.Errorf("couldn't tablename to unchanged cols mapping: %w", err)
+		return 0, fmt.Errorf("couldn't tablename to unchanged cols mapping: %w", err)
 	}
 
 	var totalRowsAffected int64 = 0
 	g, gCtx := errgroup.WithContext(ctx)
 	mergeParallelism, err := peerdbenv.PeerDBSnowflakeMergeParallelism(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get merge parallelism: %w", err)
+		return 0, fmt.Errorf("failed to get merge parallelism: %w", err)
 	}
 	g.SetLimit(int(mergeParallelism))
 
@@ -584,13 +592,13 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 	}
 
 	if err := g.Wait(); err != nil {
-		return fmt.Errorf("error while normalizing records: %w", err)
+		return 0, fmt.Errorf("error while normalizing records: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("normalize canceled: %w", err)
+		return 0, fmt.Errorf("normalize canceled: %w", err)
 	}
 
-	return nil
+	return len(destinationTableNames), nil
 }
 
 func (c *SnowflakeConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {

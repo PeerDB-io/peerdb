@@ -1,5 +1,7 @@
 package shared
 
+import "errors"
+
 type (
 	ContextKey  string
 	TaskQueueID string
@@ -28,3 +30,5 @@ const (
 )
 
 const FetchAndChannelSize = 256 * 1024
+
+var ErrUnusualNormalize = errors.New("unusual normalize detected")
