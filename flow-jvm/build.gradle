@@ -21,6 +21,12 @@ dependencies {
     implementation 'io.quarkus:quarkus-rest'
     implementation 'io.quarkus:quarkus-logging-json'
 
+    // Logging adapter for dependencies, also prevents duplicate slf4j binding warnings https://quarkus.io/guides/logging#logging-apis
+    implementation("org.jboss.logging:commons-logging-jboss-logging")
+    implementation("org.jboss.logmanager:log4j-jboss-logmanager")
+    implementation("org.jboss.logmanager:log4j2-jboss-logmanager")
+    implementation("org.jboss.slf4j:slf4j-jboss-logmanager")
+
     implementation "org.apache.iceberg:iceberg-core:${icebergLibVersion}"
     implementation "org.apache.iceberg:iceberg-common:${icebergLibVersion}"
     implementation "org.apache.iceberg:iceberg-data:${icebergLibVersion}"
@@ -66,6 +72,19 @@ dependencies {
     testImplementation 'io.rest-assured:rest-assured'
 
 }
+
+
+configurations.configureEach {
+//    // ch.qos.logback:logback-core
+//    exclude group: 'ch.qos.logback', module: 'logback-core'
+    // ch.qos.logback:logback-classic
+    exclude group: 'ch.qos.logback', module: 'logback-classic'
+    // org.apache.logging.log4j:log4j-slf4j-impl
+    exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
+    // org.slf4j:slf4j-reload4j
+    exclude group: 'org.slf4j', module: 'slf4j-reload4j'
+}
+
 
 group 'io.peerdb'
 version '0.0.1-SNAPSHOT'
