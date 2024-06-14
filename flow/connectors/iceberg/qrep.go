@@ -149,7 +149,9 @@ func (c *IcebergConnector) streamRecords(
 	}
 
 	err = recordStream.Send(&protos.AppendRecordsStreamRequest{
-		Command: tableHeader,
+		Command: &protos.AppendRecordsStreamRequest_TableHeader{
+			TableHeader: tableHeader,
+		},
 	})
 	// TODO what to do with recordStream?
 	if err != nil {
@@ -180,7 +182,9 @@ func (c *IcebergConnector) streamRecords(
 			Record: native,
 		}
 		err = recordStream.Send(&protos.AppendRecordsStreamRequest{
-			Command: insertRecord,
+			Command: &protos.AppendRecordsStreamRequest_Record{
+				Record: insertRecord,
+			},
 		})
 		if err != nil {
 			return 0, err

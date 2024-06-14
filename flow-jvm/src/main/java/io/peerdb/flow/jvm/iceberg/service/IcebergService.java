@@ -112,10 +112,10 @@ public class IcebergService {
     }
 
     public boolean processAppendRecordsRequest(AppendRecordsRequest request) {
-        return appendRecords(request.getTableInfo(),
-                request.getSchema(),
+        return appendRecords(request.getTableHeader().getTableInfo(),
+                request.getTableHeader().getSchema(),
                 request.getRecordsList(),
-                Optional.ofNullable(request.hasIdempotencyKey() ? request.getIdempotencyKey() : null));
+                Optional.ofNullable(request.getTableHeader().hasIdempotencyKey() ? request.getTableHeader().getIdempotencyKey() : null));
     }
 
     public boolean processAppendRecordsStreamRequest(Multi<AppendRecordsStreamRequest> request) {
