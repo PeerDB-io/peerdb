@@ -652,7 +652,7 @@ func processMessage[Items model.Items](
 		return &model.MessageRecord[Items]{
 			BaseRecord: p.baseRecord(msg.LSN),
 			Prefix:     msg.Prefix,
-			Content:    msg.Content,
+			Content:    string(msg.Content),
 		}, nil
 
 	default:
