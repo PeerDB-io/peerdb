@@ -358,7 +358,9 @@ func (a *FlowableActivity) StartNormalize(
 	})
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, input.FlowConnectionConfigs.FlowJobName, err)
-		return nil, fmt.Errorf("failed to normalized records: %w", err)
+		if err != shared.ErrUnusualNormalize {
+			return nil, fmt.Errorf("failed to normalize records: %w", err)
+		}
 	}
 
 	// normalize flow did not run due to no records, no need to update end time.
