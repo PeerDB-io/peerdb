@@ -20,9 +20,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/alerting"
 	"github.com/PeerDB-io/peer-flow/connectors"
-	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -548,7 +546,7 @@ func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.Q
 }
 
 func (a *FlowableActivity) DropFlowSource(ctx context.Context, config *protos.ShutdownRequest) error {
-	srcConn, err := connectors.GetCDCPullConnector(ctx, config.SourcePeer)
+	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, a.CatalogPool, config.SourcePeer)
 	if err != nil {
 		return fmt.Errorf("failed to get source connector: %w", err)
 	}
@@ -559,7 +557,7 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, config *protos.Sh
 
 func (a *FlowableActivity) DropFlowDestination(ctx context.Context, config *protos.ShutdownRequest) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.DestinationPeer)
+	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, a.CatalogPool, config.DestinationPeer)
 	if err != nil {
 		return fmt.Errorf("failed to get destination connector: %w", err)
 	}
@@ -714,26 +712,20 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	return nil
 }
 
-type QRepWaitUntilNewRowsResult struct {
-	Found bool
-}
-
 func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 	config *protos.QRepConfig, last *protos.QRepPartition,
-) (QRepWaitUntilNewRowsResult, error) {
+) (bool, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
-	if config.SourcePeer.Type != protos.DBType_POSTGRES {
-		return QRepWaitUntilNewRowsResult{Found: true}, nil
-	}
-
-	logger.Info(fmt.Sprintf("current last partition value is %v", last))
-
-	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
+	// TODO implement for other QRepPullConnector sources
+	srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, a.CatalogPool, config.SourcePeer)
 	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			return true, nil
+		}
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return QRepWaitUntilNewRowsResult{Found: false}, fmt.Errorf("failed to get qrep source connector: %w", err)
+		return false, fmt.Errorf("failed to get qrep source connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
@@ -742,14 +734,14 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 	})
 	defer shutdown()
 
-	pgSrcConn := srcConn.(*connpostgres.PostgresConnector)
-	result, err := pgSrcConn.CheckForUpdatedMaxValue(ctx, config, last)
+	logger.Info(fmt.Sprintf("current last partition value is %v", last))
+
+	result, err := srcConn.CheckForUpdatedMaxValue(ctx, config, last)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return QRepWaitUntilNewRowsResult{Found: false}, fmt.Errorf("failed to check for new rows: %w", err)
+		return false, fmt.Errorf("failed to check for new rows: %w", err)
 	}
-
-	return QRepWaitUntilNewRowsResult{Found: result}, nil
+	return result, nil
 }
 
 func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.RenameTablesInput) (
@@ -775,26 +767,13 @@ func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *pr
 	*protos.CreateTablesFromExistingOutput, error,
 ) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
-	dstConn, err := connectors.GetCDCSyncConnector(ctx, req.Peer)
+	dstConn, err := connectors.GetByNameAs[connectors.CreateTablesFromExistingConnector](ctx, a.CatalogPool, req.Peer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
-	if req.Peer.Type == protos.DBType_SNOWFLAKE {
-		sfConn, ok := dstConn.(*connsnowflake.SnowflakeConnector)
-		if !ok {
-			return nil, errors.New("failed to cast connector to snowflake connector")
-		}
-		return sfConn.CreateTablesFromExisting(ctx, req)
-	} else if req.Peer.Type == protos.DBType_BIGQUERY {
-		bqConn, ok := dstConn.(*connbigquery.BigQueryConnector)
-		if !ok {
-			return nil, errors.New("failed to cast connector to bigquery connector")
-		}
-		return bqConn.CreateTablesFromExisting(ctx, req)
-	}
-	return nil, errors.New("create tables from existing is only supported on snowflake and bigquery")
+	return dstConn.CreateTablesFromExisting(ctx, req)
 }
 
 func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,

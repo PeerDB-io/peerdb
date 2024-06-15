@@ -182,34 +182,6 @@ func addCdcPropertiesSignalListener(
 	})
 }
 
-func reloadPeers(ctx workflow.Context, logger log.Logger, cfg *protos.FlowConnectionConfigs) error {
-	reloadPeersCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
-	})
-
-	logger.Info("reloading source peer", slog.String("peerName", cfg.Source.Name))
-	srcFuture := workflow.ExecuteActivity(reloadPeersCtx, flowable.LoadPeer, cfg.Source.Name)
-	var srcPeer *protos.Peer
-	if err := srcFuture.Get(reloadPeersCtx, &srcPeer); err != nil {
-		logger.Error("failed to load source peer", slog.Any("error", err))
-		return fmt.Errorf("failed to load source peer: %w", err)
-	}
-	logger.Info("reloaded peer", slog.String("peerName", cfg.Source.Name))
-
-	logger.Info("reloading destination peer", slog.String("peerName", cfg.Destination.Name))
-	dstFuture := workflow.ExecuteActivity(reloadPeersCtx, flowable.LoadPeer, cfg.Destination.Name)
-	var dstPeer *protos.Peer
-	if err := dstFuture.Get(reloadPeersCtx, &dstPeer); err != nil {
-		logger.Error("failed to load destination peer", slog.Any("error", err))
-		return fmt.Errorf("failed to load destination peer: %w", err)
-	}
-	logger.Info("reloaded peer", slog.String("peerName", cfg.Destination.Name))
-
-	cfg.Source = srcPeer
-	cfg.Destination = dstPeer
-	return nil
-}
-
 func CDCFlowWorkflow(
 	ctx workflow.Context,
 	cfg *protos.FlowConnectionConfigs,
@@ -268,13 +240,6 @@ func CDCFlowWorkflow(
 			}
 			if err := ctx.Err(); err != nil {
 				return state, err
-			}
-
-			// reload peers in case of EDIT PEER
-			err := reloadPeers(ctx, logger, cfg)
-			if err != nil {
-				logger.Error("failed to reload peers", slog.Any("error", err))
-				return state, fmt.Errorf("failed to reload peers: %w", err)
 			}
 
 			if state.FlowConfigUpdate != nil {

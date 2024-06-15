@@ -11,7 +11,6 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -477,12 +476,11 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 		},
 	})
 
-	var result activities.QRepWaitUntilNewRowsResult
-	err := workflow.ExecuteActivity(ctx, flowable.QRepHasNewRows, config, lastPartition).Get(ctx, &result)
+	var hasNewRows bool
+	err := workflow.ExecuteActivity(ctx, flowable.QRepHasNewRows, config, lastPartition).Get(ctx, &hasNewRows)
 	if err != nil {
 		return fmt.Errorf("error checking for new rows: %w", err)
 	}
-	hasNewRows := result.Found
 
 	// If no new rows are found, continue as new
 	if !hasNewRows {

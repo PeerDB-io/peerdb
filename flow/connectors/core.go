@@ -184,6 +184,12 @@ type CDCNormalizeConnector interface {
 	NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error)
 }
 
+type CreateTablesFromExistingConnector interface {
+	Connector
+
+	CreateTablesFromExisting(context.Context, *protos.CreateTablesFromExistingInput) (*protos.CreateTablesFromExistingOutput, error)
+}
+
 type QRepPullConnectorCore interface {
 	Connector
 
@@ -249,15 +255,22 @@ type RenameTablesConnector interface {
 	RenameTables(context.Context, *protos.RenameTablesInput) (*protos.RenameTablesOutput, error)
 }
 
+func LoadPeerType(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (protos.DBType, error) {
+	row := catalogPool.QueryRow(ctx, "SELECT type FROM peers WHERE name = $1", peerName)
+	var dbtype protos.DBType
+	err := row.Scan(&dbtype)
+	return dbtype, err
+}
+
 func LoadPeer(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (*protos.Peer, error) {
 	row := catalogPool.QueryRow(ctx, `
-		SELECT name, type, options
+		SELECT type, options
 		FROM peers
 		WHERE name = $1`, peerName)
 
-	var peer protos.Peer
+	peer := &protos.Peer{Name: peerName}
 	var peerOptions []byte
-	if err := row.Scan(&peer.Name, &peer.Type, &peerOptions); err != nil {
+	if err := row.Scan(&peer.Type, &peerOptions); err != nil {
 		return nil, fmt.Errorf("failed to load peer: %w", err)
 	}
 
@@ -338,7 +351,7 @@ func LoadPeer(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (
 		return nil, fmt.Errorf("unsupported peer type: %s", peer.Type)
 	}
 
-	return &peer, nil
+	return peer, nil
 }
 
 func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {

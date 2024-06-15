@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peer-flow/alerting"
+	"github.com/PeerDB-io/peer-flow/connectors"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -60,16 +61,16 @@ func schemaForTableIdentifier(tableIdentifier string, peerDBType int32) string {
 func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 	req *protos.CreateCDCFlowRequest, workflowID string,
 ) error {
-	sourcePeerID, sourePeerType, srcErr := h.getPeerID(ctx, req.ConnectionConfigs.Source.Name)
+	sourcePeerID, sourePeerType, srcErr := h.getPeerID(ctx, req.ConnectionConfigs.Source)
 	if srcErr != nil {
 		return fmt.Errorf("unable to get peer id for source peer %s: %w",
-			req.ConnectionConfigs.Source.Name, srcErr)
+			req.ConnectionConfigs.Source, srcErr)
 	}
 
-	destinationPeerID, destinationPeerType, dstErr := h.getPeerID(ctx, req.ConnectionConfigs.Destination.Name)
+	destinationPeerID, destinationPeerType, dstErr := h.getPeerID(ctx, req.ConnectionConfigs.Destination)
 	if dstErr != nil {
 		return fmt.Errorf("unable to get peer id for target peer %s: %w",
-			req.ConnectionConfigs.Destination.Name, srcErr)
+			req.ConnectionConfigs.Destination, srcErr)
 	}
 
 	for _, v := range req.ConnectionConfigs.TableMappings {
@@ -92,14 +93,14 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 func (h *FlowRequestHandler) createQRepJobEntry(ctx context.Context,
 	req *protos.CreateQRepFlowRequest, workflowID string,
 ) error {
-	sourcePeerName := req.QrepConfig.SourcePeer.Name
+	sourcePeerName := req.QrepConfig.SourcePeer
 	sourcePeerID, _, srcErr := h.getPeerID(ctx, sourcePeerName)
 	if srcErr != nil {
 		return fmt.Errorf("unable to get peer id for source peer %s: %w",
 			sourcePeerName, srcErr)
 	}
 
-	destinationPeerName := req.QrepConfig.DestinationPeer.Name
+	destinationPeerName := req.QrepConfig.DestinationPeer
 	destinationPeerID, _, dstErr := h.getPeerID(ctx, destinationPeerName)
 	if dstErr != nil {
 		return fmt.Errorf("unable to get peer id for target peer %s: %w",
@@ -208,15 +209,18 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		},
 	}
 	if req.CreateCatalogEntry {
-		err := h.createQRepJobEntry(ctx, req, workflowID)
-		if err != nil {
+		if err := h.createQRepJobEntry(ctx, req, workflowID); err != nil {
 			slog.Error("unable to create flow job entry",
 				slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 			return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 		}
 	}
+	dbtype, err := connectors.LoadPeerType(ctx, h.pool, cfg.SourcePeer)
+	if err != nil {
+		return nil, err
+	}
 	var workflowFn interface{}
-	if cfg.SourcePeer.Type == protos.DBType_POSTGRES && cfg.WatermarkColumn == "xmin" {
+	if dbtype == protos.DBType_POSTGRES && cfg.WatermarkColumn == "xmin" {
 		workflowFn = peerflow.XminFlowWorkflow
 	} else {
 		workflowFn = peerflow.QRepFlowWorkflow
@@ -226,8 +230,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		cfg.SyncedAtColName = "_PEERDB_SYNCED_AT"
 	}
 
-	_, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowFn, cfg, nil)
-	if err != nil {
+	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowFn, cfg, nil); err != nil {
 		slog.Error("unable to start QRepFlow workflow",
 			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 		return nil, fmt.Errorf("unable to start QRepFlow workflow: %w", err)

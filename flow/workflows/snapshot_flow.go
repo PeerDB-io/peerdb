@@ -127,11 +127,6 @@ func (s *SnapshotFlowExecution) cloneTable(
 		TaskQueue:           taskQueue,
 	})
 
-	// we know that the source is postgres as setup replication output is non-nil
-	// only for postgres
-	sourcePostgres := s.config.Source
-	sourcePostgres.GetPostgresConfig().TransactionSnapshot = snapshotName
-
 	parsedSrcTable, err := utils.ParseSchemaTable(srcName)
 	if err != nil {
 		s.logger.Error("unable to parse source table", slog.Any("error", err), cloneLog)
@@ -175,7 +170,11 @@ func (s *SnapshotFlowExecution) cloneTable(
 	}
 	// ensure document IDs are synchronized across initial load and CDC
 	// for the same document
-	if s.config.Destination.Type == protos.DBType_ELASTICSEARCH {
+	dbtype, err := getPeerType(ctx, s.logger, s.config.Destination)
+	if err != nil {
+		return err
+	}
+	if dbtype == protos.DBType_ELASTICSEARCH {
 		snapshotWriteMode = &protos.QRepWriteMode{
 			WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
 			UpsertKeyColumns: s.tableNameSchemaMapping[mapping.DestinationTableIdentifier].PrimaryKeyColumns,
@@ -184,7 +183,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 
 	config := &protos.QRepConfig{
 		FlowJobName:                childWorkflowID,
-		SourcePeer:                 sourcePostgres,
+		SourcePeer:                 s.config.Source,
 		DestinationPeer:            s.config.Destination,
 		Query:                      query,
 		WatermarkColumn:            mapping.PartitionKey,
