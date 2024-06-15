@@ -57,7 +57,7 @@ func (a *FlowableActivity) CheckConnection(
 	config *protos.SetupInput,
 ) (*CheckConnectionResult, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
-	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.Peer)
+	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, a.CatalogPool, config.Peer)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowName, err)
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -73,7 +73,7 @@ func (a *FlowableActivity) CheckConnection(
 
 func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *protos.SetupInput) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
-	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.Peer)
+	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, a.CatalogPool, config.Peer)
 	if err != nil {
 		return fmt.Errorf("failed to get connector: %w", err)
 	}
@@ -92,7 +92,7 @@ func (a *FlowableActivity) EnsurePullability(
 	config *protos.EnsurePullabilityBatchInput,
 ) (*protos.EnsurePullabilityBatchOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	srcConn, err := connectors.GetCDCPullConnector(ctx, config.PeerConnectionConfig)
+	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, a.CatalogPool, config.PeerConnectionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
@@ -113,7 +113,7 @@ func (a *FlowableActivity) CreateRawTable(
 	config *protos.CreateRawTableInput,
 ) (*protos.CreateRawTableOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.PeerConnectionConfig)
+	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, a.CatalogPool, config.PeerConnectionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
@@ -138,7 +138,7 @@ func (a *FlowableActivity) GetTableSchema(
 	config *protos.GetTableSchemaBatchInput,
 ) (*protos.GetTableSchemaBatchOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
-	srcConn, err := connectors.GetAs[connectors.GetTableSchemaConnector](ctx, config.PeerConnectionConfig)
+	srcConn, err := connectors.GetByNameAs[connectors.GetTableSchemaConnector](ctx, a.CatalogPool, config.PeerConnectionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get GetTableSchemaConnector: %w", err)
 	}
@@ -158,7 +158,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 ) (*protos.SetupNormalizedTableBatchOutput, error) {
 	logger := activity.GetLogger(ctx)
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
-	conn, err := connectors.GetAs[connectors.NormalizedTablesConnector](ctx, config.PeerConnectionConfig)
+	conn, err := connectors.GetByNameAs[connectors.NormalizedTablesConnector](ctx, a.CatalogPool, config.PeerConnectionConfig)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
 			logger.Info("Connector does not implement normalized tables")
@@ -221,7 +221,7 @@ func (a *FlowableActivity) MaintainPull(
 	config *protos.FlowConnectionConfigs,
 	sessionID string,
 ) error {
-	srcConn, err := connectors.GetCDCPullConnector(ctx, config.Source)
+	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, a.CatalogPool, config.Source)
 	if err != nil {
 		return err
 	}
@@ -333,7 +333,7 @@ func (a *FlowableActivity) StartNormalize(
 	ctx = context.WithValue(ctx, shared.FlowNameKey, conn.FlowJobName)
 	logger := activity.GetLogger(ctx)
 
-	dstConn, err := connectors.GetCDCNormalizeConnector(ctx, conn.Destination)
+	dstConn, err := connectors.GetByNameAs[connectors.CDCNormalizeConnector](ctx, a.CatalogPool, conn.Destination)
 	if errors.Is(err, errors.ErrUnsupported) {
 		err = monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName,
 			input.SyncBatchID)
@@ -383,7 +383,7 @@ func (a *FlowableActivity) StartNormalize(
 
 // SetupQRepMetadataTables sets up the metadata tables for QReplication.
 func (a *FlowableActivity) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {
-	conn, err := connectors.GetQRepSyncConnector(ctx, config.DestinationPeer)
+	conn, err := connectors.GetByNameAs[connectors.QRepSyncConnector](ctx, a.CatalogPool, config.DestinationPeer)
 	if err != nil {
 		return fmt.Errorf("failed to get connector: %w", err)
 	}
@@ -409,7 +409,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
+	srcConn, err := connectors.GetByNameAs[connectors.QRepPullConnector](ctx, a.CatalogPool, config.SourcePeer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get qrep pull connector: %w", err)
 	}
@@ -511,7 +511,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	runUUID string,
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	dstConn, err := connectors.GetQRepConsolidateConnector(ctx, config.DestinationPeer)
+	dstConn, err := connectors.GetByNameAs[connectors.QRepConsolidateConnector](ctx, a.CatalogPool, config.DestinationPeer)
 	if errors.Is(err, errors.ErrUnsupported) {
 		return monitoring.UpdateEndTimeForQRepRun(ctx, a.CatalogPool, runUUID)
 	} else if err != nil {
@@ -535,7 +535,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 
 func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	dst, err := connectors.GetQRepConsolidateConnector(ctx, config.DestinationPeer)
+	dst, err := connectors.GetByNameAs[connectors.QRepConsolidateConnector](ctx, a.CatalogPool, config.DestinationPeer)
 	if errors.Is(err, errors.ErrUnsupported) {
 		return nil
 	} else if err != nil {
@@ -647,7 +647,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	logger := activity.GetLogger(ctx)
 	for _, config := range configs {
 		func() {
-			srcConn, err := connectors.GetCDCPullConnector(ctx, config.Source)
+			srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, a.CatalogPool, config.Source)
 			if err != nil {
 				if !errors.Is(err, errors.ErrUnsupported) {
 					logger.Error("Failed to create connector to handle slot info", slog.Any("error", err))
@@ -660,7 +660,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			if config.ReplicationSlotName != "" {
 				slotName = config.ReplicationSlotName
 			}
-			peerName := config.Source.Name
+			peerName := config.Source
 
 			activity.RecordHeartbeat(ctx, fmt.Sprintf("checking %s on %s", slotName, peerName))
 			if ctx.Err() != nil {
@@ -756,7 +756,7 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	*protos.RenameTablesOutput, error,
 ) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	conn, err := connectors.GetAs[connectors.RenameTablesConnector](ctx, config.Peer)
+	conn, err := connectors.GetByNameAs[connectors.RenameTablesConnector](ctx, a.CatalogPool, config.Peer)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -824,7 +824,7 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 	additionalTableMappings []*protos.TableMapping,
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
-	srcConn, err := connectors.GetCDCPullConnector(ctx, cfg.Source)
+	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, a.CatalogPool, cfg.Source)
 	if err != nil {
 		return fmt.Errorf("failed to get source connector: %w", err)
 	}
@@ -839,96 +839,4 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 	}
 	return err
-}
-
-func (a *FlowableActivity) LoadPeer(ctx context.Context, peerName string) (*protos.Peer, error) {
-	row := a.CatalogPool.QueryRow(ctx, `
-		SELECT name, type, options
-		FROM peers
-		WHERE name = $1`, peerName)
-
-	var peer protos.Peer
-	var peerOptions []byte
-	if err := row.Scan(&peer.Name, &peer.Type, &peerOptions); err != nil {
-		return nil, fmt.Errorf("failed to load peer: %w", err)
-	}
-
-	switch peer.Type {
-	case protos.DBType_BIGQUERY:
-		var config protos.BigqueryConfig
-		if err := proto.Unmarshal(peerOptions, &config); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal BigQuery config: %w", err)
-		}
-		peer.Config = &protos.Peer_BigqueryConfig{BigqueryConfig: &config}
-	case protos.DBType_SNOWFLAKE:
-		var config protos.SnowflakeConfig
-		if err := proto.Unmarshal(peerOptions, &config); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal Snowflake config: %w", err)
-		}
-		peer.Config = &protos.Peer_SnowflakeConfig{SnowflakeConfig: &config}
-	case protos.DBType_MONGO:
-		var config protos.MongoConfig
-		if err := proto.Unmarshal(peerOptions, &config); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal MongoDB config: %w", err)
-		}
-		peer.Config = &protos.Peer_MongoConfig{MongoConfig: &config}
-	case protos.DBType_POSTGRES:
-		var config protos.PostgresConfig
-		if err := proto.Unmarshal(peerOptions, &config); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal Postgres config: %w", err)
-		}
-		peer.Config = &protos.Peer_PostgresConfig{PostgresConfig: &config}
-	case protos.DBType_S3:
-		var config protos.S3Config
-		if err := proto.Unmarshal(peerOptions, &config); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal S3 config: %w", err)
-		}
-		peer.Config = &protos.Peer_S3Config{S3Config: &config}
-	case protos.DBType_SQLSERVER:
-		var config protos.SqlServerConfig
-		if err := proto.Unmarshal(peerOptions, &config); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal SQL Server config: %w", err)
-		}
-		peer.Config = &protos.Peer_SqlserverConfig{SqlserverConfig: &config}
-	case protos.DBType_MYSQL:
-		var config protos.MySqlConfig
-		if err := proto.Unmarshal(peerOptions, &config); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal MySQL config: %w", err)
-		}
-		peer.Config = &protos.Peer_MysqlConfig{MysqlConfig: &config}
-	case protos.DBType_CLICKHOUSE:
-		var config protos.ClickhouseConfig
-		if err := proto.Unmarshal(peerOptions, &config); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal ClickHouse config: %w", err)
-		}
-		peer.Config = &protos.Peer_ClickhouseConfig{ClickhouseConfig: &config}
-	case protos.DBType_KAFKA:
-		var config protos.KafkaConfig
-		if err := proto.Unmarshal(peerOptions, &config); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal Kafka config: %w", err)
-		}
-		peer.Config = &protos.Peer_KafkaConfig{KafkaConfig: &config}
-	case protos.DBType_PUBSUB:
-		var config protos.PubSubConfig
-		if err := proto.Unmarshal(peerOptions, &config); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal Pub/Sub config: %w", err)
-		}
-		peer.Config = &protos.Peer_PubsubConfig{PubsubConfig: &config}
-	case protos.DBType_EVENTHUBS:
-		var config protos.EventHubGroupConfig
-		if err := proto.Unmarshal(peerOptions, &config); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal Event Hubs config: %w", err)
-		}
-		peer.Config = &protos.Peer_EventhubGroupConfig{EventhubGroupConfig: &config}
-	case protos.DBType_ELASTICSEARCH:
-		var config protos.ElasticsearchConfig
-		if err := proto.Unmarshal(peerOptions, &config); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal Elasticsearch config: %w", err)
-		}
-		peer.Config = &protos.Peer_ElasticsearchConfig{ElasticsearchConfig: &config}
-	default:
-		return nil, fmt.Errorf("unsupported peer type: %s", peer.Type)
-	}
-
-	return &peer, nil
 }

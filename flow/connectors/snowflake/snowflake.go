@@ -82,6 +82,7 @@ type SnowflakeConnector struct {
 	database  *sql.DB
 	logger    log.Logger
 	rawSchema string
+	config    *protos.SnowflakeConfig
 }
 
 // creating this to capture array results from snowflake.
@@ -222,6 +223,7 @@ func NewSnowflakeConnector(
 		database:         database,
 		rawSchema:        rawSchema,
 		logger:           logger,
+		config:           snowflakeProtoConfig,
 	}, nil
 }
 
