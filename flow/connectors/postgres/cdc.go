@@ -346,8 +346,7 @@ func PullCdcRecords[Items model.Items](
 		if err != nil {
 			return err
 		}
-		err = records.AddRecord(ctx, rec)
-		if err != nil {
+		if err := records.AddRecord(ctx, rec); err != nil {
 			return err
 		}
 
