@@ -40,8 +40,8 @@ message CreateCustomSyncResponse {
 message ShutdownRequest {
   string workflow_id = 1;
   string flow_job_name = 2;
-  peerdb_peers.Peer source_peer = 3;
-  peerdb_peers.Peer destination_peer = 4;
+  string source_peer = 3;
+  string destination_peer = 4;
   bool remove_flow_entry = 5;
 }
 
@@ -226,8 +226,8 @@ message ValidateCDCMirrorResponse{
 message FlowStateChangeRequest {
   string flow_job_name = 1;
   peerdb_flow.FlowStatus requested_flow_state = 2;
-  peerdb_peers.Peer source_peer = 3;
-  peerdb_peers.Peer destination_peer = 4;
+  string source_peer = 3;
+  string destination_peer = 4;
   // only can be sent in certain situations
   optional peerdb_flow.FlowConfigUpdate flow_config_update = 5;
 }
