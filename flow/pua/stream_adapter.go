@@ -3,7 +3,7 @@ package pua
 import (
 	"context"
 
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/peer-flow/model"
 )
@@ -42,6 +42,15 @@ func AttachToCdcStream(
 	onErr context.CancelCauseFunc,
 ) *model.CDCStream[model.RecordItems] {
 	outstream := model.NewCDCStream[model.RecordItems](0)
+
+	handleErr := func(err error) {
+		onErr(err)
+		<-ctx.Done()
+		for range stream.GetRecords() {
+			// still read records to make sure input closes first
+		}
+	}
+
 	go func() {
 		if stream.WaitAndCheckEmpty() {
 			outstream.SignalAsEmpty()
@@ -52,14 +61,14 @@ func AttachToCdcStream(
 				ls.Push(lfn)
 				ls.Push(LuaRecord.New(ls, record))
 				if err := ls.PCall(1, 0, nil); err != nil {
-					onErr(err)
-					<-ctx.Done()
-					for range stream.GetRecords() {
-						// still read records to make sure input closes first
-					}
+					handleErr(err)
 					break
 				}
-				outstream.AddRecord(record)
+				err := outstream.AddRecord(ctx, record)
+				if err != nil {
+					handleErr(err)
+					break
+				}
 			}
 		}
 		outstream.SchemaDeltas = stream.SchemaDeltas

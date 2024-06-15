@@ -176,6 +176,8 @@ func (c *PostgresConnector) MaybeStartReplication(
 			startLSN = pglogrepl.LSN(lastOffset + 1)
 		}
 
+		c.replLock.Lock()
+		defer c.replLock.Unlock()
 		if err := pglogrepl.StartReplication(ctx, c.replConn.PgConn(), slotName, startLSN, replicationOpts); err != nil {
 			c.logger.Error("error starting replication", slog.Any("error", err))
 			return fmt.Errorf("error starting replication at startLsn - %d: %w", startLSN, err)
@@ -367,9 +369,6 @@ func pullCore[Items model.Items](
 		return fmt.Errorf("error getting child to parent relid map: %w", err)
 	}
 
-	c.replLock.Lock()
-	defer c.replLock.Unlock()
-
 	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset); err != nil {
 		c.logger.Error("error starting replication", slog.Any("error", err))
 		return err
@@ -387,7 +386,7 @@ func pullCore[Items model.Items](
 		RelationMessageMapping: c.relationMessageMapping,
 	})
 
-	if err := PullCdcRecords(ctx, cdc, req, processor); err != nil {
+	if err := PullCdcRecords(ctx, cdc, req, processor, &c.replLock); err != nil {
 		c.logger.Error("error pulling records", slog.Any("error", err))
 		return err
 	}
