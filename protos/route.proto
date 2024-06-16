@@ -206,6 +206,8 @@ message CDCMirrorStatus {
   peerdb_flow.FlowConnectionConfigs config = 1;
   SnapshotStatus snapshot_status = 2;
   repeated CDCSyncStatus cdc_syncs = 3;
+  peerdb_peers.DBType source_type = 4;
+  peerdb_peers.DBType destination_type = 5;
 }
 
 message MirrorStatusResponse {
