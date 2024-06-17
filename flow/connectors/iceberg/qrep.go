@@ -20,8 +20,8 @@ func (c *IcebergConnector) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
-	//return c.streamRecords(ctx, config, partition, stream)
-	return c.sendRecordsJoined(ctx, config, partition, stream)
+	return c.streamRecords(ctx, config, partition, stream)
+	//return c.sendRecordsJoined(ctx, config, partition, stream)
 }
 
 //nolint:unused
