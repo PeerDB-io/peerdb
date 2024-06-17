@@ -73,7 +73,7 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuitePG {
 	return PeerFlowE2ETestSuitePG{
 		t:      t,
 		conn:   conn,
-		peer:   e2e.GeneratePostgresPeer(),
+		peer:   e2e.GeneratePostgresPeer(t),
 		suffix: suffix,
 	}
 }

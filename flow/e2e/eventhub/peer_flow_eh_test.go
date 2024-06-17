@@ -141,12 +141,13 @@ func (s EventhubsSuite) Test_EH_Simple() {
 	flowName := e2e.AddSuffix(s, "e2e_eh_simple")
 	scopedEventhubName := fmt.Sprintf("%s.%s.id",
 		ehCreds.Namespace, s.GetEventhubName())
+	destinationPeer := s.Peer(ehCreds)
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: scopedEventhubName},
-		Destination:      s.Peer(ehCreds),
+		Destination:      destinationPeer,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.Script = "e2e_eh_simple_script"
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -163,7 +164,7 @@ func (s EventhubsSuite) Test_EH_Simple() {
 			ehCreds.Namespace,
 			s.GetEventhubName(),
 			1,
-			flowConnConfig.Destination.GetEventhubGroupConfig(),
+			destinationPeer.GetEventhubGroupConfig(),
 		)
 		if err != nil {
 			return false

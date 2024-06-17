@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
@@ -112,14 +113,12 @@ func SetupPostgres(t *testing.T, suffix string) (*connpostgres.PostgresConnector
 	}
 	conn := connector.Conn()
 
-	err = cleanPostgres(conn, suffix)
-	if err != nil {
+	if err := cleanPostgres(conn, suffix); err != nil {
 		connector.Close()
 		return nil, err
 	}
 
-	err = setupPostgresSchema(t, conn, suffix)
-	if err != nil {
+	if err := setupPostgresSchema(t, conn, suffix); err != nil {
 		connector.Close()
 		return nil, err
 	}
@@ -150,14 +149,17 @@ func TearDownPostgres[T Suite](s T) {
 }
 
 // GeneratePostgresPeer generates a postgres peer config for testing.
-func GeneratePostgresPeer() *protos.Peer {
-	return &protos.Peer{
+func GeneratePostgresPeer(t *testing.T) *protos.Peer {
+	t.Helper()
+	peer := &protos.Peer{
 		Name: "test_postgres_peer",
 		Type: protos.DBType_POSTGRES,
 		Config: &protos.Peer_PostgresConfig{
 			PostgresConfig: peerdbenv.GetCatalogPostgresConfigFromEnv(),
 		},
 	}
+	CreatePeer(t, peer)
+	return peer
 }
 
 type FlowConnectionGenerationConfig struct {
@@ -182,7 +184,20 @@ func TableMappings(s GenericSuite, tables ...string) []*protos.TableMapping {
 	return tm
 }
 
-func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() *protos.FlowConnectionConfigs {
+func CreatePeer(t *testing.T, peer *protos.Peer) {
+	t.Helper()
+	ctx := context.Background()
+	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	require.NoError(t, err)
+	res, err := utils.CreatePeerNoValidate(ctx, pool, peer)
+	require.NoError(t, err)
+	if res.Status != protos.CreatePeerStatus_CREATED {
+		require.Fail(t, res.Message)
+	}
+}
+
+func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs(t *testing.T) *protos.FlowConnectionConfigs {
+	t.Helper()
 	tblMappings := c.TableMappings
 	if tblMappings == nil {
 		for k, v := range c.TableNameMapping {
@@ -193,11 +208,14 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() *protos
 		}
 	}
 
+	source := GeneratePostgresPeer(t)
+	CreatePeer(t, c.Destination)
+
 	ret := &protos.FlowConnectionConfigs{
 		FlowJobName:        c.FlowJobName,
 		TableMappings:      tblMappings,
-		Source:             GeneratePostgresPeer(),
-		Destination:        c.Destination,
+		Source:             source.Name,
+		Destination:        c.Destination.Name,
 		SoftDelete:         c.SoftDelete,
 		SyncedAtColName:    "_PEERDB_SYNCED_AT",
 		IdleTimeoutSeconds: 15,
@@ -206,33 +224,4 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() *protos
 		ret.SoftDeleteColName = "_PEERDB_IS_DELETED"
 	}
 	return ret
-}
-
-type QRepFlowConnectionGenerationConfig struct {
-	FlowJobName                string
-	WatermarkTable             string
-	DestinationTableIdentifier string
-	Destination                *protos.Peer
-	StagingPath                string
-	PostgresPort               uint16
-}
-
-// GenerateQRepConfig generates a qrep config for testing.
-func (c *QRepFlowConnectionGenerationConfig) GenerateQRepConfig(
-	query string, watermark string,
-) *protos.QRepConfig {
-	return &protos.QRepConfig{
-		FlowJobName:                c.FlowJobName,
-		WatermarkTable:             c.WatermarkTable,
-		DestinationTableIdentifier: c.DestinationTableIdentifier,
-		SourcePeer:                 GeneratePostgresPeer(),
-		DestinationPeer:            c.Destination,
-		Query:                      query,
-		WatermarkColumn:            watermark,
-		StagingPath:                c.StagingPath,
-		WriteMode: &protos.QRepWriteMode{
-			WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
-		},
-		NumRowsPerPartition: 1000,
-	}
 }

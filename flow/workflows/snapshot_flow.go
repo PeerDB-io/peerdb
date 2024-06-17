@@ -170,7 +170,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	}
 	// ensure document IDs are synchronized across initial load and CDC
 	// for the same document
-	dbtype, err := getPeerType(ctx, s.logger, s.config.Destination)
+	dbtype, err := getPeerType(ctx, s.config.Destination)
 	if err != nil {
 		return err
 	}

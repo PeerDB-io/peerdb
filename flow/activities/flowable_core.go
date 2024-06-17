@@ -86,7 +86,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	defer shutdown()
 
 	dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.Destination)
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
 	}

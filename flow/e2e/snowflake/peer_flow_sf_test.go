@@ -55,7 +55,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 		Destination:      s.sfHelper.Peer,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -108,7 +108,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
 		Destination:      s.sfHelper.Peer,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.DoInitialSnapshot = true
 
 	tc := e2e.NewTemporalClient(s.t)
@@ -162,7 +162,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 		Destination:      s.sfHelper.Peer,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert 10 rows into the source table
@@ -252,7 +252,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 		Destination:      s.sfHelper.Peer,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -303,7 +303,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 		Destination:      s.sfHelper.Peer,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -359,7 +359,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 		Destination:      s.sfHelper.Peer,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -410,7 +410,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 		Destination:      s.sfHelper.Peer,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -468,7 +468,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 		Destination:      s.sfHelper.Peer,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -563,7 +563,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 		Destination:      s.sfHelper.Peer,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -618,7 +618,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 		Destination:      s.sfHelper.Peer,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -673,7 +673,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 		Destination:      s.sfHelper.Peer,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
 	flowConnConfig.SoftDelete = false
 	flowConnConfig.SoftDeleteColName = ""
@@ -736,7 +736,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 		Destination:      s.sfHelper.Peer,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -788,7 +788,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName: s.attachSuffix(tableName),
-		Destination: s.sfHelper.Peer,
+		Destination: s.sfHelper.Peer.Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
@@ -796,7 +796,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 				Exclude:                    []string{"c2"},
 			},
 		},
-		Source:          e2e.GeneratePostgresPeer(),
+		Source:          e2e.GeneratePostgresPeer(s.t).Name,
 		SyncedAtColName: "_PEERDB_SYNCED_AT",
 		MaxBatchSize:    100,
 	}
@@ -857,14 +857,14 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName: s.attachSuffix(dstName),
-		Destination: s.sfHelper.Peer,
+		Destination: s.sfHelper.Peer.Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(),
+		Source:            e2e.GeneratePostgresPeer(s.t).Name,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -926,14 +926,14 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName: s.attachSuffix("test_softdel_iud"),
-		Destination: s.sfHelper.Peer,
+		Destination: s.sfHelper.Peer.Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(),
+		Source:            e2e.GeneratePostgresPeer(s.t).Name,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -998,14 +998,14 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName: s.attachSuffix(dstName),
-		Destination: s.sfHelper.Peer,
+		Destination: s.sfHelper.Peer.Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(),
+		Source:            e2e.GeneratePostgresPeer(s.t).Name,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -1074,14 +1074,14 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName: s.attachSuffix(tableName),
-		Destination: s.sfHelper.Peer,
+		Destination: s.sfHelper.Peer.Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(),
+		Source:            e2e.GeneratePostgresPeer(s.t).Name,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -1147,7 +1147,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 		Destination:      s.sfHelper.Peer,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -1198,7 +1198,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion_With_Schema_Changes() {
 
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName: s.attachSuffix(tableName),
-		Destination: s.sfHelper.Peer,
+		Destination: s.sfHelper.Peer.Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
@@ -1206,7 +1206,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion_With_Schema_Changes() {
 				Exclude:                    []string{"c2"},
 			},
 		},
-		Source:       e2e.GeneratePostgresPeer(),
+		Source:       e2e.GeneratePostgresPeer(s.t).Name,
 		MaxBatchSize: 100,
 	}
 

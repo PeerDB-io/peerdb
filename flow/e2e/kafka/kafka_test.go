@@ -101,7 +101,7 @@ func (s KafkaSuite) TestSimple() {
 		TableNameMapping: map[string]string{srcTableName: flowName},
 		Destination:      s.Peer(),
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.Script = "e2e_kasimple"
 
 	tc := e2e.NewTemporalClient(s.t)
@@ -160,7 +160,7 @@ func (s KafkaSuite) TestMessage() {
 		TableNameMapping: map[string]string{srcTableName: flowName},
 		Destination:      s.Peer(),
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.Script = "e2e_kamessage"
 
 	tc := e2e.NewTemporalClient(s.t)
@@ -212,7 +212,7 @@ func (s KafkaSuite) TestDefault() {
 		TableNameMapping: map[string]string{srcTableName: flowName},
 		Destination:      s.Peer(),
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -267,7 +267,7 @@ func (s KafkaSuite) TestInitialLoad() {
 		TableNameMapping: map[string]string{srcTableName: flowName},
 		Destination:      s.Peer(),
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.DoInitialSnapshot = true
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`

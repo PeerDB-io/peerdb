@@ -104,7 +104,8 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 	s.setupSourceTable(jobName, 10)
 	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at >= {{.start}} AND updated_at < {{.end}}",
 		schemaQualifiedName)
-	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := e2e.CreateQRepWorkflowConfig(
+		s.t,
 		jobName,
 		schemaQualifiedName,
 		"e2e_dest_1",
@@ -115,7 +116,6 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 		"",
 		"",
 	)
-	require.NoError(s.t, err)
 	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
 
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
@@ -146,7 +146,8 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 
 	s.setupSourceTable(jobName, 20000)
 	query := fmt.Sprintf("SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}", schemaQualifiedName)
-	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := e2e.CreateQRepWorkflowConfig(
+		s.t,
 		jobName,
 		schemaQualifiedName,
 		"e2e_dest_ctid",
@@ -157,7 +158,6 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 		"",
 		"",
 	)
-	require.NoError(s.t, err)
 	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
 	qrepConfig.NumRowsPerPartition = 2000
 	qrepConfig.InitialCopyOnly = true

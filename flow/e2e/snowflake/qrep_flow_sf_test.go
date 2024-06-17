@@ -59,7 +59,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.pgSuffix, tblName)
 
-	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := e2e.CreateQRepWorkflowConfig(
+		s.t,
 		"test_qrep_flow_avro_sf",
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
@@ -71,7 +72,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 		"",
 	)
 	qrepConfig.SetupWatermarkTableOnDestination = true
-	require.NoError(s.t, err)
 
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
@@ -80,8 +80,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 	sel := e2e.GetOwnersSelectorStringsSF()
 	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
 
-	err = s.checkJSONValue(dstSchemaQualified, "f7", "key", "\"value\"")
-	require.NoError(s.t, err)
+	require.NoError(s.t, s.checkJSONValue(dstSchemaQualified, "f7", "key", "\"value\""))
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() {
@@ -97,7 +96,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.pgSuffix, tblName)
 
-	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := e2e.CreateQRepWorkflowConfig(
+		s.t,
 		"test_qrep_flow_avro_sf",
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
@@ -113,7 +113,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() 
 		UpsertKeyColumns: []string{"id"},
 	}
 	qrepConfig.SetupWatermarkTableOnDestination = true
-	require.NoError(s.t, err)
 
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
@@ -136,7 +135,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.pgSuffix, tblName)
 
-	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := e2e.CreateQRepWorkflowConfig(
+		s.t,
 		"test_qrep_flow_avro_sf",
 		s.attachSchemaSuffix(tblName),
 		dstSchemaQualified,
@@ -147,7 +147,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 		"",
 		"",
 	)
-	require.NoError(s.t, err)
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
@@ -172,7 +171,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s",
 		s.pgSuffix, tblName)
 
-	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := e2e.CreateQRepWorkflowConfig(
+		s.t,
 		"test_qrep_flow_avro_sf_xmin",
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
@@ -189,7 +189,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 	}
 	qrepConfig.WatermarkColumn = "xmin"
 	qrepConfig.SetupWatermarkTableOnDestination = true
-	require.NoError(s.t, err)
 
 	env := e2e.RunXminFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
@@ -215,7 +214,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 	sfPeer := s.sfHelper.Peer
 	sfPeer.GetSnowflakeConfig().S3Integration = "peerdb_s3_integration"
 
-	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := e2e.CreateQRepWorkflowConfig(
+		s.t,
 		"test_qrep_flow_avro_sf_int",
 		s.attachSchemaSuffix(tblName),
 		dstSchemaQualified,
@@ -226,7 +226,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 		"",
 		"",
 	)
-	require.NoError(s.t, err)
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
@@ -251,7 +250,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.pgSuffix, tblName)
 
-	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := e2e.CreateQRepWorkflowConfig(
+		s.t,
 		"test_columns_qrep_sf",
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
@@ -267,14 +267,12 @@ func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
 		UpsertKeyColumns: []string{"id"},
 	}
 	qrepConfig.SetupWatermarkTableOnDestination = true
-	require.NoError(s.t, err)
 
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 
-	err = s.sfHelper.checkSyncedAt(`SELECT "_PEERDB_SYNCED_AT" FROM ` + dstSchemaQualified)
-	require.NoError(s.t, err)
+	require.NoError(s.t, s.sfHelper.checkSyncedAt(`SELECT "_PEERDB_SYNCED_AT" FROM `+dstSchemaQualified))
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Default_False_SF() {
@@ -290,7 +288,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Default_False_SF() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.pgSuffix, tblName)
 
-	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := e2e.CreateQRepWorkflowConfig(
+		s.t,
 		"test_deleted_false_qrep_sf",
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
@@ -306,12 +305,10 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Default_False_SF() {
 		UpsertKeyColumns: []string{"id"},
 	}
 	qrepConfig.SetupWatermarkTableOnDestination = true
-	require.NoError(s.t, err)
 
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 
-	err = s.sfHelper.checkIsDeleted(`SELECT "_PEERDB_IS_DELETED" FROM ` + dstSchemaQualified)
-	require.NoError(s.t, err)
+	require.NoError(s.t, s.sfHelper.checkIsDeleted(`SELECT "_PEERDB_IS_DELETED" FROM `+dstSchemaQualified))
 }

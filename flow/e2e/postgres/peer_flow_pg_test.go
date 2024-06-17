@@ -70,7 +70,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Geospatial_PG() {
 		Destination:      s.peer,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
 
 	tc := e2e.NewTemporalClient(s.t)
@@ -115,7 +115,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 		Destination:      s.peer,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
 	flowConnConfig.SoftDelete = false
 	flowConnConfig.SoftDeleteColName = ""
@@ -182,7 +182,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 		Destination:      s.peer,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
 
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -224,7 +224,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 		Destination:      s.peer,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -286,7 +286,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 		Destination:      s.peer,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -351,7 +351,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 		Destination:      s.peer,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -409,7 +409,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns() {
 		SoftDelete:       true,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
 
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -456,14 +456,14 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Basic() {
 
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName: s.attachSuffix("test_softdel"),
-		Destination: s.peer,
+		Destination: s.peer.Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(),
+		Source:            e2e.GeneratePostgresPeer(s.t).Name,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -534,14 +534,14 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_IUD_Same_Batch() {
 
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName: s.attachSuffix("test_softdel_iud"),
-		Destination: s.peer,
+		Destination: s.peer.Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(),
+		Source:            e2e.GeneratePostgresPeer(s.t).Name,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -603,14 +603,14 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
 
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName: s.attachSuffix("test_softdel_ud"),
-		Destination: s.peer,
+		Destination: s.peer.Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(),
+		Source:            e2e.GeneratePostgresPeer(s.t).Name,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -680,14 +680,14 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Insert_After_Delete() {
 
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName: s.attachSuffix("test_softdel_iad"),
-		Destination: s.peer,
+		Destination: s.peer.Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(),
+		Source:            e2e.GeneratePostgresPeer(s.t).Name,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -749,14 +749,14 @@ func (s PeerFlowE2ETestSuitePG) Test_Supported_Mixed_Case_Table() {
 
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName: s.attachSuffix("test_mixed_case"),
-		Destination: s.peer,
+		Destination: s.peer.Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:       e2e.GeneratePostgresPeer(),
+		Source:       e2e.GeneratePostgresPeer(s.t).Name,
 		MaxBatchSize: 100,
 	}
 
@@ -800,9 +800,9 @@ func (s PeerFlowE2ETestSuitePG) Test_Multiple_Parallel_Initial() {
 		DoInitialSnapshot:           true,
 		InitialSnapshotOnly:         true,
 		FlowJobName:                 s.attachSuffix("test_multi_init"),
-		Destination:                 s.peer,
+		Destination:                 s.peer.Name,
 		TableMappings:               tableMapping,
-		Source:                      e2e.GeneratePostgresPeer(),
+		Source:                      e2e.GeneratePostgresPeer(s.t).Name,
 		CdcStagingPath:              "",
 		SnapshotMaxParallelWorkers:  4,
 		SnapshotNumTablesInParallel: 3,
@@ -836,7 +836,7 @@ func (s PeerFlowE2ETestSuitePG) Test_ContinueAsNew() {
 		Destination:      s.peer,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 2
 	flowConnConfig.IdleTimeoutSeconds = 10
 
@@ -878,7 +878,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	`, srcTable1Name, srcTable2Name))
 	require.NoError(s.t, err)
 
-	sourcePeer := e2e.GeneratePostgresPeer()
+	sourcePeer := e2e.GeneratePostgresPeer(s.t)
 
 	conn, err := peerdbenv.GetCatalogConnectionPoolFromEnv(context.Background())
 	require.NoError(s.t, err)
@@ -891,14 +891,14 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName: s.attachSuffix("test_dynconfig"),
-		Destination: s.peer,
+		Destination: s.peer.Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTable1Name,
 				DestinationTableIdentifier: dstTable1Name,
 			},
 		},
-		Source:                      sourcePeer,
+		Source:                      sourcePeer.Name,
 		MaxBatchSize:                6,
 		IdleTimeoutSeconds:          7,
 		DoInitialSnapshot:           true,
@@ -1038,7 +1038,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TypeSystem_PG() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.peer,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.System = protos.TypeSystem_PG
 	flowConnConfig.SoftDelete = false
@@ -1088,7 +1088,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TransformRecordScript() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.peer,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.Script = "cdc_transform_record"
 
 	tc := e2e.NewTemporalClient(s.t)
@@ -1137,7 +1137,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TransformRowScript() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.peer,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.Script = "cdc_transform_row"
 
 	tc := e2e.NewTemporalClient(s.t)

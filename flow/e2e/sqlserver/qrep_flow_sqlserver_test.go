@@ -155,12 +155,14 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 	query := fmt.Sprintf("SELECT * FROM %s.%s WHERE v_from BETWEEN {{.start}} AND {{.end}}",
 		s.sqlsHelper.SchemaName, tblName)
 
-	postgresPeer := e2e.GeneratePostgresPeer()
+	postgresPeer := e2e.GeneratePostgresPeer(s.t)
+	e2e.CreatePeer(s.t, postgresPeer)
+	e2e.CreatePeer(s.t, s.sqlsHelper.GetPeer())
 
 	qrepConfig := &protos.QRepConfig{
 		FlowJobName:                tblName,
-		SourcePeer:                 s.sqlsHelper.GetPeer(),
-		DestinationPeer:            postgresPeer,
+		SourcePeer:                 s.sqlsHelper.GetPeer().Name,
+		DestinationPeer:            postgresPeer.Name,
 		DestinationTableIdentifier: dstTableName,
 		Query:                      query,
 		WatermarkTable:             srcTableName,

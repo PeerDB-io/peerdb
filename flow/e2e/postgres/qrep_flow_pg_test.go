@@ -196,9 +196,10 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	postgresPeer := e2e.GeneratePostgresPeer()
+	postgresPeer := e2e.GeneratePostgresPeer(s.t)
 
-	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := e2e.CreateQRepWorkflowConfig(
+		s.t,
 		"test_qrep_flow_avro_pg",
 		srcSchemaQualified,
 		dstSchemaQualified,
@@ -209,7 +210,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 		"",
 		"",
 	)
-	require.NoError(s.t, err)
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
@@ -237,9 +237,10 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_TypeSystemQRep() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	postgresPeer := e2e.GeneratePostgresPeer()
+	postgresPeer := e2e.GeneratePostgresPeer(s.t)
 
-	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := e2e.CreateQRepWorkflowConfig(
+		s.t,
 		"test_qrep_flow_pgpg",
 		srcSchemaQualified,
 		dstSchemaQualified,
@@ -250,7 +251,6 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_TypeSystemQRep() {
 		"",
 		"",
 	)
-	require.NoError(s.t, err)
 	qrepConfig.System = protos.TypeSystem_PG
 
 	tc := e2e.NewTemporalClient(s.t)
@@ -276,9 +276,10 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns_QRep_PG() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	postgresPeer := e2e.GeneratePostgresPeer()
+	postgresPeer := e2e.GeneratePostgresPeer(s.t)
 
-	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := e2e.CreateQRepWorkflowConfig(
+		s.t,
 		"test_qrep_columns_pg",
 		srcSchemaQualified,
 		dstSchemaQualified,
@@ -289,15 +290,13 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns_QRep_PG() {
 		"_PEERDB_SYNCED_AT",
 		"",
 	)
-	require.NoError(s.t, err)
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 
-	err = s.checkSyncedAt(dstSchemaQualified)
-	require.NoError(s.t, err)
+	require.NoError(s.t, s.checkSyncedAt(dstSchemaQualified))
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Overwrite_PG() {
@@ -314,9 +313,10 @@ func (s PeerFlowE2ETestSuitePG) Test_Overwrite_PG() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	postgresPeer := e2e.GeneratePostgresPeer()
+	postgresPeer := e2e.GeneratePostgresPeer(s.t)
 
-	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := e2e.CreateQRepWorkflowConfig(
+		s.t,
 		"test_overwrite_pg",
 		srcSchemaQualified,
 		dstSchemaQualified,
@@ -327,7 +327,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Overwrite_PG() {
 		"_PEERDB_SYNCED_AT",
 		"",
 	)
-	require.NoError(s.t, err)
 	qrepConfig.WriteMode = &protos.QRepWriteMode{
 		WriteType: protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE,
 	}
@@ -336,7 +335,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Overwrite_PG() {
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for first sync to complete", func() bool {
-		err = s.compareCounts(dstSchemaQualified, int64(numRows))
+		err := s.compareCounts(dstSchemaQualified, int64(numRows))
 		return err == nil
 	})
 
@@ -344,7 +343,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Overwrite_PG() {
 	s.populateSourceTable(srcTable, newRowCount)
 
 	e2e.EnvWaitFor(s.t, env, 2*time.Minute, "waiting for overwrite sync to complete", func() bool {
-		err = s.compareCounts(dstSchemaQualified, int64(newRowCount))
+		err := s.compareCounts(dstSchemaQualified, int64(newRowCount))
 		return err == nil
 	})
 
@@ -365,9 +364,10 @@ func (s PeerFlowE2ETestSuitePG) Test_No_Rows_QRep_PG() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	postgresPeer := e2e.GeneratePostgresPeer()
+	postgresPeer := e2e.GeneratePostgresPeer(s.t)
 
-	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := e2e.CreateQRepWorkflowConfig(
+		s.t,
 		"test_no_rows_qrep_pg",
 		srcSchemaQualified,
 		dstSchemaQualified,
@@ -378,7 +378,6 @@ func (s PeerFlowE2ETestSuitePG) Test_No_Rows_QRep_PG() {
 		"_PEERDB_SYNCED_AT",
 		"",
 	)
-	require.NoError(s.t, err)
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
@@ -400,18 +399,18 @@ func (s PeerFlowE2ETestSuitePG) Test_Pause() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	config, err := e2e.CreateQRepWorkflowConfig(
+	config := e2e.CreateQRepWorkflowConfig(
+		s.t,
 		"test_qrep_pause_pg",
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
-		e2e.GeneratePostgresPeer(),
+		e2e.GeneratePostgresPeer(s.t),
 		"",
 		true,
 		"_PEERDB_SYNCED_AT",
 		"",
 	)
-	require.NoError(s.t, err)
 	config.InitialCopyOnly = false
 
 	tc := e2e.NewTemporalClient(s.t)
@@ -462,13 +461,14 @@ func (s PeerFlowE2ETestSuitePG) TestTransform() {
 
 	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at BETWEEN {{.start}} AND {{.end}}", srcSchemaQualified)
 
-	postgresPeer := e2e.GeneratePostgresPeer()
+	postgresPeer := e2e.GeneratePostgresPeer(s.t)
 
 	_, err := s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values
 	('pgtransform', 'lua', 'function transformRow(row) row.myreal = 1729 end') on conflict do nothing`)
 	require.NoError(s.t, err)
 
-	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := e2e.CreateQRepWorkflowConfig(
+		s.t,
 		"test_transform",
 		srcSchemaQualified,
 		dstSchemaQualified,
@@ -479,7 +479,6 @@ func (s PeerFlowE2ETestSuitePG) TestTransform() {
 		"_PEERDB_SYNCED_AT",
 		"",
 	)
-	require.NoError(s.t, err)
 	qrepConfig.WriteMode = &protos.QRepWriteMode{
 		WriteType: protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE,
 	}

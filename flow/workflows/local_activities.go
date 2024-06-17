@@ -53,7 +53,7 @@ func localPeerType(ctx context.Context, name string) (protos.DBType, error) {
 	return connectors.LoadPeerType(ctx, pool, name)
 }
 
-func getPeerType(wCtx workflow.Context, logger log.Logger, name string) (protos.DBType, error) {
+func getPeerType(wCtx workflow.Context, name string) (protos.DBType, error) {
 	checkCtx := workflow.WithLocalActivityOptions(wCtx, workflow.LocalActivityOptions{
 		StartToCloseTimeout: time.Minute,
 	})
@@ -62,5 +62,4 @@ func getPeerType(wCtx workflow.Context, logger log.Logger, name string) (protos.
 	var dbtype protos.DBType
 	err := getFuture.Get(checkCtx, &dbtype)
 	return dbtype, err
-
 }
