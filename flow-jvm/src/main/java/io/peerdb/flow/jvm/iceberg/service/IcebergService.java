@@ -121,7 +121,8 @@ public class IcebergService {
 
     public boolean processAppendRecordsStreamRequest(Multi<AppendRecordsStreamRequest> request) {
         Log.info("Received a Process Append Records Stream Request, will wait for first message");
-        var firstMessage = Uni.createFrom().multi(request).await().indefinitely();
+        // Lets error out after 1 minute
+        var firstMessage = Uni.createFrom().multi(request).await().atMost(Duration.ofSeconds(30));
         if (firstMessage.getCommandCase() != AppendRecordsStreamRequest.CommandCase.TABLE_HEADER && !firstMessage.hasTableHeader()) {
             Log.errorf("TableHeader should be present in the first message, found %s", firstMessage.getCommandCase());
             throw new IllegalArgumentException("TableHeader should be present in the first message");
