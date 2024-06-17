@@ -494,7 +494,7 @@ impl Catalog {
             }))
         } else {
             tracing::info!("no workflow id found for flow job {}", flow_job_name);
-            return Ok(None);
+            Ok(None)
         }
     }
 
