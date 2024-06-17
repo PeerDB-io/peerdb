@@ -8,36 +8,14 @@ export async function GET(
 ) {
   const timeSince = request.nextUrl.searchParams.get('timeSince');
 
-  let forThePastThisMuchTime: number;
-  switch (timeSince) {
-    case 'day':
-      forThePastThisMuchTime = 86400000;
-      break;
-    case 'month':
-      forThePastThisMuchTime = 2592000000;
-      break;
-    case '15min':
-      forThePastThisMuchTime = 900000;
-      break;
-    case '5min':
-      forThePastThisMuchTime = 300000;
-      break;
-    case '1min':
-      forThePastThisMuchTime = 60000;
-      break;
-    default:
-      forThePastThisMuchTime = 3600000;
-      break;
-  }
 
-  const lagPoints = await prisma.$queryRaw<
-    { updated_at: Date; slot_size: bigint }[]
-  >`
+  const lagPoints: { updated_at: Date; slot_size: bigint }[] = await prisma.$queryRaw
+    `
     select updated_at, slot_size
     from peerdb_stats.peer_slot_size
     where slot_size is not null
       and slot_name = ${context.params.name}
-      and updated_at > ${new Date(Date.now() - forThePastThisMuchTime)}
+      and updated_at > (now()-${timeSince}::INTERVAL)
     order by random()
     limit 720
   `;

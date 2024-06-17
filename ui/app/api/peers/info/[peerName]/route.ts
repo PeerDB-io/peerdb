@@ -1,6 +1,7 @@
 import prisma from '@/app/utils/prisma';
 import { NextRequest, NextResponse } from 'next/server';
 
+import { ElasticsearchAuthType } from '@/grpc_generated/peers';
 import { getTruePeer } from '../../getTruePeer';
 
 export async function GET(
@@ -23,37 +24,48 @@ export async function GET(
   const chConfig = peerConfig.clickhouseConfig;
   const kaConfig = peerConfig.kafkaConfig;
   const psConfig = peerConfig.pubsubConfig;
+  const esConfig = peerConfig.elasticsearchConfig;
+
+  const redactString = '********';
   if (pgConfig) {
-    pgConfig.password = '********';
-    pgConfig.transactionSnapshot = '********';
+    pgConfig.password = redactString;
+    pgConfig.transactionSnapshot = redactString;
   }
   if (bqConfig) {
-    bqConfig.privateKey = '********';
-    bqConfig.privateKeyId = '********';
+    bqConfig.privateKey = redactString;
+    bqConfig.privateKeyId = redactString;
   }
   if (s3Config) {
-    s3Config.secretAccessKey = '********';
+    s3Config.secretAccessKey = redactString;
   }
   if (sfConfig) {
-    sfConfig.privateKey = '********';
-    sfConfig.password = '********';
+    sfConfig.privateKey = redactString;
+    sfConfig.password = redactString;
   }
   if (ehConfig) {
     for (const key in ehConfig.eventhubs) {
-      ehConfig.eventhubs[key].subscriptionId = '********';
+      ehConfig.eventhubs[key].subscriptionId = redactString;
     }
   }
 
   if (chConfig) {
-    chConfig.password = '********';
-    chConfig.secretAccessKey = '********';
+    chConfig.password = redactString;
+    chConfig.secretAccessKey = redactString;
   }
   if (kaConfig) {
-    kaConfig.password = '********';
+    kaConfig.password = redactString;
   }
   if (psConfig?.serviceAccount) {
-    psConfig.serviceAccount.privateKey = '********';
-    psConfig.serviceAccount.privateKeyId = '********';
+    psConfig.serviceAccount.privateKey = redactString;
+    psConfig.serviceAccount.privateKeyId = redactString;
+  }
+  if (esConfig) {
+    if (esConfig.authType === ElasticsearchAuthType.BASIC) {
+      esConfig.username = redactString;
+      esConfig.password = redactString;
+    } else if (esConfig.authType === ElasticsearchAuthType.APIKEY) {
+      esConfig.apiKey = redactString;
+    }
   }
 
   return NextResponse.json(peerConfig);

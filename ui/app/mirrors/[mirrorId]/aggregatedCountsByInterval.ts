@@ -1,3 +1,5 @@
+import { TimeAggregateTypes } from '@/app/utils/graph';
+import { roundToNearestMinutes, NearestMinutes } from 'date-fns';
 import moment from 'moment';
 
 type timestampType = {
@@ -7,25 +9,27 @@ type timestampType = {
 
 function aggregateCountsByInterval(
   timestamps: timestampType[],
-  interval: string
+  interval: TimeAggregateTypes
 ): [string, number][] {
-  let timeUnit;
+  let timeUnit: string = 'YYYY-MM-DD HH:mm';
+  let nearestMinutes: NearestMinutes = 1;
   switch (interval) {
-    case 'hour':
+    case TimeAggregateTypes.ONE_MIN:
+      break;
+    case TimeAggregateTypes.FIVE_MIN:
+      nearestMinutes = 5;
+      break;
+    case TimeAggregateTypes.FIFTEEN_MIN:
+      nearestMinutes = 15;
+      break;
+    case TimeAggregateTypes.HOUR:
       timeUnit = 'YYYY-MM-DD HH:00:00';
       break;
-    case '15min':
-      timeUnit = 'YYYY-MM-DD HH:mm';
-      break;
-    case 'month':
-      timeUnit = 'YYYY-MM';
-      break;
-    case 'day':
+    case TimeAggregateTypes.DAY:
       timeUnit = 'YYYY-MM-DD';
       break;
-    case '1min':
-    case '5min':
-      timeUnit = 'YYYY-MM-DD HH:mm';
+    case TimeAggregateTypes.MONTH:
+      timeUnit = 'YYYY-MM';
       break;
     default:
       throw new Error('Invalid interval provided');
@@ -36,17 +40,8 @@ function aggregateCountsByInterval(
 
   // Iterate through the timestamps and populate the aggregatedCounts object
   for (let { timestamp, count } of timestamps) {
-    let N = 1;
-    if (interval === '1min') {
-      N = 1;
-    } else if (interval === '5min') {
-      N = 5;
-    } else if (interval === '15min') {
-      N = 15;
-    }
-
     const currTs = new Date(timestamp ?? 0);
-    const date = roundUpToNearestNMinutes(currTs, N);
+    const date = roundToNearestMinutes(currTs, { nearestTo: nearestMinutes });
     const formattedTimestamp = moment(date).format(timeUnit);
 
     if (!aggregatedCounts[formattedTimestamp]) {
@@ -59,32 +54,24 @@ function aggregateCountsByInterval(
   // Create an array of intervals between the start and end timestamps
   const intervals = [];
 
-  let currentTimestamp = new Date();
-
-  if (interval === '15min') {
-    currentTimestamp = roundUpToNearestNMinutes(currentTimestamp, 15);
-  }
-  if (interval === '5min') {
-    currentTimestamp = roundUpToNearestNMinutes(currentTimestamp, 5);
-  }
-  if (interval === '1min') {
-    currentTimestamp = roundUpToNearestNMinutes(currentTimestamp, 1);
-  }
+  let currentTimestamp = roundToNearestMinutes(new Date(), {
+    nearestTo: nearestMinutes,
+  });
 
   while (intervals.length < 30) {
     intervals.push(moment(currentTimestamp).format(timeUnit));
-    if (interval === 'hour') {
-      currentTimestamp.setHours(currentTimestamp.getHours() - 1);
-    } else if (interval === '15min') {
-      currentTimestamp.setMinutes(currentTimestamp.getMinutes() - 15);
-    } else if (interval === '1min') {
+    if (interval === TimeAggregateTypes.ONE_MIN) {
       currentTimestamp.setMinutes(currentTimestamp.getMinutes() - 1);
-    } else if (interval === '5min') {
+    } else if (interval === TimeAggregateTypes.FIVE_MIN) {
       currentTimestamp.setMinutes(currentTimestamp.getMinutes() - 5);
-    } else if (interval === 'month') {
-      currentTimestamp.setMonth(currentTimestamp.getMonth() - 1);
-    } else if (interval === 'day') {
+    } else if (interval === TimeAggregateTypes.FIFTEEN_MIN) {
+      currentTimestamp.setMinutes(currentTimestamp.getMinutes() - 15);
+    } else if (interval === TimeAggregateTypes.HOUR) {
+      currentTimestamp.setHours(currentTimestamp.getHours() - 1);
+    } else if (interval === TimeAggregateTypes.DAY) {
       currentTimestamp.setDate(currentTimestamp.getDate() - 1);
+    } else if (interval === TimeAggregateTypes.MONTH) {
+      currentTimestamp.setMonth(currentTimestamp.getMonth() - 1);
     }
   }
 
@@ -95,22 +82,6 @@ function aggregateCountsByInterval(
   ]);
 
   return resultArray;
-}
-
-function roundUpToNearestNMinutes(date: Date, N: number) {
-  const minutes = date.getMinutes();
-  const remainder = minutes % N;
-
-  if (remainder > 0) {
-    // Round up to the nearest N minutes
-    date.setMinutes(minutes + (N - remainder));
-  }
-
-  // Reset seconds and milliseconds to zero to maintain the same time
-  date.setSeconds(0);
-  date.setMilliseconds(0);
-
-  return date;
 }
 
 export default aggregateCountsByInterval;

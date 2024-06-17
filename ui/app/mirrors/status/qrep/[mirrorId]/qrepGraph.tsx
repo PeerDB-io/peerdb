@@ -1,6 +1,10 @@
 'use client';
 import SelectTheme from '@/app/styles/select';
-import { formatGraphLabel, timeOptions } from '@/app/utils/graph';
+import {
+  formatGraphLabel,
+  TimeAggregateTypes,
+  timeOptions,
+} from '@/app/utils/graph';
 import { Label } from '@/lib/Label';
 import { BarChart } from '@tremor/react';
 import { useEffect, useState } from 'react';
@@ -15,7 +19,9 @@ type QrepStatusRow = {
 };
 
 function QrepGraph({ syncs }: { syncs: QrepStatusRow[] }) {
-  let [aggregateType, setAggregateType] = useState('hour');
+  let [aggregateType, setAggregateType] = useState<TimeAggregateTypes>(
+    TimeAggregateTypes.HOUR
+  );
   const initialCount: [string, number][] = [];
   let [counts, setCounts] = useState(initialCount);
 
@@ -38,7 +44,7 @@ function QrepGraph({ syncs }: { syncs: QrepStatusRow[] }) {
           id={aggregateType}
           placeholder='Select a timeframe'
           options={timeOptions}
-          defaultValue={{ label: 'hour', value: 'hour' }}
+          defaultValue={timeOptions.at(3)}
           onChange={(val, _) => val && setAggregateType(val.value)}
           theme={SelectTheme}
         />
