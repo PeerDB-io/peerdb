@@ -163,3 +163,8 @@ func PeerDBClickhouseAWSS3BucketName(ctx context.Context) (string, error) {
 func PeerDBQueueForceTopicCreation(ctx context.Context) (bool, error) {
 	return dynamicConfBool(ctx, "PEERDB_QUEUE_FORCE_TOPIC_CREATION")
 }
+
+// experimental, don't increase to greater than 64
+func PeerDBMaxSyncsPerCDCFlow(ctx context.Context) (uint32, error) {
+	return dynamicConfUnsigned[uint32](ctx, "PEERDB_MAX_SYNCS_PER_CDC_FLOW")
+}

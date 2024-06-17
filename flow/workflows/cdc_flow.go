@@ -81,10 +81,6 @@ func GetChildWorkflowID(
 // CDCFlowWorkflowResult is the result of the PeerFlowWorkflow.
 type CDCFlowWorkflowResult = CDCFlowWorkflowState
 
-const (
-	maxSyncsPerCdcFlow = 32
-)
-
 func processCDCFlowConfigUpdate(
 	ctx workflow.Context,
 	logger log.Logger,
@@ -526,7 +522,7 @@ func CDCFlowWorkflow(
 			return state, err
 		}
 
-		if state.ActiveSignal == model.PauseSignal || syncCount >= maxSyncsPerCdcFlow {
+		if state.ActiveSignal == model.PauseSignal || syncCount >= int(getMaxSyncsPerCDCFlow(ctx, logger)) {
 			restart = true
 			if syncFlowFuture != nil {
 				err := model.SyncStopSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{}).Get(ctx, nil)

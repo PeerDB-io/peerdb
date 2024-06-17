@@ -39,17 +39,21 @@ x-flow-worker-env: &flow-worker-env
 services:
   catalog:
     container_name: catalog
-    image: debezium/postgres:16-alpine
+    image: postgres:16-alpine
+    command: -c config_file=/etc/postgresql.conf
     ports:
       - 9901:5432
     environment:
       PGUSER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
+      POSTGRES_INITDB_ARGS: --locale=C.UTF-8
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./volumes/postgresql.conf:/etc/postgresql.conf
+      - ./volumes/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD", "pg_isready", "-d", "postgres", "-U", "postgres"]
       interval: 10s
@@ -73,7 +77,7 @@ services:
     ports:
       - 7233:7233
     volumes:
-      - ./temporal-dynamicconfig:/etc/temporal/config/dynamicconfig
+      - ./volumes/temporal-dynamicconfig:/etc/temporal/config/dynamicconfig
     labels:
       kompose.volume.type: configMap
 
@@ -165,7 +169,6 @@ services:
       dockerfile: stacks/peerdb-server.Dockerfile
     environment:
       <<: *catalog-config
-      PEERDB_LOG_DIR: /var/log/peerdb
       PEERDB_PASSWORD: peerdb
       PEERDB_FLOW_SERVER_ADDRESS: grpc://flow_api:8112
       RUST_LOG: info

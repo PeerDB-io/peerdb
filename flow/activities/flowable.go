@@ -794,7 +794,6 @@ func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *pr
 		}
 		return bqConn.CreateTablesFromExisting(ctx, req)
 	}
-	a.Alerter.LogFlowError(ctx, req.FlowJobName, err)
 	return nil, errors.New("create tables from existing is only supported on snowflake and bigquery")
 }
 
