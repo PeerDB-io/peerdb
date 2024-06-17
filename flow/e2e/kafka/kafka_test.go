@@ -138,6 +138,63 @@ func (s KafkaSuite) TestSimple() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
+func (s KafkaSuite) TestMessage() {
+	srcTableName := e2e.AttachSchema(s, "kamessage")
+
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+			CREATE TABLE IF NOT EXISTS %s (
+				id SERIAL PRIMARY KEY,
+				val text
+			);
+		`, srcTableName))
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values ('e2e_kamessage', 'lua',
+	'function onRecord(r) if r.kind == "message" then return { topic = r.prefix, value = r.content } end end'
+	) on conflict do nothing`)
+	require.NoError(s.t, err)
+
+	flowName := e2e.AddSuffix(s, "kamessage")
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      flowName,
+		TableNameMapping: map[string]string{srcTableName: flowName},
+		Destination:      s.Peer(),
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig.Script = "e2e_kamessage"
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	_, err = s.Conn().Exec(context.Background(), "select pg_logical_emit_message(false, 'topic', '\\x686561727462656174'::bytea)")
+	require.NoError(s.t, err)
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize message", func() bool {
+		kafka, err := kgo.NewClient(
+			kgo.SeedBrokers("localhost:9092"),
+			kgo.ConsumeTopics("topic"),
+		)
+		if err != nil {
+			return false
+		}
+		defer kafka.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		fetches := kafka.PollFetches(ctx)
+		fetches.EachTopic(func(ft kgo.FetchTopic) {
+			require.Equal(s.t, "topic", ft.Topic)
+			ft.EachRecord(func(r *kgo.Record) {
+				require.Equal(s.t, "heartbeat", string(r.Value))
+			})
+		})
+		return true
+	})
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
 func (s KafkaSuite) TestDefault() {
 	srcTableName := e2e.AttachSchema(s, "kadefault")
 

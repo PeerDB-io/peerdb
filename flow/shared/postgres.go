@@ -22,6 +22,7 @@ type PGVersion int32
 const (
 	POSTGRES_12 PGVersion = 120000
 	POSTGRES_13 PGVersion = 130000
+	POSTGRES_14 PGVersion = 140000
 	POSTGRES_15 PGVersion = 150000
 )
 

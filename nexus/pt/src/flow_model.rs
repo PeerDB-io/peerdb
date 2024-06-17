@@ -17,7 +17,6 @@ pub struct FlowJob {
     pub source_peer: String,
     pub target_peer: String,
     pub table_mappings: Vec<FlowJobTableMapping>,
-    pub description: String,
     pub do_initial_copy: bool,
     pub publication_name: Option<String>,
     pub snapshot_num_rows_per_partition: Option<u32>,
@@ -27,8 +26,6 @@ pub struct FlowJob {
     pub cdc_staging_path: Option<String>,
     pub soft_delete: bool,
     pub replication_slot_name: Option<String>,
-    pub push_parallelism: Option<i64>,
-    pub push_batch_size: Option<i64>,
     pub max_batch_size: Option<u32>,
     pub sync_interval: Option<u64>,
     pub resync: bool,
@@ -37,6 +34,7 @@ pub struct FlowJob {
     pub initial_snapshot_only: bool,
     pub script: String,
     pub system: String,
+    pub disable_peerdb_columns: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]

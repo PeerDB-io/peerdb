@@ -156,13 +156,15 @@ func (m *mergeStmtGenerator) generateMergeStmt(dstTable string, dstDatasetTable 
 		shortBacktickColNames = append(shortBacktickColNames, fmt.Sprintf("`%s`", shortCol))
 		pureColNames = append(pureColNames, col.Name)
 	}
-	csep := strings.Join(backtickColNames, ", ")
-	shortCsep := strings.Join(shortBacktickColNames, ", ")
-	insertColumnsSQL := csep + fmt.Sprintf(", `%s`", m.peerdbCols.SyncedAtColName)
-	insertValuesSQL := shortCsep + ",CURRENT_TIMESTAMP"
+	insertColumnsSQL := strings.Join(backtickColNames, ", ")
+	insertValuesSQL := strings.Join(shortBacktickColNames, ", ")
+	if m.peerdbCols.SyncedAtColName != "" {
+		insertColumnsSQL += fmt.Sprintf(", `%s`", m.peerdbCols.SyncedAtColName)
+		insertValuesSQL += ",CURRENT_TIMESTAMP"
+	}
 
 	updateStatementsforToastCols := m.generateUpdateStatements(pureColNames, unchangedToastColumns)
-	if m.peerdbCols.SoftDelete {
+	if m.peerdbCols.SoftDeleteColName != "" {
 		softDeleteInsertColumnsSQL := insertColumnsSQL + fmt.Sprintf(",`%s`", m.peerdbCols.SoftDeleteColName)
 		softDeleteInsertValuesSQL := insertValuesSQL + ",TRUE"
 
@@ -177,7 +179,7 @@ func (m *mergeStmtGenerator) generateMergeStmt(dstTable string, dstDatasetTable 
 	pkeySelectSQL := strings.Join(pkeySelectSQLArray, " AND ")
 
 	deletePart := "DELETE"
-	if m.peerdbCols.SoftDelete {
+	if m.peerdbCols.SoftDeleteColName != "" {
 		colName := m.peerdbCols.SoftDeleteColName
 		deletePart = fmt.Sprintf("UPDATE SET %s=TRUE", colName)
 		if m.peerdbCols.SyncedAtColName != "" {
@@ -210,7 +212,7 @@ and updating the other columns (not the unchanged toast columns)
 7. Return the list of generated update statements.
 */
 func (m *mergeStmtGenerator) generateUpdateStatements(allCols []string, unchangedToastColumns []string) []string {
-	handleSoftDelete := m.peerdbCols.SoftDelete && (m.peerdbCols.SoftDeleteColName != "")
+	handleSoftDelete := m.peerdbCols.SoftDeleteColName != ""
 	// weird way of doing it but avoids prealloc lint
 	updateStmts := make([]string, 0, func() int {
 		if handleSoftDelete {

@@ -117,6 +117,9 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 	flowConnConfig.MaxBatchSize = 100
+	flowConnConfig.SoftDelete = false
+	flowConnConfig.SoftDeleteColName = ""
+	flowConnConfig.SyncedAtColName = ""
 
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
@@ -1038,6 +1041,9 @@ func (s PeerFlowE2ETestSuitePG) Test_TypeSystem_PG() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.System = protos.TypeSystem_PG
+	flowConnConfig.SoftDelete = false
+	flowConnConfig.SoftDeleteColName = ""
+	flowConnConfig.SyncedAtColName = ""
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -1074,7 +1080,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TransformRecordScript() {
 	require.NoError(s.t, err)
 
 	_, err = s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values
-		('cdc_transform_record', 'lua', 'function transformRecord(r) r.row.val = 1729 end') on conflict do nothing`)
+		('cdc_transform_record', 'lua', 'function transformRecord(r) if r.row then r.row.val = 1729 end end') on conflict do nothing`)
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{

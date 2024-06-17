@@ -757,7 +757,7 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 
 		c.logger.Info(fmt.Sprintf("setting synced at column for table '%s'...", src))
 
-		if req.SyncedAtColName != nil {
+		if req.SyncedAtColName != nil && *req.SyncedAtColName != "" {
 			_, err = renameTablesTx.ExecContext(ctx,
 				fmt.Sprintf("UPDATE %s SET %s = CURRENT_TIMESTAMP", src, *req.SyncedAtColName))
 			if err != nil {
@@ -765,7 +765,7 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 			}
 		}
 
-		if req.SoftDeleteColName != nil {
+		if req.SoftDeleteColName != nil && *req.SoftDeleteColName != "" {
 			columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
 			for _, col := range renameRequest.TableSchema.Columns {
 				columnNames = append(columnNames, SnowflakeIdentifierNormalize(col.Name))
