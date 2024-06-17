@@ -18,9 +18,9 @@ type CDCStream[T Items] struct {
 	// Schema changes from slot
 	SchemaDeltas      []*protos.TableSchemaDelta
 	lastCheckpointSet bool
+	needsNormalize    atomic.Bool
 	// lastCheckpointID is the last ID of the commit that corresponds to this batch.
 	lastCheckpointID atomic.Int64
-	needsNormalize   atomic.Bool
 }
 
 func NewCDCStream[T Items](channelBuffer int) *CDCStream[T] {
