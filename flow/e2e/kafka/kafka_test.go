@@ -169,7 +169,7 @@ func (s KafkaSuite) TestMessage() {
 
 	_, err = s.Conn().Exec(context.Background(), "SELECT pg_logical_emit_message(false, 'topic', '\\x686561727462656174'::bytea)")
 	require.NoError(s.t, err)
-	_, err = s.Conn().Exec(context.Background(), "INSERT INTO %s (val) VALUES ('trigger_normalize')", srcTableName)
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf("INSERT INTO %s (val) VALUES ('trigger_normalize')", srcTableName))
 	require.NoError(s.t, err)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize message", func() bool {
