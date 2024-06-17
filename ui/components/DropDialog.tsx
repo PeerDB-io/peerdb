@@ -2,7 +2,6 @@
 import { UDropMirrorResponse } from '@/app/dto/MirrorsDTO';
 import { UDropPeerResponse } from '@/app/dto/PeersDTO';
 import { DeleteScript } from '@/app/scripts/handlers';
-import { Peer } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Icon } from '@/lib/Icon';
@@ -14,8 +13,8 @@ import { BarLoader } from 'react-spinners';
 interface dropMirrorArgs {
   workflowId: string | null;
   flowJobName: string;
-  sourcePeer: Peer;
-  destinationPeer: Peer;
+  sourcePeer: string;
+  destinationPeer: string;
   forResync?: boolean;
 }
 

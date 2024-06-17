@@ -14,9 +14,11 @@ import {
   QRepConfig,
   QRepWriteType,
 } from '@/grpc_generated/flow';
-import { DBType, Peer, dBTypeToJSON } from '@/grpc_generated/peers';
+import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
 import { Dispatch, SetStateAction } from 'react';
+
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
+
 import {
   cdcSchema,
   flowNameSchema,
@@ -33,31 +35,11 @@ export const IsQueuePeer = (peerType?: DBType): boolean => {
   );
 };
 
-export const handlePeer = (
-  peer: Peer | null,
-  peerEnd: 'src' | 'dst',
-  setConfig: (value: SetStateAction<CDCConfig | QRepConfig>) => void
-) => {
-  if (!peer) return;
-  if (peerEnd === 'dst') {
-    setConfig((curr) => ({
-      ...curr,
-      destination: peer,
-      destinationPeer: peer,
-    }));
-  } else {
-    setConfig((curr) => ({
-      ...curr,
-      source: peer,
-      sourcePeer: peer,
-    }));
-  }
-};
-
 const CDCCheck = (
   flowJobName: string,
   rows: TableMapRow[],
-  config: CDCConfig
+  config: CDCConfig,
+  destinationType: DBType
 ) => {
   const flowNameValid = flowNameSchema.safeParse(flowJobName);
   if (!flowNameValid.success) {
@@ -82,7 +64,7 @@ const CDCCheck = (
     config.replicationSlotName = '';
   }
 
-  if (IsQueuePeer(config.destination?.type)) {
+  if (IsQueuePeer(destinationType)) {
     config.softDelete = false;
   }
 
@@ -163,10 +145,11 @@ export const handleCreateCDC = async (
   flowJobName: string,
   rows: TableMapRow[],
   config: CDCConfig,
+  destinationType: DBType,
   setLoading: Dispatch<SetStateAction<boolean>>,
   route: RouteCallback
 ) => {
-  const err = CDCCheck(flowJobName, rows, config);
+  const err = CDCCheck(flowJobName, rows, config, destinationType);
   if (err != '') {
     notifyErr(err);
     return;
@@ -202,6 +185,7 @@ export const handleCreateQRep = async (
   flowJobName: string,
   query: string,
   config: QRepConfig,
+  destinationType: DBType,
   setLoading: Dispatch<SetStateAction<boolean>>,
   route: RouteCallback,
   xmin?: boolean
@@ -255,14 +239,12 @@ export const handleCreateQRep = async (
   config.query = query;
 
   const isSchemaLessPeer =
-    config.destinationPeer?.type === DBType.BIGQUERY ||
-    config.destinationPeer?.type === DBType.CLICKHOUSE;
-  if (config.destinationPeer?.type !== DBType.ELASTICSEARCH) {
+    destinationType === DBType.BIGQUERY ||
+    destinationType === DBType.CLICKHOUSE;
+  if (destinationType !== DBType.ELASTICSEARCH) {
     if (isSchemaLessPeer && config.destinationTableIdentifier?.includes('.')) {
       notifyErr(
-        'Destination table should not be schema qualified for ' +
-          DBTypeToGoodText(config.destinationPeer?.type) +
-          ' targets'
+        `Destination table should not be schema qualified for ${DBTypeToGoodText(destinationType)} targets`
       );
       return;
     }
@@ -271,9 +253,7 @@ export const handleCreateQRep = async (
       !config.destinationTableIdentifier?.includes('.')
     ) {
       notifyErr(
-        'Destination table should be schema qualified for ' +
-          DBTypeToGoodText(config.destinationPeer?.type) +
-          ' targets'
+        `Destination table should be schema qualified for ${DBTypeToGoodText(destinationType)} targets`
       );
       return;
     }
@@ -428,10 +408,11 @@ export const handleValidateCDC = async (
   flowJobName: string,
   rows: TableMapRow[],
   config: CDCConfig,
+  destinationType: DBType,
   setLoading: Dispatch<SetStateAction<boolean>>
 ) => {
   setLoading(true);
-  const err = CDCCheck(flowJobName, rows, config);
+  const err = CDCCheck(flowJobName, rows, config, destinationType);
   if (err != '') {
     notifyErr(err);
     setLoading(false);

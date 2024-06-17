@@ -12,6 +12,8 @@ import TableMapping from './tablemapping';
 interface MirrorConfigProps {
   settings: MirrorSetting[];
   mirrorConfig: CDCConfig;
+  destinationType: DBType;
+  sourceType: DBType;
   setter: MirrorSetter;
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
@@ -33,6 +35,8 @@ export const defaultSyncMode = (dtype: DBType | undefined) => {
 export default function CDCConfigForm({
   settings,
   mirrorConfig,
+  destinationType,
+  sourceType,
   setter,
   rows,
   setRows,
@@ -45,22 +49,24 @@ export default function CDCConfigForm({
     setting.stateHandler(stateVal, setter);
   };
 
-  const normalSettings = useMemo(() => {
-    return settings!.filter(
-      (setting) =>
-        !(
-          (IsQueuePeer(mirrorConfig.destination?.type) &&
-            setting.advanced === AdvancedSettingType.QUEUE) ||
-          setting.advanced === AdvancedSettingType.ALL
-        )
-    );
-  }, [settings, mirrorConfig.destination?.type]);
+  const normalSettings = useMemo(
+    () =>
+      settings!.filter(
+        (setting) =>
+          !(
+            (IsQueuePeer(destinationType) &&
+              setting.advanced === AdvancedSettingType.QUEUE) ||
+            setting.advanced === AdvancedSettingType.ALL
+          )
+      ),
+    [settings, destinationType]
+  );
 
   const advancedSettings = useMemo(() => {
     return settings!
       .map((setting) => {
         if (
-          IsQueuePeer(mirrorConfig.destination?.type) &&
+          IsQueuePeer(destinationType) &&
           setting.advanced === AdvancedSettingType.QUEUE
         ) {
           setting.stateHandler(600, setter);
@@ -71,30 +77,29 @@ export default function CDCConfigForm({
         }
       })
       .filter((setting) => setting !== undefined);
-  }, [settings, mirrorConfig.destination?.type, setter]);
+  }, [settings, destinationType, setter]);
 
   const paramDisplayCondition = (setting: MirrorSetting) => {
     const label = setting.label.toLowerCase();
-    const isQueue = IsQueuePeer(mirrorConfig.destination?.type);
+    const isQueue = IsQueuePeer(destinationType);
     if (
       (label.includes('snapshot') && mirrorConfig.doInitialSnapshot !== true) ||
       (label === 'replication slot name' &&
         mirrorConfig.doInitialSnapshot === true) ||
       (label.includes('staging path') &&
-        defaultSyncMode(mirrorConfig.destination?.type) !== 'AVRO') ||
+        defaultSyncMode(destinationType) !== 'AVRO') ||
       (isQueue && label.includes('soft delete')) ||
-      (mirrorConfig.destination?.type === DBType.EVENTHUBS &&
+      (destinationType === DBType.EVENTHUBS &&
         (label.includes('initial copy') ||
           label.includes('initial load') ||
           label.includes('snapshot'))) ||
-      ((mirrorConfig.source?.type !== DBType.POSTGRES ||
-        mirrorConfig.destination?.type !== DBType.POSTGRES) &&
+      ((sourceType !== DBType.POSTGRES ||
+        destinationType !== DBType.POSTGRES) &&
         label.includes('type system')) ||
-      (mirrorConfig.destination?.type !== DBType.BIGQUERY &&
-        label.includes('column name')) ||
+      (destinationType !== DBType.BIGQUERY && label.includes('column name')) ||
       (label.includes('soft delete') &&
         ![DBType.BIGQUERY, DBType.POSTGRES, DBType.SNOWFLAKE].includes(
-          mirrorConfig.destination?.type ?? DBType.UNRECOGNIZED
+          destinationType ?? DBType.UNRECOGNIZED
         ))
     ) {
       return false;
@@ -104,17 +109,17 @@ export default function CDCConfigForm({
 
   useEffect(() => {
     setPubLoading(true);
-    fetchPublications(mirrorConfig.source?.name || '').then((pubs) => {
+    fetchPublications(mirrorConfig.source || '').then((pubs) => {
       setPublications(pubs);
       setPubLoading(false);
     });
-  }, [mirrorConfig.source?.name]);
+  }, [mirrorConfig.source]);
 
   if (mirrorConfig.source != undefined && mirrorConfig.destination != undefined)
     return (
       <>
-        {normalSettings!.map((setting, id) => {
-          return (
+        {normalSettings!.map(
+          (setting, id) =>
             paramDisplayCondition(setting!) && (
               <CDCField
                 key={id}
@@ -128,8 +133,7 @@ export default function CDCConfigForm({
                 optionsLoading={pubLoading}
               />
             )
-          );
-        })}
+        )}
         <Button
           className='IconButton'
           aria-label='collapse'
@@ -150,7 +154,7 @@ export default function CDCConfigForm({
         </Button>
 
         {show &&
-          advancedSettings!.map((setting, id) => {
+          advancedSettings!.map((setting) => {
             return (
               paramDisplayCondition(setting!) && (
                 <CDCField
@@ -163,10 +167,10 @@ export default function CDCConfigForm({
           })}
 
         <TableMapping
-          sourcePeerName={mirrorConfig.source?.name}
+          sourcePeerName={mirrorConfig.source}
           rows={rows}
           setRows={setRows}
-          peerType={mirrorConfig.destination?.type}
+          peerType={destinationType}
           omitAdditionalTablesMapping={new Map<string, string[]>()}
         />
       </>

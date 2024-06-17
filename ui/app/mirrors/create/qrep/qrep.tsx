@@ -2,6 +2,7 @@
 import SelectTheme from '@/app/styles/select';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepConfig, QRepWriteType } from '@/grpc_generated/flow';
+import { DBType } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch';
@@ -19,6 +20,7 @@ import UpsertColsDisplay from './upsertcols';
 interface QRepConfigProps {
   settings: MirrorSetting[];
   mirrorConfig: QRepConfig;
+  destinationType: DBType;
   setter: MirrorSetter;
   xmin?: boolean;
 }
@@ -38,6 +40,7 @@ const allowedTypesForWatermarkColumn = [
 export default function QRepConfigForm({
   settings,
   mirrorConfig,
+  destinationType,
   setter,
   xmin,
 }: QRepConfigProps) {
@@ -78,7 +81,7 @@ export default function QRepConfigForm({
         mirrorConfig.writeMode?.writeType !=
           QRepWriteType.QREP_WRITE_MODE_UPSERT) ||
       (label.includes('staging') &&
-        defaultSyncMode(mirrorConfig.destinationPeer?.type) !== 'AVRO') ||
+        defaultSyncMode(destinationType) !== 'AVRO') ||
       (label.includes('watermark column') && xmin) ||
       (label.includes('initial copy') && xmin)
     ) {
@@ -90,22 +93,19 @@ export default function QRepConfigForm({
   const loadColumnOptions = (tableIdentifier: string) => {
     const schema = tableIdentifier.split('.')[0];
     const table = tableIdentifier.split('.')[1];
-    fetchColumns(
-      mirrorConfig.sourcePeer?.name ?? '',
-      schema,
-      table,
-      setLoading
-    ).then((cols) => {
-      const filteredCols = cols?.filter((col) =>
-        allowedTypesForWatermarkColumn.includes(col.split(':')[1])
-      );
-      setWatermarkColumns(
-        filteredCols.map((col) => ({
-          value: col.split(':')[0],
-          label: `${col.split(':')[0]} (${col.split(':')[1]})`,
-        }))
-      );
-    });
+    fetchColumns(mirrorConfig.sourcePeer, schema, table, setLoading).then(
+      (cols) => {
+        const filteredCols = cols?.filter((col) =>
+          allowedTypesForWatermarkColumn.includes(col.split(':')[1])
+        );
+        setWatermarkColumns(
+          filteredCols.map((col) => ({
+            value: col.split(':')[0],
+            label: `${col.split(':')[0]} (${col.split(':')[1]})`,
+          }))
+        );
+      }
+    );
   };
 
   const handleSourceChange = (
@@ -121,7 +121,7 @@ export default function QRepConfigForm({
   };
 
   useEffect(() => {
-    fetchAllTables(mirrorConfig.sourcePeer?.name ?? '').then((tables) =>
+    fetchAllTables(mirrorConfig.sourcePeer).then((tables) =>
       setSourceTables(tables?.map((table) => ({ value: table, label: table })))
     );
   }, [mirrorConfig.sourcePeer]);
@@ -132,7 +132,7 @@ export default function QRepConfigForm({
   }, [setter]);
   return (
     <>
-      {mirrorConfig.sourcePeer?.name ? (
+      {mirrorConfig.sourcePeer ? (
         settings.map((setting, id) => {
           return (
             paramDisplayCondition(setting) &&
@@ -204,7 +204,7 @@ export default function QRepConfigForm({
                               ? 'Select a column'
                               : 'Select a table'
                           }
-                          onChange={(val, action) =>
+                          onChange={(val, _action) =>
                             handleSourceChange(val?.value, setting)
                           }
                           isLoading={loading}

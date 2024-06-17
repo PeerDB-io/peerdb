@@ -21,8 +21,8 @@ export interface MirrorSetting {
 }
 
 export const blankCDCSetting: CDCConfig = {
-  source: undefined,
-  destination: undefined,
+  source: '',
+  destination: '',
   flowJobName: '',
   tableMappings: [],
   maxBatchSize: 1000000,
