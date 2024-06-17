@@ -15,6 +15,12 @@ If you want to learn more about Quarkus, please visit its website: https://quark
 ```shell script
 ./gradlew quarkusGenerateCode
 ```
+
+or
+```shell
+./gradlew clean quarkusGenerateCode
+```
+
 ## Running the application in dev mode (`quarkusGenerateCode` can be skipped)
 
 You can run your application in dev mode that enables live coding using:
