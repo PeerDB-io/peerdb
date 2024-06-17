@@ -406,30 +406,6 @@ func GetByNameAs[T Connector](ctx context.Context, catalogPool *pgxpool.Pool, na
 	return GetAs[T](ctx, peer)
 }
 
-func GetCDCPullConnector(ctx context.Context, config *protos.Peer) (CDCPullConnector, error) {
-	return GetAs[CDCPullConnector](ctx, config)
-}
-
-func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConnector, error) {
-	return GetAs[CDCSyncConnector](ctx, config)
-}
-
-func GetCDCNormalizeConnector(ctx context.Context, config *protos.Peer) (CDCNormalizeConnector, error) {
-	return GetAs[CDCNormalizeConnector](ctx, config)
-}
-
-func GetQRepPullConnector(ctx context.Context, config *protos.Peer) (QRepPullConnector, error) {
-	return GetAs[QRepPullConnector](ctx, config)
-}
-
-func GetQRepSyncConnector(ctx context.Context, config *protos.Peer) (QRepSyncConnector, error) {
-	return GetAs[QRepSyncConnector](ctx, config)
-}
-
-func GetQRepConsolidateConnector(ctx context.Context, config *protos.Peer) (QRepConsolidateConnector, error) {
-	return GetAs[QRepConsolidateConnector](ctx, config)
-}
-
 func CloseConnector(ctx context.Context, conn Connector) {
 	err := conn.Close()
 	if err != nil {

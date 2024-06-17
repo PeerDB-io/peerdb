@@ -119,8 +119,8 @@ func (a *SnapshotActivity) SetupReplication(
 	}, nil
 }
 
-func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, peer *protos.Peer) error {
-	conn, err := connectors.GetCDCPullConnector(ctx, peer)
+func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, peer string) error {
+	conn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, a.CatalogPool, peer)
 	if err != nil {
 		return err
 	}

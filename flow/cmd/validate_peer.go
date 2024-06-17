@@ -39,7 +39,6 @@ func (h *FlowRequestHandler) ValidatePeer(
 			Message: displayErr,
 		}, nil
 	}
-
 	defer conn.Close()
 
 	if req.Peer.Type == protos.DBType_POSTGRES {
@@ -58,10 +57,8 @@ func (h *FlowRequestHandler) ValidatePeer(
 		}
 	}
 
-	validationConn, ok := conn.(connectors.ValidationConnector)
-	if ok {
-		validErr := validationConn.ValidateCheck(ctx)
-		if validErr != nil {
+	if validationConn, ok := conn.(connectors.ValidationConnector); ok {
+		if validErr := validationConn.ValidateCheck(ctx); validErr != nil {
 			displayErr := fmt.Sprintf("failed to validate peer %s: %v", req.Peer.Name, validErr)
 			h.alerter.LogNonFlowWarning(ctx, telemetry.CreatePeer, req.Peer.Name,
 				displayErr,
@@ -73,8 +70,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 		}
 	}
 
-	connErr := conn.ConnectionActive(ctx)
-	if connErr != nil {
+	if connErr := conn.ConnectionActive(ctx); connErr != nil {
 		displayErr := fmt.Sprintf("failed to establish active connection to %s peer %s: %v", req.Peer.Type, req.Peer.Name, connErr)
 		h.alerter.LogNonFlowWarning(ctx, telemetry.CreatePeer, req.Peer.Name,
 			displayErr,
