@@ -7,14 +7,15 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
 
 const peerdbPauseGuideDocLink = "https://docs.peerdb.io/features/pause-mirror"
+const syncRequestLimit int32 = 32
 
 func (h *FlowRequestHandler) CustomSyncFlow(
 	ctx context.Context, req *protos.CreateCustomSyncRequest,
 ) (*protos.CreateCustomSyncResponse, error) {
+
 	errResponse := &protos.CreateCustomSyncResponse{
 		FlowJobName:   req.FlowJobName,
 		NumberOfSyncs: 0,
@@ -28,11 +29,11 @@ func (h *FlowRequestHandler) CustomSyncFlow(
 		return errResponse, nil
 	}
 
-	if req.NumberOfSyncs <= 0 || req.NumberOfSyncs > peerflow.MaxSyncsPerCdcFlow {
+	if req.NumberOfSyncs <= 0 || req.NumberOfSyncs > syncRequestLimit {
 		slog.Error("Invalid sync number request",
 			slog.Any("requested_number_of_syncs", req.NumberOfSyncs))
 		errResponse.ErrorMessage = fmt.Sprintf("Sync number request must be between 1 and %d (inclusive). Requested number: %d",
-			peerflow.MaxSyncsPerCdcFlow, req.NumberOfSyncs)
+			syncRequestLimit, req.NumberOfSyncs)
 		return errResponse, nil
 	}
 
