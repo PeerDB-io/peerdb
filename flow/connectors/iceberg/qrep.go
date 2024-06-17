@@ -3,6 +3,7 @@ package iceberg
 import (
 	"context"
 	"fmt"
+	"github.com/PeerDB-io/peer-flow/peerdbenv/features"
 	"log/slog"
 	"time"
 
@@ -20,8 +21,10 @@ func (c *IcebergConnector) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
-	return c.streamRecords(ctx, config, partition, stream)
-	//return c.sendRecordsJoined(ctx, config, partition, stream)
+	if features.IcebergFeatureStreamingEnabled(ctx) {
+		return c.streamRecords(ctx, config, partition, stream)
+	}
+	return c.sendRecordsJoined(ctx, config, partition, stream)
 }
 
 //nolint:unused
