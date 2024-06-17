@@ -9,8 +9,10 @@ import (
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
-const peerdbPauseGuideDocLink = "https://docs.peerdb.io/features/pause-mirror"
-const syncRequestLimit int32 = 32
+const (
+	peerdbPauseGuideDocLink string = "https://docs.peerdb.io/features/pause-mirror"
+	syncRequestLimit        int32  = 32
+)
 
 func (h *FlowRequestHandler) CustomSyncFlow(
 	ctx context.Context, req *protos.CreateCustomSyncRequest,
