@@ -112,6 +112,7 @@ func (c *IcebergConnector) streamRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
+	c.logger.Info("[iceberg qrep.go]:streaming records")
 	schema := stream.Schema()
 
 	schema.Fields = addPeerMetaColumns(schema.Fields, config.SoftDeleteColName, config.SyncedAtColName)
@@ -132,6 +133,7 @@ func (c *IcebergConnector) streamRecords(
 	if err != nil {
 		return 0, fmt.Errorf("failed to create Avro codec: %w", err)
 	}
+	c.logger.Info("obtained goavro codec")
 	requestIdempotencyKey := fmt.Sprintf("_peerdb_qrep-%s-%s", config.FlowJobName, partition.PartitionId)
 
 	tableHeader := &protos.AppendRecordTableHeader{
@@ -160,7 +162,12 @@ func (c *IcebergConnector) streamRecords(
 	}
 
 	recordCount := 0
+	once := true
 	for record := range stream.Records {
+		if once {
+			c.logger.Info("enter record loop", "record", record)
+			once = false
+		}
 		record = append(record,
 			// Add soft delete
 			qvalue.QValueBoolean{
@@ -179,6 +186,7 @@ func (c *IcebergConnector) streamRecords(
 		if err != nil {
 			return 0, fmt.Errorf("failed to convert Avro map to binary: %w", err)
 		}
+		c.logger.Info("sending record", "record", native)
 		insertRecord := &protos.InsertRecord{
 			Record: native,
 		}
@@ -190,14 +198,15 @@ func (c *IcebergConnector) streamRecords(
 		if err != nil {
 			return 0, err
 		}
+		c.logger.Info("sent record", "record", insertRecord)
 		recordCount++
 	}
 
+	c.logger.Info("closing record stream")
 	appendRecordsStreamResponse, err := recordStream.CloseAndRecv()
 	if err != nil {
 		return 0, err
 	}
-
 	logger.LoggerFromCtx(ctx).Info("AppendRecordsResponse", slog.Any("response", appendRecordsStreamResponse.Success))
 
 	err = c.PostgresMetadata.FinishQRepPartition(ctx, partition, config.FlowJobName, time.Now())
