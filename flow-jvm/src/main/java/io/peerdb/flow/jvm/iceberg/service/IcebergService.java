@@ -48,6 +48,7 @@ public class IcebergService {
     RecordWriterFactory recordWriterFactory;
 
     private static void writeRecordStream(Stream<InsertRecord> recordStream, AvroIcebergRecordConverter converter, TaskWriter<Record> writer) {
+        // use non parallel and use multi everywhere
         recordStream.parallel().map(insertRecord -> {
             try {
                 return converter.toIcebergRecord(insertRecord.getRecord().toByteArray());

@@ -73,24 +73,9 @@ public class IcebergResource implements IcebergProxyService {
     @Blocking
     @Override
     public Uni<AppendRecordsStreamResponse> streamingAppendRecords(Multi<AppendRecordsStreamRequest> request) {
-        return Uni.createFrom().item(Unchecked.supplier(() -> {
-//            var firstMessage = Uni.createFrom().multi(request).await().indefinitely();
-//            if (!firstMessage.hasTableInfo()) {
-//                throw new IllegalArgumentException("TableInfo should be present in the first message");
-//            }
-//            var tableInfo = firstMessage.getTableInfo();
-//            var insertRecords = request.map(Unchecked.function(message -> {
-//                if (message.hasRecord()) {
-//                    return message.getRecord();
-//                } else {
-//                    throw new IllegalArgumentException("Only InsertRecord is supported");
-//                }
-//            })).subscribe().asStream();
-
-            return AppendRecordsStreamResponse.newBuilder()
-                    .setSuccess(icebergService.processAppendRecordsStreamRequest(request))
-                    .build();
-        }));
+        return Uni.createFrom().item(Unchecked.supplier(() -> AppendRecordsStreamResponse.newBuilder()
+                .setSuccess(icebergService.processAppendRecordsStreamRequest(request))
+                .build()));
 
     }
 }
