@@ -65,7 +65,7 @@ func EventhubsCreds() (*protos.EventHubConfig, error) {
 }
 
 func (s EventhubsSuite) Peer(config *protos.EventHubConfig) *protos.Peer {
-	return &protos.Peer{
+	ret := &protos.Peer{
 		Name: e2e.AddSuffix(s, "eventhubs"),
 		Type: protos.DBType_EVENTHUBS,
 		Config: &protos.Peer_EventhubGroupConfig{
@@ -84,6 +84,8 @@ func (s EventhubsSuite) Peer(config *protos.EventHubConfig) *protos.Peer {
 			},
 		},
 	}
+	e2e.CreatePeer(s.t, ret)
+	return ret
 }
 
 func (s EventhubsSuite) GetEventhubName() string {

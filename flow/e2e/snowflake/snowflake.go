@@ -76,7 +76,7 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSF {
 		t.Fatalf("failed to setup Postgres: %v", err)
 	}
 
-	sfHelper, err := NewSnowflakeTestHelper()
+	sfHelper, err := NewSnowflakeTestHelper(t)
 	if err != nil {
 		t.Fatalf("failed to setup Snowflake: %v", err)
 	}

@@ -42,7 +42,7 @@ func (s KafkaSuite) Suffix() string {
 }
 
 func (s KafkaSuite) Peer() *protos.Peer {
-	return &protos.Peer{
+	ret := &protos.Peer{
 		Name: e2e.AddSuffix(s, "kafka"),
 		Type: protos.DBType_KAFKA,
 		Config: &protos.Peer_KafkaConfig{
@@ -52,6 +52,8 @@ func (s KafkaSuite) Peer() *protos.Peer {
 			},
 		},
 	}
+	e2e.CreatePeer(s.t, ret)
+	return ret
 }
 
 func (s KafkaSuite) DestinationTable(table string) string {

@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"testing"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
+	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -30,7 +32,9 @@ type SnowflakeTestHelper struct {
 	testDatabaseName string
 }
 
-func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
+func NewSnowflakeTestHelper(t *testing.T) (*SnowflakeTestHelper, error) {
+	t.Helper()
+
 	jsonPath := os.Getenv("TEST_SF_CREDS")
 	if jsonPath == "" {
 		return nil, errors.New("TEST_SF_CREDS env var not set")
@@ -42,12 +46,11 @@ func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
 	}
 
 	var config *protos.SnowflakeConfig
-	err = json.Unmarshal(content, &config)
-	if err != nil {
+	if err := json.Unmarshal(content, &config); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 	}
 
-	peer := generateSFPeer(config)
+	peer := generateSFPeer(t, config)
 	runID, err := shared.RandomUInt64()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate random uint64: %w", err)
@@ -83,15 +86,16 @@ func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
 	}, nil
 }
 
-func generateSFPeer(snowflakeConfig *protos.SnowflakeConfig) *protos.Peer {
-	ret := &protos.Peer{}
-	ret.Name = "test_sf_peer"
-	ret.Type = protos.DBType_SNOWFLAKE
-
-	ret.Config = &protos.Peer_SnowflakeConfig{
-		SnowflakeConfig: snowflakeConfig,
+func generateSFPeer(t *testing.T, snowflakeConfig *protos.SnowflakeConfig) *protos.Peer {
+	t.Helper()
+	ret := &protos.Peer{
+		Name: "test_sf_peer",
+		Type: protos.DBType_SNOWFLAKE,
+		Config: &protos.Peer_SnowflakeConfig{
+			SnowflakeConfig: snowflakeConfig,
+		},
 	}
-
+	e2e.CreatePeer(t, ret)
 	return ret
 }
 

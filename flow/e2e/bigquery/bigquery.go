@@ -89,7 +89,7 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteBQ {
 		t.Fatalf("failed to setup postgres: %v", err)
 	}
 
-	bqHelper, err := NewBigQueryTestHelper()
+	bqHelper, err := NewBigQueryTestHelper(t)
 	if err != nil {
 		t.Fatalf("Failed to create helper: %v", err)
 	}

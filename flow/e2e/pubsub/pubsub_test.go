@@ -67,7 +67,7 @@ func ServiceAccount() (*utils.GcpServiceAccount, error) {
 }
 
 func (s PubSubSuite) Peer(sa *utils.GcpServiceAccount) *protos.Peer {
-	return &protos.Peer{
+	ret := &protos.Peer{
 		Name: e2e.AddSuffix(s, "pubsub"),
 		Type: protos.DBType_PUBSUB,
 		Config: &protos.Peer_PubsubConfig{
@@ -87,6 +87,8 @@ func (s PubSubSuite) Peer(sa *utils.GcpServiceAccount) *protos.Peer {
 			},
 		},
 	}
+	e2e.CreatePeer(s.t, ret)
+	return ret
 }
 
 func (s PubSubSuite) DestinationTable(table string) string {

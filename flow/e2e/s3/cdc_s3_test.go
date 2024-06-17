@@ -36,7 +36,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowJobName,
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.s3Helper.GetPeer(),
+		Destination:      s.s3Helper.GetPeer(s.t),
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)

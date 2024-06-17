@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"os"
 	"strings"
+	"testing"
 	"time"
 
 	"cloud.google.com/go/bigquery"
@@ -16,6 +17,7 @@ import (
 	"google.golang.org/api/iterator"
 
 	peer_bq "github.com/PeerDB-io/peer-flow/connectors/bigquery"
+	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -35,7 +37,8 @@ type BigQueryTestHelper struct {
 }
 
 // NewBigQueryTestHelper creates a new BigQueryTestHelper.
-func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
+func NewBigQueryTestHelper(t *testing.T) (*BigQueryTestHelper, error) {
+	t.Helper()
 	// random 64 bit int to namespace stateful schemas.
 	runID, err := shared.RandomUInt64()
 	if err != nil {
@@ -53,8 +56,7 @@ func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 	}
 
 	var config *protos.BigqueryConfig
-	err = json.Unmarshal(content, &config)
-	if err != nil {
+	if err := json.Unmarshal(content, &config); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 	}
 
@@ -71,24 +73,24 @@ func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 		return nil, fmt.Errorf("failed to create helper BigQuery client: %v", err)
 	}
 
-	peer := generateBQPeer(config)
-
 	return &BigQueryTestHelper{
 		runID:  runID,
 		Config: config,
 		client: client,
-		Peer:   peer,
+		Peer:   generateBQPeer(t, config),
 	}, nil
 }
 
-func generateBQPeer(bigQueryConfig *protos.BigqueryConfig) *protos.Peer {
-	ret := &protos.Peer{}
-	ret.Name = "test_bq_peer"
-	ret.Type = protos.DBType_BIGQUERY
-
-	ret.Config = &protos.Peer_BigqueryConfig{
-		BigqueryConfig: bigQueryConfig,
+func generateBQPeer(t *testing.T, bigQueryConfig *protos.BigqueryConfig) *protos.Peer {
+	t.Helper()
+	ret := &protos.Peer{
+		Name: "test_bq_peer",
+		Type: protos.DBType_BIGQUERY,
+		Config: &protos.Peer_BigqueryConfig{
+			BigqueryConfig: bigQueryConfig,
+		},
 	}
+	e2e.CreatePeer(t, ret)
 
 	return ret
 }

@@ -68,6 +68,7 @@ func SetupSuite(t *testing.T) elasticsearchSuite {
 			},
 		},
 	}
+	e2e.CreatePeer(t, suite.peer)
 
 	return suite
 }
