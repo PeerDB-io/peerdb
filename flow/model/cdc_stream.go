@@ -20,6 +20,7 @@ type CDCStream[T Items] struct {
 	lastCheckpointSet bool
 	// lastCheckpointID is the last ID of the commit that corresponds to this batch.
 	lastCheckpointID atomic.Int64
+	needsNormalize   atomic.Bool
 }
 
 func NewCDCStream[T Items](channelBuffer int) *CDCStream[T] {
@@ -29,6 +30,7 @@ func NewCDCStream[T Items](channelBuffer int) *CDCStream[T] {
 		emptySignal:       make(chan bool, 1),
 		lastCheckpointSet: false,
 		lastCheckpointID:  atomic.Int64{},
+		needsNormalize:    atomic.Bool{},
 	}
 }
 
@@ -44,6 +46,13 @@ func (r *CDCStream[T]) GetLastCheckpoint() int64 {
 }
 
 func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
+	if !r.needsNormalize.Load() {
+		switch record.(type) {
+		case *InsertRecord[T], *UpdateRecord[T], *DeleteRecord[T]:
+			r.needsNormalize.Store(true)
+		}
+	}
+
 	logger := logger.LoggerFromCtx(ctx)
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
@@ -91,4 +100,8 @@ func (r *CDCStream[T]) AddSchemaDelta(
 	delta *protos.TableSchemaDelta,
 ) {
 	r.SchemaDeltas = append(r.SchemaDeltas, delta)
+}
+
+func (r *CDCStream[T]) NeedsNormalize() bool {
+	return r.needsNormalize.Load()
 }

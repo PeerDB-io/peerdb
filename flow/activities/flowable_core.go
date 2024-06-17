@@ -76,7 +76,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	adaptStream func(*model.CDCStream[Items]) (*model.CDCStream[Items], error),
 	pull func(TPull, context.Context, *pgxpool.Pool, *model.PullRecordsRequest[Items]) error,
 	sync func(TSync, context.Context, *model.SyncRecordsRequest[Items]) (*model.SyncResponse, error),
-) (*model.SyncResponse, error) {
+) (*model.SyncCompositeResponse, error) {
 	flowName := config.FlowJobName
 	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
 	logger := activity.GetLogger(ctx)
@@ -176,9 +176,12 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
-		return &model.SyncResponse{
-			CurrentSyncBatchID: -1,
-			TableSchemaDeltas:  recordBatchSync.SchemaDeltas,
+		return &model.SyncCompositeResponse{
+			SyncResponse: &model.SyncResponse{
+				CurrentSyncBatchID: -1,
+				TableSchemaDeltas:  recordBatchSync.SchemaDeltas,
+			},
+			NeedsNormalize: false,
 		}, nil
 	}
 
@@ -273,7 +276,10 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	activity.RecordHeartbeat(ctx, pushedRecordsWithCount)
 	a.Alerter.LogFlowInfo(ctx, flowName, pushedRecordsWithCount)
 
-	return res, nil
+	return &model.SyncCompositeResponse{
+		SyncResponse:   res,
+		NeedsNormalize: recordBatchSync.NeedsNormalize(),
+	}, nil
 }
 
 func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*protos.Peer, error) {

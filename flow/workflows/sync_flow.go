@@ -111,7 +111,7 @@ func SyncFlowWorkflow(
 		selector.AddFuture(syncFlowFuture, func(f workflow.Future) {
 			syncDone = true
 
-			var childSyncFlowRes *model.SyncResponse
+			var childSyncFlowRes *model.SyncCompositeResponse
 			if err := f.Get(ctx, &childSyncFlowRes); err != nil {
 				logger.Error("failed to execute sync flow", slog.Any("error", err))
 				_ = model.SyncResultSignal.SignalExternalWorkflow(
@@ -126,18 +126,18 @@ func SyncFlowWorkflow(
 					ctx,
 					parent.ID,
 					"",
-					childSyncFlowRes,
+					childSyncFlowRes.SyncResponse,
 				).Get(ctx, nil)
-				totalRecordsSynced += childSyncFlowRes.NumRecordsSynced
+				totalRecordsSynced += childSyncFlowRes.SyncResponse.NumRecordsSynced
 				logger.Info("Total records synced: ",
 					slog.Int64("totalRecordsSynced", totalRecordsSynced))
 
-				tableSchemaDeltasCount := len(childSyncFlowRes.TableSchemaDeltas)
+				tableSchemaDeltasCount := len(childSyncFlowRes.SyncResponse.TableSchemaDeltas)
 
 				// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
 				if tableSchemaDeltasCount > 0 {
 					modifiedSrcTables := make([]string, 0, tableSchemaDeltasCount)
-					for _, tableSchemaDelta := range childSyncFlowRes.TableSchemaDeltas {
+					for _, tableSchemaDelta := range childSyncFlowRes.SyncResponse.TableSchemaDeltas {
 						modifiedSrcTables = append(modifiedSrcTables, tableSchemaDelta.SrcTableName)
 					}
 
@@ -168,18 +168,22 @@ func SyncFlowWorkflow(
 					}
 				}
 
-				err := model.NormalizeSignal.SignalExternalWorkflow(
-					ctx,
-					parent.ID,
-					"",
-					model.NormalizePayload{
-						Done:                   false,
-						SyncBatchID:            childSyncFlowRes.CurrentSyncBatchID,
-						TableNameSchemaMapping: options.TableNameSchemaMapping,
-					},
-				).Get(ctx, nil)
-				if err != nil {
-					logger.Error("failed to trigger normalize, so skip wait", slog.Any("error", err))
+				if childSyncFlowRes.NeedsNormalize {
+					err := model.NormalizeSignal.SignalExternalWorkflow(
+						ctx,
+						parent.ID,
+						"",
+						model.NormalizePayload{
+							Done:                   false,
+							SyncBatchID:            childSyncFlowRes.SyncResponse.CurrentSyncBatchID,
+							TableNameSchemaMapping: options.TableNameSchemaMapping,
+						},
+					).Get(ctx, nil)
+					if err != nil {
+						logger.Error("failed to trigger normalize, so skip wait", slog.Any("error", err))
+						mustWait = false
+					}
+				} else {
 					mustWait = false
 				}
 			} else {
