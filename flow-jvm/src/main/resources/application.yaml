@@ -16,7 +16,7 @@ quarkus:
       "io.peerdb":
         level: ${PEERDB_LOG_LEVEL:INFO}
         # This is build time
-        min-level: ${PEERDB_MIN_LOG_LEVEL:DEBUG}
+        min-level: ${PEERDB_MIN_LOG_LEVEL:INFO}
 
     console:
       level: ${PEERDB_LOG_LEVEL:INFO}
