@@ -1,7 +1,11 @@
 'use client';
 import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import SelectTheme from '@/app/styles/select';
-import { formatGraphLabel, timeOptions } from '@/app/utils/graph';
+import {
+  formatGraphLabel,
+  TimeAggregateTypes,
+  timeOptions,
+} from '@/app/utils/graph';
 import { Label } from '@/lib/Label';
 import { BarChart } from '@tremor/react';
 import { useMemo, useState } from 'react';
@@ -9,7 +13,9 @@ import ReactSelect from 'react-select';
 import aggregateCountsByInterval from './aggregatedCountsByInterval';
 
 function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
-  let [aggregateType, setAggregateType] = useState('hour');
+  let [aggregateType, setAggregateType] = useState<TimeAggregateTypes>(
+    TimeAggregateTypes.HOUR
+  );
 
   const graphValues = useMemo(() => {
     const rows = syncs.map((sync) => ({
@@ -32,7 +38,7 @@ function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
           id={aggregateType}
           placeholder='Select a timeframe'
           options={timeOptions}
-          defaultValue={{ label: 'hour', value: 'hour' }}
+          defaultValue={timeOptions.at(3)}
           onChange={(val, _) => val && setAggregateType(val.value)}
           theme={SelectTheme}
         />
