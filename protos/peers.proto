@@ -174,7 +174,7 @@ message IcebergS3IoConfig {
   optional string secret_access_key = 2;
   optional string endpoint = 3;
   // Set to true to use for services like MinIO
-  optional string path_style_access = 4;
+  optional bool path_style_access = 4;
   // For enabling cross region bucket access, works when https://github.com/apache/iceberg/issues/9785 is resolved
   optional string cross_region_access_enabled = 5;
 }

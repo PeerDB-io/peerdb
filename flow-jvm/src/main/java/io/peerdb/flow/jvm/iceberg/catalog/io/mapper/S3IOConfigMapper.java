@@ -18,7 +18,7 @@ public class S3IOConfigMapper extends FileIOConfigMapper<IcebergS3IoConfig> {
             builder.put(S3FileIOProperties.ENDPOINT, config.getEndpoint());
         }
         if (config.hasPathStyleAccess()) {
-            builder.put(S3FileIOProperties.PATH_STYLE_ACCESS, config.getPathStyleAccess());
+            builder.put(S3FileIOProperties.PATH_STYLE_ACCESS, String.valueOf(config.getPathStyleAccess()));
         }
         if (config.hasCrossRegionAccessEnabled()) {
             // This only works when https://github.com/apache/iceberg/issues/9785 is fixed or {@link io.peerdb.flow.jvm.iceberg.catalog.io.mapper.FixedS3FileIO} is added
