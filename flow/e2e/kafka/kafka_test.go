@@ -149,9 +149,9 @@ func (s KafkaSuite) TestMessage() {
 		`, srcTableName))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values ('e2e_kamessage', 'lua',
+	_, err = s.Conn().Exec(context.Background(), `INSERT INTO public.scripts (name, lang, source) values ('e2e_kamessage', 'lua',
 	'function onRecord(r) if r.kind == "message" then return { topic = r.prefix, value = r.content } end end'
-	) on conflict do nothing`)
+	) ON CONFLICT DO NOTHING`)
 	require.NoError(s.t, err)
 
 	flowName := e2e.AddSuffix(s, "kamessage")
@@ -167,7 +167,9 @@ func (s KafkaSuite) TestMessage() {
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	_, err = s.Conn().Exec(context.Background(), "select pg_logical_emit_message(false, 'topic', '\\x686561727462656174'::bytea)")
+	_, err = s.Conn().Exec(context.Background(), "SELECT pg_logical_emit_message(false, 'topic', '\\x686561727462656174'::bytea)")
+	require.NoError(s.t, err)
+	_, err = s.Conn().Exec(context.Background(), "INSERT INTO %s (val) VALUES ('trigger_normalize')", srcTableName)
 	require.NoError(s.t, err)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize message", func() bool {
