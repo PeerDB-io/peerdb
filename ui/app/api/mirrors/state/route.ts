@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     const res: MirrorStatusResponse = await fetch(
       `${flowServiceAddr}/v1/mirrors/${body.flowJobName}?` +
         new URLSearchParams({
-          include_flow_info: 'true',
+          include_flow_info: body.includeFlowInfo?.toString() || 'true',
         }),
       {
         cache: 'no-store',
