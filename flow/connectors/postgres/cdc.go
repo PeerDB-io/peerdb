@@ -342,14 +342,18 @@ func PullCdcRecords[Items model.Items](
 	nextStandbyMessageDeadline := time.Now().Add(standbyMessageTimeout)
 
 	addRecordWithKey := func(key model.TableWithPkey, rec model.Record[Items]) error {
-		err := cdcRecordsStorage.Set(logger, key, rec)
-		if err != nil {
-			return err
+		switch rec.(type) {
+		case *model.InsertRecord[Items], *model.UpdateRecord[Items], *model.DeleteRecord[Items]:
+			if err := cdcRecordsStorage.Set(logger, key, rec); err != nil {
+				return err
+			}
 		}
+
 		if err := records.AddRecord(ctx, rec); err != nil {
 			return err
 		}
 
+		// MessageRecord doesn't trigger signal to setup sync connector, which is fine for now
 		if cdcRecordsStorage.Len() == 1 {
 			records.SignalAsNotEmpty()
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
