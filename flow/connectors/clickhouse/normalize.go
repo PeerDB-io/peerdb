@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -120,7 +121,12 @@ func generateCreateTableSQLForNormalizedTable(
 	return stmtBuilder.String(), nil
 }
 
-func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
+func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
+	req *model.NormalizeRecordsRequest,
+) (*model.NormalizeResponse, error) {
+	// fix for potential consistency issues
+	time.Sleep(3 * time.Second)
+
 	normBatchID, err := c.GetLastNormalizeBatchID(ctx, req.FlowJobName)
 	if err != nil {
 		c.logger.Error("[clickhouse] error while getting last sync and normalize batch id", "error", err)
