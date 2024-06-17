@@ -1,5 +1,5 @@
 import { TimeAggregateTypes } from '@/app/utils/graph';
-import { roundToNearestMinutes, NearestMinutes } from 'date-fns';
+import { NearestMinutes, roundToNearestMinutes } from 'date-fns';
 import moment from 'moment';
 
 type timestampType = {

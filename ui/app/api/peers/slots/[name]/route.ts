@@ -8,9 +8,8 @@ export async function GET(
 ) {
   const timeSince = request.nextUrl.searchParams.get('timeSince');
 
-
-  const lagPoints: { updated_at: Date; slot_size: bigint }[] = await prisma.$queryRaw
-    `
+  const lagPoints: { updated_at: Date; slot_size: bigint }[] =
+    await prisma.$queryRaw`
     select updated_at, slot_size
     from peerdb_stats.peer_slot_size
     where slot_size is not null
