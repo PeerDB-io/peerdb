@@ -15,7 +15,6 @@ const syncRequestLimit int32 = 32
 func (h *FlowRequestHandler) CustomSyncFlow(
 	ctx context.Context, req *protos.CreateCustomSyncRequest,
 ) (*protos.CreateCustomSyncResponse, error) {
-
 	errResponse := &protos.CreateCustomSyncResponse{
 		FlowJobName:   req.FlowJobName,
 		NumberOfSyncs: 0,
