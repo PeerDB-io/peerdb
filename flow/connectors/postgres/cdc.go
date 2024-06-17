@@ -349,7 +349,6 @@ func PullCdcRecords[Items model.Items](
 			return err
 		}
 
-		// MessageRecord doesn't trigger signal to setup sync connector, which is fine for now
 		if cdcRecordsStorage.Len() == 1 {
 			records.SignalAsNotEmpty()
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
