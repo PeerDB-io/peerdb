@@ -18,12 +18,14 @@ type EditMirrorProps = {
 
 function getMirrorStatusUrl(mirrorId: string) {
   let base = GetFlowHttpAddressFromEnv();
-  return `${base}/v1/mirrors/${mirrorId}`;
+  return `${base}/v1/mirrors/${mirrorId}?include_flow_info=true`;
 }
 
 async function getMirrorStatus(mirrorId: string) {
   const url = getMirrorStatusUrl(mirrorId);
-  const resp = await fetch(url, { cache: 'no-store' });
+  const resp = await fetch(url, {
+    cache: 'no-store',
+  });
   const json = await resp.json();
   return json;
 }
