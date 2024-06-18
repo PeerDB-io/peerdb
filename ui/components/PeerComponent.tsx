@@ -50,6 +50,7 @@ export const DBTypeToImageMapping = (peerType: DBType | string) => {
     case DBType.ELASTICSEARCH:
     case 'ELASTICSEARCH':
       return '/svgs/elasticsearch.svg';
+    case DBType.ICEBERG:
     case 'ICEBERG':
       return '/images/iceberg.png';
     default:
