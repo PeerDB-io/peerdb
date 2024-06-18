@@ -9,8 +9,13 @@ export async function POST(request: Request) {
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
   try {
     const res: MirrorStatusResponse = await fetch(
-      `${flowServiceAddr}/v1/mirrors/${body.flowJobName}`,
-      { cache: 'no-store' }
+      `${flowServiceAddr}/v1/mirrors/${body.flowJobName}?` +
+        new URLSearchParams({
+          include_flow_info: body.includeFlowInfo?.toString() || 'true',
+        }),
+      {
+        cache: 'no-store',
+      }
     ).then((res) => {
       return res.json();
     });

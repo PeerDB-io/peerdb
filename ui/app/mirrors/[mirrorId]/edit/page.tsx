@@ -38,6 +38,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
     batchSize: defaultBatchSize,
     idleTimeout: defaultIdleTimeout,
     additionalTables: [],
+    numberOfSyncs: 0,
   });
   const { push } = useRouter();
 
@@ -53,6 +54,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
           (res as MirrorStatusResponse).cdcStatus?.config?.idleTimeoutSeconds ||
           defaultIdleTimeout,
         additionalTables: [],
+        numberOfSyncs: 0,
       });
     });
   }, [mirrorId, defaultBatchSize, defaultIdleTimeout]);
