@@ -611,7 +611,7 @@ func (c *PostgresConnector) NormalizeRecords(
 		)
 		return &model.NormalizeResponse{
 			Done:         false,
-			StartBatchID: normBatchID,
+			StartBatchID: normBatchID + 1,
 			EndBatchID:   req.SyncBatchID,
 		}, shared.ErrUnusualNormalize
 	}

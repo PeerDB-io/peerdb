@@ -486,7 +486,7 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 			slog.Int64("syncBatchID", req.SyncBatchID), slog.Int64("normBatchID", normBatchID))
 		return &model.NormalizeResponse{
 			Done:         false,
-			StartBatchID: normBatchID,
+			StartBatchID: normBatchID + 1,
 			EndBatchID:   req.SyncBatchID,
 		}, shared.ErrUnusualNormalize
 	}
