@@ -74,6 +74,9 @@ func (c *IcebergConnector) sendRecordsJoined(
 		if err != nil {
 			return 0, fmt.Errorf("failed to convert Avro map to binary: %w", err)
 		}
+		// TODO remove this log
+		c.logger.Info("sending record", "record", native)
+
 		binaryRecords = append(binaryRecords, &protos.InsertRecord{
 			Record: native,
 		})

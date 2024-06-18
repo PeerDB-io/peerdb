@@ -56,6 +56,8 @@ public class IcebergService {
         // use non parallel and use multi everywhere
         recordStream.parallel().map(insertRecord -> {
             try {
+                // TODO remove this log
+                Log.infof("Received a record to write %s", insertRecord);
                 return converter.toIcebergRecord(insertRecord.getRecord().toByteArray());
             } catch (IOException e) {
                 Log.errorf(e, "Error while converting record");
@@ -184,6 +186,7 @@ public class IcebergService {
         var resultUni = appendRecordStream.map(Unchecked.function(insertRecord -> {
             var appendRecordTableContext = tableContext.get();
             var appendFilesWriter = appendRecordTableContext.appendFilesWriter();
+            // TODO remove this log
             Log.infof("Received a record to write %s", insertRecord);
             try {
                 appendFilesWriter.writeAvroBytesRecord(insertRecord.toByteArray());
