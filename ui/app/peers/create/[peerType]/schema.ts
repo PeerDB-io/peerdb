@@ -508,3 +508,81 @@ export const esSchema = z
       message: 'Authentication info not valid',
     }
   );
+
+const CommonIcebergCatalogSchema = z.object({
+  name: z
+    .string({
+      required_error: 'Catalog name is required',
+      invalid_type_error: 'Catalog name must be a string',
+    })
+    .min(1, { message: 'Catalog name must be non-empty' }),
+  uri: z
+    .string({
+      required_error: 'Catalog URI is required',
+      invalid_type_error: 'Catalog URI must be a string',
+    })
+    .url('URI must be of URI format')
+    .min(1, { message: 'Catalog URI must be non-empty' }),
+  warehouseLocation: z
+    .string({
+      required_error: 'Warehouse location is required',
+      invalid_type_error: 'Warehouse location must be a string',
+    })
+    .url('Warehouse location must be of URI format')
+    .min(1, { message: 'Warehouse location must be non-empty' }),
+  clientPoolSize: z.number().optional(),
+  hadoopProperties: z.record(z.string()).optional(),
+});
+
+const IcebergS3IoConfigSchema = z.object({
+  accessKeyId: z
+    .string({
+      required_error: 'Access key ID is required',
+      invalid_type_error: 'Access key ID must be a string',
+    })
+    .min(1, { message: 'Access key ID must be non-empty' }),
+  secretAccessKey: z
+    .string({
+      required_error: 'Secret access key is required',
+      invalid_type_error: 'Secret access key must be a string',
+    })
+    .min(1, { message: 'Secret access key must be non-empty' }),
+  endpoint: z.string().optional(),
+  pathStyleAccess: z.boolean(),
+});
+
+const IcebergIOConfigSchema = z.object({
+  s3: IcebergS3IoConfigSchema,
+});
+
+const JdbcIcebergCatalogSchema = z.object({
+  user: z
+    .string({
+      required_error: 'User is required',
+      invalid_type_error: 'User must be a string',
+    })
+    .min(1, { message: 'User must be non-empty' }),
+  password: z
+    .string({
+      required_error: 'Password is required',
+      invalid_type_error: 'Password must be a string',
+    })
+    .min(1, { message: 'Password must be non-empty' }),
+  useSsl: z.boolean(),
+  verifyServerCertificate: z.boolean(),
+});
+
+const IcebergCatalogSchema = z.object({
+  commonConfig: CommonIcebergCatalogSchema,
+  ioConfig: IcebergIOConfigSchema,
+  hive: z.unknown().optional(),
+  hadoop: z.unknown().optional(),
+  rest: z.unknown().optional(),
+  glue: z.unknown().optional(),
+  jdbc: JdbcIcebergCatalogSchema.optional(),
+  nessie: z.unknown().optional(),
+});
+
+export const iceSchema = z.object({
+  catalogConfig: IcebergCatalogSchema,
+});

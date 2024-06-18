@@ -3,6 +3,7 @@ package iceberg
 import (
 	"context"
 	"fmt"
+	"github.com/PeerDB-io/peer-flow/peerdbenv/features"
 	"log/slog"
 	"time"
 
@@ -20,7 +21,10 @@ func (c *IcebergConnector) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
-	return c.streamRecords(ctx, config, partition, stream)
+	if features.IcebergFeatureStreamingEnabled(ctx) {
+		return c.streamRecords(ctx, config, partition, stream)
+	}
+	return c.sendRecordsJoined(ctx, config, partition, stream)
 }
 
 //nolint:unused
@@ -30,6 +34,7 @@ func (c *IcebergConnector) sendRecordsJoined(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
+	c.logger.Info("[iceberg qrep.go]:sending records joined")
 	schema := stream.Schema()
 
 	schema.Fields = addPeerMetaColumns(schema.Fields, config.SoftDeleteColName, config.SyncedAtColName)
@@ -70,6 +75,8 @@ func (c *IcebergConnector) sendRecordsJoined(
 		if err != nil {
 			return 0, fmt.Errorf("failed to convert Avro map to binary: %w", err)
 		}
+		// TODO remove this log
+
 		binaryRecords = append(binaryRecords, &protos.InsertRecord{
 			Record: native,
 		})
@@ -111,6 +118,7 @@ func (c *IcebergConnector) streamRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
+	c.logger.Info("[iceberg qrep.go]:streaming records")
 	schema := stream.Schema()
 
 	schema.Fields = addPeerMetaColumns(schema.Fields, config.SoftDeleteColName, config.SyncedAtColName)
@@ -192,11 +200,11 @@ func (c *IcebergConnector) streamRecords(
 		recordCount++
 	}
 
+	c.logger.Info("closing record stream")
 	appendRecordsStreamResponse, err := recordStream.CloseAndRecv()
 	if err != nil {
 		return 0, err
 	}
-
 	logger.LoggerFromCtx(ctx).Info("AppendRecordsResponse", slog.Any("response", appendRecordsStreamResponse.Success))
 
 	err = c.PostgresMetadata.FinishQRepPartition(ctx, partition, config.FlowJobName, time.Now())

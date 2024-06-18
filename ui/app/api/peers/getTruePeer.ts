@@ -5,6 +5,7 @@ import {
   ElasticsearchConfig,
   EventHubConfig,
   EventHubGroupConfig,
+  IcebergConfig,
   KafkaConfig,
   MySqlConfig,
   Peer,
@@ -33,7 +34,8 @@ export const getTruePeer = (peer: CatalogPeer) => {
     | S3Config
     | SnowflakeConfig
     | SqlServerConfig
-    | ElasticsearchConfig;
+    | ElasticsearchConfig
+    | IcebergConfig;
   switch (peer.type) {
     case 0:
       config = BigqueryConfig.decode(options);
@@ -78,6 +80,10 @@ export const getTruePeer = (peer: CatalogPeer) => {
     case 12:
       config = ElasticsearchConfig.decode(options);
       newPeer.elasticsearchConfig = config;
+      break;
+    case 13:
+      config = IcebergConfig.decode(options);
+      newPeer.icebergConfig = config;
       break;
     default:
       return newPeer;

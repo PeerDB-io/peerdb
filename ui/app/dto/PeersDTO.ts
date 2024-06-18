@@ -4,6 +4,7 @@ import {
   ElasticsearchConfig,
   EventHubConfig,
   EventHubGroupConfig,
+  IcebergConfig,
   KafkaConfig,
   PostgresConfig,
   PubSubConfig,
@@ -53,7 +54,8 @@ export type PeerConfig =
   | PubSubConfig
   | EventHubConfig
   | EventHubGroupConfig
-  | ElasticsearchConfig;
+  | ElasticsearchConfig
+  | IcebergConfig;
 export type CatalogPeer = {
   id: number;
   name: string;
