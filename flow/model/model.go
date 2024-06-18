@@ -179,3 +179,8 @@ type NormalizeResponse struct {
 }
 
 type RelationMessageMapping map[uint32]*pglogrepl.RelationMessage
+
+type SyncCompositeResponse struct {
+	SyncResponse   *SyncResponse
+	NeedsNormalize bool
+}
