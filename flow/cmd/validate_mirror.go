@@ -127,7 +127,7 @@ func (h *FlowRequestHandler) CheckIfMirrorNameExists(ctx context.Context, mirror
 	var nameExists pgtype.Bool
 	err := h.pool.QueryRow(ctx, "SELECT EXISTS(SELECT * FROM flows WHERE name = $1)", mirrorName).Scan(&nameExists)
 	if err != nil {
-		return true, fmt.Errorf("failed to check if mirror name exists: %v", err)
+		return false, fmt.Errorf("failed to check if mirror name exists: %v", err)
 	}
 
 	return nameExists.Bool, nil
