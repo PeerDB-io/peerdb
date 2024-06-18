@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -13,14 +12,9 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
-)
-
-const (
-	peerName string = "test_s3_peer"
 )
 
 type S3TestHelper struct {
@@ -81,19 +75,6 @@ func NewS3TestHelper(switchToGCS bool) (*S3TestHelper, error) {
 		bucketName,
 		prefix,
 	}, nil
-}
-
-func (h *S3TestHelper) GetPeer(t *testing.T) *protos.Peer {
-	t.Helper()
-	ret := &protos.Peer{
-		Name: peerName,
-		Type: protos.DBType_S3,
-		Config: &protos.Peer_S3Config{
-			S3Config: h.s3Config,
-		},
-	}
-	e2e.CreatePeer(t, ret)
-	return ret
 }
 
 // List all files from the S3 bucket.

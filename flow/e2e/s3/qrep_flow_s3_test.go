@@ -12,6 +12,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -33,6 +34,19 @@ func (s PeerFlowE2ETestSuiteS3) Connector() *connpostgres.PostgresConnector {
 
 func (s PeerFlowE2ETestSuiteS3) Suffix() string {
 	return s.suffix
+}
+
+func (s PeerFlowE2ETestSuiteS3) Peer() *protos.Peer {
+	s.t.Helper()
+	ret := &protos.Peer{
+		Name: e2e.AddSuffix(s, "s3peer"),
+		Type: protos.DBType_S3,
+		Config: &protos.Peer_S3Config{
+			S3Config: s.s3Helper.s3Config,
+		},
+	}
+	e2e.CreatePeer(s.t, ret)
+	return ret
 }
 
 func TestPeerFlowE2ETestSuiteS3(t *testing.T) {
@@ -110,7 +124,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 		schemaQualifiedName,
 		"e2e_dest_1",
 		query,
-		s.s3Helper.GetPeer(s.t),
+		s.Peer(),
 		"stage",
 		false,
 		"",
@@ -152,7 +166,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 		schemaQualifiedName,
 		"e2e_dest_ctid",
 		query,
-		s.s3Helper.GetPeer(s.t),
+		s.Peer(),
 		"stage",
 		false,
 		"",

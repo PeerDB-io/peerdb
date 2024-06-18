@@ -67,7 +67,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 		return nil, fmt.Errorf("failed to setup replication on source peer: %w", err)
 	}
 
-	s.logger.Info("replication slot live for on source for peer flow")
+	s.logger.Info("replication slot live on source for peer flow")
 
 	return res, nil
 }
@@ -252,13 +252,12 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 	sessionCtx workflow.Context,
 	numTablesInParallel int,
 ) error {
-	logger := s.logger
 	slotInfo, err := s.setupReplication(sessionCtx)
 	if err != nil {
 		return fmt.Errorf("failed to setup replication: %w", err)
 	}
 
-	logger.Info(fmt.Sprintf("cloning %d tables in parallel", numTablesInParallel))
+	s.logger.Info(fmt.Sprintf("cloning %d tables in parallel", numTablesInParallel))
 	if err := s.cloneTables(ctx,
 		SNAPSHOT_TYPE_SLOT,
 		slotInfo.SlotName,
@@ -285,7 +284,8 @@ func SnapshotFlowWorkflow(
 		config:                 config,
 		tableNameSchemaMapping: tableNameSchemaMapping,
 		logger: log.With(workflow.GetLogger(ctx),
-			slog.String(string(shared.FlowNameKey), config.FlowJobName)),
+			slog.String(string(shared.FlowNameKey), config.FlowJobName),
+			slog.String("sourcePeer", config.Source)),
 	}
 
 	numTablesInParallel := int(max(config.SnapshotNumTablesInParallel, 1))

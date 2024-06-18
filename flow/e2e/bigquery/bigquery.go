@@ -46,7 +46,16 @@ func (s PeerFlowE2ETestSuiteBQ) Suffix() string {
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Peer() *protos.Peer {
-	return s.bqHelper.Peer
+	s.t.Helper()
+	ret := &protos.Peer{
+		Name: e2e.AddSuffix(s, "test_bq_peer"),
+		Type: protos.DBType_BIGQUERY,
+		Config: &protos.Peer_BigqueryConfig{
+			BigqueryConfig: s.bqHelper.Config,
+		},
+	}
+	e2e.CreatePeer(s.t, ret)
+	return ret
 }
 
 func (s PeerFlowE2ETestSuiteBQ) DestinationTable(table string) string {

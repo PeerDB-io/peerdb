@@ -152,7 +152,7 @@ func TearDownPostgres[T Suite](s T) {
 func GeneratePostgresPeer(t *testing.T) *protos.Peer {
 	t.Helper()
 	peer := &protos.Peer{
-		Name: "test_postgres_peer",
+		Name: "catalog",
 		Type: protos.DBType_POSTGRES,
 		Config: &protos.Peer_PostgresConfig{
 			PostgresConfig: peerdbenv.GetCatalogPostgresConfigFromEnv(),

@@ -65,7 +65,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
 		query,
-		s.sfHelper.Peer,
+		s.Peer(),
 		"",
 		false,
 		"",
@@ -102,7 +102,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() 
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
 		query,
-		s.sfHelper.Peer,
+		s.Peer(),
 		"",
 		false,
 		"",
@@ -141,7 +141,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 		s.attachSchemaSuffix(tblName),
 		dstSchemaQualified,
 		query,
-		s.sfHelper.Peer,
+		s.Peer(),
 		"",
 		false,
 		"",
@@ -177,7 +177,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
 		query,
-		s.sfHelper.Peer,
+		s.Peer(),
 		"",
 		false,
 		"",
@@ -211,7 +211,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.pgSuffix, tblName)
 
-	sfPeer := s.sfHelper.Peer
+	sfPeer := s.Peer()
 	sfPeer.GetSnowflakeConfig().S3Integration = "peerdb_s3_integration"
 
 	qrepConfig := e2e.CreateQRepWorkflowConfig(
@@ -256,7 +256,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
 		query,
-		s.sfHelper.Peer,
+		s.Peer(),
 		"",
 		true,
 		"_PEERDB_SYNCED_AT",
@@ -294,7 +294,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Default_False_SF() {
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
 		query,
-		s.sfHelper.Peer,
+		s.Peer(),
 		"",
 		true,
 		"_PEERDB_SYNCED_AT",

@@ -17,7 +17,6 @@ import (
 	"google.golang.org/api/iterator"
 
 	peer_bq "github.com/PeerDB-io/peer-flow/connectors/bigquery"
-	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -28,8 +27,6 @@ import (
 type BigQueryTestHelper struct {
 	// config is the BigQuery config.
 	Config *protos.BigqueryConfig
-	// peer struct holder BigQuery
-	Peer *protos.Peer
 	// client to talk to BigQuery
 	client *bigquery.Client
 	// runID uniquely identifies the test run to namespace stateful schemas.
@@ -77,22 +74,7 @@ func NewBigQueryTestHelper(t *testing.T) (*BigQueryTestHelper, error) {
 		runID:  runID,
 		Config: config,
 		client: client,
-		Peer:   generateBQPeer(t, config),
 	}, nil
-}
-
-func generateBQPeer(t *testing.T, bigQueryConfig *protos.BigqueryConfig) *protos.Peer {
-	t.Helper()
-	ret := &protos.Peer{
-		Name: "test_bq_peer",
-		Type: protos.DBType_BIGQUERY,
-		Config: &protos.Peer_BigqueryConfig{
-			BigqueryConfig: bigQueryConfig,
-		},
-	}
-	e2e.CreatePeer(t, ret)
-
-	return ret
 }
 
 // datasetExists checks if the dataset exists.

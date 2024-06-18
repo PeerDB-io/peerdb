@@ -5,26 +5,23 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"testing"
 
 	peersql "github.com/PeerDB-io/peer-flow/connectors/sql"
 	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
-	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type SQLServerHelper struct {
-	peerName string
-	config   *protos.SqlServerConfig
+	config *protos.SqlServerConfig
 
 	E          peersql.SQLQueryExecutor
 	SchemaName string
 	tables     []string
 }
 
-func NewSQLServerHelper(name string) (*SQLServerHelper, error) {
+func NewSQLServerHelper() (*SQLServerHelper, error) {
 	port, err := strconv.ParseUint(os.Getenv("SQLSERVER_PORT"), 10, 16)
 	if err != nil {
 		return nil, fmt.Errorf("invalid SQLSERVER_PORT: %s", os.Getenv("SQLSERVER_PORT"))
@@ -54,13 +51,11 @@ func NewSQLServerHelper(name string) (*SQLServerHelper, error) {
 	}
 
 	testSchema := fmt.Sprintf("e2e_test_%d", rndNum)
-	err = connector.CreateSchema(context.Background(), testSchema)
-	if err != nil {
+	if err := connector.CreateSchema(context.Background(), testSchema); err != nil {
 		return nil, err
 	}
 
 	return &SQLServerHelper{
-		peerName:   name,
 		config:     config,
 		E:          connector,
 		SchemaName: testSchema,
@@ -75,19 +70,6 @@ func (h *SQLServerHelper) CreateTable(schema *qvalue.QRecordSchema, tableName st
 
 	h.tables = append(h.tables, tableName)
 	return nil
-}
-
-func (h *SQLServerHelper) GetPeer(t *testing.T) *protos.Peer {
-	t.Helper()
-	ret := &protos.Peer{
-		Name: h.peerName,
-		Type: protos.DBType_SQLSERVER,
-		Config: &protos.Peer_SqlserverConfig{
-			SqlserverConfig: h.config,
-		},
-	}
-	e2e.CreatePeer(t, ret)
-	return ret
 }
 
 func (h *SQLServerHelper) CleanUp() error {

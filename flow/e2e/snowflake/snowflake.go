@@ -49,7 +49,16 @@ func (s PeerFlowE2ETestSuiteSF) Suffix() string {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Peer() *protos.Peer {
-	return s.sfHelper.Peer
+	s.t.Helper()
+	ret := &protos.Peer{
+		Name: e2e.AddSuffix(s, "test_sf_peer"),
+		Type: protos.DBType_SNOWFLAKE,
+		Config: &protos.Peer_SnowflakeConfig{
+			SnowflakeConfig: s.sfHelper.Config,
+		},
+	}
+	e2e.CreatePeer(s.t, ret)
+	return ret
 }
 
 func (s PeerFlowE2ETestSuiteSF) DestinationTable(table string) string {

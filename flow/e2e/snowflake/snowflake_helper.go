@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
-	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -20,8 +19,6 @@ import (
 type SnowflakeTestHelper struct {
 	// config is the Snowflake config.
 	Config *protos.SnowflakeConfig
-	// peer struct holder Snowflake
-	Peer *protos.Peer
 	// connection to another database, to manage the test database
 	adminClient *connsnowflake.SnowflakeClient
 	// connection to the test database
@@ -50,7 +47,6 @@ func NewSnowflakeTestHelper(t *testing.T) (*SnowflakeTestHelper, error) {
 		return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 	}
 
-	peer := generateSFPeer(t, config)
 	runID, err := shared.RandomUInt64()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate random uint64: %w", err)
@@ -78,25 +74,11 @@ func NewSnowflakeTestHelper(t *testing.T) (*SnowflakeTestHelper, error) {
 
 	return &SnowflakeTestHelper{
 		Config:           config,
-		Peer:             peer,
 		adminClient:      adminClient,
 		testClient:       testClient,
 		testSchemaName:   "PUBLIC",
 		testDatabaseName: testDatabaseName,
 	}, nil
-}
-
-func generateSFPeer(t *testing.T, snowflakeConfig *protos.SnowflakeConfig) *protos.Peer {
-	t.Helper()
-	ret := &protos.Peer{
-		Name: "test_sf_peer",
-		Type: protos.DBType_SNOWFLAKE,
-		Config: &protos.Peer_SnowflakeConfig{
-			SnowflakeConfig: snowflakeConfig,
-		},
-	}
-	e2e.CreatePeer(t, ret)
-	return ret
 }
 
 // Cleanup drops the database.
