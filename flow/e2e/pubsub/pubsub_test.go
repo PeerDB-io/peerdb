@@ -139,7 +139,7 @@ func (s PubSubSuite) TestCreateTopic() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: flowName},
-		Destination:      s.Peer(sa),
+		Destination:      s.Peer(sa).Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.Script = "e2e_pscreate"
@@ -191,7 +191,7 @@ func (s PubSubSuite) TestSimple() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: flowName},
-		Destination:      s.Peer(sa),
+		Destination:      s.Peer(sa).Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.Script = "e2e_pssimple"
@@ -261,7 +261,7 @@ func (s PubSubSuite) TestInitialLoad() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: flowName},
-		Destination:      s.Peer(sa),
+		Destination:      s.Peer(sa).Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.Script = "e2e_psinitial"

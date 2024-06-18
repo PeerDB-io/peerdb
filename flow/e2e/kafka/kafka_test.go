@@ -101,7 +101,7 @@ func (s KafkaSuite) TestSimple() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: flowName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.Script = "e2e_kasimple"
@@ -160,7 +160,7 @@ func (s KafkaSuite) TestMessage() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: flowName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.Script = "e2e_kamessage"
@@ -212,7 +212,7 @@ func (s KafkaSuite) TestDefault() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: flowName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 
@@ -267,7 +267,7 @@ func (s KafkaSuite) TestInitialLoad() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: flowName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.DoInitialSnapshot = true

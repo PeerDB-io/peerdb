@@ -28,7 +28,7 @@ func (s elasticsearchSuite) Test_Simple_PKey_CDC_Mirror() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      e2e.AddSuffix(s, "es_simple_pkey_cdc"),
 		TableNameMapping: map[string]string{srcTableName: srcTableName},
-		Destination:      s.peer,
+		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
@@ -97,7 +97,7 @@ func (s elasticsearchSuite) Test_Composite_PKey_CDC_Mirror() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      e2e.AddSuffix(s, "es_composite_pkey_cdc"),
 		TableNameMapping: map[string]string{srcTableName: srcTableName},
-		Destination:      s.peer,
+		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100

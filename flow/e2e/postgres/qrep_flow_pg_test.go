@@ -196,15 +196,13 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	postgresPeer := e2e.GeneratePostgresPeer(s.t)
-
 	qrepConfig := e2e.CreateQRepWorkflowConfig(
 		s.t,
 		"test_qrep_flow_avro_pg",
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
-		postgresPeer,
+		e2e.GeneratePostgresPeer(s.t).Name,
 		"",
 		true,
 		"",
@@ -237,15 +235,13 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_TypeSystemQRep() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	postgresPeer := e2e.GeneratePostgresPeer(s.t)
-
 	qrepConfig := e2e.CreateQRepWorkflowConfig(
 		s.t,
 		"test_qrep_flow_pgpg",
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
-		postgresPeer,
+		e2e.GeneratePostgresPeer(s.t).Name,
 		"",
 		true,
 		"",
@@ -276,15 +272,13 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns_QRep_PG() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	postgresPeer := e2e.GeneratePostgresPeer(s.t)
-
 	qrepConfig := e2e.CreateQRepWorkflowConfig(
 		s.t,
 		"test_qrep_columns_pg",
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
-		postgresPeer,
+		e2e.GeneratePostgresPeer(s.t).Name,
 		"",
 		true,
 		"_PEERDB_SYNCED_AT",
@@ -313,15 +307,13 @@ func (s PeerFlowE2ETestSuitePG) Test_Overwrite_PG() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	postgresPeer := e2e.GeneratePostgresPeer(s.t)
-
 	qrepConfig := e2e.CreateQRepWorkflowConfig(
 		s.t,
 		"test_overwrite_pg",
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
-		postgresPeer,
+		e2e.GeneratePostgresPeer(s.t).Name,
 		"",
 		true,
 		"_PEERDB_SYNCED_AT",
@@ -364,15 +356,13 @@ func (s PeerFlowE2ETestSuitePG) Test_No_Rows_QRep_PG() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	postgresPeer := e2e.GeneratePostgresPeer(s.t)
-
 	qrepConfig := e2e.CreateQRepWorkflowConfig(
 		s.t,
 		"test_no_rows_qrep_pg",
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
-		postgresPeer,
+		e2e.GeneratePostgresPeer(s.t).Name,
 		"",
 		true,
 		"_PEERDB_SYNCED_AT",
@@ -405,7 +395,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Pause() {
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
-		e2e.GeneratePostgresPeer(s.t),
+		e2e.GeneratePostgresPeer(s.t).Name,
 		"",
 		true,
 		"_PEERDB_SYNCED_AT",
@@ -461,8 +451,6 @@ func (s PeerFlowE2ETestSuitePG) TestTransform() {
 
 	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at BETWEEN {{.start}} AND {{.end}}", srcSchemaQualified)
 
-	postgresPeer := e2e.GeneratePostgresPeer(s.t)
-
 	_, err := s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values
 	('pgtransform', 'lua', 'function transformRow(row) row.myreal = 1729 end') on conflict do nothing`)
 	require.NoError(s.t, err)
@@ -473,7 +461,7 @@ func (s PeerFlowE2ETestSuitePG) TestTransform() {
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
-		postgresPeer,
+		e2e.GeneratePostgresPeer(s.t).Name,
 		"",
 		true,
 		"_PEERDB_SYNCED_AT",

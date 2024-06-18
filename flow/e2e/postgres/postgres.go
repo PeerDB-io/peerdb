@@ -21,7 +21,6 @@ type PeerFlowE2ETestSuitePG struct {
 	t *testing.T
 
 	conn   *connpostgres.PostgresConnector
-	peer   *protos.Peer
 	suffix string
 }
 
@@ -46,7 +45,7 @@ func (s PeerFlowE2ETestSuitePG) Suffix() string {
 }
 
 func (s PeerFlowE2ETestSuitePG) Peer() *protos.Peer {
-	return s.peer
+	return e2e.GeneratePostgresPeer(s.t)
 }
 
 func (s PeerFlowE2ETestSuitePG) DestinationTable(table string) string {
@@ -73,7 +72,6 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuitePG {
 	return PeerFlowE2ETestSuitePG{
 		t:      t,
 		conn:   conn,
-		peer:   e2e.GeneratePostgresPeer(t),
 		suffix: suffix,
 	}
 }

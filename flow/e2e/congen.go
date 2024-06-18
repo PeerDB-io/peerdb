@@ -165,7 +165,7 @@ func GeneratePostgresPeer(t *testing.T) *protos.Peer {
 type FlowConnectionGenerationConfig struct {
 	FlowJobName      string
 	TableNameMapping map[string]string
-	Destination      *protos.Peer
+	Destination      string
 	TableMappings    []*protos.TableMapping
 	SoftDelete       bool
 }
@@ -208,14 +208,11 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs(t *testin
 		}
 	}
 
-	source := GeneratePostgresPeer(t)
-	CreatePeer(t, c.Destination)
-
 	ret := &protos.FlowConnectionConfigs{
 		FlowJobName:        c.FlowJobName,
 		TableMappings:      tblMappings,
-		Source:             source.Name,
-		Destination:        c.Destination.Name,
+		Source:             GeneratePostgresPeer(t).Name,
+		Destination:        c.Destination,
 		SoftDelete:         c.SoftDelete,
 		SyncedAtColName:    "_PEERDB_SYNCED_AT",
 		IdleTimeoutSeconds: 15,

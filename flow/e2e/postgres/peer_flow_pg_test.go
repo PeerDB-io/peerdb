@@ -13,11 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
@@ -67,7 +65,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Geospatial_PG() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_geo_flow_pg"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.peer,
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -112,7 +110,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_types_pg"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.peer,
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -179,7 +177,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_enum_flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.peer,
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -221,7 +219,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_cpkey_flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.peer,
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -283,7 +281,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_cpkey_toast1_flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.peer,
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -348,7 +346,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_cpkey_toast2_flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.peer,
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -405,7 +403,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_peerdb_cols_mirror"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.peer,
+		Destination:      s.Peer().Name,
 		SoftDelete:       true,
 	}
 
@@ -456,7 +454,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Basic() {
 
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName: s.attachSuffix("test_softdel"),
-		Destination: s.peer.Name,
+		Destination: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
@@ -534,7 +532,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_IUD_Same_Batch() {
 
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName: s.attachSuffix("test_softdel_iud"),
-		Destination: s.peer.Name,
+		Destination: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
@@ -603,7 +601,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
 
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName: s.attachSuffix("test_softdel_ud"),
-		Destination: s.peer.Name,
+		Destination: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
@@ -680,7 +678,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Insert_After_Delete() {
 
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName: s.attachSuffix("test_softdel_iad"),
-		Destination: s.peer.Name,
+		Destination: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
@@ -749,7 +747,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Supported_Mixed_Case_Table() {
 
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName: s.attachSuffix("test_mixed_case"),
-		Destination: s.peer.Name,
+		Destination: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
@@ -800,7 +798,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Multiple_Parallel_Initial() {
 		DoInitialSnapshot:           true,
 		InitialSnapshotOnly:         true,
 		FlowJobName:                 s.attachSuffix("test_multi_init"),
-		Destination:                 s.peer.Name,
+		Destination:                 s.Peer().Name,
 		TableMappings:               tableMapping,
 		Source:                      e2e.GeneratePostgresPeer(s.t).Name,
 		CdcStagingPath:              "",
@@ -833,7 +831,7 @@ func (s PeerFlowE2ETestSuitePG) Test_ContinueAsNew() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_continueasnew_flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.peer,
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -878,27 +876,16 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	`, srcTable1Name, srcTable2Name))
 	require.NoError(s.t, err)
 
-	sourcePeer := e2e.GeneratePostgresPeer(s.t)
-
-	conn, err := peerdbenv.GetCatalogConnectionPoolFromEnv(context.Background())
-	require.NoError(s.t, err)
-
-	_, err = utils.CreatePeerNoValidate(context.Background(), conn, sourcePeer)
-	require.NoError(s.t, err)
-
-	_, err = utils.CreatePeerNoValidate(context.Background(), conn, s.peer)
-	require.NoError(s.t, err)
-
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName: s.attachSuffix("test_dynconfig"),
-		Destination: s.peer.Name,
+		Destination: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTable1Name,
 				DestinationTableIdentifier: dstTable1Name,
 			},
 		},
-		Source:                      sourcePeer.Name,
+		Source:                      s.Peer().Name,
 		MaxBatchSize:                6,
 		IdleTimeoutSeconds:          7,
 		DoInitialSnapshot:           true,
@@ -1036,7 +1023,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TypeSystem_PG() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_typesystem_pg"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.peer,
+		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.DoInitialSnapshot = true
@@ -1086,7 +1073,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TransformRecordScript() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_transrecord_pg"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.peer,
+		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.Script = "cdc_transform_record"
@@ -1135,7 +1122,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TransformRowScript() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_transrow_pg"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.peer,
+		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.Script = "cdc_transform_row"

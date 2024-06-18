@@ -403,21 +403,20 @@ func CreateQRepWorkflowConfig(
 	sourceTable string,
 	dstTable string,
 	query string,
-	dest *protos.Peer,
+	dest string,
 	stagingPath string,
 	setupDst bool,
 	syncedAtCol string,
 	isDeletedCol string,
 ) *protos.QRepConfig {
 	t.Helper()
-	CreatePeer(t, dest)
 
 	return &protos.QRepConfig{
 		FlowJobName:                flowJobName,
 		WatermarkTable:             sourceTable,
 		DestinationTableIdentifier: dstTable,
 		SourcePeer:                 GeneratePostgresPeer(t).Name,
-		DestinationPeer:            dest.Name,
+		DestinationPeer:            dest,
 		Query:                      query,
 		WatermarkColumn:            "updated_at",
 		StagingPath:                stagingPath,

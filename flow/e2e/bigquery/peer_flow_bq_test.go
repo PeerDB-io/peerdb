@@ -112,7 +112,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_complete_flow_no_data"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -143,7 +143,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_char_table"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -175,7 +175,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_bq_1"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -226,7 +226,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_bq_3"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -282,7 +282,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_bq_4"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -332,7 +332,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_bq_5"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -388,7 +388,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_types_bq"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -470,7 +470,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_nans_bq"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -522,7 +522,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_invalid_geo_bq_avro_cdc"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -598,7 +598,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_multi_table_bq"),
 		TableNameMapping: map[string]string{srcTable1Name: dstTable1Name, srcTable2Name: dstTable2Name},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -652,7 +652,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(tableName),
 		TableNameMapping: map[string]string{srcTableName: tableName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -730,7 +730,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_All_Types_Schema_Changes_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(tableName),
 		TableNameMapping: map[string]string{srcTableName: tableName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -798,7 +798,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_cpkey_flow"),
 		TableNameMapping: map[string]string{srcTableName: tableName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -854,7 +854,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_cpkey_toast1_flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -915,7 +915,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_cpkey_toast2_flow"),
 		TableNameMapping: map[string]string{srcTableName: tableName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -965,7 +965,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Columns_BQ() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_peerdb_cols_mirror"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 		SoftDelete:       true,
 	}
 
@@ -1016,7 +1016,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
 			srcTable1Name: dstTable1Name,
 			srcTable2Name: fmt.Sprintf("%s.%s", secondDataset, dstTable2Name),
 		},
-		Destination: s.Peer(),
+		Destination: s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -1091,16 +1091,14 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, config, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
 
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
+	_, err = s.Conn().Exec(context.Background(),
+		fmt.Sprintf(`INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize insert", srcName, tableName, "id,c1,c2,t")
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-			UPDATE %s SET c1=c1+4 WHERE id=1`, srcTableName))
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`UPDATE %s SET c1=c1+4 WHERE id=1`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize update", srcName, tableName, "id,c1,c2,t")
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-			DELETE FROM %s WHERE id=1`, srcTableName))
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE id=1`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize delete", func() bool {
 		pgRows, err := e2e.GetPgRows(s.conn, s.bqSuffix, srcName, "id,c1,c2,t")
@@ -1166,18 +1164,16 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 	insertTx, err := s.Conn().Begin(context.Background())
 	e2e.EnvNoError(s.t, env, err)
 
-	_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
+	_, err = insertTx.Exec(context.Background(),
+		fmt.Sprintf("INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))", srcTableName))
 	e2e.EnvNoError(s.t, env, err)
-	_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
-			UPDATE %s SET c1=c1+4 WHERE id=1`, srcTableName))
+	_, err = insertTx.Exec(context.Background(), fmt.Sprintf("UPDATE %s SET c1=c1+4 WHERE id=1", srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	// since we delete stuff, create another table to compare with
-	_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
-			CREATE TABLE %s AS SELECT * FROM %s`, cmpTableName, srcTableName))
+	_, err = insertTx.Exec(context.Background(),
+		fmt.Sprintf("CREATE TABLE %s AS SELECT * FROM %s", cmpTableName, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
-	_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
-			DELETE FROM %s WHERE id=1`, srcTableName))
+	_, err = insertTx.Exec(context.Background(), fmt.Sprintf("DELETE FROM %s WHERE id=1", srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 
 	e2e.EnvNoError(s.t, env, insertTx.Commit(context.Background()))
@@ -1233,21 +1229,21 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, config, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
 
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(
+		"INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))", srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize insert", srcName, dstName, "id,c1,c2,t")
 
 	insertTx, err := s.Conn().Begin(context.Background())
 	e2e.EnvNoError(s.t, env, err)
-	_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
-			UPDATE %s SET t=random_string(10000) WHERE id=1`, srcTableName))
+	_, err = insertTx.Exec(context.Background(), fmt.Sprintf(
+		"UPDATE %s SET t=random_string(10000) WHERE id=1", srcTableName))
 	e2e.EnvNoError(s.t, env, err)
-	_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
-			UPDATE %s SET c1=c1+4 WHERE id=1`, srcTableName))
+	_, err = insertTx.Exec(context.Background(), fmt.Sprintf(
+		"UPDATE %s SET c1=c1+4 WHERE id=1", srcTableName))
 	e2e.EnvNoError(s.t, env, err)
-	_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
-			DELETE FROM %s WHERE id=1`, srcTableName))
+	_, err = insertTx.Exec(context.Background(), fmt.Sprintf(
+		"DELETE FROM %s WHERE id=1", srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	e2e.EnvNoError(s.t, env, insertTx.Commit(context.Background()))
 
@@ -1309,12 +1305,12 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, config, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
 
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(
+		"INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))", srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	e2e.EnvWaitForEqualTables(env, s, "normalize insert", tableName, "id,c1,c2,t")
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-			DELETE FROM %s WHERE id=1`, srcTableName))
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(
+		"DELETE FROM %s WHERE id=1", srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize delete", func() bool {
 		pgRows, err := e2e.GetPgRows(s.conn, s.bqSuffix, tableName, "id,c1,c2,t")
@@ -1327,8 +1323,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 		}
 		return e2eshared.CheckEqualRecordBatches(s.t, pgRows, rows)
 	})
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s(id,c1,c2,t) VALUES (1,3,4,random_string(10000))`, srcTableName))
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(
+		"INSERT INTO %s(id,c1,c2,t) VALUES (1,3,4,random_string(10000))", srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	e2e.EnvWaitForEqualTables(env, s, "normalize reinsert", tableName, "id,c1,c2,t")
 
@@ -1357,15 +1353,14 @@ func (s PeerFlowE2ETestSuiteBQ) Test_JSON_PKey_BQ() {
 	`, srcTableName))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		ALTER TABLE %s REPLICA IDENTITY FULL
-		`, srcTableName))
+	_, err = s.Conn().Exec(context.Background(),
+		fmt.Sprintf("ALTER TABLE %s REPLICA IDENTITY FULL", srcTableName))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_json_pkey_flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -1383,9 +1378,9 @@ func (s PeerFlowE2ETestSuiteBQ) Test_JSON_PKey_BQ() {
 		testKey := fmt.Sprintf("test_key_%d", i)
 		testValue := fmt.Sprintf("test_value_%d", i)
 		testJson := `'{"name":"jack", "age":12, "spouse":null}'::json`
-		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		INSERT INTO %s(key, value, j) VALUES ($1, $2, %s)
-	`, srcTableName, testJson), testKey, testValue)
+		_, err = s.Conn().Exec(context.Background(),
+			fmt.Sprintf("INSERT INTO %s(key, value, j) VALUES ($1, $2, %s)", srcTableName, testJson),
+			testKey, testValue)
 		e2e.EnvNoError(s.t, env, err)
 	}
 	s.t.Log("Inserted 10 rows into the source table")

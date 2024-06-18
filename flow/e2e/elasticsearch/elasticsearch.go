@@ -17,11 +17,11 @@ import (
 )
 
 type elasticsearchSuite struct {
-	t        *testing.T
-	conn     *connpostgres.PostgresConnector
-	esClient *elasticsearch.TypedClient
-	peer     *protos.Peer
-	suffix   string
+	t           *testing.T
+	conn        *connpostgres.PostgresConnector
+	esClient    *elasticsearch.TypedClient
+	suffix      string
+	esAddresses []string
 }
 
 func (s elasticsearchSuite) T() *testing.T {
@@ -52,25 +52,13 @@ func SetupSuite(t *testing.T) elasticsearchSuite {
 	})
 	require.NoError(t, err, "failed to setup elasticsearch")
 
-	suite := elasticsearchSuite{
-		t:        t,
-		conn:     conn,
-		esClient: esClient,
-		suffix:   suffix,
+	return elasticsearchSuite{
+		t:           t,
+		conn:        conn,
+		esClient:    esClient,
+		esAddresses: esAddresses,
+		suffix:      suffix,
 	}
-	suite.peer = &protos.Peer{
-		Name: e2e.AddSuffix(suite, "elasticsearch"),
-		Type: protos.DBType_ELASTICSEARCH,
-		Config: &protos.Peer_ElasticsearchConfig{
-			ElasticsearchConfig: &protos.ElasticsearchConfig{
-				Addresses: esAddresses,
-				AuthType:  protos.ElasticsearchAuthType_NONE,
-			},
-		},
-	}
-	e2e.CreatePeer(t, suite.peer)
-
-	return suite
 }
 
 func (s elasticsearchSuite) Teardown() {
@@ -78,7 +66,18 @@ func (s elasticsearchSuite) Teardown() {
 }
 
 func (s elasticsearchSuite) Peer() *protos.Peer {
-	return s.peer
+	ret := &protos.Peer{
+		Name: e2e.AddSuffix(s, "elasticsearch"),
+		Type: protos.DBType_ELASTICSEARCH,
+		Config: &protos.Peer_ElasticsearchConfig{
+			ElasticsearchConfig: &protos.ElasticsearchConfig{
+				Addresses: s.esAddresses,
+				AuthType:  protos.ElasticsearchAuthType_NONE,
+			},
+		},
+	}
+	e2e.CreatePeer(s.t, ret)
+	return ret
 }
 
 func (s elasticsearchSuite) countDocumentsInIndex(index string) int64 {

@@ -147,7 +147,7 @@ func (s EventhubsSuite) Test_EH_Simple() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: scopedEventhubName},
-		Destination:      destinationPeer,
+		Destination:      destinationPeer.Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.Script = "e2e_eh_simple_script"
