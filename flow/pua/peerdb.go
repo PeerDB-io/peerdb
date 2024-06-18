@@ -447,7 +447,7 @@ func LuaRecordIndex(ls *lua.LState) int {
 		}
 	case "content":
 		if mr, ok := record.(*model.MessageRecord[model.RecordItems]); ok {
-			ls.Push(lua.LString(shared.UnsafeFastReadOnlyBytesToString(mr.Content)))
+			ls.Push(lua.LString(mr.Content))
 		} else {
 			return 0
 		}

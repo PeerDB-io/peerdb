@@ -167,7 +167,7 @@ func (s KafkaSuite) TestMessage() {
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	_, err = s.Conn().Exec(context.Background(), "select pg_logical_emit_message(false, 'topic', convert_to('heartbeat', 'utf-8'))")
+	_, err = s.Conn().Exec(context.Background(), "select pg_logical_emit_message(false, 'topic', '\\x686561727462656174'::bytea)")
 	require.NoError(s.t, err)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize message", func() bool {
