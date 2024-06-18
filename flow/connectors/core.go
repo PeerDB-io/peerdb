@@ -444,6 +444,9 @@ var (
 	_ NormalizedTablesConnector = &connsnowflake.SnowflakeConnector{}
 	_ NormalizedTablesConnector = &connclickhouse.ClickhouseConnector{}
 
+	_ CreateTablesFromExistingConnector = &connbigquery.BigQueryConnector{}
+	_ CreateTablesFromExistingConnector = &connsnowflake.SnowflakeConnector{}
+
 	_ QRepPullConnector = &connpostgres.PostgresConnector{}
 	_ QRepPullConnector = &connsqlserver.SQLServerConnector{}
 

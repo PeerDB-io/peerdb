@@ -122,8 +122,7 @@ func (a *FlowableActivity) CreateRawTable(
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return nil, err
 	}
-	err = monitoring.InitializeCDCFlow(ctx, a.CatalogPool, config.FlowJobName)
-	if err != nil {
+	if err := monitoring.InitializeCDCFlow(ctx, a.CatalogPool, config.FlowJobName); err != nil {
 		return nil, err
 	}
 
@@ -592,24 +591,23 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 	// run above command for each Postgres peer
 	for _, pgPeer := range pgPeers {
 		activity.RecordHeartbeat(ctx, pgPeer.Name)
-		if ctx.Err() != nil {
-			return nil
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 
 		func() {
 			pgConfig := pgPeer.GetPostgresConfig()
 			pgConn, peerErr := connpostgres.NewPostgresConnector(ctx, pgConfig)
 			if peerErr != nil {
-				logger.Error(fmt.Sprintf("error creating connector for postgres peer %v with host %v: %v",
+				logger.Error(fmt.Sprintf("error creating connector for postgres peer %s with host %s: %v",
 					pgPeer.Name, pgConfig.Host, peerErr))
 				return
 			}
 			defer pgConn.Close()
-			cmdErr := pgConn.ExecuteCommand(ctx, walHeartbeatStatement)
-			if cmdErr != nil {
-				logger.Warn(fmt.Sprintf("could not send walheartbeat to peer %v: %v", pgPeer.Name, cmdErr))
+			if cmdErr := pgConn.ExecuteCommand(ctx, walHeartbeatStatement); cmdErr != nil {
+				logger.Warn(fmt.Sprintf("could not send walheartbeat to peer %s: %v", pgPeer.Name, cmdErr))
 			}
-			logger.Info(fmt.Sprintf("sent walheartbeat to peer %v", pgPeer.Name))
+			logger.Info(fmt.Sprintf("sent walheartbeat to peer %s", pgPeer.Name))
 		}()
 	}
 
@@ -704,9 +702,6 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				logger.Error("Failed to handle slot info", slog.Any("error", err))
 			}
 		}()
-		if ctx.Err() != nil {
-			return nil
-		}
 	}
 
 	return nil

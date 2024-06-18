@@ -235,12 +235,10 @@ func (s *SetupFlowExecution) executeSetupFlow(
 		return nil, fmt.Errorf("failed to check connections and setup metadata tables: %w", err)
 	}
 
-	setupFlowOutput := protos.SetupFlowOutput{}
 	srcTableIdNameMapping, err := s.ensurePullability(ctx, config, !config.InitialSnapshotOnly)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure pullability: %w", err)
 	}
-	setupFlowOutput.SrcTableIdNameMapping = srcTableIdNameMapping
 
 	// for initial copy only flows, we don't need to create the raw table
 	if !config.InitialSnapshotOnly {
@@ -255,9 +253,11 @@ func (s *SetupFlowExecution) executeSetupFlow(
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch table schema and setup normalized tables: %w", err)
 	}
-	setupFlowOutput.TableNameSchemaMapping = tableNameSchemaMapping
 
-	return &setupFlowOutput, nil
+	return &protos.SetupFlowOutput{
+		SrcTableIdNameMapping:  srcTableIdNameMapping,
+		TableNameSchemaMapping: tableNameSchemaMapping,
+	}, nil
 }
 
 // SetupFlowWorkflow is the workflow that sets up the flow.
