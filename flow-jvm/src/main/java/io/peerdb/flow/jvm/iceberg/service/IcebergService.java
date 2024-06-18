@@ -158,7 +158,7 @@ public class IcebergService {
     }
 
     public Uni<AppendRecordsStreamResponse> appendRecordsAsync(Multi<AppendRecordsStreamRequest> request) {
-
+        // TODO the streaming code needs better error handling
         var tableContext = new AtomicReference<AppendRecordTableContext>();
         var counter = new AtomicInteger();
         Multi<InsertRecord> appendRecordStream = request.map(record -> Pair.of(counter.getAndIncrement(), record)).map(Unchecked.function(pair -> {
@@ -212,9 +212,10 @@ public class IcebergService {
         var lockKey = List.of(tableInfo.getIcebergCatalog().toString(), tableInfo.getNamespaceList(), tableInfo.getTableName());
         Log.infof("Will now acquire lock for table %s by idempotency key %s for lockHashCode: %d", table.name(), idempotencyKey.orElse("<not present>"), lockKey.hashCode());
         var lock = lockManager.newLock(lockKey);
+        var lockStopWatch = Stopwatch.createStarted();
         lock.lock();
         try {
-            Log.infof("Acquired lock for table %s by idempotency key %s", table.name(), idempotencyKey.orElse("<not present>"));
+            Log.infof("Acquired lock for table %s in %d ms by idempotency key %s", table.name(), lockStopWatch.elapsed(TimeUnit.MILLISECONDS), idempotencyKey.orElse("<not present>"));
             Log.infof("Will now refresh table %s", table.name());
             table.refresh();
             if (isAppendAlreadyDone(table, idempotencyKey)) {

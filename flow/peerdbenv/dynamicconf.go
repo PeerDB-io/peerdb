@@ -77,11 +77,6 @@ func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, key string
 	return T(value), nil
 }
 
-func DynamicConfBool(ctx context.Context, key string) (bool, error) {
-	return dynamicConfBool(ctx, key)
-
-}
-
 func dynamicConfBool(ctx context.Context, key string) (bool, error) {
 	value, err := dynLookupConvert(ctx, key, strconv.ParseBool)
 	if err != nil {
