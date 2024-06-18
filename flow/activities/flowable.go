@@ -584,7 +584,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 
 	pgPeers, err := a.getPostgresPeerConfigs(ctx)
 	if err != nil {
-		logger.Warn("[sendwalheartbeat] unable to fetch peers. Skipping walheartbeat send.", slog.Any("error", err))
+		logger.Warn("unable to fetch peers. Skipping walheartbeat send.", slog.Any("error", err))
 		return err
 	}
 
@@ -607,7 +607,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 			if cmdErr := pgConn.ExecuteCommand(ctx, walHeartbeatStatement); cmdErr != nil {
 				logger.Warn(fmt.Sprintf("could not send walheartbeat to peer %s: %v", pgPeer.Name, cmdErr))
 			}
-			logger.Info(fmt.Sprintf("sent walheartbeat to peer %s", pgPeer.Name))
+			logger.Info("sent walheartbeat", slog.String("peer", pgPeer.Name))
 		}()
 	}
 
