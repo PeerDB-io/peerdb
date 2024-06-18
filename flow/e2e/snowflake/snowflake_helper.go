@@ -100,32 +100,17 @@ func (s *SnowflakeTestHelper) RunCommand(command string) error {
 }
 
 // CountRows(tableName) returns the number of rows in the given table.
-func (s *SnowflakeTestHelper) CountRows(tableName string) (int, error) {
-	res, err := s.testClient.CountRows(context.Background(), s.testSchemaName, tableName)
-	if err != nil {
-		return 0, err
-	}
-
-	return int(res), nil
+func (s *SnowflakeTestHelper) CountRows(tableName string) (int64, error) {
+	return s.testClient.CountRows(context.Background(), s.testSchemaName, tableName)
 }
 
 // CountRows(tableName) returns the non-null number of rows in the given table.
-func (s *SnowflakeTestHelper) CountNonNullRows(tableName string, columnName string) (int, error) {
-	res, err := s.testClient.CountNonNullRows(context.Background(), s.testSchemaName, tableName, columnName)
-	if err != nil {
-		return 0, err
-	}
-
-	return int(res), nil
+func (s *SnowflakeTestHelper) CountNonNullRows(tableName string, columnName string) (int64, error) {
+	return s.testClient.CountNonNullRows(context.Background(), s.testSchemaName, tableName, columnName)
 }
 
-func (s *SnowflakeTestHelper) CountSRIDs(tableName string, columnName string) (int, error) {
-	res, err := s.testClient.CountSRIDs(context.Background(), s.testSchemaName, tableName, columnName)
-	if err != nil {
-		return 0, err
-	}
-
-	return int(res), nil
+func (s *SnowflakeTestHelper) CountSRIDs(tableName string, columnName string) (int64, error) {
+	return s.testClient.CountSRIDs(context.Background(), s.testSchemaName, tableName, columnName)
 }
 
 func (s *SnowflakeTestHelper) CheckNull(tableName string, colNames []string) (bool, error) {
