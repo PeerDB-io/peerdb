@@ -3,6 +3,7 @@ package iceberg
 import (
 	"context"
 	"fmt"
+	"github.com/PeerDB-io/peer-flow/peerdbenv/features"
 	"log/slog"
 	"time"
 
@@ -20,8 +21,10 @@ func (c *IcebergConnector) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
-	return c.streamRecords(ctx, config, partition, stream)
-	//return c.sendRecordsJoined(ctx, config, partition, stream)
+	if features.IcebergFeatureStreamingEnabled(ctx) {
+		return c.streamRecords(ctx, config, partition, stream)
+	}
+	return c.sendRecordsJoined(ctx, config, partition, stream)
 }
 
 //nolint:unused
@@ -31,6 +34,7 @@ func (c *IcebergConnector) sendRecordsJoined(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
+	c.logger.Info("[iceberg qrep.go]:sending records joined")
 	schema := stream.Schema()
 
 	schema.Fields = addPeerMetaColumns(schema.Fields, config.SoftDeleteColName, config.SyncedAtColName)
@@ -71,6 +75,8 @@ func (c *IcebergConnector) sendRecordsJoined(
 		if err != nil {
 			return 0, fmt.Errorf("failed to convert Avro map to binary: %w", err)
 		}
+		// TODO remove this log
+
 		binaryRecords = append(binaryRecords, &protos.InsertRecord{
 			Record: native,
 		})
@@ -133,7 +139,6 @@ func (c *IcebergConnector) streamRecords(
 	if err != nil {
 		return 0, fmt.Errorf("failed to create Avro codec: %w", err)
 	}
-	c.logger.Info("obtained goavro codec")
 	requestIdempotencyKey := fmt.Sprintf("_peerdb_qrep-%s-%s", config.FlowJobName, partition.PartitionId)
 
 	tableHeader := &protos.AppendRecordTableHeader{
@@ -162,12 +167,7 @@ func (c *IcebergConnector) streamRecords(
 	}
 
 	recordCount := 0
-	once := true
 	for record := range stream.Records {
-		if once {
-			c.logger.Info("enter record loop", "record", record)
-			once = false
-		}
 		record = append(record,
 			// Add soft delete
 			qvalue.QValueBoolean{
@@ -186,7 +186,6 @@ func (c *IcebergConnector) streamRecords(
 		if err != nil {
 			return 0, fmt.Errorf("failed to convert Avro map to binary: %w", err)
 		}
-		c.logger.Info("sending record", "record", native)
 		insertRecord := &protos.InsertRecord{
 			Record: native,
 		}
@@ -198,7 +197,6 @@ func (c *IcebergConnector) streamRecords(
 		if err != nil {
 			return 0, err
 		}
-		c.logger.Info("sent record", "record", insertRecord)
 		recordCount++
 	}
 

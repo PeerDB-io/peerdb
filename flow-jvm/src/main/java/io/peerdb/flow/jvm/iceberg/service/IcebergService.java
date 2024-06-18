@@ -7,6 +7,7 @@ import io.peerdb.flow.jvm.grpc.*;
 import io.peerdb.flow.jvm.iceberg.avro.AvroIcebergRecordConverter;
 import io.peerdb.flow.jvm.iceberg.catalog.CatalogLoader;
 import io.peerdb.flow.jvm.iceberg.lock.LockManager;
+import io.peerdb.flow.jvm.iceberg.writer.AppendFilesWriter;
 import io.peerdb.flow.jvm.iceberg.writer.RecordWriterFactory;
 import io.quarkus.logging.Log;
 import io.smallrye.mutiny.Multi;
@@ -14,11 +15,13 @@ import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.unchecked.Unchecked;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.iceberg.ContentFile;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.avro.AvroSchemaUtil;
+import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.data.IcebergGenerics;
@@ -34,6 +37,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
 @ApplicationScoped
@@ -145,26 +150,72 @@ public class IcebergService {
         return appendRecords(tableInfo, avroSchema, insertRecords.stream(), idempotencyKey);
     }
 
-    public boolean appendRecords(TableInfo tableInfo, String avroSchema, Stream<InsertRecord> recordStream, Optional<String> idempotencyKey) {
-        var icebergCatalog = catalogLoader.loadCatalog(tableInfo.getIcebergCatalog());
-        var table = icebergCatalog.loadTable(getTableIdentifier(tableInfo));
+    record AppendRecordTableContext(AppendRecordTableHeader tableHeader, Catalog catalog, Table table,
+                                    AppendFilesWriter appendFilesWriter) {
+    }
 
-        if (isAppendAlreadyDone(table, idempotencyKey)) {
+    class OperationDoneException extends RuntimeException {
+    }
+
+    public Uni<AppendRecordsStreamResponse> appendRecordsAsync(Multi<AppendRecordsStreamRequest> request) {
+        // TODO the streaming code needs better error handling
+        var tableContext = new AtomicReference<AppendRecordTableContext>();
+        var counter = new AtomicInteger();
+        Multi<InsertRecord> appendRecordStream = request.map(record -> Pair.of(counter.getAndIncrement(), record)).map(Unchecked.function(pair -> {
+                    var record = pair.getValue();
+                    if (record.getCommandCase() == AppendRecordsStreamRequest.CommandCase.TABLE_HEADER) {
+                        var tableHeader = record.getTableHeader();
+                        var avroSchema = tableHeader.getSchema();
+                        var icebergCatalog = catalogLoader.loadCatalog(tableHeader.getTableInfo().getIcebergCatalog());
+                        var table = icebergCatalog.loadTable(getTableIdentifier(tableHeader.getTableInfo()));
+                        if (isAppendAlreadyDone(table, Optional.ofNullable(tableHeader.hasIdempotencyKey() ? tableHeader.getIdempotencyKey() : null))) {
+                            throw new OperationDoneException();
+                        }
+                        tableContext.set(new AppendRecordTableContext(tableHeader, icebergCatalog, table, new AppendFilesWriter(recordWriterFactory, avroSchema, table)));
+                        return Optional.<InsertRecord>empty();
+                    } else if (record.getCommandCase() == AppendRecordsStreamRequest.CommandCase.RECORD) {
+                        return Optional.of(record.getRecord());
+
+                    } else {
+                        throw new IllegalArgumentException("Expected TableHeader or Record");
+                    }
+                })).onFailure(throwable -> throwable instanceof OperationDoneException).recoverWithCompletion()
+                .filter(Optional::isPresent).map(Optional::get);
+        var resultUni = appendRecordStream.map(Unchecked.function(insertRecord -> {
+            var appendRecordTableContext = tableContext.get();
+            var appendFilesWriter = appendRecordTableContext.appendFilesWriter();
+            try {
+                appendFilesWriter.writeAvroBytesRecord(insertRecord.getRecord().toByteArray());
+            } catch (IOException e) {
+                Log.errorf(e, "Error while converting record");
+                throw new UncheckedIOException(e);
+            }
             return true;
-        }
+        })).filter(obj -> !obj).collect().asList().map(Unchecked.function(ignored -> {
+            var appendRecordTableContext = tableContext.get();
+            var tableHeader = appendRecordTableContext.tableHeader();
+            var table = appendRecordTableContext.table();
+            var tableInfo = tableHeader.getTableInfo();
+            var idempotencyKey = Optional.ofNullable(tableHeader.hasIdempotencyKey() ? tableHeader.getIdempotencyKey() : null);
+            var appendFilesWriter = appendRecordTableContext.appendFilesWriter();
+            var dataFiles = appendFilesWriter.complete();
+            return commitDataFilesToTableWithLock(table, tableInfo, idempotencyKey, dataFiles);
+        }));
+        return resultUni.map(success -> AppendRecordsStreamResponse.newBuilder().setSuccess(success).build());
+    }
 
-        Log.infof("Converting append records to data files for table %s", table.name());
-        var dataFiles = getAppendDataFiles(avroSchema, table, recordStream);
+
+    private boolean commitDataFilesToTableWithLock(Table table, TableInfo tableInfo, Optional<String> idempotencyKey, DataFile[] dataFiles) {
         var recordCount = Arrays.stream(dataFiles).map(ContentFile::recordCount).reduce(0L, Long::sum);
         Log.infof("Converted %d records to %d data files for table %s", recordCount, dataFiles.length, table.name());
-
 
         var lockKey = List.of(tableInfo.getIcebergCatalog().toString(), tableInfo.getNamespaceList(), tableInfo.getTableName());
         Log.infof("Will now acquire lock for table %s by idempotency key %s for lockHashCode: %d", table.name(), idempotencyKey.orElse("<not present>"), lockKey.hashCode());
         var lock = lockManager.newLock(lockKey);
+        var lockStopWatch = Stopwatch.createStarted();
         lock.lock();
         try {
-            Log.infof("Acquired lock for table %s by idempotency key %s", table.name(), idempotencyKey.orElse("<not present>"));
+            Log.infof("Acquired lock for table %s in %d ms by idempotency key %s", table.name(), lockStopWatch.elapsed(TimeUnit.MILLISECONDS), idempotencyKey.orElse("<not present>"));
             Log.infof("Will now refresh table %s", table.name());
             table.refresh();
             if (isAppendAlreadyDone(table, idempotencyKey)) {
@@ -196,6 +247,19 @@ public class IcebergService {
             lock.unlock();
             Log.infof("Released lock for table %s by idempotency key %s", table.name(), idempotencyKey.orElse("<not present>"));
         }
+    }
+
+    public boolean appendRecords(TableInfo tableInfo, String avroSchema, Stream<InsertRecord> recordStream, Optional<String> idempotencyKey) {
+        var icebergCatalog = catalogLoader.loadCatalog(tableInfo.getIcebergCatalog());
+        var table = icebergCatalog.loadTable(getTableIdentifier(tableInfo));
+
+        if (isAppendAlreadyDone(table, idempotencyKey)) {
+            return true;
+        }
+
+        Log.infof("Converting append records to data files for table %s", table.name());
+        var dataFiles = getAppendDataFiles(avroSchema, table, recordStream);
+        return commitDataFilesToTableWithLock(table, tableInfo, idempotencyKey, dataFiles);
 
     }
 
@@ -248,7 +312,6 @@ public class IcebergService {
     }
 
     public boolean insertChanges(TableInfo tableInfo, String avroSchema, List<RecordChange> recordChanges, Optional<BranchOptions> branchOptions) {
-        // TODO this is for CDC, will be done later
         var icebergCatalog = catalogLoader.loadCatalog(tableInfo.getIcebergCatalog());
         var table = icebergCatalog.loadTable(getTableIdentifier(tableInfo));
         if (branchOptions.isPresent()) {

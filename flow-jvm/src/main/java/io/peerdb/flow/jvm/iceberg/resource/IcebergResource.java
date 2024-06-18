@@ -7,7 +7,6 @@ import io.smallrye.common.annotation.Blocking;
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.Uni;
-import io.smallrye.mutiny.unchecked.Unchecked;
 import jakarta.inject.Inject;
 
 import java.util.Optional;
@@ -73,9 +72,6 @@ public class IcebergResource implements IcebergProxyService {
     @Blocking
     @Override
     public Uni<AppendRecordsStreamResponse> streamingAppendRecords(Multi<AppendRecordsStreamRequest> request) {
-        return Uni.createFrom().item(Unchecked.supplier(() -> AppendRecordsStreamResponse.newBuilder()
-                .setSuccess(icebergService.processAppendRecordsStreamRequest(request))
-                .build()));
-
+        return icebergService.appendRecordsAsync(request);
     }
 }
