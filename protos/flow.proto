@@ -298,6 +298,8 @@ message QRepConfig {
 
   TypeSystem system = 18;
   string script = 19;
+
+  string snapshot_name = 20;
 }
 
 message QRepPartition {

@@ -530,7 +530,6 @@ func QRepFlowWorkflow(
 	signalChan := model.FlowSignal.GetSignalChannel(ctx)
 
 	q := newQRepFlowExecution(ctx, config, originalRunID)
-	logger := q.logger
 
 	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSING ||
 		state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSED {
@@ -539,7 +538,7 @@ func QRepFlowWorkflow(
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
 
 		for q.activeSignal == model.PauseSignal {
-			logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
+			q.logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
 			// only place we block on receive, so signal processing is immediate
 			val, ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute)
 			if ok {
@@ -565,7 +564,7 @@ func QRepFlowWorkflow(
 	if err != nil {
 		return state, fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
-	logger.Info("metadata tables setup for peer flow")
+	q.logger.Info("metadata tables setup for peer flow")
 
 	err = q.handleTableCreationForResync(ctx, state)
 	if err != nil {
@@ -579,24 +578,24 @@ func QRepFlowWorkflow(
 	}
 
 	if q.activeSignal != model.PauseSignal {
-		logger.Info("fetching partitions to replicate for peer flow")
+		q.logger.Info("fetching partitions to replicate for peer flow")
 		partitions, err := q.getPartitions(ctx, state.LastPartition)
 		if err != nil {
 			return state, fmt.Errorf("failed to get partitions: %w", err)
 		}
 
-		logger.Info(fmt.Sprintf("%d partitions to replicate", len(partitions.Partitions)))
+		q.logger.Info(fmt.Sprintf("%d partitions to replicate", len(partitions.Partitions)))
 		if err := q.processPartitions(ctx, maxParallelWorkers, partitions.Partitions); err != nil {
 			return state, err
 		}
 
-		logger.Info("consolidating partitions for peer flow")
+		q.logger.Info("consolidating partitions for peer flow")
 		if err := q.consolidatePartitions(ctx); err != nil {
 			return state, err
 		}
 
 		if config.InitialCopyOnly {
-			logger.Info("initial copy completed for peer flow")
+			q.logger.Info("initial copy completed for peer flow")
 			return state, nil
 		}
 
@@ -605,7 +604,7 @@ func QRepFlowWorkflow(
 			return state, err
 		}
 
-		logger.Info(fmt.Sprintf("%d partitions processed", len(partitions.Partitions)))
+		q.logger.Info(fmt.Sprintf("%d partitions processed", len(partitions.Partitions)))
 		state.NumPartitionsProcessed += uint64(len(partitions.Partitions))
 
 		if len(partitions.Partitions) > 0 {
@@ -622,7 +621,7 @@ func QRepFlowWorkflow(
 		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
 	}
 
-	logger.Info("Continuing as new workflow",
+	q.logger.Info("Continuing as new workflow",
 		slog.Any("Last Partition", state.LastPartition),
 		slog.Uint64("Number of Partitions Processed", state.NumPartitionsProcessed))
 

@@ -64,7 +64,6 @@ impl<'a> CatalogConfig<'a> {
             user: self.user.to_string(),
             password: self.password.to_string(),
             database: self.database.to_string(),
-            transaction_snapshot: "".to_string(),
             metadata_schema: Some("".to_string()),
             ssh_config: None,
         }
