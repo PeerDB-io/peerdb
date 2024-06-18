@@ -34,6 +34,7 @@ func (c *IcebergConnector) sendRecordsJoined(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
+	c.logger.Info("[iceberg qrep.go]:sending records joined")
 	schema := stream.Schema()
 
 	schema.Fields = addPeerMetaColumns(schema.Fields, config.SoftDeleteColName, config.SyncedAtColName)
@@ -75,7 +76,6 @@ func (c *IcebergConnector) sendRecordsJoined(
 			return 0, fmt.Errorf("failed to convert Avro map to binary: %w", err)
 		}
 		// TODO remove this log
-		c.logger.Info("sending record", "record", native)
 
 		binaryRecords = append(binaryRecords, &protos.InsertRecord{
 			Record: native,
@@ -139,7 +139,6 @@ func (c *IcebergConnector) streamRecords(
 	if err != nil {
 		return 0, fmt.Errorf("failed to create Avro codec: %w", err)
 	}
-	c.logger.Info("obtained goavro codec")
 	requestIdempotencyKey := fmt.Sprintf("_peerdb_qrep-%s-%s", config.FlowJobName, partition.PartitionId)
 
 	tableHeader := &protos.AppendRecordTableHeader{
@@ -168,12 +167,7 @@ func (c *IcebergConnector) streamRecords(
 	}
 
 	recordCount := 0
-	once := true
 	for record := range stream.Records {
-		if once {
-			c.logger.Info("enter record loop", "record", record)
-			once = false
-		}
 		record = append(record,
 			// Add soft delete
 			qvalue.QValueBoolean{
@@ -192,7 +186,6 @@ func (c *IcebergConnector) streamRecords(
 		if err != nil {
 			return 0, fmt.Errorf("failed to convert Avro map to binary: %w", err)
 		}
-		c.logger.Info("sending record", "record", native)
 		insertRecord := &protos.InsertRecord{
 			Record: native,
 		}
@@ -204,7 +197,6 @@ func (c *IcebergConnector) streamRecords(
 		if err != nil {
 			return 0, err
 		}
-		c.logger.Info("sent record", "record", insertRecord)
 		recordCount++
 	}
 

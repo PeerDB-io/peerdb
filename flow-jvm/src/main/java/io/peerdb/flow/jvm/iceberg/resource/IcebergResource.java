@@ -69,7 +69,6 @@ public class IcebergResource implements IcebergProxyService {
                 .build());
     }
 
-    @RunOnVirtualThread
     @Blocking
     @Override
     public Uni<AppendRecordsStreamResponse> streamingAppendRecords(Multi<AppendRecordsStreamRequest> request) {
