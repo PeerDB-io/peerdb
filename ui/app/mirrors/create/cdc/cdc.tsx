@@ -109,13 +109,13 @@ export default function CDCConfigForm({
 
   useEffect(() => {
     setPubLoading(true);
-    fetchPublications(mirrorConfig.source || '').then((pubs) => {
+    fetchPublications(mirrorConfig.sourceName ?? '').then((pubs) => {
       setPublications(pubs);
       setPubLoading(false);
     });
-  }, [mirrorConfig.source]);
+  }, [mirrorConfig.sourceName]);
 
-  if (mirrorConfig.source != undefined && mirrorConfig.destination != undefined)
+  if (mirrorConfig.sourceName && mirrorConfig.destinationName)
     return (
       <>
         {normalSettings!.map(
@@ -167,7 +167,7 @@ export default function CDCConfigForm({
           })}
 
         <TableMapping
-          sourcePeerName={mirrorConfig.source}
+          sourcePeerName={mirrorConfig.sourceName}
           rows={rows}
           setRows={setRows}
           peerType={destinationType}

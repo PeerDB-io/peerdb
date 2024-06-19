@@ -44,7 +44,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 			Ok: false,
 		}, errors.New("connection configs is nil")
 	}
-	sourcePeer, err := connectors.LoadPeer(ctx, h.pool, req.ConnectionConfigs.Source)
+	sourcePeer, err := connectors.LoadPeer(ctx, h.pool, req.ConnectionConfigs.SourceName)
 	if err != nil {
 		return &protos.ValidateCDCMirrorResponse{
 			Ok: false,
@@ -53,7 +53,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 
 	sourcePeerConfig := sourcePeer.GetPostgresConfig()
 	if sourcePeerConfig == nil {
-		slog.Error("/validatecdc source peer config is not postgres", slog.String("peer", req.ConnectionConfigs.Source))
+		slog.Error("/validatecdc source peer config is not postgres", slog.String("peer", req.ConnectionConfigs.SourceName))
 		return &protos.ValidateCDCMirrorResponse{
 			Ok: false,
 		}, errors.New("source peer config is not postgres")

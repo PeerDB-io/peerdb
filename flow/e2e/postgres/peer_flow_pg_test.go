@@ -453,15 +453,15 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Basic() {
 	require.NoError(s.t, err)
 
 	config := &protos.FlowConnectionConfigs{
-		FlowJobName: s.attachSuffix("test_softdel"),
-		Destination: s.Peer().Name,
+		FlowJobName:     s.attachSuffix("test_softdel"),
+		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(s.t).Name,
+		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -531,15 +531,15 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_IUD_Same_Batch() {
 	require.NoError(s.t, err)
 
 	config := &protos.FlowConnectionConfigs{
-		FlowJobName: s.attachSuffix("test_softdel_iud"),
-		Destination: s.Peer().Name,
+		FlowJobName:     s.attachSuffix("test_softdel_iud"),
+		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(s.t).Name,
+		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -600,15 +600,15 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
 	require.NoError(s.t, err)
 
 	config := &protos.FlowConnectionConfigs{
-		FlowJobName: s.attachSuffix("test_softdel_ud"),
-		Destination: s.Peer().Name,
+		FlowJobName:     s.attachSuffix("test_softdel_ud"),
+		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(s.t).Name,
+		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -677,15 +677,15 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Insert_After_Delete() {
 	require.NoError(s.t, err)
 
 	config := &protos.FlowConnectionConfigs{
-		FlowJobName: s.attachSuffix("test_softdel_iad"),
-		Destination: s.Peer().Name,
+		FlowJobName:     s.attachSuffix("test_softdel_iad"),
+		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(s.t).Name,
+		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -746,15 +746,15 @@ func (s PeerFlowE2ETestSuitePG) Test_Supported_Mixed_Case_Table() {
 	require.NoError(s.t, err)
 
 	config := &protos.FlowConnectionConfigs{
-		FlowJobName: s.attachSuffix("test_mixed_case"),
-		Destination: s.Peer().Name,
+		FlowJobName:     s.attachSuffix("test_mixed_case"),
+		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:       e2e.GeneratePostgresPeer(s.t).Name,
+		SourceName:   e2e.GeneratePostgresPeer(s.t).Name,
 		MaxBatchSize: 100,
 	}
 
@@ -798,9 +798,9 @@ func (s PeerFlowE2ETestSuitePG) Test_Multiple_Parallel_Initial() {
 		DoInitialSnapshot:           true,
 		InitialSnapshotOnly:         true,
 		FlowJobName:                 s.attachSuffix("test_multi_init"),
-		Destination:                 s.Peer().Name,
+		DestinationName:             s.Peer().Name,
 		TableMappings:               tableMapping,
-		Source:                      e2e.GeneratePostgresPeer(s.t).Name,
+		SourceName:                  e2e.GeneratePostgresPeer(s.t).Name,
 		CdcStagingPath:              "",
 		SnapshotMaxParallelWorkers:  4,
 		SnapshotNumTablesInParallel: 3,
@@ -877,15 +877,15 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	require.NoError(s.t, err)
 
 	config := &protos.FlowConnectionConfigs{
-		FlowJobName: s.attachSuffix("test_dynconfig"),
-		Destination: s.Peer().Name,
+		FlowJobName:     s.attachSuffix("test_dynconfig"),
+		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTable1Name,
 				DestinationTableIdentifier: dstTable1Name,
 			},
 		},
-		Source:                      s.Peer().Name,
+		SourceName:                  s.Peer().Name,
 		MaxBatchSize:                6,
 		IdleTimeoutSeconds:          7,
 		DoInitialSnapshot:           true,

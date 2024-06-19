@@ -106,10 +106,10 @@ func (q *QRepFlowExecution) getTableSchema(ctx workflow.Context, tableName strin
 	})
 
 	tableSchemaInput := &protos.GetTableSchemaBatchInput{
-		PeerConnectionConfig: q.config.SourcePeer,
-		TableIdentifiers:     []string{tableName},
-		FlowName:             q.config.FlowJobName,
-		System:               q.config.System,
+		PeerName:         q.config.SourceName,
+		TableIdentifiers: []string{tableName},
+		FlowName:         q.config.FlowJobName,
+		System:           q.config.System,
 	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
@@ -146,7 +146,7 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 
 		// now setup the normalized tables on the destination peer
 		setupConfig := &protos.SetupNormalizedTableBatchInput{
-			PeerConnectionConfig: q.config.DestinationPeer,
+			PeerName: q.config.DestinationName,
 			TableNameSchemaMapping: map[string]*protos.TableSchema{
 				q.config.DestinationTableIdentifier: watermarkTableSchema,
 			},
@@ -370,7 +370,7 @@ func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, s
 		createTablesFromExistingFuture := workflow.ExecuteActivity(
 			createTablesFromExistingCtx, flowable.CreateTablesFromExisting, &protos.CreateTablesFromExistingInput{
 				FlowJobName: q.config.FlowJobName,
-				Peer:        q.config.DestinationPeer,
+				PeerName:    q.config.DestinationName,
 				NewToExistingTableMapping: map[string]string{
 					renamedTableIdentifier: q.config.DestinationTableIdentifier,
 				},
@@ -386,9 +386,10 @@ func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, s
 func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, state *protos.QRepFlowState) error {
 	if state.NeedsResync && q.config.DstTableFullResync {
 		oldTableIdentifier := strings.TrimSuffix(q.config.DestinationTableIdentifier, "_peerdb_resync")
-		renameOpts := &protos.RenameTablesInput{}
-		renameOpts.FlowJobName = q.config.FlowJobName
-		renameOpts.Peer = q.config.DestinationPeer
+		renameOpts := &protos.RenameTablesInput{
+			FlowJobName: q.config.FlowJobName,
+			PeerName:    q.config.DestinationName,
+		}
 
 		tblSchema, err := q.getTableSchema(ctx, q.config.DestinationTableIdentifier)
 		if err != nil {

@@ -89,7 +89,7 @@ export default function CreateMirrors() {
     if (!peer) return;
     setConfig((curr) => ({
       ...curr,
-      source: peer.name,
+      sourceName: peer.name,
     }));
     setSourceType(peer.type);
   }, []);
@@ -98,7 +98,7 @@ export default function CreateMirrors() {
     if (!peer) return;
     setConfig((curr) => ({
       ...curr,
-      destination: peer.name,
+      destinationName: peer.name,
     }));
     setDestinationType(peer.type);
   }, []);

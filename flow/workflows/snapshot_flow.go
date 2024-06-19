@@ -53,7 +53,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 	}
 
 	setupReplicationInput := &protos.SetupReplicationInput{
-		PeerConnectionConfig:        s.config.Source,
+		PeerName:                    s.config.SourceName,
 		FlowJobName:                 flowName,
 		TableNameMapping:            tblNameMapping,
 		DoInitialSnapshot:           s.config.DoInitialSnapshot,
@@ -161,7 +161,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	}
 	// ensure document IDs are synchronized across initial load and CDC
 	// for the same document
-	dbtype, err := getPeerType(ctx, s.config.Destination)
+	dbtype, err := getPeerType(ctx, s.config.DestinationName)
 	if err != nil {
 		return err
 	}
@@ -174,8 +174,8 @@ func (s *SnapshotFlowExecution) cloneTable(
 
 	config := &protos.QRepConfig{
 		FlowJobName:                childWorkflowID,
-		SourcePeer:                 s.config.Source,
-		DestinationPeer:            s.config.Destination,
+		SourceName:                 s.config.SourceName,
+		DestinationName:            s.config.DestinationName,
 		Query:                      query,
 		WatermarkColumn:            mapping.PartitionKey,
 		WatermarkTable:             srcName,
@@ -285,7 +285,7 @@ func SnapshotFlowWorkflow(
 		tableNameSchemaMapping: tableNameSchemaMapping,
 		logger: log.With(workflow.GetLogger(ctx),
 			slog.String(string(shared.FlowNameKey), config.FlowJobName),
-			slog.String("sourcePeer", config.Source)),
+			slog.String("sourcePeer", config.SourceName)),
 	}
 
 	numTablesInParallel := int(max(config.SnapshotNumTablesInParallel, 1))
@@ -328,7 +328,7 @@ func SnapshotFlowWorkflow(
 			exportCtx,
 			snapshot.MaintainTx,
 			sessionInfo.SessionID,
-			config.Source,
+			config.SourceName,
 		)
 
 		fExportSnapshot := workflow.ExecuteActivity(

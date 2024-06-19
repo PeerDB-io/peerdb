@@ -1071,15 +1071,15 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 	require.NoError(s.t, err)
 
 	config := &protos.FlowConnectionConfigs{
-		FlowJobName: s.attachSuffix(tableName),
-		Destination: s.Peer().Name,
+		FlowJobName:     s.attachSuffix(tableName),
+		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: tableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(s.t).Name,
+		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -1141,15 +1141,15 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 	require.NoError(s.t, err)
 
 	config := &protos.FlowConnectionConfigs{
-		FlowJobName: s.attachSuffix("test_softdel_iud"),
-		Destination: s.Peer().Name,
+		FlowJobName:     s.attachSuffix("test_softdel_iud"),
+		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(s.t).Name,
+		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
 		SoftDelete:        true,
 		SoftDeleteColName: "_custom_deleted",
 		SyncedAtColName:   "_custom_synced",
@@ -1209,15 +1209,15 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 	require.NoError(s.t, err)
 
 	config := &protos.FlowConnectionConfigs{
-		FlowJobName: s.attachSuffix(dstName),
-		Destination: s.Peer().Name,
+		FlowJobName:     s.attachSuffix(dstName),
+		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: dstName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(s.t).Name,
+		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -1285,15 +1285,15 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 	require.NoError(s.t, err)
 
 	config := &protos.FlowConnectionConfigs{
-		FlowJobName: s.attachSuffix(tableName),
-		Destination: s.Peer().Name,
+		FlowJobName:     s.attachSuffix(tableName),
+		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: tableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(s.t).Name,
+		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",

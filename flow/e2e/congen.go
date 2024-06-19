@@ -211,8 +211,8 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs(t *testin
 	ret := &protos.FlowConnectionConfigs{
 		FlowJobName:        c.FlowJobName,
 		TableMappings:      tblMappings,
-		Source:             GeneratePostgresPeer(t).Name,
-		Destination:        c.Destination,
+		SourceName:         GeneratePostgresPeer(t).Name,
+		DestinationName:    c.Destination,
 		SoftDelete:         c.SoftDelete,
 		SyncedAtColName:    "_PEERDB_SYNCED_AT",
 		IdleTimeoutSeconds: 15,

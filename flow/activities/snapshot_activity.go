@@ -61,7 +61,7 @@ func (a *SnapshotActivity) SetupReplication(
 
 	a.Alerter.LogFlowEvent(ctx, config.FlowJobName, "Started Snapshot Flow Job")
 
-	conn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, a.CatalogPool, config.PeerConnectionConfig)
+	conn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, a.CatalogPool, config.PeerName)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
 			logger.Info("setup replication is no-op for non-postgres source")

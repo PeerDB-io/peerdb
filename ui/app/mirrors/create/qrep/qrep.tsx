@@ -93,7 +93,7 @@ export default function QRepConfigForm({
   const loadColumnOptions = (tableIdentifier: string) => {
     const schema = tableIdentifier.split('.')[0];
     const table = tableIdentifier.split('.')[1];
-    fetchColumns(mirrorConfig.sourcePeer, schema, table, setLoading).then(
+    fetchColumns(mirrorConfig.sourceName, schema, table, setLoading).then(
       (cols) => {
         const filteredCols = cols?.filter((col) =>
           allowedTypesForWatermarkColumn.includes(col.split(':')[1])
@@ -121,10 +121,10 @@ export default function QRepConfigForm({
   };
 
   useEffect(() => {
-    fetchAllTables(mirrorConfig.sourcePeer).then((tables) =>
+    fetchAllTables(mirrorConfig.sourceName).then((tables) =>
       setSourceTables(tables?.map((table) => ({ value: table, label: table })))
     );
-  }, [mirrorConfig.sourcePeer]);
+  }, [mirrorConfig.sourceName]);
 
   useEffect(() => {
     // set defaults
@@ -132,7 +132,7 @@ export default function QRepConfigForm({
   }, [setter]);
   return (
     <>
-      {mirrorConfig.sourcePeer ? (
+      {mirrorConfig.sourceName ? (
         settings.map((setting, id) => {
           return (
             paramDisplayCondition(setting) &&

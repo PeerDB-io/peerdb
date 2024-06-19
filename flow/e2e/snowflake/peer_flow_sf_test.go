@@ -787,8 +787,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 	require.NoError(s.t, err)
 
 	config := &protos.FlowConnectionConfigs{
-		FlowJobName: s.attachSuffix(tableName),
-		Destination: s.Peer().Name,
+		FlowJobName:     s.attachSuffix(tableName),
+		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
@@ -796,7 +796,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 				Exclude:                    []string{"c2"},
 			},
 		},
-		Source:          e2e.GeneratePostgresPeer(s.t).Name,
+		SourceName:      e2e.GeneratePostgresPeer(s.t).Name,
 		SyncedAtColName: "_PEERDB_SYNCED_AT",
 		MaxBatchSize:    100,
 	}
@@ -856,15 +856,15 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 	require.NoError(s.t, err)
 
 	config := &protos.FlowConnectionConfigs{
-		FlowJobName: s.attachSuffix(dstName),
-		Destination: s.Peer().Name,
+		FlowJobName:     s.attachSuffix(dstName),
+		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(s.t).Name,
+		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -925,15 +925,15 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 	require.NoError(s.t, err)
 
 	config := &protos.FlowConnectionConfigs{
-		FlowJobName: s.attachSuffix("test_softdel_iud"),
-		Destination: s.Peer().Name,
+		FlowJobName:     s.attachSuffix("test_softdel_iud"),
+		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(s.t).Name,
+		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -997,15 +997,15 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 	require.NoError(s.t, err)
 
 	config := &protos.FlowConnectionConfigs{
-		FlowJobName: s.attachSuffix(dstName),
-		Destination: s.Peer().Name,
+		FlowJobName:     s.attachSuffix(dstName),
+		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(s.t).Name,
+		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -1073,15 +1073,15 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 	require.NoError(s.t, err)
 
 	config := &protos.FlowConnectionConfigs{
-		FlowJobName: s.attachSuffix(tableName),
-		Destination: s.Peer().Name,
+		FlowJobName:     s.attachSuffix(tableName),
+		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
 				DestinationTableIdentifier: dstTableName,
 			},
 		},
-		Source:            e2e.GeneratePostgresPeer(s.t).Name,
+		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
 		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
@@ -1197,8 +1197,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion_With_Schema_Changes() {
 	require.NoError(s.t, err)
 
 	config := &protos.FlowConnectionConfigs{
-		FlowJobName: s.attachSuffix(tableName),
-		Destination: s.Peer().Name,
+		FlowJobName:     s.attachSuffix(tableName),
+		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      srcTableName,
@@ -1206,7 +1206,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion_With_Schema_Changes() {
 				Exclude:                    []string{"c2"},
 			},
 		},
-		Source:       e2e.GeneratePostgresPeer(s.t).Name,
+		SourceName:   e2e.GeneratePostgresPeer(s.t).Name,
 		MaxBatchSize: 100,
 	}
 

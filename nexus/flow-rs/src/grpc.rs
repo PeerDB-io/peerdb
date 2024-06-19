@@ -155,8 +155,10 @@ impl FlowGrpcClient {
         };
 
         let mut flow_conn_cfg = pt::peerdb_flow::FlowConnectionConfigs {
-            source: src,
-            destination: dst,
+            source_deprecated: None,
+            destination_deprecated: None,
+            source_name: src,
+            destination_name: dst,
             flow_job_name: job.name.clone(),
             table_mappings,
             do_initial_snapshot,
@@ -200,8 +202,8 @@ impl FlowGrpcClient {
         dst: String,
     ) -> anyhow::Result<String> {
         let mut cfg = pt::peerdb_flow::QRepConfig {
-            source_peer: src,
-            destination_peer: dst,
+            source_name: src,
+            destination_name: dst,
             flow_job_name: job.name.clone(),
             query: job.query_string.clone(),
             ..Default::default()

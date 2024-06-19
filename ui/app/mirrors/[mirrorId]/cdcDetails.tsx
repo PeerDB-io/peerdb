@@ -82,7 +82,7 @@ function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
             </div>
             <div>
               <PeerButton
-                peerName={mirrorConfig?.config?.source ?? ''}
+                peerName={mirrorConfig?.config?.sourceName ?? ''}
                 peerType={dBTypeFromJSON(mirrorConfig?.sourceType)}
               />
             </div>
@@ -95,7 +95,7 @@ function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
             </div>
             <div>
               <PeerButton
-                peerName={mirrorConfig?.config?.destination ?? ''}
+                peerName={mirrorConfig?.config?.destinationName ?? ''}
                 peerType={dBTypeFromJSON(mirrorConfig?.destinationType)}
               />
             </div>

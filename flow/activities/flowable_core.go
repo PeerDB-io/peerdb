@@ -85,7 +85,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	})
 	defer shutdown()
 
-	dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.Destination)
+	dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
 	}
@@ -154,7 +154,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	hasRecords := !recordBatchSync.WaitAndCheckEmpty()
 	logger.Info("current sync flow has records?", slog.Bool("hasRecords", hasRecords))
 
-	dstConn, err = connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.Destination)
+	dstConn, err = connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to recreate destination connector: %w", err)
 	}
@@ -332,14 +332,14 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
-	srcConn, err := connectors.GetByNameAs[TPull](ctx, a.CatalogPool, config.SourcePeer)
+	srcConn, err := connectors.GetByNameAs[TPull](ctx, a.CatalogPool, config.SourceName)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return fmt.Errorf("failed to get qrep source connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationPeer)
+	dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return fmt.Errorf("failed to get qrep destination connector: %w", err)
@@ -431,13 +431,13 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	logger := activity.GetLogger(ctx)
 
 	startTime := time.Now()
-	srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, a.CatalogPool, config.SourcePeer)
+	srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, a.CatalogPool, config.SourceName)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get qrep source connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationPeer)
+	dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get qrep destination connector: %w", err)
 	}

@@ -170,8 +170,8 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 
 	qrepConfig := &protos.QRepConfig{
 		FlowJobName:                tblName,
-		SourcePeer:                 s.Peer().Name,
-		DestinationPeer:            e2e.GeneratePostgresPeer(s.t).Name,
+		SourceName:                 s.Peer().Name,
+		DestinationName:            e2e.GeneratePostgresPeer(s.t).Name,
 		DestinationTableIdentifier: dstTableName,
 		Query:                      query,
 		WatermarkTable:             srcTableName,

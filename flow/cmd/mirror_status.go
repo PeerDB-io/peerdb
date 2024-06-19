@@ -128,11 +128,11 @@ func (h *FlowRequestHandler) CDCFlowStatus(
 		config.TableMappings = state.SyncFlowOptions.TableMappings
 	}
 
-	srcType, err := connectors.LoadPeerType(ctx, h.pool, config.Source)
+	srcType, err := connectors.LoadPeerType(ctx, h.pool, config.SourceName)
 	if err != nil {
 		return nil, err
 	}
-	dstType, err := connectors.LoadPeerType(ctx, h.pool, config.Destination)
+	dstType, err := connectors.LoadPeerType(ctx, h.pool, config.DestinationName)
 	if err != nil {
 		return nil, err
 	}

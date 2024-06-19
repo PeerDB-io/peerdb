@@ -329,13 +329,16 @@ func CDCFlowWorkflow(
 		}
 
 		if cfg.Resync {
-			renameOpts := &protos.RenameTablesInput{}
-			renameOpts.FlowJobName = cfg.FlowJobName
-			renameOpts.Peer = cfg.Destination
-			if cfg.SoftDelete {
+			renameOpts := &protos.RenameTablesInput{
+				FlowJobName: cfg.FlowJobName,
+				PeerName:    cfg.DestinationName,
+			}
+			if cfg.SyncedAtColName != "" {
+				renameOpts.SyncedAtColName = &cfg.SyncedAtColName
+			}
+			if cfg.SoftDelete && cfg.SoftDeleteColName != "" {
 				renameOpts.SoftDeleteColName = &cfg.SoftDeleteColName
 			}
-			renameOpts.SyncedAtColName = &cfg.SyncedAtColName
 			correctedTableNameSchemaMapping := make(map[string]*protos.TableSchema)
 			for _, mapping := range state.SyncFlowOptions.TableMappings {
 				oldName := mapping.DestinationTableIdentifier

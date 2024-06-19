@@ -61,16 +61,16 @@ func schemaForTableIdentifier(tableIdentifier string, peerDBType int32) string {
 func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 	req *protos.CreateCDCFlowRequest, workflowID string,
 ) error {
-	sourcePeerID, sourePeerType, srcErr := h.getPeerID(ctx, req.ConnectionConfigs.Source)
+	sourcePeerID, sourePeerType, srcErr := h.getPeerID(ctx, req.ConnectionConfigs.SourceName)
 	if srcErr != nil {
 		return fmt.Errorf("unable to get peer id for source peer %s: %w",
-			req.ConnectionConfigs.Source, srcErr)
+			req.ConnectionConfigs.SourceName, srcErr)
 	}
 
-	destinationPeerID, destinationPeerType, dstErr := h.getPeerID(ctx, req.ConnectionConfigs.Destination)
+	destinationPeerID, destinationPeerType, dstErr := h.getPeerID(ctx, req.ConnectionConfigs.DestinationName)
 	if dstErr != nil {
 		return fmt.Errorf("unable to get peer id for target peer %s: %w",
-			req.ConnectionConfigs.Destination, srcErr)
+			req.ConnectionConfigs.DestinationName, srcErr)
 	}
 
 	for _, v := range req.ConnectionConfigs.TableMappings {
@@ -93,14 +93,14 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 func (h *FlowRequestHandler) createQRepJobEntry(ctx context.Context,
 	req *protos.CreateQRepFlowRequest, workflowID string,
 ) error {
-	sourcePeerName := req.QrepConfig.SourcePeer
+	sourcePeerName := req.QrepConfig.SourceName
 	sourcePeerID, _, srcErr := h.getPeerID(ctx, sourcePeerName)
 	if srcErr != nil {
 		return fmt.Errorf("unable to get peer id for source peer %s: %w",
 			sourcePeerName, srcErr)
 	}
 
-	destinationPeerName := req.QrepConfig.DestinationPeer
+	destinationPeerName := req.QrepConfig.DestinationName
 	destinationPeerID, _, dstErr := h.getPeerID(ctx, destinationPeerName)
 	if dstErr != nil {
 		return fmt.Errorf("unable to get peer id for target peer %s: %w",
@@ -215,7 +215,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 			return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 		}
 	}
-	dbtype, err := connectors.LoadPeerType(ctx, h.pool, cfg.SourcePeer)
+	dbtype, err := connectors.LoadPeerType(ctx, h.pool, cfg.SourceName)
 	if err != nil {
 		return nil, err
 	}
