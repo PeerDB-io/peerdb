@@ -151,7 +151,8 @@ func (h *FlowRequestHandler) cloneTableSummary(
 	q := `
 	SELECT
 		distinct qr.flow_name,
-		qr.config_proto,
+		qr.destination_table,
+		qr.source_table,
 		qr.start_time AS StartTime,
 		qr.fetch_complete as FetchCompleted,
 		qr.consolidate_complete as ConsolidateCompleted,
@@ -162,10 +163,11 @@ func (h *FlowRequestHandler) cloneTableSummary(
 	FROM peerdb_stats.qrep_partitions qp
 	RIGHT JOIN peerdb_stats.qrep_runs qr ON qp.flow_name = qr.flow_name
 	WHERE qr.flow_name ILIKE $1
-	GROUP BY qr.flow_name, qr.config_proto, qr.start_time, qr.fetch_complete, qr.consolidate_complete;
+	GROUP BY qr.flow_name, qr.destination_table, qr.source_table, qr.start_time, qr.fetch_complete, qr.consolidate_complete;
 	`
 	var flowName pgtype.Text
-	var configBytes []byte
+	var destinationTable pgtype.Text
+	var sourceTable pgtype.Text
 	var fetchCompleted pgtype.Bool
 	var consolidateCompleted pgtype.Bool
 	var startTime pgtype.Timestamp
@@ -187,7 +189,8 @@ func (h *FlowRequestHandler) cloneTableSummary(
 	for rows.Next() {
 		if err := rows.Scan(
 			&flowName,
-			&configBytes,
+			&destinationTable,
+			&sourceTable,
 			&startTime,
 			&fetchCompleted,
 			&consolidateCompleted,
@@ -204,6 +207,15 @@ func (h *FlowRequestHandler) cloneTableSummary(
 		if flowName.Valid {
 			res.FlowJobName = flowName.String
 		}
+
+		if destinationTable.Valid {
+			res.TableName = destinationTable.String
+		}
+
+		if sourceTable.Valid {
+			res.SourceTable = sourceTable.String
+		}
+
 		if startTime.Valid {
 			res.StartTime = timestamppb.New(startTime.Time)
 		}
@@ -232,16 +244,6 @@ func (h *FlowRequestHandler) cloneTableSummary(
 			res.AvgTimePerPartitionMs = int64(avgTimePerPartitionMs.Float64)
 		}
 
-		if configBytes != nil {
-			var config protos.QRepConfig
-			if err := proto.Unmarshal(configBytes, &config); err != nil {
-				slog.Error("unable to unmarshal config", slog.Any("error", err))
-				return nil, fmt.Errorf("unable to unmarshal config: %w", err)
-			}
-			res.TableName = config.DestinationTableIdentifier
-			res.SourceTable = config.WatermarkTable
-		}
-
 		cloneStatuses = append(cloneStatuses, &res)
 	}
 	return cloneStatuses, nil
@@ -261,7 +263,6 @@ func (h *FlowRequestHandler) QRepFlowStatus(
 	return &protos.QRepMirrorStatus{
 		// The clone table jobs that are children of the CDC snapshot flow
 		// do not have a config entry, so allow this to be nil.
-		Config:     h.getQRepConfigFromCatalog(ctx, req.FlowJobName),
 		Partitions: partitionStatuses,
 	}, nil
 }
@@ -332,47 +333,6 @@ func (h *FlowRequestHandler) getFlowConfigFromCatalog(
 	}
 
 	return &config, nil
-}
-
-func (h *FlowRequestHandler) getQRepConfigFromCatalog(ctx context.Context, flowJobName string) *protos.QRepConfig {
-	var configBytes []byte
-	var config protos.QRepConfig
-
-	queryInfos := []struct {
-		Query   string
-		Warning string
-	}{
-		{
-			Query:   "SELECT config_proto FROM flows WHERE name = $1",
-			Warning: "unable to query qrep config from catalog",
-		},
-		{
-			Query:   "SELECT config_proto FROM peerdb_stats.qrep_runs WHERE flow_name = $1",
-			Warning: "unable to query qrep config from qrep_runs",
-		},
-	}
-
-	// Iterate over queries and attempt to fetch the config
-	for _, qInfo := range queryInfos {
-		err := h.pool.QueryRow(ctx, qInfo.Query, flowJobName).Scan(&configBytes)
-		if err == nil {
-			break
-		}
-		slog.Warn(fmt.Sprintf("%s - %s: %s", qInfo.Warning, flowJobName, err.Error()))
-	}
-
-	// If no config was fetched, return nil
-	if len(configBytes) == 0 {
-		return nil
-	}
-
-	// Try unmarshaling
-	if err := proto.Unmarshal(configBytes, &config); err != nil {
-		slog.Warn(fmt.Sprintf("failed to unmarshal config for %s: %s", flowJobName, err.Error()))
-		return nil
-	}
-
-	return &config
 }
 
 func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) (bool, error) {
