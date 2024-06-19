@@ -147,7 +147,7 @@ func (c *PostgresConnector) CheckIfTablesAreMirrorable(
 	for _, table := range tables {
 		var pkeyOrReplIdentFull sql.NullBool
 		err := c.conn.QueryRow(ctx, `SELECT
-		(con.contype = 'p' OR t.relreplident in ('f')) AS can_mirror
+		(con.contype = 'p' OR t.relreplident in ('i', 'f')) AS can_mirror
 		FROM pg_class t
 		LEFT JOIN pg_namespace n ON t.relnamespace = n.oid
 		LEFT JOIN pg_constraint con ON con.conrelid = t.oid
@@ -158,21 +158,8 @@ func (c *PostgresConnector) CheckIfTablesAreMirrorable(
 			return err
 		}
 
-		if !pkeyOrReplIdentFull.Valid || !pkeyOrReplIdentFull.Bool {
-			// Check for replica identity index
-			relId, err := c.getRelIDForTable(ctx, table)
-			if err != nil {
-				return err
-			}
-
-			indexCols, err := c.getReplicaIdentityIndexColumns(ctx, relId, table)
-			if err != nil {
-				return err
-			}
-
-			if len(indexCols) == 0 {
-				badTables = append(badTables, fmt.Sprintf("%s.%s", table.Schema, table.Table))
-			}
+		if !pkeyOrReplIdentFull.Bool {
+			badTables = append(badTables, fmt.Sprintf("%s.%s", table.Schema, table.Table))
 		}
 	}
 
