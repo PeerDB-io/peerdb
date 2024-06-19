@@ -261,7 +261,6 @@ func (h *FlowRequestHandler) QRepFlowStatus(
 	return &protos.QRepMirrorStatus{
 		// The clone table jobs that are children of the CDC snapshot flow
 		// do not have a config entry, so allow this to be nil.
-		Config:     h.getQRepConfigFromCatalog(ctx, req.FlowJobName),
 		Partitions: partitionStatuses,
 	}, nil
 }
@@ -332,47 +331,6 @@ func (h *FlowRequestHandler) getFlowConfigFromCatalog(
 	}
 
 	return &config, nil
-}
-
-func (h *FlowRequestHandler) getQRepConfigFromCatalog(ctx context.Context, flowJobName string) *protos.QRepConfig {
-	var configBytes []byte
-	var config protos.QRepConfig
-
-	queryInfos := []struct {
-		Query   string
-		Warning string
-	}{
-		{
-			Query:   "SELECT config_proto FROM flows WHERE name = $1",
-			Warning: "unable to query qrep config from catalog",
-		},
-		{
-			Query:   "SELECT config_proto FROM peerdb_stats.qrep_runs WHERE flow_name = $1",
-			Warning: "unable to query qrep config from qrep_runs",
-		},
-	}
-
-	// Iterate over queries and attempt to fetch the config
-	for _, qInfo := range queryInfos {
-		err := h.pool.QueryRow(ctx, qInfo.Query, flowJobName).Scan(&configBytes)
-		if err == nil {
-			break
-		}
-		slog.Warn(fmt.Sprintf("%s - %s: %s", qInfo.Warning, flowJobName, err.Error()))
-	}
-
-	// If no config was fetched, return nil
-	if len(configBytes) == 0 {
-		return nil
-	}
-
-	// Try unmarshaling
-	if err := proto.Unmarshal(configBytes, &config); err != nil {
-		slog.Warn(fmt.Sprintf("failed to unmarshal config for %s: %s", flowJobName, err.Error()))
-		return nil
-	}
-
-	return &config
 }
 
 func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) (bool, error) {
