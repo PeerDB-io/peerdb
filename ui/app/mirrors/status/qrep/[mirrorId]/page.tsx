@@ -1,7 +1,6 @@
 import prisma from '@/app/utils/prisma';
 import { Header } from '@/lib/Header';
 import { LayoutMain } from '@/lib/Layout';
-import QRepConfigViewer from './qrepConfigViewer';
 import QrepGraph from './qrepGraph';
 import QRepStatusTable, { QRepPartitionStatus } from './qrepStatusTable';
 
@@ -41,7 +40,6 @@ export default async function QRepMirrorStatus({
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
       <Header variant='title2'>{mirrorId}</Header>
-      <QRepConfigViewer mirrorId={mirrorId} />
       <QrepGraph
         syncs={partitions.map((partition) => ({
           partitionID: partition.partitionId,
