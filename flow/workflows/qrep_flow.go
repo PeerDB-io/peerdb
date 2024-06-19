@@ -551,6 +551,17 @@ func QRepFlowWorkflow(
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 	}
 
+	// TODO remove fields in 0.15
+	state.DisableWaitForNewRows = false
+	if config.SourceDeprecated != nil {
+		config.SourceName = config.SourceDeprecated.Name
+		config.SourceDeprecated = nil
+	}
+	if config.DestinationDeprecated != nil {
+		config.DestinationName = config.DestinationDeprecated.Name
+		config.DestinationDeprecated = nil
+	}
+
 	maxParallelWorkers := 16
 	if config.MaxParallelWorkers > 0 {
 		maxParallelWorkers = int(config.MaxParallelWorkers)

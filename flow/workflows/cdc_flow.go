@@ -259,6 +259,17 @@ func CDCFlowWorkflow(
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 	}
 
+	// TODO remove fields in 0.15
+	state.RelationMessageMapping = nil
+	if cfg.SourceDeprecated != nil {
+		cfg.SourceName = cfg.SourceDeprecated.Name
+		cfg.SourceDeprecated = nil
+	}
+	if cfg.DestinationDeprecated != nil {
+		cfg.DestinationName = cfg.DestinationDeprecated.Name
+		cfg.DestinationDeprecated = nil
+	}
+
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 
 	// we cannot skip SetupFlow if SnapshotFlow did not complete in cases where Resync is enabled

@@ -32,7 +32,6 @@ message TableMapping {
 }
 
 message SetupInput {
-  peerdb_peers.Peer peer_deprecated = 1; // deprecated
   string flow_name = 2;
   string peer_name = 3;
 }
@@ -86,7 +85,6 @@ message RenameTableOption {
 
 message RenameTablesInput {
   string flow_job_name = 1;
-  peerdb_peers.Peer peer_deprecated = 2; // deprecated
   repeated RenameTableOption rename_table_options = 3;
   optional string soft_delete_col_name = 4;
   optional string synced_at_col_name = 5;
@@ -99,7 +97,6 @@ message RenameTablesOutput {
 
 message CreateTablesFromExistingInput {
   string flow_job_name = 1;
-  peerdb_peers.Peer peer_deprecated = 2; // deprecated
   map<string, string> new_to_existing_table_mapping = 3;
   string peer_name = 4;
 }
@@ -125,7 +122,6 @@ message StartNormalizeInput {
 }
 
 message EnsurePullabilityBatchInput {
-  peerdb_peers.Peer peer_connection_config = 1; // deprecated
   string flow_job_name = 2;
   repeated string source_table_identifiers = 3;
   bool check_constraints = 4;
@@ -141,11 +137,9 @@ message EnsurePullabilityBatchOutput {
 }
 
 message SetupReplicationInput {
-  peerdb_peers.Peer peer_connection_config = 1; // deprecated
   string flow_job_name = 2;
   map<string, string> table_name_mapping = 3;
 
-  peerdb_peers.Peer destination_peer_deprecated = 4; // deprecated
   // replicate to destination using ctid
   bool do_initial_snapshot = 5;
   string existing_publication_name = 6;
@@ -161,7 +155,6 @@ message SetupReplicationOutput {
 }
 
 message CreateRawTableInput {
-  peerdb_peers.Peer peer_connection_config = 1; // deprecated
   string flow_job_name = 2;
   map<string, string> table_name_mapping = 3;
   string peer_name = 4;
@@ -184,7 +177,6 @@ message FieldDescription {
 }
 
 message GetTableSchemaBatchInput {
-  peerdb_peers.Peer peer_connection_config = 1; // deprecated
   repeated string table_identifiers = 2;
   string flow_name = 3;
   TypeSystem system = 4;
@@ -196,7 +188,6 @@ message GetTableSchemaBatchOutput {
 }
 
 message SetupNormalizedTableBatchInput {
-  peerdb_peers.Peer peer_connection_config = 1; // deprecated
   map<string, TableSchema> table_name_schema_mapping = 2;
 
   // migration related columns
@@ -266,8 +257,8 @@ enum TypeSystem {
 message QRepConfig {
   string flow_job_name = 1;
 
-  peerdb_peers.Peer source_peer_deprecated = 2; // deprecated
-  peerdb_peers.Peer destination_peer_deprecated = 3; // deprecated
+  peerdb_peers.Peer source_deprecated = 2; // deprecated
+  peerdb_peers.Peer destination_deprecated = 3; // deprecated
 
   string destination_table_identifier = 4;
 
