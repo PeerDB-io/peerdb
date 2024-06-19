@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
@@ -158,18 +157,6 @@ func InitializeQRepRun(
 		flowJobName, runUUID, config.WatermarkTable, config.DestinationTableIdentifier)
 	if err != nil {
 		return fmt.Errorf("error while inserting qrep run in qrep_runs: %w", err)
-	}
-
-	cfgBytes, err := proto.Marshal(config)
-	if err != nil {
-		return fmt.Errorf("unable to marshal flow config: %w", err)
-	}
-
-	_, err = pool.Exec(ctx,
-		"UPDATE peerdb_stats.qrep_runs SET config_proto = $1 WHERE flow_name = $2",
-		cfgBytes, flowJobName)
-	if err != nil {
-		return fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
 
 	for _, partition := range partitions {
