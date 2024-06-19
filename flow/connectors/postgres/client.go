@@ -171,9 +171,6 @@ func (c *PostgresConnector) getReplicaIdentityIndexColumns(
          WHERE indrelid=$1 AND indisreplident=true`,
 		relID).Scan(&indexRelID)
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("no replica identity index for table %s", schemaTable)
-		}
 		return nil, fmt.Errorf("error finding replica identity index for table %s: %w", schemaTable, err)
 	}
 
