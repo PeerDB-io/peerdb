@@ -21,10 +21,10 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 		return errors.New("check tables: conn is nil")
 	}
 
-	err := c.CheckIfTablesAreMirrorable(ctx, tableNames)
-	if err != nil {
-		return err
-	}
+	// err := c.CheckIfTablesAreMirrorable(ctx, tableNames)
+	// if err != nil {
+	// 	return err
+	// }
 
 	// Check that we can select from all tables
 	tableArr := make([]string, 0, len(tableNames))
