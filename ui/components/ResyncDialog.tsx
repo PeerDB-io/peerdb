@@ -25,8 +25,8 @@ export const ResyncDialog = ({
       {
         workflowId: workflowId,
         flowJobName: mirrorConfig.flowJobName,
-        sourcePeer: mirrorConfig.source!,
-        destinationPeer: mirrorConfig.destination!,
+        sourcePeerName: mirrorConfig.source!.name,
+        destinationPeerName: mirrorConfig.destination!.name,
         forResync: true,
       },
       setDropping,

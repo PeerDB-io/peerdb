@@ -87,8 +87,8 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
                   dropArgs={{
                     workflowId: flow.workflow_id,
                     flowJobName: flow.name,
-                    sourcePeer: flow.sourcePeer,
-                    destinationPeer: flow.destinationPeer,
+                    sourcePeerName: flow.sourcePeer.name,
+                    destinationPeerName: flow.destinationPeer.name,
                   }}
                 />
               </TableCell>
@@ -172,8 +172,8 @@ export function QRepFlows({
                   dropArgs={{
                     workflowId: flow.workflow_id,
                     flowJobName: flow.name,
-                    sourcePeer: flow.sourcePeer,
-                    destinationPeer: flow.destinationPeer,
+                    sourcePeerName: flow.sourcePeer.name,
+                    destinationPeerName: flow.destinationPeer.name,
                   }}
                 />
               </TableCell>

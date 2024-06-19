@@ -1,10 +1,23 @@
 import { UDropMirrorResponse } from '@/app/dto/MirrorsDTO';
+import prisma from '@/app/utils/prisma';
 import { ShutdownRequest, ShutdownResponse } from '@/grpc_generated/route';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
+import { getTruePeer } from '../../peers/getTruePeer';
 
+const getPeerFromName = async (name: string) => {
+  const catalogPeer = await prisma.peers.findUnique({
+    where: {
+      name,
+    },
+  });
+  const peer = getTruePeer(catalogPeer!);
+  return peer;
+};
 export async function POST(request: Request) {
   const body = await request.json();
-  const { workflowId, flowJobName, sourcePeer, destinationPeer } = body;
+  const { workflowId, flowJobName, sourcePeerName, destinationPeerName } = body;
+  const sourcePeer = await getPeerFromName(sourcePeerName);
+  const destinationPeer = await getPeerFromName(destinationPeerName);
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
   const req: ShutdownRequest = {
     workflowId,
