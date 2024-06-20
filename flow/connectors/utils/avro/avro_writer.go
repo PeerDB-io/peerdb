@@ -248,7 +248,7 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, filePath s
 	}
 	defer file.Close()
 
-	buffSizeBytes := 1 << 26 // 64 MB
+	buffSizeBytes := 1 << 30 // 1 GB
 	bufferedWriter := bufio.NewWriterSize(file, buffSizeBytes)
 	defer bufferedWriter.Flush()
 
