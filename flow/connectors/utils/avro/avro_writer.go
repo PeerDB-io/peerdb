@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"os"
 	"runtime/debug"
+	"sync"
+	"sync/atomic"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
@@ -17,6 +19,7 @@ import (
 	"github.com/klauspost/compress/snappy"
 	"github.com/klauspost/compress/zstd"
 	"github.com/linkedin/goavro/v2"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -83,7 +86,7 @@ func (p *peerDBOCFWriter) initWriteCloser(w io.Writer) error {
 	var err error
 	switch p.avroCompressionCodec {
 	case CompressNone:
-		p.writer = &nopWriteCloser{w}
+		p.writer = &nopWriteCloser{w, sync.Mutex{}}
 	case CompressZstd:
 		p.writer, err = zstd.NewWriter(w)
 		if err != nil {
@@ -129,34 +132,51 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 		logger,
 	)
 
-	numRows := 0
-	for qrecord := range p.stream.Records {
-		if err := ctx.Err(); err != nil {
-			logger.Error("[writeRecordsToOCF] context cancelled", slog.Any("error", err))
-			return numRows, err
-		} else {
-			avroMap, err := avroConverter.Convert(qrecord)
-			if err != nil {
-				logger.Error("Failed to convert QRecord to Avro compatible map", slog.Any("error", err))
-				return numRows, fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
-			}
+	numRows := atomic.Int64{}
+	processor := func(id int, pCtx context.Context) error {
+		for qrecord := range p.stream.Records {
+			if err := pCtx.Err(); err != nil {
+				logger.Error("[writeRecordsToOCF] context cancelled", slog.Any("error", err))
+				return err
+			} else {
+				avroMap, err := avroConverter.Convert(qrecord)
+				if err != nil {
+					logger.Error("Failed to convert QRecord to Avro compatible map", slog.Any("error", err))
+					return fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
+				}
 
-			err = ocfWriter.Append([]interface{}{avroMap})
-			if err != nil {
-				logger.Error("Failed to write record to OCF", slog.Any("error", err))
-				return numRows, fmt.Errorf("failed to write record to OCF: %w", err)
-			}
+				err = ocfWriter.Append([]interface{}{avroMap})
+				if err != nil {
+					logger.Error("Failed to write record to OCF", slog.Any("error", err))
+					return fmt.Errorf("failed to write record to OCF: %w", err)
+				}
 
-			numRows++
+				numRows.Add(1)
+			}
 		}
+
+		if err := p.stream.Err(); err != nil {
+			logger.Error("Failed to get record from stream", slog.Any("error", err))
+			return fmt.Errorf("failed to get record from stream: %w", err)
+		}
+
+		logger.Info("Finished writing records to OCF", slog.Int("id", id))
+		return nil
 	}
 
-	if err := p.stream.Err(); err != nil {
-		logger.Error("Failed to get record from stream", slog.Any("error", err))
-		return numRows, fmt.Errorf("failed to get record from stream: %w", err)
+	errGroup, errCtx := errgroup.WithContext(ctx)
+	for i := range 8 {
+		logger.Info("Starting parallel goroutine", slog.Int("id", i))
+		errGroup.Go(func() error {
+			j := i
+			return processor(j, errCtx)
+		})
+	}
+	if err := errGroup.Wait(); err != nil {
+		return int(numRows.Load()), err
 	}
 
-	return numRows, nil
+	return int(numRows.Load()), nil
 }
 
 func (p *peerDBOCFWriter) WriteOCF(ctx context.Context, w io.Writer) (int, error) {
@@ -246,6 +266,13 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, filePath s
 
 type nopWriteCloser struct {
 	io.Writer
+	wl sync.Mutex
+}
+
+func (n *nopWriteCloser) Write(p []byte) (int, error) {
+	n.wl.Lock()
+	defer n.wl.Unlock()
+	return n.Writer.Write(p)
 }
 
 func (n *nopWriteCloser) Close() error {
