@@ -1,6 +1,18 @@
 package io.peerdb.flow.jvm.iceberg.resource;
 
-import io.peerdb.flow.jvm.grpc.*;
+import io.peerdb.flow.jvm.grpc.AppendRecordsRequest;
+import io.peerdb.flow.jvm.grpc.AppendRecordsResponse;
+import io.peerdb.flow.jvm.grpc.AppendRecordsStreamRequest;
+import io.peerdb.flow.jvm.grpc.AppendRecordsStreamResponse;
+import io.peerdb.flow.jvm.grpc.CountRecordRequest;
+import io.peerdb.flow.jvm.grpc.CountRecordResponse;
+import io.peerdb.flow.jvm.grpc.CreateTableRequest;
+import io.peerdb.flow.jvm.grpc.CreateTableResponse;
+import io.peerdb.flow.jvm.grpc.DropTableRequest;
+import io.peerdb.flow.jvm.grpc.DropTableResponse;
+import io.peerdb.flow.jvm.grpc.IcebergProxyService;
+import io.peerdb.flow.jvm.grpc.InsertChangesRequest;
+import io.peerdb.flow.jvm.grpc.InsertChangesResponse;
 import io.peerdb.flow.jvm.iceberg.service.IcebergService;
 import io.quarkus.grpc.GrpcService;
 import io.smallrye.common.annotation.Blocking;
