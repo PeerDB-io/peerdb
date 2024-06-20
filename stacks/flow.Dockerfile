@@ -19,7 +19,7 @@ ENV CGO_ENABLED=1
 RUN go build -ldflags="-s -w" -o /root/peer-flow
 
 FROM alpine:3.20 AS flow-base
-RUN apk add --no-cache ca-certificates geos dstat htop curl wget vim && \
+RUN apk add --no-cache ca-certificates geos sysstat htop curl wget vim && \
   adduser -s /bin/sh -D peerdb
 USER peerdb
 WORKDIR /home/peerdb
