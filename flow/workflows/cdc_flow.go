@@ -91,10 +91,6 @@ func processCDCFlowConfigUpdate(
 ) error {
 	flowConfigUpdate := state.FlowConfigUpdate
 
-	defer func() {
-		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
-	}()
-
 	// only modify for options since SyncFlow uses it
 	if flowConfigUpdate.BatchSize > 0 {
 		state.SyncFlowOptions.BatchSize = flowConfigUpdate.BatchSize
@@ -108,10 +104,12 @@ func processCDCFlowConfigUpdate(
 
 	logger.Info("processing CDCFlowConfigUpdate", slog.Any("updatedState", flowConfigUpdate))
 	if len(flowConfigUpdate.AdditionalTables) == 0 {
+		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
 		return nil
 	}
 	if shared.AdditionalTablesHasOverlap(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables) {
 		logger.Warn("duplicate source/destination tables found in additionalTables")
+		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
 		return nil
 	}
 	state.CurrentFlowStatus = protos.FlowStatus_STATUS_SNAPSHOT
@@ -165,6 +163,7 @@ func processCDCFlowConfigUpdate(
 	state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
 	logger.Info("additional tables added to sync flow")
 
+	syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
 	return nil
 }
 

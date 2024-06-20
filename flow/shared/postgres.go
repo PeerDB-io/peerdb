@@ -111,10 +111,8 @@ func UpdateCDCConfigInCatalog(ctx context.Context, pool *pgxpool.Pool,
 	logger log.Logger, cfg *protos.FlowConnectionConfigs,
 ) error {
 	logger.Info("syncing state to catalog: updating config_proto in flows", slog.String("flowName", cfg.FlowJobName))
-	var cfgBytes []byte
-	var err error
 
-	cfgBytes, err = proto.Marshal(cfg)
+	cfgBytes, err := proto.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("unable to marshal flow config: %w", err)
 	}
