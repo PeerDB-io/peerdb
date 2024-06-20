@@ -101,7 +101,8 @@ export default async function ViewMirror({
       mirrorStatus.currentFlowState.toString() !==
         FlowStatus[FlowStatus.STATUS_SETUP] &&
       (dbType.valueOf() === DBType.BIGQUERY.valueOf() ||
-        dbType.valueOf() === DBType.SNOWFLAKE.valueOf());
+        dbType.valueOf() === DBType.SNOWFLAKE.valueOf() ||
+        dbType.valueOf() === DBType.POSTGRES.valueOf());
 
     actionsDropdown = (
       <MirrorActions
