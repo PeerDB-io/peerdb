@@ -14,7 +14,6 @@ import (
 	"github.com/djherbis/buffer"
 	"github.com/djherbis/nio/v3"
 	"github.com/klauspost/compress/flate"
-	"github.com/klauspost/compress/snappy"
 	"github.com/klauspost/compress/zstd"
 	"github.com/linkedin/goavro/v2"
 
@@ -95,7 +94,7 @@ func (p *peerDBOCFWriter) initWriteCloser(w io.Writer) error {
 			return fmt.Errorf("error while initializing deflate encoding writer: %w", err)
 		}
 	case CompressSnappy:
-		p.writer = snappy.NewBufferedWriter(w)
+		p.writer = &nopWriteCloser{w}
 	}
 
 	return nil
@@ -107,9 +106,15 @@ func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error
 		return nil, fmt.Errorf("failed to create compressed writer: %w", err)
 	}
 
+	var compressionName string
+	if p.avroCompressionCodec == CompressSnappy {
+		compressionName = "snappy"
+	}
+
 	ocfWriter, err := goavro.NewOCFWriter(goavro.OCFConfig{
-		W:      p.writer,
-		Schema: p.avroSchema.Schema,
+		W:               p.writer,
+		Schema:          p.avroSchema.Schema,
+		CompressionName: compressionName,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OCF writer: %w", err)
