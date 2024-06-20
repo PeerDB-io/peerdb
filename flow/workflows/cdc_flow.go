@@ -261,13 +261,26 @@ func CDCFlowWorkflow(
 
 	// TODO remove fields in 0.15
 	state.RelationMessageMapping = nil
+	save_cfg := false
 	if cfg.SourceDeprecated != nil {
 		cfg.SourceName = cfg.SourceDeprecated.Name
 		cfg.SourceDeprecated = nil
+		save_cfg = true
 	}
 	if cfg.DestinationDeprecated != nil {
 		cfg.DestinationName = cfg.DestinationDeprecated.Name
 		cfg.DestinationDeprecated = nil
+		save_cfg = true
+	}
+	if save_cfg {
+		saveCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: time.Hour,
+			HeartbeatTimeout:    time.Minute,
+		})
+		saveFuture := workflow.ExecuteActivity(saveCtx, flowable.UpdateCdcFlowConfigInCatalog, cfg)
+		if err := saveFuture.Get(saveCtx, nil); err != nil {
+			return state, fmt.Errorf("failed to save updated config: %w", err)
+		}
 	}
 
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID

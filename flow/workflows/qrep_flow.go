@@ -553,13 +553,26 @@ func QRepFlowWorkflow(
 
 	// TODO remove fields in 0.15
 	state.DisableWaitForNewRows = false
+	save_cfg := false
 	if config.SourceDeprecated != nil {
 		config.SourceName = config.SourceDeprecated.Name
 		config.SourceDeprecated = nil
+		save_cfg = true
 	}
 	if config.DestinationDeprecated != nil {
 		config.DestinationName = config.DestinationDeprecated.Name
 		config.DestinationDeprecated = nil
+		save_cfg = true
+	}
+	if save_cfg {
+		saveCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: time.Hour,
+			HeartbeatTimeout:    time.Minute,
+		})
+		saveFuture := workflow.ExecuteActivity(saveCtx, flowable.UpdateQRepFlowConfigInCatalog, config)
+		if err := saveFuture.Get(saveCtx, nil); err != nil {
+			return state, fmt.Errorf("failed to save updated config: %w", err)
+		}
 	}
 
 	maxParallelWorkers := 16
