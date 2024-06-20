@@ -12,7 +12,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/log"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
@@ -103,4 +105,26 @@ func RollbackTx(tx pgx.Tx, logger log.Logger) {
 	if err != nil && err != pgx.ErrTxClosed {
 		logger.Error("error while rolling back transaction", slog.Any("error", err))
 	}
+}
+
+func UpdateCDCConfigInCatalog(ctx context.Context, pool *pgxpool.Pool,
+	logger log.Logger, cfg *protos.FlowConnectionConfigs,
+) error {
+	logger.Info("syncing state to catalog: updating config_proto in flows", slog.String("flowName", cfg.FlowJobName))
+	var cfgBytes []byte
+	var err error
+
+	cfgBytes, err = proto.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("unable to marshal flow config: %w", err)
+	}
+
+	_, err = pool.Exec(ctx, "UPDATE flows SET config_proto=$1,updated_at=now() WHERE name=$2", cfgBytes, cfg.FlowJobName)
+	if err != nil {
+		logger.Error("failed to update catalog", slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
+		return fmt.Errorf("failed to update catalog: %w", err)
+	}
+
+	logger.Info("synced state to catalog: updated config_proto in flows", slog.String("flowName", cfg.FlowJobName))
+	return nil
 }
