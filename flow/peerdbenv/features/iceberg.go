@@ -2,10 +2,11 @@ package features
 
 import (
 	"context"
-	"github.com/PeerDB-io/peer-flow/logger"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"log/slog"
 	"strconv"
+
+	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 func IcebergFeatureStreamingEnabled(ctx context.Context) bool {

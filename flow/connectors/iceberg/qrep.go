@@ -3,7 +3,6 @@ package iceberg
 import (
 	"context"
 	"fmt"
-	"github.com/PeerDB-io/peer-flow/peerdbenv/features"
 	"log/slog"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/peerdbenv/features"
 )
 
 func (c *IcebergConnector) SyncQRepRecords(
@@ -27,7 +27,6 @@ func (c *IcebergConnector) SyncQRepRecords(
 	return c.sendRecordsJoined(ctx, config, partition, stream)
 }
 
-//nolint:unused
 func (c *IcebergConnector) sendRecordsJoined(
 	ctx context.Context,
 	config *protos.QRepConfig,
