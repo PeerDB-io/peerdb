@@ -110,7 +110,7 @@ func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error
 	ocfWriter, err := goavro.NewOCFWriter(goavro.OCFConfig{
 		W:               p.writer,
 		Schema:          p.avroSchema.Schema,
-		CompressionName: "deflate",
+		CompressionName: "snappy",
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OCF writer: %w", err)
