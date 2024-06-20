@@ -38,22 +38,10 @@ export const tableMappingSchema = z
   });
 
 export const cdcSchema = z.object({
-  source: z.object(
-    {
-      name: z.string().min(1),
-      type: z.any(),
-      config: z.any(),
-    },
-    { required_error: 'Source peer is required' }
-  ),
-  destination: z.object(
-    {
-      name: z.string().min(1),
-      type: z.any(),
-      config: z.any(),
-    },
-    { required_error: 'Destination peer is required' }
-  ),
+  source: z.string({ required_error: 'Source peer is required' }).min(1),
+  destination: z
+    .string({ required_error: 'Destination peer is required' })
+    .min(1),
   doInitialCopy: z.boolean().optional(),
   publicationName: z
     .string({
@@ -104,22 +92,10 @@ export const cdcSchema = z.object({
 });
 
 export const qrepSchema = z.object({
-  sourcePeer: z.object(
-    {
-      name: z.string().min(1),
-      type: z.any(),
-      config: z.any(),
-    },
-    { required_error: 'Source peer is required' }
-  ),
-  destinationPeer: z.object(
-    {
-      name: z.string().min(1),
-      type: z.any(),
-      config: z.any(),
-    },
-    { required_error: 'Destination peer is required' }
-  ),
+  sourcePeer: z.string({ required_error: 'Source peer is required' }).min(1),
+  destinationPeer: z
+    .string({ required_error: 'Destination peer is required' })
+    .min(1),
   initialCopyOnly: z.boolean().optional(),
   setupWatermarkTableOnDestination: z.boolean().optional(),
   destinationTableIdentifier: z
