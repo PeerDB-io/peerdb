@@ -121,6 +121,17 @@ func (h *FlowRequestHandler) CDCFlowStatus(
 		return nil, err
 	}
 
+	// TODO remove in 0.15
+	// patching config to use new fields on ui
+	if config.Source != nil {
+		config.SourceName = config.Source.Name
+		config.Source = nil
+	}
+	if config.Destination != nil {
+		config.DestinationName = config.Destination.Name
+		config.Destination = nil
+	}
+
 	// patching config to show latest values from state
 	if state.SyncFlowOptions != nil {
 		config.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
