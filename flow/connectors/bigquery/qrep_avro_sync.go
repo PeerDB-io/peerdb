@@ -397,7 +397,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	flowName string,
 ) (int, error) {
 	var avroFile *avro.AvroFile
-	ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressNone, protos.DBType_BIGQUERY)
+	ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressDeflate, protos.DBType_BIGQUERY)
 	idLog := slog.Group("write-metadata",
 		slog.String(string(shared.FlowNameKey), flowName),
 		slog.String("batchOrPartitionID", syncID),
