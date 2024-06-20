@@ -6,6 +6,7 @@ import com.google.common.collect.Streams;
 import io.peerdb.flow.jvm.grpc.*;
 import io.peerdb.flow.jvm.iceberg.avro.AvroIcebergRecordConverter;
 import io.peerdb.flow.jvm.iceberg.catalog.CatalogLoader;
+import io.peerdb.flow.jvm.iceberg.exceptions.AppendAlreadyDoneException;
 import io.peerdb.flow.jvm.iceberg.lock.LockManager;
 import io.peerdb.flow.jvm.iceberg.writer.AppendFilesWriter;
 import io.peerdb.flow.jvm.iceberg.writer.RecordWriterFactory;
@@ -154,53 +155,62 @@ public class IcebergService {
                                     AppendFilesWriter appendFilesWriter) {
     }
 
-    class OperationDoneException extends RuntimeException {
-    }
 
     public Uni<AppendRecordsStreamResponse> appendRecordsAsync(Multi<AppendRecordsStreamRequest> request) {
         // TODO the streaming code needs better error handling
         var tableContext = new AtomicReference<AppendRecordTableContext>();
         var counter = new AtomicInteger();
-        Multi<InsertRecord> appendRecordStream = request.map(record -> Pair.of(counter.getAndIncrement(), record)).map(Unchecked.function(pair -> {
+        var resultUni = request.map(record -> Pair.of(counter.getAndIncrement(), record))
+                // Initialize the Iceberg Table and Create the AppendFilesWriter for Appending Records
+                .map(Unchecked.function(pair -> {
+                    var index = pair.getKey();
                     var record = pair.getValue();
-                    if (record.getCommandCase() == AppendRecordsStreamRequest.CommandCase.TABLE_HEADER) {
-                        var tableHeader = record.getTableHeader();
-                        var avroSchema = tableHeader.getSchema();
-                        var icebergCatalog = catalogLoader.loadCatalog(tableHeader.getTableInfo().getIcebergCatalog());
-                        var table = icebergCatalog.loadTable(getTableIdentifier(tableHeader.getTableInfo()));
-                        if (isAppendAlreadyDone(table, Optional.ofNullable(tableHeader.hasIdempotencyKey() ? tableHeader.getIdempotencyKey() : null))) {
-                            throw new OperationDoneException();
+                    if (index == 0) {
+                        if (record.getCommandCase() == AppendRecordsStreamRequest.CommandCase.TABLE_HEADER) {
+                            var tableHeader = record.getTableHeader();
+                            var avroSchema = tableHeader.getSchema();
+                            var icebergCatalog = catalogLoader.loadCatalog(tableHeader.getTableInfo().getIcebergCatalog());
+                            var table = icebergCatalog.loadTable(getTableIdentifier(tableHeader.getTableInfo()));
+                            if (isAppendAlreadyDone(table, Optional.ofNullable(tableHeader.hasIdempotencyKey() ? tableHeader.getIdempotencyKey() : null))) {
+                                throw new AppendAlreadyDoneException(String.format("Append already done for table %s with idempotency key %s", table.name(), tableHeader.getIdempotencyKey()));
+                            }
+                            tableContext.set(new AppendRecordTableContext(tableHeader, icebergCatalog, table, new AppendFilesWriter(recordWriterFactory, avroSchema, table)));
+                            return Optional.<InsertRecord>empty();
                         }
-                        tableContext.set(new AppendRecordTableContext(tableHeader, icebergCatalog, table, new AppendFilesWriter(recordWriterFactory, avroSchema, table)));
-                        return Optional.<InsertRecord>empty();
+                        throw new IllegalArgumentException("Expected TableHeader as the first message, got " + record.getCommandCase());
                     } else if (record.getCommandCase() == AppendRecordsStreamRequest.CommandCase.RECORD) {
                         return Optional.of(record.getRecord());
-
                     } else {
-                        throw new IllegalArgumentException("Expected TableHeader or Record");
+                        throw new IllegalArgumentException("Expected InsertRecord as the rest of the messages, got " + record.getCommandCase());
                     }
-                })).onFailure(throwable -> throwable instanceof OperationDoneException).recoverWithCompletion()
-                .filter(Optional::isPresent).map(Optional::get);
-        var resultUni = appendRecordStream.map(Unchecked.function(insertRecord -> {
-            var appendRecordTableContext = tableContext.get();
-            var appendFilesWriter = appendRecordTableContext.appendFilesWriter();
-            try {
-                appendFilesWriter.writeAvroBytesRecord(insertRecord.getRecord().toByteArray());
-            } catch (IOException e) {
-                Log.errorf(e, "Error while converting record");
-                throw new UncheckedIOException(e);
-            }
-            return true;
-        })).filter(obj -> !obj).collect().asList().map(Unchecked.function(ignored -> {
-            var appendRecordTableContext = tableContext.get();
-            var tableHeader = appendRecordTableContext.tableHeader();
-            var table = appendRecordTableContext.table();
-            var tableInfo = tableHeader.getTableInfo();
-            var idempotencyKey = Optional.ofNullable(tableHeader.hasIdempotencyKey() ? tableHeader.getIdempotencyKey() : null);
-            var appendFilesWriter = appendRecordTableContext.appendFilesWriter();
-            var dataFiles = appendFilesWriter.complete();
-            return commitDataFilesToTableWithLock(table, tableInfo, idempotencyKey, dataFiles);
-        }));
+                })).filter(Optional::isPresent).map(Optional::get)
+                // Write the records
+                .map(Unchecked.function(insertRecord -> {
+                    var appendRecordTableContext = tableContext.get();
+                    var appendFilesWriter = appendRecordTableContext.appendFilesWriter();
+                    try {
+                        appendFilesWriter.writeAvroBytesRecord(insertRecord.getRecord().toByteArray());
+                    } catch (IOException e) {
+                        Log.errorf(e, "Error while converting record");
+                        throw new UncheckedIOException(e);
+                    }
+                    return true;
+                })).filter(obj -> !obj).collect().asList().replaceWithVoid()
+                // Now commit to the table using critical section to prevent the requirement of metadata refresh and transactions failing
+                .map(Unchecked.function((ignored) -> {
+                    var appendRecordTableContext = tableContext.get();
+                    var tableHeader = appendRecordTableContext.tableHeader();
+                    var table = appendRecordTableContext.table();
+                    var tableInfo = tableHeader.getTableInfo();
+                    var idempotencyKey = Optional.ofNullable(tableHeader.hasIdempotencyKey() ? tableHeader.getIdempotencyKey() : null);
+                    var appendFilesWriter = appendRecordTableContext.appendFilesWriter();
+                    var dataFiles = appendFilesWriter.complete();
+                    return commitDataFilesToTableWithLock(table, tableInfo, idempotencyKey, dataFiles);
+                }))
+                .onFailure(AppendAlreadyDoneException.class).recoverWithItem((error) -> {
+                    Log.warnf( "Received AppendAlreadyCompletedException, ignoring", error.getMessage());
+                    return true;
+                });
         return resultUni.map(success -> AppendRecordsStreamResponse.newBuilder().setSuccess(success).build());
     }
 

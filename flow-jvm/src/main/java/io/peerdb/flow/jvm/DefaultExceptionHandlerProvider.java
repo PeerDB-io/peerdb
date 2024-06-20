@@ -26,7 +26,7 @@ public class DefaultExceptionHandlerProvider implements ExceptionHandlerProvider
     @Override
     public Throwable transform(Throwable t) {
         invoked = true;
-        Log.errorf(t, "Received error in gRPC call %s", t.getMessage());
+        Log.errorf(t, "Received error in gRPC call: '%s'", t.getMessage());
         return toStatusException(t);
     }
 
