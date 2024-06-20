@@ -63,6 +63,8 @@ linters-settings:
     enable-all: true
     disable:
       - shadow
+  staticcheck:
+    checks: ["all", "-ST1019"]
   stylecheck:
     checks:
       - all

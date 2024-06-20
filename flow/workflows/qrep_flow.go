@@ -1,3 +1,4 @@
+//nolint:staticcheck // TODO remove in 0.15
 package peerflow
 
 import (
@@ -554,14 +555,14 @@ func QRepFlowWorkflow(
 	// TODO remove fields in 0.15
 	state.DisableWaitForNewRows = false
 	save_cfg := false
-	if config.SourceDeprecated != nil {
-		config.SourceName = config.SourceDeprecated.Name
-		config.SourceDeprecated = nil
+	if config.SourcePeer != nil {
+		config.SourceName = config.SourcePeer.Name
+		config.SourcePeer = nil
 		save_cfg = true
 	}
-	if config.DestinationDeprecated != nil {
-		config.DestinationName = config.DestinationDeprecated.Name
-		config.DestinationDeprecated = nil
+	if config.DestinationPeer != nil {
+		config.DestinationName = config.DestinationPeer.Name
+		config.DestinationPeer = nil
 		save_cfg = true
 	}
 	if save_cfg {

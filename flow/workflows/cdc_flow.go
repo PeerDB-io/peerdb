@@ -1,3 +1,4 @@
+//nolint:staticcheck // TODO remove in 0.15
 package peerflow
 
 import (
@@ -262,14 +263,14 @@ func CDCFlowWorkflow(
 	// TODO remove fields in 0.15
 	state.RelationMessageMapping = nil
 	save_cfg := false
-	if cfg.SourceDeprecated != nil {
-		cfg.SourceName = cfg.SourceDeprecated.Name
-		cfg.SourceDeprecated = nil
+	if cfg.Source != nil {
+		cfg.SourceName = cfg.Source.Name
+		cfg.Source = nil
 		save_cfg = true
 	}
-	if cfg.DestinationDeprecated != nil {
-		cfg.DestinationName = cfg.DestinationDeprecated.Name
-		cfg.DestinationDeprecated = nil
+	if cfg.Destination != nil {
+		cfg.DestinationName = cfg.Destination.Name
+		cfg.Destination = nil
 		save_cfg = true
 	}
 	if save_cfg {

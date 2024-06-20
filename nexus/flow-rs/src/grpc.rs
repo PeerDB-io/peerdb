@@ -154,9 +154,10 @@ impl FlowGrpcClient {
             return anyhow::Result::Err(anyhow::anyhow!("invalid system {}", job.system));
         };
 
+        #[allow(deprecated)]
         let mut flow_conn_cfg = pt::peerdb_flow::FlowConnectionConfigs {
-            source_deprecated: None,
-            destination_deprecated: None,
+            source: None,
+            destination: None,
             source_name: src,
             destination_name: dst,
             flow_job_name: job.name.clone(),
