@@ -16,9 +16,7 @@ import {
 } from '@/grpc_generated/flow';
 import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
 import { Dispatch, SetStateAction } from 'react';
-
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
-
 import {
   cdcSchema,
   flowNameSchema,

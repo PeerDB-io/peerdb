@@ -87,6 +87,7 @@ export default function CreateMirrors() {
 
   const setSourcePeer = useCallback((peer: SingleValue<PeerRef>) => {
     if (!peer) return;
+    console.log(peer);
     setConfig((curr) => ({
       ...curr,
       sourceName: peer.name,
@@ -102,6 +103,8 @@ export default function CreateMirrors() {
     }));
     setDestinationType(peer.type);
   }, []);
+
+  console.log(config);
 
   const listMirrorsPage = () => {
     router.push('/mirrors');
@@ -146,9 +149,9 @@ export default function CreateMirrors() {
               />
             }
           />
-          {['src', 'dst'].map((peerEnd, index) => (
+          {['src', 'dst'].map((peerEnd) => (
             <RowWithSelect
-              key={index}
+              key={peerEnd}
               label={
                 <Label>
                   {peerEnd === 'src' ? 'Source Peer' : 'Destination Peer'}
@@ -173,7 +176,9 @@ export default function CreateMirrors() {
                       }
                       options={
                         (peerEnd === 'src'
-                          ? peers.filter((peer) => peer.type == DBType.POSTGRES)
+                          ? peers.filter(
+                              (peer) => peer.type === DBType.POSTGRES
+                            )
                           : peers) ?? []
                       }
                       getOptionValue={getPeerValue}
@@ -182,9 +187,7 @@ export default function CreateMirrors() {
                     />
                   </div>
                   <InfoPopover
-                    tips={
-                      'The peer from which we will be replicating data. Ensure the prerequisites for this peer are met.'
-                    }
+                    tips={`The peer ${peerEnd === 'src' ? 'from' : 'to'} which we will be replicating data. Ensure the prerequisites for this peer are met.`}
                     link={
                       'https://docs.peerdb.io/usecases/Real-time%20CDC/postgres-to-snowflake#prerequisites'
                     }

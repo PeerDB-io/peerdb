@@ -38,8 +38,8 @@ export const tableMappingSchema = z
   });
 
 export const cdcSchema = z.object({
-  source: z.string({ required_error: 'Source peer is required' }).min(1),
-  destination: z
+  sourceName: z.string({ required_error: 'Source peer is required' }).min(1),
+  destinationName: z
     .string({ required_error: 'Destination peer is required' })
     .min(1),
   doInitialCopy: z.boolean().optional(),
@@ -92,8 +92,8 @@ export const cdcSchema = z.object({
 });
 
 export const qrepSchema = z.object({
-  sourcePeer: z.string({ required_error: 'Source peer is required' }).min(1),
-  destinationPeer: z
+  sourceName: z.string({ required_error: 'Source peer is required' }).min(1),
+  destinationName: z
     .string({ required_error: 'Destination peer is required' })
     .min(1),
   initialCopyOnly: z.boolean().optional(),
