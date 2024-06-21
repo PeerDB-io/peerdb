@@ -1,3 +1,4 @@
+//nolint:staticcheck // TODO remove in 0.15
 package cmd
 
 import (
