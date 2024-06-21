@@ -19,12 +19,8 @@ export async function POST(request: Request) {
       service_config: alertConfigReq.serviceConfig,
     },
   });
-  let createStatus: 'success' | 'error' = 'error';
-  if (createRes.id) {
-    createStatus = 'success';
-  }
 
-  return new Response(createStatus);
+  return new Response(createRes.id ? 'success' : 'error');
 }
 
 export async function DELETE(request: Request) {
@@ -34,12 +30,8 @@ export async function DELETE(request: Request) {
       id: configDeleteReq.id,
     },
   });
-  let deleteStatus: 'success' | 'error' = 'error';
-  if (deleteRes.id) {
-    deleteStatus = 'success';
-  }
 
-  return new Response(deleteStatus);
+  return new Response(deleteRes.id ? 'success' : 'error');
 }
 
 export async function PUT(request: Request) {
@@ -53,9 +45,6 @@ export async function PUT(request: Request) {
       id: alertConfigReq.id,
     },
   });
-  let editStatus: 'success' | 'error' = 'error';
-  if (editRes.id) {
-    editStatus = 'success';
-  }
-  return new Response(editStatus);
+
+  return new Response(editRes.id ? 'success' : 'error');
 }
