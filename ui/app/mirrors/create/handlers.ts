@@ -85,7 +85,6 @@ const validateCDCFields = (
     return tablesValidity.error.issues[0].message;
   }
 
-  console.log(config);
   const configValidity = cdcSchema.safeParse(config);
   if (!configValidity.success) {
     return configValidity.error.issues[0].message;
@@ -417,9 +416,8 @@ export const handleValidateCDC = async (
     body: JSON.stringify({
       config: processCDCConfig(config),
     }),
-  })
-    .then((res) => res.json())
-    .catch((e) => console.log(e));
+  }).then((res) => res.json());
+
   if (!status.ok) {
     notifyErr(status.message || 'Mirror is invalid');
     setLoading(false);

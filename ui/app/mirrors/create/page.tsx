@@ -87,7 +87,6 @@ export default function CreateMirrors() {
 
   const setSourcePeer = useCallback((peer: SingleValue<PeerRef>) => {
     if (!peer) return;
-    console.log(peer);
     setConfig((curr) => ({
       ...curr,
       sourceName: peer.name,
@@ -103,8 +102,6 @@ export default function CreateMirrors() {
     }));
     setDestinationType(peer.type);
   }, []);
-
-  console.log(config);
 
   const listMirrorsPage = () => {
     router.push('/mirrors');
