@@ -41,8 +41,7 @@ const CDCCheck = (
 ) => {
   const flowNameValid = flowNameSchema.safeParse(flowJobName);
   if (!flowNameValid.success) {
-    const flowNameErr = flowNameValid.error.issues[0].message;
-    return flowNameErr;
+    return flowNameValid.error.issues[0].message;
   }
 
   const tableNameMapping = reformattedTableMapping(rows);
@@ -81,17 +80,16 @@ const validateCDCFields = (
   )[],
   config: CDCConfig
 ): string | undefined => {
-  let validationErr: string | undefined;
   const tablesValidity = tableMappingSchema.safeParse(tableMapping);
   if (!tablesValidity.success) {
-    validationErr = tablesValidity.error.issues[0].message;
+    return tablesValidity.error.issues[0].message;
   }
 
+  console.log(config);
   const configValidity = cdcSchema.safeParse(config);
   if (!configValidity.success) {
-    validationErr = configValidity.error.issues[0].message;
+    return configValidity.error.issues[0].message;
   }
-  return validationErr;
 };
 
 const validateQRepFields = (
@@ -101,12 +99,10 @@ const validateQRepFields = (
   if (query.length < 5) {
     return 'Query is invalid';
   }
-  let validationErr: string | undefined;
   const configValidity = qrepSchema.safeParse(config);
   if (!configValidity.success) {
-    validationErr = configValidity.error.issues[0].message;
+    return configValidity.error.issues[0].message;
   }
-  return validationErr;
 };
 
 interface TableMapping {
@@ -148,7 +144,7 @@ export const handleCreateCDC = async (
   route: RouteCallback
 ) => {
   const err = CDCCheck(flowJobName, rows, config, destinationType);
-  if (err != '') {
+  if (err) {
     notifyErr(err);
     return;
   }
@@ -411,7 +407,7 @@ export const handleValidateCDC = async (
 ) => {
   setLoading(true);
   const err = CDCCheck(flowJobName, rows, config, destinationType);
-  if (err != '') {
+  if (err) {
     notifyErr(err);
     setLoading(false);
     return;
