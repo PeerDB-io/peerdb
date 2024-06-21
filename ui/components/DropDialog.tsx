@@ -121,7 +121,6 @@ export const DropDialog = ({
   };
 
   const getDeleteText = () => {
-    let deletePart = 'Are you sure you want to delete ';
     let objectSpecificDeleteText = '';
     switch (mode) {
       case 'MIRROR':
@@ -137,25 +136,19 @@ export const DropDialog = ({
         objectSpecificDeleteText = 'this script';
         break;
     }
-    return (
-      deletePart + objectSpecificDeleteText + '? This action cannot be reverted'
-    );
+    return `Are you sure you want to delete ${objectSpecificDeleteText}? This action cannot be reverted`;
   };
 
   const handleDelete = () => {
     switch (mode) {
       case 'MIRROR':
-        handleDropMirror(dropArgs as dropMirrorArgs, setLoading, setMsg);
-        break;
+        return handleDropMirror(dropArgs as dropMirrorArgs, setLoading, setMsg);
       case 'PEER':
-        handleDropPeer(dropArgs as dropPeerArgs);
-        break;
+        return handleDropPeer(dropArgs as dropPeerArgs);
       case 'ALERT':
-        handleDeleteAlert(dropArgs as deleteAlertArgs);
-        break;
+        return handleDeleteAlert(dropArgs as deleteAlertArgs);
       case 'SCRIPT':
-        handleDeleteScript(dropArgs as deleteScriptArgs);
-        break;
+        return handleDeleteScript(dropArgs as deleteScriptArgs);
     }
   };
 
