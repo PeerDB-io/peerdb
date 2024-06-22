@@ -10,6 +10,7 @@ import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 import { CDCMirror } from './cdc';
 import NoMirror from './nomirror';
 import QrepGraph from './qrepGraph';
+import QRepStatusButtons from './qrepStatusButtons';
 import QRepStatusTable, { QRepPartitionStatus } from './qrepStatusTable';
 import SyncStatus from './syncStatus';
 
@@ -29,17 +30,6 @@ async function getMirrorStatus(mirrorId: string) {
   });
   const json = await resp.json();
   return json;
-}
-
-function setFlowState(flowJobName: string, requestedFlowState: FlowStatus) {
-  return fetch(`/api/mirrors/state_change`, {
-    method: 'POST',
-    body: JSON.stringify({
-      flowJobName,
-      requestedFlowState,
-    }),
-    cache: 'no-store',
-  });
 }
 
 export default async function ViewMirror({
@@ -182,16 +172,7 @@ export default async function ViewMirror({
           }}
         >
           <Header variant='title2'>{mirrorId}</Header>
-          <input
-            type='button'
-            value='Pause'
-            onClick={() => setFlowState(mirrorId, FlowStatus.STATUS_PAUSED)}
-          />
-          <input
-            type='button'
-            value='Resume'
-            onClick={() => setFlowState(mirrorId, FlowStatus.STATUS_RUNNING)}
-          />
+          <QRepStatusButtons mirrorId={mirrorId} />
         </div>
         <div>Status: {mirrorStatus.currentFlowState}</div>
         <QrepGraph
