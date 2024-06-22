@@ -46,7 +46,6 @@ func newQRepFlowState() *protos.QRepFlowState {
 	}
 }
 
-// newQRepFlowExecution creates a new instance of QRepFlowExecution.
 func newQRepFlowExecution(ctx workflow.Context, config *protos.QRepConfig, runUUID string) *QRepFlowExecution {
 	return &QRepFlowExecution{
 		config:          config,
@@ -57,7 +56,6 @@ func newQRepFlowExecution(ctx workflow.Context, config *protos.QRepConfig, runUU
 	}
 }
 
-// NewQRepFlowExecution creates a new instance of QRepFlowExecution.
 func newQRepPartitionFlowExecution(ctx workflow.Context,
 	config *protos.QRepConfig, runUUID string,
 ) *QRepPartitionFlowExecution {
@@ -452,14 +450,6 @@ func setWorkflowQueries(ctx workflow.Context, state *protos.QRepFlowState) error
 		return fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
 	}
 
-	// Support an Update for the current status of the qrep flow.
-	err = workflow.SetUpdateHandler(ctx, shared.FlowStatusUpdate, func(status *protos.FlowStatus) error {
-		state.CurrentFlowStatus = *status
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("failed to register query handler: %w", err)
-	}
 	return nil
 }
 

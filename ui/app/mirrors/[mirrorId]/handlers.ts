@@ -14,9 +14,8 @@ export const getMirrorState = async (mirrorId: string) => {
 };
 
 export const getCurrentIdleTimeout = async (mirrorId: string) => {
-  return await getMirrorState(mirrorId).then((res) => {
-    return (res as MirrorStatusResponse).cdcStatus?.config?.idleTimeoutSeconds;
-  });
+  const res = await getMirrorState(mirrorId);
+  return (res as MirrorStatusResponse).cdcStatus?.config?.idleTimeoutSeconds;
 };
 
 export const changeFlowState = async (
