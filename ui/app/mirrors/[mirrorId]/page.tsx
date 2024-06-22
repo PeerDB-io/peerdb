@@ -193,6 +193,7 @@ export default async function ViewMirror({
             onClick={() => setFlowState(mirrorId, FlowStatus.STATUS_RUNNING)}
           />
         </div>
+        <div>Status: {mirrorStatus.currentFlowState}</div>
         <QrepGraph
           syncs={partitions.map((partition) => ({
             partitionID: partition.partitionId,
