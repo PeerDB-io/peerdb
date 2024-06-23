@@ -118,7 +118,6 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 		clientOptions.Logger.Error("Failed to setup datadog profiling", "error", err)
 		return nil, err
 	}
-	defer shutDownDDProfiler()
 
 	if opts.TemporalCert != "" && opts.TemporalKey != "" {
 		slog.Info("Using temporal certificate/key for authentication")
@@ -195,6 +194,7 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 		Client: c,
 		Worker: w,
 		Cleanup: func() {
+			shutDownDDProfiler()
 			cleanupOtelManagerFunc()
 			c.Close()
 		},
