@@ -51,3 +51,12 @@ func GetEnvString(name string, defaultValue string) string {
 
 	return val
 }
+
+func GetEnvBool(name string, defaultValue bool) bool {
+	val, ok := os.LookupEnv(name)
+	if !ok {
+		return defaultValue
+	}
+
+	return val == "true"
+}

@@ -20,6 +20,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	"gopkg.in/DataDog/dd-trace-go.v1/profiler"
 )
 
 type WorkerSetupOptions struct {
@@ -81,6 +82,26 @@ func setupPyroscope(opts *WorkerSetupOptions) {
 	}
 }
 
+func setupDatadogProfiling() (func(), error) {
+	if !peerdbenv.PeerDBEnableDataDogProfiling() {
+		return func() {}, nil
+	}
+
+	err := profiler.Start(
+		profiler.WithProfileTypes(
+			profiler.CPUProfile,
+			profiler.HeapProfile,
+		),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return func() {
+		profiler.Stop()
+	}, nil
+}
+
 func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 	if opts.EnableProfiling {
 		setupPyroscope(opts)
@@ -91,6 +112,13 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 		Namespace: opts.TemporalNamespace,
 		Logger:    slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))),
 	}
+
+	shutDownDDProfiler, err := setupDatadogProfiling()
+	if err != nil {
+		clientOptions.Logger.Error("Failed to setup datadog profiling", "error", err)
+		return nil, err
+	}
+	defer shutDownDDProfiler()
 
 	if opts.TemporalCert != "" && opts.TemporalKey != "" {
 		slog.Info("Using temporal certificate/key for authentication")

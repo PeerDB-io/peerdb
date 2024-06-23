@@ -92,3 +92,7 @@ func PeerDBAlertingEmailSenderRegion() string {
 func PeerDBAlertingEmailSenderReplyToAddresses() string {
 	return GetEnvString("PEERDB_ALERTING_EMAIL_SENDER_REPLY_TO_ADDRESSES", "")
 }
+
+func PeerDBEnableDataDogProfiling() bool {
+	return GetEnvBool("DATADOG_PROFILING_ENABLED", false)
+}
