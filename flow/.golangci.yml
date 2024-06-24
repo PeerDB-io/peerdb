@@ -21,7 +21,7 @@ linters:
     - misspell
     - musttag
     - nakedret
-    - nolintlint
+    # TODO bring back in 0.15 - nolintlint
     - nonamedreturns
     - perfsprint
     - prealloc
