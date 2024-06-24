@@ -25,6 +25,18 @@ message CreateQRepFlowResponse {
   string workflow_id = 1;
 }
 
+message CreateCustomSyncRequest {
+  string flow_job_name = 1;
+  int32 number_of_syncs = 2;
+}
+
+message CreateCustomSyncResponse {
+  string flow_job_name = 1;
+  int32 number_of_syncs = 2;
+  string error_message = 3;
+  bool ok = 4;
+}
+
 message ShutdownRequest {
   string workflow_id = 1;
   string flow_job_name = 2;
@@ -79,6 +91,7 @@ message CreatePeerResponse {
 
 message MirrorStatusRequest {
   string flow_job_name = 1;
+  bool include_flow_info = 2;
 }
 
 message PartitionStatus {
@@ -89,7 +102,7 @@ message PartitionStatus {
 }
 
 message QRepMirrorStatus {
-  peerdb_flow.QRepConfig config = 1;
+  peerdb_flow.QRepConfig config = 1 [deprecated = true];
   repeated PartitionStatus partitions = 2;
   // TODO make note to see if we are still in initial copy
   // or if we are in the continuous streaming mode.
@@ -203,6 +216,7 @@ message MirrorStatusResponse {
   }
   string error_message = 4;
   peerdb_flow.FlowStatus current_flow_state = 5;
+  bool ok = 6;
 }
 
 message ValidateCDCMirrorResponse{
@@ -237,7 +251,7 @@ service FlowService {
       body: "*"
      };
   }
-    rpc ValidateCDCMirror(CreateCDCFlowRequest) returns (ValidateCDCMirrorResponse) {
+  rpc ValidateCDCMirror(CreateCDCFlowRequest) returns (ValidateCDCMirrorResponse) {
     option (google.api.http) = {
       post: "/v1/mirrors/cdc/validate",
       body: "*"
@@ -255,6 +269,7 @@ service FlowService {
       body: "*"
     };
   }
+
   rpc CreateCDCFlow(CreateCDCFlowRequest) returns (CreateCDCFlowResponse) {
     option (google.api.http) = {
       post: "/v1/flows/cdc/create",
@@ -264,6 +279,12 @@ service FlowService {
   rpc CreateQRepFlow(CreateQRepFlowRequest) returns (CreateQRepFlowResponse) {
     option (google.api.http) = {
       post: "/v1/flows/qrep/create",
+      body: "*"
+     };
+  }
+  rpc CustomSyncFlow(CreateCustomSyncRequest) returns (CreateCustomSyncResponse) {
+    option (google.api.http) = {
+      post: "/v1/flows/cdc/sync",
       body: "*"
      };
   }
@@ -294,6 +315,7 @@ service FlowService {
   rpc GetStatInfo(PostgresPeerActivityInfoRequest) returns (PeerStatResponse) {
     option (google.api.http) = { get: "/v1/peers/stats/{peer_name}" };
   }
+
   rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {
     option (google.api.http) = { post: "/v1/mirrors/drop", body: "*" };
   }

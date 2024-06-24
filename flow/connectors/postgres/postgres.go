@@ -165,7 +165,7 @@ func (c *PostgresConnector) MaybeStartReplication(
 	}
 
 	if c.replState == nil {
-		replicationOpts, err := c.replicationOptions(publicationName)
+		replicationOpts, err := c.replicationOptions(ctx, publicationName)
 		if err != nil {
 			return fmt.Errorf("error getting replication options: %w", err)
 		}
@@ -176,15 +176,11 @@ func (c *PostgresConnector) MaybeStartReplication(
 			startLSN = pglogrepl.LSN(lastOffset + 1)
 		}
 
-		opts := startReplicationOpts{
-			conn:            c.replConn.PgConn(),
-			startLSN:        startLSN,
-			replicationOpts: *replicationOpts,
-		}
-
-		err = c.startReplication(ctx, slotName, opts)
-		if err != nil {
-			return fmt.Errorf("error starting replication: %w", err)
+		c.replLock.Lock()
+		defer c.replLock.Unlock()
+		if err := pglogrepl.StartReplication(ctx, c.replConn.PgConn(), slotName, startLSN, replicationOpts); err != nil {
+			c.logger.Error("error starting replication", slog.Any("error", err))
+			return fmt.Errorf("error starting replication at startLsn - %d: %w", startLSN, err)
 		}
 
 		c.logger.Info(fmt.Sprintf("started replication on slot %s at startLSN: %d", slotName, startLSN))
@@ -199,30 +195,24 @@ func (c *PostgresConnector) MaybeStartReplication(
 	return nil
 }
 
-func (c *PostgresConnector) startReplication(ctx context.Context, slotName string, opts startReplicationOpts) error {
-	err := pglogrepl.StartReplication(ctx, opts.conn, slotName, opts.startLSN, opts.replicationOpts)
-	if err != nil {
-		c.logger.Error("error starting replication", slog.Any("error", err))
-		return fmt.Errorf("error starting replication at startLsn - %d: %w", opts.startLSN, err)
-	}
-
-	c.logger.Info(fmt.Sprintf("started replication on slot %s at startLSN: %d", slotName, opts.startLSN))
-	return nil
-}
-
-func (c *PostgresConnector) replicationOptions(publicationName string) (*pglogrepl.StartReplicationOptions, error) {
-	pluginArguments := []string{
-		"proto_version '1'",
-	}
+func (c *PostgresConnector) replicationOptions(ctx context.Context, publicationName string) (pglogrepl.StartReplicationOptions, error) {
+	pluginArguments := append(make([]string, 0, 3), "proto_version '1'")
 
 	if publicationName != "" {
 		pubOpt := "publication_names " + QuoteLiteral(publicationName)
 		pluginArguments = append(pluginArguments, pubOpt)
 	} else {
-		return nil, errors.New("publication name is not set")
+		return pglogrepl.StartReplicationOptions{}, errors.New("publication name is not set")
 	}
 
-	return &pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments}, nil
+	pgversion, err := c.MajorVersion(ctx)
+	if err != nil {
+		return pglogrepl.StartReplicationOptions{}, err
+	} else if pgversion >= shared.POSTGRES_14 {
+		pluginArguments = append(pluginArguments, "messages 'true'")
+	}
+
+	return pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments}, nil
 }
 
 // Close closes all connections.
@@ -379,9 +369,6 @@ func pullCore[Items model.Items](
 		return fmt.Errorf("error getting child to parent relid map: %w", err)
 	}
 
-	c.replLock.Lock()
-	defer c.replLock.Unlock()
-
 	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset); err != nil {
 		c.logger.Error("error starting replication", slog.Any("error", err))
 		return err
@@ -399,7 +386,7 @@ func pullCore[Items model.Items](
 		RelationMessageMapping: c.relationMessageMapping,
 	})
 
-	if err := PullCdcRecords(ctx, cdc, req, processor); err != nil {
+	if err := PullCdcRecords(ctx, cdc, req, processor, &c.replLock); err != nil {
 		c.logger.Error("error pulling records", slog.Any("error", err))
 		return err
 	}
@@ -445,11 +432,7 @@ func syncRecordsCore[Items model.Items](
 	numRecords := int64(0)
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	streamReadFunc := func() ([]any, error) {
-		record, ok := <-req.Records.GetRecords()
-
-		if !ok {
-			return nil, nil
-		} else {
+		for record := range req.Records.GetRecords() {
 			var row []any
 			switch typedRecord := record.(type) {
 			case *model.InsertRecord[Items]:
@@ -519,6 +502,9 @@ func syncRecordsCore[Items model.Items](
 					"",
 				}
 
+			case *model.MessageRecord[Items]:
+				continue
+
 			default:
 				return nil, fmt.Errorf("unsupported record type for Postgres flow connector: %T", typedRecord)
 			}
@@ -527,6 +513,8 @@ func syncRecordsCore[Items model.Items](
 			numRecords += 1
 			return row, nil
 		}
+
+		return nil, nil
 	}
 
 	syncRecordsTx, err := c.conn.Begin(ctx)
@@ -1241,4 +1229,87 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 	}
 
 	return nil
+}
+
+func (c *PostgresConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
+	renameTablesTx, err := c.conn.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to begin transaction for rename tables: %w", err)
+	}
+	defer shared.RollbackTx(renameTablesTx, c.logger)
+
+	for _, renameRequest := range req.RenameTableOptions {
+		srcTable, err := utils.ParseSchemaTable(renameRequest.CurrentName)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse source %s: %w", renameRequest.CurrentName, err)
+		}
+		src := srcTable.String()
+
+		dstTable, err := utils.ParseSchemaTable(renameRequest.NewName)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse destination %s: %w", renameRequest.NewName, err)
+		}
+		dst := dstTable.String()
+
+		c.logger.Info(fmt.Sprintf("setting synced at column for table '%s'...", src))
+
+		if req.SyncedAtColName != nil && *req.SyncedAtColName != "" {
+			_, err = renameTablesTx.Exec(ctx,
+				fmt.Sprintf("UPDATE %s SET %s=now()", src, QuoteIdentifier(*req.SyncedAtColName)))
+			if err != nil {
+				return nil, fmt.Errorf("unable to set synced at column for table %s: %w", src, err)
+			}
+		}
+
+		if req.SoftDeleteColName != nil && *req.SoftDeleteColName != "" {
+			columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
+			for _, col := range renameRequest.TableSchema.Columns {
+				columnNames = append(columnNames, QuoteIdentifier(col.Name))
+			}
+
+			pkeyColumnNames := make([]string, 0, len(renameRequest.TableSchema.PrimaryKeyColumns))
+			for _, col := range renameRequest.TableSchema.PrimaryKeyColumns {
+				pkeyColumnNames = append(pkeyColumnNames, QuoteIdentifier(col))
+			}
+
+			allCols := strings.Join(columnNames, ",")
+			pkeyCols := strings.Join(pkeyColumnNames, ",")
+
+			c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
+
+			_, err = renameTablesTx.Exec(ctx,
+				fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
+					src, fmt.Sprintf("%s,%s", allCols, QuoteIdentifier(*req.SoftDeleteColName)), allCols, *req.SoftDeleteColName,
+					dst, pkeyCols, pkeyCols, src))
+			if err != nil {
+				return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
+			}
+		}
+
+		// renaming and dropping such that the _resync table is the new destination
+		c.logger.Info(fmt.Sprintf("renaming table '%s' to '%s'...", src, dst))
+
+		// drop the dst table if exists
+		_, err = renameTablesTx.Exec(ctx, "DROP TABLE IF EXISTS "+dst)
+		if err != nil {
+			return nil, fmt.Errorf("unable to drop table %s: %w", dst, err)
+		}
+
+		// rename the src table to dst
+		_, err = renameTablesTx.Exec(ctx, fmt.Sprintf("ALTER TABLE %s RENAME TO %s", src, dstTable.Table))
+		if err != nil {
+			return nil, fmt.Errorf("unable to rename table %s to %s: %w", src, dst, err)
+		}
+
+		c.logger.Info(fmt.Sprintf("successfully renamed table '%s' to '%s'", src, dst))
+	}
+
+	err = renameTablesTx.Commit(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to commit transaction for rename tables: %w", err)
+	}
+
+	return &protos.RenameTablesOutput{
+		FlowJobName: req.FlowJobName,
+	}, nil
 }

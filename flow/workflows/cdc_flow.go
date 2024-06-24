@@ -47,6 +47,7 @@ func NewCDCFlowWorkflowState(cfg *protos.FlowConnectionConfigs) *CDCFlowWorkflow
 			BatchSize:          cfg.MaxBatchSize,
 			IdleTimeoutSeconds: cfg.IdleTimeoutSeconds,
 			TableMappings:      tableMappings,
+			NumberOfSyncs:      0,
 		},
 	}
 }
@@ -80,10 +81,6 @@ func GetChildWorkflowID(
 
 // CDCFlowWorkflowResult is the result of the PeerFlowWorkflow.
 type CDCFlowWorkflowResult = CDCFlowWorkflowState
-
-const (
-	maxSyncsPerCdcFlow = 32
-)
 
 func processCDCFlowConfigUpdate(
 	ctx workflow.Context,
@@ -125,7 +122,7 @@ func processCDCFlowConfigUpdate(
 		additionalTablesCfg.DoInitialSnapshot = true
 		additionalTablesCfg.InitialSnapshotOnly = true
 		additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
-
+		additionalTablesCfg.Resync = false
 		// execute the sync flow as a child workflow
 		childAdditionalTablesCDCFlowOpts := workflow.ChildWorkflowOptions{
 			WorkflowID:        childAdditionalTablesCDCFlowID,
@@ -172,13 +169,16 @@ func addCdcPropertiesSignalListener(
 		if cdcConfigUpdate.IdleTimeout > 0 {
 			state.SyncFlowOptions.IdleTimeoutSeconds = cdcConfigUpdate.IdleTimeout
 		}
+		if cdcConfigUpdate.NumberOfSyncs > 0 {
+			state.SyncFlowOptions.NumberOfSyncs = cdcConfigUpdate.NumberOfSyncs
+		}
 		// do this irrespective of additional tables being present, for auto unpausing
 		state.FlowConfigUpdate = cdcConfigUpdate
-
 		logger.Info("CDC Signal received. Parameters on signal reception:",
 			slog.Int("BatchSize", int(state.SyncFlowOptions.BatchSize)),
 			slog.Int("IdleTimeout", int(state.SyncFlowOptions.IdleTimeoutSeconds)),
-			slog.Any("AdditionalTables", cdcConfigUpdate.AdditionalTables))
+			slog.Any("AdditionalTables", cdcConfigUpdate.AdditionalTables),
+			slog.Int("NumberOfSyncs", int(state.SyncFlowOptions.NumberOfSyncs)))
 	})
 }
 
@@ -225,7 +225,6 @@ func CDCFlowWorkflow(
 
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
 	flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
-
 	err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (CDCFlowWorkflowState, error) {
 		return *state, nil
 	})
@@ -250,6 +249,7 @@ func CDCFlowWorkflow(
 		shared.MirrorNameSearchAttribute: cfg.FlowJobName,
 	}
 
+	var syncCountLimit int
 	if state.ActiveSignal == model.PauseSignal {
 		selector := workflow.NewNamedSelector(ctx, "PauseLoop")
 		selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
@@ -257,7 +257,6 @@ func CDCFlowWorkflow(
 			state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, logger)
 		})
 		addCdcPropertiesSignalListener(ctx, logger, selector, state)
-
 		startTime := workflow.Now(ctx)
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
 
@@ -283,6 +282,7 @@ func CDCFlowWorkflow(
 				if err != nil {
 					return state, err
 				}
+				syncCountLimit = int(state.SyncFlowOptions.NumberOfSyncs)
 				logger.Info("wiping flow state after state update processing")
 				// finished processing, wipe it
 				state.FlowConfigUpdate = nil
@@ -411,7 +411,6 @@ func CDCFlowWorkflow(
 
 	var restart, finished bool
 	syncCount := 0
-
 	syncFlowOpts := workflow.ChildWorkflowOptions{
 		WorkflowID:        syncFlowID,
 		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
@@ -507,6 +506,12 @@ func CDCFlowWorkflow(
 		normDoneChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
 		normDoneChan.Drain()
 		normDoneChan.AddToSelector(mainLoopSelector, func(x struct{}, _ bool) {
+			if syncCount == syncCountLimit {
+				logger.Info("sync count limit reached, pausing",
+					slog.Int("limit", syncCountLimit),
+					slog.Int("count", syncCount))
+				state.ActiveSignal = model.PauseSignal
+			}
 			if syncFlowFuture != nil {
 				_ = model.NormalizeDoneSignal.SignalChildWorkflow(ctx, syncFlowFuture, x).Get(ctx, nil)
 			}
@@ -526,7 +531,7 @@ func CDCFlowWorkflow(
 			return state, err
 		}
 
-		if state.ActiveSignal == model.PauseSignal || syncCount >= maxSyncsPerCdcFlow {
+		if state.ActiveSignal == model.PauseSignal || syncCount >= int(getMaxSyncsPerCDCFlow(ctx, logger)) {
 			restart = true
 			if syncFlowFuture != nil {
 				err := model.SyncStopSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{}).Get(ctx, nil)

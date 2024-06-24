@@ -27,6 +27,13 @@ const WriteModes = ['Append', 'Upsert', 'Overwrite'].map((value) => ({
   label: value,
   value,
 }));
+const allowedTypesForWatermarkColumn = [
+  'smallint',
+  'integer',
+  'bigint',
+  'timestamp without time zone',
+  'timestamp with time zone',
+];
 
 export default function QRepConfigForm({
   settings,
@@ -35,6 +42,9 @@ export default function QRepConfigForm({
   xmin,
 }: QRepConfigProps) {
   const [sourceTables, setSourceTables] = useState<
+    { value: string; label: string }[]
+  >([]);
+  const [allColumns, setAllColumns] = useState<
     { value: string; label: string }[]
   >([]);
   const [watermarkColumns, setWatermarkColumns] = useState<
@@ -88,14 +98,24 @@ export default function QRepConfigForm({
       schema,
       table,
       setLoading
-    ).then((cols) =>
-      setWatermarkColumns(
-        cols?.map((col) => ({
+    ).then((cols) => {
+      const filteredCols = cols?.filter((col) =>
+        allowedTypesForWatermarkColumn.includes(col.split(':')[1])
+      );
+
+      setAllColumns(
+        cols.map((col) => ({
           value: col.split(':')[0],
           label: `${col.split(':')[0]} (${col.split(':')[1]})`,
         }))
-      )
-    );
+      );
+      setWatermarkColumns(
+        filteredCols.map((col) => ({
+          value: col.split(':')[0],
+          label: `${col.split(':')[0]} (${col.split(':')[1]})`,
+        }))
+      );
+    });
   };
 
   const handleSourceChange = (
@@ -182,7 +202,7 @@ export default function QRepConfigForm({
                         />
                       ) : setting.label === 'Upsert Key Columns' ? (
                         <UpsertColsDisplay
-                          columns={watermarkColumns}
+                          columns={allColumns}
                           loading={loading}
                           setter={setter}
                           setting={setting}

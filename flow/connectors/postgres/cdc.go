@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/jackc/pglogrepl"
@@ -53,12 +54,6 @@ type PostgresCDCConfig struct {
 	FlowJobName            string
 	Slot                   string
 	Publication            string
-}
-
-type startReplicationOpts struct {
-	conn            *pgconn.PgConn
-	replicationOpts pglogrepl.StartReplicationOptions
-	startLSN        pglogrepl.LSN
 }
 
 // Create a new PostgresCDCSource
@@ -294,20 +289,31 @@ func PullCdcRecords[Items model.Items](
 	p *PostgresCDCSource,
 	req *model.PullRecordsRequest[Items],
 	processor replProcessor[Items],
+	replLock *sync.Mutex,
 ) error {
 	logger := logger.LoggerFromCtx(ctx)
+	// use only with taking replLock
 	conn := p.replConn.PgConn()
+	sendStandbyAfterReplLock := func(updateType string) error {
+		replLock.Lock()
+		defer replLock.Unlock()
+		err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
+			pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load())})
+		if err != nil {
+			return fmt.Errorf("[%s] SendStandbyStatusUpdate failed: %w", updateType, err)
+		}
+		return nil
+	}
+
 	records := req.RecordStream
 	// clientXLogPos is the last checkpoint id, we need to ack that we have processed
 	// until clientXLogPos each time we send a standby status update.
 	var clientXLogPos pglogrepl.LSN
 	if req.LastOffset > 0 {
 		clientXLogPos = pglogrepl.LSN(req.LastOffset)
-
-		err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
-			pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load())})
+		err := sendStandbyAfterReplLock("initial-flush")
 		if err != nil {
-			return fmt.Errorf("[initial-flush] SendStandbyStatusUpdate failed: %w", err)
+			return err
 		}
 	}
 
@@ -336,11 +342,12 @@ func PullCdcRecords[Items model.Items](
 	nextStandbyMessageDeadline := time.Now().Add(standbyMessageTimeout)
 
 	addRecordWithKey := func(key model.TableWithPkey, rec model.Record[Items]) error {
-		err := cdcRecordsStorage.Set(logger, key, rec)
-		if err != nil {
+		if err := cdcRecordsStorage.Set(logger, key, rec); err != nil {
 			return err
 		}
-		records.AddRecord(rec)
+		if err := records.AddRecord(ctx, rec); err != nil {
+			return err
+		}
 
 		if cdcRecordsStorage.Len() == 1 {
 			records.SignalAsNotEmpty()
@@ -355,10 +362,9 @@ func PullCdcRecords[Items model.Items](
 
 	for {
 		if pkmRequiresResponse {
-			err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
-				pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load())})
+			err := sendStandbyAfterReplLock("pkm-response")
 			if err != nil {
-				return fmt.Errorf("SendStandbyStatusUpdate failed: %w", err)
+				return err
 			}
 			pkmRequiresResponse = false
 
@@ -415,7 +421,11 @@ func PullCdcRecords[Items model.Items](
 		} else {
 			receiveCtx, cancel = context.WithDeadline(ctx, nextStandbyMessageDeadline)
 		}
-		rawMsg, err := conn.ReceiveMessage(receiveCtx)
+		rawMsg, err := func() (pgproto3.BackendMessage, error) {
+			replLock.Lock()
+			defer replLock.Unlock()
+			return conn.ReceiveMessage(receiveCtx)
+		}()
 		cancel()
 
 		ctxErr := ctx.Err()
@@ -577,6 +587,11 @@ func PullCdcRecords[Items model.Items](
 							tableSchemaDelta.SrcTableName, tableSchemaDelta.AddedColumns))
 						records.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
 					}
+
+				case *model.MessageRecord[Items]:
+					if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
+						return err
+					}
 				}
 			}
 
@@ -614,8 +629,7 @@ func processMessage[Items model.Items](
 
 	switch msg := logicalMsg.(type) {
 	case *pglogrepl.BeginMessage:
-		logger.Debug(fmt.Sprintf("BeginMessage => FinalLSN: %v, XID: %v", msg.FinalLSN, msg.Xid))
-		logger.Debug("Locking PullRecords at BeginMessage, awaiting CommitMessage")
+		logger.Debug("BeginMessage", slog.Any("FinalLSN", msg.FinalLSN), slog.Any("XID", msg.Xid))
 		p.commitLock = msg
 	case *pglogrepl.InsertMessage:
 		return processInsertMessage(p, xld.WALStart, msg, processor)
@@ -625,8 +639,7 @@ func processMessage[Items model.Items](
 		return processDeleteMessage(p, xld.WALStart, msg, processor)
 	case *pglogrepl.CommitMessage:
 		// for a commit message, update the last checkpoint id for the record batch.
-		logger.Debug(fmt.Sprintf("CommitMessage => CommitLSN: %v, TransactionEndLSN: %v",
-			msg.CommitLSN, msg.TransactionEndLSN))
+		logger.Debug("CommitMessage", slog.Any("CommitLSN", msg.CommitLSN), slog.Any("TransactionEndLSN", msg.TransactionEndLSN))
 		batch.UpdateLatestCheckpoint(int64(msg.CommitLSN))
 		p.commitLock = nil
 	case *pglogrepl.RelationMessage:
@@ -637,13 +650,29 @@ func processMessage[Items model.Items](
 			return nil, nil
 		}
 
-		logger.Debug(fmt.Sprintf("RelationMessage => RelationID: %d, Namespace: %s, RelationName: %s, Columns: %v",
-			msg.RelationID, msg.Namespace, msg.RelationName, msg.Columns))
+		logger.Debug("RelationMessage",
+			slog.Any("RelationID", msg.RelationID),
+			slog.String("Namespace", msg.Namespace),
+			slog.String("RelationName", msg.RelationName),
+			slog.Any("Columns", msg.Columns))
 
 		return processRelationMessage[Items](ctx, p, currentClientXlogPos, msg)
+	case *pglogrepl.LogicalDecodingMessage:
+		logger.Info("LogicalDecodingMessage",
+			slog.Bool("Transactional", msg.Transactional),
+			slog.String("Prefix", msg.Prefix),
+			slog.Int64("LSN", int64(msg.LSN)))
+		if !msg.Transactional {
+			batch.UpdateLatestCheckpoint(int64(msg.LSN))
+		}
+		return &model.MessageRecord[Items]{
+			BaseRecord: p.baseRecord(msg.LSN),
+			Prefix:     msg.Prefix,
+			Content:    string(msg.Content),
+		}, nil
 
-	case *pglogrepl.TruncateMessage:
-		logger.Warn("TruncateMessage not supported")
+	default:
+		logger.Warn(fmt.Sprintf("%T not supported", msg))
 	}
 
 	return nil, nil
@@ -824,7 +853,7 @@ func processRelationMessage[Items model.Items](
 	schemaDelta := &protos.TableSchemaDelta{
 		SrcTableName: p.srcTableIDNameMapping[currRel.RelationID],
 		DstTableName: p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name,
-		AddedColumns: make([]*protos.FieldDescription, 0),
+		AddedColumns: nil,
 		System:       prevSchema.System,
 	}
 	for _, column := range currRel.Columns {

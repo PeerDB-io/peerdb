@@ -140,14 +140,6 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		},
 	}
 
-	if req.ConnectionConfigs.SoftDeleteColName == "" {
-		req.ConnectionConfigs.SoftDeleteColName = "_PEERDB_IS_DELETED"
-	}
-
-	if req.ConnectionConfigs.SyncedAtColName == "" {
-		req.ConnectionConfigs.SyncedAtColName = "_PEERDB_SYNCED_AT"
-	}
-
 	err := h.createCdcJobEntry(ctx, req, workflowID)
 	if err != nil {
 		slog.Error("unable to create flow job entry", slog.Any("error", err))

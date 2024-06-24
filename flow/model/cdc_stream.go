@@ -1,9 +1,13 @@
 package model
 
 import (
+	"context"
+	"log/slog"
 	"sync/atomic"
+	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -14,6 +18,7 @@ type CDCStream[T Items] struct {
 	// Schema changes from slot
 	SchemaDeltas      []*protos.TableSchemaDelta
 	lastCheckpointSet bool
+	needsNormalize    atomic.Bool
 	// lastCheckpointID is the last ID of the commit that corresponds to this batch.
 	lastCheckpointID atomic.Int64
 }
@@ -25,6 +30,7 @@ func NewCDCStream[T Items](channelBuffer int) *CDCStream[T] {
 		emptySignal:       make(chan bool, 1),
 		lastCheckpointSet: false,
 		lastCheckpointID:  atomic.Int64{},
+		needsNormalize:    atomic.Bool{},
 	}
 }
 
@@ -39,8 +45,29 @@ func (r *CDCStream[T]) GetLastCheckpoint() int64 {
 	return r.lastCheckpointID.Load()
 }
 
-func (r *CDCStream[T]) AddRecord(record Record[T]) {
-	r.records <- record
+func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
+	if !r.needsNormalize.Load() {
+		switch record.(type) {
+		case *InsertRecord[T], *UpdateRecord[T], *DeleteRecord[T]:
+			r.needsNormalize.Store(true)
+		}
+	}
+
+	logger := logger.LoggerFromCtx(ctx)
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case r.records <- record:
+			return nil
+		case <-ticker.C:
+			logger.Warn("waiting on adding record to stream", slog.Any("record", record))
+		case <-ctx.Done():
+			logger.Warn("context cancelled while adding record to stream", slog.Any("record", record))
+			return ctx.Err()
+		}
+	}
 }
 
 func (r *CDCStream[T]) SignalAsEmpty() {
@@ -73,4 +100,8 @@ func (r *CDCStream[T]) AddSchemaDelta(
 	delta *protos.TableSchemaDelta,
 ) {
 	r.SchemaDeltas = append(r.SchemaDeltas, delta)
+}
+
+func (r *CDCStream[T]) NeedsNormalize() bool {
+	return r.needsNormalize.Load()
 }

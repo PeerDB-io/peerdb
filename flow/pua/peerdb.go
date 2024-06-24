@@ -387,22 +387,13 @@ func LuaRecordIndex(ls *lua.LState) int {
 	record, key := LuaRecord.StartIndex(ls)
 	switch key {
 	case "kind":
-		switch record.(type) {
-		case *model.InsertRecord[model.RecordItems]:
-			ls.Push(lua.LString("insert"))
-		case *model.UpdateRecord[model.RecordItems]:
-			ls.Push(lua.LString("update"))
-		case *model.DeleteRecord[model.RecordItems]:
-			ls.Push(lua.LString("delete"))
-		case *model.RelationRecord[model.RecordItems]:
-			ls.Push(lua.LString("relation"))
-		}
+		ls.Push(lua.LString(record.Kind()))
 	case "row":
 		items := record.GetItems()
 		if items.ColToVal != nil {
 			ls.Push(LuaRow.New(ls, items))
 		} else {
-			ls.Push(lua.LNil)
+			return 0
 		}
 	case "old":
 		var items model.RecordItems
@@ -415,7 +406,7 @@ func LuaRecordIndex(ls *lua.LState) int {
 		if items.ColToVal != nil {
 			ls.Push(LuaRow.New(ls, items))
 		} else {
-			ls.Push(lua.LNil)
+			return 0
 		}
 	case "new":
 		var items model.RecordItems
@@ -428,7 +419,7 @@ func LuaRecordIndex(ls *lua.LState) int {
 		if items.ColToVal != nil {
 			ls.Push(LuaRow.New(ls, items))
 		} else {
-			ls.Push(lua.LNil)
+			return 0
 		}
 	case "checkpoint":
 		ls.Push(glua64.I64.New(ls, record.GetCheckpointID()))
@@ -446,7 +437,19 @@ func LuaRecordIndex(ls *lua.LState) int {
 			}
 			ls.Push(tbl)
 		} else {
-			ls.Push(lua.LNil)
+			return 0
+		}
+	case "prefix":
+		if mr, ok := record.(*model.MessageRecord[model.RecordItems]); ok {
+			ls.Push(lua.LString(mr.Prefix))
+		} else {
+			return 0
+		}
+	case "content":
+		if mr, ok := record.(*model.MessageRecord[model.RecordItems]); ok {
+			ls.Push(lua.LString(mr.Content))
+		} else {
+			return 0
 		}
 	default:
 		return 0

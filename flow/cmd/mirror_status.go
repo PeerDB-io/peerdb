@@ -19,58 +19,87 @@ func (h *FlowRequestHandler) MirrorStatus(
 	ctx context.Context,
 	req *protos.MirrorStatusRequest,
 ) (*protos.MirrorStatusResponse, error) {
-	slog.Info("Mirror status endpoint called", slog.String(string(shared.FlowNameKey), req.FlowJobName))
-	cdcFlow, err := h.isCDCFlow(ctx, req.FlowJobName)
-	if err != nil {
-		slog.Error("unable to query flow", slog.Any("error", err))
-		return &protos.MirrorStatusResponse{
-			ErrorMessage: "unable to query flow: " + err.Error(),
-		}, nil
-	}
+	slog.Info("Mirror status endpoint called",
+		slog.Bool("includeFlowInfo", req.IncludeFlowInfo),
+		slog.String(string(shared.FlowNameKey), req.FlowJobName))
 
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
-		return nil, err
+		return &protos.MirrorStatusResponse{
+			FlowJobName:      req.FlowJobName,
+			CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
+			ErrorMessage:     "unable to get the workflow ID of mirror " + req.FlowJobName,
+			Ok:               false,
+		}, nil
 	}
 
 	currState, err := h.getWorkflowStatus(ctx, workflowID)
 	if err != nil {
 		return &protos.MirrorStatusResponse{
-			ErrorMessage: "unable to get flow state: " + err.Error(),
+			FlowJobName:      req.FlowJobName,
+			CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
+			ErrorMessage:     "unable to get the running status of mirror " + req.FlowJobName,
+			Ok:               false,
 		}, nil
 	}
 
-	if cdcFlow {
-		cdcStatus, err := h.CDCFlowStatus(ctx, req)
+	if req.IncludeFlowInfo {
+		cdcFlow, err := h.isCDCFlow(ctx, req.FlowJobName)
 		if err != nil {
+			slog.Error("unable to query flow", slog.Any("error", err))
 			return &protos.MirrorStatusResponse{
-				ErrorMessage: "unable to query flow: " + err.Error(),
+				FlowJobName:      req.FlowJobName,
+				CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
+				ErrorMessage:     "unable to determine if mirror" + req.FlowJobName + "is of type CDC.",
+				Ok:               false,
 			}, nil
 		}
+		if cdcFlow {
+			cdcStatus, err := h.CDCFlowStatus(ctx, req)
+			if err != nil {
+				return &protos.MirrorStatusResponse{
+					FlowJobName:      req.FlowJobName,
+					CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
+					ErrorMessage:     "unable to obtain CDC information for mirror " + req.FlowJobName,
+					Ok:               false,
+				}, nil
+			}
 
-		return &protos.MirrorStatusResponse{
-			FlowJobName: req.FlowJobName,
-			Status: &protos.MirrorStatusResponse_CdcStatus{
-				CdcStatus: cdcStatus,
-			},
-			CurrentFlowState: currState,
-		}, nil
-	} else {
-		qrepStatus, err := h.QRepFlowStatus(ctx, req)
-		if err != nil {
 			return &protos.MirrorStatusResponse{
-				ErrorMessage: "unable to query flow: " + err.Error(),
+				FlowJobName: req.FlowJobName,
+				Status: &protos.MirrorStatusResponse_CdcStatus{
+					CdcStatus: cdcStatus,
+				},
+				CurrentFlowState: currState,
+				Ok:               true,
+			}, nil
+		} else {
+			qrepStatus, err := h.QRepFlowStatus(ctx, req)
+			if err != nil {
+				return &protos.MirrorStatusResponse{
+					FlowJobName:      req.FlowJobName,
+					CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
+					ErrorMessage:     "unable to obtain snapshot information for mirror " + req.FlowJobName,
+					Ok:               false,
+				}, nil
+			}
+
+			return &protos.MirrorStatusResponse{
+				FlowJobName: req.FlowJobName,
+				Status: &protos.MirrorStatusResponse_QrepStatus{
+					QrepStatus: qrepStatus,
+				},
+				CurrentFlowState: currState,
+				Ok:               true,
 			}, nil
 		}
-
-		return &protos.MirrorStatusResponse{
-			FlowJobName: req.FlowJobName,
-			Status: &protos.MirrorStatusResponse_QrepStatus{
-				QrepStatus: qrepStatus,
-			},
-			CurrentFlowState: currState,
-		}, nil
 	}
+
+	return &protos.MirrorStatusResponse{
+		FlowJobName:      req.FlowJobName,
+		CurrentFlowState: currState,
+		Ok:               true,
+	}, nil
 }
 
 func (h *FlowRequestHandler) CDCFlowStatus(
@@ -122,7 +151,8 @@ func (h *FlowRequestHandler) cloneTableSummary(
 	q := `
 	SELECT
 		distinct qr.flow_name,
-		qr.config_proto,
+		qr.destination_table,
+		qr.source_table,
 		qr.start_time AS StartTime,
 		qr.fetch_complete as FetchCompleted,
 		qr.consolidate_complete as ConsolidateCompleted,
@@ -133,10 +163,11 @@ func (h *FlowRequestHandler) cloneTableSummary(
 	FROM peerdb_stats.qrep_partitions qp
 	RIGHT JOIN peerdb_stats.qrep_runs qr ON qp.flow_name = qr.flow_name
 	WHERE qr.flow_name ILIKE $1
-	GROUP BY qr.flow_name, qr.config_proto, qr.start_time, qr.fetch_complete, qr.consolidate_complete;
+	GROUP BY qr.flow_name, qr.destination_table, qr.source_table, qr.start_time, qr.fetch_complete, qr.consolidate_complete;
 	`
 	var flowName pgtype.Text
-	var configBytes []byte
+	var destinationTable pgtype.Text
+	var sourceTable pgtype.Text
 	var fetchCompleted pgtype.Bool
 	var consolidateCompleted pgtype.Bool
 	var startTime pgtype.Timestamp
@@ -158,7 +189,8 @@ func (h *FlowRequestHandler) cloneTableSummary(
 	for rows.Next() {
 		if err := rows.Scan(
 			&flowName,
-			&configBytes,
+			&destinationTable,
+			&sourceTable,
 			&startTime,
 			&fetchCompleted,
 			&consolidateCompleted,
@@ -175,6 +207,15 @@ func (h *FlowRequestHandler) cloneTableSummary(
 		if flowName.Valid {
 			res.FlowJobName = flowName.String
 		}
+
+		if destinationTable.Valid {
+			res.TableName = destinationTable.String
+		}
+
+		if sourceTable.Valid {
+			res.SourceTable = sourceTable.String
+		}
+
 		if startTime.Valid {
 			res.StartTime = timestamppb.New(startTime.Time)
 		}
@@ -203,16 +244,6 @@ func (h *FlowRequestHandler) cloneTableSummary(
 			res.AvgTimePerPartitionMs = int64(avgTimePerPartitionMs.Float64)
 		}
 
-		if configBytes != nil {
-			var config protos.QRepConfig
-			if err := proto.Unmarshal(configBytes, &config); err != nil {
-				slog.Error("unable to unmarshal config", slog.Any("error", err))
-				return nil, fmt.Errorf("unable to unmarshal config: %w", err)
-			}
-			res.TableName = config.DestinationTableIdentifier
-			res.SourceTable = config.WatermarkTable
-		}
-
 		cloneStatuses = append(cloneStatuses, &res)
 	}
 	return cloneStatuses, nil
@@ -232,7 +263,6 @@ func (h *FlowRequestHandler) QRepFlowStatus(
 	return &protos.QRepMirrorStatus{
 		// The clone table jobs that are children of the CDC snapshot flow
 		// do not have a config entry, so allow this to be nil.
-		Config:     h.getQRepConfigFromCatalog(ctx, req.FlowJobName),
 		Partitions: partitionStatuses,
 	}, nil
 }
@@ -303,47 +333,6 @@ func (h *FlowRequestHandler) getFlowConfigFromCatalog(
 	}
 
 	return &config, nil
-}
-
-func (h *FlowRequestHandler) getQRepConfigFromCatalog(ctx context.Context, flowJobName string) *protos.QRepConfig {
-	var configBytes []byte
-	var config protos.QRepConfig
-
-	queryInfos := []struct {
-		Query   string
-		Warning string
-	}{
-		{
-			Query:   "SELECT config_proto FROM flows WHERE name = $1",
-			Warning: "unable to query qrep config from catalog",
-		},
-		{
-			Query:   "SELECT config_proto FROM peerdb_stats.qrep_runs WHERE flow_name = $1",
-			Warning: "unable to query qrep config from qrep_runs",
-		},
-	}
-
-	// Iterate over queries and attempt to fetch the config
-	for _, qInfo := range queryInfos {
-		err := h.pool.QueryRow(ctx, qInfo.Query, flowJobName).Scan(&configBytes)
-		if err == nil {
-			break
-		}
-		slog.Warn(fmt.Sprintf("%s - %s: %s", qInfo.Warning, flowJobName, err.Error()))
-	}
-
-	// If no config was fetched, return nil
-	if len(configBytes) == 0 {
-		return nil
-	}
-
-	// Try unmarshaling
-	if err := proto.Unmarshal(configBytes, &config); err != nil {
-		slog.Warn(fmt.Sprintf("failed to unmarshal config for %s: %s", flowJobName, err.Error()))
-		return nil
-	}
-
-	return &config
 }
 
 func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) (bool, error) {

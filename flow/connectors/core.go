@@ -372,6 +372,7 @@ var (
 
 	_ RenameTablesConnector = &connsnowflake.SnowflakeConnector{}
 	_ RenameTablesConnector = &connbigquery.BigQueryConnector{}
+	_ RenameTablesConnector = &connpostgres.PostgresConnector{}
 
 	_ ValidationConnector = &connsnowflake.SnowflakeConnector{}
 	_ ValidationConnector = &connclickhouse.ClickhouseConnector{}

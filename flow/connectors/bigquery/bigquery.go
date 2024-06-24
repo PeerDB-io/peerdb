@@ -17,11 +17,9 @@ import (
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	numeric "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -231,7 +229,7 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 				}
 			}
 
-			addedColumnBigQueryType := qValueKindToBigQueryTypeString(addedColumn.Type)
+			addedColumnBigQueryType := qValueKindToBigQueryTypeString(addedColumn, false)
 			query := c.client.Query(fmt.Sprintf(
 				"ALTER TABLE %s ADD COLUMN IF NOT EXISTS `%s` %s",
 				dstDatasetTable.table, addedColumn.Name, addedColumnBigQueryType))
@@ -243,7 +241,7 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 					schemaDelta.DstTableName, err)
 			}
 			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s to table %s",
-				addedColumn.Name, addedColumn.Type, schemaDelta.DstTableName))
+				addedColumn.Name, addedColumnBigQueryType, schemaDelta.DstTableName))
 		}
 	}
 
@@ -632,23 +630,8 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	// convert the column names and types to bigquery types
 	columns := make([]*bigquery.FieldSchema, 0, len(tableSchema.Columns)+2)
 	for _, column := range tableSchema.Columns {
-		genericColType := column.Type
-		if genericColType == "numeric" {
-			precision, scale := numeric.GetNumericTypeForWarehouse(column.TypeModifier, numeric.BigQueryNumericCompatibility{})
-			columns = append(columns, &bigquery.FieldSchema{
-				Name:      column.Name,
-				Type:      bigquery.BigNumericFieldType,
-				Repeated:  qvalue.QValueKind(genericColType).IsArray(),
-				Precision: int64(precision),
-				Scale:     int64(scale),
-			})
-		} else {
-			columns = append(columns, &bigquery.FieldSchema{
-				Name:     column.Name,
-				Type:     qValueKindToBigQueryType(genericColType),
-				Repeated: qvalue.QValueKind(genericColType).IsArray(),
-			})
-		}
+		bqFieldSchema := qValueKindToBigQueryType(column)
+		columns = append(columns, &bqFieldSchema)
 	}
 
 	if softDeleteColName != "" {
@@ -760,7 +743,7 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 			columnIsJSON[quotedCol] = (col.Type == "json" || col.Type == "jsonb")
 		}
 
-		if req.SoftDeleteColName != nil {
+		if req.SoftDeleteColName != nil && *req.SoftDeleteColName != "" {
 			allColsBuilder := strings.Builder{}
 			for idx, col := range columnNames {
 				allColsBuilder.WriteString("_pt.")
@@ -826,7 +809,7 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 			}
 		}
 
-		if req.SyncedAtColName != nil {
+		if req.SyncedAtColName != nil && *req.SyncedAtColName != "" {
 			c.logger.Info(fmt.Sprintf("setting synced at column for table '%s'...", srcDatasetTable.string()))
 
 			query := c.client.Query(

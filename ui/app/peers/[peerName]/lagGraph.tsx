@@ -1,7 +1,11 @@
 'use client';
 import { SlotLagPoint } from '@/app/dto/PeersDTO';
 import SelectTheme from '@/app/styles/select';
-import { formatGraphLabel, timeOptions } from '@/app/utils/graph';
+import {
+  formatGraphLabel,
+  TimeAggregateTypes,
+  timeOptions,
+} from '@/app/utils/graph';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle/ProgressCircle';
 import { LineChart } from '@tremor/react';
@@ -17,7 +21,9 @@ function LagGraph({ slotNames }: { slotNames: string[] }) {
   const [defaultSlot, setDefaultSlot] = useLocalStorage('defaultSlot', '');
   const [selectedSlot, setSelectedSlot] = useState<string>(defaultSlot);
   const [loading, setLoading] = useState(false);
-  let [timeSince, setTimeSince] = useState('hour');
+  let [timeSince, setTimeSince] = useState<TimeAggregateTypes>(
+    TimeAggregateTypes.HOUR
+  );
   const fetchLagPoints = useCallback(async () => {
     if (selectedSlot == '') {
       return;
@@ -35,7 +41,7 @@ function LagGraph({ slotNames }: { slotNames: string[] }) {
       points
         .sort((x, y) => x.updatedAt - y.updatedAt)
         .map((data) => ({
-          time: formatGraphLabel(new Date(data.updatedAt!), 'hour'),
+          time: formatGraphLabel(new Date(data.updatedAt!), timeSince),
           'Lag in GB': data.slotSize,
         }))
     );
@@ -99,7 +105,7 @@ function LagGraph({ slotNames }: { slotNames: string[] }) {
           id={timeSince}
           placeholder='Select a timeframe'
           options={timeOptions.filter((x) => !x.value.endsWith('min'))}
-          defaultValue={{ label: 'hour', value: 'hour' }}
+          defaultValue={timeOptions.at(3)}
           onChange={(val, _) => val && setTimeSince(val.value)}
           theme={SelectTheme}
         />

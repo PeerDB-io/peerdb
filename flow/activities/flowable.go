@@ -278,7 +278,7 @@ func (a *FlowableActivity) SyncRecords(
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
 	sessionID string,
-) (*model.SyncResponse, error) {
+) (*model.SyncCompositeResponse, error) {
 	var adaptStream func(stream *model.CDCStream[model.RecordItems]) (*model.CDCStream[model.RecordItems], error)
 	if config.Script != "" {
 		var onErr context.CancelCauseFunc
@@ -319,7 +319,7 @@ func (a *FlowableActivity) SyncPg(
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
 	sessionID string,
-) (*model.SyncResponse, error) {
+) (*model.SyncCompositeResponse, error) {
 	return syncCore(ctx, a, config, options, sessionID, nil,
 		connectors.CDCPullPgConnector.PullPg,
 		connectors.CDCSyncPgConnector.SyncPg)
@@ -794,7 +794,6 @@ func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *pr
 		}
 		return bqConn.CreateTablesFromExisting(ctx, req)
 	}
-	a.Alerter.LogFlowError(ctx, req.FlowJobName, err)
 	return nil, errors.New("create tables from existing is only supported on snowflake and bigquery")
 }
 
