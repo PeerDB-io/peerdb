@@ -1,9 +1,9 @@
-import { getTruePeer } from '@/app/api/peers/getTruePeer';
+import { MirrorsListing } from '@/app/dto/MirrorsDTO';
 import prisma from '@/app/utils/prisma';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(request: Request) {
+export async function GET(_request: Request) {
   const mirrors = await prisma.flows.findMany({
     distinct: 'name',
     include: {
@@ -12,14 +12,16 @@ export async function GET(request: Request) {
     },
   });
 
-  // using any as type because of the way prisma returns data
-  const flows = mirrors?.map((mirror: any) => {
-    let newMirror: any = {
-      ...mirror,
-      sourcePeer: getTruePeer(mirror.sourcePeer),
-      destinationPeer: getTruePeer(mirror.destinationPeer),
-    };
-    return newMirror;
-  });
+  const flows: MirrorsListing[] = mirrors?.map((mirror) => ({
+    id: mirror.id,
+    workflowId: mirror.workflow_id,
+    name: mirror.name,
+    sourceName: mirror.sourcePeer.name,
+    sourceType: mirror.sourcePeer.type,
+    destinationName: mirror.destinationPeer.name,
+    destinationType: mirror.destinationPeer.type,
+    createdAt: mirror.created_at,
+    isCdc: !mirror.query_string,
+  }));
   return new Response(JSON.stringify(flows));
 }

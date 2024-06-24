@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/jackc/pglogrepl"
@@ -289,11 +290,18 @@ type cdcRecordProcessor[Items model.Items] struct {
 	nextStandbyMessageDeadline time.Time
 }
 
-func (rp *cdcRecordProcessor[Items]) addRecordWithKey(logger log.Logger, key model.TableWithPkey, rec model.Record[Items]) error {
+func (rp *cdcRecordProcessor[Items]) addRecordWithKey(
+	ctx context.Context,
+	logger log.Logger,
+	key model.TableWithPkey,
+	rec model.Record[Items],
+) error {
 	if err := rp.recordStore.Set(logger, key, rec); err != nil {
 		return err
 	}
-	rp.records.AddRecord(rec)
+	if err := rp.records.AddRecord(ctx, rec); err != nil {
+		return err
+	}
 
 	if rp.recordStore.Len() == 1 {
 		rp.records.SignalAsNotEmpty()
@@ -309,20 +317,31 @@ func PullCdcRecords[Items model.Items](
 	p *PostgresCDCSource,
 	req *model.PullRecordsRequest[Items],
 	processor replProcessor[Items],
+	replLock *sync.Mutex,
 ) error {
 	logger := logger.LoggerFromCtx(ctx)
+	// use only with taking replLock
 	conn := p.replConn.PgConn()
+	sendStandbyAfterReplLock := func(updateType string) error {
+		replLock.Lock()
+		defer replLock.Unlock()
+		err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
+			pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load())})
+		if err != nil {
+			return fmt.Errorf("[%s] SendStandbyStatusUpdate failed: %w", updateType, err)
+		}
+		return nil
+	}
+
 	records := req.RecordStream
 	// clientXLogPos is the last checkpoint id, we need to ack that we have processed
 	// until clientXLogPos each time we send a standby status update.
 	var clientXLogPos pglogrepl.LSN
 	if req.LastOffset > 0 {
 		clientXLogPos = pglogrepl.LSN(req.LastOffset)
-
-		err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
-			pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load())})
+		err := sendStandbyAfterReplLock("initial-flush")
 		if err != nil {
-			return fmt.Errorf("[initial-flush] SendStandbyStatusUpdate failed: %w", err)
+			return err
 		}
 	}
 
@@ -346,12 +365,10 @@ func PullCdcRecords[Items model.Items](
 	})
 	defer shutdown()
 
-	standbyMessageTimeout := req.IdleTimeout
-
 	recordProcessor := cdcRecordProcessor[Items]{
 		recordStore:                cdcRecordStore,
 		records:                    records,
-		nextStandbyMessageDeadline: time.Now().Add(standbyMessageTimeout),
+		nextStandbyMessageDeadline: time.Now().Add(req.IdleTimeout),
 		pullRequest:                req,
 		processor:                  processor,
 	}
@@ -361,10 +378,8 @@ func PullCdcRecords[Items model.Items](
 
 	for {
 		if pkmRequiresResponse {
-			err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
-				pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load())})
-			if err != nil {
-				return fmt.Errorf("SendStandbyStatusUpdate failed: %w", err)
+			if err := sendStandbyAfterReplLock("pkm-response"); err != nil {
+				return err
 			}
 			pkmRequiresResponse = false
 
@@ -411,7 +426,7 @@ func PullCdcRecords[Items model.Items](
 					p.FlowJobName),
 				)
 			}
-			recordProcessor.nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
+			recordProcessor.nextStandbyMessageDeadline = time.Now().Add(req.IdleTimeout)
 		}
 
 		var receiveCtx context.Context
@@ -421,7 +436,11 @@ func PullCdcRecords[Items model.Items](
 		} else {
 			receiveCtx, cancel = context.WithDeadline(ctx, recordProcessor.nextStandbyMessageDeadline)
 		}
-		rawMsg, err := conn.ReceiveMessage(receiveCtx)
+		rawMsg, err := func() (pgproto3.BackendMessage, error) {
+			replLock.Lock()
+			defer replLock.Unlock()
+			return conn.ReceiveMessage(receiveCtx)
+		}()
 		cancel()
 
 		ctxErr := ctx.Err()
@@ -557,25 +576,25 @@ func (rp *cdcRecordProcessor[Items]) processMessage(
 		logger.Debug("BeginMessage", slog.Any("FinalLSN", msg.FinalLSN), slog.Any("XID", msg.Xid))
 		p.commitLock = msg
 	case *pglogrepl.InsertMessage:
-		return rp.processInsertMessage(p, lsn, msg)
+		return rp.processInsertMessage(ctx, p, lsn, msg)
 	case *pglogrepl.InsertMessageV2:
-		return rp.processInsertMessage(p, lsn, &msg.InsertMessage)
+		return rp.processInsertMessage(ctx, p, lsn, &msg.InsertMessage)
 	case *pglogrepl.UpdateMessage:
-		return rp.processUpdateMessage(p, lsn, msg)
+		return rp.processUpdateMessage(ctx, p, lsn, msg)
 	case *pglogrepl.UpdateMessageV2:
-		return rp.processUpdateMessage(p, lsn, &msg.UpdateMessage)
+		return rp.processUpdateMessage(ctx, p, lsn, &msg.UpdateMessage)
 	case *pglogrepl.DeleteMessage:
-		return rp.processDeleteMessage(p, lsn, msg)
+		return rp.processDeleteMessage(ctx, p, lsn, msg)
 	case *pglogrepl.DeleteMessageV2:
-		return rp.processDeleteMessage(p, lsn, &msg.DeleteMessage)
+		return rp.processDeleteMessage(ctx, p, lsn, &msg.DeleteMessage)
 	case *pglogrepl.RelationMessage:
 		return rp.processRelationMessage(ctx, p, currentClientXlogPos, msg)
 	case *pglogrepl.RelationMessageV2:
 		return rp.processRelationMessage(ctx, p, currentClientXlogPos, &msg.RelationMessage)
 	case *pglogrepl.LogicalDecodingMessage:
-		return rp.processLogicalDecodingMessage(p, lsn, msg)
+		return rp.processLogicalDecodingMessage(ctx, p, lsn, msg)
 	case *pglogrepl.LogicalDecodingMessageV2:
-		return rp.processLogicalDecodingMessage(p, lsn, &msg.LogicalDecodingMessage)
+		return rp.processLogicalDecodingMessage(ctx, p, lsn, &msg.LogicalDecodingMessage)
 	case *pglogrepl.CommitMessage:
 		// for a commit message, update the last checkpoint id for the record batch.
 		logger.Debug("CommitMessage", slog.Any("CommitLSN", msg.CommitLSN), slog.Any("TransactionEndLSN", msg.TransactionEndLSN))
@@ -656,6 +675,7 @@ func (rp *cdcRecordProcessor[Items]) processMessage(
 }
 
 func (rp *cdcRecordProcessor[Items]) processInsertMessage(
+	ctx context.Context,
 	p *PostgresCDCSource,
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.InsertMessage,
@@ -689,7 +709,7 @@ func (rp *cdcRecordProcessor[Items]) processInsertMessage(
 	}
 	isFullReplica := rp.pullRequest.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
 	if isFullReplica {
-		err := rp.addRecordWithKey(p.logger, model.TableWithPkey{}, rec)
+		err := rp.addRecordWithKey(ctx, p.logger, model.TableWithPkey{}, rec)
 		if err != nil {
 			return err
 		}
@@ -699,7 +719,7 @@ func (rp *cdcRecordProcessor[Items]) processInsertMessage(
 			return err
 		}
 
-		err = rp.addRecordWithKey(p.logger, tablePkeyVal, rec)
+		err = rp.addRecordWithKey(ctx, p.logger, tablePkeyVal, rec)
 		if err != nil {
 			return err
 		}
@@ -708,6 +728,7 @@ func (rp *cdcRecordProcessor[Items]) processInsertMessage(
 }
 
 func (rp *cdcRecordProcessor[Items]) processUpdateMessage(
+	ctx context.Context,
 	p *PostgresCDCSource,
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.UpdateMessage,
@@ -753,7 +774,7 @@ func (rp *cdcRecordProcessor[Items]) processUpdateMessage(
 	// will change in future
 	isFullReplica := rp.pullRequest.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
 	if isFullReplica {
-		err := rp.addRecordWithKey(p.logger, model.TableWithPkey{}, rec)
+		err := rp.addRecordWithKey(ctx, p.logger, model.TableWithPkey{}, rec)
 		if err != nil {
 			return err
 		}
@@ -768,14 +789,14 @@ func (rp *cdcRecordProcessor[Items]) processUpdateMessage(
 			return err
 		}
 		if !ok {
-			err = rp.addRecordWithKey(p.logger, tablePkeyVal, rec)
+			err = rp.addRecordWithKey(ctx, p.logger, tablePkeyVal, rec)
 		} else {
 			// iterate through unchanged toast cols and set them in new record
 			updatedCols := rec.NewItems.UpdateIfNotExists(latestRecord.GetItems())
 			for _, col := range updatedCols {
 				delete(rec.UnchangedToastColumns, col)
 			}
-			err = rp.addRecordWithKey(p.logger, tablePkeyVal, rec)
+			err = rp.addRecordWithKey(ctx, p.logger, tablePkeyVal, rec)
 		}
 		if err != nil {
 			return err
@@ -786,6 +807,7 @@ func (rp *cdcRecordProcessor[Items]) processUpdateMessage(
 }
 
 func (rp *cdcRecordProcessor[Items]) processDeleteMessage(
+	ctx context.Context,
 	p *PostgresCDCSource,
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.DeleteMessage,
@@ -819,7 +841,7 @@ func (rp *cdcRecordProcessor[Items]) processDeleteMessage(
 	}
 	isFullReplica := rp.pullRequest.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
 	if isFullReplica {
-		if err := rp.addRecordWithKey(p.logger, model.TableWithPkey{}, rec); err != nil {
+		if err := rp.addRecordWithKey(ctx, p.logger, model.TableWithPkey{}, rec); err != nil {
 			return err
 		}
 	} else {
@@ -848,7 +870,7 @@ func (rp *cdcRecordProcessor[Items]) processDeleteMessage(
 
 		// A delete can only be followed by an INSERT, which does not need backfilling
 		// No need to store DeleteRecords in memory or disk.
-		if err := rp.addRecordWithKey(p.logger, model.TableWithPkey{}, rec); err != nil {
+		if err := rp.addRecordWithKey(ctx, p.logger, model.TableWithPkey{}, rec); err != nil {
 			return err
 		}
 	}
@@ -975,6 +997,7 @@ func (rp *cdcRecordProcessor[Items]) processRelationMessage(
 }
 
 func (rp *cdcRecordProcessor[Items]) processLogicalDecodingMessage(
+	ctx context.Context,
 	p *PostgresCDCSource,
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.LogicalDecodingMessage,
@@ -986,10 +1009,10 @@ func (rp *cdcRecordProcessor[Items]) processLogicalDecodingMessage(
 	if !msg.Transactional {
 		rp.records.UpdateLatestCheckpoint(int64(msg.LSN))
 	}
-	return rp.addRecordWithKey(p.logger, model.TableWithPkey{}, &model.MessageRecord[Items]{
+	return rp.addRecordWithKey(ctx, p.logger, model.TableWithPkey{}, &model.MessageRecord[Items]{
 		BaseRecord: p.baseRecord(lsn),
 		Prefix:     msg.Prefix,
-		Content:    msg.Content,
+		Content:    string(msg.Content),
 	})
 }
 

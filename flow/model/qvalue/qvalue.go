@@ -358,22 +358,6 @@ func (v QValueJSON) LValue(ls *lua.LState) lua.LValue {
 	return lua.LString(v.Val)
 }
 
-type QValueBit struct {
-	Val []byte
-}
-
-func (QValueBit) Kind() QValueKind {
-	return QValueKindBit
-}
-
-func (v QValueBit) Value() any {
-	return v.Val
-}
-
-func (v QValueBit) LValue(ls *lua.LState) lua.LValue {
-	return lua.LString(shared.UnsafeFastReadOnlyBytesToString(v.Val))
-}
-
 type QValueHStore struct {
 	Val string
 }

@@ -42,6 +42,23 @@ func (n *normalizeStmtGenerator) columnTypeToPg(schema *protos.TableSchema, colu
 	}
 }
 
+func (n *normalizeStmtGenerator) generateExpr(
+	normalizedTableSchema *protos.TableSchema,
+	genericColumnType string,
+	stringCol string,
+	pgType string,
+) string {
+	if normalizedTableSchema.System == protos.TypeSystem_Q {
+		qkind := qvalue.QValueKind(genericColumnType)
+		if qkind.IsArray() {
+			return fmt.Sprintf("ARRAY(SELECT JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>%s)::JSON))::%s", stringCol, pgType)
+		} else if qkind == qvalue.QValueKindBytes {
+			return fmt.Sprintf("decode(_peerdb_data->>%s, 'base64')::%s", stringCol, pgType)
+		}
+	}
+	return fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
+}
+
 func (n *normalizeStmtGenerator) generateNormalizeStatements(dstTable string) []string {
 	normalizedTableSchema := n.tableSchemaMapping[dstTable]
 	if n.supportsMerge {
@@ -70,12 +87,7 @@ func (n *normalizeStmtGenerator) generateFallbackStatements(
 		stringCol := QuoteLiteral(column.Name)
 		columnNames = append(columnNames, quotedCol)
 		pgType := n.columnTypeToPg(normalizedTableSchema, genericColumnType)
-		var expr string
-		if normalizedTableSchema.System == protos.TypeSystem_Q && qvalue.QValueKind(genericColumnType).IsArray() {
-			expr = fmt.Sprintf("ARRAY(SELECT JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>%s)::JSON))::%s", stringCol, pgType)
-		} else {
-			expr = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
-		}
+		expr := n.generateExpr(normalizedTableSchema, genericColumnType, stringCol, pgType)
 
 		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("%s AS %s", expr, quotedCol))
 		if slices.Contains(normalizedTableSchema.PrimaryKeyColumns, column.Name) {
@@ -138,14 +150,9 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 		quotedCol := QuoteIdentifier(column.Name)
 		stringCol := QuoteLiteral(column.Name)
 		quotedColumnNames[i] = quotedCol
-
 		pgType := n.columnTypeToPg(normalizedTableSchema, genericColumnType)
-		var expr string
-		if normalizedTableSchema.System == protos.TypeSystem_Q && qvalue.QValueKind(genericColumnType).IsArray() {
-			expr = fmt.Sprintf("ARRAY(SELECT JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>%s)::JSON))::%s", stringCol, pgType)
-		} else {
-			expr = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
-		}
+		expr := n.generateExpr(normalizedTableSchema, genericColumnType, stringCol, pgType)
+
 		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("%s AS %s", expr, quotedCol))
 		if slices.Contains(normalizedTableSchema.PrimaryKeyColumns, column.Name) {
 			primaryKeyColumnCasts[column.Name] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)

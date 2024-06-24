@@ -87,30 +87,6 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]interface{}, error) {
 		}
 
 		switch v := qv.(type) {
-		case qvalue.QValueBit:
-			bitVal := v.Val
-
-			// convert to binary string because
-			// json.Marshal stores byte arrays as
-			// base64
-			binStr := ""
-			for _, b := range bitVal {
-				binStr += fmt.Sprintf("%08b", b)
-			}
-
-			jsonStruct[col] = binStr
-		case qvalue.QValueBytes:
-			bitVal := v.Val
-
-			// convert to binary string because
-			// json.Marshal stores byte arrays as
-			// base64
-			binStr := ""
-			for _, b := range bitVal {
-				binStr += fmt.Sprintf("%08b", b)
-			}
-
-			jsonStruct[col] = binStr
 		case qvalue.QValueUUID:
 			jsonStruct[col] = uuid.UUID(v.Val)
 		case qvalue.QValueQChar:

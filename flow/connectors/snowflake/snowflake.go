@@ -81,6 +81,7 @@ type SnowflakeConnector struct {
 	*metadataStore.PostgresMetadata
 	database  *sql.DB
 	logger    log.Logger
+	config    *protos.SnowflakeConfig
 	rawSchema string
 }
 
@@ -222,6 +223,7 @@ func NewSnowflakeConnector(
 		database:         database,
 		rawSchema:        rawSchema,
 		logger:           logger,
+		config:           snowflakeProtoConfig,
 	}, nil
 }
 
