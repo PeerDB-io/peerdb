@@ -65,7 +65,7 @@ export function CDCMirror({
           <CdcDetails
             syncs={rows}
             createdAt={createdAt}
-            mirrorConfig={status.cdcStatus?.config!}
+            mirrorConfig={status.cdcStatus!}
             mirrorStatus={status.currentFlowState}
           />
         </TabPanel>

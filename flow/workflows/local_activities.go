@@ -1,12 +1,15 @@
 package peerflow
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
 
+	"github.com/PeerDB-io/peer-flow/connectors"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
@@ -40,4 +43,23 @@ func getMaxSyncsPerCDCFlow(wCtx workflow.Context, logger log.Logger) uint32 {
 		return defaultMaxSyncsPerCdcFlow
 	}
 	return maxSyncsPerCDCFlow
+}
+
+func localPeerType(ctx context.Context, name string) (protos.DBType, error) {
+	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return connectors.LoadPeerType(ctx, pool, name)
+}
+
+func getPeerType(wCtx workflow.Context, name string) (protos.DBType, error) {
+	checkCtx := workflow.WithLocalActivityOptions(wCtx, workflow.LocalActivityOptions{
+		StartToCloseTimeout: time.Minute,
+	})
+
+	getFuture := workflow.ExecuteLocalActivity(checkCtx, localPeerType, name)
+	var dbtype protos.DBType
+	err := getFuture.Get(checkCtx, &dbtype)
+	return dbtype, err
 }

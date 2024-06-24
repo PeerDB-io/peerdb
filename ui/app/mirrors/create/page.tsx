@@ -4,7 +4,7 @@ import QRepQueryTemplate from '@/app/utils/qreptemplate';
 import { DBTypeToImageMapping } from '@/components/PeerComponent';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepConfig } from '@/grpc_generated/flow';
-import { DBType, Peer } from '@/grpc_generated/peers';
+import { DBType } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
@@ -16,18 +16,18 @@ import { Divider } from '@tremor/react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import ReactSelect from 'react-select';
+import { useCallback, useEffect, useState } from 'react';
+import ReactSelect, { SingleValue } from 'react-select';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { InfoPopover } from '../../../components/InfoPopover';
 import PeerDBCodeEditor from '../../../components/PeerDBEditor';
 import { CDCConfig, MirrorType, TableMapRow } from '../../dto/MirrorsDTO';
+import { PeerRef } from '../../dto/PeersDTO';
 import CDCConfigForm from './cdc/cdc';
 import {
   handleCreateCDC,
   handleCreateQRep,
-  handlePeer,
   handleValidateCDC,
 } from './handlers';
 import { cdcSettings } from './helpers/cdc';
@@ -37,11 +37,11 @@ import MirrorCards from './mirrorcards';
 import QRepConfigForm from './qrep/qrep';
 import * as styles from './styles';
 
-function getPeerValue(peer: Peer) {
+function getPeerValue(peer: PeerRef) {
   return peer.name;
 }
 
-function getPeerLabel(peer: Peer) {
+function getPeerLabel(peer: PeerRef) {
   return (
     <div style={{ display: 'flex', alignItems: 'center' }}>
       <div style={{ width: '5%', height: '5%' }}>
@@ -69,7 +69,11 @@ export default function CreateMirrors() {
   const [creating, setCreating] = useState<boolean>(false);
   const [validating, setValidating] = useState<boolean>(false);
   const [config, setConfig] = useState<CDCConfig | QRepConfig>(blankCDCSetting);
-  const [peers, setPeers] = useState<Peer[]>([]);
+  const [sourceType, setSourceType] = useState<DBType>(DBType.UNRECOGNIZED);
+  const [destinationType, setDestinationType] = useState<DBType>(
+    DBType.UNRECOGNIZED
+  );
+  const [peers, setPeers] = useState<PeerRef[]>([]);
   const [rows, setRows] = useState<TableMapRow[]>([]);
   const [qrepQuery, setQrepQuery] = useState<string>(QRepQueryTemplate);
 
@@ -81,7 +85,25 @@ export default function CreateMirrors() {
       });
   }, [mirrorType]);
 
-  let listMirrorsPage = () => {
+  const setSourcePeer = useCallback((peer: SingleValue<PeerRef>) => {
+    if (!peer) return;
+    setConfig((curr) => ({
+      ...curr,
+      sourceName: peer.name,
+    }));
+    setSourceType(peer.type);
+  }, []);
+
+  const setDestinationPeer = useCallback((peer: SingleValue<PeerRef>) => {
+    if (!peer) return;
+    setConfig((curr) => ({
+      ...curr,
+      destinationName: peer.name,
+    }));
+    setDestinationType(peer.type);
+  }, []);
+
+  const listMirrorsPage = () => {
     router.push('/mirrors');
   };
 
@@ -124,57 +146,53 @@ export default function CreateMirrors() {
               />
             }
           />
-          {['src', 'dst'].map((peerEnd, index) => {
-            return (
-              <RowWithSelect
-                key={index}
-                label={
-                  <Label>
-                    {peerEnd === 'src' ? 'Source Peer' : 'Destination Peer'}
-                    {RequiredIndicator(true)}
-                  </Label>
-                }
-                action={
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <div style={{ width: '100%' }}>
-                      <ReactSelect
-                        placeholder={`Select the ${
-                          peerEnd === 'src' ? 'source' : 'destination'
-                        } peer`}
-                        onChange={(val) =>
-                          handlePeer(val, peerEnd as 'src' | 'dst', setConfig)
-                        }
-                        options={
-                          (peerEnd === 'src'
-                            ? peers.filter(
-                                (peer) => peer.type == DBType.POSTGRES
-                              )
-                            : peers) ?? []
-                        }
-                        getOptionValue={getPeerValue}
-                        formatOptionLabel={getPeerLabel}
-                        theme={SelectTheme}
-                      />
-                    </div>
-                    <InfoPopover
-                      tips={
-                        'The peer from which we will be replicating data. Ensure the prerequisites for this peer are met.'
+          {['src', 'dst'].map((peerEnd) => (
+            <RowWithSelect
+              key={peerEnd}
+              label={
+                <Label>
+                  {peerEnd === 'src' ? 'Source Peer' : 'Destination Peer'}
+                  {RequiredIndicator(true)}
+                </Label>
+              }
+              action={
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                  }}
+                >
+                  <div style={{ width: '100%' }}>
+                    <ReactSelect
+                      placeholder={`Select the ${
+                        peerEnd === 'src' ? 'source' : 'destination'
+                      } peer`}
+                      onChange={
+                        peerEnd === 'src' ? setSourcePeer : setDestinationPeer
                       }
-                      link={
-                        'https://docs.peerdb.io/usecases/Real-time%20CDC/postgres-to-snowflake#prerequisites'
+                      options={
+                        (peerEnd === 'src'
+                          ? peers.filter(
+                              (peer) => peer.type === DBType.POSTGRES
+                            )
+                          : peers) ?? []
                       }
+                      getOptionValue={getPeerValue}
+                      formatOptionLabel={getPeerLabel}
+                      theme={SelectTheme}
                     />
                   </div>
-                }
-              />
-            );
-          })}
+                  <InfoPopover
+                    tips={`The peer ${peerEnd === 'src' ? 'from' : 'to'} which we will be replicating data. Ensure the prerequisites for this peer are met.`}
+                    link={
+                      'https://docs.peerdb.io/usecases/Real-time%20CDC/postgres-to-snowflake#prerequisites'
+                    }
+                  />
+                </div>
+              }
+            />
+          ))}
 
           <Divider style={{ marginTop: '1rem', marginBottom: '1rem' }} />
 
@@ -233,6 +251,8 @@ export default function CreateMirrors() {
             <CDCConfigForm
               settings={cdcSettings}
               mirrorConfig={config as CDCConfig}
+              sourceType={sourceType}
+              destinationType={destinationType}
               setter={setConfig}
               rows={rows}
               setRows={setRows}
@@ -241,6 +261,7 @@ export default function CreateMirrors() {
             <QRepConfigForm
               settings={qrepSettings}
               mirrorConfig={config as QRepConfig}
+              destinationType={destinationType}
               setter={setConfig}
               xmin={mirrorType === MirrorType.XMin}
             />
@@ -259,6 +280,7 @@ export default function CreateMirrors() {
                       mirrorName,
                       rows,
                       config as CDCConfig,
+                      destinationType,
                       setValidating
                     )
                   }
@@ -282,6 +304,7 @@ export default function CreateMirrors() {
                         mirrorName,
                         rows,
                         config as CDCConfig,
+                        destinationType,
                         setCreating,
                         listMirrorsPage
                       )
@@ -289,6 +312,7 @@ export default function CreateMirrors() {
                         mirrorName,
                         qrepQuery,
                         config as QRepConfig,
+                        destinationType,
                         setCreating,
                         listMirrorsPage,
                         mirrorType === MirrorType.XMin // for handling xmin specific

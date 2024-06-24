@@ -5,7 +5,7 @@ import { ElasticsearchAuthType } from '@/grpc_generated/peers';
 import { getTruePeer } from '../../getTruePeer';
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   context: { params: { peerName: string } }
 ) {
   const peerName = context.params.peerName;
@@ -31,7 +31,6 @@ export async function GET(
   const redactString = '********';
   if (pgConfig) {
     pgConfig.password = redactString;
-    pgConfig.transactionSnapshot = redactString;
 
     if (pgConfig.sshConfig) {
       pgConfig.sshConfig.password = redactString;
