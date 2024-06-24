@@ -46,7 +46,7 @@ func qValueKindToBigQueryType(columnDescription *protos.FieldDescription) bigque
 		bqField.Type = bigquery.TimeFieldType
 	// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - handle INTERVAL types again,
 	// bytes
-	case qvalue.QValueKindBit, qvalue.QValueKindBytes:
+	case qvalue.QValueKindBytes:
 		bqField.Type = bigquery.BytesFieldType
 	case qvalue.QValueKindArrayInt16, qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64:
 		bqField.Type = bigquery.IntegerFieldType
