@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -88,29 +89,21 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]interface{}, error) {
 
 		switch v := qv.(type) {
 		case qvalue.QValueBit:
-			bitVal := v.Val
-
-			// convert to binary string because
-			// json.Marshal stores byte arrays as
-			// base64
-			binStr := ""
-			for _, b := range bitVal {
-				binStr += fmt.Sprintf("%08b", b)
+			// convert to binary string since json.Marshal stores byte arrays as base64
+			var binStr strings.Builder
+			binStr.Grow(len(v.Val) * 8)
+			for _, b := range v.Val {
+				binStr.WriteString(fmt.Sprintf("%08b", b))
 			}
-
-			jsonStruct[col] = binStr
+			jsonStruct[col] = binStr.String()
 		case qvalue.QValueBytes:
-			bitVal := v.Val
-
-			// convert to binary string because
-			// json.Marshal stores byte arrays as
-			// base64
-			binStr := ""
-			for _, b := range bitVal {
-				binStr += fmt.Sprintf("%08b", b)
+			// convert to binary string since json.Marshal stores byte arrays as base64
+			var binStr strings.Builder
+			binStr.Grow(len(v.Val) * 8)
+			for _, b := range v.Val {
+				binStr.WriteString(fmt.Sprintf("%08b", b))
 			}
-
-			jsonStruct[col] = binStr
+			jsonStruct[col] = binStr.String()
 		case qvalue.QValueUUID:
 			jsonStruct[col] = uuid.UUID(v.Val)
 		case qvalue.QValueQChar:

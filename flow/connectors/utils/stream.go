@@ -79,7 +79,6 @@ func recordToQRecordOrError[Items model.Items](batchID int64, record model.Recor
 	var entries [8]qvalue.QValue
 	switch typedRecord := record.(type) {
 	case *model.InsertRecord[Items]:
-		// json.Marshal converts bytes in Hex automatically to BASE64 string.
 		itemsJSON, err := model.ItemsToJSON(typedRecord.Items)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize insert record items to JSON: %w", err)
