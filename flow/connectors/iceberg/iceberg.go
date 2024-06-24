@@ -137,7 +137,6 @@ func (c *IcebergConnector) SetupNormalizedTable(
 	softDeleteColName string,
 	syncedAtColName string,
 ) (bool, error) {
-	// TODO add soft delete column in the schema
 	qFields := make([]qvalue.QField, len(tableSchema.Columns))
 	for i, fieldDescription := range tableSchema.Columns {
 		colName := fieldDescription.Name
@@ -165,7 +164,7 @@ func (c *IcebergConnector) SetupNormalizedTable(
 	}
 
 	// TODO save to a buffer and call when Finish is called
-	// TODO maybe can later migrate to a streaming rpc with transaction support
+	// TODO maybe later migrate to a streaming rpc with transaction support
 	tableResponse, err := c.proxyClient.CreateTable(ctx, &protos.CreateTableRequest{
 		TableInfo: &protos.TableInfo{
 			Namespace:      nil,

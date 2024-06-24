@@ -10,7 +10,7 @@ import (
 )
 
 func IcebergFeatureStreamingEnabled(ctx context.Context) bool {
-	strValue := peerdbenv.GetEnvString("ICEBERG_FEATURE_STREAMING_ENABLED", "false")
+	strValue := peerdbenv.GetEnvString("ICEBERG_FEATURE_STREAMING_ENABLED", "true")
 	value, err := strconv.ParseBool(strValue)
 	if err != nil {
 		// only log and return false

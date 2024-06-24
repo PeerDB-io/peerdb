@@ -165,7 +165,6 @@ public class IcebergService {
 
 
     public Uni<AppendRecordsStreamResponse> appendRecordsAsync(Multi<AppendRecordsStreamRequest> request) {
-        // TODO the streaming code needs better error handling
         var tableContext = new AtomicReference<AppendRecordTableContext>();
         var counter = new AtomicInteger();
         var resultUni = request.map(record -> Pair.of(counter.getAndIncrement(), record))

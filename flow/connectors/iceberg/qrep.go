@@ -235,6 +235,5 @@ func (c *IcebergConnector) SetupQRepMetadataTables(_ context.Context, config *pr
 func (c *IcebergConnector) IsQRepPartitionSynced(ctx context.Context,
 	config *protos.IsQRepPartitionSyncedInput,
 ) (bool, error) {
-	// TODO look at this
 	return c.PostgresMetadata.IsQRepPartitionSynced(ctx, config)
 }
