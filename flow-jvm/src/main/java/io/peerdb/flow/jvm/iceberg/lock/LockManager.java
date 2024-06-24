@@ -2,11 +2,11 @@ package io.peerdb.flow.jvm.iceberg.lock;
 
 
 import com.google.common.util.concurrent.Striped;
-import jakarta.enterprise.context.Dependent;
+import jakarta.enterprise.context.ApplicationScoped;
 
 import java.util.concurrent.locks.Lock;
 
-@Dependent
+@ApplicationScoped
 public class LockManager {
     int stripeCount = 10_000;
 
