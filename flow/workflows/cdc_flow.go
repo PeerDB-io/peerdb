@@ -1,3 +1,4 @@
+//nolint:staticcheck // TODO remove in 0.15
 package peerflow
 
 import (
@@ -182,34 +183,6 @@ func addCdcPropertiesSignalListener(
 	})
 }
 
-func reloadPeers(ctx workflow.Context, logger log.Logger, cfg *protos.FlowConnectionConfigs) error {
-	reloadPeersCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
-	})
-
-	logger.Info("reloading source peer", slog.String("peerName", cfg.Source.Name))
-	srcFuture := workflow.ExecuteActivity(reloadPeersCtx, flowable.LoadPeer, cfg.Source.Name)
-	var srcPeer *protos.Peer
-	if err := srcFuture.Get(reloadPeersCtx, &srcPeer); err != nil {
-		logger.Error("failed to load source peer", slog.Any("error", err))
-		return fmt.Errorf("failed to load source peer: %w", err)
-	}
-	logger.Info("reloaded peer", slog.String("peerName", cfg.Source.Name))
-
-	logger.Info("reloading destination peer", slog.String("peerName", cfg.Destination.Name))
-	dstFuture := workflow.ExecuteActivity(reloadPeersCtx, flowable.LoadPeer, cfg.Destination.Name)
-	var dstPeer *protos.Peer
-	if err := dstFuture.Get(reloadPeersCtx, &dstPeer); err != nil {
-		logger.Error("failed to load destination peer", slog.Any("error", err))
-		return fmt.Errorf("failed to load destination peer: %w", err)
-	}
-	logger.Info("reloaded peer", slog.String("peerName", cfg.Destination.Name))
-
-	cfg.Source = srcPeer
-	cfg.Destination = dstPeer
-	return nil
-}
-
 func CDCFlowWorkflow(
 	ctx workflow.Context,
 	cfg *protos.FlowConnectionConfigs,
@@ -270,13 +243,6 @@ func CDCFlowWorkflow(
 				return state, err
 			}
 
-			// reload peers in case of EDIT PEER
-			err := reloadPeers(ctx, logger, cfg)
-			if err != nil {
-				logger.Error("failed to reload peers", slog.Any("error", err))
-				return state, fmt.Errorf("failed to reload peers: %w", err)
-			}
-
 			if state.FlowConfigUpdate != nil {
 				err = processCDCFlowConfigUpdate(ctx, logger, cfg, state, mirrorNameSearch)
 				if err != nil {
@@ -292,6 +258,30 @@ func CDCFlowWorkflow(
 
 		logger.Info(fmt.Sprintf("mirror has been resumed after %s", time.Since(startTime).Round(time.Second)))
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
+	}
+
+	// TODO remove fields in 0.15
+	state.RelationMessageMapping = nil
+	save_cfg := false
+	if cfg.Source != nil {
+		cfg.SourceName = cfg.Source.Name
+		cfg.Source = nil
+		save_cfg = true
+	}
+	if cfg.Destination != nil {
+		cfg.DestinationName = cfg.Destination.Name
+		cfg.Destination = nil
+		save_cfg = true
+	}
+	if save_cfg {
+		saveCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: time.Hour,
+			HeartbeatTimeout:    time.Minute,
+		})
+		saveFuture := workflow.ExecuteActivity(saveCtx, flowable.UpdateCdcFlowConfigInCatalog, cfg)
+		if err := saveFuture.Get(saveCtx, nil); err != nil {
+			return state, fmt.Errorf("failed to save updated config: %w", err)
+		}
 	}
 
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
@@ -364,13 +354,16 @@ func CDCFlowWorkflow(
 		}
 
 		if cfg.Resync {
-			renameOpts := &protos.RenameTablesInput{}
-			renameOpts.FlowJobName = cfg.FlowJobName
-			renameOpts.Peer = cfg.Destination
-			if cfg.SoftDelete {
+			renameOpts := &protos.RenameTablesInput{
+				FlowJobName: cfg.FlowJobName,
+				PeerName:    cfg.DestinationName,
+			}
+			if cfg.SyncedAtColName != "" {
+				renameOpts.SyncedAtColName = &cfg.SyncedAtColName
+			}
+			if cfg.SoftDelete && cfg.SoftDeleteColName != "" {
 				renameOpts.SoftDeleteColName = &cfg.SoftDeleteColName
 			}
-			renameOpts.SyncedAtColName = &cfg.SyncedAtColName
 			correctedTableNameSchemaMapping := make(map[string]*protos.TableSchema)
 			for _, mapping := range state.SyncFlowOptions.TableMappings {
 				oldName := mapping.DestinationTableIdentifier

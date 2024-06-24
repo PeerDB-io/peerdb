@@ -88,8 +88,8 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
     setLoading(true);
     const req: FlowStateChangeRequest = {
       flowJobName: mirrorId,
-      sourcePeer: mirrorState.cdcStatus?.config?.source,
-      destinationPeer: mirrorState.cdcStatus?.config?.destination,
+      sourcePeer: mirrorState.cdcStatus?.config?.sourceName ?? '',
+      destinationPeer: mirrorState.cdcStatus?.config?.destinationName ?? '',
       requestedFlowState: FlowStatus.STATUS_UNKNOWN,
       flowConfigUpdate: {
         cdcFlowConfigUpdate: { ...config, additionalTables },
@@ -187,8 +187,8 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
       )}
 
       <TableMapping
-        sourcePeerName={mirrorState.cdcStatus?.config?.source?.name || ''}
-        peerType={mirrorState.cdcStatus?.config?.destination?.type}
+        sourcePeerName={mirrorState.cdcStatus?.config?.sourceName ?? ''}
+        peerType={mirrorState.cdcStatus?.destinationType}
         rows={rows}
         setRows={setRows}
         omitAdditionalTablesMapping={omitAdditionalTablesMapping}

@@ -39,7 +39,7 @@ func (m *mergeStmtGenerator) generateFlattenedCTE(dstTable string, normalizedTab
 			castStmt = fmt.Sprintf("CAST(PARSE_JSON(JSON_VALUE(_peerdb_data, '$.%s'),wide_number_mode=>'round') AS %s) AS `%s`",
 				column.Name, bqTypeString, shortCol)
 		// expecting data in BASE64 format
-		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
+		case qvalue.QValueKindBytes:
 			castStmt = fmt.Sprintf("FROM_BASE64(JSON_VALUE(_peerdb_data,'$.%s')) AS `%s`",
 				column.Name, shortCol)
 		case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64, qvalue.QValueKindArrayInt16,

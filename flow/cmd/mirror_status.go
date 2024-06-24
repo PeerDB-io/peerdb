@@ -1,3 +1,4 @@
+//nolint:staticcheck // TODO remove in 0.15
 package cmd
 
 import (
@@ -11,6 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/PeerDB-io/peer-flow/connectors"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
@@ -121,6 +123,17 @@ func (h *FlowRequestHandler) CDCFlowStatus(
 		return nil, err
 	}
 
+	// TODO remove in 0.15
+	// patching config to use new fields on ui
+	if config.Source != nil {
+		config.SourceName = config.Source.Name
+		config.Source = nil
+	}
+	if config.Destination != nil {
+		config.DestinationName = config.Destination.Name
+		config.Destination = nil
+	}
+
 	// patching config to show latest values from state
 	if state.SyncFlowOptions != nil {
 		config.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
@@ -128,20 +141,27 @@ func (h *FlowRequestHandler) CDCFlowStatus(
 		config.TableMappings = state.SyncFlowOptions.TableMappings
 	}
 
-	var initialCopyStatus *protos.SnapshotStatus
+	srcType, err := connectors.LoadPeerType(ctx, h.pool, config.SourceName)
+	if err != nil {
+		return nil, err
+	}
+	dstType, err := connectors.LoadPeerType(ctx, h.pool, config.DestinationName)
+	if err != nil {
+		return nil, err
+	}
 
 	cloneStatuses, err := h.cloneTableSummary(ctx, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
 
-	initialCopyStatus = &protos.SnapshotStatus{
-		Clones: cloneStatuses,
-	}
-
 	return &protos.CDCMirrorStatus{
-		Config:         config,
-		SnapshotStatus: initialCopyStatus,
+		Config:          config,
+		SourceType:      srcType,
+		DestinationType: dstType,
+		SnapshotStatus: &protos.SnapshotStatus{
+			Clones: cloneStatuses,
+		},
 	}, nil
 }
 
@@ -317,16 +337,14 @@ func (h *FlowRequestHandler) getFlowConfigFromCatalog(
 	flowJobName string,
 ) (*protos.FlowConnectionConfigs, error) {
 	var configBytes sql.RawBytes
-	var err error
-	var config protos.FlowConnectionConfigs
-
-	err = h.pool.QueryRow(ctx,
+	err := h.pool.QueryRow(ctx,
 		"SELECT config_proto FROM flows WHERE name = $1", flowJobName).Scan(&configBytes)
 	if err != nil {
 		slog.Error("unable to query flow config from catalog", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to query flow config from catalog: %w", err)
 	}
 
+	var config protos.FlowConnectionConfigs
 	err = proto.Unmarshal(configBytes, &config)
 	if err != nil {
 		slog.Error("unable to unmarshal flow config", slog.Any("error", err))
@@ -391,8 +409,7 @@ func (h *FlowRequestHandler) getCDCWorkflowState(ctx context.Context,
 			fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
 	}
 	var state peerflow.CDCFlowWorkflowState
-	err = res.Get(&state)
-	if err != nil {
+	if err := res.Get(&state); err != nil {
 		slog.Error(fmt.Sprintf("failed to get state in workflow with ID %s: %s", workflowID, err.Error()))
 		return nil,
 			fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
