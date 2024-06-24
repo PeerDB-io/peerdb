@@ -272,12 +272,17 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	ctx context.Context,
 	req *protos.ShutdownRequest,
 ) (*protos.ShutdownResponse, error) {
+	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+
 	logs := slog.Group("shutdown-log",
 		slog.String(string(shared.FlowNameKey), req.FlowJobName),
-		slog.String("workflowId", req.WorkflowId),
+		slog.String("workflowId", workflowID),
 	)
 
-	err := h.handleCancelWorkflow(ctx, req.WorkflowId, "")
+	err = h.handleCancelWorkflow(ctx, workflowID, "")
 	if err != nil {
 		slog.Error("unable to cancel workflow", logs, slog.Any("error", err))
 		return &protos.ShutdownResponse{
@@ -345,18 +350,16 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		}
 	}
 
-	if req.RemoveFlowEntry {
-		err := h.removeFlowEntryInCatalog(ctx, req.FlowJobName)
-		if err != nil {
-			slog.Error("unable to remove flow job entry",
-				slog.String(string(shared.FlowNameKey), req.FlowJobName),
-				slog.Any("error", err),
-				slog.String("workflowId", req.WorkflowId))
-			return &protos.ShutdownResponse{
-				Ok:           false,
-				ErrorMessage: err.Error(),
-			}, err
-		}
+	err = h.removeFlowEntryInCatalog(ctx, req.FlowJobName)
+	if err != nil {
+		slog.Error("unable to remove flow job entry",
+			slog.String(string(shared.FlowNameKey), req.FlowJobName),
+			slog.Any("error", err),
+			slog.String("workflowId", workflowID))
+		return &protos.ShutdownResponse{
+			Ok:           false,
+			ErrorMessage: err.Error(),
+		}, err
 	}
 
 	return &protos.ShutdownResponse{
@@ -421,11 +424,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				return nil, err
 			}
 			_, err = h.ShutdownFlow(ctx, &protos.ShutdownRequest{
-				WorkflowId:      workflowID,
-				FlowJobName:     req.FlowJobName,
-				SourcePeer:      req.SourcePeer,
-				DestinationPeer: req.DestinationPeer,
-				RemoveFlowEntry: false,
+				FlowJobName: req.FlowJobName,
 			})
 		} else if req.RequestedFlowState != currState {
 			return nil, fmt.Errorf("illegal state change requested: %v, current state is: %v",
