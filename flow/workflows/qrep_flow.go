@@ -426,8 +426,8 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 
 func setWorkflowQueries(ctx workflow.Context, state *protos.QRepFlowState) error {
 	// Support an Update for the current status of the qrep flow.
-	err := workflow.SetUpdateHandler(ctx, shared.FlowStatusUpdate, func(status *protos.FlowStatus) error {
-		state.CurrentFlowStatus = *status
+	err := workflow.SetUpdateHandler(ctx, shared.FlowStatusUpdate, func(_ workflow.Context, status protos.FlowStatus) error {
+		state.CurrentFlowStatus = status
 		return nil
 	})
 	if err != nil {
