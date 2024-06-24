@@ -95,7 +95,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH protos.DBType, preci
 		return "double", nil
 	case QValueKindBoolean:
 		return "boolean", nil
-	case QValueKindBytes, QValueKindBit:
+	case QValueKindBytes:
 		return "bytes", nil
 	case QValueKindNumeric:
 		avroNumericPrecision, avroNumericScale := DetermineNumericSettingForDWH(precision, scale, targetDWH)
@@ -327,8 +327,6 @@ func QValueToAvro(value QValue, field *QField, targetDWH protos.DBType, logger l
 	case QValueNumeric:
 		return c.processNumeric(v.Val), nil
 	case QValueBytes:
-		return c.processBytes(v.Val), nil
-	case QValueBit:
 		return c.processBytes(v.Val), nil
 	case QValueJSON:
 		return c.processJSON(v.Val), nil

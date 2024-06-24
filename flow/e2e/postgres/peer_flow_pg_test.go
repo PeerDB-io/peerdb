@@ -99,7 +99,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 	dstTableName := s.attachSchemaSuffix("test_types_pg_dst")
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
-	CREATE TABLE IF NOT EXISTS %s (id serial PRIMARY KEY,c1 BIGINT,c2 BIT,c4 BOOLEAN,
+	CREATE TABLE IF NOT EXISTS %s (id serial PRIMARY KEY,c1 BIGINT,c2 BYTEA,c4 BOOLEAN,
 		c7 CHARACTER,c8 varchar,c9 CIDR,c11 DATE,c12 FLOAT,c13 DOUBLE PRECISION,
 		c14 INET,c15 INTEGER,c21 MACADDR,
 		c29 SMALLINT,c32 TEXT,
@@ -124,7 +124,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s SELECT 2,2,b'1',
+			INSERT INTO %s SELECT 2,2,'\xdeadbeef',
 			true,'s','test','1.1.10.2'::cidr,
 			CURRENT_DATE,1.23,1.234,'192.168.1.5'::inet,1,
 			'08:00:2b:01:02:03'::macaddr,

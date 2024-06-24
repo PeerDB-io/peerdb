@@ -7,7 +7,6 @@ import (
 
 var AddAllColumnTypes = []string{
 	string(qvalue.QValueKindInt32),
-	string(qvalue.QValueKindBit),
 	string(qvalue.QValueKindBoolean),
 	string(qvalue.QValueKindBytes),
 	string(qvalue.QValueKindDate),
@@ -31,11 +30,6 @@ var AddAllColumnTypesFields = []*protos.FieldDescription{
 		Name:         "id",
 		Type:         string(qvalue.QValueKindInt32),
 		TypeModifier: -1,
-	},
-	{
-		Name:         "c1",
-		Type:         string(qvalue.QValueKindBit),
-		TypeModifier: 1,
 	},
 	{
 		Name:         "c2",
