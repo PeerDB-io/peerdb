@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"go.temporal.io/sdk/client"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -374,7 +375,11 @@ func (h *FlowRequestHandler) updateWorkflowStatus(
 	workflowID string,
 	state protos.FlowStatus,
 ) error {
-	_, err := h.temporalClient.UpdateWorkflow(ctx, workflowID, "", shared.FlowStatusUpdate, state)
+	_, err := h.temporalClient.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
+		WorkflowID: workflowID,
+		UpdateName: shared.FlowStatusUpdate,
+		Args:       []interface{}{state},
+	})
 	if err != nil {
 		slog.Error(fmt.Sprintf("failed to update state in workflow with ID %s: %s", workflowID, err.Error()))
 		return fmt.Errorf("failed to update state in workflow with ID %s: %w", workflowID, err)
