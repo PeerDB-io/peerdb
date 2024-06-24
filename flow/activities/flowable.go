@@ -813,39 +813,3 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 	}
 	return err
 }
-
-// TODO remove in 0.15
-func (a *FlowableActivity) UpdateCdcFlowConfigInCatalog(
-	ctx context.Context,
-	cfg *protos.FlowConnectionConfigs,
-) error {
-	cfgBytes, err := proto.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("unable to marshal flow config: %w", err)
-	}
-
-	_, err = a.CatalogPool.Exec(ctx, "UPDATE flows SET config_proto = $1 WHERE name = $2", cfgBytes, cfg.FlowJobName)
-	if err != nil {
-		return fmt.Errorf("unable to update flow config in catalog: %w", err)
-	}
-
-	return nil
-}
-
-// TODO remove in 0.15
-func (a *FlowableActivity) UpdateQRepFlowConfigInCatalog(
-	ctx context.Context,
-	cfg *protos.FlowConnectionConfigs,
-) error {
-	cfgBytes, err := proto.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("unable to marshal flow config: %w", err)
-	}
-
-	_, err = a.CatalogPool.Exec(ctx, "UPDATE flows SET config_proto = $1 WHERE name = $2", cfgBytes, cfg.FlowJobName)
-	if err != nil {
-		return fmt.Errorf("unable to update flow config in catalog: %w", err)
-	}
-
-	return nil
-}

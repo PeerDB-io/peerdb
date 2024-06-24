@@ -21,8 +21,6 @@ export interface MirrorSetting {
 }
 
 export const blankCDCSetting: CDCConfig = {
-  source: undefined,
-  destination: undefined,
   sourceName: '',
   destinationName: '',
   flowJobName: '',
