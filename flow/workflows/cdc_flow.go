@@ -210,7 +210,7 @@ func CDCFlowWorkflow(
 	if err != nil {
 		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
 	}
-	err = workflow.SetUpdateHandler(ctx, shared.FlowStatusUpdate, func(status protos.FlowStatus) error {
+	err = workflow.SetUpdateHandler(ctx, shared.FlowStatusUpdate, func(_ workflow.Context, status protos.FlowStatus) error {
 		state.CurrentFlowStatus = status
 		return nil
 	})
