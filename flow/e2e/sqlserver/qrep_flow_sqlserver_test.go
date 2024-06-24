@@ -45,6 +45,19 @@ func (s PeerFlowE2ETestSuiteSQLServer) Suffix() string {
 	return s.suffix
 }
 
+func (s PeerFlowE2ETestSuiteSQLServer) Peer() *protos.Peer {
+	s.t.Helper()
+	ret := &protos.Peer{
+		Name: e2e.AddSuffix(s, "sqlspeer"),
+		Type: protos.DBType_SQLSERVER,
+		Config: &protos.Peer_SqlserverConfig{
+			SqlserverConfig: s.sqlsHelper.config,
+		},
+	}
+	e2e.CreatePeer(s.t, ret)
+	return ret
+}
+
 func TestCDCFlowE2ETestSuiteSQLServer(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSuite)
 }
@@ -72,7 +85,7 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSQLServer {
 	if env != "true" {
 		sqlsHelper = nil
 	} else {
-		sqlsHelper, err = NewSQLServerHelper("test_sqlserver_peer")
+		sqlsHelper, err = NewSQLServerHelper()
 		require.NoError(t, err)
 	}
 
@@ -155,12 +168,10 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 	query := fmt.Sprintf("SELECT * FROM %s.%s WHERE v_from BETWEEN {{.start}} AND {{.end}}",
 		s.sqlsHelper.SchemaName, tblName)
 
-	postgresPeer := e2e.GeneratePostgresPeer()
-
 	qrepConfig := &protos.QRepConfig{
 		FlowJobName:                tblName,
-		SourcePeer:                 s.sqlsHelper.GetPeer(),
-		DestinationPeer:            postgresPeer,
+		SourceName:                 s.Peer().Name,
+		DestinationName:            e2e.GeneratePostgresPeer(s.t).Name,
 		DestinationTableIdentifier: dstTableName,
 		Query:                      query,
 		WatermarkTable:             srcTableName,

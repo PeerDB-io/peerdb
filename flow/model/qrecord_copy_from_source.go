@@ -90,8 +90,6 @@ func (src *QRecordCopyFromSource) Values() ([]interface{}, error) {
 			values[i] = uuid.UUID(v.Val)
 		case qvalue.QValueNumeric:
 			values[i] = v.Val
-		case qvalue.QValueBit:
-			values[i] = v.Val
 		case qvalue.QValueBytes:
 			values[i] = v.Val
 		case qvalue.QValueDate:

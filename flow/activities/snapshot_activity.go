@@ -2,11 +2,13 @@ package activities
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/activity"
 
 	"github.com/PeerDB-io/peer-flow/alerting"
@@ -29,6 +31,7 @@ type TxSnapshotState struct {
 
 type SnapshotActivity struct {
 	Alerter             *alerting.Alerter
+	CatalogPool         *pgxpool.Pool
 	SlotSnapshotStates  map[string]SlotSnapshotState
 	TxSnapshotStates    map[string]TxSnapshotState
 	SnapshotStatesMutex sync.Mutex
@@ -56,16 +59,14 @@ func (a *SnapshotActivity) SetupReplication(
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := activity.GetLogger(ctx)
 
-	dbType := config.PeerConnectionConfig.Type
-	if dbType != protos.DBType_POSTGRES {
-		logger.Info(fmt.Sprintf("setup replication is no-op for %s", dbType))
-		return nil, nil
-	}
-
 	a.Alerter.LogFlowEvent(ctx, config.FlowJobName, "Started Snapshot Flow Job")
 
-	conn, err := connectors.GetCDCPullConnector(ctx, config.PeerConnectionConfig)
+	conn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, a.CatalogPool, config.PeerName)
 	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			logger.Info("setup replication is no-op for non-postgres source")
+			return nil, nil
+		}
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
 
@@ -80,14 +81,10 @@ func (a *SnapshotActivity) SetupReplication(
 		connectors.CloseConnector(ctx, conn)
 	}
 
-	// This now happens in a goroutine
 	go func() {
-		pgConn := conn.(*connpostgres.PostgresConnector)
-		err = pgConn.SetupReplication(ctx, slotSignal, config)
-		if err != nil {
+		if err := conn.SetupReplication(ctx, slotSignal, config); err != nil {
 			closeConnectionForError(err)
 			replicationErr <- err
-			return
 		}
 	}()
 
@@ -122,8 +119,8 @@ func (a *SnapshotActivity) SetupReplication(
 	}, nil
 }
 
-func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, peer *protos.Peer) error {
-	conn, err := connectors.GetCDCPullConnector(ctx, peer)
+func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, peer string) error {
+	conn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, a.CatalogPool, peer)
 	if err != nil {
 		return err
 	}

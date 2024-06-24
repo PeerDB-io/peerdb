@@ -41,7 +41,7 @@ func (m *mergeStmtGenerator) generateMergeStmt(dstTable string) (string, error) 
 
 		targetColumnName := SnowflakeIdentifierNormalize(column.Name)
 		switch qvKind {
-		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
+		case qvalue.QValueKindBytes:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:\"%s\") "+
 				"AS %s", toVariantColumnName, column.Name, targetColumnName))
 		case qvalue.QValueKindGeography:

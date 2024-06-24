@@ -146,10 +146,10 @@ func SyncFlowWorkflow(
 					})
 					getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.GetTableSchema,
 						&protos.GetTableSchemaBatchInput{
-							PeerConnectionConfig: config.Source,
-							TableIdentifiers:     modifiedSrcTables,
-							FlowName:             config.FlowJobName,
-							System:               config.System,
+							PeerName:         config.SourceName,
+							TableIdentifiers: modifiedSrcTables,
+							FlowName:         config.FlowJobName,
+							System:           config.System,
 						})
 
 					var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput

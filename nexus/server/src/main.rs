@@ -13,7 +13,6 @@ use clap::Parser;
 use cursor::PeerCursors;
 use dashmap::{mapref::entry::Entry as DashEntry, DashMap};
 use flow_rs::grpc::{FlowGrpcClient, PeerValidationResult};
-use futures::join;
 use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
     util::{records_to_query_response, sendable_stream_to_query_response},
@@ -157,13 +156,6 @@ impl NexusBackend {
                 )
             })?;
         Ok(workflow_details)
-    }
-
-    async fn get_peer_of_mirror(catalog: &Catalog, peer_name: &str) -> PgWireResult<Peer> {
-        let peer = catalog.get_peer(peer_name).await.map_err(|err| {
-            PgWireError::ApiError(format!("unable to get peer {:?}: {:?}", peer_name, err).into())
-        })?;
-        Ok(peer)
     }
 
     fn handle_mirror_existence(
@@ -416,18 +408,10 @@ impl NexusBackend {
                             }
                         }
 
-                        // get source and destination peers
-                        let (src_peer, dst_peer) = join!(
-                            Self::get_peer_of_mirror(self.catalog.as_ref(), &flow_job.source_peer),
-                            Self::get_peer_of_mirror(self.catalog.as_ref(), &flow_job.target_peer),
-                        );
-                        let src_peer = src_peer?;
-                        let dst_peer = dst_peer?;
-
                         // make a request to the flow service to start the job.
                         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
                         flow_handler
-                            .start_peer_flow_job(flow_job, src_peer, dst_peer)
+                            .start_peer_flow_job(flow_job, flow_job.source_peer.clone(), flow_job.target_peer.clone())
                             .await
                             .map_err(|err| {
                                 PgWireError::ApiError(
@@ -775,23 +759,10 @@ impl NexusBackend {
     }
 
     async fn run_qrep_mirror(&self, qrep_flow_job: &QRepFlowJob) -> PgWireResult<String> {
-        let (src_peer, dst_peer) = join!(
-            self.catalog.get_peer(&qrep_flow_job.source_peer),
-            self.catalog.get_peer(&qrep_flow_job.target_peer),
-        );
-        // get source and destination peers
-        let src_peer = src_peer.map_err(|err| {
-            PgWireError::ApiError(format!("unable to get source peer: {:?}", err).into())
-        })?;
-
-        let dst_peer = dst_peer.map_err(|err| {
-            PgWireError::ApiError(format!("unable to get destination peer: {:?}", err).into())
-        })?;
-
         // make a request to the flow service to start the job.
         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
         let workflow_id = flow_handler
-            .start_qrep_flow_job(qrep_flow_job, src_peer, dst_peer)
+            .start_qrep_flow_job(qrep_flow_job, qrep_flow_job.source_peer.clone(), qrep_flow_job.target_peer.clone())
             .await
             .map_err(|err| {
                 PgWireError::ApiError(format!("unable to submit job: {:?}", err).into())

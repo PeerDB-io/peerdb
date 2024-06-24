@@ -398,33 +398,37 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 }
 
 func CreateQRepWorkflowConfig(
+	t *testing.T,
 	flowJobName string,
 	sourceTable string,
 	dstTable string,
 	query string,
-	dest *protos.Peer,
+	dest string,
 	stagingPath string,
 	setupDst bool,
 	syncedAtCol string,
 	isDeletedCol string,
-) (*protos.QRepConfig, error) {
-	connectionGen := QRepFlowConnectionGenerationConfig{
+) *protos.QRepConfig {
+	t.Helper()
+
+	return &protos.QRepConfig{
 		FlowJobName:                flowJobName,
 		WatermarkTable:             sourceTable,
 		DestinationTableIdentifier: dstTable,
-		Destination:                dest,
+		SourceName:                 GeneratePostgresPeer(t).Name,
+		DestinationName:            dest,
+		Query:                      query,
+		WatermarkColumn:            "updated_at",
 		StagingPath:                stagingPath,
+		WriteMode: &protos.QRepWriteMode{
+			WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
+		},
+		NumRowsPerPartition:              1000,
+		InitialCopyOnly:                  true,
+		SyncedAtColName:                  syncedAtCol,
+		SetupWatermarkTableOnDestination: setupDst,
+		SoftDeleteColName:                isDeletedCol,
 	}
-
-	watermark := "updated_at"
-
-	qrepConfig := connectionGen.GenerateQRepConfig(query, watermark)
-	qrepConfig.InitialCopyOnly = true
-	qrepConfig.SyncedAtColName = syncedAtCol
-	qrepConfig.SetupWatermarkTableOnDestination = setupDst
-	qrepConfig.SoftDeleteColName = isDeletedCol
-
-	return qrepConfig, nil
 }
 
 func RunQRepFlowWorkflow(tc client.Client, config *protos.QRepConfig) WorkflowRun {

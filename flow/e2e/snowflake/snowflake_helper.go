@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"testing"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
@@ -18,8 +19,6 @@ import (
 type SnowflakeTestHelper struct {
 	// config is the Snowflake config.
 	Config *protos.SnowflakeConfig
-	// peer struct holder Snowflake
-	Peer *protos.Peer
 	// connection to another database, to manage the test database
 	adminClient *connsnowflake.SnowflakeClient
 	// connection to the test database
@@ -30,7 +29,9 @@ type SnowflakeTestHelper struct {
 	testDatabaseName string
 }
 
-func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
+func NewSnowflakeTestHelper(t *testing.T) (*SnowflakeTestHelper, error) {
+	t.Helper()
+
 	jsonPath := os.Getenv("TEST_SF_CREDS")
 	if jsonPath == "" {
 		return nil, errors.New("TEST_SF_CREDS env var not set")
@@ -42,12 +43,10 @@ func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
 	}
 
 	var config *protos.SnowflakeConfig
-	err = json.Unmarshal(content, &config)
-	if err != nil {
+	if err := json.Unmarshal(content, &config); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 	}
 
-	peer := generateSFPeer(config)
 	runID, err := shared.RandomUInt64()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate random uint64: %w", err)
@@ -75,24 +74,11 @@ func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
 
 	return &SnowflakeTestHelper{
 		Config:           config,
-		Peer:             peer,
 		adminClient:      adminClient,
 		testClient:       testClient,
 		testSchemaName:   "PUBLIC",
 		testDatabaseName: testDatabaseName,
 	}, nil
-}
-
-func generateSFPeer(snowflakeConfig *protos.SnowflakeConfig) *protos.Peer {
-	ret := &protos.Peer{}
-	ret.Name = "test_sf_peer"
-	ret.Type = protos.DBType_SNOWFLAKE
-
-	ret.Config = &protos.Peer_SnowflakeConfig{
-		SnowflakeConfig: snowflakeConfig,
-	}
-
-	return ret
 }
 
 // Cleanup drops the database.
@@ -114,32 +100,17 @@ func (s *SnowflakeTestHelper) RunCommand(command string) error {
 }
 
 // CountRows(tableName) returns the number of rows in the given table.
-func (s *SnowflakeTestHelper) CountRows(tableName string) (int, error) {
-	res, err := s.testClient.CountRows(context.Background(), s.testSchemaName, tableName)
-	if err != nil {
-		return 0, err
-	}
-
-	return int(res), nil
+func (s *SnowflakeTestHelper) CountRows(tableName string) (int64, error) {
+	return s.testClient.CountRows(context.Background(), s.testSchemaName, tableName)
 }
 
 // CountRows(tableName) returns the non-null number of rows in the given table.
-func (s *SnowflakeTestHelper) CountNonNullRows(tableName string, columnName string) (int, error) {
-	res, err := s.testClient.CountNonNullRows(context.Background(), s.testSchemaName, tableName, columnName)
-	if err != nil {
-		return 0, err
-	}
-
-	return int(res), nil
+func (s *SnowflakeTestHelper) CountNonNullRows(tableName string, columnName string) (int64, error) {
+	return s.testClient.CountNonNullRows(context.Background(), s.testSchemaName, tableName, columnName)
 }
 
-func (s *SnowflakeTestHelper) CountSRIDs(tableName string, columnName string) (int, error) {
-	res, err := s.testClient.CountSRIDs(context.Background(), s.testSchemaName, tableName, columnName)
-	if err != nil {
-		return 0, err
-	}
-
-	return int(res), nil
+func (s *SnowflakeTestHelper) CountSRIDs(tableName string, columnName string) (int64, error) {
+	return s.testClient.CountSRIDs(context.Background(), s.testSchemaName, tableName, columnName)
 }
 
 func (s *SnowflakeTestHelper) CheckNull(tableName string, colNames []string) (bool, error) {

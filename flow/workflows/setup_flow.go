@@ -61,7 +61,7 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 
 	// first check the source peer connection
 	srcConnStatusFuture := workflow.ExecuteLocalActivity(checkCtx, flowable.CheckConnection, &protos.SetupInput{
-		Peer:     config.Source,
+		PeerName: config.SourceName,
 		FlowName: config.FlowJobName,
 	})
 	var srcConnStatus activities.CheckConnectionResult
@@ -70,7 +70,7 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 	}
 
 	dstSetupInput := &protos.SetupInput{
-		Peer:     config.Destination,
+		PeerName: config.DestinationName,
 		FlowName: config.FlowJobName,
 	}
 
@@ -117,7 +117,7 @@ func (s *SetupFlowExecution) ensurePullability(
 
 	// create EnsurePullabilityInput for the srcTableName
 	ensurePullabilityInput := &protos.EnsurePullabilityBatchInput{
-		PeerConnectionConfig:   config.Source,
+		PeerName:               config.SourceName,
 		FlowJobName:            s.cdcFlowName,
 		SourceTableIdentifiers: srcTblIdentifiers,
 		CheckConstraints:       checkConstraints,
@@ -153,9 +153,9 @@ func (s *SetupFlowExecution) createRawTable(
 
 	// attempt to create the tables.
 	createRawTblInput := &protos.CreateRawTableInput{
-		PeerConnectionConfig: config.Destination,
-		FlowJobName:          s.cdcFlowName,
-		TableNameMapping:     s.tableNameMapping,
+		PeerName:         config.DestinationName,
+		FlowJobName:      s.cdcFlowName,
+		TableNameMapping: s.tableNameMapping,
 	}
 
 	rawTblFuture := workflow.ExecuteActivity(ctx, flowable.CreateRawTable, createRawTblInput)
@@ -182,10 +182,10 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	sort.Strings(sourceTables)
 
 	tableSchemaInput := &protos.GetTableSchemaBatchInput{
-		PeerConnectionConfig: flowConnectionConfigs.Source,
-		TableIdentifiers:     sourceTables,
-		FlowName:             s.cdcFlowName,
-		System:               flowConnectionConfigs.System,
+		PeerName:         flowConnectionConfigs.SourceName,
+		TableIdentifiers: sourceTables,
+		FlowName:         s.cdcFlowName,
+		System:           flowConnectionConfigs.System,
 	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
@@ -206,7 +206,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 
 	// now setup the normalized tables on the destination peer
 	setupConfig := &protos.SetupNormalizedTableBatchInput{
-		PeerConnectionConfig:   flowConnectionConfigs.Destination,
+		PeerName:               flowConnectionConfigs.DestinationName,
 		TableNameSchemaMapping: normalizedTableMapping,
 		SoftDeleteColName:      flowConnectionConfigs.SoftDeleteColName,
 		SyncedAtColName:        flowConnectionConfigs.SyncedAtColName,
@@ -235,12 +235,10 @@ func (s *SetupFlowExecution) executeSetupFlow(
 		return nil, fmt.Errorf("failed to check connections and setup metadata tables: %w", err)
 	}
 
-	setupFlowOutput := protos.SetupFlowOutput{}
 	srcTableIdNameMapping, err := s.ensurePullability(ctx, config, !config.InitialSnapshotOnly)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure pullability: %w", err)
 	}
-	setupFlowOutput.SrcTableIdNameMapping = srcTableIdNameMapping
 
 	// for initial copy only flows, we don't need to create the raw table
 	if !config.InitialSnapshotOnly {
@@ -255,9 +253,11 @@ func (s *SetupFlowExecution) executeSetupFlow(
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch table schema and setup normalized tables: %w", err)
 	}
-	setupFlowOutput.TableNameSchemaMapping = tableNameSchemaMapping
 
-	return &setupFlowOutput, nil
+	return &protos.SetupFlowOutput{
+		SrcTableIdNameMapping:  srcTableIdNameMapping,
+		TableNameSchemaMapping: tableNameSchemaMapping,
+	}, nil
 }
 
 // SetupFlowWorkflow is the workflow that sets up the flow.
