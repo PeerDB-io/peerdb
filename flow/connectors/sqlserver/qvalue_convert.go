@@ -17,7 +17,6 @@ var qValueKindToSQLServerTypeMap = map[qvalue.QValueKind]string{
 	qvalue.QValueKindTimestampTZ: "DATETIMEOFFSET",
 	qvalue.QValueKindTime:        "TIME",
 	qvalue.QValueKindDate:        "DATE",
-	qvalue.QValueKindBit:         "BINARY",
 	qvalue.QValueKindBytes:       "VARBINARY(MAX)",
 	qvalue.QValueKindStruct:      "NTEXT", // SQL Server doesn't support struct type
 	qvalue.QValueKindUUID:        "UNIQUEIDENTIFIER",
@@ -47,7 +46,6 @@ var sqlServerTypeToQValueKindMap = map[string]qvalue.QValueKind{
 	"TIME":             qvalue.QValueKindTime,
 	"DATE":             qvalue.QValueKindDate,
 	"VARBINARY(MAX)":   qvalue.QValueKindBytes,
-	"BINARY":           qvalue.QValueKindBit,
 	"DECIMAL":          qvalue.QValueKindNumeric,
 	"UNIQUEIDENTIFIER": qvalue.QValueKindUUID,
 	"SMALLINT":         qvalue.QValueKindInt32,

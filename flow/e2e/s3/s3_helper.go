@@ -17,10 +17,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-const (
-	peerName string = "test_s3_peer"
-)
-
 type S3TestHelper struct {
 	client     *s3.Client
 	s3Config   *protos.S3Config
@@ -79,16 +75,6 @@ func NewS3TestHelper(switchToGCS bool) (*S3TestHelper, error) {
 		bucketName,
 		prefix,
 	}, nil
-}
-
-func (h *S3TestHelper) GetPeer() *protos.Peer {
-	return &protos.Peer{
-		Name: peerName,
-		Type: protos.DBType_S3,
-		Config: &protos.Peer_S3Config{
-			S3Config: h.s3Config,
-		},
-	}
 }
 
 // List all files from the S3 bucket.

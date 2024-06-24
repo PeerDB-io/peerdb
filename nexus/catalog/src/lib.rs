@@ -51,8 +51,8 @@ pub struct CatalogConfig<'a> {
 #[derive(Debug, Clone)]
 pub struct WorkflowDetails {
     pub workflow_id: String,
-    pub source_peer: pt::peerdb_peers::Peer,
-    pub destination_peer: pt::peerdb_peers::Peer,
+    pub source_peer: String,
+    pub destination_peer: String,
 }
 
 impl<'a> CatalogConfig<'a> {
@@ -64,7 +64,6 @@ impl<'a> CatalogConfig<'a> {
             user: self.user.to_string(),
             password: self.password.to_string(),
             database: self.database.to_string(),
-            transaction_snapshot: "".to_string(),
             metadata_schema: Some("".to_string()),
             ssh_config: None,
         }
@@ -230,6 +229,25 @@ impl Catalog {
         }
     }
 
+    pub async fn get_peer_name_by_id(&self, peer_id: i32) -> anyhow::Result<String> {
+        let stmt = self
+            .pg
+            .prepare_typed(
+                "SELECT name FROM public.peers WHERE id = $1",
+                &[],
+            )
+            .await?;
+
+        let row = self.pg.query_opt(&stmt, &[&peer_id]).await?;
+        if let Some(row) = row {
+            let name: String = row.get(0);
+            Ok(name)
+        } else {
+            Err(anyhow::anyhow!("No peer with id {} found", peer_id))
+        }
+
+    }
+
     pub async fn get_peer_by_id(&self, peer_id: i32) -> anyhow::Result<Peer> {
         let stmt = self
             .pg
@@ -239,9 +257,8 @@ impl Catalog {
             )
             .await?;
 
-        let rows = self.pg.query(&stmt, &[&peer_id]).await?;
-
-        if let Some(row) = rows.first() {
+        let row = self.pg.query_opt(&stmt, &[&peer_id]).await?;
+        if let Some(row) = row {
             let name: &str = row.get(0);
             let peer_type: i32 = row.get(1);
             let options: &[u8] = row.get(2);
@@ -445,9 +462,9 @@ impl Catalog {
         &self,
         flow_job_name: &str,
     ) -> anyhow::Result<Option<WorkflowDetails>> {
-        let rows = self
+        let row = self
             .pg
-            .query(
+            .query_opt(
                 "SELECT workflow_id, source_peer, destination_peer FROM public.flows WHERE NAME = $1",
                 &[&flow_job_name],
             )
@@ -455,36 +472,35 @@ impl Catalog {
 
         // currently multiple rows for a flow job exist in catalog, but all mapped to same workflow id
         // CHANGE LOGIC IF THIS ASSUMPTION CHANGES
-        if rows.is_empty() {
+        if let Some(first_row) = row {
+            let workflow_id: Option<String> = first_row.get(0);
+            let Some(workflow_id) = workflow_id else {
+                return Err(anyhow!(
+                    "workflow id not found for existing flow job {}",
+                    flow_job_name
+                ));
+            };
+            let source_peer_id: i32 = first_row.get(1);
+            let destination_peer_id: i32 = first_row.get(2);
+
+            let source_peer = self
+                .get_peer_name_by_id(source_peer_id)
+                .await
+                .context("unable to get source peer")?;
+            let destination_peer = self
+                .get_peer_name_by_id(destination_peer_id)
+                .await
+                .context("unable to get destination peer")?;
+
+            Ok(Some(WorkflowDetails {
+                workflow_id,
+                source_peer,
+                destination_peer,
+            }))
+        } else {
             tracing::info!("no workflow id found for flow job {}", flow_job_name);
-            return Ok(None);
+            Ok(None)
         }
-
-        let first_row = rows.first().unwrap();
-        let workflow_id: Option<String> = first_row.get(0);
-        let Some(workflow_id) = workflow_id else {
-            return Err(anyhow!(
-                "workflow id not found for existing flow job {}",
-                flow_job_name
-            ));
-        };
-        let source_peer_id: i32 = first_row.get(1);
-        let destination_peer_id: i32 = first_row.get(2);
-
-        let source_peer = self
-            .get_peer_by_id(source_peer_id)
-            .await
-            .context("unable to get source peer")?;
-        let destination_peer = self
-            .get_peer_by_id(destination_peer_id)
-            .await
-            .context("unable to get destination peer")?;
-
-        Ok(Some(WorkflowDetails {
-            workflow_id,
-            source_peer,
-            destination_peer,
-        }))
     }
 
     pub async fn delete_flow_job_entry(&self, flow_job_name: &str) -> anyhow::Result<()> {

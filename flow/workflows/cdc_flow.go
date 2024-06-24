@@ -47,6 +47,7 @@ func NewCDCFlowWorkflowState(cfg *protos.FlowConnectionConfigs) *CDCFlowWorkflow
 			BatchSize:          cfg.MaxBatchSize,
 			IdleTimeoutSeconds: cfg.IdleTimeoutSeconds,
 			TableMappings:      tableMappings,
+			NumberOfSyncs:      0,
 		},
 	}
 }
@@ -168,42 +169,17 @@ func addCdcPropertiesSignalListener(
 		if cdcConfigUpdate.IdleTimeout > 0 {
 			state.SyncFlowOptions.IdleTimeoutSeconds = cdcConfigUpdate.IdleTimeout
 		}
+		if cdcConfigUpdate.NumberOfSyncs > 0 {
+			state.SyncFlowOptions.NumberOfSyncs = cdcConfigUpdate.NumberOfSyncs
+		}
 		// do this irrespective of additional tables being present, for auto unpausing
 		state.FlowConfigUpdate = cdcConfigUpdate
-
 		logger.Info("CDC Signal received. Parameters on signal reception:",
 			slog.Int("BatchSize", int(state.SyncFlowOptions.BatchSize)),
 			slog.Int("IdleTimeout", int(state.SyncFlowOptions.IdleTimeoutSeconds)),
-			slog.Any("AdditionalTables", cdcConfigUpdate.AdditionalTables))
+			slog.Any("AdditionalTables", cdcConfigUpdate.AdditionalTables),
+			slog.Int("NumberOfSyncs", int(state.SyncFlowOptions.NumberOfSyncs)))
 	})
-}
-
-func reloadPeers(ctx workflow.Context, logger log.Logger, cfg *protos.FlowConnectionConfigs) error {
-	reloadPeersCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
-	})
-
-	logger.Info("reloading source peer", slog.String("peerName", cfg.Source.Name))
-	srcFuture := workflow.ExecuteActivity(reloadPeersCtx, flowable.LoadPeer, cfg.Source.Name)
-	var srcPeer *protos.Peer
-	if err := srcFuture.Get(reloadPeersCtx, &srcPeer); err != nil {
-		logger.Error("failed to load source peer", slog.Any("error", err))
-		return fmt.Errorf("failed to load source peer: %w", err)
-	}
-	logger.Info("reloaded peer", slog.String("peerName", cfg.Source.Name))
-
-	logger.Info("reloading destination peer", slog.String("peerName", cfg.Destination.Name))
-	dstFuture := workflow.ExecuteActivity(reloadPeersCtx, flowable.LoadPeer, cfg.Destination.Name)
-	var dstPeer *protos.Peer
-	if err := dstFuture.Get(reloadPeersCtx, &dstPeer); err != nil {
-		logger.Error("failed to load destination peer", slog.Any("error", err))
-		return fmt.Errorf("failed to load destination peer: %w", err)
-	}
-	logger.Info("reloaded peer", slog.String("peerName", cfg.Destination.Name))
-
-	cfg.Source = srcPeer
-	cfg.Destination = dstPeer
-	return nil
 }
 
 func CDCFlowWorkflow(
@@ -221,7 +197,6 @@ func CDCFlowWorkflow(
 
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
 	flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
-
 	err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (CDCFlowWorkflowState, error) {
 		return *state, nil
 	})
@@ -234,7 +209,7 @@ func CDCFlowWorkflow(
 	if err != nil {
 		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
 	}
-	err = workflow.SetUpdateHandler(ctx, shared.FlowStatusUpdate, func(status protos.FlowStatus) error {
+	err = workflow.SetUpdateHandler(ctx, shared.FlowStatusUpdate, func(_ workflow.Context, status protos.FlowStatus) error {
 		state.CurrentFlowStatus = status
 		return nil
 	})
@@ -246,6 +221,7 @@ func CDCFlowWorkflow(
 		shared.MirrorNameSearchAttribute: cfg.FlowJobName,
 	}
 
+	var syncCountLimit int
 	if state.ActiveSignal == model.PauseSignal {
 		selector := workflow.NewNamedSelector(ctx, "PauseLoop")
 		selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
@@ -253,7 +229,6 @@ func CDCFlowWorkflow(
 			state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, logger)
 		})
 		addCdcPropertiesSignalListener(ctx, logger, selector, state)
-
 		startTime := workflow.Now(ctx)
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
 
@@ -267,18 +242,12 @@ func CDCFlowWorkflow(
 				return state, err
 			}
 
-			// reload peers in case of EDIT PEER
-			err := reloadPeers(ctx, logger, cfg)
-			if err != nil {
-				logger.Error("failed to reload peers", slog.Any("error", err))
-				return state, fmt.Errorf("failed to reload peers: %w", err)
-			}
-
 			if state.FlowConfigUpdate != nil {
 				err = processCDCFlowConfigUpdate(ctx, logger, cfg, state, mirrorNameSearch)
 				if err != nil {
 					return state, err
 				}
+				syncCountLimit = int(state.SyncFlowOptions.NumberOfSyncs)
 				logger.Info("wiping flow state after state update processing")
 				// finished processing, wipe it
 				state.FlowConfigUpdate = nil
@@ -360,13 +329,16 @@ func CDCFlowWorkflow(
 		}
 
 		if cfg.Resync {
-			renameOpts := &protos.RenameTablesInput{}
-			renameOpts.FlowJobName = cfg.FlowJobName
-			renameOpts.Peer = cfg.Destination
-			if cfg.SoftDelete {
+			renameOpts := &protos.RenameTablesInput{
+				FlowJobName: cfg.FlowJobName,
+				PeerName:    cfg.DestinationName,
+			}
+			if cfg.SyncedAtColName != "" {
+				renameOpts.SyncedAtColName = &cfg.SyncedAtColName
+			}
+			if cfg.SoftDelete && cfg.SoftDeleteColName != "" {
 				renameOpts.SoftDeleteColName = &cfg.SoftDeleteColName
 			}
-			renameOpts.SyncedAtColName = &cfg.SyncedAtColName
 			correctedTableNameSchemaMapping := make(map[string]*protos.TableSchema)
 			for _, mapping := range state.SyncFlowOptions.TableMappings {
 				oldName := mapping.DestinationTableIdentifier
@@ -407,7 +379,6 @@ func CDCFlowWorkflow(
 
 	var restart, finished bool
 	syncCount := 0
-
 	syncFlowOpts := workflow.ChildWorkflowOptions{
 		WorkflowID:        syncFlowID,
 		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
@@ -503,6 +474,12 @@ func CDCFlowWorkflow(
 		normDoneChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
 		normDoneChan.Drain()
 		normDoneChan.AddToSelector(mainLoopSelector, func(x struct{}, _ bool) {
+			if syncCount == syncCountLimit {
+				logger.Info("sync count limit reached, pausing",
+					slog.Int("limit", syncCountLimit),
+					slog.Int("count", syncCount))
+				state.ActiveSignal = model.PauseSignal
+			}
 			if syncFlowFuture != nil {
 				_ = model.NormalizeDoneSignal.SignalChildWorkflow(ctx, syncFlowFuture, x).Get(ctx, nil)
 			}

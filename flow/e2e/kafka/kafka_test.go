@@ -42,7 +42,7 @@ func (s KafkaSuite) Suffix() string {
 }
 
 func (s KafkaSuite) Peer() *protos.Peer {
-	return &protos.Peer{
+	ret := &protos.Peer{
 		Name: e2e.AddSuffix(s, "kafka"),
 		Type: protos.DBType_KAFKA,
 		Config: &protos.Peer_KafkaConfig{
@@ -52,6 +52,8 @@ func (s KafkaSuite) Peer() *protos.Peer {
 			},
 		},
 	}
+	e2e.CreatePeer(s.t, ret)
+	return ret
 }
 
 func (s KafkaSuite) DestinationTable(table string) string {
@@ -99,9 +101,9 @@ func (s KafkaSuite) TestSimple() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: flowName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.Script = "e2e_kasimple"
 
 	tc := e2e.NewTemporalClient(s.t)
@@ -149,25 +151,25 @@ func (s KafkaSuite) TestMessage() {
 		`, srcTableName))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values ('e2e_kamessage', 'lua',
+	_, err = s.Conn().Exec(context.Background(), `INSERT INTO public.scripts (name, lang, source) values ('e2e_kamessage', 'lua',
 	'function onRecord(r) if r.kind == "message" then return { topic = r.prefix, value = r.content } end end'
-	) on conflict do nothing`)
+	) ON CONFLICT DO NOTHING`)
 	require.NoError(s.t, err)
 
 	flowName := e2e.AddSuffix(s, "kamessage")
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: flowName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.Script = "e2e_kamessage"
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	_, err = s.Conn().Exec(context.Background(), "select pg_logical_emit_message(false, 'topic', '\\x686561727462656174'::bytea)")
+	_, err = s.Conn().Exec(context.Background(), "SELECT pg_logical_emit_message(false, 'topic', '\\x686561727462656174'::bytea)")
 	require.NoError(s.t, err)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize message", func() bool {
@@ -210,9 +212,9 @@ func (s KafkaSuite) TestDefault() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: flowName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -265,9 +267,9 @@ func (s KafkaSuite) TestInitialLoad() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: flowName},
-		Destination:      s.Peer(),
+		Destination:      s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.DoInitialSnapshot = true
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`

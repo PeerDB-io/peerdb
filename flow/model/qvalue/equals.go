@@ -76,8 +76,6 @@ func Equals(qv QValue, other QValue) bool {
 	case QValueJSON:
 		// TODO (kaushik): fix for tests
 		return true
-	case QValueBit:
-		return compareBytes(qvValue, otherValue)
 	case QValueGeometry:
 		return compareGeometry(q.Val, otherValue)
 	case QValueGeography:

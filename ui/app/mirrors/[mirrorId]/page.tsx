@@ -7,9 +7,11 @@ import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { Header } from '@/lib/Header';
 import { LayoutMain } from '@/lib/Layout';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
-import { redirect } from 'next/navigation';
 import { CDCMirror } from './cdc';
 import NoMirror from './nomirror';
+import QrepGraph from './qrepGraph';
+import QRepStatusButtons from './qrepStatusButtons';
+import QRepStatusTable, { QRepPartitionStatus } from './qrepStatusTable';
 import SyncStatus from './syncStatus';
 
 type EditMirrorProps = {
@@ -18,12 +20,14 @@ type EditMirrorProps = {
 
 function getMirrorStatusUrl(mirrorId: string) {
   let base = GetFlowHttpAddressFromEnv();
-  return `${base}/v1/mirrors/${mirrorId}`;
+  return `${base}/v1/mirrors/${mirrorId}?include_flow_info=true`;
 }
 
 async function getMirrorStatus(mirrorId: string) {
   const url = getMirrorStatusUrl(mirrorId);
-  const resp = await fetch(url, { cache: 'no-store' });
+  const resp = await fetch(url, {
+    cache: 'no-store',
+  });
   const json = await resp.json();
   return json;
 }
@@ -36,7 +40,7 @@ export default async function ViewMirror({
     return <div>No mirror status found!</div>;
   }
 
-  let mirrorInfo = await prisma.flows.findFirst({
+  const mirrorInfo = await prisma.flows.findFirst({
     select: {
       created_at: true,
       workflow_id: true,
@@ -47,7 +51,7 @@ export default async function ViewMirror({
     },
   });
 
-  let syncs = await prisma.cdc_batches.findMany({
+  const syncs = await prisma.cdc_batches.findMany({
     where: {
       flow_name: mirrorId,
       start_time: {
@@ -90,7 +94,7 @@ export default async function ViewMirror({
       <SyncStatus rowsSynced={rowsSynced} rows={rows} flowJobName={mirrorId} />
     );
 
-    const dbType = mirrorConfig.destination!.type;
+    const dbType = mirrorStatus.cdcStatus.destinationType;
 
     const isNotPaused =
       mirrorStatus.currentFlowState.toString() !==
@@ -99,7 +103,8 @@ export default async function ViewMirror({
       mirrorStatus.currentFlowState.toString() !==
         FlowStatus[FlowStatus.STATUS_SETUP] &&
       (dbType.valueOf() === DBType.BIGQUERY.valueOf() ||
-        dbType.valueOf() === DBType.SNOWFLAKE.valueOf());
+        dbType.valueOf() === DBType.SNOWFLAKE.valueOf() ||
+        dbType.valueOf() === DBType.POSTGRES.valueOf());
 
     actionsDropdown = (
       <MirrorActions
@@ -110,29 +115,77 @@ export default async function ViewMirror({
         isNotPaused={isNotPaused}
       />
     );
-  } else {
-    redirect(`/mirrors/status/qrep/${mirrorId}`);
-  }
 
-  return (
-    <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          paddingRight: '2rem',
-        }}
-      >
-        <Header variant='title2'>{mirrorId}</Header>
-        {actionsDropdown}
-      </div>
-      <CDCMirror
-        rows={rows}
-        createdAt={mirrorInfo?.created_at}
-        syncStatusChild={syncStatusChild}
-        status={mirrorStatus}
-      />
-    </LayoutMain>
-  );
+    return (
+      <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingRight: '2rem',
+          }}
+        >
+          <Header variant='title2'>{mirrorId}</Header>
+          {actionsDropdown}
+        </div>
+        <CDCMirror
+          rows={rows}
+          createdAt={mirrorInfo?.created_at}
+          syncStatusChild={syncStatusChild}
+          status={mirrorStatus}
+        />
+      </LayoutMain>
+    );
+  } else {
+    const runs = await prisma.qrep_partitions.findMany({
+      where: {
+        flow_name: mirrorId,
+        start_time: {
+          not: null,
+        },
+        rows_in_partition: {
+          not: 0,
+        },
+      },
+      orderBy: {
+        start_time: 'desc',
+      },
+    });
+
+    const partitions: QRepPartitionStatus[] = runs.map((run) => ({
+      partitionId: run.partition_uuid,
+      startTime: run.start_time,
+      endTime: run.end_time,
+      pulledRows: run.rows_in_partition,
+      syncedRows: Number(run.rows_synced),
+    }));
+
+    return (
+      <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingRight: '2rem',
+          }}
+        >
+          <Header variant='title2'>{mirrorId}</Header>
+          <QRepStatusButtons mirrorId={mirrorId} />
+        </div>
+        <div>Status: {mirrorStatus.currentFlowState}</div>
+        <QrepGraph
+          syncs={partitions.map((partition) => ({
+            partitionID: partition.partitionId,
+            startTime: partition.startTime,
+            endTime: partition.endTime,
+            numRows: partition.pulledRows,
+          }))}
+        />
+        <br></br>
+        <QRepStatusTable flowJobName={mirrorId} partitions={partitions} />
+      </LayoutMain>
+    );
+  }
 }

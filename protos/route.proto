@@ -25,12 +25,20 @@ message CreateQRepFlowResponse {
   string workflow_id = 1;
 }
 
+message CreateCustomSyncRequest {
+  string flow_job_name = 1;
+  int32 number_of_syncs = 2;
+}
+
+message CreateCustomSyncResponse {
+  string flow_job_name = 1;
+  int32 number_of_syncs = 2;
+  string error_message = 3;
+  bool ok = 4;
+}
+
 message ShutdownRequest {
-  string workflow_id = 1;
   string flow_job_name = 2;
-  peerdb_peers.Peer source_peer = 3;
-  peerdb_peers.Peer destination_peer = 4;
-  bool remove_flow_entry = 5;
 }
 
 message ShutdownResponse {
@@ -79,6 +87,7 @@ message CreatePeerResponse {
 
 message MirrorStatusRequest {
   string flow_job_name = 1;
+  bool include_flow_info = 2;
 }
 
 message PartitionStatus {
@@ -89,7 +98,6 @@ message PartitionStatus {
 }
 
 message QRepMirrorStatus {
-  peerdb_flow.QRepConfig config = 1;
   repeated PartitionStatus partitions = 2;
   // TODO make note to see if we are still in initial copy
   // or if we are in the continuous streaming mode.
@@ -193,6 +201,8 @@ message CDCMirrorStatus {
   peerdb_flow.FlowConnectionConfigs config = 1;
   SnapshotStatus snapshot_status = 2;
   repeated CDCSyncStatus cdc_syncs = 3;
+  peerdb_peers.DBType source_type = 4;
+  peerdb_peers.DBType destination_type = 5;
 }
 
 message MirrorStatusResponse {
@@ -203,6 +213,7 @@ message MirrorStatusResponse {
   }
   string error_message = 4;
   peerdb_flow.FlowStatus current_flow_state = 5;
+  bool ok = 6;
 }
 
 message ValidateCDCMirrorResponse{
@@ -212,8 +223,8 @@ message ValidateCDCMirrorResponse{
 message FlowStateChangeRequest {
   string flow_job_name = 1;
   peerdb_flow.FlowStatus requested_flow_state = 2;
-  peerdb_peers.Peer source_peer = 3;
-  peerdb_peers.Peer destination_peer = 4;
+  string source_peer = 3;
+  string destination_peer = 4;
   // only can be sent in certain situations
   optional peerdb_flow.FlowConfigUpdate flow_config_update = 5;
 }
@@ -237,7 +248,7 @@ service FlowService {
       body: "*"
      };
   }
-    rpc ValidateCDCMirror(CreateCDCFlowRequest) returns (ValidateCDCMirrorResponse) {
+  rpc ValidateCDCMirror(CreateCDCFlowRequest) returns (ValidateCDCMirrorResponse) {
     option (google.api.http) = {
       post: "/v1/mirrors/cdc/validate",
       body: "*"
@@ -255,6 +266,7 @@ service FlowService {
       body: "*"
     };
   }
+
   rpc CreateCDCFlow(CreateCDCFlowRequest) returns (CreateCDCFlowResponse) {
     option (google.api.http) = {
       post: "/v1/flows/cdc/create",
@@ -264,6 +276,12 @@ service FlowService {
   rpc CreateQRepFlow(CreateQRepFlowRequest) returns (CreateQRepFlowResponse) {
     option (google.api.http) = {
       post: "/v1/flows/qrep/create",
+      body: "*"
+     };
+  }
+  rpc CustomSyncFlow(CreateCustomSyncRequest) returns (CreateCustomSyncResponse) {
+    option (google.api.http) = {
+      post: "/v1/flows/cdc/sync",
       body: "*"
      };
   }
@@ -294,6 +312,7 @@ service FlowService {
   rpc GetStatInfo(PostgresPeerActivityInfoRequest) returns (PeerStatResponse) {
     option (google.api.http) = { get: "/v1/peers/stats/{peer_name}" };
   }
+
   rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {
     option (google.api.http) = { post: "/v1/mirrors/drop", body: "*" };
   }

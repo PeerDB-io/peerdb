@@ -9,7 +9,7 @@ import { Label } from '@/lib/Label';
 import { BarChart } from '@tremor/react';
 import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
-import aggregateCountsByInterval from '../../../[mirrorId]/aggregatedCountsByInterval';
+import aggregateCountsByInterval from './aggregatedCountsByInterval';
 
 type QrepStatusRow = {
   partitionID: string;
@@ -49,7 +49,7 @@ function QrepGraph({ syncs }: { syncs: QrepStatusRow[] }) {
           theme={SelectTheme}
         />
       </div>
-      <div style={{ height: '3rem' }}>
+      <div style={{ height: '3rem', marginTop: '1rem' }}>
         <Label variant='headline'>Partition sync history</Label>
       </div>
       <BarChart

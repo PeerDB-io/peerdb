@@ -17,95 +17,84 @@ func CreatePeerNoValidate(
 	peer *protos.Peer,
 ) (*protos.CreatePeerResponse, error) {
 	config := peer.Config
+	peerType := peer.Type
 	wrongConfigResponse := &protos.CreatePeerResponse{
 		Status: protos.CreatePeerStatus_FAILED,
 		Message: fmt.Sprintf("invalid config for %s peer %s",
-			peer.Type, peer.Name),
+			peerType, peer.Name),
 	}
-	var encodedConfig []byte
-	var encodingErr error
-	peerType := peer.Type
+	var innerConfig proto.Message
 	switch peerType {
 	case protos.DBType_POSTGRES:
 		pgConfigObject, ok := config.(*protos.Peer_PostgresConfig)
 		if !ok {
 			return wrongConfigResponse, nil
 		}
-		pgConfig := pgConfigObject.PostgresConfig
-		encodedConfig, encodingErr = proto.Marshal(pgConfig)
+		innerConfig = pgConfigObject.PostgresConfig
 	case protos.DBType_SNOWFLAKE:
 		sfConfigObject, ok := config.(*protos.Peer_SnowflakeConfig)
 		if !ok {
 			return wrongConfigResponse, nil
 		}
-		sfConfig := sfConfigObject.SnowflakeConfig
-		encodedConfig, encodingErr = proto.Marshal(sfConfig)
+		innerConfig = sfConfigObject.SnowflakeConfig
 	case protos.DBType_BIGQUERY:
 		bqConfigObject, ok := config.(*protos.Peer_BigqueryConfig)
 		if !ok {
 			return wrongConfigResponse, nil
 		}
-		bqConfig := bqConfigObject.BigqueryConfig
-		encodedConfig, encodingErr = proto.Marshal(bqConfig)
+		innerConfig = bqConfigObject.BigqueryConfig
 	case protos.DBType_SQLSERVER:
 		sqlServerConfigObject, ok := config.(*protos.Peer_SqlserverConfig)
 		if !ok {
 			return wrongConfigResponse, nil
 		}
-		sqlServerConfig := sqlServerConfigObject.SqlserverConfig
-		encodedConfig, encodingErr = proto.Marshal(sqlServerConfig)
+		innerConfig = sqlServerConfigObject.SqlserverConfig
 	case protos.DBType_S3:
 		s3ConfigObject, ok := config.(*protos.Peer_S3Config)
 		if !ok {
 			return wrongConfigResponse, nil
 		}
-		s3Config := s3ConfigObject.S3Config
-		encodedConfig, encodingErr = proto.Marshal(s3Config)
+		innerConfig = s3ConfigObject.S3Config
 	case protos.DBType_CLICKHOUSE:
 		chConfigObject, ok := config.(*protos.Peer_ClickhouseConfig)
 		if !ok {
 			return wrongConfigResponse, nil
 		}
-		chConfig := chConfigObject.ClickhouseConfig
-		encodedConfig, encodingErr = proto.Marshal(chConfig)
+		innerConfig = chConfigObject.ClickhouseConfig
 	case protos.DBType_KAFKA:
 		kaConfigObject, ok := config.(*protos.Peer_KafkaConfig)
 		if !ok {
 			return wrongConfigResponse, nil
 		}
-		kaConfig := kaConfigObject.KafkaConfig
-		encodedConfig, encodingErr = proto.Marshal(kaConfig)
+		innerConfig = kaConfigObject.KafkaConfig
 	case protos.DBType_PUBSUB:
 		psConfigObject, ok := config.(*protos.Peer_PubsubConfig)
 		if !ok {
 			return wrongConfigResponse, nil
 		}
-		psConfig := psConfigObject.PubsubConfig
-		encodedConfig, encodingErr = proto.Marshal(psConfig)
+		innerConfig = psConfigObject.PubsubConfig
 	case protos.DBType_EVENTHUBS:
 		ehConfigObject, ok := config.(*protos.Peer_EventhubGroupConfig)
 		if !ok {
 			return wrongConfigResponse, nil
 		}
-		ehConfig := ehConfigObject.EventhubGroupConfig
-		encodedConfig, encodingErr = proto.Marshal(ehConfig)
+		innerConfig = ehConfigObject.EventhubGroupConfig
 	case protos.DBType_ELASTICSEARCH:
 		esConfigObject, ok := config.(*protos.Peer_ElasticsearchConfig)
 		if !ok {
 			return wrongConfigResponse, nil
 		}
-		esConfig := esConfigObject.ElasticsearchConfig
-		encodedConfig, encodingErr = proto.Marshal(esConfig)
+		innerConfig = esConfigObject.ElasticsearchConfig
 	case protos.DBType_ICEBERG:
 		icebergConfigObject, ok := config.(*protos.Peer_IcebergConfig)
 		if !ok {
 			return wrongConfigResponse, nil
 		}
-		icebergConfig := icebergConfigObject.IcebergConfig
-		encodedConfig, encodingErr = proto.Marshal(icebergConfig)
+		innerConfig = icebergConfigObject.IcebergConfig
 	default:
 		return wrongConfigResponse, nil
 	}
+	encodedConfig, encodingErr := proto.Marshal(innerConfig)
 	if encodingErr != nil {
 		slog.Error(fmt.Sprintf("failed to encode peer configuration for %s peer %s : %v",
 			peer.Type, peer.Name, encodingErr))

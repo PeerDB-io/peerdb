@@ -26,6 +26,13 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
+type PeerType string
+
+const (
+	Source      PeerType = "source"
+	Destination PeerType = "destination"
+)
+
 func heartbeatRoutine(
 	ctx context.Context,
 	message func() string,
@@ -76,7 +83,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	adaptStream func(*model.CDCStream[Items]) (*model.CDCStream[Items], error),
 	pull func(TPull, context.Context, *pgxpool.Pool, *model.PullRecordsRequest[Items]) error,
 	sync func(TSync, context.Context, *model.SyncRecordsRequest[Items]) (*model.SyncResponse, error),
-) (*model.SyncResponse, error) {
+) (*model.SyncCompositeResponse, error) {
 	flowName := config.FlowJobName
 	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
 	logger := activity.GetLogger(ctx)
@@ -85,7 +92,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	})
 	defer shutdown()
 
-	dstConn, err := connectors.GetAs[TSync](ctx, config.Destination)
+	dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
 	}
@@ -154,7 +161,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	hasRecords := !recordBatchSync.WaitAndCheckEmpty()
 	logger.Info("current sync flow has records?", slog.Bool("hasRecords", hasRecords))
 
-	dstConn, err = connectors.GetAs[TSync](ctx, config.Destination)
+	dstConn, err = connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to recreate destination connector: %w", err)
 	}
@@ -176,9 +183,12 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
-		return &model.SyncResponse{
-			CurrentSyncBatchID: -1,
-			TableSchemaDeltas:  recordBatchSync.SchemaDeltas,
+		return &model.SyncCompositeResponse{
+			SyncResponse: &model.SyncResponse{
+				CurrentSyncBatchID: -1,
+				TableSchemaDeltas:  recordBatchSync.SchemaDeltas,
+			},
+			NeedsNormalize: false,
 		}, nil
 	}
 
@@ -186,7 +196,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	var res *model.SyncResponse
 	errGroup.Go(func() error {
 		syncBatchID, err := dstConn.GetLastSyncBatchID(errCtx, flowName)
-		if err != nil && config.Destination.Type != protos.DBType_EVENTHUBS {
+		if err != nil {
 			return err
 		}
 		syncBatchID += 1
@@ -273,7 +283,10 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	activity.RecordHeartbeat(ctx, pushedRecordsWithCount)
 	a.Alerter.LogFlowInfo(ctx, flowName, pushedRecordsWithCount)
 
-	return res, nil
+	return &model.SyncCompositeResponse{
+		SyncResponse:   res,
+		NeedsNormalize: recordBatchSync.NeedsNormalize(),
+	}, nil
 }
 
 func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*protos.Peer, error) {
@@ -326,14 +339,14 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
-	srcConn, err := connectors.GetAs[TPull](ctx, config.SourcePeer)
+	srcConn, err := connectors.GetByNameAs[TPull](ctx, a.CatalogPool, config.SourceName)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return fmt.Errorf("failed to get qrep source connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	dstConn, err := connectors.GetAs[TSync](ctx, config.DestinationPeer)
+	dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return fmt.Errorf("failed to get qrep destination connector: %w", err)
@@ -425,13 +438,13 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	logger := activity.GetLogger(ctx)
 
 	startTime := time.Now()
-	srcConn, err := connectors.GetAs[*connpostgres.PostgresConnector](ctx, config.SourcePeer)
+	srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, a.CatalogPool, config.SourceName)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get qrep source connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	dstConn, err := connectors.GetAs[TSync](ctx, config.DestinationPeer)
+	dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get qrep destination connector: %w", err)
 	}
@@ -521,4 +534,20 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	}
 
 	return currentSnapshotXmin, nil
+}
+
+func (a *FlowableActivity) getPeerNameForMirror(ctx context.Context, flowName string, peerType PeerType) (string, error) {
+	peerClause := "source_peer"
+	if peerType == Destination {
+		peerClause = "destination_peer"
+	}
+	q := fmt.Sprintf("SELECT p.name FROM flows f JOIN peers p ON f.%s = p.id WHERE f.name = $1;", peerClause)
+	var peerName string
+	err := a.CatalogPool.QueryRow(ctx, q, flowName).Scan(&peerName)
+	if err != nil {
+		slog.Error("failed to get peer name for flow", slog.String("flow_name", flowName), slog.Any("error", err))
+		return "", fmt.Errorf("failed to get peer name for flow %s: %w", flowName, err)
+	}
+
+	return peerName, nil
 }

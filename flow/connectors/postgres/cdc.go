@@ -342,8 +342,7 @@ func PullCdcRecords[Items model.Items](
 	nextStandbyMessageDeadline := time.Now().Add(standbyMessageTimeout)
 
 	addRecordWithKey := func(key model.TableWithPkey, rec model.Record[Items]) error {
-		err := cdcRecordsStorage.Set(logger, key, rec)
-		if err != nil {
+		if err := cdcRecordsStorage.Set(logger, key, rec); err != nil {
 			return err
 		}
 		if err := records.AddRecord(ctx, rec); err != nil {

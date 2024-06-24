@@ -1,6 +1,7 @@
 import {
   BigqueryConfig,
   ClickhouseConfig,
+  DBType,
   ElasticsearchConfig,
   EventHubConfig,
   EventHubGroupConfig,
@@ -62,6 +63,7 @@ export type CatalogPeer = {
   type: number;
   options: Buffer;
 };
+export type PeerRef = { name: string; type: DBType };
 export type PeerSetter = React.Dispatch<React.SetStateAction<PeerConfig>>;
 
 export type SlotLagPoint = {

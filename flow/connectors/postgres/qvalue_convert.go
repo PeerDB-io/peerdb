@@ -82,8 +82,6 @@ func (c *PostgresConnector) postgresOIDToQValueKind(recvOID uint32) qvalue.QValu
 		return qvalue.QValueKindTimestampTZ
 	case pgtype.NumericOID:
 		return qvalue.QValueKindNumeric
-	case pgtype.BitOID, pgtype.VarbitOID:
-		return qvalue.QValueKindBit
 	case pgtype.Int2ArrayOID:
 		return qvalue.QValueKindArrayInt16
 	case pgtype.Int4ArrayOID:
@@ -179,8 +177,6 @@ func qValueKindToPostgresType(colTypeStr string) string {
 		return "TIMESTAMPTZ"
 	case qvalue.QValueKindNumeric:
 		return "NUMERIC"
-	case qvalue.QValueKindBit:
-		return "BIT"
 	case qvalue.QValueKindINET:
 		return "INET"
 	case qvalue.QValueKindCIDR:
@@ -379,11 +375,6 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 	case qvalue.QValueKindBytes:
 		rawBytes := value.([]byte)
 		return qvalue.QValueBytes{Val: rawBytes}, nil
-	case qvalue.QValueKindBit:
-		bitsVal := value.(pgtype.Bits)
-		if bitsVal.Valid {
-			return qvalue.QValueBit{Val: bitsVal.Bytes}, nil
-		}
 	case qvalue.QValueKindNumeric:
 		numVal := value.(pgtype.Numeric)
 		if numVal.Valid {
@@ -449,10 +440,9 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		}
 		return qvalue.QValueArrayString{Val: a}, nil
 	case qvalue.QValueKindPoint:
-		xCoord := value.(pgtype.Point).P.X
-		yCoord := value.(pgtype.Point).P.Y
+		coord := value.(pgtype.Point).P
 		return qvalue.QValuePoint{
-			Val: fmt.Sprintf("POINT(%f %f)", xCoord, yCoord),
+			Val: fmt.Sprintf("POINT(%f %f)", coord.X, coord.Y),
 		}, nil
 	default:
 		textVal, ok := value.(string)
