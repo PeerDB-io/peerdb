@@ -38,11 +38,7 @@ message CreateCustomSyncResponse {
 }
 
 message ShutdownRequest {
-  string workflow_id = 1;
   string flow_job_name = 2;
-  string source_peer = 3;
-  string destination_peer = 4;
-  bool remove_flow_entry = 5;
 }
 
 message ShutdownResponse {

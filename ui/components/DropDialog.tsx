@@ -11,10 +11,7 @@ import { Dispatch, SetStateAction, useState } from 'react';
 import { BarLoader } from 'react-spinners';
 
 interface dropMirrorArgs {
-  workflowId: string | null;
   flowJobName: string;
-  sourcePeer: string;
-  destinationPeer: string;
   forResync?: boolean;
 }
 
@@ -35,10 +32,6 @@ export const handleDropMirror = async (
   setLoading: Dispatch<SetStateAction<boolean>>,
   setMsg: Dispatch<SetStateAction<string>>
 ) => {
-  if (!dropArgs.workflowId) {
-    setMsg('Workflow ID not found for this mirror.');
-    return false;
-  }
   setLoading(true);
   const dropRes: UDropMirrorResponse = await fetch('/api/mirrors/drop', {
     method: 'POST',

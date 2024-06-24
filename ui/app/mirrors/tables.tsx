@@ -85,10 +85,7 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: MirrorsListing[] }) {
                 <DropDialog
                   mode='MIRROR'
                   dropArgs={{
-                    workflowId: flow.workflowId,
                     flowJobName: flow.name,
-                    sourcePeer: flow.sourceName,
-                    destinationPeer: flow.destinationName,
                   }}
                 />
               </TableCell>
@@ -170,10 +167,7 @@ export function QRepFlows({
                 <DropDialog
                   mode='MIRROR'
                   dropArgs={{
-                    workflowId: flow.workflowId,
                     flowJobName: flow.name,
-                    sourcePeer: flow.sourceName,
-                    destinationPeer: flow.destinationName,
                   }}
                 />
               </TableCell>
