@@ -109,5 +109,4 @@ compileTestJava {
 
 quarkus {
     quarkusBuildProperties.put("quarkus.grpc.codegen.proto-directory", "${project.projectDir}/../protos")
-    quarkusBuildProperties.put("quarkus.grpc.codegen.exclude-filter", ".*")
 }
