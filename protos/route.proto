@@ -38,7 +38,7 @@ message CreateCustomSyncResponse {
 }
 
 message ShutdownRequest {
-  string flow_job_name = 1;
+  string flow_job_name = 2;
 }
 
 message ShutdownResponse {
