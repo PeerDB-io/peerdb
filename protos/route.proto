@@ -102,7 +102,6 @@ message PartitionStatus {
 }
 
 message QRepMirrorStatus {
-  peerdb_flow.QRepConfig config = 1 [deprecated = true];
   repeated PartitionStatus partitions = 2;
   // TODO make note to see if we are still in initial copy
   // or if we are in the continuous streaming mode.

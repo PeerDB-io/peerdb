@@ -1,4 +1,3 @@
-//nolint:staticcheck // TODO remove in 0.15
 package peerflow
 
 import (
@@ -258,30 +257,6 @@ func CDCFlowWorkflow(
 
 		logger.Info(fmt.Sprintf("mirror has been resumed after %s", time.Since(startTime).Round(time.Second)))
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
-	}
-
-	// TODO remove fields in 0.15
-	state.RelationMessageMapping = nil
-	save_cfg := false
-	if cfg.Source != nil {
-		cfg.SourceName = cfg.Source.Name
-		cfg.Source = nil
-		save_cfg = true
-	}
-	if cfg.Destination != nil {
-		cfg.DestinationName = cfg.Destination.Name
-		cfg.Destination = nil
-		save_cfg = true
-	}
-	if save_cfg {
-		saveCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-			StartToCloseTimeout: time.Hour,
-			HeartbeatTimeout:    time.Minute,
-		})
-		saveFuture := workflow.ExecuteActivity(saveCtx, flowable.UpdateCdcFlowConfigInCatalog, cfg)
-		if err := saveFuture.Get(saveCtx, nil); err != nil {
-			return state, fmt.Errorf("failed to save updated config: %w", err)
-		}
 	}
 
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
