@@ -61,15 +61,14 @@ func (c *PostgresConnector) GetQRepPartitions(
 	}
 	defer shared.RollbackTx(getPartitionsTx, c.logger)
 
-	if err := c.setTransactionSnapshot(ctx, getPartitionsTx); err != nil {
+	if err := c.setTransactionSnapshot(ctx, getPartitionsTx, config.SnapshotName); err != nil {
 		return nil, fmt.Errorf("failed to set transaction snapshot: %w", err)
 	}
 
 	return c.getNumRowsPartitions(ctx, getPartitionsTx, config, last)
 }
 
-func (c *PostgresConnector) setTransactionSnapshot(ctx context.Context, tx pgx.Tx) error {
-	snapshot := c.config.TransactionSnapshot
+func (c *PostgresConnector) setTransactionSnapshot(ctx context.Context, tx pgx.Tx, snapshot string) error {
 	if snapshot != "" {
 		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+QuoteLiteral(snapshot)); err != nil {
 			return fmt.Errorf("failed to set transaction snapshot: %w", err)
@@ -341,9 +340,7 @@ func corePullQRepRecords(
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
-		executor := c.NewQRepQueryExecutorSnapshot(c.config.TransactionSnapshot,
-			config.FlowJobName, partition.PartitionId)
-
+		executor := c.NewQRepQueryExecutorSnapshot(config.SnapshotName, config.FlowJobName, partition.PartitionId)
 		_, err := executor.ExecuteQueryIntoSink(ctx, sink, config.Query)
 		return 0, err
 	}
@@ -382,8 +379,7 @@ func corePullQRepRecords(
 		return 0, err
 	}
 
-	executor := c.NewQRepQueryExecutorSnapshot(c.config.TransactionSnapshot,
-		config.FlowJobName, partition.PartitionId)
+	executor := c.NewQRepQueryExecutorSnapshot(config.SnapshotName, config.FlowJobName, partition.PartitionId)
 
 	numRecords, err := executor.ExecuteQueryIntoSink(ctx, sink, query, rangeStart, rangeEnd)
 	if err != nil {
@@ -683,8 +679,7 @@ func pullXminRecordStream(
 		queryArgs = []interface{}{strconv.FormatInt(partition.Range.Range.(*protos.PartitionRange_IntRange).IntRange.Start&0xffffffff, 10)}
 	}
 
-	executor := c.NewQRepQueryExecutorSnapshot(c.config.TransactionSnapshot,
-		config.FlowJobName, partition.PartitionId)
+	executor := c.NewQRepQueryExecutorSnapshot(config.SnapshotName, config.FlowJobName, partition.PartitionId)
 
 	numRecords, currentSnapshotXmin, err := executor.ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 		ctx,

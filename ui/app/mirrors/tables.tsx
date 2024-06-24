@@ -8,10 +8,10 @@ import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import Link from 'next/link';
-import { MirrorType } from '../dto/MirrorsDTO';
+import { MirrorType, MirrorsListing } from '../dto/MirrorsDTO';
 import { tableStyle } from '../peers/[peerName]/style';
 
-export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
+export function CDCFlows({ cdcFlows }: { cdcFlows: MirrorsListing[] }) {
   if (cdcFlows?.length === 0) {
     return (
       <div
@@ -56,25 +56,25 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
             </TableRow>
           }
         >
-          {cdcFlows.map((flow: any) => (
+          {cdcFlows.map((flow) => (
             <TableRow key={flow.id}>
               <TableCell>
-                <MirrorLink flowName={flow?.name} />
+                <MirrorLink flowName={flow.name} />
               </TableCell>
               <TableCell>
                 <PeerButton
-                  peerName={flow.sourcePeer.name}
-                  peerType={flow.sourcePeer.type}
+                  peerName={flow.sourceName}
+                  peerType={flow.sourceType}
                 />
               </TableCell>
               <TableCell>
                 <PeerButton
-                  peerName={flow.destinationPeer.name}
-                  peerType={flow.destinationPeer.type}
+                  peerName={flow.destinationName}
+                  peerType={flow.destinationType}
                 />
               </TableCell>
               <TableCell>
-                <TimeLabel timeVal={flow.created_at} />
+                <TimeLabel timeVal={flow.createdAt} />
               </TableCell>
               <TableCell>
                 <Link href={`/mirrors/errors/${flow.name}`}>
@@ -85,10 +85,10 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
                 <DropDialog
                   mode='MIRROR'
                   dropArgs={{
-                    workflowId: flow.workflow_id,
+                    workflowId: flow.workflowId,
                     flowJobName: flow.name,
-                    sourcePeer: flow.sourcePeer,
-                    destinationPeer: flow.destinationPeer,
+                    sourcePeer: flow.sourceName,
+                    destinationPeer: flow.destinationName,
                   }}
                 />
               </TableCell>
@@ -105,7 +105,7 @@ export function QRepFlows({
   qrepFlows,
   title,
 }: {
-  qrepFlows: any;
+  qrepFlows: MirrorsListing[];
   title: string;
 }) {
   if (qrepFlows?.length === 0) {
@@ -120,8 +120,8 @@ export function QRepFlows({
       >
         <Label variant='headline'>{title}</Label>
         <NewButton
-          targetPage={`/mirrors/create?type=${title === 'XMIN Mirrors' ? MirrorType.XMin : MirrorType.QRep}`}
-          buttonText={`Create your first ${title === 'XMIN Mirrors' ? 'XMIN mirror' : 'query replication'}`}
+          targetPage={`/mirrors/create?type=${MirrorType.QRep}`}
+          buttonText='Create your first query replication'
         />
       </div>
     );
@@ -146,34 +146,34 @@ export function QRepFlows({
             </TableRow>
           }
         >
-          {qrepFlows.map((flow: any) => (
+          {qrepFlows.map((flow) => (
             <TableRow key={flow.id}>
               <TableCell>
-                <MirrorLink flowName={flow?.name} />
+                <MirrorLink flowName={flow.name} />
               </TableCell>
               <TableCell>
                 <PeerButton
-                  peerName={flow.sourcePeer.name}
-                  peerType={flow.sourcePeer.type}
+                  peerName={flow.sourceName}
+                  peerType={flow.sourceType}
                 />
               </TableCell>
               <TableCell>
                 <PeerButton
-                  peerName={flow.destinationPeer.name}
-                  peerType={flow.destinationPeer.type}
+                  peerName={flow.destinationName}
+                  peerType={flow.destinationType}
                 />
               </TableCell>
               <TableCell>
-                <TimeLabel timeVal={flow.created_at} />
+                <TimeLabel timeVal={flow.createdAt} />
               </TableCell>
               <TableCell>
                 <DropDialog
                   mode='MIRROR'
                   dropArgs={{
-                    workflowId: flow.workflow_id,
+                    workflowId: flow.workflowId,
                     flowJobName: flow.name,
-                    sourcePeer: flow.sourcePeer,
-                    destinationPeer: flow.destinationPeer,
+                    sourcePeer: flow.sourceName,
+                    destinationPeer: flow.destinationName,
                   }}
                 />
               </TableCell>

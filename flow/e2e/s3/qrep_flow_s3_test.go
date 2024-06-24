@@ -12,6 +12,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -33,6 +34,19 @@ func (s PeerFlowE2ETestSuiteS3) Connector() *connpostgres.PostgresConnector {
 
 func (s PeerFlowE2ETestSuiteS3) Suffix() string {
 	return s.suffix
+}
+
+func (s PeerFlowE2ETestSuiteS3) Peer() *protos.Peer {
+	s.t.Helper()
+	ret := &protos.Peer{
+		Name: e2e.AddSuffix(s, "s3peer"),
+		Type: protos.DBType_S3,
+		Config: &protos.Peer_S3Config{
+			S3Config: s.s3Helper.s3Config,
+		},
+	}
+	e2e.CreatePeer(s.t, ret)
+	return ret
 }
 
 func TestPeerFlowE2ETestSuiteS3(t *testing.T) {
@@ -104,18 +118,18 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 	s.setupSourceTable(jobName, 10)
 	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at >= {{.start}} AND updated_at < {{.end}}",
 		schemaQualifiedName)
-	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := e2e.CreateQRepWorkflowConfig(
+		s.t,
 		jobName,
 		schemaQualifiedName,
 		"e2e_dest_1",
 		query,
-		s.s3Helper.GetPeer(),
+		s.Peer().Name,
 		"stage",
 		false,
 		"",
 		"",
 	)
-	require.NoError(s.t, err)
 	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
 
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
@@ -146,18 +160,18 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 
 	s.setupSourceTable(jobName, 20000)
 	query := fmt.Sprintf("SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}", schemaQualifiedName)
-	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := e2e.CreateQRepWorkflowConfig(
+		s.t,
 		jobName,
 		schemaQualifiedName,
 		"e2e_dest_ctid",
 		query,
-		s.s3Helper.GetPeer(),
+		s.Peer().Name,
 		"stage",
 		false,
 		"",
 		"",
 	)
-	require.NoError(s.t, err)
 	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
 	qrepConfig.NumRowsPerPartition = 2000
 	qrepConfig.InitialCopyOnly = true

@@ -1,3 +1,4 @@
+//nolint:staticcheck // TODO remove in 0.15
 package peerflow
 
 import (
@@ -11,7 +12,6 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -105,10 +105,10 @@ func (q *QRepFlowExecution) getTableSchema(ctx workflow.Context, tableName strin
 	})
 
 	tableSchemaInput := &protos.GetTableSchemaBatchInput{
-		PeerConnectionConfig: q.config.SourcePeer,
-		TableIdentifiers:     []string{tableName},
-		FlowName:             q.config.FlowJobName,
-		System:               q.config.System,
+		PeerName:         q.config.SourceName,
+		TableIdentifiers: []string{tableName},
+		FlowName:         q.config.FlowJobName,
+		System:           q.config.System,
 	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
@@ -145,7 +145,7 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 
 		// now setup the normalized tables on the destination peer
 		setupConfig := &protos.SetupNormalizedTableBatchInput{
-			PeerConnectionConfig: q.config.DestinationPeer,
+			PeerName: q.config.DestinationName,
 			TableNameSchemaMapping: map[string]*protos.TableSchema{
 				q.config.DestinationTableIdentifier: watermarkTableSchema,
 			},
@@ -369,7 +369,7 @@ func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, s
 		createTablesFromExistingFuture := workflow.ExecuteActivity(
 			createTablesFromExistingCtx, flowable.CreateTablesFromExisting, &protos.CreateTablesFromExistingInput{
 				FlowJobName: q.config.FlowJobName,
-				Peer:        q.config.DestinationPeer,
+				PeerName:    q.config.DestinationName,
 				NewToExistingTableMapping: map[string]string{
 					renamedTableIdentifier: q.config.DestinationTableIdentifier,
 				},
@@ -385,9 +385,10 @@ func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, s
 func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, state *protos.QRepFlowState) error {
 	if state.NeedsResync && q.config.DstTableFullResync {
 		oldTableIdentifier := strings.TrimSuffix(q.config.DestinationTableIdentifier, "_peerdb_resync")
-		renameOpts := &protos.RenameTablesInput{}
-		renameOpts.FlowJobName = q.config.FlowJobName
-		renameOpts.Peer = q.config.DestinationPeer
+		renameOpts := &protos.RenameTablesInput{
+			FlowJobName: q.config.FlowJobName,
+			PeerName:    q.config.DestinationName,
+		}
 
 		tblSchema, err := q.getTableSchema(ctx, q.config.DestinationTableIdentifier)
 		if err != nil {
@@ -467,12 +468,11 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 		},
 	})
 
-	var result activities.QRepWaitUntilNewRowsResult
-	err := workflow.ExecuteActivity(ctx, flowable.QRepHasNewRows, config, lastPartition).Get(ctx, &result)
+	var hasNewRows bool
+	err := workflow.ExecuteActivity(ctx, flowable.QRepHasNewRows, config, lastPartition).Get(ctx, &hasNewRows)
 	if err != nil {
 		return fmt.Errorf("error checking for new rows: %w", err)
 	}
-	hasNewRows := result.Found
 
 	// If no new rows are found, continue as new
 	if !hasNewRows {
@@ -522,7 +522,6 @@ func QRepFlowWorkflow(
 	signalChan := model.FlowSignal.GetSignalChannel(ctx)
 
 	q := newQRepFlowExecution(ctx, config, originalRunID)
-	logger := q.logger
 
 	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSING ||
 		state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSED {
@@ -531,7 +530,7 @@ func QRepFlowWorkflow(
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
 
 		for q.activeSignal == model.PauseSignal {
-			logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
+			q.logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
 			// only place we block on receive, so signal processing is immediate
 			val, ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute)
 			if ok {
@@ -541,6 +540,30 @@ func QRepFlowWorkflow(
 			}
 		}
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
+	}
+
+	// TODO remove fields in 0.15
+	state.DisableWaitForNewRows = false
+	save_cfg := false
+	if config.SourcePeer != nil {
+		config.SourceName = config.SourcePeer.Name
+		config.SourcePeer = nil
+		save_cfg = true
+	}
+	if config.DestinationPeer != nil {
+		config.DestinationName = config.DestinationPeer.Name
+		config.DestinationPeer = nil
+		save_cfg = true
+	}
+	if save_cfg {
+		saveCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: time.Hour,
+			HeartbeatTimeout:    time.Minute,
+		})
+		saveFuture := workflow.ExecuteActivity(saveCtx, flowable.UpdateQRepFlowConfigInCatalog, config)
+		if err := saveFuture.Get(saveCtx, nil); err != nil {
+			return state, fmt.Errorf("failed to save updated config: %w", err)
+		}
 	}
 
 	maxParallelWorkers := 16
@@ -557,7 +580,7 @@ func QRepFlowWorkflow(
 	if err != nil {
 		return state, fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
-	logger.Info("metadata tables setup for peer flow")
+	q.logger.Info("metadata tables setup for peer flow")
 
 	err = q.handleTableCreationForResync(ctx, state)
 	if err != nil {
@@ -571,24 +594,24 @@ func QRepFlowWorkflow(
 	}
 
 	if q.activeSignal != model.PauseSignal {
-		logger.Info("fetching partitions to replicate for peer flow")
+		q.logger.Info("fetching partitions to replicate for peer flow")
 		partitions, err := q.getPartitions(ctx, state.LastPartition)
 		if err != nil {
 			return state, fmt.Errorf("failed to get partitions: %w", err)
 		}
 
-		logger.Info(fmt.Sprintf("%d partitions to replicate", len(partitions.Partitions)))
+		q.logger.Info(fmt.Sprintf("%d partitions to replicate", len(partitions.Partitions)))
 		if err := q.processPartitions(ctx, maxParallelWorkers, partitions.Partitions); err != nil {
 			return state, err
 		}
 
-		logger.Info("consolidating partitions for peer flow")
+		q.logger.Info("consolidating partitions for peer flow")
 		if err := q.consolidatePartitions(ctx); err != nil {
 			return state, err
 		}
 
 		if config.InitialCopyOnly {
-			logger.Info("initial copy completed for peer flow")
+			q.logger.Info("initial copy completed for peer flow")
 			return state, nil
 		}
 
@@ -597,7 +620,7 @@ func QRepFlowWorkflow(
 			return state, err
 		}
 
-		logger.Info(fmt.Sprintf("%d partitions processed", len(partitions.Partitions)))
+		q.logger.Info(fmt.Sprintf("%d partitions processed", len(partitions.Partitions)))
 		state.NumPartitionsProcessed += uint64(len(partitions.Partitions))
 
 		if len(partitions.Partitions) > 0 {
@@ -614,7 +637,7 @@ func QRepFlowWorkflow(
 		q.activeSignal = model.FlowSignalHandler(q.activeSignal, val, q.logger)
 	}
 
-	logger.Info("Continuing as new workflow",
+	q.logger.Info("Continuing as new workflow",
 		slog.Any("Last Partition", state.LastPartition),
 		slog.Uint64("Number of Partitions Processed", state.NumPartitionsProcessed))
 

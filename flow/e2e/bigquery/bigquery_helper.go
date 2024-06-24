@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"os"
 	"strings"
+	"testing"
 	"time"
 
 	"cloud.google.com/go/bigquery"
@@ -26,8 +27,6 @@ import (
 type BigQueryTestHelper struct {
 	// config is the BigQuery config.
 	Config *protos.BigqueryConfig
-	// peer struct holder BigQuery
-	Peer *protos.Peer
 	// client to talk to BigQuery
 	client *bigquery.Client
 	// runID uniquely identifies the test run to namespace stateful schemas.
@@ -35,7 +34,8 @@ type BigQueryTestHelper struct {
 }
 
 // NewBigQueryTestHelper creates a new BigQueryTestHelper.
-func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
+func NewBigQueryTestHelper(t *testing.T) (*BigQueryTestHelper, error) {
+	t.Helper()
 	// random 64 bit int to namespace stateful schemas.
 	runID, err := shared.RandomUInt64()
 	if err != nil {
@@ -53,8 +53,7 @@ func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 	}
 
 	var config *protos.BigqueryConfig
-	err = json.Unmarshal(content, &config)
-	if err != nil {
+	if err := json.Unmarshal(content, &config); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 	}
 
@@ -71,26 +70,11 @@ func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 		return nil, fmt.Errorf("failed to create helper BigQuery client: %v", err)
 	}
 
-	peer := generateBQPeer(config)
-
 	return &BigQueryTestHelper{
 		runID:  runID,
 		Config: config,
 		client: client,
-		Peer:   peer,
 	}, nil
-}
-
-func generateBQPeer(bigQueryConfig *protos.BigqueryConfig) *protos.Peer {
-	ret := &protos.Peer{}
-	ret.Name = "test_bq_peer"
-	ret.Type = protos.DBType_BIGQUERY
-
-	ret.Config = &protos.Peer_BigqueryConfig{
-		BigqueryConfig: bigQueryConfig,
-	}
-
-	return ret
 }
 
 // datasetExists checks if the dataset exists.

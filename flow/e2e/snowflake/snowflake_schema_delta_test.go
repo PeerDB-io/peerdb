@@ -28,7 +28,7 @@ type SnowflakeSchemaDeltaTestSuite struct {
 func setupSchemaDeltaSuite(t *testing.T) SnowflakeSchemaDeltaTestSuite {
 	t.Helper()
 
-	sfTestHelper, err := NewSnowflakeTestHelper()
+	sfTestHelper, err := NewSnowflakeTestHelper(t)
 	if err != nil {
 		t.Fatalf("Error in test: %v", err)
 	}

@@ -111,8 +111,8 @@ impl FlowGrpcClient {
         let state_change_req = pt::peerdb_route::FlowStateChangeRequest {
             flow_job_name: flow_job_name.to_owned(),
             requested_flow_state: state.into(),
-            source_peer: Some(workflow_details.source_peer),
-            destination_peer: Some(workflow_details.destination_peer),
+            source_peer: workflow_details.source_peer,
+            destination_peer: workflow_details.destination_peer,
             flow_config_update,
         };
         let response = self.client.flow_state_change(state_change_req).await?;
@@ -130,8 +130,8 @@ impl FlowGrpcClient {
     pub async fn start_peer_flow_job(
         &mut self,
         job: &FlowJob,
-        src: pt::peerdb_peers::Peer,
-        dst: pt::peerdb_peers::Peer,
+        src: String,
+        dst: String,
     ) -> anyhow::Result<String> {
         let table_mappings: Vec<pt::peerdb_flow::TableMapping> = job
             .table_mappings
@@ -154,9 +154,12 @@ impl FlowGrpcClient {
             return anyhow::Result::Err(anyhow::anyhow!("invalid system {}", job.system));
         };
 
+        #[allow(deprecated)]
         let mut flow_conn_cfg = pt::peerdb_flow::FlowConnectionConfigs {
-            source: Some(src),
-            destination: Some(dst),
+            source: None,
+            destination: None,
+            source_name: src,
+            destination_name: dst,
             flow_job_name: job.name.clone(),
             table_mappings,
             do_initial_snapshot,
@@ -196,12 +199,12 @@ impl FlowGrpcClient {
     pub async fn start_qrep_flow_job(
         &mut self,
         job: &QRepFlowJob,
-        src: pt::peerdb_peers::Peer,
-        dst: pt::peerdb_peers::Peer,
+        src: String,
+        dst: String,
     ) -> anyhow::Result<String> {
         let mut cfg = pt::peerdb_flow::QRepConfig {
-            source_peer: Some(src),
-            destination_peer: Some(dst),
+            source_name: src,
+            destination_name: dst,
             flow_job_name: job.name.clone(),
             query: job.query_string.clone(),
             ..Default::default()

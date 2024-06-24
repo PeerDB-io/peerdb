@@ -1,7 +1,7 @@
 'use client';
 
+import { MirrorsListing } from '@/app/dto/MirrorsDTO';
 import NewButton from '@/components/NewButton';
-import { QRepConfig } from '@/grpc_generated/flow';
 import { Header } from '@/lib/Header';
 import { Label } from '@/lib/Label';
 import { LayoutMain } from '@/lib/Layout';
@@ -17,31 +17,13 @@ export default function Mirrors() {
     data: flows,
     error,
     isLoading,
-  }: { data: [any]; error: any; isLoading: boolean } = useSWR(
+  }: { data: MirrorsListing[]; error: any; isLoading: boolean } = useSWR(
     '/api/mirrors',
     fetcher
   );
 
-  let cdcFlows = flows?.filter((flow) => {
-    return !flow.query_string;
-  });
-
-  let qrepFlows = flows?.filter((flow) => {
-    if (flow.config_proto && flow.query_string) {
-      let config = QRepConfig.decode(flow.config_proto.data);
-      const watermarkCol = config.watermarkColumn.toLowerCase();
-      return watermarkCol !== 'xmin' && watermarkCol !== 'ctid';
-    }
-    return false;
-  });
-
-  let xminFlows = flows?.filter((flow) => {
-    if (flow.config_proto && flow.query_string) {
-      let config = QRepConfig.decode(flow.config_proto.data);
-      return config.watermarkColumn.toLowerCase() === 'xmin';
-    }
-    return false;
-  });
+  const cdcFlows = flows?.filter((flow) => flow.isCdc);
+  const qrepFlows = flows?.filter((flow) => !flow.isCdc);
 
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
@@ -88,11 +70,6 @@ export default function Mirrors() {
       {!isLoading && (
         <Panel className='mt-10'>
           <QRepFlows title='Query Replication' qrepFlows={qrepFlows} />
-        </Panel>
-      )}
-      {!isLoading && (
-        <Panel className='mt-10'>
-          <QRepFlows title='XMIN Mirrors' qrepFlows={xminFlows} />
         </Panel>
       )}
     </LayoutMain>

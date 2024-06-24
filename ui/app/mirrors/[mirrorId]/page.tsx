@@ -94,7 +94,7 @@ export default async function ViewMirror({
       <SyncStatus rowsSynced={rowsSynced} rows={rows} flowJobName={mirrorId} />
     );
 
-    const dbType = mirrorConfig.destination!.type;
+    const dbType = mirrorStatus.cdcStatus.destinationType;
 
     const isNotPaused =
       mirrorStatus.currentFlowState.toString() !==
