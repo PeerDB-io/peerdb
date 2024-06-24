@@ -1,4 +1,3 @@
-//nolint:staticcheck // TODO remove in 0.15
 package peerflow
 
 import (
@@ -540,30 +539,6 @@ func QRepFlowWorkflow(
 			}
 		}
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
-	}
-
-	// TODO remove fields in 0.15
-	state.DisableWaitForNewRows = false
-	save_cfg := false
-	if config.SourcePeer != nil {
-		config.SourceName = config.SourcePeer.Name
-		config.SourcePeer = nil
-		save_cfg = true
-	}
-	if config.DestinationPeer != nil {
-		config.DestinationName = config.DestinationPeer.Name
-		config.DestinationPeer = nil
-		save_cfg = true
-	}
-	if save_cfg {
-		saveCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-			StartToCloseTimeout: time.Hour,
-			HeartbeatTimeout:    time.Minute,
-		})
-		saveFuture := workflow.ExecuteActivity(saveCtx, flowable.UpdateQRepFlowConfigInCatalog, config)
-		if err := saveFuture.Get(saveCtx, nil); err != nil {
-			return state, fmt.Errorf("failed to save updated config: %w", err)
-		}
 	}
 
 	maxParallelWorkers := 16
