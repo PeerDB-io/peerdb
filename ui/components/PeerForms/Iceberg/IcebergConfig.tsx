@@ -162,7 +162,7 @@ const IcebergConfigForm = ({ icebergConfig, setter }: IcebergConfigProps) => {
         <RowWithSelect
           label={
             <Label as='label' variant='subheadline'>
-              Choose specific catalog
+              Choose Iceberg Catalog Type
               <Tooltip
                 style={{ width: '100%' }}
                 content={'This is a required field.'}
