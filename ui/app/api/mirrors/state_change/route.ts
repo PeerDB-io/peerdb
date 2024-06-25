@@ -12,9 +12,7 @@ export async function POST(request: Request) {
         method: 'POST',
         body: JSON.stringify(body),
       }
-    ).then((res) => {
-      return res.json();
-    });
+    ).then((res) => res.json());
 
     return new Response(JSON.stringify(res));
   } catch (e) {

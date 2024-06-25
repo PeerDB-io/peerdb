@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -43,12 +44,19 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 			Ok: false,
 		}, errors.New("connection configs is nil")
 	}
-	sourcePeerConfig := req.ConnectionConfigs.Source.GetPostgresConfig()
-	if sourcePeerConfig == nil {
-		slog.Error("/validatecdc source peer config is nil", slog.Any("peer", req.ConnectionConfigs.Source))
+	sourcePeer, err := connectors.LoadPeer(ctx, h.pool, req.ConnectionConfigs.SourceName)
+	if err != nil {
 		return &protos.ValidateCDCMirrorResponse{
 			Ok: false,
-		}, errors.New("source peer config is nil")
+		}, err
+	}
+
+	sourcePeerConfig := sourcePeer.GetPostgresConfig()
+	if sourcePeerConfig == nil {
+		slog.Error("/validatecdc source peer config is not postgres", slog.String("peer", req.ConnectionConfigs.SourceName))
+		return &protos.ValidateCDCMirrorResponse{
+			Ok: false,
+		}, errors.New("source peer config is not postgres")
 	}
 
 	pgPeer, err := connpostgres.NewPostgresConnector(ctx, sourcePeerConfig)

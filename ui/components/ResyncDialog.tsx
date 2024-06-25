@@ -23,10 +23,7 @@ export const ResyncDialog = ({
     setMsg('Dropping existing mirror');
     const dropStatus = await handleDropMirror(
       {
-        workflowId: workflowId,
         flowJobName: mirrorConfig.flowJobName,
-        sourcePeer: mirrorConfig.source!,
-        destinationPeer: mirrorConfig.destination!,
         forResync: true,
       },
       setDropping,

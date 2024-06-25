@@ -98,7 +98,6 @@ func init() {
 	gob.Register(qvalue.QValueBytes{})
 	gob.Register(qvalue.QValueUUID{})
 	gob.Register(qvalue.QValueJSON{})
-	gob.Register(qvalue.QValueBit{})
 	gob.Register(qvalue.QValueHStore{})
 	gob.Register(qvalue.QValueGeography{})
 	gob.Register(qvalue.QValueGeometry{})

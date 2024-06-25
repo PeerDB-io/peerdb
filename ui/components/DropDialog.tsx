@@ -2,7 +2,6 @@
 import { UDropMirrorResponse } from '@/app/dto/MirrorsDTO';
 import { UDropPeerResponse } from '@/app/dto/PeersDTO';
 import { DeleteScript } from '@/app/scripts/handlers';
-import { Peer } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Icon } from '@/lib/Icon';
@@ -12,10 +11,7 @@ import { Dispatch, SetStateAction, useState } from 'react';
 import { BarLoader } from 'react-spinners';
 
 interface dropMirrorArgs {
-  workflowId: string | null;
   flowJobName: string;
-  sourcePeer: Peer;
-  destinationPeer: Peer;
   forResync?: boolean;
 }
 
@@ -36,10 +32,6 @@ export const handleDropMirror = async (
   setLoading: Dispatch<SetStateAction<boolean>>,
   setMsg: Dispatch<SetStateAction<string>>
 ) => {
-  if (!dropArgs.workflowId) {
-    setMsg('Workflow ID not found for this mirror.');
-    return false;
-  }
   setLoading(true);
   const dropRes: UDropMirrorResponse = await fetch('/api/mirrors/drop', {
     method: 'POST',
@@ -122,7 +114,6 @@ export const DropDialog = ({
   };
 
   const getDeleteText = () => {
-    let deletePart = 'Are you sure you want to delete ';
     let objectSpecificDeleteText = '';
     switch (mode) {
       case 'MIRROR':
@@ -138,25 +129,19 @@ export const DropDialog = ({
         objectSpecificDeleteText = 'this script';
         break;
     }
-    return (
-      deletePart + objectSpecificDeleteText + '? This action cannot be reverted'
-    );
+    return `Are you sure you want to delete ${objectSpecificDeleteText}? This action cannot be reverted`;
   };
 
   const handleDelete = () => {
     switch (mode) {
       case 'MIRROR':
-        handleDropMirror(dropArgs as dropMirrorArgs, setLoading, setMsg);
-        break;
+        return handleDropMirror(dropArgs as dropMirrorArgs, setLoading, setMsg);
       case 'PEER':
-        handleDropPeer(dropArgs as dropPeerArgs);
-        break;
+        return handleDropPeer(dropArgs as dropPeerArgs);
       case 'ALERT':
-        handleDeleteAlert(dropArgs as deleteAlertArgs);
-        break;
+        return handleDeleteAlert(dropArgs as deleteAlertArgs);
       case 'SCRIPT':
-        handleDeleteScript(dropArgs as deleteScriptArgs);
-        break;
+        return handleDeleteScript(dropArgs as deleteScriptArgs);
     }
   };
 

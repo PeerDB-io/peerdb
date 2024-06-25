@@ -115,5 +115,4 @@ export const blankPostgresSetting: PostgresConfig = {
   user: '',
   password: '',
   database: '',
-  transactionSnapshot: '',
 };

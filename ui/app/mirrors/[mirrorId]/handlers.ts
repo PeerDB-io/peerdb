@@ -14,9 +14,8 @@ export const getMirrorState = async (mirrorId: string) => {
 };
 
 export const getCurrentIdleTimeout = async (mirrorId: string) => {
-  return await getMirrorState(mirrorId).then((res) => {
-    return (res as MirrorStatusResponse).cdcStatus?.config?.idleTimeoutSeconds;
-  });
+  const res = await getMirrorState(mirrorId);
+  return (res as MirrorStatusResponse).cdcStatus?.config?.idleTimeoutSeconds;
 };
 
 export const changeFlowState = async (
@@ -25,8 +24,8 @@ export const changeFlowState = async (
 ) => {
   const req: FlowStateChangeRequest = {
     flowJobName: mirrorConfig.flowJobName,
-    sourcePeer: mirrorConfig.source,
-    destinationPeer: mirrorConfig.destination,
+    sourcePeer: mirrorConfig.sourceName,
+    destinationPeer: mirrorConfig.destinationName,
     requestedFlowState: flowState,
   };
   await fetch(`/api/mirrors/state_change`, {

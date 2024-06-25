@@ -43,11 +43,11 @@ func (s elasticsearchSuite) Test_Simple_QRep_Append() {
 	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		srcTableName)
 
-	qrepConfig, err := e2e.CreateQRepWorkflowConfig("test_es_simple_qrep",
+	qrepConfig := e2e.CreateQRepWorkflowConfig(s.t, "test_es_simple_qrep",
 		srcTableName,
 		srcTableName,
 		query,
-		s.peer,
+		s.Peer().Name,
 		"",
 		false,
 		"",
@@ -55,7 +55,6 @@ func (s elasticsearchSuite) Test_Simple_QRep_Append() {
 	)
 	qrepConfig.InitialCopyOnly = false
 
-	require.NoError(s.t, err)
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 
 	e2e.EnvWaitFor(s.t, env, 10*time.Second, "waiting for ES to catch up", func() bool {
@@ -97,11 +96,11 @@ func (s elasticsearchSuite) Test_Simple_QRep_Upsert() {
 	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		srcTableName)
 
-	qrepConfig, err := e2e.CreateQRepWorkflowConfig("test_es_simple_qrep",
+	qrepConfig := e2e.CreateQRepWorkflowConfig(s.t, "test_es_simple_qrep",
 		srcTableName,
 		srcTableName,
 		query,
-		s.peer,
+		s.Peer().Name,
 		"",
 		false,
 		"",
@@ -113,7 +112,6 @@ func (s elasticsearchSuite) Test_Simple_QRep_Upsert() {
 	}
 	qrepConfig.InitialCopyOnly = false
 
-	require.NoError(s.t, err)
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 
 	e2e.EnvWaitFor(s.t, env, 10*time.Second, "waiting for ES to catch up", func() bool {

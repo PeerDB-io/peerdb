@@ -38,11 +38,7 @@ message CreateCustomSyncResponse {
 }
 
 message ShutdownRequest {
-  string workflow_id = 1;
   string flow_job_name = 2;
-  peerdb_peers.Peer source_peer = 3;
-  peerdb_peers.Peer destination_peer = 4;
-  bool remove_flow_entry = 5;
 }
 
 message ShutdownResponse {
@@ -102,7 +98,6 @@ message PartitionStatus {
 }
 
 message QRepMirrorStatus {
-  peerdb_flow.QRepConfig config = 1 [deprecated = true];
   repeated PartitionStatus partitions = 2;
   // TODO make note to see if we are still in initial copy
   // or if we are in the continuous streaming mode.
@@ -206,6 +201,8 @@ message CDCMirrorStatus {
   peerdb_flow.FlowConnectionConfigs config = 1;
   SnapshotStatus snapshot_status = 2;
   repeated CDCSyncStatus cdc_syncs = 3;
+  peerdb_peers.DBType source_type = 4;
+  peerdb_peers.DBType destination_type = 5;
 }
 
 message MirrorStatusResponse {
@@ -226,8 +223,8 @@ message ValidateCDCMirrorResponse{
 message FlowStateChangeRequest {
   string flow_job_name = 1;
   peerdb_flow.FlowStatus requested_flow_state = 2;
-  peerdb_peers.Peer source_peer = 3;
-  peerdb_peers.Peer destination_peer = 4;
+  string source_peer = 3;
+  string destination_peer = 4;
   // only can be sent in certain situations
   optional peerdb_flow.FlowConfigUpdate flow_config_update = 5;
 }

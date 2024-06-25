@@ -30,7 +30,6 @@ const (
 	QValueKindBytes       QValueKind = "bytes"
 	QValueKindUUID        QValueKind = "uuid"
 	QValueKindJSON        QValueKind = "json"
-	QValueKindBit         QValueKind = "bit"
 	QValueKindHStore      QValueKind = "hstore"
 	QValueKindGeography   QValueKind = "geography"
 	QValueKindGeometry    QValueKind = "geometry"
@@ -75,7 +74,6 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindTime:        "TIME",
 	QValueKindTimeTZ:      "TIME",
 	QValueKindDate:        "DATE",
-	QValueKindBit:         "BINARY",
 	QValueKindBytes:       "BINARY",
 	QValueKindStruct:      "STRING",
 	QValueKindUUID:        "STRING",
@@ -113,7 +111,6 @@ var QValueKindToClickhouseTypeMap = map[QValueKind]string{
 	QValueKindTimestampTZ: "DateTime64(6)",
 	QValueKindTime:        "String",
 	QValueKindDate:        "Date",
-	QValueKindBit:         "Boolean",
 	QValueKindBytes:       "String",
 	QValueKindStruct:      "String",
 	QValueKindUUID:        "UUID",
