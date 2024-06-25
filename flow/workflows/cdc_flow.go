@@ -489,6 +489,7 @@ func CDCFlowWorkflow(
 	addCdcPropertiesSignalListener(ctx, logger, mainLoopSelector, state)
 
 	state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
+	maxSyncPerCDCFlow := int(getMaxSyncsPerCDCFlow(ctx, logger))
 	for {
 		mainLoopSelector.Select(ctx)
 		for ctx.Err() == nil && mainLoopSelector.HasPending() {
@@ -499,7 +500,7 @@ func CDCFlowWorkflow(
 			return state, err
 		}
 
-		if state.ActiveSignal == model.PauseSignal || syncCount >= int(getMaxSyncsPerCDCFlow(ctx, logger)) {
+		if state.ActiveSignal == model.PauseSignal || syncCount >= maxSyncPerCDCFlow {
 			restart = true
 			if syncFlowFuture != nil {
 				err := model.SyncStopSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{}).Get(ctx, nil)
