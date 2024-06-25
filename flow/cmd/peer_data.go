@@ -357,11 +357,13 @@ func (h *FlowRequestHandler) GetPublications(
 
 	rows, err := peerConn.Query(ctx, "select pubname from pg_publication;")
 	if err != nil {
+		slog.Info("failed to fetch publications", slog.Any("error", err))
 		return &protos.PeerPublicationsResponse{PublicationNames: nil}, err
 	}
 
 	publications, err := pgx.CollectRows[string](rows, pgx.RowTo)
 	if err != nil {
+		slog.Info("failed to fetch publications", slog.Any("error", err))
 		return &protos.PeerPublicationsResponse{PublicationNames: nil}, err
 	}
 	return &protos.PeerPublicationsResponse{PublicationNames: publications}, nil
