@@ -1065,6 +1065,7 @@ func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string)
 
 	// check if publication exists manually,
 	// as drop publication if exists requires permissions
+	// for a publication which we did not create via peerdb user
 	var publicationExists bool
 	err = c.conn.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_publication WHERE pubname=$1)", publicationName).Scan(&publicationExists)
 	if err != nil {
