@@ -18,13 +18,20 @@ type EditMirrorProps = {
   params: { mirrorId: string };
 };
 
-function getMirrorStatusUrl(mirrorId: string) {
-  let base = GetFlowHttpAddressFromEnv();
-  return `${base}/v1/mirrors/${mirrorId}?include_flow_info=true`;
+const obtainMirrorName = (jobName: string) => {
+  if(jobName.startsWith("clone_")){
+    return jobName.split("_")[1];
+  }
+  return jobName;
 }
 
-async function getMirrorStatus(mirrorId: string) {
-  const url = getMirrorStatusUrl(mirrorId);
+function getMirrorStatusUrl(mirrorName: string) {
+  let base = GetFlowHttpAddressFromEnv();
+  return `${base}/v1/mirrors/${mirrorName}?include_flow_info=true`;
+}
+
+async function getMirrorStatus(mirrorName: string) {
+  const url = getMirrorStatusUrl(mirrorName);
   const resp = await fetch(url, {
     cache: 'no-store',
   });
@@ -35,7 +42,9 @@ async function getMirrorStatus(mirrorId: string) {
 export default async function ViewMirror({
   params: { mirrorId },
 }: EditMirrorProps) {
-  const mirrorStatus: MirrorStatusResponse = await getMirrorStatus(mirrorId);
+  const isCloneJob = mirrorId.startsWith('clone_');
+  const mirrorName = obtainMirrorName(mirrorId);
+  const mirrorStatus: MirrorStatusResponse = await getMirrorStatus(mirrorName);
   if (!mirrorStatus) {
     return <div>No mirror status found!</div>;
   }
@@ -47,13 +56,13 @@ export default async function ViewMirror({
       config_proto: true,
     },
     where: {
-      name: mirrorId,
+      name: mirrorName,
     },
   });
 
   const syncs = await prisma.cdc_batches.findMany({
     where: {
-      flow_name: mirrorId,
+      flow_name: mirrorName,
       start_time: {
         not: undefined,
       },
@@ -82,7 +91,7 @@ export default async function ViewMirror({
   let syncStatusChild = null;
   let actionsDropdown = null;
 
-  if (mirrorStatus.cdcStatus) {
+  if (mirrorStatus.cdcStatus && !isCloneJob) {
     let rowsSynced = syncs.reduce((acc, sync) => {
       if (sync.end_time !== null) {
         return acc + sync.rows_in_batch;
@@ -91,7 +100,7 @@ export default async function ViewMirror({
     }, 0);
     const mirrorConfig = FlowConnectionConfigs.decode(mirrorInfo.config_proto!);
     syncStatusChild = (
-      <SyncStatus rowsSynced={rowsSynced} rows={rows} flowJobName={mirrorId} />
+      <SyncStatus rowsSynced={rowsSynced} rows={rows} flowJobName={mirrorName} />
     );
 
     const dbType = mirrorStatus.cdcStatus.destinationType;
@@ -110,7 +119,7 @@ export default async function ViewMirror({
       <MirrorActions
         mirrorConfig={mirrorConfig}
         workflowId={mirrorInfo.workflow_id || ''}
-        editLink={`/mirrors/${mirrorId}/edit`}
+        editLink={`/mirrors/${mirrorName}/edit`}
         canResync={canResync}
         isNotPaused={isNotPaused}
       />
@@ -126,7 +135,7 @@ export default async function ViewMirror({
             paddingRight: '2rem',
           }}
         >
-          <Header variant='title2'>{mirrorId}</Header>
+          <Header variant='title2'>{mirrorName}</Header>
           {actionsDropdown}
         </div>
         <CDCMirror

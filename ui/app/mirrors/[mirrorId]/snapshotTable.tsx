@@ -200,7 +200,7 @@ const SnapshotTable = ({
           <TableCell>
             <Label>
               <Link
-                href={`/mirrors/status/qrep/${clone.cloneTableSummary.flowJobName}`}
+                href={`/mirrors/${clone.cloneTableSummary.flowJobName}`}
                 className='underline cursor-pointer'
               >
                 {clone.cloneTableSummary.tableName}
