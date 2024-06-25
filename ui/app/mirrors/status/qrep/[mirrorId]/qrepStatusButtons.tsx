@@ -1,5 +1,6 @@
 'use client';
 import { FlowStatus } from '@/grpc_generated/flow';
+import { Button } from '@/lib/Button';
 
 async function setFlowState(
   flowJobName: string,
@@ -16,19 +17,21 @@ async function setFlowState(
   window.location.reload();
 }
 
-export default function qrepStatusButtons(props: { mirrorId: string }) {
+export default function QrepStatusButtons(props: { mirrorId: string }) {
   return (
-    <>
-      <input
-        type='button'
-        value='Pause'
+    <div style={{ display: 'flex', flexDirection: 'row', columnGap: '1rem' }}>
+      <Button
         onClick={() => setFlowState(props.mirrorId, FlowStatus.STATUS_PAUSED)}
-      />
-      <input
-        type='button'
-        value='Resume'
+      >
+        {' '}
+        Pause{' '}
+      </Button>
+      <Button
         onClick={() => setFlowState(props.mirrorId, FlowStatus.STATUS_RUNNING)}
-      />
-    </>
+      >
+        {' '}
+        Resume{' '}
+      </Button>
+    </div>
   );
 }

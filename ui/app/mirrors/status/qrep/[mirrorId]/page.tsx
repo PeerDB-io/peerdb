@@ -1,24 +1,13 @@
 import prisma from '@/app/utils/prisma';
-import { FlowStatus } from '@/grpc_generated/flow';
 import { Header } from '@/lib/Header';
 import { LayoutMain } from '@/lib/Layout';
 import QrepGraph from './qrepGraph';
+import QrepStatusButtons from './qrepStatusButtons';
 import QRepStatusTable, { QRepPartitionStatus } from './qrepStatusTable';
 
 type QRepMirrorStatusProps = {
   params: { mirrorId: string };
 };
-
-function setFlowState(flowJobName: string, requestedFlowState: FlowStatus) {
-  return fetch(`/api/mirrors/state_change`, {
-    method: 'POST',
-    body: JSON.stringify({
-      flowJobName,
-      requestedFlowState,
-    }),
-    cache: 'no-store',
-  });
-}
 
 export default async function QRepMirrorStatus({
   params: { mirrorId },
@@ -57,16 +46,7 @@ export default async function QRepMirrorStatus({
         }}
       >
         <Header variant='title2'>{mirrorId}</Header>
-        <input
-          type='button'
-          value='Pause'
-          onClick={() => setFlowState(mirrorId, FlowStatus.STATUS_PAUSED)}
-        />
-        <input
-          type='button'
-          value='Resume'
-          onClick={() => setFlowState(mirrorId, FlowStatus.STATUS_RUNNING)}
-        />
+        <QrepStatusButtons mirrorId={mirrorId} />
       </div>
       <QrepGraph
         syncs={partitions.map((partition) => ({
