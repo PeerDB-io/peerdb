@@ -137,6 +137,12 @@ func (c *IcebergConnector) SetupNormalizedTable(
 	softDeleteColName string,
 	syncedAtColName string,
 ) (bool, error) {
+
+	primaryKeyColumns := make(map[string]struct{}, len(tableSchema.PrimaryKeyColumns))
+	for _, col := range tableSchema.PrimaryKeyColumns {
+		primaryKeyColumns[col] = struct{}{}
+	}
+
 	qFields := make([]qvalue.QField, len(tableSchema.Columns))
 	for i, fieldDescription := range tableSchema.Columns {
 		colName := fieldDescription.Name
@@ -145,13 +151,15 @@ func (c *IcebergConnector) SetupNormalizedTable(
 		if qValueKind == qvalue.QValueKindNumeric {
 			precision, scale = datatypes.ParseNumericTypmod(fieldDescription.TypeModifier)
 		}
+
+		_, isPrimaryKey := primaryKeyColumns[colName]
+
 		qField := qvalue.QField{
 			Name:      colName,
 			Type:      qValueKind,
 			Precision: precision,
 			Scale:     scale,
-			// TODO check this
-			Nullable: true,
+			Nullable:  !isPrimaryKey,
 		}
 		qFields[i] = qField
 	}

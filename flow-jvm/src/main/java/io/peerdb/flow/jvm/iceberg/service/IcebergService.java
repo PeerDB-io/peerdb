@@ -44,10 +44,12 @@ import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @ApplicationScoped
@@ -94,12 +96,12 @@ public class IcebergService {
         var catalog = catalogLoader.loadCatalog(icebergCatalog);
         var typeSchema = getIcebergSchema(schema);
         // TODO Below require that the primary keys are non-null
-//        var fieldList = typeSchema.columns();
-//        var primaryKeyFieldIds = request.getTableInfo().getPrimaryKeyList().stream().map(pk ->
-//                Objects.requireNonNull(typeSchema.findField(pk), String.format("Primary key %s not found in schema", pk)).fieldId()
-//        ).collect(Collectors.toSet());
-//        var icebergSchema = new Schema(fieldList, primaryKeyFieldIds);
-        var icebergSchema = typeSchema;
+        var fieldList = typeSchema.columns();
+        var primaryKeyFieldIds = tableInfo.getPrimaryKeyList().stream().map(pk ->
+                Objects.requireNonNull(typeSchema.findField(pk), String.format("Primary key %s not found in schema", pk)).fieldId()
+        ).collect(Collectors.toSet());
+        var icebergSchema = new Schema(fieldList, primaryKeyFieldIds);
+
         Preconditions.checkArgument(icebergSchema.asStruct().equals(typeSchema.asStruct()), "Primary key based schema not equivalent to type schema [%s!=%s]", icebergSchema.asStruct(), typeSchema.asStruct());
 
         var tableIdentifier = getTableIdentifier(tableInfo);
