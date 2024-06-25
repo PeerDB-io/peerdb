@@ -7,7 +7,6 @@ import (
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgtype"
-	"go.temporal.io/sdk/client"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -368,24 +367,6 @@ func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID s
 			fmt.Errorf("failed to get status in workflow with ID %s: %w", workflowID, err)
 	}
 	return state, nil
-}
-
-func (h *FlowRequestHandler) updateWorkflowStatus(
-	ctx context.Context,
-	workflowID string,
-	state protos.FlowStatus,
-) error {
-	_, err := h.temporalClient.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
-		WorkflowID:   workflowID,
-		UpdateName:   shared.FlowStatusUpdate,
-		Args:         []interface{}{state},
-		WaitForStage: client.WorkflowUpdateStageCompleted,
-	})
-	if err != nil {
-		slog.Error(fmt.Sprintf("failed to update state in workflow with ID %s: %s", workflowID, err.Error()))
-		return fmt.Errorf("failed to update state in workflow with ID %s: %w", workflowID, err)
-	}
-	return nil
 }
 
 func (h *FlowRequestHandler) getCDCWorkflowState(ctx context.Context,

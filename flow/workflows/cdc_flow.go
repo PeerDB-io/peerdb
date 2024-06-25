@@ -209,13 +209,6 @@ func CDCFlowWorkflow(
 	if err != nil {
 		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
 	}
-	err = workflow.SetUpdateHandler(ctx, shared.FlowStatusUpdate, func(_ workflow.Context, status protos.FlowStatus) error {
-		state.CurrentFlowStatus = status
-		return nil
-	})
-	if err != nil {
-		return state, fmt.Errorf("failed to set `%s` update handler: %w", shared.FlowStatusUpdate, err)
-	}
 
 	mirrorNameSearch := map[string]interface{}{
 		shared.MirrorNameSearchAttribute: cfg.FlowJobName,
