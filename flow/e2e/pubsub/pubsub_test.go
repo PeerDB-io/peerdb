@@ -67,7 +67,7 @@ func ServiceAccount() (*utils.GcpServiceAccount, error) {
 }
 
 func (s PubSubSuite) Peer(sa *utils.GcpServiceAccount) *protos.Peer {
-	return &protos.Peer{
+	ret := &protos.Peer{
 		Name: e2e.AddSuffix(s, "pubsub"),
 		Type: protos.DBType_PUBSUB,
 		Config: &protos.Peer_PubsubConfig{
@@ -87,6 +87,8 @@ func (s PubSubSuite) Peer(sa *utils.GcpServiceAccount) *protos.Peer {
 			},
 		},
 	}
+	e2e.CreatePeer(s.t, ret)
+	return ret
 }
 
 func (s PubSubSuite) DestinationTable(table string) string {
@@ -137,9 +139,9 @@ func (s PubSubSuite) TestCreateTopic() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: flowName},
-		Destination:      s.Peer(sa),
+		Destination:      s.Peer(sa).Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.Script = "e2e_pscreate"
 
 	tc := e2e.NewTemporalClient(s.t)
@@ -189,9 +191,9 @@ func (s PubSubSuite) TestSimple() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: flowName},
-		Destination:      s.Peer(sa),
+		Destination:      s.Peer(sa).Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.Script = "e2e_pssimple"
 
 	psclient, err := sa.CreatePubSubClient(context.Background())
@@ -259,9 +261,9 @@ func (s PubSubSuite) TestInitialLoad() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: flowName},
-		Destination:      s.Peer(sa),
+		Destination:      s.Peer(sa).Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.Script = "e2e_psinitial"
 	flowConnConfig.DoInitialSnapshot = true
 

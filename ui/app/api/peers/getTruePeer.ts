@@ -3,7 +3,6 @@ import {
   BigqueryConfig,
   ClickhouseConfig,
   ElasticsearchConfig,
-  EventHubConfig,
   EventHubGroupConfig,
   KafkaConfig,
   MySqlConfig,
@@ -21,63 +20,39 @@ export const getTruePeer = (peer: CatalogPeer) => {
     type: peer.type,
   };
   const options = peer.options;
-  let config:
-    | BigqueryConfig
-    | ClickhouseConfig
-    | EventHubConfig
-    | EventHubGroupConfig
-    | KafkaConfig
-    | MySqlConfig
-    | PostgresConfig
-    | PubSubConfig
-    | S3Config
-    | SnowflakeConfig
-    | SqlServerConfig
-    | ElasticsearchConfig;
   switch (peer.type) {
     case 0:
-      config = BigqueryConfig.decode(options);
-      newPeer.bigqueryConfig = config;
+      newPeer.bigqueryConfig = BigqueryConfig.decode(options);
       break;
     case 1:
-      config = SnowflakeConfig.decode(options);
-      newPeer.snowflakeConfig = config;
+      newPeer.snowflakeConfig = SnowflakeConfig.decode(options);
       break;
     case 3:
-      config = PostgresConfig.decode(options);
-      newPeer.postgresConfig = config;
+      newPeer.postgresConfig = PostgresConfig.decode(options);
       break;
     case 5:
-      config = S3Config.decode(options);
-      newPeer.s3Config = config;
+      newPeer.s3Config = S3Config.decode(options);
       break;
     case 6:
-      config = SqlServerConfig.decode(options);
-      newPeer.sqlserverConfig = config;
+      newPeer.sqlserverConfig = SqlServerConfig.decode(options);
       break;
     case 7:
-      config = MySqlConfig.decode(options);
-      newPeer.mysqlConfig = config;
+      newPeer.mysqlConfig = MySqlConfig.decode(options);
       break;
     case 8:
-      config = ClickhouseConfig.decode(options);
-      newPeer.clickhouseConfig = config;
+      newPeer.clickhouseConfig = ClickhouseConfig.decode(options);
       break;
     case 9:
-      config = KafkaConfig.decode(options);
-      newPeer.kafkaConfig = config;
+      newPeer.kafkaConfig = KafkaConfig.decode(options);
       break;
     case 10:
-      config = PubSubConfig.decode(options);
-      newPeer.pubsubConfig = config;
+      newPeer.pubsubConfig = PubSubConfig.decode(options);
       break;
     case 11:
-      config = EventHubGroupConfig.decode(options);
-      newPeer.eventhubGroupConfig = config;
+      newPeer.eventhubGroupConfig = EventHubGroupConfig.decode(options);
       break;
     case 12:
-      config = ElasticsearchConfig.decode(options);
-      newPeer.elasticsearchConfig = config;
+      newPeer.elasticsearchConfig = ElasticsearchConfig.decode(options);
       break;
     default:
       return newPeer;

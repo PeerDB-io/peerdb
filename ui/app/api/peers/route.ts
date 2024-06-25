@@ -1,6 +1,4 @@
-import { getTruePeer } from '@/app/api/peers/getTruePeer';
 import {
-  CatalogPeer,
   PeerConfig,
   UCreatePeerResponse,
   UValidatePeerResponse,
@@ -151,8 +149,9 @@ export async function POST(request: Request) {
 }
 
 // GET all the peers from the database
-export async function GET(request: Request) {
-  const peers = await prisma.peers.findMany();
-  const truePeers: Peer[] = peers.map((peer: CatalogPeer) => getTruePeer(peer));
-  return new Response(JSON.stringify(truePeers));
+export async function GET(_request: Request) {
+  const peers = await prisma.peers.findMany({
+    select: { name: true, type: true },
+  });
+  return new Response(JSON.stringify(peers));
 }

@@ -221,7 +221,7 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 			case qvalue.QValueKindString, qvalue.QValueKindHStore:
 				var s sql.NullString
 				values[i] = &s
-			case qvalue.QValueKindBytes, qvalue.QValueKindBit:
+			case qvalue.QValueKindBytes:
 				values[i] = new([]byte)
 			case qvalue.QValueKindNumeric:
 				var s sql.Null[decimal.Decimal]
@@ -434,10 +434,6 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 	case qvalue.QValueKindBytes:
 		if v, ok := val.(*[]byte); ok && v != nil {
 			return qvalue.QValueBytes{Val: *v}, nil
-		}
-	case qvalue.QValueKindBit:
-		if v, ok := val.(*[]byte); ok && v != nil {
-			return qvalue.QValueBit{Val: *v}, nil
 		}
 
 	case qvalue.QValueKindUUID:

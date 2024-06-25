@@ -71,6 +71,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (client.Client, worker.Work
 		SlotSnapshotStates: make(map[string]activities.SlotSnapshotState),
 		TxSnapshotStates:   make(map[string]activities.TxSnapshotState),
 		Alerter:            alerting.NewAlerter(context.Background(), conn),
+		CatalogPool:        conn,
 	})
 
 	return c, w, nil

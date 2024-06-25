@@ -60,9 +60,9 @@ func (s Generic) Test_Simple_Flow() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:   e2e.AddSuffix(s, "test_simple"),
 		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
-		Destination:   s.Peer(),
+		Destination:   s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(t)
 
 	tc := e2e.NewTemporalClient(t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -108,10 +108,10 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:   e2e.AddSuffix(s, srcTable),
 		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
-		Destination:   s.Peer(),
+		Destination:   s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(t)
 
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert and mutate schema repeatedly.

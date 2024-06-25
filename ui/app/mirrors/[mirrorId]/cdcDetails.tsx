@@ -3,8 +3,9 @@ import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import MirrorInfo from '@/components/MirrorInfo';
 import PeerButton from '@/components/PeerComponent';
 import TimeLabel from '@/components/TimeComponent';
-import { FlowConnectionConfigs, FlowStatus } from '@/grpc_generated/flow';
+import { FlowStatus } from '@/grpc_generated/flow';
 import { dBTypeFromJSON } from '@/grpc_generated/peers';
+import { CDCMirrorStatus } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import Link from 'next/link';
@@ -16,7 +17,7 @@ import TablePairs from './tablePairs';
 
 type props = {
   syncs: SyncStatusRow[];
-  mirrorConfig: FlowConnectionConfigs;
+  mirrorConfig: CDCMirrorStatus;
   createdAt?: Date;
   mirrorStatus: FlowStatus;
 };
@@ -30,12 +31,14 @@ function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
     return acc;
   }, 0);
 
-  const tablesSynced = mirrorConfig.tableMappings;
+  const tablesSynced = mirrorConfig.config?.tableMappings;
   useEffect(() => {
-    getCurrentIdleTimeout(mirrorConfig.flowJobName).then((res) => {
-      getSyncInterval(res);
-    });
-  }, [mirrorConfig.flowJobName]);
+    getCurrentIdleTimeout(mirrorConfig.config?.flowJobName ?? '').then(
+      (res) => {
+        getSyncInterval(res);
+      }
+    );
+  }, [mirrorConfig.config?.flowJobName]);
   return (
     <>
       <div className='mt-10'>
@@ -54,7 +57,9 @@ function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
                 border: '1px solid rgba(0,0,0,0.1)',
               }}
             >
-              <Link href={`/mirrors/errors/${mirrorConfig.flowJobName}`}>
+              <Link
+                href={`/mirrors/errors/${mirrorConfig.config?.flowJobName}`}
+              >
                 <Label>{formatStatus(mirrorStatus)}</Label>
               </Link>
             </div>
@@ -77,8 +82,8 @@ function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
             </div>
             <div>
               <PeerButton
-                peerName={mirrorConfig?.source?.name ?? ''}
-                peerType={dBTypeFromJSON(mirrorConfig?.source?.type)}
+                peerName={mirrorConfig?.config?.sourceName ?? ''}
+                peerType={dBTypeFromJSON(mirrorConfig?.sourceType)}
               />
             </div>
           </div>
@@ -90,8 +95,8 @@ function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
             </div>
             <div>
               <PeerButton
-                peerName={mirrorConfig?.destination?.name ?? ''}
-                peerType={dBTypeFromJSON(mirrorConfig?.destination?.type)}
+                peerName={mirrorConfig?.config?.destinationName ?? ''}
+                peerType={dBTypeFromJSON(mirrorConfig?.destinationType)}
               />
             </div>
           </div>
@@ -129,7 +134,7 @@ function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
           </div>
 
           <div className='basis-1/4'>
-            <MirrorInfo configs={MirrorValues(mirrorConfig)} />
+            <MirrorInfo configs={MirrorValues(mirrorConfig.config)} />
           </div>
         </div>
       </div>

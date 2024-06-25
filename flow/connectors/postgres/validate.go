@@ -2,10 +2,8 @@ package connpostgres
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strconv"
 	"strings"
 
@@ -19,11 +17,6 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 ) error {
 	if c.conn == nil {
 		return errors.New("check tables: conn is nil")
-	}
-
-	err := c.CheckIfTablesAreMirrorable(ctx, tableNames)
-	if err != nil {
-		return err
 	}
 
 	// Check that we can select from all tables
@@ -136,49 +129,4 @@ func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context) er
 	}
 
 	return conn.Close(ctx)
-}
-
-// Check if all tables have either a primary key or REPLICA IDENTITY
-func (c *PostgresConnector) CheckIfTablesAreMirrorable(
-	ctx context.Context,
-	tables []*utils.SchemaTable,
-) error {
-	var badTables []string
-	for _, table := range tables {
-		var pkeyOrReplIdentFull sql.NullBool
-		err := c.conn.QueryRow(ctx, `SELECT
-		(con.contype = 'p' OR t.relreplident in ('f')) AS can_mirror
-		FROM pg_class t
-		LEFT JOIN pg_namespace n ON t.relnamespace = n.oid
-		LEFT JOIN pg_constraint con ON con.conrelid = t.oid
-		WHERE n.nspname = $1 AND t.relname = $2;
-		`, table.Schema, table.Table).Scan(&pkeyOrReplIdentFull)
-		if err != nil {
-			slog.Info("failed to check if table can be mirrored", slog.Any("error", err))
-			return err
-		}
-
-		if !pkeyOrReplIdentFull.Valid || !pkeyOrReplIdentFull.Bool {
-			// Check for replica identity index
-			relId, err := c.getRelIDForTable(ctx, table)
-			if err != nil {
-				return err
-			}
-
-			indexCols, err := c.getReplicaIdentityIndexColumns(ctx, relId, table)
-			if err != nil {
-				return err
-			}
-
-			if len(indexCols) == 0 {
-				badTables = append(badTables, fmt.Sprintf("%s.%s", table.Schema, table.Table))
-			}
-		}
-	}
-
-	if len(badTables) == 0 {
-		return nil
-	}
-
-	return fmt.Errorf("tables %s neither have a primary key nor valid REPLICA IDENTITY INDEX/FULL", strings.Join(badTables, ","))
 }

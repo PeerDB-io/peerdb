@@ -140,10 +140,7 @@ func (c *SnowflakeConnector) createExternalStage(ctx context.Context, stageName 
 
 	cleanURL := fmt.Sprintf("s3://%s/%s/%s", s3o.Bucket, s3o.Prefix, config.FlowJobName)
 
-	var s3Int string
-	if config.DestinationPeer != nil {
-		s3Int = config.DestinationPeer.GetSnowflakeConfig().S3Integration
-	}
+	s3Int := c.config.S3Integration
 	provider, err := utils.GetAWSCredentialsProvider(ctx, "snowflake", utils.PeerAWSCredentials{})
 	if err != nil {
 		return "", err
