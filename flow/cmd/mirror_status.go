@@ -196,8 +196,8 @@ func (h *FlowRequestHandler) cloneTableSummary(
 	var numRowsSynced pgtype.Int8
 	var avgTimePerPartitionMs pgtype.Float8
 
-	flowNamePart := strings.Replace("clone_"+
-		strings.Replace(flowJobName, "%", "\\%", -1)+"_\\%", "_", "\\_", -1)
+	flowNamePart := strings.ReplaceAll("clone_"+
+		strings.ReplaceAll(flowJobName, "%", "\\%")+"_\\%", "_", "\\_")
 	rows, err := h.pool.Query(ctx, q, flowNamePart, flowJobName)
 	if err != nil {
 		slog.Error("unable to query initial load partition",
