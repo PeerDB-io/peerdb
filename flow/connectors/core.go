@@ -14,7 +14,7 @@ import (
 	connclickhouse "github.com/PeerDB-io/peer-flow/connectors/clickhouse"
 	connelasticsearch "github.com/PeerDB-io/peer-flow/connectors/connelasticsearch"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
-	"github.com/PeerDB-io/peer-flow/connectors/iceberg"
+	conniceberg "github.com/PeerDB-io/peer-flow/connectors/iceberg"
 	connkafka "github.com/PeerDB-io/peer-flow/connectors/kafka"
 	connmysql "github.com/PeerDB-io/peer-flow/connectors/mysql"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
@@ -386,7 +386,7 @@ func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 	case *protos.Peer_ElasticsearchConfig:
 		return connelasticsearch.NewElasticsearchConnector(ctx, inner.ElasticsearchConfig)
 	case *protos.Peer_IcebergConfig:
-		return iceberg.NewIcebergConnector(ctx, inner.IcebergConfig)
+		return conniceberg.NewIcebergConnector(ctx, inner.IcebergConfig)
 	default:
 		return nil, errors.ErrUnsupported
 	}
@@ -437,7 +437,7 @@ var (
 	_ CDCSyncConnector = &conns3.S3Connector{}
 	_ CDCSyncConnector = &connclickhouse.ClickhouseConnector{}
 	_ CDCSyncConnector = &connelasticsearch.ElasticsearchConnector{}
-	_ CDCSyncConnector = &iceberg.IcebergConnector{}
+	_ CDCSyncConnector = &conniceberg.IcebergConnector{}
 
 	_ CDCSyncPgConnector = &connpostgres.PostgresConnector{}
 
@@ -469,7 +469,7 @@ var (
 	_ QRepSyncConnector = &conns3.S3Connector{}
 	_ QRepSyncConnector = &connclickhouse.ClickhouseConnector{}
 	_ QRepSyncConnector = &connelasticsearch.ElasticsearchConnector{}
-	_ QRepSyncConnector = &iceberg.IcebergConnector{}
+	_ QRepSyncConnector = &conniceberg.IcebergConnector{}
 
 	_ QRepSyncPgConnector = &connpostgres.PostgresConnector{}
 
@@ -484,7 +484,7 @@ var (
 	_ ValidationConnector = &connclickhouse.ClickhouseConnector{}
 	_ ValidationConnector = &connbigquery.BigQueryConnector{}
 	_ ValidationConnector = &conns3.S3Connector{}
-	_ ValidationConnector = &iceberg.IcebergConnector{}
+	_ ValidationConnector = &conniceberg.IcebergConnector{}
 
 	_ Connector = &connmysql.MySqlConnector{}
 )

@@ -127,36 +127,9 @@ public class IcebergService {
     }
 
     public boolean processAppendRecordsRequest(AppendRecordsRequest request) {
-        return appendRecords(request.getTableHeader().getTableInfo(),
-                request.getTableHeader().getSchema(),
-                request.getRecordsList(),
-                Optional.ofNullable(request.getTableHeader().hasIdempotencyKey() ? request.getTableHeader().getIdempotencyKey() : null));
-    }
-
-    public boolean processAppendRecordsStreamRequest(Multi<AppendRecordsStreamRequest> request) {
-        Log.info("Received a Process Append Records Stream Request, will wait for first message");
-        // Lets error out after 1 minute
-        var firstMessage = Uni.createFrom().multi(request).await().atMost(Duration.ofSeconds(30));
-        if (firstMessage.getCommandCase() != AppendRecordsStreamRequest.CommandCase.TABLE_HEADER && !firstMessage.hasTableHeader()) {
-            Log.errorf("TableHeader should be present in the first message, found %s", firstMessage.getCommandCase());
-            throw new IllegalArgumentException("TableHeader should be present in the first message");
-        }
-        var tableHeader = firstMessage.getTableHeader();
-        var tableInfo = tableHeader.getTableInfo();
-        var avroSchema = tableHeader.getSchema();
-        Log.infof("Received a Process Append Records Stream Request for table %s, will publish stream for appending records", tableInfo.getTableName());
-        var insertRecordStream = request.map(Unchecked.function(message -> {
-            if (message.hasRecord()) {
-                return message.getRecord();
-            } else {
-                throw new IllegalArgumentException("Only InsertRecord is supported");
-            }
-        })).subscribe().asStream();
-        return appendRecords(tableInfo, avroSchema, insertRecordStream, Optional.ofNullable(tableHeader.hasIdempotencyKey() ? tableHeader.getIdempotencyKey() : null));
-    }
-
-    private boolean appendRecords(TableInfo tableInfo, String avroSchema, List<InsertRecord> insertRecords, Optional<String> idempotencyKey) {
-        return appendRecords(tableInfo, avroSchema, insertRecords.stream(), idempotencyKey);
+        String avroSchema = request.getTableHeader().getSchema();
+        Optional<String> idempotencyKey = Optional.ofNullable(request.getTableHeader().hasIdempotencyKey() ? request.getTableHeader().getIdempotencyKey() : null);
+        return appendRecords(request.getTableHeader().getTableInfo(), avroSchema, request.getRecordsList().stream(), idempotencyKey);
     }
 
     record AppendRecordTableContext(AppendRecordTableHeader tableHeader, Catalog catalog, Table table,
@@ -215,7 +188,7 @@ public class IcebergService {
                     return commitDataFilesToTableWithLock(table, tableInfo, idempotencyKey, dataFiles);
                 }))
                 .onFailure(AppendAlreadyDoneException.class).recoverWithItem((error) -> {
-                    Log.warnf( "Received AppendAlreadyCompletedException, ignoring", error.getMessage());
+                    Log.warnf("Received AppendAlreadyCompletedException, ignoring", error.getMessage());
                     return true;
                 });
         return resultUni.map(success -> AppendRecordsStreamResponse.newBuilder().setSuccess(success).build());

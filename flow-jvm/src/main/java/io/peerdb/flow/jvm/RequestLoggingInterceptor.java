@@ -40,7 +40,6 @@ public class RequestLoggingInterceptor implements ServerInterceptor {
 
         @Override
         public void onMessage(ReqT message) {
-//            Log.debugf("Received request for method: %s: {%s}", serverCall.getMethodDescriptor().getFullMethodName(), message);
             super.onMessage(message);
         }
 

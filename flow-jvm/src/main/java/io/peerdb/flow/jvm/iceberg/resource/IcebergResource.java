@@ -72,8 +72,15 @@ public class IcebergResource implements IcebergProxyService {
 
     }
 
+    /**
+     * Append records to the iceberg table with records all encoded in the request body
+     * @deprecated Use {@link #streamingAppendRecords(Multi)} instead for better performance
+     * @param request AppendRecordsRequest containing the records to be appended along with table info
+     * @return AppendRecordsResponse containing the success status of the operation
+     */
     @Blocking
     @Override
+    @Deprecated
     public Uni<AppendRecordsResponse> appendRecords(AppendRecordsRequest request) {
         return Uni.createFrom().item(() -> AppendRecordsResponse.newBuilder()
                 .setSuccess(
@@ -81,6 +88,11 @@ public class IcebergResource implements IcebergProxyService {
                 .build());
     }
 
+    /**
+     * Append records to the iceberg table with records streamed in the request body
+     * @param request AppendRecordsStreamRequest containing the records to be appended along with table info as the first record
+     * @return AppendRecordsStreamResponse containing the success status of the operation
+     */
     @Blocking
     @Override
     public Uni<AppendRecordsStreamResponse> streamingAppendRecords(Multi<AppendRecordsStreamRequest> request) {

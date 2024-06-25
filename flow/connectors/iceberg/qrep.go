@@ -21,7 +21,7 @@ func (c *IcebergConnector) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
-	if features.IcebergFeatureStreamingEnabled(ctx) {
+	if !features.IcebergFeatureStreamingDisabled(ctx) {
 		return c.streamRecords(ctx, config, partition, stream)
 	}
 	return c.sendRecordsJoined(ctx, config, partition, stream)
@@ -74,7 +74,6 @@ func (c *IcebergConnector) sendRecordsJoined(
 		if err != nil {
 			return 0, fmt.Errorf("failed to convert Avro map to binary: %w", err)
 		}
-		// TODO remove this log
 
 		binaryRecords = append(binaryRecords, &protos.InsertRecord{
 			Record: native,
