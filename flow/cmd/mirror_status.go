@@ -376,9 +376,10 @@ func (h *FlowRequestHandler) updateWorkflowStatus(
 	state protos.FlowStatus,
 ) error {
 	_, err := h.temporalClient.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
-		WorkflowID: workflowID,
-		UpdateName: shared.FlowStatusUpdate,
-		Args:       []interface{}{state},
+		WorkflowID:   workflowID,
+		UpdateName:   shared.FlowStatusUpdate,
+		Args:         []interface{}{state},
+		WaitForStage: client.WorkflowUpdateStageCompleted,
 	})
 	if err != nil {
 		slog.Error(fmt.Sprintf("failed to update state in workflow with ID %s: %s", workflowID, err.Error()))
