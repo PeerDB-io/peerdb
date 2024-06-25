@@ -397,10 +397,6 @@ func (h *FlowRequestHandler) FlowStateChange(
 	if req.RequestedFlowState != protos.FlowStatus_STATUS_UNKNOWN {
 		if req.RequestedFlowState == protos.FlowStatus_STATUS_PAUSED &&
 			currState == protos.FlowStatus_STATUS_RUNNING {
-			err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_PAUSING)
-			if err != nil {
-				return nil, err
-			}
 			err = model.FlowSignal.SignalClientWorkflow(
 				ctx,
 				h.temporalClient,
@@ -419,10 +415,6 @@ func (h *FlowRequestHandler) FlowStateChange(
 			)
 		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED &&
 			(currState != protos.FlowStatus_STATUS_TERMINATED) {
-			err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_TERMINATING)
-			if err != nil {
-				return nil, err
-			}
 			_, err = h.ShutdownFlow(ctx, &protos.ShutdownRequest{
 				FlowJobName: req.FlowJobName,
 			})
