@@ -168,24 +168,14 @@ func (h *FlowRequestHandler) updateFlowConfigInCatalog(
 	ctx context.Context,
 	cfg *protos.FlowConnectionConfigs,
 ) error {
-	cfgBytes, err := proto.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("unable to marshal flow config: %w", err)
-	}
-
-	_, err = h.pool.Exec(ctx, "UPDATE flows SET config_proto = $1 WHERE name = $2", cfgBytes, cfg.FlowJobName)
-	if err != nil {
-		return fmt.Errorf("unable to update flow config in catalog: %w", err)
-	}
-
-	return nil
+	return shared.UpdateCDCConfigInCatalog(ctx, h.pool, slog.Default(), cfg)
 }
 
 func (h *FlowRequestHandler) removeFlowEntryInCatalog(
 	ctx context.Context,
 	flowName string,
 ) error {
-	_, err := h.pool.Exec(ctx, "DELETE FROM flows WHERE name = $1", flowName)
+	_, err := h.pool.Exec(ctx, "DELETE FROM flows WHERE name=$1", flowName)
 	if err != nil {
 		return fmt.Errorf("unable to remove flow entry in catalog: %w", err)
 	}

@@ -91,67 +91,101 @@ func processCDCFlowConfigUpdate(
 ) error {
 	flowConfigUpdate := state.FlowConfigUpdate
 
-	if flowConfigUpdate != nil {
-		logger.Info("processing CDCFlowConfigUpdate", slog.Any("updatedState", flowConfigUpdate))
-		if len(flowConfigUpdate.AdditionalTables) == 0 {
-			return nil
-		}
-		if shared.AdditionalTablesHasOverlap(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables) {
-			logger.Warn("duplicate source/destination tables found in additionalTables")
-			return nil
-		}
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_SNAPSHOT
-
-		logger.Info("altering publication for additional tables")
-		alterPublicationAddAdditionalTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-			StartToCloseTimeout: 5 * time.Minute,
-		})
-		alterPublicationAddAdditionalTablesFuture := workflow.ExecuteActivity(
-			alterPublicationAddAdditionalTablesCtx,
-			flowable.AddTablesToPublication,
-			cfg, flowConfigUpdate.AdditionalTables)
-		if err := alterPublicationAddAdditionalTablesFuture.Get(ctx, nil); err != nil {
-			logger.Error("failed to alter publication for additional tables: ", err)
-			return err
-		}
-
-		logger.Info("additional tables added to publication")
-		additionalTablesUUID := GetUUID(ctx)
-		childAdditionalTablesCDCFlowID := GetChildWorkflowID("additional-cdc-flow", cfg.FlowJobName, additionalTablesUUID)
-		additionalTablesCfg := proto.Clone(cfg).(*protos.FlowConnectionConfigs)
-		additionalTablesCfg.DoInitialSnapshot = true
-		additionalTablesCfg.InitialSnapshotOnly = true
-		additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
-		additionalTablesCfg.Resync = false
-		// execute the sync flow as a child workflow
-		childAdditionalTablesCDCFlowOpts := workflow.ChildWorkflowOptions{
-			WorkflowID:        childAdditionalTablesCDCFlowID,
-			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-			RetryPolicy: &temporal.RetryPolicy{
-				MaximumAttempts: 20,
-			},
-			SearchAttributes:    mirrorNameSearch,
-			WaitForCancellation: true,
-		}
-		childAdditionalTablesCDCFlowCtx := workflow.WithChildOptions(ctx, childAdditionalTablesCDCFlowOpts)
-		childAdditionalTablesCDCFlowFuture := workflow.ExecuteChildWorkflow(
-			childAdditionalTablesCDCFlowCtx,
-			CDCFlowWorkflow,
-			additionalTablesCfg,
-			nil,
-		)
-		var res *CDCFlowWorkflowResult
-		if err := childAdditionalTablesCDCFlowFuture.Get(childAdditionalTablesCDCFlowCtx, &res); err != nil {
-			return err
-		}
-
-		maps.Copy(state.SyncFlowOptions.SrcTableIdNameMapping, res.SyncFlowOptions.SrcTableIdNameMapping)
-		maps.Copy(state.SyncFlowOptions.TableNameSchemaMapping, res.SyncFlowOptions.TableNameSchemaMapping)
-
-		state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
-		logger.Info("additional tables added to sync flow")
+	// only modify for options since SyncFlow uses it
+	if flowConfigUpdate.BatchSize > 0 {
+		state.SyncFlowOptions.BatchSize = flowConfigUpdate.BatchSize
 	}
+	if flowConfigUpdate.IdleTimeout > 0 {
+		state.SyncFlowOptions.IdleTimeoutSeconds = flowConfigUpdate.IdleTimeout
+	}
+	if flowConfigUpdate.NumberOfSyncs > 0 {
+		state.SyncFlowOptions.NumberOfSyncs = flowConfigUpdate.NumberOfSyncs
+	}
+
+	logger.Info("processing CDCFlowConfigUpdate", slog.Any("updatedState", flowConfigUpdate))
+	if len(flowConfigUpdate.AdditionalTables) == 0 {
+		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
+		return nil
+	}
+	if shared.AdditionalTablesHasOverlap(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables) {
+		logger.Warn("duplicate source/destination tables found in additionalTables")
+		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
+		return nil
+	}
+	state.CurrentFlowStatus = protos.FlowStatus_STATUS_SNAPSHOT
+
+	logger.Info("altering publication for additional tables")
+	alterPublicationAddAdditionalTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+	})
+	alterPublicationAddAdditionalTablesFuture := workflow.ExecuteActivity(
+		alterPublicationAddAdditionalTablesCtx,
+		flowable.AddTablesToPublication,
+		cfg, flowConfigUpdate.AdditionalTables)
+	if err := alterPublicationAddAdditionalTablesFuture.Get(ctx, nil); err != nil {
+		logger.Error("failed to alter publication for additional tables: ", err)
+		return err
+	}
+
+	logger.Info("additional tables added to publication")
+	additionalTablesUUID := GetUUID(ctx)
+	childAdditionalTablesCDCFlowID := GetChildWorkflowID("additional-cdc-flow", cfg.FlowJobName, additionalTablesUUID)
+	additionalTablesCfg := proto.Clone(cfg).(*protos.FlowConnectionConfigs)
+	additionalTablesCfg.DoInitialSnapshot = true
+	additionalTablesCfg.InitialSnapshotOnly = true
+	additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
+	additionalTablesCfg.Resync = false
+	// execute the sync flow as a child workflow
+	childAdditionalTablesCDCFlowOpts := workflow.ChildWorkflowOptions{
+		WorkflowID:        childAdditionalTablesCDCFlowID,
+		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 20,
+		},
+		SearchAttributes:    mirrorNameSearch,
+		WaitForCancellation: true,
+	}
+	childAdditionalTablesCDCFlowCtx := workflow.WithChildOptions(ctx, childAdditionalTablesCDCFlowOpts)
+	childAdditionalTablesCDCFlowFuture := workflow.ExecuteChildWorkflow(
+		childAdditionalTablesCDCFlowCtx,
+		CDCFlowWorkflow,
+		additionalTablesCfg,
+		nil,
+	)
+	var res *CDCFlowWorkflowResult
+	if err := childAdditionalTablesCDCFlowFuture.Get(childAdditionalTablesCDCFlowCtx, &res); err != nil {
+		return err
+	}
+
+	maps.Copy(state.SyncFlowOptions.SrcTableIdNameMapping, res.SyncFlowOptions.SrcTableIdNameMapping)
+	maps.Copy(state.SyncFlowOptions.TableNameSchemaMapping, res.SyncFlowOptions.TableNameSchemaMapping)
+
+	state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
+	logger.Info("additional tables added to sync flow")
+
+	syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
 	return nil
+}
+
+func syncStateToConfigProtoInCatalog(
+	ctx workflow.Context,
+	logger log.Logger,
+	cfg *protos.FlowConnectionConfigs,
+	state *CDCFlowWorkflowState,
+) {
+	cloneCfg := proto.Clone(cfg).(*protos.FlowConnectionConfigs)
+	cloneCfg.MaxBatchSize = state.SyncFlowOptions.BatchSize
+	cloneCfg.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
+	cloneCfg.TableMappings = state.SyncFlowOptions.TableMappings
+
+	updateCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+	})
+
+	updateFuture := workflow.ExecuteLocalActivity(updateCtx, updateCDCConfigInCatalogActivity, logger, cloneCfg)
+	if err := updateFuture.Get(updateCtx, nil); err != nil {
+		logger.Warn("Failed to update CDC config in catalog", slog.Any("error", err))
+	}
 }
 
 func addCdcPropertiesSignalListener(
@@ -162,16 +196,6 @@ func addCdcPropertiesSignalListener(
 ) {
 	cdcPropertiesSignalChan := model.CDCDynamicPropertiesSignal.GetSignalChannel(ctx)
 	cdcPropertiesSignalChan.AddToSelector(selector, func(cdcConfigUpdate *protos.CDCFlowConfigUpdate, more bool) {
-		// only modify for options since SyncFlow uses it
-		if cdcConfigUpdate.BatchSize > 0 {
-			state.SyncFlowOptions.BatchSize = cdcConfigUpdate.BatchSize
-		}
-		if cdcConfigUpdate.IdleTimeout > 0 {
-			state.SyncFlowOptions.IdleTimeoutSeconds = cdcConfigUpdate.IdleTimeout
-		}
-		if cdcConfigUpdate.NumberOfSyncs > 0 {
-			state.SyncFlowOptions.NumberOfSyncs = cdcConfigUpdate.NumberOfSyncs
-		}
 		// do this irrespective of additional tables being present, for auto unpausing
 		state.FlowConfigUpdate = cdcConfigUpdate
 		logger.Info("CDC Signal received. Parameters on signal reception:",
