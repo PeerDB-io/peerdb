@@ -2,7 +2,7 @@ import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import prisma from '@/app/utils/prisma';
 import MirrorActions from '@/components/MirrorActionsDropdown';
 import { FlowConnectionConfigs, FlowStatus } from '@/grpc_generated/flow';
-import { DBType } from '@/grpc_generated/peers';
+import { DBType, dBTypeFromJSON } from '@/grpc_generated/peers';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { Header } from '@/lib/Header';
 import { LayoutMain } from '@/lib/Layout';
@@ -94,7 +94,7 @@ export default async function ViewMirror({
       <SyncStatus rowsSynced={rowsSynced} rows={rows} flowJobName={mirrorId} />
     );
 
-    const dbType = mirrorStatus.cdcStatus.destinationType;
+    const dbType = dBTypeFromJSON(mirrorStatus.cdcStatus.destinationType);
 
     const isNotPaused =
       mirrorStatus.currentFlowState.toString() !==
