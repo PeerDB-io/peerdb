@@ -246,6 +246,16 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, filePath s
 		return nil, fmt.Errorf("failed to create temporary Avro file: %w", err)
 	}
 	defer file.Close()
+	printFileStats := func(message string) {
+		logger := logger.LoggerFromCtx(ctx)
+		stats, err := file.Stat()
+		if err != nil {
+			return
+		}
+		logger.Info(message, slog.String("file", filePath), slog.Int64("size", stats.Size()))
+	}
+	shutdown := shared.Interval(ctx, time.Minute, func() { printFileStats("writing to temporary Avro file") })
+	defer shutdown()
 
 	buffSizeBytes := 1 << 26 // 64 MB
 	bufferedWriter := bufio.NewWriterSize(file, buffSizeBytes)
@@ -256,6 +266,7 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, filePath s
 		return nil, fmt.Errorf("failed to write records to temporary Avro file: %w", err)
 	}
 
+	printFileStats("finished writing to temporary Avro file")
 	return &AvroFile{
 		NumRecords:      numRecords,
 		StorageLocation: AvroLocalStorage,
