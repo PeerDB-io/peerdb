@@ -137,7 +137,6 @@ func (c *IcebergConnector) SetupNormalizedTable(
 	softDeleteColName string,
 	syncedAtColName string,
 ) (bool, error) {
-
 	primaryKeyColumns := make(map[string]struct{}, len(tableSchema.PrimaryKeyColumns))
 	for _, col := range tableSchema.PrimaryKeyColumns {
 		primaryKeyColumns[col] = struct{}{}
