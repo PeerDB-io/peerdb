@@ -19,17 +19,18 @@ func ArrayMinus[T comparable](first, second []T) []T {
 }
 
 // Call f with subslices of slice. An empty slice will call f once with nil.
-func ArrayIterChunks[T any](slice []T, size int, f func(chunk []T) error) error {
+func ArrayIterChunks[T any](slice []T, size int, f func(chunk []T, chunkIdx, totalChunks int) error) error {
 	if len(slice) == 0 {
-		return f(nil)
+		return f(nil, 0, 1)
 	}
 	if size <= 0 {
 		return nil
 	}
 	lo := 0
-	for lo < len(slice) {
+	totalChunks := (len(slice) + size - 1) / size
+	for chunkIdx := 0; lo < len(slice); chunkIdx++ {
 		hi := min(lo+size, len(slice))
-		if err := f(slice[lo:hi:hi]); err != nil {
+		if err := f(slice[lo:hi:hi], chunkIdx, totalChunks); err != nil {
 			return err
 		}
 		lo = hi
