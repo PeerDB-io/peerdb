@@ -175,7 +175,6 @@ impl NexusBackend {
     }
 
     async fn create_peer<'a>(&self, peer: &Peer) -> anyhow::Result<()> {
-        // create peer now needs flow handler, it's fine
         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
 
         let create_request = pt::peerdb_route::CreatePeerRequest {
