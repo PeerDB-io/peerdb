@@ -12,7 +12,6 @@ async-trait = "0.1"
 base64 = "0.22"
 cbc = { version = "0.1", features = ["alloc"] }
 chrono.workspace = true
-getrandom = "0.2"
 peer-cursor = { path = "../peer-cursor" }
 peer-postgres = { path = "../peer-postgres" }
 pgwire.workspace = true
