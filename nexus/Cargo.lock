@@ -496,9 +496,13 @@ dependencies = [
 name = "catalog"
 version = "0.1.0"
 dependencies = [
+ "aes",
  "anyhow",
  "async-trait",
+ "base64 0.22.1",
+ "cbc",
  "chrono",
+ "getrandom",
  "peer-cursor",
  "peer-postgres",
  "pgwire",
