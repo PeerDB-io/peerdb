@@ -3,10 +3,7 @@ use std::env;
 
 use anyhow::{anyhow, Context};
 use base64::prelude::*;
-use chacha20poly1305::{
-    aead::{generic_array::GenericArray, Aead, KeyInit},
-    ChaCha20Poly1305,
-};
+use chacha20poly1305::{aead::Aead, ChaCha20Poly1305, KeyInit, Nonce};
 use peer_cursor::{QueryExecutor, QueryOutput, Schema};
 use peer_postgres::{self, ast};
 use pgwire::error::PgWireResult;
@@ -129,7 +126,7 @@ impl Catalog {
             return Err(anyhow!("ciphertext too short"));
         }
 
-        let nonce = GenericArray::from_slice(&payload[..nonce_size]);
+        let nonce = Nonce::from_slice(&payload[..nonce_size]);
         let ciphertext = &payload[nonce_size..];
 
         let cipher = ChaCha20Poly1305::new_from_slice(&key)
