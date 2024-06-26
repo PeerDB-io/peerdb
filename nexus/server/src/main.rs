@@ -341,7 +341,6 @@ impl NexusBackend {
     ) -> PgWireResult<Vec<Response<'a>>> {
         match nexus_stmt {
             NexusStatement::PeerDDL { stmt: _, ref ddl } => match ddl.as_ref() {
-                // broke create if not exists, need to fix
                 PeerDDL::CreatePeer { peer, .. } => {
                     self.create_peer(peer).await.map_err(|e| {
                         PgWireError::UserError(Box::new(ErrorInfo::new(
