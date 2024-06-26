@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::env;
 
-use aes::cipher::{block_padding::Pkcs7, BlockSizeUser, BlockDecryptMut, BlockEncryptMut, IvSizeUser, KeyIvInit};
+use aes::cipher::{
+    block_padding::Pkcs7, BlockDecryptMut, IvSizeUser, KeyIvInit,
+};
 use anyhow::{anyhow, Context};
 use base64::prelude::*;
 use peer_cursor::{QueryExecutor, QueryOutput, Schema};
@@ -23,7 +25,6 @@ mod embedded {
     embed_migrations!("migrations");
 }
 
-type Aes256CbcEnc = cbc::Encryptor<aes::Aes256>;
 type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
 
 pub struct Catalog {
@@ -95,45 +96,27 @@ impl Catalog {
 
         // TODO use serde derive
         let Value::Array(keys) = serde_json::from_str(&enc_keys)? else {
-            return Err(anyhow!("PEERDB_ENC_KEYS not a json array"))
+            return Err(anyhow!("PEERDB_ENC_KEYS not a json array"));
         };
         for item in keys {
             let Value::Object(map) = item else {
-                return Err(anyhow!("PEERDB_ENC_KEYS not a json array of json objects"))
+                return Err(anyhow!("PEERDB_ENC_KEYS not a json array of json objects"));
             };
             let Some(&Value::String(ref id)) = map.get("id") else {
-                return Err(anyhow!("PEERDB_ENC_KEYS id not a json string"))
+                return Err(anyhow!("PEERDB_ENC_KEYS id not a json string"));
             };
             if id == enc_key_id {
                 let Some(&Value::String(ref value)) = map.get("value") else {
-                    return Err(anyhow!("PEERDB_ENC_KEYS value not a json string"))
+                    return Err(anyhow!("PEERDB_ENC_KEYS value not a json string"));
                 };
                 let key = BASE64_STANDARD.decode(value)?;
                 if key.len() != 32 {
-                    return Err(anyhow!("PEERDB_ENC_KEYS must be 32 bytes"))
+                    return Err(anyhow!("PEERDB_ENC_KEYS must be 32 bytes"));
                 }
-                return Ok(key)
+                return Ok(key);
             }
         }
         Err(anyhow!("failed to find default encryption key"))
-    }
-
-    pub fn encrypt(payload: &mut Vec<u8>, enc_key_id: &str) -> anyhow::Result<()> {
-        let key = Self::env_enc_key(enc_key_id)?;
-        let ivlen = Aes256CbcEnc::iv_size();
-        let paylen = payload.len();
-        let paylenmod = paylen % Aes256CbcEnc::block_size();
-        if paylenmod != 0 {
-            payload.resize(paylen + (Aes256CbcEnc::block_size() - paylenmod) + ivlen, 0)
-        } else {
-            payload.resize(paylen + ivlen, 0)
-        }
-        let payloadlen = payload.len();
-        payload.copy_within(0..(payloadlen - ivlen), ivlen);
-        getrandom::getrandom(&mut payload[..ivlen])?;
-        let enc = Aes256CbcEnc::new_from_slices(&key, &payload[..ivlen])?;
-        enc.encrypt_padded_mut::<Pkcs7>(&mut payload[ivlen..], paylen).expect("incorrect padding adjustment");
-        Ok(())
     }
 
     pub fn decrypt(payload: &[u8], enc_key_id: &str) -> anyhow::Result<Vec<u8>> {
@@ -141,59 +124,9 @@ impl Catalog {
         let ivlen = Aes256CbcDec::iv_size();
         let dec = Aes256CbcDec::new_from_slices(&key, &payload[..ivlen])?;
         let Ok(result) = dec.decrypt_padded_vec_mut::<Pkcs7>(&payload[ivlen..]) else {
-            return Err(anyhow!("invalid padding while decrypting"))
+            return Err(anyhow!("invalid padding while decrypting"));
         };
         Ok(result)
-    }
-
-    pub async fn create_peer(&self, peer: &Peer, if_not_exists: bool) -> anyhow::Result<i64> {
-        let mut config_blob = match peer.config.as_ref().context("invalid peer config")? {
-                Config::SnowflakeConfig(snowflake_config) => snowflake_config.encode_to_vec(),
-                Config::BigqueryConfig(bigquery_config) => bigquery_config.encode_to_vec(),
-                Config::MongoConfig(mongo_config) => mongo_config.encode_to_vec(),
-                Config::PostgresConfig(postgres_config) => postgres_config.encode_to_vec(),
-                Config::S3Config(s3_config) => s3_config.encode_to_vec(),
-                Config::SqlserverConfig(sqlserver_config) => sqlserver_config.encode_to_vec(),
-                Config::EventhubGroupConfig(eventhub_group_config) => {
-                    eventhub_group_config.encode_to_vec()
-                }
-                Config::ClickhouseConfig(clickhouse_config) => clickhouse_config.encode_to_vec(),
-                Config::KafkaConfig(kafka_config) => kafka_config.encode_to_vec(),
-                Config::PubsubConfig(pubsub_config) => pubsub_config.encode_to_vec(),
-                Config::ElasticsearchConfig(elasticsearch_config) => {
-                    elasticsearch_config.encode_to_vec()
-                }
-                Config::MysqlConfig(mysql_config) => mysql_config.encode_to_vec(),
-        };
-        let current_enc_key_id = env::var("PEERDB_CURRENT_ENC_KEY_ID")?;
-        Self::encrypt(&mut config_blob, &current_enc_key_id)?;
-
-        let stmt = self
-            .pg
-            .prepare_typed(
-                "INSERT INTO peers (name, type, options, enc_key_id) VALUES ($1, $2, $3, $4)",
-                &[types::Type::TEXT, types::Type::INT4, types::Type::BYTEA, types::Type::TEXT],
-            )
-            .await?;
-
-        if let Err(err) = self
-            .pg
-            .execute(&stmt, &[&peer.name, &peer.r#type, &config_blob, &current_enc_key_id])
-            .await
-        {
-            if !if_not_exists
-                || err.code() != Some(&tokio_postgres::error::SqlState::UNIQUE_VIOLATION)
-            {
-                return Err(err.into());
-            }
-        }
-
-        self.get_peer_id(&peer.name).await
-    }
-
-    async fn get_peer_id(&self, peer_name: &str) -> anyhow::Result<i64> {
-        let id = self.get_peer_id_i32(peer_name).await?;
-        Ok(id as i64)
     }
 
     // get peer id as i32
@@ -234,7 +167,10 @@ impl Catalog {
     pub async fn get_peers(&self) -> anyhow::Result<HashMap<String, Peer>> {
         let stmt = self
             .pg
-            .prepare_typed("SELECT name, type, options, enc_key_id FROM public.peers", &[])
+            .prepare_typed(
+                "SELECT name, type, options, enc_key_id FROM public.peers",
+                &[],
+            )
             .await?;
 
         let rows = self.pg.query(&stmt, &[]).await?;
@@ -294,10 +230,7 @@ impl Catalog {
     pub async fn get_peer_name_by_id(&self, peer_id: i32) -> anyhow::Result<String> {
         let stmt = self
             .pg
-            .prepare_typed(
-                "SELECT name FROM public.peers WHERE id = $1",
-                &[],
-            )
+            .prepare_typed("SELECT name FROM public.peers WHERE id = $1", &[])
             .await?;
 
         let row = self.pg.query_opt(&stmt, &[&peer_id]).await?;
@@ -307,7 +240,6 @@ impl Catalog {
         } else {
             Err(anyhow::anyhow!("No peer with id {} found", peer_id))
         }
-
     }
 
     pub async fn get_peer_by_id(&self, peer_id: i32) -> anyhow::Result<Peer> {
@@ -358,8 +290,8 @@ impl Catalog {
             };
             Some(match db_type {
                 DbType::Snowflake => {
-                    let snowflake_config =
-                        pt::peerdb_peers::SnowflakeConfig::decode(&options[..]).with_context(err)?;
+                    let snowflake_config = pt::peerdb_peers::SnowflakeConfig::decode(&options[..])
+                        .with_context(err)?;
                     Config::SnowflakeConfig(snowflake_config)
                 }
                 DbType::Bigquery => {
@@ -383,18 +315,20 @@ impl Catalog {
                     Config::S3Config(s3_config)
                 }
                 DbType::Sqlserver => {
-                    let sqlserver_config =
-                        pt::peerdb_peers::SqlServerConfig::decode(&options[..]).with_context(err)?;
+                    let sqlserver_config = pt::peerdb_peers::SqlServerConfig::decode(&options[..])
+                        .with_context(err)?;
                     Config::SqlserverConfig(sqlserver_config)
                 }
                 DbType::Eventhubs => {
                     let eventhub_group_config =
-                        pt::peerdb_peers::EventHubGroupConfig::decode(&options[..]).with_context(err)?;
+                        pt::peerdb_peers::EventHubGroupConfig::decode(&options[..])
+                            .with_context(err)?;
                     Config::EventhubGroupConfig(eventhub_group_config)
                 }
                 DbType::Clickhouse => {
                     let clickhouse_config =
-                        pt::peerdb_peers::ClickhouseConfig::decode(&options[..]).with_context(err)?;
+                        pt::peerdb_peers::ClickhouseConfig::decode(&options[..])
+                            .with_context(err)?;
                     Config::ClickhouseConfig(clickhouse_config)
                 }
                 DbType::Kafka => {
@@ -409,7 +343,8 @@ impl Catalog {
                 }
                 DbType::Elasticsearch => {
                     let elasticsearch_config =
-                        pt::peerdb_peers::ElasticsearchConfig::decode(&options[..]).with_context(err)?;
+                        pt::peerdb_peers::ElasticsearchConfig::decode(&options[..])
+                            .with_context(err)?;
                     Config::ElasticsearchConfig(elasticsearch_config)
                 }
                 DbType::Mysql => {
