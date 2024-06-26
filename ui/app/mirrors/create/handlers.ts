@@ -1,6 +1,5 @@
 import { UCreateMirrorResponse } from '@/app/dto/MirrorsDTO';
 import {
-  UColumnsResponse,
   UPublicationsResponse,
   USchemasResponse,
   UTablesAllResponse,
@@ -15,6 +14,7 @@ import {
   QRepWriteType,
 } from '@/grpc_generated/flow';
 import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
+import { TableColumnsResponse } from '@/grpc_generated/route';
 import { Dispatch, SetStateAction } from 'react';
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 import {
@@ -372,7 +372,7 @@ export const fetchColumns = async (
 ) => {
   if (peerName?.length === 0) return [];
   setLoading(true);
-  const columnsRes: UColumnsResponse = await fetch('/api/peers/columns', {
+  const columnsRes: TableColumnsResponse = await fetch('/api/peers/columns', {
     method: 'POST',
     body: JSON.stringify({
       peerName,
