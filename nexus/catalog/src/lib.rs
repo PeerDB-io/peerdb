@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::env;
 
-use aes::cipher::{
-    block_padding::Pkcs7, BlockDecryptMut, IvSizeUser, KeyIvInit,
-};
 use anyhow::{anyhow, Context};
 use base64::prelude::*;
+use chacha20poly1305::{
+    aead::{generic_array::GenericArray, Aead, KeyInit},
+    ChaCha20Poly1305,
+};
 use peer_cursor::{QueryExecutor, QueryOutput, Schema};
 use peer_postgres::{self, ast};
 use pgwire::error::PgWireResult;
@@ -24,8 +25,6 @@ mod embedded {
     use refinery::embed_migrations;
     embed_migrations!("migrations");
 }
-
-type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
 
 pub struct Catalog {
     pg: Client,
@@ -124,13 +123,21 @@ impl Catalog {
             return Ok(payload.to_vec());
         }
 
+        let nonce_size = 12;
         let key = Self::env_enc_key(enc_key_id)?;
-        let ivlen = Aes256CbcDec::iv_size();
-        let dec = Aes256CbcDec::new_from_slices(&key, &payload[..ivlen])?;
-        let Ok(result) = dec.decrypt_padded_vec_mut::<Pkcs7>(&payload[ivlen..]) else {
-            return Err(anyhow!("invalid padding while decrypting"));
-        };
-        Ok(result)
+        if payload.len() < nonce_size {
+            return Err(anyhow!("ciphertext too short"));
+        }
+
+        let nonce = GenericArray::from_slice(&payload[..nonce_size]);
+        let ciphertext = &payload[nonce_size..];
+
+        let cipher = ChaCha20Poly1305::new_from_slice(&key)
+            .map_err(|e| anyhow!("Failed to create ChaCha20Poly1305 cipher: {}", e))?;
+
+        cipher
+            .decrypt(nonce, ciphertext)
+            .map_err(|e| anyhow!("Decryption failed: {}", e))
     }
 
     // get peer id as i32

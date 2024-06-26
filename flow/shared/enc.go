@@ -1,15 +1,13 @@
 package shared
 
 import (
-	"bytes"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
-	"math"
+
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 // PeerDBEncKey is a key for encrypting and decrypting data.
@@ -34,6 +32,8 @@ func (e PeerDBEncKeys) Get(id string) (*PeerDBEncKey, error) {
 	return nil, fmt.Errorf("failed to find encryption key - %s", id)
 }
 
+const nonceSize = 12
+
 // Decrypt decrypts the given ciphertext using the PeerDBEncKey.
 func (key *PeerDBEncKey) Decrypt(ciphertext []byte) ([]byte, error) {
 	if key == nil {
@@ -49,34 +49,24 @@ func (key *PeerDBEncKey) Decrypt(ciphertext []byte) ([]byte, error) {
 		return nil, errors.New("invalid key length, must be 32 bytes")
 	}
 
-	block, err := aes.NewCipher(decodedKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create new cipher: %w", err)
-	}
-
-	if len(ciphertext) < aes.BlockSize {
+	if len(ciphertext) < nonceSize {
 		return nil, errors.New("ciphertext too short")
 	}
 
-	iv := ciphertext[:aes.BlockSize]
-	ciphertext = ciphertext[aes.BlockSize:]
+	nonce := ciphertext[:nonceSize]
+	ciphertext = ciphertext[nonceSize:]
 
-	if len(ciphertext)%aes.BlockSize != 0 {
-		return nil, errors.New("ciphertext is not a multiple of the block size")
+	aead, err := chacha20poly1305.New(decodedKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ChaCha20-Poly1305: %w", err)
 	}
 
-	mode := cipher.NewCBCDecrypter(block, iv)
-	mode.CryptBlocks(ciphertext, ciphertext)
-
-	return PKCS7Unpad(ciphertext, aes.BlockSize)
-}
-
-// Check for potential overflow and allocate memory safely
-func safeAlloc(plaintext []byte) ([]byte, error) {
-	if len(plaintext) > math.MaxInt32-aes.BlockSize {
-		return nil, errors.New("plaintext too large, would cause integer overflow")
+	plaintext, err := aead.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt: %w", err)
 	}
-	return make([]byte, aes.BlockSize+len(plaintext)), nil
+
+	return plaintext, nil
 }
 
 // Encrypt encrypts the given plaintext using the PeerDBEncKey.
@@ -94,58 +84,16 @@ func (key *PeerDBEncKey) Encrypt(plaintext []byte) ([]byte, error) {
 		return nil, errors.New("invalid key length, must be 32 bytes")
 	}
 
-	block, err := aes.NewCipher(decodedKey)
+	aead, err := chacha20poly1305.New(decodedKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create new cipher: %w", err)
+		return nil, fmt.Errorf("failed to create ChaCha20-Poly1305: %w", err)
 	}
 
-	plaintext, err = PKCS7Pad(plaintext, aes.BlockSize)
-	if err != nil {
-		return nil, fmt.Errorf("failed to pad plaintext: %w", err)
+	nonce := make([]byte, nonceSize)
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
-	ciphertext, err := safeAlloc(plaintext)
-	if err != nil {
-		return nil, fmt.Errorf("failed to allocate ciphertext: %w", err)
-	}
-	iv := ciphertext[:aes.BlockSize]
-
-	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
-		return nil, fmt.Errorf("failed to generate IV: %w", err)
-	}
-	mode := cipher.NewCBCEncrypter(block, iv)
-	mode.CryptBlocks(ciphertext[aes.BlockSize:], plaintext)
-
+	ciphertext := aead.Seal(nonce, nonce, plaintext, nil)
 	return ciphertext, nil
-}
-
-// PKCS7Pad pads the given data to the specified block length using the PKCS7 padding scheme.
-func PKCS7Pad(data []byte, blocklen int) ([]byte, error) {
-	padding := blocklen - len(data)%blocklen
-	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
-	return append(data, padtext...), nil
-}
-
-// PKCS7Unpad removes the PKCS7 padding from the given data.
-func PKCS7Unpad(data []byte, blocklen int) ([]byte, error) {
-	if len(data) == 0 {
-		return nil, errors.New("invalid padding size")
-	}
-
-	if len(data)%blocklen != 0 {
-		return nil, errors.New("invalid padding on data")
-	}
-
-	paddingLen := int(data[len(data)-1])
-	if paddingLen > blocklen || paddingLen == 0 {
-		return nil, errors.New("invalid padding size")
-	}
-
-	for _, v := range data[len(data)-paddingLen:] {
-		if int(v) != paddingLen {
-			return nil, errors.New("invalid padding")
-		}
-	}
-
-	return data[:len(data)-paddingLen], nil
 }
