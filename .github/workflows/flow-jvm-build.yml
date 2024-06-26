@@ -1,0 +1,38 @@
+name: Build & Test Flow JVM
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths: [flow-jvm/**, protos/**, .sdkmanrc]
+
+jobs:
+  build-test:
+    name: Build & Test Flow JVM
+    strategy:
+      matrix:
+        runner: [ubuntu-latest]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Check dependency versions
+        run: |
+          java -version
+          gradle -version
+        working-directory: flow-jvm
+      - name: Download/Setup gradle wrapper
+        working-directory: flow-jvm
+        run: |
+          gradle wrapper
+      - name: Build
+        working-directory: flow-jvm
+        run: ./gradlew quarkusGenerateCode --stacktrace --info && ./gradlew build test --stacktrace --info

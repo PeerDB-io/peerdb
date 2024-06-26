@@ -16,7 +16,8 @@ group "default" {
     "flow-worker",
     "flow-api",
     "flow-snapshot-worker",
-    "peerdb-ui"
+    "peerdb-ui",
+    "flow-jvm",
   ]
 }
 
@@ -88,5 +89,19 @@ target "peerdb-ui" {
   tags = [
     "${REGISTRY}/peerdb-ui:${TAG}",
     "${REGISTRY}/peerdb-ui:${SHA_SHORT}",
+  ]
+}
+
+target "flow-jvm" {
+  context    = "."
+  dockerfile = "stacks/jvm.Dockerfile"
+  target     = "runner"
+  platforms = [
+    "linux/amd64",
+    "linux/arm64",
+  ]
+  tags = [
+    "${REGISTRY}/flow-jvm:${TAG}",
+    "${REGISTRY}/flow-jvm:${SHA_SHORT}",
   ]
 }

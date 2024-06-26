@@ -1,0 +1,112 @@
+plugins {
+    id 'java'
+    id 'io.quarkus'
+}
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+}
+
+ext {
+    icebergLibVersion = '1.5.2'
+}
+
+
+dependencies {
+    implementation 'io.quarkus:quarkus-config-yaml'
+    implementation enforcedPlatform("${quarkusPlatformGroupId}:${quarkusPlatformArtifactId}:${quarkusPlatformVersion}")
+    implementation 'io.quarkus:quarkus-arc'
+    implementation 'io.quarkus:quarkus-grpc'
+    implementation 'io.quarkus:quarkus-rest'
+    implementation 'io.quarkus:quarkus-logging-json'
+
+    // Logging adapter for dependencies, also prevents duplicate slf4j binding warnings https://quarkus.io/guides/logging#logging-apis
+    implementation("org.jboss.logging:commons-logging-jboss-logging")
+    implementation("org.jboss.logmanager:log4j-jboss-logmanager")
+    implementation("org.jboss.logmanager:log4j2-jboss-logmanager")
+    implementation("org.jboss.slf4j:slf4j-jboss-logmanager")
+
+    implementation "org.apache.iceberg:iceberg-core:${icebergLibVersion}"
+    implementation "org.apache.iceberg:iceberg-common:${icebergLibVersion}"
+    implementation "org.apache.iceberg:iceberg-data:${icebergLibVersion}"
+    implementation "org.apache.iceberg:iceberg-parquet:${icebergLibVersion}"
+
+    // This is forced due to version conflicts
+    implementation 'io.grpc:grpc-protobuf:1.63.0'
+    implementation 'com.google.protobuf:protobuf-java:4.27.1'
+
+    implementation 'org.apache.avro:avro:1.11.3'
+
+    implementation 'org.apache.hadoop:hadoop-client:3.4.0'
+    implementation 'org.apache.hadoop:hadoop-common:3.4.0'
+
+    // Drivers for JDBC Catalogs
+    runtimeOnly 'org.postgresql:postgresql:42.7.3'
+
+    // AWS Dependencies
+    implementation "org.apache.iceberg:iceberg-aws:${icebergLibVersion}"
+    runtimeOnly "org.apache.iceberg:iceberg-aws-bundle:${icebergLibVersion}"
+//    runtimeOnly 'software.amazon.awssdk:bundle:2.25.60'
+
+//    // HIVE4 Dependencies
+//    implementation 'org.apache.hive:hive-iceberg-catalog:4.0.0'
+//    // DO NOT USE THE BELOW DEPENDENCIES https://github.com/apache/iceberg/issues/10429
+////    implementation "org.apache.iceberg:iceberg-hive-metastore:${icebergLibVersion}"
+////    runtimeOnly "org.apache.hive:hive-metastore:4.0.0"
+
+    // HIVE 3 Dependencies
+    implementation "org.apache.iceberg:iceberg-hive-metastore:${icebergLibVersion}"
+    runtimeOnly "org.apache.hive:hive-metastore:3.1.3"
+
+
+
+
+    // GCP Dependencies
+    implementation "org.apache.iceberg:iceberg-gcp:${icebergLibVersion}"
+    // This is currently causing issues with GRPC versions mismatch
+    runtimeOnly "org.apache.iceberg:iceberg-gcp-bundle:${icebergLibVersion}"
+
+
+    testImplementation 'io.quarkus:quarkus-junit5'
+    testImplementation 'io.rest-assured:rest-assured'
+
+}
+
+
+configurations.configureEach {
+//    // ch.qos.logback:logback-core
+//    exclude group: 'ch.qos.logback', module: 'logback-core'
+    // ch.qos.logback:logback-classic
+    exclude group: 'ch.qos.logback', module: 'logback-classic'
+    // org.apache.logging.log4j:log4j-slf4j-impl
+    exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
+    // org.slf4j:slf4j-reload4j
+    exclude group: 'org.slf4j', module: 'slf4j-reload4j'
+}
+
+
+group 'io.peerdb'
+version '0.0.1-SNAPSHOT'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+test {
+    systemProperty "java.util.logging.manager", "org.jboss.logmanager.LogManager"
+}
+compileJava {
+    options.encoding = 'UTF-8'
+    options.compilerArgs << '-parameters'
+}
+
+compileTestJava {
+    options.encoding = 'UTF-8'
+}
+
+
+quarkus {
+    quarkusBuildProperties.put("quarkus.grpc.codegen.proto-directory", "${project.projectDir}/../protos")
+}

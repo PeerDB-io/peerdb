@@ -10,6 +10,7 @@ import {
   chSchema,
   ehGroupSchema,
   esSchema,
+  iceSchema,
   kaSchema,
   peerNameSchema,
   pgSchema,
@@ -77,9 +78,13 @@ const validateFields = (
     case 'ELASTICSEARCH':
       const esConfig = esSchema.safeParse(config);
       if (!esConfig.success) {
-        console.log(esConfig.error);
         validationErr = esConfig.error.issues[0].message;
       }
+      break;
+    case 'ICEBERG':
+      const icebergConfig = iceSchema.safeParse(config);
+      if (!icebergConfig.success)
+        validationErr = icebergConfig.error.issues[0].message;
       break;
     default:
       validationErr = 'Unsupported peer type ' + type;

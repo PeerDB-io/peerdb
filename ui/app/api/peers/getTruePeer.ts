@@ -4,6 +4,7 @@ import {
   ClickhouseConfig,
   ElasticsearchConfig,
   EventHubGroupConfig,
+  IcebergConfig,
   KafkaConfig,
   MySqlConfig,
   Peer,
@@ -53,6 +54,9 @@ export const getTruePeer = (peer: CatalogPeer) => {
       break;
     case 12:
       newPeer.elasticsearchConfig = ElasticsearchConfig.decode(options);
+      break;
+    case 13:
+      newPeer.icebergConfig = IcebergConfig.decode(options);
       break;
     default:
       return newPeer;

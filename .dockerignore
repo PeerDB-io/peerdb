@@ -13,3 +13,12 @@ ui/.next
 .gitignore
 .github
 .gitmodules
+
+
+build
+*.jar
+.idea
+.gradle
+.dockerignore
+.sdkmanrc
+

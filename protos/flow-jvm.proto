@@ -1,0 +1,123 @@
+syntax = "proto3";
+
+package peerdb_flow_jvm;
+
+import "peers.proto";
+
+option java_multiple_files = true;
+option java_package = "io.peerdb.flow.jvm.grpc";
+
+service IcebergProxyService {
+  rpc CreateTable(CreateTableRequest) returns (CreateTableResponse) {}
+
+  rpc DropTable(DropTableRequest) returns (DropTableResponse) {}
+
+  rpc CountRecords(CountRecordRequest) returns (CountRecordResponse) {}
+
+  rpc InsertChanges(InsertChangesRequest) returns (InsertChangesResponse) {}
+
+  rpc AppendRecords(AppendRecordsRequest) returns (AppendRecordsResponse) {}
+
+  rpc StreamingAppendRecords(stream AppendRecordsStreamRequest) returns (AppendRecordsStreamResponse) {}
+}
+
+message TableInfo {
+  repeated string namespace = 1;
+  string table_name = 2;
+  peerdb_peers.IcebergCatalog iceberg_catalog = 3;
+  repeated string primary_key = 4;
+}
+
+message CreateTableRequest {
+  TableInfo table_info = 1;
+  string schema = 2;
+}
+
+message CreateTableResponse {
+  string table_name = 1;
+}
+
+message DropTableRequest {
+  TableInfo table_info = 1;
+  bool purge = 2;
+}
+
+message DropTableResponse {
+  bool success = 1;
+}
+
+message CountRecordRequest {
+  TableInfo table_info = 1;
+}
+
+message CountRecordResponse {
+  int64 count = 1;
+}
+
+message BranchOptions {
+  string branch = 1;
+  BranchCreateConflictPolicy branch_create_conflict_policy = 2;
+}
+
+enum BranchCreateConflictPolicy {
+  ERROR = 0;
+  DROP = 1;
+  IGNORE = 2;
+}
+
+message InsertChangesRequest {
+  TableInfo table_info = 1;
+  string schema = 2;
+  repeated RecordChange changes = 3;
+  optional BranchOptions branch_options = 4;
+}
+
+message InsertRecord {
+  bytes record = 1;
+}
+
+message DeleteRecord {
+  bytes record = 1;
+}
+
+message UpdateRecord {
+  bytes record = 1;
+}
+
+message RecordChange {
+  oneof change {
+    InsertRecord insert = 1;
+    DeleteRecord delete = 2;
+    UpdateRecord update = 3;
+  }
+}
+message InsertChangesResponse {
+  bool success = 1;
+}
+
+message AppendRecordTableHeader {
+  TableInfo table_info = 1;
+  string schema = 2;
+  optional string idempotency_key = 3;
+}
+
+message AppendRecordsRequest {
+  AppendRecordTableHeader table_header = 1;
+  repeated InsertRecord records = 2;
+}
+
+message AppendRecordsResponse {
+  bool success = 1;
+}
+
+
+message AppendRecordsStreamRequest {
+  oneof command {
+    AppendRecordTableHeader table_header = 1;
+    InsertRecord record = 2;
+  }
+}
+
+message AppendRecordsStreamResponse {
+  bool success = 1;
+}

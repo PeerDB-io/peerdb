@@ -1,0 +1,13 @@
+#*
+#!build/*-runner
+#!build/*-runner.jar
+#!build/lib/*
+#!build/quarkus-app/*
+build
+*.jar
+.idea
+.gradle
+src/main/docker
+.dockerignore
+.git
+.sdkmanrc

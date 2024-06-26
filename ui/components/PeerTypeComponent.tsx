@@ -28,6 +28,8 @@ export const DBTypeToGoodText = (ptype?: DBType) => {
       return 'PubSub';
     case DBType.ELASTICSEARCH:
       return 'Elasticsearch';
+    case DBType.ICEBERG:
+      return 'Iceberg';
     default:
       return 'Unrecognised';
   }

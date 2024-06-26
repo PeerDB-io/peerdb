@@ -10,6 +10,7 @@ import {
   DBType,
   ElasticsearchConfig,
   EventHubGroupConfig,
+  IcebergConfig,
   KafkaConfig,
   Peer,
   PostgresConfig,
@@ -88,6 +89,12 @@ const constructPeer = (
         name,
         type: DBType.ELASTICSEARCH,
         elasticsearchConfig: config as ElasticsearchConfig,
+      };
+    case 'ICEBERG':
+      return {
+        name,
+        type: DBType.ICEBERG,
+        icebergConfig: config as IcebergConfig,
       };
     default:
       return;

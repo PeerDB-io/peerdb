@@ -85,6 +85,12 @@ func CreatePeerNoValidate(
 			return wrongConfigResponse, nil
 		}
 		innerConfig = esConfigObject.ElasticsearchConfig
+	case protos.DBType_ICEBERG:
+		icebergConfigObject, ok := config.(*protos.Peer_IcebergConfig)
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+		innerConfig = icebergConfigObject.IcebergConfig
 	default:
 		return wrongConfigResponse, nil
 	}
@@ -96,9 +102,9 @@ func CreatePeerNoValidate(
 	}
 
 	_, err := pool.Exec(ctx, `
-		INSERT INTO peers (name, type, options) 
+		INSERT INTO peers (name, type, options)
 		VALUES ($1, $2, $3)
-		ON CONFLICT (name) DO UPDATE 
+		ON CONFLICT (name) DO UPDATE
 		SET type = $2, options = $3`,
 		peer.Name, peerType, encodedConfig,
 	)
