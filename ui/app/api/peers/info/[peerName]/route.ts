@@ -7,7 +7,10 @@ export async function GET(
   context: { params: { peerName: string } }
 ) {
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
-  return fetch(`${flowServiceAddr}/v1/peers/info/${encodeURIComponent(context.params.peerName)}`,{
-    cache: 'no-store',
-  });
+  return fetch(
+    `${flowServiceAddr}/v1/peers/info/${encodeURIComponent(context.params.peerName)}`,
+    {
+      cache: 'no-store',
+    }
+  );
 }

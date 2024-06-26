@@ -102,11 +102,11 @@ impl Catalog {
             let Value::Object(map) = item else {
                 return Err(anyhow!("PEERDB_ENC_KEYS not a json array of json objects"));
             };
-            let Some(&Value::String(ref id)) = map.get("id") else {
+            let Some(Value::String(id)) = map.get("id") else {
                 return Err(anyhow!("PEERDB_ENC_KEYS id not a json string"));
             };
             if id == enc_key_id {
-                let Some(&Value::String(ref value)) = map.get("value") else {
+                let Some(Value::String(value)) = map.get("value") else {
                     return Err(anyhow!("PEERDB_ENC_KEYS value not a json string"));
                 };
                 let key = BASE64_STANDARD.decode(value)?;

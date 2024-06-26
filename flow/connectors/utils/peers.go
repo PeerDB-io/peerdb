@@ -103,15 +103,15 @@ func CreatePeerNoValidate(
 		return nil, fmt.Errorf("failed to encrypt peer configuration: %w", err)
 	}
 
-	onConflict := "DO NOTHING"
+	onConflict := "NOTHING"
 	if allowUpdate {
-		onConflict = "DO UPDATE SET type = $2,options = $3,enc_key_id = $4"
+		onConflict = "UPDATE SET type = $2,options = $3,enc_key_id = $4"
 	}
 
-	_, err = pool.Exec(ctx, fmt.Sprintf(`
+	_, err = pool.Exec(ctx, `
 		INSERT INTO peers (name, type, options, enc_key_id)
 		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (name) %s`, onConflict),
+		ON CONFLICT (name) DO `+onConflict,
 		peer.Name, peerType, encryptedConfig, keyID,
 	)
 	if err != nil {
