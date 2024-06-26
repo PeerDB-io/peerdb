@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -51,6 +53,78 @@ func (h *FlowRequestHandler) getConnForPGPeer(ctx context.Context, peerName stri
 	}
 
 	return tunnel, conn, nil
+}
+
+func (h *FlowRequestHandler) GetPeerInfo(
+	ctx context.Context,
+	req *protos.PeerInfoRequest,
+) (*protos.Peer, error) {
+	peer, err := connectors.LoadPeer(ctx, h.pool, req.PeerName)
+	if err != nil {
+		return nil, err
+	}
+
+	// omit sensitive keys
+	redacted := "********"
+	switch inner := peer.Config.(type) {
+	case *protos.Peer_PostgresConfig:
+		config := inner.PostgresConfig
+		config.Password = redacted
+		if ssh := config.SshConfig; ssh != nil {
+			ssh.Password = redacted
+			ssh.PrivateKey = redacted
+			ssh.HostKey = redacted
+		}
+	case *protos.Peer_BigqueryConfig:
+		config := inner.BigqueryConfig
+		config.PrivateKey = redacted
+		config.PrivateKeyId = redacted
+	case *protos.Peer_MongoConfig:
+		config := inner.MongoConfig
+		config.Password = redacted
+	case *protos.Peer_S3Config:
+		config := inner.S3Config
+		config.SecretAccessKey = &redacted
+	case *protos.Peer_SnowflakeConfig:
+		config := inner.SnowflakeConfig
+		config.PrivateKey = redacted
+		config.Password = &redacted
+	case *protos.Peer_EventhubGroupConfig:
+		config := inner.EventhubGroupConfig
+		for _, ev := range config.Eventhubs {
+			ev.SubscriptionId = redacted
+		}
+	case *protos.Peer_ClickhouseConfig:
+		config := inner.ClickhouseConfig
+		config.Password = redacted
+		config.AccessKeyId = redacted
+		config.SecretAccessKey = redacted
+	case *protos.Peer_KafkaConfig:
+		config := inner.KafkaConfig
+		config.Password = redacted
+	case *protos.Peer_PubsubConfig:
+		config := inner.PubsubConfig
+		config.ServiceAccount.PrivateKey = redacted
+		config.ServiceAccount.PrivateKeyId = redacted
+	case *protos.Peer_ElasticsearchConfig:
+		config := inner.ElasticsearchConfig
+		if config.AuthType == protos.ElasticsearchAuthType_BASIC {
+			config.Username = &redacted
+			config.Password = &redacted
+			config.ApiKey = nil
+		} else if config.AuthType == protos.ElasticsearchAuthType_APIKEY {
+			config.Username = nil
+			config.Password = nil
+			config.ApiKey = &redacted
+		}
+	case *protos.Peer_MysqlConfig:
+		config := inner.MysqlConfig
+		config.Password = redacted
+	default:
+		// don't risk sending new peer types unredacted
+		return nil, errors.ErrUnsupported
+	}
+	return peer, nil
 }
 
 func (h *FlowRequestHandler) GetSchemas(
