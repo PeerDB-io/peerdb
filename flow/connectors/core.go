@@ -25,6 +25,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_guages"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 type Connector interface {
@@ -264,13 +265,19 @@ func LoadPeerType(ctx context.Context, catalogPool *pgxpool.Pool, peerName strin
 
 func LoadPeer(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (*protos.Peer, error) {
 	row := catalogPool.QueryRow(ctx, `
-		SELECT type, options
+		SELECT type, options, enc_key_id
 		FROM peers
 		WHERE name = $1`, peerName)
 
 	peer := &protos.Peer{Name: peerName}
-	var peerOptions []byte
-	if err := row.Scan(&peer.Type, &peerOptions); err != nil {
+	var encKeyID string
+	var encPeerOptions []byte
+	if err := row.Scan(&peer.Type, &encPeerOptions, &encKeyID); err != nil {
+		return nil, fmt.Errorf("failed to load peer: %w", err)
+	}
+
+	peerOptions, err := decryptPeerOptions(encKeyID, encPeerOptions)
+	if err != nil {
 		return nil, fmt.Errorf("failed to load peer: %w", err)
 	}
 
@@ -352,6 +359,20 @@ func LoadPeer(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (
 	}
 
 	return peer, nil
+}
+
+func decryptPeerOptions(encKeyID string, encPeerOptions []byte) ([]byte, error) {
+	if encKeyID == "" {
+		return encPeerOptions, nil
+	}
+
+	keys := peerdbenv.PeerDBEncKeys()
+	key, err := keys.Get(encKeyID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load peer, unable to find encryption key - %s", encKeyID)
+	}
+
+	return key.Decrypt(encPeerOptions)
 }
 
 func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {

@@ -9,6 +9,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 func CreatePeerNoValidate(
@@ -88,6 +89,7 @@ func CreatePeerNoValidate(
 	default:
 		return wrongConfigResponse, nil
 	}
+
 	encodedConfig, encodingErr := proto.Marshal(innerConfig)
 	if encodingErr != nil {
 		slog.Error(fmt.Sprintf("failed to encode peer configuration for %s peer %s : %v",
@@ -95,13 +97,19 @@ func CreatePeerNoValidate(
 		return nil, encodingErr
 	}
 
-	_, err := pool.Exec(ctx, `
-		INSERT INTO peers (name, type, options) 
-		VALUES ($1, $2, $3)
+	encryptedConfig, keyID, err := encryptPeerOptions(encodedConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt peer configuration: %w", err)
+	}
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO peers (name, type, options, enc_key_id) 
+		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (name) DO UPDATE 
-		SET type = $2, options = $3`,
-		peer.Name, peerType, encodedConfig,
+		SET type = $2, options = $3, enc_key_id = $4`,
+		peer.Name, peerType, encryptedConfig, keyID,
 	)
+
 	if err != nil {
 		return &protos.CreatePeerResponse{
 			Status: protos.CreatePeerStatus_FAILED,
@@ -114,4 +122,22 @@ func CreatePeerNoValidate(
 		Status:  protos.CreatePeerStatus_CREATED,
 		Message: "",
 	}, nil
+}
+
+func encryptPeerOptions(peerOptions []byte) ([]byte, string, error) {
+	key, err := peerdbenv.PeerDBCurrentEncKey()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to get current encryption key: %w", err)
+	}
+
+	if key == nil {
+		return peerOptions, "", nil
+	}
+
+	encrypted, err := key.Encrypt(peerOptions)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to encrypt peer options: %w", err)
+	}
+
+	return encrypted, key.ID, nil
 }
