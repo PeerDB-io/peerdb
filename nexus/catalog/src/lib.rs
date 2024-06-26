@@ -3,7 +3,7 @@ use std::env;
 
 use anyhow::{anyhow, Context};
 use base64::prelude::*;
-use chacha20poly1305::{aead::Aead, ChaCha20Poly1305, KeyInit, Nonce};
+use chacha20poly1305::{aead::Aead, XChaCha20Poly1305, KeyInit, XNonce};
 use peer_cursor::{QueryExecutor, QueryOutput, Schema};
 use peer_postgres::{self, ast};
 use pgwire::error::PgWireResult;
@@ -120,16 +120,16 @@ impl Catalog {
             return Ok(payload.to_vec());
         }
 
-        let nonce_size = 12;
+        const NONCE_SIZE: usize = 24;
         let key = Self::env_enc_key(enc_key_id)?;
-        if payload.len() < nonce_size {
+        if payload.len() < NONCE_SIZE {
             return Err(anyhow!("ciphertext too short"));
         }
 
-        let nonce = Nonce::from_slice(&payload[..nonce_size]);
-        let ciphertext = &payload[nonce_size..];
+        let nonce = XNonce::from_slice(&payload[..NONCE_SIZE]);
+        let ciphertext = &payload[NONCE_SIZE..];
 
-        let cipher = ChaCha20Poly1305::new_from_slice(&key)
+        let cipher = XChaCha20Poly1305::new_from_slice(&key)
             .map_err(|e| anyhow!("Failed to create ChaCha20Poly1305 cipher: {}", e))?;
 
         cipher
