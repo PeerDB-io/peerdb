@@ -1,6 +1,8 @@
 import { FlowConnectionConfigs } from '@/grpc_generated/flow';
 
-const MirrorValues = (mirrorConfig: FlowConnectionConfigs | undefined) => {
+export default function MirrorValues(
+  mirrorConfig: FlowConnectionConfigs | undefined
+) {
   return [
     {
       value: `${mirrorConfig?.maxBatchSize} rows`,
@@ -35,5 +37,4 @@ const MirrorValues = (mirrorConfig: FlowConnectionConfigs | undefined) => {
       label: 'Publication Name',
     },
   ];
-};
-export default MirrorValues;
+}

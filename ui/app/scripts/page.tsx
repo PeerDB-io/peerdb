@@ -1,20 +1,18 @@
+'use client';
 import NewButton from '@/components/NewButton';
 import { Label } from '@/lib/Label/Label';
 import Link from 'next/link';
+import useSWR from 'swr';
 import { ScriptsType } from '../dto/ScriptsDTO';
-import prisma from '../utils/prisma';
+import { fetcher } from '../utils/swr';
 import ScriptsTable from './list';
-export const dynamic = 'force-dynamic';
-export const revalidate = 5;
 
-const ScriptsPage = async () => {
-  const existingScripts = await prisma.scripts.findMany({
-    orderBy: { name: 'asc' },
-  });
-  const scripts: ScriptsType[] = existingScripts.map((script) => ({
-    ...script,
-    source: script.source.toString(),
-  }));
+export default function ScriptsPage() {
+  const { data: scripts, isLoading } = useSWR<ScriptsType[]>(
+    'scripts',
+    fetcher
+  );
+
   return (
     <div
       style={{
@@ -60,9 +58,7 @@ const ScriptsPage = async () => {
           Learn more about PeerDB Lua scripting
         </Label>
       </div>
-      <ScriptsTable scripts={scripts} />
+      {!isLoading && scripts && <ScriptsTable scripts={scripts} />}
     </div>
   );
-};
-
-export default ScriptsPage;
+}

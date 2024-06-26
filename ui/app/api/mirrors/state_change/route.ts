@@ -16,6 +16,9 @@ export async function POST(request: Request) {
 
     return new Response(JSON.stringify(res));
   } catch (e) {
+    if (e instanceof Response) {
+      return e;
+    }
     console.error(e);
   }
 }

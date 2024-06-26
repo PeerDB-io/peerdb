@@ -56,6 +56,9 @@ const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
   const slots = await getSlotData();
   const stats = await getStatData();
 
+  console.log(slots);
+  console.log(stats);
+
   return (
     <div
       style={{

@@ -1,22 +1,24 @@
 'use client';
 import { changeFlowState } from '@/app/mirrors/[mirrorId]/handlers';
-import { FlowConnectionConfigs, FlowStatus } from '@/grpc_generated/flow';
+import { FlowStatus } from '@/grpc_generated/flow';
 import { Button } from '@/lib/Button';
 import { Label } from '@/lib/Label/Label';
 
-function PauseOrResumeButton({
-  mirrorConfig,
-  mirrorStatus,
-}: {
-  mirrorConfig: FlowConnectionConfigs;
+type PauseOrResumeButtonProps = {
+  mirrorName: string;
   mirrorStatus: FlowStatus;
-}) {
+};
+
+function PauseOrResumeButton({
+  mirrorStatus,
+  mirrorName,
+}: PauseOrResumeButtonProps) {
   if (mirrorStatus.toString() === FlowStatus[FlowStatus.STATUS_RUNNING]) {
     return (
       <Button
         variant='normalBorderless'
         style={{ width: '100%', justifyContent: 'left' }}
-        onClick={() => changeFlowState(mirrorConfig, FlowStatus.STATUS_PAUSED)}
+        onClick={() => changeFlowState(mirrorName, FlowStatus.STATUS_PAUSED)}
       >
         <Label>Pause mirror</Label>
       </Button>
@@ -25,7 +27,7 @@ function PauseOrResumeButton({
     return (
       <Button
         style={{ width: '100%', justifyContent: 'left' }}
-        onClick={() => changeFlowState(mirrorConfig, FlowStatus.STATUS_RUNNING)}
+        onClick={() => changeFlowState(mirrorName, FlowStatus.STATUS_RUNNING)}
       >
         <Label>Resume mirror</Label>
       </Button>
