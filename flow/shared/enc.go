@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 )
 
 // PeerDBEncKey is a key for encrypting and decrypting data.
@@ -44,6 +45,10 @@ func (key *PeerDBEncKey) Decrypt(ciphertext []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to decode base64 key: %w", err)
 	}
 
+	if len(decodedKey) != 32 {
+		return nil, errors.New("invalid key length, must be 32 bytes")
+	}
+
 	block, err := aes.NewCipher(decodedKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new cipher: %w", err)
@@ -66,6 +71,14 @@ func (key *PeerDBEncKey) Decrypt(ciphertext []byte) ([]byte, error) {
 	return PKCS7Unpad(ciphertext, aes.BlockSize)
 }
 
+// Check for potential overflow and allocate memory safely
+func safeAlloc(plaintext []byte) ([]byte, error) {
+	if len(plaintext) > math.MaxInt32-aes.BlockSize {
+		return nil, fmt.Errorf("plaintext too large, would cause integer overflow")
+	}
+	return make([]byte, aes.BlockSize+len(plaintext)), nil
+}
+
 // Encrypt encrypts the given plaintext using the PeerDBEncKey.
 func (key *PeerDBEncKey) Encrypt(plaintext []byte) ([]byte, error) {
 	if key == nil {
@@ -75,6 +88,10 @@ func (key *PeerDBEncKey) Encrypt(plaintext []byte) ([]byte, error) {
 	decodedKey, err := base64.StdEncoding.DecodeString(key.Value)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode base64 key: %w", err)
+	}
+
+	if len(decodedKey) != 32 {
+		return nil, errors.New("invalid key length, must be 32 bytes")
 	}
 
 	block, err := aes.NewCipher(decodedKey)
@@ -87,13 +104,15 @@ func (key *PeerDBEncKey) Encrypt(plaintext []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to pad plaintext: %w", err)
 	}
 
-	ciphertext := make([]byte, aes.BlockSize+len(plaintext))
+	ciphertext, err := safeAlloc(plaintext)
+	if err != nil {
+		return nil, fmt.Errorf("failed to allocate ciphertext: %w", err)
+	}
 	iv := ciphertext[:aes.BlockSize]
 
 	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
 		return nil, fmt.Errorf("failed to generate IV: %w", err)
 	}
-
 	mode := cipher.NewCBCEncrypter(block, iv)
 	mode.CryptBlocks(ciphertext[aes.BlockSize:], plaintext)
 
