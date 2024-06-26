@@ -37,20 +37,15 @@ const EditPeerButton = ({
   peerName: string;
   peerType?: DBType;
 }) => {
-  if (peerType === undefined) {
+  if (peerType === undefined || !(peerType in DBType)) {
     return null;
   }
 
-  if (!(peerType in DBType)) {
-    return null;
-  }
-
-  const dbTypeName: string = DBType[peerType];
   return (
     <Button
       as={Link}
       href={{
-        pathname: `/peers/create/${dbTypeName}`,
+        pathname: `/peers/create/${peerType}`,
         query: { update: peerName },
       }}
     >

@@ -12,7 +12,7 @@ use catalog::{Catalog, CatalogConfig, WorkflowDetails};
 use clap::Parser;
 use cursor::PeerCursors;
 use dashmap::{mapref::entry::Entry as DashEntry, DashMap};
-use flow_rs::grpc::{FlowGrpcClient, PeerValidationResult};
+use flow_rs::grpc::{FlowGrpcClient, PeerCreationResult};
 use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
     util::{records_to_query_response, sendable_stream_to_query_response},
@@ -174,34 +174,30 @@ impl NexusBackend {
         }
     }
 
-    async fn validate_peer<'a>(&self, peer: &Peer) -> anyhow::Result<()> {
-        //if flow handler does not exist, skip validation
-        let mut flow_handler = if let Some(ref flow_handler) = self.flow_handler {
-            flow_handler.as_ref()
-        } else {
-            return Ok(());
-        }
-        .lock()
-        .await;
+    async fn create_peer<'a>(&self, peer: &Peer) -> anyhow::Result<()> {
+        // create peer now needs flow handler, it's fine
+        let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
 
-        let validate_request = pt::peerdb_route::ValidatePeerRequest {
+        let create_request = pt::peerdb_route::CreatePeerRequest {
             peer: Some(Peer {
                 name: peer.name.clone(),
                 r#type: peer.r#type,
                 config: peer.config.clone(),
             }),
+            allow_update: false,
         };
-        let validity = flow_handler
-            .validate_peer(&validate_request)
+
+        let create_response = flow_handler
+            .create_peer(create_request)
             .await
             .map_err(|err| {
                 PgWireError::ApiError(format!("unable to check peer validity: {:?}", err).into())
             })?;
-        if let PeerValidationResult::Invalid(validation_err) = validity {
+        if let PeerCreationResult::Failed(create_err) = create_response {
             Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
                 "internal_error".to_owned(),
-                format!("[peer]: invalid configuration: {}", validation_err),
+                format!("failed to create peer: {}", create_err),
             )))
             .into())
         } else {
@@ -345,11 +341,8 @@ impl NexusBackend {
     ) -> PgWireResult<Vec<Response<'a>>> {
         match nexus_stmt {
             NexusStatement::PeerDDL { stmt: _, ref ddl } => match ddl.as_ref() {
-                PeerDDL::CreatePeer {
-                    peer,
-                    if_not_exists,
-                } => {
-                    self.validate_peer(peer).await.map_err(|e| {
+                PeerDDL::CreatePeer { peer, .. } => {
+                    self.create_peer(peer).await.map_err(|e| {
                         PgWireError::UserError(Box::new(ErrorInfo::new(
                             "ERROR".to_owned(),
                             "internal_error".to_owned(),
@@ -357,16 +350,6 @@ impl NexusBackend {
                         )))
                     })?;
 
-                    self.catalog
-                        .create_peer(peer.as_ref(), *if_not_exists)
-                        .await
-                        .map_err(|e| {
-                            PgWireError::UserError(Box::new(ErrorInfo::new(
-                                "ERROR".to_owned(),
-                                "internal_error".to_owned(),
-                                e.to_string(),
-                            )))
-                        })?;
                     Ok(vec![Response::Execution(Tag::new("OK"))])
                 }
                 PeerDDL::CreateMirrorForCDC {
@@ -411,7 +394,11 @@ impl NexusBackend {
                         // make a request to the flow service to start the job.
                         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
                         flow_handler
-                            .start_peer_flow_job(flow_job, flow_job.source_peer.clone(), flow_job.target_peer.clone())
+                            .start_peer_flow_job(
+                                flow_job,
+                                flow_job.source_peer.clone(),
+                                flow_job.target_peer.clone(),
+                            )
                             .await
                             .map_err(|err| {
                                 PgWireError::ApiError(
@@ -762,7 +749,11 @@ impl NexusBackend {
         // make a request to the flow service to start the job.
         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
         let workflow_id = flow_handler
-            .start_qrep_flow_job(qrep_flow_job, qrep_flow_job.source_peer.clone(), qrep_flow_job.target_peer.clone())
+            .start_qrep_flow_job(
+                qrep_flow_job,
+                qrep_flow_job.source_peer.clone(),
+                qrep_flow_job.target_peer.clone(),
+            )
             .await
             .map_err(|err| {
                 PgWireError::ApiError(format!("unable to submit job: {:?}", err).into())

@@ -52,6 +52,7 @@ message ValidatePeerRequest {
 
 message CreatePeerRequest {
   peerdb_peers.Peer peer = 1;
+  bool allow_update = 2;
 }
 
 message DropPeerRequest {

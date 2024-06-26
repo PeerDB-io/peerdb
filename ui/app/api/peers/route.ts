@@ -124,7 +124,7 @@ export async function POST(request: Request) {
       console.error('Error validating peer:', error);
     }
   } else if (mode === 'create') {
-    const req: CreatePeerRequest = { peer };
+    const req: CreatePeerRequest = { peer, allowUpdate: true };
     try {
       const createStatus: CreatePeerResponse = await fetch(
         `${flowServiceAddr}/v1/peers/create`,
