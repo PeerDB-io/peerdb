@@ -270,13 +270,13 @@ func LoadPeer(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (
 		WHERE name = $1`, peerName)
 
 	peer := &protos.Peer{Name: peerName}
-	var encKeyID string
 	var encPeerOptions []byte
+	var encKeyID string
 	if err := row.Scan(&peer.Type, &encPeerOptions, &encKeyID); err != nil {
 		return nil, fmt.Errorf("failed to load peer: %w", err)
 	}
 
-	peerOptions, err := decryptPeerOptions(encKeyID, encPeerOptions)
+	peerOptions, err := DecryptPeerOptions(encKeyID, encPeerOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load peer: %w", err)
 	}
@@ -361,7 +361,7 @@ func LoadPeer(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (
 	return peer, nil
 }
 
-func decryptPeerOptions(encKeyID string, encPeerOptions []byte) ([]byte, error) {
+func DecryptPeerOptions(encKeyID string, encPeerOptions []byte) ([]byte, error) {
 	if encKeyID == "" {
 		return encPeerOptions, nil
 	}

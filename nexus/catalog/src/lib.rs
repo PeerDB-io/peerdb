@@ -146,19 +146,6 @@ impl Catalog {
         Ok(result)
     }
 
-    pub fn decrypt_inplace(payload: &mut Vec<u8>, enc_key_id: &str) -> anyhow::Result<()> {
-        let key = Self::env_enc_key(enc_key_id)?;
-        let ivlen = Aes256CbcDec::iv_size();
-        let dec = Aes256CbcDec::new_from_slices(&key, &payload[..ivlen])?;
-        let Ok(result) = dec.decrypt_padded_mut::<Pkcs7>(&mut payload[ivlen..]) else {
-            return Err(anyhow!("invalid padding while decrypting"))
-        };
-        let resultlen = result.len();
-        payload.copy_within(ivlen..(ivlen+resultlen), 0);
-        payload.truncate(resultlen);
-        Ok(())
-    }
-
     pub async fn create_peer(&self, peer: &Peer, if_not_exists: bool) -> anyhow::Result<i64> {
         let mut config_blob = match peer.config.as_ref().context("invalid peer config")? {
                 Config::SnowflakeConfig(snowflake_config) => snowflake_config.encode_to_vec(),

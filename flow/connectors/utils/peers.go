@@ -109,7 +109,6 @@ func CreatePeerNoValidate(
 		SET type = $2, options = $3, enc_key_id = $4`,
 		peer.Name, peerType, encryptedConfig, keyID,
 	)
-
 	if err != nil {
 		return &protos.CreatePeerResponse{
 			Status: protos.CreatePeerStatus_FAILED,
