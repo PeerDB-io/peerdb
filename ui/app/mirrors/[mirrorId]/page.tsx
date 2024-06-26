@@ -70,7 +70,6 @@ export default function ViewMirror({
       (dbType.valueOf() === DBType.BIGQUERY.valueOf() ||
         dbType.valueOf() === DBType.SNOWFLAKE.valueOf() ||
         dbType.valueOf() === DBType.POSTGRES.valueOf());
-    console.log(canResync);
 
     actionsDropdown = (
       <MirrorActions
