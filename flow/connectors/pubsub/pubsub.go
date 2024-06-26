@@ -252,7 +252,12 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 	publish := make(chan publishResult, 32)
 	waitChan := make(chan struct{})
 
-	queueCtx, queueErr := context.WithCancelCause(ctx)
+	queueCtx, queueCtxErr := context.WithCancelCause(ctx)
+	queueErr := func(err error) {
+		c.logger.Error("[pubsub] queue error", slog.Any("error", err))
+		queueCtxErr(err)
+	}
+
 	pool, err := c.createPool(queueCtx, req.Script, req.FlowJobName, &topiccache, publish, queueErr)
 	if err != nil {
 		return nil, err

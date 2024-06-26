@@ -470,12 +470,10 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 		// TODO (kaushik): This is so that the statement size for individual merge statements
 		// doesn't exceed the limit. We should make this configurable.
 		const batchSize = 8
-		stmtNum := 0
-		err = shared.ArrayIterChunks(unchangedToastColumns, batchSize, func(chunk []string) error {
-			stmtNum += 1
+		err = shared.ArrayIterChunks(unchangedToastColumns, batchSize, func(chunk []string, chunkIdx, totalChunks int) error {
 			mergeStmt := mergeGen.generateMergeStmt(tableName, dstDatasetTable, chunk)
-			c.logger.Info(fmt.Sprintf("running merge statement %d for table %s..",
-				stmtNum, tableName))
+			c.logger.Info(fmt.Sprintf("running merge statement %d/%d for table %s..",
+				chunkIdx+1, totalChunks, tableName))
 
 			q := c.client.Query(mergeStmt)
 			q.DefaultProjectID = c.projectID

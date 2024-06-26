@@ -2,6 +2,7 @@ package peerflow
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 const (
@@ -62,4 +64,12 @@ func getPeerType(wCtx workflow.Context, name string) (protos.DBType, error) {
 	var dbtype protos.DBType
 	err := getFuture.Get(checkCtx, &dbtype)
 	return dbtype, err
+}
+
+func updateCDCConfigInCatalogActivity(ctx context.Context, logger log.Logger, cfg *protos.FlowConnectionConfigs) error {
+	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get catalog connection pool: %w", err)
+	}
+	return shared.UpdateCDCConfigInCatalog(ctx, pool, logger, cfg)
 }

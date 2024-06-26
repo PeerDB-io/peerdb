@@ -153,6 +153,10 @@ message PostgresPeerActivityInfoRequest {
   string peer_name = 1;
 }
 
+message PeerInfoRequest {
+  string peer_name = 1;
+}
+
 message SlotInfo {
   string slot_name = 1;
   string redo_lSN = 2;
@@ -322,6 +326,10 @@ service FlowService {
   }
   rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {
     option (google.api.http) = { get: "/v1/mirrors/{flow_job_name}" };
+  }
+
+  rpc GetPeerInfo(PeerInfoRequest) returns (peerdb_peers.Peer) {
+    option (google.api.http) = { get: "/v1/peers/info/{peer_name}" };
   }
 
   rpc GetVersion(PeerDBVersionRequest) returns (PeerDBVersionResponse) {

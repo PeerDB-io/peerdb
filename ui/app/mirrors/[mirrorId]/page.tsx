@@ -3,7 +3,7 @@ import { FormatStatus } from '@/app/utils/flowstatus';
 import prisma from '@/app/utils/prisma';
 import MirrorActions from '@/components/MirrorActionsDropdown';
 import { FlowConnectionConfigs, FlowStatus } from '@/grpc_generated/flow';
-import { DBType } from '@/grpc_generated/peers';
+import { DBType, dBTypeFromJSON } from '@/grpc_generated/peers';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { Badge } from '@/lib/Badge';
 import { Header } from '@/lib/Header';
@@ -107,7 +107,7 @@ export default async function ViewMirror({
       />
     );
 
-    const dbType = mirrorStatus.cdcStatus.destinationType;
+    const dbType = dBTypeFromJSON(mirrorStatus.cdcStatus.destinationType);
 
     const isNotPaused =
       mirrorStatus.currentFlowState.toString() !==
