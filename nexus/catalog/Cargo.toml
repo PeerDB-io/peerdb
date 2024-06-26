@@ -9,7 +9,7 @@ edition = "2021"
 anyhow = "1"
 async-trait = "0.1"
 base64 = "0.22"
-cbc = { version = "0.1", features = ["alloc"] }
+chacha20poly1305 = "0.10"
 chrono.workspace = true
 getrandom = "0.2"
 peer-cursor = { path = "../peer-cursor" }
@@ -27,4 +27,3 @@ tokio-postgres = { version = "0.7.6", features = [
 ] }
 tracing.workspace = true
 postgres-connection = { path = "../postgres-connection" }
-chacha20poly1305 = "0.10.1"

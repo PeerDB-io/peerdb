@@ -32,7 +32,7 @@ func (e PeerDBEncKeys) Get(id string) (*PeerDBEncKey, error) {
 	return nil, fmt.Errorf("failed to find encryption key - %s", id)
 }
 
-const nonceSize = 12
+const nonceSize = chacha20poly1305.NonceSizeX
 
 // Decrypt decrypts the given ciphertext using the PeerDBEncKey.
 func (key *PeerDBEncKey) Decrypt(ciphertext []byte) ([]byte, error) {
@@ -84,7 +84,7 @@ func (key *PeerDBEncKey) Encrypt(plaintext []byte) ([]byte, error) {
 		return nil, errors.New("invalid key length, must be 32 bytes")
 	}
 
-	aead, err := chacha20poly1305.New(decodedKey)
+	aead, err := chacha20poly1305.NewX(decodedKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ChaCha20-Poly1305: %w", err)
 	}
