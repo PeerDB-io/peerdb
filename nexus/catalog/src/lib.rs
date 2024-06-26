@@ -120,6 +120,10 @@ impl Catalog {
     }
 
     pub fn decrypt(payload: &[u8], enc_key_id: &str) -> anyhow::Result<Vec<u8>> {
+        if enc_key_id.is_empty() {
+            return Ok(payload.to_vec());
+        }
+
         let key = Self::env_enc_key(enc_key_id)?;
         let ivlen = Aes256CbcDec::iv_size();
         let dec = Aes256CbcDec::new_from_slices(&key, &payload[..ivlen])?;

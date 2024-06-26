@@ -471,7 +471,7 @@ func (h *FlowRequestHandler) CreatePeer(
 		}, nil
 	}
 
-	return utils.CreatePeerNoValidate(ctx, h.pool, req.Peer)
+	return utils.CreatePeerNoValidate(ctx, h.pool, req.Peer, req.AllowUpdate)
 }
 
 func (h *FlowRequestHandler) DropPeer(

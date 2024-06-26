@@ -12,7 +12,7 @@ use catalog::{Catalog, CatalogConfig, WorkflowDetails};
 use clap::Parser;
 use cursor::PeerCursors;
 use dashmap::{mapref::entry::Entry as DashEntry, DashMap};
-use flow_rs::grpc::{FlowGrpcClient, PeerCreationResult, PeerValidationResult};
+use flow_rs::grpc::{FlowGrpcClient, PeerCreationResult};
 use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
     util::{records_to_query_response, sendable_stream_to_query_response},
@@ -174,41 +174,6 @@ impl NexusBackend {
         }
     }
 
-    async fn validate_peer<'a>(&self, peer: &Peer) -> anyhow::Result<()> {
-        //if flow handler does not exist, skip validation
-        let mut flow_handler = if let Some(ref flow_handler) = self.flow_handler {
-            flow_handler.as_ref()
-        } else {
-            return Ok(());
-        }
-        .lock()
-        .await;
-
-        let validate_request = pt::peerdb_route::ValidatePeerRequest {
-            peer: Some(Peer {
-                name: peer.name.clone(),
-                r#type: peer.r#type,
-                config: peer.config.clone(),
-            }),
-        };
-        let validity = flow_handler
-            .validate_peer(&validate_request)
-            .await
-            .map_err(|err| {
-                PgWireError::ApiError(format!("unable to check peer validity: {:?}", err).into())
-            })?;
-        if let PeerValidationResult::Invalid(validation_err) = validity {
-            Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                "ERROR".to_owned(),
-                "internal_error".to_owned(),
-                format!("[peer]: invalid configuration: {}", validation_err),
-            )))
-            .into())
-        } else {
-            Ok(())
-        }
-    }
-
     async fn create_peer<'a>(&self, peer: &Peer) -> anyhow::Result<()> {
         // create peer now needs flow handler, it's fine
         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
@@ -219,6 +184,7 @@ impl NexusBackend {
                 r#type: peer.r#type,
                 config: peer.config.clone(),
             }),
+            allow_update: false,
         };
 
         let create_response = flow_handler
@@ -377,14 +343,6 @@ impl NexusBackend {
             NexusStatement::PeerDDL { stmt: _, ref ddl } => match ddl.as_ref() {
                 // broke create if not exists, need to fix
                 PeerDDL::CreatePeer { peer, .. } => {
-                    self.validate_peer(peer).await.map_err(|e| {
-                        PgWireError::UserError(Box::new(ErrorInfo::new(
-                            "ERROR".to_owned(),
-                            "internal_error".to_owned(),
-                            e.to_string(),
-                        )))
-                    })?;
-
                     self.create_peer(peer).await.map_err(|e| {
                         PgWireError::UserError(Box::new(ErrorInfo::new(
                             "ERROR".to_owned(),

@@ -2,16 +2,11 @@ use catalog::WorkflowDetails;
 use pt::{
     flow_model::{FlowJob, QRepFlowJob},
     peerdb_flow::{QRepWriteMode, QRepWriteType, TypeSystem},
-    peerdb_route::{self},
+    peerdb_route,
     tonic,
 };
 use serde_json::Value;
 use tonic_health::pb::health_client;
-
-pub enum PeerValidationResult {
-    Valid,
-    Invalid(String),
-}
 
 pub enum PeerCreationResult {
     Created,
@@ -59,21 +54,6 @@ impl FlowGrpcClient {
         let response = self.client.create_q_rep_flow(create_qrep_flow_req).await?;
         let workflow_id = response.into_inner().workflow_id;
         Ok(workflow_id)
-    }
-
-    pub async fn validate_peer(
-        &mut self,
-        validate_request: &pt::peerdb_route::ValidatePeerRequest,
-    ) -> anyhow::Result<PeerValidationResult> {
-        let response = self.client.validate_peer(validate_request.clone()).await?;
-        let response_body = &response.into_inner();
-        let message = response_body.message.clone();
-        let status = response_body.status;
-        if status == pt::peerdb_route::ValidatePeerStatus::Valid as i32 {
-            Ok(PeerValidationResult::Valid)
-        } else {
-            Ok(PeerValidationResult::Invalid(message))
-        }
     }
 
     async fn start_peer_flow(

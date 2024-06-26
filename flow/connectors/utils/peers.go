@@ -16,6 +16,7 @@ func CreatePeerNoValidate(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	peer *protos.Peer,
+	allowUpdate bool,
 ) (*protos.CreatePeerResponse, error) {
 	config := peer.Config
 	peerType := peer.Type
@@ -102,11 +103,15 @@ func CreatePeerNoValidate(
 		return nil, fmt.Errorf("failed to encrypt peer configuration: %w", err)
 	}
 
-	_, err = pool.Exec(ctx, `
-		INSERT INTO peers (name, type, options, enc_key_id) 
+	onConflict := "DO NOTHING"
+	if allowUpdate {
+		onConflict = "DO UPDATE SET type = $2,options = $3,enc_key_id = $4"
+	}
+
+	_, err = pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO peers (name, type, options, enc_key_id)
 		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (name) DO UPDATE 
-		SET type = $2, options = $3, enc_key_id = $4`,
+		ON CONFLICT (name) %s`, onConflict),
 		peer.Name, peerType, encryptedConfig, keyID,
 	)
 	if err != nil {
