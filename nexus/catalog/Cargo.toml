@@ -9,9 +9,8 @@ edition = "2021"
 anyhow = "1"
 async-trait = "0.1"
 base64 = "0.22"
-chacha20poly1305 = "0.10"
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
 chrono.workspace = true
-getrandom = "0.2"
 peer-cursor = { path = "../peer-cursor" }
 peer-postgres = { path = "../peer-postgres" }
 pgwire.workspace = true
