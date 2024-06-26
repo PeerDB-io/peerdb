@@ -98,7 +98,7 @@ func PeerDBCurrentEncKeyID() string {
 }
 
 func PeerDBEncKeys() shared.PeerDBEncKeys {
-	return GetEnvJSON("PEERDB_ENC_KEYS", make(shared.PeerDBEncKeys, 0))
+	return GetEnvJSON[shared.PeerDBEncKeys]("PEERDB_ENC_KEYS", nil)
 }
 
 func PeerDBCurrentEncKey() (*shared.PeerDBEncKey, error) {

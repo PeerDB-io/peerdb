@@ -20,12 +20,12 @@ type PeerDBEncKey struct {
 
 type PeerDBEncKeys []PeerDBEncKey
 
-func (e *PeerDBEncKeys) Get(id string) (*PeerDBEncKey, error) {
+func (e PeerDBEncKeys) Get(id string) (*PeerDBEncKey, error) {
 	if id == "" {
 		return nil, nil
 	}
 
-	for _, key := range *e {
+	for _, key := range e {
 		if key.ID == id {
 			return &key, nil
 		}
@@ -74,7 +74,7 @@ func (key *PeerDBEncKey) Decrypt(ciphertext []byte) ([]byte, error) {
 // Check for potential overflow and allocate memory safely
 func safeAlloc(plaintext []byte) ([]byte, error) {
 	if len(plaintext) > math.MaxInt32-aes.BlockSize {
-		return nil, fmt.Errorf("plaintext too large, would cause integer overflow")
+		return nil, errors.New("plaintext too large, would cause integer overflow")
 	}
 	return make([]byte, aes.BlockSize+len(plaintext)), nil
 }
