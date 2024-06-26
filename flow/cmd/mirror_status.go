@@ -164,7 +164,7 @@ func (h *FlowRequestHandler) CDCFlowStatus(
 
 func (h *FlowRequestHandler) cloneTableSummary(
 	ctx context.Context,
-	flowJobName string,
+	mirrorName string,
 ) ([]*protos.CloneTableSummary, error) {
 	q := `
 	SELECT
@@ -194,11 +194,11 @@ func (h *FlowRequestHandler) cloneTableSummary(
 	var numRowsSynced pgtype.Int8
 	var avgTimePerPartitionMs pgtype.Float8
 
-	rows, err := h.pool.Query(ctx, q, "clone_"+flowJobName+"_%")
+	rows, err := h.pool.Query(ctx, q, "clone_"+mirrorName+"_%")
 	if err != nil {
 		slog.Error("unable to query initial load partition",
-			slog.String(string(shared.FlowNameKey), flowJobName), slog.Any("error", err))
-		return nil, fmt.Errorf("unable to query initial load partition - %s: %w", flowJobName, err)
+			slog.String(string(shared.FlowNameKey), mirrorName), slog.Any("error", err))
+		return nil, fmt.Errorf("unable to query initial load partition - %s: %w", mirrorName, err)
 	}
 
 	defer rows.Close()
@@ -217,7 +217,7 @@ func (h *FlowRequestHandler) cloneTableSummary(
 			&numRowsSynced,
 			&avgTimePerPartitionMs,
 		); err != nil {
-			return nil, fmt.Errorf("unable to scan initial load partition - %s: %w", flowJobName, err)
+			return nil, fmt.Errorf("unable to scan initial load partition - %s: %w", mirrorName, err)
 		}
 
 		var res protos.CloneTableSummary
@@ -261,6 +261,8 @@ func (h *FlowRequestHandler) cloneTableSummary(
 		if avgTimePerPartitionMs.Valid {
 			res.AvgTimePerPartitionMs = int64(avgTimePerPartitionMs.Float64)
 		}
+
+		res.MirrorName = mirrorName
 
 		cloneStatuses = append(cloneStatuses, &res)
 	}
