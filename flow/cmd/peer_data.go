@@ -18,16 +18,21 @@ import (
 )
 
 func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName string) (*protos.PostgresConfig, error) {
-	var pgPeerOptions sql.RawBytes
-	var pgPeerConfig protos.PostgresConfig
+	var encPeerOptions []byte
+	var encKeyID string
 	err := h.pool.QueryRow(ctx,
-		"SELECT options FROM peers WHERE name = $1 AND type=3", peerName).Scan(&pgPeerOptions)
+		"SELECT options, enc_key_id FROM peers WHERE name = $1 AND type=3", peerName).Scan(&encPeerOptions, &encKeyID)
 	if err != nil {
 		return nil, err
 	}
 
-	err = proto.Unmarshal(pgPeerOptions, &pgPeerConfig)
+	peerOptions, err := connectors.DecryptPeerOptions(encKeyID, encPeerOptions)
 	if err != nil {
+		return nil, fmt.Errorf("failed to load peer: %w", err)
+	}
+
+	var pgPeerConfig protos.PostgresConfig
+	if err := proto.Unmarshal(peerOptions, &pgPeerConfig); err != nil {
 		return nil, err
 	}
 

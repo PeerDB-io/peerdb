@@ -8,6 +8,9 @@ export async function GET(
 ) {
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
   return fetch(
-    `${flowServiceAddr}/v1/peers/info/${encodeURIComponent(context.params.peerName)}`
+    `${flowServiceAddr}/v1/peers/info/${encodeURIComponent(context.params.peerName)}`,
+    {
+      cache: 'no-store',
+    }
   );
 }
