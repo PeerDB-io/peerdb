@@ -56,7 +56,7 @@ func (key *PeerDBEncKey) Decrypt(ciphertext []byte) ([]byte, error) {
 	nonce := ciphertext[:nonceSize]
 	ciphertext = ciphertext[nonceSize:]
 
-	aead, err := chacha20poly1305.New(decodedKey)
+	aead, err := chacha20poly1305.NewX(decodedKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ChaCha20-Poly1305: %w", err)
 	}
