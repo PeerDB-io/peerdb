@@ -273,6 +273,14 @@ func CDCFlowWorkflow(
 		cfg.Destination = nil
 		save_cfg = true
 	}
+	if !cfg.SoftDelete && cfg.SoftDeleteColName != "" {
+		cfg.SoftDeleteColName = ""
+		save_cfg = true
+	} else if cfg.SoftDelete && cfg.SoftDeleteColName == "" {
+		logger.Warn("soft delete is enabled but soft delete column name is not provided. disabling soft delete")
+		cfg.SoftDelete = false
+		save_cfg = true
+	}
 	if save_cfg {
 		saveCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: time.Hour,
