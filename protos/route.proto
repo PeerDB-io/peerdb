@@ -195,6 +195,7 @@ message CloneTableSummary {
   string source_table = 8;
   bool fetch_completed = 9;
   bool consolidate_completed = 10;
+  string mirror_name = 11;
 }
 
 message SnapshotStatus {

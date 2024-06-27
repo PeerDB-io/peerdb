@@ -1,5 +1,6 @@
 'use client';
 import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
+import { FormatStatus } from '@/app/utils/flowstatus';
 import MirrorInfo from '@/components/MirrorInfo';
 import PeerButton from '@/components/PeerComponent';
 import TimeLabel from '@/components/TimeComponent';
@@ -60,7 +61,7 @@ function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
               <Link
                 href={`/mirrors/errors/${mirrorConfig.config?.flowJobName}`}
               >
-                <Label>{formatStatus(mirrorStatus)}</Label>
+                <Label>{FormatStatus(mirrorStatus)}</Label>
               </Link>
             </div>
           </div>
@@ -141,17 +142,6 @@ function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
 
       <TablePairs tables={tablesSynced} />
     </>
-  );
-}
-
-function formatStatus(mirrorStatus: FlowStatus) {
-  const mirrorStatusLower = mirrorStatus
-    .toString()
-    .split('_')
-    .at(-1)
-    ?.toLocaleLowerCase()!;
-  return (
-    mirrorStatusLower.at(0)?.toLocaleUpperCase() + mirrorStatusLower.slice(1)
   );
 }
 
