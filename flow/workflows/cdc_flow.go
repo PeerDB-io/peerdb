@@ -276,6 +276,18 @@ func CDCFlowWorkflow(
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 	}
 
+	saveCfg := false
+	if !cfg.SoftDelete && cfg.SoftDeleteColName != "" {
+		cfg.SoftDeleteColName = ""
+		saveCfg = true
+	} else if cfg.SoftDelete && cfg.SoftDeleteColName == "" {
+		return state, errors.New("soft delete is enabled but soft delete column name is not provided")
+	}
+	if saveCfg {
+		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
+		logger.Info("config migration complete, set SoftDeleteColName to empty when SoftDelete is false")
+	}
+
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 
 	// we cannot skip SetupFlow if SnapshotFlow did not complete in cases where Resync is enabled
