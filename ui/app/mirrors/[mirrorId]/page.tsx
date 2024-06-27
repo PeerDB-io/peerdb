@@ -1,9 +1,12 @@
 'use client';
+import { FormatStatus } from '@/app/utils/flowstatus';
 import MirrorActions from '@/components/MirrorActionsDropdown';
 import { FlowStatus } from '@/grpc_generated/flow';
 import { DBType, dBTypeFromJSON } from '@/grpc_generated/peers';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
+import { Badge } from '@/lib/Badge';
 import { Header } from '@/lib/Header';
+import { Label } from '@/lib/Label';
 import { LayoutMain } from '@/lib/Layout';
 import { useCallback, useEffect, useState } from 'react';
 import { CDCMirror } from './cdc';
@@ -31,10 +34,9 @@ export default function ViewMirror({
   const mirrorName = parentMirrorName ?? mirrorId;
 
   const fetchState = useCallback(async () => {
-    await getMirrorState(mirrorName).then((res) => {
-      setMirrorState(res);
-      setMounted(true);
-    });
+    const res = await getMirrorState(mirrorId);
+    setMirrorState(res);
+    setMounted(true);
   }, [mirrorId]);
   useEffect(() => {
     fetchState();
@@ -51,7 +53,7 @@ export default function ViewMirror({
   let syncStatusChild = null;
   let actionsDropdown = null;
 
-  if (mirrorState?.cdcStatus) {
+  if (mirrorState?.cdcStatus && !isCloneJob) {
     syncStatusChild = (
       <SyncStatus
         rows={mirrorState.cdcStatus.cdcBatches}
@@ -115,7 +117,9 @@ export default function ViewMirror({
           <Header variant='title2'>{mirrorId}</Header>
           <QRepStatusButtons mirrorId={mirrorId} />
         </div>
-        <div>Status: {mirrorState?.currentFlowState}</div>
+        <Label>
+          Status: <Badge>{FormatStatus(mirrorState.currentFlowState)}</Badge>
+        </Label>
         <QrepGraph syncs={mirrorState.qrepStatus.partitions} />
         <br></br>
         <QRepStatusTable

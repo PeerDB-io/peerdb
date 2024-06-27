@@ -89,11 +89,10 @@ export default function QRepStatusTable({ partitions }: QRepStatusTableProps) {
       }
     );
     currentPartitions.sort((a, b) => {
-      const aValue = a[sortField];
-      const bValue = b[sortField];
-      if (aValue === undefined || bValue === undefined) {
-        return 0;
-      }
+      // maximum date values so compare towards the end
+      const aValue = a[sortField] ?? new Date(8.64e15);
+      const bValue = b[sortField] ?? new Date(8.64e15);
+
       if (aValue < bValue) {
         return sortDir === 'dsc' ? 1 : -1;
       } else if (aValue > bValue) {

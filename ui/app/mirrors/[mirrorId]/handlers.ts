@@ -7,12 +7,13 @@ import {
 export const getMirrorState = async (
   mirrorName: string
 ): Promise<MirrorStatusResponse> => {
-  return await fetch('/api/mirrors/state', {
+  const res = await fetch('/api/mirrors/state', {
     method: 'POST',
     body: JSON.stringify({
       mirrorName: mirrorName,
     }),
-  }).then((res) => res.json());
+  });
+  return await res.json();
 };
 
 export const getCurrentIdleTimeout = async (mirrorName: string) => {
