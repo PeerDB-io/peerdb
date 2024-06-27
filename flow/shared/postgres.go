@@ -101,8 +101,7 @@ func GetMajorVersion(ctx context.Context, conn *pgx.Conn) (PGVersion, error) {
 func RollbackTx(tx pgx.Tx, logger log.Logger) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	err := tx.Rollback(ctx)
-	if err != nil && err != pgx.ErrTxClosed {
+	if err := tx.Rollback(ctx); err != nil && err != pgx.ErrTxClosed {
 		logger.Error("error while rolling back transaction", slog.Any("error", err))
 	}
 }
