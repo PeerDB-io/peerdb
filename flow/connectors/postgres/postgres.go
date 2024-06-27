@@ -1055,18 +1055,28 @@ func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSig
 func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
 	// Slotname would be the job name prefixed with "peerflow_slot_"
 	slotName := "peerflow_slot_" + jobName
-
-	publicationName := c.getDefaultPublicationName(jobName)
-
-	_, err := c.conn.Exec(ctx, "DROP PUBLICATION IF EXISTS "+publicationName)
-	if err != nil {
-		return fmt.Errorf("error dropping publication: %w", err)
-	}
-
-	_, err = c.conn.Exec(ctx, `SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots
+	_, err := c.conn.Exec(ctx, `SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots
 	 WHERE slot_name=$1`, slotName)
 	if err != nil {
 		return fmt.Errorf("error dropping replication slot: %w", err)
+	}
+
+	publicationName := c.getDefaultPublicationName(jobName)
+
+	// check if publication exists manually,
+	// as drop publication if exists requires permissions
+	// for a publication which we did not create via peerdb user
+	var publicationExists bool
+	err = c.conn.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_publication WHERE pubname=$1)", publicationName).Scan(&publicationExists)
+	if err != nil {
+		return fmt.Errorf("error checking if publication exists: %w", err)
+	}
+
+	if publicationExists {
+		_, err = c.conn.Exec(ctx, "DROP PUBLICATION IF EXISTS "+publicationName)
+		if err != nil {
+			return fmt.Errorf("error dropping publication: %w", err)
+		}
 	}
 
 	return nil
