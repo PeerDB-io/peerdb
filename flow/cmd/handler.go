@@ -533,7 +533,7 @@ func (h *FlowRequestHandler) DropPeer(
 }
 
 func (h *FlowRequestHandler) getWorkflowID(ctx context.Context, flowJobName string) (string, error) {
-	q := "SELECT workflow_id FROM flows WHERE name ILIKE $1"
+	q := "SELECT workflow_id FROM flows WHERE name = $1"
 	row := h.pool.QueryRow(ctx, q, flowJobName)
 	var workflowID string
 	if err := row.Scan(&workflowID); err != nil {
