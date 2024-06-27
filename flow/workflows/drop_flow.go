@@ -12,7 +12,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-func DropFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionConfigs) error {
+func DropFlowWorkflow(ctx workflow.Context, config *protos.DropFlowInput) error {
 	workflow.GetLogger(ctx).Info("performing cleanup for flow", slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -37,7 +37,10 @@ func DropFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionConfigs
 		sourceError = f.Get(ctx, nil)
 		sourceOk = sourceError == nil
 		if !sourceOk {
-			dropSourceFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowSource, config.FlowJobName, config.SourceName)
+			dropSourceFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowSource, &protos.DropFlowActivityInput{
+				FlowJobName: config.FlowJobName,
+				PeerName:    config.SourcePeerName,
+			})
 			selector.AddFuture(dropSourceFuture, dropSource)
 			_ = workflow.Sleep(ctx, time.Second)
 		}
@@ -46,16 +49,23 @@ func DropFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionConfigs
 		destinationError = f.Get(ctx, nil)
 		destinationOk = destinationError == nil
 		if !destinationOk {
-			dropDestinationFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowDestination,
-				config.FlowJobName, config.DestinationName)
+			dropDestinationFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowDestination, &protos.DropFlowActivityInput{
+				FlowJobName: config.FlowJobName,
+				PeerName:    config.DestinationPeerName,
+			})
 			selector.AddFuture(dropDestinationFuture, dropDestination)
 			_ = workflow.Sleep(ctx, time.Second)
 		}
 	}
-	dropSourceFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowSource, config.FlowJobName, config.SourceName)
+	dropSourceFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowSource, &protos.DropFlowActivityInput{
+		FlowJobName: config.FlowJobName,
+		PeerName:    config.SourcePeerName,
+	})
 	selector.AddFuture(dropSourceFuture, dropSource)
-	dropDestinationFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowDestination, config.FlowJobName,
-		config.DestinationName)
+	dropDestinationFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowDestination, &protos.DropFlowActivityInput{
+		FlowJobName: config.FlowJobName,
+		PeerName:    config.DestinationPeerName,
+	})
 	selector.AddFuture(dropDestinationFuture, dropDestination)
 
 	for {

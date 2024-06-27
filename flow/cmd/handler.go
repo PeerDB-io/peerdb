@@ -299,7 +299,11 @@ func (h *FlowRequestHandler) shutdownFlow(
 		}
 
 		dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions,
-			peerflow.DropFlowWorkflow, cdcConfig)
+			peerflow.DropFlowWorkflow, &protos.DropFlowInput{
+				FlowJobName:         flowJobName,
+				SourcePeerName:      cdcConfig.SourceName,
+				DestinationPeerName: cdcConfig.DestinationName,
+			})
 		if err != nil {
 			slog.Error("unable to start DropFlow workflow",
 				logs,
