@@ -189,7 +189,7 @@ func CreatePeer(t *testing.T, peer *protos.Peer) {
 	ctx := context.Background()
 	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
 	require.NoError(t, err)
-	res, err := utils.CreatePeerNoValidate(ctx, pool, peer)
+	res, err := utils.CreatePeerNoValidate(ctx, pool, peer, false)
 	require.NoError(t, err)
 	if res.Status != protos.CreatePeerStatus_CREATED {
 		require.Fail(t, res.Message)
