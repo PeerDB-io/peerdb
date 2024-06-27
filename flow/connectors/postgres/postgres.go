@@ -1094,11 +1094,19 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 	if err != nil {
 		return fmt.Errorf("unable to drop raw table: %w", err)
 	}
-	_, err = syncFlowCleanupTx.Exec(ctx,
-		fmt.Sprintf(deleteJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
+
+	mirrorJobsTableExists, err := c.jobMetadataExists(ctx, jobName)
 	if err != nil {
-		return fmt.Errorf("unable to delete job metadata: %w", err)
+		return fmt.Errorf("unable to check if job metadata exists: %w", err)
 	}
+	if mirrorJobsTableExists {
+		_, err = syncFlowCleanupTx.Exec(ctx,
+			fmt.Sprintf(deleteJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
+		if err != nil {
+			return fmt.Errorf("unable to delete job metadata: %w", err)
+		}
+	}
+
 	err = syncFlowCleanupTx.Commit(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to commit transaction for sync flow cleanup: %w", err)

@@ -180,7 +180,7 @@ func (h *FlowRequestHandler) cloneTableSummary(
 		AVG(EXTRACT(EPOCH FROM (qp.end_time - qp.start_time)) * 1000) FILTER (WHERE qp.end_time IS NOT NULL) AS AvgTimePerPartitionMs
 	FROM peerdb_stats.qrep_partitions qp
 	RIGHT JOIN peerdb_stats.qrep_runs qr ON qp.flow_name = qr.flow_name
-	WHERE qr.flow_name ILIKE $1
+	WHERE qr.flow_name ^@ ($1||qr.destination_table)
 	GROUP BY qr.flow_name, qr.destination_table, qr.source_table, qr.start_time, qr.fetch_complete, qr.consolidate_complete;
 	`
 	var flowName pgtype.Text
@@ -194,7 +194,7 @@ func (h *FlowRequestHandler) cloneTableSummary(
 	var numRowsSynced pgtype.Int8
 	var avgTimePerPartitionMs pgtype.Float8
 
-	rows, err := h.pool.Query(ctx, q, "clone\\_"+shared.EscapeForILike(mirrorName)+"_%")
+	rows, err := h.pool.Query(ctx, q, fmt.Sprintf("clone_%s_", mirrorName))
 	if err != nil {
 		slog.Error("unable to query initial load partition",
 			slog.String(string(shared.FlowNameKey), mirrorName), slog.Any("error", err))
