@@ -34,8 +34,8 @@ export const IsQueuePeer = (peerType?: DBType): boolean => {
 };
 
 const ValidSchemaQualifiedTarget = (
-  peerType?: DBType,
-  tableName?: string
+  peerType: DBType,
+  tableName: string
 ): boolean => {
   if (!tableName) return false;
   const schemaRequiredPeer =
@@ -91,7 +91,7 @@ const validateSchemaQualification = (
     if (
       !ValidSchemaQualifiedTarget(
         destinationType,
-        table?.destinationTableIdentifier
+        table!.destinationTableIdentifier
       )
     ) {
       return `Destination table ${table?.destinationTableIdentifier} should be schema qualified`;
