@@ -186,6 +186,6 @@ func (pool *LPool[T]) Wait(ctx context.Context) error {
 	case <-pool.wait:
 		return nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return context.Cause(ctx)
 	}
 }
