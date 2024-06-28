@@ -630,7 +630,6 @@ func (c *PostgresConnector) NormalizeRecords(
 		peerdbCols: &protos.PeerDBColumns{
 			SoftDeleteColName: req.SoftDeleteColName,
 			SyncedAtColName:   req.SyncedAtColName,
-			SoftDelete:        req.SoftDelete,
 		},
 		supportsMerge:  pgversion >= shared.POSTGRES_15,
 		metadataSchema: c.metadataSchema,
@@ -1271,15 +1270,15 @@ func (c *PostgresConnector) RenameTables(ctx context.Context, req *protos.Rename
 
 		c.logger.Info(fmt.Sprintf("setting synced at column for table '%s'...", src))
 
-		if req.SyncedAtColName != nil && *req.SyncedAtColName != "" {
+		if req.SyncedAtColName != "" {
 			_, err = renameTablesTx.Exec(ctx,
-				fmt.Sprintf("UPDATE %s SET %s=now()", src, QuoteIdentifier(*req.SyncedAtColName)))
+				fmt.Sprintf("UPDATE %s SET %s=now()", src, QuoteIdentifier(req.SyncedAtColName)))
 			if err != nil {
 				return nil, fmt.Errorf("unable to set synced at column for table %s: %w", src, err)
 			}
 		}
 
-		if req.SoftDeleteColName != nil && *req.SoftDeleteColName != "" {
+		if req.SoftDeleteColName != "" {
 			columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
 			for _, col := range renameRequest.TableSchema.Columns {
 				columnNames = append(columnNames, QuoteIdentifier(col.Name))
@@ -1297,7 +1296,7 @@ func (c *PostgresConnector) RenameTables(ctx context.Context, req *protos.Rename
 
 			_, err = renameTablesTx.Exec(ctx,
 				fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
-					src, fmt.Sprintf("%s,%s", allCols, QuoteIdentifier(*req.SoftDeleteColName)), allCols, *req.SoftDeleteColName,
+					src, fmt.Sprintf("%s,%s", allCols, QuoteIdentifier(req.SoftDeleteColName)), allCols, req.SoftDeleteColName,
 					dst, pkeyCols, pkeyCols, src))
 			if err != nil {
 				return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)

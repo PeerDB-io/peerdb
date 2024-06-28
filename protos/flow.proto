@@ -23,6 +23,7 @@ message SetupInput {
 }
 
 message FlowConnectionConfigs {
+  reserved 2,3,17;
   string flow_job_name = 1;
 
   // config for the CDC flow itself
@@ -48,7 +49,6 @@ message FlowConnectionConfigs {
   bool initial_snapshot_only = 16;
 
   // configurations for soft delete and synced at columns, affects both initial snapshot and CDC
-  bool soft_delete = 17;
   string soft_delete_col_name = 18;
   string synced_at_col_name = 19;
 
@@ -67,11 +67,12 @@ message RenameTableOption {
 }
 
 message RenameTablesInput {
+  reserved 2,4,5;
   string flow_job_name = 1;
   repeated RenameTableOption rename_table_options = 3;
-  optional string soft_delete_col_name = 4;
-  optional string synced_at_col_name = 5;
   string peer_name = 6;
+  string soft_delete_col_name = 7;
+  string synced_at_col_name = 8;
 }
 
 message RenameTablesOutput {
@@ -320,9 +321,9 @@ message QRepFlowState {
 }
 
 message PeerDBColumns {
+  reserved 3;
   string soft_delete_col_name = 1;
   string synced_at_col_name = 2;
-  bool soft_delete = 3;
 }
 
 message GetOpenConnectionsForUserResult {

@@ -19,7 +19,6 @@ func TestGenerateMergeUpdateStatement(t *testing.T) {
 	}
 	normalizeGen := normalizeStmtGenerator{
 		peerdbCols: &protos.PeerDBColumns{
-			SoftDelete:        false,
 			SyncedAtColName:   "_peerdb_synced_at",
 			SoftDeleteColName: "",
 		},
@@ -50,7 +49,6 @@ func TestGenerateMergeUpdateStatement_WithSoftDelete(t *testing.T) {
 	}
 	normalizeGen := normalizeStmtGenerator{
 		peerdbCols: &protos.PeerDBColumns{
-			SoftDelete:        true,
 			SyncedAtColName:   "_peerdb_synced_at",
 			SoftDeleteColName: "_peerdb_soft_delete",
 		},
@@ -83,7 +81,6 @@ func TestGenerateMergeUpdateStatement_WithUnchangedToastCols(t *testing.T) {
 	}
 	normalizeGen := normalizeStmtGenerator{
 		peerdbCols: &protos.PeerDBColumns{
-			SoftDelete:        false,
 			SyncedAtColName:   "_peerdb_synced_at",
 			SoftDeleteColName: "",
 		},
@@ -126,7 +123,6 @@ func TestGenerateMergeUpdateStatement_WithUnchangedToastColsAndSoftDelete(t *tes
 	}
 	normalizeGen := normalizeStmtGenerator{
 		peerdbCols: &protos.PeerDBColumns{
-			SoftDelete:        true,
 			SyncedAtColName:   "_peerdb_synced_at",
 			SoftDeleteColName: "_peerdb_soft_delete",
 		},
