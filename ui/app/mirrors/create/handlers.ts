@@ -37,7 +37,6 @@ const ValidSchemaQualifiedTarget = (
   peerType: DBType,
   tableName: string
 ): boolean => {
-  if (!tableName) return false;
   const schemaRequiredPeer =
     peerType === DBType.POSTGRES || peerType === DBType.SNOWFLAKE;
   if (!schemaRequiredPeer) {
