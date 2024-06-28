@@ -168,24 +168,14 @@ func (h *FlowRequestHandler) updateFlowConfigInCatalog(
 	ctx context.Context,
 	cfg *protos.FlowConnectionConfigs,
 ) error {
-	cfgBytes, err := proto.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("unable to marshal flow config: %w", err)
-	}
-
-	_, err = h.pool.Exec(ctx, "UPDATE flows SET config_proto = $1 WHERE name = $2", cfgBytes, cfg.FlowJobName)
-	if err != nil {
-		return fmt.Errorf("unable to update flow config in catalog: %w", err)
-	}
-
-	return nil
+	return shared.UpdateCDCConfigInCatalog(ctx, h.pool, slog.Default(), cfg)
 }
 
 func (h *FlowRequestHandler) removeFlowEntryInCatalog(
 	ctx context.Context,
 	flowName string,
 ) error {
-	_, err := h.pool.Exec(ctx, "DELETE FROM flows WHERE name = $1", flowName)
+	_, err := h.pool.Exec(ctx, "DELETE FROM flows WHERE name=$1", flowName)
 	if err != nil {
 		return fmt.Errorf("unable to remove flow entry in catalog: %w", err)
 	}
@@ -272,12 +262,17 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	ctx context.Context,
 	req *protos.ShutdownRequest,
 ) (*protos.ShutdownResponse, error) {
+	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+
 	logs := slog.Group("shutdown-log",
 		slog.String(string(shared.FlowNameKey), req.FlowJobName),
-		slog.String("workflowId", req.WorkflowId),
+		slog.String("workflowId", workflowID),
 	)
 
-	err := h.handleCancelWorkflow(ctx, req.WorkflowId, "")
+	err = h.handleCancelWorkflow(ctx, workflowID, "")
 	if err != nil {
 		slog.Error("unable to cancel workflow", logs, slog.Any("error", err))
 		return &protos.ShutdownResponse{
@@ -345,18 +340,16 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		}
 	}
 
-	if req.RemoveFlowEntry {
-		err := h.removeFlowEntryInCatalog(ctx, req.FlowJobName)
-		if err != nil {
-			slog.Error("unable to remove flow job entry",
-				slog.String(string(shared.FlowNameKey), req.FlowJobName),
-				slog.Any("error", err),
-				slog.String("workflowId", req.WorkflowId))
-			return &protos.ShutdownResponse{
-				Ok:           false,
-				ErrorMessage: err.Error(),
-			}, err
-		}
+	err = h.removeFlowEntryInCatalog(ctx, req.FlowJobName)
+	if err != nil {
+		slog.Error("unable to remove flow job entry",
+			slog.String(string(shared.FlowNameKey), req.FlowJobName),
+			slog.Any("error", err),
+			slog.String("workflowId", workflowID))
+		return &protos.ShutdownResponse{
+			Ok:           false,
+			ErrorMessage: err.Error(),
+		}, err
 	}
 
 	return &protos.ShutdownResponse{
@@ -368,12 +361,15 @@ func (h *FlowRequestHandler) FlowStateChange(
 	ctx context.Context,
 	req *protos.FlowStateChangeRequest,
 ) (*protos.FlowStateChangeResponse, error) {
+	slog.Info("FlowStateChange called", slog.String("flowJobName", req.FlowJobName), slog.Any("req", req))
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
+		slog.Error("[FlowStateChange]unable to get workflowID", slog.Any("error", err))
 		return nil, err
 	}
 	currState, err := h.getWorkflowStatus(ctx, workflowID)
 	if err != nil {
+		slog.Error("[FlowStateChange]unable to get workflow status", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -386,6 +382,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			req.FlowConfigUpdate.GetCdcFlowConfigUpdate(),
 		)
 		if err != nil {
+			slog.Error("unable to signal workflow", slog.Any("error", err))
 			return nil, fmt.Errorf("unable to signal workflow: %w", err)
 		}
 	}
@@ -394,10 +391,6 @@ func (h *FlowRequestHandler) FlowStateChange(
 	if req.RequestedFlowState != protos.FlowStatus_STATUS_UNKNOWN {
 		if req.RequestedFlowState == protos.FlowStatus_STATUS_PAUSED &&
 			currState == protos.FlowStatus_STATUS_RUNNING {
-			err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_PAUSING)
-			if err != nil {
-				return nil, err
-			}
 			err = model.FlowSignal.SignalClientWorkflow(
 				ctx,
 				h.temporalClient,
@@ -416,22 +409,17 @@ func (h *FlowRequestHandler) FlowStateChange(
 			)
 		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED &&
 			(currState != protos.FlowStatus_STATUS_TERMINATED) {
-			err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_TERMINATING)
-			if err != nil {
-				return nil, err
-			}
 			_, err = h.ShutdownFlow(ctx, &protos.ShutdownRequest{
-				WorkflowId:      workflowID,
-				FlowJobName:     req.FlowJobName,
-				SourcePeer:      req.SourcePeer,
-				DestinationPeer: req.DestinationPeer,
-				RemoveFlowEntry: false,
+				FlowJobName: req.FlowJobName,
 			})
 		} else if req.RequestedFlowState != currState {
+			slog.Error("illegal state change requested", slog.Any("requestedFlowState", req.RequestedFlowState),
+				slog.Any("currState", currState))
 			return nil, fmt.Errorf("illegal state change requested: %v, current state is: %v",
 				req.RequestedFlowState, currState)
 		}
 		if err != nil {
+			slog.Error("unable to signal workflow", slog.Any("error", err))
 			return nil, fmt.Errorf("unable to signal workflow: %w", err)
 		}
 	}
@@ -490,7 +478,7 @@ func (h *FlowRequestHandler) CreatePeer(
 		}, nil
 	}
 
-	return utils.CreatePeerNoValidate(ctx, h.pool, req.Peer)
+	return utils.CreatePeerNoValidate(ctx, h.pool, req.Peer, req.AllowUpdate)
 }
 
 func (h *FlowRequestHandler) DropPeer(
@@ -545,7 +533,7 @@ func (h *FlowRequestHandler) DropPeer(
 }
 
 func (h *FlowRequestHandler) getWorkflowID(ctx context.Context, flowJobName string) (string, error) {
-	q := "SELECT workflow_id FROM flows WHERE name ILIKE $1"
+	q := "SELECT workflow_id FROM flows WHERE name = $1"
 	row := h.pool.QueryRow(ctx, q, flowJobName)
 	var workflowID string
 	if err := row.Scan(&workflowID); err != nil {

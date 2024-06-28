@@ -35,10 +35,6 @@ export type UTablesAllResponse = {
   tables: string[];
 };
 
-export type UColumnsResponse = {
-  columns: string[];
-};
-
 export type UDropPeerResponse = {
   dropped: boolean;
   errorMessage: string;

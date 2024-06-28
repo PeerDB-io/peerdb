@@ -38,11 +38,7 @@ message CreateCustomSyncResponse {
 }
 
 message ShutdownRequest {
-  string workflow_id = 1;
   string flow_job_name = 2;
-  string source_peer = 3;
-  string destination_peer = 4;
-  bool remove_flow_entry = 5;
 }
 
 message ShutdownResponse {
@@ -56,6 +52,7 @@ message ValidatePeerRequest {
 
 message CreatePeerRequest {
   peerdb_peers.Peer peer = 1;
+  bool allow_update = 2;
 }
 
 message DropPeerRequest {
@@ -102,7 +99,6 @@ message PartitionStatus {
 }
 
 message QRepMirrorStatus {
-  peerdb_flow.QRepConfig config = 1 [deprecated = true];
   repeated PartitionStatus partitions = 2;
   // TODO make note to see if we are still in initial copy
   // or if we are in the continuous streaming mode.
@@ -158,6 +154,10 @@ message PostgresPeerActivityInfoRequest {
   string peer_name = 1;
 }
 
+message PeerInfoRequest {
+  string peer_name = 1;
+}
+
 message SlotInfo {
   string slot_name = 1;
   string redo_lSN = 2;
@@ -196,6 +196,7 @@ message CloneTableSummary {
   string source_table = 8;
   bool fetch_completed = 9;
   bool consolidate_completed = 10;
+  string mirror_name = 11;
 }
 
 message SnapshotStatus {
@@ -326,6 +327,10 @@ service FlowService {
   }
   rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {
     option (google.api.http) = { get: "/v1/mirrors/{flow_job_name}" };
+  }
+
+  rpc GetPeerInfo(PeerInfoRequest) returns (peerdb_peers.Peer) {
+    option (google.api.http) = { get: "/v1/peers/info/{peer_name}" };
   }
 
   rpc GetVersion(PeerDBVersionRequest) returns (PeerDBVersionResponse) {

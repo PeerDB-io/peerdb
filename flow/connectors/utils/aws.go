@@ -59,8 +59,8 @@ type ClickHouseS3Credentials struct {
 }
 
 type AWSCredentials struct {
-	AWS         aws.Credentials
 	EndpointUrl *string
+	AWS         aws.Credentials
 }
 
 type AWSCredentialsProvider interface {

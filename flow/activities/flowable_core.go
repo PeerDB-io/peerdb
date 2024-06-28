@@ -26,6 +26,13 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
+type PeerType string
+
+const (
+	Source      PeerType = "source"
+	Destination PeerType = "destination"
+)
+
 func heartbeatRoutine(
 	ctx context.Context,
 	message func() string,
@@ -284,21 +291,26 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*protos.Peer, error) {
 	optionRows, err := a.CatalogPool.Query(ctx, `
-			SELECT DISTINCT p.name, p.options
-			FROM peers p
-			JOIN flows f ON p.id = f.source_peer
-			WHERE p.type = $1`, protos.DBType_POSTGRES)
+		SELECT p.name, p.options, p.enc_key_id
+		FROM peers p
+		WHERE p.type = $1 AND EXISTS(SELECT * FROM flows f ON p.id = f.source_peer)`, protos.DBType_POSTGRES)
 	if err != nil {
 		return nil, err
 	}
 
 	return pgx.CollectRows(optionRows, func(row pgx.CollectableRow) (*protos.Peer, error) {
 		var peerName string
-		var peerOptions []byte
-		err := optionRows.Scan(&peerName, &peerOptions)
+		var encPeerOptions []byte
+		var encKeyID string
+		if err := optionRows.Scan(&peerName, &encPeerOptions, &encKeyID); err != nil {
+			return nil, err
+		}
+
+		peerOptions, err := connectors.DecryptPeerOptions(encKeyID, encPeerOptions)
 		if err != nil {
 			return nil, err
 		}
+
 		var pgPeerConfig protos.PostgresConfig
 		unmarshalErr := proto.Unmarshal(peerOptions, &pgPeerConfig)
 		if unmarshalErr != nil {
@@ -527,4 +539,20 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	}
 
 	return currentSnapshotXmin, nil
+}
+
+func (a *FlowableActivity) getPeerNameForMirror(ctx context.Context, flowName string, peerType PeerType) (string, error) {
+	peerClause := "source_peer"
+	if peerType == Destination {
+		peerClause = "destination_peer"
+	}
+	q := fmt.Sprintf("SELECT p.name FROM flows f JOIN peers p ON f.%s = p.id WHERE f.name = $1;", peerClause)
+	var peerName string
+	err := a.CatalogPool.QueryRow(ctx, q, flowName).Scan(&peerName)
+	if err != nil {
+		slog.Error("failed to get peer name for flow", slog.String("flow_name", flowName), slog.Any("error", err))
+		return "", fmt.Errorf("failed to get peer name for flow %s: %w", flowName, err)
+	}
+
+	return peerName, nil
 }

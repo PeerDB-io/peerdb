@@ -248,7 +248,12 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 	numRecords := atomic.Int64{}
 	lastSeenLSN := atomic.Int64{}
 
-	queueCtx, queueErr := context.WithCancelCause(ctx)
+	queueCtx, queueCtxErr := context.WithCancelCause(ctx)
+	queueErr := func(err error) {
+		c.logger.Error("[kafka] queue error", slog.Any("error", err))
+		queueCtxErr(err)
+	}
+
 	pool, err := c.createPool(queueCtx, req.Script, req.FlowJobName, &lastSeenLSN, queueErr)
 	if err != nil {
 		return nil, err

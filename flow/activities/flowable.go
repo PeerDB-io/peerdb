@@ -545,7 +545,13 @@ func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.Q
 }
 
 func (a *FlowableActivity) DropFlowSource(ctx context.Context, config *protos.ShutdownRequest) error {
-	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, a.CatalogPool, config.SourcePeer)
+	sourcePeerName, err := a.getPeerNameForMirror(ctx, config.FlowJobName, Source)
+	if err != nil {
+		return err
+	}
+
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, a.CatalogPool, sourcePeerName)
 	if err != nil {
 		return fmt.Errorf("failed to get source connector: %w", err)
 	}
@@ -555,8 +561,13 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, config *protos.Sh
 }
 
 func (a *FlowableActivity) DropFlowDestination(ctx context.Context, config *protos.ShutdownRequest) error {
+	destinationPeerName, err := a.getPeerNameForMirror(ctx, config.FlowJobName, Destination)
+	if err != nil {
+		return err
+	}
+
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, a.CatalogPool, config.DestinationPeer)
+	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, a.CatalogPool, destinationPeerName)
 	if err != nil {
 		return fmt.Errorf("failed to get destination connector: %w", err)
 	}
@@ -812,40 +823,4 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 	}
 	return err
-}
-
-// TODO remove in 0.15
-func (a *FlowableActivity) UpdateCdcFlowConfigInCatalog(
-	ctx context.Context,
-	cfg *protos.FlowConnectionConfigs,
-) error {
-	cfgBytes, err := proto.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("unable to marshal flow config: %w", err)
-	}
-
-	_, err = a.CatalogPool.Exec(ctx, "UPDATE flows SET config_proto = $1 WHERE name = $2", cfgBytes, cfg.FlowJobName)
-	if err != nil {
-		return fmt.Errorf("unable to update flow config in catalog: %w", err)
-	}
-
-	return nil
-}
-
-// TODO remove in 0.15
-func (a *FlowableActivity) UpdateQRepFlowConfigInCatalog(
-	ctx context.Context,
-	cfg *protos.FlowConnectionConfigs,
-) error {
-	cfgBytes, err := proto.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("unable to marshal flow config: %w", err)
-	}
-
-	_, err = a.CatalogPool.Exec(ctx, "UPDATE flows SET config_proto = $1 WHERE name = $2", cfgBytes, cfg.FlowJobName)
-	if err != nil {
-		return fmt.Errorf("unable to update flow config in catalog: %w", err)
-	}
-
-	return nil
 }

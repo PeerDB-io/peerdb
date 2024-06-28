@@ -4,14 +4,10 @@ import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { workflowId, flowJobName, sourcePeer, destinationPeer } = body;
+  const { flowJobName } = body;
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
   const req: ShutdownRequest = {
-    workflowId,
     flowJobName,
-    sourcePeer,
-    destinationPeer,
-    removeFlowEntry: true,
   };
 
   try {

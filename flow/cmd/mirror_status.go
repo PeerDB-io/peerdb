@@ -1,4 +1,3 @@
-//nolint:staticcheck // TODO remove in 0.15
 package cmd
 
 import (
@@ -27,6 +26,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
+		slog.Error("unable to get the workflow ID of mirror", slog.Any("error", err))
 		return &protos.MirrorStatusResponse{
 			FlowJobName:      req.FlowJobName,
 			CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
@@ -37,6 +37,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 
 	currState, err := h.getWorkflowStatus(ctx, workflowID)
 	if err != nil {
+		slog.Error("unable to get the running status of mirror", slog.Any("error", err))
 		return &protos.MirrorStatusResponse{
 			FlowJobName:      req.FlowJobName,
 			CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
@@ -48,7 +49,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 	if req.IncludeFlowInfo {
 		cdcFlow, err := h.isCDCFlow(ctx, req.FlowJobName)
 		if err != nil {
-			slog.Error("unable to query flow", slog.Any("error", err))
+			slog.Error("unable to determine if mirror is cdc", slog.Any("error", err))
 			return &protos.MirrorStatusResponse{
 				FlowJobName:      req.FlowJobName,
 				CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
@@ -59,6 +60,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 		if cdcFlow {
 			cdcStatus, err := h.CDCFlowStatus(ctx, req)
 			if err != nil {
+				slog.Error("unable to obtain CDC information for mirror", slog.Any("error", err))
 				return &protos.MirrorStatusResponse{
 					FlowJobName:      req.FlowJobName,
 					CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
@@ -78,6 +80,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 		} else {
 			qrepStatus, err := h.QRepFlowStatus(ctx, req)
 			if err != nil {
+				slog.Error("unable to obtain qrep information for mirror", slog.Any("error", err))
 				return &protos.MirrorStatusResponse{
 					FlowJobName:      req.FlowJobName,
 					CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
@@ -111,26 +114,18 @@ func (h *FlowRequestHandler) CDCFlowStatus(
 	slog.Info("CDC mirror status endpoint called", slog.String(string(shared.FlowNameKey), req.FlowJobName))
 	config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
 	if err != nil {
+		slog.Error("unable to query flow config from catalog", slog.Any("error", err))
 		return nil, err
 	}
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
+		slog.Error("unable to get the workflow ID of mirror", slog.Any("error", err))
 		return nil, err
 	}
 	state, err := h.getCDCWorkflowState(ctx, workflowID)
 	if err != nil {
+		slog.Error("unable to get the state of mirror", slog.Any("error", err))
 		return nil, err
-	}
-
-	// TODO remove in 0.15
-	// patching config to use new fields on ui
-	if config.Source != nil {
-		config.SourceName = config.Source.Name
-		config.Source = nil
-	}
-	if config.Destination != nil {
-		config.DestinationName = config.Destination.Name
-		config.Destination = nil
 	}
 
 	// patching config to show latest values from state
@@ -142,15 +137,18 @@ func (h *FlowRequestHandler) CDCFlowStatus(
 
 	srcType, err := connectors.LoadPeerType(ctx, h.pool, config.SourceName)
 	if err != nil {
+		slog.Error("unable to load source peer type", slog.Any("error", err))
 		return nil, err
 	}
 	dstType, err := connectors.LoadPeerType(ctx, h.pool, config.DestinationName)
 	if err != nil {
+		slog.Error("unable to load destination peer type", slog.Any("error", err))
 		return nil, err
 	}
 
 	cloneStatuses, err := h.cloneTableSummary(ctx, req.FlowJobName)
 	if err != nil {
+		slog.Error("unable to query clone table summary", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -166,7 +164,7 @@ func (h *FlowRequestHandler) CDCFlowStatus(
 
 func (h *FlowRequestHandler) cloneTableSummary(
 	ctx context.Context,
-	flowJobName string,
+	mirrorName string,
 ) ([]*protos.CloneTableSummary, error) {
 	q := `
 	SELECT
@@ -182,7 +180,7 @@ func (h *FlowRequestHandler) cloneTableSummary(
 		AVG(EXTRACT(EPOCH FROM (qp.end_time - qp.start_time)) * 1000) FILTER (WHERE qp.end_time IS NOT NULL) AS AvgTimePerPartitionMs
 	FROM peerdb_stats.qrep_partitions qp
 	RIGHT JOIN peerdb_stats.qrep_runs qr ON qp.flow_name = qr.flow_name
-	WHERE qr.flow_name ILIKE $1
+	WHERE qr.flow_name ^@ ($1||qr.destination_table)
 	GROUP BY qr.flow_name, qr.destination_table, qr.source_table, qr.start_time, qr.fetch_complete, qr.consolidate_complete;
 	`
 	var flowName pgtype.Text
@@ -196,11 +194,11 @@ func (h *FlowRequestHandler) cloneTableSummary(
 	var numRowsSynced pgtype.Int8
 	var avgTimePerPartitionMs pgtype.Float8
 
-	rows, err := h.pool.Query(ctx, q, "clone_"+flowJobName+"_%")
+	rows, err := h.pool.Query(ctx, q, fmt.Sprintf("clone_%s_", mirrorName))
 	if err != nil {
 		slog.Error("unable to query initial load partition",
-			slog.String(string(shared.FlowNameKey), flowJobName), slog.Any("error", err))
-		return nil, fmt.Errorf("unable to query initial load partition - %s: %w", flowJobName, err)
+			slog.String(string(shared.FlowNameKey), mirrorName), slog.Any("error", err))
+		return nil, fmt.Errorf("unable to query initial load partition - %s: %w", mirrorName, err)
 	}
 
 	defer rows.Close()
@@ -219,7 +217,7 @@ func (h *FlowRequestHandler) cloneTableSummary(
 			&numRowsSynced,
 			&avgTimePerPartitionMs,
 		); err != nil {
-			return nil, fmt.Errorf("unable to scan initial load partition - %s: %w", flowJobName, err)
+			return nil, fmt.Errorf("unable to scan initial load partition - %s: %w", mirrorName, err)
 		}
 
 		var res protos.CloneTableSummary
@@ -263,6 +261,8 @@ func (h *FlowRequestHandler) cloneTableSummary(
 		if avgTimePerPartitionMs.Valid {
 			res.AvgTimePerPartitionMs = int64(avgTimePerPartitionMs.Float64)
 		}
+
+		res.MirrorName = mirrorName
 
 		cloneStatuses = append(cloneStatuses, &res)
 	}
@@ -379,19 +379,6 @@ func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID s
 			fmt.Errorf("failed to get status in workflow with ID %s: %w", workflowID, err)
 	}
 	return state, nil
-}
-
-func (h *FlowRequestHandler) updateWorkflowStatus(
-	ctx context.Context,
-	workflowID string,
-	state protos.FlowStatus,
-) error {
-	_, err := h.temporalClient.UpdateWorkflow(ctx, workflowID, "", shared.FlowStatusUpdate, state)
-	if err != nil {
-		slog.Error(fmt.Sprintf("failed to update state in workflow with ID %s: %s", workflowID, err.Error()))
-		return fmt.Errorf("failed to update state in workflow with ID %s: %w", workflowID, err)
-	}
-	return nil
 }
 
 func (h *FlowRequestHandler) getCDCWorkflowState(ctx context.Context,

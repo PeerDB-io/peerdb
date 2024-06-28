@@ -14,9 +14,6 @@ const (
 	CDCFlowStateQuery  = "q-cdc-flow-state"
 	QRepFlowStateQuery = "q-qrep-flow-state"
 	FlowStatusQuery    = "q-flow-status"
-
-	// Updates
-	FlowStatusUpdate = "u-flow-status"
 )
 
 const MirrorNameSearchAttribute = "MirrorName"

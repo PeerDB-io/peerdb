@@ -2,14 +2,15 @@ use catalog::WorkflowDetails;
 use pt::{
     flow_model::{FlowJob, QRepFlowJob},
     peerdb_flow::{QRepWriteMode, QRepWriteType, TypeSystem},
-    peerdb_route, tonic,
+    peerdb_route,
+    tonic,
 };
 use serde_json::Value;
 use tonic_health::pb::health_client;
 
-pub enum PeerValidationResult {
-    Valid,
-    Invalid(String),
+pub enum PeerCreationResult {
+    Created,
+    Failed(String),
 }
 
 pub struct FlowGrpcClient {
@@ -53,24 +54,6 @@ impl FlowGrpcClient {
         let response = self.client.create_q_rep_flow(create_qrep_flow_req).await?;
         let workflow_id = response.into_inner().workflow_id;
         Ok(workflow_id)
-    }
-
-    pub async fn validate_peer(
-        &mut self,
-        validate_request: &pt::peerdb_route::ValidatePeerRequest,
-    ) -> anyhow::Result<PeerValidationResult> {
-        let validate_peer_req = pt::peerdb_route::ValidatePeerRequest {
-            peer: validate_request.peer.clone(),
-        };
-        let response = self.client.validate_peer(validate_peer_req).await?;
-        let response_body = &response.into_inner();
-        let message = response_body.message.clone();
-        let status = response_body.status;
-        if status == pt::peerdb_route::ValidatePeerStatus::Valid as i32 {
-            Ok(PeerValidationResult::Valid)
-        } else {
-            Ok(PeerValidationResult::Invalid(message))
-        }
     }
 
     async fn start_peer_flow(
@@ -154,10 +137,7 @@ impl FlowGrpcClient {
             return anyhow::Result::Err(anyhow::anyhow!("invalid system {}", job.system));
         };
 
-        #[allow(deprecated)]
         let mut flow_conn_cfg = pt::peerdb_flow::FlowConnectionConfigs {
-            source: None,
-            destination: None,
             source_name: src,
             destination_name: dst,
             flow_job_name: job.name.clone(),
@@ -311,6 +291,21 @@ impl FlowGrpcClient {
                 tracing::error!("failed to check health of flow server: {}", e);
                 false
             }
+        }
+    }
+
+    pub async fn create_peer(
+        &mut self,
+        create_request: pt::peerdb_route::CreatePeerRequest,
+    ) -> anyhow::Result<PeerCreationResult> {
+        let response = self.client.create_peer(create_request).await?;
+        let response_body = &response.into_inner();
+        let message = response_body.message.clone();
+        let status = response_body.status;
+        if status == pt::peerdb_route::CreatePeerStatus::Created as i32 {
+            Ok(PeerCreationResult::Created)
+        } else {
+            Ok(PeerCreationResult::Failed(message))
         }
     }
 }
