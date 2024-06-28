@@ -33,6 +33,19 @@ export const IsQueuePeer = (peerType?: DBType): boolean => {
   );
 };
 
+const ValidSchemaQualifiedTarget = (
+  peerType: DBType,
+  tableName: string
+): boolean => {
+  const schemaRequiredPeer =
+    peerType === DBType.POSTGRES || peerType === DBType.SNOWFLAKE;
+  if (!schemaRequiredPeer) {
+    return true;
+  }
+
+  return !!tableName && tableName.includes('.') && !tableName.startsWith('.');
+};
+
 const CDCCheck = (
   flowJobName: string,
   rows: TableMapRow[],
@@ -45,7 +58,7 @@ const CDCCheck = (
   }
 
   const tableNameMapping = reformattedTableMapping(rows);
-  const fieldErr = validateCDCFields(tableNameMapping, config);
+  const fieldErr = validateCDCFields(tableNameMapping, config, destinationType);
   if (fieldErr) {
     return fieldErr;
   }
@@ -68,18 +81,36 @@ const CDCCheck = (
   return '';
 };
 
+// check if table names are schema-qualified if applicable
+const validateSchemaQualification = (
+  tableMapping: (TableMapping | undefined)[],
+  destinationType: DBType
+): string => {
+  for (const table of tableMapping) {
+    if (
+      !ValidSchemaQualifiedTarget(
+        destinationType,
+        table!.destinationTableIdentifier
+      )
+    ) {
+      return `Destination table ${table?.destinationTableIdentifier} should be schema qualified`;
+    }
+  }
+  return '';
+};
+
 const validateCDCFields = (
-  tableMapping: (
-    | {
-        sourceTableIdentifier: string;
-        destinationTableIdentifier: string;
-        partitionKey: string;
-        exclude: string[];
-      }
-    | undefined
-  )[],
-  config: CDCConfig
+  tableMapping: (TableMapping | undefined)[],
+  config: CDCConfig,
+  destinationType: DBType
 ): string | undefined => {
+  const tableQualificationErr = validateSchemaQualification(
+    tableMapping,
+    destinationType
+  );
+  if (tableQualificationErr) {
+    return tableQualificationErr;
+  }
   const tablesValidity = tableMappingSchema.safeParse(tableMapping);
   if (!tablesValidity.success) {
     return tablesValidity.error.issues[0].message;
@@ -231,25 +262,16 @@ export const handleCreateQRep = async (
   config.flowJobName = flowJobName;
   config.query = query;
 
-  const isSchemaLessPeer =
-    destinationType === DBType.BIGQUERY ||
-    destinationType === DBType.CLICKHOUSE;
-  if (destinationType !== DBType.ELASTICSEARCH) {
-    if (isSchemaLessPeer && config.destinationTableIdentifier?.includes('.')) {
-      notifyErr(
-        `Destination table should not be schema qualified for ${DBTypeToGoodText(destinationType)} targets`
-      );
-      return;
-    }
-    if (
-      !isSchemaLessPeer &&
-      !config.destinationTableIdentifier?.includes('.')
-    ) {
-      notifyErr(
-        `Destination table should be schema qualified for ${DBTypeToGoodText(destinationType)} targets`
-      );
-      return;
-    }
+  if (
+    !ValidSchemaQualifiedTarget(
+      destinationType,
+      config.destinationTableIdentifier
+    )
+  ) {
+    notifyErr(
+      `Destination table should be schema qualified for ${DBTypeToGoodText(destinationType)} targets`
+    );
+    return;
   }
 
   setLoading(true);
