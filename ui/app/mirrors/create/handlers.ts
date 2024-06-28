@@ -33,14 +33,18 @@ export const IsQueuePeer = (peerType?: DBType): boolean => {
   );
 };
 
-const IsSchemaLessPeer = (peerType?: DBType): boolean => {
-  const isSchemaLessPeer =
-    peerType === DBType.ELASTICSEARCH ||
-    peerType === DBType.BIGQUERY ||
-    peerType === DBType.CLICKHOUSE ||
-    IsQueuePeer(peerType);
+const ValidSchemaQualifiedTarget = (
+  peerType?: DBType,
+  tableName?: string
+): boolean => {
+  if (!tableName) return false;
+  const schemaRequiredPeer =
+    peerType === DBType.POSTGRES || peerType === DBType.SNOWFLAKE;
+  if (!schemaRequiredPeer) {
+    return true;
+  }
 
-  return isSchemaLessPeer;
+  return tableName?.includes('.') && tableName?.split('.')[0].length !== 0;
 };
 
 const CDCCheck = (
@@ -85,9 +89,10 @@ const validateSchemaQualification = (
 ): string => {
   for (const table of tableMapping) {
     if (
-      !IsSchemaLessPeer(destinationType) &&
-      (!table?.destinationTableIdentifier.includes('.') ||
-        table?.destinationTableIdentifier.split('.')[0].length === 0)
+      !ValidSchemaQualifiedTarget(
+        destinationType,
+        table?.destinationTableIdentifier
+      )
     ) {
       return `Destination table ${table?.destinationTableIdentifier} should be schema qualified`;
     }
@@ -259,8 +264,10 @@ export const handleCreateQRep = async (
   config.query = query;
 
   if (
-    !IsSchemaLessPeer(destinationType) &&
-    !config.destinationTableIdentifier?.includes('.')
+    !ValidSchemaQualifiedTarget(
+      destinationType,
+      config.destinationTableIdentifier
+    )
   ) {
     notifyErr(
       `Destination table should be schema qualified for ${DBTypeToGoodText(destinationType)} targets`
