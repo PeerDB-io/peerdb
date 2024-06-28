@@ -243,7 +243,8 @@ func (h *FlowRequestHandler) GetAllTables(
 	rows, err := peerConn.Query(ctx, "SELECT n.nspname || '.' || c.relname AS schema_table "+
 		"FROM pg_class c "+
 		"JOIN pg_namespace n ON c.relnamespace = n.oid "+
-		"WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' AND c.relkind IN ('r', 'v', 'm', 'f');")
+		"WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'"+
+		"AND c.relkind IN ('r', 'v', 'm', 'f', 'p')")
 	if err != nil {
 		return &protos.AllTablesResponse{Tables: nil}, err
 	}
