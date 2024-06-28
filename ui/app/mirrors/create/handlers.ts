@@ -43,7 +43,7 @@ const ValidSchemaQualifiedTarget = (
     return true;
   }
 
-  return tableName?.includes('.') && tableName?.split('.')[0].length !== 0;
+  return !!tableName && tableName.includes('.') && !tableName.startsWith('.');
 };
 
 const CDCCheck = (
