@@ -60,15 +60,12 @@ func SyncFlowWorkflow(
 
 	selector := workflow.NewNamedSelector(ctx, "SyncLoop")
 	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
-	if fMaintain != nil {
-		selector.AddFuture(fMaintain, func(f workflow.Future) {
-			err := f.Get(ctx, nil)
-			if err != nil {
-				logger.Error("MaintainPull failed", slog.Any("error", err))
-				syncErr = true
-			}
-		})
-	}
+	selector.AddFuture(fMaintain, func(f workflow.Future) {
+		if err := f.Get(ctx, nil); err != nil {
+			logger.Error("MaintainPull failed", slog.Any("error", err))
+			syncErr = true
+		}
+	})
 
 	stopChan := model.SyncStopSignal.GetSignalChannel(ctx)
 	stopChan.AddToSelector(selector, func(_ struct{}, _ bool) {
@@ -218,23 +215,24 @@ func SyncFlowWorkflow(
 		return err
 	}
 
-	if fMaintain != nil {
-		unmaintainCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
-			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
-			StartToCloseTimeout: time.Minute,
-			HeartbeatTimeout:    time.Minute,
-			WaitForCancellation: true,
-		})
-		if err := workflow.ExecuteActivity(
-			unmaintainCtx,
-			flowable.UnmaintainPull,
-			sessionID,
-		).Get(unmaintainCtx, nil); err != nil {
-			logger.Warn("UnmaintainPull failed", slog.Any("error", err))
-		}
+	unmaintainCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+		StartToCloseTimeout: time.Minute,
+		HeartbeatTimeout:    time.Minute,
+		WaitForCancellation: true,
+	})
+	if err := workflow.ExecuteActivity(
+		unmaintainCtx,
+		flowable.UnmaintainPull,
+		sessionID,
+	).Get(unmaintainCtx, nil); err != nil {
+		logger.Warn("UnmaintainPull failed", slog.Any("error", err))
 	}
 
 	if stop {
+		return nil
+	} else if _, stop := stopChan.ReceiveAsync(); stop {
+		// if sync flow erroring may outrace receiving stop
 		return nil
 	}
 	return workflow.NewContinueAsNewError(ctx, SyncFlowWorkflow, config, options)
