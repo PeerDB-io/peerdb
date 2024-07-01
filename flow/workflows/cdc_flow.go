@@ -436,8 +436,7 @@ func CDCFlowWorkflow(
 	mainLoopSelector := workflow.NewNamedSelector(ctx, "MainLoop")
 	mainLoopSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 	mainLoopSelector.AddFuture(syncFlowFuture, func(f workflow.Future) {
-		err := f.Get(ctx, nil)
-		if err != nil {
+		if err := f.Get(ctx, nil); err != nil {
 			handleError("sync", err)
 		}
 
@@ -445,7 +444,7 @@ func CDCFlowWorkflow(
 		syncFlowFuture = nil
 		restart = true
 		if normFlowFuture != nil {
-			err = model.NormalizeSignal.SignalChildWorkflow(ctx, normFlowFuture, model.NormalizePayload{
+			err := model.NormalizeSignal.SignalChildWorkflow(ctx, normFlowFuture, model.NormalizePayload{
 				Done:        true,
 				SyncBatchID: -1,
 			}).Get(ctx, nil)
