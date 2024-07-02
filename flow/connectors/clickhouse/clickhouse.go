@@ -84,7 +84,7 @@ func NewClickhouseConnector(
 	config *protos.ClickhouseConfig,
 ) (*ClickhouseConnector, error) {
 	logger := logger.LoggerFromCtx(ctx)
-	database, err := connect(ctx, config)
+	database, err := Connect(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open connection to Clickhouse peer: %w", err)
 	}
@@ -168,7 +168,7 @@ func NewClickhouseConnector(
 	}, nil
 }
 
-func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, error) {
+func Connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, error) {
 	var tlsSetting *tls.Config
 	if !config.DisableTls {
 		tlsSetting = &tls.Config{MinVersion: tls.VersionTLS13}

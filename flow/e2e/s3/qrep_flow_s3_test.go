@@ -42,7 +42,7 @@ func (s PeerFlowE2ETestSuiteS3) Peer() *protos.Peer {
 		Name: e2e.AddSuffix(s, "s3peer"),
 		Type: protos.DBType_S3,
 		Config: &protos.Peer_S3Config{
-			S3Config: s.s3Helper.s3Config,
+			S3Config: s.s3Helper.S3Config,
 		},
 	}
 	e2e.CreatePeer(s.t, ret)
@@ -130,7 +130,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 		"",
 		"",
 	)
-	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
+	qrepConfig.StagingPath = s.s3Helper.S3Config.Url
 
 	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
@@ -172,7 +172,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 		"",
 		"",
 	)
-	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
+	qrepConfig.StagingPath = s.s3Helper.S3Config.Url
 	qrepConfig.NumRowsPerPartition = 2000
 	qrepConfig.InitialCopyOnly = true
 	qrepConfig.WatermarkColumn = "ctid"
