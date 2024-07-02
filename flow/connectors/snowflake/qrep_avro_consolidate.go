@@ -136,7 +136,7 @@ func (s *SnowflakeAvroConsolidateHandler) getCopyTransformation(copyDstTable str
 		s.config.SyncedAtColName,
 		s.config.SoftDeleteColName,
 	)
-	return fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) FILE_FORMAT=(TYPE=AVRO), PURGE=TRUE",
+	return fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) FILE_FORMAT=(TYPE=AVRO), PURGE=TRUE, ON_ERROR=CONTINUE",
 		copyDstTable, columnsSQL, transformationSQL, s.stage)
 }
 
