@@ -2,8 +2,7 @@ use catalog::WorkflowDetails;
 use pt::{
     flow_model::{FlowJob, QRepFlowJob},
     peerdb_flow::{QRepWriteMode, QRepWriteType, TypeSystem},
-    peerdb_route,
-    tonic,
+    peerdb_route, tonic,
 };
 use serde_json::Value;
 use tonic_health::pb::health_client;
@@ -149,7 +148,6 @@ impl FlowGrpcClient {
             snapshot_num_tables_in_parallel: snapshot_num_tables_in_parallel.unwrap_or(0),
             snapshot_staging_path: job.snapshot_staging_path.clone(),
             cdc_staging_path: job.cdc_staging_path.clone().unwrap_or_default(),
-            soft_delete: job.soft_delete,
             replication_slot_name: replication_slot_name.unwrap_or_default(),
             max_batch_size: job.max_batch_size.unwrap_or_default(),
             resync: job.resync,
@@ -164,11 +162,7 @@ impl FlowGrpcClient {
             idle_timeout_seconds: job.sync_interval.unwrap_or_default(),
         };
 
-        if job.soft_delete && job.soft_delete_col_name.is_none() {
-            flow_conn_cfg.soft_delete_col_name = "_PEERDB_IS_DELETED".to_string();
-        }
         if job.disable_peerdb_columns {
-            flow_conn_cfg.soft_delete = false;
             flow_conn_cfg.soft_delete_col_name = "".to_string();
             flow_conn_cfg.synced_at_col_name = "".to_string();
         }

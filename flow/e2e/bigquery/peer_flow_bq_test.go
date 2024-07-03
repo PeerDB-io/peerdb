@@ -859,7 +859,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
-	flowConnConfig.SoftDelete = false
 	flowConnConfig.SoftDeleteColName = ""
 	flowConnConfig.SyncedAtColName = ""
 
@@ -1080,7 +1079,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 			},
 		},
 		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
-		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
 		MaxBatchSize:      100,
@@ -1150,7 +1148,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 			},
 		},
 		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
-		SoftDelete:        true,
 		SoftDeleteColName: "_custom_deleted",
 		SyncedAtColName:   "_custom_synced",
 		MaxBatchSize:      100,
@@ -1218,7 +1215,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 			},
 		},
 		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
-		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
 		MaxBatchSize:      100,
@@ -1294,7 +1290,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 			},
 		},
 		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
-		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
 		MaxBatchSize:      100,
@@ -1365,7 +1360,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_JSON_PKey_BQ() {
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
-	flowConnConfig.SoftDelete = false
 	flowConnConfig.SoftDeleteColName = ""
 	flowConnConfig.SyncedAtColName = ""
 

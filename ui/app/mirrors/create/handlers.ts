@@ -75,7 +75,7 @@ const CDCCheck = (
   }
 
   if (IsQueuePeer(destinationType)) {
-    config.softDelete = false;
+    config.softDeleteColName = '';
   }
 
   return '';
@@ -158,7 +158,6 @@ export const reformattedTableMapping = (
 const processCDCConfig = (a: CDCConfig): FlowConnectionConfigs => {
   const ret = a as FlowConnectionConfigs;
   if (a.disablePeerDBColumns) {
-    ret.softDelete = false;
     ret.softDeleteColName = '';
     ret.syncedAtColName = '';
   }

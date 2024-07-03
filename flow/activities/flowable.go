@@ -348,7 +348,6 @@ func (a *FlowableActivity) StartNormalize(
 	res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
 		FlowJobName:            input.FlowConnectionConfigs.FlowJobName,
 		SyncBatchID:            input.SyncBatchID,
-		SoftDelete:             input.FlowConnectionConfigs.SoftDelete,
 		SoftDeleteColName:      input.FlowConnectionConfigs.SoftDeleteColName,
 		SyncedAtColName:        input.FlowConnectionConfigs.SyncedAtColName,
 		TableNameSchemaMapping: input.TableNameSchemaMapping,

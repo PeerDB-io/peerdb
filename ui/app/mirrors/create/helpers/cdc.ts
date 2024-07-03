@@ -1,6 +1,6 @@
 import { TypeSystem } from '@/grpc_generated/flow';
 import { CDCConfig } from '../../../dto/MirrorsDTO';
-import { AdvancedSettingType, MirrorSetting } from './common';
+import { AdvancedSettingType, blankCDCSetting, MirrorSetting } from './common';
 export const cdcSettings: MirrorSetting[] = [
   {
     label: 'Initial Copy',
@@ -142,8 +142,9 @@ export const cdcSettings: MirrorSetting[] = [
       setter(
         (curr: CDCConfig): CDCConfig => ({
           ...curr,
-          softDelete: (value as boolean) ?? true,
-          softDeleteColName: (value as boolean) ? curr.softDeleteColName : '',
+          softDeleteColName: (value as boolean)
+            ? curr.softDeleteColName || blankCDCSetting.softDeleteColName
+            : '',
         })
       ),
     tips: 'Allows you to mark some records as deleted without actual erasure from the database',
