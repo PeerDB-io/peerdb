@@ -49,14 +49,18 @@ func (s ClickHouseSuite) Suffix() string {
 }
 
 func (s ClickHouseSuite) Peer() *protos.Peer {
+	return s.PeerForDatabase("e2e_test_" + s.suffix)
+}
+
+func (s ClickHouseSuite) PeerForDatabase(dbname string) *protos.Peer {
 	ret := &protos.Peer{
-		Name: e2e.AddSuffix(s, "click"),
+		Name: e2e.AddSuffix(s, dbname),
 		Type: protos.DBType_CLICKHOUSE,
 		Config: &protos.Peer_ClickhouseConfig{
 			ClickhouseConfig: &protos.ClickhouseConfig{
 				Host:            "localhost",
 				Port:            9000,
-				Database:        "default",
+				Database:        dbname,
 				S3Path:          s.s3Helper.BucketName,
 				AccessKeyId:     *s.s3Helper.S3Config.AccessKeyId,
 				SecretAccessKey: *s.s3Helper.S3Config.SecretAccessKey,
@@ -124,14 +128,19 @@ func SetupSuite(t *testing.T) ClickHouseSuite {
 	require.NoError(t, err, "failed to setup postgres")
 
 	s3Helper, err := e2e_s3.NewS3TestHelper(false)
-	if err != nil {
-		require.Fail(t, "failed to setup S3", err)
-	}
+	require.NoError(t, err, "failed to setup S3")
 
-	return ClickHouseSuite{
+	s := ClickHouseSuite{
 		t:        t,
 		conn:     conn,
 		suffix:   suffix,
 		s3Helper: s3Helper,
 	}
+
+	ch, err := connclickhouse.Connect(context.Background(), s.PeerForDatabase("default").GetClickhouseConfig())
+	require.NoError(t, err, "failed to connect to clickhouse")
+	_, err = ch.Exec("CREATE DATABASE e2e_test_" + suffix)
+	require.NoError(t, err, "failed to create clickhouse database")
+
+	return s
 }
