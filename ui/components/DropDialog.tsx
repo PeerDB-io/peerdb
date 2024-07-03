@@ -87,14 +87,11 @@ export const DropDialog = ({
 
   const handleDeleteAlert = async (dropArgs: deleteAlertArgs) => {
     setLoading(true);
-    const deleteRes = await fetch('api/alert-config', {
+    const deleteRes = await fetch(`api/alert-config?id=${dropArgs.id}`, {
       method: 'DELETE',
-      body: JSON.stringify(dropArgs),
     });
-    const deleteStatus = await deleteRes.text();
     setLoading(false);
-    if (deleteStatus !== 'success')
-      setMsg(`Unable to delete alert configuration.`);
+    if (!deleteRes.ok) setMsg(`Unable to delete alert configuration.`);
     else {
       setMsg(`Alert configuration deleted successfully.`);
       window.location.reload();

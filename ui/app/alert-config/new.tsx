@@ -22,7 +22,7 @@ import {
 export type ServiceType = 'slack' | 'email';
 
 export interface AlertConfigProps {
-  id?: bigint;
+  id?: number;
   serviceType: ServiceType;
   alertConfig: serviceConfigType;
   forEdit?: boolean;
@@ -173,10 +173,9 @@ export function NewConfig(alertProps: AlertConfigProps) {
     const serviceValidity = serviceSchema.safeParse(config);
     if (!serviceValidity?.success) {
       notifyErr(
-        'Invalid alert service configuration for ' +
-          serviceType +
-          '. ' +
-          serviceValidity.error.issues[0].message
+        `Invalid alert service configuration for ${
+          serviceType
+        }. ${serviceValidity.error.issues[0].message}`
       );
       return;
     }
@@ -184,7 +183,7 @@ export function NewConfig(alertProps: AlertConfigProps) {
     const serviceConfig = serviceValidity.data;
     const alertConfigReq: alertConfigType = {
       id: Number(alertProps.id || -1),
-      serviceType: serviceType,
+      serviceType,
       serviceConfig,
     };
 
@@ -193,19 +192,18 @@ export function NewConfig(alertProps: AlertConfigProps) {
       notifyErr(alertReqValidity.error.issues[0].message);
       return;
     }
+    (alertConfigReq as any).serviceConfig = JSON.stringify(
+      alertConfigReq.serviceConfig
+    );
 
     setLoading(true);
-    if (alertProps.forEdit) {
-      alertConfigReq.id = Number(alertProps.id);
-    }
     const createRes = await fetch('/api/alert-config', {
-      method: alertProps.forEdit ? 'PUT' : 'POST',
+      method: 'POST',
       body: JSON.stringify(alertConfigReq),
     });
 
-    const createStatus = await createRes.text();
     setLoading(false);
-    if (createStatus !== 'success') {
+    if (!createRes.ok) {
       notifyErr('Something went wrong. Please try again');
       return;
     }
