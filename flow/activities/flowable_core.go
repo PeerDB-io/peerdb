@@ -293,7 +293,7 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 	optionRows, err := a.CatalogPool.Query(ctx, `
 		SELECT p.name, p.options, p.enc_key_id
 		FROM peers p
-		WHERE p.type = $1 AND EXISTS(SELECT * FROM flows f ON p.id = f.source_peer)`, protos.DBType_POSTGRES)
+		WHERE p.type = $1 AND EXISTS(SELECT * FROM flows f WHERE p.id = f.source_peer)`, protos.DBType_POSTGRES)
 	if err != nil {
 		return nil, err
 	}
