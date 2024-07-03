@@ -100,12 +100,26 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	if err != nil {
 		return nil, err
 	}
+	row := make([]interface{}, 0, len(types))
 	for _, ty := range types {
 		prec, scale, _ := ty.DecimalSize()
 		nullable, _ := ty.Nullable()
+		var qkind qvalue.QValueKind
+		switch ty.DatabaseTypeName() {
+		case "String":
+			var val string
+			row = append(row, &val)
+			qkind = qvalue.QValueKindString
+		case "Int32":
+			var val int32
+			row = append(row, &val)
+			qkind = qvalue.QValueKindInt32
+		default:
+			return nil, fmt.Errorf("failed to resolve QValueKind for %s", ty.DatabaseTypeName())
+		}
 		batch.Schema.Fields = append(batch.Schema.Fields, qvalue.QField{
 			Name:      ty.Name(),
-			Type:      qvalue.QValueKind(ty.DatabaseTypeName()), // TODO do the right thing
+			Type:      qkind,
 			Precision: int16(prec),
 			Scale:     int16(scale),
 			Nullable:  nullable,
@@ -113,8 +127,21 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	}
 
 	for rows.Next() {
-		// TODO rows.Scan()
-		// TODO batch.Records = append(batch.Records, record)
+		if err := rows.Scan(row...); err != nil {
+			return nil, err
+		}
+		qrow := make([]qvalue.QValue, 0, len(row))
+		for _, val := range row {
+			switch v := val.(type) {
+			case *string:
+				qrow = append(qrow, qvalue.QValueString{Val: *v})
+			case *int32:
+				qrow = append(qrow, qvalue.QValueInt32{Val: *v})
+			default:
+				return nil, fmt.Errorf("cannot convert %T to qvalue", v)
+			}
+		}
+		batch.Records = append(batch.Records, qrow)
 	}
 
 	return batch, rows.Err()
