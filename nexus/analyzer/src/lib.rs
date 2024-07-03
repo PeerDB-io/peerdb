@@ -275,11 +275,6 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => Some("".to_string()),
                         };
 
-                        let soft_delete = match raw_options.remove("soft_delete") {
-                            Some(Expr::Value(ast::Value::Boolean(b))) => *b,
-                            _ => false,
-                        };
-
                         let max_batch_size: Option<u32> = match raw_options.remove("max_batch_size")
                         {
                             Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
@@ -338,7 +333,6 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             snapshot_num_tables_in_parallel,
                             snapshot_staging_path,
                             cdc_staging_path,
-                            soft_delete,
                             replication_slot_name,
                             max_batch_size,
                             sync_interval,

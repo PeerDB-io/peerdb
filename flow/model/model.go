@@ -150,7 +150,6 @@ type NormalizeRecordsRequest struct {
 	SoftDeleteColName      string
 	SyncedAtColName        string
 	SyncBatchID            int64
-	SoftDelete             bool
 }
 
 type SyncResponse struct {

@@ -213,11 +213,10 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs(t *testin
 		TableMappings:      tblMappings,
 		SourceName:         GeneratePostgresPeer(t).Name,
 		DestinationName:    c.Destination,
-		SoftDelete:         c.SoftDelete,
 		SyncedAtColName:    "_PEERDB_SYNCED_AT",
 		IdleTimeoutSeconds: 15,
 	}
-	if ret.SoftDelete {
+	if c.SoftDelete {
 		ret.SoftDeleteColName = "_PEERDB_IS_DELETED"
 	}
 	return ret

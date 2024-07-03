@@ -496,7 +496,6 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 		mergeErr := c.mergeTablesForBatch(ctx, batchId,
 			req.FlowJobName, req.TableNameSchemaMapping,
 			&protos.PeerDBColumns{
-				SoftDelete:        req.SoftDelete,
 				SoftDeleteColName: req.SoftDeleteColName,
 				SyncedAtColName:   req.SyncedAtColName,
 			},
@@ -759,15 +758,15 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 
 		c.logger.Info(fmt.Sprintf("setting synced at column for table '%s'...", src))
 
-		if req.SyncedAtColName != nil && *req.SyncedAtColName != "" {
+		if req.SyncedAtColName != "" {
 			_, err = renameTablesTx.ExecContext(ctx,
-				fmt.Sprintf("UPDATE %s SET %s = CURRENT_TIMESTAMP", src, *req.SyncedAtColName))
+				fmt.Sprintf("UPDATE %s SET %s = CURRENT_TIMESTAMP", src, req.SyncedAtColName))
 			if err != nil {
 				return nil, fmt.Errorf("unable to set synced at column for table %s: %w", src, err)
 			}
 		}
 
-		if req.SoftDeleteColName != nil && *req.SoftDeleteColName != "" {
+		if req.SoftDeleteColName != "" {
 			columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
 			for _, col := range renameRequest.TableSchema.Columns {
 				columnNames = append(columnNames, SnowflakeIdentifierNormalize(col.Name))
@@ -785,7 +784,7 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 
 			_, err = renameTablesTx.ExecContext(ctx,
 				fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
-					src, fmt.Sprintf("%s,%s", allCols, *req.SoftDeleteColName), allCols, *req.SoftDeleteColName,
+					src, fmt.Sprintf("%s,%s", allCols, req.SoftDeleteColName), allCols, req.SoftDeleteColName,
 					dst, pkeyCols, pkeyCols, src))
 			if err != nil {
 				return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
