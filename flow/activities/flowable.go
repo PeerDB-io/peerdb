@@ -551,7 +551,7 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	return srcConn.PullFlowCleanup(ctx, req.PeerName)
+	return srcConn.PullFlowCleanup(ctx, req.FlowJobName)
 }
 
 func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.DropFlowActivityInput) error {

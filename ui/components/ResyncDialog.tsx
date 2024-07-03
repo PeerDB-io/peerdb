@@ -62,7 +62,7 @@ export const ResyncDialog = ({ mirrorName }: ResyncDialogProps) => {
           This involves <b>dropping the existing mirror</b> and recreating it.
         </Label>
         <div style={{ display: 'flex', alignItems: 'center' }}>
-          {syncing || <DotLoader size={15} />}
+          {syncing && <DotLoader size={15} />}
           <Label as='label' style={{ marginTop: '0.3rem' }}>
             {msg}
           </Label>
