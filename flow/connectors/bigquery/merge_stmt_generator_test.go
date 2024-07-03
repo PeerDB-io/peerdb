@@ -18,7 +18,6 @@ func TestGenerateUpdateStatement(t *testing.T) {
 			"col3": "_c2",
 		},
 		peerdbCols: &protos.PeerDBColumns{
-			SoftDelete:        false,
 			SoftDeleteColName: "",
 			SyncedAtColName:   "synced_at",
 		},
@@ -56,7 +55,6 @@ func TestGenerateUpdateStatement_WithSoftDelete(t *testing.T) {
 			"col3": "_c2",
 		},
 		peerdbCols: &protos.PeerDBColumns{
-			SoftDelete:        true,
 			SoftDeleteColName: "deleted",
 			SyncedAtColName:   "synced_at",
 		},
@@ -99,7 +97,6 @@ func TestGenerateUpdateStatement_WithUnchangedToastCols(t *testing.T) {
 			"col3": "_c2",
 		},
 		peerdbCols: &protos.PeerDBColumns{
-			SoftDelete:        false,
 			SoftDeleteColName: "",
 			SyncedAtColName:   "synced_at",
 		},
@@ -142,7 +139,6 @@ func TestGenerateUpdateStatement_WithUnchangedToastColsAndSoftDelete(t *testing.
 			"col3": "_c2",
 		},
 		peerdbCols: &protos.PeerDBColumns{
-			SoftDelete:        true,
 			SoftDeleteColName: "deleted",
 			SyncedAtColName:   "synced_at",
 		},

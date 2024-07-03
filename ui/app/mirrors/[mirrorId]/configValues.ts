@@ -19,7 +19,9 @@ const MirrorValues = (mirrorConfig: FlowConnectionConfigs | undefined) => {
       label: 'Snapshot Parallel Tables',
     },
     {
-      value: `${mirrorConfig?.softDelete}`,
+      value: mirrorConfig?.softDeleteColName
+        ? `Enabled (${mirrorConfig?.softDeleteColName})`
+        : 'Disabled',
       label: 'Soft Delete',
     },
     {

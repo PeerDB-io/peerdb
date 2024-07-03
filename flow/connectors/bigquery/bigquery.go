@@ -405,7 +405,6 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 			&protos.PeerDBColumns{
 				SoftDeleteColName: req.SoftDeleteColName,
 				SyncedAtColName:   req.SyncedAtColName,
-				SoftDelete:        req.SoftDelete,
 			})
 		if mergeErr != nil {
 			return nil, mergeErr
@@ -741,7 +740,7 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 			columnIsJSON[quotedCol] = (col.Type == "json" || col.Type == "jsonb")
 		}
 
-		if req.SoftDeleteColName != nil && *req.SoftDeleteColName != "" {
+		if req.SoftDeleteColName != "" {
 			allColsBuilder := strings.Builder{}
 			for idx, col := range columnNames {
 				allColsBuilder.WriteString("_pt.")
@@ -792,8 +791,8 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 				pkeyOnClauseBuilder.String(), ljWhereClauseBuilder.String())
 
 			q := fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s _pt %s",
-				srcDatasetTable.string(), fmt.Sprintf("%s,%s", allColsWithoutAlias, *req.SoftDeleteColName),
-				allColsWithAlias, *req.SoftDeleteColName, dstDatasetTable.string(),
+				srcDatasetTable.string(), fmt.Sprintf("%s,%s", allColsWithoutAlias, req.SoftDeleteColName),
+				allColsWithAlias, req.SoftDeleteColName, dstDatasetTable.string(),
 				leftJoin)
 
 			c.logger.Info(q)
@@ -807,12 +806,12 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 			}
 		}
 
-		if req.SyncedAtColName != nil && *req.SyncedAtColName != "" {
+		if req.SyncedAtColName != "" {
 			c.logger.Info(fmt.Sprintf("setting synced at column for table '%s'...", srcDatasetTable.string()))
 
 			query := c.client.Query(
 				fmt.Sprintf("UPDATE %s SET %s = CURRENT_TIMESTAMP WHERE %s IS NULL", srcDatasetTable.string(),
-					*req.SyncedAtColName, *req.SyncedAtColName))
+					req.SyncedAtColName, req.SyncedAtColName))
 
 			query.DefaultProjectID = c.projectID
 			query.DefaultDatasetID = c.datasetID

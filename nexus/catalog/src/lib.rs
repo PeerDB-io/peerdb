@@ -3,7 +3,7 @@ use std::env;
 
 use anyhow::{anyhow, Context};
 use base64::prelude::*;
-use chacha20poly1305::{aead::Aead, XChaCha20Poly1305, KeyInit, XNonce};
+use chacha20poly1305::{aead::Aead, KeyInit, XChaCha20Poly1305, XNonce};
 use peer_cursor::{QueryExecutor, QueryOutput, Schema};
 use peer_postgres::{self, ast};
 use pgwire::error::PgWireResult;
