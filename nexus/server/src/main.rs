@@ -8,7 +8,7 @@ use std::{
 use analyzer::{PeerDDL, QueryAssociation};
 use async_trait::async_trait;
 use bytes::{BufMut, BytesMut};
-use catalog::{Catalog, CatalogConfig, WorkflowDetails};
+use catalog::{Catalog, CatalogConfig};
 use clap::Parser;
 use cursor::PeerCursors;
 use dashmap::{mapref::entry::Entry as DashEntry, DashMap};
@@ -144,18 +144,12 @@ impl NexusBackend {
         }
     }
 
-    async fn check_for_mirror(
-        catalog: &Catalog,
-        flow_name: &str,
-    ) -> PgWireResult<Option<WorkflowDetails>> {
-        let workflow_details = catalog
-            .get_workflow_details_for_flow_job(flow_name)
-            .await
-            .map_err(|err| {
-                PgWireError::ApiError(
-                    format!("unable to query catalog for job metadata: {:?}", err).into(),
-                )
-            })?;
+    async fn check_for_mirror(catalog: &Catalog, flow_name: &str) -> PgWireResult<bool> {
+        let workflow_details = catalog.flow_name_exists(flow_name).await.map_err(|err| {
+            PgWireError::ApiError(
+                format!("unable to query catalog for job metadata: {:?}", err).into(),
+            )
+        })?;
         Ok(workflow_details)
     }
 
@@ -275,13 +269,9 @@ impl NexusBackend {
                             "flow service is not configured".into(),
                         ));
                     }
-                    let mirror_details;
-                    {
-                        mirror_details =
-                            Self::check_for_mirror(self.catalog.as_ref(), &qrep_flow_job.name)
-                                .await?;
-                    }
-                    if mirror_details.is_none() {
+                    let mirror_exists =
+                        Self::check_for_mirror(self.catalog.as_ref(), &qrep_flow_job.name).await?;
+                    if !mirror_exists {
                         {
                             self.catalog
                                 .create_qrep_flow_job_entry(qrep_flow_job)
@@ -339,9 +329,9 @@ impl NexusBackend {
                             "flow service is not configured".into(),
                         ));
                     }
-                    let mirror_details =
+                    let mirror_exists =
                         Self::check_for_mirror(self.catalog.as_ref(), &flow_job.name).await?;
-                    if mirror_details.is_none() {
+                    if !mirror_exists {
                         // reject duplicate source tables or duplicate target tables
                         let table_mappings_count = flow_job.table_mappings.len();
                         if table_mappings_count > 1 {
@@ -1024,12 +1014,14 @@ async fn run_migrations<'a>(config: &CatalogConfig<'a>) -> anyhow::Result<()> {
 }
 
 pub struct Handlers {
-    authenticator: Arc<SASLScramAuthStartupHandler<FixedPasswordAuthSource, NexusServerParameterProvider>>,
+    authenticator:
+        Arc<SASLScramAuthStartupHandler<FixedPasswordAuthSource, NexusServerParameterProvider>>,
     nexus: Arc<NexusBackend>,
 }
 
 impl PgWireHandlerFactory for Handlers {
-    type StartupHandler = SASLScramAuthStartupHandler<FixedPasswordAuthSource, NexusServerParameterProvider>;
+    type StartupHandler =
+        SASLScramAuthStartupHandler<FixedPasswordAuthSource, NexusServerParameterProvider>;
     type SimpleQueryHandler = NexusBackend;
     type ExtendedQueryHandler = NexusBackend;
     type CopyHandler = NoopCopyHandler;
@@ -1112,7 +1104,10 @@ pub async fn main() -> anyhow::Result<()> {
                     process_socket(
                         socket,
                         None,
-                        Arc::new(Handlers { nexus, authenticator }),
+                        Arc::new(Handlers {
+                            nexus,
+                            authenticator,
+                        }),
                     )
                     .await
                 }
