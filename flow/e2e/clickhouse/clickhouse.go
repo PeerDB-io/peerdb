@@ -79,6 +79,7 @@ func (s ClickHouseSuite) DestinationTable(table string) string {
 }
 
 func (s ClickHouseSuite) Teardown() {
+	require.NoError(s.t, s.s3Helper.CleanUp(context.Background()))
 	e2e.TearDownPostgres(s)
 }
 
