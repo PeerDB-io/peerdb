@@ -468,7 +468,7 @@ impl Catalog {
         let row = self
             .pg
             .query_opt(
-                "SELECT workflow_id, source_peer, destination_peer FROM public.flows WHERE NAME = $1",
+                "SELECT workflow_id, source_peer, destination_peer FROM public.flows WHERE NAME = $1 LIMIT 1",
                 &[&flow_job_name],
             )
             .await?;
