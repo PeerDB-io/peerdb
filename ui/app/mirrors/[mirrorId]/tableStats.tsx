@@ -1,12 +1,12 @@
 'use client';
-import { MirrorRowsData } from '@/app/dto/MirrorsDTO';
+import { MirrorTableRowsData } from '@/app/dto/MirrorsDTO';
 import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { useMemo, useState } from 'react';
 import { RowDataFormatter } from './rowsDisplay';
 
-const TableStats = ({ tableSyncs }: { tableSyncs: MirrorRowsData[] }) => {
+const TableStats = ({ tableSyncs }: { tableSyncs: MirrorTableRowsData[] }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const tableDataToShow = useMemo(() => {
     return tableSyncs.filter((tableSync) =>
@@ -52,10 +52,10 @@ const TableStats = ({ tableSyncs }: { tableSyncs: MirrorRowsData[] }) => {
                   <Label>{tableSync.destinationTableName}</Label>
                 </TableCell>
                 {[
-                  tableSync.totalCount,
-                  tableSync.insertCount,
-                  tableSync.updateCount,
-                  tableSync.deleteCount,
+                  tableSync.data.totalCount,
+                  tableSync.data.insertsCount,
+                  tableSync.data.updatesCount,
+                  tableSync.data.deletesCount,
                 ].map((rowMetric, id) => {
                   return (
                     <TableCell key={id}>

@@ -5,20 +5,18 @@ import {
   TimeAggregateTypes,
   timeOptions,
 } from '@/app/utils/graph';
+import { PartitionStatus } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { BarChart } from '@tremor/react';
 import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
 import aggregateCountsByInterval from './aggregatedCountsByInterval';
 
-type QrepStatusRow = {
-  partitionID: string;
-  startTime: Date | null;
-  endTime: Date | null;
-  numRows: number | null;
+type QRepGraphProps = {
+  syncs: PartitionStatus[];
 };
 
-function QrepGraph({ syncs }: { syncs: QrepStatusRow[] }) {
+function QrepGraph({ syncs }: QRepGraphProps) {
   let [aggregateType, setAggregateType] = useState<TimeAggregateTypes>(
     TimeAggregateTypes.HOUR
   );
@@ -28,7 +26,7 @@ function QrepGraph({ syncs }: { syncs: QrepStatusRow[] }) {
   useEffect(() => {
     let rows = syncs.map((sync) => ({
       timestamp: sync.startTime!,
-      count: sync.numRows ?? 0,
+      count: sync.rowsInPartition ?? 0,
     }));
 
     let counts = aggregateCountsByInterval(rows, aggregateType);

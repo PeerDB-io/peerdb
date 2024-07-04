@@ -1,4 +1,3 @@
-use catalog::WorkflowDetails;
 use pt::{
     flow_model::{FlowJob, QRepFlowJob},
     peerdb_flow::{QRepWriteMode, QRepWriteType, TypeSystem},
@@ -86,15 +85,12 @@ impl FlowGrpcClient {
     pub async fn flow_state_change(
         &mut self,
         flow_job_name: &str,
-        workflow_details: WorkflowDetails,
         state: pt::peerdb_flow::FlowStatus,
         flow_config_update: Option<pt::peerdb_flow::FlowConfigUpdate>,
     ) -> anyhow::Result<()> {
         let state_change_req = pt::peerdb_route::FlowStateChangeRequest {
             flow_job_name: flow_job_name.to_owned(),
             requested_flow_state: state.into(),
-            source_peer: workflow_details.source_peer,
-            destination_peer: workflow_details.destination_peer,
             flow_config_update,
         };
         let response = self.client.flow_state_change(state_change_req).await?;
@@ -300,6 +296,22 @@ impl FlowGrpcClient {
             Ok(PeerCreationResult::Created)
         } else {
             Ok(PeerCreationResult::Failed(message))
+        }
+    }
+
+    pub async fn resync_mirror(&mut self, flow_job_name: &str) -> anyhow::Result<()> {
+        let resync_mirror_req = pt::peerdb_route::ResyncMirrorRequest {
+            flow_job_name: flow_job_name.to_owned(),
+        };
+        let response = self.client.resync_mirror(resync_mirror_req).await?;
+        let resync_mirror_response = response.into_inner();
+        if resync_mirror_response.ok {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(format!(
+                "failed to resync mirror for flow job {}: {:?}",
+                flow_job_name, resync_mirror_response.error_message
+            )))
         }
     }
 }
