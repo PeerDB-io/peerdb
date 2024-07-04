@@ -10,6 +10,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	e2e_bigquery "github.com/PeerDB-io/peer-flow/e2e/bigquery"
+	e2e_clickhouse "github.com/PeerDB-io/peer-flow/e2e/clickhouse"
 	e2e_postgres "github.com/PeerDB-io/peer-flow/e2e/postgres"
 	e2e_snowflake "github.com/PeerDB-io/peer-flow/e2e/snowflake"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
@@ -28,6 +29,10 @@ func TestGenericSF(t *testing.T) {
 
 func TestGenericBQ(t *testing.T) {
 	e2eshared.RunSuite(t, SetupGenericSuite(e2e_bigquery.SetupSuite))
+}
+
+func TestGenericCH(t *testing.T) {
+	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite))
 }
 
 type Generic struct {

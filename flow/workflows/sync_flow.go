@@ -85,6 +85,11 @@ func SyncFlowWorkflow(
 		})
 	}
 
+	syncFlowCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
+		StartToCloseTimeout: 72 * time.Hour,
+		HeartbeatTimeout:    time.Minute,
+		WaitForCancellation: true,
+	})
 	for !stop && ctx.Err() == nil {
 		var syncDone bool
 		mustWait := waitSelector != nil
@@ -92,12 +97,6 @@ func SyncFlowWorkflow(
 		// execute the sync flow
 		currentSyncFlowNum += 1
 		logger.Info("executing sync flow", slog.Int("count", currentSyncFlowNum))
-
-		syncFlowCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
-			StartToCloseTimeout: 72 * time.Hour,
-			HeartbeatTimeout:    time.Minute,
-			WaitForCancellation: true,
-		})
 
 		var syncFlowFuture workflow.Future
 		if config.System == protos.TypeSystem_Q {
