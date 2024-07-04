@@ -1,4 +1,5 @@
 'use client';
+import { MirrorRowsData } from '@/app/dto/MirrorsDTO';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { BarList } from '@tremor/react';
@@ -6,21 +7,12 @@ import { useState } from 'react';
 export const RowDataFormatter = (number: number) =>
   `${Intl.NumberFormat('en-US').format(number).toString()}`;
 
-const RowsDisplay = ({
-  totalRowsData,
-}: {
-  totalRowsData: {
-    total: Number;
-    inserts: number;
-    updates: number;
-    deletes: number;
-  };
-}) => {
+const RowsDisplay = ({ totalRowsData }: { totalRowsData: MirrorRowsData }) => {
   const [show, setShow] = useState(false);
   const rowsHero = [
-    { name: 'Inserts', value: totalRowsData.inserts },
-    { name: 'Updates', value: totalRowsData.updates, color: 'yellow' },
-    { name: 'Deletes', value: totalRowsData.deletes, color: 'rose' },
+    { name: 'Inserts', value: totalRowsData.insertsCount },
+    { name: 'Updates', value: totalRowsData.updatesCount, color: 'yellow' },
+    { name: 'Deletes', value: totalRowsData.deletesCount, color: 'rose' },
   ];
   return (
     <div
@@ -35,7 +27,7 @@ const RowsDisplay = ({
         Rows Synced
       </h4>
       <p className='text-tremor-metric text-tremor-content-strong dark:text-dark-tremor-content-strong font-semibold'>
-        {RowDataFormatter(totalRowsData.total.valueOf())}
+        {RowDataFormatter(totalRowsData.totalCount.valueOf())}
       </p>
       <Button
         aria-label='icon-button'

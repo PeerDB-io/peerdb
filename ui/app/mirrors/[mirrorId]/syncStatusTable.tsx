@@ -1,8 +1,8 @@
 'use client';
 
-import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import SelectTheme from '@/app/styles/select';
 import TimeLabel from '@/components/TimeComponent';
+import { CDCBatch } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
@@ -15,7 +15,7 @@ import ReactSelect from 'react-select';
 import { RowDataFormatter } from './rowsDisplay';
 
 type SyncStatusTableProps = {
-  rows: SyncStatusRow[];
+  rows: CDCBatch[];
 };
 
 function TimeWithDurationOrRunning({
@@ -23,7 +23,7 @@ function TimeWithDurationOrRunning({
   endTime,
 }: {
   startTime: Date;
-  endTime: Date | null;
+  endTime: Date | undefined;
 }) {
   if (endTime) {
     return (
@@ -52,6 +52,7 @@ const sortOptions = [
   { value: 'endTime', label: 'End Time' },
   { value: 'numRows', label: 'Rows Synced' },
 ];
+
 export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortField, setSortField] = useState<
@@ -69,7 +70,7 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
     shownRows.sort((a, b) => {
       const aValue = a[sortField];
       const bValue = b[sortField];
-      if (aValue === null || bValue === null) {
+      if (aValue === undefined || bValue === undefined) {
         return 0;
       }
 
@@ -198,7 +199,7 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
           </TableCell>
           <TableCell>
             <TimeWithDurationOrRunning
-              startTime={row.startTime}
+              startTime={row.startTime!}
               endTime={row.endTime}
             />
           </TableCell>

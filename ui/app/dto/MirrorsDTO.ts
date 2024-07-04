@@ -16,14 +16,10 @@ export type UValidateMirrorResponse = {
   errorMessage: string;
 };
 
-export type UDropMirrorResponse = {
-  dropped: boolean;
-  errorMessage: string;
-};
-
 export type CDCConfig = FlowConnectionConfigs & {
   disablePeerDBColumns: boolean;
 };
+
 export type MirrorConfig = CDCConfig | QRepConfig;
 export type MirrorSetter = Dispatch<SetStateAction<CDCConfig | QRepConfig>>;
 export type TableMapRow = {
@@ -37,19 +33,21 @@ export type TableMapRow = {
   tableSize: string;
 };
 
-export type SyncStatusRow = {
-  batchId: bigint;
-  startTime: Date;
-  endTime: Date | null;
-  numRows: number;
+export type MirrorRowsData = {
+  totalCount: number;
+  insertsCount: number;
+  updatesCount: number;
+  deletesCount: number;
 };
 
-export type MirrorRowsData = {
+export type MirrorTableRowsData = {
   destinationTableName: string;
-  insertCount: number;
-  updateCount: number;
-  deleteCount: number;
-  totalCount: number;
+  data: MirrorRowsData;
+};
+
+export type UMirrorTableStatsResponse = {
+  totalData: MirrorRowsData;
+  tablesData: MirrorTableRowsData[];
 };
 
 export type MirrorLogsType = {

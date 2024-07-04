@@ -543,36 +543,26 @@ func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.Q
 	return dst.CleanupQRepFlow(ctx, config)
 }
 
-func (a *FlowableActivity) DropFlowSource(ctx context.Context, config *protos.ShutdownRequest) error {
-	sourcePeerName, err := a.getPeerNameForMirror(ctx, config.FlowJobName, Source)
-	if err != nil {
-		return err
-	}
-
-	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, a.CatalogPool, sourcePeerName)
+func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropFlowActivityInput) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
+	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, a.CatalogPool, req.PeerName)
 	if err != nil {
 		return fmt.Errorf("failed to get source connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	return srcConn.PullFlowCleanup(ctx, config.FlowJobName)
+	return srcConn.PullFlowCleanup(ctx, req.FlowJobName)
 }
 
-func (a *FlowableActivity) DropFlowDestination(ctx context.Context, config *protos.ShutdownRequest) error {
-	destinationPeerName, err := a.getPeerNameForMirror(ctx, config.FlowJobName, Destination)
-	if err != nil {
-		return err
-	}
-
-	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, a.CatalogPool, destinationPeerName)
+func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.DropFlowActivityInput) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
+	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, a.CatalogPool, req.PeerName)
 	if err != nil {
 		return fmt.Errorf("failed to get destination connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
-	return dstConn.SyncFlowCleanup(ctx, config.FlowJobName)
+	return dstConn.SyncFlowCleanup(ctx, req.FlowJobName)
 }
 
 func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {

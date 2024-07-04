@@ -1,5 +1,18 @@
 import { ScriptsType } from '@/app/dto/ScriptsDTO';
 import prisma from '@/app/utils/prisma';
+import { NextRequest, NextResponse } from 'next/server';
+
+export async function GET(_: NextRequest) {
+  const existingScripts = await prisma.scripts.findMany({
+    orderBy: { name: 'asc' },
+  });
+  const scripts: ScriptsType[] = existingScripts.map((script) => ({
+    ...script,
+    source: script.source.toString(),
+  }));
+
+  return NextResponse.json(scripts);
+}
 
 export async function POST(request: Request) {
   const scriptReq: ScriptsType = await request.json();

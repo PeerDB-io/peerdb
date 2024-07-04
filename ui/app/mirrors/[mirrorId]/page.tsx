@@ -1,20 +1,20 @@
-import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
+'use client';
 import { FormatStatus } from '@/app/utils/flowstatus';
-import prisma from '@/app/utils/prisma';
 import MirrorActions from '@/components/MirrorActionsDropdown';
-import { FlowConnectionConfigs, FlowStatus } from '@/grpc_generated/flow';
+import { FlowStatus } from '@/grpc_generated/flow';
 import { DBType, dBTypeFromJSON } from '@/grpc_generated/peers';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { Badge } from '@/lib/Badge';
 import { Header } from '@/lib/Header';
 import { Label } from '@/lib/Label';
 import { LayoutMain } from '@/lib/Layout';
-import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
+import { useCallback, useEffect, useState } from 'react';
 import { CDCMirror } from './cdc';
+import { getMirrorState } from './handlers';
 import NoMirror from './nomirror';
 import QrepGraph from './qrepGraph';
 import QRepStatusButtons from './qrepStatusButtons';
-import QRepStatusTable, { QRepPartitionStatus } from './qrepStatusTable';
+import QRepStatusTable from './qrepStatusTable';
 import SyncStatus from './syncStatus';
 
 type EditMirrorProps = {
@@ -22,98 +22,52 @@ type EditMirrorProps = {
   searchParams?: { parentMirrorName: string };
 };
 
-function getMirrorStatusUrl(mirrorName: string) {
-  let base = GetFlowHttpAddressFromEnv();
-  return `${base}/v1/mirrors/${mirrorName}?include_flow_info=true`;
-}
-
-async function getMirrorStatus(mirrorName: string) {
-  const url = getMirrorStatusUrl(mirrorName);
-  const resp = await fetch(url, {
-    cache: 'no-store',
-  });
-  const json = await resp.json();
-  return json;
-}
-
-export default async function ViewMirror({
+export default function ViewMirror({
   params: { mirrorId },
   searchParams,
 }: EditMirrorProps) {
+  const [mirrorState, setMirrorState] = useState<MirrorStatusResponse>();
+  const [mounted, setMounted] = useState(false);
   const parentMirrorName = searchParams?.parentMirrorName;
   const isCloneJob =
     mirrorId.startsWith('clone_') && parentMirrorName !== mirrorId;
   const mirrorName = parentMirrorName ?? mirrorId;
-  const mirrorStatus: MirrorStatusResponse = await getMirrorStatus(mirrorName);
-  if (!mirrorStatus) {
-    return <div>No mirror status found!</div>;
+
+  const fetchState = useCallback(async () => {
+    const res = await getMirrorState(mirrorId);
+    setMirrorState(res);
+    setMounted(true);
+  }, [mirrorId]);
+  useEffect(() => {
+    fetchState();
+  }, [fetchState]);
+
+  if (!mounted) {
+    return <></>;
   }
 
-  const mirrorInfo = await prisma.flows.findFirst({
-    select: {
-      created_at: true,
-      workflow_id: true,
-      config_proto: true,
-    },
-    where: {
-      name: mirrorName,
-    },
-  });
-
-  const syncs = await prisma.cdc_batches.findMany({
-    where: {
-      flow_name: mirrorName,
-      start_time: {
-        not: undefined,
-      },
-    },
-    orderBy: {
-      start_time: 'desc',
-    },
-    distinct: ['batch_id'],
-  });
-
-  const rows: SyncStatusRow[] = syncs.map((sync) => ({
-    batchId: sync.batch_id,
-    startTime: sync.start_time,
-    endTime: sync.end_time,
-    numRows: sync.rows_in_batch,
-  }));
-
-  if (mirrorStatus.errorMessage) {
+  if (mirrorState?.errorMessage) {
     return <NoMirror />;
-  }
-
-  if (!mirrorInfo) {
-    return <div>No mirror info found</div>;
   }
 
   let syncStatusChild = null;
   let actionsDropdown = null;
 
-  if (mirrorStatus.cdcStatus && !isCloneJob) {
-    let rowsSynced = syncs.reduce((acc, sync) => {
-      if (sync.end_time !== null) {
-        return acc + sync.rows_in_batch;
-      }
-      return acc;
-    }, 0);
-    const mirrorConfig = FlowConnectionConfigs.decode(mirrorInfo.config_proto!);
+  if (mirrorState?.cdcStatus && !isCloneJob) {
     syncStatusChild = (
       <SyncStatus
-        rowsSynced={rowsSynced}
-        rows={rows}
-        flowJobName={mirrorName}
+        rows={mirrorState.cdcStatus.cdcBatches}
+        flowJobName={mirrorId}
       />
     );
 
-    const dbType = dBTypeFromJSON(mirrorStatus.cdcStatus.destinationType);
+    const dbType = dBTypeFromJSON(mirrorState.cdcStatus.destinationType);
 
     const isNotPaused =
-      mirrorStatus.currentFlowState.toString() !==
+      mirrorState.currentFlowState.toString() !==
       FlowStatus[FlowStatus.STATUS_PAUSED];
     const canResync =
-      mirrorStatus.currentFlowState.toString() !==
+      mirrorState.currentFlowState.toString() !==
         FlowStatus[FlowStatus.STATUS_SETUP] &&
       (dbType.valueOf() === DBType.BIGQUERY.valueOf() ||
         dbType.valueOf() === DBType.SNOWFLAKE.valueOf() ||
@@ -121,9 +75,8 @@ export default async function ViewMirror({
 
     actionsDropdown = (
       <MirrorActions
-        mirrorConfig={mirrorConfig}
-        workflowId={mirrorInfo.workflow_id || ''}
-        editLink={`/mirrors/${mirrorName}/edit`}
+        mirrorName={mirrorId}
+        editLink={`/mirrors/${mirrorId}/edit`}
         canResync={canResync}
         isNotPaused={isNotPaused}
       />
@@ -143,37 +96,13 @@ export default async function ViewMirror({
           {actionsDropdown}
         </div>
         <CDCMirror
-          rows={rows}
-          createdAt={mirrorInfo?.created_at}
+          rows={mirrorState.cdcStatus.cdcBatches}
           syncStatusChild={syncStatusChild}
-          status={mirrorStatus}
+          status={mirrorState}
         />
       </LayoutMain>
     );
-  } else {
-    const runs = await prisma.qrep_partitions.findMany({
-      where: {
-        flow_name: mirrorId,
-        start_time: {
-          not: null,
-        },
-        rows_in_partition: {
-          not: 0,
-        },
-      },
-      orderBy: {
-        start_time: 'desc',
-      },
-    });
-
-    const partitions: QRepPartitionStatus[] = runs.map((run) => ({
-      partitionId: run.partition_uuid,
-      startTime: run.start_time,
-      endTime: run.end_time,
-      pulledRows: run.rows_in_partition,
-      syncedRows: Number(run.rows_synced),
-    }));
-
+  } else if (mirrorState?.qrepStatus) {
     return (
       <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
         <div
@@ -189,18 +118,14 @@ export default async function ViewMirror({
           <QRepStatusButtons mirrorId={mirrorId} />
         </div>
         <Label>
-          Status: <Badge>{FormatStatus(mirrorStatus.currentFlowState)}</Badge>
+          Status: <Badge>{FormatStatus(mirrorState.currentFlowState)}</Badge>
         </Label>
-        <QrepGraph
-          syncs={partitions.map((partition) => ({
-            partitionID: partition.partitionId,
-            startTime: partition.startTime,
-            endTime: partition.endTime,
-            numRows: partition.pulledRows,
-          }))}
-        />
+        <QrepGraph syncs={mirrorState.qrepStatus.partitions} />
         <br></br>
-        <QRepStatusTable flowJobName={mirrorId} partitions={partitions} />
+        <QRepStatusTable
+          flowJobName={mirrorId}
+          partitions={mirrorState.qrepStatus.partitions}
+        />
       </LayoutMain>
     );
   }

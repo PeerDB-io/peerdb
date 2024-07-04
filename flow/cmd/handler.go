@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -107,7 +108,7 @@ func (h *FlowRequestHandler) createQRepJobEntry(ctx context.Context,
 			destinationPeerName, srcErr)
 	}
 	flowName := req.QrepConfig.FlowJobName
-	_, err := h.pool.Exec(ctx, `INSERT INTO flows (workflow_id,name, source_peer, destination_peer, description,
+	_, err := h.pool.Exec(ctx, `INSERT INTO flows(workflow_id,name, source_peer, destination_peer, description,
 		destination_table_identifier, query_string) VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`, workflowID, flowName, sourcePeerID, destinationPeerID,
 		"Mirror created via GRPC",
@@ -258,54 +259,56 @@ func (h *FlowRequestHandler) updateQRepConfigInCatalog(
 	return nil
 }
 
-func (h *FlowRequestHandler) ShutdownFlow(
+func (h *FlowRequestHandler) shutdownFlow(
 	ctx context.Context,
-	req *protos.ShutdownRequest,
-) (*protos.ShutdownResponse, error) {
-	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
+	flowJobName string,
+) error {
+	workflowID, err := h.getWorkflowID(ctx, flowJobName)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	logs := slog.Group("shutdown-log",
-		slog.String(string(shared.FlowNameKey), req.FlowJobName),
+		slog.String(string(shared.FlowNameKey), flowJobName),
 		slog.String("workflowId", workflowID),
 	)
 
 	err = h.handleCancelWorkflow(ctx, workflowID, "")
 	if err != nil {
 		slog.Error("unable to cancel workflow", logs, slog.Any("error", err))
-		return &protos.ShutdownResponse{
-			Ok:           false,
-			ErrorMessage: fmt.Sprintf("unable to wait for PeerFlow workflow to close: %v", err),
-		}, fmt.Errorf("unable to wait for PeerFlow workflow to close: %w", err)
+		return fmt.Errorf("unable to wait for PeerFlow workflow to close: %w", err)
 	}
 
-	isCdc, err := h.isCDCFlow(ctx, req.FlowJobName)
+	isCdc, err := h.isCDCFlow(ctx, flowJobName)
 	if err != nil {
 		slog.Error("unable to check if workflow is cdc", logs, slog.Any("error", err))
-		return &protos.ShutdownResponse{
-			Ok:           false,
-			ErrorMessage: fmt.Sprintf("unable to determine if workflow is cdc: %v", err),
-		}, fmt.Errorf("unable to determine if workflow is cdc: %w", err)
+		return fmt.Errorf("unable to determine if workflow is cdc: %w", err)
 	} else if isCdc {
-		workflowID := fmt.Sprintf("%s-dropflow-%s", req.FlowJobName, uuid.New())
+		cdcConfig, err := h.getFlowConfigFromCatalog(ctx, flowJobName)
+		if err != nil {
+			slog.Error("unable to get cdc config from catalog", logs, slog.Any("error", err))
+			return fmt.Errorf("unable to get cdc config from catalog: %w", err)
+		}
+		workflowID := fmt.Sprintf("%s-dropflow-%s", flowJobName, uuid.New())
 		workflowOptions := client.StartWorkflowOptions{
 			ID:        workflowID,
 			TaskQueue: h.peerflowTaskQueueID,
 			SearchAttributes: map[string]interface{}{
-				shared.MirrorNameSearchAttribute: req.FlowJobName,
+				shared.MirrorNameSearchAttribute: flowJobName,
 			},
 		}
-		dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.DropFlowWorkflow, req)
+
+		dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions,
+			peerflow.DropFlowWorkflow, &protos.DropFlowInput{
+				FlowJobName:         flowJobName,
+				SourcePeerName:      cdcConfig.SourceName,
+				DestinationPeerName: cdcConfig.DestinationName,
+			})
 		if err != nil {
 			slog.Error("unable to start DropFlow workflow",
 				logs,
 				slog.Any("error", err))
-			return &protos.ShutdownResponse{
-				Ok:           false,
-				ErrorMessage: fmt.Sprintf("unable to start DropFlow workflow: %v", err),
-			}, fmt.Errorf("unable to start DropFlow workflow: %w", err)
+			return fmt.Errorf("unable to start DropFlow workflow: %w", err)
 		}
 
 		cancelCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
@@ -323,38 +326,27 @@ func (h *FlowRequestHandler) ShutdownFlow(
 					logs,
 					slog.Any("error", err),
 				)
-				return &protos.ShutdownResponse{
-					Ok:           false,
-					ErrorMessage: fmt.Sprintf("DropFlow workflow did not execute successfully: %v", err),
-				}, fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
+				return fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
 			}
 		case <-time.After(5 * time.Minute):
 			err := h.handleCancelWorkflow(ctx, workflowID, "")
 			if err != nil {
 				slog.Error("unable to wait for DropFlow workflow to close", logs, slog.Any("error", err))
-				return &protos.ShutdownResponse{
-					Ok:           false,
-					ErrorMessage: fmt.Sprintf("unable to wait for DropFlow workflow to close: %v", err),
-				}, fmt.Errorf("unable to wait for DropFlow workflow to close: %w", err)
+				return fmt.Errorf("unable to wait for DropFlow workflow to close: %w", err)
 			}
 		}
 	}
 
-	err = h.removeFlowEntryInCatalog(ctx, req.FlowJobName)
+	err = h.removeFlowEntryInCatalog(ctx, flowJobName)
 	if err != nil {
 		slog.Error("unable to remove flow job entry",
-			slog.String(string(shared.FlowNameKey), req.FlowJobName),
+			slog.String(string(shared.FlowNameKey), flowJobName),
 			slog.Any("error", err),
 			slog.String("workflowId", workflowID))
-		return &protos.ShutdownResponse{
-			Ok:           false,
-			ErrorMessage: err.Error(),
-		}, err
+		return err
 	}
 
-	return &protos.ShutdownResponse{
-		Ok: true,
-	}, nil
+	return nil
 }
 
 func (h *FlowRequestHandler) FlowStateChange(
@@ -409,9 +401,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			)
 		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED &&
 			(currState != protos.FlowStatus_STATUS_TERMINATED) {
-			_, err = h.ShutdownFlow(ctx, &protos.ShutdownRequest{
-				FlowJobName: req.FlowJobName,
-			})
+			err = h.shutdownFlow(ctx, req.FlowJobName)
 		} else if req.RequestedFlowState != currState {
 			slog.Error("illegal state change requested", slog.Any("requestedFlowState", req.RequestedFlowState),
 				slog.Any("currState", currState))
@@ -541,4 +531,40 @@ func (h *FlowRequestHandler) getWorkflowID(ctx context.Context, flowJobName stri
 	}
 
 	return workflowID, nil
+}
+
+// only supports CDC resync for now
+func (h *FlowRequestHandler) ResyncMirror(
+	ctx context.Context,
+	req *protos.ResyncMirrorRequest,
+) (*protos.ResyncMirrorResponse, error) {
+	isCDC, err := h.isCDCFlow(ctx, req.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+	if !isCDC {
+		return nil, errors.New("resync is only supported for CDC mirrors")
+	}
+	// getting config before dropping the flow since the flow entry is deleted unconditionally
+	config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+
+	err = h.shutdownFlow(ctx, req.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+	config.Resync = true
+	config.DoInitialSnapshot = true
+
+	_, err = h.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{
+		ConnectionConfigs: config,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &protos.ResyncMirrorResponse{
+		Ok: true,
+	}, nil
 }

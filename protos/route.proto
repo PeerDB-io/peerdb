@@ -37,15 +37,6 @@ message CreateCustomSyncResponse {
   bool ok = 4;
 }
 
-message ShutdownRequest {
-  string flow_job_name = 2;
-}
-
-message ShutdownResponse {
-  bool ok = 1;
-  string error_message = 2;
-}
-
 message ValidatePeerRequest {
  peerdb_peers.Peer peer = 1;
 }
@@ -95,7 +86,8 @@ message PartitionStatus {
   string partition_id = 1;
   google.protobuf.Timestamp start_time = 2;
   google.protobuf.Timestamp end_time = 3;
-  int32 num_rows = 4;
+  int64 rows_in_partition = 4;
+  int64 rows_synced = 5;
 }
 
 message QRepMirrorStatus {
@@ -104,13 +96,13 @@ message QRepMirrorStatus {
   // or if we are in the continuous streaming mode.
 }
 
-// to be removed eventually
-message CDCSyncStatus {
+message CDCBatch {
   int64 start_lsn = 1;
   int64 end_lsn = 2;
-  int32 num_rows = 3;
+  int64 num_rows = 3;
   google.protobuf.Timestamp start_time = 4;
   google.protobuf.Timestamp end_time = 5;
+  int64 batch_id = 6;
 }
 
 message PeerSchemasResponse {
@@ -206,7 +198,7 @@ message SnapshotStatus {
 message CDCMirrorStatus {
   peerdb_flow.FlowConnectionConfigs config = 1;
   SnapshotStatus snapshot_status = 2;
-  repeated CDCSyncStatus cdc_syncs = 3;
+  repeated CDCBatch cdc_batches = 3;
   peerdb_peers.DBType source_type = 4;
   peerdb_peers.DBType destination_type = 5;
 }
@@ -220,6 +212,7 @@ message MirrorStatusResponse {
   string error_message = 4;
   peerdb_flow.FlowStatus current_flow_state = 5;
   bool ok = 6;
+  google.protobuf.Timestamp created_at = 7;
 }
 
 message ValidateCDCMirrorResponse{
@@ -229,8 +222,6 @@ message ValidateCDCMirrorResponse{
 message FlowStateChangeRequest {
   string flow_job_name = 1;
   peerdb_flow.FlowStatus requested_flow_state = 2;
-  string source_peer = 3;
-  string destination_peer = 4;
   // only can be sent in certain situations
   optional peerdb_flow.FlowConfigUpdate flow_config_update = 5;
 }
@@ -245,6 +236,15 @@ message PeerDBVersionRequest {
 
 message PeerDBVersionResponse {
   string version = 1;
+}
+
+message ResyncMirrorRequest {
+  string flow_job_name = 1;
+}
+
+message ResyncMirrorResponse {
+  bool ok = 1;
+  string error_message = 2;
 }
 
 service FlowService {
@@ -319,9 +319,6 @@ service FlowService {
     option (google.api.http) = { get: "/v1/peers/stats/{peer_name}" };
   }
 
-  rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {
-    option (google.api.http) = { post: "/v1/mirrors/drop", body: "*" };
-  }
   rpc FlowStateChange(FlowStateChangeRequest) returns (FlowStateChangeResponse) {
     option (google.api.http) = { post: "/v1/mirrors/state_change", body: "*" };
   }
@@ -335,5 +332,9 @@ service FlowService {
 
   rpc GetVersion(PeerDBVersionRequest) returns (PeerDBVersionResponse) {
     option (google.api.http) = { get: "/v1/version" };
+  }
+
+  rpc ResyncMirror(ResyncMirrorRequest) returns (ResyncMirrorResponse) {
+    option (google.api.http) = { post: "/v1/mirrors/resync", body: "*" };
   }
 }
