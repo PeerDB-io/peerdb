@@ -942,13 +942,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	assert.Len(s.t, workflowState.SyncFlowOptions.TableNameSchemaMapping, 1)
 
 	if !s.t.Failed() {
-		addRows(1)
 		e2e.SignalWorkflow(env, model.FlowSignal, model.PauseSignal)
-		addRows(1)
 		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "paused workflow", func() bool {
-			// keep adding 1 more row - finishing another sync
-			addRows(1)
-
 			flowStatus := getFlowStatus()
 			return flowStatus == protos.FlowStatus_STATUS_PAUSED
 		})
