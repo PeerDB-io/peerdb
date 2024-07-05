@@ -1,11 +1,3 @@
-import { Prisma } from '@prisma/client';
-
-export type UAlertConfigResponse = {
-  id: bigint;
-  service_type: string;
-  service_config: Prisma.JsonValue;
-};
-
 export enum LogType {
   ERROR = 'ERROR',
   WARNING = 'WARNING',

@@ -1,6 +1,7 @@
 'use client';
 import AlertDropdown from '@/components/AlertDropdown';
 import ConfigJSONView from '@/components/ConfigJSONView';
+import { AlertConfig, GetAlertConfigsResponse } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
@@ -9,7 +10,6 @@ import Image from 'next/image';
 import React, { useState } from 'react';
 import { PulseLoader } from 'react-spinners';
 import useSWR from 'swr';
-import { UAlertConfigResponse } from '../dto/AlertDTO';
 import { tableStyle } from '../peers/[peerName]/style';
 import { fetcher } from '../utils/swr';
 import { AlertConfigProps, NewConfig, ServiceType } from './new';
@@ -20,23 +20,21 @@ const ServiceIcon = ({
 }: {
   serviceType: string;
   size: number;
-}) => {
-  return (
-    <Image
-      src={`/images/${serviceType}.png`}
-      height={size}
-      width={size}
-      alt={serviceType}
-    />
-  );
-};
+}) => (
+  <Image
+    src={`/images/${serviceType}.png`}
+    height={size}
+    width={size}
+    alt={serviceType}
+  />
+);
 
 const AlertConfigPage: React.FC = () => {
   const {
     data: alerts,
     isLoading,
   }: {
-    data: UAlertConfigResponse[];
+    data: GetAlertConfigsResponse;
     error: any;
     isLoading: boolean;
   } = useSWR('/api/alert-config', fetcher);
@@ -57,14 +55,13 @@ const AlertConfigPage: React.FC = () => {
   const [editAlertConfig, setEditAlertConfig] =
     useState<AlertConfigProps>(blankAlert);
 
-  const onEdit = (alertConfig: UAlertConfigResponse, id: bigint) => {
+  const onEdit = (alertConfig: AlertConfig, id: number) => {
     setInEditOrAddMode(true);
-    const configJSON = JSON.stringify(alertConfig.service_config);
 
     setEditAlertConfig({
       id,
-      serviceType: alertConfig.service_type as ServiceType,
-      alertConfig: JSON.parse(configJSON),
+      serviceType: alertConfig.serviceType as ServiceType,
+      alertConfig: JSON.parse(alertConfig.serviceConfig),
       forEdit: true,
     });
   };
@@ -89,8 +86,8 @@ const AlertConfigPage: React.FC = () => {
           </div>
           <div style={{ ...tableStyle, marginTop: '2rem', maxHeight: '25em' }}>
             <Table>
-              {alerts?.length ? (
-                alerts.map((alertConfig: UAlertConfigResponse, index) => (
+              {alerts?.configs?.length ? (
+                alerts.configs.map((alertConfig: AlertConfig, index) => (
                   <TableRow key={index}>
                     <TableCell style={{ width: 20 }}>
                       <div
@@ -109,12 +106,12 @@ const AlertConfigPage: React.FC = () => {
                           }}
                         >
                           <ServiceIcon
-                            serviceType={alertConfig.service_type}
+                            serviceType={alertConfig.serviceType}
                             size={30}
                           />
                           <Label>
-                            {alertConfig.service_type.charAt(0).toUpperCase() +
-                              alertConfig.service_type.slice(1)}
+                            {alertConfig.serviceType.charAt(0).toUpperCase() +
+                              alertConfig.serviceType.slice(1)}
                           </Label>
                         </div>
                       </div>
@@ -123,7 +120,7 @@ const AlertConfigPage: React.FC = () => {
                       <div style={{ height: '10em' }}>
                         <ConfigJSONView
                           config={JSON.stringify(
-                            alertConfig.service_config,
+                            JSON.parse(alertConfig.serviceConfig),
                             null,
                             2
                           )}

@@ -236,7 +236,6 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	}, nil
 }
 
-// updateQRepConfigInCatalog updates the qrep config in the catalog
 func (h *FlowRequestHandler) updateQRepConfigInCatalog(
 	ctx context.Context,
 	cfg *protos.QRepConfig,
