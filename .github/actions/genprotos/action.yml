@@ -21,6 +21,8 @@ runs:
         cache: false
     - if: steps.cache.outputs.cache-hit != 'true'
       uses: bufbuild/buf-setup-action@v1.29.0-1
+      with:
+        github_token: ${{ github.token }}
     - if: steps.cache.outputs.cache-hit != 'true'
       uses: dtolnay/rust-toolchain@stable
     - if: steps.cache.outputs.cache-hit != 'true'
