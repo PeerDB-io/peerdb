@@ -37,6 +37,31 @@ message CreateCustomSyncResponse {
   bool ok = 4;
 }
 
+message AlertConfig {
+  int32 id = 1;
+  string service_type = 2;
+  string service_config = 3;
+}
+message GetAlertConfigsRequest {
+  int32 id = 1;
+}
+message PostAlertConfigRequest {
+  int32 id = 1;
+  string service_type = 2;
+  string service_config = 3;
+}
+message DeleteAlertConfigRequest {
+  int32 id = 1;
+}
+message GetAlertConfigsResponse {
+  repeated AlertConfig configs = 1;
+}
+message PostAlertConfigResponse {
+  int32 id = 3;
+}
+message DeleteAlertConfigResponse {
+}
+
 message ValidatePeerRequest {
  peerdb_peers.Peer peer = 1;
 }
@@ -290,6 +315,16 @@ service FlowService {
       post: "/v1/flows/cdc/sync",
       body: "*"
      };
+  }
+
+  rpc GetAlertConfigs(GetAlertConfigsRequest) returns (GetAlertConfigsResponse) {
+    option (google.api.http) = { get: "/v1/alerts/config" };
+  }
+  rpc PostAlertConfig(PostAlertConfigRequest) returns (PostAlertConfigResponse) {
+    option (google.api.http) = { post: "/v1/alerts/config", body: "*" };
+  }
+  rpc DeleteAlertConfig(DeleteAlertConfigRequest) returns (DeleteAlertConfigResponse) {
+    option (google.api.http) = { delete: "/v1/alerts/config/{id}" };
   }
 
   rpc GetSchemas(PostgresPeerActivityInfoRequest) returns (PeerSchemasResponse) {

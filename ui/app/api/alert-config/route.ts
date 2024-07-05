@@ -1,50 +1,30 @@
-import { alertConfigType } from '@/app/alert-config/validation';
-import prisma from '@/app/utils/prisma';
-import { alerting_config } from '@prisma/client';
+import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
+import { NextRequest } from 'next/server';
 
 export async function GET() {
-  const configs: alerting_config[] = await prisma.alerting_config.findMany();
-  const serializedConfigs = configs.map((config) => ({
-    ...config,
-    id: String(config.id),
-  }));
-  return new Response(JSON.stringify(serializedConfigs));
+  const flowServiceAddr = GetFlowHttpAddressFromEnv();
+  return fetch(`${flowServiceAddr}/v1/alerts/config`, { cache: 'no-store' });
 }
 
 export async function POST(request: Request) {
-  const alertConfigReq: alertConfigType = await request.json();
-  const createRes = await prisma.alerting_config.create({
-    data: {
-      service_type: alertConfigReq.serviceType,
-      service_config: alertConfigReq.serviceConfig,
-    },
-  });
-
-  return new Response(createRes.id ? 'success' : 'error');
+  const flowServiceAddr = GetFlowHttpAddressFromEnv();
+  return fetch(`${flowServiceAddr}/v1/alerts/config`, {
+    method: 'POST',
+    cache: 'no-store',
+    body: request.body,
+    duplex: 'half',
+  } as any);
 }
 
-export async function DELETE(request: Request) {
-  const configDeleteReq: { id: number } = await request.json();
-  const deleteRes = await prisma.alerting_config.delete({
-    where: {
-      id: configDeleteReq.id,
-    },
-  });
-
-  return new Response(deleteRes.id ? 'success' : 'error');
-}
-
-export async function PUT(request: Request) {
-  const alertConfigReq: alertConfigType = await request.json();
-  const editRes = await prisma.alerting_config.update({
-    data: {
-      service_type: alertConfigReq.serviceType,
-      service_config: alertConfigReq.serviceConfig,
-    },
-    where: {
-      id: alertConfigReq.id,
-    },
-  });
-
-  return new Response(editRes.id ? 'success' : 'error');
+export async function DELETE(request: NextRequest) {
+  const flowServiceAddr = GetFlowHttpAddressFromEnv();
+  return fetch(
+    `${flowServiceAddr}/v1/alerts/config/${Number(
+      request.nextUrl.searchParams.get('id')
+    )}`,
+    {
+      method: 'DELETE',
+      cache: 'no-store',
+    }
+  );
 }
