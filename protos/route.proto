@@ -43,7 +43,6 @@ message AlertConfig {
   string service_config = 3;
 }
 message GetAlertConfigsRequest {
-  int32 id = 1;
 }
 message PostAlertConfigRequest {
   int32 id = 1;
@@ -60,6 +59,26 @@ message PostAlertConfigResponse {
   int32 id = 3;
 }
 message DeleteAlertConfigResponse {
+}
+
+message DynamicSetting {
+  string name = 1;
+  optional string value = 2;
+  optional string default_value = 3;
+  string description = 4;
+  peerdb_flow.DynconfValueType value_type = 5;
+  peerdb_flow.DynconfApplyMode apply_mode = 6;
+}
+message GetDynamicSettingsRequest {
+}
+message GetDynamicSettingsResponse {
+  repeated DynamicSetting settings = 1;
+}
+message PostDynamicSettingRequest {
+  string name = 1;
+  optional string value = 2;
+}
+message PostDynamicSettingResponse {
 }
 
 message ValidatePeerRequest {
@@ -325,6 +344,13 @@ service FlowService {
   }
   rpc DeleteAlertConfig(DeleteAlertConfigRequest) returns (DeleteAlertConfigResponse) {
     option (google.api.http) = { delete: "/v1/alerts/config/{id}" };
+  }
+
+  rpc GetDynamicConfigs(GetDynamicSettingsRequest) returns (GetDynamicSettingsResponse) {
+    option (google.api.http) = { get: "/v1/dynamic_settings" };
+  }
+  rpc PostDynamicConfigs(PostDynamicSettingRequest) returns (PostDynamicSettingResponse) {
+    option (google.api.http) = { post: "/v1/dynamic_settings", body: "*" };
   }
 
   rpc GetSchemas(PostgresPeerActivityInfoRequest) returns (PeerSchemasResponse) {
