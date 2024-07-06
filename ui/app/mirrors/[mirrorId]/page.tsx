@@ -71,7 +71,8 @@ export default function ViewMirror({
         FlowStatus[FlowStatus.STATUS_SETUP] &&
       (dbType.valueOf() === DBType.BIGQUERY.valueOf() ||
         dbType.valueOf() === DBType.SNOWFLAKE.valueOf() ||
-        dbType.valueOf() === DBType.POSTGRES.valueOf());
+        dbType.valueOf() === DBType.POSTGRES.valueOf()||
+        dbType.valueOf() === DBType.CLICKHOUSE.valueOf());
 
     actionsDropdown = (
       <MirrorActions

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -172,6 +173,63 @@ func (c *ClickhouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 	}
 
 	return nil
+}
+
+func (c *ClickhouseConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
+	for _, renameRequest := range req.RenameTableOptions {
+		if req.SyncedAtColName != "" {
+			_, err := c.database.Exec(fmt.Sprintf("ALTER TABLE %s UPDATE %s=now()",
+				utils.QuoteIdentifier(renameRequest.CurrentName), utils.QuoteIdentifier(req.SyncedAtColName)))
+			if err != nil {
+				return nil, fmt.Errorf("unable to set synced at column for table %s: %w", renameRequest.CurrentName, err)
+			}
+		}
+
+		columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
+		for _, col := range renameRequest.TableSchema.Columns {
+			columnNames = append(columnNames, utils.QuoteIdentifier(col.Name))
+		}
+
+		pkeyColumnNames := make([]string, 0, len(renameRequest.TableSchema.PrimaryKeyColumns))
+		for _, col := range renameRequest.TableSchema.PrimaryKeyColumns {
+			pkeyColumnNames = append(pkeyColumnNames, utils.QuoteIdentifier(col))
+		}
+
+		allCols := strings.Join(columnNames, ",")
+		pkeyCols := strings.Join(pkeyColumnNames, ",")
+
+		c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", renameRequest.NewName))
+
+		_, err := c.database.Exec(
+			fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
+				renameRequest.CurrentName, fmt.Sprintf("%s,%s", allCols, utils.QuoteIdentifier(req.SoftDeleteColName)), allCols,
+				utils.QuoteIdentifier(req.SoftDeleteColName),
+				renameRequest.NewName, pkeyCols, pkeyCols, renameRequest.CurrentName))
+		if err != nil {
+			return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", renameRequest.NewName, err)
+		}
+
+		// drop the dst table if exists
+		_, err = c.database.Exec("DROP TABLE IF EXISTS " + renameRequest.NewName)
+		if err != nil {
+			return nil, fmt.Errorf("unable to drop table %s: %w", renameRequest.NewName, err)
+		}
+
+		// rename the src table to dst
+		_, err = c.database.Exec(fmt.Sprintf("RENAME TABLE %s TO %s",
+			renameRequest.CurrentName, renameRequest.NewName))
+		if err != nil {
+			return nil, fmt.Errorf("unable to rename table %s to %s: %w",
+				renameRequest.CurrentName, renameRequest.NewName, err)
+		}
+
+		c.logger.Info(fmt.Sprintf("successfully renamed table '%s' to '%s'",
+			renameRequest.CurrentName, renameRequest.NewName))
+	}
+
+	return &protos.RenameTablesOutput{
+		FlowJobName: req.FlowJobName,
+	}, nil
 }
 
 func (c *ClickhouseConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
