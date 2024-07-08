@@ -218,10 +218,12 @@ func (c *ClickhouseConnector) ConnectionActive(ctx context.Context) error {
 	return c.database.PingContext(ctx)
 }
 
-func (c *ClickhouseConnector) execWithLogging(ctx context.Context, query string, tx *sql.Tx) (sql.Result, error) {
+func (c *ClickhouseConnector) execWithLogging(ctx context.Context, query string) (sql.Result, error) {
 	c.logger.Info("[clickhouse] executing DDL statement", slog.String("query", query))
-	if tx != nil {
-		return tx.ExecContext(ctx, query)
-	}
 	return c.database.ExecContext(ctx, query)
+}
+
+func (c *ClickhouseConnector) execWithLoggingTx(ctx context.Context, query string, tx *sql.Tx) (sql.Result, error) {
+	c.logger.Info("[clickhouse] executing DDL statement", slog.String("query", query))
+	return tx.ExecContext(ctx, query)
 }

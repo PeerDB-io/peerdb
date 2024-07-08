@@ -350,7 +350,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 		}
 		// Create the publication to help filter changes only for the given tables
 		stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s%s", publication, tableNameString, pubViaRootString)
-		if _, err = c.execWithLogging(ctx, stmt, nil); err != nil {
+		if _, err = c.execWithLogging(ctx, stmt); err != nil {
 			c.logger.Warn(fmt.Sprintf("Error creating publication '%s': %v", publication, err))
 			return fmt.Errorf("error creating publication '%s' : %w", publication, err)
 		}
@@ -418,7 +418,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 }
 
 func (c *PostgresConnector) createMetadataSchema(ctx context.Context) error {
-	_, err := c.execWithLogging(ctx, fmt.Sprintf(createSchemaSQL, c.metadataSchema), nil)
+	_, err := c.execWithLogging(ctx, fmt.Sprintf(createSchemaSQL, c.metadataSchema))
 	if err != nil && !shared.IsUniqueError(err) {
 		return fmt.Errorf("error while creating internal schema: %w", err)
 	}
@@ -623,10 +623,12 @@ func (c *PostgresConnector) ExecuteCommand(ctx context.Context, command string) 
 	return err
 }
 
-func (c *PostgresConnector) execWithLogging(ctx context.Context, query string, tx pgx.Tx) (pgconn.CommandTag, error) {
+func (c *PostgresConnector) execWithLogging(ctx context.Context, query string) (pgconn.CommandTag, error) {
 	c.logger.Info("[postgres] executing DDL statement", slog.String("query", query))
-	if tx != nil {
-		return tx.Exec(ctx, query)
-	}
 	return c.conn.Exec(ctx, query)
+}
+
+func (c *PostgresConnector) execWithLoggingTx(ctx context.Context, query string, tx pgx.Tx) (pgconn.CommandTag, error) {
+	c.logger.Info("[postgres] executing DDL statement", slog.String("query", query))
+	return tx.Exec(ctx, query)
 }

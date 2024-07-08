@@ -59,7 +59,7 @@ func (c *ClickhouseConnector) SetupNormalizedTable(
 		return false, fmt.Errorf("error while generating create table sql for normalized table: %w", err)
 	}
 
-	_, err = c.execWithLogging(ctx, normalizedTableCreateSQL, nil)
+	_, err = c.execWithLogging(ctx, normalizedTableCreateSQL)
 	if err != nil {
 		return false, fmt.Errorf("[ch] error while creating normalized table: %w", err)
 	}

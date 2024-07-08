@@ -56,7 +56,7 @@ func (c *ClickhouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 	) ENGINE = ReplacingMergeTree ORDER BY _peerdb_uid;`
 
 	_, err := c.execWithLogging(ctx,
-		fmt.Sprintf(createRawTableSQL, rawTableName), nil)
+		fmt.Sprintf(createRawTableSQL, rawTableName))
 	if err != nil {
 		return nil, fmt.Errorf("unable to create raw table: %w", err)
 	}
@@ -151,7 +151,7 @@ func (c *ClickhouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 				return fmt.Errorf("failed to convert column type %s to clickhouse type: %w",
 					addedColumn.Type, err)
 			}
-			_, err = c.execWithLogging(ctx,
+			_, err = c.execWithLoggingTx(ctx,
 				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
 					schemaDelta.DstTableName, addedColumn.Name, clickhouseColType), tableSchemaModifyTx)
 			if err != nil {
@@ -182,7 +182,7 @@ func (c *ClickhouseConnector) SyncFlowCleanup(ctx context.Context, jobName strin
 
 	// delete raw table if exists
 	rawTableIdentifier := c.getRawTableName(jobName)
-	_, err = c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, rawTableIdentifier), nil)
+	_, err = c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, rawTableIdentifier))
 	if err != nil {
 		return fmt.Errorf("[clickhouse] unable to drop raw table: %w", err)
 	}

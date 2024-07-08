@@ -339,7 +339,7 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 
 	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
 		normalizedSchemaTable, tableSchema, softDeleteColName, syncedAtColName)
-	_, err = c.execWithLogging(ctx, normalizedTableCreateSQL, nil)
+	_, err = c.execWithLogging(ctx, normalizedTableCreateSQL)
 	if err != nil {
 		return false, fmt.Errorf("[sf] error while creating normalized table: %w", err)
 	}
@@ -606,7 +606,7 @@ func (c *SnowflakeConnector) CreateRawTable(ctx context.Context, req *protos.Cre
 	}
 
 	if !schemaExists.Valid || !schemaExists.Bool {
-		_, err := c.execWithLogging(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema), nil)
+		_, err := c.execWithLogging(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
 		if err != nil {
 			return nil, err
 		}
@@ -615,7 +615,7 @@ func (c *SnowflakeConnector) CreateRawTable(ctx context.Context, req *protos.Cre
 	// so just executing the CREATE TABLE IF NOT EXISTS blindly.
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	_, err = c.execWithLogging(ctx,
-		fmt.Sprintf(createRawTableSQL, c.rawSchema, rawTableIdentifier), nil)
+		fmt.Sprintf(createRawTableSQL, c.rawSchema, rawTableIdentifier))
 	if err != nil {
 		return nil, fmt.Errorf("unable to create raw table: %w", err)
 	}
@@ -640,7 +640,7 @@ func (c *SnowflakeConnector) SyncFlowCleanup(ctx context.Context, jobName string
 
 	// delete raw table if exists
 	rawTableIdentifier := getRawTableIdentifier(jobName)
-	_, err = c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, c.rawSchema, rawTableIdentifier), nil)
+	_, err = c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, c.rawSchema, rawTableIdentifier))
 	if err != nil {
 		return fmt.Errorf("[snowflake drop mirror] unable to drop raw table: %w", err)
 	}
@@ -752,7 +752,7 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 		c.logger.Info(fmt.Sprintf("setting synced at column for table '%s'...", src))
 
 		if req.SyncedAtColName != "" {
-			_, err = c.execWithLogging(ctx,
+			_, err = c.execWithLoggingTx(ctx,
 				fmt.Sprintf("UPDATE %s SET %s = CURRENT_TIMESTAMP", src, req.SyncedAtColName), renameTablesTx)
 			if err != nil {
 				return nil, fmt.Errorf("unable to set synced at column for table %s: %w", src, err)
@@ -775,7 +775,7 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 
 			c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
 
-			_, err = c.execWithLogging(ctx,
+			_, err = c.execWithLoggingTx(ctx,
 				fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
 					src, fmt.Sprintf("%s,%s", allCols, req.SoftDeleteColName), allCols, req.SoftDeleteColName,
 					dst, pkeyCols, pkeyCols, src), renameTablesTx)
@@ -788,13 +788,13 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 		c.logger.Info(fmt.Sprintf("renaming table '%s' to '%s'...", src, dst))
 
 		// drop the dst table if exists
-		_, err = c.execWithLogging(ctx, "DROP TABLE IF EXISTS "+dst, renameTablesTx)
+		_, err = c.execWithLoggingTx(ctx, "DROP TABLE IF EXISTS "+dst, renameTablesTx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to drop table %s: %w", dst, err)
 		}
 
 		// rename the src table to dst
-		_, err = c.execWithLogging(ctx, fmt.Sprintf("ALTER TABLE %s RENAME TO %s", src, dst), renameTablesTx)
+		_, err = c.execWithLoggingTx(ctx, fmt.Sprintf("ALTER TABLE %s RENAME TO %s", src, dst), renameTablesTx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to rename table %s to %s: %w", src, dst, err)
 		}
@@ -830,7 +830,7 @@ func (c *SnowflakeConnector) CreateTablesFromExisting(ctx context.Context, req *
 		c.logger.Info(fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
 
 		// rename the src table to dst
-		_, err = c.execWithLogging(ctx,
+		_, err = c.execWithLoggingTx(ctx,
 			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s LIKE %s", newTable, existingTable), createTablesFromExistingTx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create table %s: %w", newTable, err)
@@ -849,10 +849,12 @@ func (c *SnowflakeConnector) CreateTablesFromExisting(ctx context.Context, req *
 	}, nil
 }
 
-func (c *SnowflakeConnector) execWithLogging(ctx context.Context, query string, tx *sql.Tx) (sql.Result, error) {
+func (c *SnowflakeConnector) execWithLogging(ctx context.Context, query string) (sql.Result, error) {
 	c.logger.Info("[snowflake] executing DDL statement", slog.String("query", query))
-	if tx != nil {
-		return tx.ExecContext(ctx, query)
-	}
 	return c.database.ExecContext(ctx, query)
+}
+
+func (c *SnowflakeConnector) execWithLoggingTx(ctx context.Context, query string, tx *sql.Tx) (sql.Result, error) {
+	c.logger.Info("[snowflake] executing DDL statement", slog.String("query", query))
+	return tx.ExecContext(ctx, query)
 }
