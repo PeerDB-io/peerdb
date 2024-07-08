@@ -474,5 +474,10 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	}
 	s.connector.logger.Info(fmt.Sprintf("Pushed from %s to BigQuery", avroFile.FilePath), idLog)
 
+	err = s.connector.waitForTableReady(ctx, stagingTable)
+	if err != nil {
+		return 0, fmt.Errorf("failed to wait for table to be ready: %w", err)
+	}
+
 	return avroFile.NumRecords, nil
 }

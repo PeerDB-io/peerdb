@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"reflect"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
@@ -172,6 +173,30 @@ func (c *BigQueryConnector) ConnectionActive(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (c *BigQueryConnector) waitForTableReady(ctx context.Context, datasetTable *datasetTable) error {
+	table := c.client.DatasetInProject(c.projectID, datasetTable.dataset).Table(datasetTable.table)
+	maxDuration := 5 * time.Minute
+	deadline := time.Now().Add(maxDuration)
+	sleepInterval := 5 * time.Second
+	attempt := 0
+
+	for {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timeout reached while waiting for table %s to be ready", datasetTable)
+		}
+
+		_, err := table.Metadata(ctx)
+		if err == nil {
+			return nil
+		}
+
+		c.logger.Info("waiting for table to be ready",
+			slog.String("table", datasetTable.table), slog.Int("attempt", attempt))
+		attempt++
+		time.Sleep(sleepInterval)
+	}
 }
 
 // ReplayTableSchemaDeltas changes a destination table to match the schema at source
@@ -605,7 +630,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 		// table exists, go to next table
 		c.logger.Info("[bigquery] table already exists, skipping",
 			slog.String("table", tableIdentifier),
-			slog.Any("metadata", existingMetadata.Schema))
+			slog.Any("existingMetadata", existingMetadata))
 		return true, nil
 	}
 
