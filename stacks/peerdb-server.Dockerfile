@@ -13,7 +13,6 @@ RUN apk add --no-cache build-base pkgconfig curl unzip
 WORKDIR /root/nexus
 COPY scripts /root/scripts
 RUN /root/scripts/install-protobuf.sh
-RUN apk update && apk add --no-cache make protobuf-dev
 COPY --from=planner /root/nexus/recipe.json .
 # Build dependencies - this is the caching Docker layer!
 RUN cargo chef cook --release --recipe-path recipe.json
