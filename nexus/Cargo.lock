@@ -1121,18 +1121,14 @@ dependencies = [
 [[package]]
 name = "gcp-bigquery-client"
 version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3301e7c26a4d5caef79ec6325faf14a90cbb7ff5e82e2d6acddc2c5c9fdd6fb5"
+source = "git+https://github.com/serprex/gcp-bigquery-client.git?branch=tonic-feature#96c8c39274364e6147e61873072c3c2120d49b15"
 dependencies = [
  "async-stream",
  "async-trait",
  "dyn-clone",
- "flate2",
  "hyper 1.4.0",
  "hyper-util",
  "log",
- "prost",
- "prost-types",
  "reqwest",
  "serde",
  "serde_json",
@@ -1140,8 +1136,6 @@ dependencies = [
  "time",
  "tokio",
  "tokio-stream",
- "tonic",
- "tonic-build",
  "url",
  "yup-oauth2",
 ]
@@ -2556,8 +2550,6 @@ dependencies = [
  "prettyplease",
  "prost",
  "prost-types",
- "pulldown-cmark",
- "pulldown-cmark-to-cmark",
  "regex",
  "syn 2.0.69",
  "tempfile",
@@ -2619,26 +2611,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
-]
-
-[[package]]
-name = "pulldown-cmark"
-version = "0.9.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57206b407293d2bcd3af849ce869d52068623f19e1b5ff8e8778e3309439682b"
-dependencies = [
- "bitflags 2.6.0",
- "memchr",
- "unicase",
-]
-
-[[package]]
-name = "pulldown-cmark-to-cmark"
-version = "10.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0194e6e1966c23cc5fd988714f85b18d548d773e81965413555d96569931833d"
-dependencies = [
- "pulldown-cmark",
 ]
 
 [[package]]
@@ -3792,29 +3764,12 @@ dependencies = [
  "percent-encoding",
  "pin-project",
  "prost",
- "rustls-native-certs",
- "rustls-pemfile",
- "rustls-pki-types",
  "tokio",
- "tokio-rustls 0.25.0",
  "tokio-stream",
  "tower",
  "tower-layer",
  "tower-service",
  "tracing",
-]
-
-[[package]]
-name = "tonic-build"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be4ef6dd70a610078cb4e338a0f79d06bc759ff1b22d2120c2ff02ae264ba9c2"
-dependencies = [
- "prettyplease",
- "proc-macro2",
- "prost-build",
- "quote",
- "syn 2.0.69",
 ]
 
 [[package]]
@@ -3970,15 +3925,6 @@ name = "typenum"
 version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42ff0bf0c66b8238c6f3b578df37d0b7848e55df8577b3f74f92a69acceeb825"
-
-[[package]]
-name = "unicase"
-version = "2.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7d2d4dafb69621809a81864c9c1b864479e1235c0dd4e199924b9742439ed89"
-dependencies = [
- "version_check",
-]
 
 [[package]]
 name = "unicode-bidi"

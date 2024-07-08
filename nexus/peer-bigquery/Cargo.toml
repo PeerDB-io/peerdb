@@ -22,6 +22,6 @@ serde_bytes = "0.11"
 sqlparser.workspace = true
 tracing.workspace = true
 tokio = { version = "1.0", features = ["full"] }
-gcp-bigquery-client = "0.22"
+gcp-bigquery-client = { git = "https://github.com/serprex/gcp-bigquery-client.git", branch = "tonic-feature", default-features = false, features = ["rust-tls", "ring"] }
 uuid = { version = "1.0", features = ["serde", "v4"] }
 value = { path = "../value" }
