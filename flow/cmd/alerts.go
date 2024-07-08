@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
@@ -36,8 +35,7 @@ func (h *FlowRequestHandler) PostAlertConfig(ctx context.Context, req *protos.Po
 			req.ServiceType,
 			req.ServiceConfig,
 		).Scan(&id); err != nil {
-			// TODO don't send back json
-			return nil, fmt.Errorf("cannot add %s: %w", req.ServiceConfig, err)
+			return nil, err
 		}
 		return &protos.PostAlertConfigResponse{Id: id}, nil
 	} else if _, err := h.pool.Exec(

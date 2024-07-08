@@ -1,6 +1,10 @@
 'use client';
 
 import { DynconfApplyMode, DynconfValueType } from '@/grpc_generated/flow';
+import {
+  DynamicSetting,
+  GetDynamicSettingsResponse,
+} from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
@@ -8,7 +12,6 @@ import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
-import { dynamic_settings } from '@prisma/client';
 import { MaterialSymbol } from 'material-symbols';
 import { useEffect, useMemo, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
@@ -58,11 +61,11 @@ const DynamicSettingItem = ({
   setting,
   onSettingUpdate,
 }: {
-  setting: dynamic_settings;
+  setting: DynamicSetting;
   onSettingUpdate: () => void;
 }) => {
   const [editMode, setEditMode] = useState(false);
-  const [newValue, setNewValue] = useState(setting.config_value);
+  const [newValue, setNewValue] = useState(setting.value);
 
   const handleEdit = () => {
     setEditMode(true);
@@ -70,7 +73,7 @@ const DynamicSettingItem = ({
 
   const validateNewValue = (): boolean => {
     const notNullValue = newValue ?? '';
-    if (setting.config_value_type === DynconfValueType.INT) {
+    if (setting.valueType === DynconfValueType.INT) {
       const a = parseInt(Number(notNullValue).toString());
       if (
         isNaN(a) ||
@@ -81,7 +84,7 @@ const DynamicSettingItem = ({
         return false;
       }
       return true;
-    } else if (setting.config_value_type === DynconfValueType.UINT) {
+    } else if (setting.valueType === DynconfValueType.UINT) {
       const a = parseInt(Number(notNullValue).toString());
       if (isNaN(a) || a > Number.MAX_SAFE_INTEGER || a < 0) {
         notifyErr(
@@ -90,13 +93,13 @@ const DynamicSettingItem = ({
         return false;
       }
       return true;
-    } else if (setting.config_value_type === DynconfValueType.BOOL) {
+    } else if (setting.valueType === DynconfValueType.BOOL) {
       if (notNullValue !== 'true' && notNullValue !== 'false') {
         notifyErr('Invalid value. Please enter true or false.');
         return false;
       }
       return true;
-    } else if (setting.config_value_type === DynconfValueType.STRING) {
+    } else if (setting.valueType === DynconfValueType.STRING) {
       return true;
     } else {
       notifyErr('Invalid value type');
@@ -105,12 +108,12 @@ const DynamicSettingItem = ({
   };
 
   const handleSave = async () => {
-    if (!validateNewValue() || newValue === setting.config_value) {
-      setNewValue(setting.config_value);
+    if (!validateNewValue() || newValue === setting.value) {
+      setNewValue(setting.value);
       setEditMode(false);
       return;
     }
-    const updatedSetting = { ...setting, config_value: newValue };
+    const updatedSetting = { ...setting, value: newValue };
     await fetch('/api/settings', {
       method: 'POST',
       headers: {
@@ -123,9 +126,9 @@ const DynamicSettingItem = ({
   };
 
   return (
-    <TableRow key={setting.id}>
+    <TableRow key={setting.name}>
       <TableCell style={{ width: '15%' }}>
-        <Label>{setting.config_name}</Label>
+        <Label>{setting.name}</Label>
       </TableCell>
       <TableCell style={{ width: '10%' }}>
         {editMode ? (
@@ -141,7 +144,7 @@ const DynamicSettingItem = ({
           </div>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center' }}>
-            {setting.config_value || 'N/A'}
+            {setting.value || 'N/A'}
             <Button variant='normalBorderless' onClick={handleEdit}>
               <Icon name='edit' />
             </Button>
@@ -149,24 +152,26 @@ const DynamicSettingItem = ({
         )}
       </TableCell>
       <TableCell style={{ width: '20%' }}>
-        {setting.config_default_value || 'N/A'}
+        {setting.defaultValue || 'N/A'}
       </TableCell>
       <TableCell style={{ width: '45%' }}>
-        {setting.config_description || 'N/A'}
+        {setting.description || 'N/A'}
       </TableCell>
       <TableCell style={{ width: '10%' }}>
-        <ApplyModeIconWithTooltip applyMode={setting.config_apply_mode || 0} />
+        <ApplyModeIconWithTooltip applyMode={setting.applyMode || 0} />
       </TableCell>
     </TableRow>
   );
 };
 
 const SettingsPage = () => {
-  const [settings, setSettings] = useState<dynamic_settings[]>([]);
+  const [settings, setSettings] = useState<GetDynamicSettingsResponse>({
+    settings: [],
+  });
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('asc');
-  const sortField = 'config_name';
+  const sortField = 'name';
 
   const fetchSettings = async () => {
     const response = await fetch('/api/settings');
@@ -178,26 +183,27 @@ const SettingsPage = () => {
     fetchSettings();
   }, []);
 
-  const filteredSettings = useMemo(() => {
-    return settings.filter((setting) =>
-      setting.config_name.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [settings, searchQuery]);
+  const filteredSettings = useMemo(
+    () =>
+      settings.settings
+        .filter((setting) =>
+          setting.name.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+        .sort((a, b) => {
+          const aValue = a[sortField];
+          const bValue = b[sortField];
+          if (aValue < bValue) return sortDir === 'dsc' ? 1 : -1;
+          if (aValue > bValue) return sortDir === 'dsc' ? -1 : 1;
+          return 0;
+        }),
+    [settings, searchQuery, sortDir]
+  );
   const totalPages = Math.ceil(filteredSettings.length / ROWS_PER_PAGE);
   const displayedSettings = useMemo(() => {
-    filteredSettings.sort((a, b) => {
-      const aValue = a[sortField];
-      const bValue = b[sortField];
-      if (aValue === null || bValue === null) return 0;
-      if (aValue < bValue) return sortDir === 'dsc' ? 1 : -1;
-      if (aValue > bValue) return sortDir === 'dsc' ? -1 : 1;
-      return 0;
-    });
-
     const startRow = (currentPage - 1) * ROWS_PER_PAGE;
     const endRow = startRow + ROWS_PER_PAGE;
     return filteredSettings.slice(startRow, endRow);
-  }, [filteredSettings, currentPage, sortDir]);
+  }, [filteredSettings, currentPage]);
 
   const handlePrevPage = () => {
     if (currentPage > 1) setCurrentPage(currentPage - 1);
@@ -267,7 +273,7 @@ const SettingsPage = () => {
       >
         {displayedSettings.map((setting) => (
           <DynamicSettingItem
-            key={setting.id}
+            key={setting.name}
             setting={setting}
             onSettingUpdate={fetchSettings}
           />
