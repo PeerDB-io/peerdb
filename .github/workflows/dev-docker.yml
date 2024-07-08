@@ -18,6 +18,7 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+      - uses: arduino/setup-protoc@v3
 
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
