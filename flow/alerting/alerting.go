@@ -31,25 +31,38 @@ type AlertSenderConfig struct {
 
 func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderConfig, error) {
 	rows, err := a.catalogPool.Query(ctx,
-		"SELECT id,service_type,service_config FROM peerdb_stats.alerting_config")
+		"SELECT id,service_type,service_config,enc_key_id FROM peerdb_stats.alerting_config")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read alerter config from catalog: %w", err)
 	}
 
-	var alertSenderConfigs []AlertSenderConfig
-	var serviceType ServiceType
-	var serviceConfig string
-	var id int64
-	_, err = pgx.ForEachRow(rows, []any{&id, &serviceType, &serviceConfig}, func() error {
+	keys := peerdbenv.PeerDBEncKeys()
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (AlertSenderConfig, error) {
+		var id int64
+		var serviceType ServiceType
+		var serviceConfigEnc []byte
+		var encKeyId string
+		if err := row.Scan(&id, &serviceType, &serviceConfigEnc, &encKeyId); err != nil {
+			return AlertSenderConfig{}, err
+		}
+
+		key, err := keys.Get(encKeyId)
+		if err != nil {
+			return AlertSenderConfig{}, err
+		}
+		serviceConfig, err := key.Decrypt(serviceConfigEnc)
+		if err != nil {
+			return AlertSenderConfig{}, err
+		}
+
 		switch serviceType {
 		case SLACK:
 			var slackServiceConfig slackAlertConfig
-			err = json.Unmarshal([]byte(serviceConfig), &slackServiceConfig)
-			if err != nil {
-				return fmt.Errorf("failed to unmarshal %s service config: %w", serviceType, err)
+			if err := json.Unmarshal(serviceConfig, &slackServiceConfig); err != nil {
+				return AlertSenderConfig{}, fmt.Errorf("failed to unmarshal %s service config: %w", serviceType, err)
 			}
 
-			alertSenderConfigs = append(alertSenderConfigs, AlertSenderConfig{Id: id, Sender: newSlackAlertSender(&slackServiceConfig)})
+			return AlertSenderConfig{Id: id, Sender: newSlackAlertSender(&slackServiceConfig)}, nil
 		case EMAIL:
 			var replyToAddresses []string
 			if replyToEnvString := strings.TrimSpace(
@@ -62,11 +75,10 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 				replyToAddresses:     replyToAddresses,
 			}
 			if emailServiceConfig.sourceEmail == "" {
-				return errors.New("missing sourceEmail for Email alerting service")
+				return AlertSenderConfig{}, errors.New("missing sourceEmail for Email alerting service")
 			}
-			err = json.Unmarshal([]byte(serviceConfig), &emailServiceConfig)
-			if err != nil {
-				return fmt.Errorf("failed to unmarshal %s service config: %w", serviceType, err)
+			if err := json.Unmarshal(serviceConfig, &emailServiceConfig); err != nil {
+				return AlertSenderConfig{}, fmt.Errorf("failed to unmarshal %s service config: %w", serviceType, err)
 			}
 			var region *string
 			if envRegion := peerdbenv.PeerDBAlertingEmailSenderRegion(); envRegion != "" {
@@ -75,16 +87,13 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 
 			alertSender, alertSenderErr := NewEmailAlertSenderWithNewClient(ctx, region, &emailServiceConfig)
 			if alertSenderErr != nil {
-				return fmt.Errorf("failed to initialize email alerter: %w", alertSenderErr)
+				return AlertSenderConfig{}, fmt.Errorf("failed to initialize email alerter: %w", alertSenderErr)
 			}
-			alertSenderConfigs = append(alertSenderConfigs, AlertSenderConfig{Id: id, Sender: alertSender})
+			return AlertSenderConfig{Id: id, Sender: alertSender}, nil
 		default:
-			return fmt.Errorf("unknown service type: %s", serviceType)
+			return AlertSenderConfig{}, fmt.Errorf("unknown service type: %s", serviceType)
 		}
-		return nil
 	})
-
-	return alertSenderConfigs, nil
 }
 
 // doesn't take care of closing pool, needs to be done externally.
