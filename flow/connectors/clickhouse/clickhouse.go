@@ -219,7 +219,7 @@ func (c *ClickhouseConnector) ConnectionActive(ctx context.Context) error {
 }
 
 func (c *ClickhouseConnector) execWithLogging(ctx context.Context, query string, tx *sql.Tx) (sql.Result, error) {
-	c.logger.Info("[snowflake] executing DDL statement", slog.String("query", query))
+	c.logger.Info("[clickhouse] executing DDL statement", slog.String("query", query))
 	if tx != nil {
 		return tx.ExecContext(ctx, query)
 	}
