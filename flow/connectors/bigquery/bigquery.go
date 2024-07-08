@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"reflect"
 	"strings"
-	"time"
 
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
@@ -175,30 +174,6 @@ func (c *BigQueryConnector) ConnectionActive(ctx context.Context) error {
 	return nil
 }
 
-func (c *BigQueryConnector) waitForTableReady(ctx context.Context, datasetTable *datasetTable) error {
-	table := c.client.DatasetInProject(c.projectID, datasetTable.dataset).Table(datasetTable.table)
-	maxDuration := 5 * time.Minute
-	deadline := time.Now().Add(maxDuration)
-	sleepInterval := 5 * time.Second
-	attempt := 0
-
-	for {
-		if time.Now().After(deadline) {
-			return fmt.Errorf("timeout reached while waiting for table %s to be ready", datasetTable)
-		}
-
-		_, err := table.Metadata(ctx)
-		if err == nil {
-			return nil
-		}
-
-		c.logger.Info("waiting for table to be ready",
-			slog.String("table", datasetTable.table), slog.Int("attempt", attempt))
-		attempt++
-		time.Sleep(sleepInterval)
-	}
-}
-
 // ReplayTableSchemaDeltas changes a destination table to match the schema at source
 // This could involve adding or dropping multiple columns.
 func (c *BigQueryConnector) ReplayTableSchemaDeltas(
@@ -230,7 +205,7 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 			}
 
 			addedColumnBigQueryType := qValueKindToBigQueryTypeString(addedColumn, false)
-			query := c.client.Query(fmt.Sprintf(
+			query := c.queryWithLogging(fmt.Sprintf(
 				"ALTER TABLE %s ADD COLUMN IF NOT EXISTS `%s` %s",
 				dstDatasetTable.table, addedColumn.Name, addedColumnBigQueryType))
 			query.DefaultProjectID = c.projectID
@@ -523,7 +498,11 @@ func (c *BigQueryConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 	if err == nil {
 		// table exists, check if the schema matches
 		if !reflect.DeepEqual(tableRef.Schema, schema) {
-			return nil, fmt.Errorf("table %s.%s already exists with different schema", c.datasetID, rawTableName)
+			c.logger.Error("raw table already exists with different schema",
+				slog.String("table", rawTableName),
+				slog.Any("existingSchema", tableRef.Schema),
+				slog.Any("schema", schema))
+			return nil, fmt.Errorf("raw table %s.%s already exists with different schema", c.datasetID, rawTableName)
 		} else {
 			return &protos.CreateRawTableOutput{
 				TableIdentifier: rawTableName,
@@ -556,6 +535,9 @@ func (c *BigQueryConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 	}
 
 	// table does not exist, create it
+	c.logger.Info("creating raw table",
+		slog.String("table", rawTableName),
+		slog.Any("metadata", metadata))
 	err = table.Create(ctx, metadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create table %s.%s: %w", c.datasetID, rawTableName, err)
@@ -618,9 +600,12 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	table := dataset.Table(datasetTable.table)
 
 	// check if the table exists
-	_, err = table.Metadata(ctx)
+	existingMetadata, err := table.Metadata(ctx)
 	if err == nil {
 		// table exists, go to next table
+		c.logger.Info("[bigquery] table already exists, skipping",
+			slog.String("table", tableIdentifier),
+			slog.Any("metadata", existingMetadata.Schema))
 		return true, nil
 	}
 
@@ -679,6 +664,9 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 		TimePartitioning: timePartitioning,
 	}
 
+	c.logger.Info("[bigquery] creating table",
+		slog.String("table", tableIdentifier),
+		slog.Any("metadata", metadata))
 	err = table.Create(ctx, metadata)
 	if err != nil {
 		return false, fmt.Errorf("failed to create table %s: %w", tableIdentifier, err)
@@ -699,6 +687,7 @@ func (c *BigQueryConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 	// check if exists, then delete
 	_, err = rawTableHandle.Metadata(ctx)
 	if err == nil {
+		c.logger.Info("deleting raw table", slog.String("table", rawTableHandle.FullyQualifiedName()))
 		deleteErr := rawTableHandle.Delete(ctx)
 		if deleteErr != nil {
 			return fmt.Errorf("failed to delete raw table: %w", deleteErr)
@@ -795,8 +784,7 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 				allColsWithAlias, req.SoftDeleteColName, dstDatasetTable.string(),
 				leftJoin)
 
-			c.logger.Info(q)
-			query := c.client.Query(q)
+			query := c.queryWithLogging(q)
 
 			query.DefaultProjectID = c.projectID
 			query.DefaultDatasetID = c.datasetID
@@ -821,9 +809,8 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 			}
 		}
 
-		c.logger.Info("DROP TABLE IF EXISTS " + dstDatasetTable.string())
 		// drop the dst table if exists
-		dropQuery := c.client.Query("DROP TABLE IF EXISTS " + dstDatasetTable.string())
+		dropQuery := c.queryWithLogging("DROP TABLE IF EXISTS " + dstDatasetTable.string())
 		dropQuery.DefaultProjectID = c.projectID
 		dropQuery.DefaultDatasetID = c.datasetID
 		_, err = dropQuery.Read(ctx)
@@ -831,10 +818,8 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 			return nil, fmt.Errorf("unable to drop table %s: %w", dstDatasetTable.string(), err)
 		}
 
-		c.logger.Info(fmt.Sprintf("ALTER TABLE %s RENAME TO %s",
-			srcDatasetTable.string(), dstDatasetTable.table))
 		// rename the src table to dst
-		query := c.client.Query(fmt.Sprintf("ALTER TABLE %s RENAME TO %s",
+		query := c.queryWithLogging(fmt.Sprintf("ALTER TABLE %s RENAME TO %s",
 			srcDatasetTable.string(), dstDatasetTable.table))
 		query.DefaultProjectID = c.projectID
 		query.DefaultDatasetID = c.datasetID
@@ -863,7 +848,7 @@ func (c *BigQueryConnector) CreateTablesFromExisting(
 		c.logger.Info(fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
 
 		// rename the src table to dst
-		query := c.client.Query(fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s` LIKE `%s`",
+		query := c.queryWithLogging(fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s` LIKE `%s`",
 			newDatasetTable.string(), existingDatasetTable.string()))
 		query.DefaultProjectID = c.projectID
 		query.DefaultDatasetID = c.datasetID
@@ -914,4 +899,9 @@ func (c *BigQueryConnector) convertToDatasetTable(tableName string) (datasetTabl
 	} else {
 		return datasetTable{}, fmt.Errorf("invalid BigQuery table name: %s", tableName)
 	}
+}
+
+func (c *BigQueryConnector) queryWithLogging(query string) *bigquery.Query {
+	c.logger.Info("[biguery] executing DDL statement", slog.String("query", query))
+	return c.client.Query(query)
 }

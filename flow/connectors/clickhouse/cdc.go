@@ -55,8 +55,8 @@ func (c *ClickhouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 		_peerdb_unchanged_toast_columns String
 	) ENGINE = ReplacingMergeTree ORDER BY _peerdb_uid;`
 
-	_, err := c.database.ExecContext(ctx,
-		fmt.Sprintf(createRawTableSQL, rawTableName))
+	_, err := c.execWithLogging(ctx,
+		fmt.Sprintf(createRawTableSQL, rawTableName), nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create raw table: %w", err)
 	}
@@ -151,9 +151,9 @@ func (c *ClickhouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 				return fmt.Errorf("failed to convert column type %s to clickhouse type: %w",
 					addedColumn.Type, err)
 			}
-			_, err = tableSchemaModifyTx.ExecContext(ctx,
+			_, err = c.execWithLogging(ctx,
 				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
-					schemaDelta.DstTableName, addedColumn.Name, clickhouseColType))
+					schemaDelta.DstTableName, addedColumn.Name, clickhouseColType), tableSchemaModifyTx)
 			if err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
@@ -177,14 +177,14 @@ func (c *ClickhouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 func (c *ClickhouseConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
 	err := c.PostgresMetadata.SyncFlowCleanup(ctx, jobName)
 	if err != nil {
-		return fmt.Errorf("[snowflake drop mirror] unable to clear metadata for sync flow cleanup: %w", err)
+		return fmt.Errorf("[clickhouse] unable to clear metadata for sync flow cleanup: %w", err)
 	}
 
 	// delete raw table if exists
 	rawTableIdentifier := c.getRawTableName(jobName)
-	_, err = c.database.ExecContext(ctx, fmt.Sprintf(dropTableIfExistsSQL, rawTableIdentifier))
+	_, err = c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, rawTableIdentifier), nil)
 	if err != nil {
-		return fmt.Errorf("[snowflake drop mirror] unable to drop raw table: %w", err)
+		return fmt.Errorf("[clickhouse] unable to drop raw table: %w", err)
 	}
 
 	return nil

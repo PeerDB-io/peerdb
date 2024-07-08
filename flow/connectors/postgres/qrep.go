@@ -478,8 +478,8 @@ func syncQRepRecords(
 		if writeMode != nil && writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
 			// Truncate destination table before copying records
 			c.logger.Info(fmt.Sprintf("Truncating table %s for overwrite mode", dstTable), syncLog)
-			_, err = tx.Exec(ctx,
-				"TRUNCATE TABLE "+dstTable.String())
+			_, err = c.execWithLogging(ctx,
+				"TRUNCATE TABLE "+dstTable.String(), tx)
 			if err != nil {
 				return -1, fmt.Errorf("failed to TRUNCATE table before copy: %w", err)
 			}
@@ -636,7 +636,7 @@ func (c *PostgresConnector) SetupQRepMetadataTables(ctx context.Context, config 
 		syncFinishTime TIMESTAMP DEFAULT NOW()
 	)`, metadataTableIdentifier.Sanitize())
 	// execute create table query
-	_, err = c.conn.Exec(ctx, createQRepMetadataTableSQL)
+	_, err = c.execWithLogging(ctx, createQRepMetadataTableSQL, nil)
 	if err != nil && !shared.IsUniqueError(err) {
 		return fmt.Errorf("failed to create table %s: %w", qRepMetadataTableName, err)
 	}

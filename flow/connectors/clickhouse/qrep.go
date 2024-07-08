@@ -108,7 +108,7 @@ func (c *ClickhouseConnector) SetupQRepMetadataTables(ctx context.Context, confi
 	}
 
 	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		_, err = c.database.ExecContext(ctx, "TRUNCATE TABLE "+config.DestinationTableIdentifier)
+		_, err = c.execWithLogging(ctx, "TRUNCATE TABLE "+config.DestinationTableIdentifier, nil)
 		if err != nil {
 			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
 		}
@@ -130,7 +130,7 @@ func (c *ClickhouseConnector) createQRepMetadataTable(ctx context.Context) error
 		ORDER BY partitionID;
 	`
 	queryString := fmt.Sprintf(schemaStatement, qRepMetadataTableName)
-	_, err := c.database.ExecContext(ctx, queryString)
+	_, err := c.execWithLogging(ctx, queryString, nil)
 	if err != nil {
 		c.logger.Error("failed to create table "+qRepMetadataTableName,
 			slog.Any("error", err))
