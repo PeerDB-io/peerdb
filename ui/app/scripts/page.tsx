@@ -9,7 +9,7 @@ import ScriptsTable from './list';
 
 export default function ScriptsPage() {
   const { data: res, isLoading } = useSWR<GetScriptsResponse>(
-    '/api/scripts',
+    '/api/scripts?id=-1',
     fetcher
   );
 

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
@@ -9,7 +10,11 @@ import (
 )
 
 func (h *FlowRequestHandler) GetScripts(ctx context.Context, req *protos.GetScriptsRequest) (*protos.GetScriptsResponse, error) {
-	rows, err := h.pool.Query(ctx, "SELECT id,lang,name,source FROM scripts")
+	whereClause := ""
+	if req.Id != -1 {
+		whereClause = fmt.Sprintf(" WHERE id=%d", req.Id)
+	}
+	rows, err := h.pool.Query(ctx, fmt.Sprintf("SELECT id,lang,name,source FROM scripts%s", whereClause))
 	if err != nil {
 		return nil, err
 	}

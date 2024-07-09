@@ -88,6 +88,7 @@ message Script {
   string source = 4;
 }
 message GetScriptsRequest {
+  int32 id = 1;
 }
 message GetScriptsResponse {
   repeated Script scripts = 1;
@@ -390,7 +391,7 @@ service FlowService {
   }
 
   rpc GetScripts(GetScriptsRequest) returns (GetScriptsResponse) {
-    option (google.api.http) = { get: "/v1/scripts" };
+    option (google.api.http) = { get: "/v1/scripts/{id}" };
   }
   rpc PostScript(PostScriptRequest) returns (PostScriptResponse) {
     option (google.api.http) = { post: "/v1/scripts", body: "*" };

@@ -1,4 +1,4 @@
-import { PostScriptRequest, Script } from '@/grpc_generated/route';
+import { GetScriptsResponse, PostScriptRequest, Script } from '@/grpc_generated/route';
 import { notifyErr } from '../utils/notify';
 
 export const HandleAddScript = async (script: Script) => {
@@ -20,15 +20,15 @@ export const HandleAddScript = async (script: Script) => {
   return true;
 };
 
-export const GetScriptById = async (id: string) => {
+export const GetScriptById = async (scriptId: string)=> {
   try {
-    const scriptByIdRes = await fetch('/api/scripts/' + id);
-    const scriptRes: Script = await scriptByIdRes.json();
+    const scriptByIdRes = await fetch(`/api/scripts?id=${scriptId}`);
+    const scriptRes: GetScriptsResponse = await scriptByIdRes.json();
     if (!scriptRes) {
       notifyErr('Script not found');
       return;
     }
-    return scriptRes;
+    return scriptRes.scripts.at(0);
   } catch (err) {
     notifyErr(
       'Something went wrong when obtaining the existing script. Please try again'
