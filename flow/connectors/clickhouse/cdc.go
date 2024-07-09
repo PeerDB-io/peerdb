@@ -179,12 +179,11 @@ func (c *ClickhouseConnector) RenameTables(ctx context.Context, req *protos.Rena
 	for _, renameRequest := range req.RenameTableOptions {
 		if req.SyncedAtColName != "" {
 			syncedAtCol := strings.ToLower(req.SyncedAtColName)
-			updateQuery := fmt.Sprintf("ALTER TABLE %s UPDATE %s=now() WHERE true",
-				renameRequest.CurrentName, syncedAtCol)
-			_, err := c.database.Exec(updateQuery)
+			_, err := c.execWithLogging(ctx, fmt.Sprintf("ALTER TABLE %s UPDATE %s=now() WHERE true",
+				renameRequest.CurrentName, syncedAtCol))
 			if err != nil {
-				return nil, fmt.Errorf("unable to set synced at column for table %s with query %s: %w",
-					renameRequest.CurrentName, updateQuery, err)
+				return nil, fmt.Errorf("unable to set synced at column for table %s: %w",
+					renameRequest.CurrentName, err)
 			}
 		}
 
@@ -196,7 +195,7 @@ func (c *ClickhouseConnector) RenameTables(ctx context.Context, req *protos.Rena
 		allCols := strings.Join(columnNames, ",")
 		pkeyCols := strings.Join(renameRequest.TableSchema.PrimaryKeyColumns, ",")
 		c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", renameRequest.NewName))
-		_, err := c.database.Exec(
+		_, err := c.execWithLogging(ctx,
 			fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
 				renameRequest.CurrentName, fmt.Sprintf("%s,%s", allCols, signColName), allCols,
 				signColName,
@@ -206,13 +205,13 @@ func (c *ClickhouseConnector) RenameTables(ctx context.Context, req *protos.Rena
 		}
 
 		// drop the dst table if exists
-		_, err = c.database.Exec("DROP TABLE IF EXISTS " + renameRequest.NewName)
+		_, err = c.execWithLogging(ctx, "DROP TABLE IF EXISTS "+renameRequest.NewName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to drop table %s: %w", renameRequest.NewName, err)
 		}
 
 		// rename the src table to dst
-		_, err = c.database.Exec(fmt.Sprintf("RENAME TABLE %s TO %s",
+		_, err = c.execWithLogging(ctx, fmt.Sprintf("RENAME TABLE %s TO %s",
 			renameRequest.CurrentName,
 			renameRequest.NewName))
 		if err != nil {
