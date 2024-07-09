@@ -81,6 +81,29 @@ message PostDynamicSettingRequest {
 message PostDynamicSettingResponse {
 }
 
+message Script {
+  int32 id = 1;
+  string lang = 2;
+  string name = 3;
+  string source = 4;
+}
+message GetScriptsRequest {
+}
+message GetScriptsResponse {
+  repeated Script scripts = 1;
+}
+message PostScriptRequest {
+  Script script = 1;
+}
+message PostScriptResponse {
+  int32 id = 1;
+}
+message DeleteScriptRequest {
+  int32 id = 1;
+}
+message DeleteScriptResponse {
+}
+
 message ValidatePeerRequest {
  peerdb_peers.Peer peer = 1;
 }
@@ -351,6 +374,16 @@ service FlowService {
   }
   rpc PostDynamicSetting(PostDynamicSettingRequest) returns (PostDynamicSettingResponse) {
     option (google.api.http) = { post: "/v1/dynamic_settings", body: "*" };
+  }
+
+  rpc GetScripts(GetScriptsRequest) returns (GetScriptsResponse) {
+    option (google.api.http) = { get: "/v1/scripts" };
+  }
+  rpc PostScript(PostScriptRequest) returns (PostScriptResponse) {
+    option (google.api.http) = { post: "/v1/scripts", body: "*" };
+  }
+  rpc DeleteScript(DeleteScriptRequest) returns (DeleteScriptResponse) {
+    option (google.api.http) = { delete: "/v1/scripts/{id}" };
   }
 
   rpc GetSchemas(PostgresPeerActivityInfoRequest) returns (PeerSchemasResponse) {

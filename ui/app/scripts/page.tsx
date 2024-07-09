@@ -1,14 +1,14 @@
 'use client';
 import NewButton from '@/components/NewButton';
+import { GetScriptsResponse } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label/Label';
 import Link from 'next/link';
 import useSWR from 'swr';
-import { ScriptsType } from '../dto/ScriptsDTO';
 import { fetcher } from '../utils/swr';
 import ScriptsTable from './list';
 
 export default function ScriptsPage() {
-  const { data: scripts, isLoading } = useSWR<ScriptsType[]>(
+  const { data: res, isLoading } = useSWR<GetScriptsResponse>(
     '/api/scripts',
     fetcher
   );
@@ -58,7 +58,7 @@ export default function ScriptsPage() {
           Learn more about PeerDB Lua scripting
         </Label>
       </div>
-      {!isLoading && scripts && <ScriptsTable scripts={scripts} />}
+      {!isLoading && res && <ScriptsTable scripts={res.scripts} />}
     </div>
   );
 }
