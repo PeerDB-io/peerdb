@@ -134,10 +134,6 @@ func encryptPeerOptions(peerOptions []byte) ([]byte, string, error) {
 		return nil, "", fmt.Errorf("failed to get current encryption key: %w", err)
 	}
 
-	if key == nil {
-		return peerOptions, "", nil
-	}
-
 	encrypted, err := key.Encrypt(peerOptions)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to encrypt peer options: %w", err)

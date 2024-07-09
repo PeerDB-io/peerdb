@@ -99,22 +99,18 @@ func recryptDatabase(
 			continue
 		}
 
-		if oldKey != nil {
-			options, err = oldKey.Decrypt(options)
-			if err != nil {
-				slog.Warn("recrypt failed to decrypt, skipping",
-					slog.String("thing", thing), slog.Any("error", err), slog.Int64("id", int64(id)))
-				continue
-			}
+		options, err = oldKey.Decrypt(options)
+		if err != nil {
+			slog.Warn("recrypt failed to decrypt, skipping",
+				slog.String("thing", thing), slog.Any("error", err), slog.Int64("id", int64(id)))
+			continue
 		}
 
-		if key != nil {
-			options, err = key.Encrypt(options)
-			if err != nil {
-				slog.Warn("recrypt failed to encrypt, skipping",
-					slog.String("thing", thing), slog.Any("error", err), slog.Int64("id", int64(id)))
-				continue
-			}
+		options, err = key.Encrypt(options)
+		if err != nil {
+			slog.Warn("recrypt failed to encrypt, skipping",
+				slog.String("thing", thing), slog.Any("error", err), slog.Int64("id", int64(id)))
+			continue
 		}
 
 		slog.Info("recrypting",
