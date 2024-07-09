@@ -82,7 +82,7 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(ctx context.Context, config
 	}
 
 	if !schemaExists.Valid || !schemaExists.Bool {
-		_, err := c.database.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
+		_, err := c.execWithLogging(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
 		if err != nil {
 			return err
 		}
@@ -95,7 +95,7 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(ctx context.Context, config
 	}
 
 	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		_, err = c.database.ExecContext(ctx, "TRUNCATE TABLE "+config.DestinationTableIdentifier)
+		_, err = c.execWithLogging(ctx, "TRUNCATE TABLE "+config.DestinationTableIdentifier)
 		if err != nil {
 			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
 		}
@@ -121,7 +121,7 @@ func (c *SnowflakeConnector) createStage(ctx context.Context, stageName string, 
 	}
 
 	// Execute the query
-	_, err := c.database.ExecContext(ctx, createStageStmt)
+	_, err := c.execWithLogging(ctx, createStageStmt)
 	if err != nil {
 		c.logger.Error("failed to create stage "+stageName, slog.Any("error", err))
 		return fmt.Errorf("failed to create stage %s: %w", stageName, err)
