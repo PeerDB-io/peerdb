@@ -349,7 +349,7 @@ service FlowService {
   rpc GetDynamicConfigs(GetDynamicSettingsRequest) returns (GetDynamicSettingsResponse) {
     option (google.api.http) = { get: "/v1/dynamic_settings" };
   }
-  rpc PostDynamicConfigs(PostDynamicSettingRequest) returns (PostDynamicSettingResponse) {
+  rpc PostDynamicConfig(PostDynamicSettingRequest) returns (PostDynamicSettingResponse) {
     option (google.api.http) = { post: "/v1/dynamic_settings", body: "*" };
   }
 
