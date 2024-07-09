@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5"
 
@@ -17,6 +18,7 @@ func (h *FlowRequestHandler) GetDynamicConfigs(
 		"select config_name,config_value,config_default_value,config_description,config_value_type,config_apply_mode from dynamic_settings",
 	)
 	if err != nil {
+		slog.Error("[GetDynamicConfigs]: failed to query settings", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -26,6 +28,7 @@ func (h *FlowRequestHandler) GetDynamicConfigs(
 		return setting, err
 	})
 	if err != nil {
+		slog.Error("[GetDynamicConfigs]: failed to collect rows", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -36,8 +39,9 @@ func (h *FlowRequestHandler) PostDynamicConfig(
 	ctx context.Context,
 	req *protos.PostDynamicSettingRequest,
 ) (*protos.PostDynamicSettingResponse, error) {
-	_, err := h.pool.Exec(ctx, "update dynamic_settings set config_value = $1 where config_name = $2")
+	_, err := h.pool.Exec(ctx, "update dynamic_settings set config_value = $1 where config_name = $2", req.Value, req.Name)
 	if err != nil {
+		slog.Error("[PostDynamicConfig]: failed to execute update setting", slog.Any("error", err))
 		return nil, err
 	}
 	return &protos.PostDynamicSettingResponse{}, nil
