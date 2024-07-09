@@ -9,7 +9,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
-func (h *FlowRequestHandler) GetDynamicConfigs(
+func (h *FlowRequestHandler) GetDynamicSettings(
 	ctx context.Context,
 	req *protos.GetDynamicSettingsRequest,
 ) (*protos.GetDynamicSettingsResponse, error) {
@@ -35,7 +35,7 @@ func (h *FlowRequestHandler) GetDynamicConfigs(
 	return &protos.GetDynamicSettingsResponse{Settings: settings}, nil
 }
 
-func (h *FlowRequestHandler) PostDynamicConfig(
+func (h *FlowRequestHandler) PostDynamicSetting(
 	ctx context.Context,
 	req *protos.PostDynamicSettingRequest,
 ) (*protos.PostDynamicSettingResponse, error) {
