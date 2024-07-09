@@ -73,7 +73,9 @@ const DynamicSettingItem = ({
 
   const validateNewValue = (): boolean => {
     const notNullValue = newValue ?? '';
-    if (setting.valueType === DynconfValueType.INT) {
+    if (
+      setting.valueType.toString() === DynconfValueType[DynconfValueType.INT]
+    ) {
       const a = parseInt(Number(notNullValue).toString());
       if (
         isNaN(a) ||
@@ -84,7 +86,9 @@ const DynamicSettingItem = ({
         return false;
       }
       return true;
-    } else if (setting.valueType === DynconfValueType.UINT) {
+    } else if (
+      setting.valueType.toString() === DynconfValueType[DynconfValueType.UINT]
+    ) {
       const a = parseInt(Number(notNullValue).toString());
       if (isNaN(a) || a > Number.MAX_SAFE_INTEGER || a < 0) {
         notifyErr(
@@ -93,13 +97,17 @@ const DynamicSettingItem = ({
         return false;
       }
       return true;
-    } else if (setting.valueType === DynconfValueType.BOOL) {
+    } else if (
+      setting.valueType.toString() === DynconfValueType[DynconfValueType.BOOL]
+    ) {
       if (notNullValue !== 'true' && notNullValue !== 'false') {
         notifyErr('Invalid value. Please enter true or false.');
         return false;
       }
       return true;
-    } else if (setting.valueType === DynconfValueType.STRING) {
+    } else if (
+      setting.valueType.toString() === DynconfValueType[DynconfValueType.STRING]
+    ) {
       return true;
     } else {
       notifyErr('Invalid value type');
