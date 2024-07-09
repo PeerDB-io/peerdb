@@ -227,6 +227,18 @@ message SlotInfo {
   string wal_status = 7;
 }
 
+message SlotLagPoint {
+  double updated_at = 1;
+  double slot_size = 2;
+}
+message GetSlotLagHistoryRequest {
+  string peer_name = 1;
+  string time_since = 2;
+}
+message GetSlotLagHistoryResponse {
+  repeated SlotLagPoint data = 1;
+}
+
 message StatInfo {
   int64 pid = 1;
   string wait_event = 2;
@@ -408,6 +420,9 @@ service FlowService {
 
   rpc GetSlotInfo(PostgresPeerActivityInfoRequest) returns (PeerSlotResponse) {
     option (google.api.http) = { get: "/v1/peers/slots/{peer_name}" };
+  }
+  rpc GetSlotLagHistory(GetSlotLagHistoryRequest) returns (GetSlotLagHistoryResponse) {
+    option (google.api.http) = { get: "/v1/peers/slots/{peer_name}/lag/{time_since}" };
   }
   rpc GetStatInfo(PostgresPeerActivityInfoRequest) returns (PeerStatResponse) {
     option (google.api.http) = { get: "/v1/peers/stats/{peer_name}" };

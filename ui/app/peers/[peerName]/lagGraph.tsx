@@ -1,11 +1,11 @@
 'use client';
-import { SlotLagPoint } from '@/app/dto/PeersDTO';
 import SelectTheme from '@/app/styles/select';
 import {
   formatGraphLabel,
   TimeAggregateTypes,
   timeOptions,
 } from '@/app/utils/graph';
+import { GetSlotLagHistoryResponse } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle/ProgressCircle';
 import { LineChart } from '@tremor/react';
@@ -36,9 +36,9 @@ function LagGraph({ slotNames }: { slotNames: string[] }) {
         cache: 'no-store',
       }
     );
-    const points: SlotLagPoint[] = await pointsRes.json();
+    const points: GetSlotLagHistoryResponse = await pointsRes.json();
     setLagPoints(
-      points
+      points.data
         .sort((x, y) => x.updatedAt - y.updatedAt)
         .map((data) => ({
           time: formatGraphLabel(new Date(data.updatedAt!), timeSince),

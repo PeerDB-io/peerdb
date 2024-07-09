@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -22,7 +23,7 @@ func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName strin
 	var encPeerOptions []byte
 	var encKeyID string
 	err := h.pool.QueryRow(ctx,
-		"SELECT options, enc_key_id FROM peers WHERE name = $1 AND type=3", peerName).Scan(&encPeerOptions, &encKeyID)
+		"SELECT options, enc_key_id FROM peers WHERE name=$1 AND type=3", peerName).Scan(&encPeerOptions, &encKeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -346,6 +347,39 @@ func (h *FlowRequestHandler) GetSlotInfo(
 	return &protos.PeerSlotResponse{
 		SlotData: slotInfo,
 	}, nil
+}
+
+func (h *FlowRequestHandler) GetSlotLagHistory(
+	ctx context.Context,
+	req *protos.GetSlotLagHistoryRequest,
+) (*protos.GetSlotLagHistoryResponse, error) {
+	rows, err := h.pool.Query(ctx, `
+    select updated_at, slot_size
+    from peerdb_stats.peer_slot_size
+    where slot_size is not null
+      and slot_name = $1
+      and updated_at > (now()-$2::INTERVAL)
+    order by random()
+    limit 720`, req.PeerName, req.TimeSince)
+	if err != nil {
+		return nil, err
+	}
+	points, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.SlotLagPoint, error) {
+		var updatedAt time.Time
+		var slotSize int64
+		if err := row.Scan(&updatedAt, &slotSize); err != nil {
+			return nil, err
+		}
+		return &protos.SlotLagPoint{
+			UpdatedAt: float64(updatedAt.Unix()) / 1000.0,
+			SlotSize:  float64(slotSize) / 1000.0,
+		}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &protos.GetSlotLagHistoryResponse{Data: points}, nil
 }
 
 func (h *FlowRequestHandler) GetStatInfo(
