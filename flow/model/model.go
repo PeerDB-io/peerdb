@@ -277,7 +277,10 @@ func (r *RecordItems) ToJSONWithOpts(opts *ToJSONOptions) (string, error) {
 				for k, v := range unnestStruct {
 					jsonStruct[k] = v
 				}
-				delete(jsonStruct, col)
+
+				if _, ok := unnestStruct[col]; !ok {
+					delete(jsonStruct, col)
+				}
 			}
 		}
 	}
