@@ -50,7 +50,7 @@ type RecryptItem struct {
 func recryptDatabase(
 	ctx context.Context,
 	catalogPool *pgxpool.Pool,
-	thing string,
+	tag string,
 	selectSql string,
 	updateSql string,
 ) {
@@ -79,7 +79,7 @@ func recryptDatabase(
 
 	rows, err := tx.Query(ctx, selectSql, newKeyID)
 	if err != nil {
-		slog.Warn("recrypt failed to query, skipping", slog.String("thing", thing), slog.Any("error", err))
+		slog.Warn("recrypt failed to query, skipping", slog.String("tag", tag), slog.Any("error", err))
 		return
 	}
 	var todo []RecryptItem
@@ -88,52 +88,52 @@ func recryptDatabase(
 	var oldKeyID string
 	for rows.Next() {
 		if err := rows.Scan(&id, &options, &oldKeyID); err != nil {
-			slog.Warn("recrypt failed to scan, skipping", slog.String("thing", thing), slog.Any("error", err))
+			slog.Warn("recrypt failed to scan, skipping", slog.String("tag", tag), slog.Any("error", err))
 			continue
 		}
 
 		oldKey, err := keys.Get(oldKeyID)
 		if err != nil {
 			slog.Warn("recrypt failed to find key, skipping",
-				slog.String("thing", thing), slog.Any("error", err), slog.String("enc_key_id", oldKeyID))
+				slog.String("tag", tag), slog.Any("error", err), slog.String("enc_key_id", oldKeyID))
 			continue
 		}
 
 		options, err = oldKey.Decrypt(options)
 		if err != nil {
 			slog.Warn("recrypt failed to decrypt, skipping",
-				slog.String("thing", thing), slog.Any("error", err), slog.Int64("id", int64(id)))
+				slog.String("tag", tag), slog.Any("error", err), slog.Int64("id", int64(id)))
 			continue
 		}
 
 		options, err = key.Encrypt(options)
 		if err != nil {
 			slog.Warn("recrypt failed to encrypt, skipping",
-				slog.String("thing", thing), slog.Any("error", err), slog.Int64("id", int64(id)))
+				slog.String("tag", tag), slog.Any("error", err), slog.Int64("id", int64(id)))
 			continue
 		}
 
 		slog.Info("recrypting",
-			slog.String("thing", thing), slog.Int64("id", int64(id)), slog.String("oldKey", oldKeyID), slog.String("newKey", newKeyID))
+			slog.String("tag", tag), slog.Int64("id", int64(id)), slog.String("oldKey", oldKeyID), slog.String("newKey", newKeyID))
 		todo = append(todo, RecryptItem{id: id, options: options})
 	}
 	if err := rows.Err(); err != nil {
-		slog.Warn("recrypt iteration failed, skipping", slog.String("thing", thing), slog.Any("error", err))
+		slog.Warn("recrypt iteration failed, skipping", slog.String("tag", tag), slog.Any("error", err))
 		return
 	}
 
 	for _, item := range todo {
 		if _, err := tx.Exec(ctx, updateSql, item.id, item.options, newKeyID); err != nil {
 			slog.Warn("recrypt failed to update, ignoring",
-				slog.String("thing", thing), slog.Any("error", err), slog.Int64("id", int64(item.id)))
+				slog.String("tag", tag), slog.Any("error", err), slog.Int64("id", int64(item.id)))
 			return
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		slog.Warn("recrypt failed to commit transaction, skipping", slog.String("thing", thing), slog.Any("error", err))
+		slog.Warn("recrypt failed to commit transaction, skipping", slog.String("tag", tag), slog.Any("error", err))
 	}
-	slog.Info("recrypt finished", slog.String("thing", thing))
+	slog.Info("recrypt finished", slog.String("tag", tag))
 }
 
 // setupGRPCGatewayServer sets up the grpc-gateway mux

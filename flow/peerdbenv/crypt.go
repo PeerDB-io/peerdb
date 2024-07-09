@@ -1,7 +1,5 @@
 package peerdbenv
 
-import "fmt"
-
 func Decrypt(encKeyID string, payload []byte) ([]byte, error) {
 	if encKeyID == "" {
 		return payload, nil
@@ -10,7 +8,7 @@ func Decrypt(encKeyID string, payload []byte) ([]byte, error) {
 	keys := PeerDBEncKeys()
 	key, err := keys.Get(encKeyID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load peer, unable to find encryption key - %s", encKeyID)
+		return nil, err
 	}
 
 	return key.Decrypt(payload)

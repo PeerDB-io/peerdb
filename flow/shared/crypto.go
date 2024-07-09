@@ -52,7 +52,7 @@ func (e PeerDBEncKeys) Get(id string) (PeerDBEncKey, error) {
 		}
 	}
 
-	return PeerDBEncKey{}, fmt.Errorf("failed to find encryption key - %s", id)
+	return PeerDBEncKey{}, fmt.Errorf("failed to find encryption key %s", id)
 }
 
 const nonceSize = chacha20poly1305.NonceSizeX
