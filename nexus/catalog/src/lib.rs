@@ -506,8 +506,8 @@ impl Catalog {
             .await?;
 
         Ok(match row {
-            Some(row) => Some(pt::peerdb_flow::QRepConfig::decode::<&[u8]>(
-                row.get("config_proto"),
+            Some(row) => Some(pt::peerdb_flow::QRepConfig::decode(
+                row.get::<&str, &[u8]>("config_proto"),
             )?),
             None => None,
         })
