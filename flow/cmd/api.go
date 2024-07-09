@@ -44,7 +44,16 @@ type RecryptItem struct {
 	id      int32
 }
 
-func recryptDatabase(ctx context.Context, catalogPool *pgxpool.Pool) {
+// updates enc_key_id by recrypting encrypted database fields with latest key
+// selectSql should grab id, field, keyId respectively, taking latest keyId as parameter
+// updateSql should take id, field, keyId as parameters respectively
+func recryptDatabase(
+	ctx context.Context,
+	catalogPool *pgxpool.Pool,
+	thing string,
+	selectSql string,
+	updateSql string,
+) {
 	newKeyID := peerdbenv.PeerDBCurrentEncKeyID()
 	keys := peerdbenv.PeerDBEncKeys()
 	if newKeyID == "" {
@@ -68,9 +77,9 @@ func recryptDatabase(ctx context.Context, catalogPool *pgxpool.Pool) {
 	}
 	defer shared.RollbackTx(tx, slog.Default())
 
-	rows, err := tx.Query(ctx, "SELECT id, options, enc_key_id FROM peers WHERE enc_key_id <> $1 FOR UPDATE", newKeyID)
+	rows, err := tx.Query(ctx, selectSql, newKeyID)
 	if err != nil {
-		slog.Warn("recrypt failed to query, skipping", slog.Any("error", err))
+		slog.Warn("recrypt failed to query, skipping", slog.String("thing", thing), slog.Any("error", err))
 		return
 	}
 	var todo []RecryptItem
@@ -79,20 +88,22 @@ func recryptDatabase(ctx context.Context, catalogPool *pgxpool.Pool) {
 	var oldKeyID string
 	for rows.Next() {
 		if err := rows.Scan(&id, &options, &oldKeyID); err != nil {
-			slog.Warn("recrypt failed to scan, skipping", slog.Any("error", err))
+			slog.Warn("recrypt failed to scan, skipping", slog.String("thing", thing), slog.Any("error", err))
 			continue
 		}
 
 		oldKey, err := keys.Get(oldKeyID)
 		if err != nil {
-			slog.Warn("recrypt failed to find key, skipping", slog.Any("error", err), slog.String("enc_key_id", oldKeyID))
+			slog.Warn("recrypt failed to find key, skipping",
+				slog.String("thing", thing), slog.Any("error", err), slog.String("enc_key_id", oldKeyID))
 			continue
 		}
 
 		if oldKey != nil {
 			options, err = oldKey.Decrypt(options)
 			if err != nil {
-				slog.Warn("recrypt failed to decrypt, skipping", slog.Any("error", err), slog.Int64("id", int64(id)))
+				slog.Warn("recrypt failed to decrypt, skipping",
+					slog.String("thing", thing), slog.Any("error", err), slog.Int64("id", int64(id)))
 				continue
 			}
 		}
@@ -100,30 +111,33 @@ func recryptDatabase(ctx context.Context, catalogPool *pgxpool.Pool) {
 		if key != nil {
 			options, err = key.Encrypt(options)
 			if err != nil {
-				slog.Warn("recrypt failed to encrypt, skipping", slog.Any("error", err))
+				slog.Warn("recrypt failed to encrypt, skipping",
+					slog.String("thing", thing), slog.Any("error", err), slog.Int64("id", int64(id)))
 				continue
 			}
 		}
 
-		slog.Info("recrypting peer", slog.Int64("id", int64(id)), slog.String("oldKey", oldKeyID), slog.String("newKey", newKeyID))
+		slog.Info("recrypting",
+			slog.String("thing", thing), slog.Int64("id", int64(id)), slog.String("oldKey", oldKeyID), slog.String("newKey", newKeyID))
 		todo = append(todo, RecryptItem{id: id, options: options})
 	}
 	if err := rows.Err(); err != nil {
-		slog.Warn("recrypt iteration failed, skipping", slog.Any("error", err))
+		slog.Warn("recrypt iteration failed, skipping", slog.String("thing", thing), slog.Any("error", err))
 		return
 	}
 
 	for _, item := range todo {
-		if _, err := tx.Exec(ctx, "UPDATE peers SET options = $2, enc_key_id = $3 WHERE id = $1", item.id, item.options, newKeyID); err != nil {
-			slog.Warn("recrypt failed to update, ignoring", slog.Any("error", err), slog.Int64("id", int64(item.id)))
+		if _, err := tx.Exec(ctx, updateSql, item.id, item.options, newKeyID); err != nil {
+			slog.Warn("recrypt failed to update, ignoring",
+				slog.String("thing", thing), slog.Any("error", err), slog.Int64("id", int64(item.id)))
 			return
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		slog.Warn("recrypt failed to commit transaction, skipping", slog.Any("error", err))
+		slog.Warn("recrypt failed to commit transaction, skipping", slog.String("thing", thing), slog.Any("error", err))
 	}
-	slog.Info("recrypt finished")
+	slog.Info("recrypt finished", slog.String("thing", thing))
 }
 
 // setupGRPCGatewayServer sets up the grpc-gateway mux
@@ -263,7 +277,20 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 	}()
 
 	// somewhat unrelated here, but needed a process which isn't replicated
-	go recryptDatabase(ctx, catalogPool)
+	go recryptDatabase(
+		ctx,
+		catalogPool,
+		"peer",
+		"SELECT id, options, enc_key_id FROM peers WHERE enc_key_id <> $1 FOR UPDATE",
+		"UPDATE peers SET options = $2, enc_key_id = $3 WHERE id = $1",
+	)
+	go recryptDatabase(
+		ctx,
+		catalogPool,
+		"alert config",
+		"SELECT id, service_config, enc_key_id FROM peerdb_stats.alerting_config WHERE enc_key_id <> $1 FOR UPDATE",
+		"UPDATE peerdb_stats.alerting_config SET service_config = $2, enc_key_id = $3 WHERE id = $1",
+	)
 
 	<-ctx.Done()
 	grpcServer.GracefulStop()
