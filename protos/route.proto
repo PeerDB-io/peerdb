@@ -346,10 +346,10 @@ service FlowService {
     option (google.api.http) = { delete: "/v1/alerts/config/{id}" };
   }
 
-  rpc GetDynamicConfigs(GetDynamicSettingsRequest) returns (GetDynamicSettingsResponse) {
+  rpc GetDynamicSettings(GetDynamicSettingsRequest) returns (GetDynamicSettingsResponse) {
     option (google.api.http) = { get: "/v1/dynamic_settings" };
   }
-  rpc PostDynamicConfigs(PostDynamicSettingRequest) returns (PostDynamicSettingResponse) {
+  rpc PostDynamicSetting(PostDynamicSettingRequest) returns (PostDynamicSettingResponse) {
     option (google.api.http) = { post: "/v1/dynamic_settings", body: "*" };
   }
 
