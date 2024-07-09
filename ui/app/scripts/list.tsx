@@ -87,7 +87,7 @@ const ScriptsTable = ({ scripts }: { scripts: Script[] }) => {
               <TableCell as='td'>
                 <Button
                   as={Link}
-                  href={`/scripts/new?script=${Buffer.from(JSON.stringify(script)).toString('base64')}`}
+                  href={`/scripts/new?scriptid=${script.id}`}
                   style={{ width: 'fit-content' }}
                   variant='normal'
                 >

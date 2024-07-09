@@ -20,6 +20,23 @@ export const HandleAddScript = async (script: Script) => {
   return true;
 };
 
+export const GetScriptById = async (id: string) => {
+  try {
+    const scriptByIdRes = await fetch('/api/scripts/' + id);
+    const scriptRes: Script = await scriptByIdRes.json();
+    if (!scriptRes) {
+      notifyErr('Script not found');
+      return;
+    }
+    return scriptRes;
+  } catch (err) {
+    notifyErr(
+      'Something went wrong when obtaining the existing script. Please try again'
+    );
+    return;
+  }
+};
+
 export const HandleEditScript = async (script: Script) => {
   const editScriptRes = await fetch('/api/scripts', {
     method: 'POST',

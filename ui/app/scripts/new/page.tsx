@@ -9,15 +9,15 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { TextField } from '@/lib/TextField';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import { HandleAddScript, HandleEditScript } from '../handlers';
+import { HandleAddScript, GetScriptById, HandleEditScript } from '../handlers';
 
 const EditScript = () => {
   const params = useSearchParams();
   const router = useRouter();
-  const scriptStringBase64 = params.get('script');
+  const scriptId = params.get('scriptid');
   let script: Script = {
     id: -1,
     name: '',
@@ -31,14 +31,7 @@ function onRecord(r)
   return json.encode(r.row)
 end`,
   };
-  let inEditMode: boolean = false;
-  if (scriptStringBase64) {
-    script = JSON.parse(
-      Buffer.from(scriptStringBase64, 'base64').toString('utf-8')
-    );
-    inEditMode = true;
-  }
-
+  const [inEditMode, setInEditMode] = useState(false);
   const [newScript, setNewScript] = useState<Script>(script);
   const [loading, setLoading] = useState(false);
   const handleAdd = (script?: Script) => {
@@ -77,6 +70,14 @@ end`,
     });
   };
 
+  useEffect(() => {
+    if (scriptId) {
+      setInEditMode(true);
+      GetScriptById(scriptId).then((existingScript) => {
+        setNewScript(existingScript!);
+      });
+    }
+  }, [scriptId]);
   return (
     <div
       style={{
