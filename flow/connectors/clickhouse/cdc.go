@@ -193,16 +193,9 @@ func (c *ClickhouseConnector) RenameTables(ctx context.Context, req *protos.Rena
 			columnNames = append(columnNames, col.Name)
 		}
 
-		pkeyColumnNames := make([]string, 0, len(renameRequest.TableSchema.PrimaryKeyColumns))
-		for _, col := range renameRequest.TableSchema.PrimaryKeyColumns {
-			pkeyColumnNames = append(pkeyColumnNames, col)
-		}
-
 		allCols := strings.Join(columnNames, ",")
-		pkeyCols := strings.Join(pkeyColumnNames, ",")
-
+		pkeyCols := strings.Join(renameRequest.TableSchema.PrimaryKeyColumns, ",")
 		c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", renameRequest.NewName))
-
 		_, err := c.database.Exec(
 			fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
 				renameRequest.CurrentName, fmt.Sprintf("%s,%s", allCols, signColName), allCols,
