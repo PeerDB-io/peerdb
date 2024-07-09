@@ -64,8 +64,8 @@ func (h *FlowRequestHandler) PostAlertConfig(ctx context.Context, req *protos.Po
 		"update peerdb_stats.alerting_config set service_type = $1, service_config = $2, enc_key_id = $3 where id = $4",
 		req.ServiceType,
 		serviceConfig,
-		req.Id,
 		key.ID,
+		req.Id,
 	); err != nil {
 		return nil, err
 	}
