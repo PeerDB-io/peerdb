@@ -14,6 +14,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -26,7 +27,7 @@ func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName strin
 		return nil, err
 	}
 
-	peerOptions, err := connectors.DecryptPeerOptions(encKeyID, encPeerOptions)
+	peerOptions, err := peerdbenv.Decrypt(encKeyID, encPeerOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load peer: %w", err)
 	}

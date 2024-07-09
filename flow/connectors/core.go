@@ -276,7 +276,7 @@ func LoadPeer(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (
 		return nil, fmt.Errorf("failed to load peer: %w", err)
 	}
 
-	peerOptions, err := DecryptPeerOptions(encKeyID, encPeerOptions)
+	peerOptions, err := peerdbenv.Decrypt(encKeyID, encPeerOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load peer: %w", err)
 	}
@@ -359,20 +359,6 @@ func LoadPeer(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (
 	}
 
 	return peer, nil
-}
-
-func DecryptPeerOptions(encKeyID string, encPeerOptions []byte) ([]byte, error) {
-	if encKeyID == "" {
-		return encPeerOptions, nil
-	}
-
-	keys := peerdbenv.PeerDBEncKeys()
-	key, err := keys.Get(encKeyID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load peer, unable to find encryption key - %s", encKeyID)
-	}
-
-	return key.Decrypt(encPeerOptions)
 }
 
 func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {

@@ -101,7 +101,7 @@ func PeerDBEncKeys() shared.PeerDBEncKeys {
 	return GetEnvJSON[shared.PeerDBEncKeys]("PEERDB_ENC_KEYS", nil)
 }
 
-func PeerDBCurrentEncKey() (*shared.PeerDBEncKey, error) {
+func PeerDBCurrentEncKey() (shared.PeerDBEncKey, error) {
 	encKeyID := PeerDBCurrentEncKeyID()
 	encKeys := PeerDBEncKeys()
 	return encKeys.Get(encKeyID)

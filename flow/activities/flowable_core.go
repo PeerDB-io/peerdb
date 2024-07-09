@@ -306,7 +306,7 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 			return nil, err
 		}
 
-		peerOptions, err := connectors.DecryptPeerOptions(encKeyID, encPeerOptions)
+		peerOptions, err := peerdbenv.Decrypt(encKeyID, encPeerOptions)
 		if err != nil {
 			return nil, err
 		}
