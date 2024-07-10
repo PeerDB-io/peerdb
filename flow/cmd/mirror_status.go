@@ -544,3 +544,21 @@ func (h *FlowRequestHandler) CDCBatchTotals(
 	}
 	return &protos.CDCBatchTotalsResponse{Totals: totals}, nil
 }
+
+func (h *FlowRequestHandler) ListMirrorNames(
+	ctx context.Context,
+	req *protos.ListMirrorNamesRequest,
+) (*protos.ListMirrorNamesResponse, error) {
+	// selects from flow_errors to still list dropped mirrors
+	rows, err := h.pool.Query(ctx, `select distinct flow_name from flows where name not like 'clone_%' order by flow_name`)
+	if err != nil {
+		return nil, err
+	}
+	names, err := pgx.CollectRows[string](rows, pgx.RowTo)
+	if err != nil {
+		return nil, err
+	}
+	return &protos.ListMirrorNamesResponse{
+		Names: names,
+	}, nil
+}

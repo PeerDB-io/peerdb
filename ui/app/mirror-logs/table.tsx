@@ -7,6 +7,7 @@ import {
   MirrorLogsResponse,
 } from '@/app/dto/AlertDTO';
 import LogsTable from '@/components/LogsTable';
+import { ListMirrorNamesResponse } from '@/grpc_generated/route';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
@@ -27,10 +28,8 @@ export default function LogsView() {
   );
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const { data: mirrors }: { data: string[]; error: any } = useSWR(
-    '/api/mirrors/names',
-    fetcher
-  );
+  const { data: mirrors }: { data: ListMirrorNamesResponse; error: any } =
+    useSWR('/api/mirrors/names', fetcher);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -85,7 +84,7 @@ export default function LogsView() {
             defaultValue={
               mirrorName ? { value: mirrorName, label: mirrorName } : undefined
             }
-            options={mirrors.map((mirror) => ({
+            options={mirrors.names.map((mirror) => ({
               value: mirror,
               label: mirror,
             }))}
