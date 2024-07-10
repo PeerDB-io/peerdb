@@ -572,12 +572,12 @@ func (h *FlowRequestHandler) ListMirrorLogs(
 	whereArgs := make([]interface{}, 0, 2)
 	if req.FlowJobName != "" {
 		whereArgs = append(whereArgs, req.FlowJobName)
-		whereExprs = append(whereExprs, " and position($1 in flow_name) > 0")
+		whereExprs = append(whereExprs, "position($1 in flow_name) > 0")
 	}
 
 	if req.Level != "" && req.Level != "all" {
 		whereArgs = append(whereArgs, req.Level)
-		whereExprs = append(whereExprs, fmt.Sprintf(" and error_type = $%d", len(whereArgs)))
+		whereExprs = append(whereExprs, fmt.Sprintf("error_type = $%d", len(whereArgs)))
 	}
 
 	var whereClause string
