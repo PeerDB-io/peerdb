@@ -5,15 +5,16 @@ import {
 } from '@/grpc_generated/route';
 
 export const getMirrorState = async (
-  mirrorName: string
+  flow_job_name: string
 ): Promise<MirrorStatusResponse> => {
   const res = await fetch('/api/mirrors/state', {
     method: 'POST',
     body: JSON.stringify({
-      mirrorName: mirrorName,
+      flow_job_name,
+      include_flow_info: true,
     }),
   });
-  return await res.json();
+  return res.json();
 };
 
 export const getCurrentIdleTimeout = async (mirrorName: string) => {
