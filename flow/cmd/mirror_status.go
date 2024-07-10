@@ -551,7 +551,10 @@ func (h *FlowRequestHandler) ListMirrorNames(
 	req *protos.ListMirrorNamesRequest,
 ) (*protos.ListMirrorNamesResponse, error) {
 	// selects from flow_errors to still list dropped mirrors
-	rows, err := h.pool.Query(ctx, `select distinct flow_name from peerdb_stats.flow_errors where flow_name not like 'clone_%' order by flow_name`)
+	rows, err := h.pool.Query(ctx, `select distinct flow_name
+		from peerdb_stats.flow_errors
+		where flow_name not like 'clone_%'
+		order by flow_name`)
 	if err != nil {
 		return nil, err
 	}
