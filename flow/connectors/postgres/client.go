@@ -169,8 +169,7 @@ func (c *PostgresConnector) getReplicaIdentityIndexColumns(
 	var indexRelID oid.Oid
 	// Fetch the OID of the index used as the replica identity
 	err := c.conn.QueryRow(ctx,
-		`SELECT indexrelid FROM pg_index
-         WHERE indrelid=$1 AND indisreplident=true`,
+		`SELECT indexrelid FROM pg_index WHERE indrelid=$1 AND indisreplident=true`,
 		relID).Scan(&indexRelID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
