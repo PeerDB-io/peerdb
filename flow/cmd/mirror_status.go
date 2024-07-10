@@ -481,3 +481,29 @@ func (h *FlowRequestHandler) getCdcBatches(ctx context.Context, flowJobName stri
 		return &batch, nil
 	})
 }
+
+func (h *FlowRequestHandler) CDCBatchTotals(
+	ctx context.Context,
+	req *protos.CDCBatchTotalsRequest,
+) (*protos.CDCBatchTotalsResponse, error) {
+	rows, err := h.pool.Query(ctx, `select destination_table_name,
+			sum(insert_count) inserts,
+			sum(update_count) updates,
+			sum(delete_count) deletes
+		from peerdb_stats.cdc_batch_table
+		where flow_name=$1
+		group by destination_table_name`, req.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+
+	totals, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.CDCBatchTotals, error) {
+		var total protos.CDCBatchTotals
+		err := row.Scan(&total.TableName, &total.Inserts, &total.Updates, &total.Deletes)
+		return &total, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &protos.CDCBatchTotalsResponse{Totals: totals}, nil
+}
