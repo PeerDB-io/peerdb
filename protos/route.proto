@@ -502,6 +502,9 @@ service FlowService {
   rpc ListMirrors(ListMirrorsRequest) returns (ListMirrorsResponse) {
     option (google.api.http) = { get: "/v1/mirrors/list" };
   }
+  rpc ListMirrorNames(ListMirrorNamesRequest) returns (ListMirrorNamesResponse) {
+    option (google.api.http) = { get: "/v1/mirrors/names" };
+  }
 
   rpc FlowStateChange(FlowStateChangeRequest) returns (FlowStateChangeResponse) {
     option (google.api.http) = { post: "/v1/mirrors/state_change", body: "*" };
