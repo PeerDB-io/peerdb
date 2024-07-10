@@ -39,7 +39,7 @@ export default function Peers() {
           </div>
         )}
         {!isLoading &&
-          (peers && peers.length == 0 ? (
+          (peers && peers.items.length == 0 ? (
             <div
               style={{
                 display: 'flex',
@@ -91,7 +91,7 @@ export default function Peers() {
               </Button>
             </div>
           ) : (
-            <PeersTable peers={peers.map((peer: any) => peer)} />
+            <PeersTable peers={peers.items} />
           ))}
       </Panel>
     </LayoutMain>

@@ -3,7 +3,6 @@ import {
   UCreatePeerResponse,
   UValidatePeerResponse,
 } from '@/app/dto/PeersDTO';
-import prisma from '@/app/utils/prisma';
 import {
   BigqueryConfig,
   ClickhouseConfig,
@@ -110,9 +109,7 @@ export async function POST(request: Request) {
           method: 'POST',
           body: JSON.stringify(validateReq),
         }
-      ).then((res) => {
-        return res.json();
-      });
+      ).then((res) => res.json());
       let response: UValidatePeerResponse = {
         valid:
           validatePeerStatusFromJSON(validateStatus.status) ===
@@ -132,9 +129,7 @@ export async function POST(request: Request) {
           method: 'POST',
           body: JSON.stringify(req),
         }
-      ).then((res) => {
-        return res.json();
-      });
+      ).then((res) => res.json());
       let response: UCreatePeerResponse = {
         created:
           createPeerStatusFromJSON(createStatus.status) ===
@@ -148,10 +143,8 @@ export async function POST(request: Request) {
   }
 }
 
-// GET all the peers from the database
+// GET all peers from the database
 export async function GET(_request: Request) {
-  const peers = await prisma.peers.findMany({
-    select: { name: true, type: true },
-  });
-  return new Response(JSON.stringify(peers));
+  const flowServiceAddr = GetFlowHttpAddressFromEnv();
+  return fetch(`${flowServiceAddr}/v1/peers/list`);
 }
