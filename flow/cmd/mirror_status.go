@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -436,25 +437,21 @@ func (h *FlowRequestHandler) getMirrorCreatedAt(ctx context.Context, flowJobName
 }
 
 func (h *FlowRequestHandler) getCdcBatches(ctx context.Context, flowJobName string) ([]*protos.CDCBatch, error) {
-	q := `SELECT batch_id,start_time,end_time,rows_in_batch,batch_start_lsn,batch_end_lsn FROM
-	 (SELECT DISTINCT ON(batch_id) batch_id,start_time,end_time,rows_in_batch,batch_start_lsn,batch_end_lsn FROM peerdb_stats.cdc_batches
-	  WHERE flow_name=$1 AND start_time IS NOT NULL ORDER BY batch_id DESC, start_time DESC) ORDER BY start_time DESC`
+	q := `SELECT DISTINCT ON(batch_id) batch_id,start_time,end_time,rows_in_batch,batch_start_lsn,batch_end_lsn FROM peerdb_stats.cdc_batches
+	  WHERE flow_name=$1 AND start_time IS NOT NULL ORDER BY batch_id DESC, start_time DESC`
 	rows, err := h.pool.Query(ctx, q, flowJobName)
 	if err != nil {
 		slog.Error(fmt.Sprintf("unable to query cdc batches - %s: %s", flowJobName, err.Error()))
 		return nil, fmt.Errorf("unable to query cdc batches - %s: %w", flowJobName, err)
 	}
-	defer rows.Close()
 
-	res := []*protos.CDCBatch{}
-	var batchID pgtype.Int8
-	var startTime pgtype.Timestamp
-	var endTime pgtype.Timestamp
-	var numRows pgtype.Int8
-	var startLSN pgtype.Numeric
-	var endLSN pgtype.Numeric
-
-	for rows.Next() {
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.CDCBatch, error) {
+		var batchID pgtype.Int8
+		var startTime pgtype.Timestamp
+		var endTime pgtype.Timestamp
+		var numRows pgtype.Int8
+		var startLSN pgtype.Numeric
+		var endLSN pgtype.Numeric
 		if err := rows.Scan(&batchID, &startTime, &endTime, &numRows, &startLSN, &endLSN); err != nil {
 			slog.Error(fmt.Sprintf("unable to scan cdc batches - %s: %s", flowJobName, err.Error()))
 			return nil, fmt.Errorf("unable to scan cdc batches - %s: %w", flowJobName, err)
@@ -481,8 +478,6 @@ func (h *FlowRequestHandler) getCdcBatches(ctx context.Context, flowJobName stri
 			batch.EndLsn = endLSN.Int.Int64()
 		}
 
-		res = append(res, &batch)
-	}
-
-	return res, nil
+		return &batch, nil
+	})
 }
