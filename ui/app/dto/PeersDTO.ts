@@ -60,11 +60,6 @@ export type CatalogPeer = {
 export type PeerRef = { name: string; type: DBType };
 export type PeerSetter = React.Dispatch<React.SetStateAction<PeerConfig>>;
 
-export type SlotLagPoint = {
-  updatedAt: number;
-  slotSize: number;
-};
-
 export type UPublicationsResponse = {
   publicationNames: string[];
 };
