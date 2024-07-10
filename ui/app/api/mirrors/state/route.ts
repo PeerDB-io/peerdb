@@ -6,7 +6,7 @@ export async function POST(request: NextRequest) {
 
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
   return fetch(
-    `${flowServiceAddr}/v1/mirrors/${body.mirrorName}?` +
+    `${flowServiceAddr}/v1/mirrors/status/${body.mirrorName}?` +
       new URLSearchParams({
         include_flow_info: 'true',
       }),

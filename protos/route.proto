@@ -507,7 +507,7 @@ service FlowService {
     option (google.api.http) = { post: "/v1/mirrors/state_change", body: "*" };
   }
   rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {
-    option (google.api.http) = { get: "/v1/mirrors/{flow_job_name}" };
+    option (google.api.http) = { get: "/v1/mirrors/status/{flow_job_name}" };
   }
 
   rpc GetPeerInfo(PeerInfoRequest) returns (peerdb_peers.Peer) {
