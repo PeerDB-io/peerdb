@@ -3,8 +3,12 @@ import { NextRequest } from 'next/server';
 
 export async function GET(request: NextRequest) {
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
-  return fetch(`${flowServiceAddr}/v1/scripts/${Number(
-    request.nextUrl.searchParams.get('id'))}`, { cache: 'no-store' });
+  return fetch(
+    `${flowServiceAddr}/v1/scripts/${Number(
+      request.nextUrl.searchParams.get('id')
+    )}`,
+    { cache: 'no-store' }
+  );
 }
 
 export async function POST(request: Request) {

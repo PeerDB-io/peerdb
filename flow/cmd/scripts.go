@@ -14,7 +14,7 @@ func (h *FlowRequestHandler) GetScripts(ctx context.Context, req *protos.GetScri
 	if req.Id != -1 {
 		whereClause = fmt.Sprintf(" WHERE id=%d", req.Id)
 	}
-	rows, err := h.pool.Query(ctx, fmt.Sprintf("SELECT id,lang,name,source FROM scripts%s", whereClause))
+	rows, err := h.pool.Query(ctx, "SELECT id,lang,name,source FROM scripts"+whereClause)
 	if err != nil {
 		return nil, err
 	}

@@ -1,4 +1,8 @@
-import { GetScriptsResponse, PostScriptRequest, Script } from '@/grpc_generated/route';
+import {
+  GetScriptsResponse,
+  PostScriptRequest,
+  Script,
+} from '@/grpc_generated/route';
 import { notifyErr } from '../utils/notify';
 
 export const HandleAddScript = async (script: Script) => {
@@ -20,7 +24,7 @@ export const HandleAddScript = async (script: Script) => {
   return true;
 };
 
-export const GetScriptById = async (scriptId: string)=> {
+export const GetScriptById = async (scriptId: string) => {
   try {
     const scriptByIdRes = await fetch(`/api/scripts?id=${scriptId}`);
     const scriptRes: GetScriptsResponse = await scriptByIdRes.json();
