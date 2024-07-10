@@ -1,13 +1,12 @@
 'use client';
 
-import {
-  LogType,
-  MirrorLog,
-  MirrorLogsRequest,
-  MirrorLogsResponse,
-} from '@/app/dto/AlertDTO';
 import LogsTable from '@/components/LogsTable';
-import { ListMirrorNamesResponse } from '@/grpc_generated/route';
+import {
+  ListMirrorLogsRequest,
+  ListMirrorLogsResponse,
+  ListMirrorNamesResponse,
+  MirrorLog,
+} from '@/grpc_generated/route';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
@@ -22,9 +21,9 @@ export default function LogsView() {
     'peerdbMirrorNameFilterForLogs',
     ''
   );
-  const [natureOfLog, setNatureOfLog] = useLocalStorage<LogType>(
+  const [logLevel, setLogLevel] = useLocalStorage<string>(
     'peerdbLogTypeFilterForLogs',
-    LogType.ALL
+    'all'
   );
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -36,8 +35,8 @@ export default function LogsView() {
   }, [mirrorName]);
 
   useEffect(() => {
-    const req: MirrorLogsRequest = {
-      natureOfLog: natureOfLog,
+    const req: ListMirrorLogsRequest = {
+      level: logLevel,
       flowJobName: mirrorName,
       page: currentPage,
       numPerPage: 15,
@@ -53,7 +52,7 @@ export default function LogsView() {
           cache: 'no-store',
           body: JSON.stringify(req),
         });
-        const data: MirrorLogsResponse = await response.json();
+        const data: ListMirrorLogsResponse = await response.json();
         const numPages = Math.ceil(data.total / req.numPerPage);
         setLogs(data.errors);
         setTotalPages(numPages);
@@ -63,7 +62,7 @@ export default function LogsView() {
     };
 
     fetchData();
-  }, [currentPage, mirrorName, natureOfLog]);
+  }, [currentPage, mirrorName, logLevel]);
 
   if (!mirrors) {
     return <ProgressCircle variant='determinate_progress_circle' />;
@@ -96,15 +95,13 @@ export default function LogsView() {
         </div>
         <div style={{ width: 'fit-content' }}>
           <ReactSelect
-            defaultValue={
-              natureOfLog && { value: natureOfLog, label: natureOfLog }
-            }
-            options={Object.values(LogType).map((type) => ({
+            defaultValue={{ value: logLevel, label: logLevel }}
+            options={['all', 'error', 'warning', 'info'].map((type) => ({
               value: type,
               label: type,
             }))}
             onChange={(selectedOption) =>
-              setNatureOfLog(selectedOption?.value ?? LogType.ALL)
+              setLogLevel(selectedOption?.value ?? 'all')
             }
             placeholder='Filter by log type'
           />

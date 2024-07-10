@@ -319,6 +319,23 @@ message MirrorStatusResponse {
   google.protobuf.Timestamp created_at = 7;
 }
 
+message MirrorLog {
+  string flow_name = 1;
+  string error_message = 2;
+  string error_type = 3;
+  double error_timestamp = 4;
+}
+message ListMirrorLogsRequest {
+  string flow_job_name = 1;
+  string level = 2;
+  int32 page = 3;
+  int32 num_per_page = 4;
+}
+message ListMirrorLogsResponse {
+  repeated MirrorLog errors = 1;
+  int32 total = 2;
+}
+
 message ValidateCDCMirrorResponse{
   bool ok = 1;
 }
@@ -476,6 +493,10 @@ service FlowService {
   }
   rpc GetStatInfo(PostgresPeerActivityInfoRequest) returns (PeerStatResponse) {
     option (google.api.http) = { get: "/v1/peers/stats/{peer_name}" };
+  }
+
+  rpc ListMirrorLogs(ListMirrorLogsRequest) returns (ListMirrorLogsResponse) {
+    option (google.api.http) = { post: "/v1/mirrors/logs", body: "*" };
   }
 
   rpc ListMirrors(ListMirrorsRequest) returns (ListMirrorsResponse) {

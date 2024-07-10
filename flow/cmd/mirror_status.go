@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -560,5 +561,58 @@ func (h *FlowRequestHandler) ListMirrorNames(
 	}
 	return &protos.ListMirrorNamesResponse{
 		Names: names,
+	}, nil
+}
+
+func (h *FlowRequestHandler) ListMirrorLogs(
+	ctx context.Context,
+	req *protos.ListMirrorLogsRequest,
+) (*protos.ListMirrorLogsResponse, error) {
+	whereExprs := make([]string, 0, 2)
+	whereArgs := make([]interface{}, 0, 2)
+	if req.FlowJobName != "" {
+		whereArgs = append(whereArgs, req.FlowJobName)
+		whereExprs = append(whereExprs, " and position($1 in flow_name) > 0")
+	}
+
+	if req.Level != "" && req.Level != "all" {
+		whereArgs = append(whereArgs, req.Level)
+		whereExprs = append(whereExprs, fmt.Sprintf(" and error_type = $%d", len(whereArgs)))
+	}
+
+	var whereClause string
+	if len(whereExprs) != 0 {
+		whereClause = " WHERE " + strings.Join(whereExprs, " AND ")
+	}
+
+	skip := (req.Page - 1) * req.NumPerPage
+	rows, err := h.pool.Query(ctx, fmt.Sprintf(`select flow_name, error_message, error_type, error_timestamp
+	from flow_errors %s
+	order by error_timestamp desc
+	limit %d offset %d`, whereClause, req.NumPerPage, skip), whereArgs...)
+	if err != nil {
+		return nil, err
+	}
+	mirrorErrors, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.MirrorLog, error) {
+		var log protos.MirrorLog
+		var errorTimestamp time.Time
+		if err := rows.Scan(&log.FlowName, &log.ErrorMessage, &log.ErrorType, &errorTimestamp); err != nil {
+			return nil, err
+		}
+		log.ErrorTimestamp = float64(errorTimestamp.UnixMilli()) / 1000.0
+		return &log, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var total int32
+	if err := h.pool.QueryRow(ctx, "select count(*) from flow_errors"+whereClause, whereArgs...).Scan(&total); err != nil {
+		return nil, err
+	}
+
+	return &protos.ListMirrorLogsResponse{
+		Errors: mirrorErrors,
+		Total:  total,
 	}, nil
 }
