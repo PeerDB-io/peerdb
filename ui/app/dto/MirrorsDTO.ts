@@ -56,15 +56,3 @@ export type MirrorLogsType = {
   error_type: string;
   error_timestamp: Date;
 }[];
-
-export type MirrorsListing = {
-  id: number;
-  workflowId: string | null;
-  name: string;
-  sourceName: string;
-  sourceType: number;
-  destinationName: string;
-  destinationType: number;
-  createdAt: string | Date;
-  isCdc: boolean;
-};

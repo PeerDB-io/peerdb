@@ -323,13 +323,29 @@ message ValidateCDCMirrorResponse{
   bool ok = 1;
 }
 
+message ListMirrorsItem {
+  int64 id = 1;
+  string workflow_id = 2;
+  string name = 3;
+  string source_name = 4;
+  peerdb_peers.DBType source_type = 5;
+  string destination_name = 6;
+  peerdb_peers.DBType destination_type = 7;
+  double created_at = 8;
+  bool is_cdc = 9;
+}
+message ListMirrorsRequest {
+}
+message ListMirrorsResponse {
+  repeated ListMirrorsItem mirrors = 1;
+}
+
 message FlowStateChangeRequest {
   string flow_job_name = 1;
   peerdb_flow.FlowStatus requested_flow_state = 2;
   // only can be sent in certain situations
   optional peerdb_flow.FlowConfigUpdate flow_config_update = 5;
 }
-
 message FlowStateChangeResponse {
   bool ok = 1;
   string error_message = 2;
@@ -337,7 +353,6 @@ message FlowStateChangeResponse {
 
 message PeerDBVersionRequest {
 }
-
 message PeerDBVersionResponse {
   string version = 1;
 }
@@ -455,6 +470,10 @@ service FlowService {
   }
   rpc GetStatInfo(PostgresPeerActivityInfoRequest) returns (PeerStatResponse) {
     option (google.api.http) = { get: "/v1/peers/stats/{peer_name}" };
+  }
+
+  rpc ListMirrors(ListMirrorsRequest) returns (ListMirrorsResponse) {
+    option (google.api.http) = { get: "/v1/mirrors/list" };
   }
 
   rpc FlowStateChange(FlowStateChangeRequest) returns (FlowStateChangeResponse) {

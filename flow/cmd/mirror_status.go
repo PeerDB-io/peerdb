@@ -18,6 +18,43 @@ import (
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
 
+func (h *FlowRequestHandler) ListMirrors(
+	ctx context.Context,
+	req *protos.ListMirrorsRequest,
+) (*protos.ListMirrorsResponse, error) {
+	rows, err := h.pool.Query(ctx, `select
+	  f.id, f.workflow_id, f.name,
+	  sp.name source_name, sp.type source_type,
+	  dp.name destination_name, dp.type source_type,
+	  f.created_at, coalesce(query_string, '')='' is_cdc
+	from flows f
+	join peers sp on sp.id = f.source_peer
+	join peers dp on dp.id = f.destination_peer`)
+	if err != nil {
+		return nil, err
+	}
+	mirrors, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.ListMirrorsItem, error) {
+		var item protos.ListMirrorsItem
+		var createdAt time.Time
+		if err := row.Scan(
+			&item.Id, &item.WorkflowId, &item.Name,
+			&item.SourceName, &item.SourceType,
+			&item.DestinationName, &item.DestinationType,
+			&createdAt, &item.IsCdc,
+		); err != nil {
+			return nil, err
+		}
+		item.CreatedAt = float64(createdAt.UnixMilli()) / 1000.0
+		return &item, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &protos.ListMirrorsResponse{
+		Mirrors: mirrors,
+	}, nil
+}
+
 func (h *FlowRequestHandler) MirrorStatus(
 	ctx context.Context,
 	req *protos.MirrorStatusRequest,

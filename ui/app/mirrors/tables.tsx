@@ -4,14 +4,15 @@ import MirrorLink from '@/components/MirrorLink';
 import NewButton from '@/components/NewButton';
 import PeerButton from '@/components/PeerComponent';
 import TimeLabel from '@/components/TimeComponent';
+import { ListMirrorsItem } from '@/grpc_generated/route';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import Link from 'next/link';
-import { MirrorType, MirrorsListing } from '../dto/MirrorsDTO';
+import { MirrorType } from '../dto/MirrorsDTO';
 import { tableStyle } from '../peers/[peerName]/style';
 
-export function CDCFlows({ cdcFlows }: { cdcFlows: MirrorsListing[] }) {
+export function CDCFlows({ cdcFlows }: { cdcFlows: ListMirrorsItem[] }) {
   if (cdcFlows?.length === 0) {
     return (
       <div
@@ -74,7 +75,7 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: MirrorsListing[] }) {
                 />
               </TableCell>
               <TableCell>
-                <TimeLabel timeVal={flow.createdAt} />
+                <TimeLabel timeVal={new Date(flow.createdAt)} />
               </TableCell>
               <TableCell>
                 <Link href={`/mirrors/errors/${flow.name}`}>
@@ -102,7 +103,7 @@ export function QRepFlows({
   qrepFlows,
   title,
 }: {
-  qrepFlows: MirrorsListing[];
+  qrepFlows: ListMirrorsItem[];
   title: string;
 }) {
   if (qrepFlows?.length === 0) {
@@ -161,7 +162,7 @@ export function QRepFlows({
                 />
               </TableCell>
               <TableCell>
-                <TimeLabel timeVal={flow.createdAt} />
+                <TimeLabel timeVal={new Date(flow.createdAt)} />
               </TableCell>
               <TableCell>
                 <DropDialog
