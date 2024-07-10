@@ -9,9 +9,7 @@ export async function GET() {
   try {
     const versionResponse: PeerDBVersionResponse = await fetch(
       `${flowServiceAddr}/v1/version`
-    ).then((res) => {
-      return res.json();
-    });
+    ).then((res) => res.json());
     let response: UVersionResponse = {
       version: versionResponse.version,
     };
