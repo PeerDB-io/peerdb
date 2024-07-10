@@ -551,7 +551,7 @@ func (h *FlowRequestHandler) ListMirrorNames(
 	req *protos.ListMirrorNamesRequest,
 ) (*protos.ListMirrorNamesResponse, error) {
 	// selects from flow_errors to still list dropped mirrors
-	rows, err := h.pool.Query(ctx, `select distinct flow_name from flows where name not like 'clone_%' order by flow_name`)
+	rows, err := h.pool.Query(ctx, `select distinct flow_name from peerdb_stats.flow_errors where name not like 'clone_%' order by flow_name`)
 	if err != nil {
 		return nil, err
 	}
@@ -587,7 +587,7 @@ func (h *FlowRequestHandler) ListMirrorLogs(
 
 	skip := (req.Page - 1) * req.NumPerPage
 	rows, err := h.pool.Query(ctx, fmt.Sprintf(`select flow_name, error_message, error_type, error_timestamp
-	from flow_errors %s
+	from peerdb_stats.flow_errors %s
 	order by error_timestamp desc
 	limit %d offset %d`, whereClause, req.NumPerPage, skip), whereArgs...)
 	if err != nil {
@@ -607,7 +607,7 @@ func (h *FlowRequestHandler) ListMirrorLogs(
 	}
 
 	var total int32
-	if err := h.pool.QueryRow(ctx, "select count(*) from flow_errors"+whereClause, whereArgs...).Scan(&total); err != nil {
+	if err := h.pool.QueryRow(ctx, "select count(*) from peerdb_stats.flow_errors"+whereClause, whereArgs...).Scan(&total); err != nil {
 		return nil, err
 	}
 
