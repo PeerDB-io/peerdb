@@ -357,10 +357,11 @@ func (h *FlowRequestHandler) GetSlotLagHistory(
     select updated_at, slot_size
     from peerdb_stats.peer_slot_size
     where slot_size is not null
-      and slot_name = $1
-      and updated_at > (now()-$2::INTERVAL)
+	  and peer_name = $1
+      and slot_name = $2
+      and updated_at > (now()-$3::INTERVAL)
     order by random()
-    limit 720`, req.PeerName, req.TimeSince)
+    limit 720`, req.PeerName, req.SlotName, req.TimeSince)
 	if err != nil {
 		return nil, err
 	}

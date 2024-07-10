@@ -5,7 +5,10 @@ import {
   TimeAggregateTypes,
   timeOptions,
 } from '@/app/utils/graph';
-import { GetSlotLagHistoryResponse } from '@/grpc_generated/route';
+import {
+  GetSlotLagHistoryRequest,
+  GetSlotLagHistoryResponse,
+} from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle/ProgressCircle';
 import { LineChart } from '@tremor/react';
@@ -13,7 +16,12 @@ import { useCallback, useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
 import { useLocalStorage } from 'usehooks-ts';
 
-function LagGraph({ slotNames }: { slotNames: string[] }) {
+type LagGraphProps = {
+  peerName: string;
+  slotNames: string[];
+};
+
+function LagGraph({ peerName, slotNames }: LagGraphProps) {
   const [mounted, setMounted] = useState(false);
   const [lagPoints, setLagPoints] = useState<
     { time: string; 'Lag in GB': number }[]
@@ -30,12 +38,15 @@ function LagGraph({ slotNames }: { slotNames: string[] }) {
     }
 
     setLoading(true);
-    const pointsRes = await fetch(
-      `/api/peers/slots/${selectedSlot}?timeSince=${timeSince}`,
-      {
-        cache: 'no-store',
-      }
-    );
+    const pointsRes = await fetch(`/api/peers/slots/lag_history`, {
+      method: 'POST',
+      cache: 'no-store',
+      body: JSON.stringify({
+        peerName,
+        slotName: selectedSlot,
+        timeSince,
+      } as GetSlotLagHistoryRequest),
+    });
     const points: GetSlotLagHistoryResponse = await pointsRes.json();
     setLagPoints(
       points.data
@@ -46,7 +57,7 @@ function LagGraph({ slotNames }: { slotNames: string[] }) {
         }))
     );
     setLoading(false);
-  }, [selectedSlot, timeSince]);
+  }, [selectedSlot, timeSince, peerName]);
 
   const handleChange = (val: string) => {
     setDefaultSlot(val);

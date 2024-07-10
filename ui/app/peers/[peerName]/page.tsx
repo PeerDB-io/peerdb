@@ -84,7 +84,10 @@ const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
       {slots && stats ? (
         <div>
           <SlotTable data={slots} />
-          <LagGraph slotNames={slots.map((slot) => slot.slotName)} />
+          <LagGraph
+            peerName={peerName}
+            slotNames={slots.map((slot) => slot.slotName)}
+          />
           <StatTable data={stats} />
         </div>
       ) : (
