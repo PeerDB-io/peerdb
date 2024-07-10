@@ -27,7 +27,7 @@ func (h *FlowRequestHandler) ListMirrors(
 	  f.id, f.workflow_id, f.name,
 	  sp.name source_name, sp.type source_type,
 	  dp.name destination_name, dp.type source_type,
-	  f.created_at, coalesce(query_string, '')='' is_cdc
+	  f.created_at, coalesce(f.query_string, '')='' is_cdc
 	from flows f
 	join peers sp on sp.id = f.source_peer
 	join peers dp on dp.id = f.destination_peer`)
@@ -551,7 +551,7 @@ func (h *FlowRequestHandler) ListMirrorNames(
 	req *protos.ListMirrorNamesRequest,
 ) (*protos.ListMirrorNamesResponse, error) {
 	// selects from flow_errors to still list dropped mirrors
-	rows, err := h.pool.Query(ctx, `select distinct flow_name from peerdb_stats.flow_errors where name not like 'clone_%' order by flow_name`)
+	rows, err := h.pool.Query(ctx, `select distinct flow_name from peerdb_stats.flow_errors where flow_name not like 'clone_%' order by flow_name`)
 	if err != nil {
 		return nil, err
 	}
