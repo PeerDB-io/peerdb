@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -22,7 +23,7 @@ func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName strin
 	var encPeerOptions []byte
 	var encKeyID string
 	err := h.pool.QueryRow(ctx,
-		"SELECT options, enc_key_id FROM peers WHERE name = $1 AND type=3", peerName).Scan(&encPeerOptions, &encKeyID)
+		"SELECT options, enc_key_id FROM peers WHERE name=$1 AND type=3", peerName).Scan(&encPeerOptions, &encKeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -275,32 +276,20 @@ func (h *FlowRequestHandler) GetColumns(
 	defer tunnel.Close()
 	defer peerConn.Close(ctx)
 
-	rows, err := peerConn.Query(ctx, `
-	SELECT
-    distinct attname AS column_name,
-    format_type(atttypid, atttypmod) AS data_type,
-    CASE
-        WHEN attnum = ANY(conkey) THEN true
-        ELSE false
-    END AS is_primary_key
-	FROM
-		pg_attribute
-	JOIN
-		pg_class ON pg_attribute.attrelid = pg_class.oid
-	JOIN
-		 pg_namespace on pg_class.relnamespace = pg_namespace.oid
-	LEFT JOIN
-		pg_constraint ON pg_attribute.attrelid = pg_constraint.conrelid
+	rows, err := peerConn.Query(ctx, `SELECT
+		distinct attname AS column_name,
+		format_type(atttypid, atttypmod) AS data_type,
+		(attnum = ANY(conkey)) AS is_primary_key
+	FROM pg_attribute
+	JOIN pg_class ON pg_attribute.attrelid = pg_class.oid
+	JOIN pg_namespace on pg_class.relnamespace = pg_namespace.oid
+	LEFT JOIN pg_constraint ON pg_attribute.attrelid = pg_constraint.conrelid
 		AND pg_attribute.attnum = ANY(pg_constraint.conkey)
-	WHERE
-	pg_namespace.nspname = $1
-		AND
-		relname = $2
+	WHERE pg_namespace.nspname = $1
+		AND relname = $2
 		AND pg_attribute.attnum > 0
 		AND NOT attisdropped
-	ORDER BY
-    column_name;
-	`, req.SchemaName, req.TableName)
+	ORDER BY column_name`, req.SchemaName, req.TableName)
 	if err != nil {
 		return &protos.TableColumnsResponse{Columns: nil}, err
 	}
@@ -346,6 +335,38 @@ func (h *FlowRequestHandler) GetSlotInfo(
 	return &protos.PeerSlotResponse{
 		SlotData: slotInfo,
 	}, nil
+}
+
+func (h *FlowRequestHandler) GetSlotLagHistory(
+	ctx context.Context,
+	req *protos.GetSlotLagHistoryRequest,
+) (*protos.GetSlotLagHistoryResponse, error) {
+	rows, err := h.pool.Query(ctx, `select updated_at, slot_size
+		from peerdb_stats.peer_slot_size
+		where slot_size is not null
+			and peer_name = $1
+			and slot_name = $2
+			and updated_at > (now()-$3::INTERVAL)
+		order by random() limit 720`, req.PeerName, req.SlotName, req.TimeSince)
+	if err != nil {
+		return nil, err
+	}
+	points, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.SlotLagPoint, error) {
+		var updatedAt time.Time
+		var slotSize int64
+		if err := row.Scan(&updatedAt, &slotSize); err != nil {
+			return nil, err
+		}
+		return &protos.SlotLagPoint{
+			UpdatedAt: float64(updatedAt.Unix()) / 1000.0,
+			SlotSize:  float64(slotSize) / 1000.0,
+		}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &protos.GetSlotLagHistoryResponse{Data: points}, nil
 }
 
 func (h *FlowRequestHandler) GetStatInfo(
