@@ -4,7 +4,8 @@ import QRepQueryTemplate from '@/app/utils/qreptemplate';
 import { DBTypeToImageMapping } from '@/components/PeerComponent';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepConfig } from '@/grpc_generated/flow';
-import { DBType } from '@/grpc_generated/peers';
+import { DBType, dBTypeFromJSON } from '@/grpc_generated/peers';
+import { ListPeersResponse, PeerListItem } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
@@ -23,7 +24,6 @@ import 'react-toastify/dist/ReactToastify.css';
 import { InfoPopover } from '../../../components/InfoPopover';
 import PeerDBCodeEditor from '../../../components/PeerDBEditor';
 import { CDCConfig, MirrorType, TableMapRow } from '../../dto/MirrorsDTO';
-import { PeerRef } from '../../dto/PeersDTO';
 import CDCConfigForm from './cdc/cdc';
 import {
   handleCreateCDC,
@@ -37,11 +37,11 @@ import MirrorCards from './mirrorcards';
 import QRepConfigForm from './qrep/qrep';
 import * as styles from './styles';
 
-function getPeerValue(peer: PeerRef) {
+function getPeerValue(peer: PeerListItem) {
   return peer.name;
 }
 
-function getPeerLabel(peer: PeerRef) {
+function getPeerLabel(peer: PeerListItem) {
   return (
     <div style={{ display: 'flex', alignItems: 'center' }}>
       <div style={{ width: '5%', height: '5%' }}>
@@ -73,19 +73,19 @@ export default function CreateMirrors() {
   const [destinationType, setDestinationType] = useState<DBType>(
     DBType.UNRECOGNIZED
   );
-  const [peers, setPeers] = useState<PeerRef[]>([]);
+  const [peers, setPeers] = useState<PeerListItem[]>([]);
   const [rows, setRows] = useState<TableMapRow[]>([]);
   const [qrepQuery, setQrepQuery] = useState<string>(QRepQueryTemplate);
 
   useEffect(() => {
     fetch('/api/peers', { cache: 'no-store' })
       .then((res) => res.json())
-      .then((res) => {
-        setPeers(res);
+      .then((res: ListPeersResponse) => {
+        setPeers(res.items);
       });
   }, [mirrorType]);
 
-  const setSourcePeer = useCallback((peer: SingleValue<PeerRef>) => {
+  const setSourcePeer = useCallback((peer: SingleValue<PeerListItem>) => {
     if (!peer) return;
     setConfig((curr) => ({
       ...curr,
@@ -94,7 +94,7 @@ export default function CreateMirrors() {
     setSourceType(peer.type);
   }, []);
 
-  const setDestinationPeer = useCallback((peer: SingleValue<PeerRef>) => {
+  const setDestinationPeer = useCallback((peer: SingleValue<PeerListItem>) => {
     if (!peer) return;
     setConfig((curr) => ({
       ...curr,
@@ -174,7 +174,8 @@ export default function CreateMirrors() {
                       options={
                         (peerEnd === 'src'
                           ? peers.filter(
-                              (peer) => peer.type === DBType.POSTGRES
+                              (peer) =>
+                                dBTypeFromJSON(peer.type) === DBType.POSTGRES
                             )
                           : peers) ?? []
                       }

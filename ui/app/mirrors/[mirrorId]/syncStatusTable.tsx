@@ -61,17 +61,19 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
 
   const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
   const totalPages = Math.ceil(rows.length / ROWS_PER_PAGE);
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState(NaN);
   const displayedRows = useMemo(() => {
-    const searchRows = rows.filter(
-      (row: any) => row.batchId == parseInt(searchQuery, 10)
-    );
+    const searchRows = rows.filter((row) => row.batchId == searchQuery);
     const shownRows = searchRows.length > 0 ? searchRows : rows;
     shownRows.sort((a, b) => {
-      const aValue = a[sortField];
-      const bValue = b[sortField];
+      let aValue: any = a[sortField];
+      let bValue: any = b[sortField];
       if (aValue === undefined || bValue === undefined) {
         return 0;
+      }
+      if (sortField === 'batchId') {
+        aValue = BigInt(aValue);
+        bValue = BigInt(bValue);
       }
 
       if (aValue < bValue) {
@@ -164,7 +166,7 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
           <SearchField
             placeholder='Search by batch ID'
             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setSearchQuery(e.target.value)
+              setSearchQuery(+e.target.value)
             }
           />
         ),

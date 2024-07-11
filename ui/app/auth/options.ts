@@ -29,7 +29,6 @@ export const authOptions: AuthOptions = {
     strategy: 'jwt',
     maxAge: 24 * 7 * 60 * 60, // 1 week
   },
-  // adapter: PrismaAdapter(prisma),
   secret: Configuration.authentication.NEXTAUTH_SECRET,
   theme: {
     colorScheme: 'light',

@@ -134,13 +134,32 @@ func (h *FlowRequestHandler) GetPeerInfo(
 	return peer, nil
 }
 
+func (h *FlowRequestHandler) ListPeers(
+	ctx context.Context,
+	req *protos.ListPeersRequest,
+) (*protos.ListPeersResponse, error) {
+	rows, err := h.pool.Query(ctx, "select name, type from peers")
+	if err != nil {
+		return nil, err
+	}
+	peers, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.PeerListItem, error) {
+		var peer protos.PeerListItem
+		err := row.Scan(&peer.Name, &peer.Type)
+		return &peer, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &protos.ListPeersResponse{Items: peers}, nil
+}
+
 func (h *FlowRequestHandler) GetSchemas(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerSchemasResponse, error) {
 	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
 	if err != nil {
-		return &protos.PeerSchemasResponse{Schemas: nil}, err
+		return nil, err
 	}
 	defer tunnel.Close()
 	defer peerConn.Close(ctx)
@@ -148,12 +167,12 @@ func (h *FlowRequestHandler) GetSchemas(
 	rows, err := peerConn.Query(ctx, "SELECT nspname"+
 		" FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema';")
 	if err != nil {
-		return &protos.PeerSchemasResponse{Schemas: nil}, err
+		return nil, err
 	}
 
 	schemas, err := pgx.CollectRows[string](rows, pgx.RowTo)
 	if err != nil {
-		return &protos.PeerSchemasResponse{Schemas: nil}, err
+		return nil, err
 	}
 	return &protos.PeerSchemasResponse{Schemas: schemas}, nil
 }
@@ -164,7 +183,7 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 ) (*protos.SchemaTablesResponse, error) {
 	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
 	if err != nil {
-		return &protos.SchemaTablesResponse{Tables: nil}, err
+		return nil, err
 	}
 	defer tunnel.Close()
 	defer peerConn.Close(ctx)
@@ -172,13 +191,13 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	pgVersion, err := shared.GetMajorVersion(ctx, peerConn)
 	if err != nil {
 		slog.Error("unable to get pgversion for schema tables", slog.Any("error", err))
-		return &protos.SchemaTablesResponse{Tables: nil}, err
+		return nil, err
 	}
 
-	relKindFilterClause := "t.relkind IN ('r', 'p')"
+	relKindFilterExpr := "t.relkind IN ('r', 'p')"
 	// publish_via_partition_root is only available in PG13 and above
 	if pgVersion < shared.POSTGRES_13 {
-		relKindFilterClause = "t.relkind = 'r'"
+		relKindFilterExpr = "t.relkind = 'r'"
 	}
 
 	rows, err := peerConn.Query(ctx, `SELECT DISTINCT ON (t.relname)
@@ -189,23 +208,20 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	LEFT JOIN pg_namespace n ON t.relnamespace = n.oid
 	LEFT JOIN pg_constraint con ON con.conrelid = t.oid
 	WHERE n.nspname = $1 AND `+
-		relKindFilterClause+
+		relKindFilterExpr+
 		`AND t.relispartition IS NOT TRUE ORDER BY t.relname, can_mirror DESC;
 `, req.SchemaName)
 	if err != nil {
 		slog.Info("failed to fetch publications", slog.Any("error", err))
-		return &protos.SchemaTablesResponse{Tables: nil}, err
+		return nil, err
 	}
 
-	defer rows.Close()
-	var tables []*protos.TableResponse
-	for rows.Next() {
+	tables, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.TableResponse, error) {
 		var table pgtype.Text
 		var hasPkeyOrReplica pgtype.Bool
 		var tableSize pgtype.Text
-		err := rows.Scan(&table, &hasPkeyOrReplica, &tableSize)
-		if err != nil {
-			return &protos.SchemaTablesResponse{Tables: nil}, err
+		if err := rows.Scan(&table, &hasPkeyOrReplica, &tableSize); err != nil {
+			return nil, err
 		}
 		var sizeOfTable string
 		if tableSize.Valid {
@@ -216,16 +232,15 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 			canMirror = true
 		}
 
-		tables = append(tables, &protos.TableResponse{
+		return &protos.TableResponse{
 			TableName: table.String,
 			CanMirror: canMirror,
 			TableSize: sizeOfTable,
-		})
-	}
-
-	if err := rows.Err(); err != nil {
+		}, nil
+	})
+	if err != nil {
 		slog.Info("failed to fetch publications", slog.Any("error", err))
-		return &protos.SchemaTablesResponse{Tables: nil}, err
+		return nil, err
 	}
 	return &protos.SchemaTablesResponse{Tables: tables}, nil
 }
@@ -248,19 +263,12 @@ func (h *FlowRequestHandler) GetAllTables(
 		"WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'"+
 		" AND c.relkind IN ('r', 'v', 'm', 'f', 'p')")
 	if err != nil {
-		return &protos.AllTablesResponse{Tables: nil}, err
+		return nil, err
 	}
 
-	defer rows.Close()
-	var tables []string
-	for rows.Next() {
-		var table pgtype.Text
-		err := rows.Scan(&table)
-		if err != nil {
-			return &protos.AllTablesResponse{Tables: nil}, err
-		}
-
-		tables = append(tables, table.String)
+	tables, err := pgx.CollectRows[string](rows, pgx.RowTo)
+	if err != nil {
+		return nil, err
 	}
 	return &protos.AllTablesResponse{Tables: tables}, nil
 }
@@ -271,7 +279,7 @@ func (h *FlowRequestHandler) GetColumns(
 ) (*protos.TableColumnsResponse, error) {
 	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
 	if err != nil {
-		return &protos.TableColumnsResponse{Columns: nil}, err
+		return nil, err
 	}
 	defer tunnel.Close()
 	defer peerConn.Close(ctx)
@@ -291,21 +299,21 @@ func (h *FlowRequestHandler) GetColumns(
 		AND NOT attisdropped
 	ORDER BY column_name`, req.SchemaName, req.TableName)
 	if err != nil {
-		return &protos.TableColumnsResponse{Columns: nil}, err
+		return nil, err
 	}
 
-	defer rows.Close()
-	var columns []string
-	for rows.Next() {
+	columns, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
 		var columnName pgtype.Text
 		var datatype pgtype.Text
 		var isPkey pgtype.Bool
 		err := rows.Scan(&columnName, &datatype, &isPkey)
 		if err != nil {
-			return &protos.TableColumnsResponse{Columns: nil}, err
+			return "", err
 		}
-		column := fmt.Sprintf("%s:%s:%v", columnName.String, datatype.String, isPkey.Bool)
-		columns = append(columns, column)
+		return fmt.Sprintf("%s:%s:%v", columnName.String, datatype.String, isPkey.Bool), nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return &protos.TableColumnsResponse{Columns: columns}, nil
 }
@@ -316,20 +324,20 @@ func (h *FlowRequestHandler) GetSlotInfo(
 ) (*protos.PeerSlotResponse, error) {
 	pgConfig, err := h.getPGPeerConfig(ctx, req.PeerName)
 	if err != nil {
-		return &protos.PeerSlotResponse{SlotData: nil}, err
+		return nil, err
 	}
 
 	pgConnector, err := connpostgres.NewPostgresConnector(ctx, pgConfig)
 	if err != nil {
 		slog.Error("Failed to create postgres connector", slog.Any("error", err))
-		return &protos.PeerSlotResponse{SlotData: nil}, err
+		return nil, err
 	}
 	defer pgConnector.Close()
 
 	slotInfo, err := pgConnector.GetSlotInfo(ctx, "")
 	if err != nil {
 		slog.Error("Failed to get slot info", slog.Any("error", err))
-		return &protos.PeerSlotResponse{SlotData: nil}, err
+		return nil, err
 	}
 
 	return &protos.PeerSlotResponse{
@@ -358,7 +366,7 @@ func (h *FlowRequestHandler) GetSlotLagHistory(
 			return nil, err
 		}
 		return &protos.SlotLagPoint{
-			UpdatedAt: float64(updatedAt.Unix()) / 1000.0,
+			UpdatedAt: float64(updatedAt.UnixMilli()),
 			SlotSize:  float64(slotSize) / 1000.0,
 		}, nil
 	})
@@ -375,7 +383,7 @@ func (h *FlowRequestHandler) GetStatInfo(
 ) (*protos.PeerStatResponse, error) {
 	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
 	if err != nil {
-		return &protos.PeerStatResponse{StatData: nil}, err
+		return nil, err
 	}
 	defer tunnel.Close()
 	defer peerConn.Close(ctx)
@@ -388,11 +396,10 @@ func (h *FlowRequestHandler) GetStatInfo(
 		"usename=$1 AND state != 'idle';", peerUser)
 	if err != nil {
 		slog.Error("Failed to get stat info", slog.Any("error", err))
-		return &protos.PeerStatResponse{StatData: nil}, err
+		return nil, err
 	}
-	defer rows.Close()
-	var statInfoRows []*protos.StatInfo
-	for rows.Next() {
+
+	statInfoRows, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.StatInfo, error) {
 		var pid int64
 		var waitEvent sql.NullString
 		var waitEventType sql.NullString
@@ -403,7 +410,7 @@ func (h *FlowRequestHandler) GetStatInfo(
 		err := rows.Scan(&pid, &waitEvent, &waitEventType, &queryStart, &query, &duration)
 		if err != nil {
 			slog.Error("Failed to scan row", slog.Any("error", err))
-			return &protos.PeerStatResponse{StatData: nil}, err
+			return nil, err
 		}
 
 		we := waitEvent.String
@@ -431,14 +438,17 @@ func (h *FlowRequestHandler) GetStatInfo(
 			d = -1
 		}
 
-		statInfoRows = append(statInfoRows, &protos.StatInfo{
+		return &protos.StatInfo{
 			Pid:           pid,
 			WaitEvent:     we,
 			WaitEventType: wet,
 			QueryStart:    qs,
 			Query:         q,
 			Duration:      float32(d),
-		})
+		}, nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &protos.PeerStatResponse{
@@ -452,7 +462,7 @@ func (h *FlowRequestHandler) GetPublications(
 ) (*protos.PeerPublicationsResponse, error) {
 	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
 	if err != nil {
-		return &protos.PeerPublicationsResponse{PublicationNames: nil}, err
+		return nil, err
 	}
 	defer tunnel.Close()
 	defer peerConn.Close(ctx)
@@ -460,13 +470,13 @@ func (h *FlowRequestHandler) GetPublications(
 	rows, err := peerConn.Query(ctx, "select pubname from pg_publication;")
 	if err != nil {
 		slog.Info("failed to fetch publications", slog.Any("error", err))
-		return &protos.PeerPublicationsResponse{PublicationNames: nil}, err
+		return nil, err
 	}
 
 	publications, err := pgx.CollectRows[string](rows, pgx.RowTo)
 	if err != nil {
 		slog.Info("failed to fetch publications", slog.Any("error", err))
-		return &protos.PeerPublicationsResponse{PublicationNames: nil}, err
+		return nil, err
 	}
 	return &protos.PeerPublicationsResponse{PublicationNames: publications}, nil
 }

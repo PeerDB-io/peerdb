@@ -12,7 +12,6 @@
   "dependencies": {
     "@grpc/grpc-js": "^1.10.10",
     "@monaco-editor/react": "^4.6.0",
-    "@prisma/client": "^5.16.1",
     "@radix-ui/react-checkbox": "^1.1.1",
     "@radix-ui/react-collapsible": "^1.1.0",
     "@radix-ui/react-dialog": "^1.1.1",
@@ -63,7 +62,6 @@
     "postcss": "^8.4.39",
     "prettier": "^3.3.2",
     "prettier-plugin-organize-imports": "^4.0.0",
-    "prisma": "^5.16.1",
     "string-width": "^7.2.0",
     "tailwindcss": "^3.4.4",
     "tailwindcss-animate": "^1.0.7",

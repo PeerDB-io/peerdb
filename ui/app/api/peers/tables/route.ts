@@ -9,9 +9,7 @@ export async function POST(request: Request) {
   try {
     const tableList: SchemaTablesResponse = await fetch(
       `${flowServiceAddr}/v1/peers/tables?peer_name=${peerName}&schema_name=${schemaName}`
-    ).then((res) => {
-      return res.json();
-    });
+    ).then((res) => res.json());
     let response: UTablesResponse = {
       tables: tableList.tables,
     };

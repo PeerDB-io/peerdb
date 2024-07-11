@@ -1,5 +1,5 @@
-import { MirrorLog } from '@/app/dto/AlertDTO';
 import TimeLabel from '@/components/TimeComponent';
+import { MirrorLog } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
@@ -24,7 +24,7 @@ const extractFromCloneName = (mirrorOrCloneName: string) => {
   return mirrorOrCloneName;
 };
 
-const LogsTable = ({
+export default function LogsTable({
   logs,
   currentPage,
   totalPages,
@@ -34,7 +34,7 @@ const LogsTable = ({
   currentPage: number;
   totalPages: number;
   setCurrentPage: (page: number) => void;
-}) => {
+}) {
   const handleNextPage = () => {
     if (currentPage < totalPages) {
       setCurrentPage(currentPage + 1);
@@ -85,31 +85,29 @@ const LogsTable = ({
         <TableRow key={`${currentPage}_${idx}`}>
           <TableCell
             style={{
-              color: colorForErrorType(log.error_type),
+              color: colorForErrorType(log.errorType),
               width: '5%',
               fontSize: 14,
             }}
           >
-            {log.error_type.toUpperCase()}
+            {log.errorType.toUpperCase()}
           </TableCell>
           <TableCell style={{ width: '10%' }}>
-            <TimeLabel fontSize={13} timeVal={log.error_timestamp} />
+            <TimeLabel fontSize={13} timeVal={new Date(log.errorTimestamp)} />
           </TableCell>
           <TableCell style={{ width: '15%' }}>
             <Label
               as='label'
               style={{ fontSize: 13, width: '90%', overflow: 'auto' }}
             >
-              {extractFromCloneName(log.flow_name)}
+              {extractFromCloneName(log.flowName)}
             </Label>
           </TableCell>
           <TableCell style={{ width: '60%', fontSize: 13 }}>
-            {log.error_message}
+            {log.errorMessage}
           </TableCell>
         </TableRow>
       ))}
     </Table>
   );
-};
-
-export default LogsTable;
+}

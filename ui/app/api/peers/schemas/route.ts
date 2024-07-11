@@ -8,9 +8,7 @@ export async function POST(request: Request) {
   try {
     const schemaList = await fetch(
       `${flowServiceAddr}/v1/peers/schemas?peer_name=${peerName}`
-    ).then((res) => {
-      return res.json();
-    });
+    ).then((res) => res.json());
     let response: USchemasResponse = {
       schemas: schemaList.schemas,
     };

@@ -1,7 +1,7 @@
 import { Header } from '@/lib/Header';
 import LogsView from './table';
 
-const MirrorLogs = async () => {
+export default async function MirrorLogs() {
   return (
     <div
       style={{
@@ -15,6 +15,4 @@ const MirrorLogs = async () => {
       <LogsView />
     </div>
   );
-};
-
-export default MirrorLogs;
+}

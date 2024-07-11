@@ -1,7 +1,7 @@
 'use client';
 
-import { MirrorsListing } from '@/app/dto/MirrorsDTO';
 import NewButton from '@/components/NewButton';
+import { ListMirrorsResponse } from '@/grpc_generated/route';
 import { Header } from '@/lib/Header';
 import { Label } from '@/lib/Label';
 import { LayoutMain } from '@/lib/Layout';
@@ -17,13 +17,13 @@ export default function Mirrors() {
     data: flows,
     error,
     isLoading,
-  }: { data: MirrorsListing[]; error: any; isLoading: boolean } = useSWR(
+  }: { data: ListMirrorsResponse; error: any; isLoading: boolean } = useSWR(
     '/api/mirrors',
     fetcher
   );
 
-  const cdcFlows = flows?.filter((flow) => flow.isCdc);
-  const qrepFlows = flows?.filter((flow) => !flow.isCdc);
+  const cdcFlows = flows?.mirrors?.filter((flow) => flow.isCdc);
+  const qrepFlows = flows?.mirrors?.filter((flow) => !flow.isCdc);
 
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
