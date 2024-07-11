@@ -35,6 +35,7 @@ import { blankCDCSetting } from './helpers/common';
 import { qrepSettings } from './helpers/qrep';
 import MirrorCards from './mirrorcards';
 import QRepConfigForm from './qrep/qrep';
+import { flowNameSchema } from './schema';
 import * as styles from './styles';
 
 function getPeerValue(peer: PeerRef) {
@@ -76,7 +77,7 @@ export default function CreateMirrors() {
   const [peers, setPeers] = useState<PeerRef[]>([]);
   const [rows, setRows] = useState<TableMapRow[]>([]);
   const [qrepQuery, setQrepQuery] = useState<string>(QRepQueryTemplate);
-
+  const [nameValidityMessage, setNameValidityMessage] = useState<string>('');
   useEffect(() => {
     fetch('/api/peers', { cache: 'no-store' })
       .then((res) => res.json())
@@ -107,6 +108,20 @@ export default function CreateMirrors() {
     router.push('/mirrors');
   };
 
+  const validateMirrorName = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const currentlyTypedMirrorName = e.target.value;
+    if (currentlyTypedMirrorName !== '') {
+      const flowNameValid = flowNameSchema.safeParse(currentlyTypedMirrorName);
+      if (!flowNameValid.success) {
+        setNameValidityMessage(flowNameValid.error.errors[0].message);
+      } else {
+        setNameValidityMessage('');
+      }
+    }
+
+    setMirrorName(currentlyTypedMirrorName);
+  };
+
   return (
     <div
       style={{
@@ -134,18 +149,27 @@ export default function CreateMirrors() {
             Mirror type
           </Label>
           <MirrorCards mirrorType={mirrorType} setMirrorType={setMirrorType} />
-          <RowWithTextField
-            label={<Label>Mirror Name</Label>}
-            action={
-              <TextField
-                variant='simple'
-                value={mirrorName}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setMirrorName(e.target.value)
-                }
-              />
-            }
-          />
+          <div style={{ marginBottom: '1rem' }}>
+            <RowWithTextField
+              label={<Label>Mirror Name</Label>}
+              action={
+                <TextField
+                  variant='simple'
+                  value={mirrorName}
+                  onChange={validateMirrorName}
+                />
+              }
+            />
+            {nameValidityMessage && (
+              <Label
+                variant='footnote'
+                colorName='lowContrast'
+                colorSet='destructive'
+              >
+                {nameValidityMessage}
+              </Label>
+            )}
+          </div>
           {['src', 'dst'].map((peerEnd) => (
             <RowWithSelect
               key={peerEnd}

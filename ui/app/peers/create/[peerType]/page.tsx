@@ -34,6 +34,7 @@ import { clickhouseSetting } from './helpers/ch';
 import { getBlankSetting } from './helpers/common';
 import { postgresSetting } from './helpers/pg';
 import { snowflakeSetting } from './helpers/sf';
+import { peerNameSchema } from './schema';
 
 type CreateConfigProps = {
   params: { peerType: string };
@@ -51,6 +52,8 @@ export default function CreateConfig({
   const [config, setConfig] = useState<PeerConfig>(blankSetting);
   const [loading, setLoading] = useState<boolean>(false);
   const peerLabel = peerType.toUpperCase().replaceAll('%20', ' ');
+  const [nameValidityMessage, setNameValidityMessage] = useState<string>('');
+
   const getDBType = () => {
     if (peerType.includes('POSTGRES') || peerType.includes('TEMBO')) {
       return 'POSTGRES';
@@ -104,6 +107,20 @@ export default function CreateConfig({
     }
   };
 
+  const validatePeerName = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const currentlyTypedPeerName = e.target.value;
+    if (currentlyTypedPeerName !== '') {
+      const peerNameValid = peerNameSchema.safeParse(currentlyTypedPeerName);
+      if (!peerNameValid.success) {
+        setNameValidityMessage(peerNameValid.error.errors[0].message);
+      } else {
+        setNameValidityMessage('');
+      }
+    }
+
+    setName(currentlyTypedPeerName);
+  };
+
   let listPeersRoute = () => {
     router.push('/peers');
   };
@@ -146,16 +163,20 @@ export default function CreateConfig({
             <TextField
               variant='simple'
               value={peerName ?? name}
-              onChange={
-                peerName === null
-                  ? (e: React.ChangeEvent<HTMLInputElement>) =>
-                      setName(e.target.value)
-                  : undefined
-              }
+              onChange={peerName === null ? validatePeerName : undefined}
               readOnly={peerName !== null}
             />
           }
         />
+        {nameValidityMessage && (
+          <Label
+            variant='footnote'
+            colorName='lowContrast'
+            colorSet='destructive'
+          >
+            {nameValidityMessage}
+          </Label>
+        )}
         {peerName && (
           <Label colorName='lowContrast' colorSet='destructive'>
             Warning: Changes will only be reflected if you pause and resume the
