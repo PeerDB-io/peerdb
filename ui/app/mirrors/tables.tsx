@@ -75,7 +75,7 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: ListMirrorsItem[] }) {
                 />
               </TableCell>
               <TableCell>
-                <TimeLabel timeVal={new Date(flow.createdAt)} />
+                <TimeLabel timeVal={new Date(flow.createdAt * 1000)} />
               </TableCell>
               <TableCell>
                 <Link href={`/mirrors/errors/${flow.name}`}>

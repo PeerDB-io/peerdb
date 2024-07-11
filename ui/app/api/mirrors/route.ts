@@ -2,7 +2,9 @@ import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(_request: Request) {
+export async function GET(_: Request) {
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
-  return fetch(`${flowServiceAddr}/v1/mirrors/list`);
+  return await fetch(`${flowServiceAddr}/v1/mirrors/list`, {
+    cache: 'no-store',
+  });
 }

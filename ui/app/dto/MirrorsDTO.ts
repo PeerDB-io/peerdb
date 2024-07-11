@@ -33,23 +33,6 @@ export type TableMapRow = {
   tableSize: string;
 };
 
-export type MirrorRowsData = {
-  totalCount: number;
-  insertsCount: number;
-  updatesCount: number;
-  deletesCount: number;
-};
-
-export type MirrorTableRowsData = {
-  destinationTableName: string;
-  data: MirrorRowsData;
-};
-
-export type UMirrorTableStatsResponse = {
-  totalData: MirrorRowsData;
-  tablesData: MirrorTableRowsData[];
-};
-
 export type MirrorLogsType = {
   flow_name: string;
   error_message: string;

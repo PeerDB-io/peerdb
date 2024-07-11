@@ -23,7 +23,7 @@ func (h *FlowRequestHandler) ListMirrors(
 	ctx context.Context,
 	req *protos.ListMirrorsRequest,
 ) (*protos.ListMirrorsResponse, error) {
-	rows, err := h.pool.Query(ctx, `select
+	rows, err := h.pool.Query(ctx, `select distinct on(f.name)
 	  f.id, f.workflow_id, f.name,
 	  sp.name source_name, sp.type source_type,
 	  dp.name destination_name, dp.type source_type,
@@ -520,10 +520,10 @@ func (h *FlowRequestHandler) getCdcBatches(ctx context.Context, flowJobName stri
 	})
 }
 
-func (h *FlowRequestHandler) CDCBatchTotals(
+func (h *FlowRequestHandler) CDCTableTotalCounts(
 	ctx context.Context,
-	req *protos.CDCBatchTotalsRequest,
-) (*protos.CDCBatchTotalsResponse, error) {
+	req *protos.CDCTableTotalCountsRequest,
+) (*protos.CDCTableTotalCountsResponse, error) {
 	rows, err := h.pool.Query(ctx, `select destination_table_name,
 			sum(insert_count) inserts,
 			sum(update_count) updates,
@@ -535,15 +535,25 @@ func (h *FlowRequestHandler) CDCBatchTotals(
 		return nil, err
 	}
 
-	totals, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.CDCBatchTotals, error) {
-		var total protos.CDCBatchTotals
-		err := row.Scan(&total.TableName, &total.Inserts, &total.Updates, &total.Deletes)
-		return &total, err
+	var totalCount protos.CDCRowCounts
+	tableCounts, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.CDCTableRowCounts, error) {
+		tableCount := &protos.CDCTableRowCounts{
+			Counts: &protos.CDCRowCounts{},
+		}
+		err := row.Scan(&tableCount.TableName, &tableCount.Counts.InsertsCount,
+			&tableCount.Counts.UpdatesCount, &tableCount.Counts.DeletesCount)
+		tableCount.Counts.TotalCount = tableCount.Counts.InsertsCount + tableCount.Counts.UpdatesCount + tableCount.Counts.DeletesCount
+
+		totalCount.TotalCount += tableCount.Counts.TotalCount
+		totalCount.InsertsCount += tableCount.Counts.InsertsCount
+		totalCount.UpdatesCount += tableCount.Counts.UpdatesCount
+		totalCount.DeletesCount += tableCount.Counts.DeletesCount
+		return tableCount, err
 	})
 	if err != nil {
 		return nil, err
 	}
-	return &protos.CDCBatchTotalsResponse{Totals: totals}, nil
+	return &protos.CDCTableTotalCountsResponse{TotalData: &totalCount, TablesData: tableCounts}, nil
 }
 
 func (h *FlowRequestHandler) ListMirrorNames(

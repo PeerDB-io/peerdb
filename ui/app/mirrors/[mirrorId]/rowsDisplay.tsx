@@ -1,5 +1,5 @@
 'use client';
-import { MirrorRowsData } from '@/app/dto/MirrorsDTO';
+import { CDCRowCounts } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { BarList } from '@tremor/react';
@@ -7,7 +7,7 @@ import { useState } from 'react';
 export const RowDataFormatter = (number: number) =>
   `${Intl.NumberFormat('en-US').format(number).toString()}`;
 
-const RowsDisplay = ({ totalRowsData }: { totalRowsData: MirrorRowsData }) => {
+const RowsDisplay = ({ totalRowsData }: { totalRowsData: CDCRowCounts }) => {
   const [show, setShow] = useState(false);
   const rowsHero = [
     { name: 'Inserts', value: totalRowsData.insertsCount },

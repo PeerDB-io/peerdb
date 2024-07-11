@@ -173,17 +173,23 @@ message CDCBatch {
   int64 batch_id = 6;
 }
 
-message CDCBatchTotals {
-  string table_name = 1;
-  int64 inserts = 2;
-  int64 updates = 3;
-  int64 deletes = 4;
+
+message CDCRowCounts {
+  int64 total_count = 1;
+  int64 inserts_count = 2;
+  int64 updates_count = 3;
+  int64 deletes_count = 4;
 }
-message CDCBatchTotalsRequest {
+message CDCTableRowCounts {
+  string table_name = 1;
+  CDCRowCounts counts = 2;
+}
+message CDCTableTotalCountsRequest {
   string flow_job_name = 1;
 }
-message CDCBatchTotalsResponse {
-  repeated CDCBatchTotals totals = 1;
+message CDCTableTotalCountsResponse {
+  CDCRowCounts total_data = 1;
+  repeated CDCTableRowCounts tables_data = 2;
 }
 
 message PeerSchemasResponse {
@@ -461,8 +467,8 @@ service FlowService {
     option (google.api.http) = { delete: "/v1/scripts/{id}" };
   }
 
-  rpc CDCBatchTotals(CDCBatchTotalsRequest) returns (CDCBatchTotalsResponse) {
-    option (google.api.http) = { get: "/v1/cdcbatchtotals/{flow_job_name}" };
+  rpc CDCTableTotalCounts(CDCTableTotalCountsRequest) returns (CDCTableTotalCountsResponse) {
+    option (google.api.http) = { get: "/v1/mirrors/cdc/table_total_counts/{flow_job_name}" };
   }
 
   rpc GetSchemas(PostgresPeerActivityInfoRequest) returns (PeerSchemasResponse) {
