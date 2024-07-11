@@ -22,10 +22,6 @@ export type UCreatePeerResponse = {
   message: string;
 };
 
-export type USchemasResponse = {
-  schemas: string[];
-};
-
 export type UTablesResponse = {
   tables: TableResponse[];
 };

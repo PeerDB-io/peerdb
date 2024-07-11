@@ -6,8 +6,10 @@ export async function GET(
   context: { params: { mirrorName: string } }
 ) {
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
-  return await fetch(
-    `${flowServiceAddr}/v1/mirrors/cdc/table_total_counts/${encodeURIComponent(context.params.mirrorName)}`,
+  return fetch(
+    `${flowServiceAddr}/v1/mirrors/cdc/table_total_counts/${encodeURIComponent(
+      context.params.mirrorName
+    )}`,
     {
       cache: 'no-store',
     }
