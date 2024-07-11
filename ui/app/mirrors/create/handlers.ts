@@ -33,6 +33,10 @@ export const IsQueuePeer = (peerType?: DBType): boolean => {
   );
 };
 
+const IsEventhubsPeer = (peerType?: DBType): boolean => {
+  return !!peerType && peerType === DBType.EVENTHUBS;
+};
+
 const ValidSchemaQualifiedTarget = (
   peerType: DBType,
   tableName: string
@@ -65,6 +69,10 @@ const CDCCheck = (
 
   config.tableMappings = tableNameMapping as TableMapping[];
   config.flowJobName = flowJobName;
+
+  if (IsEventhubsPeer(destinationType)) {
+    config.doInitialSnapshot = false;
+  }
 
   if (config.doInitialSnapshot == false && config.initialSnapshotOnly == true) {
     return 'Initial Snapshot Only cannot be true if Initial Snapshot is false.';
