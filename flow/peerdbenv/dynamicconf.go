@@ -12,8 +12,97 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/exp/constraints"
 
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 )
+
+var DynamicSettings = [...]*protos.DynamicSetting{
+	{
+		Name: "PEERDB_MAX_SYNCS_PER_CDC_FLOW", DefaultValue: "32", ValueType: protos.DynconfValueType_UINT,
+		Description: "Experimental setting: changes number of syncs per workflow, affects frequency of replication slot disconnects",
+		ApplyMode:   protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+	},
+	{
+		Name: "PEERDB_CDC_CHANNEL_BUFFER_SIZE", DefaultValue: "262144", ValueType: protos.DynconfValueType_INT,
+		Description: "Advanced setting: changes buffer size of channel PeerDB uses while streaming rows read to destination in CDC",
+		ApplyMode:   protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+	},
+	{
+		Name: "PEERDB_QUEUE_FLUSH_TIMEOUT_SECONDS", DefaultValue: "10", ValueType: protos.DynconfValueType_INT,
+		Description: "Frequency of flushing to queue, applicable for PeerDB Streams mirrors only",
+		ApplyMode:   protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+	},
+	{
+		Name: "PEERDB_QUEUE_PARALLELISM", DefaultValue: "4", ValueType: protos.DynconfValueType_INT,
+		Description: "Parallelism for Lua script processing data, applicable for CDC mirrors to Kakfa and PubSub",
+		ApplyMode:   protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+	},
+	{
+		Name: "PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD", DefaultValue: "1000000", ValueType: protos.DynconfValueType_INT,
+		Description: "CDC: number of records beyond which records are written to disk instead",
+		ApplyMode:   protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+	},
+	{
+		Name: "PEERDB_CDC_DISK_SPILL_MEM_PERCENT_THRESHOLD", DefaultValue: "-1", ValueType: protos.DynconfValueType_INT,
+		Description: "CDC: worker memory usage (in %) beyond which records are written to disk instead, -1 disables",
+		ApplyMode:   protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+	},
+	{
+		Name: "PEERDB_ENABLE_WAL_HEARTBEAT", DefaultValue: "false", ValueType: protos.DynconfValueType_BOOL,
+		Description: "Enables WAL heartbeat to prevent replication slot lag from increasing during times of no activity",
+		ApplyMode:   protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+	},
+	{
+		Name: "PEERDB_WAL_HEARTBEAT_QUERY",
+		DefaultValue: `BEGIN;
+DROP AGGREGATE IF EXISTS PEERDB_EPHEMERAL_HEARTBEAT(float4);
+CREATE AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4) (SFUNC = float4pl, STYPE = float4);
+DROP AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4);
+END;`, ValueType: protos.DynconfValueType_STRING,
+		Description: "SQL to run during each WAL heartbeat",
+		ApplyMode:   protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+	},
+	{
+		Name: "PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE", DefaultValue: "false", ValueType: protos.DynconfValueType_BOOL,
+		Description: "Enables parallel sync (moving rows to target) and normalize (updating rows in target table)",
+		ApplyMode:   protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+	},
+	{
+		Name: "PEERDB_SNOWFLAKE_MERGE_PARALLELISM", DefaultValue: "8", ValueType: protos.DynconfValueType_INT,
+		Description: "Parallel MERGE statements to run for CDC mirrors with Snowflake targets. -1 for no limit",
+		ApplyMode:   protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+	},
+	{
+		Name: "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME", DefaultValue: "", ValueType: protos.DynconfValueType_STRING,
+		Description: "S3 buckets to store Avro files for mirrors with ClickHouse target",
+		ApplyMode:   protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+	},
+	{
+		Name: "PEERDB_QUEUE_FORCE_TOPIC_CREATION", DefaultValue: "false", ValueType: protos.DynconfValueType_BOOL,
+		Description: "Force auto topic creation in mirrors, applies to Kafka and PubSub mirrors",
+		ApplyMode:   protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+	},
+	{
+		Name: "PEERDB_ALERTING_GAP_MINUTES", DefaultValue: "15", ValueType: protos.DynconfValueType_UINT,
+		Description: "Duration in minutes before reraising alerts, 0 disables all alerting entirely",
+		ApplyMode:   protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+	},
+	{
+		Name: "PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD", DefaultValue: "5000", ValueType: protos.DynconfValueType_UINT,
+		Description: "Lag (in MB) threshold on PeerDB slot to start sending alerts, 0 disables slot lag alerting entirely",
+		ApplyMode:   protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+	},
+	{
+		Name: "PEERDB_PGPEER_OPEN_CONNECTIONS_ALERT_THRESHOLD", DefaultValue: "5", ValueType: protos.DynconfValueType_UINT,
+		Description: "Open connections from PeerDB user threshold to start sending alerts, 0 disables open connections alerting entirely",
+		ApplyMode:   protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+	},
+	{
+		Name: "PEERDB_BIGQUERY_ENABLE_SYNCED_AT_PARTITIONING_BY_DAYS", DefaultValue: "false", ValueType: protos.DynconfValueType_BOOL,
+		Description: "BigQuery only: create target tables with partitioning by _PEERDB_SYNCED_AT column",
+		ApplyMode:   protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+	},
+}
 
 func dynLookup(ctx context.Context, key string) (string, error) {
 	conn, err := GetCatalogConnectionPoolFromEnv(ctx)
@@ -23,15 +112,8 @@ func dynLookup(ctx context.Context, key string) (string, error) {
 	}
 
 	var value pgtype.Text
-	var default_value pgtype.Text
-	query := "SELECT config_value, config_default_value FROM dynamic_settings WHERE config_name=$1"
-	err = conn.QueryRow(ctx, query, key).Scan(&value, &default_value)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			if val, ok := os.LookupEnv(key); ok {
-				return val, nil
-			}
-		}
+	query := "SELECT config_value FROM dynamic_settings WHERE config_name=$1"
+	if err := conn.QueryRow(ctx, query, key).Scan(&value); err != nil && err != pgx.ErrNoRows {
 		logger.LoggerFromCtx(ctx).Error("Failed to get key", slog.Any("error", err))
 		return "", fmt.Errorf("failed to get key: %w", err)
 	}
@@ -39,7 +121,12 @@ func dynLookup(ctx context.Context, key string) (string, error) {
 		if val, ok := os.LookupEnv(key); ok {
 			return val, nil
 		}
-		return default_value.String, nil
+		for _, setting := range DynamicSettings {
+			if setting.Name == key {
+				return setting.DefaultValue, nil
+			}
+		}
+		return "", nil
 	}
 	return value.String, nil
 }
