@@ -1,7 +1,5 @@
-import { UCreateMirrorResponse } from '@/app/dto/MirrorsDTO';
 import {
   UPublicationsResponse,
-  USchemasResponse,
   UTablesAllResponse,
   UTablesResponse,
 } from '@/app/dto/PeersDTO';
@@ -14,7 +12,12 @@ import {
   QRepWriteType,
 } from '@/grpc_generated/flow';
 import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
-import { TableColumnsResponse } from '@/grpc_generated/route';
+import {
+  CreateCDCFlowRequest,
+  CreateQRepFlowRequest,
+  PeerSchemasResponse,
+  TableColumnsResponse,
+} from '@/grpc_generated/route';
 import { Dispatch, SetStateAction } from 'react';
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 import {
@@ -23,7 +26,6 @@ import {
   qrepSchema,
   tableMappingSchema,
 } from './schema';
-
 export const IsQueuePeer = (peerType?: DBType): boolean => {
   return (
     !!peerType &&
@@ -187,20 +189,21 @@ export const handleCreateCDC = async (
   }
 
   setLoading(true);
-  const statusMessage = await fetch('/api/mirrors/cdc', {
+  const res = await fetch('/api/mirrors/cdc', {
     method: 'POST',
     body: JSON.stringify({
-      config: processCDCConfig(config),
-    }),
-  }).then((res) => res.json());
-  if (!statusMessage.created) {
-    notifyErr(statusMessage.message || 'Unable to create mirror.');
+      connectionConfigs: processCDCConfig(config),
+    } as CreateCDCFlowRequest),
+  });
+  if (!res.ok) {
+    // I don't know why but if the order is reversed the error message is not shown
     setLoading(false);
+    notifyErr((await res.json()).message || 'Unable to create mirror.');
     return;
   }
+  setLoading(false);
   notifyErr('CDC Mirror created successfully', true);
   route();
-  setLoading(false);
 };
 
 const quotedWatermarkTable = (watermarkTable: string): string => {
@@ -282,27 +285,25 @@ export const handleCreateQRep = async (
   }
 
   setLoading(true);
-  const statusMessage: UCreateMirrorResponse = await fetch(
-    '/api/mirrors/qrep',
-    {
-      method: 'POST',
-      body: JSON.stringify({
-        config,
-      }),
-    }
-  ).then((res) => res.json());
-  if (!statusMessage.created) {
-    notifyErr('unable to create mirror.');
+  const res = await fetch('/api/mirrors/qrep', {
+    method: 'POST',
+    body: JSON.stringify({
+      qrepConfig: config,
+      createCatalogEntry: true,
+    } as CreateQRepFlowRequest),
+  });
+  if (!res.ok) {
     setLoading(false);
+    notifyErr((await res.json()).message || 'Unable to create mirror.');
     return;
   }
+  setLoading(false);
   notifyErr('Query Replication Mirror created successfully');
   route();
-  setLoading(false);
 };
 
 export const fetchSchemas = async (peerName: string) => {
-  const schemasRes: USchemasResponse = await fetch('/api/peers/schemas', {
+  const schemasRes: PeerSchemasResponse = await fetch('/api/peers/schemas', {
     method: 'POST',
     body: JSON.stringify({
       peerName,
