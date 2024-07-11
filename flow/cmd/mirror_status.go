@@ -45,7 +45,7 @@ func (h *FlowRequestHandler) ListMirrors(
 		); err != nil {
 			return nil, err
 		}
-		item.CreatedAt = float64(createdAt.UnixMilli()) / 1000.0
+		item.CreatedAt = float64(createdAt.UnixMilli())
 		return &item, nil
 	})
 	if err != nil {

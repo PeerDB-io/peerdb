@@ -366,7 +366,7 @@ func (h *FlowRequestHandler) GetSlotLagHistory(
 			return nil, err
 		}
 		return &protos.SlotLagPoint{
-			UpdatedAt: float64(updatedAt.Unix()) / 1000.0,
+			UpdatedAt: float64(updatedAt.UnixMilli()),
 			SlotSize:  float64(slotSize) / 1000.0,
 		}, nil
 	})
