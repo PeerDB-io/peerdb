@@ -86,6 +86,10 @@ const CDCCheck = (
     config.softDeleteColName = '';
   }
 
+  if (!IsQueuePeer(destinationType)) {
+    config.script = '';
+  }
+
   return '';
 };
 

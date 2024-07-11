@@ -89,6 +89,7 @@ export default function CDCConfigForm({
       (label.includes('staging path') &&
         defaultSyncMode(destinationType) !== 'AVRO') ||
       (isQueue && label.includes('soft delete')) ||
+      (!isQueue && label.includes('script')) ||
       (destinationType === DBType.EVENTHUBS &&
         (label.includes('initial copy') ||
           label.includes('initial load') ||
