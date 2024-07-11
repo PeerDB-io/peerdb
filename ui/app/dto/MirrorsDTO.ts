@@ -32,10 +32,3 @@ export type TableMapRow = {
   canMirror: boolean;
   tableSize: string;
 };
-
-export type MirrorLogsType = {
-  flow_name: string;
-  error_message: string;
-  error_type: string;
-  error_timestamp: Date;
-}[];

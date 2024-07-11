@@ -612,7 +612,7 @@ func (h *FlowRequestHandler) ListMirrorLogs(
 		if err := rows.Scan(&log.FlowName, &log.ErrorMessage, &log.ErrorType, &errorTimestamp); err != nil {
 			return nil, err
 		}
-		log.ErrorTimestamp = float64(errorTimestamp.UnixMilli()) / 1000.0
+		log.ErrorTimestamp = float64(errorTimestamp.UnixMilli())
 		return &log, nil
 	})
 	if err != nil {
