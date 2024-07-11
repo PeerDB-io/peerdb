@@ -64,7 +64,7 @@ message DeleteAlertConfigResponse {
 message DynamicSetting {
   string name = 1;
   optional string value = 2;
-  optional string default_value = 3;
+  string default_value = 3;
   string description = 4;
   peerdb_flow.DynconfValueType value_type = 5;
   peerdb_flow.DynconfApplyMode apply_mode = 6;
