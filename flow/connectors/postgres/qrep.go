@@ -211,63 +211,58 @@ func (c *PostgresConnector) getMinMaxValues(
 		return nil, nil, fmt.Errorf("unable to parse watermark table: %w", err)
 	}
 
-	// Get the maximum value from the database
-	maxQuery := fmt.Sprintf("SELECT MAX(%[1]s) FROM %[2]s", quotedWatermarkColumn, parsedWatermarkTable.String())
-	row := tx.QueryRow(ctx, maxQuery)
-	if err := row.Scan(&maxValue); err != nil {
-		return nil, nil, fmt.Errorf("failed to query for max value: %w", err)
-	}
-
+	// If there's a last partition, start from its end
 	if last != nil && last.Range != nil {
-		// If there's a last partition, start from its end
-		switch lastRange := last.Range.Range.(type) {
-		case *protos.PartitionRange_IntRange:
-			minValue = lastRange.IntRange.End
-			switch v := maxValue.(type) {
-			case int16:
-				maxValue = int64(v)
-			case int32:
-				maxValue = int64(v)
-			}
-		case *protos.PartitionRange_TimestampRange:
-			minValue = lastRange.TimestampRange.End.AsTime()
-		case *protos.PartitionRange_TidRange:
-			minValue = lastRange.TidRange.End
-			maxValue = &protos.TID{
-				BlockNumber:  maxValue.(pgtype.TID).BlockNumber,
-				OffsetNumber: uint32(maxValue.(pgtype.TID).OffsetNumber),
+		maxQuery := fmt.Sprintf("SELECT MAX(%[1]s) FROM %[2]s", quotedWatermarkColumn, parsedWatermarkTable.String())
+		if err := tx.QueryRow(ctx, maxQuery).Scan(&maxValue); err != nil {
+			return nil, nil, fmt.Errorf("failed to query for max value: %w", err)
+		} else if maxValue != nil {
+			switch lastRange := last.Range.Range.(type) {
+			case *protos.PartitionRange_IntRange:
+				minValue = lastRange.IntRange.End
+				switch v := maxValue.(type) {
+				case int16:
+					maxValue = int64(v)
+				case int32:
+					maxValue = int64(v)
+				}
+			case *protos.PartitionRange_TimestampRange:
+				minValue = lastRange.TimestampRange.End.AsTime()
+			case *protos.PartitionRange_TidRange:
+				minValue = lastRange.TidRange.End
+				maxValue = &protos.TID{
+					BlockNumber:  maxValue.(pgtype.TID).BlockNumber,
+					OffsetNumber: uint32(maxValue.(pgtype.TID).OffsetNumber),
+				}
 			}
 		}
 	} else {
-		// Otherwise get the minimum value from the database
-		minQuery := fmt.Sprintf("SELECT MIN(%[1]s) FROM %[2]s", quotedWatermarkColumn, parsedWatermarkTable.String())
-		row := tx.QueryRow(ctx, minQuery)
-		if err := row.Scan(&minValue); err != nil {
-			c.logger.Error(fmt.Sprintf("failed to query [%s] for min value: %v", minQuery, err))
+		minMaxQuery := fmt.Sprintf("SELECT MIN(%[1]s), MAX(%[1]s) FROM %[2]s", quotedWatermarkColumn, parsedWatermarkTable.String())
+		if err := tx.QueryRow(ctx, minMaxQuery).Scan(&minValue, &maxValue); err != nil {
+			c.logger.Error(fmt.Sprintf("failed to query [%s] for min value: %v", minMaxQuery, err))
 			return nil, nil, fmt.Errorf("failed to query for min value: %w", err)
-		}
-
-		switch v := minValue.(type) {
-		case int16:
-			minValue = int64(v)
-			maxValue = int64(maxValue.(int16))
-		case int32:
-			minValue = int64(v)
-			maxValue = int64(maxValue.(int32))
-		case pgtype.TID:
-			minValue = &protos.TID{
-				BlockNumber:  v.BlockNumber,
-				OffsetNumber: uint32(v.OffsetNumber),
-			}
-			maxValue = &protos.TID{
-				BlockNumber:  maxValue.(pgtype.TID).BlockNumber,
-				OffsetNumber: uint32(maxValue.(pgtype.TID).OffsetNumber),
+		} else if maxValue != nil {
+			switch v := minValue.(type) {
+			case int16:
+				minValue = int64(v)
+				maxValue = int64(maxValue.(int16))
+			case int32:
+				minValue = int64(v)
+				maxValue = int64(maxValue.(int32))
+			case pgtype.TID:
+				minValue = &protos.TID{
+					BlockNumber:  v.BlockNumber,
+					OffsetNumber: uint32(v.OffsetNumber),
+				}
+				maxValue = &protos.TID{
+					BlockNumber:  maxValue.(pgtype.TID).BlockNumber,
+					OffsetNumber: uint32(maxValue.(pgtype.TID).OffsetNumber),
+				}
 			}
 		}
 	}
 
-	err = tx.Commit(ctx)
-	if err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return nil, nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
@@ -290,7 +285,7 @@ func (c *PostgresConnector) CheckForUpdatedMaxValue(
 		return false, fmt.Errorf("error while getting min and max values: %w", err)
 	}
 
-	if last == nil || last.Range == nil {
+	if maxValue == nil || last == nil || last.Range == nil {
 		return maxValue != nil, nil
 	}
 
@@ -521,14 +516,14 @@ func syncQRepRecords(
 		}
 
 		createStagingTableStmt := fmt.Sprintf(
-			"CREATE TEMP TABLE %s (LIKE %s);",
+			"CREATE TEMP TABLE %s (LIKE %s) ON COMMIT DROP;",
 			stagingTableIdentifier.Sanitize(),
 			dstTableIdentifier.Sanitize(),
 		)
 
 		c.logger.Info(fmt.Sprintf("Creating staging table %s - '%s'",
 			stagingTableName, createStagingTableStmt), syncLog)
-		_, err = tx.Exec(ctx, createStagingTableStmt)
+		_, err = c.execWithLoggingTx(ctx, createStagingTableStmt, tx)
 		if err != nil {
 			return -1, fmt.Errorf("failed to create staging table: %w", err)
 		}
