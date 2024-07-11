@@ -516,7 +516,7 @@ func syncQRepRecords(
 		}
 
 		createStagingTableStmt := fmt.Sprintf(
-			"CREATE TEMP TABLE %s (LIKE %s);",
+			"CREATE TEMP TABLE %s (LIKE %s) ON COMMIT DROP;",
 			stagingTableIdentifier.Sanitize(),
 			dstTableIdentifier.Sanitize(),
 		)
