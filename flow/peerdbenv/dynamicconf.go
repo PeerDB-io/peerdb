@@ -104,6 +104,14 @@ END;`, ValueType: protos.DynconfValueType_STRING,
 	},
 }
 
+var DynamicDefaults = func() map[string]string {
+	defaults := make(map[string]string, len(DynamicSettings))
+	for _, setting := range DynamicSettings {
+		defaults[setting.Name] = setting.DefaultValue
+	}
+	return defaults
+}()
+
 func dynLookup(ctx context.Context, key string) (string, error) {
 	conn, err := GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
@@ -121,12 +129,7 @@ func dynLookup(ctx context.Context, key string) (string, error) {
 		if val, ok := os.LookupEnv(key); ok {
 			return val, nil
 		}
-		for _, setting := range DynamicSettings {
-			if setting.Name == key {
-				return setting.DefaultValue, nil
-			}
-		}
-		return "", nil
+		return DynamicDefaults[key], nil
 	}
 	return value.String, nil
 }
