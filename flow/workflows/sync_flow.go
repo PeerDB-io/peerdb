@@ -44,7 +44,7 @@ func SyncFlowWorkflow(
 	sessionID := workflow.GetSessionInfo(syncSessionCtx).SessionID
 	maintainCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * 24 * time.Hour,
-		HeartbeatTimeout:    time.Minute,
+		HeartbeatTimeout:    time.Hour,
 		WaitForCancellation: true,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 	})
