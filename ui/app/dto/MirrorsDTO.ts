@@ -7,10 +7,6 @@ export enum MirrorType {
   XMin = 'XMin',
 }
 
-export type UCreateMirrorResponse = {
-  created: boolean;
-};
-
 export type UValidateMirrorResponse = {
   ok: boolean;
   errorMessage: string;
