@@ -26,11 +26,9 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 	var name string
 	var value string
 	if _, err := pgx.ForEachRow(rows, []any{&name, &value}, func() error {
-		for i, setting := range settings {
-			if setting.Name == name {
-				settings[i] = shared.CloneProto(setting)
-				settings[i].Value = &value
-			}
+		if idx, ok := peerdbenv.DynamicIndex[name]; ok {
+			settings[idx] = shared.CloneProto(settings[idx])
+			settings[idx].Value = &value
 		}
 		return nil
 	}); err != nil {
