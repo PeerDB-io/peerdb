@@ -516,14 +516,14 @@ func syncQRepRecords(
 		}
 
 		createStagingTableStmt := fmt.Sprintf(
-			"CREATE TEMP TABLE %s (LIKE %s);",
+			"CREATE TEMP TABLE %s (LIKE %s) ON COMMIT DROP;",
 			stagingTableIdentifier.Sanitize(),
 			dstTableIdentifier.Sanitize(),
 		)
 
 		c.logger.Info(fmt.Sprintf("Creating staging table %s - '%s'",
 			stagingTableName, createStagingTableStmt), syncLog)
-		_, err = tx.Exec(ctx, createStagingTableStmt)
+		_, err = c.execWithLoggingTx(ctx, createStagingTableStmt, tx)
 		if err != nil {
 			return -1, fmt.Errorf("failed to create staging table: %w", err)
 		}
