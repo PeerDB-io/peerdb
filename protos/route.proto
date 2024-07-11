@@ -173,6 +173,25 @@ message CDCBatch {
   int64 batch_id = 6;
 }
 
+
+message CDCRowCounts {
+  int64 total_count = 1;
+  int64 inserts_count = 2;
+  int64 updates_count = 3;
+  int64 deletes_count = 4;
+}
+message CDCTableRowCounts {
+  string table_name = 1;
+  CDCRowCounts counts = 2;
+}
+message CDCTableTotalCountsRequest {
+  string flow_job_name = 1;
+}
+message CDCTableTotalCountsResponse {
+  CDCRowCounts total_data = 1;
+  repeated CDCTableRowCounts tables_data = 2;
+}
+
 message PeerSchemasResponse {
   repeated string schemas = 1;
 }
@@ -216,6 +235,16 @@ message PostgresPeerActivityInfoRequest {
 
 message PeerInfoRequest {
   string peer_name = 1;
+}
+
+message PeerListItem {
+  string name = 1;
+  peerdb_peers.DBType type = 2;
+}
+message ListPeersRequest {
+}
+message ListPeersResponse {
+  repeated PeerListItem items = 1;
 }
 
 message SlotInfo {
@@ -296,8 +325,48 @@ message MirrorStatusResponse {
   google.protobuf.Timestamp created_at = 7;
 }
 
+message MirrorLog {
+  string flow_name = 1;
+  string error_message = 2;
+  string error_type = 3;
+  double error_timestamp = 4;
+}
+message ListMirrorLogsRequest {
+  string flow_job_name = 1;
+  string level = 2;
+  int32 page = 3;
+  int32 num_per_page = 4;
+}
+message ListMirrorLogsResponse {
+  repeated MirrorLog errors = 1;
+  int32 total = 2;
+}
+
 message ValidateCDCMirrorResponse{
   bool ok = 1;
+}
+
+message ListMirrorsItem {
+  int64 id = 1;
+  string workflow_id = 2;
+  string name = 3;
+  string source_name = 4;
+  peerdb_peers.DBType source_type = 5;
+  string destination_name = 6;
+  peerdb_peers.DBType destination_type = 7;
+  double created_at = 8;
+  bool is_cdc = 9;
+}
+message ListMirrorsRequest {
+}
+message ListMirrorsResponse {
+  repeated ListMirrorsItem mirrors = 1;
+}
+
+message ListMirrorNamesRequest {
+}
+message ListMirrorNamesResponse {
+  repeated string names = 1;
 }
 
 message FlowStateChangeRequest {
@@ -306,7 +375,6 @@ message FlowStateChangeRequest {
   // only can be sent in certain situations
   optional peerdb_flow.FlowConfigUpdate flow_config_update = 5;
 }
-
 message FlowStateChangeResponse {
   bool ok = 1;
   string error_message = 2;
@@ -314,7 +382,6 @@ message FlowStateChangeResponse {
 
 message PeerDBVersionRequest {
 }
-
 message PeerDBVersionResponse {
   string version = 1;
 }
@@ -400,6 +467,10 @@ service FlowService {
     option (google.api.http) = { delete: "/v1/scripts/{id}" };
   }
 
+  rpc CDCTableTotalCounts(CDCTableTotalCountsRequest) returns (CDCTableTotalCountsResponse) {
+    option (google.api.http) = { get: "/v1/mirrors/cdc/table_total_counts/{flow_job_name}" };
+  }
+
   rpc GetSchemas(PostgresPeerActivityInfoRequest) returns (PeerSchemasResponse) {
     option (google.api.http) = { get: "/v1/peers/schemas" };
   }
@@ -430,15 +501,29 @@ service FlowService {
     option (google.api.http) = { get: "/v1/peers/stats/{peer_name}" };
   }
 
+  rpc ListMirrorLogs(ListMirrorLogsRequest) returns (ListMirrorLogsResponse) {
+    option (google.api.http) = { post: "/v1/mirrors/logs", body: "*" };
+  }
+
+  rpc ListMirrors(ListMirrorsRequest) returns (ListMirrorsResponse) {
+    option (google.api.http) = { get: "/v1/mirrors/list" };
+  }
+  rpc ListMirrorNames(ListMirrorNamesRequest) returns (ListMirrorNamesResponse) {
+    option (google.api.http) = { get: "/v1/mirrors/names" };
+  }
+
   rpc FlowStateChange(FlowStateChangeRequest) returns (FlowStateChangeResponse) {
     option (google.api.http) = { post: "/v1/mirrors/state_change", body: "*" };
   }
   rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {
-    option (google.api.http) = { get: "/v1/mirrors/{flow_job_name}" };
+    option (google.api.http) = { post: "/v1/mirrors/status", body: "*" };
   }
 
   rpc GetPeerInfo(PeerInfoRequest) returns (peerdb_peers.Peer) {
     option (google.api.http) = { get: "/v1/peers/info/{peer_name}" };
+  }
+  rpc ListPeers(ListPeersRequest) returns (ListPeersResponse) {
+    option (google.api.http) = { get: "/v1/peers/list" };
   }
 
   rpc GetVersion(PeerDBVersionRequest) returns (PeerDBVersionResponse) {

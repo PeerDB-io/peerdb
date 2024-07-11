@@ -32,39 +32,3 @@ export type TableMapRow = {
   canMirror: boolean;
   tableSize: string;
 };
-
-export type MirrorRowsData = {
-  totalCount: number;
-  insertsCount: number;
-  updatesCount: number;
-  deletesCount: number;
-};
-
-export type MirrorTableRowsData = {
-  destinationTableName: string;
-  data: MirrorRowsData;
-};
-
-export type UMirrorTableStatsResponse = {
-  totalData: MirrorRowsData;
-  tablesData: MirrorTableRowsData[];
-};
-
-export type MirrorLogsType = {
-  flow_name: string;
-  error_message: string;
-  error_type: string;
-  error_timestamp: Date;
-}[];
-
-export type MirrorsListing = {
-  id: number;
-  workflowId: string | null;
-  name: string;
-  sourceName: string;
-  sourceType: number;
-  destinationName: string;
-  destinationType: number;
-  createdAt: string | Date;
-  isCdc: boolean;
-};

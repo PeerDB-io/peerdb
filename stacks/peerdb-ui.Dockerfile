@@ -15,8 +15,7 @@ FROM base AS builder
 COPY --chown=node:node ui/package.json ui/package-lock.json ./
 RUN npm ci
 COPY --chown=node:node ui/ .
-
-RUN npx prisma generate && npm run build
+RUN npm run build
 
 # Builder stage
 FROM base AS runner

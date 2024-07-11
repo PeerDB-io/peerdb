@@ -1,7 +1,6 @@
 'use client';
-import { UMirrorTableStatsResponse } from '@/app/dto/MirrorsDTO';
 import { fetcher } from '@/app/utils/swr';
-import { CDCBatch } from '@/grpc_generated/route';
+import { CDCBatch, CDCTableTotalCountsResponse } from '@/grpc_generated/route';
 import useSWR from 'swr';
 import CdcGraph from './cdcGraph';
 import RowsDisplay from './rowsDisplay';
@@ -14,14 +13,21 @@ type SyncStatusProps = {
 };
 
 export default function SyncStatus({ flowJobName, rows }: SyncStatusProps) {
-  const { data: tableStats, isLoading } = useSWR<UMirrorTableStatsResponse>(
+  const {
+    data: tableStats,
+    error,
+    isLoading,
+  } = useSWR<CDCTableTotalCountsResponse>(
     `/api/mirrors/cdc/${flowJobName}/tablestats`,
     fetcher
   );
 
   return (
     !isLoading &&
-    tableStats && (
+    !error &&
+    tableStats &&
+    tableStats?.totalData &&
+    tableStats?.tablesData && (
       <div>
         <RowsDisplay totalRowsData={tableStats.totalData} />
         <div className='my-10'>

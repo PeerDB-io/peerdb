@@ -1,18 +1,16 @@
 'use client';
-import { MirrorTableRowsData } from '@/app/dto/MirrorsDTO';
+import { CDCTableRowCounts } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { useMemo, useState } from 'react';
 import { RowDataFormatter } from './rowsDisplay';
 
-const TableStats = ({ tableSyncs }: { tableSyncs: MirrorTableRowsData[] }) => {
+const TableStats = ({ tableSyncs }: { tableSyncs: CDCTableRowCounts[] }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const tableDataToShow = useMemo(() => {
     return tableSyncs.filter((tableSync) =>
-      tableSync.destinationTableName
-        .toLowerCase()
-        .includes(searchQuery.toLowerCase())
+      tableSync.tableName.toLowerCase().includes(searchQuery.toLowerCase())
     );
   }, [tableSyncs, searchQuery]);
 
@@ -47,19 +45,19 @@ const TableStats = ({ tableSyncs }: { tableSyncs: MirrorTableRowsData[] }) => {
         >
           {tableDataToShow.map((tableSync) => {
             return (
-              <TableRow key={tableSync.destinationTableName}>
+              <TableRow key={tableSync.tableName}>
                 <TableCell>
-                  <Label>{tableSync.destinationTableName}</Label>
+                  <Label>{tableSync.tableName}</Label>
                 </TableCell>
                 {[
-                  tableSync.data.totalCount,
-                  tableSync.data.insertsCount,
-                  tableSync.data.updatesCount,
-                  tableSync.data.deletesCount,
+                  tableSync.counts?.totalCount,
+                  tableSync.counts?.insertsCount,
+                  tableSync.counts?.updatesCount,
+                  tableSync.counts?.deletesCount,
                 ].map((rowMetric, id) => {
                   return (
                     <TableCell key={id}>
-                      <Label>{RowDataFormatter(rowMetric)}</Label>
+                      <Label>{RowDataFormatter(rowMetric ?? 0)}</Label>
                     </TableCell>
                   );
                 })}

@@ -19,9 +19,7 @@ export async function POST(request: Request) {
         method: 'POST',
         body: JSON.stringify(req),
       }
-    ).then((res) => {
-      return res.json();
-    });
+    ).then((res) => res.json());
     return new Response(JSON.stringify(customSyncResponse));
   } catch (e) {
     console.log(e);

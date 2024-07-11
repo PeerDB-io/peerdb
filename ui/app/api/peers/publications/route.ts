@@ -9,9 +9,7 @@ export async function POST(request: Request) {
   try {
     const publicationList: PeerPublicationsResponse = await fetch(
       `${flowServiceAddr}/v1/peers/publications?peer_name=${peerName}`
-    ).then((res) => {
-      return res.json();
-    });
+    ).then((res) => res.json());
     let response: UPublicationsResponse = {
       publicationNames: publicationList.publicationNames,
     };

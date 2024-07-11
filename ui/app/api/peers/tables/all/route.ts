@@ -9,9 +9,7 @@ export async function POST(request: Request) {
   try {
     const tableList: AllTablesResponse = await fetch(
       `${flowServiceAddr}/v1/peers/tables/all?peer_name=${peerName}`
-    ).then((res) => {
-      return res.json();
-    });
+    ).then((res) => res.json());
     let response: UTablesAllResponse = {
       tables: tableList.tables,
     };
