@@ -4,7 +4,7 @@ import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
 import { CDCConfig, MirrorSetter, TableMapRow } from '../../../dto/MirrorsDTO';
-import { IsQueuePeer, fetchPublications } from '../handlers';
+import { IsEventhubsPeer, IsQueuePeer, fetchPublications } from '../handlers';
 import { AdvancedSettingType, MirrorSetting } from '../helpers/common';
 import CDCField from './fields';
 import TableMapping from './tablemapping';
@@ -72,14 +72,15 @@ export default function CDCConfigForm({
       (label.includes('snapshot') && mirrorConfig.doInitialSnapshot !== true) ||
       (label === 'replication slot name' &&
         mirrorConfig.doInitialSnapshot === true) ||
-      (destinationType === DBType.EVENTHUBS &&
+      (IsEventhubsPeer(destinationType) &&
         (label.includes('initial copy') ||
           label.includes('initial load') ||
           label.includes('snapshot'))) ||
-      ((sourceType !== DBType.POSTGRES ||
-        destinationType !== DBType.POSTGRES) &&
+      ((sourceType.toString() !== DBType[DBType.POSTGRES] ||
+        destinationType.toString() !== DBType[DBType.POSTGRES]) &&
         label.includes('type system')) ||
-      (destinationType !== DBType.BIGQUERY && label.includes('column name')) ||
+      (destinationType.toString() !== DBType[DBType.BIGQUERY] &&
+        label.includes('column name')) ||
       (label.includes('soft delete') &&
         !(
           destinationType.toString() === DBType[DBType.POSTGRES] ||
