@@ -19,19 +19,6 @@ interface MirrorConfigProps {
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
 }
 
-export const defaultSyncMode = (dtype: DBType | undefined) => {
-  switch (dtype) {
-    case DBType.POSTGRES:
-      return 'Copy with Binary';
-    case DBType.SNOWFLAKE:
-    case DBType.BIGQUERY:
-    case DBType.S3:
-      return 'AVRO';
-    default:
-      return 'Copy with Binary';
-  }
-};
-
 export default function CDCConfigForm({
   settings,
   mirrorConfig,
