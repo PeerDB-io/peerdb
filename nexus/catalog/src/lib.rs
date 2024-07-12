@@ -3,7 +3,7 @@ use std::env;
 
 use anyhow::{anyhow, Context};
 use base64::prelude::*;
-use chacha20poly1305::{aead::Aead, XChaCha20Poly1305, KeyInit, XNonce};
+use chacha20poly1305::{aead::Aead, KeyInit, XChaCha20Poly1305, XNonce};
 use peer_cursor::{QueryExecutor, QueryOutput, Schema};
 use peer_postgres::{self, ast};
 use pgwire::error::PgWireResult;
@@ -49,13 +49,6 @@ pub struct CatalogConfig<'a> {
     pub user: &'a str,
     pub password: &'a str,
     pub database: &'a str,
-}
-
-#[derive(Debug, Clone)]
-pub struct WorkflowDetails {
-    pub workflow_id: String,
-    pub source_peer: String,
-    pub destination_peer: String,
 }
 
 impl<'a> CatalogConfig<'a> {
@@ -461,49 +454,17 @@ impl Catalog {
         Ok(())
     }
 
-    pub async fn get_workflow_details_for_flow_job(
-        &self,
-        flow_job_name: &str,
-    ) -> anyhow::Result<Option<WorkflowDetails>> {
+    pub async fn flow_name_exists(&self, flow_job_name: &str) -> anyhow::Result<bool> {
         let row = self
             .pg
-            .query_opt(
-                "SELECT workflow_id, source_peer, destination_peer FROM public.flows WHERE NAME = $1",
+            .query_one(
+                "SELECT EXISTS(SELECT * FROM flows WHERE name = $1)",
                 &[&flow_job_name],
             )
             .await?;
 
-        // currently multiple rows for a flow job exist in catalog, but all mapped to same workflow id
-        // CHANGE LOGIC IF THIS ASSUMPTION CHANGES
-        if let Some(first_row) = row {
-            let workflow_id: Option<String> = first_row.get(0);
-            let Some(workflow_id) = workflow_id else {
-                return Err(anyhow!(
-                    "workflow id not found for existing flow job {}",
-                    flow_job_name
-                ));
-            };
-            let source_peer_id: i32 = first_row.get(1);
-            let destination_peer_id: i32 = first_row.get(2);
-
-            let source_peer = self
-                .get_peer_name_by_id(source_peer_id)
-                .await
-                .context("unable to get source peer")?;
-            let destination_peer = self
-                .get_peer_name_by_id(destination_peer_id)
-                .await
-                .context("unable to get destination peer")?;
-
-            Ok(Some(WorkflowDetails {
-                workflow_id,
-                source_peer,
-                destination_peer,
-            }))
-        } else {
-            tracing::info!("no workflow id found for flow job {}", flow_job_name);
-            Ok(None)
-        }
+        let exists: bool = row.get(0);
+        Ok(exists)
     }
 
     pub async fn delete_flow_job_entry(&self, flow_job_name: &str) -> anyhow::Result<()> {
@@ -545,8 +506,8 @@ impl Catalog {
             .await?;
 
         Ok(match row {
-            Some(row) => Some(pt::peerdb_flow::QRepConfig::decode::<&[u8]>(
-                row.get("config_proto"),
+            Some(row) => Some(pt::peerdb_flow::QRepConfig::decode(
+                row.get::<&str, &[u8]>("config_proto"),
             )?),
             None => None,
         })

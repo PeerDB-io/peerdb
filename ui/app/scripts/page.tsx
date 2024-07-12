@@ -1,20 +1,18 @@
+'use client';
 import NewButton from '@/components/NewButton';
+import { GetScriptsResponse } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label/Label';
 import Link from 'next/link';
-import { ScriptsType } from '../dto/ScriptsDTO';
-import prisma from '../utils/prisma';
+import useSWR from 'swr';
+import { fetcher } from '../utils/swr';
 import ScriptsTable from './list';
-export const dynamic = 'force-dynamic';
-export const revalidate = 5;
 
-const ScriptsPage = async () => {
-  const existingScripts = await prisma.scripts.findMany({
-    orderBy: { name: 'asc' },
-  });
-  const scripts: ScriptsType[] = existingScripts.map((script) => ({
-    ...script,
-    source: script.source.toString(),
-  }));
+export default function ScriptsPage() {
+  const { data: res, isLoading } = useSWR<GetScriptsResponse>(
+    '/api/scripts?id=-1',
+    fetcher
+  );
+
   return (
     <div
       style={{
@@ -60,9 +58,7 @@ const ScriptsPage = async () => {
           Learn more about PeerDB Lua scripting
         </Label>
       </div>
-      <ScriptsTable scripts={scripts} />
+      {!isLoading && res && <ScriptsTable scripts={res.scripts} />}
     </div>
   );
-};
-
-export default ScriptsPage;
+}

@@ -3,7 +3,7 @@ import { NearestMinutes, roundToNearestMinutes } from 'date-fns';
 import moment from 'moment';
 
 type timestampType = {
-  timestamp: Date | string | null;
+  timestamp: Date | string | undefined;
   count: number;
 };
 

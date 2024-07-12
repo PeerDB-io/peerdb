@@ -9,7 +9,7 @@ const AlertDropdown = ({
   onEdit,
 }: {
   disable: boolean;
-  alertId: bigint;
+  alertId: number;
   onEdit: () => void;
 }) => {
   const [open, setOpen] = useState(false);

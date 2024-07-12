@@ -26,7 +26,7 @@ export default function qrepStatusButtons(props: { mirrorId: string }) {
         Pause
       </Button>
       <Button
-        onClick={() => setFlowState(props.mirrorId, FlowStatus.STATUS_PAUSED)}
+        onClick={() => setFlowState(props.mirrorId, FlowStatus.STATUS_RUNNING)}
       >
         Resume
       </Button>

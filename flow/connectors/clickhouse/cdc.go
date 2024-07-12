@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -55,7 +56,7 @@ func (c *ClickhouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 		_peerdb_unchanged_toast_columns String
 	) ENGINE = ReplacingMergeTree ORDER BY _peerdb_uid;`
 
-	_, err := c.database.ExecContext(ctx,
+	_, err := c.execWithLogging(ctx,
 		fmt.Sprintf(createRawTableSQL, rawTableName))
 	if err != nil {
 		return nil, fmt.Errorf("unable to create raw table: %w", err)
@@ -151,9 +152,9 @@ func (c *ClickhouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 				return fmt.Errorf("failed to convert column type %s to clickhouse type: %w",
 					addedColumn.Type, err)
 			}
-			_, err = tableSchemaModifyTx.ExecContext(ctx,
+			_, err = c.execWithLoggingTx(ctx,
 				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
-					schemaDelta.DstTableName, addedColumn.Name, clickhouseColType))
+					schemaDelta.DstTableName, addedColumn.Name, clickhouseColType), tableSchemaModifyTx)
 			if err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
@@ -174,17 +175,70 @@ func (c *ClickhouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 	return nil
 }
 
+func (c *ClickhouseConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
+	for _, renameRequest := range req.RenameTableOptions {
+		if req.SyncedAtColName != "" {
+			syncedAtCol := strings.ToLower(req.SyncedAtColName)
+			_, err := c.execWithLogging(ctx, fmt.Sprintf("ALTER TABLE %s UPDATE %s=now() WHERE true",
+				renameRequest.CurrentName, syncedAtCol))
+			if err != nil {
+				return nil, fmt.Errorf("unable to set synced at column for table %s: %w",
+					renameRequest.CurrentName, err)
+			}
+		}
+
+		columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
+		for _, col := range renameRequest.TableSchema.Columns {
+			columnNames = append(columnNames, col.Name)
+		}
+
+		allCols := strings.Join(columnNames, ",")
+		pkeyCols := strings.Join(renameRequest.TableSchema.PrimaryKeyColumns, ",")
+		c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", renameRequest.NewName))
+		_, err := c.execWithLogging(ctx,
+			fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
+				renameRequest.CurrentName, fmt.Sprintf("%s,%s", allCols, signColName), allCols,
+				signColName,
+				renameRequest.NewName, pkeyCols, pkeyCols, renameRequest.CurrentName))
+		if err != nil {
+			return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", renameRequest.NewName, err)
+		}
+
+		// drop the dst table if exists
+		_, err = c.execWithLogging(ctx, "DROP TABLE IF EXISTS "+renameRequest.NewName)
+		if err != nil {
+			return nil, fmt.Errorf("unable to drop table %s: %w", renameRequest.NewName, err)
+		}
+
+		// rename the src table to dst
+		_, err = c.execWithLogging(ctx, fmt.Sprintf("RENAME TABLE %s TO %s",
+			renameRequest.CurrentName,
+			renameRequest.NewName))
+		if err != nil {
+			return nil, fmt.Errorf("unable to rename table %s to %s: %w",
+				renameRequest.CurrentName, renameRequest.NewName, err)
+		}
+
+		c.logger.Info(fmt.Sprintf("successfully renamed table '%s' to '%s'",
+			renameRequest.CurrentName, renameRequest.NewName))
+	}
+
+	return &protos.RenameTablesOutput{
+		FlowJobName: req.FlowJobName,
+	}, nil
+}
+
 func (c *ClickhouseConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
 	err := c.PostgresMetadata.SyncFlowCleanup(ctx, jobName)
 	if err != nil {
-		return fmt.Errorf("[snowflake drop mirror] unable to clear metadata for sync flow cleanup: %w", err)
+		return fmt.Errorf("[clickhouse] unable to clear metadata for sync flow cleanup: %w", err)
 	}
 
 	// delete raw table if exists
 	rawTableIdentifier := c.getRawTableName(jobName)
-	_, err = c.database.ExecContext(ctx, fmt.Sprintf(dropTableIfExistsSQL, rawTableIdentifier))
+	_, err = c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, rawTableIdentifier))
 	if err != nil {
-		return fmt.Errorf("[snowflake drop mirror] unable to drop raw table: %w", err)
+		return fmt.Errorf("[clickhouse] unable to drop raw table: %w", err)
 	}
 
 	return nil

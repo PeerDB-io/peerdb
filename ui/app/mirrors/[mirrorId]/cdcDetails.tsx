@@ -1,12 +1,11 @@
 'use client';
-import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import { FormatStatus } from '@/app/utils/flowstatus';
 import MirrorInfo from '@/components/MirrorInfo';
 import PeerButton from '@/components/PeerComponent';
 import TimeLabel from '@/components/TimeComponent';
 import { FlowStatus } from '@/grpc_generated/flow';
 import { dBTypeFromJSON } from '@/grpc_generated/peers';
-import { CDCMirrorStatus } from '@/grpc_generated/route';
+import { CDCBatch, CDCMirrorStatus } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import Link from 'next/link';
@@ -17,7 +16,7 @@ import { RowDataFormatter } from './rowsDisplay';
 import TablePairs from './tablePairs';
 
 type props = {
-  syncs: SyncStatusRow[];
+  syncs: CDCBatch[];
   mirrorConfig: CDCMirrorStatus;
   createdAt?: Date;
   mirrorStatus: FlowStatus;
@@ -27,7 +26,7 @@ function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
 
   let rowsSynced = syncs.reduce((acc, sync) => {
     if (sync.endTime !== null) {
-      return acc + sync.numRows;
+      return acc + Number(sync.numRows);
     }
     return acc;
   }, 0);

@@ -1,5 +1,6 @@
 'use client';
 import { DropDialog } from '@/components/DropDialog';
+import { Script } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button/Button';
 import { Label } from '@/lib/Label/Label';
 import { SearchField } from '@/lib/SearchField';
@@ -12,7 +13,6 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import { ScriptsType } from '../dto/ScriptsDTO';
 
 const LanguageIcon = (language: string) => {
   switch (language.toLowerCase()) {
@@ -23,7 +23,7 @@ const LanguageIcon = (language: string) => {
   }
 };
 
-const ScriptsTable = ({ scripts }: { scripts: ScriptsType[] }) => {
+const ScriptsTable = ({ scripts }: { scripts: Script[] }) => {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const displayedScripts = useMemo(() => {
@@ -87,7 +87,7 @@ const ScriptsTable = ({ scripts }: { scripts: ScriptsType[] }) => {
               <TableCell as='td'>
                 <Button
                   as={Link}
-                  href={`/scripts/new?script=${Buffer.from(JSON.stringify(script)).toString('base64')}`}
+                  href={`/scripts/new?scriptid=${script.id}`}
                   style={{ width: 'fit-content' }}
                   variant='normal'
                 >

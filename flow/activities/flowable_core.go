@@ -293,7 +293,7 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 	optionRows, err := a.CatalogPool.Query(ctx, `
 		SELECT p.name, p.options, p.enc_key_id
 		FROM peers p
-		WHERE p.type = $1 AND EXISTS(SELECT * FROM flows f ON p.id = f.source_peer)`, protos.DBType_POSTGRES)
+		WHERE p.type = $1 AND EXISTS(SELECT * FROM flows f WHERE p.id = f.source_peer)`, protos.DBType_POSTGRES)
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +306,7 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 			return nil, err
 		}
 
-		peerOptions, err := connectors.DecryptPeerOptions(encKeyID, encPeerOptions)
+		peerOptions, err := peerdbenv.Decrypt(encKeyID, encPeerOptions)
 		if err != nil {
 			return nil, err
 		}
@@ -539,20 +539,4 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	}
 
 	return currentSnapshotXmin, nil
-}
-
-func (a *FlowableActivity) getPeerNameForMirror(ctx context.Context, flowName string, peerType PeerType) (string, error) {
-	peerClause := "source_peer"
-	if peerType == Destination {
-		peerClause = "destination_peer"
-	}
-	q := fmt.Sprintf("SELECT p.name FROM flows f JOIN peers p ON f.%s = p.id WHERE f.name = $1;", peerClause)
-	var peerName string
-	err := a.CatalogPool.QueryRow(ctx, q, flowName).Scan(&peerName)
-	if err != nil {
-		slog.Error("failed to get peer name for flow", slog.String("flow_name", flowName), slog.Any("error", err))
-		return "", fmt.Errorf("failed to get peer name for flow %s: %w", flowName, err)
-	}
-
-	return peerName, nil
 }

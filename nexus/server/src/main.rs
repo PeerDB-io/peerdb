@@ -8,7 +8,7 @@ use std::{
 use analyzer::{PeerDDL, QueryAssociation};
 use async_trait::async_trait;
 use bytes::{BufMut, BytesMut};
-use catalog::{Catalog, CatalogConfig, WorkflowDetails};
+use catalog::{Catalog, CatalogConfig};
 use clap::Parser;
 use cursor::PeerCursors;
 use dashmap::{mapref::entry::Entry as DashEntry, DashMap};
@@ -22,16 +22,17 @@ use peerdb_parser::{NexusParsedStatement, NexusQueryParser, NexusStatement};
 use pgwire::{
     api::{
         auth::{
-            scram::{gen_salted_password, MakeSASLScramAuthStartupHandler},
+            scram::{gen_salted_password, SASLScramAuthStartupHandler},
             AuthSource, LoginInfo, Password, ServerParameterProvider,
         },
+        copy::NoopCopyHandler,
         portal::Portal,
         query::{ExtendedQueryHandler, SimpleQueryHandler},
         results::{
             DescribePortalResponse, DescribeResponse, DescribeStatementResponse, Response, Tag,
         },
         stmt::StoredStatement,
-        ClientInfo, MakeHandler, Type,
+        ClientInfo, PgWireHandlerFactory, Type,
     },
     error::{ErrorInfo, PgWireError, PgWireResult},
     tokio::process_socket,
@@ -49,7 +50,7 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 mod cursor;
 
-struct FixedPasswordAuthSource {
+pub struct FixedPasswordAuthSource {
     password: String,
 }
 
@@ -143,18 +144,12 @@ impl NexusBackend {
         }
     }
 
-    async fn check_for_mirror(
-        catalog: &Catalog,
-        flow_name: &str,
-    ) -> PgWireResult<Option<WorkflowDetails>> {
-        let workflow_details = catalog
-            .get_workflow_details_for_flow_job(flow_name)
-            .await
-            .map_err(|err| {
-                PgWireError::ApiError(
-                    format!("unable to query catalog for job metadata: {:?}", err).into(),
-                )
-            })?;
+    async fn check_for_mirror(catalog: &Catalog, flow_name: &str) -> PgWireResult<bool> {
+        let workflow_details = catalog.flow_name_exists(flow_name).await.map_err(|err| {
+            PgWireError::ApiError(
+                format!("unable to query catalog for job metadata: {:?}", err).into(),
+            )
+        })?;
         Ok(workflow_details)
     }
 
@@ -225,55 +220,33 @@ impl NexusBackend {
                         flow_job_name,
                         if_exists
                     );
-                    let workflow_details = self
-                        .catalog
-                        .get_workflow_details_for_flow_job(flow_job_name)
+
+                    let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
+                    flow_handler
+                        .flow_state_change(
+                            flow_job_name,
+                            pt::peerdb_flow::FlowStatus::StatusTerminated,
+                            None,
+                        )
                         .await
                         .map_err(|err| {
                             PgWireError::ApiError(
-                                format!("unable to query catalog for job metadata: {:?}", err)
-                                    .into(),
+                                format!("unable to shutdown flow job: {:?}", err).into(),
                             )
                         })?;
-                    tracing::info!(
-                        "got workflow id: {:?}",
-                        workflow_details.as_ref().map(|w| &w.workflow_id)
-                    );
-                    if let Some(workflow_details) = workflow_details {
-                        let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
-                        flow_handler
-                            .flow_state_change(
-                                flow_job_name,
-                                workflow_details,
-                                pt::peerdb_flow::FlowStatus::StatusTerminated,
-                                None,
-                            )
-                            .await
-                            .map_err(|err| {
-                                PgWireError::ApiError(
-                                    format!("unable to shutdown flow job: {:?}", err).into(),
-                                )
-                            })?;
-                        self.catalog
-                            .delete_flow_job_entry(flow_job_name)
-                            .await
-                            .map_err(|err| {
-                                PgWireError::ApiError(
-                                    format!("unable to delete job metadata: {:?}", err).into(),
-                                )
-                            })?;
-                        let drop_mirror_success = format!("DROP MIRROR {}", flow_job_name);
-                        Ok(vec![Response::Execution(Tag::new(&drop_mirror_success))])
-                    } else if *if_exists {
-                        let no_mirror_success = "NO SUCH MIRROR";
-                        Ok(vec![Response::Execution(Tag::new(no_mirror_success))])
-                    } else {
-                        Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                            "ERROR".to_owned(),
-                            "error".to_owned(),
-                            format!("no such mirror: {:?}", flow_job_name),
-                        ))))
+
+                    let res = self.catalog.delete_flow_job_entry(flow_job_name).await;
+                    if res.is_err() {
+                        if *if_exists {
+                            let no_mirror_success = "NO SUCH MIRROR";
+                            return Ok(vec![Response::Execution(Tag::new(no_mirror_success))]);
+                        }
+                        return Err(PgWireError::ApiError(
+                            format!("unable to delete job metadata: {:?}", res.err()).into(),
+                        ));
                     }
+                    let drop_mirror_success = format!("DROP MIRROR {}", flow_job_name);
+                    Ok(vec![Response::Execution(Tag::new(&drop_mirror_success))])
                 }
                 _ => unreachable!(),
             },
@@ -296,13 +269,9 @@ impl NexusBackend {
                             "flow service is not configured".into(),
                         ));
                     }
-                    let mirror_details;
-                    {
-                        mirror_details =
-                            Self::check_for_mirror(self.catalog.as_ref(), &qrep_flow_job.name)
-                                .await?;
-                    }
-                    if mirror_details.is_none() {
+                    let mirror_exists =
+                        Self::check_for_mirror(self.catalog.as_ref(), &qrep_flow_job.name).await?;
+                    if !mirror_exists {
                         {
                             self.catalog
                                 .create_qrep_flow_job_entry(qrep_flow_job)
@@ -360,9 +329,9 @@ impl NexusBackend {
                             "flow service is not configured".into(),
                         ));
                     }
-                    let mirror_details =
+                    let mirror_exists =
                         Self::check_for_mirror(self.catalog.as_ref(), &flow_job.name).await?;
-                    if mirror_details.is_none() {
+                    if !mirror_exists {
                         // reject duplicate source tables or duplicate target tables
                         let table_mappings_count = flow_job.table_mappings.len();
                         if table_mappings_count > 1 {
@@ -487,10 +456,10 @@ impl NexusBackend {
                         ))))
                     }
                 }
+                // TODO handle for QRep or remove
                 PeerDDL::ResyncMirror {
                     if_exists,
                     mirror_name,
-                    query_string,
                     ..
                 } => {
                     if self.flow_handler.is_none() {
@@ -499,73 +468,19 @@ impl NexusBackend {
                         ));
                     }
 
-                    let qrep_config = {
-                        // retrieve the mirror job since DROP MIRROR will delete the row later.
-                        self.catalog
-                            .get_qrep_config_proto(mirror_name)
-                            .await
-                            .map_err(|err| {
-                                PgWireError::ApiError(
-                                    format!("error while getting QRep flow job: {:?}", err).into(),
-                                )
-                            })?
-                    };
-
-                    self.handle_drop_mirror(&NexusStatement::PeerDDL {
-                        // not supposed to be used by the function
-                        stmt: sqlparser::ast::Statement::ExecuteMirror {
-                            mirror_name: "no".into(),
-                        },
-                        ddl: Box::new(PeerDDL::DropMirror {
-                            if_exists: *if_exists,
-                            flow_job_name: mirror_name.to_string(),
-                        }),
-                    })
-                    .await?;
-
-                    // if it is none and DROP MIRROR didn't error out, either mirror doesn't exist or it is a CDC mirror.
-                    match qrep_config {
-                        Some(mut qrep_config) => {
-                            if query_string.is_some() {
-                                qrep_config.query.clone_from(query_string.as_ref().unwrap());
-                            }
-                            qrep_config.dst_table_full_resync = true;
-
-                            let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
-                            let workflow_id = flow_handler
-                                .start_query_replication_flow(&qrep_config)
-                                .await
-                                .map_err(|err| {
-                                    PgWireError::ApiError(
-                                        format!("error while starting new QRep job: {:?}", err)
-                                            .into(),
-                                    )
-                                })?;
-                            // relock catalog, DROP MIRROR is done with it now
-                            self.catalog
-                                .update_workflow_id_for_flow_job(
-                                    &qrep_config.flow_job_name,
-                                    &workflow_id,
-                                )
-                                .await
-                                .map_err(|err| {
-                                    PgWireError::ApiError(
-                                        format!(
-                                            "unable to update workflow for flow job: {:?}",
-                                            err
-                                        )
-                                        .into(),
-                                    )
-                                })?;
-
-                            let resync_mirror_success = format!("RESYNC MIRROR {}", mirror_name);
-                            Ok(vec![Response::Execution(Tag::new(&resync_mirror_success))])
+                    let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
+                    let res = flow_handler.resync_mirror(mirror_name).await;
+                    if res.is_err() {
+                        if *if_exists {
+                            let no_mirror_success = "NO SUCH MIRROR";
+                            return Ok(vec![Response::Execution(Tag::new(no_mirror_success))]);
                         }
-                        None => {
-                            let no_peer_success = "NO SUCH QREP MIRROR";
-                            Ok(vec![Response::Execution(Tag::new(no_peer_success))])
-                        }
+                        return Err(PgWireError::ApiError(
+                            format!("unable to resync mirror: {:?}", res.err()).into(),
+                        ));
                     }
+                    let resync_mirror_success = format!("RESYNC MIRROR {}", mirror_name);
+                    Ok(vec![Response::Execution(Tag::new(&resync_mirror_success))])
                 }
                 PeerDDL::PauseMirror {
                     if_exists,
@@ -582,48 +497,26 @@ impl NexusBackend {
                         flow_job_name,
                         if_exists
                     );
-                    let workflow_details = self
-                        .catalog
-                        .get_workflow_details_for_flow_job(flow_job_name)
-                        .await
-                        .map_err(|err| {
-                            PgWireError::ApiError(
-                                format!("unable to query catalog for job metadata: {:?}", err)
-                                    .into(),
-                            )
-                        })?;
-                    tracing::info!(
-                        "[PAUSE MIRROR] got workflow id: {:?}",
-                        workflow_details.as_ref().map(|w| &w.workflow_id)
-                    );
 
-                    if let Some(workflow_details) = workflow_details {
-                        let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
-                        flow_handler
-                            .flow_state_change(
-                                flow_job_name,
-                                workflow_details,
-                                pt::peerdb_flow::FlowStatus::StatusPaused,
-                                None,
-                            )
-                            .await
-                            .map_err(|err| {
-                                PgWireError::ApiError(
-                                    format!("unable to pause flow job: {:?}", err).into(),
-                                )
-                            })?;
-                        let drop_mirror_success = format!("PAUSE MIRROR {}", flow_job_name);
-                        Ok(vec![Response::Execution(Tag::new(&drop_mirror_success))])
-                    } else if *if_exists {
-                        let no_mirror_success = "NO SUCH MIRROR";
-                        Ok(vec![Response::Execution(Tag::new(no_mirror_success))])
-                    } else {
-                        Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                            "ERROR".to_owned(),
-                            "error".to_owned(),
-                            format!("no such mirror: {:?}", flow_job_name),
-                        ))))
+                    let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
+                    let res = flow_handler
+                        .flow_state_change(
+                            flow_job_name,
+                            pt::peerdb_flow::FlowStatus::StatusPaused,
+                            None,
+                        )
+                        .await;
+                    if res.is_err() {
+                        if *if_exists {
+                            let no_mirror_success = "NO SUCH MIRROR";
+                            return Ok(vec![Response::Execution(Tag::new(no_mirror_success))]);
+                        }
+                        return Err(PgWireError::ApiError(
+                            format!("unable to pause flow job: {:?}", res.err()).into(),
+                        ));
                     }
+                    let drop_mirror_success = format!("PAUSE MIRROR {}", flow_job_name);
+                    Ok(vec![Response::Execution(Tag::new(&drop_mirror_success))])
                 }
                 PeerDDL::ResumeMirror {
                     if_exists,
@@ -640,48 +533,27 @@ impl NexusBackend {
                         flow_job_name,
                         if_exists
                     );
-                    let workflow_details = self
-                        .catalog
-                        .get_workflow_details_for_flow_job(flow_job_name)
-                        .await
-                        .map_err(|err| {
-                            PgWireError::ApiError(
-                                format!("unable to query catalog for job metadata: {:?}", err)
-                                    .into(),
-                            )
-                        })?;
-                    tracing::info!(
-                        "[RESUME MIRROR] got workflow id: {:?}",
-                        workflow_details.as_ref().map(|w| &w.workflow_id)
-                    );
 
-                    if let Some(workflow_details) = workflow_details {
-                        let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
-                        flow_handler
-                            .flow_state_change(
-                                flow_job_name,
-                                workflow_details,
-                                pt::peerdb_flow::FlowStatus::StatusRunning,
-                                None,
-                            )
-                            .await
-                            .map_err(|err| {
-                                PgWireError::ApiError(
-                                    format!("unable to resume flow job: {:?}", err).into(),
-                                )
-                            })?;
-                        let resume_mirror_success = format!("RESUME MIRROR {}", flow_job_name);
-                        Ok(vec![Response::Execution(Tag::new(&resume_mirror_success))])
-                    } else if *if_exists {
-                        let no_mirror_success = "NO SUCH MIRROR";
-                        Ok(vec![Response::Execution(Tag::new(no_mirror_success))])
-                    } else {
-                        Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                            "ERROR".to_owned(),
-                            "error".to_owned(),
-                            format!("no such mirror: {:?}", flow_job_name),
-                        ))))
+                    let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
+                    let res = flow_handler
+                        .flow_state_change(
+                            flow_job_name,
+                            pt::peerdb_flow::FlowStatus::StatusRunning,
+                            None,
+                        )
+                        .await;
+                    if res.is_err() {
+                        if *if_exists {
+                            let no_mirror_success = "NO SUCH MIRROR";
+                            return Ok(vec![Response::Execution(Tag::new(no_mirror_success))]);
+                        }
+                        return Err(PgWireError::ApiError(
+                            format!("unable to resume flow job: {:?}", res.err()).into(),
+                        ));
                     }
+
+                    let resume_mirror_success = format!("RESUME MIRROR {}", flow_job_name);
+                    Ok(vec![Response::Execution(Tag::new(&resume_mirror_success))])
                 }
             },
             NexusStatement::PeerQuery { stmt, assoc } => {
@@ -1141,6 +1013,36 @@ async fn run_migrations<'a>(config: &CatalogConfig<'a>) -> anyhow::Result<()> {
     Err(anyhow::anyhow!("Failed to connect to catalog"))
 }
 
+pub struct Handlers {
+    authenticator:
+        Arc<SASLScramAuthStartupHandler<FixedPasswordAuthSource, NexusServerParameterProvider>>,
+    nexus: Arc<NexusBackend>,
+}
+
+impl PgWireHandlerFactory for Handlers {
+    type StartupHandler =
+        SASLScramAuthStartupHandler<FixedPasswordAuthSource, NexusServerParameterProvider>;
+    type SimpleQueryHandler = NexusBackend;
+    type ExtendedQueryHandler = NexusBackend;
+    type CopyHandler = NoopCopyHandler;
+
+    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+        self.nexus.clone()
+    }
+
+    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+        self.nexus.clone()
+    }
+
+    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+        self.authenticator.clone()
+    }
+
+    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
+        Arc::new(NoopCopyHandler)
+    }
+}
+
 #[tokio::main]
 pub async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
@@ -1148,10 +1050,10 @@ pub async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let _guard = setup_tracing(args.log_dir.as_ref().map(|s| &s[..]));
 
-    let authenticator = MakeSASLScramAuthStartupHandler::new(
+    let authenticator = Arc::new(SASLScramAuthStartupHandler::new(
         Arc::new(FixedPasswordAuthSource::new(args.peerdb_password.clone())),
         Arc::new(NexusServerParameterProvider),
-    );
+    ));
     let catalog_config = get_catalog_config(&args);
 
     run_migrations(&catalog_config).await?;
@@ -1184,7 +1086,7 @@ pub async fn main() -> anyhow::Result<()> {
         let conn_flow_handler = flow_handler.clone();
         let conn_peer_conns = peer_conns.clone();
         let peerdb_fdw_mode = args.peerdb_fwd_mode == "true";
-        let authenticator_ref = authenticator.make();
+        let authenticator = authenticator.clone();
         let pg_config = catalog_config.to_postgres_config();
 
         tokio::task::spawn(async move {
@@ -1193,7 +1095,7 @@ pub async fn main() -> anyhow::Result<()> {
                     let conn_uuid = uuid::Uuid::new_v4();
                     let tracker = PeerConnectionTracker::new(conn_uuid, conn_peer_conns);
 
-                    let processor = Arc::new(NexusBackend::new(
+                    let nexus = Arc::new(NexusBackend::new(
                         Arc::new(catalog),
                         tracker,
                         conn_flow_handler,
@@ -1202,9 +1104,10 @@ pub async fn main() -> anyhow::Result<()> {
                     process_socket(
                         socket,
                         None,
-                        authenticator_ref,
-                        processor.clone(),
-                        processor,
+                        Arc::new(Handlers {
+                            nexus,
+                            authenticator,
+                        }),
                     )
                     .await
                 }

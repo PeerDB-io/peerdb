@@ -13,7 +13,6 @@ import (
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -37,7 +36,7 @@ type CDCFlowWorkflowState struct {
 func NewCDCFlowWorkflowState(cfg *protos.FlowConnectionConfigs) *CDCFlowWorkflowState {
 	tableMappings := make([]*protos.TableMapping, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
-		tableMappings = append(tableMappings, proto.Clone(tableMapping).(*protos.TableMapping))
+		tableMappings = append(tableMappings, shared.CloneProto(tableMapping))
 	}
 	return &CDCFlowWorkflowState{
 		ActiveSignal:      model.NoopSignal,
@@ -130,7 +129,7 @@ func processCDCFlowConfigUpdate(
 	logger.Info("additional tables added to publication")
 	additionalTablesUUID := GetUUID(ctx)
 	childAdditionalTablesCDCFlowID := GetChildWorkflowID("additional-cdc-flow", cfg.FlowJobName, additionalTablesUUID)
-	additionalTablesCfg := proto.Clone(cfg).(*protos.FlowConnectionConfigs)
+	additionalTablesCfg := shared.CloneProto(cfg)
 	additionalTablesCfg.DoInitialSnapshot = true
 	additionalTablesCfg.InitialSnapshotOnly = true
 	additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
@@ -173,7 +172,7 @@ func syncStateToConfigProtoInCatalog(
 	cfg *protos.FlowConnectionConfigs,
 	state *CDCFlowWorkflowState,
 ) {
-	cloneCfg := proto.Clone(cfg).(*protos.FlowConnectionConfigs)
+	cloneCfg := shared.CloneProto(cfg)
 	cloneCfg.MaxBatchSize = state.SyncFlowOptions.BatchSize
 	cloneCfg.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
 	cloneCfg.TableMappings = state.SyncFlowOptions.TableMappings
@@ -350,12 +349,10 @@ func CDCFlowWorkflow(
 				FlowJobName: cfg.FlowJobName,
 				PeerName:    cfg.DestinationName,
 			}
-			if cfg.SyncedAtColName != "" {
-				renameOpts.SyncedAtColName = &cfg.SyncedAtColName
-			}
-			if cfg.SoftDelete && cfg.SoftDeleteColName != "" {
-				renameOpts.SoftDeleteColName = &cfg.SoftDeleteColName
-			}
+
+			renameOpts.SyncedAtColName = cfg.SyncedAtColName
+			renameOpts.SoftDeleteColName = cfg.SoftDeleteColName
+
 			correctedTableNameSchemaMapping := make(map[string]*protos.TableSchema)
 			for _, mapping := range state.SyncFlowOptions.TableMappings {
 				oldName := mapping.DestinationTableIdentifier
@@ -438,8 +435,7 @@ func CDCFlowWorkflow(
 	mainLoopSelector := workflow.NewNamedSelector(ctx, "MainLoop")
 	mainLoopSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 	mainLoopSelector.AddFuture(syncFlowFuture, func(f workflow.Future) {
-		err := f.Get(ctx, nil)
-		if err != nil {
+		if err := f.Get(ctx, nil); err != nil {
 			handleError("sync", err)
 		}
 
@@ -447,7 +443,7 @@ func CDCFlowWorkflow(
 		syncFlowFuture = nil
 		restart = true
 		if normFlowFuture != nil {
-			err = model.NormalizeSignal.SignalChildWorkflow(ctx, normFlowFuture, model.NormalizePayload{
+			err := model.NormalizeSignal.SignalChildWorkflow(ctx, normFlowFuture, model.NormalizePayload{
 				Done:        true,
 				SyncBatchID: -1,
 			}).Get(ctx, nil)

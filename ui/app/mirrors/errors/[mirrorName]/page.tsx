@@ -1,11 +1,11 @@
 'use client';
 
-import {
-  MirrorLog,
-  MirrorLogsRequest,
-  MirrorLogsResponse,
-} from '@/app/dto/AlertDTO';
 import LogsTable from '@/components/LogsTable';
+import {
+  ListMirrorLogsRequest,
+  ListMirrorLogsResponse,
+  MirrorLog,
+} from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -23,10 +23,11 @@ export default function MirrorError() {
   }, [params.mirrorName]);
 
   useEffect(() => {
-    const req: MirrorLogsRequest = {
+    const req: ListMirrorLogsRequest = {
       flowJobName: params.mirrorName,
       page: currentPage,
       numPerPage: 10,
+      level: 'all',
     };
 
     const fetchData = async () => {
@@ -39,7 +40,7 @@ export default function MirrorError() {
           cache: 'no-store',
           body: JSON.stringify(req),
         });
-        const data: MirrorLogsResponse = await response.json();
+        const data: ListMirrorLogsResponse = await response.json();
         const numPages = Math.ceil(data.total / req.numPerPage);
         setMirrorErrors(data.errors);
         setTotalPages(numPages);

@@ -19,9 +19,7 @@ export async function POST(request: NextRequest) {
         method: 'POST',
         body: JSON.stringify(req),
       }
-    ).then((res) => {
-      return res.json();
-    });
+    ).then((res) => res.json());
 
     return new Response(JSON.stringify(validateResponse));
   } catch (e) {

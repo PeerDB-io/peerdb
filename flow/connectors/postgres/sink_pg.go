@@ -122,7 +122,7 @@ func (p PgCopyReader) CopyInto(ctx context.Context, c *PostgresConnector, tx pgx
 	for _, col := range cols {
 		quotedCols = append(quotedCols, QuoteIdentifier(col))
 	}
-	ct, err := c.conn.PgConn().CopyFrom(
+	ct, err := tx.Conn().PgConn().CopyFrom(
 		ctx,
 		p.PipeReader,
 		fmt.Sprintf("COPY %s (%s) FROM STDIN", table.Sanitize(), strings.Join(quotedCols, ",")),

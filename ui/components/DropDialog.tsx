@@ -1,7 +1,8 @@
 'use client';
-import { UDropMirrorResponse } from '@/app/dto/MirrorsDTO';
 import { UDropPeerResponse } from '@/app/dto/PeersDTO';
+import { changeFlowState } from '@/app/mirrors/[mirrorId]/handlers';
 import { DeleteScript } from '@/app/scripts/handlers';
+import { FlowStatus } from '@/grpc_generated/flow';
 import { Button } from '@/lib/Button';
 import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Icon } from '@/lib/Icon';
@@ -12,7 +13,6 @@ import { BarLoader } from 'react-spinners';
 
 interface dropMirrorArgs {
   flowJobName: string;
-  forResync?: boolean;
 }
 
 interface dropPeerArgs {
@@ -33,24 +33,20 @@ export const handleDropMirror = async (
   setMsg: Dispatch<SetStateAction<string>>
 ) => {
   setLoading(true);
-  const dropRes: UDropMirrorResponse = await fetch('/api/mirrors/drop', {
-    method: 'POST',
-    body: JSON.stringify(dropArgs),
-  }).then((res) => res.json());
+  const res = await changeFlowState(
+    dropArgs.flowJobName,
+    FlowStatus.STATUS_TERMINATED
+  );
   setLoading(false);
-  if (dropRes.dropped !== true) {
+  if (res.status !== 200) {
     setMsg(
-      `Unable to drop mirror ${dropArgs.flowJobName}. ${
-        dropRes.errorMessage ?? ''
-      }`
+      `Unable to drop mirror ${dropArgs.flowJobName}. ${res.json() ?? ''}`
     );
     return false;
   }
 
   setMsg('Mirror dropped successfully.');
-  if (!dropArgs.forResync) {
-    window.location.reload();
-  }
+  window.location.reload();
 
   return true;
 };
@@ -91,14 +87,11 @@ export const DropDialog = ({
 
   const handleDeleteAlert = async (dropArgs: deleteAlertArgs) => {
     setLoading(true);
-    const deleteRes = await fetch('api/alert-config', {
+    const deleteRes = await fetch(`api/alert-config?id=${dropArgs.id}`, {
       method: 'DELETE',
-      body: JSON.stringify(dropArgs),
     });
-    const deleteStatus = await deleteRes.text();
     setLoading(false);
-    if (deleteStatus !== 'success')
-      setMsg(`Unable to delete alert configuration.`);
+    if (!deleteRes.ok) setMsg(`Unable to delete alert configuration.`);
     else {
       setMsg(`Alert configuration deleted successfully.`);
       window.location.reload();

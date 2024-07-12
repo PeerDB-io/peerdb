@@ -630,7 +630,6 @@ func (c *PostgresConnector) NormalizeRecords(
 		peerdbCols: &protos.PeerDBColumns{
 			SoftDeleteColName: req.SoftDeleteColName,
 			SyncedAtColName:   req.SyncedAtColName,
-			SoftDelete:        req.SoftDelete,
 		},
 		supportsMerge:  pgversion >= shared.POSTGRES_15,
 		metadataSchema: c.metadataSchema,
@@ -849,13 +848,15 @@ func (c *PostgresConnector) SetupNormalizedTable(
 		return false, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
 	}
 	if tableAlreadyExists {
+		c.logger.Info("[postgres] table already exists, skipping",
+			slog.String("table", tableIdentifier))
 		return true, nil
 	}
 
 	// convert the column names and types to Postgres types
 	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
 		parsedNormalizedTable.String(), tableSchema, softDeleteColName, syncedAtColName)
-	_, err = createNormalizedTablesTx.Exec(ctx, normalizedTableCreateSQL)
+	_, err = c.execWithLoggingTx(ctx, normalizedTableCreateSQL, createNormalizedTablesTx)
 	if err != nil {
 		return false, fmt.Errorf("error while creating normalized table: %w", err)
 	}
@@ -892,9 +893,17 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 			if schemaDelta.System == protos.TypeSystem_Q {
 				columnType = qValueKindToPostgresType(columnType)
 			}
-			_, err = tableSchemaModifyTx.Exec(ctx, fmt.Sprintf(
-				"ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s",
-				schemaDelta.DstTableName, QuoteIdentifier(addedColumn.Name), columnType))
+
+			dstSchemaTable, err := utils.ParseSchemaTable(schemaDelta.DstTableName)
+			if err != nil {
+				return fmt.Errorf("error parsing schema and table for %s: %w", schemaDelta.DstTableName, err)
+			}
+
+			_, err = c.execWithLoggingTx(ctx, fmt.Sprintf(
+				"ALTER TABLE %s.%s ADD COLUMN IF NOT EXISTS %s %s",
+				QuoteIdentifier(dstSchemaTable.Schema),
+				QuoteIdentifier(dstSchemaTable.Table),
+				QuoteIdentifier(addedColumn.Name), columnType), tableSchemaModifyTx)
 			if err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
@@ -1089,8 +1098,8 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 	}
 	defer shared.RollbackTx(syncFlowCleanupTx, c.logger)
 
-	_, err = syncFlowCleanupTx.Exec(ctx, fmt.Sprintf(dropTableIfExistsSQL, c.metadataSchema,
-		getRawTableIdentifier(jobName)))
+	_, err = c.execWithLoggingTx(ctx, fmt.Sprintf(dropTableIfExistsSQL, c.metadataSchema,
+		getRawTableIdentifier(jobName)), syncFlowCleanupTx)
 	if err != nil {
 		return fmt.Errorf("unable to drop raw table: %w", err)
 	}
@@ -1233,7 +1242,7 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 			if err != nil {
 				return err
 			}
-			_, err = c.conn.Exec(ctx, fmt.Sprintf("ALTER PUBLICATION %s ADD TABLE %s",
+			_, err = c.execWithLogging(ctx, fmt.Sprintf("ALTER PUBLICATION %s ADD TABLE %s",
 				utils.QuoteIdentifier(c.getDefaultPublicationName(req.FlowJobName)),
 				schemaTable.String()))
 			// don't error out if table is already added to our publication
@@ -1271,15 +1280,15 @@ func (c *PostgresConnector) RenameTables(ctx context.Context, req *protos.Rename
 
 		c.logger.Info(fmt.Sprintf("setting synced at column for table '%s'...", src))
 
-		if req.SyncedAtColName != nil && *req.SyncedAtColName != "" {
-			_, err = renameTablesTx.Exec(ctx,
-				fmt.Sprintf("UPDATE %s SET %s=now()", src, QuoteIdentifier(*req.SyncedAtColName)))
+		if req.SyncedAtColName != "" {
+			_, err = c.execWithLoggingTx(ctx,
+				fmt.Sprintf("UPDATE %s SET %s=now()", src, QuoteIdentifier(req.SyncedAtColName)), renameTablesTx)
 			if err != nil {
 				return nil, fmt.Errorf("unable to set synced at column for table %s: %w", src, err)
 			}
 		}
 
-		if req.SoftDeleteColName != nil && *req.SoftDeleteColName != "" {
+		if req.SoftDeleteColName != "" {
 			columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
 			for _, col := range renameRequest.TableSchema.Columns {
 				columnNames = append(columnNames, QuoteIdentifier(col.Name))
@@ -1295,10 +1304,10 @@ func (c *PostgresConnector) RenameTables(ctx context.Context, req *protos.Rename
 
 			c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
 
-			_, err = renameTablesTx.Exec(ctx,
+			_, err = c.execWithLoggingTx(ctx,
 				fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
-					src, fmt.Sprintf("%s,%s", allCols, QuoteIdentifier(*req.SoftDeleteColName)), allCols, *req.SoftDeleteColName,
-					dst, pkeyCols, pkeyCols, src))
+					src, fmt.Sprintf("%s,%s", allCols, QuoteIdentifier(req.SoftDeleteColName)), allCols, req.SoftDeleteColName,
+					dst, pkeyCols, pkeyCols, src), renameTablesTx)
 			if err != nil {
 				return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
 			}
@@ -1308,13 +1317,13 @@ func (c *PostgresConnector) RenameTables(ctx context.Context, req *protos.Rename
 		c.logger.Info(fmt.Sprintf("renaming table '%s' to '%s'...", src, dst))
 
 		// drop the dst table if exists
-		_, err = renameTablesTx.Exec(ctx, "DROP TABLE IF EXISTS "+dst)
+		_, err = c.execWithLoggingTx(ctx, "DROP TABLE IF EXISTS "+dst, renameTablesTx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to drop table %s: %w", dst, err)
 		}
 
 		// rename the src table to dst
-		_, err = renameTablesTx.Exec(ctx, fmt.Sprintf("ALTER TABLE %s RENAME TO %s", src, dstTable.Table))
+		_, err = c.execWithLoggingTx(ctx, fmt.Sprintf("ALTER TABLE %s RENAME TO %s", src, dstTable.Table), renameTablesTx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to rename table %s to %s: %w", src, dst, err)
 		}

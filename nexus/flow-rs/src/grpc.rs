@@ -1,9 +1,7 @@
-use catalog::WorkflowDetails;
 use pt::{
     flow_model::{FlowJob, QRepFlowJob},
     peerdb_flow::{QRepWriteMode, QRepWriteType, TypeSystem},
-    peerdb_route,
-    tonic,
+    peerdb_route, tonic,
 };
 use serde_json::Value;
 use tonic_health::pb::health_client;
@@ -87,15 +85,12 @@ impl FlowGrpcClient {
     pub async fn flow_state_change(
         &mut self,
         flow_job_name: &str,
-        workflow_details: WorkflowDetails,
         state: pt::peerdb_flow::FlowStatus,
         flow_config_update: Option<pt::peerdb_flow::FlowConfigUpdate>,
     ) -> anyhow::Result<()> {
         let state_change_req = pt::peerdb_route::FlowStateChangeRequest {
             flow_job_name: flow_job_name.to_owned(),
             requested_flow_state: state.into(),
-            source_peer: workflow_details.source_peer,
-            destination_peer: workflow_details.destination_peer,
             flow_config_update,
         };
         let response = self.client.flow_state_change(state_change_req).await?;
@@ -149,7 +144,6 @@ impl FlowGrpcClient {
             snapshot_num_tables_in_parallel: snapshot_num_tables_in_parallel.unwrap_or(0),
             snapshot_staging_path: job.snapshot_staging_path.clone(),
             cdc_staging_path: job.cdc_staging_path.clone().unwrap_or_default(),
-            soft_delete: job.soft_delete,
             replication_slot_name: replication_slot_name.unwrap_or_default(),
             max_batch_size: job.max_batch_size.unwrap_or_default(),
             resync: job.resync,
@@ -164,11 +158,7 @@ impl FlowGrpcClient {
             idle_timeout_seconds: job.sync_interval.unwrap_or_default(),
         };
 
-        if job.soft_delete && job.soft_delete_col_name.is_none() {
-            flow_conn_cfg.soft_delete_col_name = "_PEERDB_IS_DELETED".to_string();
-        }
         if job.disable_peerdb_columns {
-            flow_conn_cfg.soft_delete = false;
             flow_conn_cfg.soft_delete_col_name = "".to_string();
             flow_conn_cfg.synced_at_col_name = "".to_string();
         }
@@ -306,6 +296,22 @@ impl FlowGrpcClient {
             Ok(PeerCreationResult::Created)
         } else {
             Ok(PeerCreationResult::Failed(message))
+        }
+    }
+
+    pub async fn resync_mirror(&mut self, flow_job_name: &str) -> anyhow::Result<()> {
+        let resync_mirror_req = pt::peerdb_route::ResyncMirrorRequest {
+            flow_job_name: flow_job_name.to_owned(),
+        };
+        let response = self.client.resync_mirror(resync_mirror_req).await?;
+        let resync_mirror_response = response.into_inner();
+        if resync_mirror_response.ok {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(format!(
+                "failed to resync mirror for flow job {}: {:?}",
+                flow_job_name, resync_mirror_response.error_message
+            )))
         }
     }
 }

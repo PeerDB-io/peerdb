@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -84,7 +85,7 @@ func NewClickhouseConnector(
 	config *protos.ClickhouseConfig,
 ) (*ClickhouseConnector, error) {
 	logger := logger.LoggerFromCtx(ctx)
-	database, err := connect(ctx, config)
+	database, err := Connect(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open connection to Clickhouse peer: %w", err)
 	}
@@ -168,7 +169,7 @@ func NewClickhouseConnector(
 	}, nil
 }
 
-func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, error) {
+func Connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, error) {
 	var tlsSetting *tls.Config
 	if !config.DisableTls {
 		tlsSetting = &tls.Config{MinVersion: tls.VersionTLS13}
@@ -215,4 +216,14 @@ func (c *ClickhouseConnector) Close() error {
 func (c *ClickhouseConnector) ConnectionActive(ctx context.Context) error {
 	// This also checks if database exists
 	return c.database.PingContext(ctx)
+}
+
+func (c *ClickhouseConnector) execWithLogging(ctx context.Context, query string) (sql.Result, error) {
+	c.logger.Info("[clickhouse] executing DDL statement", slog.String("query", query))
+	return c.database.ExecContext(ctx, query)
+}
+
+func (c *ClickhouseConnector) execWithLoggingTx(ctx context.Context, query string, tx *sql.Tx) (sql.Result, error) {
+	c.logger.Info("[clickhouse] executing DDL statement", slog.String("query", query))
+	return tx.ExecContext(ctx, query)
 }

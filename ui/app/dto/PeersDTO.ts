@@ -1,7 +1,6 @@
 import {
   BigqueryConfig,
   ClickhouseConfig,
-  DBType,
   ElasticsearchConfig,
   EventHubConfig,
   EventHubGroupConfig,
@@ -21,10 +20,6 @@ export type UValidatePeerResponse = {
 export type UCreatePeerResponse = {
   created: boolean;
   message: string;
-};
-
-export type USchemasResponse = {
-  schemas: string[];
 };
 
 export type UTablesResponse = {
@@ -57,13 +52,7 @@ export type CatalogPeer = {
   type: number;
   options: Buffer;
 };
-export type PeerRef = { name: string; type: DBType };
 export type PeerSetter = React.Dispatch<React.SetStateAction<PeerConfig>>;
-
-export type SlotLagPoint = {
-  updatedAt: number;
-  slotSize: number;
-};
 
 export type UPublicationsResponse = {
   publicationNames: string[];

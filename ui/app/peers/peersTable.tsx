@@ -4,7 +4,8 @@ import PeerButton from '@/components/PeerComponent';
 import PeerTypeLabel, {
   DBTypeToGoodText,
 } from '@/components/PeerTypeComponent';
-import { DBType, Peer } from '@/grpc_generated/peers';
+import { DBType } from '@/grpc_generated/peers';
+import { PeerListItem } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
@@ -12,7 +13,7 @@ import { useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
 import SelectTheme from '../styles/select';
 
-function PeerRow({ peer }: { peer: Peer }) {
+function PeerRow({ peer }: { peer: PeerListItem }) {
   return (
     <TableRow key={peer.name}>
       <TableCell variant='normal'>
@@ -33,20 +34,18 @@ function PeerRow({ peer }: { peer: Peer }) {
   );
 }
 
-function PeersTable({ peers }: { peers: Peer[] }) {
+export default function PeersTable({ peers }: { peers: PeerListItem[] }) {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [filteredType, setFilteredType] = useState<DBType | undefined>(
     undefined
   );
   const rows = useMemo(
     () =>
-      peers
-        .filter((peer) => {
-          return peer.name.toLowerCase().includes(searchQuery.toLowerCase());
-        })
-        .filter((peer) => {
-          return filteredType == undefined || peer.type == filteredType;
-        }),
+      peers.filter(
+        (peer) =>
+          peer.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
+          (filteredType == undefined || peer.type == filteredType)
+      ),
     [peers, searchQuery, filteredType]
   );
   const allTypesOption: { value: DBType | undefined; label: string } = {
@@ -110,5 +109,3 @@ function PeersTable({ peers }: { peers: Peer[] }) {
     </Table>
   );
 }
-
-export default PeersTable;

@@ -1,7 +1,7 @@
 'use client';
-import { ScriptsType } from '@/app/dto/ScriptsDTO';
 import { notifyErr } from '@/app/utils/notify';
 import PeerDBCodeEditor from '@/components/PeerDBEditor';
+import { Script } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label/Label';
@@ -9,17 +9,17 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { TextField } from '@/lib/TextField';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import { AddScript, HandleEditScript } from '../handlers';
+import { GetScriptById, HandleAddScript, HandleEditScript } from '../handlers';
 
 const EditScript = () => {
   const params = useSearchParams();
   const router = useRouter();
-  const scriptStringBase64 = params.get('script');
-  let script: ScriptsType = {
-    id: 1,
+  const scriptId = params.get('scriptid');
+  let script: Script = {
+    id: -1,
     name: '',
     lang: 'lua',
     source: `
@@ -29,21 +29,12 @@ local json = require "json"
 
 function onRecord(r)
   return json.encode(r.row)
-end
-    `,
+end`,
   };
-  let inEditMode: boolean = false;
-  if (scriptStringBase64) {
-    const scriptString = Buffer.from(scriptStringBase64, 'base64').toString(
-      'utf-8'
-    );
-    script = JSON.parse(scriptString);
-    inEditMode = true;
-  }
-
-  const [newScript, setNewScript] = useState<ScriptsType>(script);
+  const [inEditMode, setInEditMode] = useState(false);
+  const [newScript, setNewScript] = useState<Script>(script);
   const [loading, setLoading] = useState(false);
-  const handleAdd = (script?: ScriptsType) => {
+  const handleAdd = (script?: Script) => {
     if (!script || !script.source) {
       notifyErr('Empty scripts not allowed');
       return;
@@ -53,7 +44,7 @@ end
       return;
     }
     setLoading(true);
-    AddScript(script).then((success) => {
+    HandleAddScript(script).then((success) => {
       setLoading(false);
       if (success) {
         router.replace('/scripts');
@@ -61,7 +52,7 @@ end
     });
   };
 
-  const handleEdit = (script?: ScriptsType) => {
+  const handleEdit = (script?: Script) => {
     if (!script || !script.source) {
       notifyErr('Empty scripts not allowed');
       return;
@@ -79,6 +70,14 @@ end
     });
   };
 
+  useEffect(() => {
+    if (scriptId) {
+      setInEditMode(true);
+      GetScriptById(scriptId).then((existingScript) => {
+        setNewScript(existingScript!);
+      });
+    }
+  }, [scriptId]);
   return (
     <div
       style={{

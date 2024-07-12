@@ -6,7 +6,7 @@ runs:
     - uses: actions/checkout@v4
     - name: check cache
       id: cache
-      uses: actions/cache@v4
+      uses: ubicloud/cache@v4
       with:
         path: |
           ./flow/generated/protos
@@ -17,10 +17,12 @@ runs:
     - if: steps.cache.outputs.cache-hit != 'true'
       uses: actions/setup-go@v5
       with:
-        go-version: '1.22.3'
+        go-version: '1.22.5'
         cache: false
     - if: steps.cache.outputs.cache-hit != 'true'
       uses: bufbuild/buf-setup-action@v1.29.0-1
+      with:
+        github_token: ${{ github.token }}
     - if: steps.cache.outputs.cache-hit != 'true'
       uses: dtolnay/rust-toolchain@stable
     - if: steps.cache.outputs.cache-hit != 'true'
