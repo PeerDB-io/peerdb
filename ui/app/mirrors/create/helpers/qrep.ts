@@ -153,4 +153,16 @@ export const qrepSettings: MirrorSetting[] = [
     tips: 'Decide if PeerDB should use native Postgres types directly',
     advanced: AdvancedSettingType.ALL,
   },
+  {
+    label: 'Staging Path',
+    stateHandler: (value, setter) =>
+      setter(
+        (curr: QRepConfig): QRepConfig => ({
+          ...curr,
+          stagingPath: value as string | '',
+        })
+      ),
+    tips: 'For Snowflake as destination peer, this must be either empty or an S3 bucket URL. For BigQuery, this must be either empty or an existing GCS bucket name. In both cases, if empty, the local filesystem will be used.',
+    advanced: AdvancedSettingType.ALL,
+  },
 ];

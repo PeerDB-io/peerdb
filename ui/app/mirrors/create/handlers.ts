@@ -35,8 +35,11 @@ export const IsQueuePeer = (peerType?: DBType): boolean => {
   );
 };
 
-const IsEventhubsPeer = (peerType?: DBType): boolean => {
-  return !!peerType && peerType === DBType.EVENTHUBS;
+export const IsEventhubsPeer = (peerType?: DBType): boolean => {
+  return (
+    (!!peerType && peerType === DBType.EVENTHUBS) ||
+    peerType?.toString() === DBType[DBType.EVENTHUBS]
+  );
 };
 
 const ValidSchemaQualifiedTarget = (

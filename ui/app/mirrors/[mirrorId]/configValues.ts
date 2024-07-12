@@ -18,7 +18,7 @@ export default function MirrorValues(
     },
     {
       value: `${mirrorConfig?.snapshotMaxParallelWorkers} worker(s)`,
-      label: 'Snapshot Parallel Tables',
+      label: 'Snapshot Parallel Workers',
     },
     {
       value: mirrorConfig?.softDeleteColName

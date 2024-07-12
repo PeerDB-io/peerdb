@@ -4,7 +4,7 @@ import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
 import { CDCConfig, MirrorSetter, TableMapRow } from '../../../dto/MirrorsDTO';
-import { IsQueuePeer, fetchPublications } from '../handlers';
+import { IsEventhubsPeer, IsQueuePeer, fetchPublications } from '../handlers';
 import { AdvancedSettingType, MirrorSetting } from '../helpers/common';
 import CDCField from './fields';
 import TableMapping from './tablemapping';
@@ -18,19 +18,6 @@ interface MirrorConfigProps {
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
 }
-
-export const defaultSyncMode = (dtype: DBType | undefined) => {
-  switch (dtype) {
-    case DBType.POSTGRES:
-      return 'Copy with Binary';
-    case DBType.SNOWFLAKE:
-    case DBType.BIGQUERY:
-    case DBType.S3:
-      return 'AVRO';
-    default:
-      return 'Copy with Binary';
-  }
-};
 
 export default function CDCConfigForm({
   settings,
@@ -81,25 +68,29 @@ export default function CDCConfigForm({
 
   const paramDisplayCondition = (setting: MirrorSetting) => {
     const label = setting.label.toLowerCase();
-    const isQueue = IsQueuePeer(destinationType);
     if (
       (label.includes('snapshot') && mirrorConfig.doInitialSnapshot !== true) ||
       (label === 'replication slot name' &&
         mirrorConfig.doInitialSnapshot === true) ||
       (label.includes('staging path') &&
-        defaultSyncMode(destinationType) !== 'AVRO') ||
-      (isQueue && label.includes('soft delete')) ||
-      (destinationType === DBType.EVENTHUBS &&
+        !(
+          destinationType.toString() === DBType[DBType.BIGQUERY] ||
+          destinationType.toString() === DBType[DBType.SNOWFLAKE]
+        )) ||
+      (IsEventhubsPeer(destinationType) &&
         (label.includes('initial copy') ||
           label.includes('initial load') ||
           label.includes('snapshot'))) ||
-      ((sourceType !== DBType.POSTGRES ||
-        destinationType !== DBType.POSTGRES) &&
+      ((sourceType.toString() !== DBType[DBType.POSTGRES] ||
+        destinationType.toString() !== DBType[DBType.POSTGRES]) &&
         label.includes('type system')) ||
-      (destinationType !== DBType.BIGQUERY && label.includes('column name')) ||
+      (destinationType.toString() !== DBType[DBType.BIGQUERY] &&
+        label.includes('column name')) ||
       (label.includes('soft delete') &&
-        ![DBType.BIGQUERY, DBType.POSTGRES, DBType.SNOWFLAKE].includes(
-          destinationType ?? DBType.UNRECOGNIZED
+        !(
+          destinationType.toString() === DBType[DBType.POSTGRES] ||
+          destinationType.toString() === DBType[DBType.BIGQUERY] ||
+          destinationType.toString() === DBType[DBType.SNOWFLAKE]
         ))
     ) {
       return false;
