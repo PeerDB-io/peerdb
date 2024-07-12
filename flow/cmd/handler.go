@@ -378,10 +378,10 @@ func (h *FlowRequestHandler) FlowStateChange(
 		}
 	}
 
-	// in case we only want to update properties without changing status
 	if req.RequestedFlowState != protos.FlowStatus_STATUS_UNKNOWN {
 		if req.RequestedFlowState == protos.FlowStatus_STATUS_PAUSED &&
 			currState == protos.FlowStatus_STATUS_RUNNING {
+			slog.Info("[flowStateChange]: received pause request")
 			err = model.FlowSignal.SignalClientWorkflow(
 				ctx,
 				h.temporalClient,
@@ -391,6 +391,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			)
 		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_RUNNING &&
 			currState == protos.FlowStatus_STATUS_PAUSED {
+			slog.Info("[flowStateChange]: received resume request")
 			err = model.FlowSignal.SignalClientWorkflow(
 				ctx,
 				h.temporalClient,
@@ -400,6 +401,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			)
 		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED &&
 			(currState != protos.FlowStatus_STATUS_TERMINATED) {
+			slog.Info("[flowStateChange]: received drop mirror request")
 			err = h.shutdownFlow(ctx, req.FlowJobName)
 		} else if req.RequestedFlowState != currState {
 			slog.Error("illegal state change requested", slog.Any("requestedFlowState", req.RequestedFlowState),
