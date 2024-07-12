@@ -81,14 +81,10 @@ export default function CDCConfigForm({
 
   const paramDisplayCondition = (setting: MirrorSetting) => {
     const label = setting.label.toLowerCase();
-    const isQueue = IsQueuePeer(destinationType);
     if (
       (label.includes('snapshot') && mirrorConfig.doInitialSnapshot !== true) ||
       (label === 'replication slot name' &&
         mirrorConfig.doInitialSnapshot === true) ||
-      (label.includes('staging path') &&
-        defaultSyncMode(destinationType) !== 'AVRO') ||
-      (isQueue && label.includes('soft delete')) ||
       (destinationType === DBType.EVENTHUBS &&
         (label.includes('initial copy') ||
           label.includes('initial load') ||
@@ -98,8 +94,10 @@ export default function CDCConfigForm({
         label.includes('type system')) ||
       (destinationType !== DBType.BIGQUERY && label.includes('column name')) ||
       (label.includes('soft delete') &&
-        ![DBType.BIGQUERY, DBType.POSTGRES, DBType.SNOWFLAKE].includes(
-          destinationType ?? DBType.UNRECOGNIZED
+        !(
+          destinationType.toString() === DBType[DBType.POSTGRES] ||
+          destinationType.toString() === DBType[DBType.BIGQUERY] ||
+          destinationType.toString() === DBType[DBType.SNOWFLAKE]
         ))
     ) {
       return false;

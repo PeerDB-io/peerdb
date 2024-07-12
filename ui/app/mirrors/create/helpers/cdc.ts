@@ -113,30 +113,6 @@ export const cdcSettings: MirrorSetting[] = [
     advanced: AdvancedSettingType.ALL,
   },
   {
-    label: 'Snapshot Staging Path',
-    stateHandler: (value, setter) =>
-      setter(
-        (curr: CDCConfig): CDCConfig => ({
-          ...curr,
-          snapshotStagingPath: value as string | '',
-        })
-      ),
-    tips: 'You can specify staging path for Snapshot sync mode AVRO. For Snowflake as destination peer, this must be either empty or an S3 bucket URL. For BigQuery, this must be either empty or an existing GCS bucket name. In both cases, if empty, the local filesystem will be used.',
-    advanced: AdvancedSettingType.ALL,
-  },
-  {
-    label: 'CDC Staging Path',
-    stateHandler: (value, setter) =>
-      setter(
-        (curr: CDCConfig): CDCConfig => ({
-          ...curr,
-          cdcStagingPath: (value as string) || '',
-        })
-      ),
-    tips: 'You can specify staging path for CDC sync mode AVRO. For Snowflake as destination peer, this must be either empty or an S3 bucket URL. For BigQuery, this must be either empty or an existing GCS bucket name. In both cases, if empty, the local filesystem will be used.',
-    advanced: AdvancedSettingType.ALL,
-  },
-  {
     label: 'Soft Delete',
     stateHandler: (value, setter) =>
       setter(
