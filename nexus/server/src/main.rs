@@ -67,8 +67,7 @@ impl AuthSource for FixedPasswordAuthSource {
 
         // randomly generate a 4 byte salt
         let salt = rand::thread_rng().gen::<[u8; 4]>();
-        let password = &self.password;
-        let hash_password = gen_salted_password(password, &salt, 4096);
+        let hash_password = gen_salted_password(&self.password, &salt, 4096);
         Ok(Password::new(Some(salt.to_vec()), hash_password))
     }
 }
@@ -1014,8 +1013,10 @@ async fn run_migrations<'a>(config: &CatalogConfig<'a>) -> anyhow::Result<()> {
 }
 
 pub struct Handlers {
-    authenticator:
-        Arc<SASLScramAuthStartupHandler<FixedPasswordAuthSource, NexusServerParameterProvider>>,
+    authenticator: (
+        Arc<FixedPasswordAuthSource>,
+        Arc<NexusServerParameterProvider>,
+    ),
     nexus: Arc<NexusBackend>,
 }
 
@@ -1035,7 +1036,10 @@ impl PgWireHandlerFactory for Handlers {
     }
 
     fn startup_handler(&self) -> Arc<Self::StartupHandler> {
-        self.authenticator.clone()
+        Arc::new(SASLScramAuthStartupHandler::new(
+            self.authenticator.0.clone(),
+            self.authenticator.1.clone(),
+        ))
     }
 
     fn copy_handler(&self) -> Arc<Self::CopyHandler> {
@@ -1050,10 +1054,10 @@ pub async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let _guard = setup_tracing(args.log_dir.as_ref().map(|s| &s[..]));
 
-    let authenticator = Arc::new(SASLScramAuthStartupHandler::new(
+    let authenticator = (
         Arc::new(FixedPasswordAuthSource::new(args.peerdb_password.clone())),
         Arc::new(NexusServerParameterProvider),
-    ));
+    );
     let catalog_config = get_catalog_config(&args);
 
     run_migrations(&catalog_config).await?;
