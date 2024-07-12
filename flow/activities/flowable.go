@@ -835,7 +835,7 @@ func (a *FlowableActivity) UpdateCdcFlowConfigInCatalog(
 // TODO remove in 0.15
 func (a *FlowableActivity) UpdateQRepFlowConfigInCatalog(
 	ctx context.Context,
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.QRepConfig,
 ) error {
 	cfgBytes, err := proto.Marshal(cfg)
 	if err != nil {
