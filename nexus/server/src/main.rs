@@ -236,13 +236,13 @@ impl NexusBackend {
                         })?;
 
                     let res = self.catalog.delete_flow_job_entry(flow_job_name).await;
-                    if res.is_err() {
+                    if let Err(err) = res {
                         if *if_exists {
                             let no_mirror_success = "NO SUCH MIRROR";
                             return Ok(vec![Response::Execution(Tag::new(no_mirror_success))]);
                         }
                         return Err(PgWireError::ApiError(
-                            format!("unable to delete job metadata: {:?}", res.err()).into(),
+                            format!("unable to delete job metadata: {:?}", err).into(),
                         ));
                     }
                     let drop_mirror_success = format!("DROP MIRROR {}", flow_job_name);
@@ -470,13 +470,13 @@ impl NexusBackend {
 
                     let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
                     let res = flow_handler.resync_mirror(mirror_name).await;
-                    if res.is_err() {
+                    if let Err(err) = res {
                         if *if_exists {
                             let no_mirror_success = "NO SUCH MIRROR";
                             return Ok(vec![Response::Execution(Tag::new(no_mirror_success))]);
                         }
                         return Err(PgWireError::ApiError(
-                            format!("unable to resync mirror: {:?}", res.err()).into(),
+                            format!("unable to resync mirror: {:?}", err).into(),
                         ));
                     }
                     let resync_mirror_success = format!("RESYNC MIRROR {}", mirror_name);
@@ -506,13 +506,13 @@ impl NexusBackend {
                             None,
                         )
                         .await;
-                    if res.is_err() {
+                    if let Err(err) = res {
                         if *if_exists {
                             let no_mirror_success = "NO SUCH MIRROR";
                             return Ok(vec![Response::Execution(Tag::new(no_mirror_success))]);
                         }
                         return Err(PgWireError::ApiError(
-                            format!("unable to pause flow job: {:?}", res.err()).into(),
+                            format!("unable to pause flow job: {:?}", err).into(),
                         ));
                     }
                     let drop_mirror_success = format!("PAUSE MIRROR {}", flow_job_name);
@@ -542,13 +542,13 @@ impl NexusBackend {
                             None,
                         )
                         .await;
-                    if res.is_err() {
+                    if let Err(err) = res {
                         if *if_exists {
                             let no_mirror_success = "NO SUCH MIRROR";
                             return Ok(vec![Response::Execution(Tag::new(no_mirror_success))]);
                         }
                         return Err(PgWireError::ApiError(
-                            format!("unable to resume flow job: {:?}", res.err()).into(),
+                            format!("unable to resume flow job: {:?}", err).into(),
                         ));
                     }
 
