@@ -72,6 +72,11 @@ export default function CDCConfigForm({
       (label.includes('snapshot') && mirrorConfig.doInitialSnapshot !== true) ||
       (label === 'replication slot name' &&
         mirrorConfig.doInitialSnapshot === true) ||
+      (label.includes('staging path') &&
+        !(
+          destinationType.toString() === DBType[DBType.BIGQUERY] ||
+          destinationType.toString() === DBType[DBType.SNOWFLAKE]
+        )) ||
       (IsEventhubsPeer(destinationType) &&
         (label.includes('initial copy') ||
           label.includes('initial load') ||

@@ -82,6 +82,11 @@ export default function QRepConfigForm({
       (label.includes('upsert') &&
         mirrorConfig.writeMode?.writeType !=
           QRepWriteType.QREP_WRITE_MODE_UPSERT) ||
+      (label.includes('staging') &&
+        !(
+          destinationType.toString() === DBType[DBType.BIGQUERY] ||
+          destinationType.toString() === DBType[DBType.SNOWFLAKE]
+        )) ||
       (label.includes('watermark column') && xmin) ||
       (label.includes('initial copy') && xmin)
     ) {
