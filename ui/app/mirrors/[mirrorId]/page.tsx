@@ -34,10 +34,10 @@ export default function ViewMirror({
   const mirrorName = parentMirrorName ?? mirrorId;
 
   const fetchState = useCallback(async () => {
-    const res = await getMirrorState(mirrorId);
+    const res = await getMirrorState(mirrorName);
     setMirrorState(res);
     setMounted(true);
-  }, [mirrorId]);
+  }, [mirrorName]);
   useEffect(() => {
     fetchState();
   }, [fetchState]);
