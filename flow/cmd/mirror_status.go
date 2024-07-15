@@ -350,7 +350,7 @@ func (h *FlowRequestHandler) getPartitionStatuses(
 	ctx context.Context,
 	flowJobName string,
 ) ([]*protos.PartitionStatus, error) {
-	q := "SELECT start_time,end_time,rows_in_partition,rows_synced FROM peerdb_stats.qrep_partitions WHERE flow_name=$1"
+	q := "SELECT partition_uuid,start_time,end_time,rows_in_partition,rows_synced FROM peerdb_stats.qrep_partitions WHERE flow_name=$1"
 	rows, err := h.pool.Query(ctx, q, flowJobName)
 	if err != nil {
 		slog.Error(fmt.Sprintf("unable to query qrep partition - %s: %s", flowJobName, err.Error()))
@@ -360,19 +360,23 @@ func (h *FlowRequestHandler) getPartitionStatuses(
 	defer rows.Close()
 
 	res := []*protos.PartitionStatus{}
+	var partitionId pgtype.Text
 	var startTime pgtype.Timestamp
 	var endTime pgtype.Timestamp
 	var numRowsInPartition pgtype.Int8
 	var numRowsSynced pgtype.Int8
 
 	for rows.Next() {
-		if err := rows.Scan(&startTime, &endTime, &numRowsInPartition, &numRowsSynced); err != nil {
+		if err := rows.Scan(&partitionId, &startTime, &endTime, &numRowsInPartition, &numRowsSynced); err != nil {
 			slog.Error(fmt.Sprintf("unable to scan qrep partition - %s: %s", flowJobName, err.Error()))
 			return nil, fmt.Errorf("unable to scan qrep partition - %s: %w", flowJobName, err)
 		}
 
 		partitionStatus := &protos.PartitionStatus{}
 
+		if partitionId.Valid {
+			partitionStatus.PartitionId = partitionId.String
+		}
 		if startTime.Valid {
 			partitionStatus.StartTime = timestamppb.New(startTime.Time)
 		}
