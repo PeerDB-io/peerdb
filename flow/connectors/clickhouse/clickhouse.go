@@ -58,6 +58,13 @@ func (c *ClickhouseConnector) ValidateCheck(ctx context.Context) error {
 		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
 	}
 
+	// add a column
+	_, err = c.database.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now()",
+		validateDummyTableName+"_temp"))
+	if err != nil {
+		return fmt.Errorf("failed to add column to validation table %s: %w", validateDummyTableName, err)
+	}
+
 	// rename the table
 	_, err = c.database.ExecContext(ctx, fmt.Sprintf("RENAME TABLE %s TO %s",
 		validateDummyTableName+"_temp", validateDummyTableName))
