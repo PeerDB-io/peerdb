@@ -19,19 +19,11 @@ import SyncStatus from './syncStatus';
 
 type EditMirrorProps = {
   params: { mirrorId: string };
-  searchParams?: { parentMirrorName: string };
 };
 
-export default function ViewMirror({
-  params: { mirrorId },
-  searchParams,
-}: EditMirrorProps) {
+export default function ViewMirror({ params: { mirrorId } }: EditMirrorProps) {
   const [mirrorState, setMirrorState] = useState<MirrorStatusResponse>();
   const [mounted, setMounted] = useState(false);
-  const parentMirrorName = searchParams?.parentMirrorName;
-  const isCloneJob =
-    mirrorId.startsWith('clone_') && parentMirrorName !== mirrorId;
-  const mirrorName = parentMirrorName ?? mirrorId;
 
   const fetchState = useCallback(async () => {
     const res = await getMirrorState(mirrorId);
@@ -53,7 +45,7 @@ export default function ViewMirror({
   let syncStatusChild = null;
   let actionsDropdown = null;
 
-  if (mirrorState?.cdcStatus && !isCloneJob) {
+  if (mirrorState?.cdcStatus) {
     syncStatusChild = (
       <SyncStatus
         rows={mirrorState.cdcStatus.cdcBatches}
@@ -93,7 +85,7 @@ export default function ViewMirror({
             paddingRight: '2rem',
           }}
         >
-          <Header variant='title2'>{mirrorName}</Header>
+          <Header variant='title2'>{mirrorId}</Header>
           {actionsDropdown}
         </div>
         <CDCMirror
