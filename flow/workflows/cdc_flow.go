@@ -276,6 +276,18 @@ func CDCFlowWorkflow(
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 	}
 
+	// Set soft delete to false no matter what
+	// This operation is only done once, for upgrades from v0.15.1 onwards
+	cfg.SoftDelete = false
+	saveCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Hour,
+		HeartbeatTimeout:    time.Minute,
+	})
+	saveFuture := workflow.ExecuteActivity(saveCtx, flowable.UpdateCdcFlowConfigInCatalog, cfg)
+	if err := saveFuture.Get(saveCtx, nil); err != nil {
+		return state, fmt.Errorf("failed to save updated config for setting soft delete to false: %w", err)
+	}
+
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 
 	// we cannot skip SetupFlow if SnapshotFlow did not complete in cases where Resync is enabled

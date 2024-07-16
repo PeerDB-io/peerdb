@@ -824,3 +824,22 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 	}
 	return err
 }
+
+// This exists only in v0.15.11
+// Meant for setting soft delete to false everywhere
+func (a *FlowableActivity) UpdateCdcFlowConfigInCatalog(
+	ctx context.Context,
+	cfg *protos.FlowConnectionConfigs,
+) error {
+	cfgBytes, err := proto.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("unable to marshal flow config: %w", err)
+	}
+
+	_, err = a.CatalogPool.Exec(ctx, "UPDATE flows SET config_proto = $1 WHERE name = $2", cfgBytes, cfg.FlowJobName)
+	if err != nil {
+		return fmt.Errorf("unable to update flow config in catalog: %w", err)
+	}
+
+	return nil
+}
