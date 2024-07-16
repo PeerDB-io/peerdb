@@ -2,12 +2,12 @@ package connclickhouse
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -68,40 +68,24 @@ func (c *ClickhouseConnector) createMetadataInsertStatement(
 	return insertMetadataStmt, nil
 }
 
-func (c *ClickhouseConnector) getTableSchema(ctx context.Context,
-	tableName string,
-) ([]*sql.ColumnType, error) {
-	//nolint:gosec
+func (c *ClickhouseConnector) getTableSchema(ctx context.Context, tableName string) ([]driver.ColumnType, error) {
 	queryString := fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName)
-	rows, err := c.database.QueryContext(ctx, queryString)
+	rows, err := c.database.Query(ctx, queryString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
-	defer func() {
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			c.logger.Warn("error while closing rows", slog.Any("error", err))
-		}
-	}()
+	defer rows.Close()
 
-	columnTypes, err := rows.ColumnTypes()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get column types: %w", err)
-	}
-
-	return columnTypes, nil
+	return rows.ColumnTypes(), nil
 }
 
 func (c *ClickhouseConnector) IsQRepPartitionSynced(ctx context.Context,
 	req *protos.IsQRepPartitionSyncedInput,
 ) (bool, error) {
-	//nolint:gosec
 	queryString := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE partitionID = '%s'`, qRepMetadataTableName, req.PartitionId)
 
-	row := c.database.QueryRowContext(ctx, queryString)
-
-	var count int
-	if err := row.Scan(&count); err != nil {
+	var count uint64
+	if err := c.database.QueryRow(ctx, queryString).Scan(&count); err != nil {
 		return false, fmt.Errorf("failed to execute query: %w", err)
 	}
 	return count > 0, nil
@@ -114,7 +98,7 @@ func (c *ClickhouseConnector) SetupQRepMetadataTables(ctx context.Context, confi
 	}
 
 	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		_, err = c.execWithLogging(ctx, "TRUNCATE TABLE "+config.DestinationTableIdentifier)
+		err = c.execWithLogging(ctx, "TRUNCATE TABLE "+config.DestinationTableIdentifier)
 		if err != nil {
 			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
 		}
@@ -136,7 +120,7 @@ func (c *ClickhouseConnector) createQRepMetadataTable(ctx context.Context) error
 		ORDER BY partitionID;
 	`
 	queryString := fmt.Sprintf(schemaStatement, qRepMetadataTableName)
-	_, err := c.execWithLogging(ctx, queryString)
+	err := c.execWithLogging(ctx, queryString)
 	if err != nil {
 		c.logger.Error("failed to create table "+qRepMetadataTableName,
 			slog.Any("error", err))

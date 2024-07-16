@@ -59,7 +59,7 @@ func (c *ClickhouseConnector) SetupNormalizedTable(
 		return false, fmt.Errorf("error while generating create table sql for normalized table: %w", err)
 	}
 
-	_, err = c.execWithLogging(ctx, normalizedTableCreateSQL)
+	err = c.execWithLogging(ctx, normalizedTableCreateSQL)
 	if err != nil {
 		return false, fmt.Errorf("[ch] error while creating normalized table: %w", err)
 	}
@@ -233,7 +233,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 		q := insertIntoSelectQuery.String()
 		c.logger.Info("[clickhouse] insert into select query " + q)
 
-		_, err = c.database.ExecContext(ctx, q)
+		err = c.database.Exec(ctx, q)
 		if err != nil {
 			return nil, fmt.Errorf("error while inserting into normalized table: %w", err)
 		}
@@ -261,12 +261,11 @@ func (c *ClickhouseConnector) getDistinctTableNamesInBatch(
 ) ([]string, error) {
 	rawTbl := c.getRawTableName(flowJobName)
 
-	//nolint:gosec
 	q := fmt.Sprintf(
 		`SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d`,
 		rawTbl, normalizeBatchID, syncBatchID)
 
-	rows, err := c.database.QueryContext(ctx, q)
+	rows, err := c.database.Query(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("error while querying raw table for distinct table names in batch: %w", err)
 	}
