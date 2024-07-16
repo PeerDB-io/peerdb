@@ -84,10 +84,8 @@ func (c *ClickhouseConnector) IsQRepPartitionSynced(ctx context.Context,
 ) (bool, error) {
 	queryString := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE partitionID = '%s'`, qRepMetadataTableName, req.PartitionId)
 
-	row := c.database.QueryRow(ctx, queryString)
-
-	var count int
-	if err := row.Scan(&count); err != nil {
+	var count uint64
+	if err := c.database.QueryRow(ctx, queryString).Scan(&count); err != nil {
 		return false, fmt.Errorf("failed to execute query: %w", err)
 	}
 	return count > 0, nil
