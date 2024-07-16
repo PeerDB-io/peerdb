@@ -926,8 +926,12 @@ struct Args {
     #[clap(long, env = "PEERDB_FLOW_SERVER_ADDRESS")]
     flow_api_url: Option<String>,
 
-    #[clap(long, env = "PEERDB_FDW_MODE", default_value = "false")]
-    peerdb_fwd_mode: String,
+    #[clap(long, default_value = "false", env = "PEERDB_FDW_MODE")]
+    peerdb_fdw_mode: bool,
+
+    /// If set to true, nexus will exit after running migrations
+    #[clap(long, default_value = "false", env = "PEERDB_MIGRATIONS_ONLY")]
+    migrations_only: bool,
 }
 
 // Get catalog config from args
@@ -1053,14 +1057,17 @@ pub async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
     let _guard = setup_tracing(args.log_dir.as_ref().map(|s| &s[..]));
+    let catalog_config = get_catalog_config(&args);
+
+    run_migrations(&catalog_config).await?;
+    if args.migrations_only {
+        return Ok(());
+    }
 
     let authenticator = (
         Arc::new(FixedPasswordAuthSource::new(args.peerdb_password.clone())),
         Arc::new(NexusServerParameterProvider),
     );
-    let catalog_config = get_catalog_config(&args);
-
-    run_migrations(&catalog_config).await?;
 
     let peer_conns = {
         let conn_str = catalog_config.to_pg_connection_string();
@@ -1089,7 +1096,6 @@ pub async fn main() -> anyhow::Result<()> {
         }?;
         let conn_flow_handler = flow_handler.clone();
         let conn_peer_conns = peer_conns.clone();
-        let peerdb_fdw_mode = args.peerdb_fwd_mode == "true";
         let authenticator = authenticator.clone();
         let pg_config = catalog_config.to_postgres_config();
 
@@ -1103,7 +1109,7 @@ pub async fn main() -> anyhow::Result<()> {
                         Arc::new(catalog),
                         tracker,
                         conn_flow_handler,
-                        peerdb_fdw_mode,
+                        args.peerdb_fdw_mode,
                     ));
                     process_socket(
                         socket,

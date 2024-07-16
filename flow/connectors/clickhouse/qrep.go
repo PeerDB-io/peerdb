@@ -71,12 +71,16 @@ func (c *ClickhouseConnector) createMetadataInsertStatement(
 func (c *ClickhouseConnector) getTableSchema(tableName string) ([]*sql.ColumnType, error) {
 	//nolint:gosec
 	queryString := fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName)
-	//nolint:rowserrcheck
 	rows, err := c.database.Query(queryString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			c.logger.Warn("error while closing rows", slog.Any("error", err))
+		}
+	}()
 
 	columnTypes, err := rows.ColumnTypes()
 	if err != nil {
