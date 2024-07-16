@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -161,9 +162,10 @@ func (c *ClickhouseConnector) RenameTables(ctx context.Context, req *protos.Rena
 	for _, renameRequest := range req.RenameTableOptions {
 		if req.SyncedAtColName != "" {
 			syncedAtCol := strings.ToLower(req.SyncedAtColName)
+			currentTimestamp := time.Now().Format("2024-07-16 18:28:13.000000000")
 			err := c.execWithLogging(ctx,
-				fmt.Sprintf("ALTER TABLE %s UPDATE %s=now() WHERE true SETTINGS allow_nondeterministic_mutations=1",
-					renameRequest.CurrentName, syncedAtCol))
+				fmt.Sprintf("ALTER TABLE %s UPDATE %s='%s' WHERE true",
+					renameRequest.CurrentName, syncedAtCol, currentTimestamp))
 			if err != nil {
 				return nil, fmt.Errorf("unable to set synced at column for table %s: %w",
 					renameRequest.CurrentName, err)
