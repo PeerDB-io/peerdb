@@ -52,21 +52,21 @@ func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error
 func (c *ClickhouseConnector) ValidateCheck(ctx context.Context) error {
 	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
 	// create a table
-	err := c.database.Exec(ctx, fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id UInt64, updated_at DateTime64(9)) ENGINE = Memory",
+	err := c.database.Exec(ctx, fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id UInt64) ENGINE = Memory",
 		validateDummyTableName+"_temp"))
 	if err != nil {
 		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// add a column
-	_, err = c.database.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now()",
+	err = c.database.Exec(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now()",
 		validateDummyTableName+"_temp"))
 	if err != nil {
 		return fmt.Errorf("failed to add column to validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// rename the table
-	_, err = c.database.ExecContext(ctx, fmt.Sprintf("RENAME TABLE %s TO %s",
+	err = c.database.Exec(ctx, fmt.Sprintf("RENAME TABLE %s TO %s",
 		validateDummyTableName+"_temp", validateDummyTableName))
 	if err != nil {
 		return fmt.Errorf("failed to rename validation table %s: %w", validateDummyTableName, err)
@@ -79,7 +79,7 @@ func (c *ClickhouseConnector) ValidateCheck(ctx context.Context) error {
 	}
 
 	// alter update the row
-	_, err = c.database.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s UPDATE updated_at = now() WHERE id = 1 SETTINGS allow_nondeterministic_mutations=1",
+	err = c.database.Exec(ctx, fmt.Sprintf("ALTER TABLE %s UPDATE updated_at = now() WHERE id = 1 SETTINGS allow_nondeterministic_mutations=1",
 		validateDummyTableName))
 	if err != nil {
 		return fmt.Errorf("failed to update validation table %s: %w", validateDummyTableName, err)
