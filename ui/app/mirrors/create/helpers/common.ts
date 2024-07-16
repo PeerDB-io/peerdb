@@ -21,8 +21,6 @@ export interface MirrorSetting {
 }
 
 export const blankCDCSetting: CDCConfig = {
-  source: undefined,
-  destination: undefined,
   sourceName: '',
   destinationName: '',
   flowJobName: '',
@@ -35,7 +33,6 @@ export const blankCDCSetting: CDCConfig = {
   snapshotNumTablesInParallel: 1,
   snapshotStagingPath: '',
   cdcStagingPath: '',
-  softDelete: true,
   replicationSlotName: '',
   resync: false,
   softDeleteColName: '_PEERDB_IS_DELETED',

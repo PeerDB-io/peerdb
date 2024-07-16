@@ -24,13 +24,13 @@ chrono = { version = "0.4", default-features = false, features = [
   "serde",
   "std",
 ] }
-dashmap = "5.0"
+dashmap = "6"
 rust_decimal = { version = "1", default-features = false, features = [
   "tokio-pg",
 ] }
 sqlparser = { git = "https://github.com/peerdb-io/sqlparser-rs.git", branch = "main" }
 tracing = "0.1"
-pgwire = { version = "0.22", default-features = false, features = [
+pgwire = { version = "0.23", default-features = false, features = [
   "scram",
   "server-api-ring",
 ] }

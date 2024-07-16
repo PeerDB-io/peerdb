@@ -1,4 +1,3 @@
-use catalog::WorkflowDetails;
 use pt::{
     flow_model::{FlowJob, QRepFlowJob},
     peerdb_flow::{QRepWriteMode, QRepWriteType, TypeSystem},
@@ -7,9 +6,9 @@ use pt::{
 use serde_json::Value;
 use tonic_health::pb::health_client;
 
-pub enum PeerValidationResult {
-    Valid,
-    Invalid(String),
+pub enum PeerCreationResult {
+    Created,
+    Failed(String),
 }
 
 pub struct FlowGrpcClient {
@@ -55,24 +54,6 @@ impl FlowGrpcClient {
         Ok(workflow_id)
     }
 
-    pub async fn validate_peer(
-        &mut self,
-        validate_request: &pt::peerdb_route::ValidatePeerRequest,
-    ) -> anyhow::Result<PeerValidationResult> {
-        let validate_peer_req = pt::peerdb_route::ValidatePeerRequest {
-            peer: validate_request.peer.clone(),
-        };
-        let response = self.client.validate_peer(validate_peer_req).await?;
-        let response_body = &response.into_inner();
-        let message = response_body.message.clone();
-        let status = response_body.status;
-        if status == pt::peerdb_route::ValidatePeerStatus::Valid as i32 {
-            Ok(PeerValidationResult::Valid)
-        } else {
-            Ok(PeerValidationResult::Invalid(message))
-        }
-    }
-
     async fn start_peer_flow(
         &mut self,
         peer_flow_config: pt::peerdb_flow::FlowConnectionConfigs,
@@ -104,15 +85,12 @@ impl FlowGrpcClient {
     pub async fn flow_state_change(
         &mut self,
         flow_job_name: &str,
-        workflow_details: WorkflowDetails,
         state: pt::peerdb_flow::FlowStatus,
         flow_config_update: Option<pt::peerdb_flow::FlowConfigUpdate>,
     ) -> anyhow::Result<()> {
         let state_change_req = pt::peerdb_route::FlowStateChangeRequest {
             flow_job_name: flow_job_name.to_owned(),
             requested_flow_state: state.into(),
-            source_peer: workflow_details.source_peer,
-            destination_peer: workflow_details.destination_peer,
             flow_config_update,
         };
         let response = self.client.flow_state_change(state_change_req).await?;
@@ -154,10 +132,7 @@ impl FlowGrpcClient {
             return anyhow::Result::Err(anyhow::anyhow!("invalid system {}", job.system));
         };
 
-        #[allow(deprecated)]
         let mut flow_conn_cfg = pt::peerdb_flow::FlowConnectionConfigs {
-            source: None,
-            destination: None,
             source_name: src,
             destination_name: dst,
             flow_job_name: job.name.clone(),
@@ -169,7 +144,6 @@ impl FlowGrpcClient {
             snapshot_num_tables_in_parallel: snapshot_num_tables_in_parallel.unwrap_or(0),
             snapshot_staging_path: job.snapshot_staging_path.clone(),
             cdc_staging_path: job.cdc_staging_path.clone().unwrap_or_default(),
-            soft_delete: job.soft_delete,
             replication_slot_name: replication_slot_name.unwrap_or_default(),
             max_batch_size: job.max_batch_size.unwrap_or_default(),
             resync: job.resync,
@@ -184,11 +158,7 @@ impl FlowGrpcClient {
             idle_timeout_seconds: job.sync_interval.unwrap_or_default(),
         };
 
-        if job.soft_delete && job.soft_delete_col_name.is_none() {
-            flow_conn_cfg.soft_delete_col_name = "_PEERDB_IS_DELETED".to_string();
-        }
         if job.disable_peerdb_columns {
-            flow_conn_cfg.soft_delete = false;
             flow_conn_cfg.soft_delete_col_name = "".to_string();
             flow_conn_cfg.synced_at_col_name = "".to_string();
         }
@@ -311,6 +281,37 @@ impl FlowGrpcClient {
                 tracing::error!("failed to check health of flow server: {}", e);
                 false
             }
+        }
+    }
+
+    pub async fn create_peer(
+        &mut self,
+        create_request: pt::peerdb_route::CreatePeerRequest,
+    ) -> anyhow::Result<PeerCreationResult> {
+        let response = self.client.create_peer(create_request).await?;
+        let response_body = &response.into_inner();
+        let message = response_body.message.clone();
+        let status = response_body.status;
+        if status == pt::peerdb_route::CreatePeerStatus::Created as i32 {
+            Ok(PeerCreationResult::Created)
+        } else {
+            Ok(PeerCreationResult::Failed(message))
+        }
+    }
+
+    pub async fn resync_mirror(&mut self, flow_job_name: &str) -> anyhow::Result<()> {
+        let resync_mirror_req = pt::peerdb_route::ResyncMirrorRequest {
+            flow_job_name: flow_job_name.to_owned(),
+        };
+        let response = self.client.resync_mirror(resync_mirror_req).await?;
+        let resync_mirror_response = response.into_inner();
+        if resync_mirror_response.ok {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(format!(
+                "failed to resync mirror for flow job {}: {:?}",
+                flow_job_name, resync_mirror_response.error_message
+            )))
         }
     }
 }

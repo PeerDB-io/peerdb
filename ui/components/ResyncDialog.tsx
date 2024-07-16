@@ -1,60 +1,41 @@
 'use client';
-import { FlowConnectionConfigs } from '@/grpc_generated/flow';
+import {
+  ResyncMirrorRequest,
+  ResyncMirrorResponse,
+} from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Label } from '@/lib/Label';
 import { Divider } from '@tremor/react';
 import { useState } from 'react';
 import { BarLoader, DotLoader } from 'react-spinners';
-import { handleDropMirror } from './DropDialog';
 
-export const ResyncDialog = ({
-  mirrorConfig,
-  workflowId,
-}: {
-  mirrorConfig: FlowConnectionConfigs;
-  workflowId: string;
-}) => {
+type ResyncDialogProps = {
+  mirrorName: string;
+};
+
+export const ResyncDialog = ({ mirrorName }: ResyncDialogProps) => {
   const [syncing, setSyncing] = useState(false);
-  const [dropping, setDropping] = useState(false);
   const [msg, setMsg] = useState('');
 
   const handleResync = async () => {
-    setMsg('Dropping existing mirror');
-    const dropStatus = await handleDropMirror(
-      {
-        workflowId: workflowId,
-        flowJobName: mirrorConfig.flowJobName,
-        sourcePeer: mirrorConfig.sourceName!,
-        destinationPeer: mirrorConfig.destinationName!,
-        forResync: true,
-      },
-      setDropping,
-      setMsg
-    );
-
-    if (!dropStatus) {
-      return;
-    }
-
     setSyncing(true);
     setMsg('Resyncing...');
-    mirrorConfig.resync = true;
-    mirrorConfig.doInitialSnapshot = true;
-    const createStatus = await fetch('/api/mirrors/cdc', {
+    const resyncRes: ResyncMirrorResponse = await fetch('/api/mirrors/resync', {
       method: 'POST',
       body: JSON.stringify({
-        config: mirrorConfig,
-      }),
+        flowJobName: mirrorName,
+      } as ResyncMirrorRequest),
     }).then((res) => res.json());
-    setSyncing(false);
-    if (!createStatus.created) {
-      setMsg('Resyncing of existing mirror failed');
-      return;
+    if (resyncRes.ok !== true) {
+      setMsg(
+        `Unable to drop mirror ${mirrorName}. ${resyncRes.errorMessage ?? ''}`
+      );
+      return false;
     }
-
     setMsg('Mirror resynced successfully');
     window.location.reload();
+    return true;
   };
 
   return (
@@ -72,7 +53,7 @@ export const ResyncDialog = ({
     >
       <div>
         <Label as='label' variant='action'>
-          Resync {mirrorConfig.flowJobName}
+          Resync {mirrorName}
         </Label>
         <Divider style={{ margin: 0 }} />
         <Label as='label' variant='body' style={{ marginTop: '0.3rem' }}>
@@ -81,7 +62,7 @@ export const ResyncDialog = ({
           This involves <b>dropping the existing mirror</b> and recreating it.
         </Label>
         <div style={{ display: 'flex', alignItems: 'center' }}>
-          {syncing || (dropping && <DotLoader size={15} />)}
+          {syncing && <DotLoader size={15} />}
           <Label as='label' style={{ marginTop: '0.3rem' }}>
             {msg}
           </Label>
@@ -99,7 +80,7 @@ export const ResyncDialog = ({
               marginLeft: '1rem',
             }}
           >
-            {syncing || dropping ? <BarLoader /> : 'Resync'}
+            {syncing ? <BarLoader /> : 'Resync'}
           </Button>
         </div>
       </div>

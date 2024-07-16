@@ -189,7 +189,7 @@ func CreatePeer(t *testing.T, peer *protos.Peer) {
 	ctx := context.Background()
 	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
 	require.NoError(t, err)
-	res, err := utils.CreatePeerNoValidate(ctx, pool, peer)
+	res, err := utils.CreatePeerNoValidate(ctx, pool, peer, false)
 	require.NoError(t, err)
 	if res.Status != protos.CreatePeerStatus_CREATED {
 		require.Fail(t, res.Message)
@@ -213,11 +213,10 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs(t *testin
 		TableMappings:      tblMappings,
 		SourceName:         GeneratePostgresPeer(t).Name,
 		DestinationName:    c.Destination,
-		SoftDelete:         c.SoftDelete,
 		SyncedAtColName:    "_PEERDB_SYNCED_AT",
 		IdleTimeoutSeconds: 15,
 	}
-	if ret.SoftDelete {
+	if c.SoftDelete {
 		ret.SoftDeleteColName = "_PEERDB_IS_DELETED"
 	}
 	return ret

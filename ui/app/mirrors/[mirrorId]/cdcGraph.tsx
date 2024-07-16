@@ -1,18 +1,22 @@
 'use client';
-import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import SelectTheme from '@/app/styles/select';
 import {
   formatGraphLabel,
   TimeAggregateTypes,
   timeOptions,
 } from '@/app/utils/graph';
+import { CDCBatch } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { BarChart } from '@tremor/react';
 import { useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
 import aggregateCountsByInterval from './aggregatedCountsByInterval';
 
-function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
+type CdcGraphProps = {
+  syncs: CDCBatch[];
+};
+
+function CdcGraph({ syncs }: CdcGraphProps) {
   let [aggregateType, setAggregateType] = useState<TimeAggregateTypes>(
     TimeAggregateTypes.HOUR
   );

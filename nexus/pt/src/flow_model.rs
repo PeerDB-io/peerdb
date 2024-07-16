@@ -24,7 +24,6 @@ pub struct FlowJob {
     pub snapshot_num_tables_in_parallel: Option<u32>,
     pub snapshot_staging_path: String,
     pub cdc_staging_path: Option<String>,
-    pub soft_delete: bool,
     pub replication_slot_name: Option<String>,
     pub max_batch_size: Option<u32>,
     pub sync_interval: Option<u64>,

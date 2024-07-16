@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq/oid"
 
@@ -167,8 +169,7 @@ func (c *PostgresConnector) getReplicaIdentityIndexColumns(
 	var indexRelID oid.Oid
 	// Fetch the OID of the index used as the replica identity
 	err := c.conn.QueryRow(ctx,
-		`SELECT indexrelid FROM pg_index
-         WHERE indrelid=$1 AND indisreplident=true`,
+		`SELECT indexrelid FROM pg_index WHERE indrelid=$1 AND indisreplident=true`,
 		relID).Scan(&indexRelID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -348,7 +349,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 		}
 		// Create the publication to help filter changes only for the given tables
 		stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s%s", publication, tableNameString, pubViaRootString)
-		if _, err = c.conn.Exec(ctx, stmt); err != nil {
+		if _, err = c.execWithLogging(ctx, stmt); err != nil {
 			c.logger.Warn(fmt.Sprintf("Error creating publication '%s': %v", publication, err))
 			return fmt.Errorf("error creating publication '%s' : %w", publication, err)
 		}
@@ -416,7 +417,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 }
 
 func (c *PostgresConnector) createMetadataSchema(ctx context.Context) error {
-	_, err := c.conn.Exec(ctx, fmt.Sprintf(createSchemaSQL, c.metadataSchema))
+	_, err := c.execWithLogging(ctx, fmt.Sprintf(createSchemaSQL, c.metadataSchema))
 	if err != nil && !shared.IsUniqueError(err) {
 		return fmt.Errorf("error while creating internal schema: %w", err)
 	}
@@ -619,4 +620,14 @@ func (c *PostgresConnector) getDefaultPublicationName(jobName string) string {
 func (c *PostgresConnector) ExecuteCommand(ctx context.Context, command string) error {
 	_, err := c.conn.Exec(ctx, command)
 	return err
+}
+
+func (c *PostgresConnector) execWithLogging(ctx context.Context, query string) (pgconn.CommandTag, error) {
+	c.logger.Info("[postgres] executing DDL statement", slog.String("query", query))
+	return c.conn.Exec(ctx, query)
+}
+
+func (c *PostgresConnector) execWithLoggingTx(ctx context.Context, query string, tx pgx.Tx) (pgconn.CommandTag, error) {
+	c.logger.Info("[postgres] executing DDL statement", slog.String("query", query))
+	return tx.Exec(ctx, query)
 }

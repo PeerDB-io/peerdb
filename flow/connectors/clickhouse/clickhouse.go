@@ -3,15 +3,14 @@ package connclickhouse
 import (
 	"context"
 	"crypto/tls"
-	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"go.temporal.io/sdk/log"
 	"golang.org/x/mod/semver"
@@ -26,7 +25,7 @@ import (
 
 type ClickhouseConnector struct {
 	*metadataStore.PostgresMetadata
-	database           *sql.DB
+	database           clickhouse.Conn
 	tableSchemaMapping map[string]*protos.TableSchema
 	logger             log.Logger
 	config             *protos.ClickhouseConfig
@@ -53,20 +52,20 @@ func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error
 func (c *ClickhouseConnector) ValidateCheck(ctx context.Context) error {
 	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
 	// create a table
-	_, err := c.database.ExecContext(ctx, fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id UInt64) ENGINE = Memory",
+	err := c.database.Exec(ctx, fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id UInt64) ENGINE = Memory",
 		validateDummyTableName))
 	if err != nil {
 		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// insert a row
-	_, err = c.database.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1)", validateDummyTableName))
+	err = c.database.Exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1)", validateDummyTableName))
 	if err != nil {
 		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// drop the table
-	_, err = c.database.ExecContext(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName)
+	err = c.database.Exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName)
 	if err != nil {
 		return fmt.Errorf("failed to drop validation table %s: %w", validateDummyTableName, err)
 	}
@@ -84,7 +83,7 @@ func NewClickhouseConnector(
 	config *protos.ClickhouseConfig,
 ) (*ClickhouseConnector, error) {
 	logger := logger.LoggerFromCtx(ctx)
-	database, err := connect(ctx, config)
+	database, err := Connect(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open connection to Clickhouse peer: %w", err)
 	}
@@ -137,7 +136,7 @@ func NewClickhouseConnector(
 		// This is the minimum version of Clickhouse that actually supports session token
 		// https://github.com/ClickHouse/ClickHouse/issues/61230
 		minSupportedClickhouseVersion := "v24.3.1"
-		clickHouseVersionRow := database.QueryRowContext(ctx, "SELECT version()")
+		clickHouseVersionRow := database.QueryRow(ctx, "SELECT version()")
 		var clickHouseVersion string
 		err := clickHouseVersionRow.Scan(&clickHouseVersion)
 		if err != nil {
@@ -168,12 +167,12 @@ func NewClickhouseConnector(
 	}, nil
 }
 
-func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, error) {
+func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.Conn, error) {
 	var tlsSetting *tls.Config
 	if !config.DisableTls {
 		tlsSetting = &tls.Config{MinVersion: tls.VersionTLS13}
 	}
-	conn := clickhouse.OpenDB(&clickhouse.Options{
+	conn, err := clickhouse.Open(&clickhouse.Options{
 		Addr: []string{fmt.Sprintf("%s:%d", config.Host, config.Port)},
 		Auth: clickhouse.Auth{
 			Database: config.Database,
@@ -193,8 +192,11 @@ func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, err
 		DialTimeout: 3600 * time.Second,
 		ReadTimeout: 3600 * time.Second,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to Clickhouse peer: %w", err)
+	}
 
-	if err := conn.PingContext(ctx); err != nil {
+	if err := conn.Ping(ctx); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to ping to Clickhouse peer: %w", err)
 	}
@@ -214,5 +216,10 @@ func (c *ClickhouseConnector) Close() error {
 
 func (c *ClickhouseConnector) ConnectionActive(ctx context.Context) error {
 	// This also checks if database exists
-	return c.database.PingContext(ctx)
+	return c.database.Ping(ctx)
+}
+
+func (c *ClickhouseConnector) execWithLogging(ctx context.Context, query string) error {
+	c.logger.Info("[clickhouse] executing DDL statement", slog.String("query", query))
+	return c.database.Exec(ctx, query)
 }

@@ -12,7 +12,6 @@ import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
 import { InfoPopover } from '../../../../components/InfoPopover';
 import { MirrorSetter } from '../../../dto/MirrorsDTO';
-import { defaultSyncMode } from '../cdc/cdc';
 import { fetchAllTables, fetchColumns } from '../handlers';
 import { MirrorSetting, blankQRepSetting } from '../helpers/common';
 import UpsertColsDisplay from './upsertcols';
@@ -84,7 +83,10 @@ export default function QRepConfigForm({
         mirrorConfig.writeMode?.writeType !=
           QRepWriteType.QREP_WRITE_MODE_UPSERT) ||
       (label.includes('staging') &&
-        defaultSyncMode(destinationType) !== 'AVRO') ||
+        !(
+          destinationType.toString() === DBType[DBType.BIGQUERY] ||
+          destinationType.toString() === DBType[DBType.SNOWFLAKE]
+        )) ||
       (label.includes('watermark column') && xmin) ||
       (label.includes('initial copy') && xmin)
     ) {

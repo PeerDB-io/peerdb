@@ -13,6 +13,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc"
@@ -35,6 +37,103 @@ type APIServerParams struct {
 	TemporalKey       string
 	Port              uint16
 	GatewayPort       uint16
+}
+
+type RecryptItem struct {
+	options []byte
+	id      int32
+}
+
+// updates enc_key_id by recrypting encrypted database fields with latest key
+// selectSql should grab id, field, keyId respectively, taking latest keyId as parameter
+// updateSql should take id, field, keyId as parameters respectively
+func recryptDatabase(
+	ctx context.Context,
+	catalogPool *pgxpool.Pool,
+	tag string,
+	selectSql string,
+	updateSql string,
+) {
+	newKeyID := peerdbenv.PeerDBCurrentEncKeyID()
+	keys := peerdbenv.PeerDBEncKeys()
+	if newKeyID == "" {
+		if len(keys) == 0 {
+			slog.Warn("Encryption disabled. This is not recommended.")
+		} else {
+			slog.Warn("Encryption disabled, decrypting any currently encrypted configs. This is not recommended.")
+		}
+	}
+
+	key, err := keys.Get(newKeyID)
+	if err != nil {
+		slog.Warn("recrypt failed to find key, skipping", slog.Any("error", err))
+		return
+	}
+
+	tx, err := catalogPool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		slog.Warn("recrypt failed to start transaction, skipping", slog.Any("error", err))
+		return
+	}
+	defer shared.RollbackTx(tx, slog.Default())
+
+	rows, err := tx.Query(ctx, selectSql, newKeyID)
+	if err != nil {
+		slog.Warn("recrypt failed to query, skipping", slog.String("tag", tag), slog.Any("error", err))
+		return
+	}
+	var todo []RecryptItem
+	var id int32
+	var options []byte
+	var oldKeyID string
+	for rows.Next() {
+		if err := rows.Scan(&id, &options, &oldKeyID); err != nil {
+			slog.Warn("recrypt failed to scan, skipping", slog.String("tag", tag), slog.Any("error", err))
+			continue
+		}
+
+		oldKey, err := keys.Get(oldKeyID)
+		if err != nil {
+			slog.Warn("recrypt failed to find key, skipping",
+				slog.String("tag", tag), slog.Any("error", err), slog.String("enc_key_id", oldKeyID))
+			continue
+		}
+
+		options, err = oldKey.Decrypt(options)
+		if err != nil {
+			slog.Warn("recrypt failed to decrypt, skipping",
+				slog.String("tag", tag), slog.Any("error", err), slog.Int64("id", int64(id)))
+			continue
+		}
+
+		options, err = key.Encrypt(options)
+		if err != nil {
+			slog.Warn("recrypt failed to encrypt, skipping",
+				slog.String("tag", tag), slog.Any("error", err), slog.Int64("id", int64(id)))
+			continue
+		}
+
+		slog.Info("recrypting",
+			slog.String("tag", tag), slog.Int64("id", int64(id)), slog.String("oldKey", oldKeyID), slog.String("newKey", newKeyID))
+		todo = append(todo, RecryptItem{id: id, options: options})
+	}
+	if err := rows.Err(); err != nil {
+		slog.Warn("recrypt iteration failed, skipping", slog.String("tag", tag), slog.Any("error", err))
+		return
+	}
+
+	for _, item := range todo {
+		if _, err := tx.Exec(ctx, updateSql, item.id, item.options, newKeyID); err != nil {
+			slog.Warn("recrypt failed to update, ignoring",
+				slog.String("tag", tag), slog.Any("error", err), slog.Int64("id", int64(item.id)))
+			return
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		slog.Warn("recrypt failed to commit transaction, skipping", slog.String("tag", tag), slog.Any("error", err))
+	}
+	slog.Info("recrypt finished", slog.String("tag", tag))
 }
 
 // setupGRPCGatewayServer sets up the grpc-gateway mux
@@ -117,13 +216,13 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 
 	grpcServer := grpc.NewServer()
 
-	catalogConn, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	catalogPool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to get catalog connection pool: %w", err)
 	}
 
 	taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
-	flowHandler := NewFlowRequestHandler(tc, catalogConn, taskQueue)
+	flowHandler := NewFlowRequestHandler(tc, catalogPool, taskQueue)
 
 	err = killExistingScheduleFlows(ctx, tc, args.TemporalNamespace, taskQueue)
 	if err != nil {
@@ -168,13 +267,28 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 
 	slog.Info(fmt.Sprintf("Starting API gateway on port %d", args.GatewayPort))
 	go func() {
-		if err := gateway.ListenAndServe(); err != nil {
+		if err := gateway.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("failed to serve http: %v", err)
 		}
 	}()
 
-	<-ctx.Done()
+	// somewhat unrelated here, but needed a process which isn't replicated
+	go recryptDatabase(
+		ctx,
+		catalogPool,
+		"peer",
+		"SELECT id, options, enc_key_id FROM peers WHERE enc_key_id <> $1 FOR UPDATE",
+		"UPDATE peers SET options = $2, enc_key_id = $3 WHERE id = $1",
+	)
+	go recryptDatabase(
+		ctx,
+		catalogPool,
+		"alert config",
+		"SELECT id, service_config, enc_key_id FROM peerdb_stats.alerting_config WHERE enc_key_id <> $1 FOR UPDATE",
+		"UPDATE peerdb_stats.alerting_config SET service_config = $2, enc_key_id = $3 WHERE id = $1",
+	)
 
+	<-ctx.Done()
 	grpcServer.GracefulStop()
 	slog.Info("Server has been shut down gracefully. Exiting...")
 

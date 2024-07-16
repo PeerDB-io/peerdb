@@ -19,8 +19,8 @@ import (
 
 type S3TestHelper struct {
 	client     *s3.Client
-	s3Config   *protos.S3Config
-	bucketName string
+	S3Config   *protos.S3Config
+	BucketName string
 	prefix     string
 }
 
@@ -83,10 +83,9 @@ func (h *S3TestHelper) ListAllFiles(
 	ctx context.Context,
 	jobName string,
 ) ([]s3types.Object, error) {
-	Bucket := h.bucketName
 	Prefix := fmt.Sprintf("%s/%s/", h.prefix, jobName)
 	files, err := h.client.ListObjects(ctx, &s3.ListObjectsInput{
-		Bucket: &Bucket,
+		Bucket: &h.BucketName,
 		Prefix: &Prefix,
 	})
 	if err != nil {
@@ -97,11 +96,9 @@ func (h *S3TestHelper) ListAllFiles(
 
 // Delete all generated objects during the test
 func (h *S3TestHelper) CleanUp(ctx context.Context) error {
-	Bucket := h.bucketName
-	Prefix := h.prefix
 	files, err := h.client.ListObjects(ctx, &s3.ListObjectsInput{
-		Bucket: &Bucket,
-		Prefix: &Prefix,
+		Bucket: &h.BucketName,
+		Prefix: &h.prefix,
 	})
 	if err != nil {
 		return err
@@ -110,7 +107,7 @@ func (h *S3TestHelper) CleanUp(ctx context.Context) error {
 	// Delete each object
 	for _, obj := range files.Contents {
 		deleteInput := &s3.DeleteObjectInput{
-			Bucket: &Bucket,
+			Bucket: &h.BucketName,
 			Key:    obj.Key,
 		}
 

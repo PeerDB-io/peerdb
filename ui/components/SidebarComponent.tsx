@@ -1,8 +1,8 @@
 'use client';
 
-import { UVersionResponse } from '@/app/dto/VersionDTO';
 import { fetcher } from '@/app/utils/swr';
 import Logout from '@/components/Logout';
+import { PeerDBVersionResponse } from '@/grpc_generated/route';
 import { BrandLogo } from '@/lib/BrandLogo';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
@@ -29,7 +29,7 @@ export default function SidebarComponent() {
   const {
     data: version,
     isLoading,
-  }: { data: UVersionResponse; error: any; isLoading: boolean } = useSWR(
+  }: { data: PeerDBVersionResponse; error: any; isLoading: boolean } = useSWR(
     '/api/version',
     fetcher
   );

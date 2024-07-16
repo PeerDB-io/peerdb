@@ -1,6 +1,8 @@
 import { FlowConnectionConfigs } from '@/grpc_generated/flow';
 
-const MirrorValues = (mirrorConfig: FlowConnectionConfigs | undefined) => {
+export default function MirrorValues(
+  mirrorConfig: FlowConnectionConfigs | undefined
+) {
   return [
     {
       value: `${mirrorConfig?.maxBatchSize} rows`,
@@ -16,10 +18,12 @@ const MirrorValues = (mirrorConfig: FlowConnectionConfigs | undefined) => {
     },
     {
       value: `${mirrorConfig?.snapshotMaxParallelWorkers} worker(s)`,
-      label: 'Snapshot Parallel Tables',
+      label: 'Snapshot Parallel Workers',
     },
     {
-      value: `${mirrorConfig?.softDelete}`,
+      value: mirrorConfig?.softDeleteColName
+        ? `Enabled (${mirrorConfig?.softDeleteColName})`
+        : 'Disabled',
       label: 'Soft Delete',
     },
     {
@@ -33,5 +37,4 @@ const MirrorValues = (mirrorConfig: FlowConnectionConfigs | undefined) => {
       label: 'Publication Name',
     },
   ];
-};
-export default MirrorValues;
+}

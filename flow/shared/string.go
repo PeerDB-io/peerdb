@@ -2,6 +2,7 @@ package shared
 
 import (
 	"regexp"
+	"strings"
 	"unsafe"
 )
 
@@ -24,4 +25,9 @@ func ReplaceIllegalCharactersWithUnderscores(s string) string {
 
 func IsValidReplicationName(s string) bool {
 	return reLegalIdentifierLower.MatchString(s)
+}
+
+// Escape a string for use in a LIKE/ILIKE postgres query.
+func EscapeForILike(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, "_", "\\_"), "%", "\\%")
 }

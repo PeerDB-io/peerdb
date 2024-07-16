@@ -106,6 +106,7 @@ impl Drop for PeerDBServer {
 }
 
 #[test]
+#[ignore = "create peers needs flow api"]
 fn server_test() {
     let server = PeerDBServer::new();
     let mut client = server.connect_dying();
@@ -178,6 +179,7 @@ fn server_test() {
 }
 
 #[test]
+#[ignore = "create peers needs flow api"]
 fn extended_query_protocol_no_params_catalog() {
     let server = PeerDBServer::new();
     let mut client = server.connect_dying();

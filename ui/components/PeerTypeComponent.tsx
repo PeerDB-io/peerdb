@@ -1,11 +1,11 @@
 'use client';
-import { DBType } from '@/grpc_generated/peers';
+import { DBType, dBTypeFromJSON } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import Image from 'next/image';
 import { DBTypeToImageMapping } from './PeerComponent';
 
 export const DBTypeToGoodText = (ptype?: DBType) => {
-  switch (ptype) {
+  switch (dBTypeFromJSON(ptype)) {
     case DBType.POSTGRES:
       return 'PostgreSQL';
     case DBType.SNOWFLAKE:
@@ -33,7 +33,7 @@ export const DBTypeToGoodText = (ptype?: DBType) => {
   }
 };
 
-const PeerTypeLabel = ({ ptype }: { ptype: DBType }) => {
+export default function PeerTypeLabel({ ptype }: { ptype: DBType }) {
   return (
     <div
       style={{
@@ -51,6 +51,4 @@ const PeerTypeLabel = ({ ptype }: { ptype: DBType }) => {
       <Label>{DBTypeToGoodText(ptype)}</Label>
     </div>
   );
-};
-
-export default PeerTypeLabel;
+}

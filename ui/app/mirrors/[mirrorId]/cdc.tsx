@@ -1,6 +1,5 @@
 'use client';
-import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
-import { MirrorStatusResponse } from '@/grpc_generated/route';
+import { CDCBatch, MirrorStatusResponse } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@tremor/react';
@@ -11,14 +10,12 @@ import { SnapshotStatusTable } from './snapshot';
 
 type CDCMirrorStatusProps = {
   status: MirrorStatusResponse;
-  rows: SyncStatusRow[];
-  createdAt?: Date;
+  rows: CDCBatch[];
   syncStatusChild?: React.ReactNode;
 };
 export function CDCMirror({
   status,
   rows,
-  createdAt,
   syncStatusChild,
 }: CDCMirrorStatusProps) {
   const LocalStorageTabKey = 'cdctab';
@@ -64,7 +61,7 @@ export function CDCMirror({
         <TabPanel>
           <CdcDetails
             syncs={rows}
-            createdAt={createdAt}
+            createdAt={status.createdAt}
             mirrorConfig={status.cdcStatus!}
             mirrorStatus={status.currentFlowState}
           />

@@ -9,7 +9,6 @@ import { Label } from '@/lib/Label';
 import { ProgressBar } from '@/lib/ProgressBar';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
-import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
 import { TableCloneSummary } from './snapshot';
@@ -198,14 +197,7 @@ const SnapshotTable = ({
       {displayedLoads.map((clone, index) => (
         <TableRow key={index}>
           <TableCell>
-            <Label>
-              <Link
-                href={`/mirrors/status/qrep/${clone.cloneTableSummary.flowJobName}`}
-                className='underline cursor-pointer'
-              >
-                {clone.cloneTableSummary.tableName}
-              </Link>
-            </Label>
+            <Label>{clone.cloneTableSummary.tableName}</Label>
           </TableCell>
           <TableCell>{getStatus(clone.cloneTableSummary)}</TableCell>
           <TableCell>

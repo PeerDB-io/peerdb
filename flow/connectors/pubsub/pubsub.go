@@ -253,6 +253,7 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 	waitChan := make(chan struct{})
 
 	queueCtx, queueErr := context.WithCancelCause(ctx)
+
 	pool, err := c.createPool(queueCtx, req.Script, req.FlowJobName, &topiccache, publish, queueErr)
 	if err != nil {
 		return nil, err
@@ -364,7 +365,7 @@ Loop:
 	topiccache.Stop(queueCtx)
 	select {
 	case <-queueCtx.Done():
-		return nil, fmt.Errorf("[pubsub] queueCtx.Done: %w", queueCtx.Err())
+		return nil, fmt.Errorf("[pubsub] queueCtx.Done: %w", context.Cause(queueCtx))
 	case <-waitChan:
 	}
 

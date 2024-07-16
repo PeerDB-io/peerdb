@@ -1,37 +1,40 @@
-import { FlowConnectionConfigs, FlowStatus } from '@/grpc_generated/flow';
+import { FlowStatus } from '@/grpc_generated/flow';
 import {
   FlowStateChangeRequest,
   MirrorStatusResponse,
 } from '@/grpc_generated/route';
 
-export const getMirrorState = async (mirrorId: string) => {
-  return await fetch('/api/mirrors/state', {
+export const getMirrorState = async (
+  flow_job_name: string
+): Promise<MirrorStatusResponse> => {
+  const res = await fetch('/api/mirrors/state', {
     method: 'POST',
     body: JSON.stringify({
-      flowJobName: mirrorId,
+      flow_job_name,
+      include_flow_info: true,
     }),
-  }).then((res) => res.json());
+  });
+  return res.json();
 };
 
-export const getCurrentIdleTimeout = async (mirrorId: string) => {
-  const res = await getMirrorState(mirrorId);
+export const getCurrentIdleTimeout = async (mirrorName: string) => {
+  const res = await getMirrorState(mirrorName);
   return (res as MirrorStatusResponse).cdcStatus?.config?.idleTimeoutSeconds;
 };
 
 export const changeFlowState = async (
-  mirrorConfig: FlowConnectionConfigs,
+  mirrorName: string,
   flowState: FlowStatus
-) => {
+): Promise<Response> => {
   const req: FlowStateChangeRequest = {
-    flowJobName: mirrorConfig.flowJobName,
-    sourcePeer: mirrorConfig.sourceName,
-    destinationPeer: mirrorConfig.destinationName,
+    flowJobName: mirrorName,
     requestedFlowState: flowState,
   };
-  await fetch(`/api/mirrors/state_change`, {
+  const res = await fetch(`/api/mirrors/state_change`, {
     method: 'POST',
     body: JSON.stringify(req),
     cache: 'no-store',
   });
   window.location.reload();
+  return res;
 };

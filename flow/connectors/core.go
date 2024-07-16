@@ -25,6 +25,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_guages"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 type Connector interface {
@@ -264,13 +265,19 @@ func LoadPeerType(ctx context.Context, catalogPool *pgxpool.Pool, peerName strin
 
 func LoadPeer(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (*protos.Peer, error) {
 	row := catalogPool.QueryRow(ctx, `
-		SELECT type, options
+		SELECT type, options, enc_key_id
 		FROM peers
 		WHERE name = $1`, peerName)
 
 	peer := &protos.Peer{Name: peerName}
-	var peerOptions []byte
-	if err := row.Scan(&peer.Type, &peerOptions); err != nil {
+	var encPeerOptions []byte
+	var encKeyID string
+	if err := row.Scan(&peer.Type, &encPeerOptions, &encKeyID); err != nil {
+		return nil, fmt.Errorf("failed to load peer: %w", err)
+	}
+
+	peerOptions, err := peerdbenv.Decrypt(encKeyID, encPeerOptions)
+	if err != nil {
 		return nil, fmt.Errorf("failed to load peer: %w", err)
 	}
 
@@ -468,6 +475,7 @@ var (
 	_ RenameTablesConnector = &connsnowflake.SnowflakeConnector{}
 	_ RenameTablesConnector = &connbigquery.BigQueryConnector{}
 	_ RenameTablesConnector = &connpostgres.PostgresConnector{}
+	_ RenameTablesConnector = &connclickhouse.ClickhouseConnector{}
 
 	_ ValidationConnector = &connsnowflake.SnowflakeConnector{}
 	_ ValidationConnector = &connclickhouse.ClickhouseConnector{}

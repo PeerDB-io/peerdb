@@ -3,6 +3,7 @@ set -Eeu
 
 DOCKER="docker"
 EXTRA_ARGS="--no-attach temporal --no-attach pyroscope --no-attach temporal-ui"
+PODMAN_ARGS=""
 
 if test -n "${USE_PODMAN:=}"
 then
@@ -20,8 +21,9 @@ fi
 
 if test -n "$USE_PODMAN"; then
     DOCKER="podman"
-    EXTRA_ARGS="--podman-run-args=--replace"
+    EXTRA_ARGS=""
+    PODMAN_ARGS="--podman-run-args=--replace"
 fi
 
 export PEERDB_VERSION_SHA_SHORT=local-$(git rev-parse --short HEAD)
-exec $DOCKER compose -f docker-compose-dev.yml up --build $EXTRA_ARGS
+exec $DOCKER compose $PODMAN_ARGS -f docker-compose-dev.yml up --build $EXTRA_ARGS

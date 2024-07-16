@@ -92,3 +92,17 @@ func PeerDBAlertingEmailSenderRegion() string {
 func PeerDBAlertingEmailSenderReplyToAddresses() string {
 	return GetEnvString("PEERDB_ALERTING_EMAIL_SENDER_REPLY_TO_ADDRESSES", "")
 }
+
+func PeerDBCurrentEncKeyID() string {
+	return GetEnvString("PEERDB_CURRENT_ENC_KEY_ID", "")
+}
+
+func PeerDBEncKeys() shared.PeerDBEncKeys {
+	return GetEnvJSON[shared.PeerDBEncKeys]("PEERDB_ENC_KEYS", nil)
+}
+
+func PeerDBCurrentEncKey() (shared.PeerDBEncKey, error) {
+	encKeyID := PeerDBCurrentEncKeyID()
+	encKeys := PeerDBEncKeys()
+	return encKeys.Get(encKeyID)
+}

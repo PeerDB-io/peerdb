@@ -1,6 +1,7 @@
 'use client';
 
 import TimeLabel from '@/components/TimeComponent';
+import { PartitionStatus } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
@@ -10,14 +11,6 @@ import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
 import { useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
-
-export type QRepPartitionStatus = {
-  partitionId: string;
-  startTime: Date | null;
-  endTime: Date | null;
-  pulledRows: number | null;
-  syncedRows: number | null;
-};
 
 function TimeOrProgressBar({ time }: { time: Date | null }) {
   if (time === null) {
@@ -31,9 +24,9 @@ function RowPerPartition({
   partitionId,
   startTime,
   endTime,
-  pulledRows: numRows,
-  syncedRows,
-}: QRepPartitionStatus) {
+  rowsInPartition,
+  rowsSynced,
+}: PartitionStatus) {
   let duration = 'N/A';
   if (startTime && endTime) {
     duration = moment
@@ -55,13 +48,13 @@ function RowPerPartition({
         <TimeLabel timeVal={moment(startTime)?.format('YYYY-MM-DD HH:mm:ss')} />
       </TableCell>
       <TableCell>
-        <TimeOrProgressBar time={endTime} />
+        <TimeOrProgressBar time={endTime || null} />
       </TableCell>
       <TableCell>
-        <Label>{numRows}</Label>
+        <Label>{rowsInPartition}</Label>
       </TableCell>
       <TableCell>
-        <Label>{syncedRows ?? 0}</Label>
+        <Label>{rowsSynced ?? 0}</Label>
       </TableCell>
     </TableRow>
   );
@@ -69,7 +62,7 @@ function RowPerPartition({
 
 type QRepStatusTableProps = {
   flowJobName: string;
-  partitions: QRepPartitionStatus[];
+  partitions: PartitionStatus[];
 };
 
 export default function QRepStatusTable({ partitions }: QRepStatusTableProps) {
@@ -89,18 +82,17 @@ export default function QRepStatusTable({ partitions }: QRepStatusTableProps) {
   const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
   const displayedPartitions = useMemo(() => {
     const currentPartitions = visiblePartitions.filter(
-      (partition: QRepPartitionStatus) => {
+      (partition: PartitionStatus) => {
         return partition.partitionId
           .toLowerCase()
           .includes(searchQuery.toLowerCase());
       }
     );
     currentPartitions.sort((a, b) => {
-      const aValue = a[sortField];
-      const bValue = b[sortField];
-      if (aValue === null || bValue === null) {
-        return 0;
-      }
+      // maximum date values so compare towards the end
+      const aValue = a[sortField] ?? new Date(8.64e15);
+      const bValue = b[sortField] ?? new Date(8.64e15);
+
       if (aValue < bValue) {
         return sortDir === 'dsc' ? 1 : -1;
       } else if (aValue > bValue) {

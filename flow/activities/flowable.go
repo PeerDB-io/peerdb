@@ -348,7 +348,6 @@ func (a *FlowableActivity) StartNormalize(
 	res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
 		FlowJobName:            input.FlowConnectionConfigs.FlowJobName,
 		SyncBatchID:            input.SyncBatchID,
-		SoftDelete:             input.FlowConnectionConfigs.SoftDelete,
 		SoftDeleteColName:      input.FlowConnectionConfigs.SoftDeleteColName,
 		SyncedAtColName:        input.FlowConnectionConfigs.SyncedAtColName,
 		TableNameSchemaMapping: input.TableNameSchemaMapping,
@@ -544,25 +543,26 @@ func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.Q
 	return dst.CleanupQRepFlow(ctx, config)
 }
 
-func (a *FlowableActivity) DropFlowSource(ctx context.Context, config *protos.ShutdownRequest) error {
-	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, a.CatalogPool, config.SourcePeer)
+func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropFlowActivityInput) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
+	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, a.CatalogPool, req.PeerName)
 	if err != nil {
 		return fmt.Errorf("failed to get source connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	return srcConn.PullFlowCleanup(ctx, config.FlowJobName)
+	return srcConn.PullFlowCleanup(ctx, req.FlowJobName)
 }
 
-func (a *FlowableActivity) DropFlowDestination(ctx context.Context, config *protos.ShutdownRequest) error {
-	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, a.CatalogPool, config.DestinationPeer)
+func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.DropFlowActivityInput) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
+	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, a.CatalogPool, req.PeerName)
 	if err != nil {
 		return fmt.Errorf("failed to get destination connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
-	return dstConn.SyncFlowCleanup(ctx, config.FlowJobName)
+	return dstConn.SyncFlowCleanup(ctx, req.FlowJobName)
 }
 
 func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
@@ -812,40 +812,4 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 	}
 	return err
-}
-
-// TODO remove in 0.15
-func (a *FlowableActivity) UpdateCdcFlowConfigInCatalog(
-	ctx context.Context,
-	cfg *protos.FlowConnectionConfigs,
-) error {
-	cfgBytes, err := proto.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("unable to marshal flow config: %w", err)
-	}
-
-	_, err = a.CatalogPool.Exec(ctx, "UPDATE flows SET config_proto = $1 WHERE name = $2", cfgBytes, cfg.FlowJobName)
-	if err != nil {
-		return fmt.Errorf("unable to update flow config in catalog: %w", err)
-	}
-
-	return nil
-}
-
-// TODO remove in 0.15
-func (a *FlowableActivity) UpdateQRepFlowConfigInCatalog(
-	ctx context.Context,
-	cfg *protos.FlowConnectionConfigs,
-) error {
-	cfgBytes, err := proto.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("unable to marshal flow config: %w", err)
-	}
-
-	_, err = a.CatalogPool.Exec(ctx, "UPDATE flows SET config_proto = $1 WHERE name = $2", cfgBytes, cfg.FlowJobName)
-	if err != nil {
-		return fmt.Errorf("unable to update flow config in catalog: %w", err)
-	}
-
-	return nil
 }

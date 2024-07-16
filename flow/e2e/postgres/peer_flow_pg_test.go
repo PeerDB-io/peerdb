@@ -115,7 +115,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
-	flowConnConfig.SoftDelete = false
 	flowConnConfig.SoftDeleteColName = ""
 	flowConnConfig.SyncedAtColName = ""
 
@@ -462,7 +461,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Basic() {
 			},
 		},
 		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
-		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
 		MaxBatchSize:      100,
@@ -540,7 +538,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_IUD_Same_Batch() {
 			},
 		},
 		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
-		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
 		MaxBatchSize:      100,
@@ -609,7 +606,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
 			},
 		},
 		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
-		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
 		MaxBatchSize:      100,
@@ -686,7 +682,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Insert_After_Delete() {
 			},
 		},
 		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
-		SoftDelete:        true,
 		SoftDeleteColName: "_PEERDB_IS_DELETED",
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
 		MaxBatchSize:      100,
@@ -947,16 +942,20 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	assert.Len(s.t, workflowState.SyncFlowOptions.TableNameSchemaMapping, 1)
 
 	if !s.t.Failed() {
-		addRows(1)
 		e2e.SignalWorkflow(env, model.FlowSignal, model.PauseSignal)
-		addRows(1)
 		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "paused workflow", func() bool {
-			// keep adding 1 more row - finishing another sync
-			addRows(1)
-
 			flowStatus := getFlowStatus()
 			return flowStatus == protos.FlowStatus_STATUS_PAUSED
 		})
+
+		_, err = s.Conn().Exec(context.Background(),
+			`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+			 WHERE query LIKE '%START_REPLICATION%' AND query LIKE '%dynconfig%' AND backend_type='walsender'`)
+		require.NoError(s.t, err)
+		time.Sleep(5 * time.Second)
+
+		// add rows to both tables before resuming - should handle
+		addRows(18)
 
 		e2e.SignalWorkflow(env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 			IdleTimeout: 14,
@@ -969,15 +968,10 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 			},
 		})
 
-		// add rows to both tables before resuming - should handle
-		addRows(18)
-
-		e2e.SignalWorkflow(env, model.FlowSignal, model.NoopSignal)
-
 		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "resumed workflow", func() bool {
 			return getFlowStatus() == protos.FlowStatus_STATUS_RUNNING
 		})
-		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "normalize 18 records - first table", func() bool {
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize 18 records - first table", func() bool {
 			return s.comparePGTables(srcTable1Name, dstTable1Name, "id,t") == nil
 		})
 		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "initial load + normalize 18 records - second table", func() bool {
@@ -1028,7 +1022,6 @@ func (s PeerFlowE2ETestSuitePG) Test_TypeSystem_PG() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.System = protos.TypeSystem_PG
-	flowConnConfig.SoftDelete = false
 	flowConnConfig.SoftDeleteColName = ""
 	flowConnConfig.SyncedAtColName = ""
 
@@ -1151,4 +1144,95 @@ func (s PeerFlowE2ETestSuitePG) Test_TransformRowScript() {
 		fmt.Sprintf("select exists(select * from %s where val <> 1729)", dstTableName)).Scan(&exists)
 	require.NoError(s.t, err)
 	require.False(s.t, exists)
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
+	tc := e2e.NewTemporalClient(s.t)
+
+	srcTableName := "test_simple_schema_changes_PG"
+	dstTableName := srcTableName + "_dst"
+	quotedSourceTableName := s.attachSchemaSuffix(`"` + srcTableName + `"`)
+	quotedDestTableName := s.attachSchemaSuffix(`"` + dstTableName + `"`)
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			c1 BIGINT
+		);
+	`, quotedSourceTableName))
+	require.NoError(s.t, err)
+
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     s.attachSuffix("test_simple_schema_changes_pg"),
+		DestinationName: s.Peer().Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      s.attachSchemaSuffix(srcTableName),
+				DestinationTableIdentifier: s.attachSchemaSuffix(dstTableName),
+			},
+		},
+		SourceName:   e2e.GeneratePostgresPeer(s.t).Name,
+		MaxBatchSize: 100,
+	}
+
+	// wait for PeerFlowStatusQuery to finish setup
+	// and then insert and mutate schema repeatedly.
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	// insert first row.
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO %s(c1) VALUES (1)`, quotedSourceTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Inserted initial row in the source table")
+	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "normalize mixed case", func() bool {
+		return s.comparePGTables(quotedSourceTableName, quotedDestTableName,
+			"id,c1") == nil
+	})
+	// alter source table, add column c2 and insert another row.
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		ALTER TABLE %s ADD COLUMN "myC2" BIGINT`, quotedSourceTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Altered source table, added column myC2")
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO %s(c1,"myC2") VALUES (2,2)`, quotedSourceTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Inserted row with added myC2 in the source table")
+
+	// verify we got our two rows, if schema did not match up it will error.
+	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "normalize mixed case schema change", func() bool {
+		return s.comparePGTables(quotedSourceTableName, quotedDestTableName,
+			"id,c1,\"myC2\"") == nil
+	})
+
+	// alter source table, add column c3, drop column c2 and insert another row.
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		ALTER TABLE %s DROP COLUMN "myC2", ADD COLUMN c3 FLOAT`, quotedSourceTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Altered source table, dropped column myC2 and added column c3")
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO %s(c1,c3) VALUES (3,3.5)`, quotedSourceTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Inserted row with added c3 in the source table")
+
+	// verify we got our two rows, if schema did not match up it will error.
+	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "normalize mixed case schema change", func() bool {
+		return s.comparePGTables(quotedSourceTableName, quotedDestTableName,
+			"id,c1,c3") == nil
+	})
+	// alter source table, drop column c3 and insert another row.
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		ALTER TABLE %s DROP COLUMN c3`, quotedSourceTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Altered source table, dropped column c3")
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO %s(c1) VALUES (4)`, quotedSourceTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Inserted row after dropping all columns in the source table")
+
+	// verify we got our two rows, if schema did not match up it will error.
+	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "normalize mixed case schema change", func() bool {
+		return s.comparePGTables(quotedSourceTableName, quotedDestTableName,
+			"id,c1") == nil
+	})
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
 }

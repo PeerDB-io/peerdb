@@ -103,6 +103,9 @@ jobs:
         with:
           version: "latest"
 
+      - name: start clickhouse
+        uses: getsentry/action-clickhouse-in-ci@v1
+
       - name: Install Temporal CLI
         uses: temporalio/setup-temporal@v0
 

@@ -37,17 +37,72 @@ message CreateCustomSyncResponse {
   bool ok = 4;
 }
 
-message ShutdownRequest {
-  string workflow_id = 1;
-  string flow_job_name = 2;
-  string source_peer = 3;
-  string destination_peer = 4;
-  bool remove_flow_entry = 5;
+message AlertConfig {
+  int32 id = 1;
+  string service_type = 2;
+  string service_config = 3;
+}
+message GetAlertConfigsRequest {
+}
+message PostAlertConfigRequest {
+  int32 id = 1;
+  string service_type = 2;
+  string service_config = 3;
+}
+message DeleteAlertConfigRequest {
+  int32 id = 1;
+}
+message GetAlertConfigsResponse {
+  repeated AlertConfig configs = 1;
+}
+message PostAlertConfigResponse {
+  int32 id = 3;
+}
+message DeleteAlertConfigResponse {
 }
 
-message ShutdownResponse {
-  bool ok = 1;
-  string error_message = 2;
+message DynamicSetting {
+  string name = 1;
+  optional string value = 2;
+  string default_value = 3;
+  string description = 4;
+  peerdb_flow.DynconfValueType value_type = 5;
+  peerdb_flow.DynconfApplyMode apply_mode = 6;
+}
+message GetDynamicSettingsRequest {
+}
+message GetDynamicSettingsResponse {
+  repeated DynamicSetting settings = 1;
+}
+message PostDynamicSettingRequest {
+  string name = 1;
+  optional string value = 2;
+}
+message PostDynamicSettingResponse {
+}
+
+message Script {
+  int32 id = 1;
+  string lang = 2;
+  string name = 3;
+  string source = 4;
+}
+message GetScriptsRequest {
+  int32 id = 1;
+}
+message GetScriptsResponse {
+  repeated Script scripts = 1;
+}
+message PostScriptRequest {
+  Script script = 1;
+}
+message PostScriptResponse {
+  int32 id = 1;
+}
+message DeleteScriptRequest {
+  int32 id = 1;
+}
+message DeleteScriptResponse {
 }
 
 message ValidatePeerRequest {
@@ -56,6 +111,7 @@ message ValidatePeerRequest {
 
 message CreatePeerRequest {
   peerdb_peers.Peer peer = 1;
+  bool allow_update = 2;
 }
 
 message DropPeerRequest {
@@ -98,23 +154,42 @@ message PartitionStatus {
   string partition_id = 1;
   google.protobuf.Timestamp start_time = 2;
   google.protobuf.Timestamp end_time = 3;
-  int32 num_rows = 4;
+  int64 rows_in_partition = 4;
+  int64 rows_synced = 5;
 }
 
 message QRepMirrorStatus {
-  peerdb_flow.QRepConfig config = 1 [deprecated = true];
   repeated PartitionStatus partitions = 2;
   // TODO make note to see if we are still in initial copy
   // or if we are in the continuous streaming mode.
 }
 
-// to be removed eventually
-message CDCSyncStatus {
+message CDCBatch {
   int64 start_lsn = 1;
   int64 end_lsn = 2;
-  int32 num_rows = 3;
+  int64 num_rows = 3;
   google.protobuf.Timestamp start_time = 4;
   google.protobuf.Timestamp end_time = 5;
+  int64 batch_id = 6;
+}
+
+
+message CDCRowCounts {
+  int64 total_count = 1;
+  int64 inserts_count = 2;
+  int64 updates_count = 3;
+  int64 deletes_count = 4;
+}
+message CDCTableRowCounts {
+  string table_name = 1;
+  CDCRowCounts counts = 2;
+}
+message CDCTableTotalCountsRequest {
+  string flow_job_name = 1;
+}
+message CDCTableTotalCountsResponse {
+  CDCRowCounts total_data = 1;
+  repeated CDCTableRowCounts tables_data = 2;
 }
 
 message PeerSchemasResponse {
@@ -158,6 +233,20 @@ message PostgresPeerActivityInfoRequest {
   string peer_name = 1;
 }
 
+message PeerInfoRequest {
+  string peer_name = 1;
+}
+
+message PeerListItem {
+  string name = 1;
+  peerdb_peers.DBType type = 2;
+}
+message ListPeersRequest {
+}
+message ListPeersResponse {
+  repeated PeerListItem items = 1;
+}
+
 message SlotInfo {
   string slot_name = 1;
   string redo_lSN = 2;
@@ -166,6 +255,19 @@ message SlotInfo {
   float lag_in_mb = 5;
   string confirmed_flush_lSN = 6;
   string wal_status = 7;
+}
+
+message SlotLagPoint {
+  double updated_at = 1;
+  double slot_size = 2;
+}
+message GetSlotLagHistoryRequest {
+  string peer_name = 1;
+  string slot_name = 2;
+  string time_since = 3;
+}
+message GetSlotLagHistoryResponse {
+  repeated SlotLagPoint data = 1;
 }
 
 message StatInfo {
@@ -196,6 +298,7 @@ message CloneTableSummary {
   string source_table = 8;
   bool fetch_completed = 9;
   bool consolidate_completed = 10;
+  string mirror_name = 11;
 }
 
 message SnapshotStatus {
@@ -205,7 +308,7 @@ message SnapshotStatus {
 message CDCMirrorStatus {
   peerdb_flow.FlowConnectionConfigs config = 1;
   SnapshotStatus snapshot_status = 2;
-  repeated CDCSyncStatus cdc_syncs = 3;
+  repeated CDCBatch cdc_batches = 3;
   peerdb_peers.DBType source_type = 4;
   peerdb_peers.DBType destination_type = 5;
 }
@@ -219,21 +322,59 @@ message MirrorStatusResponse {
   string error_message = 4;
   peerdb_flow.FlowStatus current_flow_state = 5;
   bool ok = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+message MirrorLog {
+  string flow_name = 1;
+  string error_message = 2;
+  string error_type = 3;
+  double error_timestamp = 4;
+}
+message ListMirrorLogsRequest {
+  string flow_job_name = 1;
+  string level = 2;
+  int32 page = 3;
+  int32 num_per_page = 4;
+}
+message ListMirrorLogsResponse {
+  repeated MirrorLog errors = 1;
+  int32 total = 2;
 }
 
 message ValidateCDCMirrorResponse{
   bool ok = 1;
 }
 
+message ListMirrorsItem {
+  int64 id = 1;
+  string workflow_id = 2;
+  string name = 3;
+  string source_name = 4;
+  peerdb_peers.DBType source_type = 5;
+  string destination_name = 6;
+  peerdb_peers.DBType destination_type = 7;
+  double created_at = 8;
+  bool is_cdc = 9;
+}
+message ListMirrorsRequest {
+}
+message ListMirrorsResponse {
+  repeated ListMirrorsItem mirrors = 1;
+}
+
+message ListMirrorNamesRequest {
+}
+message ListMirrorNamesResponse {
+  repeated string names = 1;
+}
+
 message FlowStateChangeRequest {
   string flow_job_name = 1;
   peerdb_flow.FlowStatus requested_flow_state = 2;
-  string source_peer = 3;
-  string destination_peer = 4;
   // only can be sent in certain situations
   optional peerdb_flow.FlowConfigUpdate flow_config_update = 5;
 }
-
 message FlowStateChangeResponse {
   bool ok = 1;
   string error_message = 2;
@@ -241,9 +382,17 @@ message FlowStateChangeResponse {
 
 message PeerDBVersionRequest {
 }
-
 message PeerDBVersionResponse {
   string version = 1;
+}
+
+message ResyncMirrorRequest {
+  string flow_job_name = 1;
+}
+
+message ResyncMirrorResponse {
+  bool ok = 1;
+  string error_message = 2;
 }
 
 service FlowService {
@@ -291,6 +440,37 @@ service FlowService {
      };
   }
 
+  rpc GetAlertConfigs(GetAlertConfigsRequest) returns (GetAlertConfigsResponse) {
+    option (google.api.http) = { get: "/v1/alerts/config" };
+  }
+  rpc PostAlertConfig(PostAlertConfigRequest) returns (PostAlertConfigResponse) {
+    option (google.api.http) = { post: "/v1/alerts/config", body: "*" };
+  }
+  rpc DeleteAlertConfig(DeleteAlertConfigRequest) returns (DeleteAlertConfigResponse) {
+    option (google.api.http) = { delete: "/v1/alerts/config/{id}" };
+  }
+
+  rpc GetDynamicSettings(GetDynamicSettingsRequest) returns (GetDynamicSettingsResponse) {
+    option (google.api.http) = { get: "/v1/dynamic_settings" };
+  }
+  rpc PostDynamicSetting(PostDynamicSettingRequest) returns (PostDynamicSettingResponse) {
+    option (google.api.http) = { post: "/v1/dynamic_settings", body: "*" };
+  }
+
+  rpc GetScripts(GetScriptsRequest) returns (GetScriptsResponse) {
+    option (google.api.http) = { get: "/v1/scripts/{id}" };
+  }
+  rpc PostScript(PostScriptRequest) returns (PostScriptResponse) {
+    option (google.api.http) = { post: "/v1/scripts", body: "*" };
+  }
+  rpc DeleteScript(DeleteScriptRequest) returns (DeleteScriptResponse) {
+    option (google.api.http) = { delete: "/v1/scripts/{id}" };
+  }
+
+  rpc CDCTableTotalCounts(CDCTableTotalCountsRequest) returns (CDCTableTotalCountsResponse) {
+    option (google.api.http) = { get: "/v1/mirrors/cdc/table_total_counts/{flow_job_name}" };
+  }
+
   rpc GetSchemas(PostgresPeerActivityInfoRequest) returns (PeerSchemasResponse) {
     option (google.api.http) = { get: "/v1/peers/schemas" };
   }
@@ -314,21 +494,43 @@ service FlowService {
   rpc GetSlotInfo(PostgresPeerActivityInfoRequest) returns (PeerSlotResponse) {
     option (google.api.http) = { get: "/v1/peers/slots/{peer_name}" };
   }
+  rpc GetSlotLagHistory(GetSlotLagHistoryRequest) returns (GetSlotLagHistoryResponse) {
+    option (google.api.http) = { post: "/v1/peers/slots/lag_history", body: "*" };
+  }
   rpc GetStatInfo(PostgresPeerActivityInfoRequest) returns (PeerStatResponse) {
     option (google.api.http) = { get: "/v1/peers/stats/{peer_name}" };
   }
 
-  rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {
-    option (google.api.http) = { post: "/v1/mirrors/drop", body: "*" };
+  rpc ListMirrorLogs(ListMirrorLogsRequest) returns (ListMirrorLogsResponse) {
+    option (google.api.http) = { post: "/v1/mirrors/logs", body: "*" };
   }
+
+  rpc ListMirrors(ListMirrorsRequest) returns (ListMirrorsResponse) {
+    option (google.api.http) = { get: "/v1/mirrors/list" };
+  }
+  rpc ListMirrorNames(ListMirrorNamesRequest) returns (ListMirrorNamesResponse) {
+    option (google.api.http) = { get: "/v1/mirrors/names" };
+  }
+
   rpc FlowStateChange(FlowStateChangeRequest) returns (FlowStateChangeResponse) {
     option (google.api.http) = { post: "/v1/mirrors/state_change", body: "*" };
   }
   rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {
-    option (google.api.http) = { get: "/v1/mirrors/{flow_job_name}" };
+    option (google.api.http) = { post: "/v1/mirrors/status", body: "*" };
+  }
+
+  rpc GetPeerInfo(PeerInfoRequest) returns (peerdb_peers.Peer) {
+    option (google.api.http) = { get: "/v1/peers/info/{peer_name}" };
+  }
+  rpc ListPeers(ListPeersRequest) returns (ListPeersResponse) {
+    option (google.api.http) = { get: "/v1/peers/list" };
   }
 
   rpc GetVersion(PeerDBVersionRequest) returns (PeerDBVersionResponse) {
     option (google.api.http) = { get: "/v1/version" };
+  }
+
+  rpc ResyncMirror(ResyncMirrorRequest) returns (ResyncMirrorResponse) {
+    option (google.api.http) = { post: "/v1/mirrors/resync", body: "*" };
   }
 }
