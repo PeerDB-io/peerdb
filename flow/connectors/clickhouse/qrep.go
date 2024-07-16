@@ -33,7 +33,7 @@ func (c *ClickhouseConnector) SyncQRepRecords(
 		slog.String("destinationTable", destTable),
 	)
 
-	tblSchema, err := c.getTableSchema(destTable)
+	tblSchema, err := c.getTableSchema(ctx, destTable)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
 	}
@@ -68,15 +68,21 @@ func (c *ClickhouseConnector) createMetadataInsertStatement(
 	return insertMetadataStmt, nil
 }
 
-func (c *ClickhouseConnector) getTableSchema(tableName string) ([]*sql.ColumnType, error) {
+func (c *ClickhouseConnector) getTableSchema(ctx context.Context,
+	tableName string,
+) ([]*sql.ColumnType, error) {
 	//nolint:gosec
 	queryString := fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName)
-	//nolint:rowserrcheck
-	rows, err := c.database.Query(queryString)
+	rows, err := c.database.QueryContext(ctx, queryString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			c.logger.Warn("error while closing rows", slog.Any("error", err))
+		}
+	}()
 
 	columnTypes, err := rows.ColumnTypes()
 	if err != nil {
