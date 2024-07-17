@@ -162,7 +162,8 @@ func (c *ClickhouseConnector) RenameTables(ctx context.Context, req *protos.Rena
 	for _, renameRequest := range req.RenameTableOptions {
 		if req.SyncedAtColName != "" {
 			syncedAtCol := strings.ToLower(req.SyncedAtColName)
-			currentTimestamp := time.Now().Format("2024-07-16 18:28:13.000000000")
+			// get the current timestamp in UTC which can be used as SQL's now()
+			currentTimestamp := time.Now().UTC().Format("2006-01-02 15:04:05")
 			err := c.execWithLogging(ctx,
 				fmt.Sprintf("ALTER TABLE %s UPDATE %s='%s' WHERE true",
 					renameRequest.CurrentName, syncedAtCol, currentTimestamp))
