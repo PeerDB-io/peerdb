@@ -26,7 +26,7 @@ function QrepGraph({ syncs }: QRepGraphProps) {
   useEffect(() => {
     let rows = syncs.map((sync) => ({
       timestamp: sync.startTime!,
-      count: sync.rowsInPartition ?? 0,
+      count: Number(sync.rowsInPartition) ?? 0,
     }));
 
     let counts = aggregateCountsByInterval(rows, aggregateType);
@@ -54,7 +54,7 @@ function QrepGraph({ syncs }: QRepGraphProps) {
         className='mt-3'
         data={counts.map((count) => ({
           name: formatGraphLabel(new Date(count[0]), aggregateType),
-          'Rows synced at a point in time': count[1],
+          'Rows synced at a point in time': Number(count[1]),
         }))}
         index='name'
         categories={['Rows synced at a point in time']}
