@@ -90,6 +90,7 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	}
 
 	rows, err := ch.Query(
+		context.Background(),
 		fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY id`, cols, s.suffix, table),
 	)
 	if err != nil {
@@ -97,14 +98,10 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	}
 
 	batch := &model.QRecordBatch{}
-	types, err := rows.ColumnTypes()
-	if err != nil {
-		return nil, err
-	}
+	types := rows.ColumnTypes()
 	row := make([]interface{}, 0, len(types))
 	for _, ty := range types {
-		prec, scale, _ := ty.DecimalSize()
-		nullable, _ := ty.Nullable()
+		nullable := ty.Nullable()
 		var qkind qvalue.QValueKind
 		switch ty.DatabaseTypeName() {
 		case "String":
@@ -121,8 +118,8 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 		batch.Schema.Fields = append(batch.Schema.Fields, qvalue.QField{
 			Name:      ty.Name(),
 			Type:      qkind,
-			Precision: int16(prec),
-			Scale:     int16(scale),
+			Precision: 0,
+			Scale:     0,
 			Nullable:  nullable,
 		})
 	}
@@ -167,7 +164,7 @@ func SetupSuite(t *testing.T) ClickHouseSuite {
 
 	ch, err := connclickhouse.Connect(context.Background(), s.PeerForDatabase("default").GetClickhouseConfig())
 	require.NoError(t, err, "failed to connect to clickhouse")
-	_, err = ch.Exec("CREATE DATABASE e2e_test_" + suffix)
+	err = ch.Exec(context.Background(), "CREATE DATABASE e2e_test_"+suffix)
 	require.NoError(t, err, "failed to create clickhouse database")
 
 	return s

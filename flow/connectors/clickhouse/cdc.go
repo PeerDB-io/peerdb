@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -30,7 +31,7 @@ func (c *ClickhouseConnector) getRawTableName(flowJobName string) string {
 
 func (c *ClickhouseConnector) checkIfTableExists(ctx context.Context, databaseName string, tableIdentifier string) (bool, error) {
 	var result sql.NullInt32
-	err := c.database.QueryRowContext(ctx, checkIfTableExistsSQL, databaseName, tableIdentifier).Scan(&result)
+	err := c.database.QueryRow(ctx, checkIfTableExistsSQL, databaseName, tableIdentifier).Scan(&result)
 	if err != nil {
 		return false, fmt.Errorf("error while reading result row: %w", err)
 	}
@@ -56,7 +57,7 @@ func (c *ClickhouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 		_peerdb_unchanged_toast_columns String
 	) ENGINE = ReplacingMergeTree ORDER BY _peerdb_uid;`
 
-	_, err := c.execWithLogging(ctx,
+	err := c.execWithLogging(ctx,
 		fmt.Sprintf(createRawTableSQL, rawTableName))
 	if err != nil {
 		return nil, fmt.Errorf("unable to create raw table: %w", err)
@@ -129,18 +130,6 @@ func (c *ClickhouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 		return nil
 	}
 
-	tableSchemaModifyTx, err := c.database.Begin()
-	if err != nil {
-		return fmt.Errorf("error starting transaction for schema modification: %w",
-			err)
-	}
-	defer func() {
-		deferErr := tableSchemaModifyTx.Rollback()
-		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Error("error rolling back transaction for table schema modification", "error", deferErr)
-		}
-	}()
-
 	for _, schemaDelta := range schemaDeltas {
 		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
 			continue
@@ -152,9 +141,9 @@ func (c *ClickhouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 				return fmt.Errorf("failed to convert column type %s to clickhouse type: %w",
 					addedColumn.Type, err)
 			}
-			_, err = c.execWithLoggingTx(ctx,
+			err = c.execWithLogging(ctx,
 				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
-					schemaDelta.DstTableName, addedColumn.Name, clickhouseColType), tableSchemaModifyTx)
+					schemaDelta.DstTableName, addedColumn.Name, clickhouseColType))
 			if err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
@@ -166,12 +155,6 @@ func (c *ClickhouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 		}
 	}
 
-	err = tableSchemaModifyTx.Commit()
-	if err != nil {
-		return fmt.Errorf("failed to commit transaction for table schema modification: %w",
-			err)
-	}
-
 	return nil
 }
 
@@ -179,9 +162,11 @@ func (c *ClickhouseConnector) RenameTables(ctx context.Context, req *protos.Rena
 	for _, renameRequest := range req.RenameTableOptions {
 		if req.SyncedAtColName != "" {
 			syncedAtCol := strings.ToLower(req.SyncedAtColName)
-			_, err := c.execWithLogging(ctx,
-				fmt.Sprintf("ALTER TABLE %s UPDATE %s=now() WHERE true SETTINGS allow_nondeterministic_mutations=1",
-					renameRequest.CurrentName, syncedAtCol))
+			// get the current timestamp in UTC which can be used as SQL's now()
+			currentTimestamp := time.Now().UTC().Format("2006-01-02 15:04:05")
+			err := c.execWithLogging(ctx,
+				fmt.Sprintf("ALTER TABLE %s UPDATE %s='%s' WHERE true",
+					renameRequest.CurrentName, syncedAtCol, currentTimestamp))
 			if err != nil {
 				return nil, fmt.Errorf("unable to set synced at column for table %s: %w",
 					renameRequest.CurrentName, err)
@@ -196,7 +181,7 @@ func (c *ClickhouseConnector) RenameTables(ctx context.Context, req *protos.Rena
 		allCols := strings.Join(columnNames, ",")
 		pkeyCols := strings.Join(renameRequest.TableSchema.PrimaryKeyColumns, ",")
 		c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", renameRequest.NewName))
-		_, err := c.execWithLogging(ctx,
+		err := c.execWithLogging(ctx,
 			fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
 				renameRequest.CurrentName, fmt.Sprintf("%s,%s", allCols, signColName), allCols,
 				signColName,
@@ -206,13 +191,13 @@ func (c *ClickhouseConnector) RenameTables(ctx context.Context, req *protos.Rena
 		}
 
 		// drop the dst table if exists
-		_, err = c.execWithLogging(ctx, "DROP TABLE IF EXISTS "+renameRequest.NewName)
+		err = c.execWithLogging(ctx, "DROP TABLE IF EXISTS "+renameRequest.NewName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to drop table %s: %w", renameRequest.NewName, err)
 		}
 
 		// rename the src table to dst
-		_, err = c.execWithLogging(ctx, fmt.Sprintf("RENAME TABLE %s TO %s",
+		err = c.execWithLogging(ctx, fmt.Sprintf("RENAME TABLE %s TO %s",
 			renameRequest.CurrentName,
 			renameRequest.NewName))
 		if err != nil {
@@ -237,7 +222,7 @@ func (c *ClickhouseConnector) SyncFlowCleanup(ctx context.Context, jobName strin
 
 	// delete raw table if exists
 	rawTableIdentifier := c.getRawTableName(jobName)
-	_, err = c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, rawTableIdentifier))
+	err = c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, rawTableIdentifier))
 	if err != nil {
 		return fmt.Errorf("[clickhouse] unable to drop raw table: %w", err)
 	}

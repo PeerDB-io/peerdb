@@ -92,12 +92,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	})
 	defer shutdown()
 
-	dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get destination connector: %w", err)
-	}
-	defer connectors.CloseConnector(ctx, dstConn)
-
 	tblNameMapping := make(map[string]model.NameAndExclude, len(options.TableMappings))
 	for _, v := range options.TableMappings {
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
@@ -116,11 +110,19 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		batchSize = 1_000_000
 	}
 
-	lastOffset, err := dstConn.GetLastOffset(ctx, config.FlowJobName)
+	lastOffset, err := func() (int64, error) {
+		dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get destination connector: %w", err)
+		}
+		defer connectors.CloseConnector(ctx, dstConn)
+
+		return dstConn.GetLastOffset(ctx, config.FlowJobName)
+	}()
 	if err != nil {
 		return nil, err
 	}
-	connectors.CloseConnector(ctx, dstConn)
+
 	logger.Info("pulling records...", slog.Int64("LastOffset", lastOffset))
 	consumedOffset := atomic.Int64{}
 	consumedOffset.Store(lastOffset)
@@ -161,11 +163,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	hasRecords := !recordBatchSync.WaitAndCheckEmpty()
 	logger.Info("current sync flow has records?", slog.Bool("hasRecords", hasRecords))
 
-	dstConn, err = connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to recreate destination connector: %w", err)
-	}
-
 	if !hasRecords {
 		// wait for the pull goroutine to finish
 		if err := errGroup.Wait(); err != nil {
@@ -178,8 +175,13 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 		logger.Info("no records to push")
 
-		err := dstConn.ReplayTableSchemaDeltas(ctx, flowName, recordBatchSync.SchemaDeltas)
+		dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
 		if err != nil {
+			return nil, fmt.Errorf("failed to recreate destination connector: %w", err)
+		}
+		defer connectors.CloseConnector(ctx, dstConn)
+
+		if err := dstConn.ReplayTableSchemaDeltas(ctx, flowName, recordBatchSync.SchemaDeltas); err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
@@ -195,6 +197,12 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	var syncStartTime time.Time
 	var res *model.SyncResponse
 	errGroup.Go(func() error {
+		dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
+		if err != nil {
+			return fmt.Errorf("failed to recreate destination connector: %w", err)
+		}
+		defer connectors.CloseConnector(ctx, dstConn)
+
 		syncBatchID, err := dstConn.GetLastSyncBatchID(errCtx, flowName)
 		if err != nil {
 			return err
@@ -344,13 +352,6 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
-	srcConn, err := connectors.GetByNameAs[TPull](ctx, a.CatalogPool, config.SourceName)
-	if err != nil {
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return fmt.Errorf("failed to get qrep source connector: %w", err)
-	}
-	defer connectors.CloseConnector(ctx, srcConn)
-
 	dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -383,6 +384,13 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	var rowsSynced int
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
+		srcConn, err := connectors.GetByNameAs[TPull](ctx, a.CatalogPool, config.SourceName)
+		if err != nil {
+			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+			return fmt.Errorf("failed to get qrep source connector: %w", err)
+		}
+		defer connectors.CloseConnector(ctx, srcConn)
+
 		tmp, err := pullRecords(srcConn, errCtx, config, partition, stream)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -443,17 +451,6 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	logger := activity.GetLogger(ctx)
 
 	startTime := time.Now()
-	srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, a.CatalogPool, config.SourceName)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get qrep source connector: %w", err)
-	}
-	defer connectors.CloseConnector(ctx, srcConn)
-
-	dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get qrep destination connector: %w", err)
-	}
-	defer connectors.CloseConnector(ctx, dstConn)
 
 	logger.Info("replicating xmin")
 	shutdown := heartbeatRoutine(ctx, func() string {
@@ -466,6 +463,12 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	var currentSnapshotXmin int64
 	var rowsSynced int
 	errGroup.Go(func() error {
+		srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, a.CatalogPool, config.SourceName)
+		if err != nil {
+			return fmt.Errorf("failed to get qrep source connector: %w", err)
+		}
+		defer connectors.CloseConnector(ctx, srcConn)
+
 		var pullErr error
 		var numRecords int
 		numRecords, currentSnapshotXmin, pullErr = pullRecords(srcConn, ctx, config, partition, stream)
@@ -495,14 +498,13 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 			return updateErr
 		}
 
-		err := monitoring.UpdateStartTimeForPartition(ctx, a.CatalogPool, runUUID, partition, startTime)
-		if err != nil {
+		if err := monitoring.UpdateStartTimeForPartition(ctx, a.CatalogPool, runUUID, partition, startTime); err != nil {
 			return fmt.Errorf("failed to update start time for partition: %w", err)
 		}
 
-		err = monitoring.UpdatePullEndTimeAndRowsForPartition(
-			errCtx, a.CatalogPool, runUUID, partition, int64(numRecords))
-		if err != nil {
+		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
+			errCtx, a.CatalogPool, runUUID, partition, int64(numRecords),
+		); err != nil {
 			logger.Error(err.Error())
 			return err
 		}
@@ -511,7 +513,12 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	})
 
 	errGroup.Go(func() error {
-		var err error
+		dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
+		if err != nil {
+			return fmt.Errorf("failed to get qrep destination connector: %w", err)
+		}
+		defer connectors.CloseConnector(ctx, dstConn)
+
 		rowsSynced, err = syncRecords(dstConn, ctx, config, partition, outstream)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)

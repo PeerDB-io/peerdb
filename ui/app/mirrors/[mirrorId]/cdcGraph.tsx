@@ -31,7 +31,7 @@ function CdcGraph({ syncs }: CdcGraphProps) {
     timedRowCounts = timedRowCounts.reverse();
     return timedRowCounts.map((count) => ({
       name: formatGraphLabel(new Date(count[0]), aggregateType),
-      'Rows synced at a point in time': count[1],
+      'Rows synced at a point in time': Number(count[1]),
     }));
   }, [syncs, aggregateType]);
 
