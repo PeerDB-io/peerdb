@@ -13,7 +13,7 @@ export const clickhouseSetting: PeerSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, port: parseInt(value as string, 10) })),
     type: 'number', // type for textfield
-    default: 9000,
+    default: 9440,
     tips: 'Specifies the TCP/IP port or local Unix domain socket file extension on which Clickhouse is listening for connections from client applications.',
   },
   {
@@ -89,7 +89,7 @@ export const clickhouseSetting: PeerSetting[] = [
 
 export const blankClickhouseSetting: ClickhouseConfig = {
   host: '',
-  port: 9000,
+  port: 9440,
   user: '',
   password: '',
   database: '',
