@@ -48,7 +48,7 @@ function aggregateCountsByInterval(
       aggregatedCounts[formattedTimestamp] = 0;
     }
 
-    aggregatedCounts[formattedTimestamp] += count;
+    aggregatedCounts[formattedTimestamp] += Number(count);
   }
 
   // Create an array of intervals between the start and end timestamps
@@ -78,7 +78,7 @@ function aggregateCountsByInterval(
   // Populate the result array with intervals and counts
   const resultArray: [string, number][] = intervals.map((interval) => [
     interval,
-    aggregatedCounts[interval] || 0,
+    Number(aggregatedCounts[interval]) || 0,
   ]);
 
   return resultArray;
