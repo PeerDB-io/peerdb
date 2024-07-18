@@ -27,6 +27,8 @@ const GuideForDestinationSetup = ({
       case 'REDPANDA':
       case 'KAFKA':
         return 'https://docs.peerdb.io/connect/kafka';
+      case 'CLICKHOUSE':
+        return 'https://docs.peerdb.io/connect/clickhouse';
       default:
         return '';
     }
