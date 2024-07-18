@@ -52,7 +52,9 @@ func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error
 func (c *ClickhouseConnector) ValidateCheck(ctx context.Context) error {
 	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
 	// create a table
-	err := c.database.Exec(ctx, fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id UInt64) ENGINE = Memory",
+	err := c.database.Exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+		id UInt64
+	) ENGINE = ReplacingMergeTree ORDER BY id;`,
 		validateDummyTableName+"_temp"))
 	if err != nil {
 		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
