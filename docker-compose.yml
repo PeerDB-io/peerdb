@@ -119,6 +119,8 @@ services:
       - 8113:8113
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
@@ -139,6 +141,8 @@ services:
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
@@ -176,7 +180,7 @@ services:
       - flow-api
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2024-07-16T23-46-41Z
     restart: unless-stopped
     volumes:
       - minio-data:/data
