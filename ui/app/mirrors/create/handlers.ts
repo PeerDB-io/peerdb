@@ -1,8 +1,3 @@
-import {
-  UPublicationsResponse,
-  UTablesAllResponse,
-  UTablesResponse,
-} from '@/app/dto/PeersDTO';
 import { notifyErr } from '@/app/utils/notify';
 import QRepQueryTemplate from '@/app/utils/qreptemplate';
 import { DBTypeToGoodText } from '@/components/PeerTypeComponent';
@@ -13,9 +8,12 @@ import {
 } from '@/grpc_generated/flow';
 import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
 import {
+  AllTablesResponse,
   CreateCDCFlowRequest,
   CreateQRepFlowRequest,
+  PeerPublicationsResponse,
   PeerSchemasResponse,
+  SchemaTablesResponse,
   TableColumnsResponse,
   ValidateCDCMirrorResponse,
 } from '@/grpc_generated/route';
@@ -368,14 +366,14 @@ export const fetchTables = async (
   peerType?: DBType
 ) => {
   if (schemaName.length === 0) return [];
-  const tablesRes: UTablesResponse = await fetch('/api/peers/tables', {
-    method: 'POST',
-    body: JSON.stringify({
-      peerName,
-      schemaName,
-    }),
-    cache: 'no-store',
-  }).then((res) => res.json());
+  const tablesRes: SchemaTablesResponse = await fetch(
+    `/api/v1/peers/tables?peerName=${encodeURIComponent(
+      peerName
+    )}&schema_name=${encodeURIComponent(schemaName)}`,
+    {
+      cache: 'no-store',
+    }
+  ).then((res) => res.json());
 
   let tables: TableMapRow[] = [];
   const tableRes = tablesRes.tables;
@@ -411,28 +409,26 @@ export const fetchColumns = async (
 ) => {
   if (peerName?.length === 0) return [];
   setLoading(true);
-  const columnsRes: TableColumnsResponse = await fetch('/api/peers/columns', {
-    method: 'POST',
-    body: JSON.stringify({
-      peerName,
-      schemaName,
-      tableName,
-    }),
-    cache: 'no-store',
-  }).then((res) => res.json());
+  const columnsRes: TableColumnsResponse = await fetch(
+    `/api/v1/peers/columns?peer_name=${encodeURIComponent(
+      peerName
+    )}&schema_name=${encodeURIComponent(schemaName)}&table_name=${encodeURIComponent(tableName)}`,
+    {
+      cache: 'no-store',
+    }
+  ).then((res) => res.json());
   setLoading(false);
   return columnsRes.columns;
 };
 
 export const fetchAllTables = async (peerName: string) => {
   if (peerName?.length === 0) return [];
-  const tablesRes: UTablesAllResponse = await fetch('/api/peers/tables/all', {
-    method: 'POST',
-    body: JSON.stringify({
-      peerName,
-    }),
-    cache: 'no-store',
-  }).then((res) => res.json());
+  const tablesRes: AllTablesResponse = await fetch(
+    `/api/v1/peers/tables/all?peer_name=${encodeURIComponent(peerName)}`,
+    {
+      cache: 'no-store',
+    }
+  ).then((res) => res.json());
   return tablesRes.tables;
 };
 
@@ -470,13 +466,9 @@ export const handleValidateCDC = async (
 };
 
 export const fetchPublications = async (peerName: string) => {
-  const publicationsRes: UPublicationsResponse = await fetch(
-    '/api/peers/publications',
+  const publicationsRes: PeerPublicationsResponse = await fetch(
+    `/api/v1/peers/publications?peer_name=${encodeURIComponent(peerName)}`,
     {
-      method: 'POST',
-      body: JSON.stringify({
-        peerName,
-      }),
       cache: 'no-store',
     }
   ).then((res) => res.json());

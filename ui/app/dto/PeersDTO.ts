@@ -10,7 +10,6 @@ import {
   S3Config,
   SnowflakeConfig,
 } from '@/grpc_generated/peers';
-import { TableResponse } from '@/grpc_generated/route';
 
 export type UValidatePeerResponse = {
   valid: boolean;
@@ -20,14 +19,6 @@ export type UValidatePeerResponse = {
 export type UCreatePeerResponse = {
   created: boolean;
   message: string;
-};
-
-export type UTablesResponse = {
-  tables: TableResponse[];
-};
-
-export type UTablesAllResponse = {
-  tables: string[];
 };
 
 export type PeerConfig =
@@ -42,7 +33,3 @@ export type PeerConfig =
   | EventHubGroupConfig
   | ElasticsearchConfig;
 export type PeerSetter = React.Dispatch<React.SetStateAction<PeerConfig>>;
-
-export type UPublicationsResponse = {
-  publicationNames: string[];
-};
