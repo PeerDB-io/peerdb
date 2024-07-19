@@ -6,7 +6,7 @@ import {
 import { notifyErr } from '../utils/notify';
 
 export const HandleAddScript = async (script: Script) => {
-  const addScriptRes = await fetch('/api/scripts', {
+  const addScriptRes = await fetch('/api/v1/scripts', {
     method: 'POST',
     body: JSON.stringify({
       script: {
@@ -26,7 +26,7 @@ export const HandleAddScript = async (script: Script) => {
 
 export const GetScriptById = async (scriptId: string) => {
   try {
-    const scriptByIdRes = await fetch(`/api/scripts?id=${scriptId}`);
+    const scriptByIdRes = await fetch(`/api/v1/scripts/${scriptId}`);
     const scriptRes: GetScriptsResponse = await scriptByIdRes.json();
     if (!scriptRes) {
       notifyErr('Script not found');
@@ -42,7 +42,7 @@ export const GetScriptById = async (scriptId: string) => {
 };
 
 export const HandleEditScript = async (script: Script) => {
-  const editScriptRes = await fetch('/api/scripts', {
+  const editScriptRes = await fetch('/api/v1/scripts', {
     method: 'POST',
     body: JSON.stringify({
       script,
@@ -58,7 +58,7 @@ export const HandleEditScript = async (script: Script) => {
 };
 
 export const DeleteScript = async (scriptId: number) => {
-  const deleteScriptRes = await fetch(`/api/scripts?id=${scriptId}`, {
+  const deleteScriptRes = await fetch(`/api/v1/scripts/${scriptId}`, {
     method: 'DELETE',
   });
   if (!deleteScriptRes.ok) {

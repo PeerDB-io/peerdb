@@ -38,7 +38,7 @@ function LagGraph({ peerName, slotNames }: LagGraphProps) {
     }
 
     setLoading(true);
-    const pointsRes = await fetch(`/api/peers/slots/lag_history`, {
+    const pointsRes = await fetch(`/api/v1/peers/slots/lag_history`, {
       method: 'POST',
       cache: 'no-store',
       body: JSON.stringify({

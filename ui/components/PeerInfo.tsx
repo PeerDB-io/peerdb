@@ -12,7 +12,7 @@ export const PeerInfo = ({ peerName }: { peerName: string }) => {
   const [info, setInfo] = useState<Peer>();
 
   const getPeerInfo = useCallback(async () => {
-    const peerRes: Peer = await fetch(`/api/peers/info/${peerName}`, {
+    const peerRes: Peer = await fetch(`/api/v1/peers/info/${peerName}`, {
       cache: 'no-store',
     }).then((res) => res.json());
     setInfo(peerRes);
