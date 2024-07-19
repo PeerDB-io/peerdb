@@ -21,12 +21,15 @@ export const ResyncDialog = ({ mirrorName }: ResyncDialogProps) => {
   const handleResync = async () => {
     setSyncing(true);
     setMsg('Resyncing...');
-    const resyncRes: ResyncMirrorResponse = await fetch('/api/mirrors/resync', {
-      method: 'POST',
-      body: JSON.stringify({
-        flowJobName: mirrorName,
-      } as ResyncMirrorRequest),
-    }).then((res) => res.json());
+    const resyncRes: ResyncMirrorResponse = await fetch(
+      '/api/v1/mirrors/resync',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          flowJobName: mirrorName,
+        } as ResyncMirrorRequest),
+      }
+    ).then((res) => res.json());
     if (resyncRes.ok !== true) {
       setMsg(
         `Unable to drop mirror ${mirrorName}. ${resyncRes.errorMessage ?? ''}`
