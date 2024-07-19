@@ -65,7 +65,8 @@ func waitForCdcCache[TPull connectors.CDCPullConnectorCore](ctx context.Context,
 		activity.RecordHeartbeat(ctx, "wait another second for source connector")
 		attempt += 1
 		if attempt > 2 {
-			logger.Info("waiting on source connector setup", slog.Int("attempt", attempt))
+			logger.Info("waiting on source connector setup",
+				slog.Int("attempt", attempt), slog.String("sessionID", sessionID))
 		}
 		if err := ctx.Err(); err != nil {
 			return none, err
