@@ -20,7 +20,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-func redactProto(message proto.Message) proto.Message {
+func redactProto(message proto.Message) {
 	message.ProtoReflect().Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
 		if fd.Kind() == protoreflect.MessageKind {
 			redactProto(v.Message().Interface())
@@ -32,7 +32,6 @@ func redactProto(message proto.Message) proto.Message {
 		}
 		return true
 	})
-	return message
 }
 
 func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName string) (*protos.PostgresConfig, error) {
