@@ -305,14 +305,13 @@ export const handleCreateQRep = async (
   route();
 };
 
-export const fetchSchemas = async (peerName: string) => {
-  const schemasRes: PeerSchemasResponse = await fetch('/api/peers/schemas', {
-    method: 'POST',
-    body: JSON.stringify({
-      peerName,
-    }),
-    cache: 'no-store',
-  }).then((res) => res.json());
+export const fetchSchemas = async (peer_name: string) => {
+  const schemasRes: PeerSchemasResponse = await fetch(
+    `/api/v1/peers/schemas?peer_name=${encodeURIComponent(peer_name)}`,
+    {
+      cache: 'no-store',
+    }
+  ).then((res) => res.json());
   return schemasRes.schemas;
 };
 

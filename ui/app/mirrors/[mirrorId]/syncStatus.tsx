@@ -18,7 +18,7 @@ export default function SyncStatus({ flowJobName, rows }: SyncStatusProps) {
     error,
     isLoading,
   } = useSWR<CDCTableTotalCountsResponse>(
-    `/api/mirrors/cdc/${flowJobName}/tablestats`,
+    `/api/v1/mirrors/cdc/table_total_counts/${encodeURIComponent(flowJobName)}`,
     fetcher
   );
 
