@@ -87,7 +87,7 @@ export const DropDialog = ({
 
   const handleDeleteAlert = async (dropArgs: deleteAlertArgs) => {
     setLoading(true);
-    const deleteRes = await fetch(`api/alert-config?id=${dropArgs.id}`, {
+    const deleteRes = await fetch(`api/v1/alerts/config/${dropArgs.id}`, {
       method: 'DELETE',
     });
     setLoading(false);

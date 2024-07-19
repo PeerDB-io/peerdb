@@ -93,7 +93,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
         cdcFlowConfigUpdate: { ...config, additionalTables },
       },
     };
-    const res = await fetch(`/api/mirrors/state_change`, {
+    const res = await fetch('/api/v1/mirrors/state_change', {
       method: 'POST',
       body: JSON.stringify(req),
       cache: 'no-store',

@@ -28,7 +28,7 @@ export default function LogsView() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const { data: mirrors }: { data: ListMirrorNamesResponse; error: any } =
-    useSWR('/api/mirrors/names', fetcher);
+    useSWR('/api/v1/mirrors/names', fetcher);
 
   useEffect(() => {
     setCurrentPage(1);

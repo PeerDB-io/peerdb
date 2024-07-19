@@ -6,7 +6,7 @@ async function setFlowState(
   flowJobName: string,
   requestedFlowState: FlowStatus
 ) {
-  await fetch(`/api/mirrors/state_change`, {
+  await fetch('/api/v1/mirrors/state_change', {
     method: 'POST',
     body: JSON.stringify({
       flowJobName,

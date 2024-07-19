@@ -122,7 +122,7 @@ const DynamicSettingItem = ({
       return;
     }
     const updatedSetting = { ...setting, value: newValue };
-    await fetch('/api/settings', {
+    await fetch('/api/v1/dynamic_settings', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -182,7 +182,7 @@ const SettingsPage = () => {
   const sortField = 'name';
 
   const fetchSettings = async () => {
-    const response = await fetch('/api/settings');
+    const response = await fetch('/api/v1/dynamic_settings');
     const data = await response.json();
     setSettings(data);
   };
