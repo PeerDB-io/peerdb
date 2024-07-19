@@ -23,10 +23,6 @@ const ROWS_PER_PAGE = 7;
 const ApplyModeIconWithTooltip = ({ applyMode }: { applyMode: number }) => {
   let tooltipText = '';
   let iconName: MaterialSymbol = 'help';
-  console.log('applymode', applyMode.toString());
-  console.log(
-    DynconfApplyMode[DynconfApplyMode.APPLY_MODE_IMMEDIATE].toString()
-  );
   switch (applyMode.toString()) {
     case DynconfApplyMode[DynconfApplyMode.APPLY_MODE_IMMEDIATE].toString():
       tooltipText = 'Changes to this configuration will apply immediately';
