@@ -142,9 +142,3 @@ export async function POST(request: Request) {
     }
   }
 }
-
-// GET all peers from the database
-export async function GET(_request: Request) {
-  const flowServiceAddr = GetFlowHttpAddressFromEnv();
-  return fetch(`${flowServiceAddr}/v1/peers/list`);
-}

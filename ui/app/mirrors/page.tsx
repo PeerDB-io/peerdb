@@ -18,7 +18,7 @@ export default function Mirrors() {
     error,
     isLoading,
   }: { data: ListMirrorsResponse; error: any; isLoading: boolean } = useSWR(
-    '/api/mirrors',
+    '/api/v1/mirrors/list',
     fetcher
   );
 

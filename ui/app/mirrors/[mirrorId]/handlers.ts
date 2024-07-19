@@ -7,7 +7,7 @@ import {
 export const getMirrorState = async (
   flow_job_name: string
 ): Promise<MirrorStatusResponse> => {
-  const res = await fetch('/api/mirrors/state', {
+  const res = await fetch('/api/v1/mirrors/status', {
     method: 'POST',
     body: JSON.stringify({
       flow_job_name,
@@ -30,7 +30,7 @@ export const changeFlowState = async (
     flowJobName: mirrorName,
     requestedFlowState: flowState,
   };
-  const res = await fetch(`/api/mirrors/state_change`, {
+  const res = await fetch('/api/v1/mirrors/state_change', {
     method: 'POST',
     body: JSON.stringify(req),
     cache: 'no-store',

@@ -79,7 +79,7 @@ export default function CreateMirrors() {
   const [qrepQuery, setQrepQuery] = useState<string>(QRepQueryTemplate);
   const [nameValidityMessage, setNameValidityMessage] = useState<string>('');
   useEffect(() => {
-    fetch('/api/peers', { cache: 'no-store' })
+    fetch('/api/v1/peers/list', { cache: 'no-store' })
       .then((res) => res.json())
       .then((res: ListPeersResponse) => {
         setPeers(res.items);
