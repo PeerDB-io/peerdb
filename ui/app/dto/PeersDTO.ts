@@ -41,12 +41,6 @@ export type PeerConfig =
   | EventHubConfig
   | EventHubGroupConfig
   | ElasticsearchConfig;
-export type CatalogPeer = {
-  id: number;
-  name: string;
-  type: number;
-  options: Buffer;
-};
 export type PeerSetter = React.Dispatch<React.SetStateAction<PeerConfig>>;
 
 export type UPublicationsResponse = {
