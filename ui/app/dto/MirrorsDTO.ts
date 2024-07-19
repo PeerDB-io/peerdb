@@ -7,11 +7,6 @@ export enum MirrorType {
   XMin = 'XMin',
 }
 
-export type UValidateMirrorResponse = {
-  ok: boolean;
-  errorMessage: string;
-};
-
 export type CDCConfig = FlowConnectionConfigs & {
   disablePeerDBColumns: boolean;
 };
