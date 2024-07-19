@@ -1,6 +1,6 @@
 'use client';
 
-import { DynconfApplyMode, DynconfValueType } from '@/grpc_generated/flow';
+import { DynconfValueType } from '@/grpc_generated/flow';
 import {
   DynamicSetting,
   GetDynamicSettingsResponse,
@@ -11,51 +11,12 @@ import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { TextField } from '@/lib/TextField';
-import { Tooltip } from '@/lib/Tooltip';
-import { MaterialSymbol } from 'material-symbols';
 import { useEffect, useMemo, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { notifyErr } from '../utils/notify';
 
 const ROWS_PER_PAGE = 7;
-
-const ApplyModeIconWithTooltip = ({ applyMode }: { applyMode: number }) => {
-  let tooltipText = '';
-  let iconName: MaterialSymbol = 'help';
-
-  switch (applyMode) {
-    case DynconfApplyMode.APPLY_MODE_IMMEDIATE:
-      tooltipText = 'Changes to this configuration will apply immediately';
-      iconName = 'bolt';
-      break;
-    case DynconfApplyMode.APPLY_MODE_AFTER_RESUME:
-      tooltipText = 'Changes to this configuration will apply after resume';
-      iconName = 'cached';
-      break;
-    case DynconfApplyMode.APPLY_MODE_RESTART:
-      tooltipText =
-        'Changes to this configuration will apply after server restart.';
-      iconName = 'restart_alt';
-      break;
-    case DynconfApplyMode.APPLY_MODE_NEW_MIRROR:
-      tooltipText =
-        'Changes to this configuration will apply only to new mirrors';
-      iconName = 'new_window';
-      break;
-    default:
-      tooltipText = 'Unknown apply mode';
-      iconName = 'help';
-  }
-
-  return (
-    <div style={{ cursor: 'help' }}>
-      <Tooltip style={{ width: '100%' }} content={tooltipText}>
-        <Icon name={iconName} />
-      </Tooltip>
-    </div>
-  );
-};
 
 const DynamicSettingItem = ({
   setting,
@@ -159,15 +120,6 @@ const DynamicSettingItem = ({
           </div>
         )}
       </TableCell>
-      <TableCell style={{ width: '20%' }}>
-        {setting.defaultValue || 'N/A'}
-      </TableCell>
-      <TableCell style={{ width: '45%' }}>
-        {setting.description || 'N/A'}
-      </TableCell>
-      <TableCell style={{ width: '10%' }}>
-        <ApplyModeIconWithTooltip applyMode={setting.applyMode || 0} />
-      </TableCell>
     </TableRow>
   );
 };
@@ -268,9 +220,6 @@ const SettingsPage = () => {
             {[
               { header: 'Configuration Name', width: '35%' },
               { header: 'Current Value', width: '10%' },
-              { header: 'Default Value', width: '10%' },
-              { header: 'Description', width: '35%' },
-              { header: 'Apply Mode', width: '10%' },
             ].map(({ header, width }) => (
               <TableCell key={header} as='th' style={{ width }}>
                 {header}
