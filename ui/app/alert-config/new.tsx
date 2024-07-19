@@ -197,7 +197,7 @@ export function NewConfig(alertProps: AlertConfigProps) {
     );
 
     setLoading(true);
-    const createRes = await fetch('/api/alerts/config', {
+    const createRes = await fetch('/api/v1/alerts/config', {
       method: 'POST',
       body: JSON.stringify(alertConfigReq),
     });

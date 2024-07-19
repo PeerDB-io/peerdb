@@ -37,7 +37,7 @@ const AlertConfigPage: React.FC = () => {
     data: GetAlertConfigsResponse;
     error: any;
     isLoading: boolean;
-  } = useSWR('/api/alerts/config', fetcher);
+  } = useSWR('/api/v1/alerts/config', fetcher);
 
   const blankAlert: AlertConfigProps = {
     serviceType: 'slack',
