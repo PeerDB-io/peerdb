@@ -30,11 +30,6 @@ export type UTablesAllResponse = {
   tables: string[];
 };
 
-export type UDropPeerResponse = {
-  dropped: boolean;
-  errorMessage: string;
-};
-
 export type PeerConfig =
   | PostgresConfig
   | SnowflakeConfig

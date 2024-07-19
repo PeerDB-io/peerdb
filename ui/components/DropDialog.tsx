@@ -1,8 +1,8 @@
 'use client';
-import { UDropPeerResponse } from '@/app/dto/PeersDTO';
 import { changeFlowState } from '@/app/mirrors/[mirrorId]/handlers';
 import { DeleteScript } from '@/app/scripts/handlers';
 import { FlowStatus } from '@/grpc_generated/flow';
+import { DropPeerResponse } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Icon } from '@/lib/Icon';
@@ -68,12 +68,12 @@ export const DropDialog = ({
     }
 
     setLoading(true);
-    const dropRes: UDropPeerResponse = await fetch('api/peers/drop', {
+    const dropRes: DropPeerResponse = await fetch('api/v1/peers/drop', {
       method: 'POST',
       body: JSON.stringify(dropArgs),
     }).then((res) => res.json());
     setLoading(false);
-    if (dropRes.dropped !== true)
+    if (dropRes.ok !== true)
       setMsg(
         `Unable to drop peer ${dropArgs.peerName}. ${
           dropRes.errorMessage ?? ''

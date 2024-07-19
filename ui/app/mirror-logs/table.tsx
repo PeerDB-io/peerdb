@@ -44,7 +44,7 @@ export default function LogsView() {
 
     const fetchData = async () => {
       try {
-        const response = await fetch('/api/mirrors/errors', {
+        const response = await fetch('/api/v1/mirrors/logs', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

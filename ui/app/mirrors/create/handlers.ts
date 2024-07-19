@@ -192,7 +192,7 @@ export const handleCreateCDC = async (
   }
 
   setLoading(true);
-  const res = await fetch('/api/mirrors/cdc', {
+  const res = await fetch('/api/v1/mirrors/cdc/create', {
     method: 'POST',
     body: JSON.stringify({
       connectionConfigs: processCDCConfig(config),
@@ -288,7 +288,7 @@ export const handleCreateQRep = async (
   }
 
   setLoading(true);
-  const res = await fetch('/api/mirrors/qrep', {
+  const res = await fetch('/api/v1/mirrors/qrep/create', {
     method: 'POST',
     body: JSON.stringify({
       qrepConfig: config,
