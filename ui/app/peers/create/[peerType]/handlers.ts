@@ -1,29 +1,10 @@
-import { PeerConfig } from '@/app/dto/PeersDTO';
 import {
-  BigqueryConfig,
-  ClickhouseConfig,
-  DBType,
-  ElasticsearchConfig,
-  EventHubGroupConfig,
-  KafkaConfig,
-  Peer,
-  PostgresConfig,
-  PubSubConfig,
-  S3Config,
-  SnowflakeConfig,
-} from '@/grpc_generated/peers';
-import {
-  CreatePeerRequest,
-  CreatePeerResponse,
-  CreatePeerStatus,
-  createPeerStatusFromJSON,
-  ValidatePeerRequest,
-  ValidatePeerResponse,
-  ValidatePeerStatus,
-  validatePeerStatusFromJSON,
-} from '@/grpc_generated/route';
+  PeerConfig,
+  UCreatePeerResponse,
+  UValidatePeerResponse,
+} from '@/app/dto/PeersDTO';
+import { S3Config } from '@/grpc_generated/peers';
 import { Dispatch, SetStateAction } from 'react';
-
 import {
   bqSchema,
   chSchema,
@@ -37,77 +18,12 @@ import {
   sfSchema,
 } from './schema';
 
-function constructPeer(
-  name: string,
-  type: string,
-  config: PeerConfig
-): Peer | undefined {
-  switch (type) {
-    case 'POSTGRES':
-      return {
-        name,
-        type: DBType.POSTGRES,
-        postgresConfig: config as PostgresConfig,
-      };
-    case 'SNOWFLAKE':
-      return {
-        name,
-        type: DBType.SNOWFLAKE,
-        snowflakeConfig: config as SnowflakeConfig,
-      };
-    case 'BIGQUERY':
-      return {
-        name,
-        type: DBType.BIGQUERY,
-        bigqueryConfig: config as BigqueryConfig,
-      };
-    case 'CLICKHOUSE':
-      return {
-        name,
-        type: DBType.CLICKHOUSE,
-        clickhouseConfig: config as ClickhouseConfig,
-      };
-    case 'S3':
-      return {
-        name,
-        type: DBType.S3,
-        s3Config: config as S3Config,
-      };
-    case 'KAFKA':
-      return {
-        name,
-        type: DBType.KAFKA,
-        kafkaConfig: config as KafkaConfig,
-      };
-    case 'PUBSUB':
-      return {
-        name,
-        type: DBType.PUBSUB,
-        pubsubConfig: config as PubSubConfig,
-      };
-    case 'EVENTHUBS':
-      return {
-        name,
-        type: DBType.EVENTHUBS,
-        eventhubGroupConfig: config as EventHubGroupConfig,
-      };
-    case 'ELASTICSEARCH':
-      return {
-        name,
-        type: DBType.ELASTICSEARCH,
-        elasticsearchConfig: config as ElasticsearchConfig,
-      };
-    default:
-      return;
-  }
-}
-
-function validateFields(
+const validateFields = (
   type: string,
   config: PeerConfig,
   notify: (msg: string) => void,
   name?: string
-): boolean {
+): boolean => {
   const peerNameValid = peerNameSchema.safeParse(name);
   if (!peerNameValid.success) {
     const peerNameErr = peerNameValid.error.issues[0].message;
@@ -160,7 +76,10 @@ function validateFields(
       break;
     case 'ELASTICSEARCH':
       const esConfig = esSchema.safeParse(config);
-      if (!esConfig.success) validationErr = esConfig.error.issues[0].message;
+      if (!esConfig.success) {
+        console.log(esConfig.error);
+        validationErr = esConfig.error.issues[0].message;
+      }
       break;
     default:
       validationErr = 'Unsupported peer type ' + type;
@@ -170,7 +89,7 @@ function validateFields(
     return false;
   }
   return true;
-}
+};
 
 // API call to validate peer
 export const handleValidate = async (
@@ -184,15 +103,17 @@ export const handleValidate = async (
   if (!isValid) return;
   setLoading(true);
 
-  const validateReq: ValidatePeerRequest = {
-    peer: constructPeer(name!, type, config),
-  };
-  const valid: ValidatePeerResponse = await fetch('/api/v1/peers/validate', {
+  const valid: UValidatePeerResponse = await fetch('/api/peers/', {
     method: 'POST',
-    body: JSON.stringify(validateReq),
+    body: JSON.stringify({
+      name,
+      type,
+      config,
+      mode: 'validate',
+    }),
     cache: 'no-store',
   }).then((res) => res.json());
-  if (validatePeerStatusFromJSON(valid.status) !== ValidatePeerStatus.VALID) {
+  if (!valid.valid) {
     notify(valid.message);
     setLoading(false);
     return;
@@ -209,29 +130,28 @@ const S3Validation = (config: S3Config): string => {
 };
 
 // API call to create peer
-export async function handleCreate(
+export const handleCreate = async (
   type: string,
   config: PeerConfig,
   notify: (msg: string) => void,
   setLoading: Dispatch<SetStateAction<boolean>>,
   route: RouteCallback,
   name?: string
-) {
+) => {
   let isValid = validateFields(type, config, notify, name);
   if (!isValid) return;
   setLoading(true);
-  const req: CreatePeerRequest = {
-    peer: constructPeer(name!, type, config),
-    allowUpdate: true,
-  };
-  const createdPeer: CreatePeerResponse = await fetch('/api/v1/peers/create', {
+  const createdPeer: UCreatePeerResponse = await fetch('/api/peers/', {
     method: 'POST',
-    body: JSON.stringify(req),
+    body: JSON.stringify({
+      name,
+      type,
+      config,
+      mode: 'create',
+    }),
     cache: 'no-store',
   }).then((res) => res.json());
-  if (
-    createPeerStatusFromJSON(createdPeer.status) !== CreatePeerStatus.CREATED
-  ) {
+  if (!createdPeer.created) {
     notify(createdPeer.message);
     setLoading(false);
     return;
@@ -239,4 +159,4 @@ export async function handleCreate(
 
   route();
   setLoading(false);
-}
+};

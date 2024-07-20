@@ -30,7 +30,7 @@ plugins:
     path: ./node_modules/ts-proto/protoc-gen-ts_proto
     opt:
       - esModuleInterop=true
-      - outputServices=none
+      - outputServices=grpc-js
   - plugin: grpc-gateway
     out: flow/generated/protos
     opt:
