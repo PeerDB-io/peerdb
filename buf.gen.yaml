@@ -28,7 +28,7 @@ plugins:
     out: ui/grpc_generated
     opt:
       - esModuleInterop=true
-      - outputServices=grpc-js
+      - outputServices=none
   - plugin: buf.build/grpc-ecosystem/gateway:v2.19.1
     out: flow/generated/protos
     opt:
