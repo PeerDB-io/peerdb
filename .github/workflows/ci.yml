@@ -55,7 +55,7 @@ jobs:
           json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
           dir: "nexus/server/tests/assets/"
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: ubicloud/rust-cache@v2
         with:
           workspaces: nexus
 
