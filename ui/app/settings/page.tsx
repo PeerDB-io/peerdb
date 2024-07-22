@@ -23,22 +23,21 @@ const ROWS_PER_PAGE = 7;
 const ApplyModeIconWithTooltip = ({ applyMode }: { applyMode: number }) => {
   let tooltipText = '';
   let iconName: MaterialSymbol = 'help';
-
-  switch (applyMode) {
-    case DynconfApplyMode.APPLY_MODE_IMMEDIATE:
+  switch (applyMode.toString()) {
+    case DynconfApplyMode[DynconfApplyMode.APPLY_MODE_IMMEDIATE].toString():
       tooltipText = 'Changes to this configuration will apply immediately';
       iconName = 'bolt';
       break;
-    case DynconfApplyMode.APPLY_MODE_AFTER_RESUME:
+    case DynconfApplyMode[DynconfApplyMode.APPLY_MODE_AFTER_RESUME].toString():
       tooltipText = 'Changes to this configuration will apply after resume';
       iconName = 'cached';
       break;
-    case DynconfApplyMode.APPLY_MODE_RESTART:
+    case DynconfApplyMode[DynconfApplyMode.APPLY_MODE_RESTART].toString():
       tooltipText =
         'Changes to this configuration will apply after server restart.';
       iconName = 'restart_alt';
       break;
-    case DynconfApplyMode.APPLY_MODE_NEW_MIRROR:
+    case DynconfApplyMode[DynconfApplyMode.APPLY_MODE_NEW_MIRROR].toString():
       tooltipText =
         'Changes to this configuration will apply only to new mirrors';
       iconName = 'new_window';
