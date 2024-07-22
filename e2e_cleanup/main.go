@@ -129,7 +129,9 @@ func CleanupBQ(ctx context.Context) {
 			break
 		}
 		if strings.HasPrefix(topic.ID(), "e2e") {
-			topic.Delete(ctx)
+			if err := topic.Delete(ctx); err != nil {
+				panic(err)
+			}
 		}
 	}
 
@@ -140,7 +142,9 @@ func CleanupBQ(ctx context.Context) {
 			break
 		}
 		if strings.HasPrefix(subscription.ID(), "e2e") {
-			subscription.Delete(ctx)
+			if err := subscription.Delete(ctx); err != nil {
+				panic(err)
+			}
 		}
 	}
 }
