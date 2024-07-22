@@ -1,26 +1,32 @@
 syntax = "proto3";
 
+import "google/protobuf/descriptor.proto";
+
+extend google.protobuf.FieldOptions {
+  optional bool peerdb_redacted = 16551842;
+}
+
 package peerdb_peers;
 
 message SSHConfig {
   string host = 1;
   uint32 port = 2;
   string user = 3;
-  string password = 4;
-  string private_key = 5;
-  string host_key = 6;
+  string password = 4 [(peerdb_redacted) = true];
+  string private_key = 5 [(peerdb_redacted) = true];
+  string host_key = 6 [(peerdb_redacted) = true];
 }
 
 message SnowflakeConfig {
   string account_id = 1;
   string username = 2;
-  string private_key = 3;
+  string private_key = 3 [(peerdb_redacted) = true];
   string database = 4;
   string warehouse = 6;
   string role = 7;
   uint64 query_timeout = 8;
   string s3_integration = 9;
-  optional string password = 10;
+  optional string password = 10 [(peerdb_redacted) = true];
   // defaults to _PEERDB_INTERNAL
   optional string metadata_schema = 11;
 }
@@ -28,8 +34,8 @@ message SnowflakeConfig {
 message GcpServiceAccount {
   string auth_type = 1;
   string project_id = 2;
-  string private_key_id = 3;
-  string private_key = 4;
+  string private_key_id = 3 [(peerdb_redacted) = true];
+  string private_key = 4 [(peerdb_redacted) = true];
   string client_email = 5;
   string client_id = 6;
   string auth_uri = 7;
@@ -41,8 +47,8 @@ message GcpServiceAccount {
 message BigqueryConfig {
   string auth_type = 1;
   string project_id = 2;
-  string private_key_id = 3;
-  string private_key = 4;
+  string private_key_id = 3 [(peerdb_redacted) = true];
+  string private_key = 4 [(peerdb_redacted) = true];
   string client_email = 5;
   string client_id = 6;
   string auth_uri = 7;
@@ -58,7 +64,7 @@ message PubSubConfig {
 
 message MongoConfig {
   string username = 1;
-  string password = 2;
+  string password = 2 [(peerdb_redacted) = true];
   string clusterurl = 3;
   int32 clusterport = 4;
   string database = 5;
@@ -68,7 +74,7 @@ message PostgresConfig {
   string host = 1;
   uint32 port = 2;
   string user = 3;
-  string password = 4;
+  string password = 4 [(peerdb_redacted) = true];
   string database = 5;
   // defaults to _peerdb_internal
   optional string metadata_schema = 7;
@@ -80,7 +86,7 @@ message EventHubConfig {
   string resource_group = 2;
   string location = 3;
   // if this is empty PeerDB uses `AZURE_SUBSCRIPTION_ID` environment variable.
-  string subscription_id = 5;
+  string subscription_id = 5 [(peerdb_redacted) = true];
   // defaults to 3
   uint32 partition_count = 6;
   // defaults to 7
@@ -95,8 +101,8 @@ message EventHubGroupConfig {
 
 message S3Config {
   string url = 1;
-  optional string access_key_id = 2;
-  optional string secret_access_key = 3;
+  optional string access_key_id = 2 [(peerdb_redacted) = true];
+  optional string secret_access_key = 3 [(peerdb_redacted) = true];
   optional string role_arn = 4;
   optional string region = 5;
   optional string endpoint = 6;
@@ -106,11 +112,11 @@ message ClickhouseConfig{
   string host = 1;
   uint32 port = 2;
   string user = 3;
-  string password = 4;
+  string password = 4 [(peerdb_redacted) = true];
   string database = 5;
   string s3_path = 6; // path to S3 bucket which will store avro files
-  string access_key_id = 7;
-  string secret_access_key = 8;
+  string access_key_id = 7 [(peerdb_redacted) = true];
+  string secret_access_key = 8 [(peerdb_redacted) = true];
   string region = 9;
   bool disable_tls = 10;
   optional string endpoint = 11;
@@ -120,7 +126,7 @@ message SqlServerConfig {
   string server = 1;
   uint32 port = 2;
   string user = 3;
-  string password = 4;
+  string password = 4 [(peerdb_redacted) = true];
   string database = 5;
 }
 
@@ -128,7 +134,7 @@ message MySqlConfig {
   string host = 1;
   uint32 port = 2;
   string user = 3;
-  string password = 4;
+  string password = 4 [(peerdb_redacted) = true];
   string database = 5;
   repeated string setup = 6;
   uint32 compression = 7;
@@ -138,7 +144,7 @@ message MySqlConfig {
 message KafkaConfig {
   repeated string servers = 1;
   string username = 2;
-  string password = 3;
+  string password = 3 [(peerdb_redacted) = true];
   string sasl = 4;
   bool disable_tls = 5;
   string partitioner = 6;
@@ -156,8 +162,8 @@ message ElasticsearchConfig {
   repeated string addresses = 1;
   ElasticsearchAuthType auth_type = 2;
   optional string username = 3;
-  optional string password = 4;
-  optional string api_key = 5;
+  optional string password = 4 [(peerdb_redacted) = true];
+  optional string api_key = 5 [(peerdb_redacted) = true];
 }
 
 enum DBType {

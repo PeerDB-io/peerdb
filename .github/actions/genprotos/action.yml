@@ -12,10 +12,10 @@ runs:
           ./flow/generated/protos
           ./nexus/pt/src/gen
           ./ui/grpc_generated
-        key: ${{ runner.os }}-build-genprotos-${{ hashFiles('./protos/peers.proto', './protos/flow.proto', './protos/route.proto') }}
+        key: ${{ runner.os }}-build-genprotos-${{ hashFiles('buf.gen.yaml', 'buf.gen-local.yaml', './protos/peers.proto', './protos/flow.proto', './protos/route.proto') }}
 
     - if: steps.cache.outputs.cache-hit != 'true'
-      uses: actions/setup-go@v5
+      uses: ubicloud/setup-go@v5
       with:
         go-version: '1.22.5'
         cache: false
