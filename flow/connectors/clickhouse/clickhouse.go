@@ -80,14 +80,6 @@ func (c *ClickhouseConnector) ValidateCheck(ctx context.Context) error {
 		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableName, err)
 	}
 
-	currentTimestamp := time.Now().UTC().Format("2006-01-02 15:04:05")
-	// alter update the row
-	err = c.database.Exec(ctx, fmt.Sprintf("ALTER TABLE %s UPDATE updated_at = '%s' WHERE id = 1",
-		validateDummyTableName, currentTimestamp))
-	if err != nil {
-		return fmt.Errorf("failed to update validation table %s: %w", validateDummyTableName, err)
-	}
-
 	// drop the table
 	err = c.database.Exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName)
 	if err != nil {
