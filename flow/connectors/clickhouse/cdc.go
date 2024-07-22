@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -160,19 +159,6 @@ func (c *ClickhouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 
 func (c *ClickhouseConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
 	for _, renameRequest := range req.RenameTableOptions {
-		if req.SyncedAtColName != "" {
-			syncedAtCol := strings.ToLower(req.SyncedAtColName)
-			// get the current timestamp in UTC which can be used as SQL's now()
-			currentTimestamp := time.Now().UTC().Format("2006-01-02 15:04:05")
-			err := c.execWithLogging(ctx,
-				fmt.Sprintf("ALTER TABLE %s UPDATE %s='%s' WHERE true",
-					renameRequest.CurrentName, syncedAtCol, currentTimestamp))
-			if err != nil {
-				return nil, fmt.Errorf("unable to set synced at column for table %s: %w",
-					renameRequest.CurrentName, err)
-			}
-		}
-
 		columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
 		for _, col := range renameRequest.TableSchema.Columns {
 			columnNames = append(columnNames, col.Name)
