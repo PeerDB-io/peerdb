@@ -19,7 +19,7 @@ RUN cargo chef cook --release --recipe-path recipe.json
 COPY nexus /root/nexus
 COPY protos /root/protos
 WORKDIR /root/nexus
-RUN CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse cargo build --release --bin peerdb-server
+RUN cargo build --release --bin peerdb-server
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates postgresql-client curl iputils && \

@@ -1,8 +1,3 @@
-import {
-  UPublicationsResponse,
-  UTablesAllResponse,
-  UTablesResponse,
-} from '@/app/dto/PeersDTO';
 import { notifyErr } from '@/app/utils/notify';
 import QRepQueryTemplate from '@/app/utils/qreptemplate';
 import { DBTypeToGoodText } from '@/components/PeerTypeComponent';
@@ -13,19 +8,26 @@ import {
 } from '@/grpc_generated/flow';
 import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
 import {
+  AllTablesResponse,
   CreateCDCFlowRequest,
   CreateQRepFlowRequest,
+  PeerPublicationsResponse,
   PeerSchemasResponse,
+  SchemaTablesResponse,
   TableColumnsResponse,
+  ValidateCDCMirrorResponse,
 } from '@/grpc_generated/route';
 import { Dispatch, SetStateAction } from 'react';
+
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
+
 import {
   cdcSchema,
   flowNameSchema,
   qrepSchema,
   tableMappingSchema,
 } from './schema';
+
 export const IsQueuePeer = (peerType?: DBType): boolean => {
   return (
     !!peerType &&
@@ -106,7 +108,9 @@ const validateSchemaQualification = (
         table!.destinationTableIdentifier
       )
     ) {
-      return `Destination table ${table?.destinationTableIdentifier} should be schema qualified`;
+      return `Destination table ${
+        table?.destinationTableIdentifier
+      } should be schema qualified`;
     }
   }
   return '';
@@ -192,14 +196,15 @@ export const handleCreateCDC = async (
   }
 
   setLoading(true);
-  const res = await fetch('/api/mirrors/cdc', {
+  const res = await fetch('/api/v1/flows/cdc/create', {
     method: 'POST',
     body: JSON.stringify({
       connectionConfigs: processCDCConfig(config),
     } as CreateCDCFlowRequest),
   });
   if (!res.ok) {
-    // I don't know why but if the order is reversed the error message is not shown
+    // I don't know why but if the order is reversed the error message is not
+    // shown
     setLoading(false);
     notifyErr((await res.json()).message || 'Unable to create mirror.');
     return;
@@ -252,9 +257,7 @@ export const handleCreateQRep = async (
 
   if (xmin == true) {
     config.watermarkColumn = 'xmin';
-    config.query = `SELECT * FROM ${quotedWatermarkTable(
-      config.watermarkTable
-    )}`;
+    config.query = `SELECT * FROM ${quotedWatermarkTable(config.watermarkTable)}`;
     query = config.query;
     config.initialCopyOnly = false;
   }
@@ -282,13 +285,15 @@ export const handleCreateQRep = async (
     )
   ) {
     notifyErr(
-      `Destination table should be schema qualified for ${DBTypeToGoodText(destinationType)} targets`
+      `Destination table should be schema qualified for ${DBTypeToGoodText(
+        destinationType
+      )} targets`
     );
     return;
   }
 
   setLoading(true);
-  const res = await fetch('/api/mirrors/qrep', {
+  const res = await fetch('/api/v1/flows/qrep/create', {
     method: 'POST',
     body: JSON.stringify({
       qrepConfig: config,
@@ -305,14 +310,13 @@ export const handleCreateQRep = async (
   route();
 };
 
-export const fetchSchemas = async (peerName: string) => {
-  const schemasRes: PeerSchemasResponse = await fetch('/api/peers/schemas', {
-    method: 'POST',
-    body: JSON.stringify({
-      peerName,
-    }),
-    cache: 'no-store',
-  }).then((res) => res.json());
+export const fetchSchemas = async (peer_name: string) => {
+  const schemasRes: PeerSchemasResponse = await fetch(
+    `/api/v1/peers/schemas?peer_name=${encodeURIComponent(peer_name)}`,
+    {
+      cache: 'no-store',
+    }
+  ).then((res) => res.json());
   return schemasRes.schemas;
 };
 
@@ -362,14 +366,14 @@ export const fetchTables = async (
   peerType?: DBType
 ) => {
   if (schemaName.length === 0) return [];
-  const tablesRes: UTablesResponse = await fetch('/api/peers/tables', {
-    method: 'POST',
-    body: JSON.stringify({
-      peerName,
-      schemaName,
-    }),
-    cache: 'no-store',
-  }).then((res) => res.json());
+  const tablesRes: SchemaTablesResponse = await fetch(
+    `/api/v1/peers/tables?peerName=${encodeURIComponent(
+      peerName
+    )}&schema_name=${encodeURIComponent(schemaName)}`,
+    {
+      cache: 'no-store',
+    }
+  ).then((res) => res.json());
 
   let tables: TableMapRow[] = [];
   const tableRes = tablesRes.tables;
@@ -405,28 +409,26 @@ export const fetchColumns = async (
 ) => {
   if (peerName?.length === 0) return [];
   setLoading(true);
-  const columnsRes: TableColumnsResponse = await fetch('/api/peers/columns', {
-    method: 'POST',
-    body: JSON.stringify({
-      peerName,
-      schemaName,
-      tableName,
-    }),
-    cache: 'no-store',
-  }).then((res) => res.json());
+  const columnsRes: TableColumnsResponse = await fetch(
+    `/api/v1/peers/columns?peer_name=${encodeURIComponent(
+      peerName
+    )}&schema_name=${encodeURIComponent(schemaName)}&table_name=${encodeURIComponent(tableName)}`,
+    {
+      cache: 'no-store',
+    }
+  ).then((res) => res.json());
   setLoading(false);
   return columnsRes.columns;
 };
 
 export const fetchAllTables = async (peerName: string) => {
   if (peerName?.length === 0) return [];
-  const tablesRes: UTablesAllResponse = await fetch('/api/peers/tables/all', {
-    method: 'POST',
-    body: JSON.stringify({
-      peerName,
-    }),
-    cache: 'no-store',
-  }).then((res) => res.json());
+  const tablesRes: AllTablesResponse = await fetch(
+    `/api/v1/peers/tables/all?peer_name=${encodeURIComponent(peerName)}`,
+    {
+      cache: 'no-store',
+    }
+  ).then((res) => res.json());
   return tablesRes.tables;
 };
 
@@ -444,15 +446,18 @@ export const handleValidateCDC = async (
     setLoading(false);
     return;
   }
-  const status = await fetch('/api/mirrors/cdc/validate', {
-    method: 'POST',
-    body: JSON.stringify({
-      config: processCDCConfig(config),
-    }),
-  }).then((res) => res.json());
+  const status: ValidateCDCMirrorResponse = await fetch(
+    '/api/v1/mirrors/cdc/validate',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        connectionConfigs: processCDCConfig(config),
+      }),
+    }
+  ).then((res) => res.json());
 
   if (!status.ok) {
-    notifyErr(status.message || 'Mirror is invalid');
+    notifyErr('Mirror is invalid');
     setLoading(false);
     return;
   }
@@ -461,13 +466,9 @@ export const handleValidateCDC = async (
 };
 
 export const fetchPublications = async (peerName: string) => {
-  const publicationsRes: UPublicationsResponse = await fetch(
-    '/api/peers/publications',
+  const publicationsRes: PeerPublicationsResponse = await fetch(
+    `/api/v1/peers/publications?peer_name=${encodeURIComponent(peerName)}`,
     {
-      method: 'POST',
-      body: JSON.stringify({
-        peerName,
-      }),
       cache: 'no-store',
     }
   ).then((res) => res.json());

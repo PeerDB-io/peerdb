@@ -10,7 +10,6 @@
     "format": "prettier --write ."
   },
   "dependencies": {
-    "@grpc/grpc-js": "^1.10.10",
     "@monaco-editor/react": "^4.6.0",
     "@radix-ui/react-checkbox": "^1.1.1",
     "@radix-ui/react-collapsible": "^1.1.0",
@@ -33,7 +32,7 @@
     "@types/react-dom": "^18.3.0",
     "classnames": "^2.5.1",
     "long": "^5.2.3",
-    "lucide-react": "^0.408.0",
+    "lucide-react": "^0.414.0",
     "material-symbols": "^0.21.0",
     "moment": "^2.30.1",
     "moment-timezone": "^0.5.45",
