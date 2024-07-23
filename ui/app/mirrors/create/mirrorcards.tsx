@@ -27,12 +27,12 @@ const MirrorCards = ({
         'Query Replication allows you to specify a set of rows to be synced via a SELECT query.',
       link: 'https://docs.peerdb.io/usecases/Streaming%20Query%20Replication/overview',
     },
-    {
-      title: MirrorType.XMin,
-      description:
-        'XMIN mode uses the xmin system column of PostgreSQL as a watermark column for replication.',
-      link: 'https://docs.peerdb.io/sql/commands/create-mirror#xmin-query-replication',
-    },
+    // {
+    //   title: MirrorType.XMin,
+    //   description:
+    //     'XMIN mode uses the xmin system column of PostgreSQL as a watermark column for replication.',
+    //   link: 'https://docs.peerdb.io/sql/commands/create-mirror#xmin-query-replication',
+    // },
   ];
   return (
     <RadioButtonGroup
@@ -49,7 +49,7 @@ const MirrorCards = ({
       >
         {cards.map((card, index) => {
           return (
-            <label key={index} style={MirrorCardStyle}>
+            <div key={index} style={MirrorCardStyle}>
               <div>
                 <RowWithRadiobutton
                   label={
@@ -75,7 +75,7 @@ const MirrorCards = ({
               >
                 Learn more
               </Label>
-            </label>
+            </div>
           );
         })}
       </div>
