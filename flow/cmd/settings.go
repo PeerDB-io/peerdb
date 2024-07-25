@@ -36,6 +36,17 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 		return nil, err
 	}
 
+	if peerdbenv.PeerDBAllowedTargets() == "clickhouse" {
+		filteredSettings := make([]*protos.DynamicSetting, 0)
+		for _, setting := range settings {
+			if setting.TargetForSetting == protos.DynconfTarget_ALL ||
+				setting.TargetForSetting == protos.DynconfTarget_CLICKHOUSE {
+				filteredSettings = append(filteredSettings, setting)
+			}
+		}
+		settings = filteredSettings
+	}
+
 	return &protos.GetDynamicSettingsResponse{Settings: settings}, nil
 }
 

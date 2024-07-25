@@ -20,7 +20,7 @@ const MirrorButtonContainer: CSSProperties = {
 const MirrorCardStyle: CSSProperties = {
   cursor: 'pointer',
   padding: '0.5rem',
-  width: '35%',
+  flex: '1 0 0',
   display: 'flex',
   flexDirection: 'column',
   justifyContent: 'space-between',
