@@ -26,7 +26,7 @@ export default function CreatePeer() {
       >
         <Label variant='title3'>Select data store</Label>
         <Label colorName='lowContrast'>
-          Start by selecting the data store your new peer.
+          Start by selecting the data store for your new peer.
         </Label>
         <Action
           icon={<Icon name='help' />}
