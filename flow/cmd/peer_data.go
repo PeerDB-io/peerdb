@@ -101,8 +101,7 @@ func (h *FlowRequestHandler) ListPeers(
 	req *protos.ListPeersRequest,
 ) (*protos.ListPeersResponse, error) {
 	query := "SELECT name, type FROM peers"
-	allowedTargets := peerdbenv.PeerDBAllowedTargets()
-	if allowedTargets == strings.ToLower(protos.DBType_CLICKHOUSE.String()) {
+	if peerdbenv.PeerDBAllowedTargets() == strings.ToLower(protos.DBType_CLICKHOUSE.String()) {
 		// only postgres and clickhouse peers
 		query += " WHERE type IN (3, 8)"
 	}
