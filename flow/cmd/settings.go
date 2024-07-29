@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"slices"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -34,6 +35,17 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 	}); err != nil {
 		slog.Error("[GetDynamicConfigs]: failed to collect rows", slog.Any("error", err))
 		return nil, err
+	}
+
+	if peerdbenv.PeerDBAllowedTargets() == strings.ToLower(protos.DBType_CLICKHOUSE.String()) {
+		filteredSettings := make([]*protos.DynamicSetting, 0)
+		for _, setting := range settings {
+			if setting.TargetForSetting == protos.DynconfTarget_ALL ||
+				setting.TargetForSetting == protos.DynconfTarget_CLICKHOUSE {
+				filteredSettings = append(filteredSettings, setting)
+			}
+		}
+		settings = filteredSettings
 	}
 
 	return &protos.GetDynamicSettingsResponse{Settings: settings}, nil

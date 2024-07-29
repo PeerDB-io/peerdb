@@ -106,3 +106,11 @@ func PeerDBCurrentEncKey() (shared.PeerDBEncKey, error) {
 	encKeys := PeerDBEncKeys()
 	return encKeys.Get(encKeyID)
 }
+
+func PeerDBAllowedTargets() string {
+	return GetEnvString("PEERDB_ALLOWED_TARGETS", "")
+}
+
+func PeerDBClickhouseAllowedDomains() string {
+	return GetEnvString("PEERDB_CLICKHOUSE_ALLOWED_DOMAINS", "")
+}

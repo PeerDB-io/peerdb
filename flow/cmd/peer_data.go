@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -99,8 +100,14 @@ func (h *FlowRequestHandler) ListPeers(
 	ctx context.Context,
 	req *protos.ListPeersRequest,
 ) (*protos.ListPeersResponse, error) {
-	rows, err := h.pool.Query(ctx, "select name, type from peers")
+	query := "SELECT name, type FROM peers"
+	if peerdbenv.PeerDBAllowedTargets() == strings.ToLower(protos.DBType_CLICKHOUSE.String()) {
+		// only postgres and clickhouse peers
+		query += " WHERE type IN (3, 8)"
+	}
+	rows, err := h.pool.Query(ctx, query)
 	if err != nil {
+		slog.Error("failed to query for peers", slog.Any("error", err))
 		return nil, err
 	}
 	peers, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.PeerListItem, error) {
@@ -109,9 +116,34 @@ func (h *FlowRequestHandler) ListPeers(
 		return &peer, err
 	})
 	if err != nil {
+		slog.Error("failed to collect peers", slog.Any("error", err))
 		return nil, err
 	}
-	return &protos.ListPeersResponse{Items: peers}, nil
+
+	sourceItems := make([]*protos.PeerListItem, 0, len(peers))
+	for _, peer := range peers {
+		// only postgres peers
+		if peer.Type == 3 {
+			sourceItems = append(sourceItems, peer)
+		}
+	}
+
+	destinationItems := peers
+	if peerdbenv.PeerDBAllowedTargets() == strings.ToLower(protos.DBType_CLICKHOUSE.String()) {
+		destinationItems = make([]*protos.PeerListItem, 0, len(peers))
+		for _, peer := range peers {
+			// only clickhouse peers
+			if peer.Type == 8 {
+				destinationItems = append(destinationItems, peer)
+			}
+		}
+	}
+
+	return &protos.ListPeersResponse{
+		Items:            peers,
+		SourceItems:      sourceItems,
+		DestinationItems: destinationItems,
+	}, nil
 }
 
 func (h *FlowRequestHandler) GetSchemas(

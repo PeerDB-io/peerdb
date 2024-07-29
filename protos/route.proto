@@ -68,6 +68,7 @@ message DynamicSetting {
   string description = 4;
   peerdb_flow.DynconfValueType value_type = 5;
   peerdb_flow.DynconfApplyMode apply_mode = 6;
+  peerdb_flow.DynconfTarget target_for_setting = 7;
 }
 message GetDynamicSettingsRequest {
 }
@@ -245,6 +246,8 @@ message ListPeersRequest {
 }
 message ListPeersResponse {
   repeated PeerListItem items = 1;
+  repeated PeerListItem source_items = 2;
+  repeated PeerListItem destination_items = 3;
 }
 
 message SlotInfo {
