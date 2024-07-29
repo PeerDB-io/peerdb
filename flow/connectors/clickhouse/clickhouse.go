@@ -48,8 +48,28 @@ func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error
 	return utils.PutAndRemoveS3(ctx, s3Client, object.Bucket, object.Prefix)
 }
 
-// Creates and drops a dummy table to validate the peer
+func ValidateClickhouseHost(ctx context.Context, chHost string, allowedDomainString string) error {
+	allowedDomains := strings.Split(allowedDomainString, ",")
+	if len(allowedDomains) == 0 {
+		return nil
+	}
+	// check if chHost ends with one of the allowed domains
+	for _, domain := range allowedDomains {
+		if strings.HasSuffix(chHost, domain) {
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid Clickhouse host domain: %s. Allowed domains: %s",
+		chHost, strings.Join(allowedDomains, ","))
+}
+
+// Performs some checks on the Clickhouse peer to ensure it will work for mirrors
 func (c *ClickhouseConnector) ValidateCheck(ctx context.Context) error {
+	// validate clickhouse host
+	allowedDomains := peerdbenv.PeerDBClickhouseAllowedDomains()
+	if err := ValidateClickhouseHost(ctx, c.config.Host, allowedDomains); err != nil {
+		return err
+	}
 	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
 	// create a table
 	err := c.database.Exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (

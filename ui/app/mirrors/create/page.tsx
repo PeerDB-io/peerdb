@@ -4,7 +4,7 @@ import QRepQueryTemplate from '@/app/utils/qreptemplate';
 import { DBTypeToImageMapping } from '@/components/PeerComponent';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepConfig } from '@/grpc_generated/flow';
-import { DBType, dBTypeFromJSON } from '@/grpc_generated/peers';
+import { DBType } from '@/grpc_generated/peers';
 import { ListPeersResponse, PeerListItem } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
@@ -74,7 +74,8 @@ export default function CreateMirrors() {
   const [destinationType, setDestinationType] = useState<DBType>(
     DBType.UNRECOGNIZED
   );
-  const [peers, setPeers] = useState<PeerListItem[]>([]);
+  const [sourcePeers, setSourcePeers] = useState<PeerListItem[]>([]);
+  const [destinationPeers, setDestinationPeers] = useState<PeerListItem[]>([]);
   const [rows, setRows] = useState<TableMapRow[]>([]);
   const [qrepQuery, setQrepQuery] = useState<string>(QRepQueryTemplate);
   const [nameValidityMessage, setNameValidityMessage] = useState<string>('');
@@ -82,7 +83,8 @@ export default function CreateMirrors() {
     fetch('/api/v1/peers/list', { cache: 'no-store' })
       .then((res) => res.json())
       .then((res: ListPeersResponse) => {
-        setPeers(res.items);
+        setSourcePeers(res.sourceItems);
+        setDestinationPeers(res.destinationItems);
       });
   }, [mirrorType]);
 
@@ -196,12 +198,8 @@ export default function CreateMirrors() {
                         peerEnd === 'src' ? setSourcePeer : setDestinationPeer
                       }
                       options={
-                        (peerEnd === 'src'
-                          ? peers.filter(
-                              (peer) =>
-                                dBTypeFromJSON(peer.type) === DBType.POSTGRES
-                            )
-                          : peers) ?? []
+                        (peerEnd === 'src' ? sourcePeers : destinationPeers) ??
+                        []
                       }
                       getOptionValue={getPeerValue}
                       formatOptionLabel={getPeerLabel}

@@ -413,6 +413,14 @@ enum DynconfApplyMode {
   APPLY_MODE_NEW_MIRROR = 4;
 }
 
+enum DynconfTarget {
+  ALL = 0;
+  BIGQUERY = 1;
+  SNOWFLAKE = 2;
+  CLICKHOUSE = 3;
+  QUEUES = 4;
+}
+
 message DropFlowActivityInput {
   string flow_job_name = 1;
   string peer_name = 2;

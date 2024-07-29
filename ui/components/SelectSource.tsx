@@ -1,8 +1,11 @@
 'use client';
+import { fetcher } from '@/app/utils/swr';
 import TitleCase from '@/app/utils/titlecase';
 import { Button } from '@/lib/Button/Button';
+import { ProgressCircle } from '@/lib/ProgressCircle';
 import Image from 'next/image';
 import Link from 'next/link';
+import useSWR from 'swr';
 import { DBTypeToImageMapping } from './PeerComponent';
 
 // label corresponds to PeerType
@@ -32,25 +35,11 @@ function SourceLabel({ label }: { label: string }) {
   );
 }
 
-const dbTypes = [
-  [
-    'Postgres',
-    'POSTGRESQL',
-    'RDS POSTGRESQL',
-    'GOOGLE CLOUD POSTGRESQL',
-    'AZURE FLEXIBLE POSTGRESQL',
-    'TEMBO',
-    'CRUNCHY POSTGRES',
-  ],
-  ['Warehouses', 'SNOWFLAKE', 'BIGQUERY', 'S3', 'CLICKHOUSE', 'ELASTICSEARCH'],
-  ['Queues', 'REDPANDA', 'CONFLUENT', 'KAFKA', 'EVENTHUBS', 'PUBSUB'],
-];
-
 const gridContainerStyle = {
   display: 'flex',
   gap: '20px',
   flexWrap: 'wrap',
-  border: 'solid #18794e',
+  border: '1px solid #e5e7eb',
   borderRadius: '20px',
   position: 'relative',
   padding: '20px',
@@ -62,8 +51,9 @@ const gridHeaderStyle = {
   height: '30px',
   display: 'flex',
   alignItems: 'center',
-  color: '#fff',
-  backgroundColor: '#18794e',
+  color: 'black',
+  backgroundColor: 'white',
+  border: '1px solid #e5e7eb',
   borderRadius: '15px',
   marginLeft: '10px',
   paddingLeft: '10px',
@@ -71,6 +61,14 @@ const gridHeaderStyle = {
 } as const;
 
 export default function SelectSource() {
+  const { data: dbTypes, isLoading } = useSWR<string[]>(
+    '/api/peer-types',
+    fetcher
+  );
+  if (!dbTypes || isLoading) {
+    return <ProgressCircle variant={'determinate_progress_circle'} />;
+  }
+
   return dbTypes.map(([category, ...items]) => (
     <div key={category} style={gridContainerStyle}>
       <div style={gridHeaderStyle}>{category}</div>

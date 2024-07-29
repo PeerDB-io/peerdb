@@ -102,12 +102,21 @@ function constructPeer(
   }
 }
 
-function validateFields(
+const GetClickhouseAllowedDomains = async (): Promise<string[]> => {
+  const response = await fetch('/api/peer-types/validation/clickhouse', {
+    method: 'GET',
+    cache: 'force-cache',
+  });
+  const hostDomains: string[] = await response.json();
+  return hostDomains;
+};
+
+const validateFields = async (
   type: string,
   config: PeerConfig,
   notify: (msg: string) => void,
   name?: string
-): boolean {
+): Promise<boolean> => {
   const peerNameValid = peerNameSchema.safeParse(name);
   if (!peerNameValid.success) {
     const peerNameErr = peerNameValid.error.issues[0].message;
@@ -138,7 +147,8 @@ function validateFields(
       if (!bqConfig.success) validationErr = bqConfig.error.issues[0].message;
       break;
     case 'CLICKHOUSE':
-      const chConfig = chSchema.safeParse(config);
+      const chAllowedDomains = await GetClickhouseAllowedDomains();
+      const chConfig = chSchema(chAllowedDomains).safeParse(config);
       if (!chConfig.success) validationErr = chConfig.error.issues[0].message;
       break;
     case 'S3':
@@ -170,7 +180,7 @@ function validateFields(
     return false;
   }
   return true;
-}
+};
 
 // API call to validate peer
 export const handleValidate = async (
@@ -180,7 +190,7 @@ export const handleValidate = async (
   setLoading: Dispatch<SetStateAction<boolean>>,
   name?: string
 ) => {
-  const isValid = validateFields(type, config, notify, name);
+  const isValid = await validateFields(type, config, notify, name);
   if (!isValid) return;
   setLoading(true);
 
@@ -217,7 +227,7 @@ export async function handleCreate(
   route: RouteCallback,
   name?: string
 ) {
-  let isValid = validateFields(type, config, notify, name);
+  let isValid = await validateFields(type, config, notify, name);
   if (!isValid) return;
   setLoading(true);
   const req: CreatePeerRequest = {

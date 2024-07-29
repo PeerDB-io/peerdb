@@ -231,60 +231,74 @@ export const bqSchema = z.object({
     .max(1024, 'DatasetID must be less than 1025 characters'),
 });
 
-export const chSchema = z.object({
-  host: z
-    .string({
-      required_error: 'Host is required',
-      invalid_type_error: 'Host must be a string',
-    })
-    .min(1, { message: 'Host cannot be empty' })
-    .max(255, 'Host must be less than 255 characters'),
-  port: z
-    .number({
-      required_error: 'Port is required',
-      invalid_type_error: 'Port must be a number',
-    })
-    .int()
-    .min(1, 'Port must be a positive integer')
-    .max(65535, 'Port must be below 65535'),
-  database: z
-    .string({
-      required_error: 'Database is required',
-      invalid_type_error: 'Database must be a string',
-    })
-    .min(1, { message: 'Database name should be non-empty' })
-    .max(100, 'Database must be less than 100 characters'),
-  user: z
-    .string({
-      required_error: 'User is required',
-      invalid_type_error: 'User must be a string',
-    })
-    .min(1, 'User must be non-empty')
-    .max(64, 'User must be less than 64 characters'),
-  password: z
-    .string({
-      required_error: 'Password is required',
-      invalid_type_error: 'Password must be a string',
-    })
-    .min(1, 'Password must be non-empty')
-    .max(100, 'Password must be less than 100 characters'),
-  s3Path: z
-    .string({ invalid_type_error: 'S3 Path must be a string' })
-    .optional(),
-  accessKeyId: z
-    .string({ invalid_type_error: 'Access Key ID must be a string' })
-    .optional(),
-  secretAccessKey: z
-    .string({ invalid_type_error: 'Secret Access Key must be a string' })
-    .optional(),
-  region: z
-    .string({ invalid_type_error: 'Region must be a string' })
-    .optional(),
-  endpoint: z
-    .string({ invalid_type_error: 'Endpoint must be a string' })
-    .optional(),
-  disableTls: z.boolean(),
-});
+export const chSchema = (hostDomains: string[]) =>
+  z.object({
+    host: z
+      .string({
+        required_error: 'Host is required',
+        invalid_type_error: 'Host must be a string',
+      })
+      .min(1, { message: 'Host cannot be empty' })
+      .max(255, 'Host must be less than 255 characters')
+      .refine(
+        (host) => {
+          if (hostDomains.length > 0) {
+            return hostDomains.some((domain) => host.endsWith(domain));
+          }
+          return true;
+        },
+        {
+          message:
+            'Host must end with one of the allowed domains: ' +
+            hostDomains.join(', '),
+        }
+      ),
+    port: z
+      .number({
+        required_error: 'Port is required',
+        invalid_type_error: 'Port must be a number',
+      })
+      .int()
+      .min(1, 'Port must be a positive integer')
+      .max(65535, 'Port must be below 65535'),
+    database: z
+      .string({
+        required_error: 'Database is required',
+        invalid_type_error: 'Database must be a string',
+      })
+      .min(1, { message: 'Database name should be non-empty' })
+      .max(100, 'Database must be less than 100 characters'),
+    user: z
+      .string({
+        required_error: 'User is required',
+        invalid_type_error: 'User must be a string',
+      })
+      .min(1, 'User must be non-empty')
+      .max(64, 'User must be less than 64 characters'),
+    password: z
+      .string({
+        required_error: 'Password is required',
+        invalid_type_error: 'Password must be a string',
+      })
+      .min(1, 'Password must be non-empty')
+      .max(100, 'Password must be less than 100 characters'),
+    s3Path: z
+      .string({ invalid_type_error: 'S3 Path must be a string' })
+      .optional(),
+    accessKeyId: z
+      .string({ invalid_type_error: 'Access Key ID must be a string' })
+      .optional(),
+    secretAccessKey: z
+      .string({ invalid_type_error: 'Secret Access Key must be a string' })
+      .optional(),
+    region: z
+      .string({ invalid_type_error: 'Region must be a string' })
+      .optional(),
+    endpoint: z
+      .string({ invalid_type_error: 'Endpoint must be a string' })
+      .optional(),
+    disableTls: z.boolean(),
+  });
 
 export const kaSchema = z.object({
   servers: z
