@@ -1,4 +1,4 @@
-import { ClickhouseHostRegex, PeerConfig } from '@/app/dto/PeersDTO';
+import { PeerConfig } from '@/app/dto/PeersDTO';
 import {
   BigqueryConfig,
   ClickhouseConfig,
@@ -102,13 +102,13 @@ function constructPeer(
   }
 }
 
-const GetClickhoustHostRegex = async (): Promise<ClickhouseHostRegex> => {
+const GetClickhouseAllowedDomains = async (): Promise<string[]> => {
   const response = await fetch('/api/peer-types/validation/clickhouse', {
     method: 'GET',
-    cache: 'no-store',
+    cache: 'force-cache',
   });
-  const hostRegex: ClickhouseHostRegex = await response.json();
-  return hostRegex;
+  const hostDomains: string[] = await response.json();
+  return hostDomains;
 };
 
 const validateFields = async (
@@ -147,8 +147,8 @@ const validateFields = async (
       if (!bqConfig.success) validationErr = bqConfig.error.issues[0].message;
       break;
     case 'CLICKHOUSE':
-      const chHostRegex = await GetClickhoustHostRegex();
-      const chConfig = chSchema(chHostRegex).safeParse(config);
+      const chAllowedDomains = await GetClickhouseAllowedDomains();
+      const chConfig = chSchema(chAllowedDomains).safeParse(config);
       if (!chConfig.success) validationErr = chConfig.error.issues[0].message;
       break;
     case 'S3':

@@ -1,4 +1,3 @@
-import { ClickhouseHostRegex } from '@/app/dto/PeersDTO';
 import { ehSchema } from '@/components/PeerForms/Eventhubs/schema';
 import { ElasticsearchAuthType } from '@/grpc_generated/peers';
 import * as z from 'zod';
@@ -232,7 +231,7 @@ export const bqSchema = z.object({
     .max(1024, 'DatasetID must be less than 1025 characters'),
 });
 
-export const chSchema = (hostRegex: ClickhouseHostRegex) =>
+export const chSchema = (hostDomains: string[]) =>
   z.object({
     host: z
       .string({
@@ -241,9 +240,18 @@ export const chSchema = (hostRegex: ClickhouseHostRegex) =>
       })
       .min(1, { message: 'Host cannot be empty' })
       .max(255, 'Host must be less than 255 characters')
-      .regex(
-        new RegExp(hostRegex.allowedDomainsPattern),
-        hostRegex.wrongDomainErrMsg
+      .refine(
+        (host) => {
+          if (hostDomains.length > 0) {
+            return hostDomains.some((domain) => host.endsWith(domain));
+          }
+          return true;
+        },
+        {
+          message:
+            'Host must end with one of the allowed domains: ' +
+            hostDomains.join(', '),
+        }
       ),
     port: z
       .number({

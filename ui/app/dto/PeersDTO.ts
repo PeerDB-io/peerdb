@@ -23,8 +23,3 @@ export type PeerConfig =
   | EventHubGroupConfig
   | ElasticsearchConfig;
 export type PeerSetter = React.Dispatch<React.SetStateAction<PeerConfig>>;
-
-export type ClickhouseHostRegex = {
-  allowedDomainsPattern: string;
-  wrongDomainErrMsg: string;
-};
