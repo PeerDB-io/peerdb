@@ -134,6 +134,7 @@ services:
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
       PEERDB_ALLOWED_TARGETS:
+      PEERDB_CLICKHOUSE_ALLOWED_DOMAINS:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -199,6 +200,7 @@ services:
       NEXTAUTH_SECRET: __changeme__
       NEXTAUTH_URL: http://localhost:3000
       PEERDB_ALLOWED_TARGETS:
+      PEERDB_CLICKHOUSE_ALLOWED_DOMAINS:
     depends_on:
       - flow-api
 
