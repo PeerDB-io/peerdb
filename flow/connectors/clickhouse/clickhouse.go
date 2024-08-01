@@ -23,6 +23,14 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
+const (
+	PeerDBClickhouseQueryMaxMemoryUsage              string = "64000000000"
+	PeerDBClickhouseMaxBlockSize                     string = "10240"
+	PeerDBClickhouseMaxInsertBlockSize               string = "10240"
+	PeerDBClickhouseMaxInsertThreads                 string = "2"
+	PeerDBClickhouseMemoryOvercommitRatioDenominator string = "0"
+)
+
 type ClickhouseConnector struct {
 	*metadataStore.PostgresMetadata
 	database           clickhouse.Conn

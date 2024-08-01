@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -16,6 +17,14 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
+
+var ClickhouseQuerySettings = clickhouse.Settings{
+	"max_memory_usage":                    PeerDBClickhouseQueryMaxMemoryUsage,
+	"max_block_size":                      PeerDBClickhouseMaxBlockSize,
+	"max_insert_block_size":               PeerDBClickhouseMaxInsertBlockSize,
+	"max_insert_threads":                  PeerDBClickhouseMaxInsertThreads,
+	"memory_overcommit_ratio_denominator": PeerDBClickhouseMemoryOvercommitRatioDenominator,
+}
 
 type ClickhouseAvroSyncMethod struct {
 	config    *protos.QRepConfig
@@ -55,7 +64,8 @@ func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 		s.config.DestinationTableIdentifier, avroFileUrl,
 		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
 
-	return s.connector.database.Exec(ctx, query)
+	insertSelectQueryCtx := clickhouse.Context(ctx, clickhouse.WithSettings(ClickhouseQuerySettings))
+	return s.connector.database.Exec(insertSelectQueryCtx, query)
 }
 
 func (s *ClickhouseAvroSyncMethod) SyncRecords(
@@ -151,7 +161,8 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 		config.DestinationTableIdentifier, selectorStr, selectorStr, avroFileUrl,
 		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
 
-	err = s.connector.database.Exec(ctx, query)
+	insertSelectQueryCtx := clickhouse.Context(ctx, clickhouse.WithSettings(ClickhouseQuerySettings))
+	err = s.connector.database.Exec(insertSelectQueryCtx, query)
 	if err != nil {
 		s.connector.logger.Error("Failed to insert into select for Clickhouse: ", err)
 		return 0, err
