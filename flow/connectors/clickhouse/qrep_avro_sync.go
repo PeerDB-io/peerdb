@@ -60,12 +60,20 @@ func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 	if creds.AWS.SessionToken != "" {
 		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
 	}
-	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM s3('%s','%s','%s'%s, 'Avro')",
-		s.config.DestinationTableIdentifier, avroFileUrl,
-		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
 
-	insertSelectQueryCtx := clickhouse.Context(ctx, clickhouse.WithSettings(ClickhouseQuerySettings))
-	return s.connector.database.Exec(insertSelectQueryCtx, query)
+	batchModulus := 17
+	for i := 0; i < batchModulus; i += 1 {
+		query := fmt.Sprintf("INSERT INTO %s SELECT * FROM s3('%s','%s','%s'%s, 'Avro') WHERE mod(toUInt128(toUUID(_peerdb_uid)),%d) = %d",
+			s.config.DestinationTableIdentifier, avroFileUrl,
+			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart, batchModulus, i)
+		insertSelectQueryCtx := clickhouse.Context(ctx, clickhouse.WithSettings(ClickhouseQuerySettings))
+		err := s.connector.database.Exec(insertSelectQueryCtx, query)
+		if err != nil {
+			return fmt.Errorf("failed to execute insert select query %s: %w", query, err)
+		}
+	}
+
+	return nil
 }
 
 func (s *ClickhouseAvroSyncMethod) SyncRecords(
