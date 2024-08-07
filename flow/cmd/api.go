@@ -214,7 +214,11 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		return fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	options, err := shared.AuthGrpcMiddleware()
+	if err != nil {
+		return err
+	}
+	grpcServer := grpc.NewServer(options...)
 
 	catalogPool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {

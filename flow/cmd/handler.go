@@ -240,10 +240,7 @@ func (h *FlowRequestHandler) updateQRepConfigInCatalog(
 	ctx context.Context,
 	cfg *protos.QRepConfig,
 ) error {
-	var cfgBytes []byte
-	var err error
-
-	cfgBytes, err = proto.Marshal(cfg)
+	cfgBytes, err := proto.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("unable to marshal qrep config: %w", err)
 	}
