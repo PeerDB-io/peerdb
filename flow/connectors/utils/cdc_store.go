@@ -32,7 +32,7 @@ func encVal(val any) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-type cdcStore[Items model.Items] struct {
+type CdcStore[Items model.Items] struct {
 	inMemoryRecords           map[model.TableWithPkey]model.Record[Items]
 	pebbleDB                  *pebble.DB
 	flowJobName               string
@@ -44,7 +44,7 @@ type cdcStore[Items model.Items] struct {
 	numRecordsSwitchThreshold int
 }
 
-func NewCDCStore[Items model.Items](ctx context.Context, flowJobName string) (*cdcStore[Items], error) {
+func NewCDCStore[Items model.Items](ctx context.Context, flowJobName string) (*CdcStore[Items], error) {
 	numRecordsSwitchThreshold, err := peerdbenv.PeerDBCDCDiskSpillRecordsThreshold(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get CDC disk spill records threshold: %w", err)
@@ -54,7 +54,7 @@ func NewCDCStore[Items model.Items](ctx context.Context, flowJobName string) (*c
 		return nil, fmt.Errorf("failed to get CDC disk spill memory percent threshold: %w", err)
 	}
 
-	return &cdcStore[Items]{
+	return &CdcStore[Items]{
 		inMemoryRecords:           make(map[model.TableWithPkey]model.Record[Items]),
 		pebbleDB:                  nil,
 		numRecords:                atomic.Int32{},
@@ -117,7 +117,7 @@ func init() {
 	gob.Register(qvalue.QValueArrayBoolean{})
 }
 
-func (c *cdcStore[T]) initPebbleDB() error {
+func (c *CdcStore[T]) initPebbleDB() error {
 	if c.pebbleDB != nil {
 		return nil
 	}
@@ -141,7 +141,7 @@ func (c *cdcStore[T]) initPebbleDB() error {
 	return nil
 }
 
-func (c *cdcStore[T]) diskSpillThresholdsExceeded() bool {
+func (c *CdcStore[T]) diskSpillThresholdsExceeded() bool {
 	if len(c.inMemoryRecords) >= c.numRecordsSwitchThreshold {
 		c.thresholdReason = fmt.Sprintf("more than %d primary keys read, spilling to disk",
 			c.numRecordsSwitchThreshold)
@@ -159,7 +159,7 @@ func (c *cdcStore[T]) diskSpillThresholdsExceeded() bool {
 	return false
 }
 
-func (c *cdcStore[T]) Set(logger log.Logger, key model.TableWithPkey, rec model.Record[T]) error {
+func (c *CdcStore[T]) Set(logger log.Logger, key model.TableWithPkey, rec model.Record[T]) error {
 	if key.TableName != "" {
 		_, ok := c.inMemoryRecords[key]
 		if ok || !c.diskSpillThresholdsExceeded() {
@@ -168,8 +168,7 @@ func (c *cdcStore[T]) Set(logger log.Logger, key model.TableWithPkey, rec model.
 			if c.pebbleDB == nil {
 				logger.Info(c.thresholdReason,
 					slog.String(string(shared.FlowNameKey), c.flowJobName))
-				err := c.initPebbleDB()
-				if err != nil {
+				if err := c.initPebbleDB(); err != nil {
 					return err
 				}
 			}
@@ -199,7 +198,7 @@ func (c *cdcStore[T]) Set(logger log.Logger, key model.TableWithPkey, rec model.
 }
 
 // bool is to indicate if a record is found or not [similar to ok]
-func (c *cdcStore[T]) Get(key model.TableWithPkey) (model.Record[T], bool, error) {
+func (c *CdcStore[T]) Get(key model.TableWithPkey) (model.Record[T], bool, error) {
 	rec, ok := c.inMemoryRecords[key]
 	if ok {
 		return rec, true, nil
@@ -227,8 +226,7 @@ func (c *cdcStore[T]) Get(key model.TableWithPkey) (model.Record[T], bool, error
 
 		dec := gob.NewDecoder(bytes.NewReader(encodedRec))
 		var rec model.Record[T]
-		err = dec.Decode(&rec)
-		if err != nil {
+		if err := dec.Decode(&rec); err != nil {
 			return nil, false, fmt.Errorf("failed to decode record: %w", err)
 		}
 
@@ -237,15 +235,15 @@ func (c *cdcStore[T]) Get(key model.TableWithPkey) (model.Record[T], bool, error
 	return nil, false, nil
 }
 
-func (c *cdcStore[T]) Len() int {
+func (c *CdcStore[T]) Len() int {
 	return int(c.numRecords.Load())
 }
 
-func (c *cdcStore[T]) IsEmpty() bool {
+func (c *CdcStore[T]) IsEmpty() bool {
 	return c.Len() == 0
 }
 
-func (c *cdcStore[T]) Close() error {
+func (c *CdcStore[T]) Close() error {
 	c.inMemoryRecords = nil
 	if c.pebbleDB != nil {
 		err := c.pebbleDB.Close()
