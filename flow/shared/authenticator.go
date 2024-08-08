@@ -16,7 +16,7 @@ import (
 )
 
 type AuthenticationConfig struct {
-	DevKeySetJSON string `json:"key_set_json" yaml:"key_set_json" mapstructure:"key_set_json"`
+	KeySetJSON    string `json:"key_set_json" yaml:"key_set_json" mapstructure:"key_set_json"`
 	Auth0Domain   string `json:"auth0_domain" yaml:"auth0_domain" mapstructure:"auth0_domain"`
 	Auth0ClientID string `json:"auth0_client_id" yaml:"auth0_client_id" mapstructure:"auth0_client_id"`
 	Enabled       bool   `json:"enabled" yaml:"enabled" mapstructure:"enabled"`
@@ -29,12 +29,12 @@ type identityProvider struct {
 }
 
 func AuthGrpcMiddleware() ([]grpc.ServerOption, error) {
-	devKeySetJSON := os.Getenv("PEERDB_OAUTH_KEY_SET_JSON")
+	keySetJSON := os.Getenv("PEERDB_OAUTH_KEYSET_JSON")
 	auth0Domain := os.Getenv("PEERDB_OAUTH_AUTH0DOMAIN")
 	auth0ClientID := os.Getenv("PEERDB_OAUTH_AUTH0CLIENTID")
 	cfg := AuthenticationConfig{
-		Enabled:       devKeySetJSON != "" || auth0Domain != "",
-		DevKeySetJSON: devKeySetJSON,
+		Enabled:       keySetJSON != "" || auth0Domain != "",
+		KeySetJSON:    keySetJSON,
 		Auth0Domain:   auth0Domain,
 		Auth0ClientID: auth0ClientID,
 	}
@@ -143,7 +143,7 @@ type identityProviderResolver func(cfg AuthenticationConfig) (*identityProvider,
 
 func identityProvidersFromConfig(cfg AuthenticationConfig) ([]identityProvider, error) {
 	resolvers := []identityProviderResolver{
-		devIdentityProvider,
+		keysetIdentityProvider,
 		auth0IdentityProvider,
 	}
 
@@ -195,21 +195,21 @@ func auth0IdentityProvider(cfg AuthenticationConfig) (*identityProvider, error) 
 	}, nil
 }
 
-func devIdentityProvider(cfg AuthenticationConfig) (*identityProvider, error) {
-	if cfg.DevKeySetJSON == "" {
-		slog.Debug("Dev JWK key set JSON not configured for identity provider")
+func keysetIdentityProvider(cfg AuthenticationConfig) (*identityProvider, error) {
+	if cfg.KeySetJSON == "" {
+		slog.Debug("JWK key set JSON not configured for identity provider")
 		return nil, nil
 	}
 
-	set, err := jwk.ParseString(cfg.DevKeySetJSON)
+	set, err := jwk.ParseString(cfg.KeySetJSON)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse dev JWK key set from JSON: %w", err)
+		return nil, fmt.Errorf("failed to parse JWK key set from JSON: %w", err)
 	}
 
-	slog.Info("Dev JWK key set from JSON loaded", slog.Int("size", set.Len()))
+	slog.Info("JWK key set from JSON loaded", slog.Int("size", set.Len()))
 
 	return &identityProvider{
-		issuer: "clickpipes-dev",
+		issuer: os.Getenv("PEERDB_OAUTH_KEYSET_ISSUER"),
 		keySet: set,
 	}, nil
 }
