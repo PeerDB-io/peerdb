@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 const (
@@ -135,11 +137,13 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 
 	// normalize has caught up with sync, chill until more records are loaded.
 	if normBatchID >= req.SyncBatchID {
+		c.logger.Warn("[clickhouse] normalize has nothing to do",
+			slog.Int64("syncBatchID", req.SyncBatchID), slog.Int64("normBatchID", normBatchID))
 		return &model.NormalizeResponse{
 			Done:         false,
-			StartBatchID: normBatchID,
+			StartBatchID: normBatchID + 1,
 			EndBatchID:   req.SyncBatchID,
-		}, nil
+		}, shared.ErrUnusualNormalize
 	}
 
 	err = c.copyAvroStagesToDestination(ctx, req.FlowJobName, normBatchID, req.SyncBatchID)
@@ -156,6 +160,16 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 	if err != nil {
 		c.logger.Error("[clickhouse] error while getting distinct table names in batch", "error", err)
 		return nil, err
+	}
+	if len(destinationTableNames) == 0 {
+		c.logger.Warn("[clickhouse] no distinct table names in batch, returning",
+			slog.Int64("syncBatchID", req.SyncBatchID), slog.Int64("normBatchID", normBatchID),
+		)
+		return &model.NormalizeResponse{
+			Done:         false,
+			StartBatchID: normBatchID + 1,
+			EndBatchID:   req.SyncBatchID,
+		}, shared.ErrUnusualNormalize
 	}
 
 	rawTbl := c.getRawTableName(req.FlowJobName)
@@ -239,8 +253,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 		}
 	}
 
-	endNormalizeBatchId := normBatchID + 1
-	err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, endNormalizeBatchId)
+	err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, req.SyncBatchID)
 	if err != nil {
 		c.logger.Error("[clickhouse] error while updating normalize batch id", "error", err)
 		return nil, err
@@ -248,7 +261,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 
 	return &model.NormalizeResponse{
 		Done:         true,
-		StartBatchID: endNormalizeBatchId,
+		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
 	}, nil
 }
