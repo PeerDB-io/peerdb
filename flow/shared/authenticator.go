@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jws"
@@ -28,9 +29,9 @@ type identityProvider struct {
 }
 
 func AuthGrpcMiddleware() ([]grpc.ServerOption, error) {
-	devKeySetJSON, _ := os.LookupEnv("PEERDB_OAUTH_KEY_SET_JSON")
-	auth0Domain, _ := os.LookupEnv("PEERDB_OAUTH_AUTH0DOMAIN")
-	auth0ClientID, _ := os.LookupEnv("PEERDB_OAUTH_AUTH0CLIENTID")
+	devKeySetJSON := os.Getenv("PEERDB_OAUTH_KEY_SET_JSON")
+	auth0Domain := os.Getenv("PEERDB_OAUTH_AUTH0DOMAIN")
+	auth0ClientID := os.Getenv("PEERDB_OAUTH_AUTH0CLIENTID")
 	cfg := AuthenticationConfig{
 		Enabled:       devKeySetJSON != "" || auth0Domain != "",
 		DevKeySetJSON: devKeySetJSON,
@@ -108,11 +109,7 @@ func jwtFromRequest(authHeader string) ([]byte, error) {
 		return nil, errors.New("missing Authorization header")
 	}
 
-	if len(authHeader) > 7 && authHeader[:7] == "Bearer " {
-		return []byte(authHeader[7:]), nil
-	}
-
-	return []byte(authHeader), nil
+	return []byte(strings.TrimPrefix(authHeader, "Bearer ")), nil
 }
 
 func identityProviderValidateOpts(provider identityProvider) []jwt.ValidateOption {
