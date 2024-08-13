@@ -3,12 +3,12 @@ package peerflow
 import (
 	"fmt"
 	"log/slog"
-	"sort"
+	"maps"
+	"slices"
 	"time"
 
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
-	"golang.org/x/exp/maps"
 
 	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -112,8 +112,7 @@ func (s *SetupFlowExecution) ensurePullability(
 	})
 	srcTableIdNameMapping := make(map[uint32]string)
 
-	srcTblIdentifiers := maps.Keys(s.tableNameMapping)
-	sort.Strings(srcTblIdentifiers)
+	srcTblIdentifiers := slices.Sorted(maps.Keys(s.tableNameMapping))
 
 	// create EnsurePullabilityInput for the srcTableName
 	ensurePullabilityInput := &protos.EnsurePullabilityBatchInput{
@@ -130,8 +129,7 @@ func (s *SetupFlowExecution) ensurePullability(
 		return nil, fmt.Errorf("failed to ensure pullability for tables: %w", err)
 	}
 
-	sortedTableNames := maps.Keys(ensurePullabilityOutput.TableIdentifierMapping)
-	sort.Strings(sortedTableNames)
+	sortedTableNames := slices.Sorted(maps.Keys(ensurePullabilityOutput.TableIdentifierMapping))
 
 	for _, tableName := range sortedTableNames {
 		tableIdentifier := ensurePullabilityOutput.TableIdentifierMapping[tableName]
@@ -178,8 +176,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		HeartbeatTimeout:    time.Minute,
 	})
 
-	sourceTables := maps.Keys(s.tableNameMapping)
-	sort.Strings(sourceTables)
+	sourceTables := slices.Sorted(maps.Keys(s.tableNameMapping))
 
 	tableSchemaInput := &protos.GetTableSchemaBatchInput{
 		PeerName:         flowConnectionConfigs.SourceName,
@@ -196,13 +193,9 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		return nil, fmt.Errorf("failed to fetch schema for source table %s: %w", sourceTables, err)
 	}
 
-	tableNameSchemaMapping := tblSchemaOutput.TableNameSchemaMapping
-	sortedSourceTables := maps.Keys(tableNameSchemaMapping)
-	sort.Strings(sortedSourceTables)
-
 	s.Info("setting up normalized tables for peer flow")
 	normalizedTableMapping := shared.BuildProcessedSchemaMapping(flowConnectionConfigs.TableMappings,
-		tableNameSchemaMapping, s.Logger)
+		tblSchemaOutput.TableNameSchemaMapping, s.Logger)
 
 	// now setup the normalized tables on the destination peer
 	setupConfig := &protos.SetupNormalizedTableBatchInput{

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -423,6 +424,16 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 	}, nil
 }
 
+func (c *BigQueryConnector) runMergeStatement(ctx context.Context, datasetID string, mergeStmt string) error {
+	q := c.client.Query(mergeStmt)
+	q.DefaultProjectID = c.projectID
+	q.DefaultDatasetID = datasetID
+	if _, err := q.Read(ctx); err != nil {
+		return fmt.Errorf("failed to execute merge statement %s: %v", mergeStmt, err)
+	}
+	return nil
+}
+
 func (c *BigQueryConnector) mergeTablesInThisBatch(
 	ctx context.Context,
 	batchId int64,
@@ -469,22 +480,18 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 		// TODO (kaushik): This is so that the statement size for individual merge statements
 		// doesn't exceed the limit. We should make this configurable.
 		const batchSize = 8
-		err = shared.ArrayIterChunks(unchangedToastColumns, batchSize, func(chunk []string, chunkIdx, totalChunks int) error {
-			mergeStmt := mergeGen.generateMergeStmt(tableName, dstDatasetTable, chunk)
-			c.logger.Info(fmt.Sprintf("running merge statement %d/%d for table %s..",
-				chunkIdx+1, totalChunks, tableName))
-
-			q := c.client.Query(mergeStmt)
-			q.DefaultProjectID = c.projectID
-			q.DefaultDatasetID = dstDatasetTable.dataset
-			_, err := q.Read(ctx)
-			if err != nil {
-				return fmt.Errorf("failed to execute merge statement %s: %v", mergeStmt, err)
+		chunkNumber := 0
+		if len(unchangedToastColumns) == 0 {
+			c.logger.Info("running single merge statement", slog.String("table", tableName))
+			mergeStmt := mergeGen.generateMergeStmt(tableName, dstDatasetTable, nil)
+			c.runMergeStatement(ctx, dstDatasetTable.dataset, mergeStmt)
+		} else {
+			for chunk := range slices.Chunk(unchangedToastColumns, batchSize) {
+				chunkNumber += 1
+				c.logger.Info("running merge statement", slog.Int("chunk", chunkNumber), slog.String("table", tableName))
+				mergeStmt := mergeGen.generateMergeStmt(tableName, dstDatasetTable, chunk)
+				c.runMergeStatement(ctx, dstDatasetTable.dataset, mergeStmt)
 			}
-			return nil
-		})
-		if err != nil {
-			return err
 		}
 	}
 
