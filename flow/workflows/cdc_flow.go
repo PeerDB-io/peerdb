@@ -122,7 +122,7 @@ func processCDCFlowConfigUpdate(
 		additionalTablesCfg.DoInitialSnapshot = true
 		additionalTablesCfg.InitialSnapshotOnly = true
 		additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
-		additionalTablesCfg.Resync = false
+		// additionalTablesCfg.Resync = false
 		// execute the sync flow as a child workflow
 		childAdditionalTablesCDCFlowOpts := workflow.ChildWorkflowOptions{
 			WorkflowID:        childAdditionalTablesCDCFlowID,
