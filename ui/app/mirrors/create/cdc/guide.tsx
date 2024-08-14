@@ -22,6 +22,8 @@ const GuideForDestinationSetup = ({
         return 'https://docs.peerdb.io/connect/cloudsql_postgres';
       case 'CRUNCHY POSTGRES':
         return 'https://docs.peerdb.io/connect/crunchy_bridge';
+      case 'NEON':
+        return 'https://docs.peerdb.io/connect/postgres/neon_postgres';
       case 'CONFLUENT':
         return 'https://docs.peerdb.io/connect/confluent-cloud';
       case 'REDPANDA':
