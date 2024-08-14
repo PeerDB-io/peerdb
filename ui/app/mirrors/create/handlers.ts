@@ -15,6 +15,7 @@ import {
   PeerSchemasResponse,
   SchemaTablesResponse,
   TableColumnsResponse,
+  ValidateCDCMirrorResponse,
 } from '@/grpc_generated/route';
 import { Dispatch, SetStateAction } from 'react';
 
@@ -445,19 +446,21 @@ export const handleValidateCDC = async (
     setLoading(false);
     return;
   }
-  const status = await fetch('/api/v1/mirrors/cdc/validate', {
+  const statusRes = await fetch('/api/v1/mirrors/cdc/validate', {
     method: 'POST',
     body: JSON.stringify({
       connectionConfigs: processCDCConfig(config),
     }),
-  }).then((res) => res.json());
-
-  if (!status.ok) {
-    notifyErr('Mirror is invalid: ' + status.message);
-    setLoading(false);
-    return;
+  });
+  if (statusRes.ok) {
+    const status: ValidateCDCMirrorResponse = await statusRes.json();
+    if (status.ok) {
+      notifyErr('CDC Mirror is valid', true);
+    }
+  } else {
+    const errRes = await statusRes.json();
+    notifyErr('CDC Mirror is invalid: ' + errRes.message);
   }
-  notifyErr('CDC Mirror is valid', true);
   setLoading(false);
 };
 
