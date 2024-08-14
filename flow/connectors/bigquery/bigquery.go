@@ -484,13 +484,17 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 		if len(unchangedToastColumns) == 0 {
 			c.logger.Info("running single merge statement", slog.String("table", tableName))
 			mergeStmt := mergeGen.generateMergeStmt(tableName, dstDatasetTable, nil)
-			c.runMergeStatement(ctx, dstDatasetTable.dataset, mergeStmt)
+			if err := c.runMergeStatement(ctx, dstDatasetTable.dataset, mergeStmt); err != nil {
+				return err
+			}
 		} else {
 			for chunk := range slices.Chunk(unchangedToastColumns, batchSize) {
 				chunkNumber += 1
 				c.logger.Info("running merge statement", slog.Int("chunk", chunkNumber), slog.String("table", tableName))
 				mergeStmt := mergeGen.generateMergeStmt(tableName, dstDatasetTable, chunk)
-				c.runMergeStatement(ctx, dstDatasetTable.dataset, mergeStmt)
+				if err := c.runMergeStatement(ctx, dstDatasetTable.dataset, mergeStmt); err != nil {
+					return err
+				}
 			}
 		}
 	}
