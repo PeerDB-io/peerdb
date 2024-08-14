@@ -952,6 +952,32 @@ func (c *BigQueryConnector) RemoveTableEntriesFromRawTable(
 	return nil
 }
 
+func (c *BigQueryConnector) AvroExport(ctx context.Context, config *protos.FlowConnectionConfigs) error {
+	jobs := make([]*bigquery.Job, 0, len(config.TableMappings))
+	for _, mapping := range config.TableMappings {
+		uri := fmt.Sprintf("%s/%s/*.avro", config.CdcStagingPath, mapping.SourceTableIdentifier)
+		gcsRef := bigquery.NewGCSReference(uri)
+		gcsRef.DestinationFormat = bigquery.Avro
+		gcsRef.AvroOptions = &bigquery.AvroOptions{UseAvroLogicalTypes: true}
+		gcsRef.Compression = bigquery.Snappy
+
+		extractor := c.client.DatasetInProject(c.projectID, c.datasetID).Table(mapping.SourceTableIdentifier).ExtractorTo(gcsRef)
+		job, err := extractor.Run(ctx)
+		if err != nil {
+			return err
+		}
+		jobs = append(jobs, job)
+	}
+	for _, job := range jobs {
+		if status, err := job.Wait(ctx); err != nil {
+			return err
+		} else if err := status.Err(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type datasetTable struct {
 	project string
 	dataset string

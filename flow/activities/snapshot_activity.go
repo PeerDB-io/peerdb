@@ -190,3 +190,19 @@ func (a *SnapshotActivity) GetDefaultPartitionKeyForTables(
 
 	return output, nil
 }
+
+func (a *SnapshotActivity) S3Export(ctx context.Context, config *protos.FlowConnectionConfigs) error {
+	conn, err := connectors.GetByNameAs[connectors.AvroExportS3Connector](ctx, config.Env, a.CatalogPool, config.SourceName)
+	if err != nil {
+		return err
+	}
+	return conn.AvroExport(ctx, config)
+}
+
+func (a *SnapshotActivity) S3Import(ctx context.Context, config *protos.FlowConnectionConfigs) error {
+	conn, err := connectors.GetByNameAs[connectors.AvroImportS3Connector](ctx, config.Env, a.CatalogPool, config.DestinationName)
+	if err != nil {
+		return err
+	}
+	return conn.AvroImport(ctx, config)
+}
