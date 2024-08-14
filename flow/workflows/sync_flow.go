@@ -2,12 +2,12 @@ package peerflow
 
 import (
 	"log/slog"
+	"maps"
 	"time"
 
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
-	"golang.org/x/exp/maps"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"

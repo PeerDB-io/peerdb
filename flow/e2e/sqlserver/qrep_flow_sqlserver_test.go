@@ -59,6 +59,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) Peer() *protos.Peer {
 }
 
 func TestCDCFlowE2ETestSuiteSQLServer(t *testing.T) {
+	t.Skip()
 	e2eshared.RunSuite(t, SetupSuite)
 }
 

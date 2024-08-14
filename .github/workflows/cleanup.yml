@@ -14,7 +14,7 @@ jobs:
 
       - uses: ubicloud/setup-go@v5
         with:
-          go-version: '1.22.5'
+          go-version: '1.23.0'
           cache-dependency-path: e2e_cleanup/go.sum
 
       - name: download go modules
