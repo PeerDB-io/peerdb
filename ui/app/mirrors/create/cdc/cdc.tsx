@@ -8,6 +8,7 @@ import { CDCConfig, MirrorSetter, TableMapRow } from '../../../dto/MirrorsDTO';
 import { IsEventhubsPeer, IsQueuePeer, fetchPublications } from '../handlers';
 import { AdvancedSettingType, MirrorSetting } from '../helpers/common';
 import CDCField from './fields';
+import { AdjustAdvancedSetting } from './hooks';
 import TableMapping from './tablemapping';
 
 interface MirrorConfigProps {
@@ -59,18 +60,7 @@ export default function CDCConfigForm({
 
   const advancedSettings = useMemo(() => {
     return settings!
-      .map((setting) => {
-        if (
-          IsQueuePeer(destinationType) &&
-          setting.advanced === AdvancedSettingType.QUEUE
-        ) {
-          setting.stateHandler(600, setter);
-          return { ...setting, default: 600 };
-        }
-        if (setting.advanced === AdvancedSettingType.ALL) {
-          return setting;
-        }
-      })
+      .map((setting) => AdjustAdvancedSetting(setting, destinationType, setter))
       .filter((setting) => setting !== undefined);
   }, [settings, destinationType, setter]);
 

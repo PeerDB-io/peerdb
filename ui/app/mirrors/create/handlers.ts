@@ -37,6 +37,14 @@ export const IsQueuePeer = (peerType?: DBType): boolean => {
   );
 };
 
+export const IsClickhousePeer = (peerType?: DBType): boolean => {
+  return (
+    !!peerType &&
+    (peerType === DBType.CLICKHOUSE ||
+      peerType.toString() === DBType[DBType.CLICKHOUSE])
+  );
+};
+
 export const IsEventhubsPeer = (peerType?: DBType): boolean => {
   return (
     (!!peerType && peerType === DBType.EVENTHUBS) ||
