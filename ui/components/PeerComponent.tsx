@@ -18,6 +18,8 @@ export const DBTypeToImageMapping = (peerType: DBType | string) => {
       return '/images/tembo.png';
     case 'CRUNCHY POSTGRES':
       return '/images/crunchy.png';
+    case 'NEON':
+      return '/images/neon.png';
     case DBType.POSTGRES:
     case 'POSTGRES':
       return '/svgs/pg.svg';

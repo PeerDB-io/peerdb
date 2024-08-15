@@ -55,7 +55,11 @@ export default function CreateConfig({
   const [nameValidityMessage, setNameValidityMessage] = useState<string>('');
 
   const getDBType = () => {
-    if (peerType.includes('POSTGRES') || peerType.includes('TEMBO')) {
+    if (
+      peerType.includes('POSTGRES') ||
+      peerType.includes('TEMBO') ||
+      peerType.includes('NEON')
+    ) {
       return 'POSTGRES';
     }
     if (peerType === 'CONFLUENT' || peerType === 'REDPANDA') {
