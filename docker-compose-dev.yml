@@ -201,6 +201,7 @@ services:
       NEXTAUTH_URL: http://localhost:3000
       PEERDB_ALLOWED_TARGETS:
       PEERDB_CLICKHOUSE_ALLOWED_DOMAINS:
+      PEERDB_EXPERIMENTAL_ENABLE_SCRIPTING: true
     depends_on:
       - flow-api
 
