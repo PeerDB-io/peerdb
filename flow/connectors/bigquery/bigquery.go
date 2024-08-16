@@ -959,7 +959,7 @@ func (c *BigQueryConnector) AvroExport(ctx context.Context, config *protos.FlowC
 		gcsRef := bigquery.NewGCSReference(uri)
 		gcsRef.DestinationFormat = bigquery.Avro
 		gcsRef.AvroOptions = &bigquery.AvroOptions{UseAvroLogicalTypes: true}
-		gcsRef.Compression = bigquery.Snappy
+		gcsRef.Compression = bigquery.Gzip
 
 		extractor := c.client.DatasetInProject(c.projectID, c.datasetID).Table(mapping.SourceTableIdentifier).ExtractorTo(gcsRef)
 		job, err := extractor.Run(ctx)
