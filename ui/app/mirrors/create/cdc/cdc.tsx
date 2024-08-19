@@ -9,6 +9,8 @@ import { IsEventhubsPeer, IsQueuePeer, fetchPublications } from '../handlers';
 import { AdvancedSettingType, MirrorSetting } from '../helpers/common';
 import CDCField from './fields';
 import TableMapping from './tablemapping';
+import { TypeSystem } from '@/grpc_generated/flow';
+import { set } from 'zod';
 
 interface MirrorConfigProps {
   settings: MirrorSetting[];
@@ -73,6 +75,7 @@ export default function CDCConfigForm({
       })
       .filter((setting) => setting !== undefined);
   }, [settings, destinationType, setter]);
+
 
   const paramDisplayCondition = (setting: MirrorSetting) => {
     const label = setting.label.toLowerCase();

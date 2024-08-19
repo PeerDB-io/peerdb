@@ -205,7 +205,7 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 		`AND t.relispartition IS NOT TRUE ORDER BY t.relname, can_mirror DESC;
 `, req.SchemaName)
 	if err != nil {
-		slog.Info("failed to fetch publications", slog.Any("error", err))
+		slog.Info("failed to fetch tables", slog.Any("error", err))
 		return nil, err
 	}
 
