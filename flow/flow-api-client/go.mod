@@ -1,4 +1,4 @@
-module github.com/PeerDB-io/flow-api-client
+module github.com/PeerDB-io/peerdb/flow/flow-api-client
 
 go 1.22
 
