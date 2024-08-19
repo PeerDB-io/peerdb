@@ -17,4 +17,8 @@ runs:
     - if: steps.cache.outputs.cache-hit != 'true'
       uses: bufbuild/buf-action@v1
       with:
+        setup_only: true
         github_token: ${{ github.token }}
+    - if: steps.cache.outputs.cache-hit != 'true'
+      shell: sh
+      run: buf generate protos
