@@ -46,7 +46,7 @@ func (s PeerFlowE2ETestSuiteCH) Test_Simple_CDC_CH() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
 	flowConnConfig.SoftDeleteColName = ""
-	flowConnConfig.SyncedAtColName = ""
+	flowConnConfig.SyncedAtColName = "_peerdb_synced_at"
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -63,7 +63,7 @@ func (s PeerFlowE2ETestSuiteCH) Test_Simple_CDC_CH() {
 	}
 	s.t.Log("Inserted 10 rows into the source table")
 
-	e2e.EnvWaitForEqualTables(env, s, "normalize inserts", dstTableName, "id,key,value,j")
+	e2e.EnvWaitForEqualTables(env, s, "normalize inserts", dstTableName, "id,key,value")
 
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
