@@ -454,22 +454,21 @@ export const handleValidateCDC = async (
     setLoading(false);
     return;
   }
-  const status: ValidateCDCMirrorResponse = await fetch(
-    '/api/v1/mirrors/cdc/validate',
-    {
-      method: 'POST',
-      body: JSON.stringify({
-        connectionConfigs: processCDCConfig(config),
-      }),
+  const statusRes = await fetch('/api/v1/mirrors/cdc/validate', {
+    method: 'POST',
+    body: JSON.stringify({
+      connectionConfigs: processCDCConfig(config),
+    }),
+  });
+  if (statusRes.ok) {
+    const status: ValidateCDCMirrorResponse = await statusRes.json();
+    if (status.ok) {
+      notifyErr('CDC Mirror is valid', true);
     }
-  ).then((res) => res.json());
-
-  if (!status.ok) {
-    notifyErr('Mirror is invalid');
-    setLoading(false);
-    return;
+  } else {
+    const errRes = await statusRes.json();
+    notifyErr('CDC Mirror is invalid: ' + errRes.message);
   }
-  notifyErr('CDC Mirror is valid', true);
   setLoading(false);
 };
 
