@@ -10,49 +10,49 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peer-flow/connectors"
-	"github.com/PeerDB-io/peer-flow/connectors/clickhouse"
+	connclickhouse "github.com/PeerDB-io/peer-flow/connectors/clickhouse"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/e2e/s3"
+	e2e_s3 "github.com/PeerDB-io/peer-flow/e2e/s3"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-type ClickHouseSuite struct {
+type PeerFlowE2ETestSuiteCH struct {
 	t        *testing.T
 	conn     *connpostgres.PostgresConnector
 	s3Helper *e2e_s3.S3TestHelper
 	suffix   string
 }
 
-func (s ClickHouseSuite) T() *testing.T {
+func (s PeerFlowE2ETestSuiteCH) T() *testing.T {
 	return s.t
 }
 
-func (s ClickHouseSuite) Connector() *connpostgres.PostgresConnector {
+func (s PeerFlowE2ETestSuiteCH) Connector() *connpostgres.PostgresConnector {
 	return s.conn
 }
 
-func (s ClickHouseSuite) DestinationConnector() connectors.Connector {
+func (s PeerFlowE2ETestSuiteCH) DestinationConnector() connectors.Connector {
 	// TODO have CH connector
 	return nil
 }
 
-func (s ClickHouseSuite) Conn() *pgx.Conn {
+func (s PeerFlowE2ETestSuiteCH) Conn() *pgx.Conn {
 	return s.Connector().Conn()
 }
 
-func (s ClickHouseSuite) Suffix() string {
+func (s PeerFlowE2ETestSuiteCH) Suffix() string {
 	return s.suffix
 }
 
-func (s ClickHouseSuite) Peer() *protos.Peer {
+func (s PeerFlowE2ETestSuiteCH) Peer() *protos.Peer {
 	return s.PeerForDatabase("e2e_test_" + s.suffix)
 }
 
-func (s ClickHouseSuite) PeerForDatabase(dbname string) *protos.Peer {
+func (s PeerFlowE2ETestSuiteCH) PeerForDatabase(dbname string) *protos.Peer {
 	ret := &protos.Peer{
 		Name: e2e.AddSuffix(s, dbname),
 		Type: protos.DBType_CLICKHOUSE,
@@ -74,16 +74,16 @@ func (s ClickHouseSuite) PeerForDatabase(dbname string) *protos.Peer {
 	return ret
 }
 
-func (s ClickHouseSuite) DestinationTable(table string) string {
+func (s PeerFlowE2ETestSuiteCH) DestinationTable(table string) string {
 	return table
 }
 
-func (s ClickHouseSuite) Teardown() {
+func (s PeerFlowE2ETestSuiteCH) Teardown() {
 	require.NoError(s.t, s.s3Helper.CleanUp(context.Background()))
 	e2e.TearDownPostgres(s)
 }
 
-func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch, error) {
+func (s PeerFlowE2ETestSuiteCH) GetRows(table string, cols string) (*model.QRecordBatch, error) {
 	ch, err := connclickhouse.Connect(context.Background(), s.Peer().GetClickhouseConfig())
 	if err != nil {
 		return nil, err
@@ -145,7 +145,7 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	return batch, rows.Err()
 }
 
-func SetupSuite(t *testing.T) ClickHouseSuite {
+func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteCH {
 	t.Helper()
 
 	suffix := "ch_" + strings.ToLower(shared.RandomString(8))
@@ -155,7 +155,7 @@ func SetupSuite(t *testing.T) ClickHouseSuite {
 	s3Helper, err := e2e_s3.NewS3TestHelper(false)
 	require.NoError(t, err, "failed to setup S3")
 
-	s := ClickHouseSuite{
+	s := PeerFlowE2ETestSuiteCH{
 		t:        t,
 		conn:     conn,
 		suffix:   suffix,
