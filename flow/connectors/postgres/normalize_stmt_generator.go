@@ -2,11 +2,11 @@ package connpostgres
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
 	"go.temporal.io/sdk/log"
-	"golang.org/x/exp/maps"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -122,11 +122,11 @@ func (n *normalizeStmtGenerator) generateFallbackStatements(
 		deleteUpdate += " FROM"
 	}
 	fallbackUpsertStatement := fmt.Sprintf(fallbackUpsertStatementSQL,
-		strings.Join(maps.Values(primaryKeyColumnCasts), ","), n.metadataSchema,
+		strings.Join(slices.Collect(maps.Values(primaryKeyColumnCasts)), ","), n.metadataSchema,
 		n.rawTableName, parsedDstTable.String(), insertColumnsSQL, flattenedCastsSQL,
 		strings.Join(normalizedTableSchema.PrimaryKeyColumns, ","), updateColumnsSQL)
 	fallbackDeleteStatement := fmt.Sprintf(fallbackDeleteStatementSQL,
-		strings.Join(maps.Values(primaryKeyColumnCasts), ","), n.metadataSchema,
+		strings.Join(slices.Collect(maps.Values(primaryKeyColumnCasts)), ","), n.metadataSchema,
 		n.rawTableName, deleteUpdate, deleteWhereClauseSQL)
 
 	return []string{fallbackUpsertStatement, fallbackDeleteStatement}
@@ -196,7 +196,7 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 
 	mergeStmt := fmt.Sprintf(
 		mergeStatementSQL,
-		strings.Join(maps.Values(primaryKeyColumnCasts), ","),
+		strings.Join(slices.Collect(maps.Values(primaryKeyColumnCasts)), ","),
 		n.metadataSchema,
 		n.rawTableName,
 		parsedDstTable.String(),

@@ -46,6 +46,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	}
 	sourcePeer, err := connectors.LoadPeer(ctx, h.pool, req.ConnectionConfigs.SourceName)
 	if err != nil {
+		slog.Error("/validatecdc failed to load source peer", slog.String("peer", req.ConnectionConfigs.SourceName))
 		return &protos.ValidateCDCMirrorResponse{
 			Ok: false,
 		}, err

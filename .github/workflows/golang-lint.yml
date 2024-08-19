@@ -24,11 +24,11 @@ jobs:
           sudo apt-get install libgeos-dev
       - uses: ubicloud/setup-go@v5
         with:
-          go-version: '1.22.5'
+          go-version: '1.23.0'
           cache: false
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.59
+          version: v1.60
           working-directory: ./flow
           args: --timeout=10m

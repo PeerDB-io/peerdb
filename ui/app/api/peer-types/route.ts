@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
     'AZURE FLEXIBLE POSTGRESQL',
     'TEMBO',
     'CRUNCHY POSTGRES',
+    'NEON',
   ];
 
   if (GetPeerDBClickhouseMode()) {
