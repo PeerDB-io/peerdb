@@ -21,8 +21,9 @@ export const AdjustAdvancedSetting = (
     (setting.label === 'Pull Batch Size' ||
       setting.label === 'Snapshot Number of Rows Per Partition')
   ) {
-    setting.stateHandler(100000, setter);
-    return { ...setting, default: 100000 };
+    const clickhouseBatchDefault = 500000
+    setting.stateHandler(clickhouseBatchDefault, setter);
+    return { ...setting, default: clickhouseBatchDefault };
   }
   if (setting.advanced === AdvancedSettingType.ALL) {
     return setting;
