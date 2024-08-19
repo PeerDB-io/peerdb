@@ -118,6 +118,12 @@ END;`, ValueType: protos.DynconfValueType_STRING,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
 		TargetForSetting: protos.DynconfTarget_BIGQUERY,
 	},
+	{
+		Name: "PEERDB_CLICKHOUSE_EXPERIMENTAL_S3_IIS_PARTS", DefaultValue: "0", ValueType: protos.DynconfValueType_UINT,
+		Description:      "ClickHouse only: number of parts to use for S3 insert-into-selects, 0 for no partitioning",
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -275,4 +281,8 @@ func PeerDBQueueForceTopicCreation(ctx context.Context) (bool, error) {
 // experimental, don't increase to greater than 64
 func PeerDBMaxSyncsPerCDCFlow(ctx context.Context) (uint32, error) {
 	return dynamicConfUnsigned[uint32](ctx, "PEERDB_MAX_SYNCS_PER_CDC_FLOW")
+}
+
+func PeerDBClickhouseExperimentalS3IISParts(ctx context.Context) (uint32, error) {
+	return dynamicConfUnsigned[uint32](ctx, "PEERDB_CLICKHOUSE_EXPERIMENTAL_S3_IIS_PARTS")
 }
