@@ -961,7 +961,7 @@ func (c *BigQueryConnector) generateV4GetObjectSignedURL(bucket string, object s
 	})
 }
 
-func (c *BigQueryConnector) AvroExport(ctx context.Context, config *protos.FlowConnectionConfigs) (map[string][]string, error) {
+func (c *BigQueryConnector) AvroExport(ctx context.Context, config *protos.CreateImportS3Request) (map[string][]string, error) {
 	jobs := make([]*bigquery.Job, 0, len(config.TableMappings))
 	for _, mapping := range config.TableMappings {
 		uri := fmt.Sprintf("%s/%s/*.avro", config.CdcStagingPath, url.PathEscape(mapping.SourceTableIdentifier))

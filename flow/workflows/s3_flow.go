@@ -8,7 +8,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
-func S3Workflow(ctx workflow.Context, config *protos.FlowConnectionConfigs) error {
+func S3Workflow(ctx workflow.Context, config *protos.CreateImportS3Request) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * time.Hour,
 	})

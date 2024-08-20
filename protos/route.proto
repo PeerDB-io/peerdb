@@ -24,7 +24,12 @@ message CreateQRepFlowResponse {
 }
 
 message CreateImportS3Request {
-  peerdb_flow.FlowConnectionConfigs config = 1;
+  string flow_job_name = 1;
+  string cdc_staging_path = 2;
+  string source_name = 3;
+  string destination_name = 4;
+  repeated peerdb_flow.TableMapping table_mappings = 5;
+  map<string, string> env = 6;
 }
 
 message CreateImportS3Response {
