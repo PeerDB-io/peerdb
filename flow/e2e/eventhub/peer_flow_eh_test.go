@@ -119,7 +119,6 @@ func SetupSuite(t *testing.T) EventhubsSuite {
 }
 
 func Test_Eventhubs(t *testing.T) {
-	t.Skip()
 	e2eshared.RunSuite(t, SetupSuite)
 }
 
