@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"reflect"
 	"slices"
 	"strings"
@@ -952,30 +953,61 @@ func (c *BigQueryConnector) RemoveTableEntriesFromRawTable(
 	return nil
 }
 
-func (c *BigQueryConnector) AvroExport(ctx context.Context, config *protos.FlowConnectionConfigs) error {
+func (c *BigQueryConnector) generateV4GetObjectSignedURL(bucket string, object string) (string, error) {
+	return c.storageClient.Bucket(bucket).SignedURL(object, &storage.SignedURLOptions{
+		Scheme:  storage.SigningSchemeV4,
+		Method:  "GET",
+		Expires: time.Now().Add(1 * time.Hour),
+	})
+}
+
+func (c *BigQueryConnector) AvroExport(ctx context.Context, config *protos.FlowConnectionConfigs) (map[string][]string, error) {
 	jobs := make([]*bigquery.Job, 0, len(config.TableMappings))
 	for _, mapping := range config.TableMappings {
-		uri := fmt.Sprintf("%s/%s/*.avro", config.CdcStagingPath, mapping.SourceTableIdentifier)
+		uri := fmt.Sprintf("%s/%s/*.avro", config.CdcStagingPath, url.PathEscape(mapping.SourceTableIdentifier))
 		gcsRef := bigquery.NewGCSReference(uri)
 		gcsRef.DestinationFormat = bigquery.Avro
 		gcsRef.AvroOptions = &bigquery.AvroOptions{UseAvroLogicalTypes: true}
-		gcsRef.Compression = bigquery.Gzip
+		gcsRef.Compression = bigquery.Deflate
 
 		extractor := c.client.DatasetInProject(c.projectID, c.datasetID).Table(mapping.SourceTableIdentifier).ExtractorTo(gcsRef)
 		job, err := extractor.Run(ctx)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		jobs = append(jobs, job)
 	}
 	for _, job := range jobs {
 		if status, err := job.Wait(ctx); err != nil {
-			return err
+			return nil, err
 		} else if err := status.Err(); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+
+	ret := make(map[string][]string, len(config.TableMappings))
+	for _, mapping := range config.TableMappings {
+		it := c.storageClient.Bucket(strings.TrimPrefix(config.CdcStagingPath, "gs://")).Objects(ctx, &storage.Query{
+			Prefix:    mapping.SourceTableIdentifier + "/",
+			Delimiter: "/",
+		})
+		for {
+			object, err := it.Next()
+			if err != nil {
+				if err == iterator.Done {
+					break
+				}
+				return nil, err
+			}
+			u, err := c.generateV4GetObjectSignedURL(object.Bucket, object.Name)
+			if err != nil {
+				return nil, err
+			}
+			ret[mapping.SourceTableIdentifier] = append(ret[mapping.SourceTableIdentifier], u)
+		}
+	}
+
+	return ret, nil
 }
 
 type datasetTable struct {

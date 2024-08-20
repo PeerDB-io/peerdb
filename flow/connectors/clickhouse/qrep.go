@@ -50,32 +50,26 @@ func (c *ClickHouseConnector) CleanupQRepFlow(ctx context.Context, config *proto
 	return c.dropStage(ctx, config.StagingPath, config.FlowJobName)
 }
 
-func (c *ClickHouseConnector) AvroImport(ctx context.Context, config *protos.FlowConnectionConfigs) error {
-	// TODO s3 creds
+func (c *ClickHouseConnector) AvroImport(ctx context.Context, config *protos.FlowConnectionConfigs, urls map[string][]string) error {
 	for _, mapping := range config.TableMappings {
-		uri := fmt.Sprintf("%s/%s/*.avro", config.CdcStagingPath, mapping.SourceTableIdentifier)
-		if err := c.SyncFromAvroS3(ctx, aws.Credentials{}, uri, mapping.DestinationTableIdentifier); err != nil {
-			return err
+		for _, uri := range urls[mapping.SourceTableIdentifier] {
+			if err := c.SyncFromAvroUrl(ctx, aws.Credentials{}, uri, mapping.DestinationTableIdentifier); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
-func (c *ClickHouseConnector) SyncFromAvroS3(
+func (c *ClickHouseConnector) SyncFromAvroUrl(
 	ctx context.Context,
 	creds aws.Credentials,
 	avroFileUrl string,
 	destinationTableIdentifier string,
 ) error {
-	sessionTokenPart := ""
-	if creds.SessionToken != "" {
-		sessionTokenPart = fmt.Sprintf(", '%s'", creds.SessionToken)
-	}
-
 	// CH supports `(* except (b))` which can be used in future to support column exclusion
-	query := fmt.Sprintf("INSERT INTO %s (*) SELECT * FROM s3('%s','%s','%s'%s, 'Avro')",
-		destinationTableIdentifier, avroFileUrl,
-		creds.AccessKeyID, creds.SecretAccessKey, sessionTokenPart)
+	query := fmt.Sprintf("INSERT INTO %s (*) SELECT * FROM url('%s','Avro')",
+		destinationTableIdentifier, avroFileUrl)
 
 	err := c.database.Exec(ctx, query)
 	if err != nil {
