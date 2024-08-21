@@ -86,8 +86,7 @@ func generateCreateTableSQLForNormalizedTable(
 		switch colType {
 		case qvalue.QValueKindNumeric:
 			precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
-			stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ",
-				colName, precision, scale))
+			stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ", colName, precision, scale))
 		default:
 			stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", colName, clickhouseType))
 		}
@@ -96,7 +95,7 @@ func generateCreateTableSQLForNormalizedTable(
 	// synced at column will be added to all normalized tables
 	if syncedAtColName != "" {
 		colName := strings.ToLower(syncedAtColName)
-		stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", colName, "DateTime64(9) DEFAULT now()"))
+		stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", colName, "DateTime64(9) DEFAULT now64()"))
 	}
 
 	// add sign and version columns
