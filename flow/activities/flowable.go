@@ -754,7 +754,13 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	})
 	defer shutdown()
 
-	return conn.RenameTables(ctx, config)
+	renameOutput, err := conn.RenameTables(ctx, config)
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		return nil, fmt.Errorf("failed to rename tables: %w", err)
+	}
+
+	return renameOutput, nil
 }
 
 func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *protos.CreateTablesFromExistingInput) (
