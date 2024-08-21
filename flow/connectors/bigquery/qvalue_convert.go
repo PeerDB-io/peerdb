@@ -12,7 +12,8 @@ import (
 
 func qValueKindToBigQueryType(columnDescription *protos.FieldDescription) bigquery.FieldSchema {
 	bqField := bigquery.FieldSchema{
-		Name: columnDescription.Name,
+		Name:     columnDescription.Name,
+		Required: columnDescription.NullableEnabled && columnDescription.Nullable,
 	}
 	switch qvalue.QValueKind(columnDescription.Type) {
 	// boolean

@@ -106,7 +106,11 @@ func (c *PostgresConnector) getRelIDForTable(ctx context.Context, schemaTable *u
 }
 
 // getReplicaIdentity returns the replica identity for a table.
-func (c *PostgresConnector) getReplicaIdentityType(ctx context.Context, relID uint32, schemaTable *utils.SchemaTable) (ReplicaIdentityType, error) {
+func (c *PostgresConnector) getReplicaIdentityType(
+	ctx context.Context,
+	relID uint32,
+	schemaTable *utils.SchemaTable,
+) (ReplicaIdentityType, error) {
 	var replicaIdentity rune
 	err := c.conn.QueryRow(ctx,
 		`SELECT relreplident FROM pg_class WHERE oid = $1;`,
@@ -450,8 +454,13 @@ func generateCreateTableSQLForNormalizedTable(
 			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
 			pgColumnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
 		}
+		var notNull string
+		if column.NullableEnabled && !column.Nullable {
+			notNull = " NOT NULL"
+		}
+
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf("%s %s", QuoteIdentifier(column.Name), pgColumnType))
+			fmt.Sprintf("%s %s%s", QuoteIdentifier(column.Name), pgColumnType, notNull))
 	}
 
 	if softDeleteColName != "" {

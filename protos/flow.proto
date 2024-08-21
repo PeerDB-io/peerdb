@@ -158,6 +158,7 @@ message FieldDescription {
   string type = 2;
   int32 type_modifier = 3;
   bool nullable = 4;
+  bool nullable_enabled = 5;
 }
 
 message GetTableSchemaBatchInput {

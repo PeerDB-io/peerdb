@@ -760,10 +760,17 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, fmt.Errorf("[getTableSchema] error getting primary key column for table %s: %w", schemaTable, err)
 	}
 
-	var nullableCols map[string]struct{}
 	nullableEnabled, err := peerdbenv.PeerDBNullable(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var nullableCols map[string]struct{}
 	if nullableEnabled {
 		nullableCols, err = c.getNullableColumns(ctx, relID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Get the column names and types
@@ -806,10 +813,11 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		columnNames = append(columnNames, fieldDescription.Name)
 		_, nullable := nullableCols[fieldDescription.Name]
 		columns = append(columns, &protos.FieldDescription{
-			Name:         fieldDescription.Name,
-			Type:         colType,
-			TypeModifier: fieldDescription.TypeModifier,
-			Nullable:     nullable,
+			Name:            fieldDescription.Name,
+			Type:            colType,
+			TypeModifier:    fieldDescription.TypeModifier,
+			Nullable:        nullable,
+			NullableEnabled: nullableEnabled,
 		})
 	}
 
