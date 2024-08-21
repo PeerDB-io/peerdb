@@ -209,6 +209,18 @@ func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.C
 	if !config.DisableTls {
 		tlsSetting = &tls.Config{MinVersion: tls.VersionTLS13}
 	}
+	if config.Certificate != nil || config.PrivateKey != nil {
+		if config.Certificate == nil || config.PrivateKey == nil {
+			return nil, errors.New("both certificate and private key must be provided if using certificate-based authentication")
+		}
+		cert, err := tls.X509KeyPair([]byte(*config.Certificate), []byte(*config.PrivateKey))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse provided certificate: %w", err)
+		}
+		// TODO: find a way to modify list of root CAs as well
+		tlsSetting.Certificates = []tls.Certificate{cert}
+	}
+
 	conn, err := clickhouse.Open(&clickhouse.Options{
 		Addr: []string{fmt.Sprintf("%s:%d", config.Host, config.Port)},
 		Auth: clickhouse.Auth{

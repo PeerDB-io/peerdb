@@ -231,9 +231,8 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 		insertIntoSelectQuery.WriteString(selectQuery.String())
 
 		q := insertIntoSelectQuery.String()
-		c.logger.Info("[clickhouse] insert into select query " + q)
 
-		err = c.database.Exec(ctx, q)
+		err = c.execWithLogging(ctx, q)
 		if err != nil {
 			return nil, fmt.Errorf("error while inserting into normalized table: %w", err)
 		}
