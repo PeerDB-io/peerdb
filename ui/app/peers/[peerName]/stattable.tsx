@@ -3,19 +3,59 @@ import { CopyButton } from '@/components/CopyButton';
 import TimeLabel from '@/components/TimeComponent';
 import { StatInfo } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
+import { ProgressCircle } from '@/lib/ProgressCircle';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DurationDisplay } from './helpers';
 import { tableStyle } from './style';
 
-const StatTable = ({ data }: { data: StatInfo[] }) => {
+const StatTable = ({ peerName }: { peerName: string }) => {
   const [search, setSearch] = useState('');
+  const [data, setData] = useState<StatInfo[]>([]);
   const filteredData = useMemo(() => {
     return data.filter((stat) => {
       return stat.query.toLowerCase().includes(search.toLowerCase());
     });
   }, [data, search]);
+
+  const getStatData = useCallback(async () => {
+    try {
+      const peerStats: StatInfo[] = await fetch(
+        `/api/peers/stats/${peerName}`,
+        { cache: 'no-store' }
+      )
+        .then((res) => res.json())
+        .catch((e) => {
+          console.error('Error fetching stats:', e);
+          return [];
+        });
+
+      return peerStats ?? [];
+    } catch (e) {
+      console.error('Error fetching stats:', e);
+      return [];
+    }
+  }, [peerName]);
+
+  useEffect(() => {
+    getStatData().then((stats) => setData(stats));
+  }, [peerName, getStatData]);
+
+  if (!data || data.length === 0) {
+    return (
+      <div style={{ minHeight: '10%' }}>
+        <Label
+          as='label'
+          variant='subheadline'
+          style={{ marginBottom: '1rem', fontWeight: 'bold' }}
+        >
+          Stat Activity Information
+        </Label>
+        <ProgressCircle variant='determinate_progress_circle' />
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight: '10%' }}>

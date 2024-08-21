@@ -1,10 +1,35 @@
+'use client';
 import { SlotInfo } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
+import { ProgressCircle } from '@/lib/ProgressCircle';
 import { Table, TableCell, TableRow } from '@/lib/Table';
-import { SlotNameDisplay } from './helpers';
+import { useEffect, useState } from 'react';
+import { getSlotData, SlotNameDisplay } from './helpers';
 import { tableStyle } from './style';
 
-const SlotTable = ({ data }: { data: SlotInfo[] }) => {
+const SlotTable = ({ peerName }: { peerName: string }) => {
+  const [data, setData] = useState<SlotInfo[]>([]);
+
+  useEffect(() => {
+    getSlotData(peerName).then((slots) => setData(slots));
+  }, [peerName]);
+
+  if (!data || data.length === 0) {
+    return (
+      <div
+        style={{ minHeight: '10%', marginTop: '2rem', marginBottom: '2rem' }}
+      >
+        <Label
+          as='label'
+          variant='subheadline'
+          style={{ marginBottom: '1rem', fontWeight: 'bold' }}
+        >
+          Replication Slot Information
+        </Label>
+        <ProgressCircle variant='determinate_progress_circle' />
+      </div>
+    );
+  }
   return (
     <div style={{ minHeight: '10%', marginTop: '2rem', marginBottom: '2rem' }}>
       <Label
