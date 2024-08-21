@@ -77,6 +77,12 @@ END;`, ValueType: protos.DynconfValueType_STRING,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name: "PEERDB_NULLABLE", DefaultValue: "false", ValueType: protos.DynconfValueType_BOOL,
+		Description:      "Propagate nullability in schema",
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name: "PEERDB_SNOWFLAKE_MERGE_PARALLELISM", DefaultValue: "8", ValueType: protos.DynconfValueType_INT,
 		Description:      "Parallel MERGE statements to run for CDC mirrors with Snowflake targets. -1 for no limit",
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
@@ -256,6 +262,10 @@ func PeerDBWALHeartbeatQuery(ctx context.Context) (string, error) {
 
 func PeerDBEnableParallelSyncNormalize(ctx context.Context) (bool, error) {
 	return dynamicConfBool(ctx, "PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE")
+}
+
+func PeerDBNullable(ctx context.Context) (bool, error) {
+	return dynamicConfBool(ctx, "PEERDB_NULLABLE")
 }
 
 func PeerDBSnowflakeMergeParallelism(ctx context.Context) (int64, error) {
