@@ -30,7 +30,7 @@ func (m *mergeStmtGenerator) generateFlattenedCTE(dstTable string, normalizedTab
 
 	for _, column := range normalizedTableSchema.Columns {
 		colType := column.Type
-		bqTypeString := qValueKindToBigQueryTypeString(column, true)
+		bqTypeString := qValueKindToBigQueryTypeString(column, normalizedTableSchema.NullableEnabled, true)
 		var castStmt string
 		shortCol := m.shortColumn[column.Name]
 		switch qvalue.QValueKind(colType) {

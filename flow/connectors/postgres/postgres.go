@@ -745,13 +745,32 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
-	replicaIdentityType, err := c.getReplicaIdentityType(ctx, schemaTable)
+	relID, err := c.getRelIDForTable(ctx, schemaTable)
+	if err != nil {
+		return nil, fmt.Errorf("[getTableSchema] failed to get relation id for table %s: %w", schemaTable, err)
+	}
+
+	replicaIdentityType, err := c.getReplicaIdentityType(ctx, relID, schemaTable)
 	if err != nil {
 		return nil, fmt.Errorf("[getTableSchema] error getting replica identity for table %s: %w", schemaTable, err)
 	}
-	pKeyCols, err := c.getUniqueColumns(ctx, replicaIdentityType, schemaTable)
+
+	pKeyCols, err := c.getUniqueColumns(ctx, relID, replicaIdentityType, schemaTable)
 	if err != nil {
 		return nil, fmt.Errorf("[getTableSchema] error getting primary key column for table %s: %w", schemaTable, err)
+	}
+
+	nullableEnabled, err := peerdbenv.PeerDBNullable(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var nullableCols map[string]struct{}
+	if nullableEnabled {
+		nullableCols, err = c.getNullableColumns(ctx, relID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Get the column names and types
@@ -792,10 +811,12 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		}
 
 		columnNames = append(columnNames, fieldDescription.Name)
+		_, nullable := nullableCols[fieldDescription.Name]
 		columns = append(columns, &protos.FieldDescription{
 			Name:         fieldDescription.Name,
 			Type:         colType,
 			TypeModifier: fieldDescription.TypeModifier,
+			Nullable:     nullable,
 		})
 	}
 
@@ -812,6 +833,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		PrimaryKeyColumns:     pKeyCols,
 		IsReplicaIdentityFull: replicaIdentityType == ReplicaIdentityFull,
 		Columns:               columns,
+		NullableEnabled:       nullableEnabled,
 		System:                system,
 	}, nil
 }
@@ -949,12 +971,12 @@ func (c *PostgresConnector) EnsurePullability(
 			continue
 		}
 
-		replicaIdentity, replErr := c.getReplicaIdentityType(ctx, schemaTable)
+		replicaIdentity, replErr := c.getReplicaIdentityType(ctx, relID, schemaTable)
 		if replErr != nil {
 			return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
 		}
 
-		pKeyCols, err := c.getUniqueColumns(ctx, replicaIdentity, schemaTable)
+		pKeyCols, err := c.getUniqueColumns(ctx, relID, replicaIdentity, schemaTable)
 		if err != nil {
 			return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
 		}

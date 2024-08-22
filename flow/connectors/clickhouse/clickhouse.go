@@ -81,7 +81,7 @@ func (c *ClickhouseConnector) ValidateCheck(ctx context.Context) error {
 	}
 
 	// add a column
-	err = c.database.Exec(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now()",
+	err = c.database.Exec(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now64()",
 		validateDummyTableName+"_temp"))
 	if err != nil {
 		return fmt.Errorf("failed to add column to validation table %s: %w", validateDummyTableName, err)
@@ -95,7 +95,7 @@ func (c *ClickhouseConnector) ValidateCheck(ctx context.Context) error {
 	}
 
 	// insert a row
-	err = c.database.Exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now())", validateDummyTableName))
+	err = c.database.Exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableName))
 	if err != nil {
 		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableName, err)
 	}

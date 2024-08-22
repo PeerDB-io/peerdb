@@ -230,7 +230,7 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 				}
 			}
 
-			addedColumnBigQueryType := qValueKindToBigQueryTypeString(addedColumn, false)
+			addedColumnBigQueryType := qValueKindToBigQueryTypeString(addedColumn, schemaDelta.NullableEnabled, false)
 			query := c.queryWithLogging(fmt.Sprintf(
 				"ALTER TABLE %s ADD COLUMN IF NOT EXISTS `%s` %s",
 				dstDatasetTable.table, addedColumn.Name, addedColumnBigQueryType))
@@ -648,7 +648,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	// convert the column names and types to bigquery types
 	columns := make([]*bigquery.FieldSchema, 0, len(tableSchema.Columns)+2)
 	for _, column := range tableSchema.Columns {
-		bqFieldSchema := qValueKindToBigQueryType(column)
+		bqFieldSchema := qValueKindToBigQueryType(column, tableSchema.NullableEnabled)
 		columns = append(columns, &bqFieldSchema)
 	}
 

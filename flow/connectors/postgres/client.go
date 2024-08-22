@@ -106,12 +106,11 @@ func (c *PostgresConnector) getRelIDForTable(ctx context.Context, schemaTable *u
 }
 
 // getReplicaIdentity returns the replica identity for a table.
-func (c *PostgresConnector) getReplicaIdentityType(ctx context.Context, schemaTable *utils.SchemaTable) (ReplicaIdentityType, error) {
-	relID, relIDErr := c.getRelIDForTable(ctx, schemaTable)
-	if relIDErr != nil {
-		return ReplicaIdentityDefault, fmt.Errorf("failed to get relation id for table %s: %w", schemaTable, relIDErr)
-	}
-
+func (c *PostgresConnector) getReplicaIdentityType(
+	ctx context.Context,
+	relID uint32,
+	schemaTable *utils.SchemaTable,
+) (ReplicaIdentityType, error) {
 	var replicaIdentity rune
 	err := c.conn.QueryRow(ctx,
 		`SELECT relreplident FROM pg_class WHERE oid = $1;`,
@@ -132,21 +131,17 @@ func (c *PostgresConnector) getReplicaIdentityType(ctx context.Context, schemaTa
 // For replica identity 'f'/full, if there is a primary key we use that, else we return all columns
 func (c *PostgresConnector) getUniqueColumns(
 	ctx context.Context,
+	relID uint32,
 	replicaIdentity ReplicaIdentityType,
 	schemaTable *utils.SchemaTable,
 ) ([]string, error) {
-	relID, err := c.getRelIDForTable(ctx, schemaTable)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get relation id for table %s: %w", schemaTable, err)
-	}
-
 	if replicaIdentity == ReplicaIdentityIndex {
 		return c.getReplicaIdentityIndexColumns(ctx, relID, schemaTable)
 	}
 
 	// Find the primary key index OID, for replica identity 'd'/default or 'f'/full
 	var pkIndexOID oid.Oid
-	err = c.conn.QueryRow(ctx,
+	err := c.conn.QueryRow(ctx,
 		`SELECT indexrelid FROM pg_index WHERE indrelid = $1 AND indisprimary`,
 		relID).Scan(&pkIndexOID)
 	if err != nil {
@@ -197,6 +192,21 @@ func (c *PostgresConnector) getColumnNamesForIndex(ctx context.Context, indexOID
 		return nil, fmt.Errorf("error scanning column for index %v: %w", indexOID, err)
 	}
 	return cols, nil
+}
+
+func (c *PostgresConnector) getNullableColumns(ctx context.Context, relID uint32) (map[string]struct{}, error) {
+	rows, err := c.conn.Query(ctx, "SELECT a.attname FROM pg_attribute a WHERE a.attrelid = $1 AND NOT a.attnotnull", relID)
+	if err != nil {
+		return nil, fmt.Errorf("error getting columns for table %v: %w", relID, err)
+	}
+
+	var name string
+	nullableCols := make(map[string]struct{})
+	_, err = pgx.ForEachRow(rows, []any{&name}, func() error {
+		nullableCols[name] = struct{}{}
+		return nil
+	})
+	return nullableCols, err
 }
 
 func (c *PostgresConnector) tableExists(ctx context.Context, schemaTable *utils.SchemaTable) (bool, error) {
@@ -444,8 +454,13 @@ func generateCreateTableSQLForNormalizedTable(
 			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
 			pgColumnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
 		}
+		var notNull string
+		if sourceTableSchema.NullableEnabled && !column.Nullable {
+			notNull = " NOT NULL"
+		}
+
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf("%s %s", QuoteIdentifier(column.Name), pgColumnType))
+			fmt.Sprintf("%s %s%s", QuoteIdentifier(column.Name), pgColumnType, notNull))
 	}
 
 	if softDeleteColName != "" {
