@@ -34,7 +34,7 @@ func obtainClusteringColumns(tableSchema *protos.TableSchema) []string {
 	}
 	for _, col := range tableSchema.Columns {
 		if _, ok := isColPrimary[col.Name]; ok {
-			if bigqueryType := qValueKindToBigQueryType(col); ok {
+			if bigqueryType := qValueKindToBigQueryType(col, tableSchema.NullableEnabled); ok {
 				if isSupportedClusteringType(bigqueryType.Type) {
 					supportedPkeyColsForClustering = append(supportedPkeyColsForClustering, col.Name)
 				}

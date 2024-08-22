@@ -90,7 +90,7 @@ func generateCreateTableSQLForNormalizedTable(
 			} else {
 				stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ", colName, precision, scale))
 			}
-		} else if column.NullableEnabled && column.Nullable && !colType.IsArray() {
+		} else if tableSchema.NullableEnabled && column.Nullable && !colType.IsArray() {
 			stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(%s), ", colName, clickhouseType))
 		} else {
 			stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", colName, clickhouseType))

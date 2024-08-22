@@ -813,11 +813,10 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		columnNames = append(columnNames, fieldDescription.Name)
 		_, nullable := nullableCols[fieldDescription.Name]
 		columns = append(columns, &protos.FieldDescription{
-			Name:            fieldDescription.Name,
-			Type:            colType,
-			TypeModifier:    fieldDescription.TypeModifier,
-			Nullable:        nullable,
-			NullableEnabled: nullableEnabled,
+			Name:         fieldDescription.Name,
+			Type:         colType,
+			TypeModifier: fieldDescription.TypeModifier,
+			Nullable:     nullable,
 		})
 	}
 
@@ -834,6 +833,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		PrimaryKeyColumns:     pKeyCols,
 		IsReplicaIdentityFull: replicaIdentityType == ReplicaIdentityFull,
 		Columns:               columns,
+		NullableEnabled:       nullableEnabled,
 		System:                system,
 	}, nil
 }

@@ -689,7 +689,7 @@ func generateCreateTableSQLForNormalizedTable(
 		}
 
 		var notNull string
-		if column.NullableEnabled && !column.Nullable {
+		if sourceTableSchema.NullableEnabled && !column.Nullable {
 			notNull = " NOT NULL"
 		}
 
