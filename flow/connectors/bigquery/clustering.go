@@ -2,6 +2,7 @@ package connbigquery
 
 import (
 	"cloud.google.com/go/bigquery"
+
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
