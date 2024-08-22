@@ -672,12 +672,13 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	// create the table using the columns
 	schema := bigquery.Schema(columns)
 
-	// cluster by the primary key if < 4 columns.
+	supportedPkeyCols := obtainClusteringColumns(tableSchema)
+	// cluster by the supported primary keys if < 4 columns.
+	numSupportedPkeyCols := len(supportedPkeyCols)
 	var clustering *bigquery.Clustering
-	numPkeyCols := len(tableSchema.PrimaryKeyColumns)
-	if numPkeyCols > 0 && numPkeyCols < 4 {
+	if numSupportedPkeyCols > 0 && numSupportedPkeyCols < 4 {
 		clustering = &bigquery.Clustering{
-			Fields: tableSchema.PrimaryKeyColumns,
+			Fields: supportedPkeyCols,
 		}
 	}
 
