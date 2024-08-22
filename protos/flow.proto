@@ -150,6 +150,7 @@ message TableSchema {
   repeated string primary_key_columns = 2;
   bool is_replica_identity_full = 3;
   TypeSystem system = 4;
+  bool nullable_enabled = 5;
   repeated FieldDescription columns = 6;
 }
 
@@ -157,6 +158,7 @@ message FieldDescription {
   string name = 1;
   string type = 2;
   int32 type_modifier = 3;
+  bool nullable = 4;
 }
 
 message GetTableSchemaBatchInput {
@@ -313,6 +315,7 @@ message TableSchemaDelta {
   string dst_table_name = 2;
   repeated FieldDescription added_columns = 3;
   TypeSystem system = 4;
+  bool nullable_enabled = 5;
 }
 
 message QRepFlowState {

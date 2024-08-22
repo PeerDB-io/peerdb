@@ -688,7 +688,12 @@ func generateCreateTableSQLForNormalizedTable(
 			sfColType = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
 		}
 
-		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`%s %s`, normalizedColName, sfColType))
+		var notNull string
+		if sourceTableSchema.NullableEnabled && !column.Nullable {
+			notNull = " NOT NULL"
+		}
+
+		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("%s %s%s", normalizedColName, sfColType, notNull))
 	}
 
 	// add a _peerdb_is_deleted column to the normalized table
