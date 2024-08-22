@@ -156,6 +156,7 @@ impl FlowGrpcClient {
             script: job.script.clone(),
             system: system as i32,
             idle_timeout_seconds: job.sync_interval.unwrap_or_default(),
+            env: Default::default(),
         };
 
         if job.disable_peerdb_columns {

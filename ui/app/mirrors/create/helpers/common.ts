@@ -42,6 +42,7 @@ export const blankCDCSetting: CDCConfig = {
   script: '',
   system: TypeSystem.Q,
   disablePeerDBColumns: false,
+  env: {},
 };
 
 export const blankQRepSetting = {
