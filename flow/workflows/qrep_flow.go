@@ -108,6 +108,7 @@ func (q *QRepFlowExecution) getTableSchema(ctx workflow.Context, tableName strin
 		TableIdentifiers: []string{tableName},
 		FlowName:         q.config.FlowJobName,
 		System:           q.config.System,
+		Env:              q.config.Env,
 	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
@@ -151,6 +152,7 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 			SyncedAtColName:   q.config.SyncedAtColName,
 			SoftDeleteColName: q.config.SoftDeleteColName,
 			FlowName:          q.config.FlowJobName,
+			Env:               q.config.Env,
 		}
 
 		future := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)

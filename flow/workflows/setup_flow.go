@@ -183,6 +183,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		TableIdentifiers: sourceTables,
 		FlowName:         s.cdcFlowName,
 		System:           flowConnectionConfigs.System,
+		Env:              flowConnectionConfigs.Env,
 	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
@@ -204,6 +205,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		SoftDeleteColName:      flowConnectionConfigs.SoftDeleteColName,
 		SyncedAtColName:        flowConnectionConfigs.SyncedAtColName,
 		FlowName:               flowConnectionConfigs.FlowJobName,
+		Env:                    flowConnectionConfigs.Env,
 	}
 
 	future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
