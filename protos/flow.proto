@@ -18,6 +18,7 @@ message TableMapping {
 }
 
 message SetupInput {
+  map<string, string> env = 1;
   string flow_name = 2;
   string peer_name = 3;
 }

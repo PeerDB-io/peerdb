@@ -61,6 +61,7 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 
 	// first check the source peer connection
 	srcConnStatusFuture := workflow.ExecuteLocalActivity(checkCtx, flowable.CheckConnection, &protos.SetupInput{
+		Env:      config.Env,
 		PeerName: config.SourceName,
 		FlowName: config.FlowJobName,
 	})
@@ -70,6 +71,7 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 	}
 
 	dstSetupInput := &protos.SetupInput{
+		Env:      config.Env,
 		PeerName: config.DestinationName,
 		FlowName: config.FlowJobName,
 	}

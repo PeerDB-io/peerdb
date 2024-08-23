@@ -55,7 +55,7 @@ func (a *FlowableActivity) CheckConnection(
 	config *protos.SetupInput,
 ) (*CheckConnectionResult, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
-	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, config.PeerName)
+	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowName, err)
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -71,7 +71,7 @@ func (a *FlowableActivity) CheckConnection(
 
 func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *protos.SetupInput) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
-	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, config.PeerName)
+	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
 	if err != nil {
 		return fmt.Errorf("failed to get connector: %w", err)
 	}
