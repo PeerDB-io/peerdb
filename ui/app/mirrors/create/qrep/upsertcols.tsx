@@ -1,5 +1,7 @@
 'use client';
-import { MirrorSetter } from '@/app/dto/MirrorsDTO';
+import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import ReactSelect from 'react-select';
+
 import SelectTheme from '@/app/styles/select';
 import {
   QRepConfig,
@@ -8,14 +10,12 @@ import {
 } from '@/grpc_generated/flow';
 import { Badge } from '@/lib/Badge';
 import { Icon } from '@/lib/Icon';
-import { useEffect, useState } from 'react';
-import ReactSelect from 'react-select';
 import { MirrorSetting } from '../helpers/common';
 
 interface UpsertColsProps {
   columns: { value: string; label: string }[];
   loading: boolean;
-  setter: MirrorSetter;
+  setter: Dispatch<SetStateAction<QRepConfig>>;
   setting: MirrorSetting;
 }
 const UpsertColsDisplay = ({

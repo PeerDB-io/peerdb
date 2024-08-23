@@ -1,10 +1,11 @@
 'use client';
+import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
+
 import { DBType } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { ProgressCircle } from '@/lib/ProgressCircle';
-import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
-import { CDCConfig, MirrorSetter, TableMapRow } from '../../../dto/MirrorsDTO';
+import { CDCConfig, TableMapRow } from '../../../dto/MirrorsDTO';
 import { IsEventhubsPeer, IsQueuePeer, fetchPublications } from '../handlers';
 import { AdvancedSettingType, MirrorSetting } from '../helpers/common';
 import CDCField from './fields';
@@ -15,7 +16,7 @@ interface MirrorConfigProps {
   mirrorConfig: CDCConfig;
   destinationType: DBType;
   sourceType: DBType;
-  setter: MirrorSetter;
+  setter: Dispatch<SetStateAction<CDCConfig>>;
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
 }
