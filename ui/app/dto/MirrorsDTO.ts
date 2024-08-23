@@ -8,6 +8,7 @@ export enum MirrorType {
 
 export type CDCConfig = FlowConnectionConfigs & {
   disablePeerDBColumns: boolean;
+  envString: string;
 };
 
 export type TableMapRow = {

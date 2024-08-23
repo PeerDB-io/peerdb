@@ -79,7 +79,7 @@ END;`, ValueType: protos.DynconfValueType_STRING,
 	{
 		Name: "PEERDB_NULLABLE", DefaultValue: "false", ValueType: protos.DynconfValueType_BOOL,
 		Description:      "Propagate nullability in schema",
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{

@@ -160,8 +160,8 @@ export default function CDCConfigForm({
         </Button>
 
         {show &&
-          advancedSettings!.map((setting) => {
-            return (
+          advancedSettings!.map(
+            (setting) =>
               paramDisplayCondition(setting!) && (
                 <CDCField
                   key={setting?.label}
@@ -169,8 +169,7 @@ export default function CDCConfigForm({
                   setting={setting!}
                 />
               )
-            );
-          })}
+          )}
 
         <TableMapping
           sourcePeerName={mirrorConfig.sourceName}
