@@ -600,13 +600,10 @@ func (c *BigQueryConnector) CleanupSetupNormalizedTables(_ context.Context, _ in
 func (c *BigQueryConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx interface{},
-	env map[string]string,
+	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
-	tableSchema *protos.TableSchema,
-	softDeleteColName string,
-	syncedAtColName string,
-	isResync bool,
 ) (bool, error) {
+	tableSchema := config.TableNameSchemaMapping[tableIdentifier]
 	datasetTablesSet := tx.(map[datasetTable]struct{})
 
 	// only place where we check for parsing errors
@@ -653,18 +650,18 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 		columns = append(columns, &bqFieldSchema)
 	}
 
-	if softDeleteColName != "" {
+	if config.SoftDeleteColName != "" {
 		columns = append(columns, &bigquery.FieldSchema{
-			Name:                   softDeleteColName,
+			Name:                   config.SoftDeleteColName,
 			Type:                   bigquery.BooleanFieldType,
 			Repeated:               false,
 			DefaultValueExpression: "false",
 		})
 	}
 
-	if syncedAtColName != "" {
+	if config.SyncedAtColName != "" {
 		columns = append(columns, &bigquery.FieldSchema{
-			Name:     syncedAtColName,
+			Name:     config.SyncedAtColName,
 			Type:     bigquery.TimestampFieldType,
 			Repeated: false,
 		})
@@ -683,15 +680,15 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 		}
 	}
 
-	timePartitionEnabled, err := peerdbenv.PeerDBBigQueryEnableSyncedAtPartitioning(ctx, env)
+	timePartitionEnabled, err := peerdbenv.PeerDBBigQueryEnableSyncedAtPartitioning(ctx, config.Env)
 	if err != nil {
 		return false, fmt.Errorf("failed to get dynamic setting for BigQuery time partitioning: %w", err)
 	}
 	var timePartitioning *bigquery.TimePartitioning
-	if timePartitionEnabled && syncedAtColName != "" {
+	if timePartitionEnabled && config.SyncedAtColName != "" {
 		timePartitioning = &bigquery.TimePartitioning{
 			Type:  bigquery.DayPartitioningType,
-			Field: syncedAtColName,
+			Field: config.SyncedAtColName,
 		}
 	}
 
@@ -702,7 +699,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 		TimePartitioning: timePartitioning,
 	}
 
-	if isResync {
+	if config.IsResync {
 		_, existsErr := table.Metadata(ctx)
 		if existsErr == nil {
 			c.logger.Info("[bigquery] deleting existing resync table",

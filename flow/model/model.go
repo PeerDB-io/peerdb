@@ -153,6 +153,7 @@ type NormalizeRecordsRequest struct {
 	FlowJobName            string
 	SoftDeleteColName      string
 	SyncedAtColName        string
+	TableMappings          []*protos.TableMapping
 	SyncBatchID            int64
 }
 

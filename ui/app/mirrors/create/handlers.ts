@@ -5,6 +5,8 @@ import {
   FlowConnectionConfigs,
   QRepConfig,
   QRepWriteType,
+  TableEngine,
+  TableMapping,
 } from '@/grpc_generated/flow';
 import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
 import {
@@ -152,24 +154,19 @@ function validateQRepFields(
   }
 }
 
-interface TableMapping {
-  sourceTableIdentifier: string;
-  destinationTableIdentifier: string;
-  partitionKey: string;
-  exclude: string[];
-}
 export function reformattedTableMapping(
   tableMapping: TableMapRow[]
 ): TableMapping[] {
-  const mapping = tableMapping
+  return tableMapping
     .filter((row) => row?.selected === true && row?.canMirror === true)
     .map((row) => ({
       sourceTableIdentifier: row.source,
       destinationTableIdentifier: row.destination,
       partitionKey: row.partitionKey,
       exclude: Array.from(row.exclude),
+      columns: [],
+      engine: TableEngine.CH_ENGINE_REPLACING_MERGE_TREE,
     }));
-  return mapping;
 }
 
 function processCDCConfig(a: CDCConfig): FlowConnectionConfigs {

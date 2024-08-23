@@ -179,18 +179,13 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	})
 	defer shutdown()
 
-	tableExistsMapping := make(map[string]bool)
-	for tableIdentifier, tableSchema := range config.TableNameSchemaMapping {
-		var existing bool
-		existing, err = conn.SetupNormalizedTable(
+	tableExistsMapping := make(map[string]bool, len(config.TableNameSchemaMapping))
+	for tableIdentifier := range config.TableNameSchemaMapping {
+		existing, err := conn.SetupNormalizedTable(
 			ctx,
 			tx,
-			config.Env,
+			config,
 			tableIdentifier,
-			tableSchema,
-			config.SoftDeleteColName,
-			config.SyncedAtColName,
-			config.IsResync,
 		)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowName, err)
@@ -355,10 +350,11 @@ func (a *FlowableActivity) StartNormalize(
 	res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
 		FlowJobName:            input.FlowConnectionConfigs.FlowJobName,
 		Env:                    input.FlowConnectionConfigs.Env,
+		TableNameSchemaMapping: input.TableNameSchemaMapping,
+		TableMappings:          input.FlowConnectionConfigs.TableMappings,
 		SyncBatchID:            input.SyncBatchID,
 		SoftDeleteColName:      input.FlowConnectionConfigs.SoftDeleteColName,
 		SyncedAtColName:        input.FlowConnectionConfigs.SyncedAtColName,
-		TableNameSchemaMapping: input.TableNameSchemaMapping,
 	})
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, input.FlowConnectionConfigs.FlowJobName, err)
