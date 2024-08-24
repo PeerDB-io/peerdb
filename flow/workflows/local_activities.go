@@ -19,12 +19,12 @@ const (
 	defaultMaxSyncsPerCdcFlow = 32
 )
 
-func getParallelSyncNormalize(wCtx workflow.Context, logger log.Logger) bool {
+func getParallelSyncNormalize(wCtx workflow.Context, logger log.Logger, env map[string]string) bool {
 	checkCtx := workflow.WithLocalActivityOptions(wCtx, workflow.LocalActivityOptions{
 		StartToCloseTimeout: time.Minute,
 	})
 
-	getParallelFuture := workflow.ExecuteLocalActivity(checkCtx, peerdbenv.PeerDBEnableParallelSyncNormalize)
+	getParallelFuture := workflow.ExecuteLocalActivity(checkCtx, peerdbenv.PeerDBEnableParallelSyncNormalize, env)
 	var parallel bool
 	if err := getParallelFuture.Get(checkCtx, &parallel); err != nil {
 		logger.Warn("Failed to get status of parallel sync-normalize", slog.Any("error", err))
@@ -33,12 +33,12 @@ func getParallelSyncNormalize(wCtx workflow.Context, logger log.Logger) bool {
 	return parallel
 }
 
-func getMaxSyncsPerCDCFlow(wCtx workflow.Context, logger log.Logger) uint32 {
+func getMaxSyncsPerCDCFlow(wCtx workflow.Context, logger log.Logger, env map[string]string) uint32 {
 	checkCtx := workflow.WithLocalActivityOptions(wCtx, workflow.LocalActivityOptions{
 		StartToCloseTimeout: time.Minute,
 	})
 
-	getFuture := workflow.ExecuteLocalActivity(checkCtx, peerdbenv.PeerDBMaxSyncsPerCDCFlow)
+	getFuture := workflow.ExecuteLocalActivity(checkCtx, peerdbenv.PeerDBMaxSyncsPerCDCFlow, env)
 	var maxSyncsPerCDCFlow uint32
 	if err := getFuture.Get(checkCtx, &maxSyncsPerCDCFlow); err != nil {
 		logger.Warn("Failed to get max syncs per CDC flow, returning default of 32", slog.Any("error", err))

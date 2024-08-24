@@ -227,4 +227,18 @@ export const cdcSettings: MirrorSetting[] = [
     tips: 'Disables columns like synced_at, soft_delete etc. from being added to the destination table',
     advanced: AdvancedSettingType.ALL,
   },
+  {
+    label: 'Settings override',
+    stateHandler: (value, setter) =>
+      setter(
+        (curr: CDCConfig): CDCConfig => ({
+          ...curr,
+          envString: value as string,
+        })
+      ),
+    type: 'textarea',
+    default: '',
+    tips: 'string:string JSON mapping to override global settings for mirror',
+    advanced: AdvancedSettingType.ALL,
+  },
 ];

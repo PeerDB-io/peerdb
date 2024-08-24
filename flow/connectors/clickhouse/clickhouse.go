@@ -117,6 +117,7 @@ func (c *ClickhouseConnector) ValidateCheck(ctx context.Context) error {
 
 func NewClickhouseConnector(
 	ctx context.Context,
+	env map[string]string,
 	config *protos.ClickhouseConfig,
 ) (*ClickhouseConnector, error) {
 	logger := logger.LoggerFromCtx(ctx)
@@ -151,7 +152,7 @@ func NewClickhouseConnector(
 		bucketPathSuffix := fmt.Sprintf("%s/%s",
 			url.PathEscape(deploymentUID), url.PathEscape(flowName))
 		// Fallback: Get S3 credentials from environment
-		awsBucketName, err := peerdbenv.PeerDBClickhouseAWSS3BucketName(ctx)
+		awsBucketName, err := peerdbenv.PeerDBClickhouseAWSS3BucketName(ctx, env)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get PeerDB Clickhouse Bucket Name: %w", err)
 		}

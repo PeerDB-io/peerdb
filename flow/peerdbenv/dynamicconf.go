@@ -79,7 +79,7 @@ END;`, ValueType: protos.DynconfValueType_STRING,
 	{
 		Name: "PEERDB_NULLABLE", DefaultValue: "false", ValueType: protos.DynconfValueType_BOOL,
 		Description:      "Propagate nullability in schema",
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
@@ -134,7 +134,11 @@ var DynamicIndex = func() map[string]int {
 	return defaults
 }()
 
-func dynLookup(ctx context.Context, key string) (string, error) {
+func dynLookup(ctx context.Context, env map[string]string, key string) (string, error) {
+	if val, ok := env[key]; ok {
+		return val, nil
+	}
+
 	conn, err := GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool", slog.Any("error", err))
@@ -158,8 +162,8 @@ func dynLookup(ctx context.Context, key string) (string, error) {
 	return value.String, nil
 }
 
-func dynLookupConvert[T any](ctx context.Context, key string, fn func(string) (T, error)) (T, error) {
-	value, err := dynLookup(ctx, key)
+func dynLookupConvert[T any](ctx context.Context, env map[string]string, key string, fn func(string) (T, error)) (T, error) {
+	value, err := dynLookup(ctx, env, key)
 	if err != nil {
 		var none T
 		return none, err
@@ -167,8 +171,8 @@ func dynLookupConvert[T any](ctx context.Context, key string, fn func(string) (T
 	return fn(value)
 }
 
-func dynamicConfSigned[T constraints.Signed](ctx context.Context, key string) (T, error) {
-	value, err := dynLookupConvert(ctx, key, func(value string) (int64, error) {
+func dynamicConfSigned[T constraints.Signed](ctx context.Context, env map[string]string, key string) (T, error) {
+	value, err := dynLookupConvert(ctx, env, key, func(value string) (int64, error) {
 		return strconv.ParseInt(value, 10, 64)
 	})
 	if err != nil {
@@ -179,8 +183,8 @@ func dynamicConfSigned[T constraints.Signed](ctx context.Context, key string) (T
 	return T(value), nil
 }
 
-func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, key string) (T, error) {
-	value, err := dynLookupConvert(ctx, key, func(value string) (uint64, error) {
+func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, env map[string]string, key string) (T, error) {
+	value, err := dynLookupConvert(ctx, env, key, func(value string) (uint64, error) {
 		return strconv.ParseUint(value, 10, 64)
 	})
 	if err != nil {
@@ -191,8 +195,8 @@ func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, key string
 	return T(value), nil
 }
 
-func dynamicConfBool(ctx context.Context, key string) (bool, error) {
-	value, err := dynLookupConvert(ctx, key, strconv.ParseBool)
+func dynamicConfBool(ctx context.Context, env map[string]string, key string) (bool, error) {
+	value, err := dynLookupConvert(ctx, env, key, strconv.ParseBool)
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Error("Failed to parse bool", slog.Any("error", err))
 		return false, fmt.Errorf("failed to parse bool: %w", err)
@@ -202,13 +206,13 @@ func dynamicConfBool(ctx context.Context, key string) (bool, error) {
 }
 
 // PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD, 0 disables slot lag alerting entirely
-func PeerDBSlotLagMBAlertThreshold(ctx context.Context) (uint32, error) {
-	return dynamicConfUnsigned[uint32](ctx, "PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD")
+func PeerDBSlotLagMBAlertThreshold(ctx context.Context, env map[string]string) (uint32, error) {
+	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD")
 }
 
 // PEERDB_ALERTING_GAP_MINUTES, 0 disables all alerting entirely
-func PeerDBAlertingGapMinutesAsDuration(ctx context.Context) (time.Duration, error) {
-	why, err := dynamicConfSigned[int64](ctx, "PEERDB_ALERTING_GAP_MINUTES")
+func PeerDBAlertingGapMinutesAsDuration(ctx context.Context, env map[string]string) (time.Duration, error) {
+	why, err := dynamicConfSigned[int64](ctx, env, "PEERDB_ALERTING_GAP_MINUTES")
 	if err != nil {
 		return 0, err
 	}
@@ -216,73 +220,73 @@ func PeerDBAlertingGapMinutesAsDuration(ctx context.Context) (time.Duration, err
 }
 
 // PEERDB_PGPEER_OPEN_CONNECTIONS_ALERT_THRESHOLD, 0 disables open connections alerting entirely
-func PeerDBOpenConnectionsAlertThreshold(ctx context.Context) (uint32, error) {
-	return dynamicConfUnsigned[uint32](ctx, "PEERDB_PGPEER_OPEN_CONNECTIONS_ALERT_THRESHOLD")
+func PeerDBOpenConnectionsAlertThreshold(ctx context.Context, env map[string]string) (uint32, error) {
+	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_PGPEER_OPEN_CONNECTIONS_ALERT_THRESHOLD")
 }
 
 // PEERDB_BIGQUERY_ENABLE_SYNCED_AT_PARTITIONING_BY_DAYS, for creating target tables with
 // partitioning by _PEERDB_SYNCED_AT column
 // If true, the target tables will be partitioned by _PEERDB_SYNCED_AT column
 // If false, the target tables will not be partitioned
-func PeerDBBigQueryEnableSyncedAtPartitioning(ctx context.Context) (bool, error) {
-	return dynamicConfBool(ctx, "PEERDB_BIGQUERY_ENABLE_SYNCED_AT_PARTITIONING_BY_DAYS")
+func PeerDBBigQueryEnableSyncedAtPartitioning(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_BIGQUERY_ENABLE_SYNCED_AT_PARTITIONING_BY_DAYS")
 }
 
-func PeerDBCDCChannelBufferSize(ctx context.Context) (int64, error) {
-	return dynamicConfSigned[int64](ctx, "PEERDB_CDC_CHANNEL_BUFFER_SIZE")
+func PeerDBCDCChannelBufferSize(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_CDC_CHANNEL_BUFFER_SIZE")
 }
 
-func PeerDBQueueFlushTimeoutSeconds(ctx context.Context) (time.Duration, error) {
-	x, err := dynamicConfSigned[int64](ctx, "PEERDB_QUEUE_FLUSH_TIMEOUT_SECONDS")
+func PeerDBQueueFlushTimeoutSeconds(ctx context.Context, env map[string]string) (time.Duration, error) {
+	x, err := dynamicConfSigned[int64](ctx, env, "PEERDB_QUEUE_FLUSH_TIMEOUT_SECONDS")
 	if err != nil {
 		return 0, err
 	}
 	return time.Duration(x) * time.Second, nil
 }
 
-func PeerDBQueueParallelism(ctx context.Context) (int64, error) {
-	return dynamicConfSigned[int64](ctx, "PEERDB_QUEUE_PARALLELISM")
+func PeerDBQueueParallelism(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_QUEUE_PARALLELISM")
 }
 
-func PeerDBCDCDiskSpillRecordsThreshold(ctx context.Context) (int64, error) {
-	return dynamicConfSigned[int64](ctx, "PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD")
+func PeerDBCDCDiskSpillRecordsThreshold(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD")
 }
 
-func PeerDBCDCDiskSpillMemPercentThreshold(ctx context.Context) (int64, error) {
-	return dynamicConfSigned[int64](ctx, "PEERDB_CDC_DISK_SPILL_MEM_PERCENT_THRESHOLD")
+func PeerDBCDCDiskSpillMemPercentThreshold(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_CDC_DISK_SPILL_MEM_PERCENT_THRESHOLD")
 }
 
-func PeerDBEnableWALHeartbeat(ctx context.Context) (bool, error) {
-	return dynamicConfBool(ctx, "PEERDB_ENABLE_WAL_HEARTBEAT")
+func PeerDBEnableWALHeartbeat(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_ENABLE_WAL_HEARTBEAT")
 }
 
-func PeerDBWALHeartbeatQuery(ctx context.Context) (string, error) {
-	return dynLookup(ctx, "PEERDB_WAL_HEARTBEAT_QUERY")
+func PeerDBWALHeartbeatQuery(ctx context.Context, env map[string]string) (string, error) {
+	return dynLookup(ctx, env, "PEERDB_WAL_HEARTBEAT_QUERY")
 }
 
-func PeerDBEnableParallelSyncNormalize(ctx context.Context) (bool, error) {
-	return dynamicConfBool(ctx, "PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE")
+func PeerDBEnableParallelSyncNormalize(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE")
 }
 
-func PeerDBNullable(ctx context.Context) (bool, error) {
-	return dynamicConfBool(ctx, "PEERDB_NULLABLE")
+func PeerDBNullable(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_NULLABLE")
 }
 
-func PeerDBSnowflakeMergeParallelism(ctx context.Context) (int64, error) {
-	return dynamicConfSigned[int64](ctx, "PEERDB_SNOWFLAKE_MERGE_PARALLELISM")
+func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_SNOWFLAKE_MERGE_PARALLELISM")
 }
 
-func PeerDBClickhouseAWSS3BucketName(ctx context.Context) (string, error) {
-	return dynLookup(ctx, "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
+func PeerDBClickhouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
+	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
 }
 
 // Kafka has topic auto create as an option, auto.create.topics.enable
 // But non-dedicated cluster maybe can't set config, may want peerdb to create topic. Similar for PubSub
-func PeerDBQueueForceTopicCreation(ctx context.Context) (bool, error) {
-	return dynamicConfBool(ctx, "PEERDB_QUEUE_FORCE_TOPIC_CREATION")
+func PeerDBQueueForceTopicCreation(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_QUEUE_FORCE_TOPIC_CREATION")
 }
 
 // experimental, don't increase to greater than 64
-func PeerDBMaxSyncsPerCDCFlow(ctx context.Context) (uint32, error) {
-	return dynamicConfUnsigned[uint32](ctx, "PEERDB_MAX_SYNCS_PER_CDC_FLOW")
+func PeerDBMaxSyncsPerCDCFlow(ctx context.Context, env map[string]string) (uint32, error) {
+	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_MAX_SYNCS_PER_CDC_FLOW")
 }

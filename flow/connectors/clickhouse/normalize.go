@@ -36,6 +36,7 @@ func (c *ClickhouseConnector) CleanupSetupNormalizedTables(_ context.Context, _ 
 func (c *ClickhouseConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx interface{},
+	env map[string]string,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
 	softDeleteColName string,

@@ -30,7 +30,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 		}, nil
 	}
 
-	conn, err := connectors.GetConnector(ctx, req.Peer)
+	conn, err := connectors.GetConnector(ctx, nil, req.Peer)
 	if err != nil {
 		displayErr := fmt.Sprintf("%s peer %s was invalidated: %v", req.Peer.Type, req.Peer.Name, err)
 		h.alerter.LogNonFlowWarning(ctx, telemetry.CreatePeer, req.Peer.Name, displayErr)

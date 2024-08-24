@@ -18,6 +18,7 @@ message TableMapping {
 }
 
 message SetupInput {
+  map<string, string> env = 1;
   string flow_name = 2;
   string peer_name = 3;
 }
@@ -58,6 +59,8 @@ message FlowConnectionConfigs {
   // source and destination peer
   string source_name = 22;
   string destination_name = 23;
+
+  map<string, string> env = 24;
 }
 
 message RenameTableOption {
@@ -162,6 +165,7 @@ message FieldDescription {
 }
 
 message GetTableSchemaBatchInput {
+  map<string, string> env = 1;
   repeated string table_identifiers = 2;
   string flow_name = 3;
   TypeSystem system = 4;
@@ -173,6 +177,7 @@ message GetTableSchemaBatchOutput {
 }
 
 message SetupNormalizedTableBatchInput {
+  map<string, string> env = 1;
   map<string, TableSchema> table_name_schema_mapping = 2;
 
   // migration related columns
@@ -287,6 +292,8 @@ message QRepConfig {
   string source_name = 20;
   string destination_name = 21;
   string snapshot_name = 23;
+
+  map<string, string> env = 24;
 }
 
 message QRepPartition {
