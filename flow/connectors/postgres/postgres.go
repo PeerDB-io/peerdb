@@ -52,6 +52,7 @@ type ReplState struct {
 	Publication string
 	Offset      int64
 	LastOffset  atomic.Int64
+	Version     int32
 }
 
 func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
@@ -151,21 +152,25 @@ func (c *PostgresConnector) ReplPing(ctx context.Context) error {
 func (c *PostgresConnector) MaybeStartReplication(
 	ctx context.Context,
 	slotName string,
+	version int32,
 	publicationName string,
 	lastOffset int64,
 ) error {
 	if c.replState != nil && (c.replState.Offset != lastOffset ||
 		c.replState.Slot != slotName ||
+		c.replState.Version != version ||
 		c.replState.Publication != publicationName) {
-		msg := fmt.Sprintf("replState changed, reset connector. slot name: old=%s new=%s, publication: old=%s new=%s, offset: old=%d new=%d",
-			c.replState.Slot, slotName, c.replState.Publication, publicationName, c.replState.Offset, lastOffset,
+		msg := fmt.Sprintf(
+			"replState changed, reset connector. "+
+				"slot name: old=%s new=%s, version: old=%d new=%d, publication: old=%s new=%s, offset: old=%d new=%d",
+			c.replState.Slot, slotName, c.replState.Version, version, c.replState.Publication, publicationName, c.replState.Offset, lastOffset,
 		)
 		c.logger.Info(msg)
 		return temporal.NewNonRetryableApplicationError(msg, "desync", nil)
 	}
 
 	if c.replState == nil {
-		replicationOpts, err := c.replicationOptions(ctx, publicationName)
+		replicationOpts, err := c.replicationOptions(ctx, version, publicationName)
 		if err != nil {
 			return fmt.Errorf("error getting replication options: %w", err)
 		}
@@ -187,6 +192,7 @@ func (c *PostgresConnector) MaybeStartReplication(
 		c.replState = &ReplState{
 			Slot:        slotName,
 			Publication: publicationName,
+			Version:     version,
 			Offset:      lastOffset,
 			LastOffset:  atomic.Int64{},
 		}
@@ -195,8 +201,20 @@ func (c *PostgresConnector) MaybeStartReplication(
 	return nil
 }
 
-func (c *PostgresConnector) replicationOptions(ctx context.Context, publicationName string) (pglogrepl.StartReplicationOptions, error) {
-	pluginArguments := append(make([]string, 0, 3), "proto_version '1'")
+func (c *PostgresConnector) replicationOptions(
+	ctx context.Context,
+	version int32,
+	publicationName string,
+) (pglogrepl.StartReplicationOptions, error) {
+	var pluginArguments []string
+	switch version {
+	case 1:
+		pluginArguments = append(make([]string, 0, 3), "proto_version '1'")
+	case 2:
+		pluginArguments = append(make([]string, 0, 4), "proto_version '2'", "streaming 'true'")
+	default:
+		return pglogrepl.StartReplicationOptions{}, errors.New("unsupported replication protocol version")
+	}
 
 	if publicationName != "" {
 		pubOpt := "publication_names " + QuoteLiteral(publicationName)
@@ -341,6 +359,7 @@ func pullCore[Items model.Items](
 		slotName = req.OverrideReplicationSlotName
 	}
 
+	version := int32(2)
 	publicationName := c.getDefaultPublicationName(req.FlowJobName)
 	if req.OverridePublicationName != "" {
 		publicationName = req.OverridePublicationName
@@ -369,7 +388,10 @@ func pullCore[Items model.Items](
 		return fmt.Errorf("error getting child to parent relid map: %w", err)
 	}
 
-	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset); err != nil {
+	c.replLock.Lock()
+	defer c.replLock.Unlock()
+
+	if err := c.MaybeStartReplication(ctx, slotName, version, publicationName, req.LastOffset); err != nil {
 		c.logger.Error("error starting replication", slog.Any("error", err))
 		return err
 	}
@@ -384,6 +406,7 @@ func pullCore[Items model.Items](
 		CatalogPool:            catalogPool,
 		FlowJobName:            req.FlowJobName,
 		RelationMessageMapping: c.relationMessageMapping,
+		Version:                version,
 	})
 
 	if err := PullCdcRecords(ctx, cdc, req, processor, &c.replLock); err != nil {
