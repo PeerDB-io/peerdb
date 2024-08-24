@@ -31,7 +31,10 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-var ErrSlotActive = errors.New("slot is active")
+const (
+	SQLStateDuplicateObject = "42710"
+	SQLStateObjectInUse     = "55006"
+)
 
 type PostgresConnector struct {
 	logger                 log.Logger
@@ -182,9 +185,6 @@ func (c *PostgresConnector) MaybeStartReplication(
 		defer c.replLock.Unlock()
 		if err := pglogrepl.StartReplication(ctx, c.replConn.PgConn(), slotName, startLSN, replicationOpts); err != nil {
 			c.logger.Error("error starting replication", slog.Any("error", err))
-			if strings.Contains(err.Error(), "is active for PID") {
-				return ErrSlotActive
-			}
 			return fmt.Errorf("error starting replication at startLsn - %d: %w", startLSN, err)
 		}
 
@@ -1275,7 +1275,7 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 				utils.QuoteIdentifier(c.getDefaultPublicationName(req.FlowJobName)),
 				schemaTable.String()))
 			// don't error out if table is already added to our publication
-			if err != nil && !strings.Contains(err.Error(), "SQLSTATE 42710") {
+			if err != nil && !shared.CheckSQLStateError(err, SQLStateDuplicateObject) {
 				return fmt.Errorf("failed to alter publication: %w", err)
 			}
 			c.logger.Info("added table to publication",

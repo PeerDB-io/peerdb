@@ -125,3 +125,8 @@ func UpdateCDCConfigInCatalog(ctx context.Context, pool *pgxpool.Pool,
 	logger.Info("synced state to catalog: updated config_proto in flows", slog.String("flowName", cfg.FlowJobName))
 	return nil
 }
+
+func CheckSQLStateError(err error, sqlState string) bool {
+	var pgerr *pgconn.PgError
+	return errors.As(err, &pgerr) && pgerr.SQLState() == sqlState
+}
