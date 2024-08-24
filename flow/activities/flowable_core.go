@@ -3,6 +3,7 @@ package activities
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -169,7 +170,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		// wait for the pull goroutine to finish
 		if err := errGroup.Wait(); err != nil {
 			// don't log flow error for "replState changed" and "slot is already active"
-			if !(temporal.IsApplicationError(err) || err == connpostgres.ErrSlotActive) {
+			if !(temporal.IsApplicationError(err) || errors.Is(err, connpostgres.ErrSlotActive)) {
 				a.Alerter.LogFlowError(ctx, flowName, err)
 			}
 			if temporal.IsApplicationError(err) {
@@ -247,7 +248,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 	if err := errGroup.Wait(); err != nil {
 		// don't log flow error for "replState changed" and "slot is already active"
-		if !(temporal.IsApplicationError(err) || err == connpostgres.ErrSlotActive) {
+		if !(temporal.IsApplicationError(err) || errors.Is(err, connpostgres.ErrSlotActive)) {
 			a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 		if temporal.IsApplicationError(err) {
