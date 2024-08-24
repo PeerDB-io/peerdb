@@ -74,7 +74,7 @@ func SyncFlowWorkflow(
 	})
 
 	var waitSelector workflow.Selector
-	parallel := getParallelSyncNormalize(ctx, logger)
+	parallel := getParallelSyncNormalize(ctx, logger, config.Env)
 	if !parallel {
 		waitSelector = workflow.NewNamedSelector(ctx, "NormalizeWait")
 		waitSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})

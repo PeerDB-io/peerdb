@@ -107,7 +107,7 @@ func NormalizeFlowWorkflow(
 	}
 
 	if ctx.Err() == nil && !state.Stop {
-		parallel := getParallelSyncNormalize(ctx, logger)
+		parallel := getParallelSyncNormalize(ctx, logger, config.Env)
 
 		if !parallel {
 			_ = model.NormalizeDoneSignal.SignalExternalWorkflow(
