@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -29,11 +30,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_guages"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
-)
-
-const (
-	SQLStateDuplicateObject = "42710"
-	SQLStateObjectInUse     = "55006"
 )
 
 type PostgresConnector struct {
@@ -1275,7 +1271,7 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 				utils.QuoteIdentifier(c.getDefaultPublicationName(req.FlowJobName)),
 				schemaTable.String()))
 			// don't error out if table is already added to our publication
-			if err != nil && !shared.CheckSQLStateError(err, SQLStateDuplicateObject) {
+			if err != nil && !shared.CheckSQLStateError(err, pgerrcode.DuplicateObject) {
 				return fmt.Errorf("failed to alter publication: %w", err)
 			}
 			c.logger.Info("added table to publication",
