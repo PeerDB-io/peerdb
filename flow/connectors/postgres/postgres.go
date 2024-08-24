@@ -31,6 +31,8 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
+var ErrSlotActive = errors.New("slot is active")
+
 type PostgresConnector struct {
 	logger                 log.Logger
 	config                 *protos.PostgresConfig
@@ -180,6 +182,9 @@ func (c *PostgresConnector) MaybeStartReplication(
 		defer c.replLock.Unlock()
 		if err := pglogrepl.StartReplication(ctx, c.replConn.PgConn(), slotName, startLSN, replicationOpts); err != nil {
 			c.logger.Error("error starting replication", slog.Any("error", err))
+			if strings.Contains(err.Error(), "is active for PID") {
+				return ErrSlotActive
+			}
 			return fmt.Errorf("error starting replication at startLsn - %d: %w", startLSN, err)
 		}
 
