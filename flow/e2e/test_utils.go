@@ -286,7 +286,6 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 		CREATE TABLE e2e_test_%s.%s (
 			%s
 		);`, suffix, tableName, tblFieldStr))
-
 	if err != nil {
 		return fmt.Errorf("error creating table for qrep tests: %w", err)
 	}
