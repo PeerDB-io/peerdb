@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
@@ -129,4 +130,21 @@ func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context) er
 	}
 
 	return conn.Close(ctx)
+}
+
+func (c *PostgresConnector) CheckPublicationCreationPermissions(ctx context.Context, srcTableNames []string) error {
+	// Check if we can create a publication
+	// First create a dummy publication
+	pubName := "_peerdb_unused_publication_" + shared.RandomString(5)
+	err := c.CreatePublication(ctx, srcTableNames, pubName)
+	if err != nil {
+		return err
+	}
+
+	// Drop the dummy publication
+	_, err = c.conn.Exec(ctx, fmt.Sprintf("DROP PUBLICATION %s;", pubName))
+	if err != nil {
+		return fmt.Errorf("failed to drop publication: %v", err)
+	}
+	return nil
 }
