@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -120,7 +121,7 @@ func UpdateCDCConfigInCatalog(ctx context.Context, pool *pgxpool.Pool,
 	return nil
 }
 
-func IsSQLStateError(err error, sqlState string) bool {
-	var pgerr *pgconn.PgError
-	return errors.As(err, &pgerr) && pgerr.Code == sqlState
+func IsSQLStateError(err error, sqlStates ...string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && slices.Contains(sqlStates, pgErr.Code)
 }
