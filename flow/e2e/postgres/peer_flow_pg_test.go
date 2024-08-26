@@ -159,7 +159,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 	dstTableName := s.attachSchemaSuffix("test_enum_flow_dst")
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
 	_, enumErr := s.Conn().Exec(context.Background(), createMoodEnum)
-	if !shared.IsSQLStateError(enumErr, pgerrcode.DuplicateObject, pgerrcode.UniqueViolation) {
+	if enumErr != nil &&
+		!shared.IsSQLStateError(enumErr, pgerrcode.DuplicateObject, pgerrcode.UniqueViolation) {
 		require.NoError(s.t, enumErr)
 	}
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`

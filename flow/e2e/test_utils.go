@@ -278,7 +278,8 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 	}
 	tblFieldStr := strings.Join(tblFields, ",")
 	_, enumErr := conn.Exec(context.Background(), createMoodEnum)
-	if !shared.IsSQLStateError(enumErr, pgerrcode.DuplicateObject, pgerrcode.UniqueViolation) {
+	if enumErr != nil &&
+		!shared.IsSQLStateError(enumErr, pgerrcode.DuplicateObject, pgerrcode.UniqueViolation) {
 		return enumErr
 	}
 	_, err := conn.Exec(context.Background(), fmt.Sprintf(`
