@@ -444,8 +444,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_types_sf")
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
 	_, enumErr := s.Conn().Exec(context.Background(), createMoodEnum)
-	if !shared.CheckSQLStateError(enumErr, pgerrcode.DuplicateObject) &&
-		!shared.CheckSQLStateError(enumErr, pgerrcode.UniqueViolation) {
+	if !shared.IsSQLStateError(enumErr, pgerrcode.DuplicateObject) &&
+		!shared.IsSQLStateError(enumErr, pgerrcode.UniqueViolation) {
 		require.NoError(s.t, enumErr)
 	}
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`

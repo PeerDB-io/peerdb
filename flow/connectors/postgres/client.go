@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -428,7 +429,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 
 func (c *PostgresConnector) createMetadataSchema(ctx context.Context) error {
 	_, err := c.execWithLogging(ctx, fmt.Sprintf(createSchemaSQL, c.metadataSchema))
-	if err != nil && !shared.IsUniqueError(err) {
+	if err != nil && !shared.IsSQLStateError(err, pgerrcode.UniqueViolation) {
 		return fmt.Errorf("error while creating internal schema: %w", err)
 	}
 	return nil

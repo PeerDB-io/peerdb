@@ -120,7 +120,7 @@ func UpdateCDCConfigInCatalog(ctx context.Context, pool *pgxpool.Pool,
 	return nil
 }
 
-func CheckSQLStateError(err error, sqlState string) bool {
+func IsSQLStateError(err error, sqlState string) bool {
 	var pgerr *pgconn.PgError
 	return errors.As(err, &pgerr) && pgerr.Code == sqlState
 }
