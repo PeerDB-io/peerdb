@@ -721,7 +721,7 @@ func (c *PostgresConnector) GetTableSchema(
 ) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(ctx, tableName, req.System)
+		tableSchema, err := c.getTableSchemaForTable(ctx, req.Env, tableName, req.System)
 		if err != nil {
 			c.logger.Info("error fetching schema for table "+tableName, slog.Any("error", err))
 			return nil, err
@@ -737,6 +737,7 @@ func (c *PostgresConnector) GetTableSchema(
 
 func (c *PostgresConnector) getTableSchemaForTable(
 	ctx context.Context,
+	env map[string]string,
 	tableName string,
 	system protos.TypeSystem,
 ) (*protos.TableSchema, error) {
@@ -760,7 +761,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, fmt.Errorf("[getTableSchema] error getting primary key column for table %s: %w", schemaTable, err)
 	}
 
-	nullableEnabled, err := peerdbenv.PeerDBNullable(ctx)
+	nullableEnabled, err := peerdbenv.PeerDBNullable(ctx, env)
 	if err != nil {
 		return nil, err
 	}
@@ -854,6 +855,7 @@ func (c *PostgresConnector) FinishSetupNormalizedTables(ctx context.Context, tx 
 func (c *PostgresConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx any,
+	env map[string]string,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
 	softDeleteColName string,
