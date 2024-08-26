@@ -14,7 +14,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/api/enums/v1"
@@ -278,9 +277,9 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 		"mymac MACADDR",
 	}
 	tblFieldStr := strings.Join(tblFields, ",")
-	var pgErr *pgconn.PgError
 	_, enumErr := conn.Exec(context.Background(), createMoodEnum)
-	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !shared.IsUniqueError(pgErr) {
+	if !shared.CheckSQLStateError(enumErr, pgerrcode.DuplicateObject) &&
+		!shared.CheckSQLStateError(enumErr, pgerrcode.UniqueViolation) {
 		return enumErr
 	}
 	_, err := conn.Exec(context.Background(), fmt.Sprintf(`

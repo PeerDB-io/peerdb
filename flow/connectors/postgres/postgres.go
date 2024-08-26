@@ -269,7 +269,7 @@ func (c *PostgresConnector) SetupMetadataTables(ctx context.Context) error {
 
 	_, err = c.conn.Exec(ctx, fmt.Sprintf(createMirrorJobsTableSQL,
 		c.metadataSchema, mirrorJobsTableIdentifier))
-	if err != nil && !shared.IsUniqueError(err) {
+	if err != nil && !shared.CheckSQLStateError(err, pgerrcode.UniqueViolation) {
 		return fmt.Errorf("error creating table %s: %w", mirrorJobsTableIdentifier, err)
 	}
 

@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -27,11 +26,6 @@ const (
 	POSTGRES_14 PGVersion = 140000
 	POSTGRES_15 PGVersion = 150000
 )
-
-func IsUniqueError(err error) bool {
-	var pgerr *pgconn.PgError
-	return errors.As(err, &pgerr) && pgerr.Code == pgerrcode.UniqueViolation
-}
 
 func GetPGConnectionString(pgConfig *protos.PostgresConfig) string {
 	passwordEscaped := url.QueryEscape(pgConfig.Password)
@@ -128,5 +122,5 @@ func UpdateCDCConfigInCatalog(ctx context.Context, pool *pgxpool.Pool,
 
 func CheckSQLStateError(err error, sqlState string) bool {
 	var pgerr *pgconn.PgError
-	return errors.As(err, &pgerr) && pgerr.SQLState() == sqlState
+	return errors.As(err, &pgerr) && pgerr.Code == sqlState
 }
