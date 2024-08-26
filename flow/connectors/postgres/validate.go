@@ -133,7 +133,7 @@ func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context) er
 }
 
 func (c *PostgresConnector) CheckPublicationCreationPermissions(ctx context.Context, srcTableNames []string) error {
-	pubName := "_peerdb_unused_publication_" + shared.RandomString(5)
+	pubName := "_peerdb_tmp_test_publication_" + shared.RandomString(5)
 	err := c.CreatePublication(ctx, srcTableNames, pubName)
 	if err != nil {
 		return err
