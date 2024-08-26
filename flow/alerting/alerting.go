@@ -131,7 +131,7 @@ func (a *Alerter) AlertIfSlotLag(ctx context.Context, peerName string, slotInfo 
 		deploymentUIDPrefix = fmt.Sprintf("[%s] ", peerdbenv.PeerDBDeploymentUID())
 	}
 
-	defaultSlotLagMBAlertThreshold, err := peerdbenv.PeerDBSlotLagMBAlertThreshold(ctx)
+	defaultSlotLagMBAlertThreshold, err := peerdbenv.PeerDBSlotLagMBAlertThreshold(ctx, nil)
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Warn("failed to get slot lag alert threshold from catalog", slog.Any("error", err))
 		return
@@ -183,7 +183,7 @@ func (a *Alerter) AlertIfOpenConnections(ctx context.Context, peerName string,
 	}
 
 	// same as with slot lag, use lowest threshold for catalog
-	defaultOpenConnectionsThreshold, err := peerdbenv.PeerDBOpenConnectionsAlertThreshold(ctx)
+	defaultOpenConnectionsThreshold, err := peerdbenv.PeerDBOpenConnectionsAlertThreshold(ctx, nil)
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Warn("failed to get open connections alert threshold from catalog", slog.Any("error", err))
 		return
@@ -232,7 +232,7 @@ func (a *Alerter) alertToProvider(ctx context.Context, alertSenderConfig AlertSe
 // in the past X minutes, where X is configurable and defaults to 15 minutes
 // returns true if alert added to catalog, so proceed with processing alerts to slack
 func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId int64, alertKey string, alertMessage string) bool {
-	dur, err := peerdbenv.PeerDBAlertingGapMinutesAsDuration(ctx)
+	dur, err := peerdbenv.PeerDBAlertingGapMinutesAsDuration(ctx, nil)
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Warn("failed to get alerting gap duration from catalog", slog.Any("error", err))
 		return false

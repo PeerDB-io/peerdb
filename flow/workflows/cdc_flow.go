@@ -482,7 +482,7 @@ func CDCFlowWorkflow(
 		maps.Copy(state.SyncFlowOptions.TableNameSchemaMapping, payload.TableNameSchemaMapping)
 	})
 
-	parallel := getParallelSyncNormalize(ctx, logger)
+	parallel := getParallelSyncNormalize(ctx, logger, cfg.Env)
 	if !parallel {
 		normDoneChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
 		normDoneChan.Drain()
@@ -502,7 +502,7 @@ func CDCFlowWorkflow(
 	addCdcPropertiesSignalListener(ctx, logger, mainLoopSelector, state)
 
 	state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
-	maxSyncPerCDCFlow := int(getMaxSyncsPerCDCFlow(ctx, logger))
+	maxSyncPerCDCFlow := int(getMaxSyncsPerCDCFlow(ctx, logger, cfg.Env))
 	for {
 		mainLoopSelector.Select(ctx)
 		for ctx.Err() == nil && mainLoopSelector.HasPending() {

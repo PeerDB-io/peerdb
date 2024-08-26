@@ -600,6 +600,7 @@ func (c *BigQueryConnector) CleanupSetupNormalizedTables(_ context.Context, _ in
 func (c *BigQueryConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx interface{},
+	env map[string]string,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
 	softDeleteColName string,
@@ -628,8 +629,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 				datasetTable.dataset, err)
 		}
 		c.logger.Info(fmt.Sprintf("creating dataset %s...", dataset.DatasetID))
-		err = dataset.Create(ctx, nil)
-		if err != nil {
+		if err := dataset.Create(ctx, nil); err != nil {
 			return false, fmt.Errorf("failed to create BigQuery dataset %s: %w", dataset.DatasetID, err)
 		}
 	}
@@ -682,7 +682,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 		}
 	}
 
-	timePartitionEnabled, err := peerdbenv.PeerDBBigQueryEnableSyncedAtPartitioning(ctx)
+	timePartitionEnabled, err := peerdbenv.PeerDBBigQueryEnableSyncedAtPartitioning(ctx, env)
 	if err != nil {
 		return false, fmt.Errorf("failed to get dynamic setting for BigQuery time partitioning: %w", err)
 	}

@@ -8,19 +8,18 @@ import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
-import { useEffect, useState } from 'react';
+import { Dispatch, SetStateAction, useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
 import { InfoPopover } from '../../../../components/InfoPopover';
-import { MirrorSetter } from '../../../dto/MirrorsDTO';
 import { fetchAllTables, fetchColumns } from '../handlers';
-import { MirrorSetting, blankQRepSetting } from '../helpers/common';
+import { MirrorSetting } from '../helpers/common';
 import UpsertColsDisplay from './upsertcols';
 
 interface QRepConfigProps {
   settings: MirrorSetting[];
   mirrorConfig: QRepConfig;
   destinationType: DBType;
-  setter: MirrorSetter;
+  setter: Dispatch<SetStateAction<QRepConfig>>;
   xmin?: boolean;
 }
 
@@ -137,10 +136,6 @@ export default function QRepConfigForm({
     );
   }, [mirrorConfig.sourceName]);
 
-  useEffect(() => {
-    // set defaults
-    setter((curr) => ({ ...curr, ...blankQRepSetting }));
-  }, [setter]);
   return (
     <>
       {mirrorConfig.sourceName ? (

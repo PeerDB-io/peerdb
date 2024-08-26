@@ -184,7 +184,7 @@ func (c *EventHubConnector) processBatch(
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns, false)
 
-	flushTimeout, err := peerdbenv.PeerDBQueueFlushTimeoutSeconds(ctx)
+	flushTimeout, err := peerdbenv.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get flush timeout: %w", err)
 	}

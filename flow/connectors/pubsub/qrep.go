@@ -32,7 +32,7 @@ func (c *PubSubConnector) SyncQRepRecords(
 	waitChan := make(chan struct{})
 
 	queueCtx, queueErr := context.WithCancelCause(ctx)
-	pool, err := c.createPool(queueCtx, config.Script, config.FlowJobName, &topiccache, publish, queueErr)
+	pool, err := c.createPool(queueCtx, config.Env, config.Script, config.FlowJobName, &topiccache, publish, queueErr)
 	if err != nil {
 		return 0, err
 	}
