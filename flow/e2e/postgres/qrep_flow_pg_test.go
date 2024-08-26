@@ -26,10 +26,7 @@ func TestPeerFlowE2ETestSuitePG(t *testing.T) {
 
 func (s PeerFlowE2ETestSuitePG) setupSourceTable(tableName string, rowCount int) {
 	require.NoError(s.t, e2e.CreateTableForQRep(s.Conn(), s.suffix, tableName))
-
-	if rowCount > 0 {
-		require.NoError(s.t, e2e.PopulateSourceTable(s.Conn(), s.suffix, tableName, rowCount))
-	}
+	s.populateSourceTable(tableName, rowCount)
 }
 
 func (s PeerFlowE2ETestSuitePG) populateSourceTable(tableName string, rowCount int) {
