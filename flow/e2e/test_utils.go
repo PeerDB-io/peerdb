@@ -286,7 +286,11 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 			%s
 		);`, suffix, tableName, tblFieldStr))
 
-	return err
+	if err != nil {
+		return fmt.Errorf("error creating table for qrep tests: %w", err)
+	}
+
+	return nil
 }
 
 func generate20MBJson() ([]byte, error) {
@@ -355,7 +359,7 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 			) VALUES %s;
 	`, suffix, tableName, strings.Join(rows, ",")))
 	if err != nil {
-		return err
+		return fmt.Errorf("error populating source table with initial data: %w", err)
 	}
 
 	// add a row where all the nullable fields are null
