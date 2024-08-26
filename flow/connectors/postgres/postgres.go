@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -268,7 +269,7 @@ func (c *PostgresConnector) SetupMetadataTables(ctx context.Context) error {
 
 	_, err = c.conn.Exec(ctx, fmt.Sprintf(createMirrorJobsTableSQL,
 		c.metadataSchema, mirrorJobsTableIdentifier))
-	if err != nil && !shared.IsUniqueError(err) {
+	if err != nil && !shared.IsSQLStateError(err, pgerrcode.UniqueViolation) {
 		return fmt.Errorf("error creating table %s: %w", mirrorJobsTableIdentifier, err)
 	}
 
@@ -1270,7 +1271,7 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 				utils.QuoteIdentifier(c.getDefaultPublicationName(req.FlowJobName)),
 				schemaTable.String()))
 			// don't error out if table is already added to our publication
-			if err != nil && !strings.Contains(err.Error(), "SQLSTATE 42710") {
+			if err != nil && !shared.IsSQLStateError(err, pgerrcode.DuplicateObject) {
 				return fmt.Errorf("failed to alter publication: %w", err)
 			}
 			c.logger.Info("added table to publication",

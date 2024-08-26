@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/activity"
@@ -168,7 +169,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	if !hasRecords {
 		// wait for the pull goroutine to finish
 		if err := errGroup.Wait(); err != nil {
-			a.Alerter.LogFlowError(ctx, flowName, err)
+			// don't log flow error for "replState changed" and "slot is already active"
+			if !(temporal.IsApplicationError(err) ||
+				shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+				a.Alerter.LogFlowError(ctx, flowName, err)
+			}
 			if temporal.IsApplicationError(err) {
 				return nil, err
 			} else {
@@ -243,7 +248,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	})
 
 	if err := errGroup.Wait(); err != nil {
-		a.Alerter.LogFlowError(ctx, flowName, err)
+		// don't log flow error for "replState changed" and "slot is already active"
+		if !(temporal.IsApplicationError(err) ||
+			shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+			a.Alerter.LogFlowError(ctx, flowName, err)
+		}
 		if temporal.IsApplicationError(err) {
 			return nil, err
 		} else {
