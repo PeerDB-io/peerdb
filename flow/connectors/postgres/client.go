@@ -326,6 +326,30 @@ func (c *PostgresConnector) GetSlotInfo(ctx context.Context, slotName string) ([
 	return getSlotInfo(ctx, c.conn, slotName, c.config.Database)
 }
 
+func (c *PostgresConnector) CreatePublication(
+	ctx context.Context,
+	srcTableNames []string,
+	publication string,
+) error {
+	tableNameString := strings.Join(srcTableNames, ", ")
+	// check and enable publish_via_partition_root
+	pgversion, err := c.MajorVersion(ctx)
+	if err != nil {
+		return fmt.Errorf("[publication-creation]:error checking Postgres version: %w", err)
+	}
+	var pubViaRootString string
+	if pgversion >= shared.POSTGRES_13 {
+		pubViaRootString = " WITH(publish_via_partition_root=true)"
+	}
+	// Create the publication to help filter changes only for the given tables
+	stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s%s", publication, tableNameString, pubViaRootString)
+	if _, err = c.execWithLogging(ctx, stmt); err != nil {
+		c.logger.Warn(fmt.Sprintf("Error creating publication '%s': %v", publication, err))
+		return fmt.Errorf("error creating publication '%s' : %w", publication, err)
+	}
+	return nil
+}
+
 // createSlotAndPublication creates the replication slot and publication.
 func (c *PostgresConnector) createSlotAndPublication(
 	ctx context.Context,
@@ -343,26 +367,13 @@ func (c *PostgresConnector) createSlotAndPublication(
 		for srcTableName := range tableNameMapping {
 			parsedSrcTableName, err := utils.ParseSchemaTable(srcTableName)
 			if err != nil {
-				return fmt.Errorf("source table identifier %s is invalid", srcTableName)
+				return fmt.Errorf("[publication-creation]:source table identifier %s is invalid", srcTableName)
 			}
 			srcTableNames = append(srcTableNames, parsedSrcTableName.String())
 		}
-		tableNameString := strings.Join(srcTableNames, ", ")
-
-		// check and enable publish_via_partition_root
-		pgversion, err := c.MajorVersion(ctx)
+		err := c.CreatePublication(ctx, srcTableNames, publication)
 		if err != nil {
-			return fmt.Errorf("error checking Postgres version: %w", err)
-		}
-		var pubViaRootString string
-		if pgversion >= shared.POSTGRES_13 {
-			pubViaRootString = " WITH(publish_via_partition_root=true)"
-		}
-		// Create the publication to help filter changes only for the given tables
-		stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s%s", publication, tableNameString, pubViaRootString)
-		if _, err = c.execWithLogging(ctx, stmt); err != nil {
-			c.logger.Warn(fmt.Sprintf("Error creating publication '%s': %v", publication, err))
-			return fmt.Errorf("error creating publication '%s' : %w", publication, err)
+			return err
 		}
 	}
 
