@@ -1,0 +1,26 @@
+name: flow-api-client
+on:
+  push:
+    branches:
+      - main
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: generate or hydrate protos
+      uses: ./.github/actions/genprotos
+
+    - name: Commit Build Artifacts
+      run: |
+        git config --global user.name "Continuous Integration"
+        git config --global user.email "username@users.noreply.github.com"
+        git fetch origin flow-api-client:flow-api-client
+        git checkout flow-api-client
+        cp flow/generated/protos/* .
+        git add *.*
+        git commit -m "$GITHUB_SHA" && git push --set-upstream origin flow-api-client
+        git checkout "$GITHUB_SHA"
