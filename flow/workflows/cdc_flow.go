@@ -572,11 +572,6 @@ func CDCFlowWorkflow(
 		state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, logger)
 	})
 
-	syncResultChan := model.SyncResultSignal.GetSignalChannel(ctx)
-	syncResultChan.AddToSelector(mainLoopSelector, func(result *model.SyncResponse, _ bool) {
-		syncCount += 1
-	})
-
 	normChan := model.NormalizeSignal.GetSignalChannel(ctx)
 	normChan.AddToSelector(mainLoopSelector, func(payload model.NormalizePayload, _ bool) {
 		if normFlowFuture != nil {
@@ -589,6 +584,7 @@ func CDCFlowWorkflow(
 		normDoneChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
 		normDoneChan.Drain()
 		normDoneChan.AddToSelector(mainLoopSelector, func(x struct{}, _ bool) {
+			syncCount += 1
 			if syncCount == syncCountLimit {
 				logger.Info("sync count limit reached, pausing",
 					slog.Int("limit", syncCountLimit),
@@ -604,7 +600,6 @@ func CDCFlowWorkflow(
 	addCdcPropertiesSignalListener(ctx, logger, mainLoopSelector, state)
 
 	state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
-	maxSyncPerCDCFlow := int(getMaxSyncsPerCDCFlow(ctx, logger, cfg.Env))
 	for {
 		mainLoopSelector.Select(ctx)
 		for ctx.Err() == nil && mainLoopSelector.HasPending() {
@@ -615,7 +610,7 @@ func CDCFlowWorkflow(
 			return state, err
 		}
 
-		if state.ActiveSignal == model.PauseSignal || syncCount >= maxSyncPerCDCFlow {
+		if state.ActiveSignal == model.PauseSignal || workflow.GetInfo(ctx).GetContinueAsNewSuggested() {
 			restart = true
 			if syncFlowFuture != nil {
 				err := model.SyncStopSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{}).Get(ctx, nil)

@@ -13,13 +13,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-// For now cdc restarts sync flow whenever it itself restarts,
-// set this value high enough to never be met, relying on cdc restarts.
-// In the future cdc flow restarts could be decoupled from sync flow restarts.
-const (
-	maxSyncsPerSyncFlow = 64
-)
-
 func SyncFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
@@ -94,7 +87,6 @@ func SyncFlowWorkflow(
 		var syncDone bool
 		mustWait := waitSelector != nil
 
-		// execute the sync flow
 		currentSyncFlowNum += 1
 		logger.Info("executing sync flow", slog.Int("count", currentSyncFlowNum))
 
@@ -110,20 +102,8 @@ func SyncFlowWorkflow(
 			var childSyncFlowRes *model.SyncCompositeResponse
 			if err := f.Get(ctx, &childSyncFlowRes); err != nil {
 				logger.Error("failed to execute sync flow", slog.Any("error", err))
-				_ = model.SyncResultSignal.SignalExternalWorkflow(
-					ctx,
-					parent.ID,
-					"",
-					nil,
-				).Get(ctx, nil)
 				syncErr = true
 			} else if childSyncFlowRes != nil {
-				_ = model.SyncResultSignal.SignalExternalWorkflow(
-					ctx,
-					parent.ID,
-					"",
-					childSyncFlowRes.SyncResponse,
-				).Get(ctx, nil)
 				totalRecordsSynced += childSyncFlowRes.SyncResponse.NumRecordsSynced
 				logger.Info("Total records synced", slog.Int64("totalRecordsSynced", totalRecordsSynced))
 
@@ -149,12 +129,6 @@ func SyncFlowWorkflow(
 
 					if err := getModifiedSchemaFuture.Get(ctx, nil); err != nil {
 						logger.Error("failed to execute schema update at source", slog.Any("error", err))
-						_ = model.SyncResultSignal.SignalExternalWorkflow(
-							ctx,
-							parent.ID,
-							"",
-							nil,
-						).Get(ctx, nil)
 					}
 				}
 
@@ -187,7 +161,7 @@ func SyncFlowWorkflow(
 			break
 		}
 
-		restart := currentSyncFlowNum >= maxSyncsPerSyncFlow || syncErr
+		restart := syncErr || workflow.GetInfo(ctx).GetContinueAsNewSuggested()
 		if !stop && !syncErr && mustWait {
 			waitSelector.Select(ctx)
 			if restart {

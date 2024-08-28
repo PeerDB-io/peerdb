@@ -139,10 +139,6 @@ var SyncStopSignal = TypedSignal[struct{}]{
 	Name: "sync-stop",
 }
 
-var SyncResultSignal = TypedSignal[*SyncResponse]{
-	Name: "sync-result",
-}
-
 var NormalizeSignal = TypedSignal[NormalizePayload]{
 	Name: "normalize",
 }
