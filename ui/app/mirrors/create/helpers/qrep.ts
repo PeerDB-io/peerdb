@@ -20,6 +20,16 @@ export const qrepSettings: MirrorSetting[] = [
     required: true,
   },
   {
+    label: 'Watermark Query',
+    stateHandler: (value, setter) =>
+      setter((curr: QRepConfig) => ({
+        ...curr,
+        watermarkQuery: value as string,
+      })),
+    tips: 'Detection of new rows and logical partitioning will be based on this watermark query',
+    required: true,
+  }
+  {
     label: 'Watermark Column',
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({
