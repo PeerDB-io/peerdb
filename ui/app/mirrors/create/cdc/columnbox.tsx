@@ -17,11 +17,8 @@ export default function ColumnBox({
   rows,
   setRows,
 }: ColumnProps) {
-  const handleColumnExclusion = (
-    source: string,
-    column: string,
-    include: boolean
-  ) => {
+  const handleColumnExclusion = (column: string, include: boolean) => {
+    const source = tableRow.source;
     const currRows = [...rows];
     const rowIndex = currRows.findIndex((row) => row.source === source);
     if (rowIndex !== -1) {
@@ -39,14 +36,38 @@ export default function ColumnBox({
       setRows(currRows);
     }
   };
+  const handleColumnOrdering = (column: string, ordering: number) => {
+    const source = tableRow.source;
+    const currRows = [...rows];
+    const rowIndex = currRows.findIndex((row) => row.source === source);
+    if (rowIndex !== -1) {
+      const sourceRow = currRows[rowIndex];
+      const columns = [...sourceRow.columns];
+      const colIndex = columns.findIndex((col) => col.sourceName === column);
+      if (colIndex !== -1) {
+        columns[colIndex] = { ...columns[colIndex], ordering };
+      } else {
+        columns.push({
+          sourceName: column,
+          destinationName: '',
+          destinationType: '',
+          ordering,
+        });
+      }
+      currRows[rowIndex] = {
+        ...sourceRow,
+        columns,
+      };
+      setRows(currRows);
+    }
+  };
 
-  const columnExclusion = new Set(tableRow.exclude);
   return columns.map((column) => {
     const [columnName, columnType, isPkeyStr] = column.split(':');
     const isPkey = isPkeyStr === 'true';
     return (
       <RowWithCheckbox
-        key={column}
+        key={columnName}
         label={
           <Label
             as='label'
@@ -65,15 +86,25 @@ export default function ColumnBox({
             >
               {columnType}
             </p>
+            <input
+              type='number'
+              value={
+                tableRow.columns.find((col) => col.sourceName === columnName)
+                  ?.ordering ?? 0
+              }
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                handleColumnOrdering(columnName, +e.target.value)
+              }
+            />
           </Label>
         }
         action={
           <Checkbox
             style={{ cursor: 'pointer' }}
             disabled={isPkey}
-            checked={!columnExclusion.has(columnName)}
+            checked={!tableRow.exclude.has(columnName)}
             onCheckedChange={(state: boolean) =>
-              handleColumnExclusion(tableRow.source, columnName, state)
+              handleColumnExclusion(columnName, state)
             }
           />
         }

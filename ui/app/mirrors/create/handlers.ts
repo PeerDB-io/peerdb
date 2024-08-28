@@ -164,8 +164,8 @@ export function reformattedTableMapping(
       destinationTableIdentifier: row.destination,
       partitionKey: row.partitionKey,
       exclude: Array.from(row.exclude),
-      columns: [],
-      engine: TableEngine.CH_ENGINE_REPLACING_MERGE_TREE,
+      columns: row.columns,
+      engine: row.engine,
     }));
 }
 
@@ -395,6 +395,8 @@ export async function fetchTables(
         selected: false,
         canMirror: tableObject.canMirror,
         tableSize: tableObject.tableSize,
+        columns: [],
+        engine: TableEngine.CH_ENGINE_REPLACING_MERGE_TREE,
       });
     }
   }

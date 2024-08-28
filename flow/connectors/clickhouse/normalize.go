@@ -57,8 +57,7 @@ func (c *ClickhouseConnector) SetupNormalizedTable(
 		return false, fmt.Errorf("error while generating create table sql for normalized table: %w", err)
 	}
 
-	err = c.execWithLogging(ctx, normalizedTableCreateSQL)
-	if err != nil {
+	if err := c.execWithLogging(ctx, normalizedTableCreateSQL); err != nil {
 		return false, fmt.Errorf("[ch] error while creating normalized table: %w", err)
 	}
 	return false, nil
@@ -171,14 +170,14 @@ func generateCreateTableSQLForNormalizedTable(
 				pkeys[idx] = getColName(colNameMap, pk)
 			}
 		}
-		pkeyStr := strings.Join(pkeys, ",")
+		pkeyStr = strings.Join(pkeys, ",")
 
 		stmtBuilder.WriteString("PRIMARY KEY (")
 		stmtBuilder.WriteString(pkeyStr)
 		stmtBuilder.WriteString(") ")
 	}
 
-	orderby := make([]*protos.ColumnSetting, len(tableMapping.Columns))
+	orderby := make([]*protos.ColumnSetting, 0, len(tableMapping.Columns))
 	for _, col := range tableMapping.Columns {
 		if col.Ordering > 0 && !slices.Contains(pkeys, getColName(colNameMap, col.SourceName)) {
 			orderby = append(orderby, col)
@@ -197,7 +196,9 @@ func generateCreateTableSQLForNormalizedTable(
 				orderbyColumns[idx] = getColName(colNameMap, col.SourceName)
 			}
 
-			stmtBuilder.WriteRune(',')
+			if pkeyStr != "" {
+				stmtBuilder.WriteRune(',')
+			}
 			stmtBuilder.WriteString(strings.Join(orderbyColumns, ","))
 		}
 		stmtBuilder.WriteRune(')')

@@ -1,4 +1,8 @@
-import { FlowConnectionConfigs } from '@/grpc_generated/flow';
+import {
+  ColumnSetting,
+  FlowConnectionConfigs,
+  TableEngine,
+} from '@/grpc_generated/flow';
 
 export enum MirrorType {
   CDC = 'CDC',
@@ -20,4 +24,6 @@ export type TableMapRow = {
   selected: boolean;
   canMirror: boolean;
   tableSize: string;
+  engine: TableEngine;
+  columns: ColumnSetting[];
 };

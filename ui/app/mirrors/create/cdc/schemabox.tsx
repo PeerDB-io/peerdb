@@ -1,6 +1,7 @@
 'use client';
 
 import { TableMapRow } from '@/app/dto/MirrorsDTO';
+import { TableEngine, tableEngineFromJSON } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
@@ -42,7 +43,7 @@ interface SchemaBoxProps {
   initialLoadOnly?: boolean;
 }
 
-const SchemaBox = ({
+export default function SchemaBox({
   sourcePeer,
   peerType,
   schema,
@@ -52,7 +53,7 @@ const SchemaBox = ({
   setTableColumns,
   omitAdditionalTables,
   initialLoadOnly,
-}: SchemaBoxProps) => {
+}: SchemaBoxProps) {
   const [tablesLoading, setTablesLoading] = useState(false);
   const [columnsLoading, setColumnsLoading] = useState(false);
   const [expandedSchemas, setExpandedSchemas] = useState<string[]>([]);
@@ -73,7 +74,7 @@ const SchemaBox = ({
 
   const schemaIsExpanded = useCallback(
     (schema: string) => {
-      return !!expandedSchemas.find((schemaName) => schemaName === schema);
+      return expandedSchemas.some((schemaName) => schemaName === schema);
     },
     [expandedSchemas]
   );
@@ -98,10 +99,17 @@ const SchemaBox = ({
     on ? handleAddRow(source) : handleRemoveRow(source);
   };
 
-  const updateDestination = (source: string, dest: string) => {
+  const updateDestination = (source: string, destination: string) => {
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
-    newRows[index] = { ...newRows[index], destination: dest };
+    newRows[index] = { ...newRows[index], destination };
+    setRows(newRows);
+  };
+
+  const updateEngine = (source: string, engine: TableEngine) => {
+    const newRows = [...rows];
+    const index = newRows.findIndex((row) => row.source === source);
+    newRows[index] = { ...newRows[index], engine };
     setRows(newRows);
   };
 
@@ -182,8 +190,7 @@ const SchemaBox = ({
           const filteredRows = oldRows.filter(
             (oldRow) => oldRow.schema !== schemaName
           );
-          const updatedRows = [...filteredRows, ...newRows];
-          return updatedRows;
+          return [...filteredRows, ...newRows];
         });
         setTablesLoading(false);
       });
@@ -313,13 +320,39 @@ const SchemaBox = ({
                             cursor: 'pointer',
                           }}
                           variant='simple'
-                          placeholder={'Enter target table'}
+                          placeholder='Enter target table'
                           value={row.destination}
                           onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                             updateDestination(row.source, e.target.value)
                           }
                         />
                       </div>
+                      {peerType === DBType.CLICKHOUSE && (
+                        <>
+                          <p style={{ fontSize: 12 }}>Engine:</p>
+                          <select
+                            value={
+                              row.engine ||
+                              TableEngine.CH_ENGINE_REPLACING_MERGE_TREE
+                            }
+                            onChange={(
+                              e: React.ChangeEvent<HTMLSelectElement>
+                            ) =>
+                              updateEngine(
+                                row.source,
+                                tableEngineFromJSON(e.target.value)
+                              )
+                            }
+                          >
+                            <option value='CH_ENGINE_REPLACING_MERGE_TREE'>
+                              ReplacingMergeTree
+                            </option>
+                            <option value='CH_ENGINE_MERGE_TREE'>
+                              MergeTree
+                            </option>
+                          </select>
+                        </>
+                      )}
                     </div>
 
                     {/* COLUMN BOX */}
@@ -371,6 +404,4 @@ const SchemaBox = ({
       </div>
     </div>
   );
-};
-
-export default SchemaBox;
+}
