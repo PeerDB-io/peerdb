@@ -136,14 +136,14 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
 			FROM (
 					SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s
-					FROM %[3]s WHERE %[2]s > $1
+					FROM (%[3]s) WHERE %[2]s > $1
 			) subquery
 			GROUP BY bucket
 			ORDER BY start
 			`,
 			numPartitions,
 			quotedWatermarkColumn,
-			parsedWatermarkTable.String(),
+			config.WatermarkQuery,
 		)
 		c.logger.Info("[row_based_next] partitions query: " + partitionsQuery)
 		rows, err = tx.Query(ctx, partitionsQuery, minVal)
@@ -151,14 +151,14 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		partitionsQuery := fmt.Sprintf(
 			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
 			FROM (
-					SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s
+					SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM (%[3]s)
 			) subquery
 			GROUP BY bucket
 			ORDER BY start
 			`,
 			numPartitions,
 			quotedWatermarkColumn,
-			parsedWatermarkTable.String(),
+			config.WatermarkQuery,
 		)
 		c.logger.Info("[row_based] partitions query: " + partitionsQuery)
 		rows, err = tx.Query(ctx, partitionsQuery)
@@ -200,15 +200,9 @@ func (c *PostgresConnector) getMinMaxValues(
 ) (interface{}, interface{}, error) {
 	var minValue, maxValue interface{}
 	quotedWatermarkColumn := QuoteIdentifier(config.WatermarkColumn)
-
-	parsedWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to parse watermark table: %w", err)
-	}
-
 	// If there's a last partition, start from its end
 	if last != nil && last.Range != nil {
-		maxQuery := fmt.Sprintf("SELECT MAX(%[1]s) FROM %[2]s", quotedWatermarkColumn, parsedWatermarkTable.String())
+		maxQuery := fmt.Sprintf("SELECT MAX(%[1]s) FROM (%[2]s)", quotedWatermarkColumn, config.WatermarkQuery)
 		if err := tx.QueryRow(ctx, maxQuery).Scan(&maxValue); err != nil {
 			return nil, nil, fmt.Errorf("failed to query for max value: %w", err)
 		} else if maxValue != nil {
@@ -232,7 +226,7 @@ func (c *PostgresConnector) getMinMaxValues(
 			}
 		}
 	} else {
-		minMaxQuery := fmt.Sprintf("SELECT MIN(%[1]s), MAX(%[1]s) FROM %[2]s", quotedWatermarkColumn, parsedWatermarkTable.String())
+		minMaxQuery := fmt.Sprintf("SELECT MIN(%[1]s), MAX(%[1]s) FROM (%[2]s)", quotedWatermarkColumn, config.WatermarkQuery)
 		if err := tx.QueryRow(ctx, minMaxQuery).Scan(&minValue, &maxValue); err != nil {
 			c.logger.Error("failed to query for min value", slog.String("query", minMaxQuery), slog.Any("error", err))
 			return nil, nil, fmt.Errorf("failed to query for min value: %w", err)

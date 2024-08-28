@@ -28,7 +28,7 @@ export const qrepSettings: MirrorSetting[] = [
       })),
     tips: 'Detection of new rows and logical partitioning will be based on this watermark query',
     required: true,
-  }
+  },
   {
     label: 'Watermark Column',
     stateHandler: (value, setter) =>
