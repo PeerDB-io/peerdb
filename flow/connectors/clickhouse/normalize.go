@@ -36,6 +36,7 @@ func (c *ClickhouseConnector) CleanupSetupNormalizedTables(_ context.Context, _ 
 func (c *ClickhouseConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx interface{},
+	env map[string]string,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
 	softDeleteColName string,
@@ -83,12 +84,16 @@ func generateCreateTableSQLForNormalizedTable(
 			return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 		}
 
-		switch colType {
-		case qvalue.QValueKindNumeric:
+		if colType == qvalue.QValueKindNumeric {
 			precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
-			stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ",
-				colName, precision, scale))
-		default:
+			if column.Nullable {
+				stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(DECIMAL(%d, %d)), ", colName, precision, scale))
+			} else {
+				stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ", colName, precision, scale))
+			}
+		} else if tableSchema.NullableEnabled && column.Nullable && !colType.IsArray() {
+			stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(%s), ", colName, clickhouseType))
+		} else {
 			stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", colName, clickhouseType))
 		}
 	}
@@ -96,14 +101,13 @@ func generateCreateTableSQLForNormalizedTable(
 	// synced at column will be added to all normalized tables
 	if syncedAtColName != "" {
 		colName := strings.ToLower(syncedAtColName)
-		stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", colName, "DateTime64(9) DEFAULT now()"))
+		stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", colName, "DateTime64(9) DEFAULT now64()"))
 	}
 
 	// add sign and version columns
-	stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", signColName, signColType))
-	stmtBuilder.WriteString(fmt.Sprintf("`%s` %s", versionColName, versionColType))
-
-	stmtBuilder.WriteString(fmt.Sprintf(") ENGINE = ReplacingMergeTree(`%s`) ", versionColName))
+	stmtBuilder.WriteString(fmt.Sprintf(
+		"`%s` %s, `%s` %s) ENGINE = ReplacingMergeTree(`%s`)",
+		signColName, signColType, versionColName, versionColType, versionColName))
 
 	pkeys := tableSchema.PrimaryKeyColumns
 	if len(pkeys) > 0 {
@@ -231,9 +235,8 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 		insertIntoSelectQuery.WriteString(selectQuery.String())
 
 		q := insertIntoSelectQuery.String()
-		c.logger.Info("[clickhouse] insert into select query " + q)
 
-		err = c.database.Exec(ctx, q)
+		err = c.execWithLogging(ctx, q)
 		if err != nil {
 			return nil, fmt.Errorf("error while inserting into normalized table: %w", err)
 		}

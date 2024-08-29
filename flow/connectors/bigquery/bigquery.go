@@ -230,7 +230,7 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 				}
 			}
 
-			addedColumnBigQueryType := qValueKindToBigQueryTypeString(addedColumn, false)
+			addedColumnBigQueryType := qValueKindToBigQueryTypeString(addedColumn, schemaDelta.NullableEnabled, false)
 			query := c.queryWithLogging(fmt.Sprintf(
 				"ALTER TABLE %s ADD COLUMN IF NOT EXISTS `%s` %s",
 				dstDatasetTable.table, addedColumn.Name, addedColumnBigQueryType))
@@ -600,6 +600,7 @@ func (c *BigQueryConnector) CleanupSetupNormalizedTables(_ context.Context, _ in
 func (c *BigQueryConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx interface{},
+	env map[string]string,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
 	softDeleteColName string,
@@ -628,8 +629,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 				datasetTable.dataset, err)
 		}
 		c.logger.Info(fmt.Sprintf("creating dataset %s...", dataset.DatasetID))
-		err = dataset.Create(ctx, nil)
-		if err != nil {
+		if err := dataset.Create(ctx, nil); err != nil {
 			return false, fmt.Errorf("failed to create BigQuery dataset %s: %w", dataset.DatasetID, err)
 		}
 	}
@@ -648,7 +648,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	// convert the column names and types to bigquery types
 	columns := make([]*bigquery.FieldSchema, 0, len(tableSchema.Columns)+2)
 	for _, column := range tableSchema.Columns {
-		bqFieldSchema := qValueKindToBigQueryType(column)
+		bqFieldSchema := qValueKindToBigQueryType(column, tableSchema.NullableEnabled)
 		columns = append(columns, &bqFieldSchema)
 	}
 
@@ -672,16 +672,17 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	// create the table using the columns
 	schema := bigquery.Schema(columns)
 
-	// cluster by the primary key if < 4 columns.
+	supportedPkeyCols := obtainClusteringColumns(tableSchema)
+	// cluster by the supported primary keys if < 4 columns.
+	numSupportedPkeyCols := len(supportedPkeyCols)
 	var clustering *bigquery.Clustering
-	numPkeyCols := len(tableSchema.PrimaryKeyColumns)
-	if numPkeyCols > 0 && numPkeyCols < 4 {
+	if numSupportedPkeyCols > 0 && numSupportedPkeyCols < 4 {
 		clustering = &bigquery.Clustering{
-			Fields: tableSchema.PrimaryKeyColumns,
+			Fields: supportedPkeyCols,
 		}
 	}
 
-	timePartitionEnabled, err := peerdbenv.PeerDBBigQueryEnableSyncedAtPartitioning(ctx)
+	timePartitionEnabled, err := peerdbenv.PeerDBBigQueryEnableSyncedAtPartitioning(ctx, env)
 	if err != nil {
 		return false, fmt.Errorf("failed to get dynamic setting for BigQuery time partitioning: %w", err)
 	}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/log"
@@ -632,7 +633,7 @@ func (c *PostgresConnector) SetupQRepMetadataTables(ctx context.Context, config 
 	)`, metadataTableIdentifier.Sanitize())
 	// execute create table query
 	_, err = c.execWithLogging(ctx, createQRepMetadataTableSQL)
-	if err != nil && !shared.IsUniqueError(err) {
+	if err != nil && !shared.IsSQLStateError(err, pgerrcode.UniqueViolation) {
 		return fmt.Errorf("failed to create table %s: %w", qRepMetadataTableName, err)
 	}
 	c.logger.Info("Setup metadata table.")

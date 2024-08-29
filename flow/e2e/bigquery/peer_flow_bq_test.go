@@ -9,7 +9,6 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"github.com/jackc/pgerrcode"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peer-flow/e2e"
@@ -368,9 +367,9 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	srcTableName := s.attachSchemaSuffix("test_types_bq")
 	dstTableName := "test_types_bq"
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
-	var pgErr *pgconn.PgError
 	_, enumErr := s.Conn().Exec(context.Background(), createMoodEnum)
-	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !shared.IsUniqueError(pgErr) {
+	if enumErr != nil &&
+		!shared.IsSQLStateError(enumErr, pgerrcode.DuplicateObject, pgerrcode.UniqueViolation) {
 		require.NoError(s.t, enumErr)
 	}
 

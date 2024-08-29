@@ -318,6 +318,7 @@ func (c *SnowflakeConnector) CleanupSetupNormalizedTables(_ context.Context, _ i
 func (c *SnowflakeConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx interface{},
+	env map[string]string,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
 	softDeleteColName string,
@@ -496,7 +497,7 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 	for batchId := normBatchID + 1; batchId <= req.SyncBatchID; batchId++ {
 		c.logger.Info(fmt.Sprintf("normalizing records for batch %d [of %d]", batchId, req.SyncBatchID))
 		mergeErr := c.mergeTablesForBatch(ctx, batchId,
-			req.FlowJobName, req.TableNameSchemaMapping,
+			req.FlowJobName, req.Env, req.TableNameSchemaMapping,
 			&protos.PeerDBColumns{
 				SoftDeleteColName: req.SoftDeleteColName,
 				SyncedAtColName:   req.SyncedAtColName,
@@ -523,6 +524,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 	ctx context.Context,
 	batchId int64,
 	flowName string,
+	env map[string]string,
 	tableToSchema map[string]*protos.TableSchema,
 	peerdbCols *protos.PeerDBColumns,
 ) error {
@@ -538,7 +540,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 
 	var totalRowsAffected int64 = 0
 	g, gCtx := errgroup.WithContext(ctx)
-	mergeParallelism, err := peerdbenv.PeerDBSnowflakeMergeParallelism(ctx)
+	mergeParallelism, err := peerdbenv.PeerDBSnowflakeMergeParallelism(ctx, env)
 	if err != nil {
 		return fmt.Errorf("failed to get merge parallelism: %w", err)
 	}
@@ -688,7 +690,12 @@ func generateCreateTableSQLForNormalizedTable(
 			sfColType = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
 		}
 
-		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`%s %s`, normalizedColName, sfColType))
+		var notNull string
+		if sourceTableSchema.NullableEnabled && !column.Nullable {
+			notNull = " NOT NULL"
+		}
+
+		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("%s %s%s", normalizedColName, sfColType, notNull))
 	}
 
 	// add a _peerdb_is_deleted column to the normalized table

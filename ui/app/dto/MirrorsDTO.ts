@@ -1,5 +1,4 @@
-import { FlowConnectionConfigs, QRepConfig } from '@/grpc_generated/flow';
-import { Dispatch, SetStateAction } from 'react';
+import { FlowConnectionConfigs } from '@/grpc_generated/flow';
 
 export enum MirrorType {
   CDC = 'CDC',
@@ -9,10 +8,9 @@ export enum MirrorType {
 
 export type CDCConfig = FlowConnectionConfigs & {
   disablePeerDBColumns: boolean;
+  envString: string;
 };
 
-export type MirrorConfig = CDCConfig | QRepConfig;
-export type MirrorSetter = Dispatch<SetStateAction<CDCConfig | QRepConfig>>;
 export type TableMapRow = {
   schema: string;
   source: string;

@@ -723,8 +723,8 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .to_string(),
                 password: opts
                     .get("password")
-                    .context("no password specified")?
-                    .to_string(),
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
                 database: opts
                     .get("database")
                     .context("no default database specified")?
@@ -750,6 +750,8 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .map(|s| s.parse::<bool>().unwrap_or_default())
                     .unwrap_or_default(),
                 endpoint: opts.get("endpoint").map(|s| s.to_string()),
+                certificate: opts.get("certificate").map(|s| s.to_string()),
+                private_key: opts.get("private_key").map(|s| s.to_string()),
             };
             Config::ClickhouseConfig(clickhouse_config)
         }

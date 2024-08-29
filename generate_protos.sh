@@ -9,4 +9,4 @@ then
     exit
 fi
 
-exec buf generate protos
+buf generate protos

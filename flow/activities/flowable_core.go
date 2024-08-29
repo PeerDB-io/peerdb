@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/activity"
@@ -112,7 +113,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 
 	lastOffset, err := func() (int64, error) {
-		dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
+		dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
 		if err != nil {
 			return 0, fmt.Errorf("failed to get destination connector: %w", err)
 		}
@@ -128,7 +129,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	consumedOffset := atomic.Int64{}
 	consumedOffset.Store(lastOffset)
 
-	channelBufferSize, err := peerdbenv.PeerDBCDCChannelBufferSize(ctx)
+	channelBufferSize, err := peerdbenv.PeerDBCDCChannelBufferSize(ctx, config.Env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get CDC channel buffer size: %w", err)
 	}
@@ -158,6 +159,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			OverridePublicationName:     config.PublicationName,
 			OverrideReplicationSlotName: config.ReplicationSlotName,
 			RecordStream:                recordBatchPull,
+			Env:                         config.Env,
 		})
 	})
 
@@ -167,7 +169,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	if !hasRecords {
 		// wait for the pull goroutine to finish
 		if err := errGroup.Wait(); err != nil {
-			a.Alerter.LogFlowError(ctx, flowName, err)
+			// don't log flow error for "replState changed" and "slot is already active"
+			if !(temporal.IsApplicationError(err) ||
+				shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+				a.Alerter.LogFlowError(ctx, flowName, err)
+			}
 			if temporal.IsApplicationError(err) {
 				return nil, err
 			} else {
@@ -176,7 +182,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 		logger.Info("no records to push")
 
-		dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
+		dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to recreate destination connector: %w", err)
 		}
@@ -198,7 +204,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	var syncStartTime time.Time
 	var res *model.SyncResponse
 	errGroup.Go(func() error {
-		dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
+		dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
 		if err != nil {
 			return fmt.Errorf("failed to recreate destination connector: %w", err)
 		}
@@ -242,7 +248,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	})
 
 	if err := errGroup.Wait(); err != nil {
-		a.Alerter.LogFlowError(ctx, flowName, err)
+		// don't log flow error for "replState changed" and "slot is already active"
+		if !(temporal.IsApplicationError(err) ||
+			shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+			a.Alerter.LogFlowError(ctx, flowName, err)
+		}
 		if temporal.IsApplicationError(err) {
 			return nil, err
 		} else {
@@ -353,7 +363,7 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
-	dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
+	dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return fmt.Errorf("failed to get qrep destination connector: %w", err)
@@ -385,7 +395,7 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	var rowsSynced int
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
-		srcConn, err := connectors.GetByNameAs[TPull](ctx, a.CatalogPool, config.SourceName)
+		srcConn, err := connectors.GetByNameAs[TPull](ctx, config.Env, a.CatalogPool, config.SourceName)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return fmt.Errorf("failed to get qrep source connector: %w", err)
@@ -464,7 +474,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	var currentSnapshotXmin int64
 	var rowsSynced int
 	errGroup.Go(func() error {
-		srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, a.CatalogPool, config.SourceName)
+		srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, config.Env, a.CatalogPool, config.SourceName)
 		if err != nil {
 			return fmt.Errorf("failed to get qrep source connector: %w", err)
 		}
@@ -514,7 +524,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	})
 
 	errGroup.Go(func() error {
-		dstConn, err := connectors.GetByNameAs[TSync](ctx, a.CatalogPool, config.DestinationName)
+		dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
 		if err != nil {
 			return fmt.Errorf("failed to get qrep destination connector: %w", err)
 		}

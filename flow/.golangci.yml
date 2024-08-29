@@ -59,6 +59,9 @@ linters-settings:
     settings:
       hugeParam:
         sizeThreshold: 512
+  gosec:
+    excludes:
+      - G115
   govet:
     enable-all: true
     disable:

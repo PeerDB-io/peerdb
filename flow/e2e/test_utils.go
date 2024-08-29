@@ -14,7 +14,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/api/enums/v1"
@@ -278,17 +277,20 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 		"mymac MACADDR",
 	}
 	tblFieldStr := strings.Join(tblFields, ",")
-	var pgErr *pgconn.PgError
 	_, enumErr := conn.Exec(context.Background(), createMoodEnum)
-	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !shared.IsUniqueError(pgErr) {
+	if enumErr != nil &&
+		!shared.IsSQLStateError(enumErr, pgerrcode.DuplicateObject, pgerrcode.UniqueViolation) {
 		return enumErr
 	}
 	_, err := conn.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE e2e_test_%s.%s (
 			%s
 		);`, suffix, tableName, tblFieldStr))
+	if err != nil {
+		return fmt.Errorf("error creating table for qrep tests: %w", err)
+	}
 
-	return err
+	return nil
 }
 
 func generate20MBJson() ([]byte, error) {
@@ -357,7 +359,7 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 			) VALUES %s;
 	`, suffix, tableName, strings.Join(rows, ",")))
 	if err != nil {
-		return err
+		return fmt.Errorf("error populating source table with initial data: %w", err)
 	}
 
 	// add a row where all the nullable fields are null

@@ -81,7 +81,7 @@ func (c *ClickhouseConnector) ValidateCheck(ctx context.Context) error {
 	}
 
 	// add a column
-	err = c.database.Exec(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now()",
+	err = c.database.Exec(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now64()",
 		validateDummyTableName+"_temp"))
 	if err != nil {
 		return fmt.Errorf("failed to add column to validation table %s: %w", validateDummyTableName, err)
@@ -95,7 +95,7 @@ func (c *ClickhouseConnector) ValidateCheck(ctx context.Context) error {
 	}
 
 	// insert a row
-	err = c.database.Exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now())", validateDummyTableName))
+	err = c.database.Exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableName))
 	if err != nil {
 		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableName, err)
 	}
@@ -117,6 +117,7 @@ func (c *ClickhouseConnector) ValidateCheck(ctx context.Context) error {
 
 func NewClickhouseConnector(
 	ctx context.Context,
+	env map[string]string,
 	config *protos.ClickhouseConfig,
 ) (*ClickhouseConnector, error) {
 	logger := logger.LoggerFromCtx(ctx)
@@ -151,7 +152,7 @@ func NewClickhouseConnector(
 		bucketPathSuffix := fmt.Sprintf("%s/%s",
 			url.PathEscape(deploymentUID), url.PathEscape(flowName))
 		// Fallback: Get S3 credentials from environment
-		awsBucketName, err := peerdbenv.PeerDBClickhouseAWSS3BucketName(ctx)
+		awsBucketName, err := peerdbenv.PeerDBClickhouseAWSS3BucketName(ctx, env)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get PeerDB Clickhouse Bucket Name: %w", err)
 		}
@@ -209,6 +210,18 @@ func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.C
 	if !config.DisableTls {
 		tlsSetting = &tls.Config{MinVersion: tls.VersionTLS13}
 	}
+	if config.Certificate != nil || config.PrivateKey != nil {
+		if config.Certificate == nil || config.PrivateKey == nil {
+			return nil, errors.New("both certificate and private key must be provided if using certificate-based authentication")
+		}
+		cert, err := tls.X509KeyPair([]byte(*config.Certificate), []byte(*config.PrivateKey))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse provided certificate: %w", err)
+		}
+		// TODO: find a way to modify list of root CAs as well
+		tlsSetting.Certificates = []tls.Certificate{cert}
+	}
+
 	conn, err := clickhouse.Open(&clickhouse.Options{
 		Addr: []string{fmt.Sprintf("%s:%d", config.Host, config.Port)},
 		Auth: clickhouse.Auth{

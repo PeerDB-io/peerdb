@@ -115,6 +115,24 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 
 	pubName := req.ConnectionConfigs.PublicationName
 
+	if pubName == "" {
+		srcTableNames := make([]string, 0, len(sourceTables))
+		for _, srcTable := range sourceTables {
+			srcTableNames = append(srcTableNames, fmt.Sprintf("%s.%s", srcTable.Schema, srcTable.Table))
+		}
+
+		err := pgPeer.CheckPublicationCreationPermissions(ctx, srcTableNames)
+		if err != nil {
+			displayErr := fmt.Errorf("invalid publication creation permissions: %v", err)
+			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
+				fmt.Sprint(displayErr),
+			)
+			return &protos.ValidateCDCMirrorResponse{
+				Ok: false,
+			}, displayErr
+		}
+	}
+
 	err = pgPeer.CheckSourceTables(ctx, sourceTables, pubName)
 	if err != nil {
 		displayErr := fmt.Errorf("provided source tables invalidated: %v", err)
