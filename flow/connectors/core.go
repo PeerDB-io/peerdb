@@ -128,6 +128,7 @@ type NormalizedTablesConnector interface {
 		tableSchema *protos.TableSchema,
 		softDeleteColName string,
 		syncedAtColName string,
+		isResync bool,
 	) (bool, error)
 }
 

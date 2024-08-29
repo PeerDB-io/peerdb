@@ -190,6 +190,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 			tableSchema,
 			config.SoftDeleteColName,
 			config.SyncedAtColName,
+			config.IsResync,
 		)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowName, err)

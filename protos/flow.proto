@@ -185,6 +185,7 @@ message SetupNormalizedTableBatchInput {
   string synced_at_col_name = 5;
   string flow_name = 6;
   string peer_name = 7;
+  bool is_resync = 8;
 }
 
 message SetupNormalizedTableOutput {

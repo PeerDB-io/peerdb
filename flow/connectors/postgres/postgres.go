@@ -861,6 +861,7 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	tableSchema *protos.TableSchema,
 	softDeleteColName string,
 	syncedAtColName string,
+	isResync bool,
 ) (bool, error) {
 	createNormalizedTablesTx := tx.(pgx.Tx)
 
@@ -880,7 +881,7 @@ func (c *PostgresConnector) SetupNormalizedTable(
 
 	// convert the column names and types to Postgres types
 	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
-		parsedNormalizedTable.String(), tableSchema, softDeleteColName, syncedAtColName)
+		parsedNormalizedTable.String(), tableSchema, softDeleteColName, syncedAtColName, isResync)
 	_, err = c.execWithLoggingTx(ctx, normalizedTableCreateSQL, createNormalizedTablesTx)
 	if err != nil {
 		return false, fmt.Errorf("error while creating normalized table: %w", err)

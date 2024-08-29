@@ -605,6 +605,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	tableSchema *protos.TableSchema,
 	softDeleteColName string,
 	syncedAtColName string,
+	isResync bool,
 ) (bool, error) {
 	datasetTablesSet := tx.(map[datasetTable]struct{})
 
@@ -699,6 +700,23 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 		Name:             datasetTable.table,
 		Clustering:       clustering,
 		TimePartitioning: timePartitioning,
+	}
+
+	if isResync {
+		_, existsErr := table.Metadata(ctx)
+		if existsErr != nil {
+			if !strings.Contains(existsErr.Error(), "notFound") {
+				return false, fmt.Errorf("error while checking metadata for BigQuery resynced table %s: %w",
+					tableIdentifier, existsErr)
+			}
+		} else {
+			c.logger.Info("[bigquery] deleting existing resync table",
+				slog.String("table", tableIdentifier))
+			deleteErr := table.Delete(ctx)
+			if deleteErr != nil {
+				return false, fmt.Errorf("failed to delete table %s: %w", tableIdentifier, deleteErr)
+			}
+		}
 	}
 
 	c.logger.Info("[bigquery] creating table",

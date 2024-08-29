@@ -35,11 +35,12 @@ const (
 		_PEERDB_TIMESTAMP INT NOT NULL,_PEERDB_DESTINATION_TABLE_NAME STRING NOT NULL,_PEERDB_DATA STRING NOT NULL,
 		_PEERDB_RECORD_TYPE INTEGER NOT NULL, _PEERDB_MATCH_DATA STRING,_PEERDB_BATCH_ID INT,
 		_PEERDB_UNCHANGED_TOAST_COLUMNS STRING)`
-	createDummyTableSQL         = "CREATE TABLE IF NOT EXISTS %s.%s(_PEERDB_DUMMY_COL STRING)"
-	rawTableMultiValueInsertSQL = "INSERT INTO %s.%s VALUES%s"
-	createNormalizedTableSQL    = "CREATE TABLE IF NOT EXISTS %s(%s)"
-	toVariantColumnName         = "VAR_COLS"
-	mergeStatementSQL           = `MERGE INTO %s TARGET USING (WITH VARIANT_CONVERTED AS (
+	createDummyTableSQL               = "CREATE TABLE IF NOT EXISTS %s.%s(_PEERDB_DUMMY_COL STRING)"
+	rawTableMultiValueInsertSQL       = "INSERT INTO %s.%s VALUES%s"
+	createNormalizedTableSQL          = "CREATE TABLE IF NOT EXISTS %s(%s)"
+	createOrReplaceNormalizedTableSQL = "CREATE OR REPLACE TABLE IF NOT EXISTS %s(%s)"
+	toVariantColumnName               = "VAR_COLS"
+	mergeStatementSQL                 = `MERGE INTO %s TARGET USING (WITH VARIANT_CONVERTED AS (
 		SELECT _PEERDB_UID,_PEERDB_TIMESTAMP,TO_VARIANT(PARSE_JSON(_PEERDB_DATA)) %s,_PEERDB_RECORD_TYPE,
 		 _PEERDB_MATCH_DATA,_PEERDB_BATCH_ID,_PEERDB_UNCHANGED_TOAST_COLUMNS
 		FROM _PEERDB_INTERNAL.%s WHERE _PEERDB_BATCH_ID = %d AND
@@ -323,6 +324,7 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 	tableSchema *protos.TableSchema,
 	softDeleteColName string,
 	syncedAtColName string,
+	isResync bool,
 ) (bool, error) {
 	normalizedSchemaTable, err := utils.ParseSchemaTable(tableIdentifier)
 	if err != nil {
@@ -339,7 +341,7 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 	}
 
 	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
-		normalizedSchemaTable, tableSchema, softDeleteColName, syncedAtColName)
+		normalizedSchemaTable, tableSchema, softDeleteColName, syncedAtColName, isResync)
 	_, err = c.execWithLogging(ctx, normalizedTableCreateSQL)
 	if err != nil {
 		return false, fmt.Errorf("[sf] error while creating normalized table: %w", err)
@@ -673,6 +675,7 @@ func generateCreateTableSQLForNormalizedTable(
 	sourceTableSchema *protos.TableSchema,
 	softDeleteColName string,
 	syncedAtColName string,
+	isResync bool,
 ) string {
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns)+2)
 	for _, column := range sourceTableSchema.Columns {
@@ -722,7 +725,12 @@ func generateCreateTableSQLForNormalizedTable(
 			fmt.Sprintf("PRIMARY KEY(%s)", strings.Join(normalizedPrimaryKeyCols, ",")))
 	}
 
-	return fmt.Sprintf(createNormalizedTableSQL, snowflakeSchemaTableNormalize(dstSchemaTable),
+	createSQL := createNormalizedTableSQL
+	if isResync {
+		createSQL = createOrReplaceNormalizedTableSQL
+	}
+
+	return fmt.Sprintf(createSQL, snowflakeSchemaTableNormalize(dstSchemaTable),
 		strings.Join(createTableSQLArray, ","))
 }
 
