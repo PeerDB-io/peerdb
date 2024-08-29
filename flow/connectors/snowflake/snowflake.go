@@ -756,6 +756,16 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 			return nil, fmt.Errorf("unable to parse source %s: %w", renameRequest.CurrentName, err)
 		}
 
+		resyncTableExists, err := c.checkIfTableExists(ctx, srcTable.Schema, srcTable.Table)
+		if err != nil {
+			return nil, fmt.Errorf("unable to check if table %s exists: %w", srcTable, err)
+		}
+
+		if !resyncTableExists {
+			c.logger.Info(fmt.Sprintf("_resync table '%s' does not exist, skipping rename", srcTable))
+			continue
+		}
+
 		dstTable, err := utils.ParseSchemaTable(renameRequest.NewName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse destination %s: %w", renameRequest.NewName, err)
@@ -764,29 +774,38 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 		src := snowflakeSchemaTableNormalize(srcTable)
 		dst := snowflakeSchemaTableNormalize(dstTable)
 
-		if req.SoftDeleteColName != "" {
-			columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
-			for _, col := range renameRequest.TableSchema.Columns {
-				columnNames = append(columnNames, SnowflakeIdentifierNormalize(col.Name))
+		originalTableExists, err := c.checkIfTableExists(ctx, dstTable.Schema, dstTable.Table)
+		if err != nil {
+			return nil, fmt.Errorf("unable to check if original table %s exists: %w", dstTable, err)
+		}
+
+		if originalTableExists {
+			if req.SoftDeleteColName != "" {
+				columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
+				for _, col := range renameRequest.TableSchema.Columns {
+					columnNames = append(columnNames, SnowflakeIdentifierNormalize(col.Name))
+				}
+
+				pkeyColumnNames := make([]string, 0, len(renameRequest.TableSchema.PrimaryKeyColumns))
+				for _, col := range renameRequest.TableSchema.PrimaryKeyColumns {
+					pkeyColumnNames = append(pkeyColumnNames, SnowflakeIdentifierNormalize(col))
+				}
+
+				allCols := strings.Join(columnNames, ",")
+				pkeyCols := strings.Join(pkeyColumnNames, ",")
+
+				c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
+
+				_, err = c.execWithLoggingTx(ctx,
+					fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
+						src, fmt.Sprintf("%s,%s", allCols, req.SoftDeleteColName), allCols, req.SoftDeleteColName,
+						dst, pkeyCols, pkeyCols, src), renameTablesTx)
+				if err != nil {
+					return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
+				}
 			}
-
-			pkeyColumnNames := make([]string, 0, len(renameRequest.TableSchema.PrimaryKeyColumns))
-			for _, col := range renameRequest.TableSchema.PrimaryKeyColumns {
-				pkeyColumnNames = append(pkeyColumnNames, SnowflakeIdentifierNormalize(col))
-			}
-
-			allCols := strings.Join(columnNames, ",")
-			pkeyCols := strings.Join(pkeyColumnNames, ",")
-
-			c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
-
-			_, err = c.execWithLoggingTx(ctx,
-				fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
-					src, fmt.Sprintf("%s,%s", allCols, req.SoftDeleteColName), allCols, req.SoftDeleteColName,
-					dst, pkeyCols, pkeyCols, src), renameTablesTx)
-			if err != nil {
-				return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
-			}
+		} else {
+			c.logger.Info(fmt.Sprintf("table '%s' does not exist, skipping soft-deletes", dst))
 		}
 
 		// renaming and dropping such that the _resync table is the new destination
