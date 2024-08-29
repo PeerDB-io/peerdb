@@ -81,7 +81,11 @@ func generateCreateTableSQLForNormalizedTable(
 	if isResync {
 		stmtBuilder.WriteString("OR REPLACE ")
 	}
-	stmtBuilder.WriteString("TABLE IF NOT EXISTS `")
+	stmtBuilder.WriteString("TABLE ")
+	if !isResync {
+		stmtBuilder.WriteString("IF NOT EXISTS ")
+	}
+	stmtBuilder.WriteString("`")
 	stmtBuilder.WriteString(normalizedTable)
 	stmtBuilder.WriteString("` (")
 

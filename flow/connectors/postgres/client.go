@@ -34,14 +34,13 @@ const (
 	createRawTableBatchIDIndexSQL  = "CREATE INDEX IF NOT EXISTS %s_batchid_idx ON %s.%s(_peerdb_batch_id)"
 	createRawTableDstTableIndexSQL = "CREATE INDEX IF NOT EXISTS %s_dst_table_idx ON %s.%s(_peerdb_destination_table_name)"
 
-	getLastOffsetSQL                  = "SELECT lsn_offset FROM %s.%s WHERE mirror_job_name=$1"
-	setLastOffsetSQL                  = "UPDATE %s.%s SET lsn_offset=GREATEST(lsn_offset, $1) WHERE mirror_job_name=$2"
-	getLastSyncBatchID_SQL            = "SELECT sync_batch_id FROM %s.%s WHERE mirror_job_name=$1"
-	getLastNormalizeBatchID_SQL       = "SELECT normalize_batch_id FROM %s.%s WHERE mirror_job_name=$1"
-	createNormalizedTableSQL          = "CREATE TABLE IF NOT EXISTS %s(%s)"
-	createOrReplaceNormalizedTableSQL = "CREATE OR REPLACE TABLE IF NOT EXISTS %s(%s)"
-	checkTableExistsSQL               = "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = $1 AND tablename = $2)"
-	upsertJobMetadataForSyncSQL       = `INSERT INTO %s.%s AS j VALUES ($1,$2,$3,$4)
+	getLastOffsetSQL            = "SELECT lsn_offset FROM %s.%s WHERE mirror_job_name=$1"
+	setLastOffsetSQL            = "UPDATE %s.%s SET lsn_offset=GREATEST(lsn_offset, $1) WHERE mirror_job_name=$2"
+	getLastSyncBatchID_SQL      = "SELECT sync_batch_id FROM %s.%s WHERE mirror_job_name=$1"
+	getLastNormalizeBatchID_SQL = "SELECT normalize_batch_id FROM %s.%s WHERE mirror_job_name=$1"
+	createNormalizedTableSQL    = "CREATE TABLE IF NOT EXISTS %s(%s)"
+	checkTableExistsSQL         = "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = $1 AND tablename = $2)"
+	upsertJobMetadataForSyncSQL = `INSERT INTO %s.%s AS j VALUES ($1,$2,$3,$4)
 	 ON CONFLICT(mirror_job_name) DO UPDATE SET lsn_offset=GREATEST(j.lsn_offset, EXCLUDED.lsn_offset), sync_batch_id=EXCLUDED.sync_batch_id`
 	checkIfJobMetadataExistsSQL          = "SELECT COUNT(1)::TEXT::BOOL FROM %s.%s WHERE mirror_job_name=$1"
 	updateMetadataForNormalizeRecordsSQL = "UPDATE %s.%s SET normalize_batch_id=$1 WHERE mirror_job_name=$2"
@@ -456,7 +455,6 @@ func generateCreateTableSQLForNormalizedTable(
 	sourceTableSchema *protos.TableSchema,
 	softDeleteColName string,
 	syncedAtColName string,
-	isResync bool,
 ) string {
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns)+2)
 	for _, column := range sourceTableSchema.Columns {
@@ -497,12 +495,7 @@ func generateCreateTableSQLForNormalizedTable(
 			strings.Join(primaryKeyColsQuoted, ",")))
 	}
 
-	createSQL := createNormalizedTableSQL
-	if isResync {
-		createSQL = createOrReplaceNormalizedTableSQL
-	}
-
-	return fmt.Sprintf(createSQL, sourceTableIdentifier, strings.Join(createTableSQLArray, ","))
+	return fmt.Sprintf(createNormalizedTableSQL, sourceTableIdentifier, strings.Join(createTableSQLArray, ","))
 }
 
 func (c *PostgresConnector) GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error) {

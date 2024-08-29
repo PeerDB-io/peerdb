@@ -876,12 +876,17 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	if tableAlreadyExists {
 		c.logger.Info("[postgres] table already exists, skipping",
 			slog.String("table", tableIdentifier))
+		if isResync {
+			c.ExecuteCommand(ctx, fmt.Sprintf(dropTableIfExistsSQL,
+				QuoteIdentifier(parsedNormalizedTable.Schema),
+				QuoteIdentifier(parsedNormalizedTable.Table)))
+		}
 		return true, nil
 	}
 
 	// convert the column names and types to Postgres types
 	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
-		parsedNormalizedTable.String(), tableSchema, softDeleteColName, syncedAtColName, isResync)
+		parsedNormalizedTable.String(), tableSchema, softDeleteColName, syncedAtColName)
 	_, err = c.execWithLoggingTx(ctx, normalizedTableCreateSQL, createNormalizedTablesTx)
 	if err != nil {
 		return false, fmt.Errorf("error while creating normalized table: %w", err)
