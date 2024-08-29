@@ -18,6 +18,7 @@ interface TableMappingProps {
   peerType?: DBType;
   // schema -> omitted source table mapping
   omitAdditionalTablesMapping: Map<string, string[]>;
+  initialLoadOnly: boolean;
 }
 
 const TableMapping = ({
@@ -26,6 +27,7 @@ const TableMapping = ({
   setRows,
   peerType,
   omitAdditionalTablesMapping,
+  initialLoadOnly,
 }: TableMappingProps) => {
   const [allSchemas, setAllSchemas] = useState<string[]>();
   const [schemaQuery, setSchemaQuery] = useState('');
@@ -40,7 +42,7 @@ const TableMapping = ({
 
   useEffect(() => {
     fetchSchemas(sourcePeerName).then((res) => setAllSchemas(res));
-  }, [sourcePeerName]);
+  }, [sourcePeerName, initialLoadOnly]);
 
   return (
     <div style={{ marginTop: '1rem' }}>
@@ -109,6 +111,7 @@ const TableMapping = ({
               setTableColumns={setTableColumns}
               peerType={peerType}
               omitAdditionalTables={omitAdditionalTablesMapping.get(schema)}
+              initialLoadOnly={initialLoadOnly}
             />
           ))
         ) : (
