@@ -1,5 +1,6 @@
-import { PeerSlotResponse } from '@/grpc_generated/route';
+import { PeerSlotResponse, PeerStatResponse, StatInfo } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
+import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 import Link from 'next/link';
 
 const getFlowName = (slotName: string) => {
@@ -9,19 +10,25 @@ const getFlowName = (slotName: string) => {
   return '';
 };
 
+export const getStatData = async (peerName: string) => {
+  try {
+    const peerStats: PeerStatResponse = await fetch(
+      `/api/v1/peers/stats/${peerName}`,
+      { cache: 'no-store' }
+    ).then((res) => res.json());
+    return peerStats.statData ?? [];
+  } catch (e) {
+    console.error('Error fetching stats:', e);
+    return [];
+  }
+};
+
 export const getSlotData = async (peerName: string) => {
   try {
     const peerSlots: PeerSlotResponse = await fetch(
-      `/api/peers/slots/peerData/${peerName}`,
-      {
-        cache: 'no-store',
-      }
-    )
-      .then((res) => res.json())
-      .catch((e) => {
-        console.error('Error fetching slots:', e);
-        return [];
-      });
+      `/api//v1/peers/slots/${peerName}`,
+      { cache: 'no-store' }
+    ).then((res) => res.json());
 
     const slotArray = peerSlots.slotData ?? [];
     // slots with 'peerflow_slot' should come first

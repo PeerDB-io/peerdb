@@ -19,14 +19,6 @@ const SlotTable = ({ peerName }: { peerName: string }) => {
       <div
         style={{ minHeight: '10%', marginTop: '2rem', marginBottom: '2rem' }}
       >
-        <Label
-          as='label'
-          variant='subheadline'
-          style={{ marginBottom: '1rem', fontWeight: 'bold' }}
-        >
-          Replication Slot Information
-        </Label>
-        <ProgressCircle variant='determinate_progress_circle' />
       </div>
     );
   }

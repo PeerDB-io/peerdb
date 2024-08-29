@@ -6,41 +6,25 @@ import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { DurationDisplay } from './helpers';
+import { useEffect, useMemo, useState } from 'react';
+import { DurationDisplay, getStatData } from './helpers';
 import { tableStyle } from './style';
 
 const StatTable = ({ peerName }: { peerName: string }) => {
   const [search, setSearch] = useState('');
   const [data, setData] = useState<StatInfo[]>([]);
   const filteredData = useMemo(() => {
+    console.log(data);
     return data.filter((stat) => {
       return stat.query.toLowerCase().includes(search.toLowerCase());
     });
   }, [data, search]);
 
-  const getStatData = useCallback(async () => {
-    try {
-      const peerStats: StatInfo[] = await fetch(
-        `/api/peers/stats/${peerName}`,
-        { cache: 'no-store' }
-      )
-        .then((res) => res.json())
-        .catch((e) => {
-          console.error('Error fetching stats:', e);
-          return [];
-        });
-
-      return peerStats ?? [];
-    } catch (e) {
-      console.error('Error fetching stats:', e);
-      return [];
-    }
-  }, [peerName]);
-
   useEffect(() => {
-    getStatData().then((stats) => setData(stats));
-  }, [peerName, getStatData]);
+    getStatData(peerName).then((stats) => {
+      setData(stats);
+    });
+  }, [peerName]);
 
   if (!data || data.length === 0) {
     return (
