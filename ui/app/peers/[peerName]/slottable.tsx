@@ -1,7 +1,6 @@
 'use client';
 import { SlotInfo } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
-import { ProgressCircle } from '@/lib/ProgressCircle';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { useEffect, useState } from 'react';
 import { getSlotData, SlotNameDisplay } from './helpers';
@@ -18,8 +17,7 @@ const SlotTable = ({ peerName }: { peerName: string }) => {
     return (
       <div
         style={{ minHeight: '10%', marginTop: '2rem', marginBottom: '2rem' }}
-      >
-      </div>
+      ></div>
     );
   }
   return (

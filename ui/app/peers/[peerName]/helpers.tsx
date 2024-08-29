@@ -1,6 +1,5 @@
-import { PeerSlotResponse, PeerStatResponse, StatInfo } from '@/grpc_generated/route';
+import { PeerSlotResponse, PeerStatResponse } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
-import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 import Link from 'next/link';
 
 const getFlowName = (slotName: string) => {
