@@ -42,12 +42,12 @@ async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct CatalogConfig<'a> {
     pub host: &'a str,
     pub port: u16,
     pub user: &'a str,
-    pub password: &'a str,
+    pub password: String,
     pub database: &'a str,
 }
 
