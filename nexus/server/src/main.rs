@@ -8,7 +8,7 @@ use std::{
 use analyzer::{PeerDDL, QueryAssociation};
 use async_trait::async_trait;
 use aws_config::{meta::region::RegionProviderChain, BehaviorVersion};
-use aws_sdk_kms::{primitives::Blob, Client as KmsClient, Error};
+use aws_sdk_kms::{primitives::Blob, Client as KmsClient};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::{BufMut, BytesMut};
 use catalog::{Catalog, CatalogConfig};
