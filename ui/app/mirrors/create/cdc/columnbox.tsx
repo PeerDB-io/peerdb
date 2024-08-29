@@ -3,6 +3,7 @@ import { TableMapRow } from '@/app/dto/MirrorsDTO';
 import { Checkbox } from '@/lib/Checkbox';
 import { Label } from '@/lib/Label';
 import { RowWithCheckbox } from '@/lib/Layout';
+import { TextField } from '@/lib/TextField';
 import { Dispatch, SetStateAction } from 'react';
 
 interface ColumnProps {
@@ -86,8 +87,10 @@ export default function ColumnBox({
             >
               {columnType}
             </p>
-            <input
+            <TextField
+              variant='simple'
               type='number'
+              style={{ width: '3rem', marginLeft: '1rem', fontSize: 13 }}
               value={
                 tableRow.columns.find((col) => col.sourceName === columnName)
                   ?.ordering ?? 0

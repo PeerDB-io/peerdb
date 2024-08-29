@@ -23,11 +23,16 @@ import { fetchColumns, fetchTables } from '../handlers';
 import ColumnBox from './columnbox';
 import { SchemaSettings } from './schemasettings';
 import {
+  columnBoxDividerStyle,
+  engineOptionStyles,
   expandableStyle,
   schemaBoxStyle,
   tableBoxStyle,
   tooltipStyle,
 } from './styles';
+
+import { Divider } from '@tremor/react';
+import ReactSelect from 'react-select';
 
 interface SchemaBoxProps {
   sourcePeer: string;
@@ -205,6 +210,11 @@ export default function SchemaBox({
     ]
   );
 
+  const engineOptions = [
+    { value: 'CH_ENGINE_REPLACING_MERGE_TREE', label: 'ReplacingMergeTree' },
+    { value: 'CH_ENGINE_MERGE_TREE', label: 'MergeTree' },
+  ];
+
   useEffect(() => {
     fetchTablesForSchema(schema);
   }, [schema, fetchTablesForSchema, initialLoadOnly]);
@@ -259,10 +269,12 @@ export default function SchemaBox({
                 return (
                   <div key={row.source} style={tableBoxStyle}>
                     <div
+                      className='ml-5'
                       style={{
                         display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
+                        //alignItems: 'center',
+                        flexDirection: 'column',
+                        rowGap: '1rem',
                       }}
                     >
                       <RowWithCheckbox
@@ -306,58 +318,57 @@ export default function SchemaBox({
                       />
                       <div
                         style={{
-                          width: '40%',
-                          display: row.selected ? 'block' : 'none',
+                          rowGap: '0.5rem',
+                          width: '80%',
+                          columnGap: '3rem',
+                          display: row.selected ? 'flex' : 'none',
                         }}
                         key={row.source}
                       >
-                        <p style={{ fontSize: 12 }}>Target Table:</p>
-                        <TextField
-                          key={row.source}
-                          style={{
-                            fontSize: 12,
-                            marginTop: '0.5rem',
-                            cursor: 'pointer',
-                          }}
-                          variant='simple'
-                          placeholder='Enter target table'
-                          value={row.destination}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                            updateDestination(row.source, e.target.value)
-                          }
-                        />
-                      </div>
-                      {peerType === DBType.CLICKHOUSE && (
-                        <>
-                          <p style={{ fontSize: 12 }}>Engine:</p>
-                          <select
-                            value={
-                              row.engine ||
-                              TableEngine.CH_ENGINE_REPLACING_MERGE_TREE
-                            }
+                        <div style={{ width: '40%' }}>
+                          <p style={{ fontSize: 12 }}>Target Table:</p>
+                          <TextField
+                            key={row.source}
+                            style={{
+                              fontSize: 12,
+                              marginTop: '0.5rem',
+                              cursor: 'pointer',
+                            }}
+                            variant='simple'
+                            placeholder='Enter target table'
+                            value={row.destination}
                             onChange={(
-                              e: React.ChangeEvent<HTMLSelectElement>
-                            ) =>
-                              updateEngine(
-                                row.source,
-                                tableEngineFromJSON(e.target.value)
-                              )
-                            }
-                          >
-                            <option value='CH_ENGINE_REPLACING_MERGE_TREE'>
-                              ReplacingMergeTree
-                            </option>
-                            <option value='CH_ENGINE_MERGE_TREE'>
-                              MergeTree
-                            </option>
-                          </select>
-                        </>
-                      )}
+                              e: React.ChangeEvent<HTMLInputElement>
+                            ) => updateDestination(row.source, e.target.value)}
+                          />
+                        </div>
+
+                        {peerType?.toString() ===
+                          DBType[DBType.CLICKHOUSE].toString() && (
+                          <div style={{ width: '40%' }}>
+                            <p style={{ fontSize: 12, marginBottom: '0.5rem' }}>
+                              Engine:
+                            </p>
+                            <ReactSelect
+                              styles={engineOptionStyles}
+                              options={engineOptions}
+                              onChange={(selectedOption) =>
+                                selectedOption &&
+                                updateEngine(
+                                  row.source,
+                                  tableEngineFromJSON(selectedOption)
+                                )
+                              }
+                            />
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {/* COLUMN BOX */}
                     {row.selected && (
-                      <div className='ml-5' style={{ width: '100%' }}>
+                      <div className='ml-5 mt-3' style={{ width: '100%' }}>
+                        <Divider style={columnBoxDividerStyle} />
                         <Label
                           as='label'
                           colorName='lowContrast'
