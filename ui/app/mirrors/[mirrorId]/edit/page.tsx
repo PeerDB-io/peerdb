@@ -78,19 +78,11 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
   }, [mirrorState]);
 
   const additionalTables = useMemo(() => {
-    return changesToTablesMapping(
-      rows,
-      alreadySelectedTablesMapping,
-      false
-    );;
+    return changesToTablesMapping(rows, alreadySelectedTablesMapping, false);
   }, [rows, alreadySelectedTablesMapping]);
 
   const removedTables = useMemo(() => {
-    return changesToTablesMapping(
-      rows,
-      alreadySelectedTablesMapping,
-      true
-    );
+    return changesToTablesMapping(rows, alreadySelectedTablesMapping, true);
   }, [rows, alreadySelectedTablesMapping]);
 
   if (!mirrorState) {

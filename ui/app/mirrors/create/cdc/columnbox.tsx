@@ -11,6 +11,7 @@ interface ColumnProps {
   tableRow: TableMapRow;
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
+  disabled?: boolean;
   showOrdering: boolean;
 }
 export default function ColumnBox({
@@ -18,6 +19,7 @@ export default function ColumnBox({
   tableRow,
   rows,
   setRows,
+  disabled,
   showOrdering,
 }: ColumnProps) {
   const handleColumnExclusion = (column: string, include: boolean) => {
@@ -108,7 +110,7 @@ export default function ColumnBox({
         action={
           <Checkbox
             style={{ cursor: 'pointer' }}
-            disabled={isPkey}
+            disabled={isPkey || disabled}
             checked={!tableRow.exclude.has(columnName)}
             onCheckedChange={(state: boolean) =>
               handleColumnExclusion(columnName, state)

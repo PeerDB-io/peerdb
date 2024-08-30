@@ -437,6 +437,7 @@ export async function fetchTables(
         selected: false,
         canMirror: tableObject.canMirror,
         tableSize: tableObject.tableSize,
+        columnsToggleDisabled: false,
         columns: [],
         engine: TableEngine.CH_ENGINE_REPLACING_MERGE_TREE,
       });

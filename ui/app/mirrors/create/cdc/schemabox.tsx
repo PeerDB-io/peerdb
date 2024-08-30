@@ -110,18 +110,21 @@ export default function SchemaBox({
     setRows(newRows);
   };
 
-  const addTableColumns = useCallback((table: string) => {
-    const schemaName = table.split('.')[0];
-    const tableName = table.split('.')[1];
+  const addTableColumns = useCallback(
+    (table: string) => {
+      const schemaName = table.split('.')[0];
+      const tableName = table.split('.')[1];
 
-    fetchColumns(sourcePeer, schemaName, tableName, setColumnsLoading).then(
-      (res) => {
-        setTableColumns((prev) => {
-          return [...prev, { tableName: table, columns: res }];
-        });
-      }
-    );
-  },[sourcePeer, setTableColumns]);
+      fetchColumns(sourcePeer, schemaName, tableName, setColumnsLoading).then(
+        (res) => {
+          setTableColumns((prev) => {
+            return [...prev, { tableName: table, columns: res }];
+          });
+        }
+      );
+    },
+    [sourcePeer, setTableColumns]
+  );
 
   const handleAddRow = (source: string) => {
     const newRows = [...rows];
@@ -189,6 +192,7 @@ export default function SchemaBox({
         for (const row of newRows) {
           if (alreadySelectedTables?.includes(row.source)) {
             row.selected = true;
+              row.columnsToggleDisabled = true;
               addTableColumns(row.source);
           }
         }
@@ -202,12 +206,19 @@ export default function SchemaBox({
       });
     },
     [
+      
       setRows,
+     
       sourcePeer,
+     
       defaultTargetSchema,
+     
       peerType,
-      alreadySelectedTables, addTableColumns,
+     
+      alreadySelectedTables,
+      addTableColumns,
       initialLoadOnly,
+    ,
     ]
   );
 
@@ -384,6 +395,7 @@ export default function SchemaBox({
                             tableRow={row}
                             rows={rows}
                             setRows={setRows}
+                            disabled={row.columnsToggleDisabled}
                             showOrdering={
                               peerType?.toString() ===
                               DBType[DBType.CLICKHOUSE].toString()
