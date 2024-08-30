@@ -1,6 +1,7 @@
 package peerdbenv
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -9,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/kms"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"golang.org/x/exp/constraints"
 )
 
@@ -73,19 +74,19 @@ func GetEnvJSON[T any](name string, defaultValue T) T {
 	return result
 }
 
-func decryptWithKMS(data []byte) ([]byte, error) {
+func decryptWithKMS(ctx context.Context, data []byte) ([]byte, error) {
 	keyID, exists := os.LookupEnv("PEERDB_KMS_KEY_ID")
 	if !exists {
 		return data, nil
 	}
 
-	sess, err := session.NewSession()
+	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create AWS session for decryption: %w", err)
+		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
-	kmsClient := kms.New(sess)
-	decrypted, err := kmsClient.Decrypt(&kms.DecryptInput{
+	kmsClient := kms.NewFromConfig(cfg)
+	decrypted, err := kmsClient.Decrypt(ctx, &kms.DecryptInput{
 		CiphertextBlob: data,
 		KeyId:          aws.String(keyID),
 	})
@@ -108,7 +109,7 @@ func GetEnvBase64EncodedBytes(name string, defaultValue []byte) ([]byte, error) 
 		return nil, fmt.Errorf("failed to decode base64 value for %s: %w", name, err)
 	}
 
-	return decryptWithKMS(decoded)
+	return decryptWithKMS(context.Background(), decoded)
 }
 
 func GetKMSDecryptedEnvString(name string, defaultValue string) (string, error) {
