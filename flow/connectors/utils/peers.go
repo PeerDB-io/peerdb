@@ -57,6 +57,12 @@ func CreatePeerNoValidate(
 			return wrongConfigResponse, nil
 		}
 		innerConfig = s3ConfigObject.S3Config
+	case protos.DBType_MYSQL:
+		myConfigObject, ok := config.(*protos.Peer_MysqlConfig)
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+		innerConfig = myConfigObject.MysqlConfig
 	case protos.DBType_CLICKHOUSE:
 		chConfigObject, ok := config.(*protos.Peer_ClickhouseConfig)
 		if !ok {
