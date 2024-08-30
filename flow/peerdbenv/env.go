@@ -114,7 +114,7 @@ func GetEnvBase64EncodedBytes(name string, defaultValue []byte) ([]byte, error) 
 func GetKMSDecryptedEnvString(name string, defaultValue string) (string, error) {
 	decrypted, err := GetEnvBase64EncodedBytes(name, []byte(defaultValue))
 	if err != nil {
-		return defaultValue, err
+		return defaultValue, fmt.Errorf("failed to get base64 encoded bytes for %s: %w", name, err)
 	}
 
 	return string(decrypted), nil
