@@ -44,7 +44,7 @@ interface SchemaBoxProps {
     SetStateAction<{ tableName: string; columns: string[] }[]>
   >;
   peerType?: DBType;
-  omitAdditionalTables: string[] | undefined;
+  alreadySelectedTables: string[] | undefined;
   initialLoadOnly?: boolean;
 }
 
@@ -56,7 +56,7 @@ export default function SchemaBox({
   setRows,
   tableColumns,
   setTableColumns,
-  omitAdditionalTables,
+  alreadySelectedTables,
   initialLoadOnly,
 }: SchemaBoxProps) {
   const [tablesLoading, setTablesLoading] = useState(false);
@@ -84,14 +84,6 @@ export default function SchemaBox({
     [expandedSchemas]
   );
 
-  const handleAddRow = (source: string) => {
-    const newRows = [...rows];
-    const index = newRows.findIndex((row) => row.source === source);
-    if (index >= 0) newRows[index] = { ...newRows[index], selected: true };
-    setRows(newRows);
-    addTableColumns(source);
-  };
-
   const handleRemoveRow = (source: string) => {
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
@@ -118,7 +110,7 @@ export default function SchemaBox({
     setRows(newRows);
   };
 
-  const addTableColumns = (table: string) => {
+  const addTableColumns = useCallback((table: string) => {
     const schemaName = table.split('.')[0];
     const tableName = table.split('.')[1];
 
@@ -129,6 +121,14 @@ export default function SchemaBox({
         });
       }
     );
+  },[sourcePeer, setTableColumns]);
+
+  const handleAddRow = (source: string) => {
+    const newRows = [...rows];
+    const index = newRows.findIndex((row) => row.source === source);
+    if (index >= 0) newRows[index] = { ...newRows[index], selected: true };
+    setRows(newRows);
+    addTableColumns(source);
   };
 
   const removeTableColumns = (table: string) => {
@@ -187,8 +187,9 @@ export default function SchemaBox({
         initialLoadOnly
       ).then((newRows) => {
         for (const row of newRows) {
-          if (omitAdditionalTables?.includes(row.source)) {
-            row.canMirror = false;
+          if (alreadySelectedTables?.includes(row.source)) {
+            row.selected = true;
+              addTableColumns(row.source);
           }
         }
         setRows((oldRows) => {
@@ -205,7 +206,7 @@ export default function SchemaBox({
       sourcePeer,
       defaultTargetSchema,
       peerType,
-      omitAdditionalTables,
+      alreadySelectedTables, addTableColumns,
       initialLoadOnly,
     ]
   );

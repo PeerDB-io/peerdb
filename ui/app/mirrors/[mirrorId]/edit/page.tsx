@@ -18,7 +18,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import TableMapping from '../../create/cdc/tablemapping';
-import { reformattedTableMapping } from '../../create/handlers';
+import { changesToTablesMapping } from '../../create/handlers';
 import { blankCDCSetting } from '../../create/helpers/common';
 import * as styles from '../../create/styles';
 import { getMirrorState } from '../handlers';
@@ -38,6 +38,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
     batchSize: defaultBatchSize,
     idleTimeout: defaultIdleTimeout,
     additionalTables: [],
+    removedTables: [],
     numberOfSyncs: 0,
   });
   const { push } = useRouter();
@@ -54,6 +55,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
           (res as MirrorStatusResponse).cdcStatus?.config?.idleTimeoutSeconds ||
           defaultIdleTimeout,
         additionalTables: [],
+        removedTables: [],
         numberOfSyncs: 0,
       });
     });
@@ -63,20 +65,33 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
     fetchStateAndUpdateDeps();
   }, [fetchStateAndUpdateDeps]);
 
-  const omitAdditionalTablesMapping: Map<string, string[]> = useMemo(() => {
-    const omitAdditionalTablesMapping: Map<string, string[]> = new Map();
+  const alreadySelectedTablesMapping: Map<string, string[]> = useMemo(() => {
+    const alreadySelectedTablesMap: Map<string, string[]> = new Map();
     mirrorState?.cdcStatus?.config?.tableMappings.forEach((value) => {
       const sourceSchema = value.sourceTableIdentifier.split('.').at(0)!;
-      const mapVal: string[] =
-        omitAdditionalTablesMapping.get(sourceSchema) || [];
+      const mapVal: string[] = alreadySelectedTablesMap.get(sourceSchema) || [];
       // needs to be schema qualified
       mapVal.push(value.sourceTableIdentifier);
-      omitAdditionalTablesMapping.set(sourceSchema, mapVal);
+      alreadySelectedTablesMap.set(sourceSchema, mapVal);
     });
-    return omitAdditionalTablesMapping;
+    return alreadySelectedTablesMap;
   }, [mirrorState]);
 
-  const additionalTables = useMemo(() => reformattedTableMapping(rows), [rows]);
+  const additionalTables = useMemo(() => {
+    return changesToTablesMapping(
+      rows,
+      alreadySelectedTablesMapping,
+      false
+    );;
+  }, [rows, alreadySelectedTablesMapping]);
+
+  const removedTables = useMemo(() => {
+    return changesToTablesMapping(
+      rows,
+      alreadySelectedTablesMapping,
+      true
+    );
+  }, [rows, alreadySelectedTablesMapping]);
 
   if (!mirrorState) {
     return <ProgressCircle variant='determinate_progress_circle' />;
@@ -88,7 +103,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
       flowJobName: mirrorId,
       requestedFlowState: FlowStatus.STATUS_UNKNOWN,
       flowConfigUpdate: {
-        cdcFlowConfigUpdate: { ...config, additionalTables },
+        cdcFlowConfigUpdate: { ...config, additionalTables, removedTables },
       },
       dropMirrorStats: false,
     };
@@ -188,7 +203,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
         peerType={mirrorState.cdcStatus?.destinationType}
         rows={rows}
         setRows={setRows}
-        omitAdditionalTablesMapping={omitAdditionalTablesMapping}
+        alreadySelectedTablesMapping={alreadySelectedTablesMapping}
         initialLoadOnly={false}
       />
 

@@ -181,6 +181,36 @@ export function reformattedTableMapping(
     }));
 }
 
+export function changesToTablesMapping(
+  tableMapping: TableMapRow[],
+  currentTableMapping: Map<string, string[]>,
+  isRemoval: boolean
+): TableMapping[] {
+  const mapping = tableMapping
+    .filter((row) => {
+      const isSelected = row?.selected === true && row?.canMirror === true;
+      const isCurrentMapping = currentTableMapping
+        .get(row.schema)
+        ?.includes(row.source);
+      // if not in current mapping, and selected, it's an addition
+      if (!isCurrentMapping && isSelected && !isRemoval) {
+        return true;
+      }
+      // if in current mapping, and not selected, it's a removal
+      if (isCurrentMapping && !isSelected && isRemoval) {
+        return true;
+      }
+      return false;
+    })
+    .map((row) => ({
+      sourceTableIdentifier: row.source,
+      destinationTableIdentifier: row.destination,
+      partitionKey: row.partitionKey,
+      exclude: Array.from(row.exclude),
+    }));
+  return mapping;
+}
+
 function processCDCConfig(a: CDCConfig): FlowConnectionConfigs {
   if (a.disablePeerDBColumns) {
     a.softDeleteColName = '';

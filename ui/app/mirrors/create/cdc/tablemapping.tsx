@@ -17,7 +17,7 @@ interface TableMappingProps {
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
   peerType?: DBType;
   // schema -> omitted source table mapping
-  omitAdditionalTablesMapping: Map<string, string[]>;
+  alreadySelectedTablesMapping: Map<string, string[]>;
   initialLoadOnly: boolean;
 }
 
@@ -26,7 +26,7 @@ export default function TableMapping({
   rows,
   setRows,
   peerType,
-  omitAdditionalTablesMapping,
+  alreadySelectedTablesMapping,
   initialLoadOnly,
 }: TableMappingProps) {
   const [allSchemas, setAllSchemas] = useState<string[]>();
@@ -113,7 +113,7 @@ export default function TableMapping({
               tableColumns={tableColumns}
               setTableColumns={setTableColumns}
               peerType={peerType}
-              omitAdditionalTables={omitAdditionalTablesMapping.get(schema)}
+              alreadySelectedTables={alreadySelectedTablesMapping.get(schema)}
               initialLoadOnly={initialLoadOnly}
             />
           ))

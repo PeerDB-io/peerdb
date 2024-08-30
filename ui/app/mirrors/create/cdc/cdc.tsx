@@ -178,7 +178,7 @@ export default function CDCConfigForm({
           rows={rows}
           setRows={setRows}
           peerType={destinationType}
-          omitAdditionalTablesMapping={new Map<string, string[]>()}
+          alreadySelectedTablesMapping={new Map<string, string[]>()}
           initialLoadOnly={mirrorConfig.initialSnapshotOnly}
         />
       </>

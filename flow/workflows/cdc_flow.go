@@ -108,6 +108,8 @@ func processCDCFlowConfigUpdate(
 		return nil
 	}
 
+	logger.Info("processing CDCFlowConfigUpdate", slog.Any("updatedState", flowConfigUpdate))
+
 	if tablesAreAdded {
 		err := processTableAdditions(ctx, logger, cfg, state, mirrorNameSearch)
 		if err != nil {
@@ -123,8 +125,6 @@ func processCDCFlowConfigUpdate(
 			return err
 		}
 	}
-
-	logger.Info("processing CDCFlowConfigUpdate", slog.Any("updatedState", flowConfigUpdate))
 
 	syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
 	return nil
@@ -233,6 +233,22 @@ func processTableRemovals(
 	}
 	logger.Info("tables removed from raw table")
 
+	// remove the tables from the sync flow options
+	for _, removedTable := range state.FlowConfigUpdate.RemovedTables {
+		maps.DeleteFunc(state.SyncFlowOptions.TableNameSchemaMapping, func(k string, v *protos.TableSchema) bool {
+			return k == removedTable.SourceTableIdentifier
+		})
+		maps.DeleteFunc(state.SyncFlowOptions.SrcTableIdNameMapping, func(k uint32, v string) bool {
+			return v == removedTable.SourceTableIdentifier
+		})
+		for i, tableMapping := range state.SyncFlowOptions.TableMappings {
+			if tableMapping.DestinationTableIdentifier == removedTable.DestinationTableIdentifier {
+				state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings[:i], state.SyncFlowOptions.TableMappings[i+1:]...)
+				break
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -271,6 +287,7 @@ func addCdcPropertiesSignalListener(
 			slog.Int("BatchSize", int(state.SyncFlowOptions.BatchSize)),
 			slog.Int("IdleTimeout", int(state.SyncFlowOptions.IdleTimeoutSeconds)),
 			slog.Any("AdditionalTables", cdcConfigUpdate.AdditionalTables),
+			slog.Any("RemovedTables", cdcConfigUpdate.RemovedTables),
 			slog.Int("NumberOfSyncs", int(state.SyncFlowOptions.NumberOfSyncs)))
 	})
 }
