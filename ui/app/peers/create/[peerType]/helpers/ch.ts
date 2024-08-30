@@ -135,4 +135,5 @@ export const blankClickhouseSetting: ClickhouseConfig = {
   region: '',
   disableTls: false,
   endpoint: undefined,
+  roleArn: undefined,
 };
