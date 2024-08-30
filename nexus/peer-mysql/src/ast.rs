@@ -4,7 +4,7 @@ use peer_ast::flatten_expr_to_in_list;
 use serde_json::{self, Value as JsonValue};
 use sqlparser::ast::{
     visit_expressions_mut, visit_function_arg_mut, visit_relations_mut, Array, BinaryOperator,
-    DataType, Expr, FunctionArgExpr, Offset, Query, Value,
+    DataType, Expr, FunctionArgExpr, Offset, Query, TimezoneInfo, Value,
 };
 
 fn json_to_expr(val: JsonValue) -> Expr {
@@ -92,20 +92,32 @@ pub fn rewrite_query(peername: &str, query: &mut Query) {
 
     // flatten ANY to IN operation overall.
     visit_expressions_mut(query, |node| {
-        if let Expr::AnyOp {
-            left,
-            compare_op,
-            right,
-        } = node
-        {
-            if matches!(compare_op, BinaryOperator::Eq | BinaryOperator::NotEq) {
-                let list = flatten_expr_to_in_list(right).expect("failed to flatten");
-                *node = Expr::InList {
-                    expr: left.clone(),
-                    list,
-                    negated: matches!(compare_op, BinaryOperator::NotEq),
-                };
+        match node {
+            Expr::AnyOp {
+                left,
+                compare_op,
+                right,
+            } => {
+                if matches!(compare_op, BinaryOperator::Eq | BinaryOperator::NotEq) {
+                    let list = flatten_expr_to_in_list(right).expect("failed to flatten");
+                    *node = Expr::InList {
+                        expr: left.clone(),
+                        list,
+                        negated: matches!(compare_op, BinaryOperator::NotEq),
+                    };
+                }
             }
+            Expr::Cast {
+                data_type: DataType::Time(_, ref mut tzinfo), ..
+            } => {
+                *tzinfo = TimezoneInfo::None;
+            }
+            Expr::Cast {
+                ref mut data_type, ..
+            } if matches!(data_type, DataType::Timestamp(..)) =>{
+                *data_type = DataType::Datetime(Some(6));
+            }
+            _ => {}
         }
 
         ControlFlow::<()>::Continue(())
