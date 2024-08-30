@@ -101,7 +101,37 @@ func processCDCFlowConfigUpdate(
 		state.SyncFlowOptions.NumberOfSyncs = flowConfigUpdate.NumberOfSyncs
 	}
 
+	tablesAreAdded := len(flowConfigUpdate.AdditionalTables) > 0
+	tablesAreRemoved := len(flowConfigUpdate.RemovedTables) > 0
+	if !tablesAreAdded && !tablesAreRemoved {
+		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
+		return nil
+	}
+
+	if tablesAreAdded {
+		err := processTableAdditions(ctx, logger, cfg, state, mirrorNameSearch)
+		if err != nil {
+			return err
+		}
+	}
+
+	if tablesAreRemoved {
+	}
+
 	logger.Info("processing CDCFlowConfigUpdate", slog.Any("updatedState", flowConfigUpdate))
+
+	syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
+	return nil
+}
+
+func processTableAdditions(
+	ctx workflow.Context,
+	logger log.Logger,
+	cfg *protos.FlowConnectionConfigs,
+	state *CDCFlowWorkflowState,
+	mirrorNameSearch map[string]interface{},
+) error {
+	flowConfigUpdate := state.FlowConfigUpdate
 	if len(flowConfigUpdate.AdditionalTables) == 0 {
 		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
 		return nil
@@ -161,8 +191,43 @@ func processCDCFlowConfigUpdate(
 
 	state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
 	logger.Info("additional tables added to sync flow")
+	return nil
+}
 
-	syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
+func processTableRemovals(
+	ctx workflow.Context,
+	logger log.Logger,
+	cfg *protos.FlowConnectionConfigs,
+	state *CDCFlowWorkflowState,
+	mirrorNameSearch map[string]interface{},
+) error {
+	flowConfigUpdate := state.FlowConfigUpdate
+	if len(flowConfigUpdate.AdditionalTables) == 0 {
+		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
+		return nil
+	}
+	if shared.AdditionalTablesHasOverlap(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables) {
+		logger.Warn("duplicate source/destination tables found in additionalTables")
+		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
+		return nil
+	}
+	state.CurrentFlowStatus = protos.FlowStatus_STATUS_SNAPSHOT
+
+	logger.Info("altering publication for removed tables")
+	alterPublicationRemoveTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+	})
+	alterPublicationRemovedTablesFuture := workflow.ExecuteActivity(
+		alterPublicationRemoveTablesCtx,
+		flowable.RemoveTablesFromPublication,
+		cfg, flowConfigUpdate.RemovedTables)
+	if err := alterPublicationRemovedTablesFuture.Get(ctx, nil); err != nil {
+		logger.Error("failed to alter publication for removed tables: ", err)
+		return err
+	}
+	logger.Info("removed tables removed from publication")
+
+	// TODO remove from raw table
 	return nil
 }
 

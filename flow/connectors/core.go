@@ -88,6 +88,9 @@ type CDCPullConnectorCore interface {
 
 	// AddTablesToPublication adds additional tables added to a mirror to the publication also
 	AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error
+
+	// RemoveTablesFromPublication removes tables from the publication
+	RemoveTablesFromPublication(ctx context.Context, req *protos.RemoveTablesFromPublicationInput) error
 }
 
 type CDCPullConnector interface {

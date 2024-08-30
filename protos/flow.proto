@@ -389,6 +389,7 @@ message CDCFlowConfigUpdate {
   uint32 batch_size = 2;
   uint64 idle_timeout = 3;
   int32 number_of_syncs = 4;
+  repeated TableMapping removed_tables = 5;
 }
 
 message QRepFlowConfigUpdate {
@@ -410,6 +411,12 @@ message AddTablesToPublicationInput {
   string flow_job_name = 1;
   string publication_name = 2;
   repeated TableMapping additional_tables = 3;
+}
+
+message RemoveTablesFromPublicationInput {
+  string flow_job_name = 1;
+  string publication_name = 2;
+  repeated TableMapping tables_to_remove = 3;
 }
 
 message IsQRepPartitionSyncedInput {

@@ -1246,7 +1246,6 @@ func getOpenReplicationConnectionsForUser(ctx context.Context, conn *pgx.Conn, u
 }
 
 func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error {
-	// don't modify custom publications
 	if req == nil || len(req.AdditionalTables) == 0 {
 		return nil
 	}
@@ -1290,6 +1289,41 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 				slog.String("publication", c.getDefaultPublicationName(req.FlowJobName)),
 				slog.String("table", additionalSrcTable))
 		}
+	}
+
+	return nil
+}
+
+func (c *PostgresConnector) RemoveTablesFromPublication(ctx context.Context, req *protos.RemoveTablesFromPublicationInput) error {
+	if req == nil || len(req.TablesToRemove) == 0 {
+		return nil
+	}
+
+	tablesToRemove := make([]string, 0, len(req.TablesToRemove))
+	for _, tableToRemove := range req.TablesToRemove {
+		tablesToRemove = append(tablesToRemove, tableToRemove.SourceTableIdentifier)
+	}
+
+	if req.PublicationName == "" {
+		for _, tableToRemove := range tablesToRemove {
+			schemaTable, err := utils.ParseSchemaTable(tableToRemove)
+			if err != nil {
+				return err
+			}
+			_, err = c.execWithLogging(ctx, fmt.Sprintf("ALTER PUBLICATION %s DROP TABLE %s",
+				utils.QuoteIdentifier(c.getDefaultPublicationName(req.FlowJobName)),
+				schemaTable.String()))
+			// don't error out if table is already removed from our publication
+			if err != nil && !shared.IsSQLStateError(err, pgerrcode.UndefinedObject) {
+				return fmt.Errorf("failed to alter publication: %w", err)
+			}
+			c.logger.Info("removed table from publication",
+				slog.String("publication", c.getDefaultPublicationName(req.FlowJobName)),
+				slog.String("table", tableToRemove))
+		}
+	} else {
+		c.logger.Info("custom publication provided, no need to remove tables",
+			slog.String("publication", req.PublicationName))
 	}
 
 	return nil

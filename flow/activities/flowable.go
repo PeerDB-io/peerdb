@@ -831,3 +831,24 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 	}
 	return err
 }
+
+func (a *FlowableActivity) RemoveTablesFromPublication(ctx context.Context, cfg *protos.FlowConnectionConfigs,
+	removedTablesMapping []*protos.TableMapping,
+) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
+	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, cfg.Env, a.CatalogPool, cfg.SourceName)
+	if err != nil {
+		return fmt.Errorf("failed to get source connector: %w", err)
+	}
+	defer connectors.CloseConnector(ctx, srcConn)
+
+	err = srcConn.RemoveTablesFromPublication(ctx, &protos.RemoveTablesFromPublicationInput{
+		FlowJobName:     cfg.FlowJobName,
+		PublicationName: cfg.PublicationName,
+		TablesToRemove:  removedTablesMapping,
+	})
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
+	}
+	return err
+}
