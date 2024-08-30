@@ -14,7 +14,6 @@ const StatTable = ({ peerName }: { peerName: string }) => {
   const [search, setSearch] = useState('');
   const [data, setData] = useState<StatInfo[]>([]);
   const filteredData = useMemo(() => {
-    console.log(data);
     return data.filter((stat) => {
       return stat.query.toLowerCase().includes(search.toLowerCase());
     });
