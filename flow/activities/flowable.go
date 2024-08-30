@@ -852,3 +852,32 @@ func (a *FlowableActivity) RemoveTablesFromPublication(ctx context.Context, cfg 
 	}
 	return err
 }
+
+func (a *FlowableActivity) RemoveTablesFromRawTable(ctx context.Context, cfg *protos.FlowConnectionConfigs,
+	tablesToRemove []*protos.TableMapping,
+) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
+	dstConn, err := connectors.GetByNameAs[connectors.RawTableConnector](ctx, cfg.Env, a.CatalogPool, cfg.DestinationName)
+	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			// For connectors where raw table is not a concept,
+			// we can ignore the error
+			return nil
+		}
+		return fmt.Errorf("[RemoveTablesFromRawTable]:failed to get destination connector: %w", err)
+	}
+	defer connectors.CloseConnector(ctx, dstConn)
+
+	tableNames := make([]string, 0, len(tablesToRemove))
+	for _, table := range tablesToRemove {
+		tableNames = append(tableNames, table.DestinationTableIdentifier)
+	}
+	err = dstConn.RemoveTableEntriesFromRawTable(ctx, &protos.RemoveTablesFromRawTableInput{
+		FlowJobName:           cfg.FlowJobName,
+		DestinationTableNames: tableNames,
+	})
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
+	}
+	return err
+}

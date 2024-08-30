@@ -1421,3 +1421,21 @@ func (c *PostgresConnector) RenameTables(ctx context.Context, req *protos.Rename
 		FlowJobName: req.FlowJobName,
 	}, nil
 }
+
+func (c *PostgresConnector) RemoveTableEntriesFromRawTable(
+	ctx context.Context,
+	removedTables *protos.RemoveTablesFromRawTableInput,
+) error {
+	rawTableIdentifier := getRawTableIdentifier(removedTables.FlowJobName)
+	for _, tableName := range removedTables.DestinationTableNames {
+		_, err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE _peerdb_destination_table_name = '%s'",
+			QuoteIdentifier(rawTableIdentifier), tableName))
+		if err != nil {
+			c.logger.Error("failed to remove entries from raw table", "error", err)
+		}
+
+		c.logger.Info(fmt.Sprintf("successfully removed entries for table '%s' from raw table", tableName))
+	}
+
+	return nil
+}

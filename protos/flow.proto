@@ -87,6 +87,11 @@ message RenameTablesInput {
   string synced_at_col_name = 8;
 }
 
+message RemoveTablesFromRawTableInput {
+  string flow_job_name = 1;
+  repeated string destination_table_names = 2;
+}
+
 message RenameTablesOutput {
   string flow_job_name = 1;
 }

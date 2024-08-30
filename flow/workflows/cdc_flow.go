@@ -111,11 +111,17 @@ func processCDCFlowConfigUpdate(
 	if tablesAreAdded {
 		err := processTableAdditions(ctx, logger, cfg, state, mirrorNameSearch)
 		if err != nil {
+			logger.Error("failed to process additional tables", slog.Any("error", err))
 			return err
 		}
 	}
 
 	if tablesAreRemoved {
+		err := processTableRemovals(ctx, logger, cfg, state)
+		if err != nil {
+			logger.Error("failed to process removed tables", slog.Any("error", err))
+			return err
+		}
 	}
 
 	logger.Info("processing CDCFlowConfigUpdate", slog.Any("updatedState", flowConfigUpdate))
@@ -199,20 +205,7 @@ func processTableRemovals(
 	logger log.Logger,
 	cfg *protos.FlowConnectionConfigs,
 	state *CDCFlowWorkflowState,
-	mirrorNameSearch map[string]interface{},
 ) error {
-	flowConfigUpdate := state.FlowConfigUpdate
-	if len(flowConfigUpdate.AdditionalTables) == 0 {
-		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
-		return nil
-	}
-	if shared.AdditionalTablesHasOverlap(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables) {
-		logger.Warn("duplicate source/destination tables found in additionalTables")
-		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
-		return nil
-	}
-	state.CurrentFlowStatus = protos.FlowStatus_STATUS_SNAPSHOT
-
 	logger.Info("altering publication for removed tables")
 	alterPublicationRemoveTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
@@ -220,14 +213,26 @@ func processTableRemovals(
 	alterPublicationRemovedTablesFuture := workflow.ExecuteActivity(
 		alterPublicationRemoveTablesCtx,
 		flowable.RemoveTablesFromPublication,
-		cfg, flowConfigUpdate.RemovedTables)
+		cfg, state.FlowConfigUpdate.RemovedTables)
 	if err := alterPublicationRemovedTablesFuture.Get(ctx, nil); err != nil {
 		logger.Error("failed to alter publication for removed tables: ", err)
 		return err
 	}
-	logger.Info("removed tables removed from publication")
+	logger.Info("tables removed from publication")
 
-	// TODO remove from raw table
+	rawTableCleanupOptionsCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+	})
+	rawTableCleanupFuture := workflow.ExecuteActivity(
+		rawTableCleanupOptionsCtx,
+		flowable.RemoveTablesFromRawTable,
+		cfg, state.FlowConfigUpdate.RemovedTables)
+	if err := rawTableCleanupFuture.Get(ctx, nil); err != nil {
+		logger.Error("failed to clean up raw table for removed tables: ", err)
+		return err
+	}
+	logger.Info("tables removed from raw table")
+
 	return nil
 }
 
