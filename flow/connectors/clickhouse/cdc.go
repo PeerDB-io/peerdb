@@ -169,8 +169,8 @@ func (c *ClickhouseConnector) RenameTables(ctx context.Context, req *protos.Rena
 		c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", renameRequest.NewName))
 		err := c.execWithLogging(ctx,
 			fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
-				renameRequest.CurrentName, fmt.Sprintf("%s,%s", allCols, signColName), allCols,
-				signColName,
+				renameRequest.CurrentName, fmt.Sprintf("%s,%s", allCols, isDeletedColName), allCols,
+				isDeletedColName,
 				renameRequest.NewName, pkeyCols, pkeyCols, renameRequest.CurrentName))
 		if err != nil {
 			return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", renameRequest.NewName, err)

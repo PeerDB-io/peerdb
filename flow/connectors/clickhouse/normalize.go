@@ -16,10 +16,10 @@ import (
 )
 
 const (
-	signColName    = "_peerdb_is_deleted"
-	signColType    = "Int8"
-	versionColName = "_peerdb_version"
-	versionColType = "Int64"
+	isDeletedColName = "_peerdb_is_deleted"
+	isDeletedColType = "UInt8"
+	versionColName   = "_peerdb_version"
+	versionColType   = "UInt64"
 )
 
 func (c *ClickhouseConnector) StartSetupNormalizedTables(_ context.Context) (interface{}, error) {
@@ -106,8 +106,9 @@ func generateCreateTableSQLForNormalizedTable(
 
 	// add sign and version columns
 	stmtBuilder.WriteString(fmt.Sprintf(
-		"`%s` %s, `%s` %s) ENGINE = ReplacingMergeTree(`%s`)",
-		signColName, signColType, versionColName, versionColType, versionColName))
+		"`%s` %s, `%s` %s) ENGINE = ReplacingMergeTree(`%s`, `%s`)",
+		isDeletedColName, isDeletedColType, versionColName, versionColType, versionColName,
+		isDeletedColName))
 
 	pkeys := tableSchema.PrimaryKeyColumns
 	if len(pkeys) > 0 {
@@ -207,8 +208,8 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 		}
 
 		// add _peerdb_sign as _peerdb_record_type / 2
-		projection.WriteString(fmt.Sprintf("intDiv(_peerdb_record_type, 2) AS `%s`,", signColName))
-		colSelector.WriteString(fmt.Sprintf("`%s`,", signColName))
+		projection.WriteString(fmt.Sprintf("intDiv(_peerdb_record_type, 2) AS `%s`,", isDeletedColName))
+		colSelector.WriteString(fmt.Sprintf("`%s`,", isDeletedColName))
 
 		// add _peerdb_timestamp as _peerdb_version
 		projection.WriteString(fmt.Sprintf("_peerdb_timestamp AS `%s`", versionColName))
