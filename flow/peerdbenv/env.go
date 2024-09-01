@@ -16,6 +16,10 @@ import (
 	"golang.org/x/exp/constraints"
 )
 
+const (
+	KMSKeyIDEnvVar = "PEERDB_KMS_KEY_ID"
+)
+
 // GetEnvInt returns the value of the environment variable with the given name
 // or defaultValue if the environment variable is not set or is not a valid value.
 func getEnvInt(name string, defaultValue int) int {
@@ -75,7 +79,7 @@ func GetEnvJSON[T any](name string, defaultValue T) T {
 }
 
 func decryptWithKMS(ctx context.Context, data []byte) ([]byte, error) {
-	keyID, exists := os.LookupEnv("PEERDB_KMS_KEY_ID")
+	keyID, exists := os.LookupEnv(KMSKeyIDEnvVar)
 	if !exists {
 		return data, nil
 	}
@@ -113,10 +117,20 @@ func GetEnvBase64EncodedBytes(name string, defaultValue []byte) ([]byte, error) 
 }
 
 func GetKMSDecryptedEnvString(name string, defaultValue string) (string, error) {
-	decrypted, err := GetEnvBase64EncodedBytes(name, []byte(defaultValue))
+	val, ok := os.LookupEnv(name)
+	if !ok {
+		return defaultValue, nil
+	}
+
+	_, exists := os.LookupEnv(KMSKeyIDEnvVar)
+	if !exists {
+		return val, nil
+	}
+
+	ret, err := GetEnvBase64EncodedBytes(name, []byte(defaultValue))
 	if err != nil {
 		return defaultValue, fmt.Errorf("failed to get base64 encoded bytes for %s: %w", name, err)
 	}
 
-	return string(decrypted), nil
+	return string(ret), nil
 }
