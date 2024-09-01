@@ -7,6 +7,9 @@ use std::{
 
 use analyzer::{PeerDDL, QueryAssociation};
 use async_trait::async_trait;
+use aws_config::{meta::region::RegionProviderChain, BehaviorVersion};
+use aws_sdk_kms::{primitives::Blob, Client as KmsClient};
+use base64::{engine::general_purpose, Engine as _};
 use bytes::{BufMut, BytesMut};
 use catalog::{Catalog, CatalogConfig};
 use clap::Parser;
@@ -932,17 +935,55 @@ struct Args {
     /// If set to true, nexus will exit after running migrations
     #[clap(long, default_value = "false", env = "PEERDB_MIGRATIONS_ONLY")]
     migrations_only: bool,
+
+    /// KMS Key ID for decrypting the catalog password
+    #[clap(long, env = "PEERDB_KMS_KEY_ID")]
+    kms_key_id: Option<String>,
+}
+
+async fn decrypt_password(encrypted_password: &str, kms_key_id: &str) -> anyhow::Result<String> {
+    let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
+    let config = aws_config::defaults(BehaviorVersion::v2024_03_28())
+        .region(region_provider)
+        .load()
+        .await;
+    let client = KmsClient::new(&config);
+
+    let decoded = general_purpose::STANDARD
+        .decode(encrypted_password)
+        .expect("Input does not contain valid base64 characters.");
+
+    let resp = client
+        .decrypt()
+        .key_id(kms_key_id)
+        .ciphertext_blob(Blob::new(decoded))
+        .send()
+        .await?;
+
+    let inner = resp.plaintext.unwrap();
+    let bytes = inner.as_ref();
+
+    let password =
+        String::from_utf8(bytes.to_vec()).expect("Could not convert decrypted data to UTF-8");
+
+    Ok(password)
 }
 
 // Get catalog config from args
-fn get_catalog_config(args: &Args) -> CatalogConfig {
-    CatalogConfig {
+async fn get_catalog_config(args: &Args) -> anyhow::Result<CatalogConfig<'_>> {
+    let password = if let Some(kms_key_id) = &args.kms_key_id {
+        decrypt_password(&args.catalog_password, kms_key_id).await?
+    } else {
+        args.catalog_password.clone()
+    };
+
+    Ok(CatalogConfig {
         host: &args.catalog_host,
         port: args.catalog_port,
         user: &args.catalog_user,
-        password: &args.catalog_password,
+        password,
         database: &args.catalog_database,
-    }
+    })
 }
 
 pub struct NexusServerParameterProvider;
@@ -1057,7 +1098,7 @@ pub async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
     let _guard = setup_tracing(args.log_dir.as_ref().map(|s| &s[..]));
-    let catalog_config = get_catalog_config(&args);
+    let catalog_config = get_catalog_config(&args).await?;
 
     run_migrations(&catalog_config).await?;
     if args.migrations_only {
