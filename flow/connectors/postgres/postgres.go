@@ -360,7 +360,7 @@ func pullCore[Items model.Items](
 
 	if !exists.SlotExists {
 		c.logger.Warn(fmt.Sprintf("slot %s does not exist", slotName))
-		return fmt.Errorf("replication slot %s does not exist", slotName)
+		return temporal.NewNonRetryableApplicationError(fmt.Sprintf("replication slot %s does not exist, restarting workflow", slotName), "disconnect", nil)
 	}
 
 	c.logger.Info("PullRecords: performed checks for slot and publication")
@@ -371,6 +371,10 @@ func pullCore[Items model.Items](
 	}
 
 	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset); err != nil {
+		// in case of Aurora error ERROR: replication slots cannot be used on RO (Read Only) node (SQLSTATE 55000)
+		if shared.IsSQLStateError(err, pgerrcode.ObjectNotInPrerequisiteState) {
+			return temporal.NewNonRetryableApplicationError("reset connection to reconcile Aurora failover", "disconnect", err)
+		}
 		c.logger.Error("error starting replication", slog.Any("error", err))
 		return err
 	}
