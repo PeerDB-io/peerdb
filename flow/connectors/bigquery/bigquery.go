@@ -704,18 +704,16 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 
 	if isResync {
 		_, existsErr := table.Metadata(ctx)
-		if existsErr != nil {
-			if !strings.Contains(existsErr.Error(), "notFound") {
-				return false, fmt.Errorf("error while checking metadata for BigQuery resynced table %s: %w",
-					tableIdentifier, existsErr)
-			}
-		} else {
+		if existsErr == nil {
 			c.logger.Info("[bigquery] deleting existing resync table",
 				slog.String("table", tableIdentifier))
 			deleteErr := table.Delete(ctx)
 			if deleteErr != nil {
 				return false, fmt.Errorf("failed to delete table %s: %w", tableIdentifier, deleteErr)
 			}
+		} else if !strings.Contains(existsErr.Error(), "notFound") {
+			return false, fmt.Errorf("error while checking metadata for BigQuery resynced table %s: %w",
+				tableIdentifier, existsErr)
 		}
 	}
 

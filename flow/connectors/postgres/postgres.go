@@ -877,9 +877,12 @@ func (c *PostgresConnector) SetupNormalizedTable(
 		c.logger.Info("[postgres] table already exists, skipping",
 			slog.String("table", tableIdentifier))
 		if isResync {
-			c.ExecuteCommand(ctx, fmt.Sprintf(dropTableIfExistsSQL,
+			err := c.ExecuteCommand(ctx, fmt.Sprintf(dropTableIfExistsSQL,
 				QuoteIdentifier(parsedNormalizedTable.Schema),
 				QuoteIdentifier(parsedNormalizedTable.Table)))
+			if err != nil {
+				return false, fmt.Errorf("error while dropping _resync table: %w", err)
+			}
 		}
 		return true, nil
 	}

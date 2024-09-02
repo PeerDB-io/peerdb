@@ -38,7 +38,7 @@ const (
 	createDummyTableSQL               = "CREATE TABLE IF NOT EXISTS %s.%s(_PEERDB_DUMMY_COL STRING)"
 	rawTableMultiValueInsertSQL       = "INSERT INTO %s.%s VALUES%s"
 	createNormalizedTableSQL          = "CREATE TABLE IF NOT EXISTS %s(%s)"
-	createOrReplaceNormalizedTableSQL = "CREATE OR REPLACE TABLE IF NOT EXISTS %s(%s)"
+	createOrReplaceNormalizedTableSQL = "CREATE OR REPLACE TABLE %s(%s)"
 	toVariantColumnName               = "VAR_COLS"
 	mergeStatementSQL                 = `MERGE INTO %s TARGET USING (WITH VARIANT_CONVERTED AS (
 		SELECT _PEERDB_UID,_PEERDB_TIMESTAMP,TO_VARIANT(PARSE_JSON(_PEERDB_DATA)) %s,_PEERDB_RECORD_TYPE,
