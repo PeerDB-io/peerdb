@@ -39,6 +39,7 @@ interface SchemaBoxProps {
   >;
   peerType?: DBType;
   omitAdditionalTables: string[] | undefined;
+  initialLoadOnly?: boolean;
 }
 
 const SchemaBox = ({
@@ -50,6 +51,7 @@ const SchemaBox = ({
   tableColumns,
   setTableColumns,
   omitAdditionalTables,
+  initialLoadOnly,
 }: SchemaBoxProps) => {
   const [tablesLoading, setTablesLoading] = useState(false);
   const [columnsLoading, setColumnsLoading] = useState(false);
@@ -164,30 +166,41 @@ const SchemaBox = ({
   const fetchTablesForSchema = useCallback(
     (schemaName: string) => {
       setTablesLoading(true);
-      fetchTables(sourcePeer, schemaName, defaultTargetSchema, peerType).then(
-        (newRows) => {
-          for (const row of newRows) {
-            if (omitAdditionalTables?.includes(row.source)) {
-              row.canMirror = false;
-            }
+      fetchTables(
+        sourcePeer,
+        schemaName,
+        defaultTargetSchema,
+        peerType,
+        initialLoadOnly
+      ).then((newRows) => {
+        for (const row of newRows) {
+          if (omitAdditionalTables?.includes(row.source)) {
+            row.canMirror = false;
           }
-          setRows((oldRows) => {
-            const filteredRows = oldRows.filter(
-              (oldRow) => oldRow.schema !== schemaName
-            );
-            const updatedRows = [...filteredRows, ...newRows];
-            return updatedRows;
-          });
-          setTablesLoading(false);
         }
-      );
+        setRows((oldRows) => {
+          const filteredRows = oldRows.filter(
+            (oldRow) => oldRow.schema !== schemaName
+          );
+          const updatedRows = [...filteredRows, ...newRows];
+          return updatedRows;
+        });
+        setTablesLoading(false);
+      });
     },
-    [setRows, sourcePeer, defaultTargetSchema, peerType, omitAdditionalTables]
+    [
+      setRows,
+      sourcePeer,
+      defaultTargetSchema,
+      peerType,
+      omitAdditionalTables,
+      initialLoadOnly,
+    ]
   );
 
   useEffect(() => {
     fetchTablesForSchema(schema);
-  }, [schema, fetchTablesForSchema]);
+  }, [schema, fetchTablesForSchema, initialLoadOnly]);
 
   return (
     <div style={schemaBoxStyle}>

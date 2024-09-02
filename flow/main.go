@@ -29,18 +29,6 @@ func main() {
 		Sources: cli.EnvVars("TEMPORAL_HOST_PORT"),
 	}
 
-	temporalCertFlag := cli.StringFlag{
-		Name:    "temporal-cert",
-		Value:   "", // default: no cert needed
-		Sources: cli.EnvVars("TEMPORAL_CLIENT_CERT"),
-	}
-
-	temporalKeyFlag := cli.StringFlag{
-		Name:    "temporal-key",
-		Value:   "", // default: no key needed
-		Sources: cli.EnvVars("TEMPORAL_CLIENT_KEY"),
-	}
-
 	profilingFlag := &cli.BoolFlag{
 		Name:    "enable-profiling",
 		Value:   false, // Default is off
@@ -95,8 +83,6 @@ func main() {
 						EnableOtelMetrics:                  clicmd.Bool("enable-otel-metrics"),
 						PyroscopeServer:                    clicmd.String("pyroscope-server-address"),
 						TemporalNamespace:                  clicmd.String("temporal-namespace"),
-						TemporalCert:                       clicmd.String("temporal-cert"),
-						TemporalKey:                        clicmd.String("temporal-key"),
 						TemporalMaxConcurrentActivities:    int(clicmd.Int("temporal-max-concurrent-activities")),
 						TemporalMaxConcurrentWorkflowTasks: int(clicmd.Int("temporal-max-concurrent-workflow-tasks")),
 					})
@@ -112,8 +98,6 @@ func main() {
 					otelMetricsFlag,
 					pyroscopeServerFlag,
 					temporalNamespaceFlag,
-					&temporalCertFlag,
-					&temporalKeyFlag,
 					temporalMaxConcurrentActivitiesFlag,
 					temporalMaxConcurrentWorkflowTasksFlag,
 				},
@@ -125,8 +109,6 @@ func main() {
 					c, w, err := cmd.SnapshotWorkerMain(&cmd.SnapshotWorkerOptions{
 						TemporalHostPort:  temporalHostPort,
 						TemporalNamespace: clicmd.String("temporal-namespace"),
-						TemporalCert:      clicmd.String("temporal-cert"),
-						TemporalKey:       clicmd.String("temporal-key"),
 					})
 					if err != nil {
 						return err
@@ -137,8 +119,6 @@ func main() {
 				Flags: []cli.Flag{
 					temporalHostPortFlag,
 					temporalNamespaceFlag,
-					&temporalCertFlag,
-					&temporalKeyFlag,
 				},
 			},
 			{
@@ -156,8 +136,6 @@ func main() {
 					},
 					temporalHostPortFlag,
 					temporalNamespaceFlag,
-					&temporalCertFlag,
-					&temporalKeyFlag,
 				},
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
@@ -167,8 +145,6 @@ func main() {
 						TemporalHostPort:  temporalHostPort,
 						GatewayPort:       uint16(clicmd.Uint("gateway-port")),
 						TemporalNamespace: clicmd.String("temporal-namespace"),
-						TemporalCert:      clicmd.String("temporal-cert"),
-						TemporalKey:       clicmd.String("temporal-key"),
 					})
 				},
 			},

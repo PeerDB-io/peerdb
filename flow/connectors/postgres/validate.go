@@ -14,7 +14,7 @@ import (
 )
 
 func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
-	tableNames []*utils.SchemaTable, pubName string,
+	tableNames []*utils.SchemaTable, pubName string, noCDC bool,
 ) error {
 	if c.conn == nil {
 		return errors.New("check tables: conn is nil")
@@ -36,7 +36,7 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 
 	tableStr := strings.Join(tableArr, ",")
 
-	if pubName != "" {
+	if pubName != "" && !noCDC {
 		// Check if publication exists
 		err := c.conn.QueryRow(ctx, "SELECT pubname FROM pg_publication WHERE pubname=$1", pubName).Scan(nil)
 		if err != nil {

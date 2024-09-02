@@ -365,13 +365,14 @@ export async function fetchTables(
   peerName: string,
   schemaName: string,
   targetSchemaName: string,
-  peerType?: DBType
+  peerType?: DBType,
+  initialLoadOnly?: boolean
 ) {
   if (schemaName.length === 0) return [];
   const tablesRes: SchemaTablesResponse = await fetch(
     `/api/v1/peers/tables?peerName=${encodeURIComponent(
       peerName
-    )}&schema_name=${encodeURIComponent(schemaName)}`,
+    )}&schema_name=${encodeURIComponent(schemaName)}&cdc_enabled=${!initialLoadOnly}`,
     {
       cache: 'no-store',
     }

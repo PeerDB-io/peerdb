@@ -117,7 +117,7 @@ export default function CDCConfigForm({
     });
     getScriptingEnabled();
     setLoading(false);
-  }, [mirrorConfig.sourceName]);
+  }, [mirrorConfig.sourceName, mirrorConfig.initialSnapshotOnly]);
 
   if (loading) {
     return <ProgressCircle variant='determinate_progress_circle' />;
@@ -177,6 +177,7 @@ export default function CDCConfigForm({
           setRows={setRows}
           peerType={destinationType}
           omitAdditionalTablesMapping={new Map<string, string[]>()}
+          initialLoadOnly={mirrorConfig.initialSnapshotOnly}
         />
       </>
     );
