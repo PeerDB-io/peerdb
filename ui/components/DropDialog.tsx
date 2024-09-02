@@ -4,9 +4,11 @@ import { DeleteScript } from '@/app/scripts/handlers';
 import { FlowStatus } from '@/grpc_generated/flow';
 import { DropPeerResponse } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
+import { Checkbox } from '@/lib/Checkbox';
 import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
+import { RowWithCheckbox } from '@/lib/Layout';
 import { Divider } from '@tremor/react';
 import { Dispatch, SetStateAction, useState } from 'react';
 import { BarLoader } from 'react-spinners';
@@ -40,7 +42,7 @@ export const handleDropMirror = async (
   setLoading(false);
   if (res.status !== 200) {
     setMsg(
-      `Unable to drop mirror ${dropArgs.flowJobName}. ${res.json() ?? ''}`
+      `Unable to drop mirror ${dropArgs.flowJobName}.`
     );
     return false;
   }
@@ -60,6 +62,7 @@ export const DropDialog = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
+  const [dropStats, setDropStats] = useState(false);
 
   const handleDropPeer = async (dropArgs: dropPeerArgs) => {
     if (!dropArgs.peerName) {
@@ -162,6 +165,17 @@ export const DropDialog = ({
         <Label as='label' variant='body' style={{ marginTop: '0.3rem' }}>
           {getDeleteText()}
         </Label>
+        <RowWithCheckbox
+          label={<Label>Delete mirror stats</Label>}
+          action={
+            <Checkbox
+              checked={dropStats}
+              onCheckedChange={(state: boolean) =>
+                setDropStats(state)
+              }
+            />
+          }
+          />
         <div style={{ display: 'flex', marginTop: '1rem' }}>
           <DialogClose>
             <Button style={{ backgroundColor: '#6c757d', color: 'white' }}>

@@ -770,6 +770,23 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	return renameOutput, nil
 }
 
+// Used for resync for now
+func (a *FlowableActivity) DeleteMirrorStats(ctx context.Context, flowName string) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
+	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), flowName))
+	shutdown := heartbeatRoutine(ctx, func() string {
+		return "deleting mirror stats"
+	})
+	defer shutdown()
+	err := monitoring.DeleteMirrorStats(ctx, a.CatalogPool, flowName)
+	if err != nil {
+		logger.Warn("was not able to delete mirror stats", slog.Any("error", err))
+		return err
+	}
+
+	return nil
+}
+
 func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *protos.CreateTablesFromExistingInput) (
 	*protos.CreateTablesFromExistingOutput, error,
 ) {

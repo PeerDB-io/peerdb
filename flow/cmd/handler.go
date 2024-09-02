@@ -261,6 +261,7 @@ func (h *FlowRequestHandler) updateQRepConfigInCatalog(
 func (h *FlowRequestHandler) shutdownFlow(
 	ctx context.Context,
 	flowJobName string,
+	deleteStats bool,
 ) error {
 	workflowID, err := h.getWorkflowID(ctx, flowJobName)
 	if err != nil {
@@ -302,6 +303,7 @@ func (h *FlowRequestHandler) shutdownFlow(
 				FlowJobName:         flowJobName,
 				SourcePeerName:      cdcConfig.SourceName,
 				DestinationPeerName: cdcConfig.DestinationName,
+				DropFlowStats:       deleteStats,
 			})
 		if err != nil {
 			slog.Error("unable to start DropFlow workflow",
@@ -402,7 +404,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED &&
 			(currState != protos.FlowStatus_STATUS_TERMINATED) {
 			slog.Info("[flow-state-change]: received drop mirror request")
-			err = h.shutdownFlow(ctx, req.FlowJobName)
+			err = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats)
 		} else if req.RequestedFlowState != currState {
 			slog.Error("illegal state change requested", slog.Any("requestedFlowState", req.RequestedFlowState),
 				slog.Any("currState", currState))
@@ -552,7 +554,7 @@ func (h *FlowRequestHandler) ResyncMirror(
 		return nil, err
 	}
 
-	err = h.shutdownFlow(ctx, req.FlowJobName)
+	err = h.shutdownFlow(ctx, req.FlowJobName, req.DropStats)
 	if err != nil {
 		return nil, err
 	}

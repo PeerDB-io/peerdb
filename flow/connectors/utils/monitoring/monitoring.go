@@ -317,3 +317,32 @@ func UpdateRowsSyncedForPartition(ctx context.Context, pool *pgxpool.Pool, rowsS
 	}
 	return nil
 }
+
+func DeleteMirrorStats(ctx context.Context, pool *pgxpool.Pool, flowJobName string) error {
+	_, err := pool.Exec(ctx, `DELETE FROM peerdb_stats.qrep_partitions WHERE flow_name ILIKE 'clone\_' || replace(replace($1, '_', '\_'), '%', '\%') || '\_%'`, flowJobName)
+	if err != nil {
+		return fmt.Errorf("error while deleting qrep_partitions: %w", err)
+	}
+
+	_, err = pool.Exec(ctx, `DELETE FROM peerdb_stats.qrep_runs WHERE flow_name ILIKE 'clone\_' || replace(replace($1, '_', '\_'), '%', '\%') || '\_%'`, flowJobName)
+	if err != nil {
+		return fmt.Errorf("error while deleting qrep_runs: %w", err)
+	}
+
+	_, err = pool.Exec(ctx, `DELETE FROM peerdb_stats.cdc_batches WHERE flow_name = $1`, flowJobName)
+	if err != nil {
+		return fmt.Errorf("error while deleting cdc_batches: %w", err)
+	}
+
+	_, err = pool.Exec(ctx, `DELETE FROM peerdb_stats.cdc_batch_table WHERE flow_name = $1`, flowJobName)
+	if err != nil {
+		return fmt.Errorf("error while deleting cdc_batch_table: %w", err)
+	}
+
+	_, err = pool.Exec(ctx, `DELETE FROM peerdb_stats.cdc_flows WHERE flow_name = $1`, flowJobName)
+	if err != nil {
+		return fmt.Errorf("error while deleting cdc_flows: %w", err)
+	}
+
+	return nil
+}
