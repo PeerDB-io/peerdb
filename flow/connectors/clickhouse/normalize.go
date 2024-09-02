@@ -232,8 +232,8 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 
 		q := insertIntoSelectQuery.String()
 
-		numParts := 32
-		hashColName := "_peerdb_uid"
+		numParts := 64
+		hashColName := "_peerdb_data"
 		for i := 0; i < numParts; i++ {
 			whereClause := fmt.Sprintf("cityHash64(%s) %% %d = %d", hashColName, numParts, i)
 			partitionedQuery := q + " AND " + whereClause
