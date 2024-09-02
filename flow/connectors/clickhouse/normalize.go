@@ -231,7 +231,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 
 			q := insertIntoSelectQuery.String()
 
-			numParts := 64
+			numParts := 7
 			hashColName := "_peerdb_uid"
 			for i := 0; i < numParts; i++ {
 				whereClause := fmt.Sprintf("cityHash64(%s) %% %d = %d", hashColName, numParts, i)
@@ -241,6 +241,14 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 				if err != nil {
 					return nil, fmt.Errorf("error while inserting into normalized table (part %d/%d): %w", i+1, numParts, err)
 				}
+			}
+
+			err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchID)
+			if err != nil {
+				c.logger.Error("[clickhouse] error while updating normalize batch id", "error", err)
+				return nil, err
+			} else {
+				c.logger.Info(fmt.Sprintf("updated normalize batch id to %d", batchID))
 			}
 		}
 	}
