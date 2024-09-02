@@ -223,7 +223,7 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 
 func (h *FlowRequestHandler) cloneTableSummary(
 	ctx context.Context,
-	mirrorName string,
+	parentMirrorName string,
 ) ([]*protos.CloneTableSummary, error) {
 	q := `
 	SELECT
@@ -239,7 +239,7 @@ func (h *FlowRequestHandler) cloneTableSummary(
 		AVG(EXTRACT(EPOCH FROM (qp.end_time - qp.start_time)) * 1000) FILTER (WHERE qp.end_time IS NOT NULL) AS AvgTimePerPartitionMs
 	FROM peerdb_stats.qrep_partitions qp
 	RIGHT JOIN peerdb_stats.qrep_runs qr ON qp.flow_name = qr.flow_name
-	WHERE qr.flow_name ^@ ($1||regexp_replace(qr.destination_table, '[^a-zA-Z0-9_]', '_', 'g'))
+	WHERE qr.parent_mirror_name = $1
 	GROUP BY qr.flow_name, qr.destination_table, qr.source_table, qr.start_time, qr.fetch_complete, qr.consolidate_complete;
 	`
 	var flowName pgtype.Text
@@ -253,11 +253,11 @@ func (h *FlowRequestHandler) cloneTableSummary(
 	var numRowsSynced pgtype.Int8
 	var avgTimePerPartitionMs pgtype.Float8
 
-	rows, err := h.pool.Query(ctx, q, fmt.Sprintf("clone_%s_", mirrorName))
+	rows, err := h.pool.Query(ctx, q, parentMirrorName)
 	if err != nil {
 		slog.Error("unable to query initial load partition",
-			slog.String(string(shared.FlowNameKey), mirrorName), slog.Any("error", err))
-		return nil, fmt.Errorf("unable to query initial load partition - %s: %w", mirrorName, err)
+			slog.String(string(shared.FlowNameKey), parentMirrorName), slog.Any("error", err))
+		return nil, fmt.Errorf("unable to query initial load partition - %s: %w", parentMirrorName, err)
 	}
 
 	defer rows.Close()
@@ -276,7 +276,7 @@ func (h *FlowRequestHandler) cloneTableSummary(
 			&numRowsSynced,
 			&avgTimePerPartitionMs,
 		); err != nil {
-			return nil, fmt.Errorf("unable to scan initial load partition - %s: %w", mirrorName, err)
+			return nil, fmt.Errorf("unable to scan initial load partition - %s: %w", parentMirrorName, err)
 		}
 
 		var res protos.CloneTableSummary
@@ -321,7 +321,7 @@ func (h *FlowRequestHandler) cloneTableSummary(
 			res.AvgTimePerPartitionMs = int64(avgTimePerPartitionMs.Float64)
 		}
 
-		res.MirrorName = mirrorName
+		res.MirrorName = parentMirrorName
 
 		cloneStatuses = append(cloneStatuses, &res)
 	}
