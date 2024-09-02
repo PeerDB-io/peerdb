@@ -21,6 +21,6 @@ jobs:
         git fetch origin flow-api-client:flow-api-client
         git checkout flow-api-client
         cp flow/generated/protos/*.go ./flow-api-client/
-        git add *.*
+        git add flow-api-client/
         git commit -m "$GITHUB_SHA" && git push --set-upstream origin flow-api-client
         git checkout "$GITHUB_SHA"
