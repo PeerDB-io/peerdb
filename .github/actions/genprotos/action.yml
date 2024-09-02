@@ -6,31 +6,19 @@ runs:
     - uses: actions/checkout@v4
     - name: check cache
       id: cache
-      uses: actions/cache@v4
+      uses: ubicloud/cache@v4
       with:
         path: |
           ./flow/generated/protos
           ./nexus/pt/src/gen
           ./ui/grpc_generated
-        key: ${{ runner.os }}-build-genprotos-${{ hashFiles('./protos/peers.proto', './protos/flow.proto', './protos/route.proto') }}
+        key: ${{ runner.os }}-build-genprotos-${{ hashFiles('buf.gen.yaml', './protos/peers.proto', './protos/flow.proto', './protos/route.proto') }}
 
     - if: steps.cache.outputs.cache-hit != 'true'
-      uses: actions/setup-go@v5
+      uses: bufbuild/buf-action@v1
       with:
-        go-version: '1.22.3'
-        cache: false
+        setup_only: true
+        github_token: ${{ github.token }}
     - if: steps.cache.outputs.cache-hit != 'true'
-      uses: bufbuild/buf-setup-action@v1.29.0-1
-    - if: steps.cache.outputs.cache-hit != 'true'
-      uses: dtolnay/rust-toolchain@stable
-    - if: steps.cache.outputs.cache-hit != 'true'
-      name: install protobuf plugins and generate protos
-      shell: bash
-      run: |
-        go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.34
-        go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.3
-        go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@v2.20.0
-        npm install ts-proto
-        cargo install protoc-gen-prost protoc-gen-tonic protoc-gen-prost-serde
-        PATH="$(go env GOPATH)/bin:$HOME/.cargo/bin:$PATH" buf generate --template buf.gen-local.yaml --debug protos
-
+      shell: sh
+      run: buf generate protos
