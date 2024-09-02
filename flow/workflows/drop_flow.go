@@ -76,8 +76,10 @@ func DropFlowWorkflow(ctx workflow.Context, config *protos.DropFlowInput) error 
 		PeerName:    config.DestinationPeerName,
 	})
 	selector.AddFuture(dropDestinationFuture, dropDestination)
-	dropStatsFuture := workflow.ExecuteActivity(dropStatsCtx, flowable.DeleteMirrorStats, config.FlowJobName)
-	selector.AddFuture(dropStatsFuture, dropStats)
+	if config.DropFlowStats {
+		dropStatsFuture := workflow.ExecuteActivity(dropStatsCtx, flowable.DeleteMirrorStats, config.FlowJobName)
+		selector.AddFuture(dropStatsFuture, dropStats)
+	}
 
 	for {
 		selector.Select(ctx)

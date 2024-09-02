@@ -33,19 +33,17 @@ export const handleDropMirror = async (
   dropArgs: dropMirrorArgs,
   setLoading: Dispatch<SetStateAction<boolean>>,
   setMsg: Dispatch<SetStateAction<string>>,
-  dropStats:boolean
+  dropStats: boolean
 ) => {
   setLoading(true);
   const res = await changeFlowState(
     dropArgs.flowJobName,
     FlowStatus.STATUS_TERMINATED,
-    dropStats ?? false
+    dropStats
   );
   setLoading(false);
   if (res.status !== 200) {
-    setMsg(
-      `Unable to drop mirror ${dropArgs.flowJobName}.`
-    );
+    setMsg(`Unable to drop mirror ${dropArgs.flowJobName}.`);
     return false;
   }
 
@@ -133,7 +131,12 @@ export const DropDialog = ({
   const handleDelete = () => {
     switch (mode) {
       case 'MIRROR':
-        return handleDropMirror(dropArgs as dropMirrorArgs, setLoading, setMsg, dropStats);
+        return handleDropMirror(
+          dropArgs as dropMirrorArgs,
+          setLoading,
+          setMsg,
+          dropStats
+        );
       case 'PEER':
         return handleDropPeer(dropArgs as dropPeerArgs);
       case 'ALERT':
@@ -172,12 +175,10 @@ export const DropDialog = ({
           action={
             <Checkbox
               checked={dropStats}
-              onCheckedChange={(state: boolean) =>
-                setDropStats(state)
-              }
+              onCheckedChange={(state: boolean) => setDropStats(state)}
             />
           }
-          />
+        />
         <div style={{ display: 'flex', marginTop: '1rem' }}>
           <DialogClose>
             <Button style={{ backgroundColor: '#6c757d', color: 'white' }}>
