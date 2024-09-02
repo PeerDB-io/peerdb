@@ -27,6 +27,7 @@ export const ResyncDialog = ({ mirrorName }: ResyncDialogProps) => {
         method: 'POST',
         body: JSON.stringify({
           flowJobName: mirrorName,
+          dropStats: true,
         } as ResyncMirrorRequest),
       }
     ).then((res) => res.json());
