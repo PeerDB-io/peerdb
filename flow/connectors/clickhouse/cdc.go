@@ -232,13 +232,17 @@ func (c *ClickhouseConnector) SyncFlowCleanup(ctx context.Context, jobName strin
 	return nil
 }
 
-func (c *ClickhouseConnector) RemoveTableEntriesFromRawTable(ctx context.Context, req *protos.RemoveTablesFromRawTableInput) error {
+func (c *ClickhouseConnector) RemoveTableEntriesFromRawTable(
+	ctx context.Context,
+	req *protos.RemoveTablesFromRawTableInput,
+) error {
 	for _, tableName := range req.DestinationTableNames {
 		// Better to use lightweight deletes here as the main goal is to
 		// not have the rows in the table be visible by the NormalizeRecords'
 		// INSERT INTO SELECT queries
-		err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM `%s` WHERE _peerdb_destination_table_name = '%s'",
-			c.getRawTableName(req.FlowJobName), tableName))
+		err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM `%s` WHERE _peerdb_destination_table_name = '%s'"+
+			" AND _peerdb_batch_id BETWEEN %d AND %d",
+			c.getRawTableName(req.FlowJobName), tableName, req.NormalizeBatchId, req.SyncBatchId))
 		if err != nil {
 			return fmt.Errorf("unable to remove table %s from raw table: %w", tableName, err)
 		}

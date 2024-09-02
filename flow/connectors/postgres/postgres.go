@@ -1424,12 +1424,13 @@ func (c *PostgresConnector) RenameTables(ctx context.Context, req *protos.Rename
 
 func (c *PostgresConnector) RemoveTableEntriesFromRawTable(
 	ctx context.Context,
-	removedTables *protos.RemoveTablesFromRawTableInput,
+	req *protos.RemoveTablesFromRawTableInput,
 ) error {
-	rawTableIdentifier := getRawTableIdentifier(removedTables.FlowJobName)
-	for _, tableName := range removedTables.DestinationTableNames {
-		_, err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE _peerdb_destination_table_name = '%s'",
-			QuoteIdentifier(rawTableIdentifier), tableName))
+	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
+	for _, tableName := range req.DestinationTableNames {
+		_, err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE _peerdb_destination_table_name = '%s'"+
+			" AND _peerdb_batch_id BETWEEN %d AND %d",
+			QuoteIdentifier(rawTableIdentifier), tableName, req.NormalizeBatchId, req.SyncBatchId))
 		if err != nil {
 			c.logger.Error("failed to remove entries from raw table", "error", err)
 		}

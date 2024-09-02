@@ -933,13 +933,14 @@ func (c *BigQueryConnector) CreateTablesFromExisting(
 
 func (c *BigQueryConnector) RemoveTableEntriesFromRawTable(
 	ctx context.Context,
-	removedTables *protos.RemoveTablesFromRawTableInput,
+	req *protos.RemoveTablesFromRawTableInput,
 ) error {
-	rawTableIdentifier := c.getRawTableName(removedTables.FlowJobName)
-	for _, tableName := range removedTables.DestinationTableNames {
+	rawTableIdentifier := c.getRawTableName(req.FlowJobName)
+	for _, tableName := range req.DestinationTableNames {
 		c.logger.Info(fmt.Sprintf("removing entries for table '%s' from raw table...", tableName))
-		deleteCmd := c.queryWithLogging(fmt.Sprintf("DELETE FROM `%s` WHERE _peerdb_destination_table_name = '%s'",
-			rawTableIdentifier, tableName))
+		deleteCmd := c.queryWithLogging(fmt.Sprintf("DELETE FROM `%s` WHERE _peerdb_destination_table_name = '%s'"+
+			" AND _peerdb_batch_id BETWEEN %d AND %d",
+			rawTableIdentifier, tableName, req.NormalizeBatchId, req.SyncBatchId))
 		deleteCmd.DefaultProjectID = c.projectID
 		deleteCmd.DefaultDatasetID = c.datasetID
 		_, err := deleteCmd.Read(ctx)

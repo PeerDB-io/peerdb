@@ -90,6 +90,8 @@ message RenameTablesInput {
 message RemoveTablesFromRawTableInput {
   string flow_job_name = 1;
   repeated string destination_table_names = 2;
+  int64 sync_batch_id = 3;
+  int64 normalize_batch_id = 4;
 }
 
 message RenameTablesOutput {
