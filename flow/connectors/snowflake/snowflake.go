@@ -884,7 +884,7 @@ func (c *SnowflakeConnector) RemoveTableEntriesFromRawTable(
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	for _, tableName := range req.DestinationTableNames {
 		_, err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s.%s WHERE _PEERDB_DESTINATION_TABLE_NAME = '%s'"+
-			" AND _PEERDB_BATCH_ID BETWEEN %d AND %d",
+			" AND _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d",
 			c.rawSchema, rawTableIdentifier, tableName, req.NormalizeBatchId, req.SyncBatchId))
 		if err != nil {
 			c.logger.Error("failed to remove entries from raw table", "error", err)
