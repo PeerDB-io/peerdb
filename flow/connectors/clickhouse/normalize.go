@@ -254,8 +254,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 		}
 	}
 
-	endNormalizeBatchId := normBatchID + 1
-	err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, endNormalizeBatchId)
+	err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, req.SyncBatchID)
 	if err != nil {
 		c.logger.Error("[clickhouse] error while updating normalize batch id", "error", err)
 		return nil, err
@@ -263,7 +262,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 
 	return &model.NormalizeResponse{
 		Done:         true,
-		StartBatchID: endNormalizeBatchId,
+		StartBatchID: normBatchID,
 		EndBatchID:   req.SyncBatchID,
 	}, nil
 }
