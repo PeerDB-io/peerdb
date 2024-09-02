@@ -153,6 +153,7 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 			SoftDeleteColName: q.config.SoftDeleteColName,
 			FlowName:          q.config.FlowJobName,
 			Env:               q.config.Env,
+			IsResync:          q.config.DstTableFullResync,
 		}
 
 		future := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
