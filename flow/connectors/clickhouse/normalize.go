@@ -231,11 +231,17 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 		insertIntoSelectQuery.WriteString(selectQuery.String())
 
 		q := insertIntoSelectQuery.String()
-		c.logger.Info("[clickhouse] insert into select query " + q)
 
-		err = c.database.Exec(ctx, q)
-		if err != nil {
-			return nil, fmt.Errorf("error while inserting into normalized table: %w", err)
+		numParts := 7 // default number of parts
+		hashColName := "_peerdb_uid"
+		for i := 0; i < numParts; i++ {
+			whereClause := fmt.Sprintf("cityHash64(%s) %% %d = %d", hashColName, numParts, i)
+			partitionedQuery := q + " AND " + whereClause
+			c.logger.Info(fmt.Sprintf("[clickhouse] executing query for destination table %s (part %d/%d): %s", tbl, i+1, numParts, partitionedQuery))
+			err = c.database.Exec(ctx, partitionedQuery)
+			if err != nil {
+				return nil, fmt.Errorf("error while inserting into normalized table (part %d/%d): %w", i+1, numParts, err)
+			}
 		}
 	}
 
