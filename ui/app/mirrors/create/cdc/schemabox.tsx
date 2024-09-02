@@ -192,8 +192,8 @@ export default function SchemaBox({
         for (const row of newRows) {
           if (alreadySelectedTables?.includes(row.source)) {
             row.selected = true;
-              row.columnsToggleDisabled = true;
-              addTableColumns(row.source);
+            row.columnsToggleDisabled = true;
+            addTableColumns(row.source);
           }
         }
         setRows((oldRows) => {
@@ -206,19 +206,13 @@ export default function SchemaBox({
       });
     },
     [
-      
       setRows,
-     
       sourcePeer,
-     
       defaultTargetSchema,
-     
       peerType,
-     
       alreadySelectedTables,
       addTableColumns,
       initialLoadOnly,
-    ,
     ]
   );
 
