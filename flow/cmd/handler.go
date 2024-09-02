@@ -218,6 +218,8 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		cfg.SyncedAtColName = "_PEERDB_SYNCED_AT"
 	}
 
+	cfg.ParentMirrorName = cfg.FlowJobName
+
 	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowFn, cfg, nil); err != nil {
 		slog.Error("unable to start QRepFlow workflow",
 			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))

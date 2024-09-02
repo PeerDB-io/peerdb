@@ -408,7 +408,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	runUUID string,
 ) (*protos.QRepParitionResult, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	err := monitoring.InitializeQRepRun(ctx, a.CatalogPool, config, runUUID, nil)
+	err := monitoring.InitializeQRepRun(ctx, a.CatalogPool, config, runUUID, nil, config.ParentMirrorName)
 	if err != nil {
 		return nil, err
 	}
@@ -434,6 +434,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 			config,
 			runUUID,
 			partitions,
+			config.ParentMirrorName,
 		)
 		if err != nil {
 			return nil, err
