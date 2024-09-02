@@ -22,6 +22,11 @@ func DropFlowWorkflow(ctx workflow.Context, config *protos.DropFlowInput) error 
 	ctx = workflow.WithDataConverter(ctx,
 		converter.NewCompositeDataConverter(converter.NewJSONPayloadConverter()))
 
+	dropStatsCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+		HeartbeatTimeout:    1 * time.Minute,
+	})
+
 	var sourceError, destinationError error
 	var sourceOk, destinationOk, canceled bool
 	selector := workflow.NewNamedSelector(ctx, config.FlowJobName+"-drop")
@@ -29,7 +34,7 @@ func DropFlowWorkflow(ctx workflow.Context, config *protos.DropFlowInput) error 
 		canceled = true
 	})
 
-	var dropSource, dropDestination func(f workflow.Future)
+	var dropSource, dropDestination, dropStats func(f workflow.Future)
 	dropSource = func(f workflow.Future) {
 		sourceError = f.Get(ctx, nil)
 		sourceOk = sourceError == nil
@@ -54,6 +59,13 @@ func DropFlowWorkflow(ctx workflow.Context, config *protos.DropFlowInput) error 
 			_ = workflow.Sleep(ctx, time.Second)
 		}
 	}
+	dropStats = func(f workflow.Future) {
+		statsError := f.Get(dropStatsCtx, nil)
+		if statsError != nil {
+			// not fatal
+			workflow.GetLogger(ctx).Warn("failed to delete mirror stats", slog.Any("error", statsError))
+		}
+	}
 	dropSourceFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowSource, &protos.DropFlowActivityInput{
 		FlowJobName: config.FlowJobName,
 		PeerName:    config.SourcePeerName,
@@ -64,6 +76,10 @@ func DropFlowWorkflow(ctx workflow.Context, config *protos.DropFlowInput) error 
 		PeerName:    config.DestinationPeerName,
 	})
 	selector.AddFuture(dropDestinationFuture, dropDestination)
+	if config.DropFlowStats {
+		dropStatsFuture := workflow.ExecuteActivity(dropStatsCtx, flowable.DeleteMirrorStats, config.FlowJobName)
+		selector.AddFuture(dropStatsFuture, dropStats)
+	}
 
 	for {
 		selector.Select(ctx)

@@ -150,17 +150,19 @@ func InitializeQRepRun(
 	config *protos.QRepConfig,
 	runUUID string,
 	partitions []*protos.QRepPartition,
+	parentMirrorName string,
 ) error {
 	flowJobName := config.GetFlowJobName()
 	_, err := pool.Exec(ctx,
-		"INSERT INTO peerdb_stats.qrep_runs(flow_name,run_uuid,source_table,destination_table) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING",
-		flowJobName, runUUID, config.WatermarkTable, config.DestinationTableIdentifier)
+		"INSERT INTO peerdb_stats.qrep_runs(flow_name,run_uuid,source_table,destination_table,parent_mirror_name)"+
+			" VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
+		flowJobName, runUUID, config.WatermarkTable, config.DestinationTableIdentifier, parentMirrorName)
 	if err != nil {
 		return fmt.Errorf("error while inserting qrep run in qrep_runs: %w", err)
 	}
 
 	for _, partition := range partitions {
-		if err := addPartitionToQRepRun(ctx, pool, flowJobName, runUUID, partition); err != nil {
+		if err := addPartitionToQRepRun(ctx, pool, flowJobName, runUUID, partition, parentMirrorName); err != nil {
 			return fmt.Errorf("unable to add partition to qrep run: %w", err)
 		}
 	}
@@ -216,7 +218,7 @@ func AppendSlotSizeInfo(
 }
 
 func addPartitionToQRepRun(ctx context.Context, pool *pgxpool.Pool, flowJobName string,
-	runUUID string, partition *protos.QRepPartition,
+	runUUID string, partition *protos.QRepPartition, parentMirrorName string,
 ) error {
 	if partition.Range == nil && partition.FullTablePartition {
 		logger.LoggerFromCtx(ctx).Info("partition"+partition.PartitionId+
@@ -259,10 +261,10 @@ func addPartitionToQRepRun(ctx context.Context, pool *pgxpool.Pool, flowJobName 
 
 	_, err := pool.Exec(ctx,
 		`INSERT INTO peerdb_stats.qrep_partitions
-		(flow_name,run_uuid,partition_uuid,partition_start,partition_end,restart_count)
-		 VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(run_uuid,partition_uuid) DO UPDATE SET
+		(flow_name,run_uuid,partition_uuid,partition_start,partition_end,restart_count,parent_mirror_name)
+		 VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(run_uuid,partition_uuid) DO UPDATE SET
 		 restart_count=qrep_partitions.restart_count+1`,
-		flowJobName, runUUID, partition.PartitionId, rangeStart, rangeEnd, 0)
+		flowJobName, runUUID, partition.PartitionId, rangeStart, rangeEnd, 0, parentMirrorName)
 	if err != nil {
 		return fmt.Errorf("error while inserting qrep partition in qrep_partitions: %w", err)
 	}
@@ -315,5 +317,34 @@ func UpdateRowsSyncedForPartition(ctx context.Context, pool *pgxpool.Pool, rowsS
 	if err != nil {
 		return fmt.Errorf("error while updating rows_synced in qrep_partitions: %w", err)
 	}
+	return nil
+}
+
+func DeleteMirrorStats(ctx context.Context, pool *pgxpool.Pool, flowJobName string) error {
+	_, err := pool.Exec(ctx, `DELETE FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`, flowJobName)
+	if err != nil {
+		return fmt.Errorf("error while deleting qrep_partitions: %w", err)
+	}
+
+	_, err = pool.Exec(ctx, `DELETE FROM peerdb_stats.qrep_runs WHERE WHERE parent_mirror_name = $1`, flowJobName)
+	if err != nil {
+		return fmt.Errorf("error while deleting qrep_runs: %w", err)
+	}
+
+	_, err = pool.Exec(ctx, `DELETE FROM peerdb_stats.cdc_batches WHERE flow_name = $1`, flowJobName)
+	if err != nil {
+		return fmt.Errorf("error while deleting cdc_batches: %w", err)
+	}
+
+	_, err = pool.Exec(ctx, `DELETE FROM peerdb_stats.cdc_batch_table WHERE flow_name = $1`, flowJobName)
+	if err != nil {
+		return fmt.Errorf("error while deleting cdc_batch_table: %w", err)
+	}
+
+	_, err = pool.Exec(ctx, `DELETE FROM peerdb_stats.cdc_flows WHERE flow_name = $1`, flowJobName)
+	if err != nil {
+		return fmt.Errorf("error while deleting cdc_flows: %w", err)
+	}
+
 	return nil
 }

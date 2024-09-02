@@ -408,7 +408,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	runUUID string,
 ) (*protos.QRepParitionResult, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	err := monitoring.InitializeQRepRun(ctx, a.CatalogPool, config, runUUID, nil)
+	err := monitoring.InitializeQRepRun(ctx, a.CatalogPool, config, runUUID, nil, config.ParentMirrorName)
 	if err != nil {
 		return nil, err
 	}
@@ -434,6 +434,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 			config,
 			runUUID,
 			partitions,
+			config.ParentMirrorName,
 		)
 		if err != nil {
 			return nil, err
@@ -768,6 +769,22 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	}
 
 	return renameOutput, nil
+}
+
+func (a *FlowableActivity) DeleteMirrorStats(ctx context.Context, flowName string) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
+	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), flowName))
+	shutdown := heartbeatRoutine(ctx, func() string {
+		return "deleting mirror stats"
+	})
+	defer shutdown()
+	err := monitoring.DeleteMirrorStats(ctx, a.CatalogPool, flowName)
+	if err != nil {
+		logger.Warn("was not able to delete mirror stats", slog.Any("error", err))
+		return err
+	}
+
+	return nil
 }
 
 func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *protos.CreateTablesFromExistingInput) (

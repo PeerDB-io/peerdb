@@ -504,7 +504,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 			}
 		}
 		updateErr := monitoring.InitializeQRepRun(
-			ctx, a.CatalogPool, config, runUUID, []*protos.QRepPartition{partitionForMetrics})
+			ctx, a.CatalogPool, config, runUUID, []*protos.QRepPartition{partitionForMetrics}, config.ParentMirrorName)
 		if updateErr != nil {
 			return updateErr
 		}
