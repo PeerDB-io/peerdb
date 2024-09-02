@@ -32,12 +32,14 @@ interface deleteScriptArgs {
 export const handleDropMirror = async (
   dropArgs: dropMirrorArgs,
   setLoading: Dispatch<SetStateAction<boolean>>,
-  setMsg: Dispatch<SetStateAction<string>>
+  setMsg: Dispatch<SetStateAction<string>>,
+  dropStats:boolean
 ) => {
   setLoading(true);
   const res = await changeFlowState(
     dropArgs.flowJobName,
-    FlowStatus.STATUS_TERMINATED
+    FlowStatus.STATUS_TERMINATED,
+    dropStats ?? false
   );
   setLoading(false);
   if (res.status !== 200) {
@@ -62,7 +64,7 @@ export const DropDialog = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
-  const [dropStats, setDropStats] = useState(false);
+  const [dropStats, setDropStats] = useState(true);
 
   const handleDropPeer = async (dropArgs: dropPeerArgs) => {
     if (!dropArgs.peerName) {
@@ -131,7 +133,7 @@ export const DropDialog = ({
   const handleDelete = () => {
     switch (mode) {
       case 'MIRROR':
-        return handleDropMirror(dropArgs as dropMirrorArgs, setLoading, setMsg);
+        return handleDropMirror(dropArgs as dropMirrorArgs, setLoading, setMsg, dropStats);
       case 'PEER':
         return handleDropPeer(dropArgs as dropPeerArgs);
       case 'ALERT':
