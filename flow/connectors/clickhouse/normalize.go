@@ -41,6 +41,7 @@ func (c *ClickhouseConnector) SetupNormalizedTable(
 	tableSchema *protos.TableSchema,
 	softDeleteColName string,
 	syncedAtColName string,
+	isResync bool,
 ) (bool, error) {
 	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.config.Database, tableIdentifier)
 	if err != nil {
@@ -55,6 +56,7 @@ func (c *ClickhouseConnector) SetupNormalizedTable(
 		tableSchema,
 		softDeleteColName,
 		syncedAtColName,
+		isResync,
 	)
 	if err != nil {
 		return false, fmt.Errorf("error while generating create table sql for normalized table: %w", err)
@@ -72,9 +74,20 @@ func generateCreateTableSQLForNormalizedTable(
 	tableSchema *protos.TableSchema,
 	_ string, // softDeleteColName
 	syncedAtColName string,
+	isResync bool,
 ) (string, error) {
 	var stmtBuilder strings.Builder
-	stmtBuilder.WriteString(fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s` (", normalizedTable))
+	stmtBuilder.WriteString("CREATE ")
+	if isResync {
+		stmtBuilder.WriteString("OR REPLACE ")
+	}
+	stmtBuilder.WriteString("TABLE ")
+	if !isResync {
+		stmtBuilder.WriteString("IF NOT EXISTS ")
+	}
+	stmtBuilder.WriteString("`")
+	stmtBuilder.WriteString(normalizedTable)
+	stmtBuilder.WriteString("` (")
 
 	for _, column := range tableSchema.Columns {
 		colName := column.Name

@@ -208,6 +208,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		SyncedAtColName:        flowConnectionConfigs.SyncedAtColName,
 		FlowName:               flowConnectionConfigs.FlowJobName,
 		Env:                    flowConnectionConfigs.Env,
+		IsResync:               flowConnectionConfigs.Resync,
 	}
 
 	future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)

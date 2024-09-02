@@ -39,7 +39,7 @@ const (
 	getLastSyncBatchID_SQL      = "SELECT sync_batch_id FROM %s.%s WHERE mirror_job_name=$1"
 	getLastNormalizeBatchID_SQL = "SELECT normalize_batch_id FROM %s.%s WHERE mirror_job_name=$1"
 	createNormalizedTableSQL    = "CREATE TABLE IF NOT EXISTS %s(%s)"
-
+	checkTableExistsSQL         = "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = $1 AND tablename = $2)"
 	upsertJobMetadataForSyncSQL = `INSERT INTO %s.%s AS j VALUES ($1,$2,$3,$4)
 	 ON CONFLICT(mirror_job_name) DO UPDATE SET lsn_offset=GREATEST(j.lsn_offset, EXCLUDED.lsn_offset), sync_batch_id=EXCLUDED.sync_batch_id`
 	checkIfJobMetadataExistsSQL          = "SELECT COUNT(1)::TEXT::BOOL FROM %s.%s WHERE mirror_job_name=$1"
@@ -642,6 +642,22 @@ func (c *PostgresConnector) getCurrentLSN(ctx context.Context) (pglogrepl.LSN, e
 
 func (c *PostgresConnector) getDefaultPublicationName(jobName string) string {
 	return "peerflow_pub_" + jobName
+}
+
+func (c *PostgresConnector) checkIfTableExistsWithTx(
+	ctx context.Context,
+	schemaName string,
+	tableName string,
+	tx pgx.Tx,
+) (bool, error) {
+	row := tx.QueryRow(ctx, checkTableExistsSQL, schemaName, tableName)
+	var result pgtype.Bool
+	err := row.Scan(&result)
+	if err != nil {
+		return false, fmt.Errorf("error while running query: %w", err)
+	}
+
+	return result.Bool, nil
 }
 
 func (c *PostgresConnector) ExecuteCommand(ctx context.Context, command string) error {

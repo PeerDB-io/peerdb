@@ -861,6 +861,7 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	tableSchema *protos.TableSchema,
 	softDeleteColName string,
 	syncedAtColName string,
+	isResync bool,
 ) (bool, error) {
 	createNormalizedTablesTx := tx.(pgx.Tx)
 
@@ -875,6 +876,14 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	if tableAlreadyExists {
 		c.logger.Info("[postgres] table already exists, skipping",
 			slog.String("table", tableIdentifier))
+		if isResync {
+			err := c.ExecuteCommand(ctx, fmt.Sprintf(dropTableIfExistsSQL,
+				QuoteIdentifier(parsedNormalizedTable.Schema),
+				QuoteIdentifier(parsedNormalizedTable.Table)))
+			if err != nil {
+				return false, fmt.Errorf("error while dropping _resync table: %w", err)
+			}
+		}
 		return true, nil
 	}
 
@@ -1297,35 +1306,55 @@ func (c *PostgresConnector) RenameTables(ctx context.Context, req *protos.Rename
 		}
 		src := srcTable.String()
 
+		resyncTableExists, err := c.checkIfTableExistsWithTx(ctx, srcTable.Schema, srcTable.Table, renameTablesTx)
+		if err != nil {
+			return nil, fmt.Errorf("unable to check if _resync table exists: %w", err)
+		}
+
+		if !resyncTableExists {
+			c.logger.Info(fmt.Sprintf("table '%s' does not exist, skipping rename", src))
+			continue
+		}
+
 		dstTable, err := utils.ParseSchemaTable(renameRequest.NewName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse destination %s: %w", renameRequest.NewName, err)
 		}
 		dst := dstTable.String()
 
-		if req.SoftDeleteColName != "" {
-			columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
-			for _, col := range renameRequest.TableSchema.Columns {
-				columnNames = append(columnNames, QuoteIdentifier(col.Name))
+		// if original table does not exist, skip soft delete transfer
+		originalTableExists, err := c.checkIfTableExistsWithTx(ctx, dstTable.Schema, dstTable.Table, renameTablesTx)
+		if err != nil {
+			return nil, fmt.Errorf("unable to check if source table exists: %w", err)
+		}
+
+		if originalTableExists {
+			if req.SoftDeleteColName != "" {
+				columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
+				for _, col := range renameRequest.TableSchema.Columns {
+					columnNames = append(columnNames, QuoteIdentifier(col.Name))
+				}
+
+				pkeyColumnNames := make([]string, 0, len(renameRequest.TableSchema.PrimaryKeyColumns))
+				for _, col := range renameRequest.TableSchema.PrimaryKeyColumns {
+					pkeyColumnNames = append(pkeyColumnNames, QuoteIdentifier(col))
+				}
+
+				allCols := strings.Join(columnNames, ",")
+				pkeyCols := strings.Join(pkeyColumnNames, ",")
+
+				c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
+
+				_, err = c.execWithLoggingTx(ctx,
+					fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
+						src, fmt.Sprintf("%s,%s", allCols, QuoteIdentifier(req.SoftDeleteColName)), allCols, req.SoftDeleteColName,
+						dst, pkeyCols, pkeyCols, src), renameTablesTx)
+				if err != nil {
+					return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
+				}
 			}
-
-			pkeyColumnNames := make([]string, 0, len(renameRequest.TableSchema.PrimaryKeyColumns))
-			for _, col := range renameRequest.TableSchema.PrimaryKeyColumns {
-				pkeyColumnNames = append(pkeyColumnNames, QuoteIdentifier(col))
-			}
-
-			allCols := strings.Join(columnNames, ",")
-			pkeyCols := strings.Join(pkeyColumnNames, ",")
-
-			c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
-
-			_, err = c.execWithLoggingTx(ctx,
-				fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
-					src, fmt.Sprintf("%s,%s", allCols, QuoteIdentifier(req.SoftDeleteColName)), allCols, req.SoftDeleteColName,
-					dst, pkeyCols, pkeyCols, src), renameTablesTx)
-			if err != nil {
-				return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
-			}
+		} else {
+			c.logger.Info(fmt.Sprintf("table '%s' did not exist, skipped soft delete transfer", dst))
 		}
 
 		// renaming and dropping such that the _resync table is the new destination
