@@ -360,7 +360,8 @@ func pullCore[Items model.Items](
 
 	if !exists.SlotExists {
 		c.logger.Warn(fmt.Sprintf("slot %s does not exist", slotName))
-		return temporal.NewNonRetryableApplicationError(fmt.Sprintf("replication slot %s does not exist, restarting workflow", slotName), "disconnect", nil)
+		return temporal.NewNonRetryableApplicationError(
+			fmt.Sprintf("replication slot %s does not exist, restarting workflow", slotName), "disconnect", nil)
 	}
 
 	c.logger.Info("PullRecords: performed checks for slot and publication")
