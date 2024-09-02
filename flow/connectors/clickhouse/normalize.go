@@ -133,6 +133,11 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 		return nil, err
 	}
 
+	// we definitely completed normalization for batch till 460, this is a temp hack.
+	if normBatchID < 460 {
+		normBatchID = 460
+	}
+
 	// normalize has caught up with sync, chill until more records are loaded.
 	if normBatchID >= req.SyncBatchID {
 		return &model.NormalizeResponse{
