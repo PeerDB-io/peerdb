@@ -770,7 +770,6 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	return renameOutput, nil
 }
 
-// Used for resync for now
 func (a *FlowableActivity) DeleteMirrorStats(ctx context.Context, flowName string) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), flowName))
