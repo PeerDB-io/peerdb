@@ -79,7 +79,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		if err != nil {
 			displayErr := fmt.Errorf("unable to establish replication connectivity: %v", err)
 			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-				fmt.Sprint(displayErr),
+				displayErr.Error(),
 			)
 			return &protos.ValidateCDCMirrorResponse{
 				Ok: false,
