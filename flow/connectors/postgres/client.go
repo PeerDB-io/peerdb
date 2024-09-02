@@ -648,7 +648,8 @@ func (c *PostgresConnector) checkIfTableExistsWithTx(
 	ctx context.Context,
 	schemaName string,
 	tableName string,
-	tx pgx.Tx) (bool, error) {
+	tx pgx.Tx,
+) (bool, error) {
 	row := tx.QueryRow(ctx, checkTableExistsSQL, schemaName, tableName)
 	var result pgtype.Bool
 	err := row.Scan(&result)
