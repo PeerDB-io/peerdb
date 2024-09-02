@@ -154,7 +154,8 @@ func InitializeQRepRun(
 ) error {
 	flowJobName := config.GetFlowJobName()
 	_, err := pool.Exec(ctx,
-		"INSERT INTO peerdb_stats.qrep_runs(flow_name,run_uuid,source_table,destination_table,parent_mirror_name) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
+		"INSERT INTO peerdb_stats.qrep_runs(flow_name,run_uuid,source_table,destination_table,parent_mirror_name)"+
+			" VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
 		flowJobName, runUUID, config.WatermarkTable, config.DestinationTableIdentifier, parentMirrorName)
 	if err != nil {
 		return fmt.Errorf("error while inserting qrep run in qrep_runs: %w", err)
