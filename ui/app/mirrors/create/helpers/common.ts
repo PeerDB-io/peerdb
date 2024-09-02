@@ -68,4 +68,5 @@ export const blankQRepSetting: QRepConfig = {
   script: '',
   system: TypeSystem.Q,
   env: {},
+  parentMirrorName: '',
 };
