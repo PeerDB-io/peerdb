@@ -1,8 +1,5 @@
 import { PeerInfo } from '@/components/PeerInfo';
 import ReloadButton from '@/components/ReloadButton';
-import { PeerSlotResponse, PeerStatResponse } from '@/grpc_generated/route';
-import { Label } from '@/lib/Label';
-import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 import LagGraph from './lagGraph';
 import SlotTable from './slottable';
 import StatTable from './stattable';
@@ -12,50 +9,6 @@ type DataConfigProps = {
 };
 
 const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
-  const getSlotData = async () => {
-    const flowServiceAddr = GetFlowHttpAddressFromEnv();
-
-    const peerSlots: PeerSlotResponse = await fetch(
-      `${flowServiceAddr}/v1/peers/slots/${peerName}`,
-      {
-        cache: 'no-store',
-      }
-    ).then((res) => res.json());
-
-    const slotArray = peerSlots.slotData;
-    // slots with 'peerflow_slot' should come first
-    slotArray?.sort((slotA, slotB) => {
-      if (
-        slotA.slotName.startsWith('peerflow_slot') &&
-        !slotB.slotName.startsWith('peerflow_slot')
-      ) {
-        return -1;
-      } else if (
-        !slotA.slotName.startsWith('peerflow_slot') &&
-        slotB.slotName.startsWith('peerflow_slot')
-      ) {
-        return 1;
-      } else {
-        return 0;
-      }
-    });
-    return slotArray;
-  };
-
-  const getStatData = async () => {
-    const flowServiceAddr = GetFlowHttpAddressFromEnv();
-
-    const peerStats: PeerStatResponse = await fetch(
-      `${flowServiceAddr}/v1/peers/stats/${peerName}`,
-      { cache: 'no-store' }
-    ).then((res) => res.json());
-
-    return peerStats.statData;
-  };
-
-  const slots = await getSlotData();
-  const stats = await getStatData();
-
   return (
     <div
       style={{
@@ -81,28 +34,11 @@ const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
         <ReloadButton />
       </div>
 
-      {slots && stats ? (
-        <div>
-          <SlotTable data={slots} />
-          <LagGraph
-            peerName={peerName}
-            slotNames={slots.map((slot) => slot.slotName)}
-          />
-          <StatTable data={stats} />
-        </div>
-      ) : (
-        <div>
-          <Label
-            as='label'
-            style={{ fontSize: 18, marginTop: '1rem', display: 'block' }}
-          >
-            Peer Statistics
-          </Label>
-          <Label as='label' style={{ fontSize: 15, marginTop: '1rem' }}>
-            No stats to show
-          </Label>
-        </div>
-      )}
+      <div>
+        <SlotTable peerName={peerName} />
+        <LagGraph peerName={peerName} />
+        <StatTable peerName={peerName} />
+      </div>
     </div>
   );
 };
