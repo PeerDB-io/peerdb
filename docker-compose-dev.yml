@@ -37,6 +37,7 @@ x-flow-worker-env: &flow-worker-env
   # enables worker profiling using Grafana Pyroscope
   ENABLE_PROFILING: "true"
   PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
+  ENABLE_OTEL_METRICS: "true"
 
 services:
   catalog:
