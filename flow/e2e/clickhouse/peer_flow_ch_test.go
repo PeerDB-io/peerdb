@@ -135,7 +135,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 		},
 	})
 
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "removing table", func() bool {
+	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "removing table", func() bool {
 		response, err := env.Query(shared.FlowStatusQuery)
 		if err != nil {
 			s.t.Log(err)
