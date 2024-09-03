@@ -1,6 +1,7 @@
 'use client';
 import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
 
+import { TableMapping } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
@@ -9,7 +10,7 @@ import { CDCConfig, TableMapRow } from '../../../dto/MirrorsDTO';
 import { IsEventhubsPeer, IsQueuePeer, fetchPublications } from '../handlers';
 import { AdvancedSettingType, MirrorSetting } from '../helpers/common';
 import CDCField from './fields';
-import TableMapping from './tablemapping';
+import TablePicker from './tablemapping';
 
 interface MirrorConfigProps {
   settings: MirrorSetting[];
@@ -173,12 +174,12 @@ export default function CDCConfigForm({
               )
           )}
 
-        <TableMapping
+        <TablePicker
           sourcePeerName={mirrorConfig.sourceName}
           rows={rows}
           setRows={setRows}
           peerType={destinationType}
-          alreadySelectedTablesMapping={new Map<string, string[]>()}
+          alreadySelectedTablesMapping={new Map<string, TableMapping[]>()}
           initialLoadOnly={mirrorConfig.initialSnapshotOnly}
         />
       </>

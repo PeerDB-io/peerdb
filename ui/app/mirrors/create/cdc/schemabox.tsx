@@ -1,6 +1,7 @@
 'use client';
 
 import { TableMapRow } from '@/app/dto/MirrorsDTO';
+import { TableMapping } from '@/grpc_generated/flow';
 import { TableEngine, tableEngineFromJSON } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { Checkbox } from '@/lib/Checkbox';
@@ -44,7 +45,7 @@ interface SchemaBoxProps {
     SetStateAction<{ tableName: string; columns: string[] }[]>
   >;
   peerType?: DBType;
-  alreadySelectedTables: string[] | undefined;
+  alreadySelectedTables: TableMapping[] | undefined;
   initialLoadOnly?: boolean;
 }
 
@@ -190,9 +191,17 @@ export default function SchemaBox({
         initialLoadOnly
       ).then((newRows) => {
         for (const row of newRows) {
-          if (alreadySelectedTables?.includes(row.source)) {
+          if (
+            alreadySelectedTables
+              ?.map((tableMap) => tableMap.sourceTableIdentifier)
+              .includes(row.source)
+          ) {
             row.selected = true;
-            row.columnsToggleDisabled = true;
+            row.editingDisabled = true;
+            row.destination =
+              alreadySelectedTables?.find(
+                (tableMap) => tableMap.sourceTableIdentifier === row.source
+              )?.destinationTableIdentifier ?? '';
             addTableColumns(row.source);
           }
         }
@@ -335,6 +344,7 @@ export default function SchemaBox({
                           <p style={{ fontSize: 12 }}>Target Table:</p>
                           <TextField
                             key={row.source}
+                          disabled={row.editingDisabled}
                             style={{
                               fontSize: 12,
                               marginTop: '0.5rem',
@@ -389,7 +399,7 @@ export default function SchemaBox({
                             tableRow={row}
                             rows={rows}
                             setRows={setRows}
-                            disabled={row.columnsToggleDisabled}
+                            disabled={row.editingDisabled}
                             showOrdering={
                               peerType?.toString() ===
                               DBType[DBType.CLICKHOUSE].toString()

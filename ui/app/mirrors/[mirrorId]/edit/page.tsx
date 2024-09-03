@@ -2,7 +2,11 @@
 
 import { TableMapRow } from '@/app/dto/MirrorsDTO';
 import { notifyErr } from '@/app/utils/notify';
-import { CDCFlowConfigUpdate, FlowStatus } from '@/grpc_generated/flow';
+import {
+  CDCFlowConfigUpdate,
+  FlowStatus,
+  TableMapping,
+} from '@/grpc_generated/flow';
 import {
   FlowStateChangeRequest,
   MirrorStatusResponse,
@@ -17,9 +21,13 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import TableMapping from '../../create/cdc/tablemapping';
-import { changesToTablesMapping } from '../../create/handlers';
+import TablePicker from '../../create/cdc/tablemapping';
+import {
+  changesToTablesMapping,
+  reformattedTableMapping,
+} from '../../create/handlers';
 import { blankCDCSetting } from '../../create/helpers/common';
+import { tableMappingSchema } from '../../create/schema';
 import * as styles from '../../create/styles';
 import { getMirrorState } from '../handlers';
 
@@ -65,17 +73,19 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
     fetchStateAndUpdateDeps();
   }, [fetchStateAndUpdateDeps]);
 
-  const alreadySelectedTablesMapping: Map<string, string[]> = useMemo(() => {
-    const alreadySelectedTablesMap: Map<string, string[]> = new Map();
-    mirrorState?.cdcStatus?.config?.tableMappings.forEach((value) => {
-      const sourceSchema = value.sourceTableIdentifier.split('.').at(0)!;
-      const mapVal: string[] = alreadySelectedTablesMap.get(sourceSchema) || [];
-      // needs to be schema qualified
-      mapVal.push(value.sourceTableIdentifier);
-      alreadySelectedTablesMap.set(sourceSchema, mapVal);
-    });
-    return alreadySelectedTablesMap;
-  }, [mirrorState]);
+  const alreadySelectedTablesMapping: Map<string, TableMapping[]> =
+    useMemo(() => {
+      const alreadySelectedTablesMap: Map<string, TableMapping[]> = new Map();
+      mirrorState?.cdcStatus?.config?.tableMappings.forEach((value) => {
+        const sourceSchema = value.sourceTableIdentifier.split('.').at(0)!;
+        const mapVal: TableMapping[] =
+          alreadySelectedTablesMap.get(sourceSchema) || [];
+        // needs to be schema qualified
+        mapVal.push(value);
+        alreadySelectedTablesMap.set(sourceSchema, mapVal);
+      });
+      return alreadySelectedTablesMap;
+    }, [mirrorState]);
 
   const additionalTables = useMemo(() => {
     return changesToTablesMapping(rows, alreadySelectedTablesMapping, false);
@@ -90,6 +100,13 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
   }
 
   const sendFlowStateChangeRequest = async () => {
+    const tablesValidity = tableMappingSchema.safeParse(
+      reformattedTableMapping(rows)
+    );
+    if (!tablesValidity.success) {
+      notifyErr(tablesValidity.error.issues[0].message);
+      return;
+    }
     setLoading(true);
     const req: FlowStateChangeRequest = {
       flowJobName: mirrorId,
@@ -190,7 +207,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
         </Callout>
       )}
 
-      <TableMapping
+      <TablePicker
         sourcePeerName={mirrorState.cdcStatus?.config?.sourceName ?? ''}
         peerType={mirrorState.cdcStatus?.destinationType}
         rows={rows}

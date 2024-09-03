@@ -24,7 +24,7 @@ export type TableMapRow = {
   selected: boolean;
   canMirror: boolean;
   tableSize: string;
-  columnsToggleDisabled: boolean;
+  editingDisabled: boolean;
   engine: TableEngine;
   columns: ColumnSetting[];
 };

@@ -183,7 +183,7 @@ export function reformattedTableMapping(
 
 export function changesToTablesMapping(
   tableMapping: TableMapRow[],
-  currentTableMapping: Map<string, string[]>,
+  currentTableMapping: Map<string, TableMapping[]>,
   isRemoval: boolean
 ): TableMapping[] {
   const mapping = tableMapping
@@ -191,7 +191,8 @@ export function changesToTablesMapping(
       const isSelected = row?.selected === true && row?.canMirror === true;
       const isCurrentMapping = currentTableMapping
         .get(row.schema)
-        ?.includes(row.source);
+        ?.map((tableMap) => tableMap.sourceTableIdentifier)
+        .includes(row.source);
       // if not in current mapping, and selected, it's an addition
       if (!isCurrentMapping && isSelected && !isRemoval) {
         return true;
@@ -437,7 +438,7 @@ export async function fetchTables(
         selected: false,
         canMirror: tableObject.canMirror,
         tableSize: tableObject.tableSize,
-        columnsToggleDisabled: false,
+        editingDisabled: false,
         columns: [],
         engine: TableEngine.CH_ENGINE_REPLACING_MERGE_TREE,
       });

@@ -242,7 +242,7 @@ func processTableRemovals(
 			return v == removedTable.SourceTableIdentifier
 		})
 		for i, tableMapping := range state.SyncFlowOptions.TableMappings {
-			if tableMapping.DestinationTableIdentifier == removedTable.DestinationTableIdentifier {
+			if tableMapping.SourceTableIdentifier == removedTable.SourceTableIdentifier {
 				state.SyncFlowOptions.TableMappings = append(
 					state.SyncFlowOptions.TableMappings[:i],
 					state.SyncFlowOptions.TableMappings[i+1:]...,
