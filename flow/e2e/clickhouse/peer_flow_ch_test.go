@@ -69,7 +69,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	require.NoError(s.t, err)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "first insert", "test_table_add_remove", dstTableName, "id,key")
 	e2e.SignalWorkflow(env, model.FlowSignal, model.PauseSignal)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing", func() bool {
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing for add table", func() bool {
 		response, err := env.Query(shared.FlowStatusQuery)
 		if err != nil {
 			s.t.Log(err)
@@ -111,6 +111,21 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	`, addedSrcTableName))
 	require.NoError(s.t, err)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "first insert to added table", "test_table_add_remove_added", addedDstTableName, "id,key")
+	e2e.SignalWorkflow(env, model.FlowSignal, model.PauseSignal)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing again for removing table", func() bool {
+		response, err := env.Query(shared.FlowStatusQuery)
+		if err != nil {
+			s.t.Log(err)
+			return false
+		}
+		var state *protos.FlowStatus
+		err = response.Get(&state)
+		if err != nil {
+			s.t.Fatal("decode failed", err)
+		}
+		return state == nil || *state != protos.FlowStatus_STATUS_PAUSED
+	})
+
 	e2e.SignalWorkflow(env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 		RemovedTables: []*protos.TableMapping{
 			{
