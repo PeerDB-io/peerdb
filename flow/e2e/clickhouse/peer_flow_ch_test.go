@@ -6,13 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
-	"github.com/stretchr/testify/require"
 )
 
 func TestPeerFlowE2ETestSuiteCH(t *testing.T) {
@@ -140,7 +141,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 
 	rows, err := s.GetRows(dstTableName, "id")
 	require.NoError(s.t, err)
-	require.Equal(s.t, 1, len(rows.Records), "expected no new rows in removed table")
+	require.Len(s.t, rows.Records, 1, "expected no new rows in removed table")
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
 }
