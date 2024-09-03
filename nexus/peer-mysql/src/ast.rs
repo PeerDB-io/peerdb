@@ -115,7 +115,7 @@ pub fn rewrite_query(peername: &str, query: &mut Query) {
             Expr::Cast {
                 ref mut data_type, ..
             } if matches!(data_type, DataType::Timestamp(..)) =>{
-                *data_type = DataType::Datetime(Some(6));
+                *data_type = DataType::Datetime(None);
             }
             _ => {}
         }
