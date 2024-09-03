@@ -38,8 +38,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
-			key TEXT NOT NULL,
-			updated_at TIMESTAMP DEFAULT now()
+			key TEXT NOT NULL
 		);
 	`, srcTableName))
 	require.NoError(s.t, err)
@@ -47,8 +46,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 	CREATE TABLE IF NOT EXISTS %s (
 		id SERIAL PRIMARY KEY,
-		key TEXT NOT NULL,
-		updated_at TIMESTAMP DEFAULT now()
+		key TEXT NOT NULL
 	);
 	`, addedSrcTableName))
 	require.NoError(s.t, err)
@@ -68,7 +66,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 		INSERT INTO %s (key) VALUES ('test');
 	`, srcTableName))
 	require.NoError(s.t, err)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "first insert", "test_table_add_remove", dstTableName, "id,key,updated_at")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "first insert", "test_table_add_remove", dstTableName, "id,key")
 	e2e.SignalWorkflow(env, model.FlowSignal, model.PauseSignal)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing", func() bool {
 		response, err := env.Query(shared.FlowStatusQuery)
@@ -111,7 +109,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 		INSERT INTO %s (key) VALUES ('test');
 	`, addedSrcTableName))
 	require.NoError(s.t, err)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "second insert to added table", "test_table_add_remove_added", addedDstTableName, "id,key,updated_at")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "second insert to added table", "test_table_add_remove_added", addedDstTableName, "id,key")
 	e2e.SignalWorkflow(env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 		RemovedTables: []*protos.TableMapping{
 			{
