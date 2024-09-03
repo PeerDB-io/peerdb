@@ -356,7 +356,7 @@ export default function SchemaBox({
                                 selectedOption &&
                                 updateEngine(
                                   row.source,
-                                  tableEngineFromJSON(selectedOption)
+                                  tableEngineFromJSON(selectedOption.value)
                                 )
                               }
                             />
@@ -382,6 +382,10 @@ export default function SchemaBox({
                             tableRow={row}
                             rows={rows}
                             setRows={setRows}
+                            showOrdering={
+                              peerType?.toString() ===
+                              DBType[DBType.CLICKHOUSE].toString()
+                            }
                           />
                         ) : columnsLoading ? (
                           <BarLoader />

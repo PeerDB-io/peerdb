@@ -11,12 +11,14 @@ interface ColumnProps {
   tableRow: TableMapRow;
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
+  showOrdering: boolean;
 }
 export default function ColumnBox({
   columns,
   tableRow,
   rows,
   setRows,
+  showOrdering,
 }: ColumnProps) {
   const handleColumnExclusion = (column: string, include: boolean) => {
     const source = tableRow.source;
@@ -87,7 +89,7 @@ export default function ColumnBox({
             >
               {columnType}
             </p>
-            {!isPkey && (
+            {showOrdering && !isPkey && (
               <TextField
                 variant='simple'
                 type='number'
