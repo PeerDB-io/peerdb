@@ -340,13 +340,20 @@ func (c *ClickhouseConnector) getTableColumnsMapping(ctx context.Context,
 }
 
 func (c *ClickhouseConnector) processTableComparison(dstTableName string, srcSchema *protos.TableSchema,
-	dstSchema []*protos.FieldDescription, peerDBColumns []string,
+	dstSchema []*protos.FieldDescription, peerDBColumns []string, tableMapping *protos.TableMapping,
 ) error {
 	for _, srcField := range srcSchema.Columns {
+		colName := srcField.Name
+		for _, col := range tableMapping.Columns {
+			if col.SourceName == colName && col.DestinationName != "" {
+				colName = col.DestinationName
+				break
+			}
+		}
 		found := false
 		for _, dstField := range dstSchema {
 			// not doing type checks for now
-			if srcField.Name == dstField.Name {
+			if dstField.Name == colName {
 				found = true
 				break
 			}
@@ -399,7 +406,7 @@ func (c *ClickhouseConnector) CheckDestinationTables(ctx context.Context, req *p
 		}
 
 		err = c.processTableComparison(dstTableName, processedMapping[dstTableName],
-			chTableColumnsMapping[dstTableName], peerDBColumns)
+			chTableColumnsMapping[dstTableName], peerDBColumns, tableMapping)
 		if err != nil {
 			return err
 		}
