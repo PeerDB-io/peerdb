@@ -1,10 +1,12 @@
 package connclickhouse
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -36,12 +38,8 @@ func (c *ClickhouseConnector) CleanupSetupNormalizedTables(_ context.Context, _ 
 func (c *ClickhouseConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx interface{},
-	env map[string]string,
+	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
-	tableSchema *protos.TableSchema,
-	softDeleteColName string,
-	syncedAtColName string,
-	isResync bool,
 ) (bool, error) {
 	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.config.Database, tableIdentifier)
 	if err != nil {
@@ -52,93 +50,165 @@ func (c *ClickhouseConnector) SetupNormalizedTable(
 	}
 
 	normalizedTableCreateSQL, err := generateCreateTableSQLForNormalizedTable(
+		config,
 		tableIdentifier,
-		tableSchema,
-		softDeleteColName,
-		syncedAtColName,
-		isResync,
 	)
 	if err != nil {
 		return false, fmt.Errorf("error while generating create table sql for normalized table: %w", err)
 	}
 
-	err = c.execWithLogging(ctx, normalizedTableCreateSQL)
-	if err != nil {
+	if err := c.execWithLogging(ctx, normalizedTableCreateSQL); err != nil {
 		return false, fmt.Errorf("[ch] error while creating normalized table: %w", err)
 	}
 	return false, nil
 }
 
+func getColName(overrides map[string]string, name string) string {
+	if newName, ok := overrides[name]; ok {
+		return newName
+	}
+	return name
+}
+
 func generateCreateTableSQLForNormalizedTable(
-	normalizedTable string,
-	tableSchema *protos.TableSchema,
-	_ string, // softDeleteColName
-	syncedAtColName string,
-	isResync bool,
+	config *protos.SetupNormalizedTableBatchInput,
+	tableIdentifier string,
 ) (string, error) {
+	tableSchema := config.TableNameSchemaMapping[tableIdentifier]
+
+	var tableMapping *protos.TableMapping
+	for _, tm := range config.TableMappings {
+		if tm.DestinationTableIdentifier == tableIdentifier {
+			tableMapping = tm
+			break
+		}
+	}
+
 	var stmtBuilder strings.Builder
 	stmtBuilder.WriteString("CREATE ")
-	if isResync {
+	if config.IsResync {
 		stmtBuilder.WriteString("OR REPLACE ")
 	}
 	stmtBuilder.WriteString("TABLE ")
-	if !isResync {
+	if !config.IsResync {
 		stmtBuilder.WriteString("IF NOT EXISTS ")
 	}
 	stmtBuilder.WriteString("`")
-	stmtBuilder.WriteString(normalizedTable)
+	stmtBuilder.WriteString(tableIdentifier)
 	stmtBuilder.WriteString("` (")
 
+	colNameMap := make(map[string]string)
 	for _, column := range tableSchema.Columns {
 		colName := column.Name
+		dstColName := colName
 		colType := qvalue.QValueKind(column.Type)
-		clickhouseType, err := colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
-		if err != nil {
-			return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
+		var clickhouseType string
+		var columnSetting *protos.ColumnSetting
+		if tableMapping != nil {
+			for _, col := range tableMapping.Columns {
+				if col.SourceName == colName {
+					columnSetting = col
+					if columnSetting.DestinationName != "" {
+						dstColName = columnSetting.DestinationName
+						colNameMap[colName] = dstColName
+					}
+					if columnSetting.DestinationType != "" {
+						// TODO can we restrict this to avoid injection?
+						clickhouseType = columnSetting.DestinationType
+					}
+					break
+				}
+			}
+		}
+
+		if clickhouseType == "" {
+			var err error
+			clickhouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
+			if err != nil {
+				return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
+			}
 		}
 
 		if colType == qvalue.QValueKindNumeric {
 			precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
 			if column.Nullable {
-				stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(DECIMAL(%d, %d)), ", colName, precision, scale))
+				stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(DECIMAL(%d, %d)), ", dstColName, precision, scale))
 			} else {
-				stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ", colName, precision, scale))
+				stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ", dstColName, precision, scale))
 			}
 		} else if tableSchema.NullableEnabled && column.Nullable && !colType.IsArray() {
-			stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(%s), ", colName, clickhouseType))
+			stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(%s), ", dstColName, clickhouseType))
 		} else {
-			stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", colName, clickhouseType))
+			stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", dstColName, clickhouseType))
 		}
 	}
 	// TODO support soft delete
 	// synced at column will be added to all normalized tables
-	if syncedAtColName != "" {
-		colName := strings.ToLower(syncedAtColName)
-		stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", colName, "DateTime64(9) DEFAULT now64()"))
+	if config.SyncedAtColName != "" {
+		colName := strings.ToLower(config.SyncedAtColName)
+		stmtBuilder.WriteString(fmt.Sprintf("`%s` DateTime64(9) DEFAULT now64(), ", colName))
+	}
+
+	var engine string
+	if tableMapping == nil || tableMapping.Engine == protos.TableEngine_CH_ENGINE_MERGE_TREE {
+		engine = "MergeTree()"
+	} else {
+		engine = fmt.Sprintf("ReplacingMergeTree(`%s`)", versionColName)
 	}
 
 	// add sign and version columns
 	stmtBuilder.WriteString(fmt.Sprintf(
-		"`%s` %s, `%s` %s) ENGINE = ReplacingMergeTree(`%s`)",
-		signColName, signColType, versionColName, versionColType, versionColName))
+		"`%s` %s, `%s` %s) ENGINE = %s",
+		signColName, signColType, versionColName, versionColType, engine))
 
+	var pkeyStr string
 	pkeys := tableSchema.PrimaryKeyColumns
 	if len(pkeys) > 0 {
-		pkeyStr := strings.Join(pkeys, ",")
+		if len(colNameMap) > 0 {
+			pkeys = slices.Clone(pkeys)
+			for idx, pk := range pkeys {
+				pkeys[idx] = getColName(colNameMap, pk)
+			}
+		}
+		pkeyStr = strings.Join(pkeys, ",")
 
 		stmtBuilder.WriteString("PRIMARY KEY (")
 		stmtBuilder.WriteString(pkeyStr)
 		stmtBuilder.WriteString(") ")
+	}
 
+	orderby := make([]*protos.ColumnSetting, 0, len(tableMapping.Columns))
+	for _, col := range tableMapping.Columns {
+		if col.Ordering > 0 && !slices.Contains(pkeys, getColName(colNameMap, col.SourceName)) {
+			orderby = append(orderby, col)
+		}
+	}
+	slices.SortStableFunc(orderby, func(a *protos.ColumnSetting, b *protos.ColumnSetting) int {
+		return cmp.Compare(a.Ordering, b.Ordering)
+	})
+
+	if pkeyStr != "" || len(orderby) > 0 {
 		stmtBuilder.WriteString("ORDER BY (")
 		stmtBuilder.WriteString(pkeyStr)
-		stmtBuilder.WriteString(")")
+		if len(orderby) > 0 {
+			orderbyColumns := make([]string, len(orderby))
+			for idx, col := range orderby {
+				orderbyColumns[idx] = getColName(colNameMap, col.SourceName)
+			}
+
+			if pkeyStr != "" {
+				stmtBuilder.WriteRune(',')
+			}
+			stmtBuilder.WriteString(strings.Join(orderbyColumns, ","))
+		}
+		stmtBuilder.WriteRune(')')
 	}
 
 	return stmtBuilder.String(), nil
 }
 
-func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
+func (c *ClickhouseConnector) NormalizeRecords(
+	ctx context.Context,
 	req *model.NormalizeRecordsRequest,
 ) (*model.NormalizeResponse, error) {
 	// fix for potential consistency issues
@@ -188,34 +258,61 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 
 		schema := req.TableNameSchemaMapping[tbl]
 
+		var tableMapping *protos.TableMapping
+		for _, tm := range req.TableMappings {
+			if tm.DestinationTableIdentifier == tbl {
+				tableMapping = tm
+				break
+			}
+		}
+
 		projection := strings.Builder{}
 
 		for _, column := range schema.Columns {
-			cn := column.Name
-			ct := column.Type
+			colName := column.Name
+			dstColName := colName
+			colType := qvalue.QValueKind(column.Type)
 
-			colSelector.WriteString(fmt.Sprintf("`%s`,", cn))
-			colType := qvalue.QValueKind(ct)
-			clickhouseType, err := colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
-			if err != nil {
-				return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
+			var clickhouseType string
+			if tableMapping != nil {
+				for _, col := range tableMapping.Columns {
+					if col.SourceName == colName {
+						if col.DestinationName != "" {
+							dstColName = col.DestinationName
+						}
+						if col.DestinationType != "" {
+							// TODO can we restrict this to avoid injection?
+							clickhouseType = col.DestinationType
+						}
+						break
+					}
+				}
+			}
+
+			colSelector.WriteString(fmt.Sprintf("`%s`,", dstColName))
+			if clickhouseType == "" {
+				var err error
+				clickhouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
+				if err != nil {
+					return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
+				}
 			}
 
 			switch clickhouseType {
 			case "Date":
 				projection.WriteString(fmt.Sprintf(
 					"toDate(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'))) AS `%s`,",
-					cn,
-					cn,
+					colName,
+					dstColName,
 				))
 			case "DateTime64(6)":
 				projection.WriteString(fmt.Sprintf(
 					"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s')) AS `%s`,",
-					cn,
-					cn,
+					colName,
+					dstColName,
 				))
 			default:
-				projection.WriteString(fmt.Sprintf("JSONExtract(_peerdb_data, '%s', '%s') AS `%s`,", cn, clickhouseType, cn))
+				projection.WriteString(fmt.Sprintf("JSONExtract(_peerdb_data, '%s', '%s') AS `%s`,", colName, clickhouseType, dstColName))
 			}
 		}
 
@@ -249,8 +346,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 
 		q := insertIntoSelectQuery.String()
 
-		err = c.execWithLogging(ctx, q)
-		if err != nil {
+		if err := c.execWithLogging(ctx, q); err != nil {
 			return nil, fmt.Errorf("error while inserting into normalized table: %w", err)
 		}
 	}

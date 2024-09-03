@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -13,6 +14,11 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared/telemetry"
+)
+
+var (
+	CustomColumnTypeRegex = regexp.MustCompile(`^$|^[a-zA-Z][a-zA-Z0-9(),]*$`)
+	CustomColumnNameRegex = regexp.MustCompile(`^$|^[a-zA-Z_][a-zA-Z0-9_]*$`)
 )
 
 func (h *FlowRequestHandler) ValidateCDCMirror(
@@ -75,8 +81,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	noCDC := req.ConnectionConfigs.DoInitialSnapshot && req.ConnectionConfigs.InitialSnapshotOnly
 	if !noCDC {
 		// Check replication connectivity
-		err = pgPeer.CheckReplicationConnectivity(ctx)
-		if err != nil {
+		if err := pgPeer.CheckReplicationConnectivity(ctx); err != nil {
 			displayErr := fmt.Errorf("unable to establish replication connectivity: %v", err)
 			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
 				displayErr.Error(),
@@ -87,8 +92,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		}
 
 		// Check permissions of postgres peer
-		err = pgPeer.CheckReplicationPermissions(ctx, sourcePeerConfig.User)
-		if err != nil {
+		if err := pgPeer.CheckReplicationPermissions(ctx, sourcePeerConfig.User); err != nil {
 			displayErr := fmt.Errorf("failed to check replication permissions: %v", err)
 			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
 				fmt.Sprint(displayErr),
@@ -123,8 +127,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 			srcTableNames = append(srcTableNames, fmt.Sprintf("%s.%s", srcTable.Schema, srcTable.Table))
 		}
 
-		err := pgPeer.CheckPublicationCreationPermissions(ctx, srcTableNames)
-		if err != nil {
+		if err := pgPeer.CheckPublicationCreationPermissions(ctx, srcTableNames); err != nil {
 			displayErr := fmt.Errorf("invalid publication creation permissions: %v", err)
 			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
 				fmt.Sprint(displayErr),
@@ -135,8 +138,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		}
 	}
 
-	err = pgPeer.CheckSourceTables(ctx, sourceTables, pubName, noCDC)
-	if err != nil {
+	if err := pgPeer.CheckSourceTables(ctx, sourceTables, pubName, noCDC); err != nil {
 		displayErr := fmt.Errorf("provided source tables invalidated: %v", err)
 		slog.Error(displayErr.Error())
 		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
@@ -145,6 +147,21 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		return &protos.ValidateCDCMirrorResponse{
 			Ok: false,
 		}, displayErr
+	}
+
+	for _, tm := range req.ConnectionConfigs.TableMappings {
+		for _, col := range tm.Columns {
+			if !CustomColumnTypeRegex.MatchString(col.DestinationType) {
+				return &protos.ValidateCDCMirrorResponse{
+					Ok: false,
+				}, fmt.Errorf("invalid custom column type %s", col.DestinationType)
+			}
+			if !CustomColumnNameRegex.MatchString(col.DestinationName) {
+				return &protos.ValidateCDCMirrorResponse{
+					Ok: false,
+				}, fmt.Errorf("invalid custom column name %s", col.DestinationName)
+			}
+		}
 	}
 
 	return &protos.ValidateCDCMirrorResponse{

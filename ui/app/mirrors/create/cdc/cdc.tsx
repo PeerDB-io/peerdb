@@ -14,9 +14,9 @@ import TableMapping from './tablemapping';
 interface MirrorConfigProps {
   settings: MirrorSetting[];
   mirrorConfig: CDCConfig;
+  setter: Dispatch<SetStateAction<CDCConfig>>;
   destinationType: DBType;
   sourceType: DBType;
-  setter: Dispatch<SetStateAction<CDCConfig>>;
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
 }
@@ -24,9 +24,9 @@ interface MirrorConfigProps {
 export default function CDCConfigForm({
   settings,
   mirrorConfig,
+  setter,
   destinationType,
   sourceType,
-  setter,
   rows,
   setRows,
 }: MirrorConfigProps) {

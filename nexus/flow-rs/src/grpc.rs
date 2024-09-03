@@ -120,6 +120,8 @@ impl FlowGrpcClient {
                 destination_table_identifier: mapping.destination_table_identifier.clone(),
                 partition_key: mapping.partition_key.clone().unwrap_or_default(),
                 exclude: mapping.exclude.clone(),
+                columns: Default::default(),
+                engine: Default::default(),
             })
             .collect::<Vec<_>>();
 

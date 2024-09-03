@@ -319,12 +319,8 @@ func (c *SnowflakeConnector) CleanupSetupNormalizedTables(_ context.Context, _ i
 func (c *SnowflakeConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx interface{},
-	env map[string]string,
+	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
-	tableSchema *protos.TableSchema,
-	softDeleteColName string,
-	syncedAtColName string,
-	isResync bool,
 ) (bool, error) {
 	normalizedSchemaTable, err := utils.ParseSchemaTable(tableIdentifier)
 	if err != nil {
@@ -340,10 +336,8 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 		return true, nil
 	}
 
-	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
-		normalizedSchemaTable, tableSchema, softDeleteColName, syncedAtColName, isResync)
-	_, err = c.execWithLogging(ctx, normalizedTableCreateSQL)
-	if err != nil {
+	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(config, tableIdentifier, normalizedSchemaTable)
+	if _, err := c.execWithLogging(ctx, normalizedTableCreateSQL); err != nil {
 		return false, fmt.Errorf("[sf] error while creating normalized table: %w", err)
 	}
 	return false, nil
@@ -671,12 +665,11 @@ func (c *SnowflakeConnector) checkIfTableExists(
 }
 
 func generateCreateTableSQLForNormalizedTable(
+	config *protos.SetupNormalizedTableBatchInput,
+	tableIdentifier string,
 	dstSchemaTable *utils.SchemaTable,
-	sourceTableSchema *protos.TableSchema,
-	softDeleteColName string,
-	syncedAtColName string,
-	isResync bool,
 ) string {
+	sourceTableSchema := config.TableNameSchemaMapping[tableIdentifier]
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns)+2)
 	for _, column := range sourceTableSchema.Columns {
 		genericColumnType := column.Type
@@ -703,15 +696,15 @@ func generateCreateTableSQLForNormalizedTable(
 
 	// add a _peerdb_is_deleted column to the normalized table
 	// this is boolean default false, and is used to mark records as deleted
-	if softDeleteColName != "" {
-		createTableSQLArray = append(createTableSQLArray, softDeleteColName+" BOOLEAN DEFAULT FALSE")
+	if config.SoftDeleteColName != "" {
+		createTableSQLArray = append(createTableSQLArray, config.SoftDeleteColName+" BOOLEAN DEFAULT FALSE")
 	}
 
 	// add a _peerdb_synced column to the normalized table
 	// this is a timestamp column that is used to mark records as synced
 	// default value is the current timestamp (snowflake)
-	if syncedAtColName != "" {
-		createTableSQLArray = append(createTableSQLArray, syncedAtColName+" TIMESTAMP DEFAULT SYSDATE()")
+	if config.SyncedAtColName != "" {
+		createTableSQLArray = append(createTableSQLArray, config.SyncedAtColName+" TIMESTAMP DEFAULT SYSDATE()")
 	}
 
 	// add composite primary key to the table
@@ -726,7 +719,7 @@ func generateCreateTableSQLForNormalizedTable(
 	}
 
 	createSQL := createNormalizedTableSQL
-	if isResync {
+	if config.IsResync {
 		createSQL = createOrReplaceNormalizedTableSQL
 	}
 

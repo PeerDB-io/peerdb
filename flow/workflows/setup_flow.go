@@ -204,6 +204,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	setupConfig := &protos.SetupNormalizedTableBatchInput{
 		PeerName:               flowConnectionConfigs.DestinationName,
 		TableNameSchemaMapping: normalizedTableMapping,
+		TableMappings:          flowConnectionConfigs.TableMappings,
 		SoftDeleteColName:      flowConnectionConfigs.SoftDeleteColName,
 		SyncedAtColName:        flowConnectionConfigs.SyncedAtColName,
 		FlowName:               flowConnectionConfigs.FlowJobName,

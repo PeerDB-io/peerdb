@@ -123,12 +123,8 @@ type NormalizedTablesConnector interface {
 	SetupNormalizedTable(
 		ctx context.Context,
 		tx any,
-		env map[string]string,
+		config *protos.SetupNormalizedTableBatchInput,
 		tableIdentifier string,
-		tableSchema *protos.TableSchema,
-		softDeleteColName string,
-		syncedAtColName string,
-		isResync bool,
 	) (bool, error)
 }
 

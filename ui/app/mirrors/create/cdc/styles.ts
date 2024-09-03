@@ -40,3 +40,38 @@ export const tooltipStyle: CSSProperties = {
   color: 'black',
   padding: '0.5rem',
 };
+
+export const columnBoxDividerStyle: CSSProperties = {
+  marginTop: '1.5rem',
+  marginLeft: 0,
+  marginBottom: '0.5rem',
+  width: '90%',
+  opacity: 0.5,
+};
+
+const targetHeight = 30;
+
+export const engineOptionStyles = {
+  control: (base: any) => ({
+    ...base,
+    minHeight: 'initial',
+    fontSize: 12,
+  }),
+  menu: (base: any) => ({
+    ...base,
+    fontSize: 12,
+  }),
+  valueContainer: (base: any) => ({
+    ...base,
+    height: `${targetHeight - 1 - 1}px`,
+    padding: '0 8px',
+  }),
+  clearIndicator: (base: any) => ({
+    ...base,
+    padding: `${(targetHeight - 20 - 1 - 1) / 2}px`,
+  }),
+  dropdownIndicator: (base: any) => ({
+    ...base,
+    padding: `${(targetHeight - 20 - 1 - 1) / 2}px`,
+  }),
+};

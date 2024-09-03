@@ -332,16 +332,14 @@ func (h *FlowRequestHandler) shutdownFlow(
 				return fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
 			}
 		case <-time.After(5 * time.Minute):
-			err := h.handleCancelWorkflow(ctx, workflowID, "")
-			if err != nil {
+			if err := h.handleCancelWorkflow(ctx, workflowID, ""); err != nil {
 				slog.Error("unable to wait for DropFlow workflow to close", logs, slog.Any("error", err))
 				return fmt.Errorf("unable to wait for DropFlow workflow to close: %w", err)
 			}
 		}
 	}
 
-	err = h.removeFlowEntryInCatalog(ctx, flowJobName)
-	if err != nil {
+	if err := h.removeFlowEntryInCatalog(ctx, flowJobName); err != nil {
 		slog.Error("unable to remove flow job entry",
 			slog.String(string(shared.FlowNameKey), flowJobName),
 			slog.Any("error", err),

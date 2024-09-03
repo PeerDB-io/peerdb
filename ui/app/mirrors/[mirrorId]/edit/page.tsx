@@ -76,9 +76,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
     return omitAdditionalTablesMapping;
   }, [mirrorState]);
 
-  const additionalTables = useMemo(() => {
-    return reformattedTableMapping(rows);
-  }, [rows]);
+  const additionalTables = useMemo(() => reformattedTableMapping(rows), [rows]);
 
   if (!mirrorState) {
     return <ProgressCircle variant='determinate_progress_circle' />;

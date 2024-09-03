@@ -861,12 +861,8 @@ func (c *PostgresConnector) FinishSetupNormalizedTables(ctx context.Context, tx 
 func (c *PostgresConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx any,
-	env map[string]string,
+	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
-	tableSchema *protos.TableSchema,
-	softDeleteColName string,
-	syncedAtColName string,
-	isResync bool,
 ) (bool, error) {
 	createNormalizedTablesTx := tx.(pgx.Tx)
 
@@ -881,7 +877,7 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	if tableAlreadyExists {
 		c.logger.Info("[postgres] table already exists, skipping",
 			slog.String("table", tableIdentifier))
-		if isResync {
+		if config.IsResync {
 			err := c.ExecuteCommand(ctx, fmt.Sprintf(dropTableIfExistsSQL,
 				QuoteIdentifier(parsedNormalizedTable.Schema),
 				QuoteIdentifier(parsedNormalizedTable.Table)))
@@ -893,8 +889,7 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	}
 
 	// convert the column names and types to Postgres types
-	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
-		parsedNormalizedTable.String(), tableSchema, softDeleteColName, syncedAtColName)
+	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(config, tableIdentifier, parsedNormalizedTable)
 	_, err = c.execWithLoggingTx(ctx, normalizedTableCreateSQL, createNormalizedTablesTx)
 	if err != nil {
 		return false, fmt.Errorf("error while creating normalized table: %w", err)

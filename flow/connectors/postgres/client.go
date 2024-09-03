@@ -451,11 +451,11 @@ func getRawTableIdentifier(jobName string) string {
 }
 
 func generateCreateTableSQLForNormalizedTable(
-	sourceTableIdentifier string,
-	sourceTableSchema *protos.TableSchema,
-	softDeleteColName string,
-	syncedAtColName string,
+	config *protos.SetupNormalizedTableBatchInput,
+	tableIdentifier string,
+	dstSchemaTable *utils.SchemaTable,
 ) string {
+	sourceTableSchema := config.TableNameSchemaMapping[tableIdentifier]
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns)+2)
 	for _, column := range sourceTableSchema.Columns {
 		pgColumnType := column.Type
@@ -475,14 +475,14 @@ func generateCreateTableSQLForNormalizedTable(
 			fmt.Sprintf("%s %s%s", QuoteIdentifier(column.Name), pgColumnType, notNull))
 	}
 
-	if softDeleteColName != "" {
+	if config.SoftDeleteColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			QuoteIdentifier(softDeleteColName)+` BOOL DEFAULT FALSE`)
+			QuoteIdentifier(config.SoftDeleteColName)+` BOOL DEFAULT FALSE`)
 	}
 
-	if syncedAtColName != "" {
+	if config.SyncedAtColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			QuoteIdentifier(syncedAtColName)+` TIMESTAMP DEFAULT CURRENT_TIMESTAMP`)
+			QuoteIdentifier(config.SyncedAtColName)+` TIMESTAMP DEFAULT CURRENT_TIMESTAMP`)
 	}
 
 	// add composite primary key to the table
@@ -495,7 +495,7 @@ func generateCreateTableSQLForNormalizedTable(
 			strings.Join(primaryKeyColsQuoted, ",")))
 	}
 
-	return fmt.Sprintf(createNormalizedTableSQL, sourceTableIdentifier, strings.Join(createTableSQLArray, ","))
+	return fmt.Sprintf(createNormalizedTableSQL, dstSchemaTable.String(), strings.Join(createTableSQLArray, ","))
 }
 
 func (c *PostgresConnector) GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error) {
