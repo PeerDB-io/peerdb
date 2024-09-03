@@ -36,10 +36,12 @@ func (c *ClickhouseConnector) CleanupSetupNormalizedTables(_ context.Context, _ 
 func (c *ClickhouseConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx interface{},
+	env map[string]string,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
 	softDeleteColName string,
 	syncedAtColName string,
+	isResync bool,
 ) (bool, error) {
 	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.config.Database, tableIdentifier)
 	if err != nil {
@@ -54,6 +56,7 @@ func (c *ClickhouseConnector) SetupNormalizedTable(
 		tableSchema,
 		softDeleteColName,
 		syncedAtColName,
+		isResync,
 	)
 	if err != nil {
 		return false, fmt.Errorf("error while generating create table sql for normalized table: %w", err)
@@ -71,9 +74,20 @@ func generateCreateTableSQLForNormalizedTable(
 	tableSchema *protos.TableSchema,
 	_ string, // softDeleteColName
 	syncedAtColName string,
+	isResync bool,
 ) (string, error) {
 	var stmtBuilder strings.Builder
-	stmtBuilder.WriteString(fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s` (", normalizedTable))
+	stmtBuilder.WriteString("CREATE ")
+	if isResync {
+		stmtBuilder.WriteString("OR REPLACE ")
+	}
+	stmtBuilder.WriteString("TABLE ")
+	if !isResync {
+		stmtBuilder.WriteString("IF NOT EXISTS ")
+	}
+	stmtBuilder.WriteString("`")
+	stmtBuilder.WriteString(normalizedTable)
+	stmtBuilder.WriteString("` (")
 
 	for _, column := range tableSchema.Columns {
 		colName := column.Name
@@ -83,12 +97,16 @@ func generateCreateTableSQLForNormalizedTable(
 			return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 		}
 
-		switch colType {
-		case qvalue.QValueKindNumeric:
+		if colType == qvalue.QValueKindNumeric {
 			precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
-			stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ",
-				colName, precision, scale))
-		default:
+			if column.Nullable {
+				stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(DECIMAL(%d, %d)), ", colName, precision, scale))
+			} else {
+				stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ", colName, precision, scale))
+			}
+		} else if tableSchema.NullableEnabled && column.Nullable && !colType.IsArray() {
+			stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(%s), ", colName, clickhouseType))
+		} else {
 			stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", colName, clickhouseType))
 		}
 	}
@@ -96,14 +114,13 @@ func generateCreateTableSQLForNormalizedTable(
 	// synced at column will be added to all normalized tables
 	if syncedAtColName != "" {
 		colName := strings.ToLower(syncedAtColName)
-		stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", colName, "DateTime64(9) DEFAULT now()"))
+		stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", colName, "DateTime64(9) DEFAULT now64()"))
 	}
 
 	// add sign and version columns
-	stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", signColName, signColType))
-	stmtBuilder.WriteString(fmt.Sprintf("`%s` %s", versionColName, versionColType))
-
-	stmtBuilder.WriteString(fmt.Sprintf(") ENGINE = ReplacingMergeTree(`%s`) ", versionColName))
+	stmtBuilder.WriteString(fmt.Sprintf(
+		"`%s` %s, `%s` %s) ENGINE = ReplacingMergeTree(`%s`)",
+		signColName, signColType, versionColName, versionColType, versionColName))
 
 	pkeys := tableSchema.PrimaryKeyColumns
 	if len(pkeys) > 0 {
@@ -238,8 +255,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 		}
 	}
 
-	endNormalizeBatchId := normBatchID + 1
-	err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, endNormalizeBatchId)
+	err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, req.SyncBatchID)
 	if err != nil {
 		c.logger.Error("[clickhouse] error while updating normalize batch id", "error", err)
 		return nil, err
@@ -247,7 +263,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 
 	return &model.NormalizeResponse{
 		Done:         true,
-		StartBatchID: endNormalizeBatchId,
+		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
 	}, nil
 }

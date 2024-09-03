@@ -10,10 +10,11 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
-	tableNames []*utils.SchemaTable, pubName string,
+	tableNames []*utils.SchemaTable, pubName string, noCDC bool,
 ) error {
 	if c.conn == nil {
 		return errors.New("check tables: conn is nil")
@@ -35,7 +36,7 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 
 	tableStr := strings.Join(tableArr, ",")
 
-	if pubName != "" {
+	if pubName != "" && !noCDC {
 		// Check if publication exists
 		err := c.conn.QueryRow(ctx, "SELECT pubname FROM pg_publication WHERE pubname=$1", pubName).Scan(nil)
 		if err != nil {
@@ -129,4 +130,18 @@ func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context) er
 	}
 
 	return conn.Close(ctx)
+}
+
+func (c *PostgresConnector) CheckPublicationCreationPermissions(ctx context.Context, srcTableNames []string) error {
+	pubName := "_peerdb_tmp_test_publication_" + shared.RandomString(5)
+	err := c.CreatePublication(ctx, srcTableNames, pubName)
+	if err != nil {
+		return err
+	}
+
+	_, err = c.conn.Exec(ctx, "DROP PUBLICATION "+pubName)
+	if err != nil {
+		return fmt.Errorf("failed to drop publication: %v", err)
+	}
+	return nil
 }

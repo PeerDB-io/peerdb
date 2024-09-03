@@ -92,6 +92,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
       flowConfigUpdate: {
         cdcFlowConfigUpdate: { ...config, additionalTables },
       },
+      dropMirrorStats: false,
     };
     const res = await fetch('/api/v1/mirrors/state_change', {
       method: 'POST',
@@ -190,6 +191,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
         rows={rows}
         setRows={setRows}
         omitAdditionalTablesMapping={omitAdditionalTablesMapping}
+        initialLoadOnly={false}
       />
 
       {isNotPaused && (

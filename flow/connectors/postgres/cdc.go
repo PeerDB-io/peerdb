@@ -318,7 +318,7 @@ func PullCdcRecords[Items model.Items](
 	}
 
 	var standByLastLogged time.Time
-	cdcRecordsStorage, err := utils.NewCDCStore[Items](ctx, p.flowJobName)
+	cdcRecordsStorage, err := utils.NewCDCStore[Items](ctx, req.Env, p.flowJobName)
 	if err != nil {
 		return err
 	}

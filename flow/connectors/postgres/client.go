@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -38,7 +39,7 @@ const (
 	getLastSyncBatchID_SQL      = "SELECT sync_batch_id FROM %s.%s WHERE mirror_job_name=$1"
 	getLastNormalizeBatchID_SQL = "SELECT normalize_batch_id FROM %s.%s WHERE mirror_job_name=$1"
 	createNormalizedTableSQL    = "CREATE TABLE IF NOT EXISTS %s(%s)"
-
+	checkTableExistsSQL         = "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = $1 AND tablename = $2)"
 	upsertJobMetadataForSyncSQL = `INSERT INTO %s.%s AS j VALUES ($1,$2,$3,$4)
 	 ON CONFLICT(mirror_job_name) DO UPDATE SET lsn_offset=GREATEST(j.lsn_offset, EXCLUDED.lsn_offset), sync_batch_id=EXCLUDED.sync_batch_id`
 	checkIfJobMetadataExistsSQL          = "SELECT COUNT(1)::TEXT::BOOL FROM %s.%s WHERE mirror_job_name=$1"
@@ -106,12 +107,11 @@ func (c *PostgresConnector) getRelIDForTable(ctx context.Context, schemaTable *u
 }
 
 // getReplicaIdentity returns the replica identity for a table.
-func (c *PostgresConnector) getReplicaIdentityType(ctx context.Context, schemaTable *utils.SchemaTable) (ReplicaIdentityType, error) {
-	relID, relIDErr := c.getRelIDForTable(ctx, schemaTable)
-	if relIDErr != nil {
-		return ReplicaIdentityDefault, fmt.Errorf("failed to get relation id for table %s: %w", schemaTable, relIDErr)
-	}
-
+func (c *PostgresConnector) getReplicaIdentityType(
+	ctx context.Context,
+	relID uint32,
+	schemaTable *utils.SchemaTable,
+) (ReplicaIdentityType, error) {
 	var replicaIdentity rune
 	err := c.conn.QueryRow(ctx,
 		`SELECT relreplident FROM pg_class WHERE oid = $1;`,
@@ -132,21 +132,17 @@ func (c *PostgresConnector) getReplicaIdentityType(ctx context.Context, schemaTa
 // For replica identity 'f'/full, if there is a primary key we use that, else we return all columns
 func (c *PostgresConnector) getUniqueColumns(
 	ctx context.Context,
+	relID uint32,
 	replicaIdentity ReplicaIdentityType,
 	schemaTable *utils.SchemaTable,
 ) ([]string, error) {
-	relID, err := c.getRelIDForTable(ctx, schemaTable)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get relation id for table %s: %w", schemaTable, err)
-	}
-
 	if replicaIdentity == ReplicaIdentityIndex {
 		return c.getReplicaIdentityIndexColumns(ctx, relID, schemaTable)
 	}
 
 	// Find the primary key index OID, for replica identity 'd'/default or 'f'/full
 	var pkIndexOID oid.Oid
-	err = c.conn.QueryRow(ctx,
+	err := c.conn.QueryRow(ctx,
 		`SELECT indexrelid FROM pg_index WHERE indrelid = $1 AND indisprimary`,
 		relID).Scan(&pkIndexOID)
 	if err != nil {
@@ -197,6 +193,21 @@ func (c *PostgresConnector) getColumnNamesForIndex(ctx context.Context, indexOID
 		return nil, fmt.Errorf("error scanning column for index %v: %w", indexOID, err)
 	}
 	return cols, nil
+}
+
+func (c *PostgresConnector) getNullableColumns(ctx context.Context, relID uint32) (map[string]struct{}, error) {
+	rows, err := c.conn.Query(ctx, "SELECT a.attname FROM pg_attribute a WHERE a.attrelid = $1 AND NOT a.attnotnull", relID)
+	if err != nil {
+		return nil, fmt.Errorf("error getting columns for table %v: %w", relID, err)
+	}
+
+	var name string
+	nullableCols := make(map[string]struct{})
+	_, err = pgx.ForEachRow(rows, []any{&name}, func() error {
+		nullableCols[name] = struct{}{}
+		return nil
+	})
+	return nullableCols, err
 }
 
 func (c *PostgresConnector) tableExists(ctx context.Context, schemaTable *utils.SchemaTable) (bool, error) {
@@ -315,6 +326,30 @@ func (c *PostgresConnector) GetSlotInfo(ctx context.Context, slotName string) ([
 	return getSlotInfo(ctx, c.conn, slotName, c.config.Database)
 }
 
+func (c *PostgresConnector) CreatePublication(
+	ctx context.Context,
+	srcTableNames []string,
+	publication string,
+) error {
+	tableNameString := strings.Join(srcTableNames, ", ")
+	// check and enable publish_via_partition_root
+	pgversion, err := c.MajorVersion(ctx)
+	if err != nil {
+		return fmt.Errorf("[publication-creation]:error checking Postgres version: %w", err)
+	}
+	var pubViaRootString string
+	if pgversion >= shared.POSTGRES_13 {
+		pubViaRootString = " WITH(publish_via_partition_root=true)"
+	}
+	// Create the publication to help filter changes only for the given tables
+	stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s%s", publication, tableNameString, pubViaRootString)
+	if _, err = c.execWithLogging(ctx, stmt); err != nil {
+		c.logger.Warn(fmt.Sprintf("Error creating publication '%s': %v", publication, err))
+		return fmt.Errorf("error creating publication '%s' : %w", publication, err)
+	}
+	return nil
+}
+
 // createSlotAndPublication creates the replication slot and publication.
 func (c *PostgresConnector) createSlotAndPublication(
 	ctx context.Context,
@@ -332,26 +367,13 @@ func (c *PostgresConnector) createSlotAndPublication(
 		for srcTableName := range tableNameMapping {
 			parsedSrcTableName, err := utils.ParseSchemaTable(srcTableName)
 			if err != nil {
-				return fmt.Errorf("source table identifier %s is invalid", srcTableName)
+				return fmt.Errorf("[publication-creation]:source table identifier %s is invalid", srcTableName)
 			}
 			srcTableNames = append(srcTableNames, parsedSrcTableName.String())
 		}
-		tableNameString := strings.Join(srcTableNames, ", ")
-
-		// check and enable publish_via_partition_root
-		pgversion, err := c.MajorVersion(ctx)
+		err := c.CreatePublication(ctx, srcTableNames, publication)
 		if err != nil {
-			return fmt.Errorf("error checking Postgres version: %w", err)
-		}
-		var pubViaRootString string
-		if pgversion >= shared.POSTGRES_13 {
-			pubViaRootString = " WITH(publish_via_partition_root=true)"
-		}
-		// Create the publication to help filter changes only for the given tables
-		stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s%s", publication, tableNameString, pubViaRootString)
-		if _, err = c.execWithLogging(ctx, stmt); err != nil {
-			c.logger.Warn(fmt.Sprintf("Error creating publication '%s': %v", publication, err))
-			return fmt.Errorf("error creating publication '%s' : %w", publication, err)
+			return err
 		}
 	}
 
@@ -418,7 +440,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 
 func (c *PostgresConnector) createMetadataSchema(ctx context.Context) error {
 	_, err := c.execWithLogging(ctx, fmt.Sprintf(createSchemaSQL, c.metadataSchema))
-	if err != nil && !shared.IsUniqueError(err) {
+	if err != nil && !shared.IsSQLStateError(err, pgerrcode.UniqueViolation) {
 		return fmt.Errorf("error while creating internal schema: %w", err)
 	}
 	return nil
@@ -444,8 +466,13 @@ func generateCreateTableSQLForNormalizedTable(
 			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
 			pgColumnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
 		}
+		var notNull string
+		if sourceTableSchema.NullableEnabled && !column.Nullable {
+			notNull = " NOT NULL"
+		}
+
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf("%s %s", QuoteIdentifier(column.Name), pgColumnType))
+			fmt.Sprintf("%s %s%s", QuoteIdentifier(column.Name), pgColumnType, notNull))
 	}
 
 	if softDeleteColName != "" {
@@ -615,6 +642,22 @@ func (c *PostgresConnector) getCurrentLSN(ctx context.Context) (pglogrepl.LSN, e
 
 func (c *PostgresConnector) getDefaultPublicationName(jobName string) string {
 	return "peerflow_pub_" + jobName
+}
+
+func (c *PostgresConnector) checkIfTableExistsWithTx(
+	ctx context.Context,
+	schemaName string,
+	tableName string,
+	tx pgx.Tx,
+) (bool, error) {
+	row := tx.QueryRow(ctx, checkTableExistsSQL, schemaName, tableName)
+	var result pgtype.Bool
+	err := row.Scan(&result)
+	if err != nil {
+		return false, fmt.Errorf("error while running query: %w", err)
+	}
+
+	return result.Bool, nil
 }
 
 func (c *PostgresConnector) ExecuteCommand(ctx context.Context, command string) error {

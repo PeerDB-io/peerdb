@@ -18,6 +18,7 @@ message TableMapping {
 }
 
 message SetupInput {
+  map<string, string> env = 1;
   string flow_name = 2;
   string peer_name = 3;
 }
@@ -58,6 +59,8 @@ message FlowConnectionConfigs {
   // source and destination peer
   string source_name = 22;
   string destination_name = 23;
+
+  map<string, string> env = 24;
 }
 
 message RenameTableOption {
@@ -150,6 +153,7 @@ message TableSchema {
   repeated string primary_key_columns = 2;
   bool is_replica_identity_full = 3;
   TypeSystem system = 4;
+  bool nullable_enabled = 5;
   repeated FieldDescription columns = 6;
 }
 
@@ -157,9 +161,11 @@ message FieldDescription {
   string name = 1;
   string type = 2;
   int32 type_modifier = 3;
+  bool nullable = 4;
 }
 
 message GetTableSchemaBatchInput {
+  map<string, string> env = 1;
   repeated string table_identifiers = 2;
   string flow_name = 3;
   TypeSystem system = 4;
@@ -171,6 +177,7 @@ message GetTableSchemaBatchOutput {
 }
 
 message SetupNormalizedTableBatchInput {
+  map<string, string> env = 1;
   map<string, TableSchema> table_name_schema_mapping = 2;
 
   // migration related columns
@@ -178,6 +185,7 @@ message SetupNormalizedTableBatchInput {
   string synced_at_col_name = 5;
   string flow_name = 6;
   string peer_name = 7;
+  bool is_resync = 8;
 }
 
 message SetupNormalizedTableOutput {
@@ -285,6 +293,10 @@ message QRepConfig {
   string source_name = 20;
   string destination_name = 21;
   string snapshot_name = 23;
+
+  map<string, string> env = 24;
+
+  string parent_mirror_name = 25;
 }
 
 message QRepPartition {
@@ -306,6 +318,7 @@ message DropFlowInput {
   string flow_job_name = 1;
   string source_peer_name = 2;
   string destination_peer_name = 3;
+  bool drop_flow_stats = 4;
 }
 
 message TableSchemaDelta {
@@ -313,6 +326,7 @@ message TableSchemaDelta {
   string dst_table_name = 2;
   repeated FieldDescription added_columns = 3;
   TypeSystem system = 4;
+  bool nullable_enabled = 5;
 }
 
 message QRepFlowState {

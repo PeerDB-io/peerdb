@@ -1,10 +1,11 @@
 'use client';
+import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
+
 import { DBType } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { ProgressCircle } from '@/lib/ProgressCircle';
-import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
-import { CDCConfig, MirrorSetter, TableMapRow } from '../../../dto/MirrorsDTO';
+import { CDCConfig, TableMapRow } from '../../../dto/MirrorsDTO';
 import { IsEventhubsPeer, IsQueuePeer, fetchPublications } from '../handlers';
 import { AdvancedSettingType, MirrorSetting } from '../helpers/common';
 import CDCField from './fields';
@@ -15,7 +16,7 @@ interface MirrorConfigProps {
   mirrorConfig: CDCConfig;
   destinationType: DBType;
   sourceType: DBType;
-  setter: MirrorSetter;
+  setter: Dispatch<SetStateAction<CDCConfig>>;
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
 }
@@ -116,7 +117,7 @@ export default function CDCConfigForm({
     });
     getScriptingEnabled();
     setLoading(false);
-  }, [mirrorConfig.sourceName]);
+  }, [mirrorConfig.sourceName, mirrorConfig.initialSnapshotOnly]);
 
   if (loading) {
     return <ProgressCircle variant='determinate_progress_circle' />;
@@ -159,8 +160,8 @@ export default function CDCConfigForm({
         </Button>
 
         {show &&
-          advancedSettings!.map((setting) => {
-            return (
+          advancedSettings!.map(
+            (setting) =>
               paramDisplayCondition(setting!) && (
                 <CDCField
                   key={setting?.label}
@@ -168,8 +169,7 @@ export default function CDCConfigForm({
                   setting={setting!}
                 />
               )
-            );
-          })}
+          )}
 
         <TableMapping
           sourcePeerName={mirrorConfig.sourceName}
@@ -177,6 +177,7 @@ export default function CDCConfigForm({
           setRows={setRows}
           peerType={destinationType}
           omitAdditionalTablesMapping={new Map<string, string[]>()}
+          initialLoadOnly={mirrorConfig.initialSnapshotOnly}
         />
       </>
     );

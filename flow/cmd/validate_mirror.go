@@ -72,31 +72,33 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	}
 	defer pgPeer.Close()
 
-	// Check replication connectivity
-	err = pgPeer.CheckReplicationConnectivity(ctx)
-	if err != nil {
-		displayErr := fmt.Errorf("unable to establish replication connectivity: %v", err)
-		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			fmt.Sprint(displayErr),
-		)
-		return &protos.ValidateCDCMirrorResponse{
-			Ok: false,
-		}, displayErr
+	noCDC := req.ConnectionConfigs.DoInitialSnapshot && req.ConnectionConfigs.InitialSnapshotOnly
+	if !noCDC {
+		// Check replication connectivity
+		err = pgPeer.CheckReplicationConnectivity(ctx)
+		if err != nil {
+			displayErr := fmt.Errorf("unable to establish replication connectivity: %v", err)
+			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
+				displayErr.Error(),
+			)
+			return &protos.ValidateCDCMirrorResponse{
+				Ok: false,
+			}, displayErr
+		}
+
+		// Check permissions of postgres peer
+		err = pgPeer.CheckReplicationPermissions(ctx, sourcePeerConfig.User)
+		if err != nil {
+			displayErr := fmt.Errorf("failed to check replication permissions: %v", err)
+			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
+				fmt.Sprint(displayErr),
+			)
+			return &protos.ValidateCDCMirrorResponse{
+				Ok: false,
+			}, displayErr
+		}
 	}
 
-	// Check permissions of postgres peer
-	err = pgPeer.CheckReplicationPermissions(ctx, sourcePeerConfig.User)
-	if err != nil {
-		displayErr := fmt.Errorf("failed to check replication permissions: %v", err)
-		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			fmt.Sprint(displayErr),
-		)
-		return &protos.ValidateCDCMirrorResponse{
-			Ok: false,
-		}, displayErr
-	}
-
-	// Check source tables
 	sourceTables := make([]*utils.SchemaTable, 0, len(req.ConnectionConfigs.TableMappings))
 	for _, tableMapping := range req.ConnectionConfigs.TableMappings {
 		parsedTable, parseErr := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
@@ -115,7 +117,25 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 
 	pubName := req.ConnectionConfigs.PublicationName
 
-	err = pgPeer.CheckSourceTables(ctx, sourceTables, pubName)
+	if pubName == "" && !noCDC {
+		srcTableNames := make([]string, 0, len(sourceTables))
+		for _, srcTable := range sourceTables {
+			srcTableNames = append(srcTableNames, fmt.Sprintf("%s.%s", srcTable.Schema, srcTable.Table))
+		}
+
+		err := pgPeer.CheckPublicationCreationPermissions(ctx, srcTableNames)
+		if err != nil {
+			displayErr := fmt.Errorf("invalid publication creation permissions: %v", err)
+			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
+				fmt.Sprint(displayErr),
+			)
+			return &protos.ValidateCDCMirrorResponse{
+				Ok: false,
+			}, displayErr
+		}
+	}
+
+	err = pgPeer.CheckSourceTables(ctx, sourceTables, pubName, noCDC)
 	if err != nil {
 		displayErr := fmt.Errorf("provided source tables invalidated: %v", err)
 		slog.Error(displayErr.Error())

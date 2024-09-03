@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgerrcode"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -159,9 +158,9 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 	srcTableName := s.attachSchemaSuffix("test_enum_flow")
 	dstTableName := s.attachSchemaSuffix("test_enum_flow_dst")
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
-	var pgErr *pgconn.PgError
 	_, enumErr := s.Conn().Exec(context.Background(), createMoodEnum)
-	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !shared.IsUniqueError(enumErr) {
+	if enumErr != nil &&
+		!shared.IsSQLStateError(enumErr, pgerrcode.DuplicateObject, pgerrcode.UniqueViolation) {
 		require.NoError(s.t, enumErr)
 	}
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`

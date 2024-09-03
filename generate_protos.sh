@@ -10,8 +10,3 @@ then
 fi
 
 buf generate protos
-
-# move output to go module for export
-
-echo "Copying generated protobuf to client"
-cp -r ./flow/generated/protos/* ./flow/flow-api-client

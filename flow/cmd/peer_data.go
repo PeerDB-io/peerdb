@@ -221,7 +221,7 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 			sizeOfTable = tableSize.String
 		}
 		canMirror := false
-		if hasPkeyOrReplica.Valid && hasPkeyOrReplica.Bool {
+		if !req.CdcEnabled || (hasPkeyOrReplica.Valid && hasPkeyOrReplica.Bool) {
 			canMirror = true
 		}
 
