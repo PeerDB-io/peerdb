@@ -87,18 +87,20 @@ export default function ColumnBox({
             >
               {columnType}
             </p>
-            <TextField
-              variant='simple'
-              type='number'
-              style={{ width: '3rem', marginLeft: '1rem', fontSize: 13 }}
-              value={
-                tableRow.columns.find((col) => col.sourceName === columnName)
-                  ?.ordering ?? 0
-              }
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                handleColumnOrdering(columnName, +e.target.value)
-              }
-            />
+            {!isPkey && (
+              <TextField
+                variant='simple'
+                type='number'
+                style={{ width: '3rem', marginLeft: '1rem', fontSize: 13 }}
+                value={
+                  tableRow.columns.find((col) => col.sourceName === columnName)
+                    ?.ordering ?? 0
+                }
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  handleColumnOrdering(columnName, +e.target.value)
+                }
+              />
+            )}
           </Label>
         }
         action={
