@@ -344,13 +344,17 @@ func (c *ClickhouseConnector) processTableComparison(dstTableName string, srcSch
 ) error {
 	for _, srcField := range srcSchema.Columns {
 		colName := srcField.Name
+		// if the column is mapped to a different name, find and use that name instead
 		for _, col := range tableMapping.Columns {
-			if col.SourceName == colName && col.DestinationName != "" {
-				colName = col.DestinationName
+			if col.SourceName == colName {
+				if col.DestinationName != "" {
+					colName = col.DestinationName
+				}
 				break
 			}
 		}
 		found := false
+		// compare either the source column name or the mapped destination column name to the ClickHouse schema
 		for _, dstField := range dstSchema {
 			// not doing type checks for now
 			if dstField.Name == colName {
@@ -364,6 +368,7 @@ func (c *ClickhouseConnector) processTableComparison(dstTableName string, srcSch
 	}
 	foundPeerDBColumns := 0
 	for _, dstField := range dstSchema {
+		// all these columns need to be present in the destination table
 		if slices.Contains(peerDBColumns, dstField.Name) {
 			foundPeerDBColumns++
 		}
@@ -381,7 +386,7 @@ func (c *ClickhouseConnector) CheckDestinationTables(ctx context.Context, req *p
 	if req.SyncedAtColName != "" {
 		peerDBColumns = append(peerDBColumns, req.SyncedAtColName)
 	}
-	// this is for handling column exclusion
+	// this is for handling column exclusion, processed schema does that in a step
 	processedMapping := shared.BuildProcessedSchemaMapping(req.TableMappings, tableNameSchemaMapping, c.logger)
 	dstTableNames := slices.Collect(maps.Keys(processedMapping))
 	err := c.checkTablesEmptyAndEngine(ctx, dstTableNames)
