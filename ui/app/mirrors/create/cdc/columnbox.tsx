@@ -91,7 +91,7 @@ export default function ColumnBox({
             >
               {columnType}
             </p>
-            {showOrdering && !isPkey && (
+            {showOrdering && !disabled && !isPkey && (
               <TextField
                 variant='simple'
                 type='number'

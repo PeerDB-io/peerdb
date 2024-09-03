@@ -29,7 +29,7 @@ const TablePicker = ({
   peerType,
   alreadySelectedTablesMapping,
   initialLoadOnly,
-}: TableMappingProps) {
+}: TableMappingProps) => {
   const [allSchemas, setAllSchemas] = useState<string[]>();
   const [schemaQuery, setSchemaQuery] = useState('');
   const [tableColumns, setTableColumns] = useState<

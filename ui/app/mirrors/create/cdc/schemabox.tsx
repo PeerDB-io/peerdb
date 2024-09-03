@@ -1,8 +1,11 @@
 'use client';
 
 import { TableMapRow } from '@/app/dto/MirrorsDTO';
-import { TableMapping } from '@/grpc_generated/flow';
-import { TableEngine, tableEngineFromJSON } from '@/grpc_generated/flow';
+import {
+  TableEngine,
+  tableEngineFromJSON,
+  TableMapping,
+} from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
@@ -344,7 +347,7 @@ export default function SchemaBox({
                           <p style={{ fontSize: 12 }}>Target Table:</p>
                           <TextField
                             key={row.source}
-                          disabled={row.editingDisabled}
+                            disabled={row.editingDisabled}
                             style={{
                               fontSize: 12,
                               marginTop: '0.5rem',
