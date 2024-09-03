@@ -91,7 +91,7 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 
 	rows, err := ch.Query(
 		context.Background(),
-		fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY id`, cols, s.suffix, table),
+		fmt.Sprintf(`SELECT %s FROM %s ORDER BY %s`, cols, table, strings.Split(cols, ",")[0]),
 	)
 	if err != nil {
 		return nil, err
