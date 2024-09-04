@@ -201,14 +201,17 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 			}, displayErr
 		}
 
-		err = chPeer.CheckDestinationTables(ctx, req.ConnectionConfigs, res.TableNameSchemaMapping)
-		if err != nil {
-			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-				fmt.Sprint(err),
-			)
-			return &protos.ValidateCDCMirrorResponse{
-				Ok: false,
-			}, err
+		// In Resync, we do CREATE OR REPLACE so we don't need to check any existing _resync tables
+		if !req.ConnectionConfigs.Resync {
+			err = chPeer.CheckDestinationTables(ctx, req.ConnectionConfigs, res.TableNameSchemaMapping)
+			if err != nil {
+				h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
+					fmt.Sprint(err),
+				)
+				return &protos.ValidateCDCMirrorResponse{
+					Ok: false,
+				}, err
+			}
 		}
 	}
 
