@@ -385,7 +385,7 @@ func (c *ClickhouseConnector) CheckDestinationTables(ctx context.Context, req *p
 ) error {
 	peerDBColumns := []string{signColName, versionColName}
 	if req.SyncedAtColName != "" {
-		peerDBColumns = append(peerDBColumns, req.SyncedAtColName)
+		peerDBColumns = append(peerDBColumns, strings.ToLower(req.SyncedAtColName))
 	}
 	// this is for handling column exclusion, processed schema does that in a step
 	processedMapping := shared.BuildProcessedSchemaMapping(req.TableMappings, tableNameSchemaMapping, c.logger)
