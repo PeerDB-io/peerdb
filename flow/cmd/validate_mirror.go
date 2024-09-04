@@ -127,7 +127,10 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	if pubName == "" && !noCDC {
 		srcTableNames := make([]string, 0, len(sourceTables))
 		for _, srcTable := range sourceTables {
-			srcTableNames = append(srcTableNames, fmt.Sprintf("%s.%s", srcTable.Schema, srcTable.Table))
+			srcTableNames = append(srcTableNames, fmt.Sprintf(`%s.%s`,
+				connpostgres.QuoteIdentifier(srcTable.Schema),
+				connpostgres.QuoteIdentifier(srcTable.Table)),
+			)
 		}
 
 		if err := pgPeer.CheckPublicationCreationPermissions(ctx, srcTableNames); err != nil {
