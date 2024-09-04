@@ -103,7 +103,9 @@ export default function CDCConfigForm({
         )) ||
       (!scriptingEnabled &&
         label.includes('script') &&
-        destinationType.toString() === DBType[DBType.CLICKHOUSE])
+        destinationType.toString() === DBType[DBType.CLICKHOUSE]) ||
+      (label.includes('system') &&
+        destinationType.toString() !== DBType[DBType.POSTGRES])
     ) {
       return false;
     }

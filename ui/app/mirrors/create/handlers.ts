@@ -7,6 +7,7 @@ import {
   QRepWriteType,
   TableEngine,
   TableMapping,
+  TypeSystem,
 } from '@/grpc_generated/flow';
 import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
 import {
@@ -45,6 +46,13 @@ export function IsEventhubsPeer(peerType?: DBType): boolean {
     peerType?.toString() === DBType[DBType.EVENTHUBS]
   );
 }
+
+export const IsPostgresPeer = (peerType?: DBType): boolean => {
+  return (
+    (!!peerType && peerType === DBType.POSTGRES) ||
+    peerType?.toString() === DBType[DBType.POSTGRES]
+  );
+};
 
 function ValidSchemaQualifiedTarget(
   peerType: DBType,
@@ -89,6 +97,10 @@ function CDCCheck(
 
   if (config.doInitialSnapshot == true && config.replicationSlotName !== '') {
     config.replicationSlotName = '';
+  }
+
+  if (!IsPostgresPeer(destinationType)) {
+    config.system = TypeSystem.Q;
   }
 
   if (IsQueuePeer(destinationType)) {
