@@ -299,7 +299,8 @@ func (c *ClickhouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tab
 			return fmt.Errorf("table %s exists and is not empty", tableName)
 		}
 		if !slices.Contains(acceptableTableEngines, engine) {
-			return fmt.Errorf("table %s exists and is not using ReplacingMergeTree/MergeTree engine", tableName)
+			return fmt.Errorf("table %s exists but is not using ReplacingMergeTree/MergeTree engine,"+
+				" and is using %s instead", tableName, engine)
 		}
 	}
 	if rows.Err() != nil {
