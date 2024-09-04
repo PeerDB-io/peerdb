@@ -326,7 +326,7 @@ func DeleteMirrorStats(ctx context.Context, pool *pgxpool.Pool, flowJobName stri
 		return fmt.Errorf("error while deleting qrep_partitions: %w", err)
 	}
 
-	_, err = pool.Exec(ctx, `DELETE FROM peerdb_stats.qrep_runs WHERE WHERE parent_mirror_name = $1`, flowJobName)
+	_, err = pool.Exec(ctx, `DELETE FROM peerdb_stats.qrep_runs WHERE parent_mirror_name = $1`, flowJobName)
 	if err != nil {
 		return fmt.Errorf("error while deleting qrep_runs: %w", err)
 	}
