@@ -24,7 +24,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_guages"
+	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_gauges"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
@@ -81,7 +81,7 @@ type CDCPullConnectorCore interface {
 		catalogPool *pgxpool.Pool,
 		slotName string,
 		peerName string,
-		slotMetricGuages peerdb_guages.SlotMetricGuages,
+		slotMetricGauges peerdb_gauges.SlotMetricGauges,
 	) error
 
 	// GetSlotInfo returns the WAL (or equivalent) info of a slot for the connector.
