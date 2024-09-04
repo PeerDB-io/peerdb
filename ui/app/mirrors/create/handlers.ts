@@ -5,9 +5,9 @@ import {
   FlowConnectionConfigs,
   QRepConfig,
   QRepWriteType,
-  TypeSystem,
   TableEngine,
   TableMapping,
+  TypeSystem,
 } from '@/grpc_generated/flow';
 import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
 import {
