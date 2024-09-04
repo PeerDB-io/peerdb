@@ -559,6 +559,8 @@ func (h *FlowRequestHandler) ResyncMirror(
 		return nil, err
 	}
 
+	config.Resync = true
+	config.DoInitialSnapshot = true
 	// validate mirror first because once the mirror is dropped, there's no going back
 	_, err = h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
 		ConnectionConfigs: config,
@@ -571,8 +573,6 @@ func (h *FlowRequestHandler) ResyncMirror(
 	if err != nil {
 		return nil, err
 	}
-	config.Resync = true
-	config.DoInitialSnapshot = true
 
 	_, err = h.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{
 		ConnectionConfigs: config,
