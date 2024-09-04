@@ -326,11 +326,15 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 	if err != nil {
 		return false, fmt.Errorf("error while parsing table schema and name: %w", err)
 	}
-	tableAlreadyExists, err := c.checkIfTableExists(ctx, normalizedSchemaTable.Schema, normalizedSchemaTable.Table)
+	tableAlreadyExists, err := c.checkIfTableExists(
+		ctx,
+		SnowflakeQuotelessIdentifierNormalize(normalizedSchemaTable.Schema),
+		SnowflakeQuotelessIdentifierNormalize(normalizedSchemaTable.Table),
+	)
 	if err != nil {
 		return false, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
 	}
-	if tableAlreadyExists {
+	if tableAlreadyExists && !config.IsResync {
 		c.logger.Info("[snowflake] table already exists, skipping",
 			slog.String("table", tableIdentifier))
 		return true, nil
@@ -749,7 +753,11 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 			return nil, fmt.Errorf("unable to parse source %s: %w", renameRequest.CurrentName, err)
 		}
 
-		resyncTableExists, err := c.checkIfTableExists(ctx, srcTable.Schema, srcTable.Table)
+		resyncTableExists, err := c.checkIfTableExists(
+			ctx,
+			SnowflakeQuotelessIdentifierNormalize(srcTable.Schema),
+			SnowflakeQuotelessIdentifierNormalize(srcTable.Table),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to check if table %s exists: %w", srcTable, err)
 		}
@@ -767,7 +775,10 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 		src := snowflakeSchemaTableNormalize(srcTable)
 		dst := snowflakeSchemaTableNormalize(dstTable)
 
-		originalTableExists, err := c.checkIfTableExists(ctx, dstTable.Schema, dstTable.Table)
+		originalTableExists, err := c.checkIfTableExists(ctx,
+			SnowflakeQuotelessIdentifierNormalize(dstTable.Schema),
+			SnowflakeQuotelessIdentifierNormalize(dstTable.Table),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to check if original table %s exists: %w", dstTable, err)
 		}
