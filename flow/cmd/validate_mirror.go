@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/PeerDB-io/peer-flow/connectors"
+	connclickhouse "github.com/PeerDB-io/peer-flow/connectors/clickhouse"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -104,6 +105,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	}
 
 	sourceTables := make([]*utils.SchemaTable, 0, len(req.ConnectionConfigs.TableMappings))
+	srcTableNames := make([]string, 0, len(req.ConnectionConfigs.TableMappings))
 	for _, tableMapping := range req.ConnectionConfigs.TableMappings {
 		parsedTable, parseErr := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
 		if parseErr != nil {
@@ -117,6 +119,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		}
 
 		sourceTables = append(sourceTables, parsedTable)
+		srcTableNames = append(srcTableNames, tableMapping.SourceTableIdentifier)
 	}
 
 	pubName := req.ConnectionConfigs.PublicationName
@@ -161,6 +164,51 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 					Ok: false,
 				}, fmt.Errorf("invalid custom column name %s", col.DestinationName)
 			}
+		}
+	}
+
+	dstPeer, err := connectors.LoadPeer(ctx, h.pool, req.ConnectionConfigs.DestinationName)
+	if err != nil {
+		slog.Error("/validatecdc failed to load destination peer", slog.String("peer", req.ConnectionConfigs.DestinationName))
+		return &protos.ValidateCDCMirrorResponse{
+			Ok: false,
+		}, err
+	}
+	if dstPeer.GetClickhouseConfig() != nil {
+		chPeer, err := connclickhouse.NewClickhouseConnector(ctx, nil, dstPeer.GetClickhouseConfig())
+		if err != nil {
+			displayErr := fmt.Errorf("failed to create clickhouse connector: %v", err)
+			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
+				fmt.Sprint(displayErr),
+			)
+			return &protos.ValidateCDCMirrorResponse{
+				Ok: false,
+			}, displayErr
+		}
+		defer chPeer.Close()
+
+		res, err := pgPeer.GetTableSchema(ctx, &protos.GetTableSchemaBatchInput{
+			TableIdentifiers: srcTableNames,
+			System:           protos.TypeSystem_PG,
+		})
+		if err != nil {
+			displayErr := fmt.Errorf("failed to get source table schema: %v", err)
+			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
+				fmt.Sprint(displayErr),
+			)
+			return &protos.ValidateCDCMirrorResponse{
+				Ok: false,
+			}, displayErr
+		}
+
+		err = chPeer.CheckDestinationTables(ctx, req.ConnectionConfigs, res.TableNameSchemaMapping)
+		if err != nil {
+			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
+				fmt.Sprint(err),
+			)
+			return &protos.ValidateCDCMirrorResponse{
+				Ok: false,
+			}, err
 		}
 	}
 
