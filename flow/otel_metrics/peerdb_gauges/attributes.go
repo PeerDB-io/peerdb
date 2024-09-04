@@ -1,4 +1,4 @@
-package peerdb_guages
+package peerdb_gauges
 
 const (
 	PeerNameKey      string = "peerName"
