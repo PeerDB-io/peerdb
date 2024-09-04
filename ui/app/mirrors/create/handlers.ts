@@ -99,7 +99,7 @@ function CDCCheck(
     config.replicationSlotName = '';
   }
 
-  if (!IsPostgresPeer(destinationType) && config.system == TypeSystem.PG) {
+  if (!IsPostgresPeer(destinationType)) {
     config.system = TypeSystem.Q;
   }
 
