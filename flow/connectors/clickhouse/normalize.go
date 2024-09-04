@@ -24,6 +24,8 @@ const (
 	versionColType = "Int64"
 )
 
+var acceptableTableEngines = []string{"ReplacingMergeTree", "MergeTree"}
+
 func (c *ClickhouseConnector) StartSetupNormalizedTables(_ context.Context) (interface{}, error) {
 	return nil, nil
 }
@@ -396,8 +398,7 @@ func (c *ClickhouseConnector) getDistinctTableNamesInBatch(
 		tableNames = append(tableNames, tableName.String)
 	}
 
-	err = rows.Err()
-	if err != nil {
+	if rows.Err() != nil {
 		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
 
