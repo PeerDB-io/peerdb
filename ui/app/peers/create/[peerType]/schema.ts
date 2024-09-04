@@ -296,6 +296,9 @@ export const chSchema = (hostDomains: string[]) =>
     endpoint: z
       .string({ invalid_type_error: 'Endpoint must be a string' })
       .optional(),
+    roleArn: z
+      .string({ invalid_type_error: 'Role ARN must be a string' })
+      .optional(),
     disableTls: z.boolean(),
     certificate: z
       .string({

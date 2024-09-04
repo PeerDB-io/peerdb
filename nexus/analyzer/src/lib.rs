@@ -750,6 +750,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .map(|s| s.parse::<bool>().unwrap_or_default())
                     .unwrap_or_default(),
                 endpoint: opts.get("endpoint").map(|s| s.to_string()),
+                role_arn: opts.get("role_arn").map(|s| s.to_string()),
                 certificate: opts.get("certificate").map(|s| s.to_string()),
                 private_key: opts.get("private_key").map(|s| s.to_string()),
             };

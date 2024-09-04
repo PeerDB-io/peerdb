@@ -24,6 +24,7 @@ export default function ClickhouseForm({ settings, setter }: ConfigProps) {
     'Secret Access Key',
     'Region',
     'Endpoint',
+    'Role ARN',
   ];
 
   const handleFile = (

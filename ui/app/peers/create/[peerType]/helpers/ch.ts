@@ -83,6 +83,15 @@ export const clickhouseSetting: PeerSetting[] = [
     optional: true,
   },
   {
+    label: 'Role ARN',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, roleArn: value as string })),
+    tips: 'If set, the role ARN will be used to assume the role before accessing the bucket.',
+    helpfulLink:
+      'https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_identifiers.html#identifiers-arns',
+    optional: true,
+  },
+  {
     label: 'Certificate',
     stateHandler: (value, setter) => {
       if (!value) {
@@ -126,4 +135,5 @@ export const blankClickhouseSetting: ClickhouseConfig = {
   region: '',
   disableTls: false,
   endpoint: undefined,
+  roleArn: undefined,
 };
