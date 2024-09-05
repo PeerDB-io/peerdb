@@ -3,6 +3,7 @@ package connclickhouse
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -218,8 +219,16 @@ func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.C
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse provided certificate: %w", err)
 		}
-		// TODO: find a way to modify list of root CAs as well
 		tlsSetting.Certificates = []tls.Certificate{cert}
+		if config.RootCa != nil {
+			caPool := x509.NewCertPool()
+			if !caPool.AppendCertsFromPEM([]byte(*config.RootCa)) {
+				return nil, errors.New("failed to parse provided root CA")
+			}
+			tlsSetting.RootCAs = caPool
+		}
+	} else if config.Password == "" {
+		return nil, errors.New("password must be provided if not using certificate-based authentication")
 	}
 
 	conn, err := clickhouse.Open(&clickhouse.Options{
