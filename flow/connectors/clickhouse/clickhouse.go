@@ -390,9 +390,14 @@ func (c *ClickhouseConnector) CheckDestinationTables(ctx context.Context, req *p
 	// this is for handling column exclusion, processed schema does that in a step
 	processedMapping := shared.BuildProcessedSchemaMapping(req.TableMappings, tableNameSchemaMapping, c.logger)
 	dstTableNames := slices.Collect(maps.Keys(processedMapping))
-	err := c.checkTablesEmptyAndEngine(ctx, dstTableNames)
-	if err != nil {
-		return err
+
+	// In the case of resync, we don't need to check the content or structure of the original tables;
+	// they'll anyways get swapped out with the _resync tables which we CREATE OR REPLACE
+	if !req.Resync {
+		err := c.checkTablesEmptyAndEngine(ctx, dstTableNames)
+		if err != nil {
+			return err
+		}
 	}
 	// optimization: fetching columns for all tables at once
 	chTableColumnsMapping, err := c.getTableColumnsMapping(ctx, dstTableNames)

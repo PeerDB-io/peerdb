@@ -127,10 +127,15 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.CreateCDCFlowResponse, error) {
 	cfg := req.ConnectionConfigs
-	_, validateErr := h.ValidateCDCMirror(ctx, req)
-	if validateErr != nil {
-		slog.Error("validate mirror error", slog.Any("error", validateErr))
-		return nil, fmt.Errorf("invalid mirror: %w", validateErr)
+
+	// For resync, we validate the mirror before dropping it and getting to this step.
+	// There is no point validating again here if it's a resync - the mirror is dropped already
+	if !cfg.Resync {
+		_, validateErr := h.ValidateCDCMirror(ctx, req)
+		if validateErr != nil {
+			slog.Error("validate mirror error", slog.Any("error", validateErr))
+			return nil, fmt.Errorf("invalid mirror: %w", validateErr)
+		}
 	}
 
 	workflowID := fmt.Sprintf("%s-peerflow-%s", cfg.FlowJobName, uuid.New())
@@ -554,12 +559,20 @@ func (h *FlowRequestHandler) ResyncMirror(
 		return nil, err
 	}
 
+	config.Resync = true
+	config.DoInitialSnapshot = true
+	// validate mirror first because once the mirror is dropped, there's no going back
+	_, err = h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
+		ConnectionConfigs: config,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	err = h.shutdownFlow(ctx, req.FlowJobName, req.DropStats)
 	if err != nil {
 		return nil, err
 	}
-	config.Resync = true
-	config.DoInitialSnapshot = true
 
 	_, err = h.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{
 		ConnectionConfigs: config,
