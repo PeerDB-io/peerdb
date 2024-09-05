@@ -220,25 +220,3 @@ func (s *ClickhouseAvroSyncMethod) insertMetadata(
 
 	return nil
 }
-
-type ClickhouseAvroWriteHandler struct {
-	connector    *ClickhouseConnector
-	dstTableName string
-	stage        string
-	copyOpts     []string
-}
-
-// NewClickhouseAvroWriteHandler creates a new ClickhouseAvroWriteHandler
-func NewClickhouseAvroWriteHandler(
-	connector *ClickhouseConnector,
-	dstTableName string,
-	stage string,
-	copyOpts []string,
-) *ClickhouseAvroWriteHandler {
-	return &ClickhouseAvroWriteHandler{
-		connector:    connector,
-		dstTableName: dstTableName,
-		stage:        stage,
-		copyOpts:     copyOpts,
-	}
-}

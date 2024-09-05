@@ -61,6 +61,7 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 
 	// first check the source peer connection
 	srcConnStatusFuture := workflow.ExecuteLocalActivity(checkCtx, flowable.CheckConnection, &protos.SetupInput{
+		Env:      config.Env,
 		PeerName: config.SourceName,
 		FlowName: config.FlowJobName,
 	})
@@ -70,6 +71,7 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 	}
 
 	dstSetupInput := &protos.SetupInput{
+		Env:      config.Env,
 		PeerName: config.DestinationName,
 		FlowName: config.FlowJobName,
 	}
@@ -183,6 +185,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		TableIdentifiers: sourceTables,
 		FlowName:         s.cdcFlowName,
 		System:           flowConnectionConfigs.System,
+		Env:              flowConnectionConfigs.Env,
 	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
@@ -201,9 +204,12 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	setupConfig := &protos.SetupNormalizedTableBatchInput{
 		PeerName:               flowConnectionConfigs.DestinationName,
 		TableNameSchemaMapping: normalizedTableMapping,
+		TableMappings:          flowConnectionConfigs.TableMappings,
 		SoftDeleteColName:      flowConnectionConfigs.SoftDeleteColName,
 		SyncedAtColName:        flowConnectionConfigs.SyncedAtColName,
 		FlowName:               flowConnectionConfigs.FlowJobName,
+		Env:                    flowConnectionConfigs.Env,
+		IsResync:               flowConnectionConfigs.Resync,
 	}
 
 	future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)

@@ -76,9 +76,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
     return omitAdditionalTablesMapping;
   }, [mirrorState]);
 
-  const additionalTables = useMemo(() => {
-    return reformattedTableMapping(rows);
-  }, [rows]);
+  const additionalTables = useMemo(() => reformattedTableMapping(rows), [rows]);
 
   if (!mirrorState) {
     return <ProgressCircle variant='determinate_progress_circle' />;
@@ -92,6 +90,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
       flowConfigUpdate: {
         cdcFlowConfigUpdate: { ...config, additionalTables },
       },
+      dropMirrorStats: false,
     };
     const res = await fetch('/api/v1/mirrors/state_change', {
       method: 'POST',
@@ -190,6 +189,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
         rows={rows}
         setRows={setRows}
         omitAdditionalTablesMapping={omitAdditionalTablesMapping}
+        initialLoadOnly={false}
       />
 
       {isNotPaused && (

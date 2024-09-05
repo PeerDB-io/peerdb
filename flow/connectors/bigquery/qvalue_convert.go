@@ -10,9 +10,10 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
-func qValueKindToBigQueryType(columnDescription *protos.FieldDescription) bigquery.FieldSchema {
+func qValueKindToBigQueryType(columnDescription *protos.FieldDescription, nullableEnabled bool) bigquery.FieldSchema {
 	bqField := bigquery.FieldSchema{
-		Name: columnDescription.Name,
+		Name:     columnDescription.Name,
+		Required: nullableEnabled && !columnDescription.Nullable,
 	}
 	switch qvalue.QValueKind(columnDescription.Type) {
 	// boolean
@@ -136,8 +137,8 @@ func createTableCompatibleTypeName(schemaType bigquery.FieldType) string {
 	return string(schemaType)
 }
 
-func qValueKindToBigQueryTypeString(columnDescription *protos.FieldDescription, forMerge bool) string {
-	bqTypeSchema := qValueKindToBigQueryType(columnDescription)
+func qValueKindToBigQueryTypeString(columnDescription *protos.FieldDescription, nullEnabled bool, forMerge bool) string {
+	bqTypeSchema := qValueKindToBigQueryType(columnDescription, nullEnabled)
 	bqType := createTableCompatibleTypeName(bqTypeSchema.Type)
 	if bqTypeSchema.Type == bigquery.BigNumericFieldType && !forMerge {
 		bqType = fmt.Sprintf("BIGNUMERIC(%d,%d)", bqTypeSchema.Precision, bqTypeSchema.Scale)

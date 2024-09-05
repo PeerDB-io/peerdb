@@ -24,7 +24,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_guages"
+	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_gauges"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
@@ -81,7 +81,7 @@ type CDCPullConnectorCore interface {
 		catalogPool *pgxpool.Pool,
 		slotName string,
 		peerName string,
-		slotMetricGuages peerdb_guages.SlotMetricGuages,
+		slotMetricGauges peerdb_gauges.SlotMetricGauges,
 	) error
 
 	// GetSlotInfo returns the WAL (or equivalent) info of a slot for the connector.
@@ -123,10 +123,8 @@ type NormalizedTablesConnector interface {
 	SetupNormalizedTable(
 		ctx context.Context,
 		tx any,
+		config *protos.SetupNormalizedTableBatchInput,
 		tableIdentifier string,
-		tableSchema *protos.TableSchema,
-		softDeleteColName string,
-		syncedAtColName string,
 	) (bool, error)
 }
 
@@ -361,7 +359,7 @@ func LoadPeer(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (
 	return peer, nil
 }
 
-func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
+func GetConnector(ctx context.Context, env map[string]string, config *protos.Peer) (Connector, error) {
 	switch inner := config.Config.(type) {
 	case *protos.Peer_PostgresConfig:
 		return connpostgres.NewPostgresConnector(ctx, inner.PostgresConfig)
@@ -378,11 +376,11 @@ func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 	case *protos.Peer_MysqlConfig:
 		return connmysql.MySqlConnector{}, nil
 	case *protos.Peer_ClickhouseConfig:
-		return connclickhouse.NewClickhouseConnector(ctx, inner.ClickhouseConfig)
+		return connclickhouse.NewClickhouseConnector(ctx, env, inner.ClickhouseConfig)
 	case *protos.Peer_KafkaConfig:
-		return connkafka.NewKafkaConnector(ctx, inner.KafkaConfig)
+		return connkafka.NewKafkaConnector(ctx, env, inner.KafkaConfig)
 	case *protos.Peer_PubsubConfig:
-		return connpubsub.NewPubSubConnector(ctx, inner.PubsubConfig)
+		return connpubsub.NewPubSubConnector(ctx, env, inner.PubsubConfig)
 	case *protos.Peer_ElasticsearchConfig:
 		return connelasticsearch.NewElasticsearchConnector(ctx, inner.ElasticsearchConfig)
 	default:
@@ -390,9 +388,9 @@ func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 	}
 }
 
-func GetAs[T Connector](ctx context.Context, config *protos.Peer) (T, error) {
+func GetAs[T Connector](ctx context.Context, env map[string]string, config *protos.Peer) (T, error) {
 	var none T
-	conn, err := GetConnector(ctx, config)
+	conn, err := GetConnector(ctx, env, config)
 	if err != nil {
 		return none, err
 	}
@@ -404,13 +402,13 @@ func GetAs[T Connector](ctx context.Context, config *protos.Peer) (T, error) {
 	}
 }
 
-func GetByNameAs[T Connector](ctx context.Context, catalogPool *pgxpool.Pool, name string) (T, error) {
+func GetByNameAs[T Connector](ctx context.Context, env map[string]string, catalogPool *pgxpool.Pool, name string) (T, error) {
 	peer, err := LoadPeer(ctx, catalogPool, name)
 	if err != nil {
 		var none T
 		return none, err
 	}
-	return GetAs[T](ctx, peer)
+	return GetAs[T](ctx, env, peer)
 }
 
 func CloseConnector(ctx context.Context, conn Connector) {

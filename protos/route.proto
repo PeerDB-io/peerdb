@@ -204,6 +204,7 @@ message PeerPublicationsResponse {
 message SchemaTablesRequest {
   string peer_name = 1;
   string schema_name = 2;
+  bool cdc_enabled = 3;
 }
 
 message SchemaTablesResponse {
@@ -377,6 +378,7 @@ message FlowStateChangeRequest {
   peerdb_flow.FlowStatus requested_flow_state = 2;
   // only can be sent in certain situations
   optional peerdb_flow.FlowConfigUpdate flow_config_update = 5;
+  bool drop_mirror_stats = 6;
 }
 message FlowStateChangeResponse {
   bool ok = 1;
@@ -391,6 +393,7 @@ message PeerDBVersionResponse {
 
 message ResyncMirrorRequest {
   string flow_job_name = 1;
+  bool drop_stats = 2;
 }
 
 message ResyncMirrorResponse {

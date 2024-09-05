@@ -2,22 +2,20 @@ package cmd
 
 import (
 	"crypto/tls"
-	"encoding/base64"
 	"fmt"
-	"strings"
+
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
-func base64DecodeCertAndKey(cert string, key string) ([]tls.Certificate, error) {
-	temporalCert := strings.TrimSpace(cert)
-	certBytes, err := base64.StdEncoding.DecodeString(temporalCert)
+func parseTemporalCertAndKey() ([]tls.Certificate, error) {
+	certBytes, err := peerdbenv.PeerDBTemporalClientCert()
 	if err != nil {
-		return nil, fmt.Errorf("unable to decode temporal certificate: %w", err)
+		return nil, fmt.Errorf("unable to get temporal certificate: %w", err)
 	}
 
-	temporalKey := strings.TrimSpace(key)
-	keyBytes, err := base64.StdEncoding.DecodeString(temporalKey)
+	keyBytes, err := peerdbenv.PeerDBTemporalClientKey()
 	if err != nil {
-		return nil, fmt.Errorf("unable to decode temporal key: %w", err)
+		return nil, fmt.Errorf("unable to get temporal key: %w", err)
 	}
 
 	keyPair, err := tls.X509KeyPair(certBytes, keyBytes)

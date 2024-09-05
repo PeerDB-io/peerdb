@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"slices"
 	"time"
 
-	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -27,11 +27,6 @@ const (
 	POSTGRES_14 PGVersion = 140000
 	POSTGRES_15 PGVersion = 150000
 )
-
-func IsUniqueError(err error) bool {
-	var pgerr *pgconn.PgError
-	return errors.As(err, &pgerr) && pgerr.Code == pgerrcode.UniqueViolation
-}
 
 func GetPGConnectionString(pgConfig *protos.PostgresConfig) string {
 	passwordEscaped := url.QueryEscape(pgConfig.Password)
@@ -124,4 +119,9 @@ func UpdateCDCConfigInCatalog(ctx context.Context, pool *pgxpool.Pool,
 
 	logger.Info("synced state to catalog: updated config_proto in flows", slog.String("flowName", cfg.FlowJobName))
 	return nil
+}
+
+func IsSQLStateError(err error, sqlStates ...string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && slices.Contains(sqlStates, pgErr.Code)
 }

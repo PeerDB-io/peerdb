@@ -44,12 +44,12 @@ type cdcStore[Items model.Items] struct {
 	numRecordsSwitchThreshold int
 }
 
-func NewCDCStore[Items model.Items](ctx context.Context, flowJobName string) (*cdcStore[Items], error) {
-	numRecordsSwitchThreshold, err := peerdbenv.PeerDBCDCDiskSpillRecordsThreshold(ctx)
+func NewCDCStore[Items model.Items](ctx context.Context, env map[string]string, flowJobName string) (*cdcStore[Items], error) {
+	numRecordsSwitchThreshold, err := peerdbenv.PeerDBCDCDiskSpillRecordsThreshold(ctx, env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get CDC disk spill records threshold: %w", err)
 	}
-	memPercent, err := peerdbenv.PeerDBCDCDiskSpillMemPercentThreshold(ctx)
+	memPercent, err := peerdbenv.PeerDBCDCDiskSpillMemPercentThreshold(ctx, env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get CDC disk spill memory percent threshold: %w", err)
 	}

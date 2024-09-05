@@ -26,8 +26,6 @@ type WorkerSetupOptions struct {
 	TemporalHostPort                   string
 	PyroscopeServer                    string
 	TemporalNamespace                  string
-	TemporalCert                       string
-	TemporalKey                        string
 	TemporalMaxConcurrentActivities    int
 	TemporalMaxConcurrentWorkflowTasks int
 	EnableProfiling                    bool
@@ -92,9 +90,9 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 		Logger:    slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))),
 	}
 
-	if opts.TemporalCert != "" && opts.TemporalKey != "" {
+	if peerdbenv.PeerDBTemporalEnableCertAuth() {
 		slog.Info("Using temporal certificate/key for authentication")
-		certs, err := base64DecodeCertAndKey(opts.TemporalCert, opts.TemporalKey)
+		certs, err := parseTemporalCertAndKey()
 		if err != nil {
 			return nil, fmt.Errorf("unable to process certificate and key: %w", err)
 		}

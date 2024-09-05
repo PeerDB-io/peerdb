@@ -16,12 +16,12 @@ interface FieldProps {
   optionsLoading?: boolean;
 }
 
-const CDCField = ({
+export default function CDCField({
   setting,
   handleChange,
   options,
   optionsLoading,
-}: FieldProps) => {
+}: FieldProps) {
   return setting.type === 'switch' ? (
     <RowWithSwitch
       label={
@@ -91,6 +91,39 @@ const CDCField = ({
         </div>
       }
     />
+  ) : setting.type === 'textarea' ? (
+    <RowWithTextField
+      label={
+        <Label>
+          {setting.label}
+          {RequiredIndicator(setting.required)}
+        </Label>
+      }
+      action={
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+          }}
+        >
+          <TextField
+            variant='text-area'
+            defaultValue={setting.default as string}
+            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+              handleChange(e.target.value, setting)
+            }
+          />
+          {setting.tips && (
+            <InfoPopover
+              tips={setting.tips}
+              link={setting.helpfulLink}
+              command={setting.command}
+            />
+          )}
+        </div>
+      }
+    />
   ) : (
     <RowWithTextField
       label={
@@ -126,6 +159,4 @@ const CDCField = ({
       }
     />
   );
-};
-
-export default CDCField;
+}

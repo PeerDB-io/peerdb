@@ -1,10 +1,11 @@
 'use client';
+import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
+
 import { DBType } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { ProgressCircle } from '@/lib/ProgressCircle';
-import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
-import { CDCConfig, MirrorSetter, TableMapRow } from '../../../dto/MirrorsDTO';
+import { CDCConfig, TableMapRow } from '../../../dto/MirrorsDTO';
 import { IsEventhubsPeer, IsQueuePeer, fetchPublications } from '../handlers';
 import { AdvancedSettingType, MirrorSetting } from '../helpers/common';
 import CDCField from './fields';
@@ -13,9 +14,9 @@ import TableMapping from './tablemapping';
 interface MirrorConfigProps {
   settings: MirrorSetting[];
   mirrorConfig: CDCConfig;
+  setter: Dispatch<SetStateAction<CDCConfig>>;
   destinationType: DBType;
   sourceType: DBType;
-  setter: MirrorSetter;
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
 }
@@ -23,9 +24,9 @@ interface MirrorConfigProps {
 export default function CDCConfigForm({
   settings,
   mirrorConfig,
+  setter,
   destinationType,
   sourceType,
-  setter,
   rows,
   setRows,
 }: MirrorConfigProps) {
@@ -102,7 +103,9 @@ export default function CDCConfigForm({
         )) ||
       (!scriptingEnabled &&
         label.includes('script') &&
-        destinationType.toString() === DBType[DBType.CLICKHOUSE])
+        destinationType.toString() === DBType[DBType.CLICKHOUSE]) ||
+      (label.includes('system') &&
+        destinationType.toString() !== DBType[DBType.POSTGRES])
     ) {
       return false;
     }
@@ -116,7 +119,7 @@ export default function CDCConfigForm({
     });
     getScriptingEnabled();
     setLoading(false);
-  }, [mirrorConfig.sourceName]);
+  }, [mirrorConfig.sourceName, mirrorConfig.initialSnapshotOnly]);
 
   if (loading) {
     return <ProgressCircle variant='determinate_progress_circle' />;
@@ -159,8 +162,8 @@ export default function CDCConfigForm({
         </Button>
 
         {show &&
-          advancedSettings!.map((setting) => {
-            return (
+          advancedSettings!.map(
+            (setting) =>
               paramDisplayCondition(setting!) && (
                 <CDCField
                   key={setting?.label}
@@ -168,8 +171,7 @@ export default function CDCConfigForm({
                   setting={setting!}
                 />
               )
-            );
-          })}
+          )}
 
         <TableMapping
           sourcePeerName={mirrorConfig.sourceName}
@@ -177,6 +179,7 @@ export default function CDCConfigForm({
           setRows={setRows}
           peerType={destinationType}
           omitAdditionalTablesMapping={new Map<string, string[]>()}
+          initialLoadOnly={mirrorConfig.initialSnapshotOnly}
         />
       </>
     );

@@ -159,21 +159,37 @@ func (c *ClickhouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 
 func (c *ClickhouseConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
 	for _, renameRequest := range req.RenameTableOptions {
-		columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
-		for _, col := range renameRequest.TableSchema.Columns {
-			columnNames = append(columnNames, col.Name)
+		resyncTableExists, err := c.checkIfTableExists(ctx, c.config.Database, renameRequest.CurrentName)
+		if err != nil {
+			return nil, fmt.Errorf("unable to check if resync table %s exists: %w", renameRequest.CurrentName, err)
 		}
 
-		allCols := strings.Join(columnNames, ",")
-		pkeyCols := strings.Join(renameRequest.TableSchema.PrimaryKeyColumns, ",")
-		c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", renameRequest.NewName))
-		err := c.execWithLogging(ctx,
-			fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
-				renameRequest.CurrentName, fmt.Sprintf("%s,%s", allCols, signColName), allCols,
-				signColName,
-				renameRequest.NewName, pkeyCols, pkeyCols, renameRequest.CurrentName))
+		if !resyncTableExists {
+			c.logger.Info(fmt.Sprintf("table '%s' does not exist, skipping rename for it", renameRequest.CurrentName))
+			continue
+		}
+
+		originalTableExists, err := c.checkIfTableExists(ctx, c.config.Database, renameRequest.NewName)
 		if err != nil {
-			return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", renameRequest.NewName, err)
+			return nil, fmt.Errorf("unable to check if table %s exists: %w", renameRequest.NewName, err)
+		}
+
+		if originalTableExists {
+			columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
+			for _, col := range renameRequest.TableSchema.Columns {
+				columnNames = append(columnNames, col.Name)
+			}
+
+			allCols := strings.Join(columnNames, ",")
+			c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", renameRequest.NewName))
+			err = c.execWithLogging(ctx,
+				fmt.Sprintf("INSERT INTO %s(%s,%s) SELECT %s,true FROM %s WHERE %s  = 1",
+					renameRequest.CurrentName, allCols, signColName, allCols, renameRequest.NewName, signColName))
+			if err != nil {
+				return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", renameRequest.NewName, err)
+			}
+		} else {
+			c.logger.Info(fmt.Sprintf("table '%s' does not exist, skipping soft-deletes transfer for it", renameRequest.NewName))
 		}
 
 		// drop the dst table if exists

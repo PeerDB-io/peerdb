@@ -26,7 +26,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/otel_metrics"
-	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_guages"
+	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_gauges"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/pua"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -55,7 +55,7 @@ func (a *FlowableActivity) CheckConnection(
 	config *protos.SetupInput,
 ) (*CheckConnectionResult, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
-	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, a.CatalogPool, config.PeerName)
+	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowName, err)
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -71,7 +71,7 @@ func (a *FlowableActivity) CheckConnection(
 
 func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *protos.SetupInput) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
-	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, a.CatalogPool, config.PeerName)
+	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
 	if err != nil {
 		return fmt.Errorf("failed to get connector: %w", err)
 	}
@@ -90,7 +90,7 @@ func (a *FlowableActivity) EnsurePullability(
 	config *protos.EnsurePullabilityBatchInput,
 ) (*protos.EnsurePullabilityBatchOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, a.CatalogPool, config.PeerName)
+	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
@@ -111,7 +111,7 @@ func (a *FlowableActivity) CreateRawTable(
 	config *protos.CreateRawTableInput,
 ) (*protos.CreateRawTableOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, a.CatalogPool, config.PeerName)
+	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
@@ -135,7 +135,7 @@ func (a *FlowableActivity) GetTableSchema(
 	config *protos.GetTableSchemaBatchInput,
 ) (*protos.GetTableSchemaBatchOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
-	srcConn, err := connectors.GetByNameAs[connectors.GetTableSchemaConnector](ctx, a.CatalogPool, config.PeerName)
+	srcConn, err := connectors.GetByNameAs[connectors.GetTableSchemaConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get GetTableSchemaConnector: %w", err)
 	}
@@ -155,7 +155,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 ) (*protos.SetupNormalizedTableBatchOutput, error) {
 	logger := activity.GetLogger(ctx)
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
-	conn, err := connectors.GetByNameAs[connectors.NormalizedTablesConnector](ctx, a.CatalogPool, config.PeerName)
+	conn, err := connectors.GetByNameAs[connectors.NormalizedTablesConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
 			logger.Info("Connector does not implement normalized tables")
@@ -179,16 +179,13 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	})
 	defer shutdown()
 
-	tableExistsMapping := make(map[string]bool)
-	for tableIdentifier, tableSchema := range config.TableNameSchemaMapping {
-		var existing bool
-		existing, err = conn.SetupNormalizedTable(
+	tableExistsMapping := make(map[string]bool, len(config.TableNameSchemaMapping))
+	for tableIdentifier := range config.TableNameSchemaMapping {
+		existing, err := conn.SetupNormalizedTable(
 			ctx,
 			tx,
+			config,
 			tableIdentifier,
-			tableSchema,
-			config.SoftDeleteColName,
-			config.SyncedAtColName,
 		)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowName, err)
@@ -218,7 +215,7 @@ func (a *FlowableActivity) MaintainPull(
 	config *protos.FlowConnectionConfigs,
 	sessionID string,
 ) error {
-	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, a.CatalogPool, config.SourceName)
+	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, config.Env, a.CatalogPool, config.SourceName)
 	if err != nil {
 		return err
 	}
@@ -330,7 +327,12 @@ func (a *FlowableActivity) StartNormalize(
 	ctx = context.WithValue(ctx, shared.FlowNameKey, conn.FlowJobName)
 	logger := activity.GetLogger(ctx)
 
-	dstConn, err := connectors.GetByNameAs[connectors.CDCNormalizeConnector](ctx, a.CatalogPool, conn.DestinationName)
+	dstConn, err := connectors.GetByNameAs[connectors.CDCNormalizeConnector](
+		ctx,
+		input.FlowConnectionConfigs.Env,
+		a.CatalogPool,
+		conn.DestinationName,
+	)
 	if errors.Is(err, errors.ErrUnsupported) {
 		err = monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName,
 			input.SyncBatchID)
@@ -347,10 +349,12 @@ func (a *FlowableActivity) StartNormalize(
 
 	res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
 		FlowJobName:            input.FlowConnectionConfigs.FlowJobName,
+		Env:                    input.FlowConnectionConfigs.Env,
+		TableNameSchemaMapping: input.TableNameSchemaMapping,
+		TableMappings:          input.FlowConnectionConfigs.TableMappings,
 		SyncBatchID:            input.SyncBatchID,
 		SoftDeleteColName:      input.FlowConnectionConfigs.SoftDeleteColName,
 		SyncedAtColName:        input.FlowConnectionConfigs.SyncedAtColName,
-		TableNameSchemaMapping: input.TableNameSchemaMapping,
 	})
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, input.FlowConnectionConfigs.FlowJobName, err)
@@ -379,7 +383,7 @@ func (a *FlowableActivity) StartNormalize(
 
 // SetupQRepMetadataTables sets up the metadata tables for QReplication.
 func (a *FlowableActivity) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {
-	conn, err := connectors.GetByNameAs[connectors.QRepSyncConnector](ctx, a.CatalogPool, config.DestinationName)
+	conn, err := connectors.GetByNameAs[connectors.QRepSyncConnector](ctx, config.Env, a.CatalogPool, config.DestinationName)
 	if err != nil {
 		return fmt.Errorf("failed to get connector: %w", err)
 	}
@@ -401,11 +405,11 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	runUUID string,
 ) (*protos.QRepParitionResult, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	err := monitoring.InitializeQRepRun(ctx, a.CatalogPool, config, runUUID, nil)
+	err := monitoring.InitializeQRepRun(ctx, a.CatalogPool, config, runUUID, nil, config.ParentMirrorName)
 	if err != nil {
 		return nil, err
 	}
-	srcConn, err := connectors.GetByNameAs[connectors.QRepPullConnector](ctx, a.CatalogPool, config.SourceName)
+	srcConn, err := connectors.GetByNameAs[connectors.QRepPullConnector](ctx, config.Env, a.CatalogPool, config.SourceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get qrep pull connector: %w", err)
 	}
@@ -427,6 +431,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 			config,
 			runUUID,
 			partitions,
+			config.ParentMirrorName,
 		)
 		if err != nil {
 			return nil, err
@@ -507,7 +512,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	runUUID string,
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	dstConn, err := connectors.GetByNameAs[connectors.QRepConsolidateConnector](ctx, a.CatalogPool, config.DestinationName)
+	dstConn, err := connectors.GetByNameAs[connectors.QRepConsolidateConnector](ctx, config.Env, a.CatalogPool, config.DestinationName)
 	if errors.Is(err, errors.ErrUnsupported) {
 		return monitoring.UpdateEndTimeForQRepRun(ctx, a.CatalogPool, runUUID)
 	} else if err != nil {
@@ -531,7 +536,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 
 func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	dst, err := connectors.GetByNameAs[connectors.QRepConsolidateConnector](ctx, a.CatalogPool, config.DestinationName)
+	dst, err := connectors.GetByNameAs[connectors.QRepConsolidateConnector](ctx, config.Env, a.CatalogPool, config.DestinationName)
 	if errors.Is(err, errors.ErrUnsupported) {
 		return nil
 	} else if err != nil {
@@ -545,7 +550,7 @@ func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.Q
 
 func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropFlowActivityInput) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
-	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, a.CatalogPool, req.PeerName)
+	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
 		return fmt.Errorf("failed to get source connector: %w", err)
 	}
@@ -556,7 +561,7 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 
 func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.DropFlowActivityInput) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
-	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, a.CatalogPool, req.PeerName)
+	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
 		return fmt.Errorf("failed to get destination connector: %w", err)
 	}
@@ -567,7 +572,7 @@ func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.
 
 func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 	logger := activity.GetLogger(ctx)
-	walHeartbeatEnabled, err := peerdbenv.PeerDBEnableWALHeartbeat(ctx)
+	walHeartbeatEnabled, err := peerdbenv.PeerDBEnableWALHeartbeat(ctx, nil)
 	if err != nil {
 		logger.Warn("unable to fetch wal heartbeat config. Skipping walheartbeat send.", slog.Any("error", err))
 		return err
@@ -576,7 +581,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 		logger.Info("wal heartbeat is disabled")
 		return nil
 	}
-	walHeartbeatStatement, err := peerdbenv.PeerDBWALHeartbeatQuery(ctx)
+	walHeartbeatStatement, err := peerdbenv.PeerDBWALHeartbeatQuery(ctx, nil)
 	if err != nil {
 		logger.Warn("unable to fetch wal heartbeat config. Skipping walheartbeat send.", slog.Any("error", err))
 		return err
@@ -643,7 +648,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	logger := activity.GetLogger(ctx)
 	for _, config := range configs {
 		func() {
-			srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, a.CatalogPool, config.SourceName)
+			srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, config.SourceName)
 			if err != nil {
 				if !errors.Is(err, errors.ErrUnsupported) {
 					logger.Error("Failed to create connector to handle slot info", slog.Any("error", err))
@@ -663,41 +668,41 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				return
 			}
 
-			slotMetricGuages := peerdb_guages.SlotMetricGuages{}
+			slotMetricGauges := peerdb_gauges.SlotMetricGauges{}
 			if a.OtelManager != nil {
 				slotLagGauge, err := otel_metrics.GetOrInitFloat64SyncGauge(a.OtelManager.Meter,
 					a.OtelManager.Float64GaugesCache,
-					peerdb_guages.SlotLagGuageName,
+					peerdb_gauges.SlotLagGaugeName,
 					metric.WithUnit("MB"),
 					metric.WithDescription("Postgres replication slot lag in MB"))
 				if err != nil {
 					logger.Error("Failed to get slot lag gauge", slog.Any("error", err))
 					return
 				}
-				slotMetricGuages.SlotLagGuage = slotLagGauge
+				slotMetricGauges.SlotLagGauge = slotLagGauge
 
 				openConnectionsGauge, err := otel_metrics.GetOrInitInt64SyncGauge(a.OtelManager.Meter,
 					a.OtelManager.Int64GaugesCache,
-					peerdb_guages.OpenConnectionsGuageName,
+					peerdb_gauges.OpenConnectionsGaugeName,
 					metric.WithDescription("Current open connections for PeerDB user"))
 				if err != nil {
 					logger.Error("Failed to get open connections gauge", slog.Any("error", err))
 					return
 				}
-				slotMetricGuages.OpenConnectionsGuage = openConnectionsGauge
+				slotMetricGauges.OpenConnectionsGauge = openConnectionsGauge
 
 				openReplicationConnectionsGauge, err := otel_metrics.GetOrInitInt64SyncGauge(a.OtelManager.Meter,
 					a.OtelManager.Int64GaugesCache,
-					peerdb_guages.OpenReplicationConnectionsGuageName,
+					peerdb_gauges.OpenReplicationConnectionsGaugeName,
 					metric.WithDescription("Current open replication connections for PeerDB user"))
 				if err != nil {
 					logger.Error("Failed to get open replication connections gauge", slog.Any("error", err))
 					return
 				}
-				slotMetricGuages.OpenReplicationConnectionsGuage = openReplicationConnectionsGauge
+				slotMetricGauges.OpenReplicationConnectionsGauge = openReplicationConnectionsGauge
 			}
 
-			if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, slotName, peerName, slotMetricGuages); err != nil {
+			if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, slotName, peerName, slotMetricGauges); err != nil {
 				logger.Error("Failed to handle slot info", slog.Any("error", err))
 			}
 		}()
@@ -713,7 +718,7 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
 	// TODO implement for other QRepPullConnector sources
-	srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, a.CatalogPool, config.SourceName)
+	srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, config.Env, a.CatalogPool, config.SourceName)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
 			return true, nil
@@ -742,7 +747,7 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	*protos.RenameTablesOutput, error,
 ) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	conn, err := connectors.GetByNameAs[connectors.RenameTablesConnector](ctx, a.CatalogPool, config.PeerName)
+	conn, err := connectors.GetByNameAs[connectors.RenameTablesConnector](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -754,14 +759,36 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	})
 	defer shutdown()
 
-	return conn.RenameTables(ctx, config)
+	renameOutput, err := conn.RenameTables(ctx, config)
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		return nil, fmt.Errorf("failed to rename tables: %w", err)
+	}
+
+	return renameOutput, nil
+}
+
+func (a *FlowableActivity) DeleteMirrorStats(ctx context.Context, flowName string) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
+	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), flowName))
+	shutdown := heartbeatRoutine(ctx, func() string {
+		return "deleting mirror stats"
+	})
+	defer shutdown()
+	err := monitoring.DeleteMirrorStats(ctx, a.CatalogPool, flowName)
+	if err != nil {
+		logger.Warn("was not able to delete mirror stats", slog.Any("error", err))
+		return err
+	}
+
+	return nil
 }
 
 func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *protos.CreateTablesFromExistingInput) (
 	*protos.CreateTablesFromExistingOutput, error,
 ) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
-	dstConn, err := connectors.GetByNameAs[connectors.CreateTablesFromExistingConnector](ctx, a.CatalogPool, req.PeerName)
+	dstConn, err := connectors.GetByNameAs[connectors.CreateTablesFromExistingConnector](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
@@ -797,7 +824,7 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 	additionalTableMappings []*protos.TableMapping,
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
-	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, a.CatalogPool, cfg.SourceName)
+	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, cfg.Env, a.CatalogPool, cfg.SourceName)
 	if err != nil {
 		return fmt.Errorf("failed to get source connector: %w", err)
 	}

@@ -25,8 +25,35 @@ export default function ClickhouseForm({ settings, setter }: ConfigProps) {
     'Region',
     'Endpoint',
   ];
-  const handleChange = (val: string | boolean, setting: PeerSetting) => {
+
+  const handleFile = (
+    file: File,
+    setFile: (value: string, setter: PeerSetter) => void
+  ) => {
+    if (file) {
+      const reader = new FileReader();
+      reader.readAsText(file);
+      reader.onload = () => {
+        setFile(reader.result as string, setter);
+      };
+      reader.onerror = (error) => {
+        console.log(error);
+      };
+    }
+  };
+
+  const handleSwitchChange = (val: string | boolean, setting: PeerSetting) => {
     setting.stateHandler(val, setter);
+  };
+  const handleTextFieldChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    setting: PeerSetting
+  ) => {
+    if (setting.type === 'file') {
+      if (e.target.files) handleFile(e.target.files[0], setting.stateHandler);
+    } else {
+      setting.stateHandler(e.target.value, setter);
+    }
   };
 
   return (
@@ -56,7 +83,7 @@ export default function ClickhouseForm({ settings, setter }: ConfigProps) {
                 <div>
                   <Switch
                     onCheckedChange={(state: boolean) =>
-                      handleChange(state, setting)
+                      handleSwitchChange(state, setting)
                     }
                   />
                   {setting.tips && (
@@ -96,10 +123,15 @@ export default function ClickhouseForm({ settings, setter }: ConfigProps) {
                 >
                   <TextField
                     variant='simple'
+                    style={
+                      setting.type === 'file'
+                        ? { border: 'none', height: 'auto' }
+                        : { border: 'auto' }
+                    }
                     type={setting.type}
                     defaultValue={setting.default}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      handleChange(e.target.value, setting)
+                      handleTextFieldChange(e, setting)
                     }
                   />
                   {setting.tips && (
@@ -170,7 +202,7 @@ export default function ClickhouseForm({ settings, setter }: ConfigProps) {
                   <TextField
                     variant='simple'
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      handleChange(e.target.value, setting)
+                      handleSwitchChange(e.target.value, setting)
                     }
                     type={setting.type}
                     placeholder={setting.placeholder}

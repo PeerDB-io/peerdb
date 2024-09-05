@@ -36,6 +36,7 @@ type KafkaConnector struct {
 
 func NewKafkaConnector(
 	ctx context.Context,
+	env map[string]string,
 	config *protos.KafkaConfig,
 ) (*KafkaConnector, error) {
 	optionalOpts := append(
@@ -74,7 +75,7 @@ func NewKafkaConnector(
 			return nil, fmt.Errorf("unsupported SASL mechanism: %s", config.Sasl)
 		}
 	}
-	force, err := peerdbenv.PeerDBQueueForceTopicCreation(ctx)
+	force, err := peerdbenv.PeerDBQueueForceTopicCreation(ctx, env)
 	if err == nil && force {
 		optionalOpts = append(optionalOpts, kgo.UnknownTopicRetries(0))
 	}
@@ -178,12 +179,13 @@ type poolResult struct {
 
 func (c *KafkaConnector) createPool(
 	ctx context.Context,
+	env map[string]string,
 	script string,
 	flowJobName string,
 	lastSeenLSN *atomic.Int64,
 	queueErr func(error),
 ) (*utils.LPool[poolResult], error) {
-	maxSize, err := peerdbenv.PeerDBQueueParallelism(ctx)
+	maxSize, err := peerdbenv.PeerDBQueueParallelism(ctx, env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get parallelism: %w", err)
 	}
@@ -213,7 +215,7 @@ func (c *KafkaConnector) createPool(
 				if err != nil {
 					var success bool
 					if errors.Is(err, kerr.UnknownTopicOrPartition) {
-						force, envErr := peerdbenv.PeerDBQueueForceTopicCreation(ctx)
+						force, envErr := peerdbenv.PeerDBQueueForceTopicCreation(ctx, env)
 						if envErr == nil && force {
 							c.logger.Info("[kafka] force topic creation", slog.String("topic", kr.Topic))
 							_, err := kadm.NewClient(c.client).CreateTopic(ctx, 1, 3, nil, kr.Topic)
@@ -250,7 +252,7 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 
 	queueCtx, queueErr := context.WithCancelCause(ctx)
 
-	pool, err := c.createPool(queueCtx, req.Script, req.FlowJobName, &lastSeenLSN, queueErr)
+	pool, err := c.createPool(queueCtx, req.Env, req.Script, req.FlowJobName, &lastSeenLSN, queueErr)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +261,7 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	flushLoopDone := make(chan struct{})
 	go func() {
-		flushTimeout, err := peerdbenv.PeerDBQueueFlushTimeoutSeconds(ctx)
+		flushTimeout, err := peerdbenv.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
 		if err != nil {
 			c.logger.Warn("[kafka] failed to get flush timeout, no periodic flushing", slog.Any("error", err))
 			return

@@ -39,14 +39,14 @@ func (a *SyncGauge[V, O]) Set(input V, attrs attribute.Set) {
 }
 
 type Int64SyncGauge struct {
-	syncGuage *SyncGauge[int64, metric.Int64Observable]
+	syncGauge *SyncGauge[int64, metric.Int64Observable]
 }
 
 func (a *Int64SyncGauge) Set(input int64, attrs attribute.Set) {
 	if a == nil {
 		return
 	}
-	a.syncGuage.Set(input, attrs)
+	a.syncGauge.Set(input, attrs)
 }
 
 func NewInt64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Int64ObservableGaugeOption) (*Int64SyncGauge, error) {
@@ -63,18 +63,18 @@ func NewInt64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Int6
 		return nil, fmt.Errorf("failed to create Int64SyncGauge: %w", err)
 	}
 	syncGauge.observableGauge = observableGauge
-	return &Int64SyncGauge{syncGuage: syncGauge}, nil
+	return &Int64SyncGauge{syncGauge: syncGauge}, nil
 }
 
 type Float64SyncGauge struct {
-	syncGuage *SyncGauge[float64, metric.Float64Observable]
+	syncGauge *SyncGauge[float64, metric.Float64Observable]
 }
 
 func (a *Float64SyncGauge) Set(input float64, attrs attribute.Set) {
 	if a == nil {
 		return
 	}
-	a.syncGuage.Set(input, attrs)
+	a.syncGauge.Set(input, attrs)
 }
 
 func NewFloat64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Float64ObservableGaugeOption) (*Float64SyncGauge, error) {
@@ -91,7 +91,7 @@ func NewFloat64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Fl
 		return nil, fmt.Errorf("failed to create Float64SyncGauge: %w", err)
 	}
 	syncGauge.observableGauge = observableGauge
-	return &Float64SyncGauge{syncGuage: syncGauge}, nil
+	return &Float64SyncGauge{syncGauge: syncGauge}, nil
 }
 
 func GetOrInitInt64SyncGauge(meter metric.Meter, cache map[string]*Int64SyncGauge, name string,
