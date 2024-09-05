@@ -377,16 +377,22 @@ export default function SchemaBox({
                           Columns
                         </Label>
                         {columns ? (
-                          <ColumnBox
-                            columns={columns}
-                            tableRow={row}
-                            rows={rows}
-                            setRows={setRows}
-                            showOrdering={
-                              peerType?.toString() ===
-                              DBType[DBType.CLICKHOUSE].toString()
-                            }
-                          />
+                          columns.map(
+                            (column) =>
+                              column != '' && (
+                                <ColumnBox
+                                  key={row.source + column}
+                                  column={column}
+                                  tableRow={row}
+                                  rows={rows}
+                                  setRows={setRows}
+                                  showColumnSettings={
+                                    peerType?.toString() ===
+                                    DBType[DBType.CLICKHOUSE].toString()
+                                  }
+                                />
+                              )
+                          )
                         ) : columnsLoading ? (
                           <BarLoader />
                         ) : (

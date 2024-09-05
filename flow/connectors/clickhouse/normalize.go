@@ -133,11 +133,15 @@ func generateCreateTableSQLForNormalizedTable(
 		}
 
 		if colType == qvalue.QValueKindNumeric {
-			precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
-			if column.Nullable {
-				stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(DECIMAL(%d, %d)), ", dstColName, precision, scale))
+			if clickhouseType != "" && clickhouseType != "Decimal128(9)" {
+				stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", dstColName, clickhouseType))
 			} else {
-				stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ", dstColName, precision, scale))
+				precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
+				if column.Nullable {
+					stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(DECIMAL(%d, %d)), ", dstColName, precision, scale))
+				} else {
+					stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ", dstColName, precision, scale))
+				}
 			}
 		} else if tableSchema.NullableEnabled && column.Nullable && !colType.IsArray() {
 			stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(%s), ", dstColName, clickhouseType))
