@@ -125,7 +125,7 @@ export const clickhouseSetting: PeerSetting[] = [
     },
     type: 'file',
     optional: true,
-    tips: 'This is only needed if the user is authenticated via certificate. If not provided, host CA roots will be used.',
+    tips: 'If not provided, host CA roots will be used.',
   },
 ];
 
