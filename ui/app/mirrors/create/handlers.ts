@@ -203,12 +203,17 @@ export function changesToTablesMapping(
       }
       return false;
     })
-    .map((row) => ({
-      sourceTableIdentifier: row.source,
-      destinationTableIdentifier: row.destination,
-      partitionKey: row.partitionKey,
-      exclude: Array.from(row.exclude),
-    }));
+    .map(
+      (row) =>
+        ({
+          sourceTableIdentifier: row.source,
+          destinationTableIdentifier: row.destination,
+          partitionKey: row.partitionKey,
+          exclude: Array.from(row.exclude),
+          columns: row.columns,
+          engine: row.engine,
+        }) as TableMapping
+    );
   return mapping;
 }
 
