@@ -23,7 +23,10 @@ export const ResyncDialog = ({ mirrorName }: ResyncDialogProps) => {
 
   const handleResync = async () => {
     setSyncing(true);
-    setMsg({ msg: 'Preparing resync...', color: 'base' });
+    setMsg({
+      msg: 'Requesting a resync. You can close this dialog and check the status',
+      color: 'base',
+    });
     const resyncRes = await fetch('/api/v1/mirrors/resync', {
       method: 'POST',
       body: JSON.stringify({
