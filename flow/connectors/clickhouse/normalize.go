@@ -47,7 +47,8 @@ func (c *ClickhouseConnector) SetupNormalizedTable(
 	if err != nil {
 		return false, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
 	}
-	if tableAlreadyExists {
+	if tableAlreadyExists && !config.IsResync {
+		c.logger.Info("[ch] normalized table already exists, skipping", "table", tableIdentifier)
 		return true, nil
 	}
 
