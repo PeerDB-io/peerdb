@@ -4,12 +4,15 @@ import { Button } from '@/lib/Button';
 import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Label } from '@/lib/Label';
 import { Divider } from '@tremor/react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { BarLoader, DotLoader } from 'react-spinners';
 
 type ResyncDialogProps = {
   mirrorName: string;
 };
+
+const resyncDocLink = 'https://docs.peerdb.io/features/resync-mirror';
 
 export const ResyncDialog = ({ mirrorName }: ResyncDialogProps) => {
   const [syncing, setSyncing] = useState(false);
@@ -73,6 +76,18 @@ export const ResyncDialog = ({ mirrorName }: ResyncDialogProps) => {
           <br></br>
           This involves <b>dropping the existing mirror</b> and recreating it
           with initial load.
+          <Label
+            as={Link}
+            target='_blank'
+            style={{
+              color: 'teal',
+              cursor: 'pointer',
+              width: 'fit-content',
+            }}
+            href={resyncDocLink}
+          >
+            Learn more
+          </Label>
         </Label>
         <div style={{ display: 'flex', alignItems: 'center' }}>
           {syncing && <DotLoader size={15} />}
@@ -87,10 +102,7 @@ export const ResyncDialog = ({ mirrorName }: ResyncDialogProps) => {
         </div>
         <div style={{ display: 'flex', marginTop: '1rem' }}>
           <DialogClose>
-            <Button
-              disabled={syncing}
-              style={{ backgroundColor: '#6c757d', color: 'white' }}
-            >
+            <Button style={{ backgroundColor: '#6c757d', color: 'white' }}>
               {msg.color === 'positive' ? 'Close' : 'Cancel'}
             </Button>
           </DialogClose>
