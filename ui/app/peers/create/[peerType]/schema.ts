@@ -309,6 +309,12 @@ export const chSchema = (hostDomains: string[]) =>
       })
       .optional()
       .transform((e) => (e === '' ? undefined : e)),
+    rootCa: z
+      .string({
+        invalid_type_error: 'Root CA must be a string',
+      })
+      .optional()
+      .transform((e) => (e === '' ? undefined : e)),
   });
 
 export const kaSchema = z.object({
