@@ -220,8 +220,6 @@ func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.C
 			return nil, fmt.Errorf("failed to parse provided certificate: %w", err)
 		}
 		tlsSetting.Certificates = []tls.Certificate{cert}
-	} else if config.Password == "" {
-		return nil, errors.New("password must be provided if not using certificate-based authentication")
 	}
 	if config.RootCa != nil {
 		caPool := x509.NewCertPool()
