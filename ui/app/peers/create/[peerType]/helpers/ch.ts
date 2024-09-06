@@ -95,7 +95,7 @@ export const clickhouseSetting: PeerSetting[] = [
     },
     type: 'file',
     optional: true,
-    tips: 'This is needed only if the user is authenticated via certificate.',
+    tips: 'This is only needed if the user is authenticated via certificate.',
   },
   {
     label: 'Private Key',
@@ -110,7 +110,22 @@ export const clickhouseSetting: PeerSetting[] = [
     },
     type: 'file',
     optional: true,
-    tips: 'This is needed only if the user is authenticated via certificate.',
+    tips: 'This is only needed if the user is authenticated via certificate.',
+  },
+  {
+    label: 'Root Certificate',
+    stateHandler: (value, setter) => {
+      if (!value) {
+        // remove key from state if empty
+        setter((curr) => {
+          delete (curr as ClickhouseConfig)['rootCa'];
+          return curr;
+        });
+      } else setter((curr) => ({ ...curr, rootCa: value as string }));
+    },
+    type: 'file',
+    optional: true,
+    tips: 'If not provided, host CA roots will be used.',
   },
 ];
 
