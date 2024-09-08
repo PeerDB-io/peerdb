@@ -352,6 +352,7 @@ export default function SchemaBox({
                             <ReactSelect
                               styles={engineOptionStyles}
                               options={engineOptions}
+                              placeholder='ReplacingMergeTree (default)'
                               onChange={(selectedOption) =>
                                 selectedOption &&
                                 updateEngine(
