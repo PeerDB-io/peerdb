@@ -274,7 +274,7 @@ export const chSchema = (hostDomains: string[]) =>
         invalid_type_error: 'User must be a string',
       })
       .min(1, 'User must be non-empty')
-      .max(64, 'User must be less than 64 characters'),
+      .max(256, 'User must be less than 64 characters'),
     password: z
       .string({
         invalid_type_error: 'Password must be a string',

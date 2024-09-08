@@ -305,9 +305,10 @@ func (c *ClickhouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tab
 		if totalRows != 0 {
 			return fmt.Errorf("table %s exists and is not empty", tableName)
 		}
+		engine, _ = strings.CutPrefix(engine, "Shared")
 		if !slices.Contains(acceptableTableEngines, engine) {
-			return fmt.Errorf("table %s exists but is not using ReplacingMergeTree/MergeTree engine,"+
-				" and is using %s instead", tableName, engine)
+			c.logger.Warn("[clickhouse] table engine not explicitly supported",
+				slog.String("table", tableName), slog.String("engine", engine))
 		}
 	}
 	if rows.Err() != nil {
