@@ -305,8 +305,7 @@ func (c *ClickhouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tab
 		if totalRows != 0 {
 			return fmt.Errorf("table %s exists and is not empty", tableName)
 		}
-		engine, _ = strings.CutPrefix(engine, "Shared")
-		if !slices.Contains(acceptableTableEngines, engine) {
+		if !slices.Contains(acceptableTableEngines, strings.TrimPrefix(engine, "Shared")) {
 			c.logger.Warn("[clickhouse] table engine not explicitly supported",
 				slog.String("table", tableName), slog.String("engine", engine))
 		}
