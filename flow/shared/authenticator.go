@@ -58,7 +58,7 @@ func AuthGrpcMiddleware() ([]grpc.ServerOption, error) {
 	return []grpc.ServerOption{
 		grpc.ChainUnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 			var authHeader string
-			authHeaders := metadata.ValueFromIncomingContext(ctx, "authorization")
+			authHeaders := metadata.ValueFromIncomingContext(ctx, "Authorization")
 			if len(authHeaders) == 1 {
 				authHeader = authHeaders[0]
 			} else if len(authHeaders) > 1 {
