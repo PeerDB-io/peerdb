@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -26,7 +27,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_guages"
+	peerdb_gauges "github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_gauges"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -268,7 +269,7 @@ func (c *PostgresConnector) SetupMetadataTables(ctx context.Context) error {
 
 	_, err = c.conn.Exec(ctx, fmt.Sprintf(createMirrorJobsTableSQL,
 		c.metadataSchema, mirrorJobsTableIdentifier))
-	if err != nil && !shared.IsUniqueError(err) {
+	if err != nil && !shared.IsSQLStateError(err, pgerrcode.UniqueViolation) {
 		return fmt.Errorf("error creating table %s: %w", mirrorJobsTableIdentifier, err)
 	}
 
@@ -359,7 +360,8 @@ func pullCore[Items model.Items](
 
 	if !exists.SlotExists {
 		c.logger.Warn(fmt.Sprintf("slot %s does not exist", slotName))
-		return fmt.Errorf("replication slot %s does not exist", slotName)
+		return temporal.NewNonRetryableApplicationError(
+			fmt.Sprintf("replication slot %s does not exist, restarting workflow", slotName), "disconnect", nil)
 	}
 
 	c.logger.Info("PullRecords: performed checks for slot and publication")
@@ -370,6 +372,10 @@ func pullCore[Items model.Items](
 	}
 
 	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset); err != nil {
+		// in case of Aurora error ERROR: replication slots cannot be used on RO (Read Only) node (SQLSTATE 55000)
+		if shared.IsSQLStateError(err, pgerrcode.ObjectNotInPrerequisiteState) {
+			return temporal.NewNonRetryableApplicationError("reset connection to reconcile Aurora failover", "disconnect", err)
+		}
 		c.logger.Error("error starting replication", slog.Any("error", err))
 		return err
 	}
@@ -721,7 +727,7 @@ func (c *PostgresConnector) GetTableSchema(
 ) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(ctx, tableName, req.System)
+		tableSchema, err := c.getTableSchemaForTable(ctx, req.Env, tableName, req.System)
 		if err != nil {
 			c.logger.Info("error fetching schema for table "+tableName, slog.Any("error", err))
 			return nil, err
@@ -737,6 +743,7 @@ func (c *PostgresConnector) GetTableSchema(
 
 func (c *PostgresConnector) getTableSchemaForTable(
 	ctx context.Context,
+	env map[string]string,
 	tableName string,
 	system protos.TypeSystem,
 ) (*protos.TableSchema, error) {
@@ -745,13 +752,32 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
-	replicaIdentityType, err := c.getReplicaIdentityType(ctx, schemaTable)
+	relID, err := c.getRelIDForTable(ctx, schemaTable)
+	if err != nil {
+		return nil, fmt.Errorf("[getTableSchema] failed to get relation id for table %s: %w", schemaTable, err)
+	}
+
+	replicaIdentityType, err := c.getReplicaIdentityType(ctx, relID, schemaTable)
 	if err != nil {
 		return nil, fmt.Errorf("[getTableSchema] error getting replica identity for table %s: %w", schemaTable, err)
 	}
-	pKeyCols, err := c.getUniqueColumns(ctx, replicaIdentityType, schemaTable)
+
+	pKeyCols, err := c.getUniqueColumns(ctx, relID, replicaIdentityType, schemaTable)
 	if err != nil {
 		return nil, fmt.Errorf("[getTableSchema] error getting primary key column for table %s: %w", schemaTable, err)
+	}
+
+	nullableEnabled, err := peerdbenv.PeerDBNullable(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+
+	var nullableCols map[string]struct{}
+	if nullableEnabled {
+		nullableCols, err = c.getNullableColumns(ctx, relID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Get the column names and types
@@ -792,10 +818,12 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		}
 
 		columnNames = append(columnNames, fieldDescription.Name)
+		_, nullable := nullableCols[fieldDescription.Name]
 		columns = append(columns, &protos.FieldDescription{
 			Name:         fieldDescription.Name,
 			Type:         colType,
 			TypeModifier: fieldDescription.TypeModifier,
+			Nullable:     nullable,
 		})
 	}
 
@@ -812,6 +840,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		PrimaryKeyColumns:     pKeyCols,
 		IsReplicaIdentityFull: replicaIdentityType == ReplicaIdentityFull,
 		Columns:               columns,
+		NullableEnabled:       nullableEnabled,
 		System:                system,
 	}, nil
 }
@@ -832,10 +861,8 @@ func (c *PostgresConnector) FinishSetupNormalizedTables(ctx context.Context, tx 
 func (c *PostgresConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx any,
+	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
-	tableSchema *protos.TableSchema,
-	softDeleteColName string,
-	syncedAtColName string,
 ) (bool, error) {
 	createNormalizedTablesTx := tx.(pgx.Tx)
 
@@ -850,12 +877,19 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	if tableAlreadyExists {
 		c.logger.Info("[postgres] table already exists, skipping",
 			slog.String("table", tableIdentifier))
+		if config.IsResync {
+			err := c.ExecuteCommand(ctx, fmt.Sprintf(dropTableIfExistsSQL,
+				QuoteIdentifier(parsedNormalizedTable.Schema),
+				QuoteIdentifier(parsedNormalizedTable.Table)))
+			if err != nil {
+				return false, fmt.Errorf("error while dropping _resync table: %w", err)
+			}
+		}
 		return true, nil
 	}
 
 	// convert the column names and types to Postgres types
-	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
-		parsedNormalizedTable.String(), tableSchema, softDeleteColName, syncedAtColName)
+	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(config, tableIdentifier, parsedNormalizedTable)
 	_, err = c.execWithLoggingTx(ctx, normalizedTableCreateSQL, createNormalizedTablesTx)
 	if err != nil {
 		return false, fmt.Errorf("error while creating normalized table: %w", err)
@@ -949,12 +983,12 @@ func (c *PostgresConnector) EnsurePullability(
 			continue
 		}
 
-		replicaIdentity, replErr := c.getReplicaIdentityType(ctx, schemaTable)
+		replicaIdentity, replErr := c.getReplicaIdentityType(ctx, relID, schemaTable)
 		if replErr != nil {
 			return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
 		}
 
-		pKeyCols, err := c.getUniqueColumns(ctx, replicaIdentity, schemaTable)
+		pKeyCols, err := c.getUniqueColumns(ctx, relID, replicaIdentity, schemaTable)
 		if err != nil {
 			return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
 		}
@@ -1129,7 +1163,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 	catalogPool *pgxpool.Pool,
 	slotName string,
 	peerName string,
-	slotMetricGuages peerdb_guages.SlotMetricGuages,
+	slotMetricGauges peerdb_gauges.SlotMetricGauges,
 ) error {
 	logger := logger.LoggerFromCtx(ctx)
 
@@ -1146,10 +1180,10 @@ func (c *PostgresConnector) HandleSlotInfo(
 
 	logger.Info(fmt.Sprintf("Checking %s lag for %s", slotName, peerName), slog.Float64("LagInMB", float64(slotInfo[0].LagInMb)))
 	alerter.AlertIfSlotLag(ctx, peerName, slotInfo[0])
-	slotMetricGuages.SlotLagGuage.Set(float64(slotInfo[0].LagInMb), attribute.NewSet(
-		attribute.String(peerdb_guages.PeerNameKey, peerName),
-		attribute.String(peerdb_guages.SlotNameKey, slotName),
-		attribute.String(peerdb_guages.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
+	slotMetricGauges.SlotLagGauge.Set(float64(slotInfo[0].LagInMb), attribute.NewSet(
+		attribute.String(peerdb_gauges.PeerNameKey, peerName),
+		attribute.String(peerdb_gauges.SlotNameKey, slotName),
+		attribute.String(peerdb_gauges.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
 
 	// Also handles alerts for PeerDB user connections exceeding a given limit here
 	res, err := getOpenConnectionsForUser(ctx, c.conn, c.config.User)
@@ -1158,9 +1192,9 @@ func (c *PostgresConnector) HandleSlotInfo(
 		return err
 	}
 	alerter.AlertIfOpenConnections(ctx, peerName, res)
-	slotMetricGuages.OpenConnectionsGuage.Set(res.CurrentOpenConnections, attribute.NewSet(
-		attribute.String(peerdb_guages.PeerNameKey, peerName),
-		attribute.String(peerdb_guages.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
+	slotMetricGauges.OpenConnectionsGauge.Set(res.CurrentOpenConnections, attribute.NewSet(
+		attribute.String(peerdb_gauges.PeerNameKey, peerName),
+		attribute.String(peerdb_gauges.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
 
 	replicationRes, err := getOpenReplicationConnectionsForUser(ctx, c.conn, c.config.User)
 	if err != nil {
@@ -1168,9 +1202,9 @@ func (c *PostgresConnector) HandleSlotInfo(
 		return err
 	}
 
-	slotMetricGuages.OpenReplicationConnectionsGuage.Set(replicationRes.CurrentOpenConnections, attribute.NewSet(
-		attribute.String(peerdb_guages.PeerNameKey, peerName),
-		attribute.String(peerdb_guages.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
+	slotMetricGauges.OpenReplicationConnectionsGauge.Set(replicationRes.CurrentOpenConnections, attribute.NewSet(
+		attribute.String(peerdb_gauges.PeerNameKey, peerName),
+		attribute.String(peerdb_gauges.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
 
 	return monitoring.AppendSlotSizeInfo(ctx, catalogPool, peerName, slotInfo[0])
 }
@@ -1246,7 +1280,7 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 				utils.QuoteIdentifier(c.getDefaultPublicationName(req.FlowJobName)),
 				schemaTable.String()))
 			// don't error out if table is already added to our publication
-			if err != nil && !strings.Contains(err.Error(), "SQLSTATE 42710") {
+			if err != nil && !shared.IsSQLStateError(err, pgerrcode.DuplicateObject) {
 				return fmt.Errorf("failed to alter publication: %w", err)
 			}
 			c.logger.Info("added table to publication",
@@ -1272,35 +1306,55 @@ func (c *PostgresConnector) RenameTables(ctx context.Context, req *protos.Rename
 		}
 		src := srcTable.String()
 
+		resyncTableExists, err := c.checkIfTableExistsWithTx(ctx, srcTable.Schema, srcTable.Table, renameTablesTx)
+		if err != nil {
+			return nil, fmt.Errorf("unable to check if _resync table exists: %w", err)
+		}
+
+		if !resyncTableExists {
+			c.logger.Info(fmt.Sprintf("table '%s' does not exist, skipping rename", src))
+			continue
+		}
+
 		dstTable, err := utils.ParseSchemaTable(renameRequest.NewName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse destination %s: %w", renameRequest.NewName, err)
 		}
 		dst := dstTable.String()
 
-		if req.SoftDeleteColName != "" {
-			columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
-			for _, col := range renameRequest.TableSchema.Columns {
-				columnNames = append(columnNames, QuoteIdentifier(col.Name))
+		// if original table does not exist, skip soft delete transfer
+		originalTableExists, err := c.checkIfTableExistsWithTx(ctx, dstTable.Schema, dstTable.Table, renameTablesTx)
+		if err != nil {
+			return nil, fmt.Errorf("unable to check if source table exists: %w", err)
+		}
+
+		if originalTableExists {
+			if req.SoftDeleteColName != "" {
+				columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
+				for _, col := range renameRequest.TableSchema.Columns {
+					columnNames = append(columnNames, QuoteIdentifier(col.Name))
+				}
+
+				pkeyColumnNames := make([]string, 0, len(renameRequest.TableSchema.PrimaryKeyColumns))
+				for _, col := range renameRequest.TableSchema.PrimaryKeyColumns {
+					pkeyColumnNames = append(pkeyColumnNames, QuoteIdentifier(col))
+				}
+
+				allCols := strings.Join(columnNames, ",")
+				pkeyCols := strings.Join(pkeyColumnNames, ",")
+
+				c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
+
+				_, err = c.execWithLoggingTx(ctx,
+					fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
+						src, fmt.Sprintf("%s,%s", allCols, QuoteIdentifier(req.SoftDeleteColName)), allCols, req.SoftDeleteColName,
+						dst, pkeyCols, pkeyCols, src), renameTablesTx)
+				if err != nil {
+					return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
+				}
 			}
-
-			pkeyColumnNames := make([]string, 0, len(renameRequest.TableSchema.PrimaryKeyColumns))
-			for _, col := range renameRequest.TableSchema.PrimaryKeyColumns {
-				pkeyColumnNames = append(pkeyColumnNames, QuoteIdentifier(col))
-			}
-
-			allCols := strings.Join(columnNames, ",")
-			pkeyCols := strings.Join(pkeyColumnNames, ",")
-
-			c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
-
-			_, err = c.execWithLoggingTx(ctx,
-				fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
-					src, fmt.Sprintf("%s,%s", allCols, QuoteIdentifier(req.SoftDeleteColName)), allCols, req.SoftDeleteColName,
-					dst, pkeyCols, pkeyCols, src), renameTablesTx)
-			if err != nil {
-				return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
-			}
+		} else {
+			c.logger.Info(fmt.Sprintf("table '%s' did not exist, skipped soft delete transfer", dst))
 		}
 
 		// renaming and dropping such that the _resync table is the new destination

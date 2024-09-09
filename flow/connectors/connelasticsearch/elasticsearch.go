@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -17,7 +18,6 @@ import (
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/elastic/go-elasticsearch/v8/esutil"
 	"go.temporal.io/sdk/log"
-	"golang.org/x/exp/maps"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -131,7 +131,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 	cacheCloser := func() bool {
 		closeHasErrors := false
 		if !bulkIndexersHaveShutdown {
-			for _, esBulkIndexer := range maps.Values(esBulkIndexerCache) {
+			for esBulkIndexer := range maps.Values(esBulkIndexerCache) {
 				err := esBulkIndexer.Close(context.Background())
 				if err != nil {
 					esc.logger.Error("[es] failed to close bulk indexer", slog.Any("error", err))
@@ -147,7 +147,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 
 	flushLoopDone := make(chan struct{})
 	go func() {
-		flushTimeout, err := peerdbenv.PeerDBQueueFlushTimeoutSeconds(ctx)
+		flushTimeout, err := peerdbenv.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
 		if err != nil {
 			esc.logger.Warn("[elasticsearch] failed to get flush timeout, no periodic flushing", slog.Any("error", err))
 			return

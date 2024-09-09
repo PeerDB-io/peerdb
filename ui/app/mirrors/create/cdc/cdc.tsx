@@ -1,9 +1,11 @@
 'use client';
+import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
+
 import { DBType } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
-import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
-import { CDCConfig, MirrorSetter, TableMapRow } from '../../../dto/MirrorsDTO';
+import { ProgressCircle } from '@/lib/ProgressCircle';
+import { CDCConfig, TableMapRow } from '../../../dto/MirrorsDTO';
 import { IsEventhubsPeer, IsQueuePeer, fetchPublications } from '../handlers';
 import { AdvancedSettingType, MirrorSetting } from '../helpers/common';
 import CDCField from './fields';
@@ -12,9 +14,9 @@ import TableMapping from './tablemapping';
 interface MirrorConfigProps {
   settings: MirrorSetting[];
   mirrorConfig: CDCConfig;
+  setter: Dispatch<SetStateAction<CDCConfig>>;
   destinationType: DBType;
   sourceType: DBType;
-  setter: MirrorSetter;
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
 }
@@ -22,18 +24,25 @@ interface MirrorConfigProps {
 export default function CDCConfigForm({
   settings,
   mirrorConfig,
+  setter,
   destinationType,
   sourceType,
-  setter,
   rows,
   setRows,
 }: MirrorConfigProps) {
   const [publications, setPublications] = useState<string[]>();
-  const [pubLoading, setPubLoading] = useState(true);
   const [show, setShow] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [scriptingEnabled, setScriptingEnabled] = useState(false);
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
     let stateVal: string | boolean = val;
     setting.stateHandler(stateVal, setter);
+  };
+
+  const getScriptingEnabled = async () => {
+    const response = await fetch('/api/mirror-types/validation/scripting');
+    const data = await response.json();
+    setScriptingEnabled(data);
   };
 
   const normalSettings = useMemo(
@@ -92,8 +101,11 @@ export default function CDCConfigForm({
           destinationType.toString() === DBType[DBType.BIGQUERY] ||
           destinationType.toString() === DBType[DBType.SNOWFLAKE]
         )) ||
-      (label.includes('script') &&
-        destinationType.toString() === DBType[DBType.CLICKHOUSE])
+      (!scriptingEnabled &&
+        label.includes('script') &&
+        destinationType.toString() === DBType[DBType.CLICKHOUSE]) ||
+      (label.includes('system') &&
+        destinationType.toString() !== DBType[DBType.POSTGRES])
     ) {
       return false;
     }
@@ -101,13 +113,17 @@ export default function CDCConfigForm({
   };
 
   useEffect(() => {
-    setPubLoading(true);
+    setLoading(true);
     fetchPublications(mirrorConfig.sourceName ?? '').then((pubs) => {
       setPublications(pubs);
-      setPubLoading(false);
     });
-  }, [mirrorConfig.sourceName]);
+    getScriptingEnabled();
+    setLoading(false);
+  }, [mirrorConfig.sourceName, mirrorConfig.initialSnapshotOnly]);
 
+  if (loading) {
+    return <ProgressCircle variant='determinate_progress_circle' />;
+  }
   if (mirrorConfig.sourceName && mirrorConfig.destinationName)
     return (
       <>
@@ -123,7 +139,6 @@ export default function CDCConfigForm({
                     ? publications
                     : undefined
                 }
-                optionsLoading={pubLoading}
               />
             )
         )}
@@ -147,8 +162,8 @@ export default function CDCConfigForm({
         </Button>
 
         {show &&
-          advancedSettings!.map((setting) => {
-            return (
+          advancedSettings!.map(
+            (setting) =>
               paramDisplayCondition(setting!) && (
                 <CDCField
                   key={setting?.label}
@@ -156,8 +171,7 @@ export default function CDCConfigForm({
                   setting={setting!}
                 />
               )
-            );
-          })}
+          )}
 
         <TableMapping
           sourcePeerName={mirrorConfig.sourceName}
@@ -165,6 +179,7 @@ export default function CDCConfigForm({
           setRows={setRows}
           peerType={destinationType}
           omitAdditionalTablesMapping={new Map<string, string[]>()}
+          initialLoadOnly={mirrorConfig.initialSnapshotOnly}
         />
       </>
     );

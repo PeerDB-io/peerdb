@@ -68,6 +68,8 @@ type PullRecordsRequest[T Items] struct {
 	TableNameMapping map[string]NameAndExclude
 	// tablename to schema mapping
 	TableNameSchemaMapping map[string]*protos.TableSchema
+	// overrides dynamic configuration
+	Env map[string]string
 	// override publication name
 	OverridePublicationName string
 	// override replication slot name
@@ -132,9 +134,10 @@ type SyncRecordsRequest[T Items] struct {
 	// ConsumedOffset allows destination to confirm lsn for slot
 	ConsumedOffset *atomic.Int64
 	// FlowJobName is the name of the flow job.
+	FlowJobName string
 	// destination table name -> schema mapping
 	TableNameSchemaMapping map[string]*protos.TableSchema
-	FlowJobName            string
+	Env                    map[string]string
 	// Staging path for AVRO files in CDC
 	StagingPath string
 	// Lua script
@@ -145,10 +148,12 @@ type SyncRecordsRequest[T Items] struct {
 }
 
 type NormalizeRecordsRequest struct {
+	Env                    map[string]string
 	TableNameSchemaMapping map[string]*protos.TableSchema
 	FlowJobName            string
 	SoftDeleteColName      string
 	SyncedAtColName        string
+	TableMappings          []*protos.TableMapping
 	SyncBatchID            int64
 }
 

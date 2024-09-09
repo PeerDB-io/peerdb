@@ -95,6 +95,13 @@ func SnowflakeIdentifierNormalize(identifier string) string {
 	return fmt.Sprintf(`"%s"`, identifier)
 }
 
+func SnowflakeQuotelessIdentifierNormalize(identifier string) string {
+	if utils.IsLower(identifier) {
+		return strings.ToUpper(identifier)
+	}
+	return identifier
+}
+
 func snowflakeSchemaTableNormalize(schemaTable *utils.SchemaTable) string {
 	return fmt.Sprintf(`%s.%s`, SnowflakeIdentifierNormalize(schemaTable.Schema),
 		SnowflakeIdentifierNormalize(schemaTable.Table))

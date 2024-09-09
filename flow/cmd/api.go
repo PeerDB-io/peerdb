@@ -33,8 +33,6 @@ import (
 type APIServerParams struct {
 	TemporalHostPort  string
 	TemporalNamespace string
-	TemporalCert      string
-	TemporalKey       string
 	Port              uint16
 	GatewayPort       uint16
 }
@@ -192,10 +190,11 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		Namespace: args.TemporalNamespace,
 		Logger:    slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))),
 	}
-	if args.TemporalCert != "" && args.TemporalKey != "" {
+
+	if peerdbenv.PeerDBTemporalEnableCertAuth() {
 		slog.Info("Using temporal certificate/key for authentication")
 
-		certs, err := base64DecodeCertAndKey(args.TemporalCert, args.TemporalKey)
+		certs, err := parseTemporalCertAndKey()
 		if err != nil {
 			return fmt.Errorf("unable to base64 decode certificate and key: %w", err)
 		}

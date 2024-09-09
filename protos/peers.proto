@@ -120,6 +120,9 @@ message ClickhouseConfig{
   string region = 9;
   bool disable_tls = 10;
   optional string endpoint = 11;
+  optional string certificate = 12 [(peerdb_redacted) = true];
+  optional string private_key = 13 [(peerdb_redacted) = true];
+  optional string root_ca = 14 [(peerdb_redacted) = true];
 }
 
 message SqlServerConfig {

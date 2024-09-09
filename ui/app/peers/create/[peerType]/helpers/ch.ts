@@ -21,23 +21,20 @@ export const clickhouseSetting: PeerSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, user: value as string })),
     tips: 'Specify the user that we should use to connect to this host.',
-    helpfulLink: 'https://www.postgresql.org/docs/8.0/user-manag.html',
   },
   {
     label: 'Password',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, password: value as string })),
     type: 'password',
-    tips: 'Password associated with the user you provided.',
-    helpfulLink: 'https://www.postgresql.org/docs/current/auth-password.html',
+    tips: 'Password associated with the user provided, only needed if using password authentication',
+    optional: true,
   },
   {
     label: 'Database',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, database: value as string })),
     tips: 'Specify which database to associate with this peer.',
-    helpfulLink:
-      'https://www.postgresql.org/docs/current/sql-createdatabase.html',
   },
   {
     label: 'Disable TLS?',
@@ -84,6 +81,51 @@ export const clickhouseSetting: PeerSetting[] = [
       'https://docs.aws.amazon.com/general/latest/gr/s3.html#s3_region',
     tips: 'An endpoint is the URL of the entry point for an AWS web service.',
     optional: true,
+  },
+  {
+    label: 'Certificate',
+    stateHandler: (value, setter) => {
+      if (!value) {
+        // remove key from state if empty
+        setter((curr) => {
+          delete (curr as ClickhouseConfig)['certificate'];
+          return curr;
+        });
+      } else setter((curr) => ({ ...curr, certificate: value as string }));
+    },
+    type: 'file',
+    optional: true,
+    tips: 'This is only needed if the user is authenticated via certificate.',
+  },
+  {
+    label: 'Private Key',
+    stateHandler: (value, setter) => {
+      if (!value) {
+        // remove key from state if empty
+        setter((curr) => {
+          delete (curr as ClickhouseConfig)['privateKey'];
+          return curr;
+        });
+      } else setter((curr) => ({ ...curr, privateKey: value as string }));
+    },
+    type: 'file',
+    optional: true,
+    tips: 'This is only needed if the user is authenticated via certificate.',
+  },
+  {
+    label: 'Root Certificate',
+    stateHandler: (value, setter) => {
+      if (!value) {
+        // remove key from state if empty
+        setter((curr) => {
+          delete (curr as ClickhouseConfig)['rootCa'];
+          return curr;
+        });
+      } else setter((curr) => ({ ...curr, rootCa: value as string }));
+    },
+    type: 'file',
+    optional: true,
+    tips: 'If not provided, host CA roots will be used.',
   },
 ];
 

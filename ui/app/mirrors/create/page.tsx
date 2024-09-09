@@ -31,7 +31,7 @@ import {
   handleValidateCDC,
 } from './handlers';
 import { cdcSettings } from './helpers/cdc';
-import { blankCDCSetting } from './helpers/common';
+import { blankCDCSetting, blankQRepSetting } from './helpers/common';
 import { qrepSettings } from './helpers/qrep';
 import MirrorCards from './mirrorcards';
 import QRepConfigForm from './qrep/qrep';
@@ -69,7 +69,8 @@ export default function CreateMirrors() {
   );
   const [creating, setCreating] = useState<boolean>(false);
   const [validating, setValidating] = useState<boolean>(false);
-  const [config, setConfig] = useState<CDCConfig | QRepConfig>(blankCDCSetting);
+  const [qrepConfig, setQrepConfig] = useState<QRepConfig>(blankQRepSetting);
+  const [cdcConfig, setCdcConfig] = useState<CDCConfig>(blankCDCSetting);
   const [sourceType, setSourceType] = useState<DBType>(DBType.UNRECOGNIZED);
   const [destinationType, setDestinationType] = useState<DBType>(
     DBType.UNRECOGNIZED
@@ -90,7 +91,11 @@ export default function CreateMirrors() {
 
   const setSourcePeer = useCallback((peer: SingleValue<PeerListItem>) => {
     if (!peer) return;
-    setConfig((curr) => ({
+    setQrepConfig((curr) => ({
+      ...curr,
+      sourceName: peer.name,
+    }));
+    setCdcConfig((curr) => ({
       ...curr,
       sourceName: peer.name,
     }));
@@ -99,7 +104,11 @@ export default function CreateMirrors() {
 
   const setDestinationPeer = useCallback((peer: SingleValue<PeerListItem>) => {
     if (!peer) return;
-    setConfig((curr) => ({
+    setQrepConfig((curr) => ({
+      ...curr,
+      destinationName: peer.name,
+    }));
+    setCdcConfig((curr) => ({
       ...curr,
       destinationName: peer.name,
     }));
@@ -273,19 +282,19 @@ export default function CreateMirrors() {
           ) : mirrorType === MirrorType.CDC ? (
             <CDCConfigForm
               settings={cdcSettings}
-              mirrorConfig={config as CDCConfig}
+              mirrorConfig={cdcConfig}
               sourceType={sourceType}
               destinationType={destinationType}
-              setter={setConfig}
+              setter={setCdcConfig}
               rows={rows}
               setRows={setRows}
             />
           ) : (
             <QRepConfigForm
               settings={qrepSettings}
-              mirrorConfig={config as QRepConfig}
+              mirrorConfig={qrepConfig}
               destinationType={destinationType}
-              setter={setConfig}
+              setter={setQrepConfig}
               xmin={mirrorType === MirrorType.XMin}
             />
           )}
@@ -302,7 +311,7 @@ export default function CreateMirrors() {
                     handleValidateCDC(
                       mirrorName,
                       rows,
-                      config as CDCConfig,
+                      cdcConfig,
                       destinationType,
                       setValidating
                     )
@@ -326,7 +335,7 @@ export default function CreateMirrors() {
                     ? handleCreateCDC(
                         mirrorName,
                         rows,
-                        config as CDCConfig,
+                        cdcConfig,
                         destinationType,
                         setCreating,
                         listMirrorsPage
@@ -334,7 +343,7 @@ export default function CreateMirrors() {
                     : handleCreateQRep(
                         mirrorName,
                         qrepQuery,
-                        config as QRepConfig,
+                        qrepConfig,
                         destinationType,
                         setCreating,
                         listMirrorsPage,

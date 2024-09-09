@@ -2,10 +2,10 @@ package shared
 
 import (
 	"log/slog"
+	"maps"
 	"slices"
 
 	"go.temporal.io/sdk/log"
-	"golang.org/x/exp/maps"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
@@ -38,9 +38,8 @@ func BuildProcessedSchemaMapping(tableMappings []*protos.TableMapping,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 	logger log.Logger,
 ) map[string]*protos.TableSchema {
-	processedSchemaMapping := make(map[string]*protos.TableSchema)
-	sortedSourceTables := maps.Keys(tableNameSchemaMapping)
-	slices.Sort(sortedSourceTables)
+	sortedSourceTables := slices.Sorted(maps.Keys(tableNameSchemaMapping))
+	processedSchemaMapping := make(map[string]*protos.TableSchema, len(sortedSourceTables))
 
 	for _, srcTableName := range sortedSourceTables {
 		tableSchema := tableNameSchemaMapping[srcTableName]
@@ -60,6 +59,7 @@ func BuildProcessedSchemaMapping(tableMappings []*protos.TableMapping,
 						TableIdentifier:       tableSchema.TableIdentifier,
 						PrimaryKeyColumns:     tableSchema.PrimaryKeyColumns,
 						IsReplicaIdentityFull: tableSchema.IsReplicaIdentityFull,
+						NullableEnabled:       tableSchema.NullableEnabled,
 						System:                tableSchema.System,
 						Columns:               columns,
 					}

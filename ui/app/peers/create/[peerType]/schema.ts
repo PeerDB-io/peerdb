@@ -274,14 +274,13 @@ export const chSchema = (hostDomains: string[]) =>
         invalid_type_error: 'User must be a string',
       })
       .min(1, 'User must be non-empty')
-      .max(64, 'User must be less than 64 characters'),
+      .max(128, 'User must be less than 128 characters'),
     password: z
       .string({
-        required_error: 'Password is required',
         invalid_type_error: 'Password must be a string',
       })
-      .min(1, 'Password must be non-empty')
-      .max(100, 'Password must be less than 100 characters'),
+      .max(100, 'Password must be less than 100 characters')
+      .optional(),
     s3Path: z
       .string({ invalid_type_error: 'S3 Path must be a string' })
       .optional(),
@@ -298,6 +297,24 @@ export const chSchema = (hostDomains: string[]) =>
       .string({ invalid_type_error: 'Endpoint must be a string' })
       .optional(),
     disableTls: z.boolean(),
+    certificate: z
+      .string({
+        invalid_type_error: 'Certificate must be a string',
+      })
+      .optional()
+      .transform((e) => (e === '' ? undefined : e)),
+    privateKey: z
+      .string({
+        invalid_type_error: 'Private Key must be a string',
+      })
+      .optional()
+      .transform((e) => (e === '' ? undefined : e)),
+    rootCa: z
+      .string({
+        invalid_type_error: 'Root CA must be a string',
+      })
+      .optional()
+      .transform((e) => (e === '' ? undefined : e)),
   });
 
 export const kaSchema = z.object({

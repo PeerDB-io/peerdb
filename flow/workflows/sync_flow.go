@@ -2,12 +2,12 @@ package peerflow
 
 import (
 	"log/slog"
+	"maps"
 	"time"
 
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
-	"golang.org/x/exp/maps"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -74,7 +74,7 @@ func SyncFlowWorkflow(
 	})
 
 	var waitSelector workflow.Selector
-	parallel := getParallelSyncNormalize(ctx, logger)
+	parallel := getParallelSyncNormalize(ctx, logger, config.Env)
 	if !parallel {
 		waitSelector = workflow.NewNamedSelector(ctx, "NormalizeWait")
 		waitSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})

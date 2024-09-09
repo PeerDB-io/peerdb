@@ -22,14 +22,14 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 		slog.Error("[GetDynamicConfigs]: failed to query settings", slog.Any("error", err))
 		return nil, err
 	}
-
 	settings := slices.Clone(peerdbenv.DynamicSettings[:])
 	var name string
 	var value string
 	if _, err := pgx.ForEachRow(rows, []any{&name, &value}, func() error {
 		if idx, ok := peerdbenv.DynamicIndex[name]; ok {
 			settings[idx] = shared.CloneProto(settings[idx])
-			settings[idx].Value = &value
+			newValue := value // create a new string reference as value can be overwritten by the next iteration.
+			settings[idx].Value = &newValue
 		}
 		return nil
 	}); err != nil {

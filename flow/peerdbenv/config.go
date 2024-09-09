@@ -2,6 +2,8 @@ package peerdbenv
 
 import (
 	"fmt"
+	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -63,7 +65,13 @@ func PeerDBCatalogUser() string {
 
 // PEERDB_CATALOG_PASSWORD
 func PeerDBCatalogPassword() string {
-	return GetEnvString("PEERDB_CATALOG_PASSWORD", "")
+	val, err := GetKMSDecryptedEnvString("PEERDB_CATALOG_PASSWORD", "")
+	if err != nil {
+		slog.Error("failed to decrypt PEERDB_CATALOG_PASSWORD", "error", err)
+		panic(err)
+	}
+
+	return val
 }
 
 // PEERDB_CATALOG_DATABASE
@@ -113,4 +121,17 @@ func PeerDBAllowedTargets() string {
 
 func PeerDBClickhouseAllowedDomains() string {
 	return GetEnvString("PEERDB_CLICKHOUSE_ALLOWED_DOMAINS", "")
+}
+
+func PeerDBTemporalEnableCertAuth() bool {
+	cert := GetEnvString("TEMPORAL_CLIENT_CERT", "")
+	return strings.TrimSpace(cert) != ""
+}
+
+func PeerDBTemporalClientCert() ([]byte, error) {
+	return GetEnvBase64EncodedBytes("TEMPORAL_CLIENT_CERT", nil)
+}
+
+func PeerDBTemporalClientKey() ([]byte, error) {
+	return GetEnvBase64EncodedBytes("TEMPORAL_CLIENT_KEY", nil)
 }
