@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"log/slog"
-	"os"
+	"net/url"
 	"strings"
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
@@ -16,10 +17,11 @@ import (
 )
 
 type AuthenticationConfig struct {
-	KeySetJSON    string `json:"key_set_json" yaml:"key_set_json" mapstructure:"key_set_json"`
-	Auth0Domain   string `json:"auth0_domain" yaml:"auth0_domain" mapstructure:"auth0_domain"`
-	Auth0ClientID string `json:"auth0_client_id" yaml:"auth0_client_id" mapstructure:"auth0_client_id"`
-	Enabled       bool   `json:"enabled" yaml:"enabled" mapstructure:"enabled"`
+	KeySetJSON            string            `json:"key_set_json" yaml:"key_set_json" mapstructure:"key_set_json"`
+	OAuthDomain           string            `json:"oauth_domain" yaml:"oauth_domain" mapstructure:"oauth_domain"`
+	Enabled               bool              `json:"enabled" yaml:"enabled" mapstructure:"enabled"`
+	OAuthDiscoveryEnabled bool              `json:"oauth_discovery_enabled" yaml:"oauth_discovery_enabled" mapstructure:"oauth_discovery_enabled"`
+	OauthJwtCustomClaims  map[string]string `json:"oauth_custom_claims" yaml:"oauth_custom_claims" mapstructure:"oauth_custom_claims"`
 }
 
 type identityProvider struct {
@@ -29,14 +31,17 @@ type identityProvider struct {
 }
 
 func AuthGrpcMiddleware() ([]grpc.ServerOption, error) {
-	keySetJSON := os.Getenv("PEERDB_OAUTH_KEYSET_JSON")
-	auth0Domain := os.Getenv("PEERDB_OAUTH_AUTH0DOMAIN")
-	auth0ClientID := os.Getenv("PEERDB_OAUTH_AUTH0CLIENTID")
+	oauthConfig := peerdbenv.GetPeerDBOAuthConfig()
+	oauthJwtClaims := map[string]string{}
+	if oauthConfig.OAuthJwtClaimKey != "" {
+		oauthJwtClaims[oauthConfig.OAuthJwtClaimKey] = oauthConfig.OAuthClaimValue
+	}
 	cfg := AuthenticationConfig{
-		Enabled:       keySetJSON != "" || auth0Domain != "",
-		KeySetJSON:    keySetJSON,
-		Auth0Domain:   auth0Domain,
-		Auth0ClientID: auth0ClientID,
+		Enabled:               oauthConfig.OAuthDomain != "",
+		KeySetJSON:            oauthConfig.KeySetJson,
+		OAuthDiscoveryEnabled: oauthConfig.OAuthDiscoveryEnabled,
+		OAuthDomain:           oauthConfig.OAuthDomain,
+		OauthJwtCustomClaims:  oauthJwtClaims,
 	}
 	// load identity providers before checking if authentication is enabled so configuration can be validated
 	ip, err := identityProvidersFromConfig(cfg)
@@ -64,7 +69,7 @@ func AuthGrpcMiddleware() ([]grpc.ServerOption, error) {
 			} else if len(authHeaders) > 1 {
 				return nil, errors.New("multiple Authorization headers supplied, request rejected")
 			}
-			_, err := validateRequestToken(authHeader, ip...)
+			_, err := validateRequestToken(authHeader, cfg.OauthJwtCustomClaims, ip...)
 			if err != nil {
 				slog.Debug("failed to validate request token", slog.Any("error", err))
 				return nil, err
@@ -74,12 +79,13 @@ func AuthGrpcMiddleware() ([]grpc.ServerOption, error) {
 	}, nil
 }
 
-func validateRequestToken(authHeader string, ip ...identityProvider) ([]byte, error) {
+func validateRequestToken(authHeader string, claims map[string]string, ip ...identityProvider) ([]byte, error) {
 	payload, err := jwtFromRequest(authHeader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse authorization header: %w", err)
 	}
 
+	// We could simplify to jwt.Parse(payload, opts...), but it is ok for now
 	token, err := jwt.ParseInsecure(payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse token: %w", err)
@@ -97,6 +103,13 @@ func validateRequestToken(authHeader string, ip ...identityProvider) ([]byte, er
 
 	if _, err := jws.Verify(payload, jws.WithKeySet(provider.keySet)); err != nil {
 		return nil, fmt.Errorf("failed to verify token: %w", err)
+	}
+
+	for key, value := range claims {
+		if token.PrivateClaims()[key] != value {
+			return nil, fmt.Errorf("token claim %s mismatch", key)
+		}
+
 	}
 
 	return payload, nil
@@ -144,7 +157,7 @@ type identityProviderResolver func(cfg AuthenticationConfig) (*identityProvider,
 func identityProvidersFromConfig(cfg AuthenticationConfig) ([]identityProvider, error) {
 	resolvers := []identityProviderResolver{
 		keysetIdentityProvider,
-		auth0IdentityProvider,
+		openIdIdentityProvider,
 	}
 
 	ip := make([]identityProvider, 0, len(resolvers))
@@ -168,25 +181,29 @@ func identityProvidersFromConfig(cfg AuthenticationConfig) ([]identityProvider, 
 	return ip, nil
 }
 
-func auth0IdentityProvider(cfg AuthenticationConfig) (*identityProvider, error) {
-	if cfg.Auth0Domain == "" {
-		slog.Debug("Auth0 domain not configured for identity provider")
+func openIdIdentityProvider(cfg AuthenticationConfig) (*identityProvider, error) {
+	if cfg.OAuthDomain == "" {
+		slog.Debug("OAuth domain not configured for identity provider")
 		return nil, nil
 	}
-
-	// Auth0 claims in doc token has client ID as the issuer
-	// but in reality it's domain/custom domain
-	// https://auth0.com/docs/get-started/authentication-and-authorization-flow/authenticate-with-private-key-jwt#build-the-assertion
-	issuer := fmt.Sprintf("https://%s/", cfg.Auth0Domain)
-	url := fmt.Sprintf("https://%s/.well-known/jwks.json", cfg.Auth0Domain)
+	if !cfg.OAuthDiscoveryEnabled {
+		slog.Debug("OAuth discovery not enabled for identity provider")
+		return nil, nil
+	}
+	issuer := cfg.OAuthDomain
+	// This is a well known URL for defined in OpenID discovery spec
+	jwksDiscoveryUrl, err := url.JoinPath(cfg.OAuthDomain, "/.well-known/openid-configuration")
+	if err != nil {
+		return nil, err
+	}
 
 	cache := jwk.NewCache(context.Background())
-	if err := cache.Register(url); err != nil {
-		return nil, fmt.Errorf("failed to register Auth0 JWK key set: %w", err)
+	if err := cache.Register(jwksDiscoveryUrl); err != nil {
+		return nil, fmt.Errorf("failed to register JWK key set from Discovery URL %s: %w", jwksDiscoveryUrl, err)
 	}
-	set := jwk.NewCachedSet(cache, url)
+	set := jwk.NewCachedSet(cache, jwksDiscoveryUrl)
 
-	slog.Info("JWK key set from Auth0 loaded", slog.String("jwks", url), slog.Int("size", set.Len()))
+	slog.Info("JWK key set from Discovery Endpoint loaded", slog.String("jwks", jwksDiscoveryUrl), slog.Int("size", set.Len()))
 
 	return &identityProvider{
 		issuer:      issuer,
@@ -209,7 +226,7 @@ func keysetIdentityProvider(cfg AuthenticationConfig) (*identityProvider, error)
 	slog.Info("JWK key set from JSON loaded", slog.Int("size", set.Len()))
 
 	return &identityProvider{
-		issuer: os.Getenv("PEERDB_OAUTH_KEYSET_ISSUER"),
+		issuer: cfg.OAuthDomain,
 		keySet: set,
 	}, nil
 }
