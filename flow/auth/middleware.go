@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"log/slog"
 	"net/url"
 	"strings"
@@ -15,15 +12,20 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jws"
 	"github.com/lestrrat-go/jwx/v2/jwt"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
+//nolint:lll
 type AuthenticationConfig struct {
+	OauthJwtCustomClaims  map[string]string `json:"oauth_custom_claims" yaml:"oauth_custom_claims" mapstructure:"oauth_custom_claims"`
 	KeySetJSON            string            `json:"key_set_json" yaml:"key_set_json" mapstructure:"key_set_json"`
 	OAuthIssuerUrl        string            `json:"oauth_domain" yaml:"oauth_domain" mapstructure:"oauth_domain"`
 	Enabled               bool              `json:"enabled" yaml:"enabled" mapstructure:"enabled"`
 	OAuthDiscoveryEnabled bool              `json:"oauth_discovery_enabled" yaml:"oauth_discovery_enabled" mapstructure:"oauth_discovery_enabled"`
-	OauthJwtCustomClaims  map[string]string `json:"oauth_custom_claims" yaml:"oauth_custom_claims" mapstructure:"oauth_custom_claims"`
 }
 
 type identityProvider struct {
@@ -80,7 +82,7 @@ func AuthGrpcMiddleware(unauthenticatedMethods []string) ([]grpc.ServerOption, e
 				_, err := validateRequestToken(authHeader, cfg.OauthJwtCustomClaims, ip...)
 				if err != nil {
 					slog.Debug("failed to validate request token", slog.Any("error", err))
-					return nil, status.Errorf(codes.Unauthenticated, err.Error())
+					return nil, status.Errorf(codes.Unauthenticated, "%s", err.Error())
 				}
 			}
 			return handler(ctx, req)
@@ -118,7 +120,6 @@ func validateRequestToken(authHeader string, claims map[string]string, ip ...ide
 		if token.PrivateClaims()[key] != value {
 			return nil, fmt.Errorf("token claim %s mismatch", key)
 		}
-
 	}
 
 	return payload, nil

@@ -3,11 +3,14 @@ package peerdbenv
 import "strconv"
 
 type PeerDBOAuthConfig struct {
-	OAuthIssuerUrl        string `json:"oauth_issuer_url"`        // there can be more complex use cases where domain != issuer, but we handle them later if required
-	OAuthDiscoveryEnabled bool   `json:"oauth_discovery_enabled"` // Enabling this uses the /.well-known/ OpenID discovery endpoints, thus key-set etc., doesn't need to be specified
-	KeySetJson            string `json:"key_set_json"`
-	OAuthJwtClaimKey      string `json:"oauth_jwt_claim_key"` // This is a custom claim we may wish to validate (if needed)
-	OAuthClaimValue       string `json:"oauth_jwt_claim_value"`
+	// there can be more complex use cases where domain != issuer, but we handle them later if required
+	OAuthIssuerUrl string `json:"oauth_issuer_url"`
+	KeySetJson     string `json:"key_set_json"`
+	// This is a custom claim we may wish to validate (if needed)
+	OAuthJwtClaimKey string `json:"oauth_jwt_claim_key"`
+	OAuthClaimValue  string `json:"oauth_jwt_claim_value"`
+	// Enabling uses /.well-known/ OpenID discovery endpoints, thus key-set etc. don't need to be specified
+	OAuthDiscoveryEnabled bool `json:"oauth_discovery_enabled"`
 }
 
 func GetPeerDBOAuthConfig() PeerDBOAuthConfig {
