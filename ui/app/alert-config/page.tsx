@@ -48,6 +48,7 @@ const AlertConfigPage: React.FC = () => {
       open_connections_alert_threshold: 20,
       slot_lag_mb_alert_threshold: 5000,
     },
+    alertForMirrors: [],
     forEdit: false,
   };
 
@@ -63,7 +64,17 @@ const AlertConfigPage: React.FC = () => {
       serviceType: alertConfig.serviceType as ServiceType,
       alertConfig: JSON.parse(alertConfig.serviceConfig),
       forEdit: true,
+      alertForMirrors: alertConfig.alertForMirrors,
     });
+  };
+
+  const genConfigJSON = (alertConfig: AlertConfig) => {
+    const parsedConfig = JSON.parse(alertConfig.serviceConfig);
+    return JSON.stringify(
+      { ...parsedConfig, alertForMirrors: alertConfig.alertForMirrors },
+      null,
+      2
+    );
   };
 
   return (
@@ -118,13 +129,7 @@ const AlertConfigPage: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <div style={{ height: '10em' }}>
-                        <ConfigJSONView
-                          config={JSON.stringify(
-                            JSON.parse(alertConfig.serviceConfig),
-                            null,
-                            2
-                          )}
-                        />
+                        <ConfigJSONView config={genConfigJSON(alertConfig)} />
                       </div>
                     </TableCell>
                     <TableCell style={{ width: '5%' }}>

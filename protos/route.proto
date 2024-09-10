@@ -41,13 +41,13 @@ message AlertConfig {
   int32 id = 1;
   string service_type = 2;
   string service_config = 3;
+  repeated string alert_for_mirrors = 4;
 }
 message GetAlertConfigsRequest {
 }
+
 message PostAlertConfigRequest {
-  int32 id = 1;
-  string service_type = 2;
-  string service_config = 3;
+  AlertConfig config = 1;
 }
 message DeleteAlertConfigRequest {
   int32 id = 1;
