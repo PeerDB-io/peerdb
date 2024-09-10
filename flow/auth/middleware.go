@@ -1,4 +1,4 @@
-package shared
+package auth
 
 import (
 	"context"
@@ -30,7 +30,7 @@ type identityProvider struct {
 	issuer      string
 }
 
-func AuthGrpcMiddleware() ([]grpc.ServerOption, error) {
+func AuthGrpcMiddleware(unauthenticatedMethods []string) ([]grpc.ServerOption, error) {
 	oauthConfig := peerdbenv.GetPeerDBOAuthConfig()
 	oauthJwtClaims := map[string]string{}
 	if oauthConfig.OAuthJwtClaimKey != "" {
@@ -48,7 +48,7 @@ func AuthGrpcMiddleware() ([]grpc.ServerOption, error) {
 
 	if !cfg.Enabled {
 		if err != nil { // if there was an error loading identity providers, warn only if authentication is disabled
-			slog.Warn("failed to initialize JWK key set", slog.Any("error", err))
+			slog.Warn("OAuth is disabled", slog.Any("error", err))
 		}
 
 		slog.Warn("authentication is disabled")
@@ -60,19 +60,26 @@ func AuthGrpcMiddleware() ([]grpc.ServerOption, error) {
 		return nil, err
 	}
 
+	unauthenticatedMethodsMap := make(map[string]struct{}, len(unauthenticatedMethods))
+	for _, method := range unauthenticatedMethods {
+		unauthenticatedMethodsMap[method] = struct{}{}
+	}
+
 	return []grpc.ServerOption{
 		grpc.ChainUnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-			var authHeader string
-			authHeaders := metadata.ValueFromIncomingContext(ctx, "Authorization")
-			if len(authHeaders) == 1 {
-				authHeader = authHeaders[0]
-			} else if len(authHeaders) > 1 {
-				return nil, errors.New("multiple Authorization headers supplied, request rejected")
-			}
-			_, err := validateRequestToken(authHeader, cfg.OauthJwtCustomClaims, ip...)
-			if err != nil {
-				slog.Debug("failed to validate request token", slog.Any("error", err))
-				return nil, err
+			if _, unauthorized := unauthenticatedMethodsMap[info.FullMethod]; !unauthorized {
+				var authHeader string
+				authHeaders := metadata.ValueFromIncomingContext(ctx, "Authorization")
+				if len(authHeaders) == 1 {
+					authHeader = authHeaders[0]
+				} else if len(authHeaders) > 1 {
+					return nil, errors.New("multiple Authorization headers supplied, request rejected")
+				}
+				_, err := validateRequestToken(authHeader, cfg.OauthJwtCustomClaims, ip...)
+				if err != nil {
+					slog.Debug("failed to validate request token", slog.Any("error", err))
+					return nil, err
+				}
 			}
 			return handler(ctx, req)
 		}),

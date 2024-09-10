@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/PeerDB-io/peer-flow/auth"
 	"log"
 	"log/slog"
 	"net"
@@ -213,7 +214,10 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		return fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 
-	options, err := shared.AuthGrpcMiddleware()
+	options, err := auth.AuthGrpcMiddleware([]string{
+		grpc_health_v1.Health_Check_FullMethodName,
+		grpc_health_v1.Health_Watch_FullMethodName,
+	})
 	if err != nil {
 		return err
 	}
