@@ -1,3 +1,4 @@
+import { PostAlertConfigRequest } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Label } from '@/lib/Label/Label';
 import { TextField } from '@/lib/TextField';
@@ -26,6 +27,7 @@ export interface AlertConfigProps {
   serviceType: ServiceType;
   alertConfig: serviceConfigType;
   forEdit?: boolean;
+  alertForMirrors?: string[];
 }
 
 function ConfigLabel(data: { label: string; value: string }) {
@@ -161,6 +163,10 @@ export function NewConfig(alertProps: AlertConfigProps) {
     alertProps.alertConfig
   );
 
+  const [alertForMirrors, setAlertForMirrors] = useState<string[]>(
+    alertProps.alertForMirrors || []
+  );
+
   const [loading, setLoading] = useState(false);
 
   const handleAdd = async () => {
@@ -185,6 +191,7 @@ export function NewConfig(alertProps: AlertConfigProps) {
       id: Number(alertProps.id || -1),
       serviceType,
       serviceConfig,
+      alertForMirrors,
     };
 
     const alertReqValidity = alertConfigReqSchema.safeParse(alertConfigReq);
@@ -192,14 +199,23 @@ export function NewConfig(alertProps: AlertConfigProps) {
       notifyErr(alertReqValidity.error.issues[0].message);
       return;
     }
-    (alertConfigReq as any).serviceConfig = JSON.stringify(
-      alertConfigReq.serviceConfig
-    );
+
+    const alertConfigProtoReq: PostAlertConfigRequest = {
+      config: {
+        id: alertConfigReq.id || -1,
+        serviceType: alertConfigReq.serviceType,
+        serviceConfig: JSON.stringify(alertConfigReq.serviceConfig),
+        alertForMirrors:
+          alertConfigReq.alertForMirrors?.filter(
+            (mirror) => mirror && mirror.trim() !== ''
+          ) || [],
+      },
+    };
 
     setLoading(true);
     const createRes = await fetch('/api/v1/alerts/config', {
       method: 'POST',
-      body: JSON.stringify(alertConfigReq),
+      body: JSON.stringify(alertConfigProtoReq),
     });
 
     setLoading(false);
@@ -287,6 +303,19 @@ export function NewConfig(alertProps: AlertConfigProps) {
               open_connections_alert_threshold: e.target.valueAsNumber,
             }))
           }
+        />
+      </div>
+      <div>
+        <p>
+          Alert only for these mirrors (leave empty to alert for all mirrors)
+        </p>
+        <TextField
+          key={'alert_for_mirrors'}
+          style={{ height: '2.5rem', marginTop: '0.5rem' }}
+          variant='simple'
+          placeholder='Comma separated'
+          value={alertForMirrors.join(',')}
+          onChange={(e) => setAlertForMirrors(e.target.value.split(','))}
         />
       </div>
       {ServiceFields}

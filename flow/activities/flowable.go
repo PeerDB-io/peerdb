@@ -702,7 +702,11 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				slotMetricGauges.OpenReplicationConnectionsGauge = openReplicationConnectionsGauge
 			}
 
-			if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, slotName, peerName, slotMetricGauges); err != nil {
+			if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{
+				FlowName: config.FlowJobName,
+				PeerName: peerName,
+				SlotName: slotName,
+			}, slotMetricGauges); err != nil {
 				logger.Error("Failed to handle slot info", slog.Any("error", err))
 			}
 		}()

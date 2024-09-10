@@ -61,6 +61,7 @@ export const alertConfigReqSchema = z.object({
     errorMap: (issue, ctx) => ({ message: 'Invalid service type' }),
   }),
   serviceConfig: serviceConfigSchema,
+  alertForMirrors: z.array(z.string().trim()).optional(),
 });
 
 export type baseServiceConfigType = z.infer<typeof baseServiceConfigSchema>;

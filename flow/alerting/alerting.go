@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -25,44 +26,59 @@ type Alerter struct {
 }
 
 type AlertSenderConfig struct {
-	Sender AlertSender
-	Id     int64
+	Sender          AlertSender
+	AlertForMirrors []string
+	Id              int64
+}
+
+type AlertKeys struct {
+	FlowName string
+	PeerName string
+	SlotName string
 }
 
 func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderConfig, error) {
 	rows, err := a.catalogPool.Query(ctx,
-		"SELECT id,service_type,service_config,enc_key_id FROM peerdb_stats.alerting_config")
+		`SELECT
+			id,
+			service_type,
+			service_config,
+			enc_key_id,
+			alert_for_mirrors
+		FROM peerdb_stats.alerting_config`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read alerter config from catalog: %w", err)
 	}
 
 	keys := peerdbenv.PeerDBEncKeys()
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (AlertSenderConfig, error) {
-		var id int64
+		var alertSenderConfig AlertSenderConfig
 		var serviceType ServiceType
 		var serviceConfigEnc []byte
 		var encKeyId string
-		if err := row.Scan(&id, &serviceType, &serviceConfigEnc, &encKeyId); err != nil {
-			return AlertSenderConfig{}, err
+		if err := row.Scan(&alertSenderConfig.Id, &serviceType, &serviceConfigEnc, &encKeyId,
+			&alertSenderConfig.AlertForMirrors); err != nil {
+			return alertSenderConfig, err
 		}
 
 		key, err := keys.Get(encKeyId)
 		if err != nil {
-			return AlertSenderConfig{}, err
+			return alertSenderConfig, err
 		}
 		serviceConfig, err := key.Decrypt(serviceConfigEnc)
 		if err != nil {
-			return AlertSenderConfig{}, err
+			return alertSenderConfig, err
 		}
 
 		switch serviceType {
 		case SLACK:
 			var slackServiceConfig slackAlertConfig
 			if err := json.Unmarshal(serviceConfig, &slackServiceConfig); err != nil {
-				return AlertSenderConfig{}, fmt.Errorf("failed to unmarshal %s service config: %w", serviceType, err)
+				return alertSenderConfig, fmt.Errorf("failed to unmarshal %s service config: %w", serviceType, err)
 			}
 
-			return AlertSenderConfig{Id: id, Sender: newSlackAlertSender(&slackServiceConfig)}, nil
+			alertSenderConfig.Sender = newSlackAlertSender(&slackServiceConfig)
+			return alertSenderConfig, nil
 		case EMAIL:
 			var replyToAddresses []string
 			if replyToEnvString := strings.TrimSpace(
@@ -75,10 +91,10 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 				replyToAddresses:     replyToAddresses,
 			}
 			if emailServiceConfig.sourceEmail == "" {
-				return AlertSenderConfig{}, errors.New("missing sourceEmail for Email alerting service")
+				return alertSenderConfig, errors.New("missing sourceEmail for Email alerting service")
 			}
 			if err := json.Unmarshal(serviceConfig, &emailServiceConfig); err != nil {
-				return AlertSenderConfig{}, fmt.Errorf("failed to unmarshal %s service config: %w", serviceType, err)
+				return alertSenderConfig, fmt.Errorf("failed to unmarshal %s service config: %w", serviceType, err)
 			}
 			var region *string
 			if envRegion := peerdbenv.PeerDBAlertingEmailSenderRegion(); envRegion != "" {
@@ -89,9 +105,11 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 			if alertSenderErr != nil {
 				return AlertSenderConfig{}, fmt.Errorf("failed to initialize email alerter: %w", alertSenderErr)
 			}
-			return AlertSenderConfig{Id: id, Sender: alertSender}, nil
+			alertSenderConfig.Sender = alertSender
+
+			return alertSenderConfig, nil
 		default:
-			return AlertSenderConfig{}, fmt.Errorf("unknown service type: %s", serviceType)
+			return alertSenderConfig, fmt.Errorf("unknown service type: %s", serviceType)
 		}
 	})
 }
@@ -119,7 +137,7 @@ func NewAlerter(ctx context.Context, catalogPool *pgxpool.Pool) *Alerter {
 	}
 }
 
-func (a *Alerter) AlertIfSlotLag(ctx context.Context, peerName string, slotInfo *protos.SlotInfo) {
+func (a *Alerter) AlertIfSlotLag(ctx context.Context, alertKeys *AlertKeys, slotInfo *protos.SlotInfo) {
 	alertSenderConfigs, err := a.registerSendersFromPool(ctx)
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Warn("failed to set alert senders", slog.Any("error", err))
@@ -144,12 +162,16 @@ func (a *Alerter) AlertIfSlotLag(ctx context.Context, peerName string, slotInfo 
 		}
 	}
 
-	alertKey := fmt.Sprintf("%s Slot Lag Threshold Exceeded for Peer %s", deploymentUIDPrefix, peerName)
+	alertKey := fmt.Sprintf("%s Slot Lag Threshold Exceeded for Peer %s", deploymentUIDPrefix, alertKeys.PeerName)
 	alertMessageTemplate := fmt.Sprintf("%sSlot `%s` on peer `%s` has exceeded threshold size of %%dMB, "+
-		`currently at %.2fMB!`, deploymentUIDPrefix, slotInfo.SlotName, peerName, slotInfo.LagInMb)
+		`currently at %.2fMB!`, deploymentUIDPrefix, slotInfo.SlotName, alertKeys.PeerName, slotInfo.LagInMb)
 
 	if slotInfo.LagInMb > float32(lowestSlotLagMBAlertThreshold) {
 		for _, alertSenderConfig := range alertSenderConfigs {
+			if len(alertSenderConfig.AlertForMirrors) > 0 &&
+				!slices.Contains(alertSenderConfig.AlertForMirrors, alertKeys.FlowName) {
+				continue
+			}
 			if a.checkAndAddAlertToCatalog(ctx,
 				alertSenderConfig.Id, alertKey, fmt.Sprintf(alertMessageTemplate, lowestSlotLagMBAlertThreshold)) {
 				if alertSenderConfig.Sender.getSlotLagMBAlertThreshold() > 0 {
@@ -168,7 +190,7 @@ func (a *Alerter) AlertIfSlotLag(ctx context.Context, peerName string, slotInfo 
 	}
 }
 
-func (a *Alerter) AlertIfOpenConnections(ctx context.Context, peerName string,
+func (a *Alerter) AlertIfOpenConnections(ctx context.Context, alertKeys *AlertKeys,
 	openConnections *protos.GetOpenConnectionsForUserResult,
 ) {
 	alertSenderConfigs, err := a.registerSendersFromPool(ctx)
@@ -191,17 +213,22 @@ func (a *Alerter) AlertIfOpenConnections(ctx context.Context, peerName string,
 	lowestOpenConnectionsThreshold := defaultOpenConnectionsThreshold
 	for _, alertSender := range alertSenderConfigs {
 		if alertSender.Sender.getOpenConnectionsAlertThreshold() > 0 {
-			lowestOpenConnectionsThreshold = min(lowestOpenConnectionsThreshold, alertSender.Sender.getOpenConnectionsAlertThreshold())
+			lowestOpenConnectionsThreshold = min(lowestOpenConnectionsThreshold,
+				alertSender.Sender.getOpenConnectionsAlertThreshold())
 		}
 	}
 
-	alertKey := fmt.Sprintf("%s Max Open Connections Threshold Exceeded for Peer %s", deploymentUIDPrefix, peerName)
+	alertKey := fmt.Sprintf("%s Max Open Connections Threshold Exceeded for Peer %s", deploymentUIDPrefix, alertKeys.PeerName)
 	alertMessageTemplate := fmt.Sprintf("%sOpen connections from PeerDB user `%s` on peer `%s`"+
 		` has exceeded threshold size of %%d connections, currently at %d connections!`,
-		deploymentUIDPrefix, openConnections.UserName, peerName, openConnections.CurrentOpenConnections)
+		deploymentUIDPrefix, openConnections.UserName, alertKeys.PeerName, openConnections.CurrentOpenConnections)
 
 	if openConnections.CurrentOpenConnections > int64(lowestOpenConnectionsThreshold) {
 		for _, alertSenderConfig := range alertSenderConfigs {
+			if len(alertSenderConfig.AlertForMirrors) > 0 &&
+				!slices.Contains(alertSenderConfig.AlertForMirrors, alertKeys.FlowName) {
+				continue
+			}
 			if a.checkAndAddAlertToCatalog(ctx,
 				alertSenderConfig.Id, alertKey, fmt.Sprintf(alertMessageTemplate, lowestOpenConnectionsThreshold)) {
 				if alertSenderConfig.Sender.getOpenConnectionsAlertThreshold() > 0 {

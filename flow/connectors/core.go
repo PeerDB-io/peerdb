@@ -79,8 +79,7 @@ type CDCPullConnectorCore interface {
 		ctx context.Context,
 		alerter *alerting.Alerter,
 		catalogPool *pgxpool.Pool,
-		slotName string,
-		peerName string,
+		alertKeys *alerting.AlertKeys,
 		slotMetricGauges peerdb_gauges.SlotMetricGauges,
 	) error
 

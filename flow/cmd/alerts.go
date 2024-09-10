@@ -11,7 +11,7 @@ import (
 )
 
 func (h *FlowRequestHandler) GetAlertConfigs(ctx context.Context, req *protos.GetAlertConfigsRequest) (*protos.GetAlertConfigsResponse, error) {
-	rows, err := h.pool.Query(ctx, "select id, service_type, service_config, enc_key_id from peerdb_stats.alerting_config")
+	rows, err := h.pool.Query(ctx, "SELECT id,service_type,service_config,enc_key_id,alert_for_mirrors from peerdb_stats.alerting_config")
 	if err != nil {
 		return nil, err
 	}
@@ -20,7 +20,7 @@ func (h *FlowRequestHandler) GetAlertConfigs(ctx context.Context, req *protos.Ge
 		var serviceConfigPayload []byte
 		var encKeyID string
 		config := &protos.AlertConfig{}
-		if err := row.Scan(&config.Id, &config.ServiceType, &serviceConfigPayload, &encKeyID); err != nil {
+		if err := row.Scan(&config.Id, &config.ServiceType, &serviceConfigPayload, &encKeyID, &config.AlertForMirrors); err != nil {
 			return nil, err
 		}
 		serviceConfig, err := peerdbenv.Decrypt(encKeyID, serviceConfigPayload)
@@ -42,34 +42,46 @@ func (h *FlowRequestHandler) PostAlertConfig(ctx context.Context, req *protos.Po
 	if err != nil {
 		return nil, err
 	}
-	serviceConfig, err := key.Encrypt(shared.UnsafeFastStringToReadOnlyBytes(req.ServiceConfig))
+	serviceConfig, err := key.Encrypt(shared.UnsafeFastStringToReadOnlyBytes(req.Config.ServiceConfig))
 	if err != nil {
 		return nil, err
 	}
 
-	if req.Id == -1 {
+	if req.Config.Id == -1 {
 		var id int32
 		if err := h.pool.QueryRow(
 			ctx,
-			"insert into peerdb_stats.alerting_config (service_type, service_config, enc_key_id) values ($1, $2, $3) returning id",
-			req.ServiceType,
+			`INSERT INTO peerdb_stats.alerting_config (
+				service_type,
+				service_config,
+				enc_key_id,
+				alert_for_mirrors
+			) VALUES (
+				$1,
+				$2,
+				$3,
+				$4
+			) RETURNING id`,
+			req.Config.ServiceType,
 			serviceConfig,
 			key.ID,
+			req.Config.AlertForMirrors,
 		).Scan(&id); err != nil {
 			return nil, err
 		}
 		return &protos.PostAlertConfigResponse{Id: id}, nil
 	} else if _, err := h.pool.Exec(
 		ctx,
-		"update peerdb_stats.alerting_config set service_type = $1, service_config = $2, enc_key_id = $3 where id = $4",
-		req.ServiceType,
+		"update peerdb_stats.alerting_config set service_type = $1, service_config = $2, enc_key_id = $3, alert_for_mirrors = $4 where id = $5",
+		req.Config.ServiceType,
 		serviceConfig,
 		key.ID,
-		req.Id,
+		req.Config.AlertForMirrors,
+		req.Config.Id,
 	); err != nil {
 		return nil, err
 	}
-	return &protos.PostAlertConfigResponse{Id: req.Id}, nil
+	return &protos.PostAlertConfigResponse{Id: req.Config.Id}, nil
 }
 
 func (h *FlowRequestHandler) DeleteAlertConfig(

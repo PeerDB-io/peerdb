@@ -1161,28 +1161,29 @@ func (c *PostgresConnector) HandleSlotInfo(
 	ctx context.Context,
 	alerter *alerting.Alerter,
 	catalogPool *pgxpool.Pool,
-	slotName string,
-	peerName string,
+	alertKeys *alerting.AlertKeys,
 	slotMetricGauges peerdb_gauges.SlotMetricGauges,
 ) error {
 	logger := logger.LoggerFromCtx(ctx)
 
-	slotInfo, err := getSlotInfo(ctx, c.conn, slotName, c.config.Database)
+	slotInfo, err := getSlotInfo(ctx, c.conn, alertKeys.SlotName, c.config.Database)
 	if err != nil {
 		logger.Warn("warning: failed to get slot info", "error", err)
 		return err
 	}
 
 	if len(slotInfo) == 0 {
-		logger.Warn("warning: unable to get slot info", "slotName", slotName)
+		logger.Warn("warning: unable to get slot info", slog.String("slotName", alertKeys.SlotName))
 		return nil
 	}
 
-	logger.Info(fmt.Sprintf("Checking %s lag for %s", slotName, peerName), slog.Float64("LagInMB", float64(slotInfo[0].LagInMb)))
-	alerter.AlertIfSlotLag(ctx, peerName, slotInfo[0])
+	logger.Info(fmt.Sprintf("Checking %s lag for %s", alertKeys.SlotName, alertKeys.PeerName),
+		slog.Float64("LagInMB", float64(slotInfo[0].LagInMb)))
+	alerter.AlertIfSlotLag(ctx, alertKeys, slotInfo[0])
 	slotMetricGauges.SlotLagGauge.Set(float64(slotInfo[0].LagInMb), attribute.NewSet(
-		attribute.String(peerdb_gauges.PeerNameKey, peerName),
-		attribute.String(peerdb_gauges.SlotNameKey, slotName),
+		attribute.String(peerdb_gauges.FlowNameKey, alertKeys.FlowName),
+		attribute.String(peerdb_gauges.PeerNameKey, alertKeys.PeerName),
+		attribute.String(peerdb_gauges.SlotNameKey, alertKeys.SlotName),
 		attribute.String(peerdb_gauges.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
 
 	// Also handles alerts for PeerDB user connections exceeding a given limit here
@@ -1191,9 +1192,10 @@ func (c *PostgresConnector) HandleSlotInfo(
 		logger.Warn("warning: failed to get current open connections", "error", err)
 		return err
 	}
-	alerter.AlertIfOpenConnections(ctx, peerName, res)
+	alerter.AlertIfOpenConnections(ctx, alertKeys, res)
 	slotMetricGauges.OpenConnectionsGauge.Set(res.CurrentOpenConnections, attribute.NewSet(
-		attribute.String(peerdb_gauges.PeerNameKey, peerName),
+		attribute.String(peerdb_gauges.FlowNameKey, alertKeys.FlowName),
+		attribute.String(peerdb_gauges.PeerNameKey, alertKeys.PeerName),
 		attribute.String(peerdb_gauges.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
 
 	replicationRes, err := getOpenReplicationConnectionsForUser(ctx, c.conn, c.config.User)
@@ -1203,10 +1205,11 @@ func (c *PostgresConnector) HandleSlotInfo(
 	}
 
 	slotMetricGauges.OpenReplicationConnectionsGauge.Set(replicationRes.CurrentOpenConnections, attribute.NewSet(
-		attribute.String(peerdb_gauges.PeerNameKey, peerName),
+		attribute.String(peerdb_gauges.FlowNameKey, alertKeys.FlowName),
+		attribute.String(peerdb_gauges.PeerNameKey, alertKeys.PeerName),
 		attribute.String(peerdb_gauges.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
 
-	return monitoring.AppendSlotSizeInfo(ctx, catalogPool, peerName, slotInfo[0])
+	return monitoring.AppendSlotSizeInfo(ctx, catalogPool, alertKeys.PeerName, slotInfo[0])
 }
 
 func getOpenConnectionsForUser(ctx context.Context, conn *pgx.Conn, user string) (*protos.GetOpenConnectionsForUserResult, error) {
