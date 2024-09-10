@@ -20,7 +20,7 @@ import (
 
 type AuthenticationConfig struct {
 	KeySetJSON            string            `json:"key_set_json" yaml:"key_set_json" mapstructure:"key_set_json"`
-	OAuthDomain           string            `json:"oauth_domain" yaml:"oauth_domain" mapstructure:"oauth_domain"`
+	OAuthIssuerUrl        string            `json:"oauth_domain" yaml:"oauth_domain" mapstructure:"oauth_domain"`
 	Enabled               bool              `json:"enabled" yaml:"enabled" mapstructure:"enabled"`
 	OAuthDiscoveryEnabled bool              `json:"oauth_discovery_enabled" yaml:"oauth_discovery_enabled" mapstructure:"oauth_discovery_enabled"`
 	OauthJwtCustomClaims  map[string]string `json:"oauth_custom_claims" yaml:"oauth_custom_claims" mapstructure:"oauth_custom_claims"`
@@ -39,10 +39,10 @@ func AuthGrpcMiddleware(unauthenticatedMethods []string) ([]grpc.ServerOption, e
 		oauthJwtClaims[oauthConfig.OAuthJwtClaimKey] = oauthConfig.OAuthClaimValue
 	}
 	cfg := AuthenticationConfig{
-		Enabled:               oauthConfig.OAuthDomain != "",
+		Enabled:               oauthConfig.OAuthIssuerUrl != "",
 		KeySetJSON:            oauthConfig.KeySetJson,
 		OAuthDiscoveryEnabled: oauthConfig.OAuthDiscoveryEnabled,
-		OAuthDomain:           oauthConfig.OAuthDomain,
+		OAuthIssuerUrl:        oauthConfig.OAuthIssuerUrl,
 		OauthJwtCustomClaims:  oauthJwtClaims,
 	}
 	// load identity providers before checking if authentication is enabled so configuration can be validated
@@ -191,17 +191,17 @@ func identityProvidersFromConfig(cfg AuthenticationConfig) ([]identityProvider, 
 }
 
 func openIdIdentityProvider(cfg AuthenticationConfig) (*identityProvider, error) {
-	if cfg.OAuthDomain == "" {
-		slog.Debug("OAuth domain not configured for identity provider")
+	if cfg.OAuthIssuerUrl == "" {
+		slog.Debug("OAuth Issuer Url not configured for identity provider")
 		return nil, nil
 	}
 	if !cfg.OAuthDiscoveryEnabled {
 		slog.Debug("OAuth discovery not enabled for identity provider")
 		return nil, nil
 	}
-	issuer := cfg.OAuthDomain
+	issuer := cfg.OAuthIssuerUrl
 	// This is a well known URL for jwks defined in OpenID discovery spec
-	jwksDiscoveryUrl, err := url.JoinPath(cfg.OAuthDomain, "/.well-known/jwks.json")
+	jwksDiscoveryUrl, err := url.JoinPath(cfg.OAuthIssuerUrl, "/.well-known/jwks.json")
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +235,7 @@ func keysetIdentityProvider(cfg AuthenticationConfig) (*identityProvider, error)
 	slog.Info("JWK key set from JSON loaded", slog.Int("size", set.Len()))
 
 	return &identityProvider{
-		issuer: cfg.OAuthDomain,
+		issuer: cfg.OAuthIssuerUrl,
 		keySet: set,
 	}, nil
 }

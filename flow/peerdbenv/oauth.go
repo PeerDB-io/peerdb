@@ -3,7 +3,7 @@ package peerdbenv
 import "strconv"
 
 type PeerDBOAuthConfig struct {
-	OAuthDomain           string `json:"oauth_domain"`            // there can be more complex use cases where domain != issuer, but we handle them later if required
+	OAuthIssuerUrl        string `json:"oauth_issuer_url"`        // there can be more complex use cases where domain != issuer, but we handle them later if required
 	OAuthDiscoveryEnabled bool   `json:"oauth_discovery_enabled"` // Enabling this uses the /.well-known/ OpenID discovery endpoints, thus key-set etc., doesn't need to be specified
 	KeySetJson            string `json:"key_set_json"`
 	OAuthJwtClaimKey      string `json:"oauth_jwt_claim_key"` // This is a custom claim we may wish to validate (if needed)
@@ -11,7 +11,7 @@ type PeerDBOAuthConfig struct {
 }
 
 func GetPeerDBOAuthConfig() PeerDBOAuthConfig {
-	oauthIssuerDomain := GetEnvString("PEERDB_OAUTH_ISSUER_DOMAIN", "")
+	oauthIssuerUrl := GetEnvString("PEERDB_OAUTH_ISSUER_URL", "")
 	oauthDiscoveryEnabledString := GetEnvString("PEERDB_OAUTH_DISCOVERY_ENABLED", "false")
 	oauthDiscoveryEnabled, err := strconv.ParseBool(oauthDiscoveryEnabledString)
 	if err != nil {
@@ -23,7 +23,7 @@ func GetPeerDBOAuthConfig() PeerDBOAuthConfig {
 	oauthJwtClaimValue := GetEnvString("PEERDB_OAUTH_JWT_CLAIM_VALUE", "")
 
 	return PeerDBOAuthConfig{
-		OAuthDomain:           oauthIssuerDomain,
+		OAuthIssuerUrl:        oauthIssuerUrl,
 		OAuthDiscoveryEnabled: oauthDiscoveryEnabled,
 		KeySetJson:            oauthKeysetJson,
 		OAuthJwtClaimKey:      oauthJwtClaimKey,
