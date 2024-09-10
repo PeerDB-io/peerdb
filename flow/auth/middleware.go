@@ -200,7 +200,7 @@ func openIdIdentityProvider(cfg AuthenticationConfig) (*identityProvider, error)
 		return nil, nil
 	}
 	issuer := cfg.OAuthDomain
-	// This is a well known URL for defined in OpenID discovery spec
+	// This is a well known URL for jwks defined in OpenID discovery spec
 	jwksDiscoveryUrl, err := url.JoinPath(cfg.OAuthDomain, "/.well-known/jwks.json")
 	if err != nil {
 		return nil, err
