@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"log/slog"
 	"net/url"
 	"strings"
@@ -73,12 +75,12 @@ func AuthGrpcMiddleware(unauthenticatedMethods []string) ([]grpc.ServerOption, e
 				if len(authHeaders) == 1 {
 					authHeader = authHeaders[0]
 				} else if len(authHeaders) > 1 {
-					return nil, errors.New("multiple Authorization headers supplied, request rejected")
+					return nil, status.Errorf(codes.Unauthenticated, "multiple Authorization headers supplied, request rejected")
 				}
 				_, err := validateRequestToken(authHeader, cfg.OauthJwtCustomClaims, ip...)
 				if err != nil {
 					slog.Debug("failed to validate request token", slog.Any("error", err))
-					return nil, err
+					return nil, status.Errorf(codes.Unauthenticated, err.Error())
 				}
 			}
 			return handler(ctx, req)
