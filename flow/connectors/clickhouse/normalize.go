@@ -238,7 +238,7 @@ func (c *ClickhouseConnector) NormalizeRecords(
 		}, nil
 	}
 
-	err = c.copyAvroStagesToDestination(ctx, req.FlowJobName, normBatchID, req.SyncBatchID)
+	err = c.copyAvroStagesToDestination(ctx, req.FlowJobName, normBatchID, req.SyncBatchID, req.Env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to copy avro stages to destination: %w", err)
 	}
@@ -412,26 +412,28 @@ func (c *ClickhouseConnector) getDistinctTableNamesInBatch(
 	return tableNames, nil
 }
 
-func (c *ClickhouseConnector) copyAvroStageToDestination(ctx context.Context, flowJobName string, syncBatchID int64) error {
-	avroSynvMethod := c.avroSyncMethod(flowJobName)
+func (c *ClickhouseConnector) copyAvroStageToDestination(ctx context.Context,
+	flowJobName string, syncBatchID int64, env map[string]string,
+) error {
+	avroSyncMethod := c.avroSyncMethod(flowJobName, env)
 	avroFile, err := c.s3Stage.GetAvroStage(ctx, flowJobName, syncBatchID)
 	if err != nil {
 		return fmt.Errorf("failed to get avro stage: %w", err)
 	}
 	defer avroFile.Cleanup()
 
-	err = avroSynvMethod.CopyStageToDestination(ctx, []*utils.AvroFile{avroFile})
+	err = avroSyncMethod.CopyStageToDestination(ctx, []*utils.AvroFile{avroFile})
 	if err != nil {
 		return fmt.Errorf("failed to copy stage to destination: %w", err)
 	}
 	return nil
 }
 
-func (c *ClickhouseConnector) copyAvroStagesToDestination(
-	ctx context.Context, flowJobName string, normBatchID, syncBatchID int64,
+func (c *ClickhouseConnector) copyAvroStagesToDestination(ctx context.Context,
+	flowJobName string, normBatchID, syncBatchID int64, env map[string]string,
 ) error {
 	for s := normBatchID + 1; s <= syncBatchID; s++ {
-		err := c.copyAvroStageToDestination(ctx, flowJobName, s)
+		err := c.copyAvroStageToDestination(ctx, flowJobName, s, env)
 		if err != nil {
 			return fmt.Errorf("failed to copy avro stage to destination: %w", err)
 		}

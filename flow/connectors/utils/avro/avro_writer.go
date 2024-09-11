@@ -245,7 +245,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3Parts(
 			FilePath:        key,
 		})
 
-		if numRows < maxRecordsPerFile {
+		if maxRecordsPerFile < 0 || numRows < maxRecordsPerFile {
 			break
 		}
 		part++

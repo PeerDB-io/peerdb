@@ -14,21 +14,25 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type ClickhouseAvroSyncMethod struct {
 	config    *protos.QRepConfig
 	connector *ClickhouseConnector
+	env       map[string]string
 }
 
 func NewClickhouseAvroSyncMethod(
 	config *protos.QRepConfig,
 	connector *ClickhouseConnector,
+	env map[string]string,
 ) *ClickhouseAvroSyncMethod {
 	return &ClickhouseAvroSyncMethod{
 		config:    config,
 		connector: connector,
+		env:       env,
 	}
 }
 
@@ -222,9 +226,12 @@ func (s *ClickhouseAvroSyncMethod) writeToAvroFiles(
 
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, flowJobName, identifierForFile)
 	s3AvroFileKey = strings.Trim(s3AvroFileKey, "/")
-	maxRecordsPerFile := int64(1_000_000)
+	maxRecordsPerFile, err := peerdbenv.PeerDBClickhouseNumRowsPerAvroFile(ctx, s.env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get max records per file: %w", err)
+	}
 	avroFiles, err := ocfWriter.WriteRecordsToS3Parts(
-		ctx, s3o.Bucket, s3AvroFileKey, s.connector.credsProvider.Provider, maxRecordsPerFile)
+		ctx, s3o.Bucket, s3AvroFileKey, s.connector.credsProvider.Provider, int64(maxRecordsPerFile))
 	if err != nil {
 		return nil, fmt.Errorf("failed to write records to S3: %w", err)
 	}
