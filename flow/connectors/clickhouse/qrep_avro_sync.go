@@ -53,7 +53,6 @@ func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 			sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
 		}
 
-		
 		query := fmt.Sprintf("INSERT INTO %s SELECT * FROM s3('%s','%s','%s'%s, 'Avro')",
 			s.config.DestinationTableIdentifier, avroFileUrl,
 			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
@@ -177,7 +176,7 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 
 	for _, avroFile := range avroFiles {
 		avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFile.FilePath)
-		
+
 		query := fmt.Sprintf("INSERT INTO %s(%s) SELECT %s FROM s3('%s','%s','%s'%s, 'Avro')",
 			config.DestinationTableIdentifier, selectorStr, selectorStr, avroFileUrl,
 			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
