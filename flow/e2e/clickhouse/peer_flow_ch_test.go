@@ -53,7 +53,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_table_add_remove"),
+		FlowJobName:      s.attachSuffix("clickhousetableremoval"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
@@ -62,6 +62,17 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	flowConnConfig.MaxBatchSize = 1
 
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+
+	getFlowStatus := func() protos.FlowStatus {
+		var flowStatus protos.FlowStatus
+		val, err := env.Query(shared.FlowStatusQuery)
+		e2e.EnvNoError(s.t, env, err)
+		err = val.Get(&flowStatus)
+		e2e.EnvNoError(s.t, env, err)
+
+		return flowStatus
+	}
+
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s (key) VALUES ('test');
@@ -69,19 +80,16 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	require.NoError(s.t, err)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "first insert", "test_table_add_remove", dstTableName, "id,key")
 	e2e.SignalWorkflow(env, model.FlowSignal, model.PauseSignal)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing for add table", func() bool {
-		response, err := env.Query(shared.FlowStatusQuery)
-		if err != nil {
-			s.t.Log(err)
-			return false
-		}
-		var state *protos.FlowStatus
-		err = response.Get(&state)
-		if err != nil {
-			s.t.Fatal("decode failed", err)
-		}
-		return state == nil || *state != protos.FlowStatus_STATUS_PAUSED
+	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "pausing for add table", func() bool {
+		flowStatus := getFlowStatus()
+		return flowStatus == protos.FlowStatus_STATUS_PAUSED
 	})
+
+	_, err = s.Conn().Exec(context.Background(),
+		`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+	 WHERE query LIKE '%START_REPLICATION%' AND query LIKE '%clickhousetableremoval%' AND backend_type='walsender'`)
+	require.NoError(s.t, err)
+	time.Sleep(5 * time.Second)
 
 	e2e.SignalWorkflow(env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 		AdditionalTables: []*protos.TableMapping{
@@ -92,18 +100,9 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 		},
 	})
 
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "adding table", func() bool {
-		response, err := env.Query(shared.FlowStatusQuery)
-		if err != nil {
-			s.t.Log(err)
-			return false
-		}
-		var state *protos.FlowStatus
-		err = response.Get(&state)
-		if err != nil {
-			s.t.Fatal("decode failed", err)
-		}
-		return state == nil || *state != protos.FlowStatus_STATUS_RUNNING
+	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "adding table", func() bool {
+		flowStatus := getFlowStatus()
+		return flowStatus == protos.FlowStatus_STATUS_RUNNING
 	})
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -113,18 +112,15 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "first insert to added table", "test_table_add_remove_added", addedDstTableName, "id,key")
 	e2e.SignalWorkflow(env, model.FlowSignal, model.PauseSignal)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing again for removing table", func() bool {
-		response, err := env.Query(shared.FlowStatusQuery)
-		if err != nil {
-			s.t.Log(err)
-			return false
-		}
-		var state *protos.FlowStatus
-		err = response.Get(&state)
-		if err != nil {
-			s.t.Fatal("decode failed", err)
-		}
-		return state == nil || *state != protos.FlowStatus_STATUS_PAUSED
+		flowStatus := getFlowStatus()
+		return flowStatus == protos.FlowStatus_STATUS_PAUSED
 	})
+
+	_, err = s.Conn().Exec(context.Background(),
+		`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+	 WHERE query LIKE '%START_REPLICATION%' AND query LIKE '%clickhousetableremoval%' AND backend_type='walsender'`)
+	require.NoError(s.t, err)
+	time.Sleep(5 * time.Second)
 
 	e2e.SignalWorkflow(env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 		RemovedTables: []*protos.TableMapping{
@@ -136,17 +132,8 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	})
 
 	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "removing table", func() bool {
-		response, err := env.Query(shared.FlowStatusQuery)
-		if err != nil {
-			s.t.Log(err)
-			return false
-		}
-		var state *protos.FlowStatus
-		err = response.Get(&state)
-		if err != nil {
-			s.t.Fatal("decode failed", err)
-		}
-		return state == nil || *state != protos.FlowStatus_STATUS_RUNNING
+		flowStatus := getFlowStatus()
+		return flowStatus == protos.FlowStatus_STATUS_RUNNING
 	})
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
