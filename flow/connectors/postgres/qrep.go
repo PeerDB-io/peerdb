@@ -136,7 +136,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
 			FROM (
 					SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s
-					FROM (%[3]s) WHERE %[2]s > $1
+					FROM (%[3]s) inner_subquery WHERE %[2]s > $1
 			) subquery
 			GROUP BY bucket
 			ORDER BY start
@@ -151,7 +151,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		partitionsQuery := fmt.Sprintf(
 			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
 			FROM (
-					SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM (%[3]s)
+					SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM (%[3]s) inner_subquery
 			) subquery
 			GROUP BY bucket
 			ORDER BY start
