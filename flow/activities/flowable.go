@@ -243,11 +243,13 @@ func (a *FlowableActivity) MaintainPull(
 		select {
 		case <-ticker.C:
 			activity.RecordHeartbeat(ctx, "keep session alive")
-			if err := srcConn.ReplPing(ctx); err != nil {
-				a.CdcCacheRw.Lock()
-				delete(a.CdcCache, sessionID)
-				a.CdcCacheRw.Unlock()
-				return temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", err)
+			if config.FlowJobName != "tesco_mirror" {
+				if err := srcConn.ReplPing(ctx); err != nil {
+					a.CdcCacheRw.Lock()
+					delete(a.CdcCache, sessionID)
+					a.CdcCacheRw.Unlock()
+					return temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", err)
+				}
 			}
 		case <-done:
 			return nil
