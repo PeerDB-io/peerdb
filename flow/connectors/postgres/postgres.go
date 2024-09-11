@@ -138,13 +138,11 @@ func (c *PostgresConnector) ReplPing(ctx context.Context) error {
 	if c.replLock.TryLock() {
 		defer c.replLock.Unlock()
 		if c.replState != nil {
-			// return pglogrepl.SendStandbyStatusUpdate(
-			// 	ctx,
-			// 	c.replConn.PgConn(),
-			// 	pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(c.replState.LastOffset.Load())},
-			// )
-			c.logger.Info("ReplPing: supposed to be sending StandbyStatusUpdate, but we disabled it")
-			return nil
+			return pglogrepl.SendStandbyStatusUpdate(
+				ctx,
+				c.replConn.PgConn(),
+				pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(c.replState.LastOffset.Load())},
+			)
 		}
 	}
 	return nil
