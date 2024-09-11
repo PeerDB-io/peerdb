@@ -89,7 +89,16 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 		`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
 	 WHERE query LIKE '%START_REPLICATION%' AND query LIKE '%clickhousetableremoval%' AND backend_type='walsender'`)
 	require.NoError(s.t, err)
-	time.Sleep(5 * time.Second)
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for replication to stop", func() bool {
+		rows, err := s.Conn().Query(context.Background(), `
+		SELECT pid FROM pg_stat_activity
+		WHERE query LIKE '%START_REPLICATION%' AND query LIKE '%clickhousetableremoval%' AND backend_type='walsender'
+		`)
+		require.NoError(s.t, err)
+		defer rows.Close()
+		return !rows.Next()
+	})
 
 	e2e.SignalWorkflow(env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 		AdditionalTables: []*protos.TableMapping{
@@ -120,7 +129,16 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 		`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
 	 WHERE query LIKE '%START_REPLICATION%' AND query LIKE '%clickhousetableremoval%' AND backend_type='walsender'`)
 	require.NoError(s.t, err)
-	time.Sleep(5 * time.Second)
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for replication to stop", func() bool {
+		rows, err := s.Conn().Query(context.Background(), `
+		SELECT pid FROM pg_stat_activity
+		WHERE query LIKE '%START_REPLICATION%' AND query LIKE '%clickhousetableremoval%' AND backend_type='walsender'
+		`)
+		require.NoError(s.t, err)
+		defer rows.Close()
+		return !rows.Next()
+	})
 
 	e2e.SignalWorkflow(env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 		RemovedTables: []*protos.TableMapping{
