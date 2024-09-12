@@ -58,7 +58,8 @@ export default function CreateConfig({
     if (
       peerType.includes('POSTGRES') ||
       peerType.includes('TEMBO') ||
-      peerType.includes('NEON')
+      peerType.includes('NEON') ||
+      peerType.includes('SUPABASE')
     ) {
       return 'POSTGRES';
     }

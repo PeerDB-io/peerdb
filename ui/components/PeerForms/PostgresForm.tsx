@@ -64,16 +64,21 @@ export default function PostgresForm({ settings, setter, type }: ConfigProps) {
   };
 
   useEffect(() => {
-    setter((prev) => {
-      return {
-        ...prev,
-        sshConfig: showSSH ? sshConfig : undefined,
-      };
-    });
+    setter((prev) => ({
+      ...prev,
+      sshConfig: showSSH ? sshConfig : undefined,
+    }));
   }, [sshConfig, setter, showSSH]);
 
   return (
     <>
+      {type === 'SUPABASE' && (
+        <a
+          href={`https://api.supabase.com/v1/oauth/authorize?client_id=5a950ba7-a085-47b4-8652-a19d87c653b2&response_type=code&redirect_uri=${encodeURIComponent('http://localhost:3000/supabase')}`}
+        >
+          Load from Supabase
+        </a>
+      )}
       {settings.map((setting, id) => {
         return (
           <RowWithTextField

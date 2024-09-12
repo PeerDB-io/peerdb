@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
     'TEMBO',
     'CRUNCHY POSTGRES',
     'NEON',
+    'SUPABASE',
   ];
 
   if (GetPeerDBClickhouseMode()) {
