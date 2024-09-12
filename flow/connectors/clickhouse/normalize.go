@@ -13,6 +13,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -133,11 +134,6 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 		return nil, err
 	}
 
-	// we definitely completed normalization for batch till 460, this is a temp hack.
-	if normBatchID < 460 {
-		normBatchID = 460
-	}
-
 	// normalize has caught up with sync, chill until more records are loaded.
 	if normBatchID >= req.SyncBatchID {
 		return &model.NormalizeResponse{
@@ -237,15 +233,25 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 			q := insertIntoSelectQuery.String()
 
 			numParts := 5
+			numWorkers := 3
+
 			hashColName := "_peerdb_uid"
-			for i := 0; i < numParts; i++ {
-				whereClause := fmt.Sprintf("cityHash64(%s) %% %d = %d", hashColName, numParts, i)
-				partitionedQuery := q + " AND " + whereClause
-				c.logger.Info(fmt.Sprintf("[%d] executing query for destination table %s (part %d/%d): %s", batchID, tbl, i+1, numParts, partitionedQuery))
-				err = c.database.Exec(ctx, partitionedQuery)
-				if err != nil {
-					return nil, fmt.Errorf("error while inserting into normalized table (part %d/%d): %w", i+1, numParts, err)
-				}
+			g, gctx := errgroup.WithContext(ctx)
+			g.SetLimit(numWorkers)
+
+			for i := range numParts {
+				g.Go(func() error {
+					whereClause := fmt.Sprintf("cityHash64(%s) %% %d = %d", hashColName, numParts, i)
+					partitionedQuery := q + " AND " + whereClause
+					fmtStr := "[%d] executing query for destination table %s (part %d/%d): %s"
+					c.logger.Info(fmt.Sprintf(fmtStr, batchID, tbl, i+1, numParts, partitionedQuery))
+					return c.database.Exec(gctx, partitionedQuery)
+				})
+			}
+
+			if err := g.Wait(); err != nil {
+				c.logger.Error("[clickhouse] error while inserting into normalized table", "error", err)
+				return nil, fmt.Errorf("error while inserting into normalized table: %w", err)
 			}
 		}
 
