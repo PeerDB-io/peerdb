@@ -74,7 +74,7 @@ export default function PostgresForm({ settings, setter, type }: ConfigProps) {
     <>
       {type === 'SUPABASE' && (
         <a
-          href={`https://api.supabase.com/v1/oauth/authorize?client_id=5a950ba7-a085-47b4-8652-a19d87c653b2&response_type=code&redirect_uri=${encodeURIComponent('http://localhost:3000/supabase')}`}
+          href={`https://api.supabase.com/v1/oauth/authorize?client_id=${encodeURIComponent(process.env.NEXT_PUBLIC_SUPABASE_ID || '')}&response_type=code&redirect_uri=${encodeURIComponent(process.env.NEXT_PUBLIC_SUPABASE_REDIRECT || '')}`}
         >
           Load from Supabase
         </a>

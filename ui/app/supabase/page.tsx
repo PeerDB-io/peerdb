@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 
 export default function Supabase() {
   const urlParams = new URLSearchParams(window.location.search);
-  const [databases, setDatabases] = useState<any[]>(null);
+  const [databases, setDatabases] = useState<any[] | null>(null);
 
   useEffect(() => {
     fetch('/api/supabase', {
@@ -14,10 +14,11 @@ export default function Supabase() {
       .then((res) => res.json())
       .then((dbs) => setDatabases(dbs));
   });
-  return (
-    <>
-      {databases === null && 'Loading..'}
-      {databases !== null && databases.map((db) => <a href='TODO'>{db}</a>)}
-    </>
-  );
+
+  if (databases === null) return 'Loading..';
+  return databases.map((db) => (
+    <a href='TODO'>
+      {db.name} {db.host}
+    </a>
+  ));
 }
