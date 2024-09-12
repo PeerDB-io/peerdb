@@ -362,6 +362,10 @@ func PullCdcRecords[Items model.Items](
 
 	for {
 		if pkmRequiresResponse {
+			if cdcRecordsStorage.IsEmpty() {
+				req.ConsumedOffset.Store(int64(clientXLogPos))
+			}
+
 			err := sendStandbyAfterReplLock("pkm-response")
 			if err != nil {
 				return err
