@@ -235,8 +235,10 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 			var numParts int
 			if req.FlowJobName == "paypal" {
 				numParts = 18
+			} else {
+				numParts = 9
 			}
-			numParts = 9
+
 			numWorkers := 3
 
 			hashColName := "_peerdb_uid"
