@@ -236,7 +236,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 
 			q := insertIntoSelectQuery.String()
 
-			numParts := 13
+			numParts := 5
 			hashColName := "_peerdb_uid"
 			for i := 0; i < numParts; i++ {
 				whereClause := fmt.Sprintf("cityHash64(%s) %% %d = %d", hashColName, numParts, i)
