@@ -112,6 +112,9 @@ services:
     container_name: temporal-ui
     depends_on:
       - temporal
+    env_file:
+      - path: ./.env
+        required: false
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000

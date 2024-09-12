@@ -45,13 +45,6 @@ export default function PostgresForm({ settings, setter, type }: ConfigProps) {
     }
   };
 
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement>,
-    setting: PeerSetting
-  ) => {
-    setting.stateHandler(e.target.value, setter);
-  };
-
   const handleSSHParam = (
     e: React.ChangeEvent<HTMLInputElement>,
     setting: SSHSetting
@@ -70,14 +63,17 @@ export default function PostgresForm({ settings, setter, type }: ConfigProps) {
     }));
   }, [sshConfig, setter, showSSH]);
 
+  const [supabaseUrl, setSupabaseUrl] = useState<string | null>(null);
+  useEffect(() => {
+    fetch('/api/supabase/url')
+      .then((res) => res.json())
+      .then((res) => setSupabaseUrl(res.url));
+  });
+
   return (
     <>
-      {type === 'SUPABASE' && (
-        <a
-          href={`https://api.supabase.com/v1/oauth/authorize?client_id=${encodeURIComponent(process.env.NEXT_PUBLIC_SUPABASE_ID || '')}&response_type=code&redirect_uri=${encodeURIComponent(process.env.NEXT_PUBLIC_SUPABASE_REDIRECT || '')}`}
-        >
-          Load from Supabase
-        </a>
+      {type === 'SUPABASE' && supabaseUrl && (
+        <a href={supabaseUrl}>Load from Supabase</a>
       )}
       {settings.map((setting, id) => {
         return (
@@ -111,7 +107,7 @@ export default function PostgresForm({ settings, setter, type }: ConfigProps) {
                   type={setting.type}
                   defaultValue={setting.default}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    handleChange(e, setting)
+                    setting.stateHandler(e.target.value, setter)
                   }
                 />
                 {setting.tips && (

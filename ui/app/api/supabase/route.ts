@@ -9,13 +9,13 @@ export async function POST(request: NextRequest) {
       'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
       Accept: 'application/json',
       Authorization: `Basic ${btoa(
-        `${process.env.NEXT_PUBLIC_SUPABASE_ID}:${process.env.SUPABASE_SECRET}`
+        `${process.env.SUPABASE_ID}:${process.env.SUPABASE_SECRET}`
       )}`,
     },
     body: new URLSearchParams({
       grant_type: 'authorization_code',
-      code: request.nextUrl.searchParams.get('code') || '',
-      redirect_uri: process.env.NEXT_PUBLIC_SUPABASE_REDIRECT || '',
+      code: request.nextUrl.searchParams.get('code') ?? '',
+      redirect_uri: process.env.SUPABASE_REDIRECT ?? '',
     }),
   });
   const supaResult = await supaResponse.json();
@@ -24,8 +24,10 @@ export async function POST(request: NextRequest) {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   const projectsResult = await projectsResponse.json();
-  return projectsResult.map((x: any) => ({
-    name: x.name,
-    host: x.database.host,
-  }));
+  return Response.json(
+    projectsResult.map((x: any) => ({
+      name: x.name,
+      host: x.database.host,
+    }))
+  );
 }
