@@ -232,7 +232,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 
 			q := insertIntoSelectQuery.String()
 
-			numParts := 5
+			numParts := 9
 			numWorkers := 3
 
 			hashColName := "_peerdb_uid"
