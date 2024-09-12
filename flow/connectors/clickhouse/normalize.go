@@ -255,6 +255,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 			}
 
 			if err := g.Wait(); err != nil {
+				c.logger.Error("[clickhouse] error while inserting into normalized table", "error", err)
 				return nil, fmt.Errorf("error while inserting into normalized table: %w", err)
 			}
 		}
