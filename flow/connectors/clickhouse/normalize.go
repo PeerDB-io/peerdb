@@ -232,13 +232,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 
 			q := insertIntoSelectQuery.String()
 
-			var numParts int
-			if req.FlowJobName == "paypal" {
-				numParts = 18
-			} else {
-				numParts = 9
-			}
-
+			numParts := 18
 			numWorkers := 3
 
 			hashColName := "_peerdb_uid"
