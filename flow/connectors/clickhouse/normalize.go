@@ -230,7 +230,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 
 			q := insertIntoSelectQuery.String()
 
-			numParts := 18
+			numParts := 4
 			var numWorkers int
 			if req.FlowJobName == "paypal" {
 				numWorkers = 1
