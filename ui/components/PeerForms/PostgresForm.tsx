@@ -69,7 +69,7 @@ export default function PostgresForm({
     if (host) setter((curr) => ({ ...curr, host }));
     const database = searchParams.get('db');
     if (database) setter((curr) => ({ ...curr, database }));
-  }, [setter]);
+  }, [setter, searchParams]);
 
   useEffect(() => {
     setter((prev) => ({
