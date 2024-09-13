@@ -30,7 +30,7 @@ function SupabaseCore() {
     <a
       key={i}
       style={{ display: 'block' }}
-      href={`/peers/create/SUPABASE?host=${encodeURIComponent(db.host)}&name=${encodeURIComponent(db.name)}&db=postgres`}
+      href={`/peers/create/SUPABASE?host=${encodeURIComponent(db.host)}&name=${encodeURIComponent(db.name.toLowerCase().replaceAll('-', '_'))}&db=postgres`}
     >
       {db.name}
     </a>
