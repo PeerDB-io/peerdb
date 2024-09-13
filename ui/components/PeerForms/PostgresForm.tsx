@@ -65,10 +65,12 @@ export default function PostgresForm({ settings, setter, type }: ConfigProps) {
 
   const [supabaseUrl, setSupabaseUrl] = useState<string | null>(null);
   useEffect(() => {
-    fetch('/api/supabase/url')
-      .then((res) => res.json())
-      .then((res) => setSupabaseUrl(res.url));
-  });
+    if (type === 'SUPABASE') {
+      fetch('/api/supabase/url')
+        .then((res) => res.json())
+        .then((res) => setSupabaseUrl(res.url));
+    }
+  }, [type]);
 
   return (
     <>
