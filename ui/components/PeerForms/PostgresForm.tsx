@@ -78,23 +78,8 @@ export default function PostgresForm({
     }));
   }, [sshConfig, setter, showSSH]);
 
-  const [supabaseUrl, setSupabaseUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (type === 'SUPABASE') {
-      fetch('/api/supabase/url')
-        .then((res) => res.json())
-        .then((res) => setSupabaseUrl(res.url));
-    }
-  }, [type]);
-
   return (
     <>
-      {type === 'SUPABASE' && supabaseUrl && (
-        <a href={supabaseUrl}>
-          <img src='/svgs/connect-supabase-light.svg' />
-          Load from Supabase
-        </a>
-      )}
       {settings.map((setting, id) => {
         return (
           <RowWithTextField
