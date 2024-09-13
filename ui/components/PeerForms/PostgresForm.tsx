@@ -1,5 +1,5 @@
 'use client';
-import { PeerSetter } from '@/app/dto/PeersDTO';
+import { PeerConfig, PeerSetter } from '@/app/dto/PeersDTO';
 import { PeerSetting } from '@/app/peers/create/[peerType]/helpers/common';
 import {
   SSHSetting,
@@ -13,15 +13,23 @@ import { RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
+import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { InfoPopover } from '../InfoPopover';
 interface ConfigProps {
   settings: PeerSetting[];
   setter: PeerSetter;
+  config: PeerConfig;
   type: string;
 }
 
-export default function PostgresForm({ settings, setter, type }: ConfigProps) {
+export default function PostgresForm({
+  settings,
+  config,
+  setter,
+  type,
+}: ConfigProps) {
+  const searchParams = useSearchParams();
   const [showSSH, setShowSSH] = useState<boolean>(false);
   const [sshConfig, setSSHConfig] = useState<SSHConfig>(blankSSHConfig);
   const handleFile = (
@@ -57,6 +65,13 @@ export default function PostgresForm({ settings, setter, type }: ConfigProps) {
   };
 
   useEffect(() => {
+    const host = searchParams.get('host');
+    if (host) setter((curr) => ({ ...curr, host }));
+    const database = searchParams.get('db');
+    if (database) setter((curr) => ({ ...curr, database }));
+  }, [setter]);
+
+  useEffect(() => {
     setter((prev) => ({
       ...prev,
       sshConfig: showSSH ? sshConfig : undefined,
@@ -75,7 +90,10 @@ export default function PostgresForm({ settings, setter, type }: ConfigProps) {
   return (
     <>
       {type === 'SUPABASE' && supabaseUrl && (
-        <a href={supabaseUrl}>Load from Supabase</a>
+        <a href={supabaseUrl}>
+          <img src='/svgs/connect-supabase-light.svg' />
+          Load from Supabase
+        </a>
       )}
       {settings.map((setting, id) => {
         return (
@@ -108,6 +126,9 @@ export default function PostgresForm({ settings, setter, type }: ConfigProps) {
                   variant='simple'
                   type={setting.type}
                   defaultValue={setting.default}
+                  value={
+                    setting.field && config[setting.field as keyof PeerConfig]
+                  }
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                     setting.stateHandler(e.target.value, setter)
                   }

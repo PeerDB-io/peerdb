@@ -27,8 +27,12 @@ function SupabaseCore() {
 
   if (databases === null) return 'Loading..';
   return databases.map((db, i) => (
-    <a key={i} href='TODO'>
-      {db.name} {db.host}
+    <a
+      key={i}
+      style={{ display: 'block' }}
+      href={`/peers/create/SUPABASE?host=${encodeURIComponent(db.host)}&name=${encodeURIComponent(db.name)}&db=postgres`}
+    >
+      {db.name}
     </a>
   ));
 }
