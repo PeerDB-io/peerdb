@@ -230,14 +230,8 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 
 			q := insertIntoSelectQuery.String()
 
-			numParts := 4
-			var numWorkers int
-			if req.FlowJobName == "paypal" {
-				numWorkers = 1
-			} else {
-				numWorkers = 3
-			}
-
+			numParts := 3
+			numWorkers := 3
 			hashColName := "_peerdb_uid"
 			g, gctx := errgroup.WithContext(ctx)
 			g.SetLimit(numWorkers)
