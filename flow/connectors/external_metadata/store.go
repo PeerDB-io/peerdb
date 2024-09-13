@@ -12,6 +12,7 @@ import (
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
@@ -176,6 +177,12 @@ func (p *PostgresMetadata) UpdateNormalizeBatchID(ctx context.Context, jobName s
 			` SET normalize_batch_id=$2 WHERE job_name=$1`, jobName, batchID)
 	if err != nil {
 		p.logger.Error("failed to update normalize batch id", slog.Any("error", err))
+		return err
+	}
+
+	err = monitoring.UpdateEndTimeForCDCBatch(ctx, p.pool, jobName, batchID)
+	if err != nil {
+		p.logger.Error(fmt.Sprintf("failed to update end time for cdc batch - %d", batchID), slog.Any("error", err))
 		return err
 	}
 
