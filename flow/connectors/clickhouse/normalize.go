@@ -222,8 +222,6 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 			selectQuery.WriteString(tbl)
 			selectQuery.WriteString("'")
 
-			selectQuery.WriteString(" ORDER BY _peerdb_timestamp")
-
 			insertIntoSelectQuery := strings.Builder{}
 			insertIntoSelectQuery.WriteString("INSERT INTO ")
 			insertIntoSelectQuery.WriteString(tbl)
