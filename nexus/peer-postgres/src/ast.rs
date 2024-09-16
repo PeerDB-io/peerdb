@@ -12,7 +12,7 @@ impl PostgresAst {
         visit_relations_mut(query, |table| {
             // if peer name is first part of table name, remove first part
             if let Some(ref peername) = self.peername {
-                if peername.eq_ignore_ascii_case(&table.0[0].value) {
+                if table.0.len() > 1 && peername.eq_ignore_ascii_case(&table.0[0].value) {
                     table.0.remove(0);
                 }
             }
