@@ -89,9 +89,14 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 		return nil, err
 	}
 
+	firstCol, _, found := strings.Cut(cols, ",")
+	if !found {
+		return nil, fmt.Errorf("failed to get first column for getting rows")
+	}
+
 	rows, err := ch.Query(
 		context.Background(),
-		fmt.Sprintf(`SELECT %s FROM %s ORDER BY %s`, cols, table, strings.Split(cols, ",")[0]),
+		fmt.Sprintf(`SELECT %s FROM %s ORDER BY %s`, cols, table, firstCol),
 	)
 	if err != nil {
 		return nil, err

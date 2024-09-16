@@ -1428,9 +1428,9 @@ func (c *PostgresConnector) RemoveTableEntriesFromRawTable(
 ) error {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	for _, tableName := range req.DestinationTableNames {
-		_, err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE _peerdb_destination_table_name = '%s'"+
+		_, err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE _peerdb_destination_table_name = %s"+
 			" AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d",
-			QuoteIdentifier(rawTableIdentifier), tableName, req.NormalizeBatchId, req.SyncBatchId))
+			QuoteIdentifier(rawTableIdentifier), QuoteLiteral(tableName), req.NormalizeBatchId, req.SyncBatchId))
 		if err != nil {
 			c.logger.Error("failed to remove entries from raw table", "error", err)
 		}
