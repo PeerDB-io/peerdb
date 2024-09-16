@@ -8,7 +8,6 @@ import { SupabaseListProjectsResponse } from '../dto/PeersDTO';
 import ProjectCard from './projectCard';
 import { ProjectListStyle, ProjectsContainerStyle } from './styles';
 
-// https://nextjs.org/docs/messages/missing-suspense-with-csr-bailout
 export default function Supabase() {
   const searchParams = useSearchParams();
   const router = useRouter();
