@@ -490,6 +490,10 @@ func PullCdcRecords[Items model.Items](
 				return fmt.Errorf("error processing message: %w", err)
 			}
 
+			if xld.WALStart > clientXLogPos {
+				clientXLogPos = xld.WALStart
+			}
+
 			if rec != nil {
 				tableName := rec.GetDestinationTableName()
 				switch r := rec.(type) {
@@ -499,8 +503,7 @@ func PullCdcRecords[Items model.Items](
 					// will change in future
 					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
 					if isFullReplica {
-						err := addRecordWithKey(model.TableWithPkey{}, rec)
-						if err != nil {
+						if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
 							return err
 						}
 					} else {
@@ -513,17 +516,14 @@ func PullCdcRecords[Items model.Items](
 						if err != nil {
 							return err
 						}
-						if !ok {
-							err = addRecordWithKey(tablePkeyVal, rec)
-						} else {
+						if ok {
 							// iterate through unchanged toast cols and set them in new record
 							updatedCols := r.NewItems.UpdateIfNotExists(latestRecord.GetItems())
 							for _, col := range updatedCols {
 								delete(r.UnchangedToastColumns, col)
 							}
-							err = addRecordWithKey(tablePkeyVal, rec)
 						}
-						if err != nil {
+						if err := addRecordWithKey(tablePkeyVal, rec); err != nil {
 							return err
 						}
 					}
@@ -531,8 +531,7 @@ func PullCdcRecords[Items model.Items](
 				case *model.InsertRecord[Items]:
 					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
 					if isFullReplica {
-						err := addRecordWithKey(model.TableWithPkey{}, rec)
-						if err != nil {
+						if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
 							return err
 						}
 					} else {
@@ -541,16 +540,14 @@ func PullCdcRecords[Items model.Items](
 							return err
 						}
 
-						err = addRecordWithKey(tablePkeyVal, rec)
-						if err != nil {
+						if err := addRecordWithKey(tablePkeyVal, rec); err != nil {
 							return err
 						}
 					}
 				case *model.DeleteRecord[Items]:
 					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
 					if isFullReplica {
-						err := addRecordWithKey(model.TableWithPkey{}, rec)
-						if err != nil {
+						if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
 							return err
 						}
 					} else {
@@ -579,8 +576,7 @@ func PullCdcRecords[Items model.Items](
 
 						// A delete can only be followed by an INSERT, which does not need backfilling
 						// No need to store DeleteRecords in memory or disk.
-						err = addRecordWithKey(model.TableWithPkey{}, rec)
-						if err != nil {
+						if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
 							return err
 						}
 					}
@@ -594,14 +590,20 @@ func PullCdcRecords[Items model.Items](
 					}
 
 				case *model.MessageRecord[Items]:
-					if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
+					// if cdc store empty, we can move lsn,
+					// otherwise push to records so destination can ack once all previous messages processed
+					if cdcRecordsStorage.IsEmpty() {
+						if int64(clientXLogPos) > req.ConsumedOffset.Load() {
+							metadata := connmetadata.NewPostgresMetadataFromCatalog(logger, p.catalogPool)
+							if err := metadata.SetLastOffset(ctx, req.FlowJobName, int64(clientXLogPos)); err != nil {
+								return err
+							}
+							req.ConsumedOffset.Store(int64(clientXLogPos))
+						}
+					} else if err := records.AddRecord(ctx, rec); err != nil {
 						return err
 					}
 				}
-			}
-
-			if xld.WALStart > clientXLogPos {
-				clientXLogPos = xld.WALStart
 			}
 		}
 	}
