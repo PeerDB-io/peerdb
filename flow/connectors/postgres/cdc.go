@@ -16,6 +16,7 @@ import (
 	"github.com/lib/pq/oid"
 	"go.temporal.io/sdk/activity"
 
+	"github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	geo "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -39,7 +40,7 @@ type PostgresCDCSource struct {
 	// for partitioned tables, maps child relid to parent relid
 	childToParentRelIDMapping map[uint32]uint32
 
-	// for storing chema delta audit logs to catalog
+	// for storing schema delta audit logs to catalog
 	catalogPool *pgxpool.Pool
 	flowJobName string
 }
@@ -311,8 +312,7 @@ func PullCdcRecords[Items model.Items](
 	var clientXLogPos pglogrepl.LSN
 	if req.LastOffset > 0 {
 		clientXLogPos = pglogrepl.LSN(req.LastOffset)
-		err := sendStandbyAfterReplLock("initial-flush")
-		if err != nil {
+		if err := sendStandbyAfterReplLock("initial-flush"); err != nil {
 			return err
 		}
 	}
@@ -362,8 +362,15 @@ func PullCdcRecords[Items model.Items](
 
 	for {
 		if pkmRequiresResponse {
-			err := sendStandbyAfterReplLock("pkm-response")
-			if err != nil {
+			if cdcRecordsStorage.IsEmpty() && int64(clientXLogPos) > req.ConsumedOffset.Load() {
+				metadata := connmetadata.NewPostgresMetadataFromCatalog(logger, p.catalogPool)
+				if err := metadata.SetLastOffset(ctx, req.FlowJobName, int64(clientXLogPos)); err != nil {
+					return err
+				}
+				req.ConsumedOffset.Store(int64(clientXLogPos))
+			}
+
+			if err := sendStandbyAfterReplLock("pkm-response"); err != nil {
 				return err
 			}
 			pkmRequiresResponse = false
@@ -460,17 +467,15 @@ func PullCdcRecords[Items model.Items](
 				return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
 			}
 
-			logger.Debug(
-				fmt.Sprintf("Primary Keepalive Message => ServerWALEnd: %s ServerTime: %s ReplyRequested: %t",
-					pkm.ServerWALEnd, pkm.ServerTime, pkm.ReplyRequested))
+			logger.Debug("Primary Keepalive Message", slog.Any("data", pkm))
 
 			if pkm.ServerWALEnd > clientXLogPos {
 				clientXLogPos = pkm.ServerWALEnd
 			}
 
-			// always reply to keepalive messages
-			// instead of `pkm.ReplyRequested`
-			pkmRequiresResponse = true
+			if pkm.ReplyRequested {
+				pkmRequiresResponse = true
+			}
 
 		case pglogrepl.XLogDataByteID:
 			xld, err := pglogrepl.ParseXLogData(msg.Data[1:])
@@ -478,8 +483,8 @@ func PullCdcRecords[Items model.Items](
 				return fmt.Errorf("ParseXLogData failed: %w", err)
 			}
 
-			logger.Debug(fmt.Sprintf("XLogData => WALStart %s ServerWALEnd %s ServerTime %s\n",
-				xld.WALStart, xld.ServerWALEnd, xld.ServerTime))
+			logger.Debug("XLogData",
+				slog.Any("WALStart", xld.WALStart), slog.Any("ServerWALEnd", xld.ServerWALEnd), slog.Any("ServerTime", xld.ServerTime))
 			rec, err := processMessage(ctx, p, records, xld, clientXLogPos, processor)
 			if err != nil {
 				return fmt.Errorf("error processing message: %w", err)
@@ -499,7 +504,7 @@ func PullCdcRecords[Items model.Items](
 							return err
 						}
 					} else {
-						tablePkeyVal, err := model.RecToTablePKey[Items](req.TableNameSchemaMapping, rec)
+						tablePkeyVal, err := model.RecToTablePKey(req.TableNameSchemaMapping, rec)
 						if err != nil {
 							return err
 						}
@@ -531,7 +536,7 @@ func PullCdcRecords[Items model.Items](
 							return err
 						}
 					} else {
-						tablePkeyVal, err := model.RecToTablePKey[Items](req.TableNameSchemaMapping, rec)
+						tablePkeyVal, err := model.RecToTablePKey(req.TableNameSchemaMapping, rec)
 						if err != nil {
 							return err
 						}
@@ -549,7 +554,7 @@ func PullCdcRecords[Items model.Items](
 							return err
 						}
 					} else {
-						tablePkeyVal, err := model.RecToTablePKey[Items](req.TableNameSchemaMapping, rec)
+						tablePkeyVal, err := model.RecToTablePKey(req.TableNameSchemaMapping, rec)
 						if err != nil {
 							return err
 						}
@@ -692,8 +697,7 @@ func processInsertMessage[Items model.Items](
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug(fmt.Sprintf("InsertMessage => LSN: %d, RelationID: %d, Relation Name: %s",
-		lsn, relID, tableName))
+	p.logger.Debug("InsertMessage", slog.Any("LSN", lsn), slog.Any("RelationID", relID), slog.String("Relation Name", tableName))
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
@@ -728,8 +732,7 @@ func processUpdateMessage[Items model.Items](
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug(fmt.Sprintf("UpdateMessage => LSN: %d, RelationID: %d, Relation Name: %s",
-		lsn, relID, tableName))
+	p.logger.Debug("UpdateMessage", slog.Any("LSN", lsn), slog.Any("RelationID", relID), slog.String("Relation Name", tableName))
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
@@ -772,8 +775,7 @@ func processDeleteMessage[Items model.Items](
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug(fmt.Sprintf("DeleteMessage => LSN: %d, RelationID: %d, Relation Name: %s",
-		lsn, relID, tableName))
+	p.logger.Debug("DeleteMessage", slog.Any("LSN", lsn), slog.Any("RelationID", relID), slog.String("Relation Name", tableName))
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
