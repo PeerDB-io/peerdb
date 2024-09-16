@@ -14,6 +14,7 @@ export default function Supabase() {
   const [projects, setProjects] = useState<
     SupabaseListProjectsResponse[] | null
   >(null);
+  const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   const searchedProjects = useMemo(
@@ -27,32 +28,39 @@ export default function Supabase() {
   );
 
   useEffect(() => {
-    try {
-      fetch('/api/supabase', {
-        method: 'POST',
-        body: JSON.stringify({ code: searchParams.get('code') }),
-        cache: 'no-store',
-      })
-        .then((res) => res.json())
-        .then((dbs: SupabaseListProjectsResponse[]) => {
-          setProjects(dbs);
-          if (dbs.length === 1) {
-            router.push(
-              `/peers/create/SUPABASE?host=${encodeURIComponent(
-                dbs[0].database.host
-              )}&name=${encodeURIComponent(dbs[0].name.toLowerCase().replaceAll('-', '_'))}&db=postgres`
-            );
-          }
-        });
-    } catch (e) {
-      console.error(e);
-    }
+    fetch('/api/supabase', {
+      method: 'POST',
+      body: JSON.stringify({ code: searchParams.get('code') }),
+      cache: 'no-store',
+    }).then(
+      (res) => {
+        if (res.ok) {
+          res.json().then((dbs: SupabaseListProjectsResponse[]) => {
+            if (dbs.length === 0) {
+              setError('No Supabase projects found');
+            } else if (dbs.length === 1) {
+              router.push(
+                `/peers/create/SUPABASE?host=${encodeURIComponent(
+                  dbs[0].database.host
+                )}&name=${encodeURIComponent(dbs[0].name.toLowerCase().replaceAll('-', '_'))}&db=postgres`
+              );
+            } else {
+              setProjects(dbs);
+            }
+          });
+        } else {
+          res.text().then((text) => setError(text));
+        }
+      },
+      (err) => {
+        console.error(err);
+      }
+    );
   }, [router, searchParams]);
 
+  if (error) return <div style={ProjectsContainerStyle}>{error}</div>;
   if (projects === null)
     return <ProgressCircle variant='determinate_progress_circle' />;
-  if (projects.length === 0)
-    return <div style={ProjectsContainerStyle}>No Supabase projects found</div>;
   return (
     <div style={ProjectsContainerStyle}>
       <Label as='label' variant='title2'>
