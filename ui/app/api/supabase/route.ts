@@ -20,11 +20,20 @@ export async function POST(request: NextRequest) {
       redirect_uri: process.env.SUPABASE_REDIRECT ?? '',
     }),
   });
+  if (!supaResponse.ok) {
+    const err = await supaResponse.text();
+    return new Response(err, { status: supaResponse.status });
+  }
+
   const supaResult = await supaResponse.json();
   const accessToken = supaResult.access_token;
   const projectsResponse = await fetch('https://api.supabase.com/v1/projects', {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
+  if (!projectsResponse.ok) {
+    const err = await projectsResponse.text();
+    return new Response(err, { status: projectsResponse.status });
+  }
   const projectsResult: SupabaseListProjectsResponse[] =
     await projectsResponse.json();
   return Response.json(projectsResult);
