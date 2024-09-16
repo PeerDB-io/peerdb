@@ -1,5 +1,6 @@
 'use client';
 import { Label } from '@/lib/Label';
+import { ProgressCircle } from '@/lib/ProgressCircle';
 import { SearchField } from '@/lib/SearchField';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useMemo, useState } from 'react';
@@ -51,7 +52,8 @@ function SupabaseCore() {
     }
   }, [router, searchParams]);
 
-  if (projects === null) return 'Loading..';
+  if (projects?.length == 0)
+    return <ProgressCircle variant='determinate_progress_circle' />;
   return (
     <div style={ProjectsContainerStyle}>
       <Label as='label' variant='title2'>
