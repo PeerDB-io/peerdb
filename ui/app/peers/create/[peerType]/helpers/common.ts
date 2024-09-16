@@ -11,6 +11,7 @@ import { blankSnowflakeSetting } from './sf';
 
 export interface PeerSetting {
   label: string;
+  field?: string;
   stateHandler: (value: string | boolean, setter: PeerSetter) => void;
   type?: string;
   optional?: boolean;

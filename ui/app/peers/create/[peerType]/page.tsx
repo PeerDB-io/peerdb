@@ -48,7 +48,9 @@ export default function CreateConfig({
   const searchParams = useSearchParams();
   const peerName = searchParams.get('update');
   const blankSetting = getBlankSetting(peerType);
-  const [name, setName] = useState<string>(peerName ?? '');
+  const [name, setName] = useState<string>(
+    peerName ?? searchParams.get('name') ?? ''
+  );
   const [config, setConfig] = useState<PeerConfig>(blankSetting);
   const [loading, setLoading] = useState<boolean>(false);
   const peerLabel = peerType.toUpperCase().replaceAll('%20', ' ');
@@ -58,7 +60,8 @@ export default function CreateConfig({
     if (
       peerType.includes('POSTGRES') ||
       peerType.includes('TEMBO') ||
-      peerType.includes('NEON')
+      peerType.includes('NEON') ||
+      peerType.includes('SUPABASE')
     ) {
       return 'POSTGRES';
     }
@@ -75,6 +78,7 @@ export default function CreateConfig({
           <PostgresForm
             settings={postgresSetting}
             setter={setConfig}
+            config={config}
             type={peerType}
           />
         );
@@ -154,7 +158,7 @@ export default function CreateConfig({
               {peerName === null && (
                 <Tooltip
                   style={{ width: '100%' }}
-                  content={'Peer name is a required field.'}
+                  content='Peer name is a required field.'
                 >
                   <Label colorName='lowContrast' colorSet='destructive'>
                     *

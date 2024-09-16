@@ -192,6 +192,9 @@ services:
       dockerfile: stacks/peerdb-ui.Dockerfile
     ports:
       - 3000:3000
+    env_file:
+      - path: ./.env
+        required: false
     environment:
       <<: *catalog-config
       DATABASE_URL: postgres://postgres:postgres@catalog:5432/postgres

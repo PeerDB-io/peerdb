@@ -36,7 +36,6 @@ export default function CreatePeer() {
         >
           Learn about peers
         </Action>
-
         <SelectSource />
       </div>
     </div>
