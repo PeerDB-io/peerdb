@@ -20,7 +20,10 @@ export async function GET(request: NextRequest) {
     'EVENTHUBS',
     'PUBSUB',
   ];
-  const postgresTypes = [
+  const postgresTypes: [
+    string,
+    ...Array<string | { label: string; url: string }>,
+  ] = [
     'Sources',
     'POSTGRESQL',
     'RDS POSTGRESQL',
@@ -29,15 +32,17 @@ export async function GET(request: NextRequest) {
     'TEMBO',
     'CRUNCHY POSTGRES',
     'NEON',
-    {
+  ];
+  if (process.env.SUPABASE_ID) {
+    postgresTypes.push({
       label: 'SUPABASE',
       url: `https://api.supabase.com/v1/oauth/authorize?client_id=${encodeURIComponent(
-        process.env.SUPABASE_ID ?? ''
+        process.env.SUPABASE_ID
       )}&response_type=code&redirect_uri=${encodeURIComponent(
         process.env.SUPABASE_REDIRECT ?? ''
       )}`,
-    },
-  ];
+    });
+  }
 
   if (GetPeerDBClickhouseMode()) {
     return new Response(
