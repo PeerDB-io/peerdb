@@ -98,7 +98,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
             Statement::Query(query) => {
                 let mut query = query.clone();
                 ast::BigqueryAst
-                    .rewrite(&self.dataset_id, &mut query)
+                    .rewrite(&self.peer_name, &self.dataset_id, &mut query)
                     .context("unable to rewrite query")
                     .map_err(|err| PgWireError::ApiError(err.into()))?;
 
@@ -210,7 +210,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
             Statement::Query(query) => {
                 let mut query = query.clone();
                 ast::BigqueryAst
-                    .rewrite(&self.dataset_id, &mut query)
+                    .rewrite(&self.peer_name, &self.dataset_id, &mut query)
                     .context("unable to rewrite query")
                     .map_err(|err| PgWireError::ApiError(err.into()))?;
 
