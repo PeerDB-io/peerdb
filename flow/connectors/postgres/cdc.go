@@ -312,8 +312,7 @@ func PullCdcRecords[Items model.Items](
 	var clientXLogPos pglogrepl.LSN
 	if req.LastOffset > 0 {
 		clientXLogPos = pglogrepl.LSN(req.LastOffset)
-		err := sendStandbyAfterReplLock("initial-flush")
-		if err != nil {
+		if err := sendStandbyAfterReplLock("initial-flush"); err != nil {
 			return err
 		}
 	}
@@ -476,9 +475,9 @@ func PullCdcRecords[Items model.Items](
 				clientXLogPos = pkm.ServerWALEnd
 			}
 
-			// always reply to keepalive messages
-			// instead of `pkm.ReplyRequested`
-			pkmRequiresResponse = true
+			if pkm.ReplyRequested {
+				pkmRequiresResponse = true
+			}
 
 		case pglogrepl.XLogDataByteID:
 			xld, err := pglogrepl.ParseXLogData(msg.Data[1:])
