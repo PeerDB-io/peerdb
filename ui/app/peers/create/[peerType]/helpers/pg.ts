@@ -1,16 +1,19 @@
 import { PostgresConfig, SSHConfig } from '@/grpc_generated/peers';
 import { Dispatch, SetStateAction } from 'react';
+
 import { PeerSetting } from './common';
 
 export const postgresSetting: PeerSetting[] = [
   {
     label: 'Host',
+    field: 'host',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, host: value as string })),
     tips: 'Specifies the IP host name or address on which postgres is to listen for TCP/IP connections from client applications. Ensure that this host has us whitelisted so we can connect to it.',
   },
   {
     label: 'Port',
+    field: 'port',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, port: parseInt(value as string, 10) })),
     type: 'number', // type for textfield
@@ -19,6 +22,7 @@ export const postgresSetting: PeerSetting[] = [
   },
   {
     label: 'User',
+    field: 'user',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, user: value as string })),
     tips: 'Specify the user that we should use to connect to this host.',
@@ -26,6 +30,7 @@ export const postgresSetting: PeerSetting[] = [
   },
   {
     label: 'Password',
+    field: 'password',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, password: value as string })),
     type: 'password',
@@ -34,6 +39,7 @@ export const postgresSetting: PeerSetting[] = [
   },
   {
     label: 'Database',
+    field: 'database',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, database: value as string })),
     tips: 'Specify which database to associate with this peer.',

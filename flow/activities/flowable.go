@@ -361,19 +361,6 @@ func (a *FlowableActivity) StartNormalize(
 		return nil, fmt.Errorf("failed to normalized records: %w", err)
 	}
 
-	// normalize flow did not run due to no records, no need to update end time.
-	if res.Done {
-		err = monitoring.UpdateEndTimeForCDCBatch(
-			ctx,
-			a.CatalogPool,
-			input.FlowConnectionConfigs.FlowJobName,
-			res.EndBatchID,
-		)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	// log the number of batches normalized
 	logger.Info(fmt.Sprintf("normalized records from batch %d to batch %d",
 		res.StartBatchID, res.EndBatchID))
@@ -702,7 +689,11 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				slotMetricGauges.OpenReplicationConnectionsGauge = openReplicationConnectionsGauge
 			}
 
-			if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, slotName, peerName, slotMetricGauges); err != nil {
+			if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{
+				FlowName: config.FlowJobName,
+				PeerName: peerName,
+				SlotName: slotName,
+			}, slotMetricGauges); err != nil {
 				logger.Error("Failed to handle slot info", slog.Any("error", err))
 			}
 		}()

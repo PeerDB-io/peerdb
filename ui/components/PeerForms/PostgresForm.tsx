@@ -1,5 +1,5 @@
 'use client';
-import { PeerSetter } from '@/app/dto/PeersDTO';
+import { PeerConfig, PeerSetter } from '@/app/dto/PeersDTO';
 import { PeerSetting } from '@/app/peers/create/[peerType]/helpers/common';
 import {
   SSHSetting,
@@ -13,15 +13,23 @@ import { RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
+import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { InfoPopover } from '../InfoPopover';
 interface ConfigProps {
   settings: PeerSetting[];
   setter: PeerSetter;
+  config: PeerConfig;
   type: string;
 }
 
-export default function PostgresForm({ settings, setter, type }: ConfigProps) {
+export default function PostgresForm({
+  settings,
+  config,
+  setter,
+  type,
+}: ConfigProps) {
+  const searchParams = useSearchParams();
   const [showSSH, setShowSSH] = useState<boolean>(false);
   const [sshConfig, setSSHConfig] = useState<SSHConfig>(blankSSHConfig);
   const handleFile = (
@@ -45,13 +53,6 @@ export default function PostgresForm({ settings, setter, type }: ConfigProps) {
     }
   };
 
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement>,
-    setting: PeerSetting
-  ) => {
-    setting.stateHandler(e.target.value, setter);
-  };
-
   const handleSSHParam = (
     e: React.ChangeEvent<HTMLInputElement>,
     setting: SSHSetting
@@ -64,12 +65,17 @@ export default function PostgresForm({ settings, setter, type }: ConfigProps) {
   };
 
   useEffect(() => {
-    setter((prev) => {
-      return {
-        ...prev,
-        sshConfig: showSSH ? sshConfig : undefined,
-      };
-    });
+    const host = searchParams.get('host');
+    if (host) setter((curr) => ({ ...curr, host }));
+    const database = searchParams.get('db');
+    if (database) setter((curr) => ({ ...curr, database }));
+  }, [setter, searchParams]);
+
+  useEffect(() => {
+    setter((prev) => ({
+      ...prev,
+      sshConfig: showSSH ? sshConfig : undefined,
+    }));
   }, [sshConfig, setter, showSSH]);
 
   return (
@@ -105,8 +111,11 @@ export default function PostgresForm({ settings, setter, type }: ConfigProps) {
                   variant='simple'
                   type={setting.type}
                   defaultValue={setting.default}
+                  value={
+                    setting.field && config[setting.field as keyof PeerConfig]
+                  }
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    handleChange(e, setting)
+                    setting.stateHandler(e.target.value, setter)
                   }
                 />
                 {setting.tips && (

@@ -10,7 +10,9 @@ pub struct SnowflakeAst;
 impl SnowflakeAst {
     pub fn rewrite(&self, query: &mut Query) -> anyhow::Result<()> {
         visit_relations_mut(query, |table| {
-            table.0.remove(0);
+            if table.0.len() > 1 {
+                table.0.remove(0);
+            }
             ControlFlow::<()>::Continue(())
         });
 
