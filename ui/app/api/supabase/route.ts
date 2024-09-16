@@ -1,3 +1,4 @@
+import { SupabaseListProjectsResponse } from '@/app/dto/PeersDTO';
 import { NextRequest } from 'next/server';
 
 export const dynamic = 'force-dynamic';
@@ -24,11 +25,7 @@ export async function POST(request: NextRequest) {
   const projectsResponse = await fetch('https://api.supabase.com/v1/projects', {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  const projectsResult = await projectsResponse.json();
-  return Response.json(
-    projectsResult.map((x: any) => ({
-      name: x.name,
-      host: x.database.host,
-    }))
-  );
+  const projectsResult: SupabaseListProjectsResponse[] =
+    await projectsResponse.json();
+  return Response.json(projectsResult);
 }
