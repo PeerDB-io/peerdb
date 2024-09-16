@@ -3,31 +3,29 @@ import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { SearchField } from '@/lib/SearchField';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { SupabaseListProjectsResponse } from '../dto/PeersDTO';
 import ProjectCard from './projectCard';
 import { ProjectListStyle, ProjectsContainerStyle } from './styles';
 
 // https://nextjs.org/docs/messages/missing-suspense-with-csr-bailout
 export default function Supabase() {
-  return (
-    <Suspense>
-      <SupabaseCore />
-    </Suspense>
-  );
-}
-
-function SupabaseCore() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [projects, setProjects] = useState<SupabaseListProjectsResponse[]>([]);
+  const [projects, setProjects] = useState<
+    SupabaseListProjectsResponse[] | null
+  >(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  const searchedProjects = useMemo(() => {
-    return projects.filter((project) =>
-      project.name.toLowerCase().includes(searchQuery)
-    );
-  }, [projects, searchQuery]);
+  const searchedProjects = useMemo(
+    () =>
+      projects
+        ? projects.filter((project) =>
+            project.name.toLowerCase().includes(searchQuery)
+          )
+        : [],
+    [projects, searchQuery]
+  );
 
   useEffect(() => {
     try {
@@ -52,8 +50,10 @@ function SupabaseCore() {
     }
   }, [router, searchParams]);
 
-  if (projects?.length == 0)
+  if (projects === null)
     return <ProgressCircle variant='determinate_progress_circle' />;
+  if (projects.length === 0)
+    return <div style={ProjectsContainerStyle}>No Supabase projects found</div>;
   return (
     <div style={ProjectsContainerStyle}>
       <Label as='label' variant='title2'>
