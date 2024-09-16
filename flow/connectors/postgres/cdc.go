@@ -16,6 +16,7 @@ import (
 	"github.com/lib/pq/oid"
 	"go.temporal.io/sdk/activity"
 
+	"github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	geo "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -39,7 +40,7 @@ type PostgresCDCSource struct {
 	// for partitioned tables, maps child relid to parent relid
 	childToParentRelIDMapping map[uint32]uint32
 
-	// for storing chema delta audit logs to catalog
+	// for storing schema delta audit logs to catalog
 	catalogPool *pgxpool.Pool
 	flowJobName string
 }
@@ -362,12 +363,15 @@ func PullCdcRecords[Items model.Items](
 
 	for {
 		if pkmRequiresResponse {
-			if cdcRecordsStorage.IsEmpty() {
+			if cdcRecordsStorage.IsEmpty() && int64(clientXLogPos) > req.ConsumedOffset.Load() {
+				metadata := connmetadata.NewPostgresMetadataFromCatalog(logger, p.catalogPool)
+				if err := metadata.SetLastOffset(ctx, req.FlowJobName, int64(clientXLogPos)); err != nil {
+					return err
+				}
 				req.ConsumedOffset.Store(int64(clientXLogPos))
 			}
 
-			err := sendStandbyAfterReplLock("pkm-response")
-			if err != nil {
+			if err := sendStandbyAfterReplLock("pkm-response"); err != nil {
 				return err
 			}
 			pkmRequiresResponse = false
@@ -503,7 +507,7 @@ func PullCdcRecords[Items model.Items](
 							return err
 						}
 					} else {
-						tablePkeyVal, err := model.RecToTablePKey[Items](req.TableNameSchemaMapping, rec)
+						tablePkeyVal, err := model.RecToTablePKey(req.TableNameSchemaMapping, rec)
 						if err != nil {
 							return err
 						}
@@ -535,7 +539,7 @@ func PullCdcRecords[Items model.Items](
 							return err
 						}
 					} else {
-						tablePkeyVal, err := model.RecToTablePKey[Items](req.TableNameSchemaMapping, rec)
+						tablePkeyVal, err := model.RecToTablePKey(req.TableNameSchemaMapping, rec)
 						if err != nil {
 							return err
 						}
@@ -553,7 +557,7 @@ func PullCdcRecords[Items model.Items](
 							return err
 						}
 					} else {
-						tablePkeyVal, err := model.RecToTablePKey[Items](req.TableNameSchemaMapping, rec)
+						tablePkeyVal, err := model.RecToTablePKey(req.TableNameSchemaMapping, rec)
 						if err != nil {
 							return err
 						}
