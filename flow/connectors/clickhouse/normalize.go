@@ -231,16 +231,23 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 		insertIntoSelectQuery.WriteString(selectQuery.String())
 
 		q := insertIntoSelectQuery.String()
-		c.logger.Info("[clickhouse] insert into select query " + q)
 
-		err = c.database.Exec(ctx, q)
-		if err != nil {
-			return nil, fmt.Errorf("error while inserting into normalized table: %w", err)
+		numParts := 5
+		hashColName := "_peerdb_uid"
+		for i := 0; i < numParts; i++ {
+			whereClause := fmt.Sprintf("cityHash64(%s) %% %d = %d", hashColName, numParts, i)
+			partitionedQuery := q + " AND " + whereClause
+			fmtStr := "executing query for destination table %s (part %d/%d): %s"
+			c.logger.Info(fmt.Sprintf(fmtStr, tbl, i+1, numParts, partitionedQuery))
+
+			err = c.database.Exec(ctx, q)
+			if err != nil {
+				return nil, fmt.Errorf("error while inserting into normalized table: %w", err)
+			}
 		}
 	}
 
-	endNormalizeBatchId := normBatchID + 1
-	err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, endNormalizeBatchId)
+	err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, req.SyncBatchID)
 	if err != nil {
 		c.logger.Error("[clickhouse] error while updating normalize batch id", "error", err)
 		return nil, err
@@ -248,7 +255,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 
 	return &model.NormalizeResponse{
 		Done:         true,
-		StartBatchID: endNormalizeBatchId,
+		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
 	}, nil
 }
