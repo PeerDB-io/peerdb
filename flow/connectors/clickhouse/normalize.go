@@ -240,7 +240,7 @@ func (c *ClickhouseConnector) NormalizeRecords(ctx context.Context,
 			fmtStr := "executing query for destination table %s (part %d/%d): %s"
 			c.logger.Info(fmt.Sprintf(fmtStr, tbl, i+1, numParts, partitionedQuery))
 
-			err = c.database.Exec(ctx, q)
+			err = c.database.Exec(ctx, partitionedQuery)
 			if err != nil {
 				return nil, fmt.Errorf("error while inserting into normalized table: %w", err)
 			}

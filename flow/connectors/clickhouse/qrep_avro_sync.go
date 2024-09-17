@@ -63,7 +63,7 @@ func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 		fmtStr := "executing query for raw table %s (part %d/%d): %s"
 		s.connector.logger.Info(fmt.Sprintf(fmtStr, s.config.DestinationTableIdentifier, i+1, numParts, partitionedQuery))
 
-		err = s.connector.database.Exec(ctx, query)
+		err = s.connector.database.Exec(ctx, partitionedQuery)
 		if err != nil {
 			return fmt.Errorf("error while copying stage to destination: %w", err)
 		}
