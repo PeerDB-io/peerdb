@@ -58,8 +58,8 @@ func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 		s.config.DestinationTableIdentifier, avroFileUrl,
 		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
 	for i := 0; i < numParts; i++ {
-		whereClause := fmt.Sprintf("cityHash64(%s) %% %d = %d", hashColName, numParts, i)
-		partitionedQuery := query + " AND " + whereClause
+		whereClause := fmt.Sprintf(" WHERE cityHash64(%s) %% %d = %d", hashColName, numParts, i)
+		partitionedQuery := query + whereClause
 		fmtStr := "executing query for raw table %s (part %d/%d): %s"
 		s.connector.logger.Info(fmt.Sprintf(fmtStr, s.config.DestinationTableIdentifier, i+1, numParts, partitionedQuery))
 
