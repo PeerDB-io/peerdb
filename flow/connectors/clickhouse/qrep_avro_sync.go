@@ -51,11 +51,25 @@ func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 	if creds.AWS.SessionToken != "" {
 		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
 	}
+
+	hashColName := "_peerdb_uid"
+	numParts := 10
 	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM s3('%s','%s','%s'%s, 'Avro')",
 		s.config.DestinationTableIdentifier, avroFileUrl,
 		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
+	for i := 0; i < numParts; i++ {
+		whereClause := fmt.Sprintf("cityHash64(%s) %% %d = %d", hashColName, numParts, i)
+		partitionedQuery := query + " AND " + whereClause
+		fmtStr := "executing query for raw table %s (part %d/%d): %s"
+		s.connector.logger.Info(fmt.Sprintf(fmtStr, s.config.DestinationTableIdentifier, i+1, numParts, partitionedQuery))
 
-	return s.connector.database.Exec(ctx, query)
+		err = s.connector.database.Exec(ctx, query)
+		if err != nil {
+			return fmt.Errorf("error while copying stage to destination: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (s *ClickhouseAvroSyncMethod) SyncRecords(
