@@ -238,7 +238,7 @@ export const cdcSettings: MirrorSetting[] = [
       ),
     type: 'textarea',
     default: '',
-    tips: 'string:string JSON mapping to override global settings for mirror',
+    tips: '{"string":"string"} JSON mapping to override global settings for mirror',
     advanced: AdvancedSettingType.ALL,
   },
 ];
