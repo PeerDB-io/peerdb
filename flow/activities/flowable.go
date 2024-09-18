@@ -130,15 +130,16 @@ func (a *FlowableActivity) CreateRawTable(
 	return res, nil
 }
 
-// GetTableSchema returns the schema of a table.
-func (a *FlowableActivity) GetTableSchema(
+// SetupTableSchema returns the schema of a table.
+func (a *FlowableActivity) SetupTableSchema(
 	ctx context.Context,
-	config *protos.GetTableSchemaBatchInput,
-) (*protos.GetTableSchemaBatchOutput, error) {
+	config *protos.SetupTableSchemaBatchInput,
+) error {
+	logger := activity.GetLogger(ctx)
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
 	srcConn, err := connectors.GetByNameAs[connectors.GetTableSchemaConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get GetTableSchemaConnector: %w", err)
+		return fmt.Errorf("failed to get GetTableSchemaConnector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
@@ -146,7 +147,13 @@ func (a *FlowableActivity) GetTableSchema(
 		return "getting table schema"
 	})
 
-	return srcConn.GetTableSchema(ctx, config)
+	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.System, config.TableIdentifiers)
+	if err != nil {
+		return fmt.Errorf("failed to get GetTableSchemaConnector: %w", err)
+	}
+	processed := shared.BuildProcessedSchemaMapping(config.TableMappings, tableNameSchemaMapping, logger)
+	// TODO persist processed
+	return nil
 }
 
 // CreateNormalizedTable creates normalized tables in destination.

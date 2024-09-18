@@ -66,9 +66,7 @@ func (s SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
-		TableIdentifiers: []string{tableName},
-	})
+	output, err := s.connector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{tableName})
 	require.NoError(s.t, err)
 	require.Equal(s.t, &protos.TableSchema{
 		TableIdentifier: tableName,
@@ -84,7 +82,7 @@ func (s SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 				TypeModifier: -1,
 			},
 		},
-	}, output.TableNameSchemaMapping[tableName])
+	}, output[tableName])
 }
 
 func (s SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
@@ -176,11 +174,9 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
-		TableIdentifiers: []string{tableName},
-	})
+	output, err := s.connector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{tableName})
 	require.NoError(s.t, err)
-	require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
+	require.Equal(s.t, expectedTableSchema, output[tableName])
 }
 
 func (s SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
@@ -257,11 +253,9 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
-		TableIdentifiers: []string{tableName},
-	})
+	output, err := s.connector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{tableName})
 	require.NoError(s.t, err)
-	require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
+	require.Equal(s.t, expectedTableSchema, output[tableName])
 }
 
 func (s SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
@@ -314,11 +308,9 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
-		TableIdentifiers: []string{tableName},
-	})
+	output, err := s.connector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{tableName})
 	require.NoError(s.t, err)
-	require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
+	require.Equal(s.t, expectedTableSchema, output[tableName])
 }
 
 func (s SnowflakeSchemaDeltaTestSuite) Teardown() {

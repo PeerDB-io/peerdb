@@ -410,7 +410,6 @@ func CDCFlowWorkflow(
 			return state, fmt.Errorf("failed to execute setup workflow: %w", err)
 		}
 		state.SyncFlowOptions.SrcTableIdNameMapping = setupFlowOutput.SrcTableIdNameMapping
-		state.SyncFlowOptions.TableNameSchemaMapping = setupFlowOutput.TableNameSchemaMapping
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_SNAPSHOT
 
 		// next part of the setup is to snapshot-initial-copy and setup replication slots.

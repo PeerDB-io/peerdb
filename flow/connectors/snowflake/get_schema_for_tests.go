@@ -39,10 +39,12 @@ func (c *SnowflakeConnector) getTableSchemaForTable(ctx context.Context, tableNa
 // only used for testing atm. doesn't return info about pkey or ReplicaIdentity [which is PG specific anyway].
 func (c *SnowflakeConnector) GetTableSchema(
 	ctx context.Context,
-	req *protos.GetTableSchemaBatchInput,
-) (*protos.GetTableSchemaBatchOutput, error) {
-	res := make(map[string]*protos.TableSchema, len(req.TableIdentifiers))
-	for _, tableName := range req.TableIdentifiers {
+	_env map[string]string,
+	_system protos.TypeSystem,
+	tableIdentifiers []string,
+) (map[string]*protos.TableSchema, error) {
+	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
+	for _, tableName := range tableIdentifiers {
 		tableSchema, err := c.getTableSchemaForTable(ctx, tableName)
 		if err != nil {
 			return nil, err
@@ -50,7 +52,5 @@ func (c *SnowflakeConnector) GetTableSchema(
 		res[tableName] = tableSchema
 	}
 
-	return &protos.GetTableSchemaBatchOutput{
-		TableNameSchemaMapping: res,
-	}, nil
+	return res, nil
 }

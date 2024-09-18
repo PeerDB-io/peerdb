@@ -190,10 +190,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		}
 		defer chPeer.Close()
 
-		res, err := pgPeer.GetTableSchema(ctx, &protos.GetTableSchemaBatchInput{
-			TableIdentifiers: srcTableNames,
-			System:           protos.TypeSystem_PG,
-		})
+		res, err := pgPeer.GetTableSchema(ctx, nil, protos.TypeSystem_PG, srcTableNames)
 		if err != nil {
 			displayErr := fmt.Errorf("failed to get source table schema: %v", err)
 			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
@@ -204,7 +201,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 			}, displayErr
 		}
 
-		err = chPeer.CheckDestinationTables(ctx, req.ConnectionConfigs, res.TableNameSchemaMapping)
+		err = chPeer.CheckDestinationTables(ctx, req.ConnectionConfigs, res)
 		if err != nil {
 			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
 				fmt.Sprint(err),

@@ -168,9 +168,9 @@ func (s *SetupFlowExecution) createRawTable(
 
 // fetchTableSchemaAndSetupNormalizedTables fetches the table schema for the source table and
 // sets up the normalized tables on the destination peer.
-func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
+func (s *SetupFlowExecution) setupNormalizedTables(
 	ctx workflow.Context, flowConnectionConfigs *protos.FlowConnectionConfigs,
-) (map[string]*protos.TableSchema, error) {
+) error {
 	s.Info("fetching table schema for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -180,46 +180,38 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 
 	sourceTables := slices.Sorted(maps.Keys(s.tableNameMapping))
 
-	tableSchemaInput := &protos.GetTableSchemaBatchInput{
+	tableSchemaInput := &protos.SetupTableSchemaBatchInput{
 		PeerName:         flowConnectionConfigs.SourceName,
 		TableIdentifiers: sourceTables,
+		TableMappings:    flowConnectionConfigs.TableMappings,
 		FlowName:         s.cdcFlowName,
 		System:           flowConnectionConfigs.System,
 		Env:              flowConnectionConfigs.Env,
 	}
 
-	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
-
-	var tblSchemaOutput *protos.GetTableSchemaBatchOutput
-	if err := future.Get(ctx, &tblSchemaOutput); err != nil {
+	if err := workflow.ExecuteActivity(ctx, flowable.SetupTableSchema, tableSchemaInput).Get(ctx, nil); err != nil {
 		s.Error("failed to fetch schema for source tables", slog.Any("error", err))
-		return nil, fmt.Errorf("failed to fetch schema for source table %s: %w", sourceTables, err)
+		return fmt.Errorf("failed to fetch schema for source table %s: %w", sourceTables, err)
 	}
 
-	s.Info("setting up normalized tables for peer flow")
-	normalizedTableMapping := shared.BuildProcessedSchemaMapping(flowConnectionConfigs.TableMappings,
-		tblSchemaOutput.TableNameSchemaMapping, s.Logger)
-
-	// now setup the normalized tables on the destination peer
+	s.Info("setting up normalized tables on destination peer", slog.String("destination", flowConnectionConfigs.DestinationName))
 	setupConfig := &protos.SetupNormalizedTableBatchInput{
-		PeerName:               flowConnectionConfigs.DestinationName,
-		TableNameSchemaMapping: normalizedTableMapping,
-		TableMappings:          flowConnectionConfigs.TableMappings,
-		SoftDeleteColName:      flowConnectionConfigs.SoftDeleteColName,
-		SyncedAtColName:        flowConnectionConfigs.SyncedAtColName,
-		FlowName:               flowConnectionConfigs.FlowJobName,
-		Env:                    flowConnectionConfigs.Env,
-		IsResync:               flowConnectionConfigs.Resync,
+		PeerName:          flowConnectionConfigs.DestinationName,
+		TableMappings:     flowConnectionConfigs.TableMappings,
+		SoftDeleteColName: flowConnectionConfigs.SoftDeleteColName,
+		SyncedAtColName:   flowConnectionConfigs.SyncedAtColName,
+		FlowName:          flowConnectionConfigs.FlowJobName,
+		Env:               flowConnectionConfigs.Env,
+		IsResync:          flowConnectionConfigs.Resync,
 	}
 
-	future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
-	if err := future.Get(ctx, nil); err != nil {
-		s.Error("failed to create normalized tables", err)
-		return nil, fmt.Errorf("failed to create normalized tables: %w", err)
+	if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig).Get(ctx, nil); err != nil {
+		s.Error("failed to create normalized tables", slog.Any("error", err))
+		return fmt.Errorf("failed to create normalized tables: %w", err)
 	}
 
 	s.Info("finished setting up normalized tables for peer flow")
-	return normalizedTableMapping, nil
+	return nil
 }
 
 // executeSetupFlow executes the setup flow.
@@ -248,14 +240,12 @@ func (s *SetupFlowExecution) executeSetupFlow(
 	}
 
 	// then fetch the table schema and setup the normalized tables
-	tableNameSchemaMapping, err := s.fetchTableSchemaAndSetupNormalizedTables(ctx, config)
-	if err != nil {
+	if err := s.setupNormalizedTables(ctx, config); err != nil {
 		return nil, fmt.Errorf("failed to fetch table schema and setup normalized tables: %w", err)
 	}
 
 	return &protos.SetupFlowOutput{
-		SrcTableIdNameMapping:  srcTableIdNameMapping,
-		TableNameSchemaMapping: tableNameSchemaMapping,
+		SrcTableIdNameMapping: srcTableIdNameMapping,
 	}, nil
 }
 

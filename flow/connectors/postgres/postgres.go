@@ -723,11 +723,13 @@ func (c *PostgresConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 
 func (c *PostgresConnector) GetTableSchema(
 	ctx context.Context,
-	req *protos.GetTableSchemaBatchInput,
-) (*protos.GetTableSchemaBatchOutput, error) {
-	res := make(map[string]*protos.TableSchema)
-	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(ctx, req.Env, tableName, req.System)
+	env map[string]string,
+	system protos.TypeSystem,
+	tableIdentifiers []string,
+) (map[string]*protos.TableSchema, error) {
+	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
+	for _, tableName := range tableIdentifiers {
+		tableSchema, err := c.getTableSchemaForTable(ctx, env, tableName, system)
 		if err != nil {
 			c.logger.Info("error fetching schema for table "+tableName, slog.Any("error", err))
 			return nil, err
@@ -736,9 +738,7 @@ func (c *PostgresConnector) GetTableSchema(
 		c.logger.Info("fetched schema for table " + tableName)
 	}
 
-	return &protos.GetTableSchemaBatchOutput{
-		TableNameSchemaMapping: res,
-	}, nil
+	return res, nil
 }
 
 func (c *PostgresConnector) getTableSchemaForTable(
