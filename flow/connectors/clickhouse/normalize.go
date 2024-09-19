@@ -305,6 +305,10 @@ func (c *ClickhouseConnector) NormalizeRecords(
 				if err != nil {
 					return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 				}
+				if colType == qvalue.QValueKindNumeric {
+					precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
+					clickhouseType = fmt.Sprintf("Decimal(%d, %d)", precision, scale)
+				}
 			}
 
 			switch clickhouseType {
