@@ -2,13 +2,10 @@ package datatypes
 
 const (
 	// defaults
-	PeerDBBigQueryPrecision   = 38
-	PeerDBBigQueryScale       = 20
-	PeerDBSnowflakePrecision  = 38
-	PeerDBSnowflakeScale      = 20
-	PeerDBClickhousePrecision = 76
-	PeerDBClickhouseScale     = 38
-	VARHDRSZ                  = 4
+	PeerDBBigQueryScale   = 20
+	PeerDBSnowflakeScale  = 20
+	PeerDBClickhouseScale = 38
+	VARHDRSZ              = 4
 )
 
 type WarehouseNumericCompatibility interface {
@@ -16,6 +13,8 @@ type WarehouseNumericCompatibility interface {
 	MaxScale() int16
 	DefaultPrecisionAndScale() (int16, int16)
 	IsValidPrecisionAndScale(precision, scale int16) bool
+	IsValidPrecision(precision int16) bool
+	IsValidScale(scale int16) bool
 }
 
 type ClickHouseNumericCompatibility struct{}
@@ -28,12 +27,20 @@ func (ClickHouseNumericCompatibility) MaxScale() int16 {
 	return 38
 }
 
-func (ClickHouseNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
-	return PeerDBClickhousePrecision, PeerDBClickhouseScale
+func (c ClickHouseNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
+	return c.MaxPrecision(), PeerDBClickhouseScale
 }
 
-func (ClickHouseNumericCompatibility) IsValidPrecisionAndScale(precision, scale int16) bool {
-	return precision > 0 && precision <= PeerDBClickhousePrecision && scale < precision
+func (c ClickHouseNumericCompatibility) IsValidPrecisionAndScale(precision, scale int16) bool {
+	return c.IsValidPrecision(precision) && c.IsValidScale(scale) && scale < precision
+}
+
+func (c ClickHouseNumericCompatibility) IsValidPrecision(precision int16) bool {
+	return precision > 0 && precision <= c.MaxPrecision()
+}
+
+func (ClickHouseNumericCompatibility) IsValidScale(scale int16) bool {
+	return scale >= 0
 }
 
 type SnowflakeNumericCompatibility struct{}
@@ -46,12 +53,20 @@ func (SnowflakeNumericCompatibility) MaxScale() int16 {
 	return 37
 }
 
-func (SnowflakeNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
-	return PeerDBSnowflakePrecision, PeerDBSnowflakeScale
+func (s SnowflakeNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
+	return s.MaxPrecision(), PeerDBSnowflakeScale
 }
 
-func (SnowflakeNumericCompatibility) IsValidPrecisionAndScale(precision, scale int16) bool {
-	return precision > 0 && precision <= 38 && scale < precision
+func (s SnowflakeNumericCompatibility) IsValidPrecisionAndScale(precision, scale int16) bool {
+	return s.IsValidPrecision(precision) && s.IsValidScale(scale) && scale < precision
+}
+
+func (s SnowflakeNumericCompatibility) IsValidPrecision(precision int16) bool {
+	return precision > 0 && precision <= s.MaxPrecision()
+}
+
+func (SnowflakeNumericCompatibility) IsValidScale(scale int16) bool {
+	return scale >= 0
 }
 
 type BigQueryNumericCompatibility struct{}
@@ -64,13 +79,20 @@ func (BigQueryNumericCompatibility) MaxScale() int16 {
 	return 20
 }
 
-func (BigQueryNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
-	return PeerDBBigQueryPrecision, PeerDBBigQueryScale
+func (b BigQueryNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
+	return b.MaxPrecision(), PeerDBBigQueryScale
 }
 
-func (BigQueryNumericCompatibility) IsValidPrecisionAndScale(precision, scale int16) bool {
-	return precision > 0 && precision <= PeerDBBigQueryPrecision &&
-		scale <= PeerDBBigQueryScale && scale < precision
+func (b BigQueryNumericCompatibility) IsValidPrecisionAndScale(precision, scale int16) bool {
+	return b.IsValidPrecision(precision) && b.IsValidScale(scale) && scale < precision
+}
+
+func (b BigQueryNumericCompatibility) IsValidPrecision(precision int16) bool {
+	return precision > 0 && precision <= b.MaxPrecision()
+}
+
+func (BigQueryNumericCompatibility) IsValidScale(scale int16) bool {
+	return scale >= 0
 }
 
 type DefaultNumericCompatibility struct{}
@@ -87,8 +109,16 @@ func (DefaultNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
 	return 38, 20
 }
 
-func (DefaultNumericCompatibility) IsValidPrecisionAndScale(precision, scale int16) bool {
-	return true
+func (d DefaultNumericCompatibility) IsValidPrecisionAndScale(precision, scale int16) bool {
+	return d.IsValidPrecision(precision) && d.IsValidScale(scale) && scale < precision
+}
+
+func (d DefaultNumericCompatibility) IsValidPrecision(precision int16) bool {
+	return precision > 0 && precision <= d.MaxPrecision()
+}
+
+func (DefaultNumericCompatibility) IsValidScale(scale int16) bool {
+	return scale >= 0
 }
 
 func MakeNumericTypmod(precision int32, scale int32) int32 {
@@ -113,8 +143,17 @@ func GetNumericTypeForWarehouse(typmod int32, warehouseNumeric WarehouseNumericC
 	}
 
 	precision, scale := ParseNumericTypmod(typmod)
+	if !warehouseNumeric.IsValidPrecision(precision) {
+		precision = warehouseNumeric.MaxPrecision()
+	}
+
+	if !warehouseNumeric.IsValidScale(scale) {
+		_, defaultScale := warehouseNumeric.DefaultPrecisionAndScale()
+		scale = defaultScale
+	}
+
 	if !warehouseNumeric.IsValidPrecisionAndScale(precision, scale) {
-		return warehouseNumeric.DefaultPrecisionAndScale()
+		precision, scale = warehouseNumeric.DefaultPrecisionAndScale()
 	}
 
 	return precision, scale
