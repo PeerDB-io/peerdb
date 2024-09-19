@@ -543,6 +543,7 @@ func (h *FlowRequestHandler) ResyncMirror(
 	ctx context.Context,
 	req *protos.ResyncMirrorRequest,
 ) (*protos.ResyncMirrorResponse, error) {
+	slog.Info("ResyncMirror called", slog.String("flowJobName", req.FlowJobName))
 	isCDC, err := h.isCDCFlow(ctx, req.FlowJobName)
 	if err != nil {
 		return nil, err
