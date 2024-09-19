@@ -863,6 +863,7 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	tx any,
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
+	tableSchema *protos.TableSchema,
 ) (bool, error) {
 	createNormalizedTablesTx := tx.(pgx.Tx)
 
@@ -889,7 +890,7 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	}
 
 	// convert the column names and types to Postgres types
-	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(config, tableIdentifier, parsedNormalizedTable)
+	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(config, parsedNormalizedTable, tableSchema)
 	_, err = c.execWithLoggingTx(ctx, normalizedTableCreateSQL, createNormalizedTablesTx)
 	if err != nil {
 		return false, fmt.Errorf("error while creating normalized table: %w", err)

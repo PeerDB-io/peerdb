@@ -128,42 +128,35 @@ func SyncFlowWorkflow(
 				logger.Info("Total records synced", slog.Int64("totalRecordsSynced", totalRecordsSynced))
 
 				// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
-				// TODO move into activity, only need to update db
-				/*
-					tableSchemaDeltasCount := len(childSyncFlowRes.SyncResponse.TableSchemaDeltas)
-					if tableSchemaDeltasCount > 0 {
-						modifiedSrcTables := make([]string, 0, tableSchemaDeltasCount)
-						for _, tableSchemaDelta := range childSyncFlowRes.SyncResponse.TableSchemaDeltas {
-							modifiedSrcTables = append(modifiedSrcTables, tableSchemaDelta.SrcTableName)
-						}
-
-						getModifiedSchemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-							StartToCloseTimeout: 5 * time.Minute,
-						})
-						getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.GetTableSchema,
-							&protos.GetTableSchemaBatchInput{
-								PeerName:         config.SourceName,
-								TableIdentifiers: modifiedSrcTables,
-								FlowName:         config.FlowJobName,
-								System:           config.System,
-							})
-
-						var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
-						if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {
-							logger.Error("failed to execute schema update at source", slog.Any("error", err))
-							_ = model.SyncResultSignal.SignalExternalWorkflow(
-								ctx,
-								parent.ID,
-								"",
-								nil,
-							).Get(ctx, nil)
-						} else {
-							processedSchemaMapping := shared.BuildProcessedSchemaMapping(options.TableMappings,
-								getModifiedSchemaRes.TableNameSchemaMapping, logger)
-							maps.Copy(options.TableNameSchemaMapping, processedSchemaMapping)
-						}
+				tableSchemaDeltasCount := len(childSyncFlowRes.SyncResponse.TableSchemaDeltas)
+				if tableSchemaDeltasCount > 0 {
+					modifiedSrcTables := make([]string, 0, tableSchemaDeltasCount)
+					for _, tableSchemaDelta := range childSyncFlowRes.SyncResponse.TableSchemaDeltas {
+						modifiedSrcTables = append(modifiedSrcTables, tableSchemaDelta.SrcTableName)
 					}
-				*/
+
+					getModifiedSchemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+						StartToCloseTimeout: 5 * time.Minute,
+					})
+					getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.SetupTableSchema,
+						&protos.SetupTableSchemaBatchInput{
+							PeerName:         config.SourceName,
+							TableIdentifiers: modifiedSrcTables,
+							FlowName:         config.FlowJobName,
+							System:           config.System,
+							Clear:            false,
+						})
+
+					if err := getModifiedSchemaFuture.Get(ctx, nil); err != nil {
+						logger.Error("failed to execute schema update at source", slog.Any("error", err))
+						_ = model.SyncResultSignal.SignalExternalWorkflow(
+							ctx,
+							parent.ID,
+							"",
+							nil,
+						).Get(ctx, nil)
+					}
+				}
 
 				if childSyncFlowRes.NeedsNormalize {
 					err := model.NormalizeSignal.SignalExternalWorkflow(
@@ -171,9 +164,8 @@ func SyncFlowWorkflow(
 						parent.ID,
 						"",
 						model.NormalizePayload{
-							Done:                   false,
-							SyncBatchID:            childSyncFlowRes.SyncResponse.CurrentSyncBatchID,
-							TableNameSchemaMapping: options.TableNameSchemaMapping,
+							Done:        false,
+							SyncBatchID: childSyncFlowRes.SyncResponse.CurrentSyncBatchID,
 						},
 					).Get(ctx, nil)
 					if err != nil {

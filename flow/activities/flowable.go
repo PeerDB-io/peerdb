@@ -152,8 +152,36 @@ func (a *FlowableActivity) SetupTableSchema(
 		return fmt.Errorf("failed to get GetTableSchemaConnector: %w", err)
 	}
 	processed := shared.BuildProcessedSchemaMapping(config.TableMappings, tableNameSchemaMapping, logger)
-	// TODO persist processed
-	return nil
+
+	tx, err := a.CatalogPool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer shared.RollbackTx(tx, logger)
+	if config.Clear {
+		if _, err = tx.Exec(ctx, "delete from table_schema_mapping where flow_name = $1", config.FlowName); err != nil {
+			return err
+		}
+	}
+
+	for k, v := range processed {
+		processedBytes, err := proto.Marshal(v)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(
+			ctx,
+			"insert into table_schema_mapping(flow_name, table_name, table_schema) values ($1, $2, $3) "+
+				"on conflict (flow_name, table_name) do update set table_schema = $3",
+			config.FlowName,
+			k,
+			processedBytes,
+		); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
 }
 
 // CreateNormalizedTable creates normalized tables in destination.
@@ -179,21 +207,27 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	}
 	defer conn.CleanupSetupNormalizedTables(ctx, tx)
 
+	tableNameSchemaMapping, err := a.getTableNameSchemaMapping(ctx, config.FlowName)
+	if err != nil {
+		return nil, err
+	}
+
 	numTablesSetup := atomic.Uint32{}
-	totalTables := uint32(len(config.TableNameSchemaMapping))
+	totalTables := uint32(len(tableNameSchemaMapping))
 	shutdown := heartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("setting up normalized tables - %d of %d done",
 			numTablesSetup.Load(), totalTables)
 	})
 	defer shutdown()
 
-	tableExistsMapping := make(map[string]bool, len(config.TableNameSchemaMapping))
-	for tableIdentifier := range config.TableNameSchemaMapping {
+	tableExistsMapping := make(map[string]bool, len(tableNameSchemaMapping))
+	for tableIdentifier, tableSchema := range tableNameSchemaMapping {
 		existing, err := conn.SetupNormalizedTable(
 			ctx,
 			tx,
 			config,
 			tableIdentifier,
+			tableSchema,
 		)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowName, err)
@@ -355,10 +389,15 @@ func (a *FlowableActivity) StartNormalize(
 	})
 	defer shutdown()
 
+	tableNameSchemaMapping, err := a.getTableNameSchemaMapping(ctx, input.FlowConnectionConfigs.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+
 	res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
 		FlowJobName:            input.FlowConnectionConfigs.FlowJobName,
 		Env:                    input.FlowConnectionConfigs.Env,
-		TableNameSchemaMapping: input.TableNameSchemaMapping,
+		TableNameSchemaMapping: tableNameSchemaMapping,
 		TableMappings:          input.FlowConnectionConfigs.TableMappings,
 		SyncBatchID:            input.SyncBatchID,
 		SoftDeleteColName:      input.FlowConnectionConfigs.SoftDeleteColName,

@@ -196,7 +196,6 @@ func processTableAdditions(
 	}
 
 	maps.Copy(state.SyncFlowOptions.SrcTableIdNameMapping, res.SyncFlowOptions.SrcTableIdNameMapping)
-	maps.Copy(state.SyncFlowOptions.TableNameSchemaMapping, res.SyncFlowOptions.TableNameSchemaMapping)
 
 	state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
 	logger.Info("additional tables added to sync flow")
@@ -431,7 +430,6 @@ func CDCFlowWorkflow(
 			snapshotFlowCtx,
 			SnapshotFlowWorkflow,
 			cfg,
-			state.SyncFlowOptions.TableNameSchemaMapping,
 		)
 		if err := snapshotFlowFuture.Get(snapshotFlowCtx, nil); err != nil {
 			logger.Error("snapshot flow failed", slog.Any("error", err))
@@ -447,22 +445,16 @@ func CDCFlowWorkflow(
 			renameOpts.SyncedAtColName = cfg.SyncedAtColName
 			renameOpts.SoftDeleteColName = cfg.SoftDeleteColName
 
-			correctedTableNameSchemaMapping := make(map[string]*protos.TableSchema)
 			for _, mapping := range state.SyncFlowOptions.TableMappings {
 				oldName := mapping.DestinationTableIdentifier
 				newName := strings.TrimSuffix(oldName, "_resync")
 				renameOpts.RenameTableOptions = append(renameOpts.RenameTableOptions, &protos.RenameTableOption{
 					CurrentName: oldName,
 					NewName:     newName,
-					// oldName is what was used for the TableNameSchema mapping
-					TableSchema: state.SyncFlowOptions.TableNameSchemaMapping[oldName],
 				})
 				mapping.DestinationTableIdentifier = newName
-				// TableNameSchemaMapping is referring to the _resync tables, not the actual names
-				correctedTableNameSchemaMapping[newName] = state.SyncFlowOptions.TableNameSchemaMapping[oldName]
 			}
 
-			state.SyncFlowOptions.TableNameSchemaMapping = correctedTableNameSchemaMapping
 			renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 				StartToCloseTimeout: 12 * time.Hour,
 				HeartbeatTimeout:    time.Minute,
@@ -573,7 +565,6 @@ func CDCFlowWorkflow(
 		if normFlowFuture != nil {
 			_ = model.NormalizeSignal.SignalChildWorkflow(ctx, normFlowFuture, payload).Get(ctx, nil)
 		}
-		maps.Copy(state.SyncFlowOptions.TableNameSchemaMapping, payload.TableNameSchemaMapping)
 	})
 
 	parallel := getParallelSyncNormalize(ctx, logger, cfg.Env)

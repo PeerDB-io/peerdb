@@ -132,6 +132,7 @@ type NormalizedTablesConnector interface {
 		tx any,
 		config *protos.SetupNormalizedTableBatchInput,
 		tableIdentifier string,
+		tableSchema *protos.TableSchema,
 	) (bool, error)
 }
 

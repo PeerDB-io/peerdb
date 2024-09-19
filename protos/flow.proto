@@ -112,14 +112,12 @@ message SyncFlowOptions {
   uint32 batch_size = 1;
   uint64 idle_timeout_seconds = 3;
   map<uint32, string> src_table_id_name_mapping = 4;
-  map<string, TableSchema> table_name_schema_mapping = 5;
   repeated TableMapping table_mappings = 6;
   int32 number_of_syncs = 7;
 }
 
 message StartNormalizeInput {
   FlowConnectionConfigs flow_connection_configs = 1;
-  map<string, TableSchema> table_name_schema_mapping = 2;
   int64 SyncBatchID = 3;
 }
 
@@ -187,11 +185,11 @@ message SetupTableSchemaBatchInput {
   TypeSystem system = 4;
   string peer_name = 5;
   repeated TableMapping table_mappings = 6;
+  bool clear = 7;
 }
 
 message SetupNormalizedTableBatchInput {
   map<string, string> env = 1;
-  map<string, TableSchema> table_name_schema_mapping = 2;
   repeated TableMapping table_mappings = 3;
 
   // migration related columns

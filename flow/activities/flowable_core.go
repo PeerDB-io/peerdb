@@ -76,6 +76,31 @@ func waitForCdcCache[TPull connectors.CDCPullConnectorCore](ctx context.Context,
 	}
 }
 
+func (a *FlowableActivity) getTableNameSchemaMapping(
+	ctx context.Context,
+	flowName string,
+) (map[string]*protos.TableSchema, error) {
+	rows, err := a.CatalogPool.Query(ctx, "select table_name, table_schema from table_schema_mapping where flow_name = $1", flowName)
+	if err != nil {
+		return nil, err
+	}
+
+	var tableName string
+	var tableSchemaBytes []byte
+	tableNameSchemaMapping := make(map[string]*protos.TableSchema)
+	if _, err := pgx.ForEachRow(rows, []any{&tableName, &tableSchemaBytes}, func() error {
+		tableSchema := &protos.TableSchema{}
+		if err := proto.Unmarshal(tableSchemaBytes, tableSchema); err != nil {
+			return err
+		}
+		tableNameSchemaMapping[tableName] = tableSchema
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("failed to deserialize table schema proto: %w", err)
+	}
+	return tableNameSchemaMapping, nil
+}
+
 func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncConnectorCore, Items model.Items](
 	ctx context.Context,
 	a *FlowableActivity,
@@ -141,8 +166,13 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			return nil, err
 		}
 	}
-	startTime := time.Now()
 
+	tableNameSchemaMapping, err := a.getTableNameSchemaMapping(ctx, flowName)
+	if err != nil {
+		return nil, err
+	}
+
+	startTime := time.Now()
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
 		return pull(srcConn, errCtx, a.CatalogPool, &model.PullRecordsRequest[Items]{
@@ -155,7 +185,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			IdleTimeout: peerdbenv.PeerDBCDCIdleTimeoutSeconds(
 				int(options.IdleTimeoutSeconds),
 			),
-			TableNameSchemaMapping:      options.TableNameSchemaMapping,
+			TableNameSchemaMapping:      tableNameSchemaMapping,
 			OverridePublicationName:     config.PublicationName,
 			OverrideReplicationSlotName: config.ReplicationSlotName,
 			RecordStream:                recordBatchPull,
@@ -237,7 +267,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			TableMappings:          options.TableMappings,
 			StagingPath:            config.CdcStagingPath,
 			Script:                 config.Script,
-			TableNameSchemaMapping: options.TableNameSchemaMapping,
+			TableNameSchemaMapping: tableNameSchemaMapping,
 		})
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, flowName, err)

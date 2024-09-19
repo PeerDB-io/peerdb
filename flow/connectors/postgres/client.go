@@ -452,14 +452,13 @@ func getRawTableIdentifier(jobName string) string {
 
 func generateCreateTableSQLForNormalizedTable(
 	config *protos.SetupNormalizedTableBatchInput,
-	tableIdentifier string,
 	dstSchemaTable *utils.SchemaTable,
+	tableSchema *protos.TableSchema,
 ) string {
-	sourceTableSchema := config.TableNameSchemaMapping[tableIdentifier]
-	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns)+2)
-	for _, column := range sourceTableSchema.Columns {
+	createTableSQLArray := make([]string, 0, len(tableSchema.Columns)+2)
+	for _, column := range tableSchema.Columns {
 		pgColumnType := column.Type
-		if sourceTableSchema.System == protos.TypeSystem_Q {
+		if tableSchema.System == protos.TypeSystem_Q {
 			pgColumnType = qValueKindToPostgresType(pgColumnType)
 		}
 		if column.Type == "numeric" && column.TypeModifier != -1 {
@@ -467,7 +466,7 @@ func generateCreateTableSQLForNormalizedTable(
 			pgColumnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
 		}
 		var notNull string
-		if sourceTableSchema.NullableEnabled && !column.Nullable {
+		if tableSchema.NullableEnabled && !column.Nullable {
 			notNull = " NOT NULL"
 		}
 
@@ -486,9 +485,9 @@ func generateCreateTableSQLForNormalizedTable(
 	}
 
 	// add composite primary key to the table
-	if len(sourceTableSchema.PrimaryKeyColumns) > 0 && !sourceTableSchema.IsReplicaIdentityFull {
-		primaryKeyColsQuoted := make([]string, 0, len(sourceTableSchema.PrimaryKeyColumns))
-		for _, primaryKeyCol := range sourceTableSchema.PrimaryKeyColumns {
+	if len(tableSchema.PrimaryKeyColumns) > 0 && !tableSchema.IsReplicaIdentityFull {
+		primaryKeyColsQuoted := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
+		for _, primaryKeyCol := range tableSchema.PrimaryKeyColumns {
 			primaryKeyColsQuoted = append(primaryKeyColsQuoted, QuoteIdentifier(primaryKeyCol))
 		}
 		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s)",

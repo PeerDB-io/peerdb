@@ -602,8 +602,8 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	tx interface{},
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
+	tableSchema *protos.TableSchema,
 ) (bool, error) {
-	tableSchema := config.TableNameSchemaMapping[tableIdentifier]
 	datasetTablesSet := tx.(map[datasetTable]struct{})
 
 	// only place where we check for parsing errors

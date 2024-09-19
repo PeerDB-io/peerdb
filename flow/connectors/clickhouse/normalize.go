@@ -42,6 +42,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 	tx interface{},
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
+	tableSchema *protos.TableSchema,
 ) (bool, error) {
 	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.config.Database, tableIdentifier)
 	if err != nil {
@@ -55,6 +56,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 	normalizedTableCreateSQL, err := generateCreateTableSQLForNormalizedTable(
 		config,
 		tableIdentifier,
+		tableSchema,
 	)
 	if err != nil {
 		return false, fmt.Errorf("error while generating create table sql for normalized table: %w", err)
@@ -76,9 +78,8 @@ func getColName(overrides map[string]string, name string) string {
 func generateCreateTableSQLForNormalizedTable(
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
+	tableSchema *protos.TableSchema,
 ) (string, error) {
-	tableSchema := config.TableNameSchemaMapping[tableIdentifier]
-
 	var tableMapping *protos.TableMapping
 	for _, tm := range config.TableMappings {
 		if tm.DestinationTableIdentifier == tableIdentifier {
@@ -116,7 +117,6 @@ func generateCreateTableSQLForNormalizedTable(
 						colNameMap[colName] = dstColName
 					}
 					if columnSetting.DestinationType != "" {
-						// TODO can we restrict this to avoid injection?
 						clickHouseType = columnSetting.DestinationType
 					}
 					break
