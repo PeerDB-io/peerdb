@@ -300,10 +300,15 @@ func (c *ClickhouseConnector) NormalizeRecords(
 
 			colSelector.WriteString(fmt.Sprintf("`%s`,", dstColName))
 			if clickhouseType == "" {
-				var err error
-				clickhouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
-				if err != nil {
-					return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
+				if colType == qvalue.QValueKindNumeric {
+					precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
+					clickhouseType = fmt.Sprintf("Decimal(%d, %d)", precision, scale)
+				} else {
+					var err error
+					clickhouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
+					if err != nil {
+						return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
+					}
 				}
 			}
 

@@ -22,11 +22,7 @@ func DetermineNumericSettingForDWH(precision int16, scale int16, dwh protos.DBTy
 		warehouseNumeric = numeric.DefaultNumericCompatibility{}
 	}
 
-	if !warehouseNumeric.IsValidPrecisionAndScale(precision, scale) {
-		precision, scale = warehouseNumeric.DefaultPrecisionAndScale()
-	}
-
-	return precision, scale
+	return numeric.GetNumericTypeForWarehouse(numeric.MakeNumericTypmod(int32(precision), int32(scale)), warehouseNumeric)
 }
 
 // Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
