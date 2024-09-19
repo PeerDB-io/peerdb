@@ -87,6 +87,13 @@ message RenameTablesInput {
   string synced_at_col_name = 8;
 }
 
+message RemoveTablesFromRawTableInput {
+  string flow_job_name = 1;
+  repeated string destination_table_names = 2;
+  int64 sync_batch_id = 3;
+  int64 normalize_batch_id = 4;
+}
+
 message RenameTablesOutput {
   string flow_job_name = 1;
 }
@@ -389,6 +396,7 @@ message CDCFlowConfigUpdate {
   uint32 batch_size = 2;
   uint64 idle_timeout = 3;
   int32 number_of_syncs = 4;
+  repeated TableMapping removed_tables = 5;
 }
 
 message QRepFlowConfigUpdate {
@@ -410,6 +418,12 @@ message AddTablesToPublicationInput {
   string flow_job_name = 1;
   string publication_name = 2;
   repeated TableMapping additional_tables = 3;
+}
+
+message RemoveTablesFromPublicationInput {
+  string flow_job_name = 1;
+  string publication_name = 2;
+  repeated TableMapping tables_to_remove = 3;
 }
 
 message IsQRepPartitionSyncedInput {

@@ -877,6 +877,25 @@ func (c *SnowflakeConnector) CreateTablesFromExisting(ctx context.Context, req *
 	}, nil
 }
 
+func (c *SnowflakeConnector) RemoveTableEntriesFromRawTable(
+	ctx context.Context,
+	req *protos.RemoveTablesFromRawTableInput,
+) error {
+	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
+	for _, tableName := range req.DestinationTableNames {
+		_, err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s.%s WHERE _PEERDB_DESTINATION_TABLE_NAME = '%s'"+
+			" AND _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d",
+			c.rawSchema, rawTableIdentifier, tableName, req.NormalizeBatchId, req.SyncBatchId))
+		if err != nil {
+			c.logger.Error("failed to remove entries from raw table", "error", err)
+		}
+
+		c.logger.Info(fmt.Sprintf("successfully removed entries for table '%s' from raw table", tableName))
+	}
+
+	return nil
+}
+
 func (c *SnowflakeConnector) execWithLogging(ctx context.Context, query string) (sql.Result, error) {
 	c.logger.Info("[snowflake] executing DDL statement", slog.String("query", query))
 	return c.database.ExecContext(ctx, query)

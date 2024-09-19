@@ -101,7 +101,43 @@ func processCDCFlowConfigUpdate(
 		state.SyncFlowOptions.NumberOfSyncs = flowConfigUpdate.NumberOfSyncs
 	}
 
+	tablesAreAdded := len(flowConfigUpdate.AdditionalTables) > 0
+	tablesAreRemoved := len(flowConfigUpdate.RemovedTables) > 0
+	if !tablesAreAdded && !tablesAreRemoved {
+		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
+		return nil
+	}
+
 	logger.Info("processing CDCFlowConfigUpdate", slog.Any("updatedState", flowConfigUpdate))
+
+	if tablesAreAdded {
+		err := processTableAdditions(ctx, logger, cfg, state, mirrorNameSearch)
+		if err != nil {
+			logger.Error("failed to process additional tables", slog.Any("error", err))
+			return err
+		}
+	}
+
+	if tablesAreRemoved {
+		err := processTableRemovals(ctx, logger, cfg, state)
+		if err != nil {
+			logger.Error("failed to process removed tables", slog.Any("error", err))
+			return err
+		}
+	}
+
+	syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
+	return nil
+}
+
+func processTableAdditions(
+	ctx workflow.Context,
+	logger log.Logger,
+	cfg *protos.FlowConnectionConfigs,
+	state *CDCFlowWorkflowState,
+	mirrorNameSearch map[string]interface{},
+) error {
+	flowConfigUpdate := state.FlowConfigUpdate
 	if len(flowConfigUpdate.AdditionalTables) == 0 {
 		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
 		return nil
@@ -161,8 +197,61 @@ func processCDCFlowConfigUpdate(
 
 	state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
 	logger.Info("additional tables added to sync flow")
+	return nil
+}
 
-	syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
+func processTableRemovals(
+	ctx workflow.Context,
+	logger log.Logger,
+	cfg *protos.FlowConnectionConfigs,
+	state *CDCFlowWorkflowState,
+) error {
+	logger.Info("altering publication for removed tables")
+	alterPublicationRemoveTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+	})
+	alterPublicationRemovedTablesFuture := workflow.ExecuteActivity(
+		alterPublicationRemoveTablesCtx,
+		flowable.RemoveTablesFromPublication,
+		cfg, state.FlowConfigUpdate.RemovedTables)
+	if err := alterPublicationRemovedTablesFuture.Get(ctx, nil); err != nil {
+		logger.Error("failed to alter publication for removed tables: ", err)
+		return err
+	}
+	logger.Info("tables removed from publication")
+
+	rawTableCleanupOptionsCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+	})
+	rawTableCleanupFuture := workflow.ExecuteActivity(
+		rawTableCleanupOptionsCtx,
+		flowable.RemoveTablesFromRawTable,
+		cfg, state.FlowConfigUpdate.RemovedTables)
+	if err := rawTableCleanupFuture.Get(ctx, nil); err != nil {
+		logger.Error("failed to clean up raw table for removed tables: ", err)
+		return err
+	}
+	logger.Info("tables removed from raw table")
+
+	// remove the tables from the sync flow options
+	for _, removedTable := range state.FlowConfigUpdate.RemovedTables {
+		maps.DeleteFunc(state.SyncFlowOptions.TableNameSchemaMapping, func(k string, v *protos.TableSchema) bool {
+			return k == removedTable.SourceTableIdentifier
+		})
+		maps.DeleteFunc(state.SyncFlowOptions.SrcTableIdNameMapping, func(k uint32, v string) bool {
+			return v == removedTable.SourceTableIdentifier
+		})
+		for i, tableMapping := range state.SyncFlowOptions.TableMappings {
+			if tableMapping.SourceTableIdentifier == removedTable.SourceTableIdentifier {
+				state.SyncFlowOptions.TableMappings = append(
+					state.SyncFlowOptions.TableMappings[:i],
+					state.SyncFlowOptions.TableMappings[i+1:]...,
+				)
+				break
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -201,6 +290,7 @@ func addCdcPropertiesSignalListener(
 			slog.Int("BatchSize", int(state.SyncFlowOptions.BatchSize)),
 			slog.Int("IdleTimeout", int(state.SyncFlowOptions.IdleTimeoutSeconds)),
 			slog.Any("AdditionalTables", cdcConfigUpdate.AdditionalTables),
+			slog.Any("RemovedTables", cdcConfigUpdate.RemovedTables),
 			slog.Int("NumberOfSyncs", int(state.SyncFlowOptions.NumberOfSyncs)))
 	})
 }

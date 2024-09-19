@@ -88,6 +88,9 @@ type CDCPullConnectorCore interface {
 
 	// AddTablesToPublication adds additional tables added to a mirror to the publication also
 	AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error
+
+	// RemoveTablesFromPublication removes tables from the publication
+	RemoveTablesFromPublication(ctx context.Context, req *protos.RemoveTablesFromPublicationInput) error
 }
 
 type CDCPullConnector interface {
@@ -245,6 +248,12 @@ type QRepConsolidateConnector interface {
 
 	// CleanupQRepFlow cleans up the QRep flow for a given table.
 	CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error
+}
+
+type RawTableConnector interface {
+	Connector
+
+	RemoveTableEntriesFromRawTable(context.Context, *protos.RemoveTablesFromRawTableInput) error
 }
 
 type RenameTablesConnector interface {
@@ -473,6 +482,11 @@ var (
 	_ RenameTablesConnector = &connbigquery.BigQueryConnector{}
 	_ RenameTablesConnector = &connpostgres.PostgresConnector{}
 	_ RenameTablesConnector = &connclickhouse.ClickhouseConnector{}
+
+	_ RawTableConnector = &connclickhouse.ClickhouseConnector{}
+	_ RawTableConnector = &connbigquery.BigQueryConnector{}
+	_ RawTableConnector = &connsnowflake.SnowflakeConnector{}
+	_ RawTableConnector = &connpostgres.PostgresConnector{}
 
 	_ ValidationConnector = &connsnowflake.SnowflakeConnector{}
 	_ ValidationConnector = &connclickhouse.ClickhouseConnector{}

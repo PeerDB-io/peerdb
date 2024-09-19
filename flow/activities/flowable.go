@@ -20,6 +20,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/alerting"
 	"github.com/PeerDB-io/peer-flow/connectors"
+	connmetadata "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
@@ -825,6 +826,72 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 		FlowJobName:      cfg.FlowJobName,
 		PublicationName:  cfg.PublicationName,
 		AdditionalTables: additionalTableMappings,
+	})
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
+	}
+	return err
+}
+
+func (a *FlowableActivity) RemoveTablesFromPublication(ctx context.Context, cfg *protos.FlowConnectionConfigs,
+	removedTablesMapping []*protos.TableMapping,
+) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
+	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, cfg.Env, a.CatalogPool, cfg.SourceName)
+	if err != nil {
+		return fmt.Errorf("failed to get source connector: %w", err)
+	}
+	defer connectors.CloseConnector(ctx, srcConn)
+
+	err = srcConn.RemoveTablesFromPublication(ctx, &protos.RemoveTablesFromPublicationInput{
+		FlowJobName:     cfg.FlowJobName,
+		PublicationName: cfg.PublicationName,
+		TablesToRemove:  removedTablesMapping,
+	})
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
+	}
+	return err
+}
+
+func (a *FlowableActivity) RemoveTablesFromRawTable(ctx context.Context, cfg *protos.FlowConnectionConfigs,
+	tablesToRemove []*protos.TableMapping,
+) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
+	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
+	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
+	normBatchID, err := pgMetadata.GetLastNormalizeBatchID(ctx, cfg.FlowJobName)
+	if err != nil {
+		logger.Error("[RemoveTablesFromRawTable] failed to get last normalize batch id", slog.Any("error", err))
+		return err
+	}
+
+	syncBatchID, err := pgMetadata.GetLastSyncBatchID(ctx, cfg.FlowJobName)
+	if err != nil {
+		logger.Error("[RemoveTablesFromRawTable] failed to get last sync batch id", slog.Any("error", err))
+		return err
+	}
+
+	dstConn, err := connectors.GetByNameAs[connectors.RawTableConnector](ctx, cfg.Env, a.CatalogPool, cfg.DestinationName)
+	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			// For connectors where raw table is not a concept,
+			// we can ignore the error
+			return nil
+		}
+		return fmt.Errorf("[RemoveTablesFromRawTable]:failed to get destination connector: %w", err)
+	}
+	defer connectors.CloseConnector(ctx, dstConn)
+
+	tableNames := make([]string, 0, len(tablesToRemove))
+	for _, table := range tablesToRemove {
+		tableNames = append(tableNames, table.DestinationTableIdentifier)
+	}
+	err = dstConn.RemoveTableEntriesFromRawTable(ctx, &protos.RemoveTablesFromRawTableInput{
+		FlowJobName:           cfg.FlowJobName,
+		DestinationTableNames: tableNames,
+		SyncBatchId:           syncBatchID,
+		NormalizeBatchId:      normBatchID,
 	})
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)

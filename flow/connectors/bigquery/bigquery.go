@@ -931,6 +931,29 @@ func (c *BigQueryConnector) CreateTablesFromExisting(
 	}, nil
 }
 
+func (c *BigQueryConnector) RemoveTableEntriesFromRawTable(
+	ctx context.Context,
+	req *protos.RemoveTablesFromRawTableInput,
+) error {
+	rawTableIdentifier := c.getRawTableName(req.FlowJobName)
+	for _, tableName := range req.DestinationTableNames {
+		c.logger.Info(fmt.Sprintf("removing entries for table '%s' from raw table...", tableName))
+		deleteCmd := c.queryWithLogging(fmt.Sprintf("DELETE FROM `%s` WHERE _peerdb_destination_table_name = '%s'"+
+			" AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d",
+			rawTableIdentifier, tableName, req.NormalizeBatchId, req.SyncBatchId))
+		deleteCmd.DefaultProjectID = c.projectID
+		deleteCmd.DefaultDatasetID = c.datasetID
+		_, err := deleteCmd.Read(ctx)
+		if err != nil {
+			c.logger.Error("failed to remove entries from raw table", "error", err)
+		}
+
+		c.logger.Info(fmt.Sprintf("successfully removed entries for table '%s' from raw table", tableName))
+	}
+
+	return nil
+}
+
 type datasetTable struct {
 	project string
 	dataset string
