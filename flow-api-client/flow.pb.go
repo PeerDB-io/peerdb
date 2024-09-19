@@ -1042,6 +1042,77 @@ func (x *RenameTablesInput) GetSyncedAtColName() string {
 	return ""
 }
 
+type RemoveTablesFromRawTableInput struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	FlowJobName           string   `protobuf:"bytes,1,opt,name=flow_job_name,json=flowJobName,proto3" json:"flow_job_name,omitempty"`
+	DestinationTableNames []string `protobuf:"bytes,2,rep,name=destination_table_names,json=destinationTableNames,proto3" json:"destination_table_names,omitempty"`
+	SyncBatchId           int64    `protobuf:"varint,3,opt,name=sync_batch_id,json=syncBatchId,proto3" json:"sync_batch_id,omitempty"`
+	NormalizeBatchId      int64    `protobuf:"varint,4,opt,name=normalize_batch_id,json=normalizeBatchId,proto3" json:"normalize_batch_id,omitempty"`
+}
+
+func (x *RemoveTablesFromRawTableInput) Reset() {
+	*x = RemoveTablesFromRawTableInput{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_flow_proto_msgTypes[7]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *RemoveTablesFromRawTableInput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveTablesFromRawTableInput) ProtoMessage() {}
+
+func (x *RemoveTablesFromRawTableInput) ProtoReflect() protoreflect.Message {
+	mi := &file_flow_proto_msgTypes[7]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveTablesFromRawTableInput.ProtoReflect.Descriptor instead.
+func (*RemoveTablesFromRawTableInput) Descriptor() ([]byte, []int) {
+	return file_flow_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *RemoveTablesFromRawTableInput) GetFlowJobName() string {
+	if x != nil {
+		return x.FlowJobName
+	}
+	return ""
+}
+
+func (x *RemoveTablesFromRawTableInput) GetDestinationTableNames() []string {
+	if x != nil {
+		return x.DestinationTableNames
+	}
+	return nil
+}
+
+func (x *RemoveTablesFromRawTableInput) GetSyncBatchId() int64 {
+	if x != nil {
+		return x.SyncBatchId
+	}
+	return 0
+}
+
+func (x *RemoveTablesFromRawTableInput) GetNormalizeBatchId() int64 {
+	if x != nil {
+		return x.NormalizeBatchId
+	}
+	return 0
+}
+
 type RenameTablesOutput struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -1053,7 +1124,7 @@ type RenameTablesOutput struct {
 func (x *RenameTablesOutput) Reset() {
 	*x = RenameTablesOutput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[7]
+		mi := &file_flow_proto_msgTypes[8]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1066,7 +1137,7 @@ func (x *RenameTablesOutput) String() string {
 func (*RenameTablesOutput) ProtoMessage() {}
 
 func (x *RenameTablesOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[7]
+	mi := &file_flow_proto_msgTypes[8]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1079,7 +1150,7 @@ func (x *RenameTablesOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenameTablesOutput.ProtoReflect.Descriptor instead.
 func (*RenameTablesOutput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{7}
+	return file_flow_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *RenameTablesOutput) GetFlowJobName() string {
@@ -1102,7 +1173,7 @@ type CreateTablesFromExistingInput struct {
 func (x *CreateTablesFromExistingInput) Reset() {
 	*x = CreateTablesFromExistingInput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[8]
+		mi := &file_flow_proto_msgTypes[9]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1115,7 +1186,7 @@ func (x *CreateTablesFromExistingInput) String() string {
 func (*CreateTablesFromExistingInput) ProtoMessage() {}
 
 func (x *CreateTablesFromExistingInput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[8]
+	mi := &file_flow_proto_msgTypes[9]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1128,7 +1199,7 @@ func (x *CreateTablesFromExistingInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateTablesFromExistingInput.ProtoReflect.Descriptor instead.
 func (*CreateTablesFromExistingInput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{8}
+	return file_flow_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *CreateTablesFromExistingInput) GetFlowJobName() string {
@@ -1163,7 +1234,7 @@ type CreateTablesFromExistingOutput struct {
 func (x *CreateTablesFromExistingOutput) Reset() {
 	*x = CreateTablesFromExistingOutput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[9]
+		mi := &file_flow_proto_msgTypes[10]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1176,7 +1247,7 @@ func (x *CreateTablesFromExistingOutput) String() string {
 func (*CreateTablesFromExistingOutput) ProtoMessage() {}
 
 func (x *CreateTablesFromExistingOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[9]
+	mi := &file_flow_proto_msgTypes[10]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1189,7 +1260,7 @@ func (x *CreateTablesFromExistingOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateTablesFromExistingOutput.ProtoReflect.Descriptor instead.
 func (*CreateTablesFromExistingOutput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{9}
+	return file_flow_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *CreateTablesFromExistingOutput) GetFlowJobName() string {
@@ -1215,7 +1286,7 @@ type SyncFlowOptions struct {
 func (x *SyncFlowOptions) Reset() {
 	*x = SyncFlowOptions{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[10]
+		mi := &file_flow_proto_msgTypes[11]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1228,7 +1299,7 @@ func (x *SyncFlowOptions) String() string {
 func (*SyncFlowOptions) ProtoMessage() {}
 
 func (x *SyncFlowOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[10]
+	mi := &file_flow_proto_msgTypes[11]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1241,7 +1312,7 @@ func (x *SyncFlowOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncFlowOptions.ProtoReflect.Descriptor instead.
 func (*SyncFlowOptions) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{10}
+	return file_flow_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *SyncFlowOptions) GetBatchSize() uint32 {
@@ -1299,7 +1370,7 @@ type StartNormalizeInput struct {
 func (x *StartNormalizeInput) Reset() {
 	*x = StartNormalizeInput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[11]
+		mi := &file_flow_proto_msgTypes[12]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1312,7 +1383,7 @@ func (x *StartNormalizeInput) String() string {
 func (*StartNormalizeInput) ProtoMessage() {}
 
 func (x *StartNormalizeInput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[11]
+	mi := &file_flow_proto_msgTypes[12]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1325,7 +1396,7 @@ func (x *StartNormalizeInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartNormalizeInput.ProtoReflect.Descriptor instead.
 func (*StartNormalizeInput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{11}
+	return file_flow_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *StartNormalizeInput) GetFlowConnectionConfigs() *FlowConnectionConfigs {
@@ -1363,7 +1434,7 @@ type EnsurePullabilityBatchInput struct {
 func (x *EnsurePullabilityBatchInput) Reset() {
 	*x = EnsurePullabilityBatchInput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[12]
+		mi := &file_flow_proto_msgTypes[13]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1376,7 +1447,7 @@ func (x *EnsurePullabilityBatchInput) String() string {
 func (*EnsurePullabilityBatchInput) ProtoMessage() {}
 
 func (x *EnsurePullabilityBatchInput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[12]
+	mi := &file_flow_proto_msgTypes[13]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1389,7 +1460,7 @@ func (x *EnsurePullabilityBatchInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnsurePullabilityBatchInput.ProtoReflect.Descriptor instead.
 func (*EnsurePullabilityBatchInput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{12}
+	return file_flow_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *EnsurePullabilityBatchInput) GetFlowJobName() string {
@@ -1431,7 +1502,7 @@ type PostgresTableIdentifier struct {
 func (x *PostgresTableIdentifier) Reset() {
 	*x = PostgresTableIdentifier{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[13]
+		mi := &file_flow_proto_msgTypes[14]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1444,7 +1515,7 @@ func (x *PostgresTableIdentifier) String() string {
 func (*PostgresTableIdentifier) ProtoMessage() {}
 
 func (x *PostgresTableIdentifier) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[13]
+	mi := &file_flow_proto_msgTypes[14]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1457,7 +1528,7 @@ func (x *PostgresTableIdentifier) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PostgresTableIdentifier.ProtoReflect.Descriptor instead.
 func (*PostgresTableIdentifier) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{13}
+	return file_flow_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *PostgresTableIdentifier) GetRelId() uint32 {
@@ -1478,7 +1549,7 @@ type EnsurePullabilityBatchOutput struct {
 func (x *EnsurePullabilityBatchOutput) Reset() {
 	*x = EnsurePullabilityBatchOutput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[14]
+		mi := &file_flow_proto_msgTypes[15]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1491,7 +1562,7 @@ func (x *EnsurePullabilityBatchOutput) String() string {
 func (*EnsurePullabilityBatchOutput) ProtoMessage() {}
 
 func (x *EnsurePullabilityBatchOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[14]
+	mi := &file_flow_proto_msgTypes[15]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1504,7 +1575,7 @@ func (x *EnsurePullabilityBatchOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnsurePullabilityBatchOutput.ProtoReflect.Descriptor instead.
 func (*EnsurePullabilityBatchOutput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{14}
+	return file_flow_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *EnsurePullabilityBatchOutput) GetTableIdentifierMapping() map[string]*PostgresTableIdentifier {
@@ -1532,7 +1603,7 @@ type SetupReplicationInput struct {
 func (x *SetupReplicationInput) Reset() {
 	*x = SetupReplicationInput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[15]
+		mi := &file_flow_proto_msgTypes[16]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1545,7 +1616,7 @@ func (x *SetupReplicationInput) String() string {
 func (*SetupReplicationInput) ProtoMessage() {}
 
 func (x *SetupReplicationInput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[15]
+	mi := &file_flow_proto_msgTypes[16]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1558,7 +1629,7 @@ func (x *SetupReplicationInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetupReplicationInput.ProtoReflect.Descriptor instead.
 func (*SetupReplicationInput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{15}
+	return file_flow_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *SetupReplicationInput) GetFlowJobName() string {
@@ -1623,7 +1694,7 @@ type SetupReplicationOutput struct {
 func (x *SetupReplicationOutput) Reset() {
 	*x = SetupReplicationOutput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[16]
+		mi := &file_flow_proto_msgTypes[17]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1636,7 +1707,7 @@ func (x *SetupReplicationOutput) String() string {
 func (*SetupReplicationOutput) ProtoMessage() {}
 
 func (x *SetupReplicationOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[16]
+	mi := &file_flow_proto_msgTypes[17]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1649,7 +1720,7 @@ func (x *SetupReplicationOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetupReplicationOutput.ProtoReflect.Descriptor instead.
 func (*SetupReplicationOutput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{16}
+	return file_flow_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *SetupReplicationOutput) GetSlotName() string {
@@ -1686,7 +1757,7 @@ type CreateRawTableInput struct {
 func (x *CreateRawTableInput) Reset() {
 	*x = CreateRawTableInput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[17]
+		mi := &file_flow_proto_msgTypes[18]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1699,7 +1770,7 @@ func (x *CreateRawTableInput) String() string {
 func (*CreateRawTableInput) ProtoMessage() {}
 
 func (x *CreateRawTableInput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[17]
+	mi := &file_flow_proto_msgTypes[18]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1712,7 +1783,7 @@ func (x *CreateRawTableInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateRawTableInput.ProtoReflect.Descriptor instead.
 func (*CreateRawTableInput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{17}
+	return file_flow_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *CreateRawTableInput) GetFlowJobName() string {
@@ -1747,7 +1818,7 @@ type CreateRawTableOutput struct {
 func (x *CreateRawTableOutput) Reset() {
 	*x = CreateRawTableOutput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[18]
+		mi := &file_flow_proto_msgTypes[19]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1760,7 +1831,7 @@ func (x *CreateRawTableOutput) String() string {
 func (*CreateRawTableOutput) ProtoMessage() {}
 
 func (x *CreateRawTableOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[18]
+	mi := &file_flow_proto_msgTypes[19]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1773,7 +1844,7 @@ func (x *CreateRawTableOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateRawTableOutput.ProtoReflect.Descriptor instead.
 func (*CreateRawTableOutput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{18}
+	return file_flow_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *CreateRawTableOutput) GetTableIdentifier() string {
@@ -1799,7 +1870,7 @@ type TableSchema struct {
 func (x *TableSchema) Reset() {
 	*x = TableSchema{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[19]
+		mi := &file_flow_proto_msgTypes[20]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1812,7 +1883,7 @@ func (x *TableSchema) String() string {
 func (*TableSchema) ProtoMessage() {}
 
 func (x *TableSchema) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[19]
+	mi := &file_flow_proto_msgTypes[20]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1825,7 +1896,7 @@ func (x *TableSchema) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TableSchema.ProtoReflect.Descriptor instead.
 func (*TableSchema) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{19}
+	return file_flow_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *TableSchema) GetTableIdentifier() string {
@@ -1884,7 +1955,7 @@ type FieldDescription struct {
 func (x *FieldDescription) Reset() {
 	*x = FieldDescription{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[20]
+		mi := &file_flow_proto_msgTypes[21]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1897,7 +1968,7 @@ func (x *FieldDescription) String() string {
 func (*FieldDescription) ProtoMessage() {}
 
 func (x *FieldDescription) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[20]
+	mi := &file_flow_proto_msgTypes[21]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1910,7 +1981,7 @@ func (x *FieldDescription) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FieldDescription.ProtoReflect.Descriptor instead.
 func (*FieldDescription) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{20}
+	return file_flow_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *FieldDescription) GetName() string {
@@ -1956,7 +2027,7 @@ type GetTableSchemaBatchInput struct {
 func (x *GetTableSchemaBatchInput) Reset() {
 	*x = GetTableSchemaBatchInput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[21]
+		mi := &file_flow_proto_msgTypes[22]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1969,7 +2040,7 @@ func (x *GetTableSchemaBatchInput) String() string {
 func (*GetTableSchemaBatchInput) ProtoMessage() {}
 
 func (x *GetTableSchemaBatchInput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[21]
+	mi := &file_flow_proto_msgTypes[22]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1982,7 +2053,7 @@ func (x *GetTableSchemaBatchInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTableSchemaBatchInput.ProtoReflect.Descriptor instead.
 func (*GetTableSchemaBatchInput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{21}
+	return file_flow_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *GetTableSchemaBatchInput) GetEnv() map[string]string {
@@ -2031,7 +2102,7 @@ type GetTableSchemaBatchOutput struct {
 func (x *GetTableSchemaBatchOutput) Reset() {
 	*x = GetTableSchemaBatchOutput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[22]
+		mi := &file_flow_proto_msgTypes[23]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2044,7 +2115,7 @@ func (x *GetTableSchemaBatchOutput) String() string {
 func (*GetTableSchemaBatchOutput) ProtoMessage() {}
 
 func (x *GetTableSchemaBatchOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[22]
+	mi := &file_flow_proto_msgTypes[23]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2057,7 +2128,7 @@ func (x *GetTableSchemaBatchOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTableSchemaBatchOutput.ProtoReflect.Descriptor instead.
 func (*GetTableSchemaBatchOutput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{22}
+	return file_flow_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *GetTableSchemaBatchOutput) GetTableNameSchemaMapping() map[string]*TableSchema {
@@ -2086,7 +2157,7 @@ type SetupNormalizedTableBatchInput struct {
 func (x *SetupNormalizedTableBatchInput) Reset() {
 	*x = SetupNormalizedTableBatchInput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[23]
+		mi := &file_flow_proto_msgTypes[24]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2099,7 +2170,7 @@ func (x *SetupNormalizedTableBatchInput) String() string {
 func (*SetupNormalizedTableBatchInput) ProtoMessage() {}
 
 func (x *SetupNormalizedTableBatchInput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[23]
+	mi := &file_flow_proto_msgTypes[24]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2112,7 +2183,7 @@ func (x *SetupNormalizedTableBatchInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetupNormalizedTableBatchInput.ProtoReflect.Descriptor instead.
 func (*SetupNormalizedTableBatchInput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{23}
+	return file_flow_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *SetupNormalizedTableBatchInput) GetEnv() map[string]string {
@@ -2183,7 +2254,7 @@ type SetupNormalizedTableOutput struct {
 func (x *SetupNormalizedTableOutput) Reset() {
 	*x = SetupNormalizedTableOutput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[24]
+		mi := &file_flow_proto_msgTypes[25]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2196,7 +2267,7 @@ func (x *SetupNormalizedTableOutput) String() string {
 func (*SetupNormalizedTableOutput) ProtoMessage() {}
 
 func (x *SetupNormalizedTableOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[24]
+	mi := &file_flow_proto_msgTypes[25]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2209,7 +2280,7 @@ func (x *SetupNormalizedTableOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetupNormalizedTableOutput.ProtoReflect.Descriptor instead.
 func (*SetupNormalizedTableOutput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{24}
+	return file_flow_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *SetupNormalizedTableOutput) GetTableIdentifier() string {
@@ -2237,7 +2308,7 @@ type SetupNormalizedTableBatchOutput struct {
 func (x *SetupNormalizedTableBatchOutput) Reset() {
 	*x = SetupNormalizedTableBatchOutput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[25]
+		mi := &file_flow_proto_msgTypes[26]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2250,7 +2321,7 @@ func (x *SetupNormalizedTableBatchOutput) String() string {
 func (*SetupNormalizedTableBatchOutput) ProtoMessage() {}
 
 func (x *SetupNormalizedTableBatchOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[25]
+	mi := &file_flow_proto_msgTypes[26]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2263,7 +2334,7 @@ func (x *SetupNormalizedTableBatchOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetupNormalizedTableBatchOutput.ProtoReflect.Descriptor instead.
 func (*SetupNormalizedTableBatchOutput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{25}
+	return file_flow_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *SetupNormalizedTableBatchOutput) GetTableExistsMapping() map[string]bool {
@@ -2286,7 +2357,7 @@ type IntPartitionRange struct {
 func (x *IntPartitionRange) Reset() {
 	*x = IntPartitionRange{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[26]
+		mi := &file_flow_proto_msgTypes[27]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2299,7 +2370,7 @@ func (x *IntPartitionRange) String() string {
 func (*IntPartitionRange) ProtoMessage() {}
 
 func (x *IntPartitionRange) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[26]
+	mi := &file_flow_proto_msgTypes[27]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2312,7 +2383,7 @@ func (x *IntPartitionRange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IntPartitionRange.ProtoReflect.Descriptor instead.
 func (*IntPartitionRange) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{26}
+	return file_flow_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *IntPartitionRange) GetStart() int64 {
@@ -2341,7 +2412,7 @@ type TimestampPartitionRange struct {
 func (x *TimestampPartitionRange) Reset() {
 	*x = TimestampPartitionRange{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[27]
+		mi := &file_flow_proto_msgTypes[28]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2354,7 +2425,7 @@ func (x *TimestampPartitionRange) String() string {
 func (*TimestampPartitionRange) ProtoMessage() {}
 
 func (x *TimestampPartitionRange) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[27]
+	mi := &file_flow_proto_msgTypes[28]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2367,7 +2438,7 @@ func (x *TimestampPartitionRange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimestampPartitionRange.ProtoReflect.Descriptor instead.
 func (*TimestampPartitionRange) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{27}
+	return file_flow_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *TimestampPartitionRange) GetStart() *timestamppb.Timestamp {
@@ -2396,7 +2467,7 @@ type TID struct {
 func (x *TID) Reset() {
 	*x = TID{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[28]
+		mi := &file_flow_proto_msgTypes[29]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2409,7 +2480,7 @@ func (x *TID) String() string {
 func (*TID) ProtoMessage() {}
 
 func (x *TID) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[28]
+	mi := &file_flow_proto_msgTypes[29]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2422,7 +2493,7 @@ func (x *TID) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TID.ProtoReflect.Descriptor instead.
 func (*TID) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{28}
+	return file_flow_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *TID) GetBlockNumber() uint32 {
@@ -2451,7 +2522,7 @@ type TIDPartitionRange struct {
 func (x *TIDPartitionRange) Reset() {
 	*x = TIDPartitionRange{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[29]
+		mi := &file_flow_proto_msgTypes[30]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2464,7 +2535,7 @@ func (x *TIDPartitionRange) String() string {
 func (*TIDPartitionRange) ProtoMessage() {}
 
 func (x *TIDPartitionRange) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[29]
+	mi := &file_flow_proto_msgTypes[30]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2477,7 +2548,7 @@ func (x *TIDPartitionRange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TIDPartitionRange.ProtoReflect.Descriptor instead.
 func (*TIDPartitionRange) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{29}
+	return file_flow_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *TIDPartitionRange) GetStart() *TID {
@@ -2512,7 +2583,7 @@ type PartitionRange struct {
 func (x *PartitionRange) Reset() {
 	*x = PartitionRange{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[30]
+		mi := &file_flow_proto_msgTypes[31]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2525,7 +2596,7 @@ func (x *PartitionRange) String() string {
 func (*PartitionRange) ProtoMessage() {}
 
 func (x *PartitionRange) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[30]
+	mi := &file_flow_proto_msgTypes[31]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2538,7 +2609,7 @@ func (x *PartitionRange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PartitionRange.ProtoReflect.Descriptor instead.
 func (*PartitionRange) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{30}
+	return file_flow_proto_rawDescGZIP(), []int{31}
 }
 
 func (m *PartitionRange) GetRange() isPartitionRange_Range {
@@ -2603,7 +2674,7 @@ type QRepWriteMode struct {
 func (x *QRepWriteMode) Reset() {
 	*x = QRepWriteMode{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[31]
+		mi := &file_flow_proto_msgTypes[32]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2616,7 +2687,7 @@ func (x *QRepWriteMode) String() string {
 func (*QRepWriteMode) ProtoMessage() {}
 
 func (x *QRepWriteMode) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[31]
+	mi := &file_flow_proto_msgTypes[32]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2629,7 +2700,7 @@ func (x *QRepWriteMode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QRepWriteMode.ProtoReflect.Descriptor instead.
 func (*QRepWriteMode) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{31}
+	return file_flow_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *QRepWriteMode) GetWriteType() QRepWriteType {
@@ -2691,7 +2762,7 @@ type QRepConfig struct {
 func (x *QRepConfig) Reset() {
 	*x = QRepConfig{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[32]
+		mi := &file_flow_proto_msgTypes[33]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2704,7 +2775,7 @@ func (x *QRepConfig) String() string {
 func (*QRepConfig) ProtoMessage() {}
 
 func (x *QRepConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[32]
+	mi := &file_flow_proto_msgTypes[33]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2717,7 +2788,7 @@ func (x *QRepConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QRepConfig.ProtoReflect.Descriptor instead.
 func (*QRepConfig) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{32}
+	return file_flow_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *QRepConfig) GetFlowJobName() string {
@@ -2887,7 +2958,7 @@ type QRepPartition struct {
 func (x *QRepPartition) Reset() {
 	*x = QRepPartition{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[33]
+		mi := &file_flow_proto_msgTypes[34]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2900,7 +2971,7 @@ func (x *QRepPartition) String() string {
 func (*QRepPartition) ProtoMessage() {}
 
 func (x *QRepPartition) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[33]
+	mi := &file_flow_proto_msgTypes[34]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2913,7 +2984,7 @@ func (x *QRepPartition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QRepPartition.ProtoReflect.Descriptor instead.
 func (*QRepPartition) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{33}
+	return file_flow_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *QRepPartition) GetPartitionId() string {
@@ -2949,7 +3020,7 @@ type QRepPartitionBatch struct {
 func (x *QRepPartitionBatch) Reset() {
 	*x = QRepPartitionBatch{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[34]
+		mi := &file_flow_proto_msgTypes[35]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2962,7 +3033,7 @@ func (x *QRepPartitionBatch) String() string {
 func (*QRepPartitionBatch) ProtoMessage() {}
 
 func (x *QRepPartitionBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[34]
+	mi := &file_flow_proto_msgTypes[35]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2975,7 +3046,7 @@ func (x *QRepPartitionBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QRepPartitionBatch.ProtoReflect.Descriptor instead.
 func (*QRepPartitionBatch) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{34}
+	return file_flow_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *QRepPartitionBatch) GetBatchId() int32 {
@@ -3003,7 +3074,7 @@ type QRepParitionResult struct {
 func (x *QRepParitionResult) Reset() {
 	*x = QRepParitionResult{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[35]
+		mi := &file_flow_proto_msgTypes[36]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3016,7 +3087,7 @@ func (x *QRepParitionResult) String() string {
 func (*QRepParitionResult) ProtoMessage() {}
 
 func (x *QRepParitionResult) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[35]
+	mi := &file_flow_proto_msgTypes[36]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3029,7 +3100,7 @@ func (x *QRepParitionResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QRepParitionResult.ProtoReflect.Descriptor instead.
 func (*QRepParitionResult) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{35}
+	return file_flow_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *QRepParitionResult) GetPartitions() []*QRepPartition {
@@ -3053,7 +3124,7 @@ type DropFlowInput struct {
 func (x *DropFlowInput) Reset() {
 	*x = DropFlowInput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[36]
+		mi := &file_flow_proto_msgTypes[37]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3066,7 +3137,7 @@ func (x *DropFlowInput) String() string {
 func (*DropFlowInput) ProtoMessage() {}
 
 func (x *DropFlowInput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[36]
+	mi := &file_flow_proto_msgTypes[37]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3079,7 +3150,7 @@ func (x *DropFlowInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DropFlowInput.ProtoReflect.Descriptor instead.
 func (*DropFlowInput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{36}
+	return file_flow_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *DropFlowInput) GetFlowJobName() string {
@@ -3125,7 +3196,7 @@ type TableSchemaDelta struct {
 func (x *TableSchemaDelta) Reset() {
 	*x = TableSchemaDelta{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[37]
+		mi := &file_flow_proto_msgTypes[38]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3138,7 +3209,7 @@ func (x *TableSchemaDelta) String() string {
 func (*TableSchemaDelta) ProtoMessage() {}
 
 func (x *TableSchemaDelta) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[37]
+	mi := &file_flow_proto_msgTypes[38]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3151,7 +3222,7 @@ func (x *TableSchemaDelta) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TableSchemaDelta.ProtoReflect.Descriptor instead.
 func (*TableSchemaDelta) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{37}
+	return file_flow_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *TableSchemaDelta) GetSrcTableName() string {
@@ -3203,7 +3274,7 @@ type QRepFlowState struct {
 func (x *QRepFlowState) Reset() {
 	*x = QRepFlowState{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[38]
+		mi := &file_flow_proto_msgTypes[39]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3216,7 +3287,7 @@ func (x *QRepFlowState) String() string {
 func (*QRepFlowState) ProtoMessage() {}
 
 func (x *QRepFlowState) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[38]
+	mi := &file_flow_proto_msgTypes[39]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3229,7 +3300,7 @@ func (x *QRepFlowState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QRepFlowState.ProtoReflect.Descriptor instead.
 func (*QRepFlowState) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{38}
+	return file_flow_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *QRepFlowState) GetLastPartition() *QRepPartition {
@@ -3272,7 +3343,7 @@ type PeerDBColumns struct {
 func (x *PeerDBColumns) Reset() {
 	*x = PeerDBColumns{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[39]
+		mi := &file_flow_proto_msgTypes[40]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3285,7 +3356,7 @@ func (x *PeerDBColumns) String() string {
 func (*PeerDBColumns) ProtoMessage() {}
 
 func (x *PeerDBColumns) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[39]
+	mi := &file_flow_proto_msgTypes[40]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3298,7 +3369,7 @@ func (x *PeerDBColumns) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerDBColumns.ProtoReflect.Descriptor instead.
 func (*PeerDBColumns) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{39}
+	return file_flow_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *PeerDBColumns) GetSoftDeleteColName() string {
@@ -3327,7 +3398,7 @@ type GetOpenConnectionsForUserResult struct {
 func (x *GetOpenConnectionsForUserResult) Reset() {
 	*x = GetOpenConnectionsForUserResult{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[40]
+		mi := &file_flow_proto_msgTypes[41]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3340,7 +3411,7 @@ func (x *GetOpenConnectionsForUserResult) String() string {
 func (*GetOpenConnectionsForUserResult) ProtoMessage() {}
 
 func (x *GetOpenConnectionsForUserResult) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[40]
+	mi := &file_flow_proto_msgTypes[41]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3353,7 +3424,7 @@ func (x *GetOpenConnectionsForUserResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetOpenConnectionsForUserResult.ProtoReflect.Descriptor instead.
 func (*GetOpenConnectionsForUserResult) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{40}
+	return file_flow_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *GetOpenConnectionsForUserResult) GetUserName() string {
@@ -3379,12 +3450,13 @@ type CDCFlowConfigUpdate struct {
 	BatchSize        uint32          `protobuf:"varint,2,opt,name=batch_size,json=batchSize,proto3" json:"batch_size,omitempty"`
 	IdleTimeout      uint64          `protobuf:"varint,3,opt,name=idle_timeout,json=idleTimeout,proto3" json:"idle_timeout,omitempty"`
 	NumberOfSyncs    int32           `protobuf:"varint,4,opt,name=number_of_syncs,json=numberOfSyncs,proto3" json:"number_of_syncs,omitempty"`
+	RemovedTables    []*TableMapping `protobuf:"bytes,5,rep,name=removed_tables,json=removedTables,proto3" json:"removed_tables,omitempty"`
 }
 
 func (x *CDCFlowConfigUpdate) Reset() {
 	*x = CDCFlowConfigUpdate{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[41]
+		mi := &file_flow_proto_msgTypes[42]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3397,7 +3469,7 @@ func (x *CDCFlowConfigUpdate) String() string {
 func (*CDCFlowConfigUpdate) ProtoMessage() {}
 
 func (x *CDCFlowConfigUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[41]
+	mi := &file_flow_proto_msgTypes[42]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3410,7 +3482,7 @@ func (x *CDCFlowConfigUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CDCFlowConfigUpdate.ProtoReflect.Descriptor instead.
 func (*CDCFlowConfigUpdate) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{41}
+	return file_flow_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *CDCFlowConfigUpdate) GetAdditionalTables() []*TableMapping {
@@ -3441,6 +3513,13 @@ func (x *CDCFlowConfigUpdate) GetNumberOfSyncs() int32 {
 	return 0
 }
 
+func (x *CDCFlowConfigUpdate) GetRemovedTables() []*TableMapping {
+	if x != nil {
+		return x.RemovedTables
+	}
+	return nil
+}
+
 type QRepFlowConfigUpdate struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -3450,7 +3529,7 @@ type QRepFlowConfigUpdate struct {
 func (x *QRepFlowConfigUpdate) Reset() {
 	*x = QRepFlowConfigUpdate{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[42]
+		mi := &file_flow_proto_msgTypes[43]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3463,7 +3542,7 @@ func (x *QRepFlowConfigUpdate) String() string {
 func (*QRepFlowConfigUpdate) ProtoMessage() {}
 
 func (x *QRepFlowConfigUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[42]
+	mi := &file_flow_proto_msgTypes[43]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3476,7 +3555,7 @@ func (x *QRepFlowConfigUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QRepFlowConfigUpdate.ProtoReflect.Descriptor instead.
 func (*QRepFlowConfigUpdate) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{42}
+	return file_flow_proto_rawDescGZIP(), []int{43}
 }
 
 type FlowConfigUpdate struct {
@@ -3494,7 +3573,7 @@ type FlowConfigUpdate struct {
 func (x *FlowConfigUpdate) Reset() {
 	*x = FlowConfigUpdate{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[43]
+		mi := &file_flow_proto_msgTypes[44]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3507,7 +3586,7 @@ func (x *FlowConfigUpdate) String() string {
 func (*FlowConfigUpdate) ProtoMessage() {}
 
 func (x *FlowConfigUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[43]
+	mi := &file_flow_proto_msgTypes[44]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3520,7 +3599,7 @@ func (x *FlowConfigUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowConfigUpdate.ProtoReflect.Descriptor instead.
 func (*FlowConfigUpdate) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{43}
+	return file_flow_proto_rawDescGZIP(), []int{44}
 }
 
 func (m *FlowConfigUpdate) GetUpdate() isFlowConfigUpdate_Update {
@@ -3572,7 +3651,7 @@ type SetupFlowOutput struct {
 func (x *SetupFlowOutput) Reset() {
 	*x = SetupFlowOutput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[44]
+		mi := &file_flow_proto_msgTypes[45]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3585,7 +3664,7 @@ func (x *SetupFlowOutput) String() string {
 func (*SetupFlowOutput) ProtoMessage() {}
 
 func (x *SetupFlowOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[44]
+	mi := &file_flow_proto_msgTypes[45]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3598,7 +3677,7 @@ func (x *SetupFlowOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetupFlowOutput.ProtoReflect.Descriptor instead.
 func (*SetupFlowOutput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{44}
+	return file_flow_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *SetupFlowOutput) GetSrcTableIdNameMapping() map[uint32]string {
@@ -3628,7 +3707,7 @@ type AddTablesToPublicationInput struct {
 func (x *AddTablesToPublicationInput) Reset() {
 	*x = AddTablesToPublicationInput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[45]
+		mi := &file_flow_proto_msgTypes[46]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3641,7 +3720,7 @@ func (x *AddTablesToPublicationInput) String() string {
 func (*AddTablesToPublicationInput) ProtoMessage() {}
 
 func (x *AddTablesToPublicationInput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[45]
+	mi := &file_flow_proto_msgTypes[46]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3654,7 +3733,7 @@ func (x *AddTablesToPublicationInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddTablesToPublicationInput.ProtoReflect.Descriptor instead.
 func (*AddTablesToPublicationInput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{45}
+	return file_flow_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *AddTablesToPublicationInput) GetFlowJobName() string {
@@ -3678,6 +3757,69 @@ func (x *AddTablesToPublicationInput) GetAdditionalTables() []*TableMapping {
 	return nil
 }
 
+type RemoveTablesFromPublicationInput struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	FlowJobName     string          `protobuf:"bytes,1,opt,name=flow_job_name,json=flowJobName,proto3" json:"flow_job_name,omitempty"`
+	PublicationName string          `protobuf:"bytes,2,opt,name=publication_name,json=publicationName,proto3" json:"publication_name,omitempty"`
+	TablesToRemove  []*TableMapping `protobuf:"bytes,3,rep,name=tables_to_remove,json=tablesToRemove,proto3" json:"tables_to_remove,omitempty"`
+}
+
+func (x *RemoveTablesFromPublicationInput) Reset() {
+	*x = RemoveTablesFromPublicationInput{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_flow_proto_msgTypes[47]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *RemoveTablesFromPublicationInput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveTablesFromPublicationInput) ProtoMessage() {}
+
+func (x *RemoveTablesFromPublicationInput) ProtoReflect() protoreflect.Message {
+	mi := &file_flow_proto_msgTypes[47]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveTablesFromPublicationInput.ProtoReflect.Descriptor instead.
+func (*RemoveTablesFromPublicationInput) Descriptor() ([]byte, []int) {
+	return file_flow_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *RemoveTablesFromPublicationInput) GetFlowJobName() string {
+	if x != nil {
+		return x.FlowJobName
+	}
+	return ""
+}
+
+func (x *RemoveTablesFromPublicationInput) GetPublicationName() string {
+	if x != nil {
+		return x.PublicationName
+	}
+	return ""
+}
+
+func (x *RemoveTablesFromPublicationInput) GetTablesToRemove() []*TableMapping {
+	if x != nil {
+		return x.TablesToRemove
+	}
+	return nil
+}
+
 type IsQRepPartitionSyncedInput struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -3690,7 +3832,7 @@ type IsQRepPartitionSyncedInput struct {
 func (x *IsQRepPartitionSyncedInput) Reset() {
 	*x = IsQRepPartitionSyncedInput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[46]
+		mi := &file_flow_proto_msgTypes[48]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3703,7 +3845,7 @@ func (x *IsQRepPartitionSyncedInput) String() string {
 func (*IsQRepPartitionSyncedInput) ProtoMessage() {}
 
 func (x *IsQRepPartitionSyncedInput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[46]
+	mi := &file_flow_proto_msgTypes[48]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3716,7 +3858,7 @@ func (x *IsQRepPartitionSyncedInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IsQRepPartitionSyncedInput.ProtoReflect.Descriptor instead.
 func (*IsQRepPartitionSyncedInput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{46}
+	return file_flow_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *IsQRepPartitionSyncedInput) GetFlowJobName() string {
@@ -3745,7 +3887,7 @@ type ExportTxSnapshotOutput struct {
 func (x *ExportTxSnapshotOutput) Reset() {
 	*x = ExportTxSnapshotOutput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[47]
+		mi := &file_flow_proto_msgTypes[49]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3758,7 +3900,7 @@ func (x *ExportTxSnapshotOutput) String() string {
 func (*ExportTxSnapshotOutput) ProtoMessage() {}
 
 func (x *ExportTxSnapshotOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[47]
+	mi := &file_flow_proto_msgTypes[49]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3771,7 +3913,7 @@ func (x *ExportTxSnapshotOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportTxSnapshotOutput.ProtoReflect.Descriptor instead.
 func (*ExportTxSnapshotOutput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{47}
+	return file_flow_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *ExportTxSnapshotOutput) GetSnapshotName() string {
@@ -3800,7 +3942,7 @@ type DropFlowActivityInput struct {
 func (x *DropFlowActivityInput) Reset() {
 	*x = DropFlowActivityInput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[48]
+		mi := &file_flow_proto_msgTypes[50]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3813,7 +3955,7 @@ func (x *DropFlowActivityInput) String() string {
 func (*DropFlowActivityInput) ProtoMessage() {}
 
 func (x *DropFlowActivityInput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[48]
+	mi := &file_flow_proto_msgTypes[50]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3826,7 +3968,7 @@ func (x *DropFlowActivityInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DropFlowActivityInput.ProtoReflect.Descriptor instead.
 func (*DropFlowActivityInput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{48}
+	return file_flow_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *DropFlowActivityInput) GetFlowJobName() string {
@@ -3995,6 +4137,19 @@ var file_flow_proto_rawDesc = []byte{
 	0x6c, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x08, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0f, 0x73, 0x79,
 	0x6e, 0x63, 0x65, 0x64, 0x41, 0x74, 0x43, 0x6f, 0x6c, 0x4e, 0x61, 0x6d, 0x65, 0x4a, 0x04, 0x08,
 	0x02, 0x10, 0x03, 0x4a, 0x04, 0x08, 0x04, 0x10, 0x05, 0x4a, 0x04, 0x08, 0x05, 0x10, 0x06, 0x22,
+	0xcd, 0x01, 0x0a, 0x1d, 0x52, 0x65, 0x6d, 0x6f, 0x76, 0x65, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x73,
+	0x46, 0x72, 0x6f, 0x6d, 0x52, 0x61, 0x77, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x49, 0x6e, 0x70, 0x75,
+	0x74, 0x12, 0x22, 0x0a, 0x0d, 0x66, 0x6c, 0x6f, 0x77, 0x5f, 0x6a, 0x6f, 0x62, 0x5f, 0x6e, 0x61,
+	0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x66, 0x6c, 0x6f, 0x77, 0x4a, 0x6f,
+	0x62, 0x4e, 0x61, 0x6d, 0x65, 0x12, 0x36, 0x0a, 0x17, 0x64, 0x65, 0x73, 0x74, 0x69, 0x6e, 0x61,
+	0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x73,
+	0x18, 0x02, 0x20, 0x03, 0x28, 0x09, 0x52, 0x15, 0x64, 0x65, 0x73, 0x74, 0x69, 0x6e, 0x61, 0x74,
+	0x69, 0x6f, 0x6e, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x4e, 0x61, 0x6d, 0x65, 0x73, 0x12, 0x22, 0x0a,
+	0x0d, 0x73, 0x79, 0x6e, 0x63, 0x5f, 0x62, 0x61, 0x74, 0x63, 0x68, 0x5f, 0x69, 0x64, 0x18, 0x03,
+	0x20, 0x01, 0x28, 0x03, 0x52, 0x0b, 0x73, 0x79, 0x6e, 0x63, 0x42, 0x61, 0x74, 0x63, 0x68, 0x49,
+	0x64, 0x12, 0x2c, 0x0a, 0x12, 0x6e, 0x6f, 0x72, 0x6d, 0x61, 0x6c, 0x69, 0x7a, 0x65, 0x5f, 0x62,
+	0x61, 0x74, 0x63, 0x68, 0x5f, 0x69, 0x64, 0x18, 0x04, 0x20, 0x01, 0x28, 0x03, 0x52, 0x10, 0x6e,
+	0x6f, 0x72, 0x6d, 0x61, 0x6c, 0x69, 0x7a, 0x65, 0x42, 0x61, 0x74, 0x63, 0x68, 0x49, 0x64, 0x22,
 	0x38, 0x0a, 0x12, 0x52, 0x65, 0x6e, 0x61, 0x6d, 0x65, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x73, 0x4f,
 	0x75, 0x74, 0x70, 0x75, 0x74, 0x12, 0x22, 0x0a, 0x0d, 0x66, 0x6c, 0x6f, 0x77, 0x5f, 0x6a, 0x6f,
 	0x62, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x66, 0x6c,
@@ -4493,7 +4648,7 @@ var file_flow_proto_rawDesc = []byte{
 	0x6d, 0x65, 0x12, 0x38, 0x0a, 0x18, 0x63, 0x75, 0x72, 0x72, 0x65, 0x6e, 0x74, 0x5f, 0x6f, 0x70,
 	0x65, 0x6e, 0x5f, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x18, 0x02,
 	0x20, 0x01, 0x28, 0x03, 0x52, 0x16, 0x63, 0x75, 0x72, 0x72, 0x65, 0x6e, 0x74, 0x4f, 0x70, 0x65,
-	0x6e, 0x43, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x22, 0xc7, 0x01, 0x0a,
+	0x6e, 0x43, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x22, 0x89, 0x02, 0x0a,
 	0x13, 0x43, 0x44, 0x43, 0x46, 0x6c, 0x6f, 0x77, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x55, 0x70,
 	0x64, 0x61, 0x74, 0x65, 0x12, 0x46, 0x0a, 0x11, 0x61, 0x64, 0x64, 0x69, 0x74, 0x69, 0x6f, 0x6e,
 	0x61, 0x6c, 0x5f, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32,
@@ -4506,130 +4661,146 @@ var file_flow_proto_rawDesc = []byte{
 	0x04, 0x52, 0x0b, 0x69, 0x64, 0x6c, 0x65, 0x54, 0x69, 0x6d, 0x65, 0x6f, 0x75, 0x74, 0x12, 0x26,
 	0x0a, 0x0f, 0x6e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x5f, 0x6f, 0x66, 0x5f, 0x73, 0x79, 0x6e, 0x63,
 	0x73, 0x18, 0x04, 0x20, 0x01, 0x28, 0x05, 0x52, 0x0d, 0x6e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x4f,
-	0x66, 0x53, 0x79, 0x6e, 0x63, 0x73, 0x22, 0x16, 0x0a, 0x14, 0x51, 0x52, 0x65, 0x70, 0x46, 0x6c,
-	0x6f, 0x77, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x22, 0xd1,
-	0x01, 0x0a, 0x10, 0x46, 0x6c, 0x6f, 0x77, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x55, 0x70, 0x64,
-	0x61, 0x74, 0x65, 0x12, 0x57, 0x0a, 0x16, 0x63, 0x64, 0x63, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x5f,
-	0x63, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x5f, 0x75, 0x70, 0x64, 0x61, 0x74, 0x65, 0x18, 0x01, 0x20,
-	0x01, 0x28, 0x0b, 0x32, 0x20, 0x2e, 0x70, 0x65, 0x65, 0x72, 0x64, 0x62, 0x5f, 0x66, 0x6c, 0x6f,
-	0x77, 0x2e, 0x43, 0x44, 0x43, 0x46, 0x6c, 0x6f, 0x77, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x55,
-	0x70, 0x64, 0x61, 0x74, 0x65, 0x48, 0x00, 0x52, 0x13, 0x63, 0x64, 0x63, 0x46, 0x6c, 0x6f, 0x77,
-	0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x12, 0x5a, 0x0a, 0x17,
-	0x71, 0x72, 0x65, 0x70, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x5f, 0x63, 0x6f, 0x6e, 0x66, 0x69, 0x67,
-	0x5f, 0x75, 0x70, 0x64, 0x61, 0x74, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x21, 0x2e,
-	0x70, 0x65, 0x65, 0x72, 0x64, 0x62, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x2e, 0x51, 0x52, 0x65, 0x70,
+	0x66, 0x53, 0x79, 0x6e, 0x63, 0x73, 0x12, 0x40, 0x0a, 0x0e, 0x72, 0x65, 0x6d, 0x6f, 0x76, 0x65,
+	0x64, 0x5f, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x73, 0x18, 0x05, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x19,
+	0x2e, 0x70, 0x65, 0x65, 0x72, 0x64, 0x62, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x2e, 0x54, 0x61, 0x62,
+	0x6c, 0x65, 0x4d, 0x61, 0x70, 0x70, 0x69, 0x6e, 0x67, 0x52, 0x0d, 0x72, 0x65, 0x6d, 0x6f, 0x76,
+	0x65, 0x64, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x73, 0x22, 0x16, 0x0a, 0x14, 0x51, 0x52, 0x65, 0x70,
 	0x46, 0x6c, 0x6f, 0x77, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65,
-	0x48, 0x00, 0x52, 0x14, 0x71, 0x72, 0x65, 0x70, 0x46, 0x6c, 0x6f, 0x77, 0x43, 0x6f, 0x6e, 0x66,
-	0x69, 0x67, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x42, 0x08, 0x0a, 0x06, 0x75, 0x70, 0x64, 0x61,
-	0x74, 0x65, 0x22, 0xa8, 0x03, 0x0a, 0x0f, 0x53, 0x65, 0x74, 0x75, 0x70, 0x46, 0x6c, 0x6f, 0x77,
-	0x4f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x12, 0x71, 0x0a, 0x19, 0x73, 0x72, 0x63, 0x5f, 0x74, 0x61,
-	0x62, 0x6c, 0x65, 0x5f, 0x69, 0x64, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x5f, 0x6d, 0x61, 0x70, 0x70,
-	0x69, 0x6e, 0x67, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x37, 0x2e, 0x70, 0x65, 0x65, 0x72,
-	0x64, 0x62, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x2e, 0x53, 0x65, 0x74, 0x75, 0x70, 0x46, 0x6c, 0x6f,
-	0x77, 0x4f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x2e, 0x53, 0x72, 0x63, 0x54, 0x61, 0x62, 0x6c, 0x65,
-	0x49, 0x64, 0x4e, 0x61, 0x6d, 0x65, 0x4d, 0x61, 0x70, 0x70, 0x69, 0x6e, 0x67, 0x45, 0x6e, 0x74,
-	0x72, 0x79, 0x52, 0x15, 0x73, 0x72, 0x63, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x49, 0x64, 0x4e, 0x61,
-	0x6d, 0x65, 0x4d, 0x61, 0x70, 0x70, 0x69, 0x6e, 0x67, 0x12, 0x73, 0x0a, 0x19, 0x74, 0x61, 0x62,
-	0x6c, 0x65, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x5f, 0x73, 0x63, 0x68, 0x65, 0x6d, 0x61, 0x5f, 0x6d,
-	0x61, 0x70, 0x70, 0x69, 0x6e, 0x67, 0x18, 0x02, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x38, 0x2e, 0x70,
-	0x65, 0x65, 0x72, 0x64, 0x62, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x2e, 0x53, 0x65, 0x74, 0x75, 0x70,
-	0x46, 0x6c, 0x6f, 0x77, 0x4f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x2e, 0x54, 0x61, 0x62, 0x6c, 0x65,
-	0x4e, 0x61, 0x6d, 0x65, 0x53, 0x63, 0x68, 0x65, 0x6d, 0x61, 0x4d, 0x61, 0x70, 0x70, 0x69, 0x6e,
-	0x67, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x52, 0x16, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x4e, 0x61, 0x6d,
-	0x65, 0x53, 0x63, 0x68, 0x65, 0x6d, 0x61, 0x4d, 0x61, 0x70, 0x70, 0x69, 0x6e, 0x67, 0x1a, 0x48,
-	0x0a, 0x1a, 0x53, 0x72, 0x63, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x49, 0x64, 0x4e, 0x61, 0x6d, 0x65,
-	0x4d, 0x61, 0x70, 0x70, 0x69, 0x6e, 0x67, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x12, 0x10, 0x0a, 0x03,
-	0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0d, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12, 0x14,
-	0x0a, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x76,
-	0x61, 0x6c, 0x75, 0x65, 0x3a, 0x02, 0x38, 0x01, 0x1a, 0x63, 0x0a, 0x1b, 0x54, 0x61, 0x62, 0x6c,
-	0x65, 0x4e, 0x61, 0x6d, 0x65, 0x53, 0x63, 0x68, 0x65, 0x6d, 0x61, 0x4d, 0x61, 0x70, 0x70, 0x69,
-	0x6e, 0x67, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x12, 0x10, 0x0a, 0x03, 0x6b, 0x65, 0x79, 0x18, 0x01,
-	0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12, 0x2e, 0x0a, 0x05, 0x76, 0x61, 0x6c,
-	0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x18, 0x2e, 0x70, 0x65, 0x65, 0x72, 0x64,
-	0x62, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x2e, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x53, 0x63, 0x68, 0x65,
-	0x6d, 0x61, 0x52, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x3a, 0x02, 0x38, 0x01, 0x22, 0xb4, 0x01,
-	0x0a, 0x1b, 0x41, 0x64, 0x64, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x73, 0x54, 0x6f, 0x50, 0x75, 0x62,
-	0x6c, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x49, 0x6e, 0x70, 0x75, 0x74, 0x12, 0x22, 0x0a,
-	0x0d, 0x66, 0x6c, 0x6f, 0x77, 0x5f, 0x6a, 0x6f, 0x62, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01,
-	0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x66, 0x6c, 0x6f, 0x77, 0x4a, 0x6f, 0x62, 0x4e, 0x61, 0x6d,
-	0x65, 0x12, 0x29, 0x0a, 0x10, 0x70, 0x75, 0x62, 0x6c, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e,
-	0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0f, 0x70, 0x75, 0x62,
-	0x6c, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x4e, 0x61, 0x6d, 0x65, 0x12, 0x46, 0x0a, 0x11,
-	0x61, 0x64, 0x64, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x61, 0x6c, 0x5f, 0x74, 0x61, 0x62, 0x6c, 0x65,
-	0x73, 0x18, 0x03, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x19, 0x2e, 0x70, 0x65, 0x65, 0x72, 0x64, 0x62,
-	0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x2e, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x4d, 0x61, 0x70, 0x70, 0x69,
-	0x6e, 0x67, 0x52, 0x10, 0x61, 0x64, 0x64, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x61, 0x6c, 0x54, 0x61,
-	0x62, 0x6c, 0x65, 0x73, 0x22, 0x63, 0x0a, 0x1a, 0x49, 0x73, 0x51, 0x52, 0x65, 0x70, 0x50, 0x61,
-	0x72, 0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x79, 0x6e, 0x63, 0x65, 0x64, 0x49, 0x6e, 0x70,
-	0x75, 0x74, 0x12, 0x22, 0x0a, 0x0d, 0x66, 0x6c, 0x6f, 0x77, 0x5f, 0x6a, 0x6f, 0x62, 0x5f, 0x6e,
-	0x61, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x66, 0x6c, 0x6f, 0x77, 0x4a,
-	0x6f, 0x62, 0x4e, 0x61, 0x6d, 0x65, 0x12, 0x21, 0x0a, 0x0c, 0x70, 0x61, 0x72, 0x74, 0x69, 0x74,
-	0x69, 0x6f, 0x6e, 0x5f, 0x69, 0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x70, 0x61,
-	0x72, 0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x49, 0x64, 0x22, 0x6b, 0x0a, 0x16, 0x45, 0x78, 0x70,
-	0x6f, 0x72, 0x74, 0x54, 0x78, 0x53, 0x6e, 0x61, 0x70, 0x73, 0x68, 0x6f, 0x74, 0x4f, 0x75, 0x74,
-	0x70, 0x75, 0x74, 0x12, 0x23, 0x0a, 0x0d, 0x73, 0x6e, 0x61, 0x70, 0x73, 0x68, 0x6f, 0x74, 0x5f,
-	0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0c, 0x73, 0x6e, 0x61, 0x70,
-	0x73, 0x68, 0x6f, 0x74, 0x4e, 0x61, 0x6d, 0x65, 0x12, 0x2c, 0x0a, 0x12, 0x73, 0x75, 0x70, 0x70,
-	0x6f, 0x72, 0x74, 0x73, 0x5f, 0x74, 0x69, 0x64, 0x5f, 0x73, 0x63, 0x61, 0x6e, 0x73, 0x18, 0x02,
-	0x20, 0x01, 0x28, 0x08, 0x52, 0x10, 0x73, 0x75, 0x70, 0x70, 0x6f, 0x72, 0x74, 0x73, 0x54, 0x69,
-	0x64, 0x53, 0x63, 0x61, 0x6e, 0x73, 0x22, 0x58, 0x0a, 0x15, 0x44, 0x72, 0x6f, 0x70, 0x46, 0x6c,
-	0x6f, 0x77, 0x41, 0x63, 0x74, 0x69, 0x76, 0x69, 0x74, 0x79, 0x49, 0x6e, 0x70, 0x75, 0x74, 0x12,
+	0x22, 0xd1, 0x01, 0x0a, 0x10, 0x46, 0x6c, 0x6f, 0x77, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x55,
+	0x70, 0x64, 0x61, 0x74, 0x65, 0x12, 0x57, 0x0a, 0x16, 0x63, 0x64, 0x63, 0x5f, 0x66, 0x6c, 0x6f,
+	0x77, 0x5f, 0x63, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x5f, 0x75, 0x70, 0x64, 0x61, 0x74, 0x65, 0x18,
+	0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x20, 0x2e, 0x70, 0x65, 0x65, 0x72, 0x64, 0x62, 0x5f, 0x66,
+	0x6c, 0x6f, 0x77, 0x2e, 0x43, 0x44, 0x43, 0x46, 0x6c, 0x6f, 0x77, 0x43, 0x6f, 0x6e, 0x66, 0x69,
+	0x67, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x48, 0x00, 0x52, 0x13, 0x63, 0x64, 0x63, 0x46, 0x6c,
+	0x6f, 0x77, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x12, 0x5a,
+	0x0a, 0x17, 0x71, 0x72, 0x65, 0x70, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x5f, 0x63, 0x6f, 0x6e, 0x66,
+	0x69, 0x67, 0x5f, 0x75, 0x70, 0x64, 0x61, 0x74, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32,
+	0x21, 0x2e, 0x70, 0x65, 0x65, 0x72, 0x64, 0x62, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x2e, 0x51, 0x52,
+	0x65, 0x70, 0x46, 0x6c, 0x6f, 0x77, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x55, 0x70, 0x64, 0x61,
+	0x74, 0x65, 0x48, 0x00, 0x52, 0x14, 0x71, 0x72, 0x65, 0x70, 0x46, 0x6c, 0x6f, 0x77, 0x43, 0x6f,
+	0x6e, 0x66, 0x69, 0x67, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x42, 0x08, 0x0a, 0x06, 0x75, 0x70,
+	0x64, 0x61, 0x74, 0x65, 0x22, 0xa8, 0x03, 0x0a, 0x0f, 0x53, 0x65, 0x74, 0x75, 0x70, 0x46, 0x6c,
+	0x6f, 0x77, 0x4f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x12, 0x71, 0x0a, 0x19, 0x73, 0x72, 0x63, 0x5f,
+	0x74, 0x61, 0x62, 0x6c, 0x65, 0x5f, 0x69, 0x64, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x5f, 0x6d, 0x61,
+	0x70, 0x70, 0x69, 0x6e, 0x67, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x37, 0x2e, 0x70, 0x65,
+	0x65, 0x72, 0x64, 0x62, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x2e, 0x53, 0x65, 0x74, 0x75, 0x70, 0x46,
+	0x6c, 0x6f, 0x77, 0x4f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x2e, 0x53, 0x72, 0x63, 0x54, 0x61, 0x62,
+	0x6c, 0x65, 0x49, 0x64, 0x4e, 0x61, 0x6d, 0x65, 0x4d, 0x61, 0x70, 0x70, 0x69, 0x6e, 0x67, 0x45,
+	0x6e, 0x74, 0x72, 0x79, 0x52, 0x15, 0x73, 0x72, 0x63, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x49, 0x64,
+	0x4e, 0x61, 0x6d, 0x65, 0x4d, 0x61, 0x70, 0x70, 0x69, 0x6e, 0x67, 0x12, 0x73, 0x0a, 0x19, 0x74,
+	0x61, 0x62, 0x6c, 0x65, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x5f, 0x73, 0x63, 0x68, 0x65, 0x6d, 0x61,
+	0x5f, 0x6d, 0x61, 0x70, 0x70, 0x69, 0x6e, 0x67, 0x18, 0x02, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x38,
+	0x2e, 0x70, 0x65, 0x65, 0x72, 0x64, 0x62, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x2e, 0x53, 0x65, 0x74,
+	0x75, 0x70, 0x46, 0x6c, 0x6f, 0x77, 0x4f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x2e, 0x54, 0x61, 0x62,
+	0x6c, 0x65, 0x4e, 0x61, 0x6d, 0x65, 0x53, 0x63, 0x68, 0x65, 0x6d, 0x61, 0x4d, 0x61, 0x70, 0x70,
+	0x69, 0x6e, 0x67, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x52, 0x16, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x4e,
+	0x61, 0x6d, 0x65, 0x53, 0x63, 0x68, 0x65, 0x6d, 0x61, 0x4d, 0x61, 0x70, 0x70, 0x69, 0x6e, 0x67,
+	0x1a, 0x48, 0x0a, 0x1a, 0x53, 0x72, 0x63, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x49, 0x64, 0x4e, 0x61,
+	0x6d, 0x65, 0x4d, 0x61, 0x70, 0x70, 0x69, 0x6e, 0x67, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x12, 0x10,
+	0x0a, 0x03, 0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0d, 0x52, 0x03, 0x6b, 0x65, 0x79,
+	0x12, 0x14, 0x0a, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52,
+	0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x3a, 0x02, 0x38, 0x01, 0x1a, 0x63, 0x0a, 0x1b, 0x54, 0x61,
+	0x62, 0x6c, 0x65, 0x4e, 0x61, 0x6d, 0x65, 0x53, 0x63, 0x68, 0x65, 0x6d, 0x61, 0x4d, 0x61, 0x70,
+	0x70, 0x69, 0x6e, 0x67, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x12, 0x10, 0x0a, 0x03, 0x6b, 0x65, 0x79,
+	0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12, 0x2e, 0x0a, 0x05, 0x76,
+	0x61, 0x6c, 0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x18, 0x2e, 0x70, 0x65, 0x65,
+	0x72, 0x64, 0x62, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x2e, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x53, 0x63,
+	0x68, 0x65, 0x6d, 0x61, 0x52, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x3a, 0x02, 0x38, 0x01, 0x22,
+	0xb4, 0x01, 0x0a, 0x1b, 0x41, 0x64, 0x64, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x73, 0x54, 0x6f, 0x50,
+	0x75, 0x62, 0x6c, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x49, 0x6e, 0x70, 0x75, 0x74, 0x12,
 	0x22, 0x0a, 0x0d, 0x66, 0x6c, 0x6f, 0x77, 0x5f, 0x6a, 0x6f, 0x62, 0x5f, 0x6e, 0x61, 0x6d, 0x65,
 	0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x66, 0x6c, 0x6f, 0x77, 0x4a, 0x6f, 0x62, 0x4e,
-	0x61, 0x6d, 0x65, 0x12, 0x1b, 0x0a, 0x09, 0x70, 0x65, 0x65, 0x72, 0x5f, 0x6e, 0x61, 0x6d, 0x65,
-	0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x08, 0x70, 0x65, 0x65, 0x72, 0x4e, 0x61, 0x6d, 0x65,
-	0x2a, 0x4b, 0x0a, 0x0b, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x45, 0x6e, 0x67, 0x69, 0x6e, 0x65, 0x12,
-	0x22, 0x0a, 0x1e, 0x43, 0x48, 0x5f, 0x45, 0x4e, 0x47, 0x49, 0x4e, 0x45, 0x5f, 0x52, 0x45, 0x50,
-	0x4c, 0x41, 0x43, 0x49, 0x4e, 0x47, 0x5f, 0x4d, 0x45, 0x52, 0x47, 0x45, 0x5f, 0x54, 0x52, 0x45,
-	0x45, 0x10, 0x00, 0x12, 0x18, 0x0a, 0x14, 0x43, 0x48, 0x5f, 0x45, 0x4e, 0x47, 0x49, 0x4e, 0x45,
-	0x5f, 0x4d, 0x45, 0x52, 0x47, 0x45, 0x5f, 0x54, 0x52, 0x45, 0x45, 0x10, 0x01, 0x2a, 0x66, 0x0a,
-	0x0d, 0x51, 0x52, 0x65, 0x70, 0x57, 0x72, 0x69, 0x74, 0x65, 0x54, 0x79, 0x70, 0x65, 0x12, 0x1a,
-	0x0a, 0x16, 0x51, 0x52, 0x45, 0x50, 0x5f, 0x57, 0x52, 0x49, 0x54, 0x45, 0x5f, 0x4d, 0x4f, 0x44,
-	0x45, 0x5f, 0x41, 0x50, 0x50, 0x45, 0x4e, 0x44, 0x10, 0x00, 0x12, 0x1a, 0x0a, 0x16, 0x51, 0x52,
-	0x45, 0x50, 0x5f, 0x57, 0x52, 0x49, 0x54, 0x45, 0x5f, 0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x55, 0x50,
-	0x53, 0x45, 0x52, 0x54, 0x10, 0x01, 0x12, 0x1d, 0x0a, 0x19, 0x51, 0x52, 0x45, 0x50, 0x5f, 0x57,
-	0x52, 0x49, 0x54, 0x45, 0x5f, 0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x4f, 0x56, 0x45, 0x52, 0x57, 0x52,
-	0x49, 0x54, 0x45, 0x10, 0x02, 0x2a, 0x1b, 0x0a, 0x0a, 0x54, 0x79, 0x70, 0x65, 0x53, 0x79, 0x73,
-	0x74, 0x65, 0x6d, 0x12, 0x05, 0x0a, 0x01, 0x51, 0x10, 0x00, 0x12, 0x06, 0x0a, 0x02, 0x50, 0x47,
-	0x10, 0x01, 0x2a, 0xb1, 0x01, 0x0a, 0x0a, 0x46, 0x6c, 0x6f, 0x77, 0x53, 0x74, 0x61, 0x74, 0x75,
-	0x73, 0x12, 0x12, 0x0a, 0x0e, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x55, 0x4e, 0x4b, 0x4e,
-	0x4f, 0x57, 0x4e, 0x10, 0x00, 0x12, 0x12, 0x0a, 0x0e, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f,
-	0x52, 0x55, 0x4e, 0x4e, 0x49, 0x4e, 0x47, 0x10, 0x01, 0x12, 0x11, 0x0a, 0x0d, 0x53, 0x54, 0x41,
-	0x54, 0x55, 0x53, 0x5f, 0x50, 0x41, 0x55, 0x53, 0x45, 0x44, 0x10, 0x02, 0x12, 0x12, 0x0a, 0x0e,
-	0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x50, 0x41, 0x55, 0x53, 0x49, 0x4e, 0x47, 0x10, 0x03,
-	0x12, 0x10, 0x0a, 0x0c, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x53, 0x45, 0x54, 0x55, 0x50,
-	0x10, 0x04, 0x12, 0x13, 0x0a, 0x0f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x53, 0x4e, 0x41,
-	0x50, 0x53, 0x48, 0x4f, 0x54, 0x10, 0x05, 0x12, 0x16, 0x0a, 0x12, 0x53, 0x54, 0x41, 0x54, 0x55,
-	0x53, 0x5f, 0x54, 0x45, 0x52, 0x4d, 0x49, 0x4e, 0x41, 0x54, 0x49, 0x4e, 0x47, 0x10, 0x06, 0x12,
-	0x15, 0x0a, 0x11, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x54, 0x45, 0x52, 0x4d, 0x49, 0x4e,
-	0x41, 0x54, 0x45, 0x44, 0x10, 0x07, 0x2a, 0x48, 0x0a, 0x10, 0x44, 0x79, 0x6e, 0x63, 0x6f, 0x6e,
-	0x66, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x54, 0x79, 0x70, 0x65, 0x12, 0x0b, 0x0a, 0x07, 0x55, 0x4e,
-	0x4b, 0x4e, 0x4f, 0x57, 0x4e, 0x10, 0x00, 0x12, 0x0a, 0x0a, 0x06, 0x53, 0x54, 0x52, 0x49, 0x4e,
-	0x47, 0x10, 0x01, 0x12, 0x07, 0x0a, 0x03, 0x49, 0x4e, 0x54, 0x10, 0x02, 0x12, 0x08, 0x0a, 0x04,
-	0x55, 0x49, 0x4e, 0x54, 0x10, 0x03, 0x12, 0x08, 0x0a, 0x04, 0x42, 0x4f, 0x4f, 0x4c, 0x10, 0x04,
-	0x2a, 0x94, 0x01, 0x0a, 0x10, 0x44, 0x79, 0x6e, 0x63, 0x6f, 0x6e, 0x66, 0x41, 0x70, 0x70, 0x6c,
-	0x79, 0x4d, 0x6f, 0x64, 0x65, 0x12, 0x16, 0x0a, 0x12, 0x41, 0x50, 0x50, 0x4c, 0x59, 0x5f, 0x4d,
-	0x4f, 0x44, 0x45, 0x5f, 0x55, 0x4e, 0x4b, 0x4e, 0x4f, 0x57, 0x4e, 0x10, 0x00, 0x12, 0x18, 0x0a,
-	0x14, 0x41, 0x50, 0x50, 0x4c, 0x59, 0x5f, 0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x49, 0x4d, 0x4d, 0x45,
-	0x44, 0x49, 0x41, 0x54, 0x45, 0x10, 0x01, 0x12, 0x1b, 0x0a, 0x17, 0x41, 0x50, 0x50, 0x4c, 0x59,
-	0x5f, 0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x41, 0x46, 0x54, 0x45, 0x52, 0x5f, 0x52, 0x45, 0x53, 0x55,
-	0x4d, 0x45, 0x10, 0x02, 0x12, 0x16, 0x0a, 0x12, 0x41, 0x50, 0x50, 0x4c, 0x59, 0x5f, 0x4d, 0x4f,
-	0x44, 0x45, 0x5f, 0x52, 0x45, 0x53, 0x54, 0x41, 0x52, 0x54, 0x10, 0x03, 0x12, 0x19, 0x0a, 0x15,
-	0x41, 0x50, 0x50, 0x4c, 0x59, 0x5f, 0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x4e, 0x45, 0x57, 0x5f, 0x4d,
-	0x49, 0x52, 0x52, 0x4f, 0x52, 0x10, 0x04, 0x2a, 0x51, 0x0a, 0x0d, 0x44, 0x79, 0x6e, 0x63, 0x6f,
-	0x6e, 0x66, 0x54, 0x61, 0x72, 0x67, 0x65, 0x74, 0x12, 0x07, 0x0a, 0x03, 0x41, 0x4c, 0x4c, 0x10,
-	0x00, 0x12, 0x0c, 0x0a, 0x08, 0x42, 0x49, 0x47, 0x51, 0x55, 0x45, 0x52, 0x59, 0x10, 0x01, 0x12,
-	0x0d, 0x0a, 0x09, 0x53, 0x4e, 0x4f, 0x57, 0x46, 0x4c, 0x41, 0x4b, 0x45, 0x10, 0x02, 0x12, 0x0e,
-	0x0a, 0x0a, 0x43, 0x4c, 0x49, 0x43, 0x4b, 0x48, 0x4f, 0x55, 0x53, 0x45, 0x10, 0x03, 0x12, 0x0a,
-	0x0a, 0x06, 0x51, 0x55, 0x45, 0x55, 0x45, 0x53, 0x10, 0x04, 0x42, 0x76, 0x0a, 0x0f, 0x63, 0x6f,
-	0x6d, 0x2e, 0x70, 0x65, 0x65, 0x72, 0x64, 0x62, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x42, 0x09, 0x46,
-	0x6c, 0x6f, 0x77, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x50, 0x01, 0x5a, 0x10, 0x67, 0x65, 0x6e, 0x65,
-	0x72, 0x61, 0x74, 0x65, 0x64, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0xa2, 0x02, 0x03, 0x50,
-	0x58, 0x58, 0xaa, 0x02, 0x0a, 0x50, 0x65, 0x65, 0x72, 0x64, 0x62, 0x46, 0x6c, 0x6f, 0x77, 0xca,
-	0x02, 0x0a, 0x50, 0x65, 0x65, 0x72, 0x64, 0x62, 0x46, 0x6c, 0x6f, 0x77, 0xe2, 0x02, 0x16, 0x50,
-	0x65, 0x65, 0x72, 0x64, 0x62, 0x46, 0x6c, 0x6f, 0x77, 0x5c, 0x47, 0x50, 0x42, 0x4d, 0x65, 0x74,
-	0x61, 0x64, 0x61, 0x74, 0x61, 0xea, 0x02, 0x0a, 0x50, 0x65, 0x65, 0x72, 0x64, 0x62, 0x46, 0x6c,
-	0x6f, 0x77, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x61, 0x6d, 0x65, 0x12, 0x29, 0x0a, 0x10, 0x70, 0x75, 0x62, 0x6c, 0x69, 0x63, 0x61, 0x74, 0x69,
+	0x6f, 0x6e, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0f, 0x70,
+	0x75, 0x62, 0x6c, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x4e, 0x61, 0x6d, 0x65, 0x12, 0x46,
+	0x0a, 0x11, 0x61, 0x64, 0x64, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x61, 0x6c, 0x5f, 0x74, 0x61, 0x62,
+	0x6c, 0x65, 0x73, 0x18, 0x03, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x19, 0x2e, 0x70, 0x65, 0x65, 0x72,
+	0x64, 0x62, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x2e, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x4d, 0x61, 0x70,
+	0x70, 0x69, 0x6e, 0x67, 0x52, 0x10, 0x61, 0x64, 0x64, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x61, 0x6c,
+	0x54, 0x61, 0x62, 0x6c, 0x65, 0x73, 0x22, 0xb6, 0x01, 0x0a, 0x20, 0x52, 0x65, 0x6d, 0x6f, 0x76,
+	0x65, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x73, 0x46, 0x72, 0x6f, 0x6d, 0x50, 0x75, 0x62, 0x6c, 0x69,
+	0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x49, 0x6e, 0x70, 0x75, 0x74, 0x12, 0x22, 0x0a, 0x0d, 0x66,
+	0x6c, 0x6f, 0x77, 0x5f, 0x6a, 0x6f, 0x62, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01,
+	0x28, 0x09, 0x52, 0x0b, 0x66, 0x6c, 0x6f, 0x77, 0x4a, 0x6f, 0x62, 0x4e, 0x61, 0x6d, 0x65, 0x12,
+	0x29, 0x0a, 0x10, 0x70, 0x75, 0x62, 0x6c, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x6e,
+	0x61, 0x6d, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0f, 0x70, 0x75, 0x62, 0x6c, 0x69,
+	0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x4e, 0x61, 0x6d, 0x65, 0x12, 0x43, 0x0a, 0x10, 0x74, 0x61,
+	0x62, 0x6c, 0x65, 0x73, 0x5f, 0x74, 0x6f, 0x5f, 0x72, 0x65, 0x6d, 0x6f, 0x76, 0x65, 0x18, 0x03,
+	0x20, 0x03, 0x28, 0x0b, 0x32, 0x19, 0x2e, 0x70, 0x65, 0x65, 0x72, 0x64, 0x62, 0x5f, 0x66, 0x6c,
+	0x6f, 0x77, 0x2e, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x4d, 0x61, 0x70, 0x70, 0x69, 0x6e, 0x67, 0x52,
+	0x0e, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x73, 0x54, 0x6f, 0x52, 0x65, 0x6d, 0x6f, 0x76, 0x65, 0x22,
+	0x63, 0x0a, 0x1a, 0x49, 0x73, 0x51, 0x52, 0x65, 0x70, 0x50, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69,
+	0x6f, 0x6e, 0x53, 0x79, 0x6e, 0x63, 0x65, 0x64, 0x49, 0x6e, 0x70, 0x75, 0x74, 0x12, 0x22, 0x0a,
+	0x0d, 0x66, 0x6c, 0x6f, 0x77, 0x5f, 0x6a, 0x6f, 0x62, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01,
+	0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x66, 0x6c, 0x6f, 0x77, 0x4a, 0x6f, 0x62, 0x4e, 0x61, 0x6d,
+	0x65, 0x12, 0x21, 0x0a, 0x0c, 0x70, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x69,
+	0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x70, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69,
+	0x6f, 0x6e, 0x49, 0x64, 0x22, 0x6b, 0x0a, 0x16, 0x45, 0x78, 0x70, 0x6f, 0x72, 0x74, 0x54, 0x78,
+	0x53, 0x6e, 0x61, 0x70, 0x73, 0x68, 0x6f, 0x74, 0x4f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x12, 0x23,
+	0x0a, 0x0d, 0x73, 0x6e, 0x61, 0x70, 0x73, 0x68, 0x6f, 0x74, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18,
+	0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0c, 0x73, 0x6e, 0x61, 0x70, 0x73, 0x68, 0x6f, 0x74, 0x4e,
+	0x61, 0x6d, 0x65, 0x12, 0x2c, 0x0a, 0x12, 0x73, 0x75, 0x70, 0x70, 0x6f, 0x72, 0x74, 0x73, 0x5f,
+	0x74, 0x69, 0x64, 0x5f, 0x73, 0x63, 0x61, 0x6e, 0x73, 0x18, 0x02, 0x20, 0x01, 0x28, 0x08, 0x52,
+	0x10, 0x73, 0x75, 0x70, 0x70, 0x6f, 0x72, 0x74, 0x73, 0x54, 0x69, 0x64, 0x53, 0x63, 0x61, 0x6e,
+	0x73, 0x22, 0x58, 0x0a, 0x15, 0x44, 0x72, 0x6f, 0x70, 0x46, 0x6c, 0x6f, 0x77, 0x41, 0x63, 0x74,
+	0x69, 0x76, 0x69, 0x74, 0x79, 0x49, 0x6e, 0x70, 0x75, 0x74, 0x12, 0x22, 0x0a, 0x0d, 0x66, 0x6c,
+	0x6f, 0x77, 0x5f, 0x6a, 0x6f, 0x62, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28,
+	0x09, 0x52, 0x0b, 0x66, 0x6c, 0x6f, 0x77, 0x4a, 0x6f, 0x62, 0x4e, 0x61, 0x6d, 0x65, 0x12, 0x1b,
+	0x0a, 0x09, 0x70, 0x65, 0x65, 0x72, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28,
+	0x09, 0x52, 0x08, 0x70, 0x65, 0x65, 0x72, 0x4e, 0x61, 0x6d, 0x65, 0x2a, 0x4b, 0x0a, 0x0b, 0x54,
+	0x61, 0x62, 0x6c, 0x65, 0x45, 0x6e, 0x67, 0x69, 0x6e, 0x65, 0x12, 0x22, 0x0a, 0x1e, 0x43, 0x48,
+	0x5f, 0x45, 0x4e, 0x47, 0x49, 0x4e, 0x45, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x41, 0x43, 0x49, 0x4e,
+	0x47, 0x5f, 0x4d, 0x45, 0x52, 0x47, 0x45, 0x5f, 0x54, 0x52, 0x45, 0x45, 0x10, 0x00, 0x12, 0x18,
+	0x0a, 0x14, 0x43, 0x48, 0x5f, 0x45, 0x4e, 0x47, 0x49, 0x4e, 0x45, 0x5f, 0x4d, 0x45, 0x52, 0x47,
+	0x45, 0x5f, 0x54, 0x52, 0x45, 0x45, 0x10, 0x01, 0x2a, 0x66, 0x0a, 0x0d, 0x51, 0x52, 0x65, 0x70,
+	0x57, 0x72, 0x69, 0x74, 0x65, 0x54, 0x79, 0x70, 0x65, 0x12, 0x1a, 0x0a, 0x16, 0x51, 0x52, 0x45,
+	0x50, 0x5f, 0x57, 0x52, 0x49, 0x54, 0x45, 0x5f, 0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x41, 0x50, 0x50,
+	0x45, 0x4e, 0x44, 0x10, 0x00, 0x12, 0x1a, 0x0a, 0x16, 0x51, 0x52, 0x45, 0x50, 0x5f, 0x57, 0x52,
+	0x49, 0x54, 0x45, 0x5f, 0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x55, 0x50, 0x53, 0x45, 0x52, 0x54, 0x10,
+	0x01, 0x12, 0x1d, 0x0a, 0x19, 0x51, 0x52, 0x45, 0x50, 0x5f, 0x57, 0x52, 0x49, 0x54, 0x45, 0x5f,
+	0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x4f, 0x56, 0x45, 0x52, 0x57, 0x52, 0x49, 0x54, 0x45, 0x10, 0x02,
+	0x2a, 0x1b, 0x0a, 0x0a, 0x54, 0x79, 0x70, 0x65, 0x53, 0x79, 0x73, 0x74, 0x65, 0x6d, 0x12, 0x05,
+	0x0a, 0x01, 0x51, 0x10, 0x00, 0x12, 0x06, 0x0a, 0x02, 0x50, 0x47, 0x10, 0x01, 0x2a, 0xb1, 0x01,
+	0x0a, 0x0a, 0x46, 0x6c, 0x6f, 0x77, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x12, 0x12, 0x0a, 0x0e,
+	0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x55, 0x4e, 0x4b, 0x4e, 0x4f, 0x57, 0x4e, 0x10, 0x00,
+	0x12, 0x12, 0x0a, 0x0e, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x52, 0x55, 0x4e, 0x4e, 0x49,
+	0x4e, 0x47, 0x10, 0x01, 0x12, 0x11, 0x0a, 0x0d, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x50,
+	0x41, 0x55, 0x53, 0x45, 0x44, 0x10, 0x02, 0x12, 0x12, 0x0a, 0x0e, 0x53, 0x54, 0x41, 0x54, 0x55,
+	0x53, 0x5f, 0x50, 0x41, 0x55, 0x53, 0x49, 0x4e, 0x47, 0x10, 0x03, 0x12, 0x10, 0x0a, 0x0c, 0x53,
+	0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x53, 0x45, 0x54, 0x55, 0x50, 0x10, 0x04, 0x12, 0x13, 0x0a,
+	0x0f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x53, 0x4e, 0x41, 0x50, 0x53, 0x48, 0x4f, 0x54,
+	0x10, 0x05, 0x12, 0x16, 0x0a, 0x12, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x54, 0x45, 0x52,
+	0x4d, 0x49, 0x4e, 0x41, 0x54, 0x49, 0x4e, 0x47, 0x10, 0x06, 0x12, 0x15, 0x0a, 0x11, 0x53, 0x54,
+	0x41, 0x54, 0x55, 0x53, 0x5f, 0x54, 0x45, 0x52, 0x4d, 0x49, 0x4e, 0x41, 0x54, 0x45, 0x44, 0x10,
+	0x07, 0x2a, 0x48, 0x0a, 0x10, 0x44, 0x79, 0x6e, 0x63, 0x6f, 0x6e, 0x66, 0x56, 0x61, 0x6c, 0x75,
+	0x65, 0x54, 0x79, 0x70, 0x65, 0x12, 0x0b, 0x0a, 0x07, 0x55, 0x4e, 0x4b, 0x4e, 0x4f, 0x57, 0x4e,
+	0x10, 0x00, 0x12, 0x0a, 0x0a, 0x06, 0x53, 0x54, 0x52, 0x49, 0x4e, 0x47, 0x10, 0x01, 0x12, 0x07,
+	0x0a, 0x03, 0x49, 0x4e, 0x54, 0x10, 0x02, 0x12, 0x08, 0x0a, 0x04, 0x55, 0x49, 0x4e, 0x54, 0x10,
+	0x03, 0x12, 0x08, 0x0a, 0x04, 0x42, 0x4f, 0x4f, 0x4c, 0x10, 0x04, 0x2a, 0x94, 0x01, 0x0a, 0x10,
+	0x44, 0x79, 0x6e, 0x63, 0x6f, 0x6e, 0x66, 0x41, 0x70, 0x70, 0x6c, 0x79, 0x4d, 0x6f, 0x64, 0x65,
+	0x12, 0x16, 0x0a, 0x12, 0x41, 0x50, 0x50, 0x4c, 0x59, 0x5f, 0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x55,
+	0x4e, 0x4b, 0x4e, 0x4f, 0x57, 0x4e, 0x10, 0x00, 0x12, 0x18, 0x0a, 0x14, 0x41, 0x50, 0x50, 0x4c,
+	0x59, 0x5f, 0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x49, 0x4d, 0x4d, 0x45, 0x44, 0x49, 0x41, 0x54, 0x45,
+	0x10, 0x01, 0x12, 0x1b, 0x0a, 0x17, 0x41, 0x50, 0x50, 0x4c, 0x59, 0x5f, 0x4d, 0x4f, 0x44, 0x45,
+	0x5f, 0x41, 0x46, 0x54, 0x45, 0x52, 0x5f, 0x52, 0x45, 0x53, 0x55, 0x4d, 0x45, 0x10, 0x02, 0x12,
+	0x16, 0x0a, 0x12, 0x41, 0x50, 0x50, 0x4c, 0x59, 0x5f, 0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x52, 0x45,
+	0x53, 0x54, 0x41, 0x52, 0x54, 0x10, 0x03, 0x12, 0x19, 0x0a, 0x15, 0x41, 0x50, 0x50, 0x4c, 0x59,
+	0x5f, 0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x4e, 0x45, 0x57, 0x5f, 0x4d, 0x49, 0x52, 0x52, 0x4f, 0x52,
+	0x10, 0x04, 0x2a, 0x51, 0x0a, 0x0d, 0x44, 0x79, 0x6e, 0x63, 0x6f, 0x6e, 0x66, 0x54, 0x61, 0x72,
+	0x67, 0x65, 0x74, 0x12, 0x07, 0x0a, 0x03, 0x41, 0x4c, 0x4c, 0x10, 0x00, 0x12, 0x0c, 0x0a, 0x08,
+	0x42, 0x49, 0x47, 0x51, 0x55, 0x45, 0x52, 0x59, 0x10, 0x01, 0x12, 0x0d, 0x0a, 0x09, 0x53, 0x4e,
+	0x4f, 0x57, 0x46, 0x4c, 0x41, 0x4b, 0x45, 0x10, 0x02, 0x12, 0x0e, 0x0a, 0x0a, 0x43, 0x4c, 0x49,
+	0x43, 0x4b, 0x48, 0x4f, 0x55, 0x53, 0x45, 0x10, 0x03, 0x12, 0x0a, 0x0a, 0x06, 0x51, 0x55, 0x45,
+	0x55, 0x45, 0x53, 0x10, 0x04, 0x42, 0x76, 0x0a, 0x0f, 0x63, 0x6f, 0x6d, 0x2e, 0x70, 0x65, 0x65,
+	0x72, 0x64, 0x62, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x42, 0x09, 0x46, 0x6c, 0x6f, 0x77, 0x50, 0x72,
+	0x6f, 0x74, 0x6f, 0x50, 0x01, 0x5a, 0x10, 0x67, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x65, 0x64,
+	0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0xa2, 0x02, 0x03, 0x50, 0x58, 0x58, 0xaa, 0x02, 0x0a,
+	0x50, 0x65, 0x65, 0x72, 0x64, 0x62, 0x46, 0x6c, 0x6f, 0x77, 0xca, 0x02, 0x0a, 0x50, 0x65, 0x65,
+	0x72, 0x64, 0x62, 0x46, 0x6c, 0x6f, 0x77, 0xe2, 0x02, 0x16, 0x50, 0x65, 0x65, 0x72, 0x64, 0x62,
+	0x46, 0x6c, 0x6f, 0x77, 0x5c, 0x47, 0x50, 0x42, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61,
+	0xea, 0x02, 0x0a, 0x50, 0x65, 0x65, 0x72, 0x64, 0x62, 0x46, 0x6c, 0x6f, 0x77, 0x62, 0x06, 0x70,
+	0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -4645,145 +4816,149 @@ func file_flow_proto_rawDescGZIP() []byte {
 }
 
 var file_flow_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
-var file_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 66)
+var file_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 68)
 var file_flow_proto_goTypes = []interface{}{
-	(TableEngine)(0),                        // 0: peerdb_flow.TableEngine
-	(QRepWriteType)(0),                      // 1: peerdb_flow.QRepWriteType
-	(TypeSystem)(0),                         // 2: peerdb_flow.TypeSystem
-	(FlowStatus)(0),                         // 3: peerdb_flow.FlowStatus
-	(DynconfValueType)(0),                   // 4: peerdb_flow.DynconfValueType
-	(DynconfApplyMode)(0),                   // 5: peerdb_flow.DynconfApplyMode
-	(DynconfTarget)(0),                      // 6: peerdb_flow.DynconfTarget
-	(*TableNameMapping)(nil),                // 7: peerdb_flow.TableNameMapping
-	(*ColumnSetting)(nil),                   // 8: peerdb_flow.ColumnSetting
-	(*TableMapping)(nil),                    // 9: peerdb_flow.TableMapping
-	(*SetupInput)(nil),                      // 10: peerdb_flow.SetupInput
-	(*FlowConnectionConfigs)(nil),           // 11: peerdb_flow.FlowConnectionConfigs
-	(*RenameTableOption)(nil),               // 12: peerdb_flow.RenameTableOption
-	(*RenameTablesInput)(nil),               // 13: peerdb_flow.RenameTablesInput
-	(*RenameTablesOutput)(nil),              // 14: peerdb_flow.RenameTablesOutput
-	(*CreateTablesFromExistingInput)(nil),   // 15: peerdb_flow.CreateTablesFromExistingInput
-	(*CreateTablesFromExistingOutput)(nil),  // 16: peerdb_flow.CreateTablesFromExistingOutput
-	(*SyncFlowOptions)(nil),                 // 17: peerdb_flow.SyncFlowOptions
-	(*StartNormalizeInput)(nil),             // 18: peerdb_flow.StartNormalizeInput
-	(*EnsurePullabilityBatchInput)(nil),     // 19: peerdb_flow.EnsurePullabilityBatchInput
-	(*PostgresTableIdentifier)(nil),         // 20: peerdb_flow.PostgresTableIdentifier
-	(*EnsurePullabilityBatchOutput)(nil),    // 21: peerdb_flow.EnsurePullabilityBatchOutput
-	(*SetupReplicationInput)(nil),           // 22: peerdb_flow.SetupReplicationInput
-	(*SetupReplicationOutput)(nil),          // 23: peerdb_flow.SetupReplicationOutput
-	(*CreateRawTableInput)(nil),             // 24: peerdb_flow.CreateRawTableInput
-	(*CreateRawTableOutput)(nil),            // 25: peerdb_flow.CreateRawTableOutput
-	(*TableSchema)(nil),                     // 26: peerdb_flow.TableSchema
-	(*FieldDescription)(nil),                // 27: peerdb_flow.FieldDescription
-	(*GetTableSchemaBatchInput)(nil),        // 28: peerdb_flow.GetTableSchemaBatchInput
-	(*GetTableSchemaBatchOutput)(nil),       // 29: peerdb_flow.GetTableSchemaBatchOutput
-	(*SetupNormalizedTableBatchInput)(nil),  // 30: peerdb_flow.SetupNormalizedTableBatchInput
-	(*SetupNormalizedTableOutput)(nil),      // 31: peerdb_flow.SetupNormalizedTableOutput
-	(*SetupNormalizedTableBatchOutput)(nil), // 32: peerdb_flow.SetupNormalizedTableBatchOutput
-	(*IntPartitionRange)(nil),               // 33: peerdb_flow.IntPartitionRange
-	(*TimestampPartitionRange)(nil),         // 34: peerdb_flow.TimestampPartitionRange
-	(*TID)(nil),                             // 35: peerdb_flow.TID
-	(*TIDPartitionRange)(nil),               // 36: peerdb_flow.TIDPartitionRange
-	(*PartitionRange)(nil),                  // 37: peerdb_flow.PartitionRange
-	(*QRepWriteMode)(nil),                   // 38: peerdb_flow.QRepWriteMode
-	(*QRepConfig)(nil),                      // 39: peerdb_flow.QRepConfig
-	(*QRepPartition)(nil),                   // 40: peerdb_flow.QRepPartition
-	(*QRepPartitionBatch)(nil),              // 41: peerdb_flow.QRepPartitionBatch
-	(*QRepParitionResult)(nil),              // 42: peerdb_flow.QRepParitionResult
-	(*DropFlowInput)(nil),                   // 43: peerdb_flow.DropFlowInput
-	(*TableSchemaDelta)(nil),                // 44: peerdb_flow.TableSchemaDelta
-	(*QRepFlowState)(nil),                   // 45: peerdb_flow.QRepFlowState
-	(*PeerDBColumns)(nil),                   // 46: peerdb_flow.PeerDBColumns
-	(*GetOpenConnectionsForUserResult)(nil), // 47: peerdb_flow.GetOpenConnectionsForUserResult
-	(*CDCFlowConfigUpdate)(nil),             // 48: peerdb_flow.CDCFlowConfigUpdate
-	(*QRepFlowConfigUpdate)(nil),            // 49: peerdb_flow.QRepFlowConfigUpdate
-	(*FlowConfigUpdate)(nil),                // 50: peerdb_flow.FlowConfigUpdate
-	(*SetupFlowOutput)(nil),                 // 51: peerdb_flow.SetupFlowOutput
-	(*AddTablesToPublicationInput)(nil),     // 52: peerdb_flow.AddTablesToPublicationInput
-	(*IsQRepPartitionSyncedInput)(nil),      // 53: peerdb_flow.IsQRepPartitionSyncedInput
-	(*ExportTxSnapshotOutput)(nil),          // 54: peerdb_flow.ExportTxSnapshotOutput
-	(*DropFlowActivityInput)(nil),           // 55: peerdb_flow.DropFlowActivityInput
-	nil,                                     // 56: peerdb_flow.SetupInput.EnvEntry
-	nil,                                     // 57: peerdb_flow.FlowConnectionConfigs.EnvEntry
-	nil,                                     // 58: peerdb_flow.CreateTablesFromExistingInput.NewToExistingTableMappingEntry
-	nil,                                     // 59: peerdb_flow.SyncFlowOptions.SrcTableIdNameMappingEntry
-	nil,                                     // 60: peerdb_flow.SyncFlowOptions.TableNameSchemaMappingEntry
-	nil,                                     // 61: peerdb_flow.StartNormalizeInput.TableNameSchemaMappingEntry
-	nil,                                     // 62: peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry
-	nil,                                     // 63: peerdb_flow.SetupReplicationInput.TableNameMappingEntry
-	nil,                                     // 64: peerdb_flow.CreateRawTableInput.TableNameMappingEntry
-	nil,                                     // 65: peerdb_flow.GetTableSchemaBatchInput.EnvEntry
-	nil,                                     // 66: peerdb_flow.GetTableSchemaBatchOutput.TableNameSchemaMappingEntry
-	nil,                                     // 67: peerdb_flow.SetupNormalizedTableBatchInput.EnvEntry
-	nil,                                     // 68: peerdb_flow.SetupNormalizedTableBatchInput.TableNameSchemaMappingEntry
-	nil,                                     // 69: peerdb_flow.SetupNormalizedTableBatchOutput.TableExistsMappingEntry
-	nil,                                     // 70: peerdb_flow.QRepConfig.EnvEntry
-	nil,                                     // 71: peerdb_flow.SetupFlowOutput.SrcTableIdNameMappingEntry
-	nil,                                     // 72: peerdb_flow.SetupFlowOutput.TableNameSchemaMappingEntry
-	(*timestamppb.Timestamp)(nil),           // 73: google.protobuf.Timestamp
+	(TableEngine)(0),                         // 0: peerdb_flow.TableEngine
+	(QRepWriteType)(0),                       // 1: peerdb_flow.QRepWriteType
+	(TypeSystem)(0),                          // 2: peerdb_flow.TypeSystem
+	(FlowStatus)(0),                          // 3: peerdb_flow.FlowStatus
+	(DynconfValueType)(0),                    // 4: peerdb_flow.DynconfValueType
+	(DynconfApplyMode)(0),                    // 5: peerdb_flow.DynconfApplyMode
+	(DynconfTarget)(0),                       // 6: peerdb_flow.DynconfTarget
+	(*TableNameMapping)(nil),                 // 7: peerdb_flow.TableNameMapping
+	(*ColumnSetting)(nil),                    // 8: peerdb_flow.ColumnSetting
+	(*TableMapping)(nil),                     // 9: peerdb_flow.TableMapping
+	(*SetupInput)(nil),                       // 10: peerdb_flow.SetupInput
+	(*FlowConnectionConfigs)(nil),            // 11: peerdb_flow.FlowConnectionConfigs
+	(*RenameTableOption)(nil),                // 12: peerdb_flow.RenameTableOption
+	(*RenameTablesInput)(nil),                // 13: peerdb_flow.RenameTablesInput
+	(*RemoveTablesFromRawTableInput)(nil),    // 14: peerdb_flow.RemoveTablesFromRawTableInput
+	(*RenameTablesOutput)(nil),               // 15: peerdb_flow.RenameTablesOutput
+	(*CreateTablesFromExistingInput)(nil),    // 16: peerdb_flow.CreateTablesFromExistingInput
+	(*CreateTablesFromExistingOutput)(nil),   // 17: peerdb_flow.CreateTablesFromExistingOutput
+	(*SyncFlowOptions)(nil),                  // 18: peerdb_flow.SyncFlowOptions
+	(*StartNormalizeInput)(nil),              // 19: peerdb_flow.StartNormalizeInput
+	(*EnsurePullabilityBatchInput)(nil),      // 20: peerdb_flow.EnsurePullabilityBatchInput
+	(*PostgresTableIdentifier)(nil),          // 21: peerdb_flow.PostgresTableIdentifier
+	(*EnsurePullabilityBatchOutput)(nil),     // 22: peerdb_flow.EnsurePullabilityBatchOutput
+	(*SetupReplicationInput)(nil),            // 23: peerdb_flow.SetupReplicationInput
+	(*SetupReplicationOutput)(nil),           // 24: peerdb_flow.SetupReplicationOutput
+	(*CreateRawTableInput)(nil),              // 25: peerdb_flow.CreateRawTableInput
+	(*CreateRawTableOutput)(nil),             // 26: peerdb_flow.CreateRawTableOutput
+	(*TableSchema)(nil),                      // 27: peerdb_flow.TableSchema
+	(*FieldDescription)(nil),                 // 28: peerdb_flow.FieldDescription
+	(*GetTableSchemaBatchInput)(nil),         // 29: peerdb_flow.GetTableSchemaBatchInput
+	(*GetTableSchemaBatchOutput)(nil),        // 30: peerdb_flow.GetTableSchemaBatchOutput
+	(*SetupNormalizedTableBatchInput)(nil),   // 31: peerdb_flow.SetupNormalizedTableBatchInput
+	(*SetupNormalizedTableOutput)(nil),       // 32: peerdb_flow.SetupNormalizedTableOutput
+	(*SetupNormalizedTableBatchOutput)(nil),  // 33: peerdb_flow.SetupNormalizedTableBatchOutput
+	(*IntPartitionRange)(nil),                // 34: peerdb_flow.IntPartitionRange
+	(*TimestampPartitionRange)(nil),          // 35: peerdb_flow.TimestampPartitionRange
+	(*TID)(nil),                              // 36: peerdb_flow.TID
+	(*TIDPartitionRange)(nil),                // 37: peerdb_flow.TIDPartitionRange
+	(*PartitionRange)(nil),                   // 38: peerdb_flow.PartitionRange
+	(*QRepWriteMode)(nil),                    // 39: peerdb_flow.QRepWriteMode
+	(*QRepConfig)(nil),                       // 40: peerdb_flow.QRepConfig
+	(*QRepPartition)(nil),                    // 41: peerdb_flow.QRepPartition
+	(*QRepPartitionBatch)(nil),               // 42: peerdb_flow.QRepPartitionBatch
+	(*QRepParitionResult)(nil),               // 43: peerdb_flow.QRepParitionResult
+	(*DropFlowInput)(nil),                    // 44: peerdb_flow.DropFlowInput
+	(*TableSchemaDelta)(nil),                 // 45: peerdb_flow.TableSchemaDelta
+	(*QRepFlowState)(nil),                    // 46: peerdb_flow.QRepFlowState
+	(*PeerDBColumns)(nil),                    // 47: peerdb_flow.PeerDBColumns
+	(*GetOpenConnectionsForUserResult)(nil),  // 48: peerdb_flow.GetOpenConnectionsForUserResult
+	(*CDCFlowConfigUpdate)(nil),              // 49: peerdb_flow.CDCFlowConfigUpdate
+	(*QRepFlowConfigUpdate)(nil),             // 50: peerdb_flow.QRepFlowConfigUpdate
+	(*FlowConfigUpdate)(nil),                 // 51: peerdb_flow.FlowConfigUpdate
+	(*SetupFlowOutput)(nil),                  // 52: peerdb_flow.SetupFlowOutput
+	(*AddTablesToPublicationInput)(nil),      // 53: peerdb_flow.AddTablesToPublicationInput
+	(*RemoveTablesFromPublicationInput)(nil), // 54: peerdb_flow.RemoveTablesFromPublicationInput
+	(*IsQRepPartitionSyncedInput)(nil),       // 55: peerdb_flow.IsQRepPartitionSyncedInput
+	(*ExportTxSnapshotOutput)(nil),           // 56: peerdb_flow.ExportTxSnapshotOutput
+	(*DropFlowActivityInput)(nil),            // 57: peerdb_flow.DropFlowActivityInput
+	nil,                                      // 58: peerdb_flow.SetupInput.EnvEntry
+	nil,                                      // 59: peerdb_flow.FlowConnectionConfigs.EnvEntry
+	nil,                                      // 60: peerdb_flow.CreateTablesFromExistingInput.NewToExistingTableMappingEntry
+	nil,                                      // 61: peerdb_flow.SyncFlowOptions.SrcTableIdNameMappingEntry
+	nil,                                      // 62: peerdb_flow.SyncFlowOptions.TableNameSchemaMappingEntry
+	nil,                                      // 63: peerdb_flow.StartNormalizeInput.TableNameSchemaMappingEntry
+	nil,                                      // 64: peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry
+	nil,                                      // 65: peerdb_flow.SetupReplicationInput.TableNameMappingEntry
+	nil,                                      // 66: peerdb_flow.CreateRawTableInput.TableNameMappingEntry
+	nil,                                      // 67: peerdb_flow.GetTableSchemaBatchInput.EnvEntry
+	nil,                                      // 68: peerdb_flow.GetTableSchemaBatchOutput.TableNameSchemaMappingEntry
+	nil,                                      // 69: peerdb_flow.SetupNormalizedTableBatchInput.EnvEntry
+	nil,                                      // 70: peerdb_flow.SetupNormalizedTableBatchInput.TableNameSchemaMappingEntry
+	nil,                                      // 71: peerdb_flow.SetupNormalizedTableBatchOutput.TableExistsMappingEntry
+	nil,                                      // 72: peerdb_flow.QRepConfig.EnvEntry
+	nil,                                      // 73: peerdb_flow.SetupFlowOutput.SrcTableIdNameMappingEntry
+	nil,                                      // 74: peerdb_flow.SetupFlowOutput.TableNameSchemaMappingEntry
+	(*timestamppb.Timestamp)(nil),            // 75: google.protobuf.Timestamp
 }
 var file_flow_proto_depIdxs = []int32{
 	8,  // 0: peerdb_flow.TableMapping.columns:type_name -> peerdb_flow.ColumnSetting
 	0,  // 1: peerdb_flow.TableMapping.engine:type_name -> peerdb_flow.TableEngine
-	56, // 2: peerdb_flow.SetupInput.env:type_name -> peerdb_flow.SetupInput.EnvEntry
+	58, // 2: peerdb_flow.SetupInput.env:type_name -> peerdb_flow.SetupInput.EnvEntry
 	9,  // 3: peerdb_flow.FlowConnectionConfigs.table_mappings:type_name -> peerdb_flow.TableMapping
 	2,  // 4: peerdb_flow.FlowConnectionConfigs.system:type_name -> peerdb_flow.TypeSystem
-	57, // 5: peerdb_flow.FlowConnectionConfigs.env:type_name -> peerdb_flow.FlowConnectionConfigs.EnvEntry
-	26, // 6: peerdb_flow.RenameTableOption.table_schema:type_name -> peerdb_flow.TableSchema
+	59, // 5: peerdb_flow.FlowConnectionConfigs.env:type_name -> peerdb_flow.FlowConnectionConfigs.EnvEntry
+	27, // 6: peerdb_flow.RenameTableOption.table_schema:type_name -> peerdb_flow.TableSchema
 	12, // 7: peerdb_flow.RenameTablesInput.rename_table_options:type_name -> peerdb_flow.RenameTableOption
-	58, // 8: peerdb_flow.CreateTablesFromExistingInput.new_to_existing_table_mapping:type_name -> peerdb_flow.CreateTablesFromExistingInput.NewToExistingTableMappingEntry
-	59, // 9: peerdb_flow.SyncFlowOptions.src_table_id_name_mapping:type_name -> peerdb_flow.SyncFlowOptions.SrcTableIdNameMappingEntry
-	60, // 10: peerdb_flow.SyncFlowOptions.table_name_schema_mapping:type_name -> peerdb_flow.SyncFlowOptions.TableNameSchemaMappingEntry
+	60, // 8: peerdb_flow.CreateTablesFromExistingInput.new_to_existing_table_mapping:type_name -> peerdb_flow.CreateTablesFromExistingInput.NewToExistingTableMappingEntry
+	61, // 9: peerdb_flow.SyncFlowOptions.src_table_id_name_mapping:type_name -> peerdb_flow.SyncFlowOptions.SrcTableIdNameMappingEntry
+	62, // 10: peerdb_flow.SyncFlowOptions.table_name_schema_mapping:type_name -> peerdb_flow.SyncFlowOptions.TableNameSchemaMappingEntry
 	9,  // 11: peerdb_flow.SyncFlowOptions.table_mappings:type_name -> peerdb_flow.TableMapping
 	11, // 12: peerdb_flow.StartNormalizeInput.flow_connection_configs:type_name -> peerdb_flow.FlowConnectionConfigs
-	61, // 13: peerdb_flow.StartNormalizeInput.table_name_schema_mapping:type_name -> peerdb_flow.StartNormalizeInput.TableNameSchemaMappingEntry
-	62, // 14: peerdb_flow.EnsurePullabilityBatchOutput.table_identifier_mapping:type_name -> peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry
-	63, // 15: peerdb_flow.SetupReplicationInput.table_name_mapping:type_name -> peerdb_flow.SetupReplicationInput.TableNameMappingEntry
-	64, // 16: peerdb_flow.CreateRawTableInput.table_name_mapping:type_name -> peerdb_flow.CreateRawTableInput.TableNameMappingEntry
+	63, // 13: peerdb_flow.StartNormalizeInput.table_name_schema_mapping:type_name -> peerdb_flow.StartNormalizeInput.TableNameSchemaMappingEntry
+	64, // 14: peerdb_flow.EnsurePullabilityBatchOutput.table_identifier_mapping:type_name -> peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry
+	65, // 15: peerdb_flow.SetupReplicationInput.table_name_mapping:type_name -> peerdb_flow.SetupReplicationInput.TableNameMappingEntry
+	66, // 16: peerdb_flow.CreateRawTableInput.table_name_mapping:type_name -> peerdb_flow.CreateRawTableInput.TableNameMappingEntry
 	2,  // 17: peerdb_flow.TableSchema.system:type_name -> peerdb_flow.TypeSystem
-	27, // 18: peerdb_flow.TableSchema.columns:type_name -> peerdb_flow.FieldDescription
-	65, // 19: peerdb_flow.GetTableSchemaBatchInput.env:type_name -> peerdb_flow.GetTableSchemaBatchInput.EnvEntry
+	28, // 18: peerdb_flow.TableSchema.columns:type_name -> peerdb_flow.FieldDescription
+	67, // 19: peerdb_flow.GetTableSchemaBatchInput.env:type_name -> peerdb_flow.GetTableSchemaBatchInput.EnvEntry
 	2,  // 20: peerdb_flow.GetTableSchemaBatchInput.system:type_name -> peerdb_flow.TypeSystem
-	66, // 21: peerdb_flow.GetTableSchemaBatchOutput.table_name_schema_mapping:type_name -> peerdb_flow.GetTableSchemaBatchOutput.TableNameSchemaMappingEntry
-	67, // 22: peerdb_flow.SetupNormalizedTableBatchInput.env:type_name -> peerdb_flow.SetupNormalizedTableBatchInput.EnvEntry
-	68, // 23: peerdb_flow.SetupNormalizedTableBatchInput.table_name_schema_mapping:type_name -> peerdb_flow.SetupNormalizedTableBatchInput.TableNameSchemaMappingEntry
+	68, // 21: peerdb_flow.GetTableSchemaBatchOutput.table_name_schema_mapping:type_name -> peerdb_flow.GetTableSchemaBatchOutput.TableNameSchemaMappingEntry
+	69, // 22: peerdb_flow.SetupNormalizedTableBatchInput.env:type_name -> peerdb_flow.SetupNormalizedTableBatchInput.EnvEntry
+	70, // 23: peerdb_flow.SetupNormalizedTableBatchInput.table_name_schema_mapping:type_name -> peerdb_flow.SetupNormalizedTableBatchInput.TableNameSchemaMappingEntry
 	9,  // 24: peerdb_flow.SetupNormalizedTableBatchInput.table_mappings:type_name -> peerdb_flow.TableMapping
-	69, // 25: peerdb_flow.SetupNormalizedTableBatchOutput.table_exists_mapping:type_name -> peerdb_flow.SetupNormalizedTableBatchOutput.TableExistsMappingEntry
-	73, // 26: peerdb_flow.TimestampPartitionRange.start:type_name -> google.protobuf.Timestamp
-	73, // 27: peerdb_flow.TimestampPartitionRange.end:type_name -> google.protobuf.Timestamp
-	35, // 28: peerdb_flow.TIDPartitionRange.start:type_name -> peerdb_flow.TID
-	35, // 29: peerdb_flow.TIDPartitionRange.end:type_name -> peerdb_flow.TID
-	33, // 30: peerdb_flow.PartitionRange.int_range:type_name -> peerdb_flow.IntPartitionRange
-	34, // 31: peerdb_flow.PartitionRange.timestamp_range:type_name -> peerdb_flow.TimestampPartitionRange
-	36, // 32: peerdb_flow.PartitionRange.tid_range:type_name -> peerdb_flow.TIDPartitionRange
+	71, // 25: peerdb_flow.SetupNormalizedTableBatchOutput.table_exists_mapping:type_name -> peerdb_flow.SetupNormalizedTableBatchOutput.TableExistsMappingEntry
+	75, // 26: peerdb_flow.TimestampPartitionRange.start:type_name -> google.protobuf.Timestamp
+	75, // 27: peerdb_flow.TimestampPartitionRange.end:type_name -> google.protobuf.Timestamp
+	36, // 28: peerdb_flow.TIDPartitionRange.start:type_name -> peerdb_flow.TID
+	36, // 29: peerdb_flow.TIDPartitionRange.end:type_name -> peerdb_flow.TID
+	34, // 30: peerdb_flow.PartitionRange.int_range:type_name -> peerdb_flow.IntPartitionRange
+	35, // 31: peerdb_flow.PartitionRange.timestamp_range:type_name -> peerdb_flow.TimestampPartitionRange
+	37, // 32: peerdb_flow.PartitionRange.tid_range:type_name -> peerdb_flow.TIDPartitionRange
 	1,  // 33: peerdb_flow.QRepWriteMode.write_type:type_name -> peerdb_flow.QRepWriteType
-	38, // 34: peerdb_flow.QRepConfig.write_mode:type_name -> peerdb_flow.QRepWriteMode
+	39, // 34: peerdb_flow.QRepConfig.write_mode:type_name -> peerdb_flow.QRepWriteMode
 	2,  // 35: peerdb_flow.QRepConfig.system:type_name -> peerdb_flow.TypeSystem
-	70, // 36: peerdb_flow.QRepConfig.env:type_name -> peerdb_flow.QRepConfig.EnvEntry
-	37, // 37: peerdb_flow.QRepPartition.range:type_name -> peerdb_flow.PartitionRange
-	40, // 38: peerdb_flow.QRepPartitionBatch.partitions:type_name -> peerdb_flow.QRepPartition
-	40, // 39: peerdb_flow.QRepParitionResult.partitions:type_name -> peerdb_flow.QRepPartition
-	27, // 40: peerdb_flow.TableSchemaDelta.added_columns:type_name -> peerdb_flow.FieldDescription
+	72, // 36: peerdb_flow.QRepConfig.env:type_name -> peerdb_flow.QRepConfig.EnvEntry
+	38, // 37: peerdb_flow.QRepPartition.range:type_name -> peerdb_flow.PartitionRange
+	41, // 38: peerdb_flow.QRepPartitionBatch.partitions:type_name -> peerdb_flow.QRepPartition
+	41, // 39: peerdb_flow.QRepParitionResult.partitions:type_name -> peerdb_flow.QRepPartition
+	28, // 40: peerdb_flow.TableSchemaDelta.added_columns:type_name -> peerdb_flow.FieldDescription
 	2,  // 41: peerdb_flow.TableSchemaDelta.system:type_name -> peerdb_flow.TypeSystem
-	40, // 42: peerdb_flow.QRepFlowState.last_partition:type_name -> peerdb_flow.QRepPartition
+	41, // 42: peerdb_flow.QRepFlowState.last_partition:type_name -> peerdb_flow.QRepPartition
 	3,  // 43: peerdb_flow.QRepFlowState.current_flow_status:type_name -> peerdb_flow.FlowStatus
 	9,  // 44: peerdb_flow.CDCFlowConfigUpdate.additional_tables:type_name -> peerdb_flow.TableMapping
-	48, // 45: peerdb_flow.FlowConfigUpdate.cdc_flow_config_update:type_name -> peerdb_flow.CDCFlowConfigUpdate
-	49, // 46: peerdb_flow.FlowConfigUpdate.qrep_flow_config_update:type_name -> peerdb_flow.QRepFlowConfigUpdate
-	71, // 47: peerdb_flow.SetupFlowOutput.src_table_id_name_mapping:type_name -> peerdb_flow.SetupFlowOutput.SrcTableIdNameMappingEntry
-	72, // 48: peerdb_flow.SetupFlowOutput.table_name_schema_mapping:type_name -> peerdb_flow.SetupFlowOutput.TableNameSchemaMappingEntry
-	9,  // 49: peerdb_flow.AddTablesToPublicationInput.additional_tables:type_name -> peerdb_flow.TableMapping
-	26, // 50: peerdb_flow.SyncFlowOptions.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
-	26, // 51: peerdb_flow.StartNormalizeInput.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
-	20, // 52: peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry.value:type_name -> peerdb_flow.PostgresTableIdentifier
-	26, // 53: peerdb_flow.GetTableSchemaBatchOutput.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
-	26, // 54: peerdb_flow.SetupNormalizedTableBatchInput.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
-	26, // 55: peerdb_flow.SetupFlowOutput.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
-	56, // [56:56] is the sub-list for method output_type
-	56, // [56:56] is the sub-list for method input_type
-	56, // [56:56] is the sub-list for extension type_name
-	56, // [56:56] is the sub-list for extension extendee
-	0,  // [0:56] is the sub-list for field type_name
+	9,  // 45: peerdb_flow.CDCFlowConfigUpdate.removed_tables:type_name -> peerdb_flow.TableMapping
+	49, // 46: peerdb_flow.FlowConfigUpdate.cdc_flow_config_update:type_name -> peerdb_flow.CDCFlowConfigUpdate
+	50, // 47: peerdb_flow.FlowConfigUpdate.qrep_flow_config_update:type_name -> peerdb_flow.QRepFlowConfigUpdate
+	73, // 48: peerdb_flow.SetupFlowOutput.src_table_id_name_mapping:type_name -> peerdb_flow.SetupFlowOutput.SrcTableIdNameMappingEntry
+	74, // 49: peerdb_flow.SetupFlowOutput.table_name_schema_mapping:type_name -> peerdb_flow.SetupFlowOutput.TableNameSchemaMappingEntry
+	9,  // 50: peerdb_flow.AddTablesToPublicationInput.additional_tables:type_name -> peerdb_flow.TableMapping
+	9,  // 51: peerdb_flow.RemoveTablesFromPublicationInput.tables_to_remove:type_name -> peerdb_flow.TableMapping
+	27, // 52: peerdb_flow.SyncFlowOptions.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
+	27, // 53: peerdb_flow.StartNormalizeInput.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
+	21, // 54: peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry.value:type_name -> peerdb_flow.PostgresTableIdentifier
+	27, // 55: peerdb_flow.GetTableSchemaBatchOutput.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
+	27, // 56: peerdb_flow.SetupNormalizedTableBatchInput.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
+	27, // 57: peerdb_flow.SetupFlowOutput.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
+	58, // [58:58] is the sub-list for method output_type
+	58, // [58:58] is the sub-list for method input_type
+	58, // [58:58] is the sub-list for extension type_name
+	58, // [58:58] is the sub-list for extension extendee
+	0,  // [0:58] is the sub-list for field type_name
 }
 
 func init() { file_flow_proto_init() }
@@ -4878,7 +5053,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*RenameTablesOutput); i {
+			switch v := v.(*RemoveTablesFromRawTableInput); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4890,7 +5065,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[8].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CreateTablesFromExistingInput); i {
+			switch v := v.(*RenameTablesOutput); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4902,7 +5077,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[9].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CreateTablesFromExistingOutput); i {
+			switch v := v.(*CreateTablesFromExistingInput); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4914,7 +5089,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[10].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SyncFlowOptions); i {
+			switch v := v.(*CreateTablesFromExistingOutput); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4926,7 +5101,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[11].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*StartNormalizeInput); i {
+			switch v := v.(*SyncFlowOptions); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4938,7 +5113,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[12].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*EnsurePullabilityBatchInput); i {
+			switch v := v.(*StartNormalizeInput); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4950,7 +5125,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[13].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PostgresTableIdentifier); i {
+			switch v := v.(*EnsurePullabilityBatchInput); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4962,7 +5137,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[14].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*EnsurePullabilityBatchOutput); i {
+			switch v := v.(*PostgresTableIdentifier); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4974,7 +5149,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[15].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SetupReplicationInput); i {
+			switch v := v.(*EnsurePullabilityBatchOutput); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4986,7 +5161,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SetupReplicationOutput); i {
+			switch v := v.(*SetupReplicationInput); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4998,7 +5173,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CreateRawTableInput); i {
+			switch v := v.(*SetupReplicationOutput); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5010,7 +5185,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[18].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CreateRawTableOutput); i {
+			switch v := v.(*CreateRawTableInput); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5022,7 +5197,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[19].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*TableSchema); i {
+			switch v := v.(*CreateRawTableOutput); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5034,7 +5209,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[20].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*FieldDescription); i {
+			switch v := v.(*TableSchema); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5046,7 +5221,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[21].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*GetTableSchemaBatchInput); i {
+			switch v := v.(*FieldDescription); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5058,7 +5233,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[22].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*GetTableSchemaBatchOutput); i {
+			switch v := v.(*GetTableSchemaBatchInput); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5070,7 +5245,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[23].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SetupNormalizedTableBatchInput); i {
+			switch v := v.(*GetTableSchemaBatchOutput); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5082,7 +5257,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[24].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SetupNormalizedTableOutput); i {
+			switch v := v.(*SetupNormalizedTableBatchInput); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5094,7 +5269,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[25].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SetupNormalizedTableBatchOutput); i {
+			switch v := v.(*SetupNormalizedTableOutput); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5106,7 +5281,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[26].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*IntPartitionRange); i {
+			switch v := v.(*SetupNormalizedTableBatchOutput); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5118,7 +5293,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[27].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*TimestampPartitionRange); i {
+			switch v := v.(*IntPartitionRange); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5130,7 +5305,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[28].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*TID); i {
+			switch v := v.(*TimestampPartitionRange); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5142,7 +5317,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[29].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*TIDPartitionRange); i {
+			switch v := v.(*TID); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5154,7 +5329,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[30].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PartitionRange); i {
+			switch v := v.(*TIDPartitionRange); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5166,7 +5341,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[31].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*QRepWriteMode); i {
+			switch v := v.(*PartitionRange); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5178,7 +5353,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[32].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*QRepConfig); i {
+			switch v := v.(*QRepWriteMode); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5190,7 +5365,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[33].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*QRepPartition); i {
+			switch v := v.(*QRepConfig); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5202,7 +5377,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[34].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*QRepPartitionBatch); i {
+			switch v := v.(*QRepPartition); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5214,7 +5389,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[35].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*QRepParitionResult); i {
+			switch v := v.(*QRepPartitionBatch); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5226,7 +5401,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[36].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*DropFlowInput); i {
+			switch v := v.(*QRepParitionResult); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5238,7 +5413,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[37].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*TableSchemaDelta); i {
+			switch v := v.(*DropFlowInput); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5250,7 +5425,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[38].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*QRepFlowState); i {
+			switch v := v.(*TableSchemaDelta); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5262,7 +5437,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[39].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PeerDBColumns); i {
+			switch v := v.(*QRepFlowState); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5274,7 +5449,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[40].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*GetOpenConnectionsForUserResult); i {
+			switch v := v.(*PeerDBColumns); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5286,7 +5461,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[41].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CDCFlowConfigUpdate); i {
+			switch v := v.(*GetOpenConnectionsForUserResult); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5298,7 +5473,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[42].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*QRepFlowConfigUpdate); i {
+			switch v := v.(*CDCFlowConfigUpdate); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5310,7 +5485,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[43].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*FlowConfigUpdate); i {
+			switch v := v.(*QRepFlowConfigUpdate); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5322,7 +5497,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[44].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SetupFlowOutput); i {
+			switch v := v.(*FlowConfigUpdate); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5334,7 +5509,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[45].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AddTablesToPublicationInput); i {
+			switch v := v.(*SetupFlowOutput); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5346,7 +5521,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[46].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*IsQRepPartitionSyncedInput); i {
+			switch v := v.(*AddTablesToPublicationInput); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5358,7 +5533,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[47].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ExportTxSnapshotOutput); i {
+			switch v := v.(*RemoveTablesFromPublicationInput); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5370,6 +5545,30 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[48].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*IsQRepPartitionSyncedInput); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_flow_proto_msgTypes[49].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ExportTxSnapshotOutput); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_flow_proto_msgTypes[50].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*DropFlowActivityInput); i {
 			case 0:
 				return &v.state
@@ -5382,12 +5581,12 @@ func file_flow_proto_init() {
 			}
 		}
 	}
-	file_flow_proto_msgTypes[30].OneofWrappers = []interface{}{
+	file_flow_proto_msgTypes[31].OneofWrappers = []interface{}{
 		(*PartitionRange_IntRange)(nil),
 		(*PartitionRange_TimestampRange)(nil),
 		(*PartitionRange_TidRange)(nil),
 	}
-	file_flow_proto_msgTypes[43].OneofWrappers = []interface{}{
+	file_flow_proto_msgTypes[44].OneofWrappers = []interface{}{
 		(*FlowConfigUpdate_CdcFlowConfigUpdate)(nil),
 		(*FlowConfigUpdate_QrepFlowConfigUpdate)(nil),
 	}
@@ -5397,7 +5596,7 @@ func file_flow_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_flow_proto_rawDesc,
 			NumEnums:      7,
-			NumMessages:   66,
+			NumMessages:   68,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
