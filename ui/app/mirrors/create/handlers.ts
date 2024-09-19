@@ -78,6 +78,14 @@ function CDCCheck(
     return flowNameValid.error.issues[0].message;
   }
 
+  if (config.envString) {
+    try {
+      JSON.parse(config.envString);
+    } catch (err: any) {
+      return err.message;
+    }
+  }
+
   const tableNameMapping = reformattedTableMapping(rows);
   const fieldErr = validateCDCFields(tableNameMapping, config, destinationType);
   if (fieldErr) {

@@ -23,3 +23,16 @@ export type PeerConfig =
   | EventHubGroupConfig
   | ElasticsearchConfig;
 export type PeerSetter = React.Dispatch<React.SetStateAction<PeerConfig>>;
+
+export interface SupabaseListProjectsResponse {
+  id: string;
+  organization_id: string;
+  name: string;
+  region: string;
+  created_at: string;
+  database: {
+    host: string;
+    version: string;
+  };
+  status: 'ACTIVE_HEALTHY' | 'INACTIVE' | 'ERROR';
+}

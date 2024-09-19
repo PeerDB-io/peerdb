@@ -13,14 +13,10 @@ pub struct BigqueryAst;
 
 impl BigqueryAst {
     pub fn is_timestamp_returning_function(&self, name: &str) -> bool {
-        if name.eq_ignore_ascii_case("now")
+        name.eq_ignore_ascii_case("now")
             || name.eq_ignore_ascii_case("date_trunc")
             || name.eq_ignore_ascii_case("make_timestamp")
             || name.eq_ignore_ascii_case("current_timestamp")
-        {
-            return true;
-        }
-        false
     }
 
     pub fn is_timestamp_expr(&self, e: &Expr) -> bool {
@@ -68,10 +64,12 @@ impl BigqueryAst {
         None
     }
 
-    pub fn rewrite(&self, dataset: &str, query: &mut Query) -> anyhow::Result<()> {
+    pub fn rewrite(&self, peername: &str, dataset: &str, query: &mut Query) -> anyhow::Result<()> {
         // replace peername with the connected dataset.
         visit_relations_mut(query, |table| {
-            table.0[0] = dataset.into();
+            if table.0.len() > 1 && peername.eq_ignore_ascii_case(&table.0[0].value) {
+                table.0[0] = dataset.into();
+            }
             ControlFlow::<()>::Continue(())
         });
 

@@ -73,7 +73,7 @@ services:
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    image: temporalio/auto-setup:1.24
+    image: temporalio/auto-setup:1.25
     ports:
       - 7233:7233
     volumes:
@@ -95,7 +95,7 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CLI_ADDRESS=temporal:7233
       - TEMPORAL_CLI_SHOW_STACKS=1
-    image: temporalio/admin-tools:1.24
+    image: temporalio/admin-tools:1.25
     stdin_open: true
     tty: true
     entrypoint: /etc/temporal/entrypoint.sh
@@ -192,6 +192,9 @@ services:
       dockerfile: stacks/peerdb-ui.Dockerfile
     ports:
       - 3000:3000
+    env_file:
+      - path: ./.env
+        required: false
     environment:
       <<: *catalog-config
       DATABASE_URL: postgres://postgres:postgres@catalog:5432/postgres

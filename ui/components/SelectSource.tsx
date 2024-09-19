@@ -9,12 +9,12 @@ import useSWR from 'swr';
 import { DBTypeToImageMapping } from './PeerComponent';
 
 // label corresponds to PeerType
-function SourceLabel({ label }: { label: string }) {
+function SourceLabel({ label, url }: { label: string; url?: string }) {
   const peerLogo = DBTypeToImageMapping(label);
   return (
     <Button
       as={Link}
-      href={`/peers/create/${label}`}
+      href={url ?? `/peers/create/${label}`}
       style={{
         justifyContent: 'space-between',
         padding: '0.5rem',
@@ -61,10 +61,9 @@ const gridHeaderStyle = {
 } as const;
 
 export default function SelectSource() {
-  const { data: dbTypes, isLoading } = useSWR<string[]>(
-    '/api/peer-types',
-    fetcher
-  );
+  const { data: dbTypes, isLoading } = useSWR<
+    [string, ...Array<string | { label: string; url: string }>][]
+  >('/api/peer-types', fetcher);
   if (!dbTypes || isLoading) {
     return <ProgressCircle variant={'determinate_progress_circle'} />;
   }
@@ -72,9 +71,13 @@ export default function SelectSource() {
   return dbTypes.map(([category, ...items]) => (
     <div key={category} style={gridContainerStyle}>
       <div style={gridHeaderStyle}>{category}</div>
-      {items.map((item) => (
-        <SourceLabel key={item} label={item} />
-      ))}
+      {items.map((item, i) =>
+        typeof item === 'string' ? (
+          <SourceLabel key={i} label={item} />
+        ) : (
+          <SourceLabel key={i} label={item.label} url={item.url} />
+        )
+      )}
     </div>
   ));
 }

@@ -2,11 +2,11 @@ import TitleCase from '@/app/utils/titlecase';
 import { Label } from '@/lib/Label';
 import Link from 'next/link';
 
-const GuideForDestinationSetup = ({
+export default function GuideForDestinationSetup({
   createPeerType: peerType,
 }: {
   createPeerType: string;
-}) => {
+}) {
   const linkForDst = () => {
     switch (peerType) {
       case 'SNOWFLAKE':
@@ -47,6 +47,4 @@ const GuideForDestinationSetup = ({
       .
     </Label>
   );
-};
-
-export default GuideForDestinationSetup;
+}
