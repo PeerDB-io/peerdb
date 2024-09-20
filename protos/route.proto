@@ -545,7 +545,7 @@ service FlowService {
     option (google.api.http) = { get: "/v1/mirrors/cdc/batches/{flow_job_name}"};
   }
 
-  rpc InitialLoadStatus(InitialLoadSummaryRequest) returns (InitialLoadSummaryResponse) {
+  rpc InitialLoadSummary(InitialLoadSummaryRequest) returns (InitialLoadSummaryResponse) {
     option (google.api.http) = { get: "/v1/mirrors/cdc/initial_load/{parent_mirror_name}"};
   }
 
