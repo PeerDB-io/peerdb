@@ -34,16 +34,46 @@ type KafkaConnector struct {
 	logger log.Logger
 }
 
+type kgoTemporalLogger struct {
+	log.Logger
+}
+
+func kgoLogger(logger log.Logger) kgo.Logger {
+	if sl, ok := logger.(*slog.Logger); ok {
+		return kslog.New(sl)
+	} else {
+		return kgoTemporalLogger{Logger: logger}
+	}
+}
+
+func (logger kgoTemporalLogger) Level() kgo.LogLevel {
+	return kgo.LogLevelInfo
+}
+
+func (logger kgoTemporalLogger) Log(level kgo.LogLevel, msg string, keyvals ...any) {
+	switch level {
+	case kgo.LogLevelError:
+		logger.Error(msg, keyvals...)
+	case kgo.LogLevelWarn:
+		logger.Warn(msg, keyvals...)
+	case kgo.LogLevelInfo:
+		logger.Info(msg, keyvals...)
+	case kgo.LogLevelDebug:
+		logger.Debug(msg, keyvals...)
+	}
+}
+
 func NewKafkaConnector(
 	ctx context.Context,
 	env map[string]string,
 	config *protos.KafkaConfig,
 ) (*KafkaConnector, error) {
+	logger := logger.LoggerFromCtx(ctx)
 	optionalOpts := append(
 		make([]kgo.Opt, 0, 7),
 		kgo.SeedBrokers(config.Servers...),
 		kgo.AllowAutoTopicCreation(),
-		kgo.WithLogger(kslog.New(slog.Default())), // TODO use logger.LoggerFromCtx
+		kgo.WithLogger(kgoLogger(logger)),
 	)
 	if !config.DisableTls {
 		optionalOpts = append(optionalOpts, kgo.DialTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12}))
@@ -93,7 +123,7 @@ func NewKafkaConnector(
 	return &KafkaConnector{
 		PostgresMetadata: pgMetadata,
 		client:           client,
-		logger:           logger.LoggerFromCtx(ctx),
+		logger:           logger,
 	}, nil
 }
 
