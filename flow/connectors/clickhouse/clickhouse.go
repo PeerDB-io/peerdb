@@ -26,7 +26,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-type ClickhouseConnector struct {
+type ClickHouseConnector struct {
 	*metadataStore.PostgresMetadata
 	database      clickhouse.Conn
 	logger        log.Logger
@@ -66,9 +66,9 @@ func ValidateClickhouseHost(ctx context.Context, chHost string, allowedDomainStr
 }
 
 // Performs some checks on the Clickhouse peer to ensure it will work for mirrors
-func (c *ClickhouseConnector) ValidateCheck(ctx context.Context) error {
+func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	// validate clickhouse host
-	allowedDomains := peerdbenv.PeerDBClickhouseAllowedDomains()
+	allowedDomains := peerdbenv.PeerDBClickHouseAllowedDomains()
 	if err := ValidateClickhouseHost(ctx, c.config.Host, allowedDomains); err != nil {
 		return err
 	}
@@ -117,11 +117,11 @@ func (c *ClickhouseConnector) ValidateCheck(ctx context.Context) error {
 	return nil
 }
 
-func NewClickhouseConnector(
+func NewClickHouseConnector(
 	ctx context.Context,
 	env map[string]string,
 	config *protos.ClickhouseConfig,
-) (*ClickhouseConnector, error) {
+) (*ClickHouseConnector, error) {
 	logger := logger.LoggerFromCtx(ctx)
 	database, err := Connect(ctx, config)
 	if err != nil {
@@ -154,7 +154,7 @@ func NewClickhouseConnector(
 		bucketPathSuffix := fmt.Sprintf("%s/%s",
 			url.PathEscape(deploymentUID), url.PathEscape(flowName))
 		// Fallback: Get S3 credentials from environment
-		awsBucketName, err := peerdbenv.PeerDBClickhouseAWSS3BucketName(ctx, env)
+		awsBucketName, err := peerdbenv.PeerDBClickHouseAWSS3BucketName(ctx, env)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get PeerDB Clickhouse Bucket Name: %w", err)
 		}
@@ -196,7 +196,7 @@ func NewClickhouseConnector(
 		}
 	}
 
-	return &ClickhouseConnector{
+	return &ClickHouseConnector{
 		database:         database,
 		PostgresMetadata: pgMetadata,
 		config:           config,
@@ -261,7 +261,7 @@ func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.C
 	return conn, nil
 }
 
-func (c *ClickhouseConnector) Close() error {
+func (c *ClickHouseConnector) Close() error {
 	if c != nil {
 		err := c.database.Close()
 		if err != nil {
@@ -271,17 +271,17 @@ func (c *ClickhouseConnector) Close() error {
 	return nil
 }
 
-func (c *ClickhouseConnector) ConnectionActive(ctx context.Context) error {
+func (c *ClickHouseConnector) ConnectionActive(ctx context.Context) error {
 	// This also checks if database exists
 	return c.database.Ping(ctx)
 }
 
-func (c *ClickhouseConnector) execWithLogging(ctx context.Context, query string) error {
+func (c *ClickHouseConnector) execWithLogging(ctx context.Context, query string) error {
 	c.logger.Info("[clickhouse] executing DDL statement", slog.String("query", query))
 	return c.database.Exec(ctx, query)
 }
 
-func (c *ClickhouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tables []string) error {
+func (c *ClickHouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tables []string) error {
 	queryInput := make([]interface{}, 0, len(tables)+1)
 	queryInput = append(queryInput, c.config.Database)
 	for _, table := range tables {
@@ -316,7 +316,7 @@ func (c *ClickhouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tab
 	return nil
 }
 
-func (c *ClickhouseConnector) getTableColumnsMapping(ctx context.Context,
+func (c *ClickHouseConnector) getTableColumnsMapping(ctx context.Context,
 	tables []string,
 ) (map[string][]*protos.FieldDescription, error) {
 	tableColumnsMapping := make(map[string][]*protos.FieldDescription, len(tables))
@@ -347,7 +347,7 @@ func (c *ClickhouseConnector) getTableColumnsMapping(ctx context.Context,
 	return tableColumnsMapping, nil
 }
 
-func (c *ClickhouseConnector) processTableComparison(dstTableName string, srcSchema *protos.TableSchema,
+func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSchema *protos.TableSchema,
 	dstSchema []*protos.FieldDescription, peerDBColumns []string, tableMapping *protos.TableMapping,
 ) error {
 	for _, srcField := range srcSchema.Columns {
@@ -387,7 +387,7 @@ func (c *ClickhouseConnector) processTableComparison(dstTableName string, srcSch
 	return nil
 }
 
-func (c *ClickhouseConnector) CheckDestinationTables(ctx context.Context, req *protos.FlowConnectionConfigs,
+func (c *ClickHouseConnector) CheckDestinationTables(ctx context.Context, req *protos.FlowConnectionConfigs,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) error {
 	peerDBColumns := []string{signColName, versionColName}

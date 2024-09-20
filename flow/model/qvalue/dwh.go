@@ -10,19 +10,7 @@ import (
 )
 
 func DetermineNumericSettingForDWH(precision int16, scale int16, dwh protos.DBType) (int16, int16) {
-	var warehouseNumeric numeric.WarehouseNumericCompatibility
-	switch dwh {
-	case protos.DBType_CLICKHOUSE:
-		warehouseNumeric = numeric.ClickHouseNumericCompatibility{}
-	case protos.DBType_SNOWFLAKE:
-		warehouseNumeric = numeric.SnowflakeNumericCompatibility{}
-	case protos.DBType_BIGQUERY:
-		warehouseNumeric = numeric.BigQueryNumericCompatibility{}
-	default:
-		warehouseNumeric = numeric.DefaultNumericCompatibility{}
-	}
-
-	return numeric.GetNumericTypeForWarehouse(numeric.MakeNumericTypmod(int32(precision), int32(scale)), warehouseNumeric)
+	return numeric.GetNumericTypeForWarehouse(numeric.MakeNumericTypmod(int32(precision), int32(scale)), dwh)
 }
 
 // Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD

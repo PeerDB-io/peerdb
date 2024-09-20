@@ -27,18 +27,18 @@ const (
 
 var acceptableTableEngines = []string{"ReplacingMergeTree", "MergeTree"}
 
-func (c *ClickhouseConnector) StartSetupNormalizedTables(_ context.Context) (interface{}, error) {
+func (c *ClickHouseConnector) StartSetupNormalizedTables(_ context.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func (c *ClickhouseConnector) FinishSetupNormalizedTables(_ context.Context, _ interface{}) error {
+func (c *ClickHouseConnector) FinishSetupNormalizedTables(_ context.Context, _ interface{}) error {
 	return nil
 }
 
-func (c *ClickhouseConnector) CleanupSetupNormalizedTables(_ context.Context, _ interface{}) {
+func (c *ClickHouseConnector) CleanupSetupNormalizedTables(_ context.Context, _ interface{}) {
 }
 
-func (c *ClickhouseConnector) SetupNormalizedTable(
+func (c *ClickHouseConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx interface{},
 	config *protos.SetupNormalizedTableBatchInput,
@@ -106,7 +106,7 @@ func generateCreateTableSQLForNormalizedTable(
 		colName := column.Name
 		dstColName := colName
 		colType := qvalue.QValueKind(column.Type)
-		var clickhouseType string
+		var clickHouseType string
 		var columnSetting *protos.ColumnSetting
 		if tableMapping != nil {
 			for _, col := range tableMapping.Columns {
@@ -118,32 +118,32 @@ func generateCreateTableSQLForNormalizedTable(
 					}
 					if columnSetting.DestinationType != "" {
 						// TODO can we restrict this to avoid injection?
-						clickhouseType = columnSetting.DestinationType
+						clickHouseType = columnSetting.DestinationType
 					}
 					break
 				}
 			}
 		}
 
-		if clickhouseType == "" {
+		if clickHouseType == "" {
 			var err error
-			clickhouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
+			clickHouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
 			if err != nil {
 				return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 			}
 		}
 
 		if colType == qvalue.QValueKindNumeric {
-			precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
+			precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, protos.DBType_CLICKHOUSE)
 			if column.Nullable {
 				stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(DECIMAL(%d, %d)), ", dstColName, precision, scale))
 			} else {
 				stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ", dstColName, precision, scale))
 			}
 		} else if tableSchema.NullableEnabled && column.Nullable && !colType.IsArray() {
-			stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(%s), ", dstColName, clickhouseType))
+			stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(%s), ", dstColName, clickHouseType))
 		} else {
-			stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", dstColName, clickhouseType))
+			stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", dstColName, clickHouseType))
 		}
 	}
 	// TODO support soft delete
@@ -216,7 +216,7 @@ func generateCreateTableSQLForNormalizedTable(
 	return stmtBuilder.String(), nil
 }
 
-func (c *ClickhouseConnector) NormalizeRecords(
+func (c *ClickHouseConnector) NormalizeRecords(
 	ctx context.Context,
 	req *model.NormalizeRecordsRequest,
 ) (*model.NormalizeResponse, error) {
@@ -282,7 +282,7 @@ func (c *ClickhouseConnector) NormalizeRecords(
 			dstColName := colName
 			colType := qvalue.QValueKind(column.Type)
 
-			var clickhouseType string
+			var clickHouseType string
 			if tableMapping != nil {
 				for _, col := range tableMapping.Columns {
 					if col.SourceName == colName {
@@ -291,7 +291,7 @@ func (c *ClickhouseConnector) NormalizeRecords(
 						}
 						if col.DestinationType != "" {
 							// TODO can we restrict this to avoid injection?
-							clickhouseType = col.DestinationType
+							clickHouseType = col.DestinationType
 						}
 						break
 					}
@@ -299,20 +299,20 @@ func (c *ClickhouseConnector) NormalizeRecords(
 			}
 
 			colSelector.WriteString(fmt.Sprintf("`%s`,", dstColName))
-			if clickhouseType == "" {
+			if clickHouseType == "" {
 				if colType == qvalue.QValueKindNumeric {
-					precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
-					clickhouseType = fmt.Sprintf("Decimal(%d, %d)", precision, scale)
+					precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, protos.DBType_CLICKHOUSE)
+					clickHouseType = fmt.Sprintf("Decimal(%d, %d)", precision, scale)
 				} else {
 					var err error
-					clickhouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
+					clickHouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
 					if err != nil {
 						return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 					}
 				}
 			}
 
-			switch clickhouseType {
+			switch clickHouseType {
 			case "Date":
 				projection.WriteString(fmt.Sprintf(
 					"toDate(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'))) AS `%s`,",
@@ -326,7 +326,7 @@ func (c *ClickhouseConnector) NormalizeRecords(
 					dstColName,
 				))
 			default:
-				projection.WriteString(fmt.Sprintf("JSONExtract(_peerdb_data, '%s', '%s') AS `%s`,", colName, clickhouseType, dstColName))
+				projection.WriteString(fmt.Sprintf("JSONExtract(_peerdb_data, '%s', '%s') AS `%s`,", colName, clickHouseType, dstColName))
 			}
 		}
 
@@ -376,7 +376,7 @@ func (c *ClickhouseConnector) NormalizeRecords(
 	}, nil
 }
 
-func (c *ClickhouseConnector) getDistinctTableNamesInBatch(
+func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	ctx context.Context,
 	flowJobName string,
 	syncBatchID int64,
@@ -415,7 +415,7 @@ func (c *ClickhouseConnector) getDistinctTableNamesInBatch(
 	return tableNames, nil
 }
 
-func (c *ClickhouseConnector) copyAvroStageToDestination(ctx context.Context,
+func (c *ClickHouseConnector) copyAvroStageToDestination(ctx context.Context,
 	flowJobName string, syncBatchID int64, env map[string]string,
 ) error {
 	avroSyncMethod := c.avroSyncMethod(flowJobName, env)
@@ -432,7 +432,7 @@ func (c *ClickhouseConnector) copyAvroStageToDestination(ctx context.Context,
 	return nil
 }
 
-func (c *ClickhouseConnector) copyAvroStagesToDestination(ctx context.Context,
+func (c *ClickHouseConnector) copyAvroStagesToDestination(ctx context.Context,
 	flowJobName string, normBatchID, syncBatchID int64, env map[string]string,
 ) error {
 	for s := normBatchID + 1; s <= syncBatchID; s++ {

@@ -282,7 +282,7 @@ func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string)
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_SNOWFLAKE_MERGE_PARALLELISM")
 }
 
-func PeerDBClickhouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
+func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
 	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
 }
 
@@ -297,6 +297,6 @@ func PeerDBMaxSyncsPerCDCFlow(ctx context.Context, env map[string]string) (uint3
 	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_MAX_SYNCS_PER_CDC_FLOW")
 }
 
-func PeerDBClickhouseNumRowsPerAvroFile(ctx context.Context, env map[string]string) (uint32, error) {
+func PeerDBClickHouseNumRowsPerAvroFile(ctx context.Context, env map[string]string) (uint32, error) {
 	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_CLICKHOUSE_NUM_ROWS_PER_AVRO_FILE")
 }

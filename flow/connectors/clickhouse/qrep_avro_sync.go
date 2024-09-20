@@ -18,25 +18,25 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-type ClickhouseAvroSyncMethod struct {
+type ClickHouseAvroSyncMethod struct {
 	config    *protos.QRepConfig
-	connector *ClickhouseConnector
+	connector *ClickHouseConnector
 	env       map[string]string
 }
 
-func NewClickhouseAvroSyncMethod(
+func NewClickHouseAvroSyncMethod(
 	config *protos.QRepConfig,
-	connector *ClickhouseConnector,
+	connector *ClickHouseConnector,
 	env map[string]string,
-) *ClickhouseAvroSyncMethod {
-	return &ClickhouseAvroSyncMethod{
+) *ClickHouseAvroSyncMethod {
+	return &ClickHouseAvroSyncMethod{
 		config:    config,
 		connector: connector,
 		env:       env,
 	}
 }
 
-func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, avroFiles []*avro.AvroFile) error {
+func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, avroFiles []*avro.AvroFile) error {
 	stagingPath := s.connector.credsProvider.BucketPath
 	s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
 	if err != nil {
@@ -71,7 +71,7 @@ func (s *ClickhouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 	return nil
 }
 
-func (s *ClickhouseAvroSyncMethod) SyncRecords(
+func (s *ClickHouseAvroSyncMethod) SyncRecords(
 	ctx context.Context,
 	stream *model.QRecordStream,
 	flowJobName string,
@@ -122,7 +122,7 @@ func (s *ClickhouseAvroSyncMethod) SyncRecords(
 	return totalRecords, nil
 }
 
-func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
+func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
@@ -186,7 +186,7 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
 
 		if err := s.connector.database.Exec(ctx, query); err != nil {
-			s.connector.logger.Error("Failed to insert into select for Clickhouse: ", err)
+			s.connector.logger.Error("Failed to insert into select for ClickHouse: ", err)
 			return 0, err
 		}
 	}
@@ -199,7 +199,7 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	return totalRecords, nil
 }
 
-func (s *ClickhouseAvroSyncMethod) getAvroSchema(
+func (s *ClickHouseAvroSyncMethod) getAvroSchema(
 	dstTableName string,
 	schema qvalue.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
@@ -210,7 +210,7 @@ func (s *ClickhouseAvroSyncMethod) getAvroSchema(
 	return avroSchema, nil
 }
 
-func (s *ClickhouseAvroSyncMethod) writeToAvroFiles(
+func (s *ClickHouseAvroSyncMethod) writeToAvroFiles(
 	ctx context.Context,
 	stream *model.QRecordStream,
 	avroSchema *model.QRecordAvroSchemaDefinition,
@@ -226,7 +226,7 @@ func (s *ClickhouseAvroSyncMethod) writeToAvroFiles(
 
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, flowJobName, identifierForFile)
 	s3AvroFileKey = strings.Trim(s3AvroFileKey, "/")
-	maxRecordsPerFile, err := peerdbenv.PeerDBClickhouseNumRowsPerAvroFile(ctx, s.env)
+	maxRecordsPerFile, err := peerdbenv.PeerDBClickHouseNumRowsPerAvroFile(ctx, s.env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get max records per file: %w", err)
 	}
@@ -244,7 +244,7 @@ func (s *ClickhouseAvroSyncMethod) writeToAvroFiles(
 	return avroFiles, nil
 }
 
-func (s *ClickhouseAvroSyncMethod) insertMetadata(
+func (s *ClickHouseAvroSyncMethod) insertMetadata(
 	ctx context.Context,
 	partition *protos.QRepPartition,
 	flowJobName string,

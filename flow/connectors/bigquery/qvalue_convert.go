@@ -26,7 +26,7 @@ func qValueKindToBigQueryType(columnDescription *protos.FieldDescription, nullab
 	case qvalue.QValueKindFloat32, qvalue.QValueKindFloat64:
 		bqField.Type = bigquery.FloatFieldType
 	case qvalue.QValueKindNumeric:
-		precision, scale := datatypes.GetNumericTypeForWarehouse(columnDescription.TypeModifier, datatypes.BigQueryNumericCompatibility{})
+		precision, scale := datatypes.GetNumericTypeForWarehouse(columnDescription.TypeModifier, protos.DBType_BIGQUERY)
 		bqField.Type = bigquery.BigNumericFieldType
 		bqField.Precision = int64(precision)
 		bqField.Scale = int64(scale)

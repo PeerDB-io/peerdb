@@ -383,7 +383,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 			}
 
 			if addedColumn.Type == string(qvalue.QValueKindNumeric) {
-				precision, scale := numeric.GetNumericTypeForWarehouse(addedColumn.TypeModifier, numeric.SnowflakeNumericCompatibility{})
+				precision, scale := numeric.GetNumericTypeForWarehouse(addedColumn.TypeModifier, protos.DBType_SNOWFLAKE)
 				sfColtype = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
 			}
 
@@ -686,7 +686,7 @@ func generateCreateTableSQLForNormalizedTable(
 		}
 
 		if genericColumnType == "numeric" {
-			precision, scale := numeric.GetNumericTypeForWarehouse(column.TypeModifier, numeric.SnowflakeNumericCompatibility{})
+			precision, scale := numeric.GetNumericTypeForWarehouse(column.TypeModifier, protos.DBType_SNOWFLAKE)
 			sfColType = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
 		}
 
