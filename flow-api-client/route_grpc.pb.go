@@ -48,6 +48,8 @@ const (
 	FlowService_ListMirrorNames_FullMethodName     = "/peerdb_route.FlowService/ListMirrorNames"
 	FlowService_FlowStateChange_FullMethodName     = "/peerdb_route.FlowService/FlowStateChange"
 	FlowService_MirrorStatus_FullMethodName        = "/peerdb_route.FlowService/MirrorStatus"
+	FlowService_GetCDCBatches_FullMethodName       = "/peerdb_route.FlowService/GetCDCBatches"
+	FlowService_InitialLoadSummary_FullMethodName  = "/peerdb_route.FlowService/InitialLoadSummary"
 	FlowService_GetPeerInfo_FullMethodName         = "/peerdb_route.FlowService/GetPeerInfo"
 	FlowService_ListPeers_FullMethodName           = "/peerdb_route.FlowService/ListPeers"
 	FlowService_GetVersion_FullMethodName          = "/peerdb_route.FlowService/GetVersion"
@@ -87,6 +89,8 @@ type FlowServiceClient interface {
 	ListMirrorNames(ctx context.Context, in *ListMirrorNamesRequest, opts ...grpc.CallOption) (*ListMirrorNamesResponse, error)
 	FlowStateChange(ctx context.Context, in *FlowStateChangeRequest, opts ...grpc.CallOption) (*FlowStateChangeResponse, error)
 	MirrorStatus(ctx context.Context, in *MirrorStatusRequest, opts ...grpc.CallOption) (*MirrorStatusResponse, error)
+	GetCDCBatches(ctx context.Context, in *GetCDCBatchesRequest, opts ...grpc.CallOption) (*GetCDCBatchesResponse, error)
+	InitialLoadSummary(ctx context.Context, in *InitialLoadSummaryRequest, opts ...grpc.CallOption) (*InitialLoadSummaryResponse, error)
 	GetPeerInfo(ctx context.Context, in *PeerInfoRequest, opts ...grpc.CallOption) (*Peer, error)
 	ListPeers(ctx context.Context, in *ListPeersRequest, opts ...grpc.CallOption) (*ListPeersResponse, error)
 	GetVersion(ctx context.Context, in *PeerDBVersionRequest, opts ...grpc.CallOption) (*PeerDBVersionResponse, error)
@@ -362,6 +366,24 @@ func (c *flowServiceClient) MirrorStatus(ctx context.Context, in *MirrorStatusRe
 	return out, nil
 }
 
+func (c *flowServiceClient) GetCDCBatches(ctx context.Context, in *GetCDCBatchesRequest, opts ...grpc.CallOption) (*GetCDCBatchesResponse, error) {
+	out := new(GetCDCBatchesResponse)
+	err := c.cc.Invoke(ctx, FlowService_GetCDCBatches_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) InitialLoadSummary(ctx context.Context, in *InitialLoadSummaryRequest, opts ...grpc.CallOption) (*InitialLoadSummaryResponse, error) {
+	out := new(InitialLoadSummaryResponse)
+	err := c.cc.Invoke(ctx, FlowService_InitialLoadSummary_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *flowServiceClient) GetPeerInfo(ctx context.Context, in *PeerInfoRequest, opts ...grpc.CallOption) (*Peer, error) {
 	out := new(Peer)
 	err := c.cc.Invoke(ctx, FlowService_GetPeerInfo_FullMethodName, in, out, opts...)
@@ -431,6 +453,8 @@ type FlowServiceServer interface {
 	ListMirrorNames(context.Context, *ListMirrorNamesRequest) (*ListMirrorNamesResponse, error)
 	FlowStateChange(context.Context, *FlowStateChangeRequest) (*FlowStateChangeResponse, error)
 	MirrorStatus(context.Context, *MirrorStatusRequest) (*MirrorStatusResponse, error)
+	GetCDCBatches(context.Context, *GetCDCBatchesRequest) (*GetCDCBatchesResponse, error)
+	InitialLoadSummary(context.Context, *InitialLoadSummaryRequest) (*InitialLoadSummaryResponse, error)
 	GetPeerInfo(context.Context, *PeerInfoRequest) (*Peer, error)
 	ListPeers(context.Context, *ListPeersRequest) (*ListPeersResponse, error)
 	GetVersion(context.Context, *PeerDBVersionRequest) (*PeerDBVersionResponse, error)
@@ -528,6 +552,12 @@ func (UnimplementedFlowServiceServer) FlowStateChange(context.Context, *FlowStat
 }
 func (UnimplementedFlowServiceServer) MirrorStatus(context.Context, *MirrorStatusRequest) (*MirrorStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MirrorStatus not implemented")
+}
+func (UnimplementedFlowServiceServer) GetCDCBatches(context.Context, *GetCDCBatchesRequest) (*GetCDCBatchesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetCDCBatches not implemented")
+}
+func (UnimplementedFlowServiceServer) InitialLoadSummary(context.Context, *InitialLoadSummaryRequest) (*InitialLoadSummaryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InitialLoadSummary not implemented")
 }
 func (UnimplementedFlowServiceServer) GetPeerInfo(context.Context, *PeerInfoRequest) (*Peer, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeerInfo not implemented")
@@ -1076,6 +1106,42 @@ func _FlowService_MirrorStatus_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_GetCDCBatches_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCDCBatchesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).GetCDCBatches(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_GetCDCBatches_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).GetCDCBatches(ctx, req.(*GetCDCBatchesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_InitialLoadSummary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InitialLoadSummaryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).InitialLoadSummary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_InitialLoadSummary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).InitialLoadSummary(ctx, req.(*InitialLoadSummaryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _FlowService_GetPeerInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(PeerInfoRequest)
 	if err := dec(in); err != nil {
@@ -1270,6 +1336,14 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "MirrorStatus",
 			Handler:    _FlowService_MirrorStatus_Handler,
+		},
+		{
+			MethodName: "GetCDCBatches",
+			Handler:    _FlowService_GetCDCBatches_Handler,
+		},
+		{
+			MethodName: "InitialLoadSummary",
+			Handler:    _FlowService_InitialLoadSummary_Handler,
 		},
 		{
 			MethodName: "GetPeerInfo",
