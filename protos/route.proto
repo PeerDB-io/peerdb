@@ -329,6 +329,22 @@ message MirrorStatusResponse {
   google.protobuf.Timestamp created_at = 7;
 }
 
+message InitialLoadSummaryRequest {
+  string parent_mirror_name = 1;
+}
+
+message InitialLoadSummaryResponse {
+  repeated CloneTableSummary tableSummaries = 1;
+}
+
+message GetCDCBatchesRequest {
+  string flow_job_name = 1;
+}
+
+message GetCDCBatchesResponse {
+  repeated CDCBatch cdc_batches = 1;
+}
+
 message MirrorLog {
   string flow_name = 1;
   string error_message = 2;
@@ -523,6 +539,14 @@ service FlowService {
   }
   rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {
     option (google.api.http) = { post: "/v1/mirrors/status", body: "*" };
+  }
+
+  rpc GetCDCBatches(GetCDCBatchesRequest) returns (GetCDCBatchesResponse) {
+    option (google.api.http) = { get: "/v1/mirrors/cdc/batches/{flow_job_name}"};
+  }
+
+  rpc InitialLoadSummary(InitialLoadSummaryRequest) returns (InitialLoadSummaryResponse) {
+    option (google.api.http) = { get: "/v1/mirrors/cdc/initial_load/{parent_mirror_name}"};
   }
 
   rpc GetPeerInfo(PeerInfoRequest) returns (peerdb_peers.Peer) {
