@@ -207,7 +207,10 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 		return nil, err
 	}
 
-	cdcBatchesResponse, err := h.GetCDCBatches(ctx, &protos.GetCDCBatchesRequest{FlowJobName: req.FlowJobName})
+	cdcBatchesResponse, err := h.GetCDCBatches(ctx, &protos.GetCDCBatchesRequest{
+		FlowJobName: req.FlowJobName,
+		Limit:       0,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -485,8 +488,13 @@ func (h *FlowRequestHandler) getMirrorCreatedAt(ctx context.Context, flowJobName
 
 func (h *FlowRequestHandler) GetCDCBatches(ctx context.Context, req *protos.GetCDCBatchesRequest) (*protos.GetCDCBatchesResponse, error) {
 	mirrorName := req.FlowJobName
+	limit := req.Limit
+	limitClause := ""
+	if limit > 0 {
+		limitClause = fmt.Sprintf(" LIMIT %d", limit)
+	}
 	q := `SELECT DISTINCT ON(batch_id) batch_id,start_time,end_time,rows_in_batch,batch_start_lsn,batch_end_lsn FROM peerdb_stats.cdc_batches
-	  WHERE flow_name=$1 AND start_time IS NOT NULL ORDER BY batch_id DESC, start_time DESC`
+	  WHERE flow_name=$1 AND start_time IS NOT NULL ORDER BY batch_id DESC, start_time DESC` + limitClause
 	rows, err := h.pool.Query(ctx, q, mirrorName)
 	if err != nil {
 		slog.Error(fmt.Sprintf("unable to query cdc batches - %s: %s", mirrorName, err.Error()))

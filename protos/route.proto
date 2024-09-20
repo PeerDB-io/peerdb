@@ -339,6 +339,7 @@ message InitialLoadSummaryResponse {
 
 message GetCDCBatchesRequest {
   string flow_job_name = 1;
+  uint32 limit = 2;
 }
 
 message GetCDCBatchesResponse {
