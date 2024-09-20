@@ -207,7 +207,10 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 		return nil, err
 	}
 
-	cdcBatchesResponse, err := h.GetCDCBatches(ctx, &protos.GetCDCBatchesRequest{FlowJobName: req.FlowJobName})
+	cdcBatchesResponse, err := h.GetCDCBatches(ctx, &protos.GetCDCBatchesRequest{
+		FlowJobName: req.FlowJobName,
+		Limit:       0,
+	})
 	if err != nil {
 		return nil, err
 	}
