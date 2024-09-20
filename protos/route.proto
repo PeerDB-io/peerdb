@@ -339,10 +339,12 @@ message InitialLoadSummaryResponse {
 
 message GetCDCBatchesRequest {
   string flow_job_name = 1;
+  uint32 limit = 2;
 }
 
 message GetCDCBatchesResponse {
   repeated CDCBatch cdc_batches = 1;
+  uint32 total_records = 2;
 }
 
 message MirrorLog {
