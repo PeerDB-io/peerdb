@@ -344,7 +344,6 @@ message GetCDCBatchesRequest {
 
 message GetCDCBatchesResponse {
   repeated CDCBatch cdc_batches = 1;
-  uint32 total_records = 2;
 }
 
 message MirrorLog {
