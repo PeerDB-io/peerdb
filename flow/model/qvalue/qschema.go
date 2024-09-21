@@ -2,14 +2,16 @@ package qvalue
 
 import (
 	"strings"
+
+	"github.com/PeerDB-io/peer-flow/datatypes"
 )
 
 type QField struct {
-	Name      string
-	Type      QValueKind
-	Precision int16
-	Scale     int16
-	Nullable  bool
+	Name     string
+	Type     QValueKind
+	Nullable bool
+	// nil if not a numeric column
+	ParsedNumericTypmod *datatypes.NumericTypmod
 }
 
 type QRecordSchema struct {

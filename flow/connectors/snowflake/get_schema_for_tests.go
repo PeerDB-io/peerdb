@@ -23,9 +23,10 @@ func (c *SnowflakeConnector) getTableSchemaForTable(ctx context.Context, tableNa
 		}
 
 		colFields = append(colFields, &protos.FieldDescription{
-			Name:         columns[i].ColumnName,
-			Type:         string(genericColType),
-			TypeModifier: datatypes.MakeNumericTypmod(sfColumn.NumericPrecision, sfColumn.NumericScale),
+			Name: columns[i].ColumnName,
+			Type: string(genericColType),
+			TypeModifier: datatypes.NewConstrainedNumericTypmod(int16(sfColumn.NumericPrecision),
+				int16(sfColumn.NumericScale)).ToTypmod(),
 		})
 	}
 

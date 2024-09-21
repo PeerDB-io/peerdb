@@ -19,7 +19,7 @@ import (
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	numeric "github.com/PeerDB-io/peer-flow/datatypes"
+	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -383,7 +383,8 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 			}
 
 			if addedColumn.Type == string(qvalue.QValueKindNumeric) {
-				precision, scale := numeric.GetNumericTypeForWarehouse(addedColumn.TypeModifier, numeric.SnowflakeNumericCompatibility{})
+				precision, scale := datatypes.NewParsedNumericTypmod(addedColumn.TypeModifier).
+					ToDWHNumericConstraints(protos.DBType_SNOWFLAKE)
 				sfColtype = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
 			}
 
@@ -686,7 +687,8 @@ func generateCreateTableSQLForNormalizedTable(
 		}
 
 		if genericColumnType == "numeric" {
-			precision, scale := numeric.GetNumericTypeForWarehouse(column.TypeModifier, numeric.SnowflakeNumericCompatibility{})
+			precision, scale := datatypes.NewParsedNumericTypmod(column.TypeModifier).
+				ToDWHNumericConstraints(protos.DBType_SNOWFLAKE)
 			sfColType = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
 		}
 

@@ -78,13 +78,11 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 		// TODO fix this.
 		cnullable := true
 		if ctype == qvalue.QValueKindNumeric {
-			precision, scale := datatypes.ParseNumericTypmod(fd.TypeModifier)
 			qfields[i] = qvalue.QField{
-				Name:      cname,
-				Type:      ctype,
-				Nullable:  cnullable,
-				Precision: precision,
-				Scale:     scale,
+				Name:                cname,
+				Type:                ctype,
+				Nullable:            cnullable,
+				ParsedNumericTypmod: datatypes.NewParsedNumericTypmod(fd.TypeModifier),
 			}
 		} else {
 			qfields[i] = qvalue.QField{
