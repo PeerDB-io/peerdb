@@ -20,7 +20,7 @@ import (
 
 const qRepMetadataTableName = "_peerdb_query_replication_metadata"
 
-func (c *ClickhouseConnector) SyncQRepRecords(
+func (c *ClickHouseConnector) SyncQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
@@ -39,12 +39,12 @@ func (c *ClickhouseConnector) SyncQRepRecords(
 	}
 	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
 
-	avroSync := NewClickhouseAvroSyncMethod(config, c)
+	avroSync := NewClickHouseAvroSyncMethod(config, c)
 
 	return avroSync.SyncQRepRecords(ctx, config, partition, tblSchema, stream)
 }
 
-func (c *ClickhouseConnector) createMetadataInsertStatement(
+func (c *ClickHouseConnector) createMetadataInsertStatement(
 	partition *protos.QRepPartition,
 	jobName string,
 	startTime time.Time,
@@ -68,7 +68,7 @@ func (c *ClickhouseConnector) createMetadataInsertStatement(
 	return insertMetadataStmt, nil
 }
 
-func (c *ClickhouseConnector) getTableSchema(ctx context.Context, tableName string) ([]driver.ColumnType, error) {
+func (c *ClickHouseConnector) getTableSchema(ctx context.Context, tableName string) ([]driver.ColumnType, error) {
 	queryString := fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName)
 	rows, err := c.database.Query(ctx, queryString)
 	if err != nil {
@@ -79,7 +79,7 @@ func (c *ClickhouseConnector) getTableSchema(ctx context.Context, tableName stri
 	return rows.ColumnTypes(), nil
 }
 
-func (c *ClickhouseConnector) IsQRepPartitionSynced(ctx context.Context,
+func (c *ClickHouseConnector) IsQRepPartitionSynced(ctx context.Context,
 	req *protos.IsQRepPartitionSyncedInput,
 ) (bool, error) {
 	queryString := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE partitionID = '%s'`, qRepMetadataTableName, req.PartitionId)
@@ -91,7 +91,7 @@ func (c *ClickhouseConnector) IsQRepPartitionSynced(ctx context.Context,
 	return count > 0, nil
 }
 
-func (c *ClickhouseConnector) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {
+func (c *ClickHouseConnector) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {
 	err := c.createQRepMetadataTable(ctx)
 	if err != nil {
 		return err
@@ -107,7 +107,7 @@ func (c *ClickhouseConnector) SetupQRepMetadataTables(ctx context.Context, confi
 	return nil
 }
 
-func (c *ClickhouseConnector) createQRepMetadataTable(ctx context.Context) error {
+func (c *ClickHouseConnector) createQRepMetadataTable(ctx context.Context) error {
 	// Define the schema
 	schemaStatement := `
 	CREATE TABLE IF NOT EXISTS %s (
@@ -131,19 +131,19 @@ func (c *ClickhouseConnector) createQRepMetadataTable(ctx context.Context) error
 	return nil
 }
 
-func (c *ClickhouseConnector) ConsolidateQRepPartitions(_ context.Context, config *protos.QRepConfig) error {
+func (c *ClickHouseConnector) ConsolidateQRepPartitions(_ context.Context, config *protos.QRepConfig) error {
 	c.logger.Info("Consolidating partitions noop")
 	return nil
 }
 
 // CleanupQRepFlow function for clickhouse connector
-func (c *ClickhouseConnector) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {
+func (c *ClickHouseConnector) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {
 	c.logger.Info("Cleaning up flow job")
 	return c.dropStage(ctx, config.StagingPath, config.FlowJobName)
 }
 
 // dropStage drops the stage for the given job.
-func (c *ClickhouseConnector) dropStage(ctx context.Context, stagingPath string, job string) error {
+func (c *ClickHouseConnector) dropStage(ctx context.Context, stagingPath string, job string) error {
 	// if s3 we need to delete the contents of the bucket
 	if strings.HasPrefix(stagingPath, "s3://") {
 		s3o, err := utils.NewS3BucketAndPrefix(stagingPath)

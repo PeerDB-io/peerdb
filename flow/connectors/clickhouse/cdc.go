@@ -24,11 +24,11 @@ const (
 )
 
 // getRawTableName returns the raw table name for the given table identifier.
-func (c *ClickhouseConnector) getRawTableName(flowJobName string) string {
+func (c *ClickHouseConnector) getRawTableName(flowJobName string) string {
 	return "_peerdb_raw_" + shared.ReplaceIllegalCharactersWithUnderscores(flowJobName)
 }
 
-func (c *ClickhouseConnector) checkIfTableExists(ctx context.Context, databaseName string, tableIdentifier string) (bool, error) {
+func (c *ClickHouseConnector) checkIfTableExists(ctx context.Context, databaseName string, tableIdentifier string) (bool, error) {
 	var result sql.NullInt32
 	err := c.database.QueryRow(ctx, checkIfTableExistsSQL, databaseName, tableIdentifier).Scan(&result)
 	if err != nil {
@@ -42,7 +42,7 @@ func (c *ClickhouseConnector) checkIfTableExists(ctx context.Context, databaseNa
 	return result.Int32 == 1, nil
 }
 
-func (c *ClickhouseConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
+func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
 	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %s (
@@ -66,16 +66,16 @@ func (c *ClickhouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 	}, nil
 }
 
-func (c *ClickhouseConnector) avroSyncMethod(flowJobName string) *ClickhouseAvroSyncMethod {
+func (c *ClickHouseConnector) avroSyncMethod(flowJobName string) *ClickHouseAvroSyncMethod {
 	qrepConfig := &protos.QRepConfig{
 		StagingPath:                c.credsProvider.BucketPath,
 		FlowJobName:                flowJobName,
 		DestinationTableIdentifier: c.getRawTableName(flowJobName),
 	}
-	return NewClickhouseAvroSyncMethod(qrepConfig, c)
+	return NewClickHouseAvroSyncMethod(qrepConfig, c)
 }
 
-func (c *ClickhouseConnector) syncRecordsViaAvro(
+func (c *ClickHouseConnector) syncRecordsViaAvro(
 	ctx context.Context,
 	req *model.SyncRecordsRequest[model.RecordItems],
 	syncBatchID int64,
@@ -107,7 +107,7 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 	}, nil
 }
 
-func (c *ClickhouseConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
+func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
 	res, err := c.syncRecordsViaAvro(ctx, req, req.SyncBatchID)
 	if err != nil {
 		return nil, err
@@ -122,7 +122,7 @@ func (c *ClickhouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 	return res, nil
 }
 
-func (c *ClickhouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJobName string,
+func (c *ClickHouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJobName string,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	if len(schemaDeltas) == 0 {
@@ -135,14 +135,14 @@ func (c *ClickhouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			clickhouseColType, err := qvalue.QValueKind(addedColumn.Type).ToDWHColumnType(protos.DBType_CLICKHOUSE)
+			clickHouseColType, err := qvalue.QValueKind(addedColumn.Type).ToDWHColumnType(protos.DBType_CLICKHOUSE)
 			if err != nil {
-				return fmt.Errorf("failed to convert column type %s to clickhouse type: %w",
+				return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w",
 					addedColumn.Type, err)
 			}
 			err = c.execWithLogging(ctx,
 				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
-					schemaDelta.DstTableName, addedColumn.Name, clickhouseColType))
+					schemaDelta.DstTableName, addedColumn.Name, clickHouseColType))
 			if err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
@@ -157,7 +157,7 @@ func (c *ClickhouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 	return nil
 }
 
-func (c *ClickhouseConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
+func (c *ClickHouseConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
 	for _, renameRequest := range req.RenameTableOptions {
 		resyncTableExists, err := c.checkIfTableExists(ctx, c.config.Database, renameRequest.CurrentName)
 		if err != nil {
@@ -216,7 +216,7 @@ func (c *ClickhouseConnector) RenameTables(ctx context.Context, req *protos.Rena
 	}, nil
 }
 
-func (c *ClickhouseConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
+func (c *ClickHouseConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
 	err := c.PostgresMetadata.SyncFlowCleanup(ctx, jobName)
 	if err != nil {
 		return fmt.Errorf("[clickhouse] unable to clear metadata for sync flow cleanup: %w", err)
@@ -232,7 +232,7 @@ func (c *ClickhouseConnector) SyncFlowCleanup(ctx context.Context, jobName strin
 	return nil
 }
 
-func (c *ClickhouseConnector) RemoveTableEntriesFromRawTable(
+func (c *ClickHouseConnector) RemoveTableEntriesFromRawTable(
 	ctx context.Context,
 	req *protos.RemoveTablesFromRawTableInput,
 ) error {

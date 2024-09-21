@@ -119,7 +119,7 @@ func PeerDBAllowedTargets() string {
 	return GetEnvString("PEERDB_ALLOWED_TARGETS", "")
 }
 
-func PeerDBClickhouseAllowedDomains() string {
+func PeerDBClickHouseAllowedDomains() string {
 	return GetEnvString("PEERDB_CLICKHOUSE_ALLOWED_DOMAINS", "")
 }
 
