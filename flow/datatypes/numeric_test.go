@@ -3,8 +3,9 @@ package datatypes
 import (
 	"testing"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
 var parsingTypmodTests = map[int32]NumericTypmod{
@@ -50,7 +51,7 @@ func TestParsedNumericTypmod_ToDWHNumericConstraints(t *testing.T) {
 			precision, scale := parsed.ToDWHNumericConstraints(dwh)
 			assert.LessOrEqual(t, precision, getMaxPrecisionForDWH(dwh))
 			assert.LessOrEqual(t, scale, getMaxScaleForDWH(dwh))
-			assert.Greater(t, precision, int16(0))
+			assert.Positive(t, precision)
 			assert.GreaterOrEqual(t, scale, int16(0))
 			assert.LessOrEqual(t, scale, precision)
 		}

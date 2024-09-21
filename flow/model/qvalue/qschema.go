@@ -7,11 +7,11 @@ import (
 )
 
 type QField struct {
-	Name     string
-	Type     QValueKind
-	Nullable bool
+	Name string
 	// nil if not a numeric column
 	ParsedNumericTypmod *datatypes.NumericTypmod
+	Type                QValueKind
+	Nullable            bool
 }
 
 type QRecordSchema struct {

@@ -2,6 +2,7 @@ package datatypes
 
 import (
 	"cloud.google.com/go/bigquery"
+
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
@@ -9,7 +10,7 @@ const (
 	VARHDRSZ = 4
 
 	// default scale
-	bigQueryDefaultScale   = 20
+	bigQueryDefaultScale   = bigquery.BigNumericScaleDigits
 	snowflakeDefaultScale  = 20
 	clickHouseDefaultScale = 38
 	genericDefaultScale    = 20
