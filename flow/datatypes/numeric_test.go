@@ -32,6 +32,10 @@ func TestNewParsedNumericTypmod(t *testing.T) {
 func TestParsedNumericTypmod_ToTypmod(t *testing.T) {
 	for expected, parsed := range parsingTypmodTests {
 		typmod := parsed.ToTypmod()
+		if !parsed.constrained {
+			assert.Equal(t, int32(-1), typmod)
+			continue
+		}
 		assert.Equal(t, expected, typmod)
 	}
 }

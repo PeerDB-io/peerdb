@@ -22,12 +22,16 @@ func (c *SnowflakeConnector) getTableSchemaForTable(ctx context.Context, tableNa
 			genericColType = qvalue.QValueKindString
 		}
 
-		colFields = append(colFields, &protos.FieldDescription{
-			Name: columns[i].ColumnName,
-			Type: string(genericColType),
-			TypeModifier: datatypes.NewConstrainedNumericTypmod(int16(sfColumn.NumericPrecision),
-				int16(sfColumn.NumericScale)).ToTypmod(),
-		})
+		colField := &protos.FieldDescription{
+			Name:         columns[i].ColumnName,
+			Type:         string(genericColType),
+			TypeModifier: -1,
+		}
+		if genericColType == qvalue.QValueKindNumeric {
+			colField.TypeModifier = datatypes.NewConstrainedNumericTypmod(int16(sfColumn.NumericPrecision),
+				int16(sfColumn.NumericScale)).ToTypmod()
+		}
+		colFields = append(colFields, colField)
 	}
 
 	return &protos.TableSchema{
