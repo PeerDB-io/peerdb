@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -209,11 +210,11 @@ func processTableRemovals(
 	state *CDCFlowWorkflowState,
 ) error {
 	logger.Info("altering publication for removed tables")
-	alterPublicationRemoveTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+	removeTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
 	})
 	alterPublicationRemovedTablesFuture := workflow.ExecuteActivity(
-		alterPublicationRemoveTablesCtx,
+		removeTablesCtx,
 		flowable.RemoveTablesFromPublication,
 		cfg, state.FlowConfigUpdate.RemovedTables)
 	if err := alterPublicationRemovedTablesFuture.Get(ctx, nil); err != nil {
@@ -222,11 +223,8 @@ func processTableRemovals(
 	}
 	logger.Info("tables removed from publication")
 
-	rawTableCleanupOptionsCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
-	})
 	rawTableCleanupFuture := workflow.ExecuteActivity(
-		rawTableCleanupOptionsCtx,
+		removeTablesCtx,
 		flowable.RemoveTablesFromRawTable,
 		cfg, state.FlowConfigUpdate.RemovedTables)
 	if err := rawTableCleanupFuture.Get(ctx, nil); err != nil {
@@ -235,24 +233,30 @@ func processTableRemovals(
 	}
 	logger.Info("tables removed from raw table")
 
-	// remove the tables from the sync flow options
-	for _, removedTable := range state.FlowConfigUpdate.RemovedTables {
-		maps.DeleteFunc(state.SyncFlowOptions.TableNameSchemaMapping, func(k string, v *protos.TableSchema) bool {
-			return k == removedTable.SourceTableIdentifier
-		})
-		maps.DeleteFunc(state.SyncFlowOptions.SrcTableIdNameMapping, func(k uint32, v string) bool {
-			return v == removedTable.SourceTableIdentifier
-		})
-		for i, tableMapping := range state.SyncFlowOptions.TableMappings {
-			if tableMapping.SourceTableIdentifier == removedTable.SourceTableIdentifier {
-				state.SyncFlowOptions.TableMappings = append(
-					state.SyncFlowOptions.TableMappings[:i],
-					state.SyncFlowOptions.TableMappings[i+1:]...,
-				)
-				break
-			}
-		}
+	removeTablesFromCatalogFuture := workflow.ExecuteActivity(
+		removeTablesCtx,
+		flowable.RemoveTablesFromCatalog,
+		cfg, state.FlowConfigUpdate.RemovedTables)
+	if err := removeTablesFromCatalogFuture.Get(ctx, nil); err != nil {
+		logger.Error("failed to clean up raw table for removed tables", "error", err)
+		return err
 	}
+	logger.Info("tables removed from catalog")
+
+	// remove the tables from the sync flow options
+	removedTables := make(map[string]struct{}, len(state.FlowConfigUpdate.RemovedTables))
+	for _, removedTable := range state.FlowConfigUpdate.RemovedTables {
+		removedTables[removedTable.SourceTableIdentifier] = struct{}{}
+	}
+
+	maps.DeleteFunc(state.SyncFlowOptions.SrcTableIdNameMapping, func(k uint32, v string) bool {
+		_, removed := removedTables[v]
+		return removed
+	})
+	state.SyncFlowOptions.TableMappings = slices.DeleteFunc(state.SyncFlowOptions.TableMappings, func(tm *protos.TableMapping) bool {
+		_, removed := removedTables[tm.SourceTableIdentifier]
+		return removed
+	})
 
 	return nil
 }

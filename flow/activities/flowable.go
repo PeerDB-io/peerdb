@@ -879,7 +879,9 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 	return err
 }
 
-func (a *FlowableActivity) RemoveTablesFromPublication(ctx context.Context, cfg *protos.FlowConnectionConfigs,
+func (a *FlowableActivity) RemoveTablesFromPublication(
+	ctx context.Context,
+	cfg *protos.FlowConnectionConfigs,
 	removedTablesMapping []*protos.TableMapping,
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
@@ -900,7 +902,9 @@ func (a *FlowableActivity) RemoveTablesFromPublication(ctx context.Context, cfg 
 	return err
 }
 
-func (a *FlowableActivity) RemoveTablesFromRawTable(ctx context.Context, cfg *protos.FlowConnectionConfigs,
+func (a *FlowableActivity) RemoveTablesFromRawTable(
+	ctx context.Context,
+	cfg *protos.FlowConnectionConfigs,
 	tablesToRemove []*protos.TableMapping,
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
@@ -942,5 +946,25 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(ctx context.Context, cfg *pr
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 	}
+	return err
+}
+
+func (a *FlowableActivity) RemoveTablesFromCatalog(
+	ctx context.Context,
+	cfg *protos.FlowConnectionConfigs,
+	tablesToRemove []*protos.TableMapping,
+) error {
+	removedTables := make([]string, 0, len(tablesToRemove))
+	for _, tm := range tablesToRemove {
+		removedTables = append(removedTables, tm.DestinationTableIdentifier)
+	}
+
+	_, err := a.CatalogPool.Exec(
+		ctx,
+		"delete from table_name_schema_mapping where flow_name = $1 and table_name = ANY($2)",
+		cfg.FlowJobName,
+		removedTables,
+	)
+
 	return err
 }
