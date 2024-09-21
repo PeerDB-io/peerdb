@@ -55,7 +55,9 @@ func TruncateOrLogNumeric(num decimal.Decimal, precision int16, scale int16, tar
 		bidigi := datatypes.CountDigits(num.BigInt())
 		avroPrecision, avroScale := DetermineNumericSettingForDWH(precision, scale, targetDB)
 		if bidigi+int(avroScale) > int(avroPrecision) {
-			slog.Warn("Clearing NUMERIC value with too many digits", slog.Any("number", num))
+			slog.Warn("Clearing NUMERIC value with too many digits", slog.Any("number", num),
+				slog.Int("precision", int(avroPrecision)), slog.Int("scale", int(avroScale)),
+				slog.Int("digits", bidigi), slog.String("targetDB", targetDB.String()))
 			return num, errors.New("invalid numeric")
 		} else if num.Exponent() < -int32(avroScale) {
 			num = num.Truncate(int32(avroScale))
