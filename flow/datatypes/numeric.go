@@ -99,7 +99,7 @@ type NumericTypmod struct {
 
 // This is to reverse what make_numeric_typmod of Postgres does:
 // logic copied from: https://github.com/postgres/postgres/blob/c4d5cb71d229095a39fda1121a75ee40e6069a2a/src/backend/utils/adt/numeric.c#L929
-// Maps "invalid" typmods to be unconstrained (same as -1)
+// Maps most "invalid" typmods to be unconstrained (same as -1)
 func NewParsedNumericTypmod(typmod int32) *NumericTypmod {
 	if typmod < VARHDRSZ {
 		return &NumericTypmod{
@@ -108,6 +108,14 @@ func NewParsedNumericTypmod(typmod int32) *NumericTypmod {
 	}
 
 	typmod -= VARHDRSZ
+	// if precision or scale are out of bounds, switch to unconstrained and hope for the best
+	precision := int16((typmod >> 16) & 0xFFFF)
+	scale := int16(((typmod & 0x7ff) ^ 1024) - 1024)
+	if precision < 1 || precision > 1000 || scale < -1000 || scale > 1000 {
+		return &NumericTypmod{
+			constrained: false,
+		}
+	}
 	return &NumericTypmod{
 		constrained: true,
 		precision:   int16((typmod >> 16) & 0xFFFF),

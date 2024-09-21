@@ -17,6 +17,9 @@ var parsingTypmodTests = map[int32]NumericTypmod{
 	65536004: {constrained: true, precision: 1000, scale: 0},
 	65537004: {constrained: true, precision: 1000, scale: 1000},
 	65537052: {constrained: true, precision: 1000, scale: -1000},
+	65538051: {constrained: true, precision: 1000, scale: -1},
+	// precision 1001 onwards should trigger unconstrained
+	65601540: {constrained: false},
 }
 
 func TestNewParsedNumericTypmod(t *testing.T) {
