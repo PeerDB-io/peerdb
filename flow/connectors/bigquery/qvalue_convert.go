@@ -151,11 +151,15 @@ func qValueKindToBigQueryTypeString(columnDescription *protos.FieldDescription, 
 }
 
 func BigQueryFieldToQField(bqField *bigquery.FieldSchema) qvalue.QField {
+	var parsedNumericTypmod *datatypes.NumericTypmod
+	if BigQueryTypeToQValueKind(bqField) == qvalue.QValueKindNumeric {
+		parsedNumericTypmod = datatypes.NewConstrainedNumericTypmod(int16(bqField.Precision),
+			int16(bqField.Scale))
+	}
 	return qvalue.QField{
-		Name:     bqField.Name,
-		Type:     BigQueryTypeToQValueKind(bqField),
-		Nullable: !bqField.Required,
-		ParsedNumericTypmod: datatypes.NewConstrainedNumericTypmod(int16(bqField.Precision),
-			int16(bqField.Scale)),
+		Name:                bqField.Name,
+		Type:                BigQueryTypeToQValueKind(bqField),
+		Nullable:            !bqField.Required,
+		ParsedNumericTypmod: parsedNumericTypmod,
 	}
 }
