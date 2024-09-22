@@ -16,7 +16,7 @@ import (
 	"github.com/lib/pq/oid"
 	"go.temporal.io/sdk/activity"
 
-	"github.com/PeerDB-io/peer-flow/connectors/external_metadata"
+	connmetadata "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	geo "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -501,6 +501,7 @@ func PullCdcRecords[Items model.Items](
 					// tableName here is destination tableName.
 					// should be ideally sourceTableName as we are in PullRecords.
 					// will change in future
+					// TODO: replident is cached here, should not cache since it can change
 					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
 					if isFullReplica {
 						if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
@@ -750,6 +751,18 @@ func processUpdateMessage[Items model.Items](
 		processor, p, msg.NewTuple, rel, p.tableNameMapping[tableName].Exclude)
 	if err != nil {
 		return nil, fmt.Errorf("error converting new tuple to map: %w", err)
+	}
+
+	// looks like in some cases (atleast replident full + TOAST), the new tuple doesn't contain unchanged columns
+	// and only the old tuple does. So we can backfill the new tuple with the unchanged columns from the old tuple.
+	// Otherwise, _peerdb_unchanged_toast_columns is set correctly and we fallback to normal unchanged TOAST handling in normalize
+	// but this doesn't work in ClickHouse where we don't do unchanged TOAST handling in normalize
+	// TODO: investigate the cases where this happens in more detail
+	backfilledCols := newItems.UpdateIfNotExists(oldItems)
+	for _, col := range backfilledCols {
+		delete(unchangedToastColumns, col)
+		// we only use _peerdb_data anyway, remove for space optimization
+		oldItems.DeleteColName(col)
 	}
 
 	return &model.UpdateRecord[Items]{
