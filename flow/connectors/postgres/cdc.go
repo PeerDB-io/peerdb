@@ -753,11 +753,13 @@ func processUpdateMessage[Items model.Items](
 		return nil, fmt.Errorf("error converting new tuple to map: %w", err)
 	}
 
-	// looks like in some cases (atleast replident full + TOAST), the new tuple doesn't contain unchanged columns
-	// and only the old tuple does. So we can backfill the new tuple with the unchanged columns from the old tuple.
-	// Otherwise, _peerdb_unchanged_toast_columns is set correctly and we fallback to normal unchanged TOAST handling in normalize
-	// but this doesn't work in ClickHouse where we don't do unchanged TOAST handling in normalize
-	// TODO: investigate the cases where this happens in more detail
+	/*
+	   Looks like in some cases (at least replident full + TOAST), the new tuple doesn't contain unchanged columns
+	   and only the old tuple does. So we can backfill the new tuple with the unchanged columns from the old tuple.
+	   Otherwise, _peerdb_unchanged_toast_columns is set correctly and we fallback to normal unchanged TOAST handling in normalize,
+	   but this doesn't work in connectors where we don't do unchanged TOAST handling in normalize.
+	   TODO: investigate the cases where this happens in more detail.
+	*/
 	backfilledCols := newItems.UpdateIfNotExists(oldItems)
 	for _, col := range backfilledCols {
 		delete(unchangedToastColumns, col)
