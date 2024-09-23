@@ -75,3 +75,7 @@ func (r PgItems) MarshalJSON() ([]byte, error) {
 
 	return json.Marshal(jsonStruct)
 }
+
+func (r PgItems) DeleteColName(colName string) {
+	delete(r.ColToVal, colName)
+}
