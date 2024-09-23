@@ -276,7 +276,7 @@ func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string)
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_SNOWFLAKE_MERGE_PARALLELISM")
 }
 
-func PeerDBClickhouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
+func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
 	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
 }
 

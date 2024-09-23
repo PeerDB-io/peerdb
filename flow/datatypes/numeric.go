@@ -4,7 +4,7 @@ const (
 	// defaults
 	PeerDBBigQueryScale   = 20
 	PeerDBSnowflakeScale  = 20
-	PeerDBClickhouseScale = 38
+	PeerDBClickHouseScale = 38
 	VARHDRSZ              = 4
 )
 
@@ -25,7 +25,7 @@ func (ClickHouseNumericCompatibility) MaxScale() int16 {
 }
 
 func (c ClickHouseNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
-	return c.MaxPrecision(), PeerDBClickhouseScale
+	return c.MaxPrecision(), PeerDBClickHouseScale
 }
 
 type SnowflakeNumericCompatibility struct{}

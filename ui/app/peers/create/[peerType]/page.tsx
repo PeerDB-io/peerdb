@@ -2,7 +2,7 @@
 import { PeerConfig } from '@/app/dto/PeersDTO';
 import GuideForDestinationSetup from '@/app/mirrors/create/cdc/guide';
 import BigqueryForm from '@/components/PeerForms/BigqueryConfig';
-import ClickhouseForm from '@/components/PeerForms/ClickhouseConfig';
+import ClickHouseForm from '@/components/PeerForms/ClickhouseConfig';
 import KafkaForm from '@/components/PeerForms/KafkaConfig';
 import PostgresForm from '@/components/PeerForms/PostgresForm';
 import PubSubForm from '@/components/PeerForms/PubSubConfig';
@@ -88,7 +88,7 @@ export default function CreateConfig({
         return <BigqueryForm setter={setConfig} />;
       case 'CLICKHOUSE':
         return (
-          <ClickhouseForm settings={clickhouseSetting} setter={setConfig} />
+          <ClickHouseForm settings={clickhouseSetting} setter={setConfig} />
         );
       case 'S3':
         return <S3Form setter={setConfig} />;

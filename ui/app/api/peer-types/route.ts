@@ -1,4 +1,4 @@
-import { GetPeerDBClickhouseMode } from '@/peerdb-env/allowed_targets';
+import { GetPeerDBClickHouseMode } from '@/peerdb-env/allowed_targets';
 import { NextRequest } from 'next/server';
 export const dynamic = 'force-dynamic';
 
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  if (GetPeerDBClickhouseMode()) {
+  if (GetPeerDBClickHouseMode()) {
     return new Response(
       JSON.stringify([postgresTypes, clickhouseWarehouseTypes])
     );

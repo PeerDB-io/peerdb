@@ -1,8 +1,8 @@
 import { MirrorType } from '@/app/dto/MirrorsDTO';
-import { GetPeerDBClickhouseMode } from '@/peerdb-env/allowed_targets';
+import { GetPeerDBClickHouseMode } from '@/peerdb-env/allowed_targets';
 import { NextRequest } from 'next/server';
 export const dynamic = 'force-dynamic';
-export async function GET(request: NextRequest) {
+export async function GET(_: NextRequest) {
   const cards = [
     {
       title: MirrorType.CDC,
@@ -24,8 +24,7 @@ export async function GET(request: NextRequest) {
     link: 'https://docs.peerdb.io/sql/commands/create-mirror#xmin-query-replication',
   };
 
-  const isClickhouseMode = GetPeerDBClickhouseMode();
-  if (!isClickhouseMode) {
+  if (!GetPeerDBClickHouseMode()) {
     cards.push(xminCard);
   }
   return new Response(JSON.stringify(cards));

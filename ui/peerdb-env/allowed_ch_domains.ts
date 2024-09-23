@@ -1,6 +1,6 @@
 import 'server-only';
 
-export function GetPeerDBClickhouseAllowedDomains() {
+export function GetPeerDBClickHouseAllowedDomains() {
   const domains: string[] =
     process.env.PEERDB_CLICKHOUSE_ALLOWED_DOMAINS?.split(',').map((domain) =>
       domain.trim()

@@ -6,7 +6,7 @@ export const clickhouseSetting: PeerSetting[] = [
     label: 'Host',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, host: value as string })),
-    tips: 'Specifies the IP host name or address on which Clickhouse is listening for TCP/IP connections from client applications.',
+    tips: 'Specifies the IP host name or address on which ClickHouse is listening for TCP/IP connections from client applications.',
   },
   {
     label: 'Port',
@@ -14,7 +14,7 @@ export const clickhouseSetting: PeerSetting[] = [
       setter((curr) => ({ ...curr, port: parseInt(value as string, 10) })),
     type: 'number', // type for textfield
     default: 9440,
-    tips: 'Specifies the TCP/IP port or local Unix domain socket file extension on which Clickhouse is listening for connections from client applications.',
+    tips: 'Specifies the TCP/IP port or local Unix domain socket file extension on which ClickHouse is listening for connections from client applications.',
   },
   {
     label: 'User',
@@ -41,7 +41,7 @@ export const clickhouseSetting: PeerSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, disableTls: value as boolean })),
     type: 'switch',
-    tips: 'If you are using a non-TLS connection for Clickhouse server, check this box.',
+    tips: 'If you are using a non-TLS connection for ClickHouse server, check this box.',
     optional: true,
   },
   {
@@ -129,7 +129,7 @@ export const clickhouseSetting: PeerSetting[] = [
   },
 ];
 
-export const blankClickhouseSetting: ClickhouseConfig = {
+export const blankClickHouseSetting: ClickhouseConfig = {
   host: '',
   port: 9440,
   user: '',

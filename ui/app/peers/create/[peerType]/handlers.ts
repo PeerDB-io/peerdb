@@ -102,7 +102,7 @@ function constructPeer(
   }
 }
 
-const GetClickhouseAllowedDomains = async (): Promise<string[]> => {
+const GetClickHouseAllowedDomains = async (): Promise<string[]> => {
   const response = await fetch('/api/peer-types/validation/clickhouse', {
     method: 'GET',
     cache: 'force-cache',
@@ -147,7 +147,7 @@ const validateFields = async (
       if (!bqConfig.success) validationErr = bqConfig.error.issues[0].message;
       break;
     case 'CLICKHOUSE':
-      const chAllowedDomains = await GetClickhouseAllowedDomains();
+      const chAllowedDomains = await GetClickHouseAllowedDomains();
       const chConfig = chSchema(chAllowedDomains).safeParse(config);
       if (!chConfig.success) validationErr = chConfig.error.issues[0].message;
       break;
