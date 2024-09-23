@@ -1,111 +1,163 @@
 package datatypes
 
-const (
-	// defaults
-	PeerDBBigQueryScale   = 20
-	PeerDBSnowflakeScale  = 20
-	PeerDBClickhouseScale = 38
-	VARHDRSZ              = 4
+import (
+	"cloud.google.com/go/bigquery"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
-type WarehouseNumericCompatibility interface {
-	MaxPrecision() int16
-	MaxScale() int16
-	DefaultPrecisionAndScale() (int16, int16)
+const (
+	VARHDRSZ = 4
+
+	// default scale
+	bigQueryDefaultScale   = bigquery.BigNumericScaleDigits
+	snowflakeDefaultScale  = 20
+	clickHouseDefaultScale = 38
+	genericDefaultScale    = 20
+
+	// max scale
+	bigQueryMaxScale   = bigquery.BigNumericScaleDigits
+	snowflakeMaxScale  = 37
+	clickHouseMaxScale = 38
+	genericMaxScale    = 37
+
+	// default/max precision
+	bigQueryPrecision   = bigquery.BigNumericPrecisionDigits
+	snowflakePrecision  = 38
+	clickHousePrecision = 76
+	genericPrecision    = 38
+)
+
+var defaultScaleMap = map[protos.DBType]int16{
+	protos.DBType_BIGQUERY:   bigQueryDefaultScale,
+	protos.DBType_SNOWFLAKE:  snowflakeDefaultScale,
+	protos.DBType_CLICKHOUSE: clickHouseDefaultScale,
 }
 
-type ClickHouseNumericCompatibility struct{}
-
-func (ClickHouseNumericCompatibility) MaxPrecision() int16 {
-	return 76
+var maxScaleMap = map[protos.DBType]int16{
+	protos.DBType_BIGQUERY:   bigQueryMaxScale,
+	protos.DBType_SNOWFLAKE:  snowflakeMaxScale,
+	protos.DBType_CLICKHOUSE: clickHouseMaxScale,
 }
 
-func (ClickHouseNumericCompatibility) MaxScale() int16 {
-	return 38
+var precisionMap = map[protos.DBType]int16{
+	protos.DBType_BIGQUERY:   bigQueryPrecision,
+	protos.DBType_SNOWFLAKE:  snowflakePrecision,
+	protos.DBType_CLICKHOUSE: clickHousePrecision,
 }
 
-func (c ClickHouseNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
-	return c.MaxPrecision(), PeerDBClickhouseScale
-}
-
-type SnowflakeNumericCompatibility struct{}
-
-func (SnowflakeNumericCompatibility) MaxPrecision() int16 {
-	return 38
-}
-
-func (SnowflakeNumericCompatibility) MaxScale() int16 {
-	return 37
-}
-
-func (s SnowflakeNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
-	return s.MaxPrecision(), PeerDBSnowflakeScale
-}
-
-type BigQueryNumericCompatibility struct{}
-
-func (BigQueryNumericCompatibility) MaxPrecision() int16 {
-	return 38
-}
-
-func (BigQueryNumericCompatibility) MaxScale() int16 {
-	return 20
-}
-
-func (b BigQueryNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
-	return b.MaxPrecision(), PeerDBBigQueryScale
-}
-
-type DefaultNumericCompatibility struct{}
-
-func (DefaultNumericCompatibility) MaxPrecision() int16 {
-	return 38
-}
-
-func (DefaultNumericCompatibility) MaxScale() int16 {
-	return 37
-}
-
-func (DefaultNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
-	return 38, 20
-}
-
-func IsValidPrecision(precision int16, warehouseNumeric WarehouseNumericCompatibility) bool {
-	return precision <= warehouseNumeric.MaxPrecision()
-}
-
-func IsValidPrecisionAndScale(precision, scale int16, warehouseNumeric WarehouseNumericCompatibility) bool {
-	return IsValidPrecision(precision, warehouseNumeric) && scale <= warehouseNumeric.MaxScale()
-}
-
-func MakeNumericTypmod(precision int32, scale int32) int32 {
-	if precision == 0 && scale == 0 {
-		return -1
+func getMaxPrecisionForDWH(dwh protos.DBType) int16 {
+	precision, ok := precisionMap[dwh]
+	if !ok {
+		return genericPrecision
 	}
-	return (precision << 16) | (scale & 0x7ff) + VARHDRSZ
+	return precision
+}
+
+func getMaxScaleForDWH(dwh protos.DBType) int16 {
+	scale, ok := maxScaleMap[dwh]
+	if !ok {
+		return genericMaxScale
+	}
+	return scale
+}
+
+func getDefaultPrecisionAndScaleForDWH(dwh protos.DBType) (int16, int16) {
+	defaultScale, ok := defaultScaleMap[dwh]
+	if !ok {
+		return getMaxPrecisionForDWH(dwh), genericDefaultScale
+	}
+	return getMaxPrecisionForDWH(dwh), defaultScale
+}
+
+func isValidPrecision(precision int16, dwh protos.DBType) bool {
+	return precision > 0 && precision <= getMaxPrecisionForDWH(dwh)
+}
+
+func isValidScale(precision int16, scale int16, dwh protos.DBType) bool {
+	return scale >= 0 &&
+		isValidPrecision(precision, dwh) &&
+		scale <= getMaxScaleForDWH(dwh)
+}
+
+/*
+As far as my understanding from Postgres source code goes:
+ 1. typmod itself is a 32-bit integer.
+ 2. In the case of NUMERICs, it will be -1 or > VARHDRSZ.
+ 3. If it is -1, it means that the precision and scale are not specified and it is an "unconstrained" NUMERIC.
+ 4. If it is > VARHDRSZ, it means that the precision is specified and scale MAY be specified. Otherwise, scale defaults to 0.
+ 5. This is a "constrained" NUMERIC. Precision in this case ranges only from 1 to 1000, far less than the unconstrained limit.
+ 6. The scale in this case ranges from -1000 to 1000. Yes, it can be negative. Yes, it can be more than the precision.
+
+Currently, no DWH supports the two weird cases of scales in Postgres NUMERICs. Expected is that the 0 <= scale < precision.
+In this case, we will default to the default scale and maximum precision for the DWH.
+*/
+type NumericTypmod struct {
+	constrained bool
+	precision   int16
+	scale       int16
 }
 
 // This is to reverse what make_numeric_typmod of Postgres does:
-// https://github.com/postgres/postgres/blob/21912e3c0262e2cfe64856e028799d6927862563/src/backend/utils/adt/numeric.c#L897
-func ParseNumericTypmod(typmod int32) (int16, int16) {
-	offsetMod := typmod - VARHDRSZ
-	precision := int16((offsetMod >> 16) & 0x7FFF)
-	scale := int16(offsetMod & 0x7FFF)
-	return precision, scale
+// logic copied from: https://github.com/postgres/postgres/blob/c4d5cb71d229095a39fda1121a75ee40e6069a2a/src/backend/utils/adt/numeric.c#L929
+// Maps most "invalid" typmods to be unconstrained (same as -1)
+func NewParsedNumericTypmod(typmod int32) *NumericTypmod {
+	if typmod < VARHDRSZ {
+		return &NumericTypmod{
+			constrained: false,
+		}
+	}
+
+	typmod -= VARHDRSZ
+	// if precision or scale are out of bounds, switch to unconstrained and hope for the best
+	precision := int16((typmod >> 16) & 0xFFFF)
+	scale := int16(((typmod & 0x7ff) ^ 1024) - 1024)
+	if precision < 1 || precision > 1000 || scale < -1000 || scale > 1000 {
+		return &NumericTypmod{
+			constrained: false,
+		}
+	}
+	return &NumericTypmod{
+		constrained: true,
+		precision:   int16((typmod >> 16) & 0xFFFF),
+		scale:       int16(((typmod & 0x7ff) ^ 1024) - 1024),
+	}
 }
 
-func GetNumericTypeForWarehouse(typmod int32, warehouseNumeric WarehouseNumericCompatibility) (int16, int16) {
-	if typmod == -1 {
-		return warehouseNumeric.DefaultPrecisionAndScale()
+// responsibility of caller to ensure sensible values are passed in
+func NewConstrainedNumericTypmod(precision int16, scale int16) *NumericTypmod {
+	return &NumericTypmod{
+		constrained: true,
+		precision:   precision,
+		scale:       scale,
+	}
+}
+
+func (t *NumericTypmod) ToTypmod() int32 {
+	if t == nil || !t.constrained {
+		return -1
+	}
+	return ((int32(t.precision) << 16) | (int32(t.scale) & 0x7ff)) + VARHDRSZ
+}
+
+func (t *NumericTypmod) PrecisionAndScale() (int16, int16) {
+	if t == nil {
+		return 0, 0
+	}
+	return t.precision, t.scale
+}
+
+func (t *NumericTypmod) ToDWHNumericConstraints(dwh protos.DBType) (int16, int16) {
+	if t == nil || !t.constrained {
+		return getDefaultPrecisionAndScaleForDWH(dwh)
 	}
 
-	precision, scale := ParseNumericTypmod(typmod)
-	if !IsValidPrecision(precision, warehouseNumeric) {
-		precision = warehouseNumeric.MaxPrecision()
+	precision, scale := t.precision, t.scale
+	if !isValidPrecision(t.precision, dwh) {
+		precision = getMaxPrecisionForDWH(dwh)
 	}
-
-	if !IsValidPrecisionAndScale(precision, scale, warehouseNumeric) {
-		precision, scale = warehouseNumeric.DefaultPrecisionAndScale()
+	if !isValidScale(t.precision, t.scale, dwh) {
+		precision, scale = getDefaultPrecisionAndScaleForDWH(dwh)
 	}
 
 	return precision, scale

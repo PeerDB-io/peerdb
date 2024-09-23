@@ -133,7 +133,8 @@ func generateCreateTableSQLForNormalizedTable(
 		}
 
 		if colType == qvalue.QValueKindNumeric {
-			precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
+			precision, scale := datatypes.NewParsedNumericTypmod(column.TypeModifier).
+				ToDWHNumericConstraints(protos.DBType_CLICKHOUSE)
 			if column.Nullable {
 				stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(DECIMAL(%d, %d)), ", dstColName, precision, scale))
 			} else {
@@ -300,7 +301,8 @@ func (c *ClickhouseConnector) NormalizeRecords(
 			colSelector.WriteString(fmt.Sprintf("`%s`,", dstColName))
 			if clickhouseType == "" {
 				if colType == qvalue.QValueKindNumeric {
-					precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
+					precision, scale := datatypes.NewParsedNumericTypmod(column.TypeModifier).
+						ToDWHNumericConstraints(protos.DBType_CLICKHOUSE)
 					clickhouseType = fmt.Sprintf("Decimal(%d, %d)", precision, scale)
 				} else {
 					var err error

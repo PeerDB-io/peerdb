@@ -121,11 +121,10 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 			return nil, fmt.Errorf("failed to resolve QValueKind for %s", ty.DatabaseTypeName())
 		}
 		batch.Schema.Fields = append(batch.Schema.Fields, qvalue.QField{
-			Name:      ty.Name(),
-			Type:      qkind,
-			Precision: 0,
-			Scale:     0,
-			Nullable:  nullable,
+			Name:                ty.Name(),
+			Type:                qkind,
+			Nullable:            nullable,
+			ParsedNumericTypmod: nil,
 		})
 	}
 

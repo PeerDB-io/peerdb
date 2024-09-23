@@ -50,10 +50,12 @@ type AvroSchemaField struct {
 	LogicalType string      `json:"logicalType,omitempty"`
 }
 
-func TruncateOrLogNumeric(num decimal.Decimal, precision int16, scale int16, targetDB protos.DBType) (decimal.Decimal, error) {
-	if targetDB == protos.DBType_SNOWFLAKE || targetDB == protos.DBType_BIGQUERY {
+func truncateOrLogNumeric(num decimal.Decimal,
+	parsedNumericTypmod *datatypes.NumericTypmod, targetDWH protos.DBType,
+) (decimal.Decimal, error) {
+	if targetDWH == protos.DBType_SNOWFLAKE || targetDWH == protos.DBType_BIGQUERY {
 		bidigi := datatypes.CountDigits(num.BigInt())
-		avroPrecision, avroScale := DetermineNumericSettingForDWH(precision, scale, targetDB)
+		avroPrecision, avroScale := parsedNumericTypmod.ToDWHNumericConstraints(targetDWH)
 		if bidigi+int(avroScale) > int(avroPrecision) {
 			slog.Warn("Clearing NUMERIC value with too many digits", slog.Any("number", num))
 			return num, errors.New("invalid numeric")
@@ -72,7 +74,7 @@ func TruncateOrLogNumeric(num decimal.Decimal, precision int16, scale int16, tar
 //
 // For example, QValueKindInt64 would return an AvroLogicalSchema of "long". Unsupported QValueKinds
 // will return an error.
-func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH protos.DBType, precision int16, scale int16) (interface{}, error) {
+func GetAvroSchemaFromQValueKind(kind QValueKind, parsedNumericTypmod *datatypes.NumericTypmod, targetDWH protos.DBType) (interface{}, error) {
 	switch kind {
 	case QValueKindString:
 		return "string", nil
@@ -98,7 +100,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH protos.DBType, preci
 	case QValueKindBytes:
 		return "bytes", nil
 	case QValueKindNumeric:
-		avroNumericPrecision, avroNumericScale := DetermineNumericSettingForDWH(precision, scale, targetDWH)
+		avroNumericPrecision, avroNumericScale := parsedNumericTypmod.ToDWHNumericConstraints(targetDWH)
 		return AvroSchemaNumeric{
 			Type:        "bytes",
 			LogicalType: "decimal",
@@ -442,7 +444,7 @@ func (c *QValueAvroConverter) processNullableUnion(
 }
 
 func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) interface{} {
-	num, err := TruncateOrLogNumeric(num, c.Precision, c.Scale, c.TargetDWH)
+	num, err := truncateOrLogNumeric(num, c.ParsedNumericTypmod, c.TargetDWH)
 	if err != nil {
 		return nil
 	}

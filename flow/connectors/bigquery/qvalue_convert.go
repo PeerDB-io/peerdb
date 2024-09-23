@@ -26,7 +26,8 @@ func qValueKindToBigQueryType(columnDescription *protos.FieldDescription, nullab
 	case qvalue.QValueKindFloat32, qvalue.QValueKindFloat64:
 		bqField.Type = bigquery.FloatFieldType
 	case qvalue.QValueKindNumeric:
-		precision, scale := datatypes.GetNumericTypeForWarehouse(columnDescription.TypeModifier, datatypes.BigQueryNumericCompatibility{})
+		precision, scale := datatypes.NewParsedNumericTypmod(columnDescription.TypeModifier).
+			ToDWHNumericConstraints(protos.DBType_BIGQUERY)
 		bqField.Type = bigquery.BigNumericFieldType
 		bqField.Precision = int64(precision)
 		bqField.Scale = int64(scale)
@@ -150,11 +151,15 @@ func qValueKindToBigQueryTypeString(columnDescription *protos.FieldDescription, 
 }
 
 func BigQueryFieldToQField(bqField *bigquery.FieldSchema) qvalue.QField {
+	var parsedNumericTypmod *datatypes.NumericTypmod
+	if BigQueryTypeToQValueKind(bqField) == qvalue.QValueKindNumeric {
+		parsedNumericTypmod = datatypes.NewConstrainedNumericTypmod(int16(bqField.Precision),
+			int16(bqField.Scale))
+	}
 	return qvalue.QField{
-		Name:      bqField.Name,
-		Type:      BigQueryTypeToQValueKind(bqField),
-		Precision: int16(bqField.Precision),
-		Scale:     int16(bqField.Scale),
-		Nullable:  !bqField.Required,
+		Name:                bqField.Name,
+		Type:                BigQueryTypeToQValueKind(bqField),
+		Nullable:            !bqField.Required,
+		ParsedNumericTypmod: parsedNumericTypmod,
 	}
 }

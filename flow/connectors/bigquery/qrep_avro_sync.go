@@ -13,6 +13,7 @@ import (
 	"cloud.google.com/go/bigquery"
 
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
+	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -268,9 +269,6 @@ func DefineAvroSchema(dstTableName string,
 }
 
 func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
-	avroNumericPrecision, avroNumericScale := qvalue.DetermineNumericSettingForDWH(
-		int16(bqField.Precision), int16(bqField.Scale), protos.DBType_BIGQUERY)
-
 	considerRepeated := func(typ string, repeated bool) interface{} {
 		if repeated {
 			return qvalue.AvroSchemaArray{
@@ -341,6 +339,8 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 			},
 		}, nil
 	case bigquery.BigNumericFieldType:
+		avroNumericPrecision, avroNumericScale := datatypes.NewConstrainedNumericTypmod(int16(bqField.Precision),
+			int16(bqField.Scale)).ToDWHNumericConstraints(protos.DBType_BIGQUERY)
 		return qvalue.AvroSchemaNumeric{
 			Type:        "bytes",
 			LogicalType: "decimal",
