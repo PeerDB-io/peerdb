@@ -845,12 +845,22 @@ func processRelationMessage[Items model.Items](
 	// retrieve current TableSchema for table changed
 	// tableNameSchemaMapping uses dst table name as the key, so annoying lookup
 	prevSchema := p.tableNameSchemaMapping[p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name]
-	// creating maps for lookup later
-	prevRelMap := make(map[string]string)
-	currRelMap := make(map[string]string)
+	if prevSchema == nil {
+		p.logger.Error("MANOSCHEMA",
+			slog.Any("name", p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name),
+			slog.Any("tableNameSchemaMapping", p.tableNameSchemaMapping),
+			slog.Any("tableMapping", p.tableNameMapping),
+			slog.Any("relID", currRel.RelationID),
+			slog.Any("srcTableIDNameMapping", p.srcTableIDNameMapping),
+		)
+		panic("MANOSCHEMA")
+	}
+	prevRelMap := make(map[string]string, len(prevSchema.Columns))
 	for _, column := range prevSchema.Columns {
 		prevRelMap[column.Name] = column.Type
 	}
+
+	currRelMap := make(map[string]string, len(currRel.Columns))
 	for _, column := range currRel.Columns {
 		switch prevSchema.System {
 		case protos.TypeSystem_Q:
