@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	utils "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -238,7 +237,7 @@ func (c *ClickhouseConnector) NormalizeRecords(
 		}, nil
 	}
 
-	err = c.copyAvroStagesToDestination(ctx, req.FlowJobName, normBatchID, req.SyncBatchID, req.Env)
+	err = c.copyAvroStagesToDestination(ctx, req.FlowJobName, normBatchID, req.SyncBatchID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to copy avro stages to destination: %w", err)
 	}
@@ -415,28 +414,26 @@ func (c *ClickhouseConnector) getDistinctTableNamesInBatch(
 	return tableNames, nil
 }
 
-func (c *ClickhouseConnector) copyAvroStageToDestination(ctx context.Context,
-	flowJobName string, syncBatchID int64, env map[string]string,
-) error {
-	avroSyncMethod := c.avroSyncMethod(flowJobName, env)
+func (c *ClickhouseConnector) copyAvroStageToDestination(ctx context.Context, flowJobName string, syncBatchID int64) error {
+	avroSynvMethod := c.avroSyncMethod(flowJobName)
 	avroFile, err := c.s3Stage.GetAvroStage(ctx, flowJobName, syncBatchID)
 	if err != nil {
 		return fmt.Errorf("failed to get avro stage: %w", err)
 	}
 	defer avroFile.Cleanup()
 
-	err = avroSyncMethod.CopyStageToDestination(ctx, []*utils.AvroFile{avroFile})
+	err = avroSynvMethod.CopyStageToDestination(ctx, avroFile)
 	if err != nil {
 		return fmt.Errorf("failed to copy stage to destination: %w", err)
 	}
 	return nil
 }
 
-func (c *ClickhouseConnector) copyAvroStagesToDestination(ctx context.Context,
-	flowJobName string, normBatchID, syncBatchID int64, env map[string]string,
+func (c *ClickhouseConnector) copyAvroStagesToDestination(
+	ctx context.Context, flowJobName string, normBatchID, syncBatchID int64,
 ) error {
 	for s := normBatchID + 1; s <= syncBatchID; s++ {
-		err := c.copyAvroStageToDestination(ctx, flowJobName, s, env)
+		err := c.copyAvroStageToDestination(ctx, flowJobName, s)
 		if err != nil {
 			return fmt.Errorf("failed to copy avro stage to destination: %w", err)
 		}
