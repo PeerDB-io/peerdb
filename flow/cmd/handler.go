@@ -181,9 +181,22 @@ func (h *FlowRequestHandler) removeFlowEntryInCatalog(
 	ctx context.Context,
 	flowName string,
 ) error {
-	_, err := h.pool.Exec(ctx, "DELETE FROM flows WHERE name=$1", flowName)
+	tx, err := h.pool.Begin(ctx)
 	if err != nil {
+		return fmt.Errorf("unable to begin tx to remove flow entry in catalog: %w", err)
+	}
+	defer shared.RollbackTx(tx, slog.Default())
+
+	if _, err := tx.Exec(ctx, "DELETE FROM table_name_schema_mapping WHERE flow_name=$1", flowName); err != nil {
+		return fmt.Errorf("unable to clear table_name_schema_mapping to remove flow entry in catalog: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, "DELETE FROM flows WHERE name=$1", flowName); err != nil {
 		return fmt.Errorf("unable to remove flow entry in catalog: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("unable to commit remove flow entry in catalog: %w", err)
 	}
 
 	return nil
