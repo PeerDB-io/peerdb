@@ -28,9 +28,8 @@ const (
 )
 
 type SnapshotFlowExecution struct {
-	config                 *protos.FlowConnectionConfigs
-	logger                 log.Logger
-	tableNameSchemaMapping map[string]*protos.TableSchema
+	config *protos.FlowConnectionConfigs
+	logger log.Logger
 }
 
 // ensurePullability ensures that the source peer is pullable.
@@ -118,6 +117,24 @@ func (s *SnapshotFlowExecution) cloneTable(
 		TaskQueue:           taskQueue,
 	})
 
+	var tableSchema *protos.TableSchema
+	initTableSchema := func() error {
+		if tableSchema != nil {
+			return nil
+		}
+
+		schemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: time.Minute,
+			WaitForCancellation: true,
+		})
+		return workflow.ExecuteActivity(
+			schemaCtx,
+			flowable.LoadTableSchema,
+			s.config.FlowJobName,
+			dstName,
+		).Get(ctx, &tableSchema)
+	}
+
 	parsedSrcTable, err := utils.ParseSchemaTable(srcName)
 	if err != nil {
 		s.logger.Error("unable to parse source table", slog.Any("error", err), cloneLog)
@@ -125,18 +142,16 @@ func (s *SnapshotFlowExecution) cloneTable(
 	}
 	from := "*"
 	if len(mapping.Exclude) != 0 {
-		for _, v := range s.tableNameSchemaMapping {
-			if v.TableIdentifier == srcName {
-				quotedColumns := make([]string, 0, len(v.Columns))
-				for _, col := range v.Columns {
-					if !slices.Contains(mapping.Exclude, col.Name) {
-						quotedColumns = append(quotedColumns, connpostgres.QuoteIdentifier(col.Name))
-					}
-				}
-				from = strings.Join(quotedColumns, ",")
-				break
+		if err := initTableSchema(); err != nil {
+			return err
+		}
+		quotedColumns := make([]string, 0, len(tableSchema.Columns))
+		for _, col := range tableSchema.Columns {
+			if !slices.Contains(mapping.Exclude, col.Name) {
+				quotedColumns = append(quotedColumns, connpostgres.QuoteIdentifier(col.Name))
 			}
 		}
+		from = strings.Join(quotedColumns, ",")
 	}
 	var query string
 	if mapping.PartitionKey == "" {
@@ -166,9 +181,12 @@ func (s *SnapshotFlowExecution) cloneTable(
 		return err
 	}
 	if dbtype == protos.DBType_ELASTICSEARCH {
+		if err := initTableSchema(); err != nil {
+			return err
+		}
 		snapshotWriteMode = &protos.QRepWriteMode{
 			WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
-			UpsertKeyColumns: s.tableNameSchemaMapping[mapping.DestinationTableIdentifier].PrimaryKeyColumns,
+			UpsertKeyColumns: tableSchema.PrimaryKeyColumns,
 		}
 	}
 
@@ -278,11 +296,9 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 func SnapshotFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
-	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) error {
 	se := &SnapshotFlowExecution{
-		config:                 config,
-		tableNameSchemaMapping: tableNameSchemaMapping,
+		config: config,
 		logger: log.With(workflow.GetLogger(ctx),
 			slog.String(string(shared.FlowNameKey), config.FlowJobName),
 			slog.String("sourcePeer", config.SourceName)),

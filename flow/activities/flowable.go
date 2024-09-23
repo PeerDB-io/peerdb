@@ -130,7 +130,7 @@ func (a *FlowableActivity) CreateRawTable(
 	return res, nil
 }
 
-// SetupTableSchema returns the schema of a table.
+// SetupTableSchema populates table_schema_name_mapping
 func (a *FlowableActivity) SetupTableSchema(
 	ctx context.Context,
 	config *protos.SetupTableSchemaBatchInput,
@@ -182,6 +182,24 @@ func (a *FlowableActivity) SetupTableSchema(
 	}
 
 	return tx.Commit(ctx)
+}
+
+func (a *FlowableActivity) LoadTableSchema(
+	ctx context.Context,
+	flowName string,
+	tableName string,
+) (*protos.TableSchema, error) {
+	var tableSchemaBytes []byte
+	if err := a.CatalogPool.QueryRow(
+		ctx,
+		"select table_schema from table_schema_mapping where flow_name = $1 and table_name = $2",
+		flowName,
+		tableName,
+	).Scan(&tableSchemaBytes); err != nil {
+		return nil, err
+	}
+	tableSchema := &protos.TableSchema{}
+	return tableSchema, proto.Unmarshal(tableSchemaBytes, tableSchema)
 }
 
 // CreateNormalizedTable creates normalized tables in destination.
