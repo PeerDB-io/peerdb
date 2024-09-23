@@ -147,23 +147,38 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		},
 	}
 
+	slog.Info("Creating CDC job entry", slog.Bool("resync", cfg.Resync),
+		slog.String("workflowId", workflowID),
+		slog.String("flowName", cfg.FlowJobName))
 	err := h.createCdcJobEntry(ctx, req, workflowID)
 	if err != nil {
 		slog.Error("unable to create flow job entry", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 	}
 
+	slog.Info("Updating flow config in catalog", slog.Bool("resync", cfg.Resync),
+		slog.String("workflowId", workflowID),
+		slog.String("flowName", cfg.FlowJobName))
 	err = h.updateFlowConfigInCatalog(ctx, cfg)
 	if err != nil {
 		slog.Error("unable to update flow config in catalog", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
 
+	slog.Info("Starting PeerFlow workflow", slog.Bool("resync", cfg.Resync),
+		slog.String("workflowId", workflowID),
+		slog.String("flowName", cfg.FlowJobName))
+
 	_, err = h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg, nil)
 	if err != nil {
 		slog.Error("unable to start PeerFlow workflow", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
 	}
+
+	slog.Info("PeerFlow workflow started",
+		slog.Bool("resync", cfg.Resync),
+		slog.String("workflowId", workflowID),
+		slog.String("flowName", cfg.FlowJobName))
 
 	return &protos.CreateCDCFlowResponse{
 		WorkflowId: workflowID,
@@ -546,38 +561,51 @@ func (h *FlowRequestHandler) ResyncMirror(
 	slog.Info("ResyncMirror called", slog.String("flowJobName", req.FlowJobName))
 	isCDC, err := h.isCDCFlow(ctx, req.FlowJobName)
 	if err != nil {
+		slog.Error("unable to check if workflow is cdc", slog.Any("error", err))
 		return nil, err
 	}
+
 	if !isCDC {
 		return nil, errors.New("resync is only supported for CDC mirrors")
 	}
+
+	slog.Info("[ResyncMirror] obtaining mirror configuration", slog.String("flowJobName", req.FlowJobName))
 	// getting config before dropping the flow since the flow entry is deleted unconditionally
 	config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
 	if err != nil {
+		slog.Error("[ResyncMirror] unable to get flow config from catalog", slog.Any("error", err))
 		return nil, err
 	}
 
 	config.Resync = true
 	config.DoInitialSnapshot = true
+	slog.Info("[ResyncMirror] validating mirror", slog.String("flowJobName", req.FlowJobName))
 	// validate mirror first because once the mirror is dropped, there's no going back
 	_, err = h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
 		ConnectionConfigs: config,
 	})
 	if err != nil {
+		slog.Error("[ResyncMirror] validate mirror error", slog.Any("error", err))
 		return nil, err
 	}
 
+	slog.Info("[ResyncMirror] dropping mirror", slog.String("flowJobName", req.FlowJobName))
 	err = h.shutdownFlow(ctx, req.FlowJobName, req.DropStats)
 	if err != nil {
+		slog.Error("[ResyncMirror] unable to drop mirror", slog.Any("error", err))
 		return nil, err
 	}
 
+	slog.Info("[ResyncMirror] creating mirror", slog.String("flowJobName", req.FlowJobName))
 	_, err = h.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{
 		ConnectionConfigs: config,
 	})
 	if err != nil {
+		slog.Error("[ResyncMirror] unable to create mirror", slog.Any("error", err))
 		return nil, err
 	}
+
+	slog.Info("[ResyncMirror] mirror resynced", slog.String("flowJobName", req.FlowJobName))
 	return &protos.ResyncMirrorResponse{
 		Ok: true,
 	}, nil
