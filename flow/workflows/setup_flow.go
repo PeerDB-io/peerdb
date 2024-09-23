@@ -187,7 +187,7 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 		FlowName:         s.cdcFlowName,
 		System:           flowConnectionConfigs.System,
 		Env:              flowConnectionConfigs.Env,
-		Clear:            true,
+		Clear:            false,
 	}
 
 	if err := workflow.ExecuteActivity(ctx, flowable.SetupTableSchema, tableSchemaInput).Get(ctx, nil); err != nil {
@@ -251,9 +251,7 @@ func (s *SetupFlowExecution) executeSetupFlow(
 }
 
 // SetupFlowWorkflow is the workflow that sets up the flow.
-func SetupFlowWorkflow(ctx workflow.Context,
-	config *protos.FlowConnectionConfigs,
-) (*protos.SetupFlowOutput, error) {
+func SetupFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionConfigs) (*protos.SetupFlowOutput, error) {
 	tblNameMapping := make(map[string]string, len(config.TableMappings))
 	for _, v := range config.TableMappings {
 		tblNameMapping[v.SourceTableIdentifier] = v.DestinationTableIdentifier
