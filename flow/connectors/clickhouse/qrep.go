@@ -39,7 +39,7 @@ func (c *ClickhouseConnector) SyncQRepRecords(
 	}
 	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
 
-	avroSync := NewClickhouseAvroSyncMethod(config, c, config.Env)
+	avroSync := NewClickhouseAvroSyncMethod(config, c)
 
 	return avroSync.SyncQRepRecords(ctx, config, partition, tblSchema, stream)
 }
