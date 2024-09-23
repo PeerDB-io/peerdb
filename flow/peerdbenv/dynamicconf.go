@@ -124,12 +124,6 @@ END;`, ValueType: protos.DynconfValueType_STRING,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
 		TargetForSetting: protos.DynconfTarget_BIGQUERY,
 	},
-	{
-		Name: "PEERDB_CLICKHOUSE_NUM_ROWS_PER_AVRO_FILE", DefaultValue: "1000000", ValueType: protos.DynconfValueType_UINT,
-		Description:      "Number of rows per Avro file for ClickHouse mirrors",
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
-		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
-	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -282,7 +276,7 @@ func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string)
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_SNOWFLAKE_MERGE_PARALLELISM")
 }
 
-func PeerDBClickhouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
+func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
 	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
 }
 
@@ -295,8 +289,4 @@ func PeerDBQueueForceTopicCreation(ctx context.Context, env map[string]string) (
 // experimental, don't increase to greater than 64
 func PeerDBMaxSyncsPerCDCFlow(ctx context.Context, env map[string]string) (uint32, error) {
 	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_MAX_SYNCS_PER_CDC_FLOW")
-}
-
-func PeerDBClickhouseNumRowsPerAvroFile(ctx context.Context, env map[string]string) (uint32, error) {
-	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_CLICKHOUSE_NUM_ROWS_PER_AVRO_FILE")
 }

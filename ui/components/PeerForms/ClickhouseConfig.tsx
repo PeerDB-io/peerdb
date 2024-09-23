@@ -16,7 +16,7 @@ interface ConfigProps {
   setter: PeerSetter;
 }
 
-export default function ClickhouseForm({ settings, setter }: ConfigProps) {
+export default function ClickHouseForm({ settings, setter }: ConfigProps) {
   const [show, setShow] = useState(false);
   const S3Labels = [
     'S3 Path',
