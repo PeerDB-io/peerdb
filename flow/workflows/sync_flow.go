@@ -142,6 +142,7 @@ func SyncFlowWorkflow(
 						&protos.SetupTableSchemaBatchInput{
 							PeerName:         config.SourceName,
 							TableIdentifiers: modifiedSrcTables,
+							TableMappings:    options.TableMappings,
 							FlowName:         config.FlowJobName,
 							System:           config.System,
 							Clear:            false,
