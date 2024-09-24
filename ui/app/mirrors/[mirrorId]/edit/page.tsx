@@ -48,6 +48,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
     additionalTables: [],
     removedTables: [],
     numberOfSyncs: 0,
+    updatedEnv: {},
   });
   const { push } = useRouter();
 
@@ -65,6 +66,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
         additionalTables: [],
         removedTables: [],
         numberOfSyncs: 0,
+        updatedEnv: {},
       });
     });
   }, [mirrorId, defaultBatchSize, defaultIdleTimeout]);
