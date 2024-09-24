@@ -178,7 +178,7 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
 	}
 	hashColName := dstTableSchema[0].Name()
-	numParts := 15
+	numParts := 29
 	for _, avroFile := range avroFiles {
 		avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFile.FilePath)
 		for i := 0; i < numParts; i++ {
