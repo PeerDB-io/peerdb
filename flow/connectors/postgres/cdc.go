@@ -836,25 +836,24 @@ func processRelationMessage[Items model.Items](
 	currRel *pglogrepl.RelationMessage,
 ) (model.Record[Items], error) {
 	// not present in tables to sync, return immediately
-	if _, ok := p.srcTableIDNameMapping[currRel.RelationID]; !ok {
+	currRelName, ok := p.srcTableIDNameMapping[currRel.RelationID]
+	if !ok {
 		p.logger.Info("relid not present in srcTableIDNameMapping, skipping relation message",
 			slog.Uint64("relId", uint64(currRel.RelationID)))
 		return nil, nil
 	}
 
-	// retrieve current TableSchema for table changed
-	// tableNameSchemaMapping uses dst table name as the key, so annoying lookup
-	prevSchema := p.tableNameSchemaMapping[p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name]
-	if prevSchema == nil {
-		p.logger.Error("MANOSCHEMA",
-			slog.Any("name", p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name),
-			slog.Any("tableNameSchemaMapping", p.tableNameSchemaMapping),
-			slog.Any("tableMapping", p.tableNameMapping),
-			slog.Any("relID", currRel.RelationID),
-			slog.Any("srcTableIDNameMapping", p.srcTableIDNameMapping),
-		)
-		panic("MANOSCHEMA")
+	// retrieve current TableSchema for table changed, mapping uses dst table name as key, need to translate source name
+	currRelDstInfo, ok := p.tableNameMapping[currRelName]
+	if !ok {
+		return nil, fmt.Errorf("cannot find table name mapping for %s", currRelName)
 	}
+
+	prevSchema, ok := p.tableNameSchemaMapping[currRelDstInfo.Name]
+	if !ok {
+		return nil, fmt.Errorf("cannot find table schema for %s", currRelDstInfo.Name)
+	}
+
 	prevRelMap := make(map[string]string, len(prevSchema.Columns))
 	for _, column := range prevSchema.Columns {
 		prevRelMap[column.Name] = column.Type
