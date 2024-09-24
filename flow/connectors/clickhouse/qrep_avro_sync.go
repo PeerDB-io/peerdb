@@ -177,17 +177,21 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	if creds.AWS.SessionToken != "" {
 		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
 	}
-
+	hashColName := dstTableSchema[0].Name()
+	numParts := 15
 	for _, avroFile := range avroFiles {
 		avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFile.FilePath)
-
-		query := fmt.Sprintf("INSERT INTO %s(%s) SELECT %s FROM s3('%s','%s','%s'%s, 'Avro')",
-			config.DestinationTableIdentifier, selectorStr, selectorStr, avroFileUrl,
-			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
-
-		if err := s.connector.database.Exec(ctx, query); err != nil {
-			s.connector.logger.Error("Failed to insert into select for Clickhouse: ", err)
-			return 0, err
+		for i := 0; i < numParts; i++ {
+			whereClause := fmt.Sprintf("cityHash64(%s) %% %d = %d", hashColName, numParts, i)
+			query := fmt.Sprintf("INSERT INTO %s(%s) SELECT %s FROM s3('%s','%s','%s'%s, 'Avro') WHERE %s",
+				config.DestinationTableIdentifier, selectorStr, selectorStr, avroFileUrl,
+				creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart, whereClause)
+			s.connector.logger.Info("running query", slog.String("query", query), slog.Int("part", i), slog.Int("numParts", numParts))
+			err := s.connector.database.Exec(ctx, query)
+			if err != nil {
+				s.connector.logger.Error("failed to execute query", slog.String("query", query), slog.Int("part", i), slog.Int("numParts", numParts), slog.Any("error", err))
+				return 0, err
+			}
 		}
 	}
 
