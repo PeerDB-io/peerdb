@@ -799,9 +799,7 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 	return result, nil
 }
 
-func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.RenameTablesInput) (
-	*protos.RenameTablesOutput, error,
-) {
+func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	conn, err := connectors.GetByNameAs[connectors.RenameTablesConnector](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
@@ -815,13 +813,44 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	})
 	defer shutdown()
 
+	for _, option := range config.RenameTableOptions {
+		if option.TableSchema == nil {
+			schema, err := a.LoadTableSchema(ctx, config.FlowJobName, option.CurrentName)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load schema to rename tables: %w", err)
+			}
+			option.TableSchema = schema
+		}
+	}
+
 	renameOutput, err := conn.RenameTables(ctx, config)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return nil, fmt.Errorf("failed to rename tables: %w", err)
 	}
 
-	return renameOutput, nil
+	tx, err := a.CatalogPool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin updating table_schema_mapping: %w", err)
+	}
+	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
+	defer shared.RollbackTx(tx, logger)
+
+	for _, option := range config.RenameTableOptions {
+		if option.TableSchema == nil {
+			if _, err := tx.Exec(
+				ctx,
+				"update table_schema_mapping set table_name = $3 where flow_name = $1 and table_name = $2",
+				config.FlowJobName,
+				option.CurrentName,
+				option.NewName,
+			); err != nil {
+				return nil, fmt.Errorf("failed to update table_schema_mapping: %w", err)
+			}
+		}
+	}
+
+	return renameOutput, tx.Commit(ctx)
 }
 
 func (a *FlowableActivity) DeleteMirrorStats(ctx context.Context, flowName string) error {
