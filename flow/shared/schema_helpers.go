@@ -34,7 +34,8 @@ func AdditionalTablesHasOverlap(currentTableMappings []*protos.TableMapping,
 // given the output of GetTableSchema, processes it to be used by CDCFlow
 // 1) changes the map key to be the destination table name instead of the source table name
 // 2) performs column exclusion using protos.TableMapping as input.
-func BuildProcessedSchemaMapping(tableMappings []*protos.TableMapping,
+func BuildProcessedSchemaMapping(
+	tableMappings []*protos.TableMapping,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 	logger log.Logger,
 ) map[string]*protos.TableSchema {
@@ -43,13 +44,12 @@ func BuildProcessedSchemaMapping(tableMappings []*protos.TableMapping,
 
 	for _, srcTableName := range sortedSourceTables {
 		tableSchema := tableNameSchemaMapping[srcTableName]
-		var dstTableName string
+		dstTableName := srcTableName
 		for _, mapping := range tableMappings {
 			if mapping.SourceTableIdentifier == srcTableName {
 				dstTableName = mapping.DestinationTableIdentifier
 				if len(mapping.Exclude) != 0 {
-					columnCount := len(tableSchema.Columns)
-					columns := make([]*protos.FieldDescription, 0, columnCount)
+					columns := make([]*protos.FieldDescription, 0, len(tableSchema.Columns))
 					for _, column := range tableSchema.Columns {
 						if !slices.Contains(mapping.Exclude, column.Name) {
 							columns = append(columns, column)

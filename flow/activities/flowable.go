@@ -130,7 +130,7 @@ func (a *FlowableActivity) CreateRawTable(
 	return res, nil
 }
 
-// SetupTableSchema populates table_schema_name_mapping
+// SetupTableSchema populates table_schema_mapping
 func (a *FlowableActivity) SetupTableSchema(
 	ctx context.Context,
 	config *protos.SetupTableSchemaBatchInput,
@@ -979,7 +979,7 @@ func (a *FlowableActivity) RemoveTablesFromCatalog(
 
 	_, err := a.CatalogPool.Exec(
 		ctx,
-		"delete from table_name_schema_mapping where flow_name = $1 and table_name = ANY($2)",
+		"delete from table_schema_mapping where flow_name = $1 and table_name = ANY($2)",
 		cfg.FlowJobName,
 		removedTables,
 	)
