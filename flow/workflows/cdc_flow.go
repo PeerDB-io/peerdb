@@ -100,6 +100,9 @@ func processCDCFlowConfigUpdate(
 	if flowConfigUpdate.NumberOfSyncs > 0 {
 		state.SyncFlowOptions.NumberOfSyncs = flowConfigUpdate.NumberOfSyncs
 	}
+	if flowConfigUpdate.UpdatedEnv != nil {
+		maps.Copy(cfg.Env, flowConfigUpdate.UpdatedEnv)
+	}
 
 	tablesAreAdded := len(flowConfigUpdate.AdditionalTables) > 0
 	tablesAreRemoved := len(flowConfigUpdate.RemovedTables) > 0
