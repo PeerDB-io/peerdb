@@ -129,7 +129,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		})
 		return workflow.ExecuteActivity(
 			schemaCtx,
-			flowable.LoadTableSchema,
+			snapshot.LoadTableSchema,
 			s.config.FlowJobName,
 			dstName,
 		).Get(ctx, &tableSchema)

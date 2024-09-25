@@ -179,24 +179,6 @@ func (a *FlowableActivity) SetupTableSchema(
 	return tx.Commit(ctx)
 }
 
-func (a *FlowableActivity) LoadTableSchema(
-	ctx context.Context,
-	flowName string,
-	tableName string,
-) (*protos.TableSchema, error) {
-	var tableSchemaBytes []byte
-	if err := a.CatalogPool.QueryRow(
-		ctx,
-		"select table_schema from table_schema_mapping where flow_name = $1 and table_name = $2",
-		flowName,
-		tableName,
-	).Scan(&tableSchemaBytes); err != nil {
-		return nil, err
-	}
-	tableSchema := &protos.TableSchema{}
-	return tableSchema, proto.Unmarshal(tableSchemaBytes, tableSchema)
-}
-
 // CreateNormalizedTable creates normalized tables in destination.
 func (a *FlowableActivity) CreateNormalizedTable(
 	ctx context.Context,
@@ -809,7 +791,12 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 
 	for _, option := range config.RenameTableOptions {
 		if option.TableSchema == nil {
-			schema, err := a.LoadTableSchema(ctx, config.FlowJobName, option.CurrentName)
+			schema, err := shared.LoadTableSchemaFromCatalog(
+				ctx,
+				a.CatalogPool,
+				config.FlowJobName,
+				option.CurrentName,
+			)
 			if err != nil {
 				return nil, fmt.Errorf("failed to load schema to rename tables: %w", err)
 			}
