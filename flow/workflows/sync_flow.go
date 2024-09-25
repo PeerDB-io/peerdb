@@ -18,7 +18,7 @@ import (
 // set this value high enough to never be met, relying on cdc restarts.
 // In the future cdc flow restarts could be decoupled from sync flow restarts.
 const (
-	maxSyncsPerSyncFlow = 64
+	maxSyncsPerSyncFlow = 514
 )
 
 func SyncFlowWorkflow(
