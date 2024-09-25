@@ -194,7 +194,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	logger := logger.LoggerFromCtx(ctx)
 	s3svc, err := utils.CreateS3Client(ctx, s3Creds)
 	if err != nil {
-		logger.Error("failed to create S3 client: ", slog.Any("error", err))
+		logger.Error("failed to create S3 client", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create S3 client: %w", err)
 	}
 
@@ -224,12 +224,12 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	})
 	if err != nil {
 		s3Path := "s3://" + bucketName + "/" + key
-		logger.Error("failed to upload file: ", slog.Any("error", err), slog.Any("s3_path", s3Path))
+		logger.Error("failed to upload file", slog.Any("error", err), slog.Any("s3_path", s3Path))
 		return nil, fmt.Errorf("failed to upload file to path %s: %w", s3Path, err)
 	}
 
 	if writeOcfError != nil {
-		logger.Error("failed to write records to OCF: ", slog.Any("error", writeOcfError))
+		logger.Error("failed to write records to OCF", slog.Any("error", writeOcfError))
 		return nil, writeOcfError
 	}
 

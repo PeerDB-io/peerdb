@@ -276,7 +276,7 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId i
 	var createdTimestamp time.Time
 	err = row.Scan(&createdTimestamp)
 	if err != nil && err != pgx.ErrNoRows {
-		logger.LoggerFromCtx(ctx).Warn("failed to send alert: ", slog.String("err", err.Error()))
+		logger.LoggerFromCtx(ctx).Warn("failed to send alert", slog.Any("err", err))
 		return false
 	}
 

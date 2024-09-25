@@ -127,7 +127,7 @@ func (s *SetupFlowExecution) ensurePullability(
 	future := workflow.ExecuteActivity(ctx, flowable.EnsurePullability, ensurePullabilityInput)
 	var ensurePullabilityOutput *protos.EnsurePullabilityBatchOutput
 	if err := future.Get(ctx, &ensurePullabilityOutput); err != nil {
-		s.Error("failed to ensure pullability for tables: ", err)
+		s.Error("failed to ensure pullability for tables", err)
 		return nil, fmt.Errorf("failed to ensure pullability for tables: %w", err)
 	}
 
@@ -214,7 +214,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 
 	future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
 	if err := future.Get(ctx, nil); err != nil {
-		s.Error("failed to create normalized tables: ", err)
+		s.Error("failed to create normalized tables", err)
 		return nil, fmt.Errorf("failed to create normalized tables: %w", err)
 	}
 
