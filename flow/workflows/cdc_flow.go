@@ -372,6 +372,22 @@ func CDCFlowWorkflow(
 
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 
+	// MIGRATION TableNameSchemaMapping moved to catalog
+	if state.SyncFlowOptions.TableNameSchemaMapping != nil {
+		migrateCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 5 * time.Minute,
+		})
+		if err := workflow.ExecuteActivity(
+			migrateCtx,
+			flowable.MigrateTableSchema,
+			cfg.FlowJobName,
+			state.SyncFlowOptions.TableNameSchemaMapping,
+		).Get(migrateCtx, nil); err != nil {
+			return state, fmt.Errorf("failed to migrate TableNameSchemaMapping: %w", err)
+		}
+		state.SyncFlowOptions.TableNameSchemaMapping = nil
+	}
+
 	// we cannot skip SetupFlow if SnapshotFlow did not complete in cases where Resync is enabled
 	// because Resync modifies TableMappings before Setup and also before Snapshot
 	// for safety, rely on the idempotency of SetupFlow instead

@@ -112,6 +112,7 @@ message SyncFlowOptions {
   uint32 batch_size = 1;
   uint64 idle_timeout_seconds = 3;
   map<uint32, string> src_table_id_name_mapping = 4;
+  map<string, TableSchema> table_name_schema_mapping = 5;
   repeated TableMapping table_mappings = 6;
   int32 number_of_syncs = 7;
 }
