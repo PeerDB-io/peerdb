@@ -158,7 +158,7 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 
 		future := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
 		if err := future.Get(ctx, nil); err != nil {
-			q.logger.Error("failed to create watermark table: ", err)
+			q.logger.Error("failed to create watermark table", slog.Any("error", err))
 			return fmt.Errorf("failed to create watermark table: %w", err)
 		}
 		q.logger.Info("finished setting up watermark table for qrep flow")

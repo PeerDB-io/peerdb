@@ -224,9 +224,8 @@ func (s *SnapshotFlowExecution) cloneTables(
 	for _, v := range s.config.TableMappings {
 		source := v.SourceTableIdentifier
 		destination := v.DestinationTableIdentifier
-		s.logger.Info(fmt.Sprintf(
-			"Cloning table with source table %s and destination table name %s",
-			source, destination),
+		s.logger.Info(
+			fmt.Sprintf("Cloning table with source table %s and destination table name %s", source, destination),
 			slog.String("snapshotName", snapshotName),
 		)
 		if v.PartitionKey == "" {
@@ -234,7 +233,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 		}
 		err := s.cloneTable(ctx, boundSelector, snapshotName, v)
 		if err != nil {
-			s.logger.Error("failed to start clone child workflow: ", err)
+			s.logger.Error("failed to start clone child workflow", slog.Any("error", err))
 			continue
 		}
 	}
