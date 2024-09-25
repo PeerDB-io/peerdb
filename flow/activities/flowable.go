@@ -158,11 +158,6 @@ func (a *FlowableActivity) SetupTableSchema(
 		return err
 	}
 	defer shared.RollbackTx(tx, logger)
-	if config.Clear {
-		if _, err = tx.Exec(ctx, "delete from table_schema_mapping where flow_name = $1", config.FlowName); err != nil {
-			return err
-		}
-	}
 
 	for k, v := range processed {
 		processedBytes, err := proto.Marshal(v)

@@ -145,7 +145,6 @@ func SyncFlowWorkflow(
 							TableMappings:    options.TableMappings,
 							FlowName:         config.FlowJobName,
 							System:           config.System,
-							Clear:            false,
 						})
 
 					if err := getModifiedSchemaFuture.Get(ctx, nil); err != nil {

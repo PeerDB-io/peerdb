@@ -185,7 +185,6 @@ message SetupTableSchemaBatchInput {
   TypeSystem system = 4;
   string peer_name = 5;
   repeated TableMapping table_mappings = 6;
-  bool clear = 7;
 }
 
 message SetupNormalizedTableBatchInput {

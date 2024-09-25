@@ -187,7 +187,6 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 		FlowName:         s.cdcFlowName,
 		System:           flowConnectionConfigs.System,
 		Env:              flowConnectionConfigs.Env,
-		Clear:            false,
 	}
 
 	if err := workflow.ExecuteActivity(ctx, flowable.SetupTableSchema, tableSchemaInput).Get(ctx, nil); err != nil {
