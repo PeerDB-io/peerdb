@@ -126,8 +126,7 @@ func SyncFlowWorkflow(
 					childSyncFlowRes.SyncResponse,
 				).Get(ctx, nil)
 				totalRecordsSynced += childSyncFlowRes.SyncResponse.NumRecordsSynced
-				logger.Info("Total records synced: ",
-					slog.Int64("totalRecordsSynced", totalRecordsSynced))
+				logger.Info("Total records synced", slog.Int64("totalRecordsSynced", totalRecordsSynced))
 
 				tableSchemaDeltasCount := len(childSyncFlowRes.SyncResponse.TableSchemaDeltas)
 

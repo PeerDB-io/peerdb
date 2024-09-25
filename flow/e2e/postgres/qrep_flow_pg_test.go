@@ -166,7 +166,7 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 		setupError <- s.conn.SetupReplication(context.Background(), signal, setupReplicationInput)
 	}()
 
-	s.t.Log("waiting for slot creation to complete: ", flowJobName)
+	s.t.Log("waiting for slot creation to complete: " + flowJobName)
 	slotInfo := <-signal.SlotCreated
 	s.t.Logf("slot creation complete: %v. Signaling clone complete in 2 seconds", slotInfo)
 	time.Sleep(2 * time.Second)

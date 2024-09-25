@@ -152,7 +152,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
 
 	if err := s.connector.database.Exec(ctx, query); err != nil {
-		s.connector.logger.Error("Failed to insert into select for ClickHouse: ", err)
+		s.connector.logger.Error("Failed to insert into select for ClickHouse", slog.Any("error", err))
 		return 0, err
 	}
 

@@ -161,7 +161,7 @@ func processTableAdditions(
 		flowable.AddTablesToPublication,
 		cfg, flowConfigUpdate.AdditionalTables)
 	if err := alterPublicationAddAdditionalTablesFuture.Get(ctx, nil); err != nil {
-		logger.Error("failed to alter publication for additional tables: ", err)
+		logger.Error("failed to alter publication for additional tables", slog.Any("error", err))
 		return err
 	}
 
@@ -218,7 +218,7 @@ func processTableRemovals(
 		flowable.RemoveTablesFromPublication,
 		cfg, state.FlowConfigUpdate.RemovedTables)
 	if err := alterPublicationRemovedTablesFuture.Get(ctx, nil); err != nil {
-		logger.Error("failed to alter publication for removed tables: ", err)
+		logger.Error("failed to alter publication for removed tables", slog.Any("error", err))
 		return err
 	}
 	logger.Info("tables removed from publication")
@@ -231,7 +231,7 @@ func processTableRemovals(
 		flowable.RemoveTablesFromRawTable,
 		cfg, state.FlowConfigUpdate.RemovedTables)
 	if err := rawTableCleanupFuture.Get(ctx, nil); err != nil {
-		logger.Error("failed to clean up raw table for removed tables: ", err)
+		logger.Error("failed to clean up raw table for removed tables", slog.Any("error", err))
 		return err
 	}
 	logger.Info("tables removed from raw table")
@@ -289,12 +289,14 @@ func addCdcPropertiesSignalListener(
 	cdcPropertiesSignalChan.AddToSelector(selector, func(cdcConfigUpdate *protos.CDCFlowConfigUpdate, more bool) {
 		// do this irrespective of additional tables being present, for auto unpausing
 		state.FlowConfigUpdate = cdcConfigUpdate
-		logger.Info("CDC Signal received. Parameters on signal reception:",
+		logger.Info("CDC Signal received",
 			slog.Int("BatchSize", int(state.SyncFlowOptions.BatchSize)),
 			slog.Int("IdleTimeout", int(state.SyncFlowOptions.IdleTimeoutSeconds)),
 			slog.Any("AdditionalTables", cdcConfigUpdate.AdditionalTables),
 			slog.Any("RemovedTables", cdcConfigUpdate.RemovedTables),
-			slog.Int("NumberOfSyncs", int(state.SyncFlowOptions.NumberOfSyncs)))
+			slog.Int("NumberOfSyncs", int(state.SyncFlowOptions.NumberOfSyncs)),
+			slog.Any("UpdatedEnv", cdcConfigUpdate.UpdatedEnv),
+		)
 	})
 }
 
