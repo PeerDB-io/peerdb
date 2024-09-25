@@ -506,13 +506,11 @@ func QRepFlowWorkflow(
 		state = newQRepFlowState()
 	}
 
-	err := setWorkflowQueries(ctx, state)
-	if err != nil {
+	if err := setWorkflowQueries(ctx, state); err != nil {
 		return state, err
 	}
 
 	signalChan := model.FlowSignal.GetSignalChannel(ctx)
-
 	q := newQRepFlowExecution(ctx, config, originalRunID)
 
 	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSING ||
@@ -539,19 +537,16 @@ func QRepFlowWorkflow(
 		maxParallelWorkers = int(config.MaxParallelWorkers)
 	}
 
-	err = q.setupWatermarkTableOnDestination(ctx)
-	if err != nil {
+	if err := q.setupWatermarkTableOnDestination(ctx); err != nil {
 		return state, fmt.Errorf("failed to setup watermark table: %w", err)
 	}
 
-	err = q.SetupMetadataTables(ctx)
-	if err != nil {
+	if err := q.SetupMetadataTables(ctx); err != nil {
 		return state, fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
 	q.logger.Info("metadata tables setup for peer flow")
 
-	err = q.handleTableCreationForResync(ctx, state)
-	if err != nil {
+	if err := q.handleTableCreationForResync(ctx, state); err != nil {
 		return state, err
 	}
 
@@ -583,8 +578,7 @@ func QRepFlowWorkflow(
 			return state, nil
 		}
 
-		err = q.handleTableRenameForResync(ctx, state)
-		if err != nil {
+		if err := q.handleTableRenameForResync(ctx, state); err != nil {
 			return state, err
 		}
 

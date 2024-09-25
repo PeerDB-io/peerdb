@@ -318,16 +318,14 @@ func CDCFlowWorkflow(
 
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
 	flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
-	err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (CDCFlowWorkflowState, error) {
+	if err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (CDCFlowWorkflowState, error) {
 		return *state, nil
-	})
-	if err != nil {
+	}); err != nil {
 		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.CDCFlowStateQuery, err)
 	}
-	err = workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (protos.FlowStatus, error) {
+	if err := workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (protos.FlowStatus, error) {
 		return state.CurrentFlowStatus, nil
-	})
-	if err != nil {
+	}); err != nil {
 		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
 	}
 
@@ -357,8 +355,7 @@ func CDCFlowWorkflow(
 			}
 
 			if state.FlowConfigUpdate != nil {
-				err = processCDCFlowConfigUpdate(ctx, logger, cfg, state, mirrorNameSearch)
-				if err != nil {
+				if err := processCDCFlowConfigUpdate(ctx, logger, cfg, state, mirrorNameSearch); err != nil {
 					return state, err
 				}
 				syncCountLimit = int(state.SyncFlowOptions.NumberOfSyncs)
