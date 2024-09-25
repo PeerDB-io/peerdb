@@ -231,10 +231,9 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	}
 
 	numTablesSetup := atomic.Uint32{}
-	totalTables := uint32(len(tableNameSchemaMapping))
 	shutdown := heartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("setting up normalized tables - %d of %d done",
-			numTablesSetup.Load(), totalTables)
+			numTablesSetup.Load(), len(tableNameSchemaMapping))
 	})
 	defer shutdown()
 

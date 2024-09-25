@@ -44,7 +44,7 @@ func BuildProcessedSchemaMapping(
 
 	for _, srcTableName := range sortedSourceTables {
 		tableSchema := tableNameSchemaMapping[srcTableName]
-		dstTableName := srcTableName
+		var dstTableName string
 		for _, mapping := range tableMappings {
 			if mapping.SourceTableIdentifier == srcTableName {
 				dstTableName = mapping.DestinationTableIdentifier

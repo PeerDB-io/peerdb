@@ -106,10 +106,16 @@ func (q *QRepFlowExecution) setupTableSchema(ctx workflow.Context, tableName str
 	tableSchemaInput := &protos.SetupTableSchemaBatchInput{
 		PeerName:         q.config.SourceName,
 		TableIdentifiers: []string{tableName},
-		FlowName:         q.config.FlowJobName,
-		System:           q.config.System,
-		Env:              q.config.Env,
-		Clear:            true,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      tableName,
+				DestinationTableIdentifier: q.config.DestinationTableIdentifier,
+			},
+		},
+		FlowName: q.config.FlowJobName,
+		System:   q.config.System,
+		Env:      q.config.Env,
+		Clear:    true,
 	}
 
 	return workflow.ExecuteActivity(ctx, flowable.SetupTableSchema, tableSchemaInput).Get(ctx, nil)
@@ -138,7 +144,13 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 
 		// now setup the normalized tables on the destination peer
 		setupConfig := &protos.SetupNormalizedTableBatchInput{
-			PeerName:          q.config.DestinationName,
+			PeerName: q.config.DestinationName,
+			TableMappings: []*protos.TableMapping{
+				{
+					SourceTableIdentifier:      q.config.WatermarkTable,
+					DestinationTableIdentifier: q.config.DestinationTableIdentifier,
+				},
+			},
 			SyncedAtColName:   q.config.SyncedAtColName,
 			SoftDeleteColName: q.config.SoftDeleteColName,
 			FlowName:          q.config.FlowJobName,
@@ -146,8 +158,7 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 			IsResync:          q.config.DstTableFullResync,
 		}
 
-		future := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
-		if err := future.Get(ctx, nil); err != nil {
+		if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig).Get(ctx, nil); err != nil {
 			q.logger.Error("failed to create watermark table", slog.Any("error", err))
 			return fmt.Errorf("failed to create watermark table: %w", err)
 		}
