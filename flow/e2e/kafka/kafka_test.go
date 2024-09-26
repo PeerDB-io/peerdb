@@ -169,6 +169,9 @@ func (s KafkaSuite) TestMessage() {
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
+	// insert record to bypass empty cdc store optimization which handles messages at source when message precedes records
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf("insert into %s(val) values ('tick')", srcTableName))
+	require.NoError(s.t, err)
 	_, err = s.Conn().Exec(context.Background(), "SELECT pg_logical_emit_message(false, 'topic', '\\x686561727462656174'::bytea)")
 	require.NoError(s.t, err)
 

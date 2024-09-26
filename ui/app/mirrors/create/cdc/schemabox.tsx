@@ -1,7 +1,11 @@
 'use client';
 
 import { TableMapRow } from '@/app/dto/MirrorsDTO';
-import { TableEngine, tableEngineFromJSON } from '@/grpc_generated/flow';
+import {
+  TableEngine,
+  tableEngineFromJSON,
+  TableMapping,
+} from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
@@ -44,7 +48,7 @@ interface SchemaBoxProps {
     SetStateAction<{ tableName: string; columns: string[] }[]>
   >;
   peerType?: DBType;
-  omitAdditionalTables: string[] | undefined;
+  alreadySelectedTables: TableMapping[] | undefined;
   initialLoadOnly?: boolean;
 }
 
@@ -56,7 +60,7 @@ export default function SchemaBox({
   setRows,
   tableColumns,
   setTableColumns,
-  omitAdditionalTables,
+  alreadySelectedTables,
   initialLoadOnly,
 }: SchemaBoxProps) {
   const [tablesLoading, setTablesLoading] = useState(false);
@@ -84,14 +88,6 @@ export default function SchemaBox({
     [expandedSchemas]
   );
 
-  const handleAddRow = (source: string) => {
-    const newRows = [...rows];
-    const index = newRows.findIndex((row) => row.source === source);
-    if (index >= 0) newRows[index] = { ...newRows[index], selected: true };
-    setRows(newRows);
-    addTableColumns(source);
-  };
-
   const handleRemoveRow = (source: string) => {
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
@@ -118,17 +114,28 @@ export default function SchemaBox({
     setRows(newRows);
   };
 
-  const addTableColumns = (table: string) => {
-    const schemaName = table.split('.')[0];
-    const tableName = table.split('.')[1];
+  const addTableColumns = useCallback(
+    (table: string) => {
+      const schemaName = table.split('.')[0];
+      const tableName = table.split('.')[1];
 
-    fetchColumns(sourcePeer, schemaName, tableName, setColumnsLoading).then(
-      (res) => {
-        setTableColumns((prev) => {
-          return [...prev, { tableName: table, columns: res }];
-        });
-      }
-    );
+      fetchColumns(sourcePeer, schemaName, tableName, setColumnsLoading).then(
+        (res) => {
+          setTableColumns((prev) => {
+            return [...prev, { tableName: table, columns: res }];
+          });
+        }
+      );
+    },
+    [sourcePeer, setTableColumns]
+  );
+
+  const handleAddRow = (source: string) => {
+    const newRows = [...rows];
+    const index = newRows.findIndex((row) => row.source === source);
+    if (index >= 0) newRows[index] = { ...newRows[index], selected: true };
+    setRows(newRows);
+    addTableColumns(source);
   };
 
   const removeTableColumns = (table: string) => {
@@ -187,8 +194,18 @@ export default function SchemaBox({
         initialLoadOnly
       ).then((newRows) => {
         for (const row of newRows) {
-          if (omitAdditionalTables?.includes(row.source)) {
-            row.canMirror = false;
+          if (
+            alreadySelectedTables
+              ?.map((tableMap) => tableMap.sourceTableIdentifier)
+              .includes(row.source)
+          ) {
+            row.selected = true;
+            row.editingDisabled = true;
+            row.destination =
+              alreadySelectedTables?.find(
+                (tableMap) => tableMap.sourceTableIdentifier === row.source
+              )?.destinationTableIdentifier ?? '';
+            addTableColumns(row.source);
           }
         }
         setRows((oldRows) => {
@@ -205,7 +222,8 @@ export default function SchemaBox({
       sourcePeer,
       defaultTargetSchema,
       peerType,
-      omitAdditionalTables,
+      alreadySelectedTables,
+      addTableColumns,
       initialLoadOnly,
     ]
   );
@@ -329,6 +347,7 @@ export default function SchemaBox({
                           <p style={{ fontSize: 12 }}>Target Table:</p>
                           <TextField
                             key={row.source}
+                            disabled={row.editingDisabled}
                             style={{
                               fontSize: 12,
                               marginTop: '0.5rem',
@@ -383,6 +402,7 @@ export default function SchemaBox({
                             tableRow={row}
                             rows={rows}
                             setRows={setRows}
+                            disabled={row.editingDisabled}
                             showOrdering={
                               peerType?.toString() ===
                               DBType[DBType.CLICKHOUSE].toString()

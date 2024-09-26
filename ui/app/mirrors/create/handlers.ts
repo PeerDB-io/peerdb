@@ -78,6 +78,14 @@ function CDCCheck(
     return flowNameValid.error.issues[0].message;
   }
 
+  if (config.envString) {
+    try {
+      JSON.parse(config.envString);
+    } catch (err: any) {
+      return err.message;
+    }
+  }
+
   const tableNameMapping = reformattedTableMapping(rows);
   const fieldErr = validateCDCFields(tableNameMapping, config, destinationType);
   if (fieldErr) {
@@ -179,6 +187,42 @@ export function reformattedTableMapping(
       columns: row.columns,
       engine: row.engine,
     }));
+}
+
+export function changesToTablesMapping(
+  tableMapping: TableMapRow[],
+  currentTableMapping: Map<string, TableMapping[]>,
+  isRemoval: boolean
+): TableMapping[] {
+  const mapping = tableMapping
+    .filter((row) => {
+      const isSelected = row?.selected === true && row?.canMirror === true;
+      const isCurrentMapping = currentTableMapping
+        .get(row.schema)
+        ?.map((tableMap) => tableMap.sourceTableIdentifier)
+        .includes(row.source);
+      // if not in current mapping, and selected, it's an addition
+      if (!isCurrentMapping && isSelected && !isRemoval) {
+        return true;
+      }
+      // if in current mapping, and not selected, it's a removal
+      if (isCurrentMapping && !isSelected && isRemoval) {
+        return true;
+      }
+      return false;
+    })
+    .map(
+      (row) =>
+        ({
+          sourceTableIdentifier: row.source,
+          destinationTableIdentifier: row.destination,
+          partitionKey: row.partitionKey,
+          exclude: Array.from(row.exclude),
+          columns: row.columns,
+          engine: row.engine,
+        }) as TableMapping
+    );
+  return mapping;
 }
 
 function processCDCConfig(a: CDCConfig): FlowConnectionConfigs {
@@ -407,6 +451,7 @@ export async function fetchTables(
         selected: false,
         canMirror: tableObject.canMirror,
         tableSize: tableObject.tableSize,
+        editingDisabled: false,
         columns: [],
         engine: TableEngine.CH_ENGINE_REPLACING_MERGE_TREE,
       });

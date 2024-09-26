@@ -199,13 +199,18 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 		return nil, err
 	}
 
-	cloneStatuses, err := h.cloneTableSummary(ctx, req.FlowJobName)
+	initialLoadResponse, err := h.InitialLoadSummary(ctx, &protos.InitialLoadSummaryRequest{
+		ParentMirrorName: req.FlowJobName,
+	})
 	if err != nil {
 		slog.Error("unable to query clone table summary", slog.Any("error", err))
 		return nil, err
 	}
 
-	cdcBatches, err := h.getCdcBatches(ctx, req.FlowJobName)
+	cdcBatchesResponse, err := h.GetCDCBatches(ctx, &protos.GetCDCBatchesRequest{
+		FlowJobName: req.FlowJobName,
+		Limit:       0,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -215,16 +220,17 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 		SourceType:      srcType,
 		DestinationType: dstType,
 		SnapshotStatus: &protos.SnapshotStatus{
-			Clones: cloneStatuses,
+			Clones: initialLoadResponse.TableSummaries,
 		},
-		CdcBatches: cdcBatches,
+		CdcBatches: cdcBatchesResponse.CdcBatches,
 	}, nil
 }
 
-func (h *FlowRequestHandler) cloneTableSummary(
+func (h *FlowRequestHandler) InitialLoadSummary(
 	ctx context.Context,
-	parentMirrorName string,
-) ([]*protos.CloneTableSummary, error) {
+	req *protos.InitialLoadSummaryRequest,
+) (*protos.InitialLoadSummaryResponse, error) {
+	parentMirrorName := req.ParentMirrorName
 	q := `
 	SELECT
 		distinct qr.flow_name,
@@ -325,7 +331,9 @@ func (h *FlowRequestHandler) cloneTableSummary(
 
 		cloneStatuses = append(cloneStatuses, &res)
 	}
-	return cloneStatuses, nil
+	return &protos.InitialLoadSummaryResponse{
+		TableSummaries: cloneStatuses,
+	}, nil
 }
 
 func (h *FlowRequestHandler) qrepFlowStatus(
@@ -478,16 +486,22 @@ func (h *FlowRequestHandler) getMirrorCreatedAt(ctx context.Context, flowJobName
 	return &createdAt.Time, nil
 }
 
-func (h *FlowRequestHandler) getCdcBatches(ctx context.Context, flowJobName string) ([]*protos.CDCBatch, error) {
+func (h *FlowRequestHandler) GetCDCBatches(ctx context.Context, req *protos.GetCDCBatchesRequest) (*protos.GetCDCBatchesResponse, error) {
+	mirrorName := req.FlowJobName
+	limit := req.Limit
+	limitClause := ""
+	if limit > 0 {
+		limitClause = fmt.Sprintf(" LIMIT %d", limit)
+	}
 	q := `SELECT DISTINCT ON(batch_id) batch_id,start_time,end_time,rows_in_batch,batch_start_lsn,batch_end_lsn FROM peerdb_stats.cdc_batches
-	  WHERE flow_name=$1 AND start_time IS NOT NULL ORDER BY batch_id DESC, start_time DESC`
-	rows, err := h.pool.Query(ctx, q, flowJobName)
+	  WHERE flow_name=$1 AND start_time IS NOT NULL ORDER BY batch_id DESC, start_time DESC` + limitClause
+	rows, err := h.pool.Query(ctx, q, mirrorName)
 	if err != nil {
-		slog.Error(fmt.Sprintf("unable to query cdc batches - %s: %s", flowJobName, err.Error()))
-		return nil, fmt.Errorf("unable to query cdc batches - %s: %w", flowJobName, err)
+		slog.Error(fmt.Sprintf("unable to query cdc batches - %s: %s", mirrorName, err.Error()))
+		return nil, fmt.Errorf("unable to query cdc batches - %s: %w", mirrorName, err)
 	}
 
-	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.CDCBatch, error) {
+	batches, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.CDCBatch, error) {
 		var batchID pgtype.Int8
 		var startTime pgtype.Timestamp
 		var endTime pgtype.Timestamp
@@ -495,8 +509,8 @@ func (h *FlowRequestHandler) getCdcBatches(ctx context.Context, flowJobName stri
 		var startLSN pgtype.Numeric
 		var endLSN pgtype.Numeric
 		if err := rows.Scan(&batchID, &startTime, &endTime, &numRows, &startLSN, &endLSN); err != nil {
-			slog.Error(fmt.Sprintf("unable to scan cdc batches - %s: %s", flowJobName, err.Error()))
-			return nil, fmt.Errorf("unable to scan cdc batches - %s: %w", flowJobName, err)
+			slog.Error(fmt.Sprintf("unable to scan cdc batches - %s: %s", mirrorName, err.Error()))
+			return nil, fmt.Errorf("unable to scan cdc batches - %s: %w", mirrorName, err)
 		}
 
 		var batch protos.CDCBatch
@@ -522,6 +536,13 @@ func (h *FlowRequestHandler) getCdcBatches(ctx context.Context, flowJobName stri
 
 		return &batch, nil
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &protos.GetCDCBatchesResponse{
+		CdcBatches: batches,
+	}, nil
 }
 
 func (h *FlowRequestHandler) CDCTableTotalCounts(

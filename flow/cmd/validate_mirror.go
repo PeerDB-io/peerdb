@@ -178,7 +178,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		}, err
 	}
 	if dstPeer.GetClickhouseConfig() != nil {
-		chPeer, err := connclickhouse.NewClickhouseConnector(ctx, nil, dstPeer.GetClickhouseConfig())
+		chPeer, err := connclickhouse.NewClickHouseConnector(ctx, nil, dstPeer.GetClickhouseConfig())
 		if err != nil {
 			displayErr := fmt.Errorf("failed to create clickhouse connector: %v", err)
 			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,

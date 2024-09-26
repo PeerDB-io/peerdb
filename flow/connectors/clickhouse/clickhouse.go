@@ -26,7 +26,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-type ClickhouseConnector struct {
+type ClickHouseConnector struct {
 	*metadataStore.PostgresMetadata
 	database      clickhouse.Conn
 	logger        log.Logger
@@ -50,7 +50,7 @@ func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error
 	return utils.PutAndRemoveS3(ctx, s3Client, object.Bucket, object.Prefix)
 }
 
-func ValidateClickhouseHost(ctx context.Context, chHost string, allowedDomainString string) error {
+func ValidateClickHouseHost(ctx context.Context, chHost string, allowedDomainString string) error {
 	allowedDomains := strings.Split(allowedDomainString, ",")
 	if len(allowedDomains) == 0 {
 		return nil
@@ -61,15 +61,15 @@ func ValidateClickhouseHost(ctx context.Context, chHost string, allowedDomainStr
 			return nil
 		}
 	}
-	return fmt.Errorf("invalid Clickhouse host domain: %s. Allowed domains: %s",
+	return fmt.Errorf("invalid ClickHouse host domain: %s. Allowed domains: %s",
 		chHost, strings.Join(allowedDomains, ","))
 }
 
-// Performs some checks on the Clickhouse peer to ensure it will work for mirrors
-func (c *ClickhouseConnector) ValidateCheck(ctx context.Context) error {
+// Performs some checks on the ClickHouse peer to ensure it will work for mirrors
+func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	// validate clickhouse host
-	allowedDomains := peerdbenv.PeerDBClickhouseAllowedDomains()
-	if err := ValidateClickhouseHost(ctx, c.config.Host, allowedDomains); err != nil {
+	allowedDomains := peerdbenv.PeerDBClickHouseAllowedDomains()
+	if err := ValidateClickHouseHost(ctx, c.config.Host, allowedDomains); err != nil {
 		return err
 	}
 	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
@@ -117,15 +117,15 @@ func (c *ClickhouseConnector) ValidateCheck(ctx context.Context) error {
 	return nil
 }
 
-func NewClickhouseConnector(
+func NewClickHouseConnector(
 	ctx context.Context,
 	env map[string]string,
 	config *protos.ClickhouseConfig,
-) (*ClickhouseConnector, error) {
+) (*ClickHouseConnector, error) {
 	logger := logger.LoggerFromCtx(ctx)
 	database, err := Connect(ctx, config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open connection to Clickhouse peer: %w", err)
+		return nil, fmt.Errorf("failed to open connection to ClickHouse peer: %w", err)
 	}
 
 	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
@@ -154,12 +154,12 @@ func NewClickhouseConnector(
 		bucketPathSuffix := fmt.Sprintf("%s/%s",
 			url.PathEscape(deploymentUID), url.PathEscape(flowName))
 		// Fallback: Get S3 credentials from environment
-		awsBucketName, err := peerdbenv.PeerDBClickhouseAWSS3BucketName(ctx, env)
+		awsBucketName, err := peerdbenv.PeerDBClickHouseAWSS3BucketName(ctx, env)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get PeerDB Clickhouse Bucket Name: %w", err)
+			return nil, fmt.Errorf("failed to get PeerDB ClickHouse Bucket Name: %w", err)
 		}
 		if awsBucketName == "" {
-			return nil, errors.New("PeerDB Clickhouse Bucket Name not set")
+			return nil, errors.New("PeerDB ClickHouse Bucket Name not set")
 		}
 
 		awsBucketPath = fmt.Sprintf("s3://%s/%s", awsBucketName, bucketPathSuffix)
@@ -173,14 +173,14 @@ func NewClickhouseConnector(
 		return nil, err
 	}
 	if credentials.AWS.SessionToken != "" {
-		// This is the minimum version of Clickhouse that actually supports session token
+		// This is the minimum version of ClickHouse that actually supports session token
 		// https://github.com/ClickHouse/ClickHouse/issues/61230
-		minSupportedClickhouseVersion := "v24.3.1"
+		minSupportedClickHouseVersion := "v24.3.1"
 		clickHouseVersionRow := database.QueryRow(ctx, "SELECT version()")
 		var clickHouseVersion string
 		err := clickHouseVersionRow.Scan(&clickHouseVersion)
 		if err != nil {
-			return nil, fmt.Errorf("failed to query clickhouse version: %w", err)
+			return nil, fmt.Errorf("failed to query ClickHouse version: %w", err)
 		}
 		// Ignore everything after patch version and prefix with "v", else semver.Compare will fail
 		versionParts := strings.SplitN(clickHouseVersion, ".", 4)
@@ -188,15 +188,15 @@ func NewClickhouseConnector(
 			versionParts = versionParts[:3]
 		}
 		cleanedClickHouseVersion := "v" + strings.Join(versionParts, ".")
-		if semver.Compare(cleanedClickHouseVersion, minSupportedClickhouseVersion) < 0 {
+		if semver.Compare(cleanedClickHouseVersion, minSupportedClickHouseVersion) < 0 {
 			return nil, fmt.Errorf(
-				"provide S3 Transient Stage details explicitly or upgrade to clickhouse version >= %v, current version is %s. %s",
-				minSupportedClickhouseVersion, clickHouseVersion,
-				"You can also contact PeerDB support for implicit S3 stage setup for older versions of Clickhouse.")
+				"provide S3 Transient Stage details explicitly or upgrade to ClickHouse version >= %v, current version is %s. %s",
+				minSupportedClickHouseVersion, clickHouseVersion,
+				"You can also contact PeerDB support for implicit S3 stage setup for older versions of ClickHouse.")
 		}
 	}
 
-	return &ClickhouseConnector{
+	return &ClickHouseConnector{
 		database:         database,
 		PostgresMetadata: pgMetadata,
 		config:           config,
@@ -250,38 +250,38 @@ func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.C
 		ReadTimeout: 3600 * time.Second,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to Clickhouse peer: %w", err)
+		return nil, fmt.Errorf("failed to connect to ClickHouse peer: %w", err)
 	}
 
 	if err := conn.Ping(ctx); err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("failed to ping to Clickhouse peer: %w", err)
+		return nil, fmt.Errorf("failed to ping to ClickHouse peer: %w", err)
 	}
 
 	return conn, nil
 }
 
-func (c *ClickhouseConnector) Close() error {
+func (c *ClickHouseConnector) Close() error {
 	if c != nil {
 		err := c.database.Close()
 		if err != nil {
-			return fmt.Errorf("error while closing connection to Clickhouse peer: %w", err)
+			return fmt.Errorf("error while closing connection to ClickHouse peer: %w", err)
 		}
 	}
 	return nil
 }
 
-func (c *ClickhouseConnector) ConnectionActive(ctx context.Context) error {
+func (c *ClickHouseConnector) ConnectionActive(ctx context.Context) error {
 	// This also checks if database exists
 	return c.database.Ping(ctx)
 }
 
-func (c *ClickhouseConnector) execWithLogging(ctx context.Context, query string) error {
+func (c *ClickHouseConnector) execWithLogging(ctx context.Context, query string) error {
 	c.logger.Info("[clickhouse] executing DDL statement", slog.String("query", query))
 	return c.database.Exec(ctx, query)
 }
 
-func (c *ClickhouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tables []string) error {
+func (c *ClickHouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tables []string) error {
 	queryInput := make([]interface{}, 0, len(tables)+1)
 	queryInput = append(queryInput, c.config.Database)
 	for _, table := range tables {
@@ -316,7 +316,7 @@ func (c *ClickhouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tab
 	return nil
 }
 
-func (c *ClickhouseConnector) getTableColumnsMapping(ctx context.Context,
+func (c *ClickHouseConnector) getTableColumnsMapping(ctx context.Context,
 	tables []string,
 ) (map[string][]*protos.FieldDescription, error) {
 	tableColumnsMapping := make(map[string][]*protos.FieldDescription, len(tables))
@@ -347,7 +347,7 @@ func (c *ClickhouseConnector) getTableColumnsMapping(ctx context.Context,
 	return tableColumnsMapping, nil
 }
 
-func (c *ClickhouseConnector) processTableComparison(dstTableName string, srcSchema *protos.TableSchema,
+func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSchema *protos.TableSchema,
 	dstSchema []*protos.FieldDescription, peerDBColumns []string, tableMapping *protos.TableMapping,
 ) error {
 	for _, srcField := range srcSchema.Columns {
@@ -387,7 +387,7 @@ func (c *ClickhouseConnector) processTableComparison(dstTableName string, srcSch
 	return nil
 }
 
-func (c *ClickhouseConnector) CheckDestinationTables(ctx context.Context, req *protos.FlowConnectionConfigs,
+func (c *ClickHouseConnector) CheckDestinationTables(ctx context.Context, req *protos.FlowConnectionConfigs,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) error {
 	peerDBColumns := []string{signColName, versionColName}

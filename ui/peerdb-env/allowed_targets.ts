@@ -1,5 +1,5 @@
 import 'server-only';
 
-export function GetPeerDBClickhouseMode() {
+export function GetPeerDBClickHouseMode() {
   return process.env.PEERDB_ALLOWED_TARGETS === 'clickhouse';
 }

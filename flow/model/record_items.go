@@ -16,6 +16,7 @@ type Items interface {
 	UpdateIfNotExists(Items) []string
 	GetBytesByColName(string) ([]byte, error)
 	ToJSONWithOptions(ToJSONOptions) (string, error)
+	DeleteColName(string)
 }
 
 func ItemsToJSON(items Items) (string, error) {
@@ -211,4 +212,8 @@ func (r RecordItems) MarshalJSONWithOptions(opts ToJSONOptions) ([]byte, error) 
 	}
 
 	return json.Marshal(jsonStruct)
+}
+
+func (r RecordItems) DeleteColName(colName string) {
+	delete(r.ColToVal, colName)
 }

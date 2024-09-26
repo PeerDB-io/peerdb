@@ -1,4 +1,5 @@
 'use client';
+import { TableMapping } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField';
@@ -17,18 +18,18 @@ interface TableMappingProps {
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
   peerType?: DBType;
   // schema -> omitted source table mapping
-  omitAdditionalTablesMapping: Map<string, string[]>;
+  alreadySelectedTablesMapping: Map<string, TableMapping[]>;
   initialLoadOnly: boolean;
 }
 
-export default function TableMapping({
+const TablePicker = ({
   sourcePeerName,
   rows,
   setRows,
   peerType,
-  omitAdditionalTablesMapping,
+  alreadySelectedTablesMapping,
   initialLoadOnly,
-}: TableMappingProps) {
+}: TableMappingProps) => {
   const [allSchemas, setAllSchemas] = useState<string[]>();
   const [schemaQuery, setSchemaQuery] = useState('');
   const [tableColumns, setTableColumns] = useState<
@@ -113,7 +114,7 @@ export default function TableMapping({
               tableColumns={tableColumns}
               setTableColumns={setTableColumns}
               peerType={peerType}
-              omitAdditionalTables={omitAdditionalTablesMapping.get(schema)}
+              alreadySelectedTables={alreadySelectedTablesMapping.get(schema)}
               initialLoadOnly={initialLoadOnly}
             />
           ))
@@ -125,4 +126,6 @@ export default function TableMapping({
       </div>
     </div>
   );
-}
+};
+
+export default TablePicker;

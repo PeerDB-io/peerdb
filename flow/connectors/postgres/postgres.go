@@ -1246,7 +1246,6 @@ func getOpenReplicationConnectionsForUser(ctx context.Context, conn *pgx.Conn, u
 }
 
 func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error {
-	// don't modify custom publications
 	if req == nil || len(req.AdditionalTables) == 0 {
 		return nil
 	}
@@ -1290,6 +1289,41 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 				slog.String("publication", c.getDefaultPublicationName(req.FlowJobName)),
 				slog.String("table", additionalSrcTable))
 		}
+	}
+
+	return nil
+}
+
+func (c *PostgresConnector) RemoveTablesFromPublication(ctx context.Context, req *protos.RemoveTablesFromPublicationInput) error {
+	if req == nil || len(req.TablesToRemove) == 0 {
+		return nil
+	}
+
+	tablesToRemove := make([]string, 0, len(req.TablesToRemove))
+	for _, tableToRemove := range req.TablesToRemove {
+		tablesToRemove = append(tablesToRemove, tableToRemove.SourceTableIdentifier)
+	}
+
+	if req.PublicationName == "" {
+		for _, tableToRemove := range tablesToRemove {
+			schemaTable, err := utils.ParseSchemaTable(tableToRemove)
+			if err != nil {
+				return err
+			}
+			_, err = c.execWithLogging(ctx, fmt.Sprintf("ALTER PUBLICATION %s DROP TABLE %s",
+				utils.QuoteIdentifier(c.getDefaultPublicationName(req.FlowJobName)),
+				schemaTable.String()))
+			// don't error out if table is already removed from our publication
+			if err != nil && !shared.IsSQLStateError(err, pgerrcode.UndefinedObject) {
+				return fmt.Errorf("failed to alter publication: %w", err)
+			}
+			c.logger.Info("removed table from publication",
+				slog.String("publication", c.getDefaultPublicationName(req.FlowJobName)),
+				slog.String("table", tableToRemove))
+		}
+	} else {
+		c.logger.Info("custom publication provided, no need to remove tables",
+			slog.String("publication", req.PublicationName))
 	}
 
 	return nil
@@ -1386,4 +1420,23 @@ func (c *PostgresConnector) RenameTables(ctx context.Context, req *protos.Rename
 	return &protos.RenameTablesOutput{
 		FlowJobName: req.FlowJobName,
 	}, nil
+}
+
+func (c *PostgresConnector) RemoveTableEntriesFromRawTable(
+	ctx context.Context,
+	req *protos.RemoveTablesFromRawTableInput,
+) error {
+	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
+	for _, tableName := range req.DestinationTableNames {
+		_, err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE _peerdb_destination_table_name = %s"+
+			" AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d",
+			QuoteIdentifier(rawTableIdentifier), QuoteLiteral(tableName), req.NormalizeBatchId, req.SyncBatchId))
+		if err != nil {
+			c.logger.Error("failed to remove entries from raw table", "error", err)
+		}
+
+		c.logger.Info(fmt.Sprintf("successfully removed entries for table '%s' from raw table", tableName))
+	}
+
+	return nil
 }

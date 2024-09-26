@@ -112,7 +112,7 @@ func (tunnel *SSHTunnel) NewPostgresConnFromConfig(
 	logger := logger.LoggerFromCtx(ctx)
 	conn, err := pgx.ConnectConfig(ctx, connConfig)
 	if err != nil {
-		logger.Error("Failed to create pool:", slog.Any("error", err))
+		logger.Error("Failed to create pool", slog.Any("error", err))
 		return nil, err
 	}
 
