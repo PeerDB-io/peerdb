@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peer-flow/connectors"
@@ -109,16 +111,26 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 		nullable := ty.Nullable()
 		var qkind qvalue.QValueKind
 		switch ty.DatabaseTypeName() {
-		case "String":
+		case "String", "Nullable(String)":
 			var val string
 			row = append(row, &val)
 			qkind = qvalue.QValueKindString
-		case "Int32":
+		case "Int32", "Nullable(Int32)":
 			var val int32
 			row = append(row, &val)
 			qkind = qvalue.QValueKindInt32
+		case "DateTime64(6)", "Nullable(DateTime64(6))":
+			var val time.Time
+			row = append(row, &val)
+			qkind = qvalue.QValueKindTimestamp
 		default:
-			return nil, fmt.Errorf("failed to resolve QValueKind for %s", ty.DatabaseTypeName())
+			if strings.Contains(ty.DatabaseTypeName(), "Decimal") {
+				var val decimal.Decimal
+				row = append(row, &val)
+				qkind = qvalue.QValueKindNumeric
+			} else {
+				return nil, fmt.Errorf("failed to resolve QValueKind for %s", ty.DatabaseTypeName())
+			}
 		}
 		batch.Schema.Fields = append(batch.Schema.Fields, qvalue.QField{
 			Name:      ty.Name(),
@@ -140,6 +152,10 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				qrow = append(qrow, qvalue.QValueString{Val: *v})
 			case *int32:
 				qrow = append(qrow, qvalue.QValueInt32{Val: *v})
+			case *time.Time:
+				qrow = append(qrow, qvalue.QValueTimestamp{Val: *v})
+			case *decimal.Decimal:
+				qrow = append(qrow, qvalue.QValueNumeric{Val: *v})
 			default:
 				return nil, fmt.Errorf("cannot convert %T to qvalue", v)
 			}

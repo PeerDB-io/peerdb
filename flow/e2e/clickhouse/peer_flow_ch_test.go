@@ -183,6 +183,7 @@ func (s ClickHouseSuite) Test_Nullable() {
 			id SERIAL PRIMARY KEY,
 			key TEXT NOT NULL,
 			val TEXT,
+			n NUMERIC,
 			t TIMESTAMP
 		);
 	`, srcFullName))
@@ -206,12 +207,12 @@ func (s ClickHouseSuite) Test_Nullable() {
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,key,val")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,key,val,n,t")
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 	INSERT INTO %s (key) VALUES ('cdc');
 	`, srcFullName))
 	require.NoError(s.t, err)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,key,val")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,key,val,n,t")
 }
