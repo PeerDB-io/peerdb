@@ -309,6 +309,9 @@ func (c *ClickHouseConnector) NormalizeRecords(
 						return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 					}
 				}
+				if schema.NullableEnabled && column.Nullable && !colType.IsArray() {
+					clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
+				}
 			}
 
 			switch clickHouseType {
