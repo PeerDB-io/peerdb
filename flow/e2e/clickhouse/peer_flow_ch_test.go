@@ -172,3 +172,42 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
 }
+
+func (s ClickHouseSuite) Test_Nullable() {
+	tc := e2e.NewTemporalClient(s.t)
+	srcTableName := "test_nullable"
+	srcFullName := s.attachSchemaSuffix("test_nullable")
+	dstTableName := "test_nullable_dst"
+
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			key TEXT NOT NULL
+		);
+	`, srcFullName))
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+	INSERT INTO %s (key) VALUES ('init');
+	`, srcFullName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("clickhouse_nullable"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig.Env = map[string]string{"PEERDB_NULLABLE": "true"}
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,key")
+
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+	INSERT INTO %s (key) VALUES ('cdc');
+	`, srcFullName))
+	require.NoError(s.t, err)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,key")
+}
