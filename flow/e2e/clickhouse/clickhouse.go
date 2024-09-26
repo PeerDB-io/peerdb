@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -109,24 +110,17 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	row := make([]interface{}, 0, len(types))
 	for _, ty := range types {
 		nullable := ty.Nullable()
+		row = append(row, reflect.New(ty.ScanType()).Interface())
 		var qkind qvalue.QValueKind
 		switch ty.DatabaseTypeName() {
 		case "String", "Nullable(String)":
-			var val string
-			row = append(row, &val)
 			qkind = qvalue.QValueKindString
 		case "Int32", "Nullable(Int32)":
-			var val int32
-			row = append(row, &val)
 			qkind = qvalue.QValueKindInt32
 		case "DateTime64(6)", "Nullable(DateTime64(6))":
-			var val time.Time
-			row = append(row, &val)
 			qkind = qvalue.QValueKindTimestamp
 		default:
 			if strings.Contains(ty.DatabaseTypeName(), "Decimal") {
-				var val decimal.Decimal
-				row = append(row, &val)
 				qkind = qvalue.QValueKindNumeric
 			} else {
 				return nil, fmt.Errorf("failed to resolve QValueKind for %s", ty.DatabaseTypeName())
@@ -148,12 +142,36 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 		qrow := make([]qvalue.QValue, 0, len(row))
 		for _, val := range row {
 			switch v := val.(type) {
+			case **string:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindString))
+				} else {
+					qrow = append(qrow, qvalue.QValueString{Val: **v})
+				}
 			case *string:
 				qrow = append(qrow, qvalue.QValueString{Val: *v})
+			case **int32:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindInt32))
+				} else {
+					qrow = append(qrow, qvalue.QValueInt32{Val: **v})
+				}
 			case *int32:
 				qrow = append(qrow, qvalue.QValueInt32{Val: *v})
+			case **time.Time:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindTimestamp))
+				} else {
+					qrow = append(qrow, qvalue.QValueTimestamp{Val: **v})
+				}
 			case *time.Time:
 				qrow = append(qrow, qvalue.QValueTimestamp{Val: *v})
+			case **decimal.Decimal:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindNumeric))
+				} else {
+					qrow = append(qrow, qvalue.QValueNumeric{Val: **v})
+				}
 			case *decimal.Decimal:
 				qrow = append(qrow, qvalue.QValueNumeric{Val: *v})
 			default:
