@@ -265,7 +265,7 @@ type RawTableConnector interface {
 type RenameTablesConnector interface {
 	Connector
 
-	RenameTables(context.Context, *protos.RenameTablesInput) (*protos.RenameTablesOutput, error)
+	RenameTables(context.Context, *protos.RenameTablesInput, map[string]*protos.TableSchema) (*protos.RenameTablesOutput, error)
 }
 
 func LoadPeerType(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (protos.DBType, error) {

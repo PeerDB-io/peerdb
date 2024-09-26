@@ -752,7 +752,11 @@ func (c *BigQueryConnector) getRawTableName(flowJobName string) string {
 	return "_peerdb_raw_" + shared.ReplaceIllegalCharactersWithUnderscores(flowJobName)
 }
 
-func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
+func (c *BigQueryConnector) RenameTables(
+	ctx context.Context,
+	req *protos.RenameTablesInput,
+	tableNameSchemaMapping map[string]*protos.TableSchema,
+) (*protos.RenameTablesOutput, error) {
 	// BigQuery doesn't really do transactions properly anyway so why bother?
 	for _, renameRequest := range req.RenameTableOptions {
 		srcDatasetTable, _ := c.convertToDatasetTable(renameRequest.CurrentName)
@@ -786,9 +790,10 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 			// For a table with replica identity full and a JSON column
 			// the equals to comparison we do down below will fail
 			// so we need to use TO_JSON_STRING for those columns
-			columnIsJSON := make(map[string]bool, len(renameRequest.TableSchema.Columns))
-			columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
-			for _, col := range renameRequest.TableSchema.Columns {
+			tableSchema := tableNameSchemaMapping[renameRequest.CurrentName]
+			columnIsJSON := make(map[string]bool, len(tableSchema.Columns))
+			columnNames := make([]string, 0, len(tableSchema.Columns))
+			for _, col := range tableSchema.Columns {
 				quotedCol := "`" + col.Name + "`"
 				columnNames = append(columnNames, quotedCol)
 				columnIsJSON[quotedCol] = (col.Type == "json" || col.Type == "jsonb")
@@ -807,8 +812,8 @@ func (c *BigQueryConnector) RenameTables(ctx context.Context, req *protos.Rename
 				allColsWithoutAlias := strings.Join(columnNames, ",")
 				allColsWithAlias := allColsBuilder.String()
 
-				pkeyCols := make([]string, 0, len(renameRequest.TableSchema.PrimaryKeyColumns))
-				for _, pkeyCol := range renameRequest.TableSchema.PrimaryKeyColumns {
+				pkeyCols := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
+				for _, pkeyCol := range tableSchema.PrimaryKeyColumns {
 					pkeyCols = append(pkeyCols, "`"+pkeyCol+"`")
 				}
 

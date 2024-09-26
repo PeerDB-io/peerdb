@@ -821,22 +821,21 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	})
 	defer shutdown()
 
+	tableNameSchemaMapping := make(map[string]*protos.TableSchema, len(config.RenameTableOptions))
 	for _, option := range config.RenameTableOptions {
-		if option.TableSchema == nil {
-			schema, err := shared.LoadTableSchemaFromCatalog(
-				ctx,
-				a.CatalogPool,
-				config.FlowJobName,
-				option.CurrentName,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("failed to load schema to rename tables: %w", err)
-			}
-			option.TableSchema = schema
+		schema, err := shared.LoadTableSchemaFromCatalog(
+			ctx,
+			a.CatalogPool,
+			config.FlowJobName,
+			option.CurrentName,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load schema to rename tables: %w", err)
 		}
+		tableNameSchemaMapping[option.CurrentName] = schema
 	}
 
-	renameOutput, err := conn.RenameTables(ctx, config)
+	renameOutput, err := conn.RenameTables(ctx, config, tableNameSchemaMapping)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return nil, fmt.Errorf("failed to rename tables: %w", err)

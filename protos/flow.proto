@@ -75,7 +75,6 @@ message FlowConnectionConfigs {
 message RenameTableOption {
   string current_name = 1;
   string new_name = 2;
-  TableSchema table_schema = 3;
 }
 
 message RenameTablesInput {
