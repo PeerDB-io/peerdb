@@ -309,16 +309,19 @@ func (c *ClickHouseConnector) NormalizeRecords(
 						return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 					}
 				}
+				if schema.NullableEnabled && column.Nullable && !colType.IsArray() {
+					clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
+				}
 			}
 
 			switch clickHouseType {
-			case "Date":
+			case "Date", "Nullable(Date)":
 				projection.WriteString(fmt.Sprintf(
 					"toDate(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'))) AS `%s`,",
 					colName,
 					dstColName,
 				))
-			case "DateTime64(6)":
+			case "DateTime64(6)", "Nullable(DateTime64(6))":
 				projection.WriteString(fmt.Sprintf(
 					"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s')) AS `%s`,",
 					colName,
