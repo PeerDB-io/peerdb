@@ -735,7 +735,11 @@ func getRawTableIdentifier(jobName string) string {
 	return rawTablePrefix + "_" + shared.ReplaceIllegalCharactersWithUnderscores(jobName)
 }
 
-func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
+func (c *SnowflakeConnector) RenameTables(
+	ctx context.Context,
+	req *protos.RenameTablesInput,
+	tableNameSchemaMapping map[string]*protos.TableSchema,
+) (*protos.RenameTablesOutput, error) {
 	renameTablesTx, err := c.database.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to begin transaction for rename tables: %w", err)
@@ -785,13 +789,14 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 
 		if originalTableExists {
 			if req.SoftDeleteColName != "" {
-				columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
-				for _, col := range renameRequest.TableSchema.Columns {
+				tableSchema := tableNameSchemaMapping[renameRequest.CurrentName]
+				columnNames := make([]string, 0, len(tableSchema.Columns))
+				for _, col := range tableSchema.Columns {
 					columnNames = append(columnNames, SnowflakeIdentifierNormalize(col.Name))
 				}
 
-				pkeyColumnNames := make([]string, 0, len(renameRequest.TableSchema.PrimaryKeyColumns))
-				for _, col := range renameRequest.TableSchema.PrimaryKeyColumns {
+				pkeyColumnNames := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
+				for _, col := range tableSchema.PrimaryKeyColumns {
 					pkeyColumnNames = append(pkeyColumnNames, SnowflakeIdentifierNormalize(col))
 				}
 

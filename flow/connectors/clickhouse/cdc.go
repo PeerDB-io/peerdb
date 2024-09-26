@@ -157,7 +157,11 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 	return nil
 }
 
-func (c *ClickHouseConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
+func (c *ClickHouseConnector) RenameTables(
+	ctx context.Context,
+	req *protos.RenameTablesInput,
+	tableNameSchemaMapping map[string]*protos.TableSchema,
+) (*protos.RenameTablesOutput, error) {
 	for _, renameRequest := range req.RenameTableOptions {
 		resyncTableExists, err := c.checkIfTableExists(ctx, c.config.Database, renameRequest.CurrentName)
 		if err != nil {
@@ -175,8 +179,9 @@ func (c *ClickHouseConnector) RenameTables(ctx context.Context, req *protos.Rena
 		}
 
 		if originalTableExists {
-			columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
-			for _, col := range renameRequest.TableSchema.Columns {
+			tableSchema := tableNameSchemaMapping[renameRequest.CurrentName]
+			columnNames := make([]string, 0, len(tableSchema.Columns))
+			for _, col := range tableSchema.Columns {
 				columnNames = append(columnNames, col.Name)
 			}
 

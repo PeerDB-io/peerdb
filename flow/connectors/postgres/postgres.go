@@ -1330,7 +1330,11 @@ func (c *PostgresConnector) RemoveTablesFromPublication(ctx context.Context, req
 	return nil
 }
 
-func (c *PostgresConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
+func (c *PostgresConnector) RenameTables(
+	ctx context.Context,
+	req *protos.RenameTablesInput,
+	tableNameSchemaMapping map[string]*protos.TableSchema,
+) (*protos.RenameTablesOutput, error) {
 	renameTablesTx, err := c.conn.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to begin transaction for rename tables: %w", err)
@@ -1367,14 +1371,15 @@ func (c *PostgresConnector) RenameTables(ctx context.Context, req *protos.Rename
 		}
 
 		if originalTableExists {
+			tableSchema := tableNameSchemaMapping[renameRequest.CurrentName]
 			if req.SoftDeleteColName != "" {
-				columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
-				for _, col := range renameRequest.TableSchema.Columns {
+				columnNames := make([]string, 0, len(tableSchema.Columns))
+				for _, col := range tableSchema.Columns {
 					columnNames = append(columnNames, QuoteIdentifier(col.Name))
 				}
 
-				pkeyColumnNames := make([]string, 0, len(renameRequest.TableSchema.PrimaryKeyColumns))
-				for _, col := range renameRequest.TableSchema.PrimaryKeyColumns {
+				pkeyColumnNames := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
+				for _, col := range tableSchema.PrimaryKeyColumns {
 					pkeyColumnNames = append(pkeyColumnNames, QuoteIdentifier(col))
 				}
 
