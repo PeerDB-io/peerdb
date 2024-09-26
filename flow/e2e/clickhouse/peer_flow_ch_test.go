@@ -215,4 +215,7 @@ func (s ClickHouseSuite) Test_Nullable() {
 	require.NoError(s.t, err)
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,key,val,n,t")
+
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
 }
