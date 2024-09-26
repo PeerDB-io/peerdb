@@ -163,6 +163,7 @@ message CreateRawTableInput {
 
 message CreateRawTableOutput { string table_identifier = 1; }
 
+// stored in catalog table table_schema_mapping, be wary of breaking changes
 message TableSchema {
   string table_identifier = 1;
   repeated string primary_key_columns = 2;

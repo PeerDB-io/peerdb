@@ -850,16 +850,14 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	defer shared.RollbackTx(tx, logger)
 
 	for _, option := range config.RenameTableOptions {
-		if option.TableSchema == nil {
-			if _, err := tx.Exec(
-				ctx,
-				"update table_schema_mapping set table_name = $3 where flow_name = $1 and table_name = $2",
-				config.FlowJobName,
-				option.CurrentName,
-				option.NewName,
-			); err != nil {
-				return nil, fmt.Errorf("failed to update table_schema_mapping: %w", err)
-			}
+		if _, err := tx.Exec(
+			ctx,
+			"update table_schema_mapping set table_name = $3 where flow_name = $1 and table_name = $2",
+			config.FlowJobName,
+			option.CurrentName,
+			option.NewName,
+		); err != nil {
+			return nil, fmt.Errorf("failed to update table_schema_mapping: %w", err)
 		}
 	}
 
