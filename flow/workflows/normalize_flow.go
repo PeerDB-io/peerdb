@@ -13,20 +13,18 @@ import (
 )
 
 type NormalizeState struct {
-	TableNameSchemaMapping map[string]*protos.TableSchema
-	LastSyncBatchID        int64
-	SyncBatchID            int64
-	Wait                   bool
-	Stop                   bool
+	LastSyncBatchID int64
+	SyncBatchID     int64
+	Wait            bool
+	Stop            bool
 }
 
 func NewNormalizeState() *NormalizeState {
 	return &NormalizeState{
-		TableNameSchemaMapping: nil,
-		LastSyncBatchID:        -1,
-		SyncBatchID:            -1,
-		Wait:                   true,
-		Stop:                   false,
+		LastSyncBatchID: -1,
+		SyncBatchID:     -1,
+		Wait:            true,
+		Stop:            false,
 	}
 }
 
@@ -73,9 +71,6 @@ func NormalizeFlowWorkflow(
 		if s.SyncBatchID > state.SyncBatchID {
 			state.SyncBatchID = s.SyncBatchID
 		}
-		if s.TableNameSchemaMapping != nil {
-			state.TableNameSchemaMapping = s.TableNameSchemaMapping
-		}
 
 		state.Wait = false
 	})
@@ -92,9 +87,8 @@ func NormalizeFlowWorkflow(
 
 		logger.Info("executing normalize")
 		startNormalizeInput := &protos.StartNormalizeInput{
-			FlowConnectionConfigs:  config,
-			TableNameSchemaMapping: state.TableNameSchemaMapping,
-			SyncBatchID:            state.SyncBatchID,
+			FlowConnectionConfigs: config,
+			SyncBatchID:           state.SyncBatchID,
 		}
 		fStartNormalize := workflow.ExecuteActivity(normalizeFlowCtx, flowable.StartNormalize, startNormalizeInput)
 
