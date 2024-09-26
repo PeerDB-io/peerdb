@@ -174,7 +174,6 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 }
 
 func (s ClickHouseSuite) Test_Nullable() {
-	tc := e2e.NewTemporalClient(s.t)
 	srcTableName := "test_nullable"
 	srcFullName := s.attachSchemaSuffix("test_nullable")
 	dstTableName := "test_nullable_dst"
@@ -182,7 +181,9 @@ func (s ClickHouseSuite) Test_Nullable() {
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
-			key TEXT NOT NULL
+			key TEXT NOT NULL,
+			val TEXT,
+			t TIMESTAMP
 		);
 	`, srcFullName))
 	require.NoError(s.t, err)
@@ -198,16 +199,19 @@ func (s ClickHouseSuite) Test_Nullable() {
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.Env = map[string]string{"PEERDB_NULLABLE": "true"}
+
+	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,key")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,key,val")
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 	INSERT INTO %s (key) VALUES ('cdc');
 	`, srcFullName))
 	require.NoError(s.t, err)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,key")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,key,val")
 }
