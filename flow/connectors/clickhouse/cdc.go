@@ -54,7 +54,7 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 		_peerdb_match_data String,
 		_peerdb_batch_id Int,
 		_peerdb_unchanged_toast_columns String
-	) ENGINE = ReplacingMergeTree ORDER BY _peerdb_uid;`
+	) ENGINE = MergeTree() ORDER BY (_peerdb_batch_id, _peerdb_destination_table_name);`
 
 	err := c.execWithLogging(ctx,
 		fmt.Sprintf(createRawTableSQL, rawTableName))
