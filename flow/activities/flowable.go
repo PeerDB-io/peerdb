@@ -361,6 +361,17 @@ func (a *FlowableActivity) StartNormalize(
 		a.Alerter.LogFlowError(ctx, input.FlowConnectionConfigs.FlowJobName, err)
 		return nil, fmt.Errorf("failed to normalized records: %w", err)
 	}
+	dstType, err := connectors.LoadPeerType(ctx, a.CatalogPool, input.FlowConnectionConfigs.DestinationName)
+	if err != nil {
+		return nil, err
+	}
+	if dstType == protos.DBType_POSTGRES {
+		err = monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName,
+			input.SyncBatchID)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	// log the number of batches normalized
 	logger.Info(fmt.Sprintf("normalized records from batch %d to batch %d",
