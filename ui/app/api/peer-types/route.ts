@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
         process.env.SUPABASE_ID
       )}&response_type=code&redirect_uri=${encodeURIComponent(
         process.env.SUPABASE_REDIRECT ?? ''
-      )}`,
+      )}&state=${encodeURIComponent(process.env.SUPABASE_OAUTH_STATE ?? '')}`,
     });
   }
 
