@@ -119,6 +119,8 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 			qkind = qvalue.QValueKindInt32
 		case "DateTime64(6)", "Nullable(DateTime64(6))":
 			qkind = qvalue.QValueKindTimestamp
+		case "Date32", "Nullable(Date32)":
+			qkind = qvalue.QValueKindDate
 		default:
 			if strings.Contains(ty.DatabaseTypeName(), "Decimal") {
 				qkind = qvalue.QValueKindNumeric
