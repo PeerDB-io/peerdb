@@ -321,6 +321,7 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 	tx interface{},
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
+	tableSchema *protos.TableSchema,
 ) (bool, error) {
 	normalizedSchemaTable, err := utils.ParseSchemaTable(tableIdentifier)
 	if err != nil {
@@ -340,7 +341,7 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 		return true, nil
 	}
 
-	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(config, tableIdentifier, normalizedSchemaTable)
+	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(config, normalizedSchemaTable, tableSchema)
 	if _, err := c.execWithLogging(ctx, normalizedTableCreateSQL); err != nil {
 		return false, fmt.Errorf("[sf] error while creating normalized table: %w", err)
 	}
@@ -670,12 +671,11 @@ func (c *SnowflakeConnector) checkIfTableExists(
 
 func generateCreateTableSQLForNormalizedTable(
 	config *protos.SetupNormalizedTableBatchInput,
-	tableIdentifier string,
 	dstSchemaTable *utils.SchemaTable,
+	tableSchema *protos.TableSchema,
 ) string {
-	sourceTableSchema := config.TableNameSchemaMapping[tableIdentifier]
-	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns)+2)
-	for _, column := range sourceTableSchema.Columns {
+	createTableSQLArray := make([]string, 0, len(tableSchema.Columns)+2)
+	for _, column := range tableSchema.Columns {
 		genericColumnType := column.Type
 		normalizedColName := SnowflakeIdentifierNormalize(column.Name)
 		sfColType, err := qvalue.QValueKind(genericColumnType).ToDWHColumnType(protos.DBType_SNOWFLAKE)
@@ -691,7 +691,7 @@ func generateCreateTableSQLForNormalizedTable(
 		}
 
 		var notNull string
-		if sourceTableSchema.NullableEnabled && !column.Nullable {
+		if tableSchema.NullableEnabled && !column.Nullable {
 			notNull = " NOT NULL"
 		}
 
@@ -712,9 +712,9 @@ func generateCreateTableSQLForNormalizedTable(
 	}
 
 	// add composite primary key to the table
-	if len(sourceTableSchema.PrimaryKeyColumns) > 0 && !sourceTableSchema.IsReplicaIdentityFull {
-		normalizedPrimaryKeyCols := make([]string, 0, len(sourceTableSchema.PrimaryKeyColumns))
-		for _, primaryKeyCol := range sourceTableSchema.PrimaryKeyColumns {
+	if len(tableSchema.PrimaryKeyColumns) > 0 && !tableSchema.IsReplicaIdentityFull {
+		normalizedPrimaryKeyCols := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
+		for _, primaryKeyCol := range tableSchema.PrimaryKeyColumns {
 			normalizedPrimaryKeyCols = append(normalizedPrimaryKeyCols,
 				SnowflakeIdentifierNormalize(primaryKeyCol))
 		}
@@ -735,7 +735,11 @@ func getRawTableIdentifier(jobName string) string {
 	return rawTablePrefix + "_" + shared.ReplaceIllegalCharactersWithUnderscores(jobName)
 }
 
-func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
+func (c *SnowflakeConnector) RenameTables(
+	ctx context.Context,
+	req *protos.RenameTablesInput,
+	tableNameSchemaMapping map[string]*protos.TableSchema,
+) (*protos.RenameTablesOutput, error) {
 	renameTablesTx, err := c.database.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to begin transaction for rename tables: %w", err)
@@ -785,13 +789,14 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 
 		if originalTableExists {
 			if req.SoftDeleteColName != "" {
-				columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
-				for _, col := range renameRequest.TableSchema.Columns {
+				tableSchema := tableNameSchemaMapping[renameRequest.CurrentName]
+				columnNames := make([]string, 0, len(tableSchema.Columns))
+				for _, col := range tableSchema.Columns {
 					columnNames = append(columnNames, SnowflakeIdentifierNormalize(col.Name))
 				}
 
-				pkeyColumnNames := make([]string, 0, len(renameRequest.TableSchema.PrimaryKeyColumns))
-				for _, col := range renameRequest.TableSchema.PrimaryKeyColumns {
+				pkeyColumnNames := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
+				for _, col := range tableSchema.PrimaryKeyColumns {
 					pkeyColumnNames = append(pkeyColumnNames, SnowflakeIdentifierNormalize(col))
 				}
 

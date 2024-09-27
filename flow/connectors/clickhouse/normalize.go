@@ -42,6 +42,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 	tx interface{},
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
+	tableSchema *protos.TableSchema,
 ) (bool, error) {
 	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.config.Database, tableIdentifier)
 	if err != nil {
@@ -55,6 +56,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 	normalizedTableCreateSQL, err := generateCreateTableSQLForNormalizedTable(
 		config,
 		tableIdentifier,
+		tableSchema,
 	)
 	if err != nil {
 		return false, fmt.Errorf("error while generating create table sql for normalized table: %w", err)
@@ -76,9 +78,8 @@ func getColName(overrides map[string]string, name string) string {
 func generateCreateTableSQLForNormalizedTable(
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
+	tableSchema *protos.TableSchema,
 ) (string, error) {
-	tableSchema := config.TableNameSchemaMapping[tableIdentifier]
-
 	var tableMapping *protos.TableMapping
 	for _, tm := range config.TableMappings {
 		if tm.DestinationTableIdentifier == tableIdentifier {
@@ -116,7 +117,6 @@ func generateCreateTableSQLForNormalizedTable(
 						colNameMap[colName] = dstColName
 					}
 					if columnSetting.DestinationType != "" {
-						// TODO can we restrict this to avoid injection?
 						clickHouseType = columnSetting.DestinationType
 					}
 					break
@@ -309,16 +309,19 @@ func (c *ClickHouseConnector) NormalizeRecords(
 						return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 					}
 				}
+				if schema.NullableEnabled && column.Nullable && !colType.IsArray() {
+					clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
+				}
 			}
 
 			switch clickHouseType {
-			case "Date":
+			case "Date32", "Nullable(Date32)":
 				projection.WriteString(fmt.Sprintf(
-					"toDate(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'))) AS `%s`,",
+					"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'))) AS `%s`,",
 					colName,
 					dstColName,
 				))
-			case "DateTime64(6)":
+			case "DateTime64(6)", "Nullable(DateTime64(6))":
 				projection.WriteString(fmt.Sprintf(
 					"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s')) AS `%s`,",
 					colName,

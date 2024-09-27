@@ -121,6 +121,25 @@ func UpdateCDCConfigInCatalog(ctx context.Context, pool *pgxpool.Pool,
 	return nil
 }
 
+func LoadTableSchemaFromCatalog(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	flowName string,
+	tableName string,
+) (*protos.TableSchema, error) {
+	var tableSchemaBytes []byte
+	if err := pool.QueryRow(
+		ctx,
+		"select table_schema from table_schema_mapping where flow_name = $1 and table_name = $2",
+		flowName,
+		tableName,
+	).Scan(&tableSchemaBytes); err != nil {
+		return nil, err
+	}
+	tableSchema := &protos.TableSchema{}
+	return tableSchema, proto.Unmarshal(tableSchemaBytes, tableSchema)
+}
+
 func IsSQLStateError(err error, sqlStates ...string) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && slices.Contains(sqlStates, pgErr.Code)

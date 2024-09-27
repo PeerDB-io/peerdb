@@ -75,7 +75,6 @@ message FlowConnectionConfigs {
 message RenameTableOption {
   string current_name = 1;
   string new_name = 2;
-  TableSchema table_schema = 3;
 }
 
 message RenameTablesInput {
@@ -119,7 +118,6 @@ message SyncFlowOptions {
 
 message StartNormalizeInput {
   FlowConnectionConfigs flow_connection_configs = 1;
-  map<string, TableSchema> table_name_schema_mapping = 2;
   int64 SyncBatchID = 3;
 }
 
@@ -164,6 +162,7 @@ message CreateRawTableInput {
 
 message CreateRawTableOutput { string table_identifier = 1; }
 
+// stored in catalog table table_schema_mapping, be wary of breaking changes
 message TableSchema {
   string table_identifier = 1;
   repeated string primary_key_columns = 2;
@@ -180,21 +179,17 @@ message FieldDescription {
   bool nullable = 4;
 }
 
-message GetTableSchemaBatchInput {
+message SetupTableSchemaBatchInput {
   map<string, string> env = 1;
   repeated string table_identifiers = 2;
   string flow_name = 3;
   TypeSystem system = 4;
   string peer_name = 5;
-}
-
-message GetTableSchemaBatchOutput {
-  map<string, TableSchema> table_name_schema_mapping = 1;
+  repeated TableMapping table_mappings = 6;
 }
 
 message SetupNormalizedTableBatchInput {
   map<string, string> env = 1;
-  map<string, TableSchema> table_name_schema_mapping = 2;
   repeated TableMapping table_mappings = 3;
 
   // migration related columns
@@ -413,7 +408,6 @@ message FlowConfigUpdate {
 
 message SetupFlowOutput {
   map<uint32, string> src_table_id_name_mapping = 1;
-  map<string, TableSchema> table_name_schema_mapping = 2;
 }
 
 message AddTablesToPublicationInput {

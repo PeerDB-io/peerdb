@@ -178,3 +178,11 @@ func (a *SnapshotActivity) WaitForExportSnapshot(ctx context.Context, sessionID 
 		time.Sleep(time.Second)
 	}
 }
+
+func (a *SnapshotActivity) LoadTableSchema(
+	ctx context.Context,
+	flowName string,
+	tableName string,
+) (*protos.TableSchema, error) {
+	return shared.LoadTableSchemaFromCatalog(ctx, a.CatalogPool, flowName, tableName)
+}

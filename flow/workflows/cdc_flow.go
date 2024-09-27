@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -196,7 +197,6 @@ func processTableAdditions(
 	}
 
 	maps.Copy(state.SyncFlowOptions.SrcTableIdNameMapping, res.SyncFlowOptions.SrcTableIdNameMapping)
-	maps.Copy(state.SyncFlowOptions.TableNameSchemaMapping, res.SyncFlowOptions.TableNameSchemaMapping)
 
 	state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
 	logger.Info("additional tables added to sync flow")
@@ -210,11 +210,11 @@ func processTableRemovals(
 	state *CDCFlowWorkflowState,
 ) error {
 	logger.Info("altering publication for removed tables")
-	alterPublicationRemoveTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+	removeTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
 	})
 	alterPublicationRemovedTablesFuture := workflow.ExecuteActivity(
-		alterPublicationRemoveTablesCtx,
+		removeTablesCtx,
 		flowable.RemoveTablesFromPublication,
 		cfg, state.FlowConfigUpdate.RemovedTables)
 	if err := alterPublicationRemovedTablesFuture.Get(ctx, nil); err != nil {
@@ -223,11 +223,8 @@ func processTableRemovals(
 	}
 	logger.Info("tables removed from publication")
 
-	rawTableCleanupOptionsCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
-	})
 	rawTableCleanupFuture := workflow.ExecuteActivity(
-		rawTableCleanupOptionsCtx,
+		removeTablesCtx,
 		flowable.RemoveTablesFromRawTable,
 		cfg, state.FlowConfigUpdate.RemovedTables)
 	if err := rawTableCleanupFuture.Get(ctx, nil); err != nil {
@@ -236,24 +233,30 @@ func processTableRemovals(
 	}
 	logger.Info("tables removed from raw table")
 
-	// remove the tables from the sync flow options
-	for _, removedTable := range state.FlowConfigUpdate.RemovedTables {
-		maps.DeleteFunc(state.SyncFlowOptions.TableNameSchemaMapping, func(k string, v *protos.TableSchema) bool {
-			return k == removedTable.SourceTableIdentifier
-		})
-		maps.DeleteFunc(state.SyncFlowOptions.SrcTableIdNameMapping, func(k uint32, v string) bool {
-			return v == removedTable.SourceTableIdentifier
-		})
-		for i, tableMapping := range state.SyncFlowOptions.TableMappings {
-			if tableMapping.SourceTableIdentifier == removedTable.SourceTableIdentifier {
-				state.SyncFlowOptions.TableMappings = append(
-					state.SyncFlowOptions.TableMappings[:i],
-					state.SyncFlowOptions.TableMappings[i+1:]...,
-				)
-				break
-			}
-		}
+	removeTablesFromCatalogFuture := workflow.ExecuteActivity(
+		removeTablesCtx,
+		flowable.RemoveTablesFromCatalog,
+		cfg, state.FlowConfigUpdate.RemovedTables)
+	if err := removeTablesFromCatalogFuture.Get(ctx, nil); err != nil {
+		logger.Error("failed to clean up raw table for removed tables", "error", err)
+		return err
 	}
+	logger.Info("tables removed from catalog")
+
+	// remove the tables from the sync flow options
+	removedTables := make(map[string]struct{}, len(state.FlowConfigUpdate.RemovedTables))
+	for _, removedTable := range state.FlowConfigUpdate.RemovedTables {
+		removedTables[removedTable.SourceTableIdentifier] = struct{}{}
+	}
+
+	maps.DeleteFunc(state.SyncFlowOptions.SrcTableIdNameMapping, func(k uint32, v string) bool {
+		_, removed := removedTables[v]
+		return removed
+	})
+	state.SyncFlowOptions.TableMappings = slices.DeleteFunc(state.SyncFlowOptions.TableMappings, func(tm *protos.TableMapping) bool {
+		_, removed := removedTables[tm.SourceTableIdentifier]
+		return removed
+	})
 
 	return nil
 }
@@ -315,16 +318,14 @@ func CDCFlowWorkflow(
 
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
 	flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
-	err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (CDCFlowWorkflowState, error) {
+	if err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (CDCFlowWorkflowState, error) {
 		return *state, nil
-	})
-	if err != nil {
+	}); err != nil {
 		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.CDCFlowStateQuery, err)
 	}
-	err = workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (protos.FlowStatus, error) {
+	if err := workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (protos.FlowStatus, error) {
 		return state.CurrentFlowStatus, nil
-	})
-	if err != nil {
+	}); err != nil {
 		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
 	}
 
@@ -354,8 +355,7 @@ func CDCFlowWorkflow(
 			}
 
 			if state.FlowConfigUpdate != nil {
-				err = processCDCFlowConfigUpdate(ctx, logger, cfg, state, mirrorNameSearch)
-				if err != nil {
+				if err := processCDCFlowConfigUpdate(ctx, logger, cfg, state, mirrorNameSearch); err != nil {
 					return state, err
 				}
 				syncCountLimit = int(state.SyncFlowOptions.NumberOfSyncs)
@@ -371,6 +371,22 @@ func CDCFlowWorkflow(
 	}
 
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
+
+	// MIGRATION TableNameSchemaMapping moved to catalog
+	if state.SyncFlowOptions.TableNameSchemaMapping != nil {
+		migrateCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 5 * time.Minute,
+		})
+		if err := workflow.ExecuteActivity(
+			migrateCtx,
+			flowable.MigrateTableSchema,
+			cfg.FlowJobName,
+			state.SyncFlowOptions.TableNameSchemaMapping,
+		).Get(migrateCtx, nil); err != nil {
+			return state, fmt.Errorf("failed to migrate TableNameSchemaMapping: %w", err)
+		}
+		state.SyncFlowOptions.TableNameSchemaMapping = nil
+	}
 
 	// we cannot skip SetupFlow if SnapshotFlow did not complete in cases where Resync is enabled
 	// because Resync modifies TableMappings before Setup and also before Snapshot
@@ -410,7 +426,6 @@ func CDCFlowWorkflow(
 			return state, fmt.Errorf("failed to execute setup workflow: %w", err)
 		}
 		state.SyncFlowOptions.SrcTableIdNameMapping = setupFlowOutput.SrcTableIdNameMapping
-		state.SyncFlowOptions.TableNameSchemaMapping = setupFlowOutput.TableNameSchemaMapping
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_SNAPSHOT
 
 		// next part of the setup is to snapshot-initial-copy and setup replication slots.
@@ -432,7 +447,6 @@ func CDCFlowWorkflow(
 			snapshotFlowCtx,
 			SnapshotFlowWorkflow,
 			cfg,
-			state.SyncFlowOptions.TableNameSchemaMapping,
 		)
 		if err := snapshotFlowFuture.Get(snapshotFlowCtx, nil); err != nil {
 			logger.Error("snapshot flow failed", slog.Any("error", err))
@@ -448,22 +462,16 @@ func CDCFlowWorkflow(
 			renameOpts.SyncedAtColName = cfg.SyncedAtColName
 			renameOpts.SoftDeleteColName = cfg.SoftDeleteColName
 
-			correctedTableNameSchemaMapping := make(map[string]*protos.TableSchema)
 			for _, mapping := range state.SyncFlowOptions.TableMappings {
 				oldName := mapping.DestinationTableIdentifier
 				newName := strings.TrimSuffix(oldName, "_resync")
 				renameOpts.RenameTableOptions = append(renameOpts.RenameTableOptions, &protos.RenameTableOption{
 					CurrentName: oldName,
 					NewName:     newName,
-					// oldName is what was used for the TableNameSchema mapping
-					TableSchema: state.SyncFlowOptions.TableNameSchemaMapping[oldName],
 				})
 				mapping.DestinationTableIdentifier = newName
-				// TableNameSchemaMapping is referring to the _resync tables, not the actual names
-				correctedTableNameSchemaMapping[newName] = state.SyncFlowOptions.TableNameSchemaMapping[oldName]
 			}
 
-			state.SyncFlowOptions.TableNameSchemaMapping = correctedTableNameSchemaMapping
 			renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 				StartToCloseTimeout: 12 * time.Hour,
 				HeartbeatTimeout:    time.Minute,
@@ -574,7 +582,6 @@ func CDCFlowWorkflow(
 		if normFlowFuture != nil {
 			_ = model.NormalizeSignal.SignalChildWorkflow(ctx, normFlowFuture, payload).Get(ctx, nil)
 		}
-		maps.Copy(state.SyncFlowOptions.TableNameSchemaMapping, payload.TableNameSchemaMapping)
 	})
 
 	parallel := getParallelSyncNormalize(ctx, logger, cfg.Env)
