@@ -317,7 +317,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			switch clickHouseType {
 			case "Date32", "Nullable(Date32)":
 				projection.WriteString(fmt.Sprintf(
-					"toDate(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'))) AS `%s`,",
+					"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'))) AS `%s`,",
 					colName,
 					dstColName,
 				))
