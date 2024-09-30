@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 const (
@@ -374,17 +375,24 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		selectQuery.WriteString(strconv.FormatInt(req.SyncBatchID, 10))
 		selectQuery.WriteString(" AND _peerdb_destination_table_name = '")
 		selectQuery.WriteString(tbl)
-		selectQuery.WriteString("' UNION ALL SELECT ")
-		selectQuery.WriteString(projectionUpdate.String())
-		selectQuery.WriteString(" FROM ")
-		selectQuery.WriteString(rawTbl)
-		selectQuery.WriteString(" WHERE _peerdb_batch_id > ")
-		selectQuery.WriteString(strconv.FormatInt(normBatchID, 10))
-		selectQuery.WriteString(" AND _peerdb_batch_id <= ")
-		selectQuery.WriteString(strconv.FormatInt(req.SyncBatchID, 10))
-		selectQuery.WriteString(" AND _peerdb_destination_table_name = '")
-		selectQuery.WriteString(tbl)
-		selectQuery.WriteString("' AND _peerdb_record_type = 1")
+		selectQuery.WriteString("'")
+
+		disablePrimaryUpdate, err := peerdbenv.PeerDBDisablePrimaryUpdate(ctx, req.Env)
+		if err != nil {
+			return nil, err
+		} else if !disablePrimaryUpdate {
+			selectQuery.WriteString("UNION ALL SELECT ")
+			selectQuery.WriteString(projectionUpdate.String())
+			selectQuery.WriteString(" FROM ")
+			selectQuery.WriteString(rawTbl)
+			selectQuery.WriteString(" WHERE _peerdb_batch_id > ")
+			selectQuery.WriteString(strconv.FormatInt(normBatchID, 10))
+			selectQuery.WriteString(" AND _peerdb_batch_id <= ")
+			selectQuery.WriteString(strconv.FormatInt(req.SyncBatchID, 10))
+			selectQuery.WriteString(" AND _peerdb_destination_table_name = '")
+			selectQuery.WriteString(tbl)
+			selectQuery.WriteString("' AND _peerdb_record_type = 1")
+		}
 
 		insertIntoSelectQuery := strings.Builder{}
 		insertIntoSelectQuery.WriteString("INSERT INTO ")
