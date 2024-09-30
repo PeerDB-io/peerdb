@@ -377,10 +377,10 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		selectQuery.WriteString(tbl)
 		selectQuery.WriteString("'")
 
-		disablePrimaryUpdate, err := peerdbenv.PeerDBDisablePrimaryUpdate(ctx, req.Env)
+		enablePrimaryUpdate, err := peerdbenv.PeerDBEnableClickHousePrimaryUpdate(ctx, req.Env)
 		if err != nil {
 			return nil, err
-		} else if !disablePrimaryUpdate {
+		} else if enablePrimaryUpdate {
 			selectQuery.WriteString("UNION ALL SELECT ")
 			selectQuery.WriteString(projectionUpdate.String())
 			selectQuery.WriteString(" FROM ")

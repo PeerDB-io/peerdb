@@ -158,7 +158,7 @@ DROP AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4); END;`,
 	},
 	{
 		Name:             "PEERDB_CLICKHOUSE_DISABLE_PRIMARY_UPDATE",
-		Description:      "Disable generating deletion records for updates in ClickHouse, leaves stale records when primary key updated",
+		Description:      "Enable generating deletion records for updates in ClickHouse, avoids stale records when primary key updated",
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
@@ -312,8 +312,8 @@ func PeerDBNullable(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_NULLABLE")
 }
 
-func PeerDBDisablePrimaryUpdate(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_DISABLE_PRIMARY_UPDATE")
+func PeerDBEnableClickHousePrimaryUpdate(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_ENABLE_PRIMARY_UPDATE")
 }
 
 func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string) (int64, error) {

@@ -289,7 +289,7 @@ func (s ClickHouseSuite) Test_Update_PKey_Env_Disabled() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.DoInitialSnapshot = true
-	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_DISABLE_PRIMARY_UPDATE": "true"}
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_PRIMARY_UPDATE": "false"}
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -312,7 +312,7 @@ func (s ClickHouseSuite) Test_Update_PKey_Env_Disabled() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s ClickHouseSuite) Test_Update_PKey() {
+func (s ClickHouseSuite) Test_Update_PKey_Env_Enabled() {
 	srcTableName := "test_update_pkey"
 	srcFullName := s.attachSchemaSuffix("test_update_pkey")
 	dstTableName := "test_update_pkey_dst"
@@ -337,6 +337,7 @@ func (s ClickHouseSuite) Test_Update_PKey() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_PRIMARY_UPDATE": "true"}
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
