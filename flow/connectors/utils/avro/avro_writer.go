@@ -155,8 +155,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 				return numRows.Load(), fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
 			}
 
-			err = ocfWriter.Append([]interface{}{avroMap})
-			if err != nil {
+			if err := ocfWriter.Append([]interface{}{avroMap}); err != nil {
 				logger.Error("Failed to write record to OCF", slog.Any("error", err))
 				return numRows.Load(), fmt.Errorf("failed to write record to OCF: %w", err)
 			}
