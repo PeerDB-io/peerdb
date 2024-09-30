@@ -114,7 +114,7 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	); err != nil {
 		return fmt.Errorf("failed to rename validation table %s: %w", validateDummyTableName, err)
 	}
-	validateDummyTableName = validateDummyTableName + "_renamed"
+	validateDummyTableName += "_renamed"
 
 	// insert a row
 	if err := c.exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableName)); err != nil {
