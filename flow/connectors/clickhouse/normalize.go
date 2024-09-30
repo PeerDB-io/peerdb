@@ -223,7 +223,7 @@ func joinQuoted(cols []string) string {
 			sb.WriteString(",")
 		}
 		sb.WriteString("`")
-		sb.WriteString(col)
+		sb.WriteString(shared.SanitizeColumnNameForAvro(col))
 		sb.WriteString("`")
 	}
 	return sb.String()
