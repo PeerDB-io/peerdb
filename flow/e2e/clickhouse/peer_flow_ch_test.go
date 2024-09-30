@@ -286,6 +286,7 @@ func (s ClickHouseSuite) Test_Schema_Changes_CH() {
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.MaxBatchSize = 100
+	flowConnConfig.Env = map[string]string{"PEERDB_NULLABLE": "true"}
 
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert and mutate schema repeatedly.
