@@ -217,11 +217,16 @@ func generateCreateTableSQLForNormalizedTable(
 }
 
 func joinQuoted(cols []string) string {
-	quoted := make([]string, len(cols))
+	var sb strings.Builder
 	for idx, col := range cols {
-		quoted[idx] = fmt.Sprintf("`%s`", col)
+		if idx > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString("`")
+		sb.WriteString(col)
+		sb.WriteString("`")
 	}
-	return strings.Join(quoted, ",")
+	return sb.String()
 }
 
 func (c *ClickHouseConnector) NormalizeRecords(
