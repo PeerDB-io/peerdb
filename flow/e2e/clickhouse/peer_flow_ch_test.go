@@ -263,3 +263,81 @@ func (s ClickHouseSuite) Test_Date32() {
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
 }
+
+func (s ClickHouseSuite) Test_Column_Addition_CH() {
+	tc := e2e.NewTemporalClient(s.t)
+
+	tableName := "test_column_addition"
+	srcTableName := s.attachSchemaSuffix(tableName)
+
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			c1 BIGINT
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(tableName),
+		TableNameMapping: map[string]string{srcTableName: tableName},
+		Destination:      s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig.MaxBatchSize = 100
+
+	// wait for PeerFlowStatusQuery to finish setup
+	// and then insert and mutate schema repeatedly.
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	// insert first row.
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO %s(c1) VALUES (1)`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Inserted initial row in the source table")
+
+	e2e.EnvWaitForEqualTables(env, s, "normalize insert", tableName, "id,c1")
+
+	// alter source table, add column c2 and insert another row.
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		ALTER TABLE %s ADD COLUMN c2 BIGINT`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Altered source table, added column c2")
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO %s(c1,c2) VALUES (2,2)`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Inserted row with added c2 in the source table")
+
+	// verify we got our two rows, if schema did not match up it will error.
+	e2e.EnvWaitForEqualTables(env, s, "normalize altered row", tableName, "id,c1,c2")
+
+	// alter source table, add column c3, drop column c2 and insert another row.
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		ALTER TABLE %s DROP COLUMN c2, ADD COLUMN c3 FLOAT`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Altered source table, dropped column c2 and added column c3")
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO %s(c1,c3) VALUES (3,3.5)`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Inserted row with added c3 in the source table")
+
+	// verify we got our two rows, if schema did not match up it will error.
+	e2e.EnvWaitForEqualTables(env, s, "normalize altered row", tableName, "id,c1,c3")
+
+	// alter source table, drop column c3 and insert another row.
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		ALTER TABLE %s DROP COLUMN c3`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Altered source table, dropped column c3")
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO %s(c1) VALUES (4)`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Inserted row after dropping all columns in the source table")
+
+	// verify we got our two rows, if schema did not match up it will error.
+	e2e.EnvWaitForEqualTables(env, s, "normalize drop column", tableName, "id,c1")
+
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
+}
