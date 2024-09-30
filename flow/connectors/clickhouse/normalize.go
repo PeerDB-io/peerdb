@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 const (
@@ -70,9 +71,9 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 
 func getColName(overrides map[string]string, name string) string {
 	if newName, ok := overrides[name]; ok {
-		return newName
+		return shared.SanitizeColumnNameForAvro(newName)
 	}
-	return name
+	return shared.SanitizeColumnNameForAvro(name)
 }
 
 func generateCreateTableSQLForNormalizedTable(
@@ -104,7 +105,7 @@ func generateCreateTableSQLForNormalizedTable(
 	colNameMap := make(map[string]string)
 	for _, column := range tableSchema.Columns {
 		colName := column.Name
-		dstColName := colName
+		dstColName := shared.SanitizeColumnNameForAvro(colName)
 		colType := qvalue.QValueKind(column.Type)
 		var clickHouseType string
 		var columnSetting *protos.ColumnSetting
