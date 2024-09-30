@@ -46,7 +46,7 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
 	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %s (
-		_peerdb_uid String NOT NULL,
+		_peerdb_uid UUID NOT NULL,
 		_peerdb_timestamp Int64 NOT NULL,
 		_peerdb_destination_table_name String NOT NULL,
 		_peerdb_data String NOT NULL,
@@ -222,15 +222,13 @@ func (c *ClickHouseConnector) RenameTables(
 }
 
 func (c *ClickHouseConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
-	err := c.PostgresMetadata.SyncFlowCleanup(ctx, jobName)
-	if err != nil {
+	if err := c.PostgresMetadata.SyncFlowCleanup(ctx, jobName); err != nil {
 		return fmt.Errorf("[clickhouse] unable to clear metadata for sync flow cleanup: %w", err)
 	}
 
 	// delete raw table if exists
 	rawTableIdentifier := c.getRawTableName(jobName)
-	err = c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, rawTableIdentifier))
-	if err != nil {
+	if err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, rawTableIdentifier)); err != nil {
 		return fmt.Errorf("[clickhouse] unable to drop raw table: %w", err)
 	}
 

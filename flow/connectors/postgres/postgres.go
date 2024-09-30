@@ -451,7 +451,7 @@ func syncRecordsCore[Items model.Items](
 				}
 
 				row = []any{
-					uuid.New().String(),
+					uuid.New(),
 					time.Now().UnixNano(),
 					typedRecord.DestinationTableName,
 					itemsJSON,
@@ -478,7 +478,7 @@ func syncRecordsCore[Items model.Items](
 				}
 
 				row = []any{
-					uuid.New().String(),
+					uuid.New(),
 					time.Now().UnixNano(),
 					typedRecord.DestinationTableName,
 					newItemsJSON,
@@ -498,7 +498,7 @@ func syncRecordsCore[Items model.Items](
 				}
 
 				row = []any{
-					uuid.New().String(),
+					uuid.New(),
 					time.Now().UnixNano(),
 					typedRecord.DestinationTableName,
 					itemsJSON,

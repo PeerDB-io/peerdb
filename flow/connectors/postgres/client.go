@@ -27,7 +27,7 @@ const (
 		lsn_offset BIGINT NOT NULL,sync_batch_id BIGINT NOT NULL,normalize_batch_id BIGINT NOT NULL)`
 	rawTablePrefix    = "_peerdb_raw"
 	createSchemaSQL   = "CREATE SCHEMA IF NOT EXISTS %s"
-	createRawTableSQL = `CREATE TABLE IF NOT EXISTS %s.%s(_peerdb_uid TEXT NOT NULL,
+	createRawTableSQL = `CREATE TABLE IF NOT EXISTS %s.%s(_peerdb_uid uuid NOT NULL,
 		_peerdb_timestamp BIGINT NOT NULL,_peerdb_destination_table_name TEXT NOT NULL,_peerdb_data JSONB NOT NULL,
 		_peerdb_record_type INTEGER NOT NULL, _peerdb_match_data JSONB,_peerdb_batch_id INTEGER,
 		_peerdb_unchanged_toast_columns TEXT)`
