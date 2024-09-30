@@ -264,10 +264,10 @@ func (s ClickHouseSuite) Test_Date32() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s ClickHouseSuite) Test_Column_Addition_CH() {
+func (s ClickHouseSuite) Test_Schema_Changes_CH() {
 	tc := e2e.NewTemporalClient(s.t)
 
-	tableName := "test_column_addition"
+	tableName := "test_schema_changes"
 	srcTableName := s.attachSchemaSuffix(tableName)
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -301,22 +301,22 @@ func (s ClickHouseSuite) Test_Column_Addition_CH() {
 
 	// alter source table, add column c2 and insert another row.
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		ALTER TABLE %s ADD COLUMN c2 BIGINT`, srcTableName))
+		ALTER TABLE %s ADD COLUMN "myC2" BIGINT`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
-	s.t.Log("Altered source table, added column c2")
+	s.t.Log("Altered source table, added column myC2")
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		INSERT INTO %s(c1,c2) VALUES (2,2)`, srcTableName))
+		INSERT INTO %s(c1,"myC2") VALUES (2,2)`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
-	s.t.Log("Inserted row with added c2 in the source table")
+	s.t.Log("Inserted row with added myC2 in the source table")
 
 	// verify we got our two rows, if schema did not match up it will error.
-	e2e.EnvWaitForEqualTables(env, s, "normalize altered row", tableName, "id,c1,c2")
+	e2e.EnvWaitForEqualTables(env, s, "normalize altered row", tableName, "id,c1,\"myC2\"")
 
 	// alter source table, add column c3, drop column c2 and insert another row.
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		ALTER TABLE %s DROP COLUMN c2, ADD COLUMN c3 FLOAT`, srcTableName))
+		ALTER TABLE %s DROP COLUMN "myC2", ADD COLUMN c3 FLOAT`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
-	s.t.Log("Altered source table, dropped column c2 and added column c3")
+	s.t.Log("Altered source table, dropped column myC2 and added column c3")
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1,c3) VALUES (3,3.5)`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
