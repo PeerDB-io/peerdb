@@ -1143,10 +1143,10 @@ func (s PeerFlowE2ETestSuitePG) Test_TransformRowScript() {
 	require.False(s.t, exists)
 }
 
-func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
+func (s PeerFlowE2ETestSuitePG) Test_Mixed_Case_Schema_Changes_PG() {
 	tc := e2e.NewTemporalClient(s.t)
 
-	srcTableName := "test_simple_schema_changes_PG"
+	srcTableName := "test_mixed_case_schema_changes_PG"
 	dstTableName := srcTableName + "_dst"
 	quotedSourceTableName := s.attachSchemaSuffix(`"` + srcTableName + `"`)
 	quotedDestTableName := s.attachSchemaSuffix(`"` + dstTableName + `"`)
@@ -1159,7 +1159,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 	require.NoError(s.t, err)
 
 	flowConnConfig := &protos.FlowConnectionConfigs{
-		FlowJobName:     s.attachSuffix("test_simple_schema_changes_pg"),
+		FlowJobName:     s.attachSuffix("test_mixed_case_schema_changes_pg"),
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{

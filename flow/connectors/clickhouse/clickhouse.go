@@ -78,41 +78,57 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	err := c.exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 		id UInt64
 	) ENGINE = ReplacingMergeTree ORDER BY id;`,
-		validateDummyTableName+"_temp"))
+		validateDummyTableName))
 	if err != nil {
 		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
 	}
+	defer func() {
+		// goroutine so API call doesn't hang
+		go func() {
+			// drop the table at any cost
+			for i := 1; i <= 5; i++ {
+				err = c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName)
+				if err != nil {
+					c.logger.Error("failed to drop validation table",
+						slog.Int("attempt", i),
+						slog.String("table", validateDummyTableName),
+						slog.Any("error", err))
+					time.Sleep(time.Duration(i) * time.Second)
+				} else {
+					break
+				}
+			}
+		}()
+	}()
 
 	// add a column
-	err = c.exec(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now64()",
-		validateDummyTableName+"_temp"))
-	if err != nil {
+	if err := c.exec(ctx,
+		fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now64()", validateDummyTableName),
+	); err != nil {
 		return fmt.Errorf("failed to add column to validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// rename the table
-	err = c.exec(ctx, fmt.Sprintf("RENAME TABLE %s TO %s",
-		validateDummyTableName+"_temp", validateDummyTableName))
-	if err != nil {
+	if err := c.exec(ctx,
+		fmt.Sprintf("RENAME TABLE %s TO %s", validateDummyTableName, validateDummyTableName+"_renamed"),
+	); err != nil {
 		return fmt.Errorf("failed to rename validation table %s: %w", validateDummyTableName, err)
 	}
+	validateDummyTableName = validateDummyTableName + "_renamed"
 
 	// insert a row
-	err = c.exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableName))
-	if err != nil {
+	if err := c.exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableName)); err != nil {
 		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// drop the table
-	err = c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName)
-	if err != nil {
+	if err := c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName); err != nil {
 		return fmt.Errorf("failed to drop validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// validate s3 stage
-	validateErr := ValidateS3(ctx, c.credsProvider)
-	if validateErr != nil {
-		return fmt.Errorf("failed to validate S3 bucket: %w", validateErr)
+	if err := ValidateS3(ctx, c.credsProvider); err != nil {
+		return fmt.Errorf("failed to validate S3 bucket: %w", err)
 	}
 
 	return nil
