@@ -271,15 +271,15 @@ func (s ClickHouseSuite) Test_ColumnNamesWithSpaces() {
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
-			"id with space" SERIAL PRIMARY KEY,
-			"column with space" TEXT NOT NULL,
-			"another column with space" TEXT
+			"id with Space" SERIAL PRIMARY KEY,
+			"column with Space" TEXT NOT NULL,
+			"another column with Space" TEXT
 		);
 	`, srcFullName))
 	require.NoError(s.t, err)
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-	INSERT INTO %s ("column with space", "another column with space") VALUES ('init', 'value');
+	INSERT INTO %s ("column with Space", "another column with Space") VALUES ('init', 'value');
 	`, srcFullName))
 	require.NoError(s.t, err)
 
@@ -301,7 +301,7 @@ func (s ClickHouseSuite) Test_ColumnNamesWithSpaces() {
 	)
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		INSERT INTO %s ("column with space", "another column with space")
+		INSERT INTO %s ("column with Space", "another column with Space")
 		VALUES ('cdc', 'value');
 	`, srcFullName))
 	require.NoError(s.t, err)
