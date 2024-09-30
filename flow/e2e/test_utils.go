@@ -89,20 +89,21 @@ func EnvTrue(t *testing.T, env WorkflowRun, val bool) {
 	}
 }
 
-func GetPgRows(conn *connpostgres.PostgresConnector, suffix string, table string, cols string) (*model.QRecordBatch, error) {
+func GetPgRows(conn *connpostgres.PostgresConnector, suffix string, table string, cols string, orderBy string) (*model.QRecordBatch, error) {
 	pgQueryExecutor := conn.NewQRepQueryExecutor("testflow", "testpart")
+	query := fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY %s`, cols, suffix, connpostgres.QuoteIdentifier(table), orderBy)
 
 	return pgQueryExecutor.ExecuteAndProcessQuery(
 		context.Background(),
-		fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY id`, cols, suffix, connpostgres.QuoteIdentifier(table)),
+		query,
 	)
 }
 
-func RequireEqualTables(suite RowSource, table string, cols string) {
+func RequireEqualTables(suite RowSource, table string, cols string, orderBy string) {
 	t := suite.T()
 	t.Helper()
 
-	pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), table, cols)
+	pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), table, cols, orderBy)
 	require.NoError(t, err)
 
 	rows, err := suite.GetRows(table, cols)
@@ -112,14 +113,14 @@ func RequireEqualTables(suite RowSource, table string, cols string) {
 }
 
 func EnvEqualTables(env WorkflowRun, suite RowSource, table string, cols string) {
-	EnvEqualTablesWithNames(env, suite, table, table, cols)
+	EnvEqualTablesWithNames(env, suite, table, table, cols, "id")
 }
 
-func EnvEqualTablesWithNames(env WorkflowRun, suite RowSource, srcTable string, dstTable string, cols string) {
+func EnvEqualTablesWithNames(env WorkflowRun, suite RowSource, srcTable string, dstTable string, cols string, orderBy string) {
 	t := suite.T()
 	t.Helper()
 
-	pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), srcTable, cols)
+	pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), srcTable, cols, orderBy)
 	EnvNoError(t, env, err)
 
 	rows, err := suite.GetRows(dstTable, cols)
@@ -147,7 +148,7 @@ func EnvWaitForEqualTablesWithNames(
 	dstTable string,
 	cols string,
 ) {
-	EnvWaitForEqualTablesWithNamesDifferentColumns(env, suite, reason, srcTable, dstTable, cols, cols)
+	EnvWaitForEqualTablesWithNamesDifferentColumns(env, suite, reason, srcTable, dstTable, cols, cols, "id")
 }
 
 func EnvWaitForEqualTablesWithNamesDifferentColumns(
@@ -158,6 +159,7 @@ func EnvWaitForEqualTablesWithNamesDifferentColumns(
 	dstTable string,
 	srcCols string,
 	dstCols string,
+	orderBy string,
 ) {
 	t := suite.T()
 	t.Helper()
@@ -165,7 +167,7 @@ func EnvWaitForEqualTablesWithNamesDifferentColumns(
 	EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
 		t.Helper()
 
-		pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), srcTable, srcCols)
+		pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), srcTable, srcCols, orderBy)
 		if err != nil {
 			t.Log(err)
 			return false

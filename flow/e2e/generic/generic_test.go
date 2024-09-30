@@ -199,7 +199,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	output, err = destinationSchemaConnector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{dstTableName})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
-	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,c2")
+	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,c2", "id")
 
 	// alter source table, add column c3, drop column c2 and insert another row.
 	_, err = s.Connector().Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -246,7 +246,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	output, err = destinationSchemaConnector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{dstTableName})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
-	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,c3")
+	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,c3", "id")
 
 	// alter source table, drop column c3 and insert another row.
 	_, err = s.Connector().Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -293,7 +293,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	output, err = destinationSchemaConnector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{dstTableName})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
-	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1")
+	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1", "id")
 
 	env.Cancel()
 

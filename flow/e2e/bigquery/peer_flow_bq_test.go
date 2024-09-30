@@ -1098,7 +1098,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE id=1`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize delete", func() bool {
-		pgRows, err := e2e.GetPgRows(s.conn, s.bqSuffix, srcName, "id,c1,c2,t")
+		pgRows, err := e2e.GetPgRows(s.conn, s.bqSuffix, srcName, "id,c1,c2,t", "id")
 		if err != nil {
 			return false
 		}
@@ -1243,7 +1243,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 	e2e.EnvNoError(s.t, env, insertTx.Commit(context.Background()))
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize transaction", func() bool {
-		pgRows, err := e2e.GetPgRows(s.conn, s.bqSuffix, srcName, "id,c1,c2,t")
+		pgRows, err := e2e.GetPgRows(s.conn, s.bqSuffix, srcName, "id,c1,c2,t", "id")
 		e2e.EnvNoError(s.t, env, err)
 		rows, err := s.GetRowsWhere(dstName, "id,c1,c2,t", "NOT _PEERDB_IS_DELETED")
 		if err != nil {
@@ -1307,7 +1307,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 		"DELETE FROM %s WHERE id=1", srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize delete", func() bool {
-		pgRows, err := e2e.GetPgRows(s.conn, s.bqSuffix, tableName, "id,c1,c2,t")
+		pgRows, err := e2e.GetPgRows(s.conn, s.bqSuffix, tableName, "id,c1,c2,t", "id")
 		if err != nil {
 			return false
 		}

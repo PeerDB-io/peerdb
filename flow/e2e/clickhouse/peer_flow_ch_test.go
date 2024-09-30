@@ -298,6 +298,7 @@ func (s ClickHouseSuite) Test_ColumnNamesWithSpaces() {
 		env, s, "waiting on initial", srcTableName, dstTableName,
 		`"id with Space","column with Space","another column with Space"`,
 		`id_with_Space,column_with_Space,another_column_with_Space`,
+		`"id with Space"`,
 	)
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -310,6 +311,7 @@ func (s ClickHouseSuite) Test_ColumnNamesWithSpaces() {
 		env, s, "waiting on cdc", srcTableName, dstTableName,
 		`"id with Space","column with Space","another column with Space"`,
 		`id_with_Space,column_with_Space,another_column_with_Space`,
+		`"id with Space"`,
 	)
 
 	env.Cancel()
