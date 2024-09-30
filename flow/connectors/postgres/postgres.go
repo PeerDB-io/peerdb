@@ -451,7 +451,7 @@ func syncRecordsCore[Items model.Items](
 				}
 
 				row = []any{
-					uuid.New().String(),
+					uuid.New(),
 					time.Now().UnixNano(),
 					typedRecord.DestinationTableName,
 					itemsJSON,
@@ -478,7 +478,7 @@ func syncRecordsCore[Items model.Items](
 				}
 
 				row = []any{
-					uuid.New().String(),
+					uuid.New(),
 					time.Now().UnixNano(),
 					typedRecord.DestinationTableName,
 					newItemsJSON,
@@ -498,7 +498,7 @@ func syncRecordsCore[Items model.Items](
 				}
 
 				row = []any{
-					uuid.New().String(),
+					uuid.New(),
 					time.Now().UnixNano(),
 					typedRecord.DestinationTableName,
 					itemsJSON,
@@ -723,11 +723,13 @@ func (c *PostgresConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 
 func (c *PostgresConnector) GetTableSchema(
 	ctx context.Context,
-	req *protos.GetTableSchemaBatchInput,
-) (*protos.GetTableSchemaBatchOutput, error) {
-	res := make(map[string]*protos.TableSchema)
-	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(ctx, req.Env, tableName, req.System)
+	env map[string]string,
+	system protos.TypeSystem,
+	tableIdentifiers []string,
+) (map[string]*protos.TableSchema, error) {
+	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
+	for _, tableName := range tableIdentifiers {
+		tableSchema, err := c.getTableSchemaForTable(ctx, env, tableName, system)
 		if err != nil {
 			c.logger.Info("error fetching schema for table "+tableName, slog.Any("error", err))
 			return nil, err
@@ -736,9 +738,7 @@ func (c *PostgresConnector) GetTableSchema(
 		c.logger.Info("fetched schema for table " + tableName)
 	}
 
-	return &protos.GetTableSchemaBatchOutput{
-		TableNameSchemaMapping: res,
-	}, nil
+	return res, nil
 }
 
 func (c *PostgresConnector) getTableSchemaForTable(
@@ -863,6 +863,7 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	tx any,
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
+	tableSchema *protos.TableSchema,
 ) (bool, error) {
 	createNormalizedTablesTx := tx.(pgx.Tx)
 
@@ -889,7 +890,7 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	}
 
 	// convert the column names and types to Postgres types
-	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(config, tableIdentifier, parsedNormalizedTable)
+	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(config, parsedNormalizedTable, tableSchema)
 	_, err = c.execWithLoggingTx(ctx, normalizedTableCreateSQL, createNormalizedTablesTx)
 	if err != nil {
 		return false, fmt.Errorf("error while creating normalized table: %w", err)
@@ -1329,7 +1330,11 @@ func (c *PostgresConnector) RemoveTablesFromPublication(ctx context.Context, req
 	return nil
 }
 
-func (c *PostgresConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
+func (c *PostgresConnector) RenameTables(
+	ctx context.Context,
+	req *protos.RenameTablesInput,
+	tableNameSchemaMapping map[string]*protos.TableSchema,
+) (*protos.RenameTablesOutput, error) {
 	renameTablesTx, err := c.conn.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to begin transaction for rename tables: %w", err)
@@ -1366,14 +1371,15 @@ func (c *PostgresConnector) RenameTables(ctx context.Context, req *protos.Rename
 		}
 
 		if originalTableExists {
+			tableSchema := tableNameSchemaMapping[renameRequest.CurrentName]
 			if req.SoftDeleteColName != "" {
-				columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
-				for _, col := range renameRequest.TableSchema.Columns {
+				columnNames := make([]string, 0, len(tableSchema.Columns))
+				for _, col := range tableSchema.Columns {
 					columnNames = append(columnNames, QuoteIdentifier(col.Name))
 				}
 
-				pkeyColumnNames := make([]string, 0, len(renameRequest.TableSchema.PrimaryKeyColumns))
-				for _, col := range renameRequest.TableSchema.PrimaryKeyColumns {
+				pkeyColumnNames := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
+				for _, col := range tableSchema.PrimaryKeyColumns {
 					pkeyColumnNames = append(pkeyColumnNames, QuoteIdentifier(col))
 				}
 

@@ -28,8 +28,7 @@ func XminFlowWorkflow(
 		state.LastPartition.PartitionId = uuid.New().String()
 	}
 
-	err := setWorkflowQueries(ctx, state)
-	if err != nil {
+	if err := setWorkflowQueries(ctx, state); err != nil {
 		return state, err
 	}
 
@@ -57,19 +56,16 @@ func XminFlowWorkflow(
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 	}
 
-	err = q.setupWatermarkTableOnDestination(ctx)
-	if err != nil {
+	if err := q.setupWatermarkTableOnDestination(ctx); err != nil {
 		return state, fmt.Errorf("failed to setup watermark table: %w", err)
 	}
 
-	err = q.SetupMetadataTables(ctx)
-	if err != nil {
+	if err := q.SetupMetadataTables(ctx); err != nil {
 		return state, fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
 	logger.Info("metadata tables setup for peer flow")
 
-	err = q.handleTableCreationForResync(ctx, state)
-	if err != nil {
+	if err := q.handleTableCreationForResync(ctx, state); err != nil {
 		return state, err
 	}
 
@@ -78,14 +74,13 @@ func XminFlowWorkflow(
 		StartToCloseTimeout: 24 * 5 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
 	})
-	err = workflow.ExecuteActivity(
+	if err := workflow.ExecuteActivity(
 		replicateXminPartitionCtx,
 		flowable.ReplicateXminPartition,
 		q.config,
 		state.LastPartition,
 		q.runUUID,
-	).Get(ctx, &lastPartition)
-	if err != nil {
+	).Get(ctx, &lastPartition); err != nil {
 		return state, fmt.Errorf("xmin replication failed: %w", err)
 	}
 
@@ -98,8 +93,7 @@ func XminFlowWorkflow(
 		return state, nil
 	}
 
-	err = q.handleTableRenameForResync(ctx, state)
-	if err != nil {
+	if err := q.handleTableRenameForResync(ctx, state); err != nil {
 		return state, err
 	}
 

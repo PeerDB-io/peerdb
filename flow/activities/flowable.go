@@ -130,15 +130,48 @@ func (a *FlowableActivity) CreateRawTable(
 	return res, nil
 }
 
-// GetTableSchema returns the schema of a table.
-func (a *FlowableActivity) GetTableSchema(
+func (a *FlowableActivity) MigrateTableSchema(
 	ctx context.Context,
-	config *protos.GetTableSchemaBatchInput,
-) (*protos.GetTableSchemaBatchOutput, error) {
+	flowName string,
+	schemas map[string]*protos.TableSchema,
+) error {
+	logger := activity.GetLogger(ctx)
+	tx, err := a.CatalogPool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer shared.RollbackTx(tx, logger)
+
+	for k, v := range schemas {
+		processedBytes, err := proto.Marshal(v)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(
+			ctx,
+			"insert into table_schema_mapping(flow_name, table_name, table_schema) values ($1, $2, $3) "+
+				"on conflict (flow_name, table_name) do update set table_schema = $3",
+			flowName,
+			k,
+			processedBytes,
+		); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
+// SetupTableSchema populates table_schema_mapping
+func (a *FlowableActivity) SetupTableSchema(
+	ctx context.Context,
+	config *protos.SetupTableSchemaBatchInput,
+) error {
+	logger := activity.GetLogger(ctx)
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
 	srcConn, err := connectors.GetByNameAs[connectors.GetTableSchemaConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get GetTableSchemaConnector: %w", err)
+		return fmt.Errorf("failed to get GetTableSchemaConnector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
@@ -146,7 +179,36 @@ func (a *FlowableActivity) GetTableSchema(
 		return "getting table schema"
 	})
 
-	return srcConn.GetTableSchema(ctx, config)
+	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.System, config.TableIdentifiers)
+	if err != nil {
+		return fmt.Errorf("failed to get GetTableSchemaConnector: %w", err)
+	}
+	processed := shared.BuildProcessedSchemaMapping(config.TableMappings, tableNameSchemaMapping, logger)
+
+	tx, err := a.CatalogPool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer shared.RollbackTx(tx, logger)
+
+	for k, v := range processed {
+		processedBytes, err := proto.Marshal(v)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(
+			ctx,
+			"insert into table_schema_mapping(flow_name, table_name, table_schema) values ($1, $2, $3) "+
+				"on conflict (flow_name, table_name) do update set table_schema = $3",
+			config.FlowName,
+			k,
+			processedBytes,
+		); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
 }
 
 // CreateNormalizedTable creates normalized tables in destination.
@@ -172,21 +234,26 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	}
 	defer conn.CleanupSetupNormalizedTables(ctx, tx)
 
+	tableNameSchemaMapping, err := a.getTableNameSchemaMapping(ctx, config.FlowName)
+	if err != nil {
+		return nil, err
+	}
+
 	numTablesSetup := atomic.Uint32{}
-	totalTables := uint32(len(config.TableNameSchemaMapping))
 	shutdown := heartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("setting up normalized tables - %d of %d done",
-			numTablesSetup.Load(), totalTables)
+			numTablesSetup.Load(), len(tableNameSchemaMapping))
 	})
 	defer shutdown()
 
-	tableExistsMapping := make(map[string]bool, len(config.TableNameSchemaMapping))
-	for tableIdentifier := range config.TableNameSchemaMapping {
+	tableExistsMapping := make(map[string]bool, len(tableNameSchemaMapping))
+	for tableIdentifier, tableSchema := range tableNameSchemaMapping {
 		existing, err := conn.SetupNormalizedTable(
 			ctx,
 			tx,
 			config,
 			tableIdentifier,
+			tableSchema,
 		)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowName, err)
@@ -348,10 +415,15 @@ func (a *FlowableActivity) StartNormalize(
 	})
 	defer shutdown()
 
+	tableNameSchemaMapping, err := a.getTableNameSchemaMapping(ctx, input.FlowConnectionConfigs.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+
 	res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
 		FlowJobName:            input.FlowConnectionConfigs.FlowJobName,
 		Env:                    input.FlowConnectionConfigs.Env,
-		TableNameSchemaMapping: input.TableNameSchemaMapping,
+		TableNameSchemaMapping: tableNameSchemaMapping,
 		TableMappings:          input.FlowConnectionConfigs.TableMappings,
 		SyncBatchID:            input.SyncBatchID,
 		SoftDeleteColName:      input.FlowConnectionConfigs.SoftDeleteColName,
@@ -360,6 +432,17 @@ func (a *FlowableActivity) StartNormalize(
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, input.FlowConnectionConfigs.FlowJobName, err)
 		return nil, fmt.Errorf("failed to normalized records: %w", err)
+	}
+	dstType, err := connectors.LoadPeerType(ctx, a.CatalogPool, input.FlowConnectionConfigs.DestinationName)
+	if err != nil {
+		return nil, err
+	}
+	if dstType == protos.DBType_POSTGRES {
+		err = monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName,
+			input.SyncBatchID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// log the number of batches normalized
@@ -735,9 +818,7 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 	return result, nil
 }
 
-func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.RenameTablesInput) (
-	*protos.RenameTablesOutput, error,
-) {
+func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	conn, err := connectors.GetByNameAs[connectors.RenameTablesConnector](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
@@ -751,13 +832,46 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	})
 	defer shutdown()
 
-	renameOutput, err := conn.RenameTables(ctx, config)
+	tableNameSchemaMapping := make(map[string]*protos.TableSchema, len(config.RenameTableOptions))
+	for _, option := range config.RenameTableOptions {
+		schema, err := shared.LoadTableSchemaFromCatalog(
+			ctx,
+			a.CatalogPool,
+			config.FlowJobName,
+			option.CurrentName,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load schema to rename tables: %w", err)
+		}
+		tableNameSchemaMapping[option.CurrentName] = schema
+	}
+
+	renameOutput, err := conn.RenameTables(ctx, config, tableNameSchemaMapping)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return nil, fmt.Errorf("failed to rename tables: %w", err)
 	}
 
-	return renameOutput, nil
+	tx, err := a.CatalogPool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin updating table_schema_mapping: %w", err)
+	}
+	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
+	defer shared.RollbackTx(tx, logger)
+
+	for _, option := range config.RenameTableOptions {
+		if _, err := tx.Exec(
+			ctx,
+			"update table_schema_mapping set table_name = $3 where flow_name = $1 and table_name = $2",
+			config.FlowJobName,
+			option.CurrentName,
+			option.NewName,
+		); err != nil {
+			return nil, fmt.Errorf("failed to update table_schema_mapping: %w", err)
+		}
+	}
+
+	return renameOutput, tx.Commit(ctx)
 }
 
 func (a *FlowableActivity) DeleteMirrorStats(ctx context.Context, flowName string) error {
@@ -833,7 +947,9 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 	return err
 }
 
-func (a *FlowableActivity) RemoveTablesFromPublication(ctx context.Context, cfg *protos.FlowConnectionConfigs,
+func (a *FlowableActivity) RemoveTablesFromPublication(
+	ctx context.Context,
+	cfg *protos.FlowConnectionConfigs,
 	removedTablesMapping []*protos.TableMapping,
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
@@ -854,7 +970,9 @@ func (a *FlowableActivity) RemoveTablesFromPublication(ctx context.Context, cfg 
 	return err
 }
 
-func (a *FlowableActivity) RemoveTablesFromRawTable(ctx context.Context, cfg *protos.FlowConnectionConfigs,
+func (a *FlowableActivity) RemoveTablesFromRawTable(
+	ctx context.Context,
+	cfg *protos.FlowConnectionConfigs,
 	tablesToRemove []*protos.TableMapping,
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
@@ -896,5 +1014,25 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(ctx context.Context, cfg *pr
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 	}
+	return err
+}
+
+func (a *FlowableActivity) RemoveTablesFromCatalog(
+	ctx context.Context,
+	cfg *protos.FlowConnectionConfigs,
+	tablesToRemove []*protos.TableMapping,
+) error {
+	removedTables := make([]string, 0, len(tablesToRemove))
+	for _, tm := range tablesToRemove {
+		removedTables = append(removedTables, tm.DestinationTableIdentifier)
+	}
+
+	_, err := a.CatalogPool.Exec(
+		ctx,
+		"delete from table_schema_mapping where flow_name = $1 and table_name = ANY($2)",
+		cfg.FlowJobName,
+		removedTables,
+	)
+
 	return err
 }

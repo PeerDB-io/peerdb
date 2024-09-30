@@ -120,7 +120,6 @@ func (s elasticsearchSuite) Test_Composite_PKey_CDC_Mirror() {
 	`, srcTableName, i, i))
 		require.NoError(s.t, err, "failed to insert row")
 	}
-
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial snapshot + inserted rows", func() bool {
 		return s.countDocumentsInIndex(srcTableName) == int64(2*rowCount)
 	})

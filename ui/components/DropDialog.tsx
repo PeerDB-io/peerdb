@@ -170,15 +170,17 @@ export const DropDialog = ({
         <Label as='label' variant='body' style={{ marginTop: '0.3rem' }}>
           {getDeleteText()}
         </Label>
-        <RowWithCheckbox
-          label={<Label>Delete mirror stats</Label>}
-          action={
-            <Checkbox
-              checked={dropStats}
-              onCheckedChange={(state: boolean) => setDropStats(state)}
-            />
-          }
-        />
+        {mode === 'MIRROR' && (
+          <RowWithCheckbox
+            label={<Label>Delete mirror stats</Label>}
+            action={
+              <Checkbox
+                checked={dropStats}
+                onCheckedChange={(state: boolean) => setDropStats(state)}
+              />
+            }
+          />
+        )}
         <div style={{ display: 'flex', marginTop: '1rem' }}>
           <DialogClose>
             <Button style={{ backgroundColor: '#6c757d', color: 'white' }}>

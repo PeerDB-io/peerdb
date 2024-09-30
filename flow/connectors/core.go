@@ -45,7 +45,12 @@ type GetTableSchemaConnector interface {
 	Connector
 
 	// GetTableSchema returns the schema of a table in terms of QValueKind.
-	GetTableSchema(ctx context.Context, req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error)
+	GetTableSchema(
+		ctx context.Context,
+		env map[string]string,
+		system protos.TypeSystem,
+		tableIdentifiers []string,
+	) (map[string]*protos.TableSchema, error)
 }
 
 type CDCPullConnectorCore interface {
@@ -127,6 +132,7 @@ type NormalizedTablesConnector interface {
 		tx any,
 		config *protos.SetupNormalizedTableBatchInput,
 		tableIdentifier string,
+		tableSchema *protos.TableSchema,
 	) (bool, error)
 }
 
@@ -259,7 +265,7 @@ type RawTableConnector interface {
 type RenameTablesConnector interface {
 	Connector
 
-	RenameTables(context.Context, *protos.RenameTablesInput) (*protos.RenameTablesOutput, error)
+	RenameTables(context.Context, *protos.RenameTablesInput, map[string]*protos.TableSchema) (*protos.RenameTablesOutput, error)
 }
 
 func LoadPeerType(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (protos.DBType, error) {

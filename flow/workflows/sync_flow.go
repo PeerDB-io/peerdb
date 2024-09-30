@@ -2,7 +2,6 @@ package peerflow
 
 import (
 	"log/slog"
-	"maps"
 	"time"
 
 	"go.temporal.io/sdk/log"
@@ -128,9 +127,8 @@ func SyncFlowWorkflow(
 				totalRecordsSynced += childSyncFlowRes.SyncResponse.NumRecordsSynced
 				logger.Info("Total records synced", slog.Int64("totalRecordsSynced", totalRecordsSynced))
 
-				tableSchemaDeltasCount := len(childSyncFlowRes.SyncResponse.TableSchemaDeltas)
-
 				// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
+				tableSchemaDeltasCount := len(childSyncFlowRes.SyncResponse.TableSchemaDeltas)
 				if tableSchemaDeltasCount > 0 {
 					modifiedSrcTables := make([]string, 0, tableSchemaDeltasCount)
 					for _, tableSchemaDelta := range childSyncFlowRes.SyncResponse.TableSchemaDeltas {
@@ -140,16 +138,16 @@ func SyncFlowWorkflow(
 					getModifiedSchemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 						StartToCloseTimeout: 5 * time.Minute,
 					})
-					getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.GetTableSchema,
-						&protos.GetTableSchemaBatchInput{
+					getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.SetupTableSchema,
+						&protos.SetupTableSchemaBatchInput{
 							PeerName:         config.SourceName,
 							TableIdentifiers: modifiedSrcTables,
+							TableMappings:    options.TableMappings,
 							FlowName:         config.FlowJobName,
 							System:           config.System,
 						})
 
-					var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
-					if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {
+					if err := getModifiedSchemaFuture.Get(ctx, nil); err != nil {
 						logger.Error("failed to execute schema update at source", slog.Any("error", err))
 						_ = model.SyncResultSignal.SignalExternalWorkflow(
 							ctx,
@@ -157,10 +155,6 @@ func SyncFlowWorkflow(
 							"",
 							nil,
 						).Get(ctx, nil)
-					} else {
-						processedSchemaMapping := shared.BuildProcessedSchemaMapping(options.TableMappings,
-							getModifiedSchemaRes.TableNameSchemaMapping, logger)
-						maps.Copy(options.TableNameSchemaMapping, processedSchemaMapping)
 					}
 				}
 
@@ -170,9 +164,8 @@ func SyncFlowWorkflow(
 						parent.ID,
 						"",
 						model.NormalizePayload{
-							Done:                   false,
-							SyncBatchID:            childSyncFlowRes.SyncResponse.CurrentSyncBatchID,
-							TableNameSchemaMapping: options.TableNameSchemaMapping,
+							Done:        false,
+							SyncBatchID: childSyncFlowRes.SyncResponse.CurrentSyncBatchID,
 						},
 					).Get(ctx, nil)
 					if err != nil {
