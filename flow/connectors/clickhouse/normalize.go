@@ -176,7 +176,7 @@ func generateCreateTableSQLForNormalizedTable(
 				pkeys[idx] = getColName(colNameMap, pk)
 			}
 		}
-		pkeyStr = strings.Join(pkeys, ",")
+		pkeyStr = joinQuoted(pkeys)
 
 		stmtBuilder.WriteString("PRIMARY KEY (")
 		stmtBuilder.WriteString(pkeyStr)
@@ -208,12 +208,20 @@ func generateCreateTableSQLForNormalizedTable(
 			if pkeyStr != "" {
 				stmtBuilder.WriteRune(',')
 			}
-			stmtBuilder.WriteString(strings.Join(orderbyColumns, ","))
+			stmtBuilder.WriteString(joinQuoted(orderbyColumns))
 		}
 		stmtBuilder.WriteRune(')')
 	}
 
 	return stmtBuilder.String(), nil
+}
+
+func joinQuoted(cols []string) string {
+	quoted := make([]string, len(cols))
+	for idx, col := range cols {
+		quoted[idx] = fmt.Sprintf("`%s`", col)
+	}
+	return strings.Join(quoted, ",")
 }
 
 func (c *ClickHouseConnector) NormalizeRecords(
