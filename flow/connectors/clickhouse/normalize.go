@@ -266,7 +266,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		selectQuery.WriteString("SELECT ")
 
 		colSelector := strings.Builder{}
-		colSelector.WriteString("(")
+		colSelector.WriteRune('(')
 
 		schema := req.TableNameSchemaMapping[tbl]
 
@@ -276,6 +276,11 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				tableMapping = tm
 				break
 			}
+		}
+
+		enablePrimaryUpdate, err := peerdbenv.PeerDBEnableClickHousePrimaryUpdate(ctx, req.Env)
+		if err != nil {
+			return nil, err
 		}
 
 		projection := strings.Builder{}
@@ -326,43 +331,45 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					colName,
 					dstColName,
 				))
-				projectionUpdate.WriteString(fmt.Sprintf(
-					"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s'))) AS `%s`,",
-					colName,
-					dstColName,
-				))
+				if enablePrimaryUpdate {
+					projectionUpdate.WriteString(fmt.Sprintf(
+						"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s'))) AS `%s`,",
+						colName,
+						dstColName,
+					))
+				}
 			case "DateTime64(6)", "Nullable(DateTime64(6))":
 				projection.WriteString(fmt.Sprintf(
 					"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s')) AS `%s`,",
 					colName,
 					dstColName,
 				))
-				projectionUpdate.WriteString(fmt.Sprintf(
-					"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s')) AS `%s`,",
-					colName,
-					dstColName,
-				))
+				if enablePrimaryUpdate {
+					projectionUpdate.WriteString(fmt.Sprintf(
+						"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s')) AS `%s`,",
+						colName,
+						dstColName,
+					))
+				}
 			default:
 				projection.WriteString(fmt.Sprintf("JSONExtract(_peerdb_data, '%s', '%s') AS `%s`,", colName, clickHouseType, dstColName))
-				projectionUpdate.WriteString(fmt.Sprintf(
-					"JSONExtract(_peerdb_match_data, '%s', '%s') AS `%s`,",
-					colName,
-					clickHouseType,
-					dstColName,
-				))
+				if enablePrimaryUpdate {
+					projectionUpdate.WriteString(fmt.Sprintf(
+						"JSONExtract(_peerdb_match_data, '%s', '%s') AS `%s`,",
+						colName,
+						clickHouseType,
+						dstColName,
+					))
+				}
 			}
 		}
 
 		// add _peerdb_sign as _peerdb_record_type / 2
 		projection.WriteString(fmt.Sprintf("intDiv(_peerdb_record_type, 2) AS `%s`,", signColName))
-		// projectionUpdate generates delete on previous record, so _peerdb_record_type is filled in as 2
-		projectionUpdate.WriteString(fmt.Sprintf("1 AS `%s`,", signColName))
 		colSelector.WriteString(fmt.Sprintf("`%s`,", signColName))
 
 		// add _peerdb_timestamp as _peerdb_version
 		projection.WriteString(fmt.Sprintf("_peerdb_timestamp AS `%s`", versionColName))
-		// decrement timestamp by 1 so delete is ordered before update's new data
-		projectionUpdate.WriteString(fmt.Sprintf("_peerdb_timestamp - 1 AS `%s`", versionColName))
 		colSelector.WriteString(versionColName)
 		colSelector.WriteString(") ")
 
@@ -377,10 +384,13 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		selectQuery.WriteString(tbl)
 		selectQuery.WriteString("'")
 
-		enablePrimaryUpdate, err := peerdbenv.PeerDBEnableClickHousePrimaryUpdate(ctx, req.Env)
-		if err != nil {
-			return nil, err
-		} else if enablePrimaryUpdate {
+		if enablePrimaryUpdate {
+			// projectionUpdate generates delete on previous record, so _peerdb_record_type is filled in as 2
+			projectionUpdate.WriteString(fmt.Sprintf("1 AS `%s`,", signColName))
+			// decrement timestamp by 1 so delete is ordered before latest data,
+			// could be same if deletion records were only generated when ordering updated
+			projectionUpdate.WriteString(fmt.Sprintf("_peerdb_timestamp - 1 AS `%s`", versionColName))
+
 			selectQuery.WriteString("UNION ALL SELECT ")
 			selectQuery.WriteString(projectionUpdate.String())
 			selectQuery.WriteString(" FROM ")
