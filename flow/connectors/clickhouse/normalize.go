@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 const (
@@ -70,9 +71,9 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 
 func getColName(overrides map[string]string, name string) string {
 	if newName, ok := overrides[name]; ok {
-		return newName
+		return shared.SanitizeColumnNameForAvro(newName)
 	}
-	return name
+	return shared.SanitizeColumnNameForAvro(name)
 }
 
 func generateCreateTableSQLForNormalizedTable(
@@ -104,7 +105,7 @@ func generateCreateTableSQLForNormalizedTable(
 	colNameMap := make(map[string]string)
 	for _, column := range tableSchema.Columns {
 		colName := column.Name
-		dstColName := colName
+		dstColName := shared.SanitizeColumnNameForAvro(colName)
 		colType := qvalue.QValueKind(column.Type)
 		var clickHouseType string
 		var columnSetting *protos.ColumnSetting
@@ -175,7 +176,7 @@ func generateCreateTableSQLForNormalizedTable(
 				pkeys[idx] = getColName(colNameMap, pk)
 			}
 		}
-		pkeyStr = strings.Join(pkeys, ",")
+		pkeyStr = joinQuoted(pkeys)
 
 		stmtBuilder.WriteString("PRIMARY KEY (")
 		stmtBuilder.WriteString(pkeyStr)
@@ -207,12 +208,25 @@ func generateCreateTableSQLForNormalizedTable(
 			if pkeyStr != "" {
 				stmtBuilder.WriteRune(',')
 			}
-			stmtBuilder.WriteString(strings.Join(orderbyColumns, ","))
+			stmtBuilder.WriteString(joinQuoted(orderbyColumns))
 		}
 		stmtBuilder.WriteRune(')')
 	}
 
 	return stmtBuilder.String(), nil
+}
+
+func joinQuoted(cols []string) string {
+	var sb strings.Builder
+	for idx, col := range cols {
+		if idx > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString("`")
+		sb.WriteString(shared.SanitizeColumnNameForAvro(col))
+		sb.WriteString("`")
+	}
+	return sb.String()
 }
 
 func (c *ClickHouseConnector) NormalizeRecords(

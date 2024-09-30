@@ -37,7 +37,7 @@ func (s PeerFlowE2ETestSuiteSF) checkJSONValue(tableName, colName, fieldName, va
 }
 
 func (s PeerFlowE2ETestSuiteSF) compareTableContentsWithDiffSelectorsSF(tableName, pgSelector, sfSelector string) {
-	pgRows, err := e2e.GetPgRows(s.conn, s.pgSuffix, tableName, pgSelector)
+	pgRows, err := e2e.GetPgRows(s.conn, s.pgSuffix, tableName, pgSelector, "id")
 	require.NoError(s.t, err)
 
 	sfRows, err := s.GetRows(tableName, sfSelector)

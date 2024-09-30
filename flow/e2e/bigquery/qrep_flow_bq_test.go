@@ -76,7 +76,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error())
 
-	e2e.RequireEqualTables(s, tblName, "*")
+	e2e.RequireEqualTables(s, tblName, "*", "id")
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Timestamps_And_Date_QRep() {

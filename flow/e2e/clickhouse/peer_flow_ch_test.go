@@ -263,3 +263,57 @@ func (s ClickHouseSuite) Test_Date32() {
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
 }
+
+func (s ClickHouseSuite) Test_ColumnNamesWithSpaces() {
+	srcTableName := "test_column_names_with_spaces"
+	srcFullName := s.attachSchemaSuffix("test_column_names_with_spaces")
+	dstTableName := "test_column_names_with_spaces_dst"
+
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			"id with Space" SERIAL PRIMARY KEY,
+			"column with Space" TEXT NOT NULL,
+			"another column with Space" TEXT
+		);
+	`, srcFullName))
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+	INSERT INTO %s ("column with Space", "another column with Space") VALUES ('init', 'value');
+	`, srcFullName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("clickhouse_column_names_with_spaces"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	e2e.EnvWaitForEqualTablesWithNamesDifferentColumns(
+		env, s, "waiting on initial", srcTableName, dstTableName,
+		`"id with Space","column with Space","another column with Space"`,
+		`id_with_Space,column_with_Space,another_column_with_Space`,
+		`"id with Space"`,
+	)
+
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO %s ("column with Space", "another column with Space")
+		VALUES ('cdc', 'value');
+	`, srcFullName))
+	require.NoError(s.t, err)
+
+	e2e.EnvWaitForEqualTablesWithNamesDifferentColumns(
+		env, s, "waiting on cdc", srcTableName, dstTableName,
+		`"id with Space","column with Space","another column with Space"`,
+		`id_with_Space,column_with_Space,another_column_with_Space`,
+		`"id with Space"`,
+	)
+
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
+}
