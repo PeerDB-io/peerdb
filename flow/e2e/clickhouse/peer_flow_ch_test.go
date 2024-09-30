@@ -294,9 +294,10 @@ func (s ClickHouseSuite) Test_ColumnNamesWithSpaces() {
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	e2e.EnvWaitForEqualTablesWithNames(
+	e2e.EnvWaitForEqualTablesWithNamesDifferentColumns(
 		env, s, "waiting on initial", srcTableName, dstTableName,
-		"\"id with Space\",\"column with Space\",\"another column with Space\"",
+		`"id with Space","column with Space","another column with Space"`,
+		`id_with_Space,column_with_Space,another_column_with_Space`,
 	)
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
@@ -307,8 +308,8 @@ func (s ClickHouseSuite) Test_ColumnNamesWithSpaces() {
 
 	e2e.EnvWaitForEqualTablesWithNamesDifferentColumns(
 		env, s, "waiting on cdc", srcTableName, dstTableName,
-		"\"id with Space\",\"column with Space\",\"another column with Space\"",
-		"id_with_Space,column_with_Space,another_column_with_Space",
+		`"id with Space","column with Space","another column with Space"`,
+		`id_with_Space,column_with_Space,another_column_with_Space`,
 	)
 
 	env.Cancel()
