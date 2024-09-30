@@ -117,6 +117,8 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 			qkind = qvalue.QValueKindString
 		case "Int32", "Nullable(Int32)":
 			qkind = qvalue.QValueKindInt32
+		case "Int64", "Nullable(Int64)":
+			qkind = qvalue.QValueKindInt64
 		case "DateTime64(6)", "Nullable(DateTime64(6))":
 			qkind = qvalue.QValueKindTimestamp
 		case "Date32", "Nullable(Date32)":
@@ -160,6 +162,14 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				}
 			case *int32:
 				qrow = append(qrow, qvalue.QValueInt32{Val: *v})
+			case **int64:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindInt64))
+				} else {
+					qrow = append(qrow, qvalue.QValueInt64{Val: **v})
+				}
+			case *int64:
+				qrow = append(qrow, qvalue.QValueInt64{Val: *v})
 			case **time.Time:
 				if *v == nil {
 					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindTimestamp))
