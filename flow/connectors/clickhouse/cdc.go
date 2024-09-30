@@ -141,7 +141,7 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 					addedColumn.Type, err)
 			}
 			err = c.execWithLogging(ctx,
-				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
+				fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN IF NOT EXISTS \"%s\" %s",
 					schemaDelta.DstTableName, addedColumn.Name, clickHouseColType))
 			if err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
