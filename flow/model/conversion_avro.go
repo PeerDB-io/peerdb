@@ -8,6 +8,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type QRecordAvroConverter struct {
@@ -45,7 +46,9 @@ func (qac *QRecordAvroConverter) Convert(qrecord []qvalue.QValue) (map[string]in
 			return nil, fmt.Errorf("failed to convert QValue to Avro-compatible value: %w", err)
 		}
 
-		m[qac.ColNames[idx]] = avroVal
+		fieldName := qac.ColNames[idx]
+		fieldName = shared.SanitizeColumnNameForAvro(fieldName)
+		m[fieldName] = avroVal
 	}
 
 	return m, nil
@@ -84,8 +87,11 @@ func GetAvroSchemaDefinition(
 			avroType = []interface{}{"null", avroType}
 		}
 
+		fieldName := qField.Name
+		fieldName = shared.SanitizeColumnNameForAvro(fieldName)
+
 		avroFields = append(avroFields, QRecordAvroField{
-			Name: qField.Name,
+			Name: fieldName,
 			Type: avroType,
 		})
 	}

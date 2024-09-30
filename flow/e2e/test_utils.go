@@ -147,19 +147,31 @@ func EnvWaitForEqualTablesWithNames(
 	dstTable string,
 	cols string,
 ) {
+	EnvWaitForEqualTablesWithNamesDifferentColumns(env, suite, reason, srcTable, dstTable, cols, cols)
+}
+
+func EnvWaitForEqualTablesWithNamesDifferentColumns(
+	env WorkflowRun,
+	suite RowSource,
+	reason string,
+	srcTable string,
+	dstTable string,
+	srcCols string,
+	dstCols string,
+) {
 	t := suite.T()
 	t.Helper()
 
 	EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
 		t.Helper()
 
-		pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), srcTable, cols)
+		pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), srcTable, srcCols)
 		if err != nil {
 			t.Log(err)
 			return false
 		}
 
-		rows, err := suite.GetRows(dstTable, cols)
+		rows, err := suite.GetRows(dstTable, dstCols)
 		if err != nil {
 			t.Log(err)
 			return false

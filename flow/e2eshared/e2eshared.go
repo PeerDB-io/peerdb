@@ -45,14 +45,14 @@ func ReadFileToBytes(path string) ([]byte, error) {
 
 	f, err := os.Open(path)
 	if err != nil {
-		return ret, fmt.Errorf("failed to open file: %w", err)
+		return ret, fmt.Errorf("failed to open file - %s: %w", path, err)
 	}
 
 	defer f.Close()
 
 	ret, err = io.ReadAll(f)
 	if err != nil {
-		return ret, fmt.Errorf("failed to read file: %w", err)
+		return ret, fmt.Errorf("failed to read file - %s: %w", path, err)
 	}
 
 	return ret, nil
