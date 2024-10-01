@@ -302,6 +302,7 @@ func (c *ClickHouseConnector) exec(ctx context.Context, query string, args ...an
 		if !isRetryableException(err) {
 			break
 		}
+		c.logger.Info("[exec] retryable error", slog.Any("error", err), slog.Any("query", query), slog.Int64("i", int64(i)))
 		if i < 4 {
 			time.Sleep(time.Second * time.Duration(i*5+1))
 		}
@@ -317,6 +318,7 @@ func (c *ClickHouseConnector) query(ctx context.Context, query string, args ...a
 		if !isRetryableException(err) {
 			break
 		}
+		c.logger.Info("[query] retryable error", slog.Any("error", err), slog.Any("query", query), slog.Int64("i", int64(i)))
 		if i < 4 {
 			time.Sleep(time.Second * time.Duration(i*5+1))
 		}
@@ -328,9 +330,11 @@ func (c *ClickHouseConnector) queryRow(ctx context.Context, query string, args .
 	var row driver.Row
 	for i := range 5 {
 		row = c.database.QueryRow(ctx, query, args...)
-		if !isRetryableException(row.Err()) {
+		err := row.Err()
+		if !isRetryableException(err) {
 			break
 		}
+		c.logger.Info("[queryRow] retryable error", slog.Any("error", row.Err()), slog.Any("query", query), slog.Int64("i", int64(i)))
 		if i < 4 {
 			time.Sleep(time.Second * time.Duration(i*5+1))
 		}
