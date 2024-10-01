@@ -75,44 +75,34 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	}
 	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
 	// create a table
-	err := c.exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-		id UInt64
-	) ENGINE = ReplacingMergeTree ORDER BY id;`,
-		validateDummyTableName+"_temp"))
-	if err != nil {
+	if err := c.exec(ctx,
+		fmt.Sprintf(`CREATE TEMPORARY TABLE IF NOT EXISTS %s (id UInt64) ENGINE = ReplacingMergeTree ORDER BY id;`, validateDummyTableName),
+	); err != nil {
 		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// add a column
-	err = c.exec(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now64()",
-		validateDummyTableName+"_temp"))
-	if err != nil {
+	if err := c.exec(ctx,
+		fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now64()", validateDummyTableName),
+	); err != nil {
 		return fmt.Errorf("failed to add column to validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// rename the table
-	err = c.exec(ctx, fmt.Sprintf("RENAME TABLE %s TO %s",
-		validateDummyTableName+"_temp", validateDummyTableName))
-	if err != nil {
+	if err := c.exec(ctx,
+		fmt.Sprintf("RENAME TABLE %s TO %s", validateDummyTableName, validateDummyTableName),
+	); err != nil {
 		return fmt.Errorf("failed to rename validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// insert a row
-	err = c.exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableName))
-	if err != nil {
+	if err := c.exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableName)); err != nil {
 		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableName, err)
 	}
 
-	// drop the table
-	err = c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName)
-	if err != nil {
-		return fmt.Errorf("failed to drop validation table %s: %w", validateDummyTableName, err)
-	}
-
 	// validate s3 stage
-	validateErr := ValidateS3(ctx, c.credsProvider)
-	if validateErr != nil {
-		return fmt.Errorf("failed to validate S3 bucket: %w", validateErr)
+	if err := ValidateS3(ctx, c.credsProvider); err != nil {
+		return fmt.Errorf("failed to validate S3 bucket: %w", err)
 	}
 
 	return nil
