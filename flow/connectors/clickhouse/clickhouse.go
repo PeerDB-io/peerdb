@@ -83,22 +83,11 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
 	}
 	defer func() {
-		// goroutine so API call doesn't hang
-		go func() {
-			// drop the table at any cost
-			for i := 1; i <= 5; i++ {
-				err = c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName)
-				if err != nil {
-					c.logger.Error("failed to drop validation table",
-						slog.Int("attempt", i),
-						slog.String("table", validateDummyTableName),
-						slog.Any("error", err))
-					time.Sleep(time.Duration(i) * time.Second)
-				} else {
-					break
-				}
-			}
-		}()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if err := c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName); err != nil {
+			c.logger.Error("validation failed to drop table", slog.String("table", validateDummyTableName), slog.Any("error", err))
+		}
 	}()
 
 	// add a column
