@@ -157,7 +157,7 @@ DROP AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4); END;`,
 		TargetForSetting: protos.DynconfTarget_BIGQUERY,
 	},
 	{
-		Name:             "PEERDB_CLICKHOUSE_DISABLE_PRIMARY_UPDATE",
+		Name:             "PEERDB_CLICKHOUSE_ENABLE_PRIMARY_UPDATE",
 		Description:      "Enable generating deletion records for updates in ClickHouse, avoids stale records when primary key updated",
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
