@@ -297,12 +297,14 @@ func isRetryableException(err error) bool {
 //nolint:unparam
 func (c *ClickHouseConnector) exec(ctx context.Context, query string, args ...any) error {
 	var err error
-	for i := range 3 {
+	for i := range 5 {
 		err = c.database.Exec(ctx, query, args...)
 		if !isRetryableException(err) {
 			break
 		}
-		time.Sleep(time.Second * time.Duration(i))
+		if i < 4 {
+			time.Sleep(time.Second * time.Duration(i*5+1))
+		}
 	}
 	return err
 }
@@ -310,24 +312,28 @@ func (c *ClickHouseConnector) exec(ctx context.Context, query string, args ...an
 func (c *ClickHouseConnector) query(ctx context.Context, query string, args ...any) (driver.Rows, error) {
 	var rows driver.Rows
 	var err error
-	for i := range 3 {
+	for i := range 5 {
 		rows, err = c.database.Query(ctx, query, args...)
 		if !isRetryableException(err) {
 			break
 		}
-		time.Sleep(time.Second * time.Duration(i))
+		if i < 4 {
+			time.Sleep(time.Second * time.Duration(i*5+1))
+		}
 	}
 	return rows, err
 }
 
 func (c *ClickHouseConnector) queryRow(ctx context.Context, query string, args ...any) driver.Row {
 	var row driver.Row
-	for i := range 3 {
+	for i := range 5 {
 		row = c.database.QueryRow(ctx, query, args...)
 		if !isRetryableException(row.Err()) {
 			break
 		}
-		time.Sleep(time.Second * time.Duration(i))
+		if i < 4 {
+			time.Sleep(time.Second * time.Duration(i*5+1))
+		}
 	}
 	return row
 }
