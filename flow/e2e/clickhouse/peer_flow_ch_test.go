@@ -265,9 +265,9 @@ func (s ClickHouseSuite) Test_Date32() {
 }
 
 func (s ClickHouseSuite) Test_Update_PKey_Env_Disabled() {
-	srcTableName := "test_update_pkey"
-	srcFullName := s.attachSchemaSuffix("test_update_pkey")
-	dstTableName := "test_update_pkey_dst"
+	srcTableName := "test_update_pkey_disabled"
+	srcFullName := s.attachSchemaSuffix("test_update_pkey_disabled")
+	dstTableName := "test_update_pkey_disabled_dst"
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -283,7 +283,7 @@ func (s ClickHouseSuite) Test_Update_PKey_Env_Disabled() {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("clickhouse_date32"),
+		FlowJobName:      s.attachSuffix("clickhouse_pkey_update_disabled"),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
@@ -313,9 +313,9 @@ func (s ClickHouseSuite) Test_Update_PKey_Env_Disabled() {
 }
 
 func (s ClickHouseSuite) Test_Update_PKey_Env_Enabled() {
-	srcTableName := "test_update_pkey"
-	srcFullName := s.attachSchemaSuffix("test_update_pkey")
-	dstTableName := "test_update_pkey_dst"
+	srcTableName := "test_update_pkey_enabled"
+	srcFullName := s.attachSchemaSuffix("test_update_pkey_enabled")
+	dstTableName := "test_update_pkey_enabled_dst"
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -331,7 +331,7 @@ func (s ClickHouseSuite) Test_Update_PKey_Env_Enabled() {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("clickhouse_date32"),
+		FlowJobName:      s.attachSuffix("clickhouse_pkey_update_enabled"),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
