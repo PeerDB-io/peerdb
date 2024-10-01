@@ -212,6 +212,8 @@ func generateCreateTableSQLForNormalizedTable(
 		stmtBuilder.WriteRune(')')
 	}
 
+	stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
+
 	return stmtBuilder.String(), nil
 }
 
