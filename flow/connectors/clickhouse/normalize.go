@@ -442,7 +442,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 		`SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d`,
 		rawTbl, normalizeBatchID, syncBatchID)
 
-	rows, err := c.database.Query(ctx, q)
+	rows, err := c.query(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("error while querying raw table for distinct table names in batch: %w", err)
 	}
