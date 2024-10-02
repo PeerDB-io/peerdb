@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"net/url"
@@ -296,7 +297,7 @@ func isRetryableException(err error) bool {
 		_, yes := retryableExceptions[ex.Code]
 		return yes
 	}
-	return false
+	return errors.Is(err, io.EOF)
 }
 
 //nolint:unparam
