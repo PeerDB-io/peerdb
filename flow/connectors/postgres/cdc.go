@@ -760,12 +760,12 @@ func processUpdateMessage[Items model.Items](
 	   but this doesn't work in connectors where we don't do unchanged TOAST handling in normalize.
 	   TODO: investigate the cases where this happens in more detail.
 	*/
-	backfilledCols := newItems.UpdateIfNotExists(oldItems)
-	for _, col := range backfilledCols {
-		delete(unchangedToastColumns, col)
-		// we only use _peerdb_data anyway, remove for space optimization
-		oldItems.DeleteColName(col)
-	}
+	// backfilledCols := newItems.UpdateIfNotExists(oldItems)
+	// for _, col := range backfilledCols {
+	// 	delete(unchangedToastColumns, col)
+	// 	// we only use _peerdb_data anyway, remove for space optimization
+	// 	oldItems.DeleteColName(col)
+	// }
 
 	return &model.UpdateRecord[Items]{
 		BaseRecord:            p.baseRecord(lsn),
