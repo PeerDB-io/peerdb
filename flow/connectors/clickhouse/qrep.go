@@ -87,14 +87,18 @@ func (c *ClickHouseConnector) SyncFromAvroUrl(
 			destinationTableIdentifier, engine)
 	}
 
-	err := c.database.Exec(ctx, query, avroFileUrl)
-	if err != nil {
-		c.logger.Error("Failed to insert into select for Clickhouse", slog.Any("error", err))
-		return err
+	if err := c.database.Exec(ctx, query, avroFileUrl); err != nil {
+		if engine == "" {
+			c.logger.Error("[ch] Failed to insert into select", slog.Any("error", err))
+			return err
+		} else {
+			// can be because table already exists
+			c.logger.Error("[ch] Failed to create table, attempting to insert into table", slog.Any("error", err))
+		}
 	}
 
 	if engine != "" {
-		// Need to actually populate data now
+		// populate data now
 		return c.SyncFromAvroUrl(ctx, avroFileUrl, destinationTableIdentifier, "")
 	}
 	return nil
