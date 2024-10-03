@@ -423,10 +423,12 @@ func (c *ClickHouseConnector) CheckDestinationTables(ctx context.Context, req *p
 			continue
 		}
 
-		err = c.processTableComparison(dstTableName, processedMapping[dstTableName],
-			chTableColumnsMapping[dstTableName], peerDBColumns, tableMapping)
-		if err != nil {
-			return err
+		if !req.Resync {
+			err = c.processTableComparison(dstTableName, processedMapping[dstTableName],
+				chTableColumnsMapping[dstTableName], peerDBColumns, tableMapping)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
