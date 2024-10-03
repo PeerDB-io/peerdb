@@ -331,6 +331,10 @@ func (h *FlowRequestHandler) InitialLoadSummary(
 
 		cloneStatuses = append(cloneStatuses, &res)
 	}
+
+	if cloneStatuses == nil {
+		cloneStatuses = []*protos.CloneTableSummary{}
+	}
 	return &protos.InitialLoadSummaryResponse{
 		TableSummaries: cloneStatuses,
 	}, nil
@@ -538,6 +542,10 @@ func (h *FlowRequestHandler) GetCDCBatches(ctx context.Context, req *protos.GetC
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if batches == nil {
+		batches = []*protos.CDCBatch{}
 	}
 
 	return &protos.GetCDCBatchesResponse{
