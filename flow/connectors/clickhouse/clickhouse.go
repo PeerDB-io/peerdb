@@ -457,7 +457,7 @@ func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSch
 			}
 		}
 		if !found {
-			return fmt.Errorf("field %s not found in destination table", srcField.Name)
+			return fmt.Errorf("field %s not found in destination table %s", srcField.Name, dstTableName)
 		}
 	}
 	foundPeerDBColumns := 0
