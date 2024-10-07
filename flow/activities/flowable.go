@@ -312,6 +312,7 @@ func (a *FlowableActivity) MaintainPull(
 				a.CdcCacheRw.Lock()
 				delete(a.CdcCache, sessionID)
 				a.CdcCacheRw.Unlock()
+				a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 				return temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", err)
 			}
 		case <-done:
