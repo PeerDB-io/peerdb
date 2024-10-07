@@ -14,6 +14,7 @@ export const getMirrorState = async (
       include_flow_info: true,
     }),
   });
+  if (!res.ok) throw res.json();
   return res.json();
 };
 
