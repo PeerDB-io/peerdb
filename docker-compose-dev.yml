@@ -4,7 +4,7 @@ x-minio-config: &minio-config
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID: _peerdb_minioadmin
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: _peerdb_minioadmin
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION: us-east-1
-  PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://host.docker.internal:9001
+  PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://host.docker.internal:9005
   PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME: peerdbbucket
 
 x-catalog-config: &catalog-config
@@ -42,7 +42,7 @@ services:
     image: postgres:17-alpine@sha256:0bcc5bbbb2aa9c9b4c6505845918c7eb55d783cf5c1f434fac33012579fb149d
     command: -c config_file=/etc/postgresql.conf
     ports:
-      - 9901:5432
+      - 9903:5432
     environment:
       PGUSER: postgres
       POSTGRES_PASSWORD: postgres
@@ -81,11 +81,11 @@ services:
     labels:
       kompose.volume.type: configMap
 
-  pyroscope:
-    container_name: pyroscope
-    image: grafana/pyroscope:latest@sha256:0710120c873260efda93b30a70a4ff47cf16678d249d904b68cc91900efce610
-    ports:
-      - 4040:4040
+  # pyroscope:
+  #   container_name: pyroscope
+  #   image: grafana/pyroscope:latest@sha256:0710120c873260efda93b30a70a4ff47cf16678d249d904b68cc91900efce610
+  #   ports:
+  #     - 4040:4040
 
   temporal-admin-tools:
     container_name: temporal-admin-tools
@@ -167,54 +167,54 @@ services:
       temporal-admin-tools:
         condition: service_healthy
 
-  peerdb:
-    container_name: peerdb-server
-    stop_signal: SIGINT
-    build:
-      context: .
-      dockerfile: stacks/peerdb-server.Dockerfile
-    environment:
-      <<: *catalog-config
-      PEERDB_PASSWORD: peerdb
-      PEERDB_FLOW_SERVER_ADDRESS: grpc://flow_api:8112
-      RUST_LOG: info
-      RUST_BACKTRACE: 1
-    ports:
-      - 9900:9900
-    depends_on:
-      catalog:
-        condition: service_healthy
+  # peerdb:
+  #   container_name: peerdb-server
+  #   stop_signal: SIGINT
+  #   build:
+  #     context: .
+  #     dockerfile: stacks/peerdb-server.Dockerfile
+  #   environment:
+  #     <<: *catalog-config
+  #     PEERDB_PASSWORD: peerdb
+  #     PEERDB_FLOW_SERVER_ADDRESS: grpc://flow_api:8112
+  #     RUST_LOG: info
+  #     RUST_BACKTRACE: 1
+  #   ports:
+  #     - 9900:9900
+  #   depends_on:
+  #     catalog:
+  #       condition: service_healthy
 
-  peerdb-ui:
-    container_name: peerdb-ui
-    build:
-      context: .
-      dockerfile: stacks/peerdb-ui.Dockerfile
-    ports:
-      - 3000:3000
-    env_file:
-      - path: ./.env
-        required: false
-    environment:
-      <<: *catalog-config
-      DATABASE_URL: postgres://postgres:postgres@catalog:5432/postgres
-      PEERDB_FLOW_SERVER_HTTP: http://flow_api:8113
-      PEERDB_PASSWORD:
-      NEXTAUTH_SECRET: __changeme__
-      NEXTAUTH_URL: http://localhost:3000
-      PEERDB_ALLOWED_TARGETS:
-      PEERDB_CLICKHOUSE_ALLOWED_DOMAINS:
-      PEERDB_EXPERIMENTAL_ENABLE_SCRIPTING: true
-    depends_on:
-      - flow-api
+  # peerdb-ui:
+  #   container_name: peerdb-ui
+  #   build:
+  #     context: .
+  #     dockerfile: stacks/peerdb-ui.Dockerfile
+  #   ports:
+  #     - 3000:3000
+  #   env_file:
+  #     - path: ./.env
+  #       required: false
+  #   environment:
+  #     <<: *catalog-config
+  #     DATABASE_URL: postgres://postgres:postgres@catalog:5432/postgres
+  #     PEERDB_FLOW_SERVER_HTTP: http://flow_api:8113
+  #     PEERDB_PASSWORD:
+  #     NEXTAUTH_SECRET: __changeme__
+  #     NEXTAUTH_URL: http://localhost:3000
+  #     PEERDB_ALLOWED_TARGETS:
+  #     PEERDB_CLICKHOUSE_ALLOWED_DOMAINS:
+  #     PEERDB_EXPERIMENTAL_ENABLE_SCRIPTING: true
+  #   depends_on:
+  #     - flow-api
 
   minio:
     image: minio/minio:RELEASE.2024-11-07T00-52-20Z@sha256:ac591851803a79aee64bc37f66d77c56b0a4b6e12d9e5356380f4105510f2332
     volumes:
       - minio-data:/data
     ports:
-      - "9001:9000"
-      - "9002:36987"
+      - "9005:9000"
+      - "9006:36987"
     environment:
       <<: *minio-config
     entrypoint: >
