@@ -152,7 +152,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	numParts := 29
 	for i := 0; i < numParts; i++ {
 		whereClause := fmt.Sprintf("cityHash64(%s) %% %d = %d", hashColName, numParts, i)
-		query := fmt.Sprintf("INSERT INTO %s(%s) SELECT %s FROM s3('%s','%s','%s'%s, 'Avro') WHERE %s",
+		query := fmt.Sprintf("INSERT INTO %s(%s) SELECT %s FROM s3('%s','%s','%s'%s, 'Avro') WHERE %s SETTINGS throw_on_max_partitions_per_insert_block = 0",
 			config.DestinationTableIdentifier, selectorStr, selectorStr, avroFileUrl,
 			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart, whereClause)
 		s.connector.logger.Info("running query", slog.String("query", query), slog.Int("part", i), slog.Int("numParts", numParts))
