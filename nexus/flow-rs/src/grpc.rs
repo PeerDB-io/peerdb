@@ -306,7 +306,7 @@ impl FlowGrpcClient {
     pub async fn resync_mirror(&mut self, flow_job_name: &str) -> anyhow::Result<()> {
         let resync_mirror_req = pt::peerdb_route::ResyncMirrorRequest {
             flow_job_name: flow_job_name.to_owned(),
-            drop_stats: true
+            drop_stats: true,
         };
         let response = self.client.resync_mirror(resync_mirror_req).await?;
         let resync_mirror_response = response.into_inner();
