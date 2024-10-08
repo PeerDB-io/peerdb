@@ -209,7 +209,7 @@ impl SnowflakeRecordStream {
         self.partition_number += 1;
         self.partition_index = 0;
         let partition_number = self.partition_number;
-        let secret = self.auth.get_jwt()?.expose_secret().clone();
+        let secret = self.auth.get_jwt()?.expose_secret();
         let statement_handle = self.result_set.statementHandle.clone();
         let url = self.endpoint_url.clone();
         println!("Secret: {:#?}", secret);

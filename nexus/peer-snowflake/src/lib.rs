@@ -153,7 +153,7 @@ impl SnowflakeQueryExecutor {
     async fn process_query(&self, query_str: &str) -> anyhow::Result<ResultSet> {
         let mut auth = self.auth.clone();
         let jwt = auth.get_jwt()?;
-        let secret = jwt.expose_secret().clone();
+        let secret = jwt.expose_secret();
         // TODO: for things other than SELECTs, the robust way to handle retrys is by
         // generating a UUID from our end to mark the query as unique and then sending it with the request.
         // If we need to retry, send same UUID with retry=true parameter set and Snowflake should prevent duplicate execution.
@@ -216,7 +216,7 @@ impl SnowflakeQueryExecutor {
     ) -> anyhow::Result<QueryAttemptResult> {
         let mut auth = self.auth.clone();
         let jwt = auth.get_jwt()?;
-        let secret = jwt.expose_secret().clone();
+        let secret = jwt.expose_secret();
         let response = self
             .reqwest_client
             .get(format!(
