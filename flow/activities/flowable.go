@@ -596,8 +596,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	})
 	defer shutdown()
 
-	err = dstConn.ConsolidateQRepPartitions(ctx, config)
-	if err != nil {
+	if err := dstConn.ConsolidateQRepPartitions(ctx, config); err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return err
 	}

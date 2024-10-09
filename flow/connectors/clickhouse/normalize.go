@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 const (
@@ -182,7 +183,7 @@ func generateCreateTableSQLForNormalizedTable(
 		stmtBuilder.WriteString(") ")
 	}
 
-	orderby := make([]*protos.ColumnSetting, 0)
+	var orderby []*protos.ColumnSetting
 	if tableMapping != nil {
 		orderby = slices.Clone(tableMapping.Columns)
 		for _, col := range tableMapping.Columns {
@@ -190,10 +191,13 @@ func generateCreateTableSQLForNormalizedTable(
 				orderby = append(orderby, col)
 			}
 		}
+
+		if len(orderby) > 0 {
+			slices.SortStableFunc(orderby, func(a *protos.ColumnSetting, b *protos.ColumnSetting) int {
+				return cmp.Compare(a.Ordering, b.Ordering)
+			})
+		}
 	}
-	slices.SortStableFunc(orderby, func(a *protos.ColumnSetting, b *protos.ColumnSetting) int {
-		return cmp.Compare(a.Ordering, b.Ordering)
-	})
 
 	if pkeyStr != "" || len(orderby) > 0 {
 		stmtBuilder.WriteString("ORDER BY (")
@@ -262,7 +266,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		selectQuery.WriteString("SELECT ")
 
 		colSelector := strings.Builder{}
-		colSelector.WriteString("(")
+		colSelector.WriteRune('(')
 
 		schema := req.TableNameSchemaMapping[tbl]
 
@@ -274,7 +278,13 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			}
 		}
 
+		enablePrimaryUpdate, err := peerdbenv.PeerDBEnableClickHousePrimaryUpdate(ctx, req.Env)
+		if err != nil {
+			return nil, err
+		}
+
 		projection := strings.Builder{}
+		projectionUpdate := strings.Builder{}
 
 		for _, column := range schema.Columns {
 			colName := column.Name
@@ -321,14 +331,36 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					colName,
 					dstColName,
 				))
+				if enablePrimaryUpdate {
+					projectionUpdate.WriteString(fmt.Sprintf(
+						"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s'))) AS `%s`,",
+						colName,
+						dstColName,
+					))
+				}
 			case "DateTime64(6)", "Nullable(DateTime64(6))":
 				projection.WriteString(fmt.Sprintf(
 					"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s')) AS `%s`,",
 					colName,
 					dstColName,
 				))
+				if enablePrimaryUpdate {
+					projectionUpdate.WriteString(fmt.Sprintf(
+						"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s')) AS `%s`,",
+						colName,
+						dstColName,
+					))
+				}
 			default:
 				projection.WriteString(fmt.Sprintf("JSONExtract(_peerdb_data, '%s', '%s') AS `%s`,", colName, clickHouseType, dstColName))
+				if enablePrimaryUpdate {
+					projectionUpdate.WriteString(fmt.Sprintf(
+						"JSONExtract(_peerdb_match_data, '%s', '%s') AS `%s`,",
+						colName,
+						clickHouseType,
+						dstColName,
+					))
+				}
 			}
 		}
 
@@ -351,6 +383,26 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		selectQuery.WriteString(" AND _peerdb_destination_table_name = '")
 		selectQuery.WriteString(tbl)
 		selectQuery.WriteString("'")
+
+		if enablePrimaryUpdate {
+			// projectionUpdate generates delete on previous record, so _peerdb_record_type is filled in as 2
+			projectionUpdate.WriteString(fmt.Sprintf("1 AS `%s`,", signColName))
+			// decrement timestamp by 1 so delete is ordered before latest data,
+			// could be same if deletion records were only generated when ordering updated
+			projectionUpdate.WriteString(fmt.Sprintf("_peerdb_timestamp - 1 AS `%s`", versionColName))
+
+			selectQuery.WriteString("UNION ALL SELECT ")
+			selectQuery.WriteString(projectionUpdate.String())
+			selectQuery.WriteString(" FROM ")
+			selectQuery.WriteString(rawTbl)
+			selectQuery.WriteString(" WHERE _peerdb_batch_id > ")
+			selectQuery.WriteString(strconv.FormatInt(normBatchID, 10))
+			selectQuery.WriteString(" AND _peerdb_batch_id <= ")
+			selectQuery.WriteString(strconv.FormatInt(req.SyncBatchID, 10))
+			selectQuery.WriteString(" AND _peerdb_destination_table_name = '")
+			selectQuery.WriteString(tbl)
+			selectQuery.WriteString("' AND _peerdb_record_type = 1")
+		}
 
 		insertIntoSelectQuery := strings.Builder{}
 		insertIntoSelectQuery.WriteString("INSERT INTO ")
@@ -390,7 +442,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 		`SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d`,
 		rawTbl, normalizeBatchID, syncBatchID)
 
-	rows, err := c.database.Query(ctx, q)
+	rows, err := c.query(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("error while querying raw table for distinct table names in batch: %w", err)
 	}

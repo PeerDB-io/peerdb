@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -18,7 +16,9 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-const qRepMetadataTableName = "_peerdb_query_replication_metadata"
+func (*ClickHouseConnector) SetupQRepMetadataTables(_ context.Context, _ *protos.QRepConfig) error {
+	return nil
+}
 
 func (c *ClickHouseConnector) SyncQRepRecords(
 	ctx context.Context,
@@ -44,91 +44,15 @@ func (c *ClickHouseConnector) SyncQRepRecords(
 	return avroSync.SyncQRepRecords(ctx, config, partition, tblSchema, stream)
 }
 
-func (c *ClickHouseConnector) createMetadataInsertStatement(
-	partition *protos.QRepPartition,
-	jobName string,
-	startTime time.Time,
-) (string, error) {
-	// marshal the partition to json using protojson
-	pbytes, err := protojson.Marshal(partition)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal partition to json: %v", err)
-	}
-
-	// convert the bytes to string
-	partitionJSON := string(pbytes)
-
-	insertMetadataStmt := fmt.Sprintf(
-		`INSERT INTO %s
-			(flowJobName, partitionID, syncPartition, syncStartTime, syncFinishTime)
-			VALUES ('%s', '%s', '%s', '%s', NOW());`,
-		qRepMetadataTableName, jobName, partition.PartitionId,
-		partitionJSON, startTime.Format("2006-01-02 15:04:05.000000"))
-
-	return insertMetadataStmt, nil
-}
-
 func (c *ClickHouseConnector) getTableSchema(ctx context.Context, tableName string) ([]driver.ColumnType, error) {
 	queryString := fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName)
-	rows, err := c.database.Query(ctx, queryString)
+	rows, err := c.query(ctx, queryString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
 	defer rows.Close()
 
 	return rows.ColumnTypes(), nil
-}
-
-func (c *ClickHouseConnector) IsQRepPartitionSynced(ctx context.Context,
-	req *protos.IsQRepPartitionSyncedInput,
-) (bool, error) {
-	queryString := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE partitionID = '%s'`, qRepMetadataTableName, req.PartitionId)
-
-	var count uint64
-	if err := c.database.QueryRow(ctx, queryString).Scan(&count); err != nil {
-		return false, fmt.Errorf("failed to execute query: %w", err)
-	}
-	return count > 0, nil
-}
-
-func (c *ClickHouseConnector) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {
-	err := c.createQRepMetadataTable(ctx)
-	if err != nil {
-		return err
-	}
-
-	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		err = c.execWithLogging(ctx, "TRUNCATE TABLE "+config.DestinationTableIdentifier)
-		if err != nil {
-			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func (c *ClickHouseConnector) createQRepMetadataTable(ctx context.Context) error {
-	// Define the schema
-	schemaStatement := `
-	CREATE TABLE IF NOT EXISTS %s (
-		flowJobName String,
-		partitionID String,
-		syncPartition String,
-		syncStartTime DateTime64,
-		syncFinishTime DateTime64
-		) ENGINE = MergeTree()
-		ORDER BY partitionID;
-	`
-	queryString := fmt.Sprintf(schemaStatement, qRepMetadataTableName)
-	err := c.execWithLogging(ctx, queryString)
-	if err != nil {
-		c.logger.Error("failed to create table "+qRepMetadataTableName,
-			slog.Any("error", err))
-
-		return fmt.Errorf("failed to create table %s: %w", qRepMetadataTableName, err)
-	}
-	c.logger.Info("Created table " + qRepMetadataTableName)
-	return nil
 }
 
 func (c *ClickHouseConnector) ConsolidateQRepPartitions(_ context.Context, config *protos.QRepConfig) error {

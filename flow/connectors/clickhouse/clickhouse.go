@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"go.temporal.io/sdk/log"
 	"golang.org/x/mod/semver"
@@ -74,44 +76,49 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	}
 	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
 	// create a table
-	err := c.database.Exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+	err := c.exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 		id UInt64
 	) ENGINE = ReplacingMergeTree ORDER BY id;`,
-		validateDummyTableName+"_temp"))
+		validateDummyTableName))
 	if err != nil {
 		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
 	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if err := c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName); err != nil {
+			c.logger.Error("validation failed to drop table", slog.String("table", validateDummyTableName), slog.Any("error", err))
+		}
+	}()
 
 	// add a column
-	err = c.database.Exec(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now64()",
-		validateDummyTableName+"_temp"))
-	if err != nil {
+	if err := c.exec(ctx,
+		fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now64()", validateDummyTableName),
+	); err != nil {
 		return fmt.Errorf("failed to add column to validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// rename the table
-	err = c.database.Exec(ctx, fmt.Sprintf("RENAME TABLE %s TO %s",
-		validateDummyTableName+"_temp", validateDummyTableName))
-	if err != nil {
+	if err := c.exec(ctx,
+		fmt.Sprintf("RENAME TABLE %s TO %s", validateDummyTableName, validateDummyTableName+"_renamed"),
+	); err != nil {
 		return fmt.Errorf("failed to rename validation table %s: %w", validateDummyTableName, err)
 	}
+	validateDummyTableName += "_renamed"
 
 	// insert a row
-	err = c.database.Exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableName))
-	if err != nil {
+	if err := c.exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableName)); err != nil {
 		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// drop the table
-	err = c.database.Exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName)
-	if err != nil {
+	if err := c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName); err != nil {
 		return fmt.Errorf("failed to drop validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// validate s3 stage
-	validateErr := ValidateS3(ctx, c.credsProvider)
-	if validateErr != nil {
-		return fmt.Errorf("failed to validate S3 bucket: %w", validateErr)
+	if err := ValidateS3(ctx, c.credsProvider); err != nil {
+		return fmt.Errorf("failed to validate S3 bucket: %w", err)
 	}
 
 	return nil
@@ -261,6 +268,86 @@ func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.C
 	return conn, nil
 }
 
+// https://github.com/ClickHouse/clickhouse-kafka-connect/blob/2e0c17e2f900d29c00482b9d0a1f55cb678244e5/src/main/java/com/clickhouse/kafka/connect/util/Utils.java#L78-L93
+//
+//nolint:lll
+var retryableExceptions = map[int32]struct{}{
+	3:   {}, // UNEXPECTED_END_OF_FILE
+	107: {}, // FILE_DOESNT_EXIST
+	159: {}, // TIMEOUT_EXCEEDED
+	164: {}, // READONLY
+	202: {}, // TOO_MANY_SIMULTANEOUS_QUERIES
+	203: {}, // NO_FREE_CONNECTION
+	209: {}, // SOCKET_TIMEOUT
+	210: {}, // NETWORK_ERROR
+	241: {}, // MEMORY_LIMIT_EXCEEDED
+	242: {}, // TABLE_IS_READ_ONLY
+	252: {}, // TOO_MANY_PARTS
+	285: {}, // TOO_FEW_LIVE_REPLICAS
+	319: {}, // UNKNOWN_STATUS_OF_INSERT
+	425: {}, // SYSTEM_ERROR
+	999: {}, // KEEPER_EXCEPTION
+}
+
+func isRetryableException(err error) bool {
+	if ex, ok := err.(*clickhouse.Exception); ok {
+		if ex == nil {
+			return false
+		}
+		_, yes := retryableExceptions[ex.Code]
+		return yes
+	}
+	return errors.Is(err, io.EOF)
+}
+
+//nolint:unparam
+func (c *ClickHouseConnector) exec(ctx context.Context, query string, args ...any) error {
+	var err error
+	for i := range 5 {
+		err = c.database.Exec(ctx, query, args...)
+		if !isRetryableException(err) {
+			break
+		}
+		c.logger.Info("[exec] retryable error", slog.Any("error", err), slog.Any("query", query), slog.Int64("i", int64(i)))
+		if i < 4 {
+			time.Sleep(time.Second * time.Duration(i*5+1))
+		}
+	}
+	return err
+}
+
+func (c *ClickHouseConnector) query(ctx context.Context, query string, args ...any) (driver.Rows, error) {
+	var rows driver.Rows
+	var err error
+	for i := range 5 {
+		rows, err = c.database.Query(ctx, query, args...)
+		if !isRetryableException(err) {
+			break
+		}
+		c.logger.Info("[query] retryable error", slog.Any("error", err), slog.Any("query", query), slog.Int64("i", int64(i)))
+		if i < 4 {
+			time.Sleep(time.Second * time.Duration(i*5+1))
+		}
+	}
+	return rows, err
+}
+
+func (c *ClickHouseConnector) queryRow(ctx context.Context, query string, args ...any) driver.Row {
+	var row driver.Row
+	for i := range 5 {
+		row = c.database.QueryRow(ctx, query, args...)
+		err := row.Err()
+		if !isRetryableException(err) {
+			break
+		}
+		c.logger.Info("[queryRow] retryable error", slog.Any("error", row.Err()), slog.Any("query", query), slog.Int64("i", int64(i)))
+		if i < 4 {
+			time.Sleep(time.Second * time.Duration(i*5+1))
+		}
+	}
+	return row
+}
+
 func (c *ClickHouseConnector) Close() error {
 	if c != nil {
 		err := c.database.Close()
@@ -287,7 +374,7 @@ func (c *ClickHouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tab
 	for _, table := range tables {
 		queryInput = append(queryInput, table)
 	}
-	rows, err := c.database.Query(ctx,
+	rows, err := c.query(ctx,
 		fmt.Sprintf("SELECT name,engine,total_rows FROM system.tables WHERE database=? AND table IN (%s)",
 			strings.Join(slices.Repeat([]string{"?"}, len(tables)), ",")), queryInput...)
 	if err != nil {
@@ -325,7 +412,7 @@ func (c *ClickHouseConnector) getTableColumnsMapping(ctx context.Context,
 	for _, table := range tables {
 		queryInput = append(queryInput, table)
 	}
-	rows, err := c.database.Query(ctx,
+	rows, err := c.query(ctx,
 		fmt.Sprintf("SELECT name,type,table FROM system.columns WHERE database=? AND table IN (%s)",
 			strings.Join(slices.Repeat([]string{"?"}, len(tables)), ",")), queryInput...)
 	if err != nil {
@@ -371,7 +458,7 @@ func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSch
 			}
 		}
 		if !found {
-			return fmt.Errorf("field %s not found in destination table", srcField.Name)
+			return fmt.Errorf("field %s not found in destination table %s", srcField.Name, dstTableName)
 		}
 	}
 	foundPeerDBColumns := 0
