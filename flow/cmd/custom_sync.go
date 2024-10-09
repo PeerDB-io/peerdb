@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -17,69 +18,52 @@ const (
 func (h *FlowRequestHandler) CustomSyncFlow(
 	ctx context.Context, req *protos.CreateCustomSyncRequest,
 ) (*protos.CreateCustomSyncResponse, error) {
-	errResponse := &protos.CreateCustomSyncResponse{
-		FlowJobName:   req.FlowJobName,
-		NumberOfSyncs: 0,
-		ErrorMessage:  "error while processing request",
-		Ok:            false,
-	}
-
 	// ---- REQUEST VALIDATION ----
 	if req.FlowJobName == "" {
-		errResponse.ErrorMessage = "Mirror name cannot be empty."
-		return errResponse, nil
+		return nil, errors.New("mirror name cannot be empty")
 	}
 
 	if req.NumberOfSyncs <= 0 || req.NumberOfSyncs > syncRequestLimit {
 		slog.Error("Invalid sync number request",
 			slog.Any("requested_number_of_syncs", req.NumberOfSyncs))
-		errResponse.ErrorMessage = fmt.Sprintf("Sync number request must be between 1 and %d (inclusive). Requested number: %d",
+		return nil, fmt.Errorf("sync number request must be between 1 and %d (inclusive). Requested number: %d",
 			syncRequestLimit, req.NumberOfSyncs)
-		return errResponse, nil
 	}
 
 	mirrorExists, err := h.CheckIfMirrorNameExists(ctx, req.FlowJobName)
 	if err != nil {
 		slog.Error("Server error: unable to check if mirror exists", slog.Any("error", err))
-		errResponse.ErrorMessage = "Server error: unable to check if mirror " + req.FlowJobName + " exists."
-		return errResponse, nil
+		return nil, fmt.Errorf("server error: unable to check if mirror %s exists", req.FlowJobName)
 	}
 	if !mirrorExists {
 		slog.Error("Mirror does not exist", slog.Any("mirror_name", req.FlowJobName))
-		errResponse.ErrorMessage = fmt.Sprintf("Mirror %s does not exist", req.FlowJobName)
-		return errResponse, nil
+		return nil, fmt.Errorf("mirror %s does not exist", req.FlowJobName)
 	}
 
-	mirrorStatusResponse, _ := h.MirrorStatus(ctx, &protos.MirrorStatusRequest{
+	mirrorStatusResponse, err := h.MirrorStatus(ctx, &protos.MirrorStatusRequest{
 		FlowJobName: req.FlowJobName,
 	})
-	if mirrorStatusResponse.ErrorMessage != "" {
+	if err != nil {
 		slog.Error("Server error: unable to check the status of mirror",
-			slog.Any("mirror", req.FlowJobName),
-			slog.Any("error", mirrorStatusResponse.ErrorMessage))
-		errResponse.ErrorMessage = fmt.Sprintf("Server error: unable to check the status of mirror %s: %s",
-			req.FlowJobName, mirrorStatusResponse.ErrorMessage)
-		return errResponse, nil
+			slog.String("mirror", req.FlowJobName),
+			slog.Any("error", err))
+		return nil, err
 	}
 
 	if mirrorStatusResponse.CurrentFlowState != protos.FlowStatus_STATUS_PAUSED {
 		slog.Error("Mirror is not paused", slog.Any("mirror", req.FlowJobName))
-		errResponse.ErrorMessage = fmt.Sprintf(`Requested mirror %s is not paused. This is a requirement.
-		The mirror can be paused via PeerDB UI. Please follow %s`,
+		return nil, fmt.Errorf(
+			"requested mirror %s is not paused. This is a requirement. The mirror can be paused via PeerDB UI. Please follow %s",
 			req.FlowJobName, peerdbPauseGuideDocLink)
-		return errResponse, nil
 	}
 
 	// Parallel sync-normalise should not be enabled
 	parallelSyncNormaliseEnabled, err := peerdbenv.PeerDBEnableParallelSyncNormalize(ctx, nil)
 	if err != nil {
-		slog.Error("Server error: unable to check if parallel sync-normalise is enabled", slog.Any("error", err))
-		errResponse.ErrorMessage = "Server error: unable to check if parallel sync-normalise is enabled."
-		return errResponse, nil
+		return nil, errors.New("server error: unable to check if parallel sync-normalise is enabled")
 	}
 	if parallelSyncNormaliseEnabled {
-		errResponse.ErrorMessage = "Parallel sync-normalise is enabled. Please contact PeerDB support to disable it to proceed."
-		return errResponse, nil
+		return nil, errors.New("parallel sync-normalise is enabled. Please contact PeerDB support to disable it to proceed")
 	}
 	// ---- REQUEST VALIDATED ----
 
@@ -99,9 +83,7 @@ func (h *FlowRequestHandler) CustomSyncFlow(
 		slog.Error("Unable to kick off custom sync for mirror",
 			slog.Any("mirror", req.FlowJobName),
 			slog.Any("error", err))
-		errResponse.ErrorMessage = fmt.Sprintf("Unable to kick off sync for mirror %s:%s",
-			req.FlowJobName, err.Error())
-		return errResponse, nil
+		return nil, fmt.Errorf("unable to kick off sync for mirror %s: %w", req.FlowJobName, err)
 	}
 
 	slog.Info("Custom sync started for mirror",
@@ -111,7 +93,5 @@ func (h *FlowRequestHandler) CustomSyncFlow(
 	return &protos.CreateCustomSyncResponse{
 		FlowJobName:   req.FlowJobName,
 		NumberOfSyncs: req.NumberOfSyncs,
-		ErrorMessage:  "",
-		Ok:            true,
 	}, nil
 }
