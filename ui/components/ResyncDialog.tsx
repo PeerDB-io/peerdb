@@ -30,27 +30,27 @@ export const ResyncDialog = ({ mirrorName }: ResyncDialogProps) => {
       msg: 'Requesting a resync. You can close this dialog and check the status',
       color: 'base',
     });
-    const resyncRes = await fetch('/api/v1/mirrors/resync', {
+    const resyncResponse = await fetch('/api/v1/mirrors/resync', {
       method: 'POST',
       body: JSON.stringify({
         flowJobName: mirrorName,
         dropStats: true,
       } as ResyncMirrorRequest),
-    }).then((res) => res.json());
-    if (resyncRes.ok !== true) {
+    });
+    if (resyncResponse.ok) {
+      setMsg({
+        msg: 'Resync has been initiated. You may reload this window to see the progress.',
+        color: 'positive',
+      });
+      setSyncing(false);
+    } else {
+      const resyncRes = await resyncResponse.json();
       setMsg({
         msg: `Unable to resync mirror ${mirrorName}. ${resyncRes.message ?? ''}`,
         color: 'destructive',
       });
       setSyncing(false);
-      return;
     }
-    setMsg({
-      msg: 'Resync has been initiated. You may reload this window to see the progress.',
-      color: 'positive',
-    });
-    setSyncing(false);
-    return;
   };
 
   return (

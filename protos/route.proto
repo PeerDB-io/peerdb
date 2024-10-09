@@ -33,8 +33,6 @@ message CreateCustomSyncRequest {
 message CreateCustomSyncResponse {
   string flow_job_name = 1;
   int32 number_of_syncs = 2;
-  string error_message = 3;
-  bool ok = 4;
 }
 
 message AlertConfig {
@@ -120,8 +118,6 @@ message DropPeerRequest {
 }
 
 message DropPeerResponse {
-  bool ok = 1;
-  string error_message = 2;
 }
 
 enum ValidatePeerStatus {
@@ -323,9 +319,7 @@ message MirrorStatusResponse {
     QRepMirrorStatus qrep_status = 2;
     CDCMirrorStatus cdc_status = 3;
   }
-  string error_message = 4;
   peerdb_flow.FlowStatus current_flow_state = 5;
-  bool ok = 6;
   google.protobuf.Timestamp created_at = 7;
 }
 
@@ -364,7 +358,6 @@ message ListMirrorLogsResponse {
 }
 
 message ValidateCDCMirrorResponse{
-  bool ok = 1;
 }
 
 message ListMirrorsItem {
@@ -398,8 +391,6 @@ message FlowStateChangeRequest {
   bool drop_mirror_stats = 6;
 }
 message FlowStateChangeResponse {
-  bool ok = 1;
-  string error_message = 2;
 }
 
 message PeerDBVersionRequest {
@@ -414,8 +405,6 @@ message ResyncMirrorRequest {
 }
 
 message ResyncMirrorResponse {
-  bool ok = 1;
-  string error_message = 2;
 }
 
 service FlowService {
