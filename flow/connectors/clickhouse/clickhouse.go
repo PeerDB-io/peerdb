@@ -243,7 +243,11 @@ func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.C
 			Username: config.User,
 			Password: config.Password,
 		},
-		TLS:         tlsSetting,
+		TLS: tlsSetting,
+		Settings: clickhouse.Settings{
+			"skip_check_for_incorrect_settings":      1,
+			"enable_parsing_to_custom_serialization": 0,
+		},
 		Compression: &clickhouse.Compression{Method: clickhouse.CompressionLZ4},
 		ClientInfo: clickhouse.ClientInfo{
 			Products: []struct {
