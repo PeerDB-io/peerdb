@@ -373,7 +373,8 @@ func pullCore[Items model.Items](
 
 	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset); err != nil {
 		// in case of Aurora error ERROR: replication slots cannot be used on RO (Read Only) node (SQLSTATE 55000)
-		if shared.IsSQLStateError(err, pgerrcode.ObjectNotInPrerequisiteState) {
+		if shared.IsSQLStateError(err, pgerrcode.ObjectNotInPrerequisiteState) &&
+			strings.Contains(err.Error(), "replication slots cannot be used on RO (Read Only) node") {
 			return temporal.NewNonRetryableApplicationError("reset connection to reconcile Aurora failover", "disconnect", err)
 		}
 		c.logger.Error("error starting replication", slog.Any("error", err))
