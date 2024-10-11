@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	chproto "github.com/ClickHouse/ch-go/proto"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
@@ -55,7 +55,7 @@ func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 		s.config.DestinationTableIdentifier, avroFileUrl,
 		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
 
-	return s.database.Exec(ctx, query)
+	return s.exec(ctx, query)
 }
 
 func (s *ClickHouseAvroSyncMethod) SyncRecords(
@@ -99,7 +99,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	dstTableSchema []driver.ColumnType,
+	dstTableSchema chproto.Results,
 	stream *model.QRecordStream,
 ) (int, error) {
 	dstTableName := config.DestinationTableIdentifier
@@ -131,7 +131,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFile.FilePath)
 	selector := make([]string, 0, len(dstTableSchema))
 	for _, col := range dstTableSchema {
-		colName := col.Name()
+		colName := col.Name
 		if strings.EqualFold(colName, config.SoftDeleteColName) ||
 			strings.EqualFold(colName, signColName) ||
 			strings.EqualFold(colName, config.SyncedAtColName) ||
@@ -151,7 +151,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		config.DestinationTableIdentifier, selectorStr, selectorStr, avroFileUrl,
 		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
 
-	if err := s.database.Exec(ctx, query); err != nil {
+	if err := s.exec(ctx, query); err != nil {
 		s.logger.Error("Failed to insert into select for ClickHouse", slog.Any("error", err))
 		return 0, err
 	}
