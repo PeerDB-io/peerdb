@@ -2,14 +2,13 @@ package connclickhouse
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 
-	_ "github.com/ClickHouse/clickhouse-go/v2"
-	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/ClickHouse/ch-go"
+	chproto "github.com/ClickHouse/ch-go/proto"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -19,7 +18,7 @@ import (
 )
 
 const (
-	checkIfTableExistsSQL = `SELECT exists(SELECT 1 FROM system.tables WHERE database = ? AND name = ?) AS table_exists;`
+	checkIfTableExistsSQL = `SELECT exists(SELECT 1 FROM system.tables WHERE database = %s AND name = %s) AS table_exists;`
 	dropTableIfExistsSQL  = `DROP TABLE IF EXISTS %s;`
 )
 
@@ -29,17 +28,26 @@ func (c *ClickHouseConnector) getRawTableName(flowJobName string) string {
 }
 
 func (c *ClickHouseConnector) checkIfTableExists(ctx context.Context, databaseName string, tableIdentifier string) (bool, error) {
-	var result sql.NullInt32
-	err := c.queryRow(ctx, checkIfTableExistsSQL, databaseName, tableIdentifier).Scan(&result)
-	if err != nil {
+	// TODO escape
+	var existsC chproto.ColUInt8
+	if err := c.query(ctx, ch.Query{
+		Body: fmt.Sprintf(checkIfTableExistsSQL, "'"+databaseName+"'", "'"+tableIdentifier+"'"),
+		Result: chproto.Results{
+			{Name: "table_exists", Data: &existsC},
+		},
+		OnResult: func(ctx context.Context, block chproto.Block) error {
+			if block.Rows != 1 {
+				return fmt.Errorf("[clickhouse] checkIfTableExists: expected 1 row, got %d", block.Rows)
+			}
+			if block.Info.Overflows {
+				return errors.New("[clickhouse] checkIfTableExists: expected 1 row, got block with overflow")
+			}
+			return nil
+		},
+	}); err != nil {
 		return false, fmt.Errorf("error while reading result row: %w", err)
 	}
-
-	if !result.Valid {
-		return false, errors.New("[clickhouse] checkIfTableExists: result is not valid")
-	}
-
-	return result.Int32 == 1, nil
+	return existsC[0] != 0, nil
 }
 
 func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {

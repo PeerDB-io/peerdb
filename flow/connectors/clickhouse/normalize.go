@@ -3,13 +3,14 @@ package connclickhouse
 import (
 	"cmp"
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ClickHouse/ch-go"
+	chproto "github.com/ClickHouse/ch-go/proto"
 
 	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -443,34 +444,25 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 ) ([]string, error) {
 	rawTbl := c.getRawTableName(flowJobName)
 
-	q := fmt.Sprintf(
-		`SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d`,
-		rawTbl, normalizeBatchID, syncBatchID)
-
-	rows, err := c.query(ctx, q)
-	if err != nil {
+	var tableNames []string
+	var tableNameC chproto.ColStr
+	if err := c.query(ctx, ch.Query{
+		Body: fmt.Sprintf(
+			`SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d`,
+			rawTbl, normalizeBatchID, syncBatchID),
+		Result: chproto.Results{
+			{Name: "_peerdb_destination_table_name", Data: &tableNameC},
+		},
+		OnResult: func(ctx context.Context, block chproto.Block) error {
+			tableNames := slices.Grow(tableNames, block.Rows)
+			return tableNameC.ForEach(func(i int, s string) error {
+				tableNames = append(tableNames, s)
+				return nil
+			})
+		},
+	}); err != nil {
 		return nil, fmt.Errorf("error while querying raw table for distinct table names in batch: %w", err)
 	}
-	defer rows.Close()
-	var tableNames []string
-	for rows.Next() {
-		var tableName sql.NullString
-		err = rows.Scan(&tableName)
-		if err != nil {
-			return nil, fmt.Errorf("error while scanning table name: %w", err)
-		}
-
-		if !tableName.Valid {
-			return nil, errors.New("table name is not valid")
-		}
-
-		tableNames = append(tableNames, tableName.String)
-	}
-
-	if rows.Err() != nil {
-		return nil, fmt.Errorf("failed to read rows: %w", err)
-	}
-
 	return tableNames, nil
 }
 
