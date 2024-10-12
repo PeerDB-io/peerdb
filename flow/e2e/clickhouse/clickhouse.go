@@ -245,6 +245,8 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 						} else {
 							qrow = append(qrow, qvalue.QValueTimestamp{Val: v.Values.Row(idx)})
 						}
+					case *chproto.ColDate32:
+						qrow = append(qrow, qvalue.QValueTimestamp{Val: v.Row(idx)})
 					case *chproto.ColDateTime64:
 						qrow = append(qrow, qvalue.QValueTimestamp{Val: v.Row(idx)})
 					case *chproto.ColNullable[chproto.Decimal32]:
