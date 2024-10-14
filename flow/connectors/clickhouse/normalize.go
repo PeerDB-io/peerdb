@@ -218,10 +218,9 @@ func getOrderedOrderByColumns(
 		orderbyColumns[idx] = getColName(colNameMap, col.SourceName)
 	}
 
-	// append pkeys at the end
-	if len(pkeys) > 0 {
-		orderbyColumns = append(orderbyColumns, pkeys...)
-	}
+	// Typically primary keys are not what aggregates are performed on and hence
+	// having them at the start of the order by clause is not beneficial.
+	orderbyColumns = append(orderbyColumns, pkeys...)
 
 	return orderbyColumns
 }
