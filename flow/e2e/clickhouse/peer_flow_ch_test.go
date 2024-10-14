@@ -253,8 +253,10 @@ func (s ClickHouseSuite) Test_NullableColumnSetting() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.DoInitialSnapshot = true
 	for _, tm := range flowConnConfig.TableMappings {
-		for _, col := range tm.Columns {
-			col.NullableEnabled = true
+		tm.Columns = []*protos.ColumnSetting{
+			{SourceName: "val", NullableEnabled: true},
+			{SourceName: "n", NullableEnabled: true},
+			{SourceName: "t", NullableEnabled: true},
 		}
 	}
 
