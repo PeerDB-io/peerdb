@@ -178,9 +178,9 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 }
 
 func (s ClickHouseSuite) Test_NullableMirrorSetting() {
-	srcTableName := "test_nullable"
-	srcFullName := s.attachSchemaSuffix("test_nullable")
-	dstTableName := "test_nullable_dst"
+	srcTableName := "test_nullable_mirror"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_nullable_mirror_dst"
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -199,7 +199,7 @@ func (s ClickHouseSuite) Test_NullableMirrorSetting() {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("clickhouse_nullable"),
+		FlowJobName:      s.attachSuffix("ch_nullable_mirror"),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
@@ -225,9 +225,9 @@ func (s ClickHouseSuite) Test_NullableMirrorSetting() {
 }
 
 func (s ClickHouseSuite) Test_NullableColumnSetting() {
-	srcTableName := "test_nullable"
-	srcFullName := s.attachSchemaSuffix("test_nullable")
-	dstTableName := "test_nullable_dst"
+	srcTableName := "test_nullable_column"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_nullable_column_dst"
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -246,7 +246,7 @@ func (s ClickHouseSuite) Test_NullableColumnSetting() {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("clickhouse_nullable"),
+		FlowJobName:      s.attachSuffix("ch_nullable_column"),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
