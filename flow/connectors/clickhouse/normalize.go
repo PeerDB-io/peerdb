@@ -132,15 +132,17 @@ func generateCreateTableSQLForNormalizedTable(
 				return "", fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
 			}
 		}
+		columnNullable := (tableSchema.NullableEnabled || (columnSetting != nil && columnSetting.NullableEnabled)) &&
+			column.Nullable && !colType.IsArray()
 
 		if colType == qvalue.QValueKindNumeric {
 			precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
-			if column.Nullable {
+			if columnNullable {
 				stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(DECIMAL(%d, %d)), ", dstColName, precision, scale))
 			} else {
 				stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ", dstColName, precision, scale))
 			}
-		} else if tableSchema.NullableEnabled && column.Nullable && !colType.IsArray() {
+		} else if columnNullable {
 			stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(%s), ", dstColName, clickHouseType))
 		} else {
 			stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", dstColName, clickHouseType))
@@ -298,6 +300,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			colType := qvalue.QValueKind(column.Type)
 
 			var clickHouseType string
+			var columnNullableEnabled bool
 			if tableMapping != nil {
 				for _, col := range tableMapping.Columns {
 					if col.SourceName == colName {
@@ -308,6 +311,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 							// TODO can we restrict this to avoid injection?
 							clickHouseType = col.DestinationType
 						}
+						columnNullableEnabled = col.NullableEnabled
 						break
 					}
 				}
@@ -325,7 +329,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 						return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 					}
 				}
-				if schema.NullableEnabled && column.Nullable && !colType.IsArray() {
+				if (schema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() {
 					clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
 				}
 			}

@@ -774,11 +774,9 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	}
 
 	var nullableCols map[string]struct{}
-	if nullableEnabled {
-		nullableCols, err = c.getNullableColumns(ctx, relID)
-		if err != nil {
-			return nil, err
-		}
+	nullableCols, err = c.getNullableColumns(ctx, relID)
+	if err != nil {
+		return nil, err
 	}
 
 	// Get the column names and types
