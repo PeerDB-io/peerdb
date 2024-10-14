@@ -207,6 +207,7 @@ func (c *PostgresConnector) getNullableColumns(ctx context.Context, relID uint32
 		nullableCols[name] = struct{}{}
 		return nil
 	})
+	c.logger.Info("QQQ", slog.Any("nullables", nullableCols))
 	return nullableCols, err
 }
 

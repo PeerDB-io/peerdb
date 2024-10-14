@@ -826,7 +826,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		})
 	}
 
-	if err = rows.Err(); err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating over table schema: %w", err)
 	}
 	// if we have no pkey, we will use all columns as the pkey for the MERGE statement
