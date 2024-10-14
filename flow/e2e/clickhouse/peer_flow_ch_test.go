@@ -177,10 +177,10 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s ClickHouseSuite) Test_Nullable() {
-	srcTableName := "test_nullable"
-	srcFullName := s.attachSchemaSuffix("test_nullable")
-	dstTableName := "test_nullable_dst"
+func (s ClickHouseSuite) Test_NullableMirrorSetting() {
+	srcTableName := "test_nullable_mirror"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_nullable_mirror_dst"
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -199,13 +199,67 @@ func (s ClickHouseSuite) Test_Nullable() {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("clickhouse_nullable"),
+		FlowJobName:      s.attachSuffix("ch_nullable_mirror"),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.Env = map[string]string{"PEERDB_NULLABLE": "true"}
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,key,val,n,t")
+
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+	INSERT INTO %s (key) VALUES ('cdc');
+	`, srcFullName))
+	require.NoError(s.t, err)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,key,val,n,t")
+
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_NullableColumnSetting() {
+	srcTableName := "test_nullable_column"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_nullable_column_dst"
+
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			key TEXT NOT NULL,
+			val TEXT,
+			n NUMERIC,
+			t TIMESTAMP
+		);
+	`, srcFullName))
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+	INSERT INTO %s (key) VALUES ('init');
+	`, srcFullName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ch_nullable_column"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig.DoInitialSnapshot = true
+	for _, tm := range flowConnConfig.TableMappings {
+		tm.Columns = []*protos.ColumnSetting{
+			{SourceName: "key", NullableEnabled: true},
+			{SourceName: "val", NullableEnabled: true},
+			{SourceName: "n", NullableEnabled: true},
+			{SourceName: "t", NullableEnabled: true},
+		}
+	}
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
