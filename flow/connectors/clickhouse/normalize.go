@@ -167,56 +167,53 @@ func generateCreateTableSQLForNormalizedTable(
 		"`%s` %s, `%s` %s) ENGINE = %s",
 		signColName, signColType, versionColName, versionColType, engine))
 
-	var pkeyStr string
-	pkeys := tableSchema.PrimaryKeyColumns
-	if len(pkeys) > 0 {
-		if len(colNameMap) > 0 {
-			pkeys = slices.Clone(pkeys)
-			for idx, pk := range pkeys {
-				pkeys[idx] = getColName(colNameMap, pk)
-			}
-		}
-		pkeyStr = strings.Join(pkeys, ",")
+	orderByColumns := getOrderedOrderByColumns(tableMapping, tableSchema.PrimaryKeyColumns)
+
+	if len(orderByColumns) > 0 {
+		orderByStr := strings.Join(orderByColumns, ",")
 
 		stmtBuilder.WriteString("PRIMARY KEY (")
-		stmtBuilder.WriteString(pkeyStr)
+		stmtBuilder.WriteString(orderByStr)
+		stmtBuilder.WriteString(") ")
+
+		stmtBuilder.WriteString("ORDER BY (")
+		stmtBuilder.WriteString(orderByStr)
 		stmtBuilder.WriteString(") ")
 	}
 
-	var orderby []*protos.ColumnSetting
+	return stmtBuilder.String(), nil
+}
+
+// Returns a list of order by columns ordered by their ordering, and puts the pkeys at the end.
+// pkeys are excluded from the order by columns.
+func getOrderedOrderByColumns(
+	tableMapping *protos.TableMapping,
+	pkeys []string,
+) []string {
+	orderby := make([]*protos.ColumnSetting, 0)
 	if tableMapping != nil {
-		orderby = slices.Clone(tableMapping.Columns)
 		for _, col := range tableMapping.Columns {
-			if col.Ordering > 0 && !slices.Contains(pkeys, getColName(colNameMap, col.SourceName)) {
+			if col.Ordering > 0 && !slices.Contains(pkeys, col.SourceName) {
 				orderby = append(orderby, col)
 			}
 		}
-
-		if len(orderby) > 0 {
-			slices.SortStableFunc(orderby, func(a *protos.ColumnSetting, b *protos.ColumnSetting) int {
-				return cmp.Compare(a.Ordering, b.Ordering)
-			})
-		}
 	}
 
-	if pkeyStr != "" || len(orderby) > 0 {
-		stmtBuilder.WriteString("ORDER BY (")
-		stmtBuilder.WriteString(pkeyStr)
-		if len(orderby) > 0 {
-			orderbyColumns := make([]string, len(orderby))
-			for idx, col := range orderby {
-				orderbyColumns[idx] = getColName(colNameMap, col.SourceName)
-			}
+	slices.SortStableFunc(orderby, func(a *protos.ColumnSetting, b *protos.ColumnSetting) int {
+		return cmp.Compare(a.Ordering, b.Ordering)
+	})
 
-			if pkeyStr != "" {
-				stmtBuilder.WriteRune(',')
-			}
-			stmtBuilder.WriteString(strings.Join(orderbyColumns, ","))
-		}
-		stmtBuilder.WriteRune(')')
+	orderbyColumns := make([]string, len(orderby))
+	for idx, col := range orderby {
+		orderbyColumns[idx] = col.SourceName
 	}
 
-	return stmtBuilder.String(), nil
+	// append pkeys at the end
+	if len(pkeys) > 0 {
+		orderbyColumns = append(orderbyColumns, pkeys...)
+	}
+
+	return orderbyColumns
 }
 
 func (c *ClickHouseConnector) NormalizeRecords(
