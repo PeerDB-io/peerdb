@@ -167,56 +167,62 @@ func generateCreateTableSQLForNormalizedTable(
 		"`%s` %s, `%s` %s) ENGINE = %s",
 		signColName, signColType, versionColName, versionColType, engine))
 
-	var pkeyStr string
-	pkeys := tableSchema.PrimaryKeyColumns
-	if len(pkeys) > 0 {
-		if len(colNameMap) > 0 {
-			pkeys = slices.Clone(pkeys)
-			for idx, pk := range pkeys {
-				pkeys[idx] = getColName(colNameMap, pk)
-			}
-		}
-		pkeyStr = strings.Join(pkeys, ",")
+	orderByColumns := getOrderedOrderByColumns(tableMapping, tableSchema.PrimaryKeyColumns, colNameMap)
+
+	if len(orderByColumns) > 0 {
+		orderByStr := strings.Join(orderByColumns, ",")
 
 		stmtBuilder.WriteString("PRIMARY KEY (")
-		stmtBuilder.WriteString(pkeyStr)
+		stmtBuilder.WriteString(orderByStr)
+		stmtBuilder.WriteString(") ")
+
+		stmtBuilder.WriteString("ORDER BY (")
+		stmtBuilder.WriteString(orderByStr)
 		stmtBuilder.WriteString(") ")
 	}
 
-	var orderby []*protos.ColumnSetting
+	return stmtBuilder.String(), nil
+}
+
+// Returns a list of order by columns ordered by their ordering, and puts the pkeys at the end.
+// pkeys are excluded from the order by columns.
+func getOrderedOrderByColumns(
+	tableMapping *protos.TableMapping,
+	sourcePkeys []string,
+	colNameMap map[string]string,
+) []string {
+	pkeys := slices.Clone(sourcePkeys)
+	if len(sourcePkeys) > 0 {
+		if len(colNameMap) > 0 {
+			for idx, pk := range sourcePkeys {
+				pkeys[idx] = getColName(colNameMap, pk)
+			}
+		}
+	}
+
+	orderby := make([]*protos.ColumnSetting, 0)
 	if tableMapping != nil {
-		orderby = slices.Clone(tableMapping.Columns)
 		for _, col := range tableMapping.Columns {
-			if col.Ordering > 0 && !slices.Contains(pkeys, getColName(colNameMap, col.SourceName)) {
+			if col.Ordering > 0 && !slices.Contains(pkeys, col.SourceName) {
 				orderby = append(orderby, col)
 			}
 		}
-
-		if len(orderby) > 0 {
-			slices.SortStableFunc(orderby, func(a *protos.ColumnSetting, b *protos.ColumnSetting) int {
-				return cmp.Compare(a.Ordering, b.Ordering)
-			})
-		}
 	}
 
-	if pkeyStr != "" || len(orderby) > 0 {
-		stmtBuilder.WriteString("ORDER BY (")
-		stmtBuilder.WriteString(pkeyStr)
-		if len(orderby) > 0 {
-			orderbyColumns := make([]string, len(orderby))
-			for idx, col := range orderby {
-				orderbyColumns[idx] = getColName(colNameMap, col.SourceName)
-			}
+	slices.SortStableFunc(orderby, func(a *protos.ColumnSetting, b *protos.ColumnSetting) int {
+		return cmp.Compare(a.Ordering, b.Ordering)
+	})
 
-			if pkeyStr != "" {
-				stmtBuilder.WriteRune(',')
-			}
-			stmtBuilder.WriteString(strings.Join(orderbyColumns, ","))
-		}
-		stmtBuilder.WriteRune(')')
+	orderbyColumns := make([]string, len(orderby))
+	for idx, col := range orderby {
+		orderbyColumns[idx] = getColName(colNameMap, col.SourceName)
 	}
 
-	return stmtBuilder.String(), nil
+	// Typically primary keys are not what aggregates are performed on and hence
+	// having them at the start of the order by clause is not beneficial.
+	orderbyColumns = append(orderbyColumns, pkeys...)
+
+	return orderbyColumns
 }
 
 func (c *ClickHouseConnector) NormalizeRecords(
