@@ -16,9 +16,9 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"go.temporal.io/sdk/log"
-	"golang.org/x/mod/semver"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -180,25 +180,19 @@ func NewClickHouseConnector(
 		return nil, err
 	}
 	if credentials.AWS.SessionToken != "" {
-		// This is the minimum version of ClickHouse that actually supports session token
+		// 24.3.1 is minimum version of ClickHouse that actually supports session token
 		// https://github.com/ClickHouse/ClickHouse/issues/61230
-		minSupportedClickHouseVersion := "v24.3.1"
-		clickHouseVersionRow := database.QueryRow(ctx, "SELECT version()")
-		var clickHouseVersion string
-		err := clickHouseVersionRow.Scan(&clickHouseVersion)
+		clickHouseVersion, err := database.ServerVersion()
 		if err != nil {
 			return nil, fmt.Errorf("failed to query ClickHouse version: %w", err)
 		}
-		// Ignore everything after patch version and prefix with "v", else semver.Compare will fail
-		versionParts := strings.SplitN(clickHouseVersion, ".", 4)
-		if len(versionParts) > 3 {
-			versionParts = versionParts[:3]
-		}
-		cleanedClickHouseVersion := "v" + strings.Join(versionParts, ".")
-		if semver.Compare(cleanedClickHouseVersion, minSupportedClickHouseVersion) < 0 {
+		if !chproto.CheckMinVersion(
+			chproto.Version{Major: 24, Minor: 3, Patch: 1},
+			clickHouseVersion.Version,
+		) {
 			return nil, fmt.Errorf(
-				"provide S3 Transient Stage details explicitly or upgrade to ClickHouse version >= %v, current version is %s. %s",
-				minSupportedClickHouseVersion, clickHouseVersion,
+				"provide S3 Transient Stage details explicitly or upgrade to ClickHouse version >= 24.3.1, current version is %s. %s",
+				clickHouseVersion,
 				"You can also contact PeerDB support for implicit S3 stage setup for older versions of ClickHouse.")
 		}
 	}
