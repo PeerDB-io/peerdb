@@ -1,5 +1,6 @@
 'use client';
 import { DBType } from '@/grpc_generated/peers';
+import { PeerInfoResponse } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Icon } from '@/lib/Icon';
@@ -7,15 +8,17 @@ import { Label } from '@/lib/Label';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import ConfigJSONView from './ConfigJSONView';
-import { PeerInfoResponse } from '@/grpc_generated/route';
 
 export const PeerInfo = ({ peerName }: { peerName: string }) => {
   const [info, setInfo] = useState<PeerInfoResponse>();
 
   const getPeerInfo = useCallback(async () => {
-    const peerRes: PeerInfoResponse = await fetch(`/api/v1/peers/info/${peerName}`, {
-      cache: 'no-store',
-    }).then((res) => res.json());
+    const peerRes: PeerInfoResponse = await fetch(
+      `/api/v1/peers/info/${peerName}`,
+      {
+        cache: 'no-store',
+      }
+    ).then((res) => res.json());
     setInfo(peerRes);
   }, [peerName]);
 
