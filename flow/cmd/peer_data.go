@@ -91,12 +91,12 @@ func (h *FlowRequestHandler) GetPeerInfo(
 	var version string
 	versionConnector, err := connectors.GetAs[connectors.GetVersionConnector](ctx, nil, peer)
 	if err != nil && !errors.Is(err, errors.ErrUnsupported) {
-		return nil, fmt.Errorf("failed to get version connector")
+		return nil, errors.New("failed to get version connector")
 	}
 	if versionConnector != nil {
 		version, err = versionConnector.GetVersion(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get version")
+			return nil, errors.New("failed to get version")
 		}
 	}
 
