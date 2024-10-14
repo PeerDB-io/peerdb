@@ -1445,3 +1445,13 @@ func (c *PostgresConnector) RemoveTableEntriesFromRawTable(
 
 	return nil
 }
+
+func (c *PostgresConnector) GetVersion(ctx context.Context) (string, error) {
+	var version string
+	err := c.conn.QueryRow(ctx, "SELECT version()").Scan(&version)
+	c.logger.Info("Postgres version", slog.String("version", version))
+	if err != nil {
+		return "", err
+	}
+	return version, nil
+}

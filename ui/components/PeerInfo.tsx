@@ -1,5 +1,5 @@
 'use client';
-import { DBType, Peer } from '@/grpc_generated/peers';
+import { DBType } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Icon } from '@/lib/Icon';
@@ -7,12 +7,13 @@ import { Label } from '@/lib/Label';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import ConfigJSONView from './ConfigJSONView';
+import { PeerInfoResponse } from '@/grpc_generated/route';
 
 export const PeerInfo = ({ peerName }: { peerName: string }) => {
-  const [info, setInfo] = useState<Peer>();
+  const [info, setInfo] = useState<PeerInfoResponse>();
 
   const getPeerInfo = useCallback(async () => {
-    const peerRes: Peer = await fetch(`/api/v1/peers/info/${peerName}`, {
+    const peerRes: PeerInfoResponse = await fetch(`/api/v1/peers/info/${peerName}`, {
       cache: 'no-store',
     }).then((res) => res.json());
     setInfo(peerRes);
@@ -24,7 +25,7 @@ export const PeerInfo = ({ peerName }: { peerName: string }) => {
 
   return (
     <div style={{ display: 'flex', alignItems: 'center' }}>
-      <EditPeerButton peerName={peerName} peerType={info?.type} />
+      <EditPeerButton peerName={peerName} peerType={info?.peer?.type} />
       <PeerConfigDialog peerInfo={info} />
     </div>
   );
@@ -54,7 +55,7 @@ const EditPeerButton = ({
   );
 };
 
-const PeerConfigDialog = ({ peerInfo }: { peerInfo?: Peer }) => (
+const PeerConfigDialog = ({ peerInfo }: { peerInfo?: PeerInfoResponse }) => (
   <Dialog
     noInteract={false}
     size='auto'
@@ -83,7 +84,7 @@ const PeerConfigDialog = ({ peerInfo }: { peerInfo?: Peer }) => (
       <div>
         <div
           style={{
-            height: peerInfo?.postgresConfig ? '14em' : '20em',
+            height: peerInfo?.peer?.postgresConfig ? '14em' : '20em',
             whiteSpace: 'pre-wrap',
             marginTop: '1rem',
             width: '50rem',
