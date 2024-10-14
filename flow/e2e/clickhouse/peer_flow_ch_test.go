@@ -254,6 +254,7 @@ func (s ClickHouseSuite) Test_NullableColumnSetting() {
 	flowConnConfig.DoInitialSnapshot = true
 	for _, tm := range flowConnConfig.TableMappings {
 		tm.Columns = []*protos.ColumnSetting{
+			{SourceName: "key", NullableEnabled: true},
 			{SourceName: "val", NullableEnabled: true},
 			{SourceName: "n", NullableEnabled: true},
 			{SourceName: "t", NullableEnabled: true},

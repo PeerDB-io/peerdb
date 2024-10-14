@@ -54,7 +54,6 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 		return true, nil
 	}
 
-	c.logger.Info("create normalized table QQQQ", "table", tableIdentifier, "mapping", config.TableMappings, "schema", tableSchema)
 	normalizedTableCreateSQL, err := generateCreateTableSQLForNormalizedTable(
 		config,
 		tableIdentifier,
