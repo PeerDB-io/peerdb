@@ -167,7 +167,7 @@ func generateCreateTableSQLForNormalizedTable(
 		"`%s` %s, `%s` %s) ENGINE = %s",
 		signColName, signColType, versionColName, versionColType, engine))
 
-	orderByColumns := getOrderedOrderByColumns(tableMapping, tableSchema.PrimaryKeyColumns)
+	orderByColumns := getOrderedOrderByColumns(tableMapping, tableSchema.PrimaryKeyColumns, colNameMap)
 
 	if len(orderByColumns) > 0 {
 		orderByStr := strings.Join(orderByColumns, ",")
@@ -188,8 +188,18 @@ func generateCreateTableSQLForNormalizedTable(
 // pkeys are excluded from the order by columns.
 func getOrderedOrderByColumns(
 	tableMapping *protos.TableMapping,
-	pkeys []string,
+	sourcePkeys []string,
+	colNameMap map[string]string,
 ) []string {
+	pkeys := slices.Clone(sourcePkeys)
+	if len(sourcePkeys) > 0 {
+		if len(colNameMap) > 0 {
+			for idx, pk := range sourcePkeys {
+				pkeys[idx] = getColName(colNameMap, pk)
+			}
+		}
+	}
+
 	orderby := make([]*protos.ColumnSetting, 0)
 	if tableMapping != nil {
 		for _, col := range tableMapping.Columns {
@@ -205,7 +215,7 @@ func getOrderedOrderByColumns(
 
 	orderbyColumns := make([]string, len(orderby))
 	for idx, col := range orderby {
-		orderbyColumns[idx] = col.SourceName
+		orderbyColumns[idx] = getColName(colNameMap, col.SourceName)
 	}
 
 	// append pkeys at the end
