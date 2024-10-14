@@ -107,46 +107,41 @@ func generateCreateTableSQLForNormalizedTable(
 		colName := column.Name
 		dstColName := colName
 		colType := qvalue.QValueKind(column.Type)
+		var columnNullableEnabled bool
 		var clickHouseType string
-		var columnSetting *protos.ColumnSetting
 		if tableMapping != nil {
 			for _, col := range tableMapping.Columns {
 				if col.SourceName == colName {
-					columnSetting = col
-					if columnSetting.DestinationName != "" {
-						dstColName = columnSetting.DestinationName
+					if col.DestinationName != "" {
+						dstColName = col.DestinationName
 						colNameMap[colName] = dstColName
 					}
-					if columnSetting.DestinationType != "" {
-						clickHouseType = columnSetting.DestinationType
+					if col.DestinationType != "" {
+						clickHouseType = col.DestinationType
 					}
+					columnNullableEnabled = col.NullableEnabled
 					break
 				}
 			}
 		}
 
 		if clickHouseType == "" {
-			var err error
-			clickHouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
-			if err != nil {
-				return "", fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
-			}
-		}
-		columnNullable := (tableSchema.NullableEnabled || (columnSetting != nil && columnSetting.NullableEnabled)) &&
-			column.Nullable && !colType.IsArray()
-
-		if colType == qvalue.QValueKindNumeric {
-			precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
-			if columnNullable {
-				stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(DECIMAL(%d, %d)), ", dstColName, precision, scale))
+			if colType == qvalue.QValueKindNumeric {
+				precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
+				clickHouseType = fmt.Sprintf("Decimal(%d, %d)", precision, scale)
 			} else {
-				stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ", dstColName, precision, scale))
+				var err error
+				clickHouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
+				if err != nil {
+					return "", fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
+				}
 			}
-		} else if columnNullable {
-			stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(%s), ", dstColName, clickHouseType))
-		} else {
-			stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", dstColName, clickHouseType))
 		}
+		if (tableSchema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() {
+			clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
+		}
+
+		stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", dstColName, clickHouseType))
 	}
 	// TODO support soft delete
 	// synced at column will be added to all normalized tables
