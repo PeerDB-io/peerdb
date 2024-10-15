@@ -28,10 +28,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-// This is the minimum version of ClickHouse that actually supports session token
-// https://github.com/ClickHouse/ClickHouse/issues/61230
-const minSupportedClickHouseVersion = "v24.3.1"
-
 type ClickHouseConnector struct {
 	*metadataStore.PostgresMetadata
 	database      clickhouse.Conn
@@ -521,11 +517,10 @@ func (c *ClickHouseConnector) CheckDestinationTables(ctx context.Context, req *p
 }
 
 func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
-	var version string
-	err := c.queryRow(ctx, "SELECT version()").Scan(&version)
-	c.logger.Info("[clickhouse] version", slog.String("version", version))
+	clickhouseVersion, err := c.database.ServerVersion()
 	if err != nil {
 		return "", fmt.Errorf("failed to get ClickHouse version: %w", err)
 	}
-	return version, nil
+	c.logger.Info("[clickhouse] version", slog.Any("version", clickhouseVersion.DisplayName))
+	return clickhouseVersion.Version.String(), nil
 }
