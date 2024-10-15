@@ -1,5 +1,11 @@
 'use client';
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import {
+  Dispatch,
+  SetStateAction,
+  useCallback,
+  useEffect,
+  useState,
+} from 'react';
 import ReactSelect from 'react-select';
 
 import { TableMapRow } from '@/app/dto/MirrorsDTO';
@@ -10,6 +16,8 @@ import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { RowWithCheckbox } from '@/lib/Layout';
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 import { engineOptionStyles } from './styles';
 
 interface SortingKeyType {
@@ -51,7 +59,7 @@ const SelectSortingKeys = ({
     }
   };
 
-  const registerSortingKeys = () => {
+  const registerSortingKeys = useCallback(() => {
     setRows((prevRows) => {
       const source = tableRow.source;
       const rowIndex = prevRows.findIndex((row) => row.source === source);
@@ -73,6 +81,7 @@ const SelectSortingKeys = ({
               destinationName: '',
               destinationType: '',
               ordering: 1,
+              nullableEnabled: false,
             });
           }
         });
@@ -83,7 +92,7 @@ const SelectSortingKeys = ({
       }
       return prevRows;
     });
-  };
+  }, [sortingKeysSelections, setRows, tableRow.source]);
 
   const handleShowSortingKey = (state: boolean) => {
     setShowSortingKey(state);
@@ -91,7 +100,7 @@ const SelectSortingKeys = ({
       setSortingKeysSelections([]);
       registerSortingKeys();
     } else {
-      notifySortingKey('');
+      notifySortingKey();
     }
   };
 
@@ -105,11 +114,11 @@ const SelectSortingKeys = ({
           })
       );
     }
-  }, [columns]);
+  }, [columns, sortingKeysSelections.length]);
 
   useEffect(() => {
     registerSortingKeys();
-  }, [sortingKeysSelections]);
+  }, [registerSortingKeys]);
 
   return (
     <div
@@ -119,6 +128,7 @@ const SelectSortingKeys = ({
         alignContent: 'center',
       }}
     >
+      <ToastContainer containerId={'sorting_key_warning'} />
       <RowWithCheckbox
         label={
           <Label as='label' style={{ fontSize: 13 }}>
