@@ -3,7 +3,7 @@ import { TableMapRow } from '@/app/dto/MirrorsDTO';
 import { Checkbox } from '@/lib/Checkbox';
 import { Label } from '@/lib/Label';
 import { RowWithCheckbox } from '@/lib/Layout';
-import { Dispatch, SetStateAction, useEffect } from 'react';
+import { Dispatch, SetStateAction } from 'react';
 
 interface ColumnProps {
   columns: string[];
@@ -43,10 +43,11 @@ export default function ColumnBox({
   return columns.map((column) => {
     const [columnName, columnType, isPkeyStr] = column.split(':');
     const isPkey = isPkeyStr === 'true';
-    const partOfOrderingKey = rows.find((row)=>row.source == tableRow.source)?.columns.some(
-      (col) => col.sourceName === columnName
-      && col.ordering <= 0
-    );
+    const partOfOrderingKey = rows
+      .find((row) => row.source == tableRow.source)
+      ?.columns.some(
+        (col) => col.sourceName === columnName && col.ordering <= 0
+      );
     return (
       <RowWithCheckbox
         key={columnName}
