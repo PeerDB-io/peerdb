@@ -167,6 +167,8 @@ message CreateRawTableOutput { string table_identifier = 1; }
 message TableSchema {
   string table_identifier = 1;
   repeated string primary_key_columns = 2;
+  // only used during SetupFlow, CDC fetches it everytime
+  // TODO: rename at some point
   bool is_replica_identity_full = 3;
   TypeSystem system = 4;
   bool nullable_enabled = 5;

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -371,6 +373,12 @@ func pullCore[Items model.Items](
 		return fmt.Errorf("error getting child to parent relid map: %w", err)
 	}
 
+	replicaIdentityMap, err := GetReplicaIdentityMap(ctx, c.conn,
+		slices.Collect(maps.Keys(req.SrcTableIDNameMapping)), req.SrcTableIDNameMapping)
+	if err != nil {
+		return fmt.Errorf("error getting replica identity map: %w", err)
+	}
+
 	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset); err != nil {
 		// in case of Aurora error ERROR: replication slots cannot be used on RO (Read Only) node (SQLSTATE 55000)
 		if shared.IsSQLStateError(err, pgerrcode.ObjectNotInPrerequisiteState) &&
@@ -391,6 +399,7 @@ func pullCore[Items model.Items](
 		CatalogPool:            catalogPool,
 		FlowJobName:            req.FlowJobName,
 		RelationMessageMapping: c.relationMessageMapping,
+		ReplicaIdentityMap:     replicaIdentityMap,
 	})
 
 	if err := PullCdcRecords(ctx, cdc, req, processor, &c.replLock); err != nil {
@@ -758,7 +767,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, fmt.Errorf("[getTableSchema] failed to get relation id for table %s: %w", schemaTable, err)
 	}
 
-	replicaIdentityType, err := c.getReplicaIdentityType(ctx, relID, schemaTable)
+	replicaIdentityType, err := c.getAndValidateReplicaIdentityType(ctx, relID, schemaTable)
 	if err != nil {
 		return nil, fmt.Errorf("[getTableSchema] error getting replica identity for table %s: %w", schemaTable, err)
 	}
@@ -983,7 +992,7 @@ func (c *PostgresConnector) EnsurePullability(
 			continue
 		}
 
-		replicaIdentity, replErr := c.getReplicaIdentityType(ctx, relID, schemaTable)
+		replicaIdentity, replErr := c.getAndValidateReplicaIdentityType(ctx, relID, schemaTable)
 		if replErr != nil {
 			return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
 		}

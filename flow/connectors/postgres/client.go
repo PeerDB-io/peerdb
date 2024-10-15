@@ -96,8 +96,7 @@ var ErrSlotAlreadyExists error = errors.New("slot already exists")
 func (c *PostgresConnector) getRelIDForTable(ctx context.Context, schemaTable *utils.SchemaTable) (uint32, error) {
 	var relID pgtype.Uint32
 	err := c.conn.QueryRow(ctx,
-		`SELECT c.oid FROM pg_class c JOIN pg_namespace n
-		 ON n.oid = c.relnamespace WHERE n.nspname=$1 AND c.relname=$2`,
+		`SELECT relid FROM pg_statio_user_tables WHERE schemaname=$1 AND relname=$2`,
 		schemaTable.Schema, schemaTable.Table).Scan(&relID)
 	if err != nil {
 		return 0, fmt.Errorf("error getting relation ID for table %s: %w", schemaTable, err)
@@ -106,8 +105,8 @@ func (c *PostgresConnector) getRelIDForTable(ctx context.Context, schemaTable *u
 	return relID.Uint32, nil
 }
 
-// getReplicaIdentity returns the replica identity for a table.
-func (c *PostgresConnector) getReplicaIdentityType(
+// getAndValidateReplicaIdentityType returns the replica identity for a table, errors if it is NOTHING
+func (c *PostgresConnector) getAndValidateReplicaIdentityType(
 	ctx context.Context,
 	relID uint32,
 	schemaTable *utils.SchemaTable,
