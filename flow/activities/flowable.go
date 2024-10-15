@@ -249,7 +249,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	tableExistsMapping := make(map[string]bool, len(tableNameSchemaMapping))
 	for _, tableMapping := range config.TableMappings {
 		tableIdentifier := tableMapping.DestinationTableIdentifier
-		tableSchema := tableNameSchemaMapping[tableMapping.SourceTableIdentifier]
+		tableSchema := tableNameSchemaMapping[tableMapping.DestinationTableIdentifier]
 		existing, err := conn.SetupNormalizedTable(
 			ctx,
 			tx,
