@@ -106,10 +106,8 @@ func (c *PostgresConnector) getRelIDForTable(ctx context.Context, schemaTable *u
 }
 
 // getAndValidateReplicaIdentityType returns the replica identity for a table, errors if it is NOTHING
-func (c *PostgresConnector) getAndValidateReplicaIdentityType(
-	ctx context.Context,
-	relID uint32,
-	schemaTable *utils.SchemaTable,
+func (c *PostgresConnector) getAndValidateReplicaIdentityType(ctx context.Context,
+	relID uint32, schemaTable *utils.SchemaTable,
 ) (ReplicaIdentityType, error) {
 	var replicaIdentity rune
 	err := c.conn.QueryRow(ctx,

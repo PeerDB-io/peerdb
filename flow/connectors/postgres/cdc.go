@@ -42,10 +42,10 @@ type PostgresCDCSource struct {
 
 	// for storing schema delta audit logs to catalog
 	catalogPool *pgxpool.Pool
-	flowJobName string
-
 	// to store replident info fetched for the sync
 	replicaIdentityMap map[string]ReplicaIdentityType
+
+	flowJobName string
 }
 
 type PostgresCDCConfig struct {
@@ -55,10 +55,10 @@ type PostgresCDCConfig struct {
 	TableNameSchemaMapping map[string]*protos.TableSchema
 	ChildToParentRelIDMap  map[uint32]uint32
 	RelationMessageMapping model.RelationMessageMapping
+	ReplicaIdentityMap     map[string]ReplicaIdentityType
 	FlowJobName            string
 	Slot                   string
 	Publication            string
-	ReplicaIdentityMap     map[string]ReplicaIdentityType
 }
 
 // Create a new PostgresCDCSource
@@ -129,8 +129,6 @@ func GetReplicaIdentityMap(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("error scanning replica identity for tables: %w", err)
 	}
-
-	fmt.Println(replicaIdentityMap)
 
 	return replicaIdentityMap, nil
 }
