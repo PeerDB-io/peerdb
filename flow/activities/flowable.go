@@ -743,7 +743,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				slotLagGauge, err := otel_metrics.GetOrInitFloat64SyncGauge(a.OtelManager.Meter,
 					a.OtelManager.Float64GaugesCache,
 					peerdb_gauges.SlotLagGaugeName,
-					metric.WithUnit("MB"),
+					metric.WithUnit("MiBy"),
 					metric.WithDescription("Postgres replication slot lag in MB"))
 				if err != nil {
 					logger.Error("Failed to get slot lag gauge", slog.Any("error", err))
