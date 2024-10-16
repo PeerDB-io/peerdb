@@ -70,37 +70,23 @@ func (a *SnapshotActivity) SetupReplication(
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
 
-	slotSignal := connpostgres.NewSlotSignal()
-
-	replicationErr := make(chan error)
-	defer close(replicationErr)
-
 	closeConnectionForError := func(err error) {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		// it is important to close the connection here as it is not closed in CloseSlotKeepAlive
 		connectors.CloseConnector(ctx, conn)
 	}
 
-	go func() {
-		if err := conn.SetupReplication(ctx, slotSignal, config); err != nil {
-			closeConnectionForError(err)
-			replicationErr <- err
-		}
-	}()
+	slotSignal := connpostgres.NewSlotSignal()
+	go conn.SetupReplication(ctx, slotSignal, config)
 
 	logger.Info("waiting for slot to be created...")
-	var slotInfo connpostgres.SlotCreationResult
-	select {
-	case slotInfo = <-slotSignal.SlotCreated:
-		logger.Info("slot created", slog.String("SlotName", slotInfo.SlotName))
-	case err := <-replicationErr:
-		closeConnectionForError(err)
-		return nil, fmt.Errorf("failed to setup replication: %w", err)
-	}
+	slotInfo := <-slotSignal.SlotCreated
 
 	if slotInfo.Err != nil {
 		closeConnectionForError(slotInfo.Err)
 		return nil, fmt.Errorf("slot error: %w", slotInfo.Err)
+	} else {
+		logger.Info("slot created", slog.String("SlotName", slotInfo.SlotName))
 	}
 
 	a.SnapshotStatesMutex.Lock()

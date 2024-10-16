@@ -359,7 +359,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 	publication string,
 	tableNameMapping map[string]model.NameAndExclude,
 	doInitialCopy bool,
-) error {
+) {
 	// iterate through source tables and create publication,
 	// expecting tablenames to be schema qualified
 	if !s.PublicationExists {
@@ -367,13 +367,17 @@ func (c *PostgresConnector) createSlotAndPublication(
 		for srcTableName := range tableNameMapping {
 			parsedSrcTableName, err := utils.ParseSchemaTable(srcTableName)
 			if err != nil {
-				return fmt.Errorf("[publication-creation]:source table identifier %s is invalid", srcTableName)
+				signal.SlotCreated <- SlotCreationResult{
+					Err: fmt.Errorf("[publication-creation]:source table identifier %s is invalid", srcTableName),
+				}
+				return
 			}
 			srcTableNames = append(srcTableNames, parsedSrcTableName.String())
 		}
 		err := c.CreatePublication(ctx, srcTableNames, publication)
 		if err != nil {
-			return err
+			signal.SlotCreated <- SlotCreationResult{Err: err}
+			return
 		}
 	}
 
@@ -381,7 +385,8 @@ func (c *PostgresConnector) createSlotAndPublication(
 	if !s.SlotExists {
 		conn, err := c.CreateReplConn(ctx)
 		if err != nil {
-			return fmt.Errorf("[slot] error acquiring connection: %w", err)
+			signal.SlotCreated <- SlotCreationResult{Err: fmt.Errorf("[slot] error acquiring connection: %w", err)}
+			return
 		}
 		defer conn.Close(ctx)
 
@@ -389,11 +394,13 @@ func (c *PostgresConnector) createSlotAndPublication(
 
 		// THIS IS NOT IN A TX!
 		if _, err = conn.Exec(ctx, "SET idle_in_transaction_session_timeout=0"); err != nil {
-			return fmt.Errorf("[slot] error setting idle_in_transaction_session_timeout: %w", err)
+			signal.SlotCreated <- SlotCreationResult{Err: fmt.Errorf("[slot] error setting idle_in_transaction_session_timeout: %w", err)}
+			return
 		}
 
 		if _, err := conn.Exec(ctx, "SET lock_timeout=0"); err != nil {
-			return fmt.Errorf("[slot] error setting lock_timeout: %w", err)
+			signal.SlotCreated <- SlotCreationResult{Err: fmt.Errorf("[slot] error setting lock_timeout: %w", err)}
+			return
 		}
 
 		opts := pglogrepl.CreateReplicationSlotOptions{
@@ -402,12 +409,14 @@ func (c *PostgresConnector) createSlotAndPublication(
 		}
 		res, err := pglogrepl.CreateReplicationSlot(ctx, conn.PgConn(), slot, "pgoutput", opts)
 		if err != nil {
-			return fmt.Errorf("[slot] error creating replication slot: %w", err)
+			signal.SlotCreated <- SlotCreationResult{Err: fmt.Errorf("[slot] error creating replication slot: %w", err)}
+			return
 		}
 
 		pgversion, err := c.MajorVersion(ctx)
 		if err != nil {
-			return fmt.Errorf("[slot] error getting PG version: %w", err)
+			signal.SlotCreated <- SlotCreationResult{Err: fmt.Errorf("[slot] error getting PG version: %w", err)}
+			return
 		}
 
 		c.logger.Info(fmt.Sprintf("Created replication slot '%s'", slot))
@@ -434,8 +443,6 @@ func (c *PostgresConnector) createSlotAndPublication(
 		}
 		signal.SlotCreated <- slotDetails
 	}
-
-	return nil
 }
 
 func (c *PostgresConnector) createMetadataSchema(ctx context.Context) error {

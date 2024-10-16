@@ -403,9 +403,7 @@ func (a *FlowableActivity) StartNormalize(
 		conn.DestinationName,
 	)
 	if errors.Is(err, errors.ErrUnsupported) {
-		err = monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName,
-			input.SyncBatchID)
-		return nil, err
+		return nil, monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName, input.SyncBatchID)
 	} else if err != nil {
 		return nil, err
 	}
@@ -461,8 +459,7 @@ func (a *FlowableActivity) SetupQRepMetadataTables(ctx context.Context, config *
 	}
 	defer connectors.CloseConnector(ctx, conn)
 
-	err = conn.SetupQRepMetadataTables(ctx, config)
-	if err != nil {
+	if err := conn.SetupQRepMetadataTables(ctx, config); err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
@@ -614,7 +611,7 @@ func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.Q
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return err
 	}
-	defer dst.Close()
+	defer connectors.CloseConnector(ctx, dst)
 
 	return dst.CleanupQRepFlow(ctx, config)
 }

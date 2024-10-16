@@ -432,8 +432,7 @@ func GetByNameAs[T Connector](ctx context.Context, env map[string]string, catalo
 }
 
 func CloseConnector(ctx context.Context, conn Connector) {
-	err := conn.Close()
-	if err != nil {
+	if err := conn.Close(); err != nil {
 		logger.LoggerFromCtx(ctx).Error("error closing connector", slog.Any("error", err))
 	}
 }
