@@ -135,3 +135,11 @@ func PeerDBTemporalClientCert() ([]byte, error) {
 func PeerDBTemporalClientKey() ([]byte, error) {
 	return GetEnvBase64EncodedBytes("TEMPORAL_CLIENT_KEY", nil)
 }
+
+func PeerDBGetIncidentIoUrl() string {
+	return GetEnvString("PEERDB_INCIDENTIO_URL", "")
+}
+
+func PeerDBGetIncidentIoToken() string {
+	return GetEnvString("PEERDB_INCIDENTIO_TOKEN", "")
+}

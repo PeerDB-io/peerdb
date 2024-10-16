@@ -21,8 +21,9 @@ import (
 
 // alerting service, no cool name :(
 type Alerter struct {
-	catalogPool     *pgxpool.Pool
-	telemetrySender telemetry.Sender
+	catalogPool               *pgxpool.Pool
+	snsTelemetrySender        telemetry.Sender
+	incidentIoTelemetrySender telemetry.Sender
 }
 
 type AlertSenderConfig struct {
@@ -126,14 +127,31 @@ func NewAlerter(ctx context.Context, catalogPool *pgxpool.Pool) *Alerter {
 		snsMessageSender, err = telemetry.NewSNSMessageSenderWithNewClient(ctx, &telemetry.SNSMessageSenderConfig{
 			Topic: snsTopic,
 		})
-		logger.LoggerFromCtx(ctx).Info("Successfully registered telemetry sender")
+		logger.LoggerFromCtx(ctx).Info("Successfully registered sns telemetry sender")
 		if err != nil {
 			panic(fmt.Sprintf("unable to setup telemetry is nil for Alerter %+v", err))
 		}
 	}
+
+	incidentIoURL := peerdbenv.PeerDBGetIncidentIoUrl()
+	incidentIoAuth := peerdbenv.PeerDBGetIncidentIoToken()
+	var incidentIoTelemetrySender telemetry.Sender
+	if incidentIoURL != "" && incidentIoAuth != "" {
+		var err error
+		incidentIoTelemetrySender, err = telemetry.NewIncidentIoMessageSender(ctx, telemetry.IncidentIoMessageSenderConfig{
+			URL:   incidentIoURL,
+			Token: incidentIoAuth,
+		})
+		logger.LoggerFromCtx(ctx).Info("Successfully registered incident.io telemetry sender")
+		if err != nil {
+			panic(fmt.Sprintf("unable to setup incident.io telemetry is nil for Alerter %+v", err))
+		}
+	}
+
 	return &Alerter{
-		catalogPool:     catalogPool,
-		telemetrySender: snsMessageSender,
+		catalogPool:               catalogPool,
+		snsTelemetrySender:        snsMessageSender,
+		incidentIoTelemetrySender: incidentIoTelemetrySender,
 	}
 }
 
@@ -298,18 +316,29 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId i
 }
 
 func (a *Alerter) sendTelemetryMessage(ctx context.Context, flowName string, more string, level telemetry.Level) {
-	if a.telemetrySender != nil {
-		details := fmt.Sprintf("[%s] %s", flowName, more)
-		_, err := a.telemetrySender.SendMessage(ctx, details, details, telemetry.Attributes{
-			Level:         level,
-			DeploymentUID: peerdbenv.PeerDBDeploymentUID(),
-			Tags:          []string{flowName, peerdbenv.PeerDBDeploymentUID()},
-			Type:          flowName,
-		})
+	details := fmt.Sprintf("[%s] %s", flowName, more)
+	attributes := telemetry.Attributes{
+		Level:         level,
+		DeploymentUID: peerdbenv.PeerDBDeploymentUID(),
+		Tags:          []string{flowName, peerdbenv.PeerDBDeploymentUID()},
+		Type:          flowName,
+	}
+
+	if a.snsTelemetrySender != nil {
+		_, err := a.snsTelemetrySender.SendMessage(ctx, details, details, attributes)
 		if err != nil {
-			logger.LoggerFromCtx(ctx).Warn("failed to send message to telemetrySender", slog.Any("error", err))
+			logger.LoggerFromCtx(ctx).Warn("failed to send message to snsTelemetrySender", slog.Any("error", err))
 			return
 		}
+	}
+
+	if a.incidentIoTelemetrySender != nil {
+		status, err := a.incidentIoTelemetrySender.SendMessage(ctx, details, details, attributes)
+		if err != nil {
+			logger.LoggerFromCtx(ctx).Warn("failed to send message to incidentIoTelemetrySender", slog.Any("error", err))
+			return
+		}
+		logger.LoggerFromCtx(ctx).Info("received status from incident.io", slog.String("status", *status))
 	}
 }
 

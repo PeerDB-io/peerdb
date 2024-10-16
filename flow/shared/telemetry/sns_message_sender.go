@@ -105,13 +105,6 @@ func NewSNSMessageSenderWithNewClient(ctx context.Context, config *SNSMessageSen
 	}, nil
 }
 
-func NewSNSMessageSender(client *sns.Client, config *SNSMessageSenderConfig) SNSMessageSender {
-	return &SNSMessageSenderImpl{
-		client: client,
-		topic:  config.Topic,
-	}
-}
-
 func newSnsClient(ctx context.Context, region *string) (*sns.Client, error) {
 	sdkConfig, err := aws_common.LoadSdkConfig(ctx, region)
 	if err != nil {
