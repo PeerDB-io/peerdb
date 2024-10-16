@@ -59,8 +59,6 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	connectionString := shared.GetPGConnectionString(pgConfig, flowName)
 
-	// create a separate connection pool for non-replication queries as replication connections cannot
-	// be used for extended query protocol, i.e. prepared statements
 	connConfig, err := pgx.ParseConfig(connectionString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
