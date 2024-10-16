@@ -91,7 +91,7 @@ type FlowServiceClient interface {
 	MirrorStatus(ctx context.Context, in *MirrorStatusRequest, opts ...grpc.CallOption) (*MirrorStatusResponse, error)
 	GetCDCBatches(ctx context.Context, in *GetCDCBatchesRequest, opts ...grpc.CallOption) (*GetCDCBatchesResponse, error)
 	InitialLoadSummary(ctx context.Context, in *InitialLoadSummaryRequest, opts ...grpc.CallOption) (*InitialLoadSummaryResponse, error)
-	GetPeerInfo(ctx context.Context, in *PeerInfoRequest, opts ...grpc.CallOption) (*Peer, error)
+	GetPeerInfo(ctx context.Context, in *PeerInfoRequest, opts ...grpc.CallOption) (*PeerInfoResponse, error)
 	ListPeers(ctx context.Context, in *ListPeersRequest, opts ...grpc.CallOption) (*ListPeersResponse, error)
 	GetVersion(ctx context.Context, in *PeerDBVersionRequest, opts ...grpc.CallOption) (*PeerDBVersionResponse, error)
 	ResyncMirror(ctx context.Context, in *ResyncMirrorRequest, opts ...grpc.CallOption) (*ResyncMirrorResponse, error)
@@ -384,8 +384,8 @@ func (c *flowServiceClient) InitialLoadSummary(ctx context.Context, in *InitialL
 	return out, nil
 }
 
-func (c *flowServiceClient) GetPeerInfo(ctx context.Context, in *PeerInfoRequest, opts ...grpc.CallOption) (*Peer, error) {
-	out := new(Peer)
+func (c *flowServiceClient) GetPeerInfo(ctx context.Context, in *PeerInfoRequest, opts ...grpc.CallOption) (*PeerInfoResponse, error) {
+	out := new(PeerInfoResponse)
 	err := c.cc.Invoke(ctx, FlowService_GetPeerInfo_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -455,7 +455,7 @@ type FlowServiceServer interface {
 	MirrorStatus(context.Context, *MirrorStatusRequest) (*MirrorStatusResponse, error)
 	GetCDCBatches(context.Context, *GetCDCBatchesRequest) (*GetCDCBatchesResponse, error)
 	InitialLoadSummary(context.Context, *InitialLoadSummaryRequest) (*InitialLoadSummaryResponse, error)
-	GetPeerInfo(context.Context, *PeerInfoRequest) (*Peer, error)
+	GetPeerInfo(context.Context, *PeerInfoRequest) (*PeerInfoResponse, error)
 	ListPeers(context.Context, *ListPeersRequest) (*ListPeersResponse, error)
 	GetVersion(context.Context, *PeerDBVersionRequest) (*PeerDBVersionResponse, error)
 	ResyncMirror(context.Context, *ResyncMirrorRequest) (*ResyncMirrorResponse, error)
@@ -559,7 +559,7 @@ func (UnimplementedFlowServiceServer) GetCDCBatches(context.Context, *GetCDCBatc
 func (UnimplementedFlowServiceServer) InitialLoadSummary(context.Context, *InitialLoadSummaryRequest) (*InitialLoadSummaryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InitialLoadSummary not implemented")
 }
-func (UnimplementedFlowServiceServer) GetPeerInfo(context.Context, *PeerInfoRequest) (*Peer, error) {
+func (UnimplementedFlowServiceServer) GetPeerInfo(context.Context, *PeerInfoRequest) (*PeerInfoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeerInfo not implemented")
 }
 func (UnimplementedFlowServiceServer) ListPeers(context.Context, *ListPeersRequest) (*ListPeersResponse, error) {
