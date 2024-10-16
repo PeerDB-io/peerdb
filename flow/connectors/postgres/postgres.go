@@ -373,7 +373,8 @@ func pullCore[Items model.Items](
 
 	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset); err != nil {
 		// in case of Aurora error ERROR: replication slots cannot be used on RO (Read Only) node (SQLSTATE 55000)
-		if shared.IsSQLStateError(err, pgerrcode.ObjectNotInPrerequisiteState) {
+		if shared.IsSQLStateError(err, pgerrcode.ObjectNotInPrerequisiteState) &&
+			strings.Contains(err.Error(), "replication slots cannot be used on RO (Read Only) node") {
 			return temporal.NewNonRetryableApplicationError("reset connection to reconcile Aurora failover", "disconnect", err)
 		}
 		c.logger.Error("error starting replication", slog.Any("error", err))
@@ -773,11 +774,9 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	}
 
 	var nullableCols map[string]struct{}
-	if nullableEnabled {
-		nullableCols, err = c.getNullableColumns(ctx, relID)
-		if err != nil {
-			return nil, err
-		}
+	nullableCols, err = c.getNullableColumns(ctx, relID)
+	if err != nil {
+		return nil, err
 	}
 
 	// Get the column names and types
@@ -827,7 +826,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		})
 	}
 
-	if err = rows.Err(); err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating over table schema: %w", err)
 	}
 	// if we have no pkey, we will use all columns as the pkey for the MERGE statement
@@ -1445,4 +1444,14 @@ func (c *PostgresConnector) RemoveTableEntriesFromRawTable(
 	}
 
 	return nil
+}
+
+func (c *PostgresConnector) GetVersion(ctx context.Context) (string, error) {
+	var version string
+	err := c.conn.QueryRow(ctx, "SELECT version()").Scan(&version)
+	if err != nil {
+		return "", err
+	}
+	c.logger.Info("[postgres] version", slog.String("version", version))
+	return version, nil
 }

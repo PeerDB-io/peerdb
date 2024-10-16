@@ -18,44 +18,58 @@ import (
 
 var DynamicSettings = [...]*protos.DynamicSetting{
 	{
-		Name: "PEERDB_MAX_SYNCS_PER_CDC_FLOW", DefaultValue: "32", ValueType: protos.DynconfValueType_UINT,
+		Name:             "PEERDB_MAX_SYNCS_PER_CDC_FLOW",
 		Description:      "Experimental setting: changes number of syncs per workflow, affects frequency of replication slot disconnects",
+		DefaultValue:     "32",
+		ValueType:        protos.DynconfValueType_UINT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name: "PEERDB_CDC_CHANNEL_BUFFER_SIZE", DefaultValue: "262144", ValueType: protos.DynconfValueType_INT,
+		Name:             "PEERDB_CDC_CHANNEL_BUFFER_SIZE",
 		Description:      "Advanced setting: changes buffer size of channel PeerDB uses while streaming rows read to destination in CDC",
+		DefaultValue:     "262144",
+		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name: "PEERDB_QUEUE_FLUSH_TIMEOUT_SECONDS", DefaultValue: "10", ValueType: protos.DynconfValueType_INT,
+		Name:             "PEERDB_QUEUE_FLUSH_TIMEOUT_SECONDS",
 		Description:      "Frequency of flushing to queue, applicable for PeerDB Streams mirrors only",
+		DefaultValue:     "10",
+		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_QUEUES,
 	},
 	{
-		Name: "PEERDB_QUEUE_PARALLELISM", DefaultValue: "4", ValueType: protos.DynconfValueType_INT,
+		Name:             "PEERDB_QUEUE_PARALLELISM",
 		Description:      "Parallelism for Lua script processing data, applicable for CDC mirrors to Kakfa and PubSub",
+		DefaultValue:     "4",
+		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_QUEUES,
 	},
 	{
-		Name: "PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD", DefaultValue: "1000000", ValueType: protos.DynconfValueType_INT,
+		Name:             "PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD",
 		Description:      "CDC: number of records beyond which records are written to disk instead",
+		DefaultValue:     "1000000",
+		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name: "PEERDB_CDC_DISK_SPILL_MEM_PERCENT_THRESHOLD", DefaultValue: "-1", ValueType: protos.DynconfValueType_INT,
+		Name:             "PEERDB_CDC_DISK_SPILL_MEM_PERCENT_THRESHOLD",
 		Description:      "CDC: worker memory usage (in %) beyond which records are written to disk instead, -1 disables",
+		DefaultValue:     "-1",
+		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name: "PEERDB_ENABLE_WAL_HEARTBEAT", DefaultValue: "false", ValueType: protos.DynconfValueType_BOOL,
+		Name:             "PEERDB_ENABLE_WAL_HEARTBEAT",
 		Description:      "Enables WAL heartbeat to prevent replication slot lag from increasing during times of no activity",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
@@ -64,65 +78,91 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		DefaultValue: `BEGIN;
 DROP AGGREGATE IF EXISTS PEERDB_EPHEMERAL_HEARTBEAT(float4);
 CREATE AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4) (SFUNC = float4pl, STYPE = float4);
-DROP AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4);
-END;`, ValueType: protos.DynconfValueType_STRING,
+DROP AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4); END;`,
+		ValueType:        protos.DynconfValueType_STRING,
 		Description:      "SQL to run during each WAL heartbeat",
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name: "PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE", DefaultValue: "false", ValueType: protos.DynconfValueType_BOOL,
+		Name:             "PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE",
 		Description:      "Enables parallel sync (moving rows to target) and normalize (updating rows in target table)",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name: "PEERDB_NULLABLE", DefaultValue: "false", ValueType: protos.DynconfValueType_BOOL,
+		Name:             "PEERDB_NULLABLE",
 		Description:      "Propagate nullability in schema",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name: "PEERDB_SNOWFLAKE_MERGE_PARALLELISM", DefaultValue: "8", ValueType: protos.DynconfValueType_INT,
+		Name:             "PEERDB_SNOWFLAKE_MERGE_PARALLELISM",
 		Description:      "Parallel MERGE statements to run for CDC mirrors with Snowflake targets. -1 for no limit",
+		DefaultValue:     "8",
+		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_SNOWFLAKE,
 	},
 	{
-		Name: "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME", DefaultValue: "", ValueType: protos.DynconfValueType_STRING,
+		Name:             "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME",
 		Description:      "S3 buckets to store Avro files for mirrors with ClickHouse target",
+		DefaultValue:     "",
+		ValueType:        protos.DynconfValueType_STRING,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
-		Name: "PEERDB_QUEUE_FORCE_TOPIC_CREATION", DefaultValue: "false", ValueType: protos.DynconfValueType_BOOL,
+		Name:             "PEERDB_QUEUE_FORCE_TOPIC_CREATION",
 		Description:      "Force auto topic creation in mirrors, applies to Kafka and PubSub mirrors",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
 		TargetForSetting: protos.DynconfTarget_QUEUES,
 	},
 	{
-		Name: "PEERDB_ALERTING_GAP_MINUTES", DefaultValue: "15", ValueType: protos.DynconfValueType_UINT,
+		Name:             "PEERDB_ALERTING_GAP_MINUTES",
 		Description:      "Duration in minutes before reraising alerts, 0 disables all alerting entirely",
+		DefaultValue:     "15",
+		ValueType:        protos.DynconfValueType_UINT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name: "PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD", DefaultValue: "5000", ValueType: protos.DynconfValueType_UINT,
+		Name:             "PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD",
 		Description:      "Lag (in MB) threshold on PeerDB slot to start sending alerts, 0 disables slot lag alerting entirely",
+		DefaultValue:     "5000",
+		ValueType:        protos.DynconfValueType_UINT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name: "PEERDB_PGPEER_OPEN_CONNECTIONS_ALERT_THRESHOLD", DefaultValue: "5", ValueType: protos.DynconfValueType_UINT,
+		Name:             "PEERDB_PGPEER_OPEN_CONNECTIONS_ALERT_THRESHOLD",
 		Description:      "Open connections from PeerDB user threshold to start sending alerts, 0 disables open connections alerting entirely",
+		DefaultValue:     "5",
+		ValueType:        protos.DynconfValueType_UINT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name: "PEERDB_BIGQUERY_ENABLE_SYNCED_AT_PARTITIONING_BY_DAYS", DefaultValue: "false", ValueType: protos.DynconfValueType_BOOL,
+		Name:             "PEERDB_BIGQUERY_ENABLE_SYNCED_AT_PARTITIONING_BY_DAYS",
 		Description:      "BigQuery only: create target tables with partitioning by _PEERDB_SYNCED_AT column",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
 		TargetForSetting: protos.DynconfTarget_BIGQUERY,
+	},
+	{
+		Name:             "PEERDB_CLICKHOUSE_ENABLE_PRIMARY_UPDATE",
+		Description:      "Enable generating deletion records for updates in ClickHouse, avoids stale records when primary key updated",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 }
 
@@ -272,6 +312,10 @@ func PeerDBNullable(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_NULLABLE")
 }
 
+func PeerDBEnableClickHousePrimaryUpdate(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_ENABLE_PRIMARY_UPDATE")
+}
+
 func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_SNOWFLAKE_MERGE_PARALLELISM")
 }
@@ -284,9 +328,4 @@ func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string)
 // But non-dedicated cluster maybe can't set config, may want peerdb to create topic. Similar for PubSub
 func PeerDBQueueForceTopicCreation(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_QUEUE_FORCE_TOPIC_CREATION")
-}
-
-// experimental, don't increase to greater than 64
-func PeerDBMaxSyncsPerCDCFlow(ctx context.Context, env map[string]string) (uint32, error) {
-	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_MAX_SYNCS_PER_CDC_FLOW")
 }

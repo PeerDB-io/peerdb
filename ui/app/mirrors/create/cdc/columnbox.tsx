@@ -56,6 +56,7 @@ export default function ColumnBox({
           sourceName: column,
           destinationName: '',
           destinationType: '',
+          nullableEnabled: false,
           ordering,
         });
       }

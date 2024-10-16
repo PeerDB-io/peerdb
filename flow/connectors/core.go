@@ -268,6 +268,12 @@ type RenameTablesConnector interface {
 	RenameTables(context.Context, *protos.RenameTablesInput, map[string]*protos.TableSchema) (*protos.RenameTablesOutput, error)
 }
 
+type GetVersionConnector interface {
+	Connector
+
+	GetVersion(context.Context) (string, error)
+}
+
 func LoadPeerType(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (protos.DBType, error) {
 	row := catalogPool.QueryRow(ctx, "SELECT type FROM peers WHERE name = $1", peerName)
 	var dbtype protos.DBType
@@ -498,6 +504,9 @@ var (
 	_ ValidationConnector = &connclickhouse.ClickHouseConnector{}
 	_ ValidationConnector = &connbigquery.BigQueryConnector{}
 	_ ValidationConnector = &conns3.S3Connector{}
+
+	_ GetVersionConnector = &connclickhouse.ClickHouseConnector{}
+	_ GetVersionConnector = &connpostgres.PostgresConnector{}
 
 	_ Connector = &connmysql.MySqlConnector{}
 )

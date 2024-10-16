@@ -2,7 +2,6 @@
 import { changeFlowState } from '@/app/mirrors/[mirrorId]/handlers';
 import { DeleteScript } from '@/app/scripts/handlers';
 import { FlowStatus } from '@/grpc_generated/flow';
-import { DropPeerResponse } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Checkbox } from '@/lib/Checkbox';
 import { Dialog, DialogClose } from '@/lib/Dialog';
@@ -71,20 +70,21 @@ export const DropDialog = ({
     }
 
     setLoading(true);
-    const dropRes: DropPeerResponse = await fetch('api/v1/peers/drop', {
+    const dropRes = await fetch('api/v1/peers/drop', {
       method: 'POST',
       body: JSON.stringify(dropArgs),
-    }).then((res) => res.json());
+    });
     setLoading(false);
-    if (dropRes.ok !== true)
-      setMsg(
-        `Unable to drop peer ${dropArgs.peerName}. ${
-          dropRes.errorMessage ?? ''
-        }`
-      );
-    else {
+    if (dropRes.ok) {
       setMsg('Peer dropped successfully.');
       window.location.reload();
+    } else {
+      const dropResError = await dropRes.json();
+      setMsg(
+        `Unable to drop peer ${dropArgs.peerName}. ${
+          dropResError.message ?? ''
+        }`
+      );
     }
   };
 

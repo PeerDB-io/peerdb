@@ -45,7 +45,7 @@ func GetSSHClientConfig(config *protos.SSHConfig) (*ssh.ClientConfig, error) {
 
 	var hostKeyCallback ssh.HostKeyCallback
 	if config.HostKey != "" {
-		pubKey, err := ssh.ParsePublicKey([]byte(config.HostKey))
+		pubKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(config.HostKey))
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse host key: %w", err)
 		}

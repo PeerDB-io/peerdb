@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
@@ -102,7 +101,6 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	dstTableSchema []driver.ColumnType,
 	stream *model.QRecordStream,
 ) (int, error) {
-	startTime := time.Now()
 	dstTableName := config.DestinationTableIdentifier
 	stagingPath := s.connector.credsProvider.BucketPath
 
@@ -156,11 +154,6 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		return 0, err
 	}
 
-	err = s.insertMetadata(ctx, partition, config.FlowJobName, startTime)
-	if err != nil {
-		return -1, err
-	}
-
 	return avroFile.NumRecords, nil
 }
 
@@ -197,25 +190,4 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	}
 
 	return avroFile, nil
-}
-
-func (s *ClickHouseAvroSyncMethod) insertMetadata(
-	ctx context.Context,
-	partition *protos.QRepPartition,
-	flowJobName string,
-	startTime time.Time,
-) error {
-	partitionLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
-	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(partition, flowJobName, startTime)
-	if err != nil {
-		s.connector.logger.Error("failed to create metadata insert statement",
-			slog.Any("error", err), partitionLog)
-		return fmt.Errorf("failed to create metadata insert statement: %w", err)
-	}
-
-	if err := s.connector.database.Exec(ctx, insertMetadataStmt); err != nil {
-		return fmt.Errorf("failed to execute metadata insert statement: %w", err)
-	}
-
-	return nil
 }

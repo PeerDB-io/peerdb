@@ -27,7 +27,10 @@ function LagGraph({ peerName }: LagGraphProps) {
   const [lagPoints, setLagPoints] = useState<
     { time: string; 'Lag in GB': number }[]
   >([]);
-  const [defaultSlot, setDefaultSlot] = useLocalStorage('defaultSlot', '');
+  const [defaultSlot, setDefaultSlot] = useLocalStorage(
+    `defaultSlot${peerName}`,
+    ''
+  );
   const [selectedSlot, setSelectedSlot] = useState<string>(defaultSlot);
   const [loading, setLoading] = useState(false);
   let [timeSince, setTimeSince] = useState<TimeAggregateTypes>(

@@ -23,12 +23,17 @@ type EditMirrorProps = {
 
 export default function ViewMirror({ params: { mirrorId } }: EditMirrorProps) {
   const [mirrorState, setMirrorState] = useState<MirrorStatusResponse>();
+  const [errorMessage, setErrorMessage] = useState('');
   const [mounted, setMounted] = useState(false);
 
   const fetchState = useCallback(async () => {
-    const res = await getMirrorState(mirrorId);
-    setMirrorState(res);
     setMounted(true);
+    try {
+      const res = await getMirrorState(mirrorId);
+      setMirrorState(res);
+    } catch (ex: any) {
+      setErrorMessage(ex.message);
+    }
   }, [mirrorId]);
   useEffect(() => {
     fetchState();
@@ -38,7 +43,7 @@ export default function ViewMirror({ params: { mirrorId } }: EditMirrorProps) {
     return <></>;
   }
 
-  if (mirrorState?.errorMessage) {
+  if (errorMessage) {
     return <NoMirror />;
   }
 
