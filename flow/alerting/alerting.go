@@ -172,7 +172,7 @@ func (a *Alerter) AlertIfSlotLag(ctx context.Context, alertKeys *AlertKeys, slot
 		`currently at %.2fMB!`, deploymentUIDPrefix, slotInfo.SlotName, alertKeys.PeerName, slotInfo.LagInMb)
 
 	badWalStatusAlertKey := fmt.Sprintf("%s Bad WAL Status for Peer %s", deploymentUIDPrefix, alertKeys.PeerName)
-	badWalStatusAlertMessageTemplate := fmt.Sprintf("%s Slot `%s` on peer `%s` has bad WAL status: %s",
+	badWalStatusAlertMessageTemplate := fmt.Sprintf("%sSlot `%s` on peer `%s` has bad WAL status: `%s`",
 		deploymentUIDPrefix, slotInfo.SlotName, alertKeys.PeerName, slotInfo.WalStatus)
 
 	for _, alertSenderConfig := range alertSendersForMirrors {
@@ -182,8 +182,7 @@ func (a *Alerter) AlertIfSlotLag(ctx context.Context, alertKeys *AlertKeys, slot
 		}
 
 		if slotInfo.WalStatus == "lost" || slotInfo.WalStatus == "unreserved" {
-			a.alertToProvider(ctx, alertSenderConfig, badWalStatusAlertKey,
-				fmt.Sprintf(badWalStatusAlertMessageTemplate, slotInfo.WalStatus))
+			a.alertToProvider(ctx, alertSenderConfig, badWalStatusAlertKey, badWalStatusAlertMessageTemplate)
 		}
 	}
 }
