@@ -283,6 +283,7 @@ func (a *FlowableActivity) MaintainPull(
 	config *protos.FlowConnectionConfigs,
 	sessionID string,
 ) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, config.Env, a.CatalogPool, config.SourceName)
 	if err != nil {
 		return err

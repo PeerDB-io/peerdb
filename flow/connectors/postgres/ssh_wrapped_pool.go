@@ -79,13 +79,13 @@ func (tunnel *SSHTunnel) NewPostgresConnFromPostgresConfig(
 	ctx context.Context,
 	pgConfig *protos.PostgresConfig,
 ) (*pgx.Conn, error) {
-	connectionString := shared.GetPGConnectionString(pgConfig)
+	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
+	connectionString := shared.GetPGConnectionString(pgConfig, flowName)
 
 	connConfig, err := pgx.ParseConfig(connectionString)
 	if err != nil {
 		return nil, err
 	}
-	connConfig.RuntimeParams["application_name"] = "peerdb"
 
 	return tunnel.NewPostgresConnFromConfig(ctx, connConfig)
 }
