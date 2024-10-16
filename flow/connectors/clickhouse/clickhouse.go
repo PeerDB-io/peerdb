@@ -179,12 +179,22 @@ func NewClickHouseConnector(
 	if err != nil {
 		return nil, err
 	}
+
+	connector := &ClickHouseConnector{
+		database:         database,
+		PostgresMetadata: pgMetadata,
+		config:           config,
+		logger:           logger,
+		credsProvider:    &clickHouseS3CredentialsNew,
+		s3Stage:          NewClickHouseS3Stage(),
+	}
+
 	if credentials.AWS.SessionToken != "" {
 		// 24.3.1 is minimum version of ClickHouse that actually supports session token
 		// https://github.com/ClickHouse/ClickHouse/issues/61230
 		clickHouseVersion, err := database.ServerVersion()
 		if err != nil {
-			return nil, fmt.Errorf("failed to query ClickHouse version: %w", err)
+			return nil, fmt.Errorf("failed to get ClickHouse version: %w", err)
 		}
 		if !chproto.CheckMinVersion(
 			chproto.Version{Major: 24, Minor: 3, Patch: 1},
@@ -197,14 +207,7 @@ func NewClickHouseConnector(
 		}
 	}
 
-	return &ClickHouseConnector{
-		database:         database,
-		PostgresMetadata: pgMetadata,
-		config:           config,
-		logger:           logger,
-		credsProvider:    &clickHouseS3CredentialsNew,
-		s3Stage:          NewClickHouseS3Stage(),
-	}, nil
+	return connector, nil
 }
 
 func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.Conn, error) {
@@ -511,4 +514,13 @@ func (c *ClickHouseConnector) CheckDestinationTables(ctx context.Context, req *p
 		}
 	}
 	return nil
+}
+
+func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
+	clickhouseVersion, err := c.database.ServerVersion()
+	if err != nil {
+		return "", fmt.Errorf("failed to get ClickHouse version: %w", err)
+	}
+	c.logger.Info("[clickhouse] version", slog.Any("version", clickhouseVersion.DisplayName))
+	return clickhouseVersion.Version.String(), nil
 }
