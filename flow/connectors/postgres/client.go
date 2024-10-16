@@ -335,7 +335,7 @@ func (c *PostgresConnector) CreatePublication(
 	// check and enable publish_via_partition_root
 	pgversion, err := c.MajorVersion(ctx)
 	if err != nil {
-		return fmt.Errorf("[publication-creation]:error checking Postgres version: %w", err)
+		return fmt.Errorf("[publication-creation] error checking Postgres version: %w", err)
 	}
 	var pubViaRootString string
 	if pgversion >= shared.POSTGRES_13 {

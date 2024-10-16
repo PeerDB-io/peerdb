@@ -235,6 +235,11 @@ message PeerInfoRequest {
   string peer_name = 1;
 }
 
+message PeerInfoResponse {
+  peerdb_peers.Peer peer = 1;
+  string version = 2;
+}
+
 message PeerListItem {
   string name = 1;
   peerdb_peers.DBType type = 2;
@@ -539,7 +544,7 @@ service FlowService {
     option (google.api.http) = { get: "/v1/mirrors/cdc/initial_load/{parent_mirror_name}"};
   }
 
-  rpc GetPeerInfo(PeerInfoRequest) returns (peerdb_peers.Peer) {
+  rpc GetPeerInfo(PeerInfoRequest) returns (PeerInfoResponse) {
     option (google.api.http) = { get: "/v1/peers/info/{peer_name}" };
   }
   rpc ListPeers(ListPeersRequest) returns (ListPeersResponse) {
