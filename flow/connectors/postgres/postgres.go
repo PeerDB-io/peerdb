@@ -37,7 +37,6 @@ type PostgresConnector struct {
 	config                 *protos.PostgresConfig
 	ssh                    *SSHTunnel
 	conn                   *pgx.Conn
-	replConfig             *pgx.ConnConfig
 	replConn               *pgx.Conn
 	replState              *ReplState
 	customTypesMapping     map[uint32]string
@@ -57,7 +56,8 @@ type ReplState struct {
 
 func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
 	logger := logger.LoggerFromCtx(ctx)
-	connectionString := shared.GetPGConnectionString(pgConfig)
+	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
+	connectionString := shared.GetPGConnectionString(pgConfig, flowName)
 
 	// create a separate connection pool for non-replication queries as replication connections cannot
 	// be used for extended query protocol, i.e. prepared statements
@@ -66,7 +66,6 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 
-	replConfig := connConfig.Copy()
 	runtimeParams := connConfig.Config.RuntimeParams
 	runtimeParams["idle_in_transaction_session_timeout"] = "0"
 	runtimeParams["statement_timeout"] = "0"
@@ -82,11 +81,6 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		logger.Error("failed to create connection", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create connection: %w", err)
 	}
-
-	// ensure that replication is set to database
-	replConfig.Config.RuntimeParams["replication"] = "database"
-	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
-	replConfig.Config.RuntimeParams["intervalstyle"] = "postgres"
 
 	customTypeMap, err := shared.GetCustomDataTypes(ctx, conn)
 	if err != nil {
@@ -104,7 +98,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		config:                 pgConfig,
 		ssh:                    tunnel,
 		conn:                   conn,
-		replConfig:             replConfig,
+		replConn:               nil,
 		replState:              nil,
 		replLock:               sync.Mutex{},
 		customTypesMapping:     customTypeMap,
@@ -116,7 +110,22 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 }
 
 func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, error) {
-	conn, err := c.ssh.NewPostgresConnFromConfig(ctx, c.replConfig)
+	// create a separate connection pool for non-replication queries as replication connections cannot
+	// be used for extended query protocol, i.e. prepared statements
+	replConfig, err := pgx.ParseConfig(c.connStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse connection string: %w", err)
+	}
+
+	runtimeParams := replConfig.Config.RuntimeParams
+	runtimeParams["idle_in_transaction_session_timeout"] = "0"
+	runtimeParams["statement_timeout"] = "0"
+	// ensure that replication is set to database
+	replConfig.Config.RuntimeParams["replication"] = "database"
+	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
+	replConfig.Config.RuntimeParams["intervalstyle"] = "postgres"
+
+	conn, err := c.ssh.NewPostgresConnFromConfig(ctx, replConfig)
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Error("failed to create replication connection", "error", err)
 		return nil, fmt.Errorf("failed to create replication connection: %w", err)
