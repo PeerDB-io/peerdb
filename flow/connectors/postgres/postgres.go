@@ -1056,9 +1056,12 @@ func (c *PostgresConnector) FinishExport(tx any) error {
 }
 
 // SetupReplication sets up replication for the source connector.
-func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSignal, req *protos.SetupReplicationInput) error {
+func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSignal, req *protos.SetupReplicationInput) {
 	if !shared.IsValidReplicationName(req.FlowJobName) {
-		return fmt.Errorf("invalid flow job name: `%s`, it should be ^[a-z_][a-z0-9_]*$", req.FlowJobName)
+		signal.SlotCreated <- SlotCreationResult{
+			Err: fmt.Errorf("invalid flow job name: `%s`, it should be ^[a-z_][a-z0-9_]*$", req.FlowJobName),
+		}
+		return
 	}
 
 	// Slotname would be the job name prefixed with "peerflow_slot_"
@@ -1075,7 +1078,8 @@ func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSig
 	// Check if the replication slot and publication exist
 	exists, err := c.checkSlotAndPublication(ctx, slotName, publicationName)
 	if err != nil {
-		return err
+		signal.SlotCreated <- SlotCreationResult{Err: err}
+		return
 	}
 
 	tableNameMapping := make(map[string]model.NameAndExclude)
@@ -1086,13 +1090,7 @@ func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSig
 		}
 	}
 	// Create the replication slot and publication
-	if err := c.createSlotAndPublication(ctx, signal, exists,
-		slotName, publicationName, tableNameMapping, req.DoInitialSnapshot,
-	); err != nil {
-		return fmt.Errorf("error creating replication slot and publication: %w", err)
-	}
-
-	return nil
+	c.createSlotAndPublication(ctx, signal, exists, slotName, publicationName, tableNameMapping, req.DoInitialSnapshot)
 }
 
 func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string) error {

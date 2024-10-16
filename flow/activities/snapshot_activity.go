@@ -70,19 +70,14 @@ func (a *SnapshotActivity) SetupReplication(
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
 
-	slotSignal := connpostgres.NewSlotSignal()
-
 	closeConnectionForError := func(err error) {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		// it is important to close the connection here as it is not closed in CloseSlotKeepAlive
 		connectors.CloseConnector(ctx, conn)
 	}
 
-	go func() {
-		if err := conn.SetupReplication(ctx, slotSignal, config); err != nil {
-			slotSignal.SlotCreated <- connpostgres.SlotCreationResult{Err: fmt.Errorf("failed to setup replication: %w", err)}
-		}
-	}()
+	slotSignal := connpostgres.NewSlotSignal()
+	go conn.SetupReplication(ctx, slotSignal, config)
 
 	logger.Info("waiting for slot to be created...")
 	slotInfo := <-slotSignal.SlotCreated
