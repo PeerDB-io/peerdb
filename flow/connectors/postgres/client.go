@@ -75,10 +75,12 @@ const (
 	)
 	%s src_rank WHERE %s AND src_rank._peerdb_rank=1 AND src_rank._peerdb_record_type=2`
 
-	dropTableIfExistsSQL         = "DROP TABLE IF EXISTS %s.%s"
-	deleteJobMetadataSQL         = "DELETE FROM %s.%s WHERE mirror_job_name=$1"
-	getNumConnectionsForUser     = "SELECT COUNT(*) FROM pg_stat_activity WHERE usename=$1 AND client_addr IS NOT NULL"
-	getNumReplicationConnections = "select COUNT(*) from pg_stat_replication WHERE usename = $1 AND client_addr IS NOT NULL"
+	dropTableIfExistsSQL     = "DROP TABLE IF EXISTS %s.%s"
+	deleteJobMetadataSQL     = "DELETE FROM %s.%s WHERE mirror_job_name=$1"
+	getNumConnectionsForUser = `SELECT COUNT(*) FROM pg_stat_activity WHERE usename=$1
+	 AND application_name LIKE 'peerdb%' AND client_addr IS NOT NULL`
+	getNumReplicationConnections = `select COUNT(*) from pg_stat_replication WHERE usename = $1
+	 AND application_name LIKE 'peerdb%' AND client_addr IS NOT NULL`
 )
 
 type ReplicaIdentityType rune

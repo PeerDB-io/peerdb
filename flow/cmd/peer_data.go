@@ -401,9 +401,9 @@ func (h *FlowRequestHandler) GetStatInfo(
 	peerUser := peerConn.Config().User
 
 	rows, err := peerConn.Query(ctx, "SELECT pid, wait_event, wait_event_type, query_start::text, query,"+
-		"EXTRACT(epoch FROM(now()-query_start)) AS dur"+
+		"EXTRACT(epoch FROM(now()-query_start)) AS dur, state"+
 		" FROM pg_stat_activity WHERE "+
-		"usename=$1 AND state != 'idle';", peerUser)
+		"usename=$1 AND application_name LIKE 'peerdb%';", peerUser)
 	if err != nil {
 		slog.Error("Failed to get stat info", slog.Any("error", err))
 		return nil, err
@@ -416,8 +416,10 @@ func (h *FlowRequestHandler) GetStatInfo(
 		var queryStart sql.NullString
 		var query sql.NullString
 		var duration sql.NullFloat64
+		// shouldn't be null
+		var state string
 
-		err := rows.Scan(&pid, &waitEvent, &waitEventType, &queryStart, &query, &duration)
+		err := rows.Scan(&pid, &waitEvent, &waitEventType, &queryStart, &query, &duration, &state)
 		if err != nil {
 			slog.Error("Failed to scan row", slog.Any("error", err))
 			return nil, err
@@ -455,6 +457,7 @@ func (h *FlowRequestHandler) GetStatInfo(
 			QueryStart:    qs,
 			Query:         q,
 			Duration:      float32(d),
+			State:         state,
 		}, nil
 	})
 	if err != nil {
