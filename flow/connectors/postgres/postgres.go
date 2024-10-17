@@ -1207,12 +1207,23 @@ func (c *PostgresConnector) HandleSlotInfo(
 		attribute.String(peerdb_gauges.PeerNameKey, alertKeys.PeerName),
 		attribute.String(peerdb_gauges.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
 
-	intervalSinceLastNormalize := alerter.AlertIfTooLongSinceLastNormalize(ctx, alertKeys)
+	var intervalSinceLastNormalize *time.Duration
+	err = alerter.CatalogPool.QueryRow(ctx, "SELECT now()-max(end_time) FROM peerdb_stats.cdc_batches WHERE flow_name=$1",
+		alertKeys.FlowName).Scan(&intervalSinceLastNormalize)
+	if err != nil {
+		logger.Warn("failed to get interval since last normalize", slog.Any("error", err))
+	}
+	// what if the first normalize errors out/hangs?
+	if intervalSinceLastNormalize == nil {
+		logger.Warn("interval since last normalize is nil")
+		return nil
+	}
 	if intervalSinceLastNormalize != nil {
 		slotMetricGauges.IntervalSinceLastNormalizeGauge.Set(intervalSinceLastNormalize.Seconds(), attribute.NewSet(
 			attribute.String(peerdb_gauges.FlowNameKey, alertKeys.FlowName),
 			attribute.String(peerdb_gauges.PeerNameKey, alertKeys.PeerName),
 			attribute.String(peerdb_gauges.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
+		alerter.AlertIfTooLongSinceLastNormalize(ctx, alertKeys, *intervalSinceLastNormalize)
 	}
 
 	return monitoring.AppendSlotSizeInfo(ctx, catalogPool, alertKeys.PeerName, slotInfo[0])

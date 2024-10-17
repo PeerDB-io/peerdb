@@ -770,7 +770,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 
 				intervalSinceLastNormalizeGauge, err := otel_metrics.GetOrInitFloat64SyncGauge(a.OtelManager.Meter,
 					a.OtelManager.Float64GaugesCache,
-					peerdb_gauges.IntervalSinceLastNormalizeGaugeName,
+					peerdb_gauges.BuildGaugeName(peerdb_gauges.IntervalSinceLastNormalizeGaugeName),
 					metric.WithUnit("s"),
 					metric.WithDescription("Interval since last normalize"))
 				if err != nil {
