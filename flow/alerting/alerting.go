@@ -285,9 +285,10 @@ func (a *Alerter) AlertIfTooLongSinceLastNormalize(ctx context.Context, alertKey
 	if *intervalSinceLastNormalize > time.Duration(intervalSinceLastNormalizeThreshold)*time.Minute {
 		alertKey := fmt.Sprintf("%s Too long since last data normalize for PeerDB mirror %s",
 			deploymentUIDPrefix, alertKeys.FlowName)
-		alertMessage := fmt.Sprintf("%sData hasn't been normalized for mirror `%s` since `%s`"+
-			` and threshold is %d minutes!`, deploymentUIDPrefix, alertKeys.FlowName,
-			intervalSinceLastNormalize, intervalSinceLastNormalizeThreshold)
+		alertMessage := fmt.Sprintf("%sData hasn't been synced to the target for mirror `%s` since the last `%s`."+
+			` This could indicate an issue with the pipeline — please check the UI and logs to confirm.`+
+			` Alternatively, it might be that the source database is idle and not receiving new updates.`, deploymentUIDPrefix,
+			alertKeys.FlowName, intervalSinceLastNormalize)
 
 		for _, alertSenderConfig := range alertSenderConfigs {
 			if len(alertSenderConfig.AlertForMirrors) == 0 ||
