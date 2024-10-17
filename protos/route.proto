@@ -282,6 +282,7 @@ message StatInfo {
   string query_start = 4;
   string query = 5;
   float duration = 6;
+  string state = 7;
 }
 
 message PeerSlotResponse {

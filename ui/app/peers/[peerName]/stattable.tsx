@@ -56,6 +56,7 @@ const StatTable = ({ peerName }: { peerName: string }) => {
               {[
                 'PID',
                 'Duration',
+                'State',
                 'Wait Event',
                 'Wait Event Type',
                 'Start Time',
@@ -94,6 +95,11 @@ const StatTable = ({ peerName }: { peerName: string }) => {
               <TableCell>
                 <Label as='label' style={{ fontSize: 14 }}>
                   <DurationDisplay duration={stat.duration} />
+                </Label>
+              </TableCell>
+              <TableCell>
+                <Label as='label' style={{ fontSize: 14 }}>
+                  {stat.state || 'N/A'}
                 </Label>
               </TableCell>
               <TableCell>
