@@ -1207,6 +1207,14 @@ func (c *PostgresConnector) HandleSlotInfo(
 		attribute.String(peerdb_gauges.PeerNameKey, alertKeys.PeerName),
 		attribute.String(peerdb_gauges.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
 
+	intervalSinceLastNormalize := alerter.AlertIfTooLongSinceLastNormalize(ctx, alertKeys)
+	if intervalSinceLastNormalize != nil {
+		slotMetricGauges.IntervalSinceLastNormalizeGauge.Set(intervalSinceLastNormalize.Seconds(), attribute.NewSet(
+			attribute.String(peerdb_gauges.FlowNameKey, alertKeys.FlowName),
+			attribute.String(peerdb_gauges.PeerNameKey, alertKeys.PeerName),
+			attribute.String(peerdb_gauges.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
+	}
+
 	return monitoring.AppendSlotSizeInfo(ctx, catalogPool, alertKeys.PeerName, slotInfo[0])
 }
 

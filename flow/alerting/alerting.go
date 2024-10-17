@@ -172,17 +172,21 @@ func (a *Alerter) AlertIfSlotLag(ctx context.Context, alertKeys *AlertKeys, slot
 		`currently at %.2fMB!`, deploymentUIDPrefix, slotInfo.SlotName, alertKeys.PeerName, slotInfo.LagInMb)
 
 	badWalStatusAlertKey := fmt.Sprintf("%s Bad WAL Status for Peer %s", deploymentUIDPrefix, alertKeys.PeerName)
-	badWalStatusAlertMessageTemplate := fmt.Sprintf("%sSlot `%s` on peer `%s` has bad WAL status: `%s`",
+	badWalStatusAlertMessage := fmt.Sprintf("%sSlot `%s` on peer `%s` has bad WAL status: `%s`",
 		deploymentUIDPrefix, slotInfo.SlotName, alertKeys.PeerName, slotInfo.WalStatus)
 
 	for _, alertSenderConfig := range alertSendersForMirrors {
-		if slotInfo.LagInMb > float32(lowestSlotLagMBAlertThreshold) {
-			a.alertToProvider(ctx, alertSenderConfig, thresholdAlertKey,
-				fmt.Sprintf(thresholdAlertMessageTemplate, defaultSlotLagMBAlertThreshold))
+		if a.checkAndAddAlertToCatalog(ctx, alertSenderConfig.Id, thresholdAlertKey,
+			fmt.Sprintf(thresholdAlertMessageTemplate, lowestSlotLagMBAlertThreshold)) {
+			if slotInfo.LagInMb > float32(lowestSlotLagMBAlertThreshold) {
+				a.alertToProvider(ctx, alertSenderConfig, thresholdAlertKey,
+					fmt.Sprintf(thresholdAlertMessageTemplate, defaultSlotLagMBAlertThreshold))
+			}
 		}
 
-		if slotInfo.WalStatus == "lost" || slotInfo.WalStatus == "unreserved" {
-			a.alertToProvider(ctx, alertSenderConfig, badWalStatusAlertKey, badWalStatusAlertMessageTemplate)
+		if (slotInfo.WalStatus == "lost" || slotInfo.WalStatus == "unreserved") &&
+			a.checkAndAddAlertToCatalog(ctx, alertSenderConfig.Id, badWalStatusAlertKey, badWalStatusAlertMessage) {
+			a.alertToProvider(ctx, alertSenderConfig, badWalStatusAlertKey, badWalStatusAlertMessage)
 		}
 	}
 }
@@ -192,7 +196,7 @@ func (a *Alerter) AlertIfOpenConnections(ctx context.Context, alertKeys *AlertKe
 ) {
 	alertSenderConfigs, err := a.registerSendersFromPool(ctx)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Warn("failed to set Slack senders", slog.Any("error", err))
+		logger.LoggerFromCtx(ctx).Warn("failed to set alert senders", slog.Any("error", err))
 		return
 	}
 
@@ -242,6 +246,60 @@ func (a *Alerter) AlertIfOpenConnections(ctx context.Context, alertKeys *AlertKe
 			}
 		}
 	}
+}
+
+func (a *Alerter) AlertIfTooLongSinceLastNormalize(ctx context.Context, alertKeys *AlertKeys) *time.Duration {
+	intervalSinceLastNormalizeThreshold, err := peerdbenv.PeerDBIntervalSinceLastNormalizeThresholdMinutes(ctx, nil)
+	if err != nil {
+		logger.LoggerFromCtx(ctx).Warn("failed to get open connections alert threshold from catalog", slog.Any("error", err))
+	}
+	if intervalSinceLastNormalizeThreshold == 0 {
+		logger.LoggerFromCtx(ctx).Info("Alerting disabled via environment variable, returning")
+		return nil
+	}
+
+	alertSenderConfigs, err := a.registerSendersFromPool(ctx)
+	if err != nil {
+		logger.LoggerFromCtx(ctx).Warn("failed to set alert senders", slog.Any("error", err))
+		return nil
+	}
+
+	deploymentUIDPrefix := ""
+	if peerdbenv.PeerDBDeploymentUID() != "" {
+		deploymentUIDPrefix = fmt.Sprintf("[%s] - ", peerdbenv.PeerDBDeploymentUID())
+	}
+
+	var intervalSinceLastNormalize *time.Duration
+	err = a.catalogPool.QueryRow(ctx, "SELECT now()-max(end_time) FROM peerdb_stats.cdc_batches WHERE flow_name=$1",
+		alertKeys.FlowName).Scan(&intervalSinceLastNormalize)
+	if err != nil {
+		logger.LoggerFromCtx(ctx).Warn("failed to get interval since last normalize", slog.Any("error", err))
+		return nil
+	}
+	// what if the first normalize errors out/hangs?
+	if intervalSinceLastNormalize == nil {
+		logger.LoggerFromCtx(ctx).Warn("interval since last normalize is nil")
+		return nil
+	}
+
+	if *intervalSinceLastNormalize > time.Duration(intervalSinceLastNormalizeThreshold)*time.Minute {
+		alertKey := fmt.Sprintf("%s Too long since last data normalize for PeerDB mirror %s",
+			deploymentUIDPrefix, alertKeys.FlowName)
+		alertMessage := fmt.Sprintf("%sData hasn't been normalized for mirror `%s` since `%s`"+
+			` and threshold is %d minutes!`, deploymentUIDPrefix, alertKeys.FlowName,
+			intervalSinceLastNormalize, intervalSinceLastNormalizeThreshold)
+
+		for _, alertSenderConfig := range alertSenderConfigs {
+			if len(alertSenderConfig.AlertForMirrors) == 0 ||
+				slices.Contains(alertSenderConfig.AlertForMirrors, alertKeys.FlowName) {
+				if a.checkAndAddAlertToCatalog(ctx, alertSenderConfig.Id, alertKey, alertMessage) {
+					a.alertToProvider(ctx, alertSenderConfig, alertKey, alertMessage)
+				}
+			}
+		}
+	}
+
+	return intervalSinceLastNormalize
 }
 
 func (a *Alerter) alertToProvider(ctx context.Context, alertSenderConfig AlertSenderConfig, alertKey string, alertMessage string) {
