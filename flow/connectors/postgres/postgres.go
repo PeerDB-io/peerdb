@@ -1056,9 +1056,12 @@ func (c *PostgresConnector) FinishExport(tx any) error {
 }
 
 // SetupReplication sets up replication for the source connector.
-func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSignal, req *protos.SetupReplicationInput) error {
+func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSignal, req *protos.SetupReplicationInput) {
 	if !shared.IsValidReplicationName(req.FlowJobName) {
-		return fmt.Errorf("invalid flow job name: `%s`, it should be ^[a-z_][a-z0-9_]*$", req.FlowJobName)
+		signal.SlotCreated <- SlotCreationResult{
+			Err: fmt.Errorf("invalid flow job name: `%s`, it should be ^[a-z_][a-z0-9_]*$", req.FlowJobName),
+		}
+		return
 	}
 
 	// Slotname would be the job name prefixed with "peerflow_slot_"
@@ -1075,7 +1078,8 @@ func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSig
 	// Check if the replication slot and publication exist
 	exists, err := c.checkSlotAndPublication(ctx, slotName, publicationName)
 	if err != nil {
-		return err
+		signal.SlotCreated <- SlotCreationResult{Err: err}
+		return
 	}
 
 	tableNameMapping := make(map[string]model.NameAndExclude)
@@ -1086,13 +1090,7 @@ func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSig
 		}
 	}
 	// Create the replication slot and publication
-	err = c.createSlotAndPublication(ctx, signal, exists,
-		slotName, publicationName, tableNameMapping, req.DoInitialSnapshot)
-	if err != nil {
-		return fmt.Errorf("error creating replication slot and publication: %w", err)
-	}
-
-	return nil
+	c.createSlotAndPublication(ctx, signal, exists, slotName, publicationName, tableNameMapping, req.DoInitialSnapshot)
 }
 
 func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
@@ -1377,20 +1375,24 @@ func (c *PostgresConnector) RenameTables(
 					columnNames = append(columnNames, QuoteIdentifier(col.Name))
 				}
 
-				pkeyColumnNames := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
+				var pkeyColCompare strings.Builder
 				for _, col := range tableSchema.PrimaryKeyColumns {
-					pkeyColumnNames = append(pkeyColumnNames, QuoteIdentifier(col))
+					pkeyColCompare.WriteString("original_table.")
+					pkeyColCompare.WriteString(QuoteIdentifier(col))
+					pkeyColCompare.WriteString(" = resync_table.")
+					pkeyColCompare.WriteString(QuoteIdentifier(col))
+					pkeyColCompare.WriteString(" AND ")
 				}
+				pkeyColCompareStr := strings.TrimSuffix(pkeyColCompare.String(), " AND ")
 
 				allCols := strings.Join(columnNames, ",")
-				pkeyCols := strings.Join(pkeyColumnNames, ",")
-
 				c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
-
 				_, err = c.execWithLoggingTx(ctx,
-					fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
+					fmt.Sprintf(
+						"INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s original_table"+
+							"WHERE NOT EXISTS (SELECT 1 FROM %s resync_table WHERE %s)",
 						src, fmt.Sprintf("%s,%s", allCols, QuoteIdentifier(req.SoftDeleteColName)), allCols, req.SoftDeleteColName,
-						dst, pkeyCols, pkeyCols, src), renameTablesTx)
+						dst, src, pkeyColCompareStr), renameTablesTx)
 				if err != nil {
 					return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
 				}
