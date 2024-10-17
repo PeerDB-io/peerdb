@@ -38,7 +38,7 @@ func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 		return err
 	}
 
-	endpoint := s.connector.credsProvider.Provider.GetEndpointURL()
+	endpoint := "http://localhost:9001"
 	region := s.connector.credsProvider.Provider.GetRegion()
 	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFile.FilePath)
 	creds, err := s.connector.credsProvider.Provider.Retrieve(ctx)
@@ -124,7 +124,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		return 0, err
 	}
 
-	endpoint := s.connector.credsProvider.Provider.GetEndpointURL()
+	endpoint := "http://localhost:9001"
 	region := s.connector.credsProvider.Provider.GetRegion()
 	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFile.FilePath)
 	selector := make([]string, 0, len(dstTableSchema))
