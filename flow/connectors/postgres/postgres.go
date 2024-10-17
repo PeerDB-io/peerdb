@@ -1388,7 +1388,9 @@ func (c *PostgresConnector) RenameTables(
 				allCols := strings.Join(columnNames, ",")
 				c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
 				_, err = c.execWithLoggingTx(ctx,
-					fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s original_table WHERE NOT EXISTS (SELECT 1 FROM %s resync_table WHERE %s)",
+					fmt.Sprintf(
+						"INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s original_table"+
+							"WHERE NOT EXISTS (SELECT 1 FROM %s resync_table WHERE %s)",
 						src, fmt.Sprintf("%s,%s", allCols, QuoteIdentifier(req.SoftDeleteColName)), allCols, req.SoftDeleteColName,
 						dst, src, pkeyColCompareStr), renameTablesTx)
 				if err != nil {
