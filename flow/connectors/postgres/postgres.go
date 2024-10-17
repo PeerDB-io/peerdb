@@ -1375,23 +1375,22 @@ func (c *PostgresConnector) RenameTables(
 					columnNames = append(columnNames, QuoteIdentifier(col.Name))
 				}
 
-				var pkeyColCompareStr strings.Builder
-				for i, col := range tableSchema.PrimaryKeyColumns {
-					pkeyColCompareStr.WriteString("original_table.")
-					pkeyColCompareStr.WriteString(QuoteIdentifier(col))
-					pkeyColCompareStr.WriteString(" = resync_table.")
-					pkeyColCompareStr.WriteString(QuoteIdentifier(col))
-					if i != len(tableSchema.PrimaryKeyColumns)-1 {
-						pkeyColCompareStr.WriteString(" AND ")
-					}
+				var pkeyColCompare strings.Builder
+				for _, col := range tableSchema.PrimaryKeyColumns {
+					pkeyColCompare.WriteString("original_table.")
+					pkeyColCompare.WriteString(QuoteIdentifier(col))
+					pkeyColCompare.WriteString(" = resync_table.")
+					pkeyColCompare.WriteString(QuoteIdentifier(col))
+					pkeyColCompare.WriteString(" AND ")
 				}
+				pkeyColCompareStr := strings.TrimSuffix(pkeyColCompare.String(), " AND ")
 
 				allCols := strings.Join(columnNames, ",")
 				c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
 				_, err = c.execWithLoggingTx(ctx,
 					fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s original_table WHERE NOT EXISTS (SELECT 1 FROM %s resync_table WHERE %s)",
 						src, fmt.Sprintf("%s,%s", allCols, QuoteIdentifier(req.SoftDeleteColName)), allCols, req.SoftDeleteColName,
-						dst, src, pkeyColCompareStr.String()), renameTablesTx)
+						dst, src, pkeyColCompareStr), renameTablesTx)
 				if err != nil {
 					return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
 				}
