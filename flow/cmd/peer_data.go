@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -81,10 +82,22 @@ func (h *FlowRequestHandler) getConnForPGPeer(ctx context.Context, peerName stri
 func (h *FlowRequestHandler) GetPeerInfo(
 	ctx context.Context,
 	req *protos.PeerInfoRequest,
-) (*protos.Peer, error) {
+) (*protos.PeerInfoResponse, error) {
 	peer, err := connectors.LoadPeer(ctx, h.pool, req.PeerName)
 	if err != nil {
 		return nil, err
+	}
+
+	var version string
+	versionConnector, err := connectors.GetAs[connectors.GetVersionConnector](ctx, nil, peer)
+	if err != nil && !errors.Is(err, errors.ErrUnsupported) {
+		return nil, errors.New("failed to get version connector")
+	}
+	if versionConnector != nil {
+		version, err = versionConnector.GetVersion(ctx)
+		if err != nil {
+			return nil, errors.New("failed to get version")
+		}
 	}
 
 	peer.ProtoReflect().Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
@@ -93,7 +106,11 @@ func (h *FlowRequestHandler) GetPeerInfo(
 		}
 		return true
 	})
-	return peer, nil
+
+	return &protos.PeerInfoResponse{
+		Peer:    peer,
+		Version: version,
+	}, nil
 }
 
 func (h *FlowRequestHandler) ListPeers(
