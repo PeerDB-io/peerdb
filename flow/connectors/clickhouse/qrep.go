@@ -6,7 +6,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/ClickHouse/ch-go"
+	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
@@ -44,15 +45,18 @@ func (c *ClickHouseConnector) SyncQRepRecords(
 	return avroSync.SyncQRepRecords(ctx, config, partition, tblSchema, stream)
 }
 
-func (c *ClickHouseConnector) getTableSchema(ctx context.Context, tableName string) ([]driver.ColumnType, error) {
+func (c *ClickHouseConnector) getTableSchema(ctx context.Context, tableName string) (chproto.Results, error) {
+	// TODO escape
 	queryString := fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName)
-	rows, err := c.query(ctx, queryString)
-	if err != nil {
+	var schema chproto.Results
+	if err := c.query(ctx, ch.Query{
+		Body:   queryString,
+		Result: schema.Auto(),
+	}); err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
-	defer rows.Close()
 
-	return rows.ColumnTypes(), nil
+	return schema, nil
 }
 
 func (c *ClickHouseConnector) ConsolidateQRepPartitions(_ context.Context, config *protos.QRepConfig) error {

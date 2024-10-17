@@ -2,14 +2,12 @@ package connclickhouse
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 
-	_ "github.com/ClickHouse/clickhouse-go/v2"
-	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/ClickHouse/ch-go"
+	chproto "github.com/ClickHouse/ch-go/proto"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -19,8 +17,8 @@ import (
 )
 
 const (
-	checkIfTableExistsSQL = `SELECT exists(SELECT 1 FROM system.tables WHERE database = ? AND name = ?) AS table_exists;`
-	dropTableIfExistsSQL  = `DROP TABLE IF EXISTS %s;`
+	checkIfTableExistsSQL = `SELECT exists(SELECT 1 FROM system.tables WHERE database = %s AND name = %s) AS table_exists`
+	dropTableIfExistsSQL  = `DROP TABLE IF EXISTS %s`
 )
 
 // getRawTableName returns the raw table name for the given table identifier.
@@ -29,17 +27,23 @@ func (c *ClickHouseConnector) getRawTableName(flowJobName string) string {
 }
 
 func (c *ClickHouseConnector) checkIfTableExists(ctx context.Context, databaseName string, tableIdentifier string) (bool, error) {
-	var result sql.NullInt32
-	err := c.queryRow(ctx, checkIfTableExistsSQL, databaseName, tableIdentifier).Scan(&result)
-	if err != nil {
-		return false, fmt.Errorf("error while reading result row: %w", err)
+	// TODO escape
+	var existsC chproto.ColUInt8
+	if err := c.query(ctx, ch.Query{
+		Body: fmt.Sprintf(checkIfTableExistsSQL, "'"+databaseName+"'", "'"+tableIdentifier+"'"),
+		Result: chproto.Results{
+			{Name: "table_exists", Data: &existsC},
+		},
+		OnResult: func(ctx context.Context, block chproto.Block) error {
+			return nil
+		},
+	}); err != nil {
+		return false, fmt.Errorf("[clickhouse] checkIfTableExists: error in query: %w", err)
 	}
-
-	if !result.Valid {
-		return false, errors.New("[clickhouse] checkIfTableExists: result is not valid")
+	if len(existsC) != 1 {
+		return false, fmt.Errorf("[clickhouse] checkIfTableExists: expected 1 row, got %d", len(existsC))
 	}
-
-	return result.Int32 == 1, nil
+	return existsC[0] != 0, nil
 }
 
 func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
