@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peer-flow/connectors"
@@ -96,7 +99,7 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	}
 	rows, err := ch.Query(
 		context.Background(),
-		fmt.Sprintf(`SELECT %s FROM %s ORDER BY %s`, cols, table, firstCol),
+		fmt.Sprintf(`SELECT %s FROM %s FINAL WHERE _peerdb_is_deleted = 0 ORDER BY %s SETTINGS use_query_cache = false`, cols, table, firstCol),
 	)
 	if err != nil {
 		return nil, err
@@ -107,18 +110,23 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	row := make([]interface{}, 0, len(types))
 	for _, ty := range types {
 		nullable := ty.Nullable()
+		row = append(row, reflect.New(ty.ScanType()).Interface())
 		var qkind qvalue.QValueKind
 		switch ty.DatabaseTypeName() {
-		case "String":
-			var val string
-			row = append(row, &val)
+		case "String", "Nullable(String)":
 			qkind = qvalue.QValueKindString
-		case "Int32":
-			var val int32
-			row = append(row, &val)
+		case "Int32", "Nullable(Int32)":
 			qkind = qvalue.QValueKindInt32
+		case "DateTime64(6)", "Nullable(DateTime64(6))":
+			qkind = qvalue.QValueKindTimestamp
+		case "Date32", "Nullable(Date32)":
+			qkind = qvalue.QValueKindDate
 		default:
-			return nil, fmt.Errorf("failed to resolve QValueKind for %s", ty.DatabaseTypeName())
+			if strings.Contains(ty.DatabaseTypeName(), "Decimal") {
+				qkind = qvalue.QValueKindNumeric
+			} else {
+				return nil, fmt.Errorf("failed to resolve QValueKind for %s", ty.DatabaseTypeName())
+			}
 		}
 		batch.Schema.Fields = append(batch.Schema.Fields, qvalue.QField{
 			Name:      ty.Name(),
@@ -136,10 +144,38 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 		qrow := make([]qvalue.QValue, 0, len(row))
 		for _, val := range row {
 			switch v := val.(type) {
+			case **string:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindString))
+				} else {
+					qrow = append(qrow, qvalue.QValueString{Val: **v})
+				}
 			case *string:
 				qrow = append(qrow, qvalue.QValueString{Val: *v})
+			case **int32:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindInt32))
+				} else {
+					qrow = append(qrow, qvalue.QValueInt32{Val: **v})
+				}
 			case *int32:
 				qrow = append(qrow, qvalue.QValueInt32{Val: *v})
+			case **time.Time:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindTimestamp))
+				} else {
+					qrow = append(qrow, qvalue.QValueTimestamp{Val: **v})
+				}
+			case *time.Time:
+				qrow = append(qrow, qvalue.QValueTimestamp{Val: *v})
+			case **decimal.Decimal:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindNumeric))
+				} else {
+					qrow = append(qrow, qvalue.QValueNumeric{Val: **v})
+				}
+			case *decimal.Decimal:
+				qrow = append(qrow, qvalue.QValueNumeric{Val: *v})
 			default:
 				return nil, fmt.Errorf("cannot convert %T to qvalue", v)
 			}

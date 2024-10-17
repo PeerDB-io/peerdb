@@ -181,9 +181,22 @@ func (h *FlowRequestHandler) removeFlowEntryInCatalog(
 	ctx context.Context,
 	flowName string,
 ) error {
-	_, err := h.pool.Exec(ctx, "DELETE FROM flows WHERE name=$1", flowName)
+	tx, err := h.pool.Begin(ctx)
 	if err != nil {
+		return fmt.Errorf("unable to begin tx to remove flow entry in catalog: %w", err)
+	}
+	defer shared.RollbackTx(tx, slog.Default())
+
+	if _, err := tx.Exec(ctx, "DELETE FROM table_schema_mapping WHERE flow_name=$1", flowName); err != nil {
+		return fmt.Errorf("unable to clear table_schema_mapping to remove flow entry in catalog: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, "DELETE FROM flows WHERE name=$1", flowName); err != nil {
 		return fmt.Errorf("unable to remove flow entry in catalog: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("unable to commit remove flow entry in catalog: %w", err)
 	}
 
 	return nil
@@ -419,9 +432,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 		}
 	}
 
-	return &protos.FlowStateChangeResponse{
-		Ok: true,
-	}, nil
+	return &protos.FlowStateChangeResponse{}, nil
 }
 
 func (h *FlowRequestHandler) handleCancelWorkflow(ctx context.Context, workflowID, runID string) error {
@@ -481,19 +492,13 @@ func (h *FlowRequestHandler) DropPeer(
 	req *protos.DropPeerRequest,
 ) (*protos.DropPeerResponse, error) {
 	if req.PeerName == "" {
-		return &protos.DropPeerResponse{
-			Ok:           false,
-			ErrorMessage: fmt.Sprintf("Peer %s not found", req.PeerName),
-		}, fmt.Errorf("peer %s not found", req.PeerName)
+		return nil, fmt.Errorf("peer %s not found", req.PeerName)
 	}
 
 	// Check if peer name is in flows table
 	peerID, _, err := h.getPeerID(ctx, req.PeerName)
 	if err != nil {
-		return &protos.DropPeerResponse{
-			Ok:           false,
-			ErrorMessage: fmt.Sprintf("Failed to obtain peer ID for peer %s: %v", req.PeerName, err),
-		}, fmt.Errorf("failed to obtain peer ID for peer %s: %v", req.PeerName, err)
+		return nil, fmt.Errorf("failed to obtain peer ID for peer %s: %w", req.PeerName, err)
 	}
 
 	var inMirror pgtype.Int8
@@ -501,30 +506,19 @@ func (h *FlowRequestHandler) DropPeer(
 		"SELECT COUNT(*) FROM flows WHERE source_peer=$1 or destination_peer=$2",
 		peerID, peerID).Scan(&inMirror)
 	if queryErr != nil {
-		return &protos.DropPeerResponse{
-			Ok:           false,
-			ErrorMessage: fmt.Sprintf("Failed to check for existing mirrors with peer %s: %v", req.PeerName, queryErr),
-		}, fmt.Errorf("failed to check for existing mirrors with peer %s", req.PeerName)
+		return nil, fmt.Errorf("failed to check for existing mirrors with peer %s: %w", req.PeerName, queryErr)
 	}
 
 	if inMirror.Int64 != 0 {
-		return &protos.DropPeerResponse{
-			Ok:           false,
-			ErrorMessage: fmt.Sprintf("Peer %s is currently involved in an ongoing mirror.", req.PeerName),
-		}, nil
+		return nil, fmt.Errorf("peer %s is currently involved in an ongoing mirror", req.PeerName)
 	}
 
 	_, delErr := h.pool.Exec(ctx, "DELETE FROM peers WHERE name = $1", req.PeerName)
 	if delErr != nil {
-		return &protos.DropPeerResponse{
-			Ok:           false,
-			ErrorMessage: fmt.Sprintf("failed to delete peer %s from metadata table: %v", req.PeerName, delErr),
-		}, fmt.Errorf("failed to delete peer %s from metadata table: %v", req.PeerName, delErr)
+		return nil, fmt.Errorf("failed to delete peer %s from metadata table: %w", req.PeerName, delErr)
 	}
 
-	return &protos.DropPeerResponse{
-		Ok: true,
-	}, nil
+	return &protos.DropPeerResponse{}, nil
 }
 
 func (h *FlowRequestHandler) getWorkflowID(ctx context.Context, flowJobName string) (string, error) {
@@ -577,7 +571,5 @@ func (h *FlowRequestHandler) ResyncMirror(
 	if err != nil {
 		return nil, err
 	}
-	return &protos.ResyncMirrorResponse{
-		Ok: true,
-	}, nil
+	return &protos.ResyncMirrorResponse{}, nil
 }

@@ -373,7 +373,8 @@ func pullCore[Items model.Items](
 
 	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset); err != nil {
 		// in case of Aurora error ERROR: replication slots cannot be used on RO (Read Only) node (SQLSTATE 55000)
-		if shared.IsSQLStateError(err, pgerrcode.ObjectNotInPrerequisiteState) {
+		if shared.IsSQLStateError(err, pgerrcode.ObjectNotInPrerequisiteState) &&
+			strings.Contains(err.Error(), "replication slots cannot be used on RO (Read Only) node") {
 			return temporal.NewNonRetryableApplicationError("reset connection to reconcile Aurora failover", "disconnect", err)
 		}
 		c.logger.Error("error starting replication", slog.Any("error", err))
@@ -451,7 +452,7 @@ func syncRecordsCore[Items model.Items](
 				}
 
 				row = []any{
-					uuid.New().String(),
+					uuid.New(),
 					time.Now().UnixNano(),
 					typedRecord.DestinationTableName,
 					itemsJSON,
@@ -478,7 +479,7 @@ func syncRecordsCore[Items model.Items](
 				}
 
 				row = []any{
-					uuid.New().String(),
+					uuid.New(),
 					time.Now().UnixNano(),
 					typedRecord.DestinationTableName,
 					newItemsJSON,
@@ -498,7 +499,7 @@ func syncRecordsCore[Items model.Items](
 				}
 
 				row = []any{
-					uuid.New().String(),
+					uuid.New(),
 					time.Now().UnixNano(),
 					typedRecord.DestinationTableName,
 					itemsJSON,
@@ -723,11 +724,13 @@ func (c *PostgresConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 
 func (c *PostgresConnector) GetTableSchema(
 	ctx context.Context,
-	req *protos.GetTableSchemaBatchInput,
-) (*protos.GetTableSchemaBatchOutput, error) {
-	res := make(map[string]*protos.TableSchema)
-	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(ctx, req.Env, tableName, req.System)
+	env map[string]string,
+	system protos.TypeSystem,
+	tableIdentifiers []string,
+) (map[string]*protos.TableSchema, error) {
+	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
+	for _, tableName := range tableIdentifiers {
+		tableSchema, err := c.getTableSchemaForTable(ctx, env, tableName, system)
 		if err != nil {
 			c.logger.Info("error fetching schema for table "+tableName, slog.Any("error", err))
 			return nil, err
@@ -736,9 +739,7 @@ func (c *PostgresConnector) GetTableSchema(
 		c.logger.Info("fetched schema for table " + tableName)
 	}
 
-	return &protos.GetTableSchemaBatchOutput{
-		TableNameSchemaMapping: res,
-	}, nil
+	return res, nil
 }
 
 func (c *PostgresConnector) getTableSchemaForTable(
@@ -773,11 +774,9 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	}
 
 	var nullableCols map[string]struct{}
-	if nullableEnabled {
-		nullableCols, err = c.getNullableColumns(ctx, relID)
-		if err != nil {
-			return nil, err
-		}
+	nullableCols, err = c.getNullableColumns(ctx, relID)
+	if err != nil {
+		return nil, err
 	}
 
 	// Get the column names and types
@@ -827,7 +826,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		})
 	}
 
-	if err = rows.Err(); err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating over table schema: %w", err)
 	}
 	// if we have no pkey, we will use all columns as the pkey for the MERGE statement
@@ -863,6 +862,7 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	tx any,
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
+	tableSchema *protos.TableSchema,
 ) (bool, error) {
 	createNormalizedTablesTx := tx.(pgx.Tx)
 
@@ -889,7 +889,7 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	}
 
 	// convert the column names and types to Postgres types
-	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(config, tableIdentifier, parsedNormalizedTable)
+	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(config, parsedNormalizedTable, tableSchema)
 	_, err = c.execWithLoggingTx(ctx, normalizedTableCreateSQL, createNormalizedTablesTx)
 	if err != nil {
 		return false, fmt.Errorf("error while creating normalized table: %w", err)
@@ -1056,9 +1056,12 @@ func (c *PostgresConnector) FinishExport(tx any) error {
 }
 
 // SetupReplication sets up replication for the source connector.
-func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSignal, req *protos.SetupReplicationInput) error {
+func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSignal, req *protos.SetupReplicationInput) {
 	if !shared.IsValidReplicationName(req.FlowJobName) {
-		return fmt.Errorf("invalid flow job name: `%s`, it should be ^[a-z_][a-z0-9_]*$", req.FlowJobName)
+		signal.SlotCreated <- SlotCreationResult{
+			Err: fmt.Errorf("invalid flow job name: `%s`, it should be ^[a-z_][a-z0-9_]*$", req.FlowJobName),
+		}
+		return
 	}
 
 	// Slotname would be the job name prefixed with "peerflow_slot_"
@@ -1075,7 +1078,8 @@ func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSig
 	// Check if the replication slot and publication exist
 	exists, err := c.checkSlotAndPublication(ctx, slotName, publicationName)
 	if err != nil {
-		return err
+		signal.SlotCreated <- SlotCreationResult{Err: err}
+		return
 	}
 
 	tableNameMapping := make(map[string]model.NameAndExclude)
@@ -1086,13 +1090,7 @@ func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSig
 		}
 	}
 	// Create the replication slot and publication
-	err = c.createSlotAndPublication(ctx, signal, exists,
-		slotName, publicationName, tableNameMapping, req.DoInitialSnapshot)
-	if err != nil {
-		return fmt.Errorf("error creating replication slot and publication: %w", err)
-	}
-
-	return nil
+	c.createSlotAndPublication(ctx, signal, exists, slotName, publicationName, tableNameMapping, req.DoInitialSnapshot)
 }
 
 func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
@@ -1329,7 +1327,11 @@ func (c *PostgresConnector) RemoveTablesFromPublication(ctx context.Context, req
 	return nil
 }
 
-func (c *PostgresConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
+func (c *PostgresConnector) RenameTables(
+	ctx context.Context,
+	req *protos.RenameTablesInput,
+	tableNameSchemaMapping map[string]*protos.TableSchema,
+) (*protos.RenameTablesOutput, error) {
 	renameTablesTx, err := c.conn.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to begin transaction for rename tables: %w", err)
@@ -1366,14 +1368,15 @@ func (c *PostgresConnector) RenameTables(ctx context.Context, req *protos.Rename
 		}
 
 		if originalTableExists {
+			tableSchema := tableNameSchemaMapping[renameRequest.CurrentName]
 			if req.SoftDeleteColName != "" {
-				columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
-				for _, col := range renameRequest.TableSchema.Columns {
+				columnNames := make([]string, 0, len(tableSchema.Columns))
+				for _, col := range tableSchema.Columns {
 					columnNames = append(columnNames, QuoteIdentifier(col.Name))
 				}
 
-				pkeyColumnNames := make([]string, 0, len(renameRequest.TableSchema.PrimaryKeyColumns))
-				for _, col := range renameRequest.TableSchema.PrimaryKeyColumns {
+				pkeyColumnNames := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
+				for _, col := range tableSchema.PrimaryKeyColumns {
 					pkeyColumnNames = append(pkeyColumnNames, QuoteIdentifier(col))
 				}
 
@@ -1439,4 +1442,14 @@ func (c *PostgresConnector) RemoveTableEntriesFromRawTable(
 	}
 
 	return nil
+}
+
+func (c *PostgresConnector) GetVersion(ctx context.Context) (string, error) {
+	var version string
+	err := c.conn.QueryRow(ctx, "SELECT version()").Scan(&version)
+	if err != nil {
+		return "", err
+	}
+	c.logger.Info("[postgres] version", slog.String("version", version))
+	return version, nil
 }

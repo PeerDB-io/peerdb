@@ -938,7 +938,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	assert.EqualValues(s.t, 6, workflowState.SyncFlowOptions.BatchSize)
 	assert.Len(s.t, workflowState.SyncFlowOptions.TableMappings, 1)
 	assert.Len(s.t, workflowState.SyncFlowOptions.SrcTableIdNameMapping, 1)
-	assert.Len(s.t, workflowState.SyncFlowOptions.TableNameSchemaMapping, 1)
 
 	if !s.t.Failed() {
 		e2e.SignalWorkflow(env, model.FlowSignal, model.PauseSignal)
@@ -982,7 +981,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		assert.EqualValues(s.t, 12, workflowState.SyncFlowOptions.BatchSize)
 		assert.Len(s.t, workflowState.SyncFlowOptions.TableMappings, 2)
 		assert.Len(s.t, workflowState.SyncFlowOptions.SrcTableIdNameMapping, 2)
-		assert.Len(s.t, workflowState.SyncFlowOptions.TableNameSchemaMapping, 2)
 	}
 
 	env.Cancel()
@@ -1145,10 +1143,10 @@ func (s PeerFlowE2ETestSuitePG) Test_TransformRowScript() {
 	require.False(s.t, exists)
 }
 
-func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
+func (s PeerFlowE2ETestSuitePG) Test_Mixed_Case_Schema_Changes_PG() {
 	tc := e2e.NewTemporalClient(s.t)
 
-	srcTableName := "test_simple_schema_changes_PG"
+	srcTableName := "test_mixed_case_schema_changes_PG"
 	dstTableName := srcTableName + "_dst"
 	quotedSourceTableName := s.attachSchemaSuffix(`"` + srcTableName + `"`)
 	quotedDestTableName := s.attachSchemaSuffix(`"` + dstTableName + `"`)
@@ -1161,7 +1159,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 	require.NoError(s.t, err)
 
 	flowConnConfig := &protos.FlowConnectionConfigs{
-		FlowJobName:     s.attachSuffix("test_simple_schema_changes_pg"),
+		FlowJobName:     s.attachSuffix("test_mixed_case_schema_changes_pg"),
 		DestinationName: s.Peer().Name,
 		TableMappings: []*protos.TableMapping{
 			{

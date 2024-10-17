@@ -121,7 +121,7 @@ func recordToQRecordOrError[Items model.Items](batchID int64, record model.Recor
 		return nil, fmt.Errorf("unknown record type: %T", typedRecord)
 	}
 
-	entries[0] = qvalue.QValueString{Val: uuid.New().String()}
+	entries[0] = qvalue.QValueUUID{Val: uuid.New()}
 	entries[1] = qvalue.QValueInt64{Val: time.Now().UnixNano()}
 	entries[2] = qvalue.QValueString{Val: record.GetDestinationTableName()}
 	entries[6] = qvalue.QValueInt64{Val: batchID}

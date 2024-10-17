@@ -66,15 +66,13 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 				Name:         "hi",
 				Type:         string(qvalue.QValueKindInt64),
 				TypeModifier: -1,
+				Nullable:     true,
 			},
 		},
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
-		TableIdentifiers: []string{tableName},
-		System:           protos.TypeSystem_Q,
-	})
+	output, err := s.connector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{tableName})
 	require.NoError(s.t, err)
 	require.Equal(s.t, &protos.TableSchema{
 		TableIdentifier:   tableName,
@@ -90,9 +88,10 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 				Name:         "hi",
 				Type:         string(qvalue.QValueKindInt64),
 				TypeModifier: -1,
+				Nullable:     true,
 			},
 		},
-	}, output.TableNameSchemaMapping[tableName])
+	}, output[tableName])
 }
 
 func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
@@ -110,12 +109,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 	addedColumns := make([]*protos.FieldDescription, 0)
 	for _, column := range expectedTableSchema.Columns {
 		if column.Name != "id" {
-			addedColumns = append(addedColumns, &protos.FieldDescription{
-				Name:         column.Name,
-				Type:         column.Type,
-				TypeModifier: -1,
-			},
-			)
+			addedColumns = append(addedColumns, column)
 		}
 	}
 
@@ -126,12 +120,9 @@ func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
-		TableIdentifiers: []string{tableName},
-		System:           protos.TypeSystem_Q,
-	})
+	output, err := s.connector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{tableName})
 	require.NoError(s.t, err)
-	require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
+	require.Equal(s.t, expectedTableSchema, output[tableName])
 }
 
 func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
@@ -149,12 +140,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 	addedColumns := make([]*protos.FieldDescription, 0)
 	for _, column := range expectedTableSchema.Columns {
 		if column.Name != "id" {
-			addedColumns = append(addedColumns, &protos.FieldDescription{
-				Name:         column.Name,
-				Type:         column.Type,
-				TypeModifier: -1,
-			},
-			)
+			addedColumns = append(addedColumns, column)
 		}
 	}
 
@@ -165,12 +151,9 @@ func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
-		TableIdentifiers: []string{tableName},
-		System:           protos.TypeSystem_Q,
-	})
+	output, err := s.connector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{tableName})
 	require.NoError(s.t, err)
-	require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
+	require.Equal(s.t, expectedTableSchema, output[tableName])
 }
 
 func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
@@ -188,12 +171,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 	addedColumns := make([]*protos.FieldDescription, 0)
 	for _, column := range expectedTableSchema.Columns {
 		if column.Name != " " {
-			addedColumns = append(addedColumns, &protos.FieldDescription{
-				Name:         column.Name,
-				Type:         column.Type,
-				TypeModifier: -1,
-			},
-			)
+			addedColumns = append(addedColumns, column)
 		}
 	}
 
@@ -204,12 +182,9 @@ func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(context.Background(), &protos.GetTableSchemaBatchInput{
-		TableIdentifiers: []string{tableName},
-		System:           protos.TypeSystem_Q,
-	})
+	output, err := s.connector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{tableName})
 	require.NoError(s.t, err)
-	require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
+	require.Equal(s.t, expectedTableSchema, output[tableName])
 }
 
 func TestPostgresSchemaDeltaTestSuite(t *testing.T) {

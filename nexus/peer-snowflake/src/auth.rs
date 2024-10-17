@@ -1,7 +1,4 @@
-use std::{
-    str::FromStr,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
 use base64::prelude::{Engine as _, BASE64_STANDARD};
@@ -9,7 +6,7 @@ use jsonwebtoken::{encode as jwt_encode, Algorithm, EncodingKey, Header};
 use rsa::pkcs1::EncodeRsaPrivateKey;
 use rsa::pkcs8::{DecodePrivateKey, EncodePublicKey};
 use rsa::RsaPrivateKey;
-use secrecy::{Secret, SecretString};
+use secrecy::SecretString;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tracing::info;
@@ -32,7 +29,7 @@ pub struct SnowflakeAuth {
     refresh_threshold: u64,
     expiry_threshold: u64,
     last_refreshed: u64,
-    current_jwt: Option<Secret<String>>,
+    current_jwt: Option<SecretString>,
 }
 
 impl SnowflakeAuth {
@@ -128,14 +125,14 @@ impl SnowflakeAuth {
         let header: Header = Header::new(Algorithm::RS256);
 
         let encoded_jwt = jwt_encode(&header, &jwt_claims, &private_key_jwt)?;
-        let secret = SecretString::from_str(&encoded_jwt)?;
+        let secret = SecretString::from(encoded_jwt);
 
         self.current_jwt = Some(secret);
 
         Ok(())
     }
 
-    pub fn get_jwt(&mut self) -> anyhow::Result<&Secret<String>> {
+    pub fn get_jwt(&mut self) -> anyhow::Result<&SecretString> {
         if SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs()
             >= (self.last_refreshed + self.refresh_threshold)
         {

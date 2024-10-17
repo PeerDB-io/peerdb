@@ -27,7 +27,7 @@ const (
 		lsn_offset BIGINT NOT NULL,sync_batch_id BIGINT NOT NULL,normalize_batch_id BIGINT NOT NULL)`
 	rawTablePrefix    = "_peerdb_raw"
 	createSchemaSQL   = "CREATE SCHEMA IF NOT EXISTS %s"
-	createRawTableSQL = `CREATE TABLE IF NOT EXISTS %s.%s(_peerdb_uid TEXT NOT NULL,
+	createRawTableSQL = `CREATE TABLE IF NOT EXISTS %s.%s(_peerdb_uid uuid NOT NULL,
 		_peerdb_timestamp BIGINT NOT NULL,_peerdb_destination_table_name TEXT NOT NULL,_peerdb_data JSONB NOT NULL,
 		_peerdb_record_type INTEGER NOT NULL, _peerdb_match_data JSONB,_peerdb_batch_id INTEGER,
 		_peerdb_unchanged_toast_columns TEXT)`
@@ -335,7 +335,7 @@ func (c *PostgresConnector) CreatePublication(
 	// check and enable publish_via_partition_root
 	pgversion, err := c.MajorVersion(ctx)
 	if err != nil {
-		return fmt.Errorf("[publication-creation]:error checking Postgres version: %w", err)
+		return fmt.Errorf("[publication-creation] error checking Postgres version: %w", err)
 	}
 	var pubViaRootString string
 	if pgversion >= shared.POSTGRES_13 {
@@ -359,7 +359,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 	publication string,
 	tableNameMapping map[string]model.NameAndExclude,
 	doInitialCopy bool,
-) error {
+) {
 	// iterate through source tables and create publication,
 	// expecting tablenames to be schema qualified
 	if !s.PublicationExists {
@@ -367,13 +367,17 @@ func (c *PostgresConnector) createSlotAndPublication(
 		for srcTableName := range tableNameMapping {
 			parsedSrcTableName, err := utils.ParseSchemaTable(srcTableName)
 			if err != nil {
-				return fmt.Errorf("[publication-creation]:source table identifier %s is invalid", srcTableName)
+				signal.SlotCreated <- SlotCreationResult{
+					Err: fmt.Errorf("[publication-creation]:source table identifier %s is invalid", srcTableName),
+				}
+				return
 			}
 			srcTableNames = append(srcTableNames, parsedSrcTableName.String())
 		}
 		err := c.CreatePublication(ctx, srcTableNames, publication)
 		if err != nil {
-			return err
+			signal.SlotCreated <- SlotCreationResult{Err: err}
+			return
 		}
 	}
 
@@ -381,7 +385,8 @@ func (c *PostgresConnector) createSlotAndPublication(
 	if !s.SlotExists {
 		conn, err := c.CreateReplConn(ctx)
 		if err != nil {
-			return fmt.Errorf("[slot] error acquiring connection: %w", err)
+			signal.SlotCreated <- SlotCreationResult{Err: fmt.Errorf("[slot] error acquiring connection: %w", err)}
+			return
 		}
 		defer conn.Close(ctx)
 
@@ -389,11 +394,13 @@ func (c *PostgresConnector) createSlotAndPublication(
 
 		// THIS IS NOT IN A TX!
 		if _, err = conn.Exec(ctx, "SET idle_in_transaction_session_timeout=0"); err != nil {
-			return fmt.Errorf("[slot] error setting idle_in_transaction_session_timeout: %w", err)
+			signal.SlotCreated <- SlotCreationResult{Err: fmt.Errorf("[slot] error setting idle_in_transaction_session_timeout: %w", err)}
+			return
 		}
 
 		if _, err := conn.Exec(ctx, "SET lock_timeout=0"); err != nil {
-			return fmt.Errorf("[slot] error setting lock_timeout: %w", err)
+			signal.SlotCreated <- SlotCreationResult{Err: fmt.Errorf("[slot] error setting lock_timeout: %w", err)}
+			return
 		}
 
 		opts := pglogrepl.CreateReplicationSlotOptions{
@@ -402,12 +409,14 @@ func (c *PostgresConnector) createSlotAndPublication(
 		}
 		res, err := pglogrepl.CreateReplicationSlot(ctx, conn.PgConn(), slot, "pgoutput", opts)
 		if err != nil {
-			return fmt.Errorf("[slot] error creating replication slot: %w", err)
+			signal.SlotCreated <- SlotCreationResult{Err: fmt.Errorf("[slot] error creating replication slot: %w", err)}
+			return
 		}
 
 		pgversion, err := c.MajorVersion(ctx)
 		if err != nil {
-			return fmt.Errorf("[slot] error getting PG version: %w", err)
+			signal.SlotCreated <- SlotCreationResult{Err: fmt.Errorf("[slot] error getting PG version: %w", err)}
+			return
 		}
 
 		c.logger.Info(fmt.Sprintf("Created replication slot '%s'", slot))
@@ -434,8 +443,6 @@ func (c *PostgresConnector) createSlotAndPublication(
 		}
 		signal.SlotCreated <- slotDetails
 	}
-
-	return nil
 }
 
 func (c *PostgresConnector) createMetadataSchema(ctx context.Context) error {
@@ -452,14 +459,13 @@ func getRawTableIdentifier(jobName string) string {
 
 func generateCreateTableSQLForNormalizedTable(
 	config *protos.SetupNormalizedTableBatchInput,
-	tableIdentifier string,
 	dstSchemaTable *utils.SchemaTable,
+	tableSchema *protos.TableSchema,
 ) string {
-	sourceTableSchema := config.TableNameSchemaMapping[tableIdentifier]
-	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns)+2)
-	for _, column := range sourceTableSchema.Columns {
+	createTableSQLArray := make([]string, 0, len(tableSchema.Columns)+2)
+	for _, column := range tableSchema.Columns {
 		pgColumnType := column.Type
-		if sourceTableSchema.System == protos.TypeSystem_Q {
+		if tableSchema.System == protos.TypeSystem_Q {
 			pgColumnType = qValueKindToPostgresType(pgColumnType)
 		}
 		if column.Type == "numeric" && column.TypeModifier != -1 {
@@ -467,7 +473,7 @@ func generateCreateTableSQLForNormalizedTable(
 			pgColumnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
 		}
 		var notNull string
-		if sourceTableSchema.NullableEnabled && !column.Nullable {
+		if tableSchema.NullableEnabled && !column.Nullable {
 			notNull = " NOT NULL"
 		}
 
@@ -486,9 +492,9 @@ func generateCreateTableSQLForNormalizedTable(
 	}
 
 	// add composite primary key to the table
-	if len(sourceTableSchema.PrimaryKeyColumns) > 0 && !sourceTableSchema.IsReplicaIdentityFull {
-		primaryKeyColsQuoted := make([]string, 0, len(sourceTableSchema.PrimaryKeyColumns))
-		for _, primaryKeyCol := range sourceTableSchema.PrimaryKeyColumns {
+	if len(tableSchema.PrimaryKeyColumns) > 0 && !tableSchema.IsReplicaIdentityFull {
+		primaryKeyColsQuoted := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
+		for _, primaryKeyCol := range tableSchema.PrimaryKeyColumns {
 			primaryKeyColsQuoted = append(primaryKeyColsQuoted, QuoteIdentifier(primaryKeyCol))
 		}
 		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s)",

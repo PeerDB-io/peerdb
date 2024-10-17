@@ -67,56 +67,31 @@ func (h *FlowRequestHandler) MirrorStatus(
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
 		slog.Error("unable to get the workflow ID of mirror", slog.Any("error", err))
-		return &protos.MirrorStatusResponse{
-			FlowJobName:      req.FlowJobName,
-			CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
-			ErrorMessage:     "unable to get the workflow ID of mirror " + req.FlowJobName,
-			Ok:               false,
-		}, nil
+		return nil, fmt.Errorf("unable to get the workflow ID of mirror %s: %w", req.FlowJobName, err)
 	}
 
 	currState, err := h.getWorkflowStatus(ctx, workflowID)
 	if err != nil {
 		slog.Error("unable to get the running status of mirror", slog.Any("error", err))
-		return &protos.MirrorStatusResponse{
-			FlowJobName:      req.FlowJobName,
-			CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
-			ErrorMessage:     "unable to get the running status of mirror " + req.FlowJobName,
-			Ok:               false,
-		}, nil
+		return nil, fmt.Errorf("unable to get the running status of mirror %s: %w", req.FlowJobName, err)
 	}
 
 	createdAt, err := h.getMirrorCreatedAt(ctx, req.FlowJobName)
 	if err != nil {
-		return &protos.MirrorStatusResponse{
-			FlowJobName:      req.FlowJobName,
-			CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
-			ErrorMessage:     "unable to get the creation time of mirror " + req.FlowJobName,
-			Ok:               false,
-		}, nil
+		return nil, fmt.Errorf("unable to get the creation time of mirror %s: %w", req.FlowJobName, err)
 	}
 
 	if req.IncludeFlowInfo {
 		cdcFlow, err := h.isCDCFlow(ctx, req.FlowJobName)
 		if err != nil {
 			slog.Error("unable to determine if mirror is cdc", slog.Any("error", err))
-			return &protos.MirrorStatusResponse{
-				FlowJobName:      req.FlowJobName,
-				CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
-				ErrorMessage:     "unable to determine if mirror" + req.FlowJobName + "is of type CDC.",
-				Ok:               false,
-			}, nil
+			return nil, fmt.Errorf("unable to determine if mirror %s is of type CDC: %w", req.FlowJobName, err)
 		}
 		if cdcFlow {
 			cdcStatus, err := h.cdcFlowStatus(ctx, req)
 			if err != nil {
 				slog.Error("unable to obtain CDC information for mirror", slog.Any("error", err))
-				return &protos.MirrorStatusResponse{
-					FlowJobName:      req.FlowJobName,
-					CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
-					ErrorMessage:     "unable to obtain CDC information for mirror " + req.FlowJobName,
-					Ok:               false,
-				}, nil
+				return nil, fmt.Errorf("unable to obtain CDC information for mirror %s: %w", req.FlowJobName, err)
 			}
 
 			return &protos.MirrorStatusResponse{
@@ -125,19 +100,13 @@ func (h *FlowRequestHandler) MirrorStatus(
 					CdcStatus: cdcStatus,
 				},
 				CurrentFlowState: currState,
-				Ok:               true,
 				CreatedAt:        timestamppb.New(*createdAt),
 			}, nil
 		} else {
 			qrepStatus, err := h.qrepFlowStatus(ctx, req)
 			if err != nil {
 				slog.Error("unable to obtain qrep information for mirror", slog.Any("error", err))
-				return &protos.MirrorStatusResponse{
-					FlowJobName:      req.FlowJobName,
-					CurrentFlowState: protos.FlowStatus_STATUS_UNKNOWN,
-					ErrorMessage:     "unable to obtain snapshot information for mirror " + req.FlowJobName,
-					Ok:               false,
-				}, nil
+				return nil, fmt.Errorf("unable to obtain snapshot information for mirror %s: %w", req.FlowJobName, err)
 			}
 
 			return &protos.MirrorStatusResponse{
@@ -146,7 +115,6 @@ func (h *FlowRequestHandler) MirrorStatus(
 					QrepStatus: qrepStatus,
 				},
 				CurrentFlowState: currState,
-				Ok:               true,
 				CreatedAt:        timestamppb.New(*createdAt),
 			}, nil
 		}
@@ -155,7 +123,6 @@ func (h *FlowRequestHandler) MirrorStatus(
 	return &protos.MirrorStatusResponse{
 		FlowJobName:      req.FlowJobName,
 		CurrentFlowState: currState,
-		Ok:               true,
 		CreatedAt:        timestamppb.New(*createdAt),
 	}, nil
 }

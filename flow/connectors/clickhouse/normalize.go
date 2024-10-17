@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 const (
@@ -42,6 +43,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 	tx interface{},
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
+	tableSchema *protos.TableSchema,
 ) (bool, error) {
 	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.config.Database, tableIdentifier)
 	if err != nil {
@@ -55,6 +57,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 	normalizedTableCreateSQL, err := generateCreateTableSQLForNormalizedTable(
 		config,
 		tableIdentifier,
+		tableSchema,
 	)
 	if err != nil {
 		return false, fmt.Errorf("error while generating create table sql for normalized table: %w", err)
@@ -76,9 +79,8 @@ func getColName(overrides map[string]string, name string) string {
 func generateCreateTableSQLForNormalizedTable(
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
+	tableSchema *protos.TableSchema,
 ) (string, error) {
-	tableSchema := config.TableNameSchemaMapping[tableIdentifier]
-
 	var tableMapping *protos.TableMapping
 	for _, tm := range config.TableMappings {
 		if tm.DestinationTableIdentifier == tableIdentifier {
@@ -105,45 +107,41 @@ func generateCreateTableSQLForNormalizedTable(
 		colName := column.Name
 		dstColName := colName
 		colType := qvalue.QValueKind(column.Type)
+		var columnNullableEnabled bool
 		var clickHouseType string
-		var columnSetting *protos.ColumnSetting
 		if tableMapping != nil {
 			for _, col := range tableMapping.Columns {
 				if col.SourceName == colName {
-					columnSetting = col
-					if columnSetting.DestinationName != "" {
-						dstColName = columnSetting.DestinationName
+					if col.DestinationName != "" {
+						dstColName = col.DestinationName
 						colNameMap[colName] = dstColName
 					}
-					if columnSetting.DestinationType != "" {
-						// TODO can we restrict this to avoid injection?
-						clickHouseType = columnSetting.DestinationType
+					if col.DestinationType != "" {
+						clickHouseType = col.DestinationType
 					}
+					columnNullableEnabled = col.NullableEnabled
 					break
 				}
 			}
 		}
 
 		if clickHouseType == "" {
-			var err error
-			clickHouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
-			if err != nil {
-				return "", fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
+			if colType == qvalue.QValueKindNumeric {
+				precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
+				clickHouseType = fmt.Sprintf("Decimal(%d, %d)", precision, scale)
+			} else {
+				var err error
+				clickHouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
+				if err != nil {
+					return "", fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
+				}
 			}
+		}
+		if (tableSchema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() {
+			clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
 		}
 
-		if colType == qvalue.QValueKindNumeric {
-			precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
-			if column.Nullable {
-				stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(DECIMAL(%d, %d)), ", dstColName, precision, scale))
-			} else {
-				stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ", dstColName, precision, scale))
-			}
-		} else if tableSchema.NullableEnabled && column.Nullable && !colType.IsArray() {
-			stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(%s), ", dstColName, clickHouseType))
-		} else {
-			stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", dstColName, clickHouseType))
-		}
+		stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", dstColName, clickHouseType))
 	}
 	// TODO support soft delete
 	// synced at column will be added to all normalized tables
@@ -166,53 +164,62 @@ func generateCreateTableSQLForNormalizedTable(
 		"`%s` %s, `%s` %s) ENGINE = %s",
 		signColName, signColType, versionColName, versionColType, engine))
 
-	var pkeyStr string
-	pkeys := tableSchema.PrimaryKeyColumns
-	if len(pkeys) > 0 {
+	orderByColumns := getOrderedOrderByColumns(tableMapping, tableSchema.PrimaryKeyColumns, colNameMap)
+
+	if len(orderByColumns) > 0 {
+		orderByStr := strings.Join(orderByColumns, ",")
+
+		stmtBuilder.WriteString("PRIMARY KEY (")
+		stmtBuilder.WriteString(orderByStr)
+		stmtBuilder.WriteString(") ")
+
+		stmtBuilder.WriteString("ORDER BY (")
+		stmtBuilder.WriteString(orderByStr)
+		stmtBuilder.WriteString(") ")
+	}
+
+	return stmtBuilder.String(), nil
+}
+
+// Returns a list of order by columns ordered by their ordering, and puts the pkeys at the end.
+// pkeys are excluded from the order by columns.
+func getOrderedOrderByColumns(
+	tableMapping *protos.TableMapping,
+	sourcePkeys []string,
+	colNameMap map[string]string,
+) []string {
+	pkeys := slices.Clone(sourcePkeys)
+	if len(sourcePkeys) > 0 {
 		if len(colNameMap) > 0 {
-			pkeys = slices.Clone(pkeys)
-			for idx, pk := range pkeys {
+			for idx, pk := range sourcePkeys {
 				pkeys[idx] = getColName(colNameMap, pk)
 			}
 		}
-		pkeyStr = strings.Join(pkeys, ",")
-
-		stmtBuilder.WriteString("PRIMARY KEY (")
-		stmtBuilder.WriteString(pkeyStr)
-		stmtBuilder.WriteString(") ")
 	}
 
 	orderby := make([]*protos.ColumnSetting, 0)
 	if tableMapping != nil {
-		orderby = slices.Clone(tableMapping.Columns)
 		for _, col := range tableMapping.Columns {
-			if col.Ordering > 0 && !slices.Contains(pkeys, getColName(colNameMap, col.SourceName)) {
+			if col.Ordering > 0 && !slices.Contains(pkeys, col.SourceName) {
 				orderby = append(orderby, col)
 			}
 		}
 	}
+
 	slices.SortStableFunc(orderby, func(a *protos.ColumnSetting, b *protos.ColumnSetting) int {
 		return cmp.Compare(a.Ordering, b.Ordering)
 	})
 
-	if pkeyStr != "" || len(orderby) > 0 {
-		stmtBuilder.WriteString("ORDER BY (")
-		stmtBuilder.WriteString(pkeyStr)
-		if len(orderby) > 0 {
-			orderbyColumns := make([]string, len(orderby))
-			for idx, col := range orderby {
-				orderbyColumns[idx] = getColName(colNameMap, col.SourceName)
-			}
-
-			if pkeyStr != "" {
-				stmtBuilder.WriteRune(',')
-			}
-			stmtBuilder.WriteString(strings.Join(orderbyColumns, ","))
-		}
-		stmtBuilder.WriteRune(')')
+	orderbyColumns := make([]string, len(orderby))
+	for idx, col := range orderby {
+		orderbyColumns[idx] = getColName(colNameMap, col.SourceName)
 	}
 
-	return stmtBuilder.String(), nil
+	// Typically primary keys are not what aggregates are performed on and hence
+	// having them at the start of the order by clause is not beneficial.
+	orderbyColumns = append(orderbyColumns, pkeys...)
+
+	return orderbyColumns
 }
 
 func (c *ClickHouseConnector) NormalizeRecords(
@@ -262,7 +269,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		selectQuery.WriteString("SELECT ")
 
 		colSelector := strings.Builder{}
-		colSelector.WriteString("(")
+		colSelector.WriteRune('(')
 
 		schema := req.TableNameSchemaMapping[tbl]
 
@@ -274,7 +281,13 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			}
 		}
 
+		enablePrimaryUpdate, err := peerdbenv.PeerDBEnableClickHousePrimaryUpdate(ctx, req.Env)
+		if err != nil {
+			return nil, err
+		}
+
 		projection := strings.Builder{}
+		projectionUpdate := strings.Builder{}
 
 		for _, column := range schema.Columns {
 			colName := column.Name
@@ -282,6 +295,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			colType := qvalue.QValueKind(column.Type)
 
 			var clickHouseType string
+			var columnNullableEnabled bool
 			if tableMapping != nil {
 				for _, col := range tableMapping.Columns {
 					if col.SourceName == colName {
@@ -292,6 +306,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 							// TODO can we restrict this to avoid injection?
 							clickHouseType = col.DestinationType
 						}
+						columnNullableEnabled = col.NullableEnabled
 						break
 					}
 				}
@@ -309,23 +324,48 @@ func (c *ClickHouseConnector) NormalizeRecords(
 						return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 					}
 				}
+				if (schema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() {
+					clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
+				}
 			}
 
 			switch clickHouseType {
-			case "Date":
+			case "Date32", "Nullable(Date32)":
 				projection.WriteString(fmt.Sprintf(
-					"toDate(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'))) AS `%s`,",
+					"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'))) AS `%s`,",
 					colName,
 					dstColName,
 				))
-			case "DateTime64(6)":
+				if enablePrimaryUpdate {
+					projectionUpdate.WriteString(fmt.Sprintf(
+						"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s'))) AS `%s`,",
+						colName,
+						dstColName,
+					))
+				}
+			case "DateTime64(6)", "Nullable(DateTime64(6))":
 				projection.WriteString(fmt.Sprintf(
 					"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s')) AS `%s`,",
 					colName,
 					dstColName,
 				))
+				if enablePrimaryUpdate {
+					projectionUpdate.WriteString(fmt.Sprintf(
+						"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s')) AS `%s`,",
+						colName,
+						dstColName,
+					))
+				}
 			default:
 				projection.WriteString(fmt.Sprintf("JSONExtract(_peerdb_data, '%s', '%s') AS `%s`,", colName, clickHouseType, dstColName))
+				if enablePrimaryUpdate {
+					projectionUpdate.WriteString(fmt.Sprintf(
+						"JSONExtract(_peerdb_match_data, '%s', '%s') AS `%s`,",
+						colName,
+						clickHouseType,
+						dstColName,
+					))
+				}
 			}
 		}
 
@@ -348,6 +388,26 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		selectQuery.WriteString(" AND _peerdb_destination_table_name = '")
 		selectQuery.WriteString(tbl)
 		selectQuery.WriteString("'")
+
+		if enablePrimaryUpdate {
+			// projectionUpdate generates delete on previous record, so _peerdb_record_type is filled in as 2
+			projectionUpdate.WriteString(fmt.Sprintf("1 AS `%s`,", signColName))
+			// decrement timestamp by 1 so delete is ordered before latest data,
+			// could be same if deletion records were only generated when ordering updated
+			projectionUpdate.WriteString(fmt.Sprintf("_peerdb_timestamp - 1 AS `%s`", versionColName))
+
+			selectQuery.WriteString("UNION ALL SELECT ")
+			selectQuery.WriteString(projectionUpdate.String())
+			selectQuery.WriteString(" FROM ")
+			selectQuery.WriteString(rawTbl)
+			selectQuery.WriteString(" WHERE _peerdb_batch_id > ")
+			selectQuery.WriteString(strconv.FormatInt(normBatchID, 10))
+			selectQuery.WriteString(" AND _peerdb_batch_id <= ")
+			selectQuery.WriteString(strconv.FormatInt(req.SyncBatchID, 10))
+			selectQuery.WriteString(" AND _peerdb_destination_table_name = '")
+			selectQuery.WriteString(tbl)
+			selectQuery.WriteString("' AND _peerdb_record_type = 1")
+		}
 
 		insertIntoSelectQuery := strings.Builder{}
 		insertIntoSelectQuery.WriteString("INSERT INTO ")
@@ -387,7 +447,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 		`SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d`,
 		rawTbl, normalizeBatchID, syncBatchID)
 
-	rows, err := c.database.Query(ctx, q)
+	rows, err := c.query(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("error while querying raw table for distinct table names in batch: %w", err)
 	}

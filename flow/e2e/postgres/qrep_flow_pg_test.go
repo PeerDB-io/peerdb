@@ -160,19 +160,15 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 	}
 
 	signal := connpostgres.NewSlotSignal()
+	go s.conn.SetupReplication(context.Background(), signal, setupReplicationInput)
 
-	setupError := make(chan error)
-	go func() {
-		setupError <- s.conn.SetupReplication(context.Background(), signal, setupReplicationInput)
-	}()
-
-	s.t.Log("waiting for slot creation to complete: ", flowJobName)
+	s.t.Log("waiting for slot creation to complete: " + flowJobName)
 	slotInfo := <-signal.SlotCreated
 	s.t.Logf("slot creation complete: %v. Signaling clone complete in 2 seconds", slotInfo)
 	time.Sleep(2 * time.Second)
 	close(signal.CloneComplete)
 
-	require.NoError(s.t, <-setupError)
+	require.NoError(s.t, slotInfo.Err)
 	s.t.Logf("successfully setup replication: %s", flowJobName)
 }
 

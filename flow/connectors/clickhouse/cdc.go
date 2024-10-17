@@ -30,7 +30,7 @@ func (c *ClickHouseConnector) getRawTableName(flowJobName string) string {
 
 func (c *ClickHouseConnector) checkIfTableExists(ctx context.Context, databaseName string, tableIdentifier string) (bool, error) {
 	var result sql.NullInt32
-	err := c.database.QueryRow(ctx, checkIfTableExistsSQL, databaseName, tableIdentifier).Scan(&result)
+	err := c.queryRow(ctx, checkIfTableExistsSQL, databaseName, tableIdentifier).Scan(&result)
 	if err != nil {
 		return false, fmt.Errorf("error while reading result row: %w", err)
 	}
@@ -46,7 +46,7 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
 	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %s (
-		_peerdb_uid String NOT NULL,
+		_peerdb_uid UUID NOT NULL,
 		_peerdb_timestamp Int64 NOT NULL,
 		_peerdb_destination_table_name String NOT NULL,
 		_peerdb_data String NOT NULL,
@@ -54,7 +54,7 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 		_peerdb_match_data String,
 		_peerdb_batch_id Int,
 		_peerdb_unchanged_toast_columns String
-	) ENGINE = ReplacingMergeTree ORDER BY _peerdb_uid;`
+	) ENGINE = MergeTree() ORDER BY (_peerdb_batch_id, _peerdb_destination_table_name);`
 
 	err := c.execWithLogging(ctx,
 		fmt.Sprintf(createRawTableSQL, rawTableName))
@@ -157,7 +157,11 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 	return nil
 }
 
-func (c *ClickHouseConnector) RenameTables(ctx context.Context, req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
+func (c *ClickHouseConnector) RenameTables(
+	ctx context.Context,
+	req *protos.RenameTablesInput,
+	tableNameSchemaMapping map[string]*protos.TableSchema,
+) (*protos.RenameTablesOutput, error) {
 	for _, renameRequest := range req.RenameTableOptions {
 		resyncTableExists, err := c.checkIfTableExists(ctx, c.config.Database, renameRequest.CurrentName)
 		if err != nil {
@@ -175,8 +179,9 @@ func (c *ClickHouseConnector) RenameTables(ctx context.Context, req *protos.Rena
 		}
 
 		if originalTableExists {
-			columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
-			for _, col := range renameRequest.TableSchema.Columns {
+			tableSchema := tableNameSchemaMapping[renameRequest.CurrentName]
+			columnNames := make([]string, 0, len(tableSchema.Columns))
+			for _, col := range tableSchema.Columns {
 				columnNames = append(columnNames, col.Name)
 			}
 
@@ -217,15 +222,13 @@ func (c *ClickHouseConnector) RenameTables(ctx context.Context, req *protos.Rena
 }
 
 func (c *ClickHouseConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
-	err := c.PostgresMetadata.SyncFlowCleanup(ctx, jobName)
-	if err != nil {
+	if err := c.PostgresMetadata.SyncFlowCleanup(ctx, jobName); err != nil {
 		return fmt.Errorf("[clickhouse] unable to clear metadata for sync flow cleanup: %w", err)
 	}
 
 	// delete raw table if exists
 	rawTableIdentifier := c.getRawTableName(jobName)
-	err = c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, rawTableIdentifier))
-	if err != nil {
+	if err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, rawTableIdentifier)); err != nil {
 		return fmt.Errorf("[clickhouse] unable to drop raw table: %w", err)
 	}
 

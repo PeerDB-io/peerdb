@@ -154,38 +154,35 @@ func (a *Alerter) AlertIfSlotLag(ctx context.Context, alertKeys *AlertKeys, slot
 		logger.LoggerFromCtx(ctx).Warn("failed to get slot lag alert threshold from catalog", slog.Any("error", err))
 		return
 	}
+
 	// catalog cannot use default threshold to space alerts properly, use the lowest set threshold instead
 	lowestSlotLagMBAlertThreshold := defaultSlotLagMBAlertThreshold
-	for _, alertSender := range alertSenderConfigs {
-		if alertSender.Sender.getSlotLagMBAlertThreshold() > 0 {
-			lowestSlotLagMBAlertThreshold = min(lowestSlotLagMBAlertThreshold, alertSender.Sender.getSlotLagMBAlertThreshold())
+	var alertSendersForMirrors []AlertSenderConfig
+	for _, alertSenderConfig := range alertSenderConfigs {
+		if len(alertSenderConfig.AlertForMirrors) == 0 || slices.Contains(alertSenderConfig.AlertForMirrors, alertKeys.FlowName) {
+			alertSendersForMirrors = append(alertSendersForMirrors, alertSenderConfig)
+			if alertSenderConfig.Sender.getSlotLagMBAlertThreshold() > 0 {
+				lowestSlotLagMBAlertThreshold = min(lowestSlotLagMBAlertThreshold, alertSenderConfig.Sender.getSlotLagMBAlertThreshold())
+			}
 		}
 	}
 
-	alertKey := fmt.Sprintf("%s Slot Lag Threshold Exceeded for Peer %s", deploymentUIDPrefix, alertKeys.PeerName)
-	alertMessageTemplate := fmt.Sprintf("%sSlot `%s` on peer `%s` has exceeded threshold size of %%dMB, "+
+	thresholdAlertKey := fmt.Sprintf("%s Slot Lag Threshold Exceeded for Peer %s", deploymentUIDPrefix, alertKeys.PeerName)
+	thresholdAlertMessageTemplate := fmt.Sprintf("%sSlot `%s` on peer `%s` has exceeded threshold size of %%dMB, "+
 		`currently at %.2fMB!`, deploymentUIDPrefix, slotInfo.SlotName, alertKeys.PeerName, slotInfo.LagInMb)
 
-	if slotInfo.LagInMb > float32(lowestSlotLagMBAlertThreshold) {
-		for _, alertSenderConfig := range alertSenderConfigs {
-			if len(alertSenderConfig.AlertForMirrors) > 0 &&
-				!slices.Contains(alertSenderConfig.AlertForMirrors, alertKeys.FlowName) {
-				continue
-			}
-			if a.checkAndAddAlertToCatalog(ctx,
-				alertSenderConfig.Id, alertKey, fmt.Sprintf(alertMessageTemplate, lowestSlotLagMBAlertThreshold)) {
-				if alertSenderConfig.Sender.getSlotLagMBAlertThreshold() > 0 {
-					if slotInfo.LagInMb > float32(alertSenderConfig.Sender.getSlotLagMBAlertThreshold()) {
-						a.alertToProvider(ctx, alertSenderConfig, alertKey,
-							fmt.Sprintf(alertMessageTemplate, alertSenderConfig.Sender.getSlotLagMBAlertThreshold()))
-					}
-				} else {
-					if slotInfo.LagInMb > float32(defaultSlotLagMBAlertThreshold) {
-						a.alertToProvider(ctx, alertSenderConfig, alertKey,
-							fmt.Sprintf(alertMessageTemplate, defaultSlotLagMBAlertThreshold))
-					}
-				}
-			}
+	badWalStatusAlertKey := fmt.Sprintf("%s Bad WAL Status for Peer %s", deploymentUIDPrefix, alertKeys.PeerName)
+	badWalStatusAlertMessageTemplate := fmt.Sprintf("%sSlot `%s` on peer `%s` has bad WAL status: `%s`",
+		deploymentUIDPrefix, slotInfo.SlotName, alertKeys.PeerName, slotInfo.WalStatus)
+
+	for _, alertSenderConfig := range alertSendersForMirrors {
+		if slotInfo.LagInMb > float32(lowestSlotLagMBAlertThreshold) {
+			a.alertToProvider(ctx, alertSenderConfig, thresholdAlertKey,
+				fmt.Sprintf(thresholdAlertMessageTemplate, defaultSlotLagMBAlertThreshold))
+		}
+
+		if slotInfo.WalStatus == "lost" || slotInfo.WalStatus == "unreserved" {
+			a.alertToProvider(ctx, alertSenderConfig, badWalStatusAlertKey, badWalStatusAlertMessageTemplate)
 		}
 	}
 }
@@ -276,7 +273,7 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId i
 	var createdTimestamp time.Time
 	err = row.Scan(&createdTimestamp)
 	if err != nil && err != pgx.ErrNoRows {
-		logger.LoggerFromCtx(ctx).Warn("failed to send alert: ", slog.String("err", err.Error()))
+		logger.LoggerFromCtx(ctx).Warn("failed to send alert", slog.Any("err", err))
 		return false
 	}
 

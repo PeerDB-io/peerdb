@@ -110,7 +110,7 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindTimestamp:   "DateTime64(6)",
 	QValueKindTimestampTZ: "DateTime64(6)",
 	QValueKindTime:        "String",
-	QValueKindDate:        "Date",
+	QValueKindDate:        "Date32",
 	QValueKindBytes:       "String",
 	QValueKindStruct:      "String",
 	QValueKindUUID:        "UUID",
