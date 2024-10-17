@@ -739,7 +739,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			if a.OtelManager != nil {
 				slotLagGauge, err := otel_metrics.GetOrInitFloat64SyncGauge(a.OtelManager.Meter,
 					a.OtelManager.Float64GaugesCache,
-					peerdb_gauges.SlotLagGaugeName,
+					peerdb_gauges.BuildGaugeName(peerdb_gauges.SlotLagGaugeName),
 					metric.WithUnit("MiBy"),
 					metric.WithDescription("Postgres replication slot lag in MB"))
 				if err != nil {
@@ -750,7 +750,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 
 				openConnectionsGauge, err := otel_metrics.GetOrInitInt64SyncGauge(a.OtelManager.Meter,
 					a.OtelManager.Int64GaugesCache,
-					peerdb_gauges.OpenConnectionsGaugeName,
+					peerdb_gauges.BuildGaugeName(peerdb_gauges.OpenConnectionsGaugeName),
 					metric.WithDescription("Current open connections for PeerDB user"))
 				if err != nil {
 					logger.Error("Failed to get open connections gauge", slog.Any("error", err))
@@ -760,7 +760,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 
 				openReplicationConnectionsGauge, err := otel_metrics.GetOrInitInt64SyncGauge(a.OtelManager.Meter,
 					a.OtelManager.Int64GaugesCache,
-					peerdb_gauges.OpenReplicationConnectionsGaugeName,
+					peerdb_gauges.BuildGaugeName(peerdb_gauges.OpenReplicationConnectionsGaugeName),
 					metric.WithDescription("Current open replication connections for PeerDB user"))
 				if err != nil {
 					logger.Error("Failed to get open replication connections gauge", slog.Any("error", err))
