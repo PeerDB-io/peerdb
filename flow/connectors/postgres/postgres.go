@@ -1375,10 +1375,8 @@ func (c *PostgresConnector) RenameTables(
 					columnNames = append(columnNames, QuoteIdentifier(col.Name))
 				}
 
-				pkeyColumnNames := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
 				var pkeyColCompareStr strings.Builder
 				for i, col := range tableSchema.PrimaryKeyColumns {
-					pkeyColumnNames = append(pkeyColumnNames, QuoteIdentifier(col))
 					pkeyColCompareStr.WriteString("original_table.")
 					pkeyColCompareStr.WriteString(QuoteIdentifier(col))
 					pkeyColCompareStr.WriteString(" = resync_table.")
@@ -1389,13 +1387,11 @@ func (c *PostgresConnector) RenameTables(
 				}
 
 				allCols := strings.Join(columnNames, ",")
-				pkeyCols := strings.Join(pkeyColumnNames, ",")
-
 				c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
 				_, err = c.execWithLoggingTx(ctx,
-					fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s original_table WHERE (%s) NOT EXISTS (SELECT %s FROM %s resync_table WHERE %s)",
+					fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s original_table WHERE NOT EXISTS (SELECT 1 FROM %s resync_table WHERE %s)",
 						src, fmt.Sprintf("%s,%s", allCols, QuoteIdentifier(req.SoftDeleteColName)), allCols, req.SoftDeleteColName,
-						dst, pkeyCols, pkeyCols, src, pkeyColCompareStr.String()), renameTablesTx)
+						dst, src, pkeyColCompareStr.String()), renameTablesTx)
 				if err != nil {
 					return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
 				}
