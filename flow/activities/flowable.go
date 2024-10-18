@@ -768,6 +768,17 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 					return
 				}
 				slotMetricGauges.OpenReplicationConnectionsGauge = openReplicationConnectionsGauge
+
+				intervalSinceLastNormalizeGauge, err := otel_metrics.GetOrInitFloat64SyncGauge(a.OtelManager.Meter,
+					a.OtelManager.Float64GaugesCache,
+					peerdb_gauges.BuildGaugeName(peerdb_gauges.IntervalSinceLastNormalizeGaugeName),
+					metric.WithUnit("s"),
+					metric.WithDescription("Interval since last normalize"))
+				if err != nil {
+					logger.Error("Failed to get interval since last normalize gauge", slog.Any("error", err))
+					return
+				}
+				slotMetricGauges.IntervalSinceLastNormalizeGauge = intervalSinceLastNormalizeGauge
 			}
 
 			if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{
