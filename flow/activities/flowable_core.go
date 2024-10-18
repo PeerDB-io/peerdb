@@ -19,6 +19,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peer-flow/connectors"
+	connmetadata "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -172,6 +173,15 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	startTime := time.Now()
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
+		pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
+		// for connectors that aren't stored in metadata, returns 0
+		// CH is stored in metadata and is the only connector that cares about syncBatchID in schema_delta_audit_log
+		syncBatchID, err := pgMetadata.GetLastSyncBatchID(ctx, flowName)
+		if err != nil {
+			return err
+		}
+		syncBatchID += 1
+
 		return pull(srcConn, errCtx, a.CatalogPool, &model.PullRecordsRequest[Items]{
 			FlowJobName:           flowName,
 			SrcTableIDNameMapping: options.SrcTableIdNameMapping,
@@ -187,6 +197,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			OverrideReplicationSlotName: config.ReplicationSlotName,
 			RecordStream:                recordBatchPull,
 			Env:                         config.Env,
+			SyncBatchID:                 syncBatchID,
 		})
 	})
 
