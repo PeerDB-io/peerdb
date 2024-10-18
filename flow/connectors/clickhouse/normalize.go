@@ -235,6 +235,17 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		return nil, err
 	}
 
+	schemaDeltas, err := c.GetSchemaDeltasForBatches(ctx, req.FlowJobName, req.SyncBatchID, normBatchID)
+	if err != nil {
+		c.logger.Error("[clickhouse] error while getting schema deltas for batches", "error", err)
+		return nil, err
+	}
+
+	if err = c.replayTableSchemaDeltas(ctx, schemaDeltas); err != nil {
+		c.logger.Error("[clickhouse] error while replaying table schema deltas", "error", err)
+		return nil, err
+	}
+
 	// normalize has caught up with sync, chill until more records are loaded.
 	if normBatchID >= req.SyncBatchID {
 		return &model.NormalizeResponse{

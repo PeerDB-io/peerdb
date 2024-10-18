@@ -235,3 +235,37 @@ func (p *PostgresMetadata) SyncFlowCleanup(ctx context.Context, jobName string) 
 
 	return nil
 }
+
+func (p *PostgresMetadata) GetSchemaDeltasForBatches(ctx context.Context,
+	jobName string, syncBatchID int64, normalizeBatchID int64,
+) ([]*protos.TableSchemaDelta, error) {
+	p.logger.Info("getting schema deltas for batches",
+		slog.String("jobName", jobName),
+		slog.Int64("syncBatchID", syncBatchID),
+		slog.Int64("normalizeBatchID", normalizeBatchID))
+
+	rows, err := p.pool.Query(ctx,
+		`SELECT (delta_info->>'tableSchemaDelta')::JSONB
+		FROM peerdb_stats.schema_deltas_audit_log
+		WHERE flow_job_name=$1 AND batch_id BETWEEN $2 AND $3`,
+		jobName, normalizeBatchID+1, syncBatchID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query for SchemaDeltas: %w", err)
+	}
+
+	deltas, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.TableSchemaDelta, error) {
+		var schemaDelta protos.TableSchemaDelta
+		err := rows.Scan(&schemaDelta)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan SchemaDelta: %w", err)
+		}
+
+		return &schemaDelta, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to collect SchemaDeltas: %w", err)
+	}
+	p.logger.Info("got schema deltas", slog.Any("deltas", deltas))
+
+	return deltas, nil
+}

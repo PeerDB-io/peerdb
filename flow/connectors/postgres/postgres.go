@@ -391,6 +391,7 @@ func pullCore[Items model.Items](
 		CatalogPool:            catalogPool,
 		FlowJobName:            req.FlowJobName,
 		RelationMessageMapping: c.relationMessageMapping,
+		SyncBatchID:            req.SyncBatchID,
 	})
 
 	if err := PullCdcRecords(ctx, cdc, req, processor, &c.replLock); err != nil {
