@@ -64,6 +64,8 @@ func (i *IncidentIoMessageSenderImpl) SendMessage(
 	h.Write([]byte(deduplicationString))
 	deduplicationHash := hex.EncodeToString(h.Sum(nil))
 
+	level := ResolveIncidentIoLevels(attributes.Level)
+
 	alert := IncidentIoAlert{
 		Title:            subject,
 		Description:      body,
@@ -73,7 +75,7 @@ func (i *IncidentIoMessageSenderImpl) SendMessage(
 			"alias":          deduplicationHash,
 			"deploymentUUID": attributes.DeploymentUID,
 			"entity":         attributes.DeploymentUID,
-			"level":          string(attributes.Level),
+			"level":          string(level),
 			"tags":           strings.Join(attributes.Tags, ","),
 			"type":           attributes.Type,
 		},
@@ -93,23 +95,23 @@ func (i *IncidentIoMessageSenderImpl) SendMessage(
 
 	resp, err := i.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("error making request %w", err)
+		return nil, fmt.Errorf("incident.io request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("error reading incident.io response body %w", err)
+		return nil, fmt.Errorf("reading incident.io response body failed: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusAccepted {
-		return nil, fmt.Errorf("received unexpected response from incident.io. status: %d. body: %s", resp.StatusCode, respBody)
+		return nil, fmt.Errorf("unexpected response from incident.io. status: %d. body: %s", resp.StatusCode, respBody)
 	}
 
 	var incidentResponse IncidentIoResponse
 	err = json.Unmarshal(respBody, &incidentResponse)
 	if err != nil {
-		return nil, fmt.Errorf("error deserializing incident.io response: %w", err)
+		return nil, fmt.Errorf("deserializing incident.io failed: %w", err)
 	}
 
 	return &incidentResponse.Status, nil

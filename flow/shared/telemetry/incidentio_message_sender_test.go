@@ -27,10 +27,52 @@ func TestIncidentIoMessageSenderImpl_SendMessage(t *testing.T) {
 		expectError        bool
 	}{
 		{
-			name: "successful send",
+			name: "successful send with info alert",
 			attributes: Attributes{
 				DeploymentUID: uuid.New().String(),
-				Level:         "firing",
+				Level:         INFO,
+				Tags:          []string{"tag1", "tag2"},
+				Type:          "incident",
+			},
+			subject:            "Test Incident",
+			body:               "This is a test incident",
+			serverResponse:     IncidentIoResponse{Status: "success", Message: "Event accepted for processing", DeduplicationKey: "stonik"},
+			serverResponseCode: http.StatusAccepted,
+			expectError:        false,
+		},
+		{
+			name: "successful send with warn alert",
+			attributes: Attributes{
+				DeploymentUID: uuid.New().String(),
+				Level:         WARN,
+				Tags:          []string{"tag1", "tag2"},
+				Type:          "incident",
+			},
+			subject:            "Test Incident",
+			body:               "This is a test incident",
+			serverResponse:     IncidentIoResponse{Status: "success", Message: "Event accepted for processing", DeduplicationKey: "stonik"},
+			serverResponseCode: http.StatusAccepted,
+			expectError:        false,
+		},
+		{
+			name: "successful send with error alert",
+			attributes: Attributes{
+				DeploymentUID: uuid.New().String(),
+				Level:         ERROR,
+				Tags:          []string{"tag1", "tag2"},
+				Type:          "incident",
+			},
+			subject:            "Test Incident",
+			body:               "This is a test incident",
+			serverResponse:     IncidentIoResponse{Status: "success", Message: "Event accepted for processing", DeduplicationKey: "stonik"},
+			serverResponseCode: http.StatusAccepted,
+			expectError:        false,
+		},
+		{
+			name: "successful send with critical alert",
+			attributes: Attributes{
+				DeploymentUID: uuid.New().String(),
+				Level:         CRITICAL,
 				Tags:          []string{"tag1", "tag2"},
 				Type:          "incident",
 			},
@@ -109,6 +151,9 @@ func TestIncidentIoMessageSenderImpl_SendMessage(t *testing.T) {
 
 				// Check deduplication hash was generated correctly
 				require.Equal(t, deduplicationHash, alert.DeduplicationKey) //nolint:testifylint
+
+				// Check level was successfully mapped
+				require.Equal(t, string(ResolveIncidentIoLevels(tt.attributes.Level)), alert.Metadata["level"]) //nolint:testifylint
 
 				// mock response
 				w.WriteHeader(tt.serverResponseCode)
