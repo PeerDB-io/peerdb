@@ -372,9 +372,13 @@ func (a *FlowableActivity) SyncRecords(
 			return stream, nil
 		}
 	}
-	return syncCore(ctx, a, config, options, sessionID, adaptStream,
+	syncResponse, err := syncCore(ctx, a, config, options, sessionID, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+	}
+	return syncResponse, err
 }
 
 func (a *FlowableActivity) SyncPg(
