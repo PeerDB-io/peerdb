@@ -6,11 +6,11 @@ require (
 	cloud.google.com/go v0.116.0
 	cloud.google.com/go/bigquery v1.63.1
 	cloud.google.com/go/pubsub v1.44.0
-	cloud.google.com/go/storage v1.44.0
+	cloud.google.com/go/storage v1.45.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.8.0
-	github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs v1.2.2
+	github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs v1.2.3
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub v1.3.0
-	github.com/ClickHouse/clickhouse-go/v2 v2.29.0
+	github.com/ClickHouse/clickhouse-go/v2 v2.30.0
 	github.com/PeerDB-io/glua64 v1.0.1
 	github.com/PeerDB-io/gluabit32 v1.0.2
 	github.com/PeerDB-io/gluaflatbuffers v1.0.1
@@ -18,11 +18,11 @@ require (
 	github.com/PeerDB-io/gluamsgpack v1.0.4
 	github.com/PeerDB-io/gluautf8 v1.0.0
 	github.com/aws/aws-sdk-go-v2 v1.32.2
-	github.com/aws/aws-sdk-go-v2/config v1.27.43
+	github.com/aws/aws-sdk-go-v2/config v1.28.0
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.41
-	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.17.32
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.17.33
 	github.com/aws/aws-sdk-go-v2/service/kms v1.37.2
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.65.3
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.66.0
 	github.com/aws/aws-sdk-go-v2/service/ses v1.28.2
 	github.com/aws/aws-sdk-go-v2/service/sns v1.33.2
 	github.com/aws/smithy-go v1.22.0
@@ -43,11 +43,11 @@ require (
 	github.com/microsoft/go-mssqldb v1.7.2
 	github.com/orcaman/concurrent-map/v2 v2.0.1
 	github.com/shopspring/decimal v1.4.0
-	github.com/slack-go/slack v0.14.0
+	github.com/slack-go/slack v0.15.0
 	github.com/snowflakedb/gosnowflake v1.11.2
 	github.com/stretchr/testify v1.9.0
-	github.com/twmb/franz-go v1.17.1
-	github.com/twmb/franz-go/pkg/kadm v1.13.0
+	github.com/twmb/franz-go v1.18.0
+	github.com/twmb/franz-go/pkg/kadm v1.14.0
 	github.com/twmb/franz-go/plugin/kslog v1.0.0
 	github.com/twpayne/go-geos v0.19.0
 	github.com/urfave/cli/v3 v3.0.0-alpha9.1
@@ -64,8 +64,8 @@ require (
 	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/crypto v0.28.0
 	golang.org/x/sync v0.8.0
-	google.golang.org/api v0.200.0
-	google.golang.org/genproto/googleapis/api v0.0.0-20241007155032-5fefd90f89a9
+	google.golang.org/api v0.201.0
+	google.golang.org/genproto/googleapis/api v0.0.0-20241015192408-796eee8c2d53
 	google.golang.org/grpc v1.67.1
 	google.golang.org/protobuf v1.35.1
 )
@@ -77,11 +77,11 @@ require (
 	cloud.google.com/go/monitoring v1.21.1 // indirect
 	github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4 // indirect
 	github.com/99designs/keyring v1.2.2 // indirect
-	github.com/ClickHouse/ch-go v0.62.0 // indirect
+	github.com/ClickHouse/ch-go v0.63.0 // indirect
 	github.com/DataDog/zstd v1.5.6 // indirect
-	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.24.2 // indirect
-	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.48.2 // indirect
-	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.48.2 // indirect
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.24.3 // indirect
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.48.3 // indirect
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.48.3 // indirect
 	github.com/JohnCGriffin/overflow v0.0.0-20211019200055-46fa312c352c // indirect
 	github.com/apache/arrow/go/v15 v15.0.2 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.16.17 // indirect
@@ -103,7 +103,7 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0 // indirect
 	github.com/dvsekhvalnov/jose2go v1.7.0 // indirect
 	github.com/elastic/elastic-transport-go/v8 v8.6.0 // indirect
-	github.com/envoyproxy/go-control-plane v0.13.0 // indirect
+	github.com/envoyproxy/go-control-plane v0.13.1 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.1.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.6 // indirect
@@ -128,28 +128,28 @@ require (
 	github.com/paulmach/orb v0.11.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
-	github.com/prometheus/client_golang v1.20.4 // indirect
+	github.com/prometheus/client_golang v1.20.5 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.60.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/rogpeppe/go-internal v1.13.1 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
-	github.com/twmb/franz-go/pkg/kmsg v1.8.0 // indirect
-	go.opentelemetry.io/contrib/detectors/gcp v1.30.0 // indirect
+	github.com/twmb/franz-go/pkg/kmsg v1.9.0 // indirect
+	go.opentelemetry.io/contrib/detectors/gcp v1.31.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.56.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.56.0 // indirect
 	go.opentelemetry.io/otel/trace v1.31.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.3.1 // indirect
 	golang.org/x/mod v0.21.0 // indirect
 	golang.org/x/term v0.25.0 // indirect
-	google.golang.org/grpc/stats/opentelemetry v0.0.0-20241014145745-ad81c20503be // indirect
+	google.golang.org/grpc/stats/opentelemetry v0.0.0-20241018153737-98959d9a4904 // indirect
 )
 
 require (
 	cloud.google.com/go/compute/metadata v0.5.2 // indirect
 	cloud.google.com/go/iam v1.2.1 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.14.0 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.16.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.10.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.4.1 // indirect
 	github.com/Azure/go-amqp v1.2.0 // indirect
@@ -204,7 +204,7 @@ require (
 	golang.org/x/time v0.7.0 // indirect
 	golang.org/x/tools v0.26.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
-	google.golang.org/genproto v0.0.0-20241007155032-5fefd90f89a9 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20241007155032-5fefd90f89a9 // indirect
+	google.golang.org/genproto v0.0.0-20241015192408-796eee8c2d53 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20241015192408-796eee8c2d53 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
