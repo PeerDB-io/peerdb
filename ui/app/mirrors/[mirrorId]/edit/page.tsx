@@ -53,21 +53,20 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
   const { push } = useRouter();
 
   const fetchStateAndUpdateDeps = useCallback(async () => {
-    await getMirrorState(mirrorId).then((res) => {
-      setMirrorState(res);
+    const res = await getMirrorState(mirrorId);
+    setMirrorState(res);
 
-      setConfig({
-        batchSize:
-          (res as MirrorStatusResponse).cdcStatus?.config?.maxBatchSize ||
-          defaultBatchSize,
-        idleTimeout:
-          (res as MirrorStatusResponse).cdcStatus?.config?.idleTimeoutSeconds ||
-          defaultIdleTimeout,
-        additionalTables: [],
-        removedTables: [],
-        numberOfSyncs: 0,
-        updatedEnv: {},
-      });
+    setConfig({
+      batchSize:
+        (res as MirrorStatusResponse).cdcStatus?.config?.maxBatchSize ||
+        defaultBatchSize,
+      idleTimeout:
+        (res as MirrorStatusResponse).cdcStatus?.config?.idleTimeoutSeconds ||
+        defaultIdleTimeout,
+      additionalTables: [],
+      removedTables: [],
+      numberOfSyncs: 0,
+      updatedEnv: {},
     });
   }, [mirrorId, defaultBatchSize, defaultIdleTimeout]);
 

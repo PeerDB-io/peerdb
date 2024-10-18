@@ -16,9 +16,9 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"go.temporal.io/sdk/log"
-	"golang.org/x/mod/semver"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -179,38 +179,35 @@ func NewClickHouseConnector(
 	if err != nil {
 		return nil, err
 	}
-	if credentials.AWS.SessionToken != "" {
-		// This is the minimum version of ClickHouse that actually supports session token
-		// https://github.com/ClickHouse/ClickHouse/issues/61230
-		minSupportedClickHouseVersion := "v24.3.1"
-		clickHouseVersionRow := database.QueryRow(ctx, "SELECT version()")
-		var clickHouseVersion string
-		err := clickHouseVersionRow.Scan(&clickHouseVersion)
-		if err != nil {
-			return nil, fmt.Errorf("failed to query ClickHouse version: %w", err)
-		}
-		// Ignore everything after patch version and prefix with "v", else semver.Compare will fail
-		versionParts := strings.SplitN(clickHouseVersion, ".", 4)
-		if len(versionParts) > 3 {
-			versionParts = versionParts[:3]
-		}
-		cleanedClickHouseVersion := "v" + strings.Join(versionParts, ".")
-		if semver.Compare(cleanedClickHouseVersion, minSupportedClickHouseVersion) < 0 {
-			return nil, fmt.Errorf(
-				"provide S3 Transient Stage details explicitly or upgrade to ClickHouse version >= %v, current version is %s. %s",
-				minSupportedClickHouseVersion, clickHouseVersion,
-				"You can also contact PeerDB support for implicit S3 stage setup for older versions of ClickHouse.")
-		}
-	}
 
-	return &ClickHouseConnector{
+	connector := &ClickHouseConnector{
 		database:         database,
 		PostgresMetadata: pgMetadata,
 		config:           config,
 		logger:           logger,
 		credsProvider:    &clickHouseS3CredentialsNew,
 		s3Stage:          NewClickHouseS3Stage(),
-	}, nil
+	}
+
+	if credentials.AWS.SessionToken != "" {
+		// 24.3.1 is minimum version of ClickHouse that actually supports session token
+		// https://github.com/ClickHouse/ClickHouse/issues/61230
+		clickHouseVersion, err := database.ServerVersion()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get ClickHouse version: %w", err)
+		}
+		if !chproto.CheckMinVersion(
+			chproto.Version{Major: 24, Minor: 3, Patch: 1},
+			clickHouseVersion.Version,
+		) {
+			return nil, fmt.Errorf(
+				"provide S3 Transient Stage details explicitly or upgrade to ClickHouse version >= 24.3.1, current version is %s. %s",
+				clickHouseVersion,
+				"You can also contact PeerDB support for implicit S3 stage setup for older versions of ClickHouse.")
+		}
+	}
+
+	return connector, nil
 }
 
 func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.Conn, error) {
@@ -368,7 +365,7 @@ func (c *ClickHouseConnector) execWithLogging(ctx context.Context, query string)
 	return c.database.Exec(ctx, query)
 }
 
-func (c *ClickHouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tables []string) error {
+func (c *ClickHouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tables []string, optedForInitialLoad bool) error {
 	queryInput := make([]interface{}, 0, len(tables)+1)
 	queryInput = append(queryInput, c.config.Database)
 	for _, table := range tables {
@@ -389,7 +386,7 @@ func (c *ClickHouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tab
 		if err != nil {
 			return fmt.Errorf("failed to scan information for tables: %w", err)
 		}
-		if totalRows != 0 {
+		if totalRows != 0 && optedForInitialLoad {
 			return fmt.Errorf("table %s exists and is not empty", tableName)
 		}
 		if !slices.Contains(acceptableTableEngines, strings.TrimPrefix(engine, "Shared")) {
@@ -488,7 +485,7 @@ func (c *ClickHouseConnector) CheckDestinationTables(ctx context.Context, req *p
 	// In the case of resync, we don't need to check the content or structure of the original tables;
 	// they'll anyways get swapped out with the _resync tables which we CREATE OR REPLACE
 	if !req.Resync {
-		err := c.checkTablesEmptyAndEngine(ctx, dstTableNames)
+		err := c.checkTablesEmptyAndEngine(ctx, dstTableNames, req.DoInitialSnapshot)
 		if err != nil {
 			return err
 		}
@@ -517,4 +514,13 @@ func (c *ClickHouseConnector) CheckDestinationTables(ctx context.Context, req *p
 		}
 	}
 	return nil
+}
+
+func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
+	clickhouseVersion, err := c.database.ServerVersion()
+	if err != nil {
+		return "", fmt.Errorf("failed to get ClickHouse version: %w", err)
+	}
+	c.logger.Info("[clickhouse] version", slog.Any("version", clickhouseVersion.DisplayName))
+	return clickhouseVersion.Version.String(), nil
 }

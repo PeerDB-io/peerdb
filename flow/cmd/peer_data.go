@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -81,10 +82,22 @@ func (h *FlowRequestHandler) getConnForPGPeer(ctx context.Context, peerName stri
 func (h *FlowRequestHandler) GetPeerInfo(
 	ctx context.Context,
 	req *protos.PeerInfoRequest,
-) (*protos.Peer, error) {
+) (*protos.PeerInfoResponse, error) {
 	peer, err := connectors.LoadPeer(ctx, h.pool, req.PeerName)
 	if err != nil {
 		return nil, err
+	}
+
+	var version string
+	versionConnector, err := connectors.GetAs[connectors.GetVersionConnector](ctx, nil, peer)
+	if err != nil && !errors.Is(err, errors.ErrUnsupported) {
+		return nil, errors.New("failed to get version connector")
+	}
+	if versionConnector != nil {
+		version, err = versionConnector.GetVersion(ctx)
+		if err != nil {
+			return nil, errors.New("failed to get version")
+		}
 	}
 
 	peer.ProtoReflect().Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
@@ -93,7 +106,11 @@ func (h *FlowRequestHandler) GetPeerInfo(
 		}
 		return true
 	})
-	return peer, nil
+
+	return &protos.PeerInfoResponse{
+		Peer:    peer,
+		Version: version,
+	}, nil
 }
 
 func (h *FlowRequestHandler) ListPeers(
@@ -384,9 +401,9 @@ func (h *FlowRequestHandler) GetStatInfo(
 	peerUser := peerConn.Config().User
 
 	rows, err := peerConn.Query(ctx, "SELECT pid, wait_event, wait_event_type, query_start::text, query,"+
-		"EXTRACT(epoch FROM(now()-query_start)) AS dur"+
+		"EXTRACT(epoch FROM(now()-query_start)) AS dur, state"+
 		" FROM pg_stat_activity WHERE "+
-		"usename=$1 AND state != 'idle';", peerUser)
+		"usename=$1 AND application_name LIKE 'peerdb%';", peerUser)
 	if err != nil {
 		slog.Error("Failed to get stat info", slog.Any("error", err))
 		return nil, err
@@ -399,8 +416,10 @@ func (h *FlowRequestHandler) GetStatInfo(
 		var queryStart sql.NullString
 		var query sql.NullString
 		var duration sql.NullFloat64
+		// shouldn't be null
+		var state string
 
-		err := rows.Scan(&pid, &waitEvent, &waitEventType, &queryStart, &query, &duration)
+		err := rows.Scan(&pid, &waitEvent, &waitEventType, &queryStart, &query, &duration, &state)
 		if err != nil {
 			slog.Error("Failed to scan row", slog.Any("error", err))
 			return nil, err
@@ -438,6 +457,7 @@ func (h *FlowRequestHandler) GetStatInfo(
 			QueryStart:    qs,
 			Query:         q,
 			Duration:      float32(d),
+			State:         state,
 		}, nil
 	})
 	if err != nil {

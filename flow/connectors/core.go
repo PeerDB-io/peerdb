@@ -268,6 +268,12 @@ type RenameTablesConnector interface {
 	RenameTables(context.Context, *protos.RenameTablesInput, map[string]*protos.TableSchema) (*protos.RenameTablesOutput, error)
 }
 
+type GetVersionConnector interface {
+	Connector
+
+	GetVersion(context.Context) (string, error)
+}
+
 func LoadPeerType(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (protos.DBType, error) {
 	row := catalogPool.QueryRow(ctx, "SELECT type FROM peers WHERE name = $1", peerName)
 	var dbtype protos.DBType
@@ -426,8 +432,7 @@ func GetByNameAs[T Connector](ctx context.Context, env map[string]string, catalo
 }
 
 func CloseConnector(ctx context.Context, conn Connector) {
-	err := conn.Close()
-	if err != nil {
+	if err := conn.Close(); err != nil {
 		logger.LoggerFromCtx(ctx).Error("error closing connector", slog.Any("error", err))
 	}
 }
@@ -498,6 +503,9 @@ var (
 	_ ValidationConnector = &connclickhouse.ClickHouseConnector{}
 	_ ValidationConnector = &connbigquery.BigQueryConnector{}
 	_ ValidationConnector = &conns3.S3Connector{}
+
+	_ GetVersionConnector = &connclickhouse.ClickHouseConnector{}
+	_ GetVersionConnector = &connpostgres.PostgresConnector{}
 
 	_ Connector = &connmysql.MySqlConnector{}
 )

@@ -29,53 +29,37 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		mirrorExists, existCheckErr := h.CheckIfMirrorNameExists(ctx, req.ConnectionConfigs.FlowJobName)
 		if existCheckErr != nil {
 			slog.Error("/validatecdc failed to check if mirror name exists", slog.Any("error", existCheckErr))
-			return &protos.ValidateCDCMirrorResponse{
-				Ok: false,
-			}, existCheckErr
+			return nil, existCheckErr
 		}
 
 		if mirrorExists {
 			displayErr := fmt.Errorf("mirror with name %s already exists", req.ConnectionConfigs.FlowJobName)
-			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-				fmt.Sprint(displayErr),
-			)
-			return &protos.ValidateCDCMirrorResponse{
-				Ok: false,
-			}, displayErr
+			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName, displayErr.Error())
+			return nil, displayErr
 		}
 	}
 
 	if req.ConnectionConfigs == nil {
 		slog.Error("/validatecdc connection configs is nil")
-		return &protos.ValidateCDCMirrorResponse{
-			Ok: false,
-		}, errors.New("connection configs is nil")
+		return nil, errors.New("connection configs is nil")
 	}
 	sourcePeer, err := connectors.LoadPeer(ctx, h.pool, req.ConnectionConfigs.SourceName)
 	if err != nil {
 		slog.Error("/validatecdc failed to load source peer", slog.String("peer", req.ConnectionConfigs.SourceName))
-		return &protos.ValidateCDCMirrorResponse{
-			Ok: false,
-		}, err
+		return nil, err
 	}
 
 	sourcePeerConfig := sourcePeer.GetPostgresConfig()
 	if sourcePeerConfig == nil {
 		slog.Error("/validatecdc source peer config is not postgres", slog.String("peer", req.ConnectionConfigs.SourceName))
-		return &protos.ValidateCDCMirrorResponse{
-			Ok: false,
-		}, errors.New("source peer config is not postgres")
+		return nil, errors.New("source peer config is not postgres")
 	}
 
 	pgPeer, err := connpostgres.NewPostgresConnector(ctx, sourcePeerConfig)
 	if err != nil {
 		displayErr := fmt.Errorf("failed to create postgres connector: %v", err)
-		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			fmt.Sprint(displayErr),
-		)
-		return &protos.ValidateCDCMirrorResponse{
-			Ok: false,
-		}, displayErr
+		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName, displayErr.Error())
+		return nil, displayErr
 	}
 	defer pgPeer.Close()
 
@@ -87,20 +71,14 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
 				displayErr.Error(),
 			)
-			return &protos.ValidateCDCMirrorResponse{
-				Ok: false,
-			}, displayErr
+			return nil, displayErr
 		}
 
 		// Check permissions of postgres peer
 		if err := pgPeer.CheckReplicationPermissions(ctx, sourcePeerConfig.User); err != nil {
 			displayErr := fmt.Errorf("failed to check replication permissions: %v", err)
-			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-				fmt.Sprint(displayErr),
-			)
-			return &protos.ValidateCDCMirrorResponse{
-				Ok: false,
-			}, displayErr
+			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName, displayErr.Error())
+			return nil, displayErr
 		}
 	}
 
@@ -110,12 +88,8 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		parsedTable, parseErr := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
 		if parseErr != nil {
 			displayErr := fmt.Errorf("invalid source table identifier: %s", parseErr)
-			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-				fmt.Sprint(displayErr),
-			)
-			return &protos.ValidateCDCMirrorResponse{
-				Ok: false,
-			}, displayErr
+			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName, displayErr.Error())
+			return nil, displayErr
 		}
 
 		sourceTables = append(sourceTables, parsedTable)
@@ -135,37 +109,25 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 
 		if err := pgPeer.CheckPublicationCreationPermissions(ctx, srcTableNames); err != nil {
 			displayErr := fmt.Errorf("invalid publication creation permissions: %v", err)
-			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-				fmt.Sprint(displayErr),
-			)
-			return &protos.ValidateCDCMirrorResponse{
-				Ok: false,
-			}, displayErr
+			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName, displayErr.Error())
+			return nil, displayErr
 		}
 	}
 
 	if err := pgPeer.CheckSourceTables(ctx, sourceTables, pubName, noCDC); err != nil {
 		displayErr := fmt.Errorf("provided source tables invalidated: %v", err)
 		slog.Error(displayErr.Error())
-		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			fmt.Sprint(displayErr),
-		)
-		return &protos.ValidateCDCMirrorResponse{
-			Ok: false,
-		}, displayErr
+		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName, displayErr.Error())
+		return nil, displayErr
 	}
 
 	for _, tm := range req.ConnectionConfigs.TableMappings {
 		for _, col := range tm.Columns {
 			if !CustomColumnTypeRegex.MatchString(col.DestinationType) {
-				return &protos.ValidateCDCMirrorResponse{
-					Ok: false,
-				}, fmt.Errorf("invalid custom column type %s", col.DestinationType)
+				return nil, fmt.Errorf("invalid custom column type %s", col.DestinationType)
 			}
 			if !CustomColumnNameRegex.MatchString(col.DestinationName) {
-				return &protos.ValidateCDCMirrorResponse{
-					Ok: false,
-				}, fmt.Errorf("invalid custom column name %s", col.DestinationName)
+				return nil, fmt.Errorf("invalid custom column name %s", col.DestinationName)
 			}
 		}
 	}
@@ -173,48 +135,38 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	dstPeer, err := connectors.LoadPeer(ctx, h.pool, req.ConnectionConfigs.DestinationName)
 	if err != nil {
 		slog.Error("/validatecdc failed to load destination peer", slog.String("peer", req.ConnectionConfigs.DestinationName))
-		return &protos.ValidateCDCMirrorResponse{
-			Ok: false,
-		}, err
+		return nil, err
 	}
 	if dstPeer.GetClickhouseConfig() != nil {
 		chPeer, err := connclickhouse.NewClickHouseConnector(ctx, nil, dstPeer.GetClickhouseConfig())
 		if err != nil {
-			displayErr := fmt.Errorf("failed to create clickhouse connector: %v", err)
+			displayErr := fmt.Errorf("failed to create clickhouse connector: %w", err)
 			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-				fmt.Sprint(displayErr),
+				displayErr.Error(),
 			)
-			return &protos.ValidateCDCMirrorResponse{
-				Ok: false,
-			}, displayErr
+			return nil, displayErr
 		}
 		defer chPeer.Close()
 
-		res, err := pgPeer.GetTableSchema(ctx, nil, protos.TypeSystem_PG, srcTableNames)
+		res, err := pgPeer.GetTableSchema(ctx, nil, req.ConnectionConfigs.System, srcTableNames)
 		if err != nil {
 			displayErr := fmt.Errorf("failed to get source table schema: %v", err)
 			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-				fmt.Sprint(displayErr),
+				displayErr.Error(),
 			)
-			return &protos.ValidateCDCMirrorResponse{
-				Ok: false,
-			}, displayErr
+			return nil, displayErr
 		}
 
 		err = chPeer.CheckDestinationTables(ctx, req.ConnectionConfigs, res)
 		if err != nil {
 			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-				fmt.Sprint(err),
+				err.Error(),
 			)
-			return &protos.ValidateCDCMirrorResponse{
-				Ok: false,
-			}, err
+			return nil, err
 		}
 	}
 
-	return &protos.ValidateCDCMirrorResponse{
-		Ok: true,
-	}, nil
+	return &protos.ValidateCDCMirrorResponse{}, nil
 }
 
 func (h *FlowRequestHandler) CheckIfMirrorNameExists(ctx context.Context, mirrorName string) (bool, error) {

@@ -107,44 +107,41 @@ func generateCreateTableSQLForNormalizedTable(
 		colName := column.Name
 		dstColName := colName
 		colType := qvalue.QValueKind(column.Type)
+		var columnNullableEnabled bool
 		var clickHouseType string
-		var columnSetting *protos.ColumnSetting
 		if tableMapping != nil {
 			for _, col := range tableMapping.Columns {
 				if col.SourceName == colName {
-					columnSetting = col
-					if columnSetting.DestinationName != "" {
-						dstColName = columnSetting.DestinationName
+					if col.DestinationName != "" {
+						dstColName = col.DestinationName
 						colNameMap[colName] = dstColName
 					}
-					if columnSetting.DestinationType != "" {
-						clickHouseType = columnSetting.DestinationType
+					if col.DestinationType != "" {
+						clickHouseType = col.DestinationType
 					}
+					columnNullableEnabled = col.NullableEnabled
 					break
 				}
 			}
 		}
 
 		if clickHouseType == "" {
-			var err error
-			clickHouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
-			if err != nil {
-				return "", fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
+			if colType == qvalue.QValueKindNumeric {
+				precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
+				clickHouseType = fmt.Sprintf("Decimal(%d, %d)", precision, scale)
+			} else {
+				var err error
+				clickHouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
+				if err != nil {
+					return "", fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
+				}
 			}
+		}
+		if (tableSchema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() {
+			clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
 		}
 
-		if colType == qvalue.QValueKindNumeric {
-			precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
-			if column.Nullable {
-				stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(DECIMAL(%d, %d)), ", dstColName, precision, scale))
-			} else {
-				stmtBuilder.WriteString(fmt.Sprintf("`%s` DECIMAL(%d, %d), ", dstColName, precision, scale))
-			}
-		} else if tableSchema.NullableEnabled && column.Nullable && !colType.IsArray() {
-			stmtBuilder.WriteString(fmt.Sprintf("`%s` Nullable(%s), ", dstColName, clickHouseType))
-		} else {
-			stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", dstColName, clickHouseType))
-		}
+		stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", dstColName, clickHouseType))
 	}
 	// TODO support soft delete
 	// synced at column will be added to all normalized tables
@@ -167,56 +164,62 @@ func generateCreateTableSQLForNormalizedTable(
 		"`%s` %s, `%s` %s) ENGINE = %s",
 		signColName, signColType, versionColName, versionColType, engine))
 
-	var pkeyStr string
-	pkeys := tableSchema.PrimaryKeyColumns
-	if len(pkeys) > 0 {
-		if len(colNameMap) > 0 {
-			pkeys = slices.Clone(pkeys)
-			for idx, pk := range pkeys {
-				pkeys[idx] = getColName(colNameMap, pk)
-			}
-		}
-		pkeyStr = strings.Join(pkeys, ",")
+	orderByColumns := getOrderedOrderByColumns(tableMapping, tableSchema.PrimaryKeyColumns, colNameMap)
+
+	if len(orderByColumns) > 0 {
+		orderByStr := strings.Join(orderByColumns, ",")
 
 		stmtBuilder.WriteString("PRIMARY KEY (")
-		stmtBuilder.WriteString(pkeyStr)
+		stmtBuilder.WriteString(orderByStr)
+		stmtBuilder.WriteString(") ")
+
+		stmtBuilder.WriteString("ORDER BY (")
+		stmtBuilder.WriteString(orderByStr)
 		stmtBuilder.WriteString(") ")
 	}
 
-	var orderby []*protos.ColumnSetting
+	return stmtBuilder.String(), nil
+}
+
+// Returns a list of order by columns ordered by their ordering, and puts the pkeys at the end.
+// pkeys are excluded from the order by columns.
+func getOrderedOrderByColumns(
+	tableMapping *protos.TableMapping,
+	sourcePkeys []string,
+	colNameMap map[string]string,
+) []string {
+	pkeys := slices.Clone(sourcePkeys)
+	if len(sourcePkeys) > 0 {
+		if len(colNameMap) > 0 {
+			for idx, pk := range sourcePkeys {
+				pkeys[idx] = getColName(colNameMap, pk)
+			}
+		}
+	}
+
+	orderby := make([]*protos.ColumnSetting, 0)
 	if tableMapping != nil {
-		orderby = slices.Clone(tableMapping.Columns)
 		for _, col := range tableMapping.Columns {
-			if col.Ordering > 0 && !slices.Contains(pkeys, getColName(colNameMap, col.SourceName)) {
+			if col.Ordering > 0 && !slices.Contains(pkeys, col.SourceName) {
 				orderby = append(orderby, col)
 			}
 		}
-
-		if len(orderby) > 0 {
-			slices.SortStableFunc(orderby, func(a *protos.ColumnSetting, b *protos.ColumnSetting) int {
-				return cmp.Compare(a.Ordering, b.Ordering)
-			})
-		}
 	}
 
-	if pkeyStr != "" || len(orderby) > 0 {
-		stmtBuilder.WriteString("ORDER BY (")
-		stmtBuilder.WriteString(pkeyStr)
-		if len(orderby) > 0 {
-			orderbyColumns := make([]string, len(orderby))
-			for idx, col := range orderby {
-				orderbyColumns[idx] = getColName(colNameMap, col.SourceName)
-			}
+	slices.SortStableFunc(orderby, func(a *protos.ColumnSetting, b *protos.ColumnSetting) int {
+		return cmp.Compare(a.Ordering, b.Ordering)
+	})
 
-			if pkeyStr != "" {
-				stmtBuilder.WriteRune(',')
-			}
-			stmtBuilder.WriteString(strings.Join(orderbyColumns, ","))
-		}
-		stmtBuilder.WriteRune(')')
+	orderbyColumns := make([]string, len(orderby))
+	for idx, col := range orderby {
+		orderbyColumns[idx] = getColName(colNameMap, col.SourceName)
 	}
 
-	return stmtBuilder.String(), nil
+	// Typically primary keys are not what aggregates are performed on and hence
+	// having them at the start of the order by clause is not beneficial.
+	orderbyColumns = append(orderbyColumns, pkeys...)
+
+	return orderbyColumns
 }
 
 func (c *ClickHouseConnector) NormalizeRecords(
@@ -292,6 +295,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			colType := qvalue.QValueKind(column.Type)
 
 			var clickHouseType string
+			var columnNullableEnabled bool
 			if tableMapping != nil {
 				for _, col := range tableMapping.Columns {
 					if col.SourceName == colName {
@@ -302,6 +306,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 							// TODO can we restrict this to avoid injection?
 							clickHouseType = col.DestinationType
 						}
+						columnNullableEnabled = col.NullableEnabled
 						break
 					}
 				}
@@ -319,7 +324,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 						return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 					}
 				}
-				if schema.NullableEnabled && column.Nullable && !colType.IsArray() {
+				if (schema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() {
 					clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
 				}
 			}
