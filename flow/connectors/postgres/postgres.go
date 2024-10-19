@@ -1259,7 +1259,7 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 	// just check if we have all the tables already in the publication for custom publications
 	if req.PublicationName != "" {
 		rows, err := c.conn.Query(ctx,
-			"SELECT schemaname || '.' || tablename FROM pg_publication_tables WHERE pubname=$1", req.PublicationName)
+			"SELECT schemaname || '.' || tablename FROM pg_publication_tables WHERE pubname=$1 LIMIT 100", req.PublicationName)
 		if err != nil {
 			return fmt.Errorf("failed to check tables in publication: %w", err)
 		}
