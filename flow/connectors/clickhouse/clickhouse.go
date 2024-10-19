@@ -372,7 +372,7 @@ func (c *ClickHouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tab
 		queryInput = append(queryInput, table)
 	}
 	rows, err := c.query(ctx,
-		fmt.Sprintf("SELECT name,engine,total_rows FROM system.tables WHERE database=? AND table IN (%s)",
+		fmt.Sprintf("SELECT name,engine,total_rows FROM system.tables WHERE database=? AND name IN (%s)",
 			strings.Join(slices.Repeat([]string{"?"}, len(tables)), ",")), queryInput...)
 	if err != nil {
 		return fmt.Errorf("failed to get information for destination tables: %w", err)
