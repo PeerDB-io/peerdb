@@ -1207,6 +1207,25 @@ func (c *PostgresConnector) HandleSlotInfo(
 		attribute.String(peerdb_gauges.PeerNameKey, alertKeys.PeerName),
 		attribute.String(peerdb_gauges.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
 
+	var intervalSinceLastNormalize *time.Duration
+	err = alerter.CatalogPool.QueryRow(ctx, "SELECT now()-max(end_time) FROM peerdb_stats.cdc_batches WHERE flow_name=$1",
+		alertKeys.FlowName).Scan(&intervalSinceLastNormalize)
+	if err != nil {
+		logger.Warn("failed to get interval since last normalize", slog.Any("error", err))
+	}
+	// what if the first normalize errors out/hangs?
+	if intervalSinceLastNormalize == nil {
+		logger.Warn("interval since last normalize is nil")
+		return nil
+	}
+	if intervalSinceLastNormalize != nil {
+		slotMetricGauges.IntervalSinceLastNormalizeGauge.Set(intervalSinceLastNormalize.Seconds(), attribute.NewSet(
+			attribute.String(peerdb_gauges.FlowNameKey, alertKeys.FlowName),
+			attribute.String(peerdb_gauges.PeerNameKey, alertKeys.PeerName),
+			attribute.String(peerdb_gauges.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
+		alerter.AlertIfTooLongSinceLastNormalize(ctx, alertKeys, *intervalSinceLastNormalize)
+	}
+
 	return monitoring.AppendSlotSizeInfo(ctx, catalogPool, alertKeys.PeerName, slotInfo[0])
 }
 
@@ -1375,20 +1394,24 @@ func (c *PostgresConnector) RenameTables(
 					columnNames = append(columnNames, QuoteIdentifier(col.Name))
 				}
 
-				pkeyColumnNames := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
+				var pkeyColCompare strings.Builder
 				for _, col := range tableSchema.PrimaryKeyColumns {
-					pkeyColumnNames = append(pkeyColumnNames, QuoteIdentifier(col))
+					pkeyColCompare.WriteString("original_table.")
+					pkeyColCompare.WriteString(QuoteIdentifier(col))
+					pkeyColCompare.WriteString(" = resync_table.")
+					pkeyColCompare.WriteString(QuoteIdentifier(col))
+					pkeyColCompare.WriteString(" AND ")
 				}
+				pkeyColCompareStr := strings.TrimSuffix(pkeyColCompare.String(), " AND ")
 
 				allCols := strings.Join(columnNames, ",")
-				pkeyCols := strings.Join(pkeyColumnNames, ",")
-
 				c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
-
 				_, err = c.execWithLoggingTx(ctx,
-					fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
+					fmt.Sprintf(
+						"INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s original_table "+
+							"WHERE NOT EXISTS (SELECT 1 FROM %s resync_table WHERE %s)",
 						src, fmt.Sprintf("%s,%s", allCols, QuoteIdentifier(req.SoftDeleteColName)), allCols, req.SoftDeleteColName,
-						dst, pkeyCols, pkeyCols, src), renameTablesTx)
+						dst, src, pkeyColCompareStr), renameTablesTx)
 				if err != nil {
 					return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
 				}

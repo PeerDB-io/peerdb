@@ -680,7 +680,7 @@ func processMessage[Items model.Items](
 		}, nil
 
 	default:
-		logger.Warn(fmt.Sprintf("%T not supported", msg))
+		logger.Debug(fmt.Sprintf("%T not supported", msg))
 	}
 
 	return nil, nil

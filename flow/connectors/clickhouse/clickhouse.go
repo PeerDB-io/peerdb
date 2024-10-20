@@ -365,14 +365,14 @@ func (c *ClickHouseConnector) execWithLogging(ctx context.Context, query string)
 	return c.database.Exec(ctx, query)
 }
 
-func (c *ClickHouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tables []string) error {
+func (c *ClickHouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tables []string, optedForInitialLoad bool) error {
 	queryInput := make([]interface{}, 0, len(tables)+1)
 	queryInput = append(queryInput, c.config.Database)
 	for _, table := range tables {
 		queryInput = append(queryInput, table)
 	}
 	rows, err := c.query(ctx,
-		fmt.Sprintf("SELECT name,engine,total_rows FROM system.tables WHERE database=? AND table IN (%s)",
+		fmt.Sprintf("SELECT name,engine,total_rows FROM system.tables WHERE database=? AND name IN (%s)",
 			strings.Join(slices.Repeat([]string{"?"}, len(tables)), ",")), queryInput...)
 	if err != nil {
 		return fmt.Errorf("failed to get information for destination tables: %w", err)
@@ -386,7 +386,7 @@ func (c *ClickHouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tab
 		if err != nil {
 			return fmt.Errorf("failed to scan information for tables: %w", err)
 		}
-		if totalRows != 0 {
+		if totalRows != 0 && optedForInitialLoad {
 			return fmt.Errorf("table %s exists and is not empty", tableName)
 		}
 		if !slices.Contains(acceptableTableEngines, strings.TrimPrefix(engine, "Shared")) {
@@ -485,7 +485,7 @@ func (c *ClickHouseConnector) CheckDestinationTables(ctx context.Context, req *p
 	// In the case of resync, we don't need to check the content or structure of the original tables;
 	// they'll anyways get swapped out with the _resync tables which we CREATE OR REPLACE
 	if !req.Resync {
-		err := c.checkTablesEmptyAndEngine(ctx, dstTableNames)
+		err := c.checkTablesEmptyAndEngine(ctx, dstTableNames, req.DoInitialSnapshot)
 		if err != nil {
 			return err
 		}
