@@ -43,82 +43,88 @@ const SelectSortingKeys = ({
   >([]);
   const [showSortingKey, setShowSortingKey] = useState(false);
 
-  const handleSortingKey = (col: SortingKeyType, action: 'add' | 'remove') => {
-    if (action === 'add') {
-      if (
-        sortingKeysSelections.findIndex((key) => key.name === col.name) === -1
-      ) {
-        setSortingKeysSelections((prev) => {
-          return [col, ...prev];
-        });
-      }
-    } else if (action === 'remove' && !col.disabled) {
+  const handleSortingKey = useCallback(
+    (col: SortingKeyType, action: 'add' | 'remove') => {
       setSortingKeysSelections((prev) => {
-        return prev.filter((prevCol) => prevCol.name !== col.name);
+        if (action === 'add' && !prev.some((key) => key.name === col.name)) {
+          return [col, ...prev];
+        } else if (action === 'remove' && !col.disabled) {
+          return prev.filter((prevCol) => prevCol.name !== col.name);
+        }
+        return prev;
       });
-    }
-  };
+    },
+    []
+  );
 
   const registerSortingKeys = useCallback(() => {
     setRows((prevRows) => {
-      const source = tableRow.source;
-      const rowIndex = prevRows.findIndex((row) => row.source === source);
+      const rowIndex = prevRows.findIndex(
+        (row) => row.source === tableRow.source
+      );
       if (rowIndex !== -1) {
-        const sourceRow = prevRows[rowIndex];
-        const newColumns = [...sourceRow.columns];
+        const newColumns = prevRows[rowIndex].columns.map((col) => ({
+          ...col,
+          ordering:
+            sortingKeysSelections.findIndex(
+              (key) => key.name === col.sourceName
+            ) + 1,
+        }));
         sortingKeysSelections.forEach((sortingKeyCol, orderingIndex) => {
-          const colIndex = newColumns.findIndex(
-            (currentCol) => currentCol.sourceName === sortingKeyCol.name
-          );
-          if (colIndex !== -1) {
-            newColumns[colIndex] = {
-              ...newColumns[colIndex],
-              ordering: orderingIndex + 1,
-            };
-          } else {
+          if (
+            !newColumns.some((col) => col.sourceName === sortingKeyCol.name)
+          ) {
             newColumns.push({
               sourceName: sortingKeyCol.name,
               destinationName: '',
               destinationType: '',
-              ordering: 1,
+              ordering: orderingIndex + 1,
               nullableEnabled: false,
             });
           }
         });
-        prevRows[rowIndex] = {
-          ...sourceRow,
-          columns: newColumns,
-        };
+        const newRows = [...prevRows];
+        newRows[rowIndex].columns = newColumns;
+        return newRows;
       }
       return prevRows;
     });
   }, [sortingKeysSelections, setRows, tableRow.source]);
 
-  const handleShowSortingKey = (state: boolean) => {
-    setShowSortingKey(state);
-    if (!state) {
-      setSortingKeysSelections([]);
+  const handleShowSortingKey = useCallback(
+    (state: boolean) => {
+      setShowSortingKey(state);
+      if (!state) {
+        setSortingKeysSelections([]);
+        registerSortingKeys();
+      } else {
+        notifySortingKey();
+      }
+    },
+    [registerSortingKeys]
+  );
+
+  useEffect(() => {
+    if (showSortingKey && columns.length > 0) {
+      setSortingKeysSelections((prev) => {
+        if (prev.length === 0) {
+          return columns
+            .filter((col) => col.isPkey)
+            .map((col) => ({
+              name: col.label,
+              disabled: true,
+            }));
+        }
+        return prev;
+      });
+    }
+  }, [columns, showSortingKey]);
+
+  useEffect(() => {
+    if (showSortingKey) {
       registerSortingKeys();
-    } else {
-      notifySortingKey();
     }
-  };
-
-  useEffect(() => {
-    if (sortingKeysSelections.length === 0 && columns.length > 0) {
-      setSortingKeysSelections(
-        columns
-          .filter((col) => col.isPkey)
-          .map((col) => {
-            return { name: col.label, disabled: true };
-          })
-      );
-    }
-  }, [columns, sortingKeysSelections.length]);
-
-  useEffect(() => {
-    registerSortingKeys();
-  }, [registerSortingKeys]);
+  }, [registerSortingKeys, showSortingKey]);
 
   return (
     <div
