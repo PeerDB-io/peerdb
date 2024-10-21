@@ -405,50 +405,54 @@ export default function SchemaBox({
                           >
                             Columns
                           </Label>
-
-                          {peerType?.toString() ===
-                            DBType[DBType.CLICKHOUSE].toString() && (
-                            <div
-                              style={{
-                                width: '50%',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                rowGap: '0.5rem',
-                              }}
-                            >
-                              <SelectSortingKeys
-                                columns={
-                                  columns?.map((column) => {
-                                    const [columnName, columnType, isPkeyStr] =
-                                      column.split(':');
-                                    return columnName;
-                                  }) ?? []
-                                }
-                                loading={columnsLoading}
-                                tableRow={row}
-                                setRows={setRows}
-                              />
-                              <Divider
-                                style={{
-                                  ...columnBoxDividerStyle,
-                                  marginTop: '0.5rem',
-                                }}
-                              />
-                            </div>
-                          )}
                         </div>
                         {columns ? (
-                          <ColumnBox
-                            columns={columns}
-                            tableRow={row}
-                            rows={rows}
-                            setRows={setRows}
-                            disabled={row.editingDisabled}
-                            showOrdering={
-                              peerType?.toString() ===
-                              DBType[DBType.CLICKHOUSE].toString()
-                            }
-                          />
+                          <>
+                            <ColumnBox
+                              columns={columns}
+                              tableRow={row}
+                              rows={rows}
+                              setRows={setRows}
+                              disabled={row.editingDisabled}
+                              showOrdering={
+                                peerType?.toString() ===
+                                DBType[DBType.CLICKHOUSE].toString()
+                              }
+                            />
+                            {peerType?.toString() ===
+                              DBType[DBType.CLICKHOUSE].toString() && (
+                              <div
+                                style={{
+                                  width: '50%',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  rowGap: '0.5rem',
+                                }}
+                              >
+                                <Divider
+                                  style={{
+                                    ...columnBoxDividerStyle,
+                                    marginTop: '0.5rem',
+                                  }}
+                                />
+                                <SelectSortingKeys
+                                  columns={
+                                    columns?.map((column) => {
+                                      const [
+                                        columnName,
+                                        columnType,
+                                        isPkeyStr,
+                                      ] = column.split(':');
+                                      return columnName;
+                                    }) ?? []
+                                  }
+                                  loading={columnsLoading}
+                                  tableRow={row}
+                                  setRows={setRows}
+                                />
+                              </div>
+                            )}
+                          </>
                         ) : columnsLoading ? (
                           <BarLoader />
                         ) : (
