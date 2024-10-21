@@ -1,5 +1,9 @@
 package shared
 
+import (
+	"go.temporal.io/sdk/temporal"
+)
+
 type (
 	ContextKey  string
 	TaskQueueID string
@@ -16,7 +20,11 @@ const (
 	FlowStatusQuery    = "q-flow-status"
 )
 
-const MirrorNameSearchAttribute = "MirrorName"
+var MirrorNameSearchAttribute = temporal.NewSearchAttributeKeyString("MirrorName")
+
+func NewSearchAttributes(mirrorName string) temporal.SearchAttributes {
+	return temporal.NewSearchAttributes(MirrorNameSearchAttribute.ValueSet(mirrorName))
+}
 
 const (
 	FlowNameKey      ContextKey = "flowName"
