@@ -239,9 +239,7 @@ func (q *QRepFlowExecution) startChildWorkflow(
 		RetryPolicy: &temporal.RetryPolicy{
 			MaximumAttempts: 20,
 		},
-		SearchAttributes: map[string]interface{}{
-			shared.MirrorNameSearchAttribute: q.config.FlowJobName,
-		},
+		TypedSearchAttributes: shared.NewSearchAttributes(q.config.FlowJobName),
 	})
 
 	return workflow.ExecuteChildWorkflow(partFlowCtx, QRepPartitionWorkflow, q.config, partitions, q.runUUID)
@@ -326,10 +324,8 @@ func (q *QRepFlowExecution) waitForNewRows(
 	lastPartition *protos.QRepPartition,
 ) error {
 	ctx = workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
-		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-		SearchAttributes: map[string]interface{}{
-			shared.MirrorNameSearchAttribute: q.config.FlowJobName,
-		},
+		ParentClosePolicy:     enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+		TypedSearchAttributes: shared.NewSearchAttributes(q.config.FlowJobName),
 	})
 	future := workflow.ExecuteChildWorkflow(ctx, QRepWaitForNewRowsWorkflow, q.config, lastPartition)
 

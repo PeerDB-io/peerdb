@@ -140,11 +140,9 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 
 	workflowID := fmt.Sprintf("%s-peerflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
-		ID:        workflowID,
-		TaskQueue: h.peerflowTaskQueueID,
-		SearchAttributes: map[string]interface{}{
-			shared.MirrorNameSearchAttribute: cfg.FlowJobName,
-		},
+		ID:                    workflowID,
+		TaskQueue:             h.peerflowTaskQueueID,
+		TypedSearchAttributes: shared.NewSearchAttributes(cfg.FlowJobName),
 	}
 
 	err := h.createCdcJobEntry(ctx, req, workflowID)
@@ -208,11 +206,9 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	cfg := req.QrepConfig
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
-		ID:        workflowID,
-		TaskQueue: h.peerflowTaskQueueID,
-		SearchAttributes: map[string]interface{}{
-			shared.MirrorNameSearchAttribute: cfg.FlowJobName,
-		},
+		ID:                    workflowID,
+		TaskQueue:             h.peerflowTaskQueueID,
+		TypedSearchAttributes: shared.NewSearchAttributes(cfg.FlowJobName),
 	}
 	if req.CreateCatalogEntry {
 		if err := h.createQRepJobEntry(ctx, req, workflowID); err != nil {
@@ -308,11 +304,9 @@ func (h *FlowRequestHandler) shutdownFlow(
 		}
 		workflowID := fmt.Sprintf("%s-dropflow-%s", flowJobName, uuid.New())
 		workflowOptions := client.StartWorkflowOptions{
-			ID:        workflowID,
-			TaskQueue: h.peerflowTaskQueueID,
-			SearchAttributes: map[string]interface{}{
-				shared.MirrorNameSearchAttribute: flowJobName,
-			},
+			ID:                    workflowID,
+			TaskQueue:             h.peerflowTaskQueueID,
+			TypedSearchAttributes: shared.NewSearchAttributes(flowJobName),
 		}
 
 		dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions,

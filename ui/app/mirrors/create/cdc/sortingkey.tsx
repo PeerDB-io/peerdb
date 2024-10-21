@@ -108,6 +108,7 @@ const SelectSortingKeys = ({
         display: 'flex',
         flexDirection: 'column',
         alignContent: 'center',
+        rowGap: '0.5rem',
       }}
     >
       <ToastContainer containerId={'sorting_key_warning'} />
