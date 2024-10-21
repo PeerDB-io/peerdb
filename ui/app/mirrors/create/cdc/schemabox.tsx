@@ -421,12 +421,7 @@ export default function SchemaBox({
                                   columns?.map((column) => {
                                     const [columnName, columnType, isPkeyStr] =
                                       column.split(':');
-                                    const isPkey = isPkeyStr === 'true';
-                                    return {
-                                      value: columnName,
-                                      label: columnName,
-                                      isPkey: isPkey,
-                                    };
+                                    return columnName;
                                   }) ?? []
                                 }
                                 loading={columnsLoading}
