@@ -72,7 +72,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 	var replicationRes bool
 	err := c.conn.QueryRow(ctx, "SELECT rolreplication FROM pg_roles WHERE rolname = $1", username).Scan(&replicationRes)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			c.logger.Warn("No rows in pg_roles for user. Skipping rolereplication check",
 				"username", username)
 		} else {
@@ -84,7 +84,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 		// RDS case: check pg_settings for rds.logical_replication
 		var setting string
 		err := c.conn.QueryRow(ctx, "SELECT setting FROM pg_settings WHERE name = 'rds.logical_replication'").Scan(&setting)
-		if err != pgx.ErrNoRows {
+		if !errors.Is(err, pgx.ErrNoRows) {
 			if err != nil || setting != "on" {
 				return errors.New("postgres user does not have replication role")
 			}
