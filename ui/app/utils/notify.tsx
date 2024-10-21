@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { toast } from 'react-toastify';
 
+const orderingKeyDoc = 'https://docs.peerdb.io/mirror/ordering-key-different';
 export const notifyErr = (msg: string, ok?: boolean) => {
   if (ok) {
     toast.success(msg, {
@@ -20,8 +21,8 @@ const SortingKeyToast = () => {
       <p>
         Using ordering keys in ClickHouse that differ from the primary key in
         Postgres has some caveats. Please read{' '}
-        <Link style={{ color: 'teal' }} href={''} target='_blank'>
-          this document
+        <Link style={{ color: 'teal' }} href={orderingKeyDoc} target='_blank'>
+          this doc
         </Link>{' '}
         carefully.
       </p>
