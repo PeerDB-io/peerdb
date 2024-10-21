@@ -13,7 +13,6 @@ export const notifyErr = (msg: string, ok?: boolean) => {
   }
 };
 
-// TODO: add a link to the document when ready
 const SortingKeyToast = () => {
   const orderingKeyDoc = 'https://docs.peerdb.io/mirror/ordering-key-different';
 
