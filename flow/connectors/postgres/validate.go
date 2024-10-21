@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -104,18 +103,14 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 	}
 
 	// max_wal_senders must be at least 2
-	var maxWalSendersRes string
-	err = c.conn.QueryRow(ctx, "SHOW max_wal_senders").Scan(&maxWalSendersRes)
+	var insufficientMaxWalSenders bool
+	err = c.conn.QueryRow(ctx,
+		"SELECT setting::int<2 FROM pg_settings WHERE name='max_wal_senders'").Scan(&insufficientMaxWalSenders)
 	if err != nil {
 		return err
 	}
 
-	maxWalSenders, err := strconv.Atoi(maxWalSendersRes)
-	if err != nil {
-		return err
-	}
-
-	if maxWalSenders < 2 {
+	if insufficientMaxWalSenders {
 		return errors.New("max_wal_senders must be at least 2")
 	}
 
