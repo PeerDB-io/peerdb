@@ -20,13 +20,8 @@ import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { engineOptionStyles } from './styles';
 
-interface SortingKeyType {
-  name: string;
-  disabled: boolean;
-}
-
 interface SortingKeysProps {
-  columns: { value: string; label: string; isPkey: boolean }[];
+  columns: string[];
   tableRow: TableMapRow;
   loading: boolean;
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
@@ -38,18 +33,18 @@ const SelectSortingKeys = ({
   tableRow,
   setRows,
 }: SortingKeysProps) => {
-  const [sortingKeysSelections, setSortingKeysSelections] = useState<
-    SortingKeyType[]
-  >([]);
+  const [sortingKeysSelections, setSortingKeysSelections] = useState<string[]>(
+    []
+  );
   const [showSortingKey, setShowSortingKey] = useState(false);
 
   const handleSortingKey = useCallback(
-    (col: SortingKeyType, action: 'add' | 'remove') => {
+    (col: string, action: 'add' | 'remove') => {
       setSortingKeysSelections((prev) => {
-        if (action === 'add' && !prev.some((key) => key.name === col.name)) {
+        if (action === 'add' && !prev.some((key) => key === col)) {
           return [col, ...prev];
-        } else if (action === 'remove' && !col.disabled) {
-          return prev.filter((prevCol) => prevCol.name !== col.name);
+        } else if (action === 'remove') {
+          return prev.filter((prevCol) => prevCol !== col);
         }
         return prev;
       });
@@ -66,16 +61,13 @@ const SelectSortingKeys = ({
         const newColumns = prevRows[rowIndex].columns.map((col) => ({
           ...col,
           ordering:
-            sortingKeysSelections.findIndex(
-              (key) => key.name === col.sourceName
-            ) + 1,
+            sortingKeysSelections.findIndex((key) => key === col.sourceName) +
+            1,
         }));
         sortingKeysSelections.forEach((sortingKeyCol, orderingIndex) => {
-          if (
-            !newColumns.some((col) => col.sourceName === sortingKeyCol.name)
-          ) {
+          if (!newColumns.some((col) => col.sourceName === sortingKeyCol)) {
             newColumns.push({
-              sourceName: sortingKeyCol.name,
+              sourceName: sortingKeyCol,
               destinationName: '',
               destinationType: '',
               ordering: orderingIndex + 1,
@@ -103,22 +95,6 @@ const SelectSortingKeys = ({
     },
     [registerSortingKeys]
   );
-
-  useEffect(() => {
-    if (showSortingKey && columns.length > 0) {
-      setSortingKeysSelections((prev) => {
-        if (prev.length === 0) {
-          return columns
-            .filter((col) => col.isPkey)
-            .map((col) => ({
-              name: col.label,
-              disabled: true,
-            }));
-        }
-        return prev;
-      });
-    }
-  }, [columns, showSortingKey]);
 
   useEffect(() => {
     if (showSortingKey) {
@@ -161,22 +137,12 @@ const SelectSortingKeys = ({
             menuPlacement='top'
             placeholder={'Select sorting keys'}
             onChange={(val, action) => {
-              val &&
-                handleSortingKey(
-                  { name: val.value, disabled: val.isPkey },
-                  'add'
-                );
+              val && handleSortingKey(val.value, 'add');
             }}
-            isOptionDisabled={(option) =>
-              option?.isPkey ||
-              sortingKeysSelections.findIndex(
-                (key) => key.name === option?.label
-              ) !== -1
-            }
             isLoading={loading}
             value={null}
             styles={engineOptionStyles}
-            options={columns}
+            options={columns.map((col) => ({ value: col, label: col }))}
             theme={SelectTheme}
             isClearable
           />
@@ -190,10 +156,10 @@ const SelectSortingKeys = ({
               flexWrap: 'wrap',
             }}
           >
-            {sortingKeysSelections.map((col: SortingKeyType) => {
+            {sortingKeysSelections.map((col: string) => {
               return (
                 <div
-                  key={col.name}
+                  key={col}
                   style={{
                     display: 'flex',
                     columnGap: '0.3rem',
@@ -204,12 +170,11 @@ const SelectSortingKeys = ({
                     paddingRight: '0.5rem',
                   }}
                 >
-                  <p style={{ fontSize: '0.7rem' }}>{col.name}</p>
+                  <p style={{ fontSize: '0.7rem' }}>{col}</p>
                   <Button
                     variant='normalBorderless'
                     onClick={() => handleSortingKey(col, 'remove')}
                     style={{ padding: 0 }}
-                    disabled={col.disabled}
                   >
                     <Icon name='close' />
                   </Button>

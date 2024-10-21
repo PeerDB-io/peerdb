@@ -200,10 +200,14 @@ func getOrderedOrderByColumns(
 	orderby := make([]*protos.ColumnSetting, 0)
 	if tableMapping != nil {
 		for _, col := range tableMapping.Columns {
-			if col.Ordering > 0 && !slices.Contains(pkeys, col.SourceName) {
+			if col.Ordering > 0 {
 				orderby = append(orderby, col)
 			}
 		}
+	}
+
+	if len(orderby) == 0 {
+		return pkeys
 	}
 
 	slices.SortStableFunc(orderby, func(a *protos.ColumnSetting, b *protos.ColumnSetting) int {
@@ -214,10 +218,6 @@ func getOrderedOrderByColumns(
 	for idx, col := range orderby {
 		orderbyColumns[idx] = getColName(colNameMap, col.SourceName)
 	}
-
-	// Typically primary keys are not what aggregates are performed on and hence
-	// having them at the start of the order by clause is not beneficial.
-	orderbyColumns = append(orderbyColumns, pkeys...)
 
 	return orderbyColumns
 }
