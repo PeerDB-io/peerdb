@@ -1,5 +1,5 @@
 'use client';
-import { DropDialog } from '@/components/DropDialog';
+import DropDialog from '@/components/DropDialog';
 import MirrorLink from '@/components/MirrorLink';
 import NewButton from '@/components/NewButton';
 import PeerButton from '@/components/PeerComponent';

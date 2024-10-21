@@ -1,5 +1,5 @@
 'use client';
-import { DropDialog } from '@/components/DropDialog';
+import DropDialog from '@/components/DropDialog';
 import { Script } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button/Button';
 import { Label } from '@/lib/Label/Label';

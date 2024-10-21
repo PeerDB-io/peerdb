@@ -19,7 +19,7 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 ) (*protos.GetDynamicSettingsResponse, error) {
 	rows, err := h.pool.Query(ctx, "select config_name,config_value from dynamic_settings")
 	if err != nil {
-		slog.Error("[GetDynamicConfigs]: failed to query settings", slog.Any("error", err))
+		slog.Error("[GetDynamicConfigs] failed to query settings", slog.Any("error", err))
 		return nil, err
 	}
 	settings := slices.Clone(peerdbenv.DynamicSettings[:])
@@ -33,7 +33,7 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 		}
 		return nil
 	}); err != nil {
-		slog.Error("[GetDynamicConfigs]: failed to collect rows", slog.Any("error", err))
+		slog.Error("[GetDynamicConfigs] failed to collect rows", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -58,7 +58,7 @@ func (h *FlowRequestHandler) PostDynamicSetting(
 	_, err := h.pool.Exec(ctx, `insert into dynamic_settings (config_name, config_value) values ($1, $2)
 		on conflict (config_name) do update set config_value = $2`, req.Name, req.Value)
 	if err != nil {
-		slog.Error("[PostDynamicConfig]: failed to execute update setting", slog.Any("error", err))
+		slog.Error("[PostDynamicConfig] failed to execute update setting", slog.Any("error", err))
 		return nil, err
 	}
 	return &protos.PostDynamicSettingResponse{}, nil
