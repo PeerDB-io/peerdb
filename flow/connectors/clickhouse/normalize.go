@@ -467,7 +467,8 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 		tableNames = append(tableNames, tableName.String)
 	}
 
-	if rows.Err() != nil {
+	err = rows.Err()
+	if err != nil {
 		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
 
