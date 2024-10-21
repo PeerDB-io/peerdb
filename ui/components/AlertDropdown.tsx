@@ -2,7 +2,7 @@ import { Button } from '@/lib/Button/Button';
 import { Icon } from '@/lib/Icon';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useState } from 'react';
-import { DropDialog } from './DropDialog';
+import DropDialog from './DropDialog';
 const AlertDropdown = ({
   disable,
   alertId,

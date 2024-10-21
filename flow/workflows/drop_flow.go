@@ -19,8 +19,7 @@ func DropFlowWorkflow(ctx workflow.Context, config *protos.DropFlowInput) error 
 		StartToCloseTimeout: 5 * time.Minute,
 	})
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	ctx = workflow.WithDataConverter(ctx,
-		converter.NewCompositeDataConverter(converter.NewJSONPayloadConverter()))
+	ctx = workflow.WithDataConverter(ctx, converter.NewCompositeDataConverter(converter.NewJSONPayloadConverter()))
 
 	dropStatsCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,

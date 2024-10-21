@@ -1005,7 +1005,7 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 			// we can ignore the error
 			return nil
 		}
-		return fmt.Errorf("[RemoveTablesFromRawTable]:failed to get destination connector: %w", err)
+		return fmt.Errorf("[RemoveTablesFromRawTable] failed to get destination connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
