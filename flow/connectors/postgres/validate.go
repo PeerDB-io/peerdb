@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -73,7 +72,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 	var replicationRes bool
 	err := c.conn.QueryRow(ctx, "SELECT rolreplication FROM pg_roles WHERE rolname = $1", username).Scan(&replicationRes)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			c.logger.Warn("No rows in pg_roles for user. Skipping rolereplication check",
 				"username", username)
 		} else {
@@ -85,7 +84,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 		// RDS case: check pg_settings for rds.logical_replication
 		var setting string
 		err := c.conn.QueryRow(ctx, "SELECT setting FROM pg_settings WHERE name = 'rds.logical_replication'").Scan(&setting)
-		if err != pgx.ErrNoRows {
+		if !errors.Is(err, pgx.ErrNoRows) {
 			if err != nil || setting != "on" {
 				return errors.New("postgres user does not have replication role")
 			}
@@ -104,18 +103,14 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 	}
 
 	// max_wal_senders must be at least 2
-	var maxWalSendersRes string
-	err = c.conn.QueryRow(ctx, "SHOW max_wal_senders").Scan(&maxWalSendersRes)
+	var insufficientMaxWalSenders bool
+	err = c.conn.QueryRow(ctx,
+		"SELECT setting::int<2 FROM pg_settings WHERE name='max_wal_senders'").Scan(&insufficientMaxWalSenders)
 	if err != nil {
 		return err
 	}
 
-	maxWalSenders, err := strconv.Atoi(maxWalSendersRes)
-	if err != nil {
-		return err
-	}
-
-	if maxWalSenders < 2 {
+	if insufficientMaxWalSenders {
 		return errors.New("max_wal_senders must be at least 2")
 	}
 
