@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { toast } from 'react-toastify';
 
-const orderingKeyDoc = 'https://docs.peerdb.io/mirror/ordering-key-different';
 export const notifyErr = (msg: string, ok?: boolean) => {
   if (ok) {
     toast.success(msg, {
@@ -16,6 +15,8 @@ export const notifyErr = (msg: string, ok?: boolean) => {
 
 // TODO: add a link to the document when ready
 const SortingKeyToast = () => {
+  const orderingKeyDoc = 'https://docs.peerdb.io/mirror/ordering-key-different';
+
   return (
     <div>
       <p>
