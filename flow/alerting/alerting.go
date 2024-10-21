@@ -194,11 +194,19 @@ func (a *Alerter) AlertIfSlotLag(ctx context.Context, alertKeys *AlertKeys, slot
 		deploymentUIDPrefix, slotInfo.SlotName, alertKeys.PeerName, slotInfo.WalStatus)
 
 	for _, alertSenderConfig := range alertSendersForMirrors {
-		if a.checkAndAddAlertToCatalog(ctx, alertSenderConfig.Id, thresholdAlertKey,
+		if a.checkAndAddAlertToCatalog(ctx,
+			alertSenderConfig.Id, thresholdAlertKey,
 			fmt.Sprintf(thresholdAlertMessageTemplate, lowestSlotLagMBAlertThreshold)) {
-			if slotInfo.LagInMb > float32(lowestSlotLagMBAlertThreshold) {
-				a.alertToProvider(ctx, alertSenderConfig, thresholdAlertKey,
-					fmt.Sprintf(thresholdAlertMessageTemplate, defaultSlotLagMBAlertThreshold))
+			if alertSenderConfig.Sender.getSlotLagMBAlertThreshold() > 0 {
+				if slotInfo.LagInMb > float32(alertSenderConfig.Sender.getSlotLagMBAlertThreshold()) {
+					a.alertToProvider(ctx, alertSenderConfig, thresholdAlertKey,
+						fmt.Sprintf(thresholdAlertMessageTemplate, alertSenderConfig.Sender.getSlotLagMBAlertThreshold()))
+				}
+			} else {
+				if slotInfo.LagInMb > float32(defaultSlotLagMBAlertThreshold) {
+					a.alertToProvider(ctx, alertSenderConfig, thresholdAlertKey,
+						fmt.Sprintf(thresholdAlertMessageTemplate, defaultSlotLagMBAlertThreshold))
+				}
 			}
 		}
 
