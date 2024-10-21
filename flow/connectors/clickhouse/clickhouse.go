@@ -14,9 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
+	"github.com/ClickHouse/ch-go"
+	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"go.temporal.io/sdk/log"
 
@@ -30,7 +29,7 @@ import (
 
 type ClickHouseConnector struct {
 	*metadataStore.PostgresMetadata
-	database      clickhouse.Conn
+	database      *ch.Client
 	logger        log.Logger
 	config        *protos.ClickhouseConfig
 	credsProvider *utils.ClickHouseS3Credentials
@@ -179,6 +178,17 @@ func NewClickHouseConnector(
 	if err != nil {
 		return nil, err
 	}
+	if credentials.AWS.SessionToken != "" {
+		// 24.3.1 is minimum version of ClickHouse that actually supports session token
+		// https://github.com/ClickHouse/ClickHouse/issues/61230
+		chVersion := database.ServerInfo()
+		if chVersion.Major < 24 || (chVersion.Major == 24 && (chVersion.Minor < 3 || (chVersion.Minor == 3 && chVersion.Patch < 1))) {
+			return nil, fmt.Errorf(
+				"provide S3 Transient Stage details explicitly or upgrade to ClickHouse version >= 24.3.1, current version is %d.%d.%d. %s",
+				chVersion.Major, chVersion.Minor, chVersion.Patch,
+				"You can also contact PeerDB support for implicit S3 stage setup for older versions of ClickHouse.")
+		}
+	}
 
 	connector := &ClickHouseConnector{
 		database:         database,
@@ -189,28 +199,10 @@ func NewClickHouseConnector(
 		s3Stage:          NewClickHouseS3Stage(),
 	}
 
-	if credentials.AWS.SessionToken != "" {
-		// 24.3.1 is minimum version of ClickHouse that actually supports session token
-		// https://github.com/ClickHouse/ClickHouse/issues/61230
-		clickHouseVersion, err := database.ServerVersion()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get ClickHouse version: %w", err)
-		}
-		if !chproto.CheckMinVersion(
-			chproto.Version{Major: 24, Minor: 3, Patch: 1},
-			clickHouseVersion.Version,
-		) {
-			return nil, fmt.Errorf(
-				"provide S3 Transient Stage details explicitly or upgrade to ClickHouse version >= 24.3.1, current version is %s. %s",
-				clickHouseVersion,
-				"You can also contact PeerDB support for implicit S3 stage setup for older versions of ClickHouse.")
-		}
-	}
-
 	return connector, nil
 }
 
-func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.Conn, error) {
+func Connect(ctx context.Context, config *protos.ClickhouseConfig) (*ch.Client, error) {
 	var tlsSetting *tls.Config
 	if !config.DisableTls {
 		tlsSetting = &tls.Config{MinVersion: tls.VersionTLS13}
@@ -233,23 +225,14 @@ func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.C
 		tlsSetting.RootCAs = caPool
 	}
 
-	conn, err := clickhouse.Open(&clickhouse.Options{
-		Addr: []string{fmt.Sprintf("%s:%d", config.Host, config.Port)},
-		Auth: clickhouse.Auth{
-			Database: config.Database,
-			Username: config.User,
-			Password: config.Password,
-		},
+	conn, err := ch.Dial(ctx, ch.Options{
+		Address:     fmt.Sprintf("%s:%d", config.Host, config.Port),
+		Database:    config.Database,
+		User:        config.User,
+		Password:    config.Password,
 		TLS:         tlsSetting,
-		Compression: &clickhouse.Compression{Method: clickhouse.CompressionLZ4},
-		ClientInfo: clickhouse.ClientInfo{
-			Products: []struct {
-				Name    string
-				Version string
-			}{
-				{Name: "peerdb"},
-			},
-		},
+		Compression: ch.CompressionLZ4,
+		ClientName:  "peerdb",
 		DialTimeout: 3600 * time.Second,
 		ReadTimeout: 3600 * time.Second,
 	})
@@ -287,21 +270,20 @@ var retryableExceptions = map[int32]struct{}{
 }
 
 func isRetryableException(err error) bool {
-	if ex, ok := err.(*clickhouse.Exception); ok {
+	if ex, ok := err.(*ch.Exception); ok {
 		if ex == nil {
 			return false
 		}
-		_, yes := retryableExceptions[ex.Code]
+		_, yes := retryableExceptions[int32(ex.Code)]
 		return yes
 	}
 	return errors.Is(err, io.EOF)
 }
 
-//nolint:unparam
-func (c *ClickHouseConnector) exec(ctx context.Context, query string, args ...any) error {
+func (c *ClickHouseConnector) exec(ctx context.Context, query string) error {
 	var err error
 	for i := range 5 {
-		err = c.database.Exec(ctx, query, args...)
+		err = c.database.Do(ctx, ch.Query{Body: query})
 		if !isRetryableException(err) {
 			break
 		}
@@ -313,11 +295,10 @@ func (c *ClickHouseConnector) exec(ctx context.Context, query string, args ...an
 	return err
 }
 
-func (c *ClickHouseConnector) query(ctx context.Context, query string, args ...any) (driver.Rows, error) {
-	var rows driver.Rows
+func (c *ClickHouseConnector) query(ctx context.Context, query ch.Query) error {
 	var err error
 	for i := range 5 {
-		rows, err = c.database.Query(ctx, query, args...)
+		err = c.database.Do(ctx, query)
 		if !isRetryableException(err) {
 			break
 		}
@@ -326,23 +307,7 @@ func (c *ClickHouseConnector) query(ctx context.Context, query string, args ...a
 			time.Sleep(time.Second * time.Duration(i*5+1))
 		}
 	}
-	return rows, err
-}
-
-func (c *ClickHouseConnector) queryRow(ctx context.Context, query string, args ...any) driver.Row {
-	var row driver.Row
-	for i := range 5 {
-		row = c.database.QueryRow(ctx, query, args...)
-		err := row.Err()
-		if !isRetryableException(err) {
-			break
-		}
-		c.logger.Info("[queryRow] retryable error", slog.Any("error", row.Err()), slog.Any("query", query), slog.Int64("i", int64(i)))
-		if i < 4 {
-			time.Sleep(time.Second * time.Duration(i*5+1))
-		}
-	}
-	return row
+	return err
 }
 
 func (c *ClickHouseConnector) Close() error {
@@ -362,71 +327,79 @@ func (c *ClickHouseConnector) ConnectionActive(ctx context.Context) error {
 
 func (c *ClickHouseConnector) execWithLogging(ctx context.Context, query string) error {
 	c.logger.Info("[clickhouse] executing DDL statement", slog.String("query", query))
-	return c.database.Exec(ctx, query)
+	return c.exec(ctx, query)
 }
 
 func (c *ClickHouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tables []string, optedForInitialLoad bool) error {
-	queryInput := make([]interface{}, 0, len(tables)+1)
-	queryInput = append(queryInput, c.config.Database)
+	escapedTables := make([]string, 0, len(tables))
 	for _, table := range tables {
-		queryInput = append(queryInput, table)
+		// TODO proper
+		escapedTables = append(escapedTables, "'"+table+"'")
 	}
-	rows, err := c.query(ctx,
-		fmt.Sprintf("SELECT name,engine,total_rows FROM system.tables WHERE database=? AND name IN (%s)",
-			strings.Join(slices.Repeat([]string{"?"}, len(tables)), ",")), queryInput...)
-	if err != nil {
+	var nameC chproto.ColStr
+	var engineC chproto.ColStr
+	var totalRowsC chproto.ColUInt64
+	if err := c.query(ctx, ch.Query{
+		Body: fmt.Sprintf(
+			"SELECT name,engine,total_rows FROM system.tables WHERE database='%s' AND name IN (%s)",
+			c.config.Database, strings.Join(escapedTables, ",")),
+		Result: chproto.Results{
+			{Name: "name", Data: &nameC},
+			{Name: "engine", Data: &engineC},
+			{Name: "total_rows", Data: &totalRowsC},
+		},
+		OnResult: func(ctx context.Context, block chproto.Block) error {
+			for idx := range block.Rows {
+				name := nameC.Row(idx)
+				engine := engineC.Row(idx)
+				totalRows := totalRowsC[idx]
+				if totalRows != 0 && optedForInitialLoad {
+					return fmt.Errorf("table %s exists and is not empty", name)
+				}
+				if !slices.Contains(acceptableTableEngines, strings.TrimPrefix(engine, "Shared")) {
+					c.logger.Warn("[clickhouse] table engine not explicitly supported",
+						slog.String("table", name), slog.String("engine", engine))
+				}
+			}
+			return nil
+		},
+	}); err != nil {
 		return fmt.Errorf("failed to get information for destination tables: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var tableName, engine string
-		var totalRows uint64
-		err = rows.Scan(&tableName, &engine, &totalRows)
-		if err != nil {
-			return fmt.Errorf("failed to scan information for tables: %w", err)
-		}
-		if totalRows != 0 && optedForInitialLoad {
-			return fmt.Errorf("table %s exists and is not empty", tableName)
-		}
-		if !slices.Contains(acceptableTableEngines, strings.TrimPrefix(engine, "Shared")) {
-			c.logger.Warn("[clickhouse] table engine not explicitly supported",
-				slog.String("table", tableName), slog.String("engine", engine))
-		}
-	}
-	if rows.Err() != nil {
-		return fmt.Errorf("failed to read rows: %w", rows.Err())
 	}
 	return nil
 }
 
-func (c *ClickHouseConnector) getTableColumnsMapping(ctx context.Context,
-	tables []string,
-) (map[string][]*protos.FieldDescription, error) {
-	tableColumnsMapping := make(map[string][]*protos.FieldDescription, len(tables))
-	queryInput := make([]interface{}, 0, len(tables)+1)
-	queryInput = append(queryInput, c.config.Database)
+func (c *ClickHouseConnector) getTableColumnsMapping(ctx context.Context, tables []string) (map[string][]*protos.FieldDescription, error) {
+	escapedTables := make([]string, 0, len(tables))
 	for _, table := range tables {
-		queryInput = append(queryInput, table)
+		// TODO proper
+		escapedTables = append(escapedTables, "'"+table+"'")
 	}
-	rows, err := c.query(ctx,
-		fmt.Sprintf("SELECT name,type,table FROM system.columns WHERE database=? AND table IN (%s)",
-			strings.Join(slices.Repeat([]string{"?"}, len(tables)), ",")), queryInput...)
-	if err != nil {
+	tableColumnsMapping := make(map[string][]*protos.FieldDescription)
+	var nameC chproto.ColStr
+	var typeC chproto.ColStr
+	var tableC chproto.ColStr
+	if err := c.query(ctx, ch.Query{
+		Body: fmt.Sprintf("SELECT name,type,table FROM system.columns WHERE database=%s AND table IN (%s)",
+			c.config.Database, strings.Join(escapedTables, ",")),
+		Result: chproto.Results{
+			{Name: "name", Data: &nameC},
+			{Name: "type", Data: &typeC},
+			{Name: "table", Data: &tableC},
+		},
+		OnResult: func(ctx context.Context, block chproto.Block) error {
+			for idx := range block.Rows {
+				table := tableC.Row(idx)
+				tableColumnsMapping[table] = append(tableColumnsMapping[table], &protos.FieldDescription{
+					Name: nameC.Row(idx),
+					Type: typeC.Row(idx),
+				})
+			}
+			return nil
+		},
+	},
+	); err != nil {
 		return nil, fmt.Errorf("failed to get columns for destination tables: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var tableName string
-		var fieldDescription protos.FieldDescription
-		err = rows.Scan(&fieldDescription.Name, &fieldDescription.Type, &tableName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan columns for tables: %w", err)
-		}
-		tableColumnsMapping[tableName] = append(tableColumnsMapping[tableName], &fieldDescription)
-	}
-	if rows.Err() != nil {
-		return nil, fmt.Errorf("failed to read rows: %w", rows.Err())
 	}
 	return tableColumnsMapping, nil
 }
@@ -517,10 +490,8 @@ func (c *ClickHouseConnector) CheckDestinationTables(ctx context.Context, req *p
 }
 
 func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
-	clickhouseVersion, err := c.database.ServerVersion()
-	if err != nil {
-		return "", fmt.Errorf("failed to get ClickHouse version: %w", err)
-	}
-	c.logger.Info("[clickhouse] version", slog.Any("version", clickhouseVersion.DisplayName))
-	return clickhouseVersion.Version.String(), nil
+	chVersion := c.database.ServerInfo()
+	chVersionStr := fmt.Sprintf("%d.%d.%d", chVersion.Major, chVersion.Minor, chVersion.Patch)
+	c.logger.Info("[clickhouse] version", slog.Any("version", chVersionStr))
+	return chVersionStr, nil
 }
