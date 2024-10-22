@@ -381,8 +381,10 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	outstream TRead,
 	pullRecords func(
 		TPull,
-		context.Context, *protos.QRepConfig,
+		context.Context,
+		*protos.QRepConfig,
 		*protos.QRepPartition,
+		string,
 		TWrite,
 	) (int, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
@@ -422,6 +424,11 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	var rowsSynced int
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
+		_, snapshotName, _, err := shared.LoadSnapshotNameFromCatalog(ctx, a.CatalogPool, config.FlowJobName)
+		if err != nil {
+			return err
+		}
+
 		srcConn, err := connectors.GetByNameAs[TPull](ctx, config.Env, a.CatalogPool, config.SourceName)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -429,7 +436,7 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		}
 		defer connectors.CloseConnector(ctx, srcConn)
 
-		tmp, err := pullRecords(srcConn, errCtx, config, partition, stream)
+		tmp, err := pullRecords(srcConn, errCtx, config, partition, snapshotName, stream)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 			return fmt.Errorf("failed to pull records: %w", err)
@@ -479,8 +486,10 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	outstream TRead,
 	pullRecords func(
 		*connpostgres.PostgresConnector,
-		context.Context, *protos.QRepConfig,
+		context.Context,
+		*protos.QRepConfig,
 		*protos.QRepPartition,
+		string,
 		TWrite,
 	) (int, int64, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
@@ -501,6 +510,11 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	var currentSnapshotXmin int64
 	var rowsSynced int
 	errGroup.Go(func() error {
+		_, snapshotName, _, err := shared.LoadSnapshotNameFromCatalog(ctx, a.CatalogPool, config.FlowJobName)
+		if err != nil {
+			return err
+		}
+
 		srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, config.Env, a.CatalogPool, config.SourceName)
 		if err != nil {
 			return fmt.Errorf("failed to get qrep source connector: %w", err)
@@ -509,10 +523,10 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 
 		var pullErr error
 		var numRecords int
-		numRecords, currentSnapshotXmin, pullErr = pullRecords(srcConn, ctx, config, partition, stream)
+		numRecords, currentSnapshotXmin, pullErr = pullRecords(srcConn, ctx, config, partition, snapshotName, stream)
 		if pullErr != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, pullErr)
-			logger.Warn(fmt.Sprintf("[xmin] failed to pull recordS: %v", pullErr))
+			logger.Warn(fmt.Sprintf("[xmin] failed to pull records: %v", pullErr))
 			return pullErr
 		}
 

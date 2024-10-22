@@ -121,6 +121,30 @@ func UpdateCDCConfigInCatalog(ctx context.Context, pool *pgxpool.Pool,
 	return nil
 }
 
+func LoadSnapshotNameFromCatalog(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	flowName string,
+) (string, string, bool, error) {
+	for {
+		var slotName string
+		var snapshotName string
+		var supportsTidScan bool
+		if err := pool.QueryRow(
+			ctx,
+			"select slot_name, snapshot_name, supports_tid_scan from snapshot_names where flow_name = $1",
+			flowName,
+		).Scan(&slotName, &snapshotName, &supportsTidScan); err != nil {
+			if err == pgx.ErrNoRows {
+				time.Sleep(time.Second)
+				continue
+			}
+			return "", "", false, err
+		}
+		return slotName, snapshotName, supportsTidScan, nil
+	}
+}
+
 func LoadTableSchemaFromCatalog(
 	ctx context.Context,
 	pool *pgxpool.Pool,

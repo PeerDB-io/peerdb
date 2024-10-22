@@ -62,7 +62,6 @@ export const blankQRepSetting: QRepConfig = {
   numRowsPerPartition: 100000,
   setupWatermarkTableOnDestination: false,
   dstTableFullResync: false,
-  snapshotName: '',
   softDeleteColName: '_PEERDB_IS_DELETED',
   syncedAtColName: '',
   script: '',

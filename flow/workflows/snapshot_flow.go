@@ -11,7 +11,6 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/PeerDB-io/peer-flow/activities"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -33,9 +32,7 @@ type SnapshotFlowExecution struct {
 }
 
 // ensurePullability ensures that the source peer is pullable.
-func (s *SnapshotFlowExecution) setupReplication(
-	ctx workflow.Context,
-) (*protos.SetupReplicationOutput, error) {
+func (s *SnapshotFlowExecution) setupReplication(ctx workflow.Context) error {
 	flowName := s.config.FlowJobName
 	s.logger.Info("setting up replication on source for peer flow")
 
@@ -60,15 +57,14 @@ func (s *SnapshotFlowExecution) setupReplication(
 		ExistingReplicationSlotName: s.config.ReplicationSlotName,
 	}
 
-	res := &protos.SetupReplicationOutput{}
 	setupReplicationFuture := workflow.ExecuteActivity(ctx, snapshot.SetupReplication, setupReplicationInput)
-	if err := setupReplicationFuture.Get(ctx, &res); err != nil {
-		return nil, fmt.Errorf("failed to setup replication on source peer: %w", err)
+	if err := setupReplicationFuture.Get(ctx, nil); err != nil {
+		return fmt.Errorf("failed to setup replication on source peer: %w", err)
 	}
 
 	s.logger.Info("replication slot live on source for peer flow")
 
-	return res, nil
+	return nil
 }
 
 func (s *SnapshotFlowExecution) closeSlotKeepAlive(
@@ -92,13 +88,10 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 func (s *SnapshotFlowExecution) cloneTable(
 	ctx workflow.Context,
 	boundSelector *shared.BoundSelector,
-	snapshotName string,
 	mapping *protos.TableMapping,
 ) error {
 	flowName := s.config.FlowJobName
-	cloneLog := slog.Group("clone-log",
-		slog.String(string(shared.FlowNameKey), flowName),
-		slog.String("snapshotName", snapshotName))
+	cloneLog := slog.String(string(shared.FlowNameKey), flowName)
 
 	srcName := mapping.SourceTableIdentifier
 	dstName := mapping.DestinationTableIdentifier
@@ -198,7 +191,6 @@ func (s *SnapshotFlowExecution) cloneTable(
 		WatermarkColumn:            mapping.PartitionKey,
 		WatermarkTable:             srcName,
 		InitialCopyOnly:            true,
-		SnapshotName:               snapshotName,
 		DestinationTableIdentifier: dstName,
 		NumRowsPerPartition:        numRowsPerPartition,
 		MaxParallelWorkers:         numWorkers,
@@ -218,39 +210,23 @@ func (s *SnapshotFlowExecution) cloneTable(
 func (s *SnapshotFlowExecution) cloneTables(
 	ctx workflow.Context,
 	snapshotType snapshotType,
-	slotName string,
-	snapshotName string,
-	supportsTIDScans bool,
 	maxParallelClones int,
 ) error {
 	if snapshotType == SNAPSHOT_TYPE_SLOT {
-		s.logger.Info(fmt.Sprintf("cloning tables for slot name %s and snapshotName %s",
-			slotName, snapshotName))
+		s.logger.Info("cloning tables for slot")
 	} else if snapshotType == SNAPSHOT_TYPE_TX {
-		s.logger.Info("cloning tables in txn snapshot mode with snapshotName " +
-			snapshotName)
+		s.logger.Info("cloning tables for snapshot")
 	}
 
 	boundSelector := shared.NewBoundSelector(ctx, "CloneTablesSelector", maxParallelClones)
-
-	defaultPartitionCol := "ctid"
-	if !supportsTIDScans {
-		s.logger.Info("Postgres version too old for TID scans, might use full table partitions!")
-		defaultPartitionCol = ""
-	}
 
 	for _, v := range s.config.TableMappings {
 		source := v.SourceTableIdentifier
 		destination := v.DestinationTableIdentifier
 		s.logger.Info(
 			fmt.Sprintf("Cloning table with source table %s and destination table name %s", source, destination),
-			slog.String("snapshotName", snapshotName),
 		)
-		if v.PartitionKey == "" {
-			v.PartitionKey = defaultPartitionCol
-		}
-		err := s.cloneTable(ctx, boundSelector, snapshotName, v)
-		if err != nil {
+		if err := s.cloneTable(ctx, boundSelector, v); err != nil {
 			s.logger.Error("failed to start clone child workflow", slog.Any("error", err))
 			continue
 		}
@@ -270,17 +246,13 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 	sessionCtx workflow.Context,
 	numTablesInParallel int,
 ) error {
-	slotInfo, err := s.setupReplication(sessionCtx)
-	if err != nil {
+	if err := s.setupReplication(sessionCtx); err != nil {
 		return fmt.Errorf("failed to setup replication: %w", err)
 	}
 
 	s.logger.Info(fmt.Sprintf("cloning %d tables in parallel", numTablesInParallel))
 	if err := s.cloneTables(ctx,
 		SNAPSHOT_TYPE_SLOT,
-		slotInfo.SlotName,
-		slotInfo.SnapshotName,
-		slotInfo.SupportsTidScans,
 		numTablesInParallel,
 	); err != nil {
 		return fmt.Errorf("failed to clone tables: %w", err)
@@ -307,8 +279,7 @@ func SnapshotFlowWorkflow(
 	numTablesInParallel := int(max(config.SnapshotNumTablesInParallel, 1))
 
 	if !config.DoInitialSnapshot {
-		_, err := se.setupReplication(ctx)
-		if err != nil {
+		if err := se.setupReplication(ctx); err != nil {
 			return fmt.Errorf("failed to setup replication: %w", err)
 		}
 
@@ -344,25 +315,15 @@ func SnapshotFlowWorkflow(
 			exportCtx,
 			snapshot.MaintainTx,
 			sessionInfo.SessionID,
+			config.FlowJobName,
 			config.SourceName,
 		)
 
-		fExportSnapshot := workflow.ExecuteActivity(
-			exportCtx,
-			snapshot.WaitForExportSnapshot,
-			sessionInfo.SessionID,
-		)
-
 		var sessionError error
-		var txnSnapshotState *activities.TxSnapshotState
 		sessionSelector := workflow.NewNamedSelector(ctx, "ExportSnapshotSetup")
 		sessionSelector.AddFuture(fMaintain, func(f workflow.Future) {
 			// MaintainTx should never exit without an error before this point
 			sessionError = f.Get(exportCtx, nil)
-		})
-		sessionSelector.AddFuture(fExportSnapshot, func(f workflow.Future) {
-			// Happy path is waiting for this to return without error
-			sessionError = f.Get(exportCtx, &txnSnapshotState)
 		})
 		sessionSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
 			sessionError = ctx.Err()
@@ -372,13 +333,7 @@ func SnapshotFlowWorkflow(
 			return sessionError
 		}
 
-		if err := se.cloneTables(ctx,
-			SNAPSHOT_TYPE_TX,
-			"",
-			txnSnapshotState.SnapshotName,
-			txnSnapshotState.SupportsTIDScans,
-			numTablesInParallel,
-		); err != nil {
+		if err := se.cloneTables(ctx, SNAPSHOT_TYPE_TX, numTablesInParallel); err != nil {
 			return fmt.Errorf("failed to clone tables: %w", err)
 		}
 	} else if err := se.cloneTablesWithSlot(ctx, sessionCtx, numTablesInParallel); err != nil {

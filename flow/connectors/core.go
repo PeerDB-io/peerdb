@@ -62,7 +62,7 @@ type CDCPullConnectorCore interface {
 
 	// For InitialSnapshotOnly correctness without replication slot
 	// `any` is for returning transaction if necessary
-	ExportTxSnapshot(context.Context) (*protos.ExportTxSnapshotOutput, any, error)
+	ExportTxSnapshot(ctx context.Context, flowJobName string) (any, error)
 
 	// `any` from ExportSnapshot passed here when done, allowing transaction to commit
 	FinishExport(any) error
@@ -201,21 +201,22 @@ type QRepPullConnectorCore interface {
 	Connector
 
 	// GetQRepPartitions returns the partitions for a given table that haven't been synced yet.
-	GetQRepPartitions(ctx context.Context, config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error)
+	GetQRepPartitions(ctx context.Context, config *protos.QRepConfig, last *protos.QRepPartition,
+		snapshotName string) ([]*protos.QRepPartition, error)
 }
 
 type QRepPullConnector interface {
 	QRepPullConnectorCore
 
 	// PullQRepRecords returns the records for a given partition.
-	PullQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, *model.QRecordStream) (int, error)
+	PullQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, string, *model.QRecordStream) (int, error)
 }
 
 type QRepPullPgConnector interface {
 	QRepPullConnectorCore
 
 	// PullPgQRepRecords returns the records for a given partition.
-	PullPgQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, connpostgres.PgCopyWriter) (int, error)
+	PullPgQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, string, connpostgres.PgCopyWriter) (int, error)
 }
 
 type QRepSyncConnectorCore interface {

@@ -1003,11 +1003,11 @@ func (c *PostgresConnector) EnsurePullability(
 	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil
 }
 
-func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context) (*protos.ExportTxSnapshotOutput, any, error) {
+func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context, flowJobName string) (any, error) {
 	var snapshotName string
 	tx, err := c.conn.Begin(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	txNeedsRollback := true
 	defer func() {
@@ -1023,32 +1023,44 @@ func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context) (*protos.Expor
 
 	_, err = tx.Exec(ctx, "SET LOCAL idle_in_transaction_session_timeout=0")
 	if err != nil {
-		return nil, nil, fmt.Errorf("[export-snapshot] error setting idle_in_transaction_session_timeout: %w", err)
+		return nil, fmt.Errorf("[export-snapshot] error setting idle_in_transaction_session_timeout: %w", err)
 	}
 
 	_, err = tx.Exec(ctx, "SET LOCAL lock_timeout=0")
 	if err != nil {
-		return nil, nil, fmt.Errorf("[export-snapshot] error setting lock_timeout: %w", err)
+		return nil, fmt.Errorf("[export-snapshot] error setting lock_timeout: %w", err)
 	}
 
 	pgversion, err := c.MajorVersion(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("[export-snapshot] error getting PG version: %w", err)
+		return nil, fmt.Errorf("[export-snapshot] error getting PG version: %w", err)
 	}
 
 	err = tx.QueryRow(ctx, "SELECT pg_export_snapshot()").Scan(&snapshotName)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	txNeedsRollback = false
 
-	return &protos.ExportTxSnapshotOutput{
-		SnapshotName:     snapshotName,
-		SupportsTidScans: pgversion >= shared.POSTGRES_13,
-	}, tx, err
+	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := pool.Exec(ctx,
+		`insert into snapshot_names (flow_name, slot_name, snapshot_name, supports_tid_scan) values ($1, '', $2, $3)
+		on conflict (flow_name) do update set slot_name = '', snapshot_name = $2, supports_tid_scan = $3`,
+		flowJobName, snapshotName, pgversion >= shared.POSTGRES_13,
+	); err != nil {
+		return nil, err
+	}
+
+	txNeedsRollback = false
+	return tx, nil
 }
 
 func (c *PostgresConnector) FinishExport(tx any) error {
+	// could delete snapshot_names row here,
+	// but has racy potential if FinishExport is called after row overwritten by retry
 	pgtx := tx.(pgx.Tx)
 	timeout, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
