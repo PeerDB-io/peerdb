@@ -87,7 +87,7 @@ func processCDCFlowConfigUpdate(
 	logger log.Logger,
 	cfg *protos.FlowConnectionConfigs,
 	state *CDCFlowWorkflowState,
-	mirrorNameSearch map[string]interface{},
+	mirrorNameSearch temporal.SearchAttributes,
 ) error {
 	flowConfigUpdate := state.FlowConfigUpdate
 
@@ -139,7 +139,7 @@ func processTableAdditions(
 	logger log.Logger,
 	cfg *protos.FlowConnectionConfigs,
 	state *CDCFlowWorkflowState,
-	mirrorNameSearch map[string]interface{},
+	mirrorNameSearch temporal.SearchAttributes,
 ) error {
 	flowConfigUpdate := state.FlowConfigUpdate
 	if len(flowConfigUpdate.AdditionalTables) == 0 {
@@ -181,8 +181,8 @@ func processTableAdditions(
 		RetryPolicy: &temporal.RetryPolicy{
 			MaximumAttempts: 20,
 		},
-		SearchAttributes:    mirrorNameSearch,
-		WaitForCancellation: true,
+		TypedSearchAttributes: mirrorNameSearch,
+		WaitForCancellation:   true,
 	}
 	childAdditionalTablesCDCFlowCtx := workflow.WithChildOptions(ctx, childAdditionalTablesCDCFlowOpts)
 	childAdditionalTablesCDCFlowFuture := workflow.ExecuteChildWorkflow(
@@ -329,9 +329,7 @@ func CDCFlowWorkflow(
 		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
 	}
 
-	mirrorNameSearch := map[string]interface{}{
-		shared.MirrorNameSearchAttribute: cfg.FlowJobName,
-	}
+	mirrorNameSearch := shared.NewSearchAttributes(cfg.FlowJobName)
 
 	var syncCountLimit int
 	if state.ActiveSignal == model.PauseSignal {
@@ -416,8 +414,8 @@ func CDCFlowWorkflow(
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
-			SearchAttributes:    mirrorNameSearch,
-			WaitForCancellation: true,
+			TypedSearchAttributes: mirrorNameSearch,
+			WaitForCancellation:   true,
 		}
 		setupFlowCtx := workflow.WithChildOptions(ctx, childSetupFlowOpts)
 		setupFlowFuture := workflow.ExecuteChildWorkflow(setupFlowCtx, SetupFlowWorkflow, cfg)
@@ -438,9 +436,9 @@ func CDCFlowWorkflow(
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
-			TaskQueue:           taskQueue,
-			SearchAttributes:    mirrorNameSearch,
-			WaitForCancellation: true,
+			TaskQueue:             taskQueue,
+			TypedSearchAttributes: mirrorNameSearch,
+			WaitForCancellation:   true,
 		}
 		snapshotFlowCtx := workflow.WithChildOptions(ctx, childSnapshotFlowOpts)
 		snapshotFlowFuture := workflow.ExecuteChildWorkflow(
@@ -502,8 +500,8 @@ func CDCFlowWorkflow(
 		RetryPolicy: &temporal.RetryPolicy{
 			MaximumAttempts: 20,
 		},
-		SearchAttributes:    mirrorNameSearch,
-		WaitForCancellation: true,
+		TypedSearchAttributes: mirrorNameSearch,
+		WaitForCancellation:   true,
 	}
 	syncCtx := workflow.WithChildOptions(ctx, syncFlowOpts)
 
@@ -513,8 +511,8 @@ func CDCFlowWorkflow(
 		RetryPolicy: &temporal.RetryPolicy{
 			MaximumAttempts: 20,
 		},
-		SearchAttributes:    mirrorNameSearch,
-		WaitForCancellation: true,
+		TypedSearchAttributes: mirrorNameSearch,
+		WaitForCancellation:   true,
 	}
 	normCtx := workflow.WithChildOptions(ctx, normalizeFlowOpts)
 
