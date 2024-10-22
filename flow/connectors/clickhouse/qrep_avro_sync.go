@@ -51,11 +51,24 @@ func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 	if creds.AWS.SessionToken != "" {
 		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
 	}
-	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM s3('%s','%s','%s'%s, 'Avro')",
-		s.config.DestinationTableIdentifier, avroFileUrl,
-		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
 
-	return s.connector.database.Exec(ctx, query)
+	hashColName := "_peerdb_uid"
+	numParts := 43
+	for i := 0; i < numParts; i++ {
+		whereClause := fmt.Sprintf("cityHash64(%s) %% %d = %d", hashColName, numParts, i)
+		query := fmt.Sprintf("INSERT INTO %s SELECT * FROM s3('%s','%s','%s'%s, 'Avro') WHERE %s SETTINGS throw_on_max_partitions_per_insert_block = 0",
+			s.config.DestinationTableIdentifier, avroFileUrl,
+			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart, whereClause)
+		s.connector.logger.Info("[CopyStageToDestination] running query",
+			slog.String("query", query), slog.Int("part", i), slog.Int("numParts", numParts))
+		err := s.connector.database.Exec(ctx, query)
+		if err != nil {
+			s.connector.logger.Error("failed to execute query", slog.String("query", query), slog.Int("part", i), slog.Int("numParts", numParts), slog.Any("error", err))
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (s *ClickHouseAvroSyncMethod) SyncRecords(
