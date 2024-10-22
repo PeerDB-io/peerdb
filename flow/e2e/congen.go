@@ -107,7 +107,8 @@ func setupPostgresSchema(t *testing.T, conn *pgx.Conn, suffix string) error {
 func SetupPostgres(t *testing.T, suffix string) (*connpostgres.PostgresConnector, error) {
 	t.Helper()
 
-	connector, err := connpostgres.NewPostgresConnector(context.Background(), peerdbenv.GetCatalogPostgresConfigFromEnv())
+	connector, err := connpostgres.NewPostgresConnector(context.Background(),
+		nil, peerdbenv.GetCatalogPostgresConfigFromEnv())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres connection: %w", err)
 	}

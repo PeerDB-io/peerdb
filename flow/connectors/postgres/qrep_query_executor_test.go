@@ -17,7 +17,8 @@ import (
 func setupDB(t *testing.T) (*PostgresConnector, string) {
 	t.Helper()
 
-	connector, err := NewPostgresConnector(context.Background(), peerdbenv.GetCatalogPostgresConfigFromEnv())
+	connector, err := NewPostgresConnector(context.Background(),
+		nil, peerdbenv.GetCatalogPostgresConfigFromEnv())
 	if err != nil {
 		t.Fatalf("unable to create connector: %v", err)
 	}

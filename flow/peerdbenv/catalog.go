@@ -38,7 +38,7 @@ func GetCatalogConnectionPoolFromEnv(ctx context.Context) (*pgxpool.Pool, error)
 }
 
 func GetCatalogConnectionStringFromEnv() string {
-	return shared.GetPGConnectionString(GetCatalogPostgresConfigFromEnv())
+	return shared.GetPGConnectionString(GetCatalogPostgresConfigFromEnv(), "")
 }
 
 func GetCatalogPostgresConfigFromEnv() *protos.PostgresConfig {
