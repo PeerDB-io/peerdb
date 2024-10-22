@@ -507,6 +507,10 @@ func (h *FlowRequestHandler) GetCDCBatches(ctx context.Context, req *protos.GetC
 		return nil, err
 	}
 
+	if batches == nil {
+		batches = []*protos.CDCBatch{}
+	}
+
 	return &protos.GetCDCBatchesResponse{
 		CdcBatches: batches,
 	}, nil
@@ -544,6 +548,10 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if tableCounts == nil {
+		tableCounts = []*protos.CDCTableRowCounts{}
 	}
 	return &protos.CDCTableTotalCountsResponse{TotalData: &totalCount, TablesData: tableCounts}, nil
 }
