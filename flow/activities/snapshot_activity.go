@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/activity"
 
@@ -82,7 +83,29 @@ func (a *SnapshotActivity) SetupReplication(
 		logger.Info("slot created", slog.String("SlotName", slotInfo.SlotName))
 	}
 
-	// TODO if record already exists, need to remove slot
+	for {
+		var slotName string
+		if err := a.CatalogPool.QueryRow(
+			ctx,
+			"select slot_name from snapshot_names where flow_name = $1",
+			config.FlowJobName,
+		).Scan(&slotName); err == nil && slotName != "" {
+			if err := conn.ExecuteCommand(
+				ctx,
+				"select pg_drop_replication_slot($1)",
+				slotName,
+			); err != nil && !shared.IsSQLStateError(err, pgerrcode.UndefinedObject) {
+				if shared.IsSQLStateError(err, pgerrcode.ObjectInUse) {
+					a.Alerter.LogFlowError(ctx, "[SetupReplication] "+config.FlowJobName, err)
+					time.Sleep(time.Second * 15)
+					continue
+				}
+				return fmt.Errorf("failed to drop slot from previous run: %w", err)
+			}
+		}
+		break
+	}
+
 	if _, err := a.CatalogPool.Exec(ctx,
 		`insert into snapshot_names (flow_name, slot_name, snapshot_name, supports_tid_scan) values ($1, $2, $3, $4)
 		on conflict (flow_name) do update set slot_name = $2, snapshot_name = $3, supports_tid_scan = $4`,
@@ -134,6 +157,9 @@ func (a *SnapshotActivity) LoadSupportsTidScan(
 	flowJobName string,
 ) (bool, error) {
 	_, _, supportsTidScan, err := shared.LoadSnapshotNameFromCatalog(ctx, a.CatalogPool, flowJobName)
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, "[LoadSupportsTidScan] "+flowJobName, err)
+	}
 	return supportsTidScan, err
 }
 

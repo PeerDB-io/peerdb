@@ -428,7 +428,8 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		if config.ParentMirrorName != "" {
 			_, snapshotName, _, err = shared.LoadSnapshotNameFromCatalog(ctx, a.CatalogPool, config.ParentMirrorName)
 			if err != nil {
-				return err
+				a.Alerter.LogFlowError(ctx, "[replicateQRepPartition] "+config.FlowJobName, err)
+				return fmt.Errorf("[replicateQRepPartition] failed to LoadSnapshotNameFromCatalog: %w", err)
 			}
 		}
 
@@ -518,7 +519,8 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 			var err error
 			_, snapshotName, _, err = shared.LoadSnapshotNameFromCatalog(ctx, a.CatalogPool, config.ParentMirrorName)
 			if err != nil {
-				return err
+				a.Alerter.LogFlowError(ctx, "[replicateXminPartition] "+config.FlowJobName, err)
+				return fmt.Errorf("[replicateXminPartition] failed to LoadSnapshotNameFromCatalog: %w", err)
 			}
 		}
 

@@ -493,7 +493,8 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	if config.ParentMirrorName != "" {
 		_, snapshotName, _, err = shared.LoadSnapshotNameFromCatalog(ctx, a.CatalogPool, config.ParentMirrorName)
 		if err != nil {
-			return nil, err
+			a.Alerter.LogFlowError(ctx, "[GetQRepPartitions] "+config.FlowJobName, err)
+			return nil, fmt.Errorf("[GetQRepPartitions] failed to LoadSnapshotNameFromCatalog: %w", err)
 		}
 	}
 
