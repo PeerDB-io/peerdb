@@ -671,7 +671,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 
 		func() {
 			pgConfig := pgPeer.GetPostgresConfig()
-			pgConn, peerErr := connpostgres.NewPostgresConnector(ctx, pgConfig)
+			pgConn, peerErr := connpostgres.NewPostgresConnector(ctx, nil, pgConfig)
 			if peerErr != nil {
 				logger.Error(fmt.Sprintf("error creating connector for postgres peer %s with host %s: %v",
 					pgPeer.Name, pgConfig.Host, peerErr))

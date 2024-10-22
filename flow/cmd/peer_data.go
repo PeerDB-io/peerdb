@@ -337,7 +337,7 @@ func (h *FlowRequestHandler) GetSlotInfo(
 		return nil, err
 	}
 
-	pgConnector, err := connpostgres.NewPostgresConnector(ctx, pgConfig)
+	pgConnector, err := connpostgres.NewPostgresConnector(ctx, nil, pgConfig)
 	if err != nil {
 		slog.Error("Failed to create postgres connector", slog.Any("error", err))
 		return nil, err

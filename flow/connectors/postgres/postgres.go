@@ -54,9 +54,16 @@ type ReplState struct {
 	LastOffset  atomic.Int64
 }
 
-func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
+func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
 	logger := logger.LoggerFromCtx(ctx)
-	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
+	flowNameInApplicationName, err := peerdbenv.PeerDBApplicationNamePerMirrorName(ctx, nil)
+	if err != nil {
+		logger.Error("Failed to get flow name from application name", slog.Any("error", err))
+	}
+	var flowName string
+	if flowNameInApplicationName {
+		flowName, _ = ctx.Value(shared.FlowNameKey).(string)
+	}
 	connectionString := shared.GetPGConnectionString(pgConfig, flowName)
 
 	connConfig, err := pgx.ParseConfig(connectionString)

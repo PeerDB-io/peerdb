@@ -34,6 +34,7 @@ func GetPGConnectionString(pgConfig *protos.PostgresConfig, flowName string) str
 	if flowName != "" {
 		applicationName = "peerdb_" + flowName
 	}
+
 	// for a url like postgres://user:password@host:port/dbname
 	connString := fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s?application_name=%s&client_encoding=UTF8",

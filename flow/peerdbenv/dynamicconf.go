@@ -172,6 +172,14 @@ DROP AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4); END;`,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
+	{
+		Name:             "PEERDB_APPLICATION_NAME_PER_MIRROR_NAME",
+		Description:      "Set Postgres application_name to have mirror name as suffix for each mirror",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -341,4 +349,8 @@ func PeerDBQueueForceTopicCreation(ctx context.Context, env map[string]string) (
 // PEERDB_INTERVAL_SINCE_LAST_NORMALIZE_THRESHOLD_MINUTES, 0 disables normalize gap alerting entirely
 func PeerDBIntervalSinceLastNormalizeThresholdMinutes(ctx context.Context, env map[string]string) (uint32, error) {
 	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_INTERVAL_SINCE_LAST_NORMALIZE_THRESHOLD_MINUTES")
+}
+
+func PeerDBApplicationNamePerMirrorName(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_APPLICATION_NAME_PER_MIRROR_NAME")
 }

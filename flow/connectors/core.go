@@ -382,7 +382,7 @@ func LoadPeer(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (
 func GetConnector(ctx context.Context, env map[string]string, config *protos.Peer) (Connector, error) {
 	switch inner := config.Config.(type) {
 	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, inner.PostgresConfig)
+		return connpostgres.NewPostgresConnector(ctx, env, inner.PostgresConfig)
 	case *protos.Peer_BigqueryConfig:
 		return connbigquery.NewBigQueryConnector(ctx, inner.BigqueryConfig)
 	case *protos.Peer_SnowflakeConfig:
