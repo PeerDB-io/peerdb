@@ -149,10 +149,6 @@ message SetupReplicationInput {
   string destination_name = 9;
 }
 
-message SetupReplicationOutput {
-  string slot_name = 1;
-}
-
 message CreateRawTableInput {
   string flow_job_name = 2;
   map<string, string> table_name_mapping = 3;

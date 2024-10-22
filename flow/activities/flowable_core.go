@@ -424,7 +424,11 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	var rowsSynced int
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
-		_, snapshotName, _, err := shared.LoadSnapshotNameFromCatalog(ctx, a.CatalogPool, config.FlowJobName)
+		snapshotFlowName := config.ParentMirrorName
+		if snapshotFlowName == "" {
+			snapshotFlowName = config.FlowJobName
+		}
+		_, snapshotName, _, err := shared.LoadSnapshotNameFromCatalog(ctx, a.CatalogPool, snapshotFlowName)
 		if err != nil {
 			return err
 		}

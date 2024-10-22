@@ -489,7 +489,11 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	})
 	defer shutdown()
 
-	_, snapshotName, _, err := shared.LoadSnapshotNameFromCatalog(ctx, a.CatalogPool, config.FlowJobName)
+	snapshotFlowName := config.ParentMirrorName
+	if snapshotFlowName == "" {
+		snapshotFlowName = config.FlowJobName
+	}
+	_, snapshotName, _, err := shared.LoadSnapshotNameFromCatalog(ctx, a.CatalogPool, snapshotFlowName)
 	if err != nil {
 		return nil, err
 	}

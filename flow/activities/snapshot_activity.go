@@ -129,6 +129,14 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, flo
 	}
 }
 
+func (a *SnapshotActivity) LoadSupportsTidScan(
+	ctx context.Context,
+	flowJobName string,
+) (bool, error) {
+	_, _, supportsTidScan, err := shared.LoadSnapshotNameFromCatalog(ctx, a.CatalogPool, flowJobName)
+	return supportsTidScan, err
+}
+
 func (a *SnapshotActivity) LoadTableSchema(
 	ctx context.Context,
 	flowName string,
