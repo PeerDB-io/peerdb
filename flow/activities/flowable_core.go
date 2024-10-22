@@ -424,13 +424,12 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	var rowsSynced int
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
-		snapshotFlowName := config.ParentMirrorName
-		if snapshotFlowName == "" {
-			snapshotFlowName = config.FlowJobName
-		}
-		_, snapshotName, _, err := shared.LoadSnapshotNameFromCatalog(ctx, a.CatalogPool, snapshotFlowName)
-		if err != nil {
-			return err
+		snapshotName := ""
+		if config.ParentMirrorName != "" {
+			_, snapshotName, _, err = shared.LoadSnapshotNameFromCatalog(ctx, a.CatalogPool, config.ParentMirrorName)
+			if err != nil {
+				return err
+			}
 		}
 
 		srcConn, err := connectors.GetByNameAs[TPull](ctx, config.Env, a.CatalogPool, config.SourceName)
@@ -514,9 +513,13 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	var currentSnapshotXmin int64
 	var rowsSynced int
 	errGroup.Go(func() error {
-		_, snapshotName, _, err := shared.LoadSnapshotNameFromCatalog(ctx, a.CatalogPool, config.FlowJobName)
-		if err != nil {
-			return err
+		snapshotName := ""
+		if config.ParentMirrorName != "" {
+			var err error
+			_, snapshotName, _, err = shared.LoadSnapshotNameFromCatalog(ctx, a.CatalogPool, config.ParentMirrorName)
+			if err != nil {
+				return err
+			}
 		}
 
 		srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, config.Env, a.CatalogPool, config.SourceName)
