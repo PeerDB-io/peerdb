@@ -28,16 +28,22 @@ const (
 	POSTGRES_15 PGVersion = 150000
 )
 
-func GetPGConnectionString(pgConfig *protos.PostgresConfig) string {
+func GetPGConnectionString(pgConfig *protos.PostgresConfig, flowName string) string {
 	passwordEscaped := url.QueryEscape(pgConfig.Password)
+	applicationName := "peerdb"
+	if flowName != "" {
+		applicationName = "peerdb_" + flowName
+	}
+
 	// for a url like postgres://user:password@host:port/dbname
 	connString := fmt.Sprintf(
-		"postgres://%s:%s@%s:%d/%s?application_name=peerdb&client_encoding=UTF8",
+		"postgres://%s:%s@%s:%d/%s?application_name=%s&client_encoding=UTF8",
 		pgConfig.User,
 		passwordEscaped,
 		pgConfig.Host,
 		pgConfig.Port,
 		pgConfig.Database,
+		applicationName,
 	)
 	return connString
 }

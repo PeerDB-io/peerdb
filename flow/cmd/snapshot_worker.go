@@ -32,7 +32,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (client.Client, worker.Work
 
 	if peerdbenv.PeerDBTemporalEnableCertAuth() {
 		slog.Info("Using temporal certificate/key for authentication")
-		certs, err := parseTemporalCertAndKey()
+		certs, err := parseTemporalCertAndKey(context.Background())
 		if err != nil {
 			return nil, nil, fmt.Errorf("unable to process certificate and key: %w", err)
 		}

@@ -195,7 +195,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 	if peerdbenv.PeerDBTemporalEnableCertAuth() {
 		slog.Info("Using temporal certificate/key for authentication")
 
-		certs, err := parseTemporalCertAndKey()
+		certs, err := parseTemporalCertAndKey(ctx)
 		if err != nil {
 			return fmt.Errorf("unable to base64 decode certificate and key: %w", err)
 		}
