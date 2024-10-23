@@ -785,28 +785,28 @@ func (c *SnowflakeConnector) RenameTables(ctx context.Context, req *protos.Renam
 
 		if originalTableExists {
 			if req.SoftDeleteColName != "" {
-				columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
-				for _, col := range renameRequest.TableSchema.Columns {
-					columnNames = append(columnNames, SnowflakeIdentifierNormalize(col.Name))
-				}
+				// columnNames := make([]string, 0, len(renameRequest.TableSchema.Columns))
+				// for _, col := range renameRequest.TableSchema.Columns {
+				// 	columnNames = append(columnNames, SnowflakeIdentifierNormalize(col.Name))
+				// }
 
-				pkeyColumnNames := make([]string, 0, len(renameRequest.TableSchema.PrimaryKeyColumns))
-				for _, col := range renameRequest.TableSchema.PrimaryKeyColumns {
-					pkeyColumnNames = append(pkeyColumnNames, SnowflakeIdentifierNormalize(col))
-				}
+				// pkeyColumnNames := make([]string, 0, len(renameRequest.TableSchema.PrimaryKeyColumns))
+				// for _, col := range renameRequest.TableSchema.PrimaryKeyColumns {
+				// 	pkeyColumnNames = append(pkeyColumnNames, SnowflakeIdentifierNormalize(col))
+				// }
 
-				allCols := strings.Join(columnNames, ",")
-				pkeyCols := strings.Join(pkeyColumnNames, ",")
+				// allCols := strings.Join(columnNames, ",")
+				// pkeyCols := strings.Join(pkeyColumnNames, ",")
 
-				c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
+				// c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
 
-				_, err = c.execWithLoggingTx(ctx,
-					fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
-						src, fmt.Sprintf("%s,%s", allCols, req.SoftDeleteColName), allCols, req.SoftDeleteColName,
-						dst, pkeyCols, pkeyCols, src), renameTablesTx)
-				if err != nil {
-					return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
-				}
+				// _, err = c.execWithLoggingTx(ctx,
+				// 	fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
+				// 		src, fmt.Sprintf("%s,%s", allCols, req.SoftDeleteColName), allCols, req.SoftDeleteColName,
+				// 		dst, pkeyCols, pkeyCols, src), renameTablesTx)
+				// if err != nil {
+				// 	return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
+				// }
 			}
 		} else {
 			c.logger.Info(fmt.Sprintf("table '%s' does not exist, skipping soft-deletes", dst))
