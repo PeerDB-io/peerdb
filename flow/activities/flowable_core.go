@@ -144,6 +144,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		return dstConn.GetLastOffset(ctx, config.FlowJobName)
 	}()
 	if err != nil {
+		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, err
 	}
 
