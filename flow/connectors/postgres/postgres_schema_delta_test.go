@@ -25,7 +25,7 @@ type PostgresSchemaDeltaTestSuite struct {
 func SetupSuite(t *testing.T) PostgresSchemaDeltaTestSuite {
 	t.Helper()
 
-	connector, err := NewPostgresConnector(context.Background(), nil, peerdbenv.GetCatalogPostgresConfigFromEnv())
+	connector, err := NewPostgresConnector(context.Background(), nil, peerdbenv.GetCatalogPostgresConfigFromEnv(context.Background()))
 	require.NoError(t, err)
 
 	setupTx, err := connector.conn.Begin(context.Background())

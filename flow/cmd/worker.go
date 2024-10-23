@@ -92,7 +92,7 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 
 	if peerdbenv.PeerDBTemporalEnableCertAuth() {
 		slog.Info("Using temporal certificate/key for authentication")
-		certs, err := parseTemporalCertAndKey()
+		certs, err := parseTemporalCertAndKey(context.Background())
 		if err != nil {
 			return nil, fmt.Errorf("unable to process certificate and key: %w", err)
 		}
