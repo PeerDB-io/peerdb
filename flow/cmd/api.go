@@ -98,14 +98,14 @@ func recryptDatabase(
 			continue
 		}
 
-		options, err = oldKey.Decrypt(options)
+		options, err = oldKey.Decrypt(ctx, options)
 		if err != nil {
 			slog.Warn("recrypt failed to decrypt, skipping",
 				slog.String("tag", tag), slog.Any("error", err), slog.Int64("id", int64(id)))
 			continue
 		}
 
-		options, err = key.Encrypt(options)
+		options, err = key.Encrypt(ctx, options)
 		if err != nil {
 			slog.Warn("recrypt failed to encrypt, skipping",
 				slog.String("tag", tag), slog.Any("error", err), slog.Int64("id", int64(id)))

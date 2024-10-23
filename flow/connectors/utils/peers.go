@@ -104,7 +104,7 @@ func CreatePeerNoValidate(
 		return nil, encodingErr
 	}
 
-	encryptedConfig, keyID, err := encryptPeerOptions(encodedConfig)
+	encryptedConfig, keyID, err := encryptPeerOptions(ctx, encodedConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt peer configuration: %w", err)
 	}
@@ -134,13 +134,13 @@ func CreatePeerNoValidate(
 	}, nil
 }
 
-func encryptPeerOptions(peerOptions []byte) ([]byte, string, error) {
+func encryptPeerOptions(ctx context.Context, peerOptions []byte) ([]byte, string, error) {
 	key, err := peerdbenv.PeerDBCurrentEncKey()
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to get current encryption key: %w", err)
 	}
 
-	encrypted, err := key.Encrypt(peerOptions)
+	encrypted, err := key.Encrypt(ctx, peerOptions)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to encrypt peer options: %w", err)
 	}

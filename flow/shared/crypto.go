@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
@@ -8,7 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/youmark/pkcs8"
 	"golang.org/x/crypto/chacha20poly1305"
 )
@@ -58,9 +63,13 @@ func (e PeerDBEncKeys) Get(id string) (PeerDBEncKey, error) {
 const nonceSize = chacha20poly1305.NonceSizeX
 
 // Decrypt decrypts the given ciphertext using the PeerDBEncKey.
-func (key PeerDBEncKey) Decrypt(ciphertext []byte) ([]byte, error) {
+func (key PeerDBEncKey) Decrypt(ctx context.Context, ciphertext []byte) ([]byte, error) {
 	if key.ID == "" {
 		return ciphertext, nil
+	}
+
+	if key.ID == "kms" && key.Value == "" {
+		return DecryptWithKMS(ctx, ciphertext)
 	}
 
 	decodedKey, err := base64.StdEncoding.DecodeString(key.Value)
@@ -93,9 +102,13 @@ func (key PeerDBEncKey) Decrypt(ciphertext []byte) ([]byte, error) {
 }
 
 // Encrypt encrypts the given plaintext using the PeerDBEncKey.
-func (key PeerDBEncKey) Encrypt(plaintext []byte) ([]byte, error) {
+func (key PeerDBEncKey) Encrypt(ctx context.Context, plaintext []byte) ([]byte, error) {
 	if key.ID == "" {
 		return plaintext, nil
+	}
+
+	if key.ID == "kms" && key.Value == "" {
+		return EncryptWithKMS(ctx, plaintext)
 	}
 
 	decodedKey, err := base64.StdEncoding.DecodeString(key.Value)
@@ -119,4 +132,54 @@ func (key PeerDBEncKey) Encrypt(plaintext []byte) ([]byte, error) {
 
 	ciphertext := aead.Seal(nonce, nonce, plaintext, nil)
 	return ciphertext, nil
+}
+
+const (
+	KMSKeyIDEnvVar = "PEERDB_KMS_KEY_ID"
+)
+
+func DecryptWithKMS(ctx context.Context, data []byte) ([]byte, error) {
+	keyID, exists := os.LookupEnv(KMSKeyIDEnvVar)
+	if !exists {
+		return data, nil
+	}
+
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+	}
+
+	kmsClient := kms.NewFromConfig(cfg)
+	decrypted, err := kmsClient.Decrypt(ctx, &kms.DecryptInput{
+		CiphertextBlob: data,
+		KeyId:          aws.String(keyID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt value: %w", err)
+	}
+
+	return decrypted.Plaintext, nil
+}
+
+func EncryptWithKMS(ctx context.Context, data []byte) ([]byte, error) {
+	keyID, exists := os.LookupEnv(KMSKeyIDEnvVar)
+	if !exists {
+		return data, nil
+	}
+
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+	}
+
+	kmsClient := kms.NewFromConfig(cfg)
+	encrypted, err := kmsClient.Encrypt(ctx, &kms.EncryptInput{
+		Plaintext: data,
+		KeyId:     aws.String(keyID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt value: %w", err)
+	}
+
+	return encrypted.CiphertextBlob, nil
 }

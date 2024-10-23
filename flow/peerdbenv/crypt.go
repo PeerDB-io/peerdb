@@ -1,6 +1,10 @@
 package peerdbenv
 
-func Decrypt(encKeyID string, payload []byte) ([]byte, error) {
+import (
+	"context"
+)
+
+func Decrypt(ctx context.Context, encKeyID string, payload []byte) ([]byte, error) {
 	if encKeyID == "" {
 		return payload, nil
 	}
@@ -11,5 +15,5 @@ func Decrypt(encKeyID string, payload []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return key.Decrypt(payload)
+	return key.Decrypt(ctx, payload)
 }

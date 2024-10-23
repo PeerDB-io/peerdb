@@ -10,14 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"golang.org/x/exp/constraints"
-)
 
-const (
-	KMSKeyIDEnvVar = "PEERDB_KMS_KEY_ID"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 // GetEnvInt returns the value of the environment variable with the given name
@@ -78,29 +73,6 @@ func GetEnvJSON[T any](name string, defaultValue T) T {
 	return result
 }
 
-func decryptWithKMS(ctx context.Context, data []byte) ([]byte, error) {
-	keyID, exists := os.LookupEnv(KMSKeyIDEnvVar)
-	if !exists {
-		return data, nil
-	}
-
-	cfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config: %w", err)
-	}
-
-	kmsClient := kms.NewFromConfig(cfg)
-	decrypted, err := kmsClient.Decrypt(ctx, &kms.DecryptInput{
-		CiphertextBlob: data,
-		KeyId:          aws.String(keyID),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt value: %w", err)
-	}
-
-	return decrypted.Plaintext, nil
-}
-
 func GetEnvBase64EncodedBytes(ctx context.Context, name string, defaultValue []byte) ([]byte, error) {
 	val, ok := os.LookupEnv(name)
 	if !ok {
@@ -113,7 +85,7 @@ func GetEnvBase64EncodedBytes(ctx context.Context, name string, defaultValue []b
 		return nil, fmt.Errorf("failed to decode base64 value for %s: %w", name, err)
 	}
 
-	return decryptWithKMS(ctx, decoded)
+	return shared.DecryptWithKMS(ctx, decoded)
 }
 
 func GetKMSDecryptedEnvString(ctx context.Context, name string, defaultValue string) (string, error) {
@@ -122,7 +94,7 @@ func GetKMSDecryptedEnvString(ctx context.Context, name string, defaultValue str
 		return defaultValue, nil
 	}
 
-	_, exists := os.LookupEnv(KMSKeyIDEnvVar)
+	_, exists := os.LookupEnv(shared.KMSKeyIDEnvVar)
 	if !exists {
 		return val, nil
 	}

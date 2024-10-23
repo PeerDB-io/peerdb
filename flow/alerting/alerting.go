@@ -66,7 +66,7 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 		if err != nil {
 			return alertSenderConfig, err
 		}
-		serviceConfig, err := key.Decrypt(serviceConfigEnc)
+		serviceConfig, err := key.Decrypt(ctx, serviceConfigEnc)
 		if err != nil {
 			return alertSenderConfig, err
 		}

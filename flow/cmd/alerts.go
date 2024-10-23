@@ -23,7 +23,7 @@ func (h *FlowRequestHandler) GetAlertConfigs(ctx context.Context, req *protos.Ge
 		if err := row.Scan(&config.Id, &config.ServiceType, &serviceConfigPayload, &encKeyID, &config.AlertForMirrors); err != nil {
 			return nil, err
 		}
-		serviceConfig, err := peerdbenv.Decrypt(encKeyID, serviceConfigPayload)
+		serviceConfig, err := peerdbenv.Decrypt(ctx, encKeyID, serviceConfigPayload)
 		if err != nil {
 			return nil, err
 		}
@@ -42,7 +42,7 @@ func (h *FlowRequestHandler) PostAlertConfig(ctx context.Context, req *protos.Po
 	if err != nil {
 		return nil, err
 	}
-	serviceConfig, err := key.Encrypt(shared.UnsafeFastStringToReadOnlyBytes(req.Config.ServiceConfig))
+	serviceConfig, err := key.Encrypt(ctx, shared.UnsafeFastStringToReadOnlyBytes(req.Config.ServiceConfig))
 	if err != nil {
 		return nil, err
 	}
