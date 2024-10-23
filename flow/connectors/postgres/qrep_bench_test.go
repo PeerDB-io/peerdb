@@ -11,7 +11,7 @@ func BenchmarkQRepQueryExecutor(b *testing.B) {
 	query := "SELECT * FROM bench.large_table"
 
 	ctx := context.Background()
-	connector, err := NewPostgresConnector(ctx, nil, peerdbenv.GetCatalogPostgresConfigFromEnv())
+	connector, err := NewPostgresConnector(ctx, nil, peerdbenv.GetCatalogPostgresConfigFromEnv(ctx))
 	if err != nil {
 		b.Fatalf("failed to create connection: %v", err)
 	}

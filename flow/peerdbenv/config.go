@@ -1,6 +1,7 @@
 package peerdbenv
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -64,8 +65,8 @@ func PeerDBCatalogUser() string {
 }
 
 // PEERDB_CATALOG_PASSWORD
-func PeerDBCatalogPassword() string {
-	val, err := GetKMSDecryptedEnvString("PEERDB_CATALOG_PASSWORD", "")
+func PeerDBCatalogPassword(ctx context.Context) string {
+	val, err := GetKMSDecryptedEnvString(ctx, "PEERDB_CATALOG_PASSWORD", "")
 	if err != nil {
 		slog.Error("failed to decrypt PEERDB_CATALOG_PASSWORD", "error", err)
 		panic(err)
@@ -128,12 +129,12 @@ func PeerDBTemporalEnableCertAuth() bool {
 	return strings.TrimSpace(cert) != ""
 }
 
-func PeerDBTemporalClientCert() ([]byte, error) {
-	return GetEnvBase64EncodedBytes("TEMPORAL_CLIENT_CERT", nil)
+func PeerDBTemporalClientCert(ctx context.Context) ([]byte, error) {
+	return GetEnvBase64EncodedBytes(ctx, "TEMPORAL_CLIENT_CERT", nil)
 }
 
-func PeerDBTemporalClientKey() ([]byte, error) {
-	return GetEnvBase64EncodedBytes("TEMPORAL_CLIENT_KEY", nil)
+func PeerDBTemporalClientKey(ctx context.Context) ([]byte, error) {
+	return GetEnvBase64EncodedBytes(ctx, "TEMPORAL_CLIENT_KEY", nil)
 }
 
 func PeerDBGetIncidentIoUrl() string {
