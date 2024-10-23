@@ -631,7 +631,7 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 	if err != nil {
 		pullCleanupErr := fmt.Errorf("[DropFlowSource] failed to clean up source: %w", err)
 		a.Alerter.LogFlowError(ctx, req.FlowJobName, pullCleanupErr)
-		return fmt.Errorf("[DropFlowSource] failed to clean up source: %w", pullCleanupErr)
+		return pullCleanupErr
 	}
 
 	return nil
