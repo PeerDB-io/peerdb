@@ -370,7 +370,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 			parsedSrcTableName, err := utils.ParseSchemaTable(srcTableName)
 			if err != nil {
 				signal.SlotCreated <- SlotCreationResult{
-					Err: fmt.Errorf("[publication-creation]:source table identifier %s is invalid", srcTableName),
+					Err: fmt.Errorf("[publication-creation] source table identifier %s is invalid", srcTableName),
 				}
 				return
 			}
