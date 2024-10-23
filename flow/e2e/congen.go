@@ -108,7 +108,7 @@ func SetupPostgres(t *testing.T, suffix string) (*connpostgres.PostgresConnector
 	t.Helper()
 
 	connector, err := connpostgres.NewPostgresConnector(context.Background(),
-		nil, peerdbenv.GetCatalogPostgresConfigFromEnv())
+		nil, peerdbenv.GetCatalogPostgresConfigFromEnv(context.Background()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres connection: %w", err)
 	}
@@ -156,7 +156,7 @@ func GeneratePostgresPeer(t *testing.T) *protos.Peer {
 		Name: "catalog",
 		Type: protos.DBType_POSTGRES,
 		Config: &protos.Peer_PostgresConfig{
-			PostgresConfig: peerdbenv.GetCatalogPostgresConfigFromEnv(),
+			PostgresConfig: peerdbenv.GetCatalogPostgresConfigFromEnv(context.Background()),
 		},
 	}
 	CreatePeer(t, peer)
