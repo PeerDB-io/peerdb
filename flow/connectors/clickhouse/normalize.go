@@ -42,22 +42,22 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx interface{},
 	config *protos.SetupNormalizedTableBatchInput,
-	tableIdentifier string,
-	tableSchema *protos.TableSchema,
+	destinationTableIdentifier string,
+	sourceTableSchema *protos.TableSchema,
 ) (bool, error) {
-	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.config.Database, tableIdentifier)
+	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.config.Database, destinationTableIdentifier)
 	if err != nil {
 		return false, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
 	}
 	if tableAlreadyExists && !config.IsResync {
-		c.logger.Info("[ch] normalized table already exists, skipping", "table", tableIdentifier)
+		c.logger.Info("[ch] normalized table already exists, skipping", "table", destinationTableIdentifier)
 		return true, nil
 	}
 
 	normalizedTableCreateSQL, err := generateCreateTableSQLForNormalizedTable(
 		config,
-		tableIdentifier,
-		tableSchema,
+		destinationTableIdentifier,
+		sourceTableSchema,
 	)
 	if err != nil {
 		return false, fmt.Errorf("error while generating create table sql for normalized table: %w", err)
