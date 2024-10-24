@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -26,8 +25,6 @@ var (
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, error) {
-	ctx, cancelCtx := context.WithTimeout(ctx, time.Minute)
-	defer cancelCtx()
 	if !req.ConnectionConfigs.Resync {
 		mirrorExists, existCheckErr := h.CheckIfMirrorNameExists(ctx, req.ConnectionConfigs.FlowJobName)
 		if existCheckErr != nil {
