@@ -27,10 +27,6 @@ type AvroSchemaLogical struct {
 	LogicalType string `json:"logicalType,omitempty"`
 }
 
-type AvroArrayItem interface {
-	string | AvroSchemaField | AvroSchemaLogical
-}
-
 // https://avro.apache.org/docs/1.11.0/spec.html
 // please make this generic at some point
 type AvroSchemaArray struct {
