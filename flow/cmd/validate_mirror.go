@@ -55,7 +55,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		return nil, errors.New("source peer config is not postgres")
 	}
 
-	pgPeer, err := connpostgres.NewPostgresConnector(ctx, sourcePeerConfig)
+	pgPeer, err := connpostgres.NewPostgresConnector(ctx, nil, sourcePeerConfig)
 	if err != nil {
 		displayErr := fmt.Errorf("failed to create postgres connector: %v", err)
 		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName, displayErr.Error())

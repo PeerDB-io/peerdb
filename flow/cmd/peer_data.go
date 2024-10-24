@@ -45,7 +45,7 @@ func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName strin
 		return nil, err
 	}
 
-	peerOptions, err := peerdbenv.Decrypt(encKeyID, encPeerOptions)
+	peerOptions, err := peerdbenv.Decrypt(ctx, encKeyID, encPeerOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load peer: %w", err)
 	}
@@ -91,12 +91,12 @@ func (h *FlowRequestHandler) GetPeerInfo(
 	var version string
 	versionConnector, err := connectors.GetAs[connectors.GetVersionConnector](ctx, nil, peer)
 	if err != nil && !errors.Is(err, errors.ErrUnsupported) {
-		return nil, errors.New("failed to get version connector")
+		slog.Error("failed to get version connector", slog.Any("error", err))
 	}
 	if versionConnector != nil {
 		version, err = versionConnector.GetVersion(ctx)
 		if err != nil {
-			return nil, errors.New("failed to get version")
+			slog.Error("failed to get version", slog.Any("error", err))
 		}
 	}
 
@@ -337,7 +337,7 @@ func (h *FlowRequestHandler) GetSlotInfo(
 		return nil, err
 	}
 
-	pgConnector, err := connpostgres.NewPostgresConnector(ctx, pgConfig)
+	pgConnector, err := connpostgres.NewPostgresConnector(ctx, nil, pgConfig)
 	if err != nil {
 		slog.Error("Failed to create postgres connector", slog.Any("error", err))
 		return nil, err

@@ -3,7 +3,6 @@ package peerdbenv
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"os"
 	"reflect"
@@ -64,20 +63,6 @@ func GetEnvString(name string, defaultValue string) string {
 	return val
 }
 
-func GetEnvJSON[T any](name string, defaultValue T) T {
-	val, ok := os.LookupEnv(name)
-	if !ok {
-		return defaultValue
-	}
-
-	var result T
-	if err := json.Unmarshal([]byte(val), &result); err != nil {
-		return defaultValue
-	}
-
-	return result
-}
-
 func decryptWithKMS(ctx context.Context, data []byte) ([]byte, error) {
 	keyID, exists := os.LookupEnv(KMSKeyIDEnvVar)
 	if !exists {
@@ -101,7 +86,7 @@ func decryptWithKMS(ctx context.Context, data []byte) ([]byte, error) {
 	return decrypted.Plaintext, nil
 }
 
-func GetEnvBase64EncodedBytes(name string, defaultValue []byte) ([]byte, error) {
+func GetEnvBase64EncodedBytes(ctx context.Context, name string, defaultValue []byte) ([]byte, error) {
 	val, ok := os.LookupEnv(name)
 	if !ok {
 		return defaultValue, nil
@@ -113,10 +98,10 @@ func GetEnvBase64EncodedBytes(name string, defaultValue []byte) ([]byte, error) 
 		return nil, fmt.Errorf("failed to decode base64 value for %s: %w", name, err)
 	}
 
-	return decryptWithKMS(context.Background(), decoded)
+	return decryptWithKMS(ctx, decoded)
 }
 
-func GetKMSDecryptedEnvString(name string, defaultValue string) (string, error) {
+func GetKMSDecryptedEnvString(ctx context.Context, name string, defaultValue string) (string, error) {
 	val, ok := os.LookupEnv(name)
 	if !ok {
 		return defaultValue, nil
@@ -127,7 +112,7 @@ func GetKMSDecryptedEnvString(name string, defaultValue string) (string, error) 
 		return val, nil
 	}
 
-	ret, err := GetEnvBase64EncodedBytes(name, []byte(defaultValue))
+	ret, err := GetEnvBase64EncodedBytes(ctx, name, []byte(defaultValue))
 	if err != nil {
 		return defaultValue, fmt.Errorf("failed to get base64 encoded bytes for %s: %w", name, err)
 	}

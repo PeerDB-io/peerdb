@@ -37,7 +37,6 @@ type PostgresConnector struct {
 	config                 *protos.PostgresConfig
 	ssh                    *SSHTunnel
 	conn                   *pgx.Conn
-	replConfig             *pgx.ConnConfig
 	replConn               *pgx.Conn
 	replState              *ReplState
 	customTypesMapping     map[uint32]string
@@ -55,18 +54,23 @@ type ReplState struct {
 	LastOffset  atomic.Int64
 }
 
-func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
+func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
 	logger := logger.LoggerFromCtx(ctx)
-	connectionString := shared.GetPGConnectionString(pgConfig)
+	flowNameInApplicationName, err := peerdbenv.PeerDBApplicationNamePerMirrorName(ctx, nil)
+	if err != nil {
+		logger.Error("Failed to get flow name from application name", slog.Any("error", err))
+	}
+	var flowName string
+	if flowNameInApplicationName {
+		flowName, _ = ctx.Value(shared.FlowNameKey).(string)
+	}
+	connectionString := shared.GetPGConnectionString(pgConfig, flowName)
 
-	// create a separate connection pool for non-replication queries as replication connections cannot
-	// be used for extended query protocol, i.e. prepared statements
 	connConfig, err := pgx.ParseConfig(connectionString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 
-	replConfig := connConfig.Copy()
 	runtimeParams := connConfig.Config.RuntimeParams
 	runtimeParams["idle_in_transaction_session_timeout"] = "0"
 	runtimeParams["statement_timeout"] = "0"
@@ -82,11 +86,6 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		logger.Error("failed to create connection", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create connection: %w", err)
 	}
-
-	// ensure that replication is set to database
-	replConfig.Config.RuntimeParams["replication"] = "database"
-	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
-	replConfig.Config.RuntimeParams["intervalstyle"] = "postgres"
 
 	customTypeMap, err := shared.GetCustomDataTypes(ctx, conn)
 	if err != nil {
@@ -104,7 +103,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		config:                 pgConfig,
 		ssh:                    tunnel,
 		conn:                   conn,
-		replConfig:             replConfig,
+		replConn:               nil,
 		replState:              nil,
 		replLock:               sync.Mutex{},
 		customTypesMapping:     customTypeMap,
@@ -116,7 +115,22 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 }
 
 func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, error) {
-	conn, err := c.ssh.NewPostgresConnFromConfig(ctx, c.replConfig)
+	// create a separate connection pool for non-replication queries as replication connections cannot
+	// be used for extended query protocol, i.e. prepared statements
+	replConfig, err := pgx.ParseConfig(c.connStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse connection string: %w", err)
+	}
+
+	runtimeParams := replConfig.Config.RuntimeParams
+	runtimeParams["idle_in_transaction_session_timeout"] = "0"
+	runtimeParams["statement_timeout"] = "0"
+	// ensure that replication is set to database
+	replConfig.Config.RuntimeParams["replication"] = "database"
+	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
+	replConfig.Config.RuntimeParams["intervalstyle"] = "postgres"
+
+	conn, err := c.ssh.NewPostgresConnFromConfig(ctx, replConfig)
 	if err != nil {
 		logger.LoggerFromCtx(ctx).Error("failed to create replication connection", "error", err)
 		return nil, fmt.Errorf("failed to create replication connection: %w", err)
@@ -1207,6 +1221,25 @@ func (c *PostgresConnector) HandleSlotInfo(
 		attribute.String(peerdb_gauges.PeerNameKey, alertKeys.PeerName),
 		attribute.String(peerdb_gauges.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
 
+	var intervalSinceLastNormalize *time.Duration
+	err = alerter.CatalogPool.QueryRow(ctx, "SELECT now()-max(end_time) FROM peerdb_stats.cdc_batches WHERE flow_name=$1",
+		alertKeys.FlowName).Scan(&intervalSinceLastNormalize)
+	if err != nil {
+		logger.Warn("failed to get interval since last normalize", slog.Any("error", err))
+	}
+	// what if the first normalize errors out/hangs?
+	if intervalSinceLastNormalize == nil {
+		logger.Warn("interval since last normalize is nil")
+		return nil
+	}
+	if intervalSinceLastNormalize != nil {
+		slotMetricGauges.IntervalSinceLastNormalizeGauge.Set(intervalSinceLastNormalize.Seconds(), attribute.NewSet(
+			attribute.String(peerdb_gauges.FlowNameKey, alertKeys.FlowName),
+			attribute.String(peerdb_gauges.PeerNameKey, alertKeys.PeerName),
+			attribute.String(peerdb_gauges.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
+		alerter.AlertIfTooLongSinceLastNormalize(ctx, alertKeys, *intervalSinceLastNormalize)
+	}
+
 	return monitoring.AppendSlotSizeInfo(ctx, catalogPool, alertKeys.PeerName, slotInfo[0])
 }
 
@@ -1389,7 +1422,7 @@ func (c *PostgresConnector) RenameTables(
 				c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
 				_, err = c.execWithLoggingTx(ctx,
 					fmt.Sprintf(
-						"INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s original_table"+
+						"INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s original_table "+
 							"WHERE NOT EXISTS (SELECT 1 FROM %s resync_table WHERE %s)",
 						src, fmt.Sprintf("%s,%s", allCols, QuoteIdentifier(req.SoftDeleteColName)), allCols, req.SoftDeleteColName,
 						dst, src, pkeyColCompareStr), renameTablesTx)

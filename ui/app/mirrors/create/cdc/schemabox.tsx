@@ -37,6 +37,7 @@ import {
 
 import { Divider } from '@tremor/react';
 import ReactSelect from 'react-select';
+import SelectSortingKeys from './sortingkey';
 
 interface SchemaBoxProps {
   sourcePeer: string;
@@ -69,7 +70,6 @@ export default function SchemaBox({
   const [tableQuery, setTableQuery] = useState<string>('');
   const [defaultTargetSchema, setDefaultTargetSchema] =
     useState<string>(schema);
-
   const searchedTables = useMemo(() => {
     const tableQueryLower = tableQuery.toLowerCase();
     return rows
@@ -389,25 +389,70 @@ export default function SchemaBox({
                     {row.selected && (
                       <div className='ml-5 mt-3' style={{ width: '100%' }}>
                         <Divider style={columnBoxDividerStyle} />
-                        <Label
-                          as='label'
-                          colorName='lowContrast'
-                          style={{ fontSize: 13 }}
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            rowGap: '0.5rem',
+                            width: '100%',
+                          }}
                         >
-                          Columns
-                        </Label>
+                          <Label
+                            as='label'
+                            colorName='lowContrast'
+                            style={{ fontSize: 13 }}
+                          >
+                            Columns
+                          </Label>
+                        </div>
                         {columns ? (
-                          <ColumnBox
-                            columns={columns}
-                            tableRow={row}
-                            rows={rows}
-                            setRows={setRows}
-                            disabled={row.editingDisabled}
-                            showOrdering={
-                              peerType?.toString() ===
-                              DBType[DBType.CLICKHOUSE].toString()
-                            }
-                          />
+                          <>
+                            <ColumnBox
+                              columns={columns}
+                              tableRow={row}
+                              rows={rows}
+                              setRows={setRows}
+                              disabled={row.editingDisabled}
+                              showOrdering={
+                                peerType?.toString() ===
+                                DBType[DBType.CLICKHOUSE].toString()
+                              }
+                            />
+                            {peerType?.toString() ===
+                              DBType[DBType.CLICKHOUSE].toString() && (
+                              <div
+                                style={{
+                                  width: '50%',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  rowGap: '0.5rem',
+                                }}
+                              >
+                                <Divider
+                                  style={{
+                                    ...columnBoxDividerStyle,
+                                    marginTop: '0.5rem',
+                                  }}
+                                />
+                                <SelectSortingKeys
+                                  columns={
+                                    columns?.map((column) => {
+                                      const [
+                                        columnName,
+                                        columnType,
+                                        isPkeyStr,
+                                      ] = column.split(':');
+                                      return columnName;
+                                    }) ?? []
+                                  }
+                                  loading={columnsLoading}
+                                  tableRow={row}
+                                  setRows={setRows}
+                                />
+                              </div>
+                            )}
+                          </>
                         ) : columnsLoading ? (
                           <BarLoader />
                         ) : (

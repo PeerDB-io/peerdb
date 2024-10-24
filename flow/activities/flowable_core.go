@@ -144,6 +144,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		return dstConn.GetLastOffset(ctx, config.FlowJobName)
 	}()
 	if err != nil {
+		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, err
 	}
 
@@ -352,7 +353,7 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 			return nil, err
 		}
 
-		peerOptions, err := peerdbenv.Decrypt(encKeyID, encPeerOptions)
+		peerOptions, err := peerdbenv.Decrypt(ctx, encKeyID, encPeerOptions)
 		if err != nil {
 			return nil, err
 		}

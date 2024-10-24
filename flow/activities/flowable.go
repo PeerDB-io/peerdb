@@ -283,6 +283,7 @@ func (a *FlowableActivity) MaintainPull(
 	config *protos.FlowConnectionConfigs,
 	sessionID string,
 ) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, config.Env, a.CatalogPool, config.SourceName)
 	if err != nil {
 		return err
@@ -312,6 +313,7 @@ func (a *FlowableActivity) MaintainPull(
 				a.CdcCacheRw.Lock()
 				delete(a.CdcCache, sessionID)
 				a.CdcCacheRw.Unlock()
+				a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 				return temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", err)
 			}
 		case <-done:
@@ -619,22 +621,40 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
 	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
-		return fmt.Errorf("failed to get source connector: %w", err)
+		srcConnErr := fmt.Errorf("[DropFlowSource] failed to get source connector: %w", err)
+		a.Alerter.LogFlowError(ctx, req.FlowJobName, srcConnErr)
+		return srcConnErr
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	return srcConn.PullFlowCleanup(ctx, req.FlowJobName)
+	err = srcConn.PullFlowCleanup(ctx, req.FlowJobName)
+	if err != nil {
+		pullCleanupErr := fmt.Errorf("[DropFlowSource] failed to clean up source: %w", err)
+		a.Alerter.LogFlowError(ctx, req.FlowJobName, pullCleanupErr)
+		return pullCleanupErr
+	}
+
+	return nil
 }
 
 func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.DropFlowActivityInput) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
 	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
-		return fmt.Errorf("failed to get destination connector: %w", err)
+		dstConnErr := fmt.Errorf("[DropFlowDestination] failed to get destination connector: %w", err)
+		a.Alerter.LogFlowError(ctx, req.FlowJobName, dstConnErr)
+		return dstConnErr
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
-	return dstConn.SyncFlowCleanup(ctx, req.FlowJobName)
+	err = dstConn.SyncFlowCleanup(ctx, req.FlowJobName)
+	if err != nil {
+		syncFlowCleanupErr := fmt.Errorf("[DropFlowDestination] failed to clean up destination: %w", err)
+		a.Alerter.LogFlowError(ctx, req.FlowJobName, syncFlowCleanupErr)
+		return syncFlowCleanupErr
+	}
+
+	return nil
 }
 
 func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
@@ -669,7 +689,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 
 		func() {
 			pgConfig := pgPeer.GetPostgresConfig()
-			pgConn, peerErr := connpostgres.NewPostgresConnector(ctx, pgConfig)
+			pgConn, peerErr := connpostgres.NewPostgresConnector(ctx, nil, pgConfig)
 			if peerErr != nil {
 				logger.Error(fmt.Sprintf("error creating connector for postgres peer %s with host %s: %v",
 					pgPeer.Name, pgConfig.Host, peerErr))
@@ -767,6 +787,17 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 					return
 				}
 				slotMetricGauges.OpenReplicationConnectionsGauge = openReplicationConnectionsGauge
+
+				intervalSinceLastNormalizeGauge, err := otel_metrics.GetOrInitFloat64SyncGauge(a.OtelManager.Meter,
+					a.OtelManager.Float64GaugesCache,
+					peerdb_gauges.BuildGaugeName(peerdb_gauges.IntervalSinceLastNormalizeGaugeName),
+					metric.WithUnit("s"),
+					metric.WithDescription("Interval since last normalize"))
+				if err != nil {
+					logger.Error("Failed to get interval since last normalize gauge", slog.Any("error", err))
+					return
+				}
+				slotMetricGauges.IntervalSinceLastNormalizeGauge = intervalSinceLastNormalizeGauge
 			}
 
 			if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{
@@ -993,7 +1024,7 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 			// we can ignore the error
 			return nil
 		}
-		return fmt.Errorf("[RemoveTablesFromRawTable]:failed to get destination connector: %w", err)
+		return fmt.Errorf("[RemoveTablesFromRawTable] failed to get destination connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
