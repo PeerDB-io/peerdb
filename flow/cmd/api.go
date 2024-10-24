@@ -54,7 +54,7 @@ func recryptDatabase(
 	updateSql string,
 ) {
 	newKeyID := peerdbenv.PeerDBCurrentEncKeyID()
-	keys := peerdbenv.PeerDBEncKeys()
+	keys := peerdbenv.PeerDBEncKeys(ctx)
 	if newKeyID == "" {
 		if len(keys) == 0 {
 			slog.Warn("Encryption disabled. This is not recommended.")

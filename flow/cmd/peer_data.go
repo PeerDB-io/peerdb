@@ -45,7 +45,7 @@ func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName strin
 		return nil, err
 	}
 
-	peerOptions, err := peerdbenv.Decrypt(encKeyID, encPeerOptions)
+	peerOptions, err := peerdbenv.Decrypt(ctx, encKeyID, encPeerOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load peer: %w", err)
 	}

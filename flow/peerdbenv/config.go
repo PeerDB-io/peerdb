@@ -2,6 +2,7 @@ package peerdbenv
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -106,13 +107,24 @@ func PeerDBCurrentEncKeyID() string {
 	return GetEnvString("PEERDB_CURRENT_ENC_KEY_ID", "")
 }
 
-func PeerDBEncKeys() shared.PeerDBEncKeys {
-	return GetEnvJSON[shared.PeerDBEncKeys]("PEERDB_ENC_KEYS", nil)
+func PeerDBEncKeys(ctx context.Context) shared.PeerDBEncKeys {
+	val, err := GetKMSDecryptedEnvString(ctx, "PEERDB_ENC_KEYS", "")
+	if err != nil {
+		slog.Error("failed to decrypt PEERDB_ENC_KEYS", "error", err)
+		panic(err)
+	}
+
+	var result shared.PeerDBEncKeys
+	if err := json.Unmarshal([]byte(val), &result); err != nil {
+		return nil
+	}
+
+	return result
 }
 
-func PeerDBCurrentEncKey() (shared.PeerDBEncKey, error) {
+func PeerDBCurrentEncKey(ctx context.Context) (shared.PeerDBEncKey, error) {
 	encKeyID := PeerDBCurrentEncKeyID()
-	encKeys := PeerDBEncKeys()
+	encKeys := PeerDBEncKeys(ctx)
 	return encKeys.Get(encKeyID)
 }
 
