@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	lua "github.com/yuin/gopher-lua"
@@ -627,10 +628,12 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	err = srcConn.PullFlowCleanup(ctx, req.FlowJobName)
-	if err != nil {
+	if err := srcConn.PullFlowCleanup(ctx, req.FlowJobName); err != nil {
 		pullCleanupErr := fmt.Errorf("[DropFlowSource] failed to clean up source: %w", err)
-		a.Alerter.LogFlowError(ctx, req.FlowJobName, pullCleanupErr)
+		if !shared.IsSQLStateError(err, pgerrcode.ObjectInUse) {
+			// don't alert when PID active
+			a.Alerter.LogFlowError(ctx, req.FlowJobName, pullCleanupErr)
+		}
 		return pullCleanupErr
 	}
 
@@ -647,8 +650,7 @@ func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
-	err = dstConn.SyncFlowCleanup(ctx, req.FlowJobName)
-	if err != nil {
+	if err := dstConn.SyncFlowCleanup(ctx, req.FlowJobName); err != nil {
 		syncFlowCleanupErr := fmt.Errorf("[DropFlowDestination] failed to clean up destination: %w", err)
 		a.Alerter.LogFlowError(ctx, req.FlowJobName, syncFlowCleanupErr)
 		return syncFlowCleanupErr
