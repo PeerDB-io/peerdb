@@ -51,7 +51,7 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 		return nil, fmt.Errorf("failed to read alerter config from catalog: %w", err)
 	}
 
-	keys := peerdbenv.PeerDBEncKeys()
+	keys := peerdbenv.PeerDBEncKeys(ctx)
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (AlertSenderConfig, error) {
 		var alertSenderConfig AlertSenderConfig
 		var serviceType ServiceType

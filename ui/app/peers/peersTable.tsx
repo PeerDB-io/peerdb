@@ -1,5 +1,5 @@
 'use client';
-import { DropDialog } from '@/components/DropDialog';
+import DropDialog from '@/components/DropDialog';
 import PeerButton from '@/components/PeerComponent';
 import PeerTypeLabel, {
   DBTypeToGoodText,

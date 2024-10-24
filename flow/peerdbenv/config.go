@@ -1,6 +1,8 @@
 package peerdbenv
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -64,8 +66,8 @@ func PeerDBCatalogUser() string {
 }
 
 // PEERDB_CATALOG_PASSWORD
-func PeerDBCatalogPassword() string {
-	val, err := GetKMSDecryptedEnvString("PEERDB_CATALOG_PASSWORD", "")
+func PeerDBCatalogPassword(ctx context.Context) string {
+	val, err := GetKMSDecryptedEnvString(ctx, "PEERDB_CATALOG_PASSWORD", "")
 	if err != nil {
 		slog.Error("failed to decrypt PEERDB_CATALOG_PASSWORD", "error", err)
 		panic(err)
@@ -105,13 +107,24 @@ func PeerDBCurrentEncKeyID() string {
 	return GetEnvString("PEERDB_CURRENT_ENC_KEY_ID", "")
 }
 
-func PeerDBEncKeys() shared.PeerDBEncKeys {
-	return GetEnvJSON[shared.PeerDBEncKeys]("PEERDB_ENC_KEYS", nil)
+func PeerDBEncKeys(ctx context.Context) shared.PeerDBEncKeys {
+	val, err := GetKMSDecryptedEnvString(ctx, "PEERDB_ENC_KEYS", "")
+	if err != nil {
+		slog.Error("failed to decrypt PEERDB_ENC_KEYS", "error", err)
+		panic(err)
+	}
+
+	var result shared.PeerDBEncKeys
+	if err := json.Unmarshal([]byte(val), &result); err != nil {
+		return nil
+	}
+
+	return result
 }
 
-func PeerDBCurrentEncKey() (shared.PeerDBEncKey, error) {
+func PeerDBCurrentEncKey(ctx context.Context) (shared.PeerDBEncKey, error) {
 	encKeyID := PeerDBCurrentEncKeyID()
-	encKeys := PeerDBEncKeys()
+	encKeys := PeerDBEncKeys(ctx)
 	return encKeys.Get(encKeyID)
 }
 
@@ -128,12 +141,12 @@ func PeerDBTemporalEnableCertAuth() bool {
 	return strings.TrimSpace(cert) != ""
 }
 
-func PeerDBTemporalClientCert() ([]byte, error) {
-	return GetEnvBase64EncodedBytes("TEMPORAL_CLIENT_CERT", nil)
+func PeerDBTemporalClientCert(ctx context.Context) ([]byte, error) {
+	return GetEnvBase64EncodedBytes(ctx, "TEMPORAL_CLIENT_CERT", nil)
 }
 
-func PeerDBTemporalClientKey() ([]byte, error) {
-	return GetEnvBase64EncodedBytes("TEMPORAL_CLIENT_KEY", nil)
+func PeerDBTemporalClientKey(ctx context.Context) ([]byte, error) {
+	return GetEnvBase64EncodedBytes(ctx, "TEMPORAL_CLIENT_KEY", nil)
 }
 
 func PeerDBGetIncidentIoUrl() string {

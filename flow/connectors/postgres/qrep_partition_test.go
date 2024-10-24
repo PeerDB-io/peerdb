@@ -64,7 +64,7 @@ func newTestCaseForCTID(schema string, name string, rows uint32, expectedNum int
 }
 
 func TestGetQRepPartitions(t *testing.T) {
-	connStr := peerdbenv.GetCatalogConnectionStringFromEnv()
+	connStr := peerdbenv.GetCatalogConnectionStringFromEnv(context.Background())
 
 	// Setup the DB
 	config, err := pgx.ParseConfig(connStr)

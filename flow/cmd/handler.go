@@ -286,8 +286,7 @@ func (h *FlowRequestHandler) shutdownFlow(
 		slog.String("workflowId", workflowID),
 	)
 
-	err = h.handleCancelWorkflow(ctx, workflowID, "")
-	if err != nil {
+	if err := h.handleCancelWorkflow(ctx, workflowID, ""); err != nil {
 		slog.Error("unable to cancel workflow", logs, slog.Any("error", err))
 		return fmt.Errorf("unable to wait for PeerFlow workflow to close: %w", err)
 	}
@@ -317,9 +316,7 @@ func (h *FlowRequestHandler) shutdownFlow(
 				DropFlowStats:       deleteStats,
 			})
 		if err != nil {
-			slog.Error("unable to start DropFlow workflow",
-				logs,
-				slog.Any("error", err))
+			slog.Error("unable to start DropFlow workflow", logs, slog.Any("error", err))
 			return fmt.Errorf("unable to start DropFlow workflow: %w", err)
 		}
 
@@ -334,10 +331,7 @@ func (h *FlowRequestHandler) shutdownFlow(
 		select {
 		case err := <-errChan:
 			if err != nil {
-				slog.Error("DropFlow workflow did not execute successfully",
-					logs,
-					slog.Any("error", err),
-				)
+				slog.Error("DropFlow workflow did not execute successfully", logs, slog.Any("error", err))
 				return fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
 			}
 		case <-time.After(5 * time.Minute):
@@ -349,10 +343,7 @@ func (h *FlowRequestHandler) shutdownFlow(
 	}
 
 	if err := h.removeFlowEntryInCatalog(ctx, flowJobName); err != nil {
-		slog.Error("unable to remove flow job entry",
-			slog.String(string(shared.FlowNameKey), flowJobName),
-			slog.Any("error", err),
-			slog.String("workflowId", workflowID))
+		slog.Error("unable to remove flow job entry", logs, slog.Any("error", err))
 		return err
 	}
 
@@ -363,20 +354,21 @@ func (h *FlowRequestHandler) FlowStateChange(
 	ctx context.Context,
 	req *protos.FlowStateChangeRequest,
 ) (*protos.FlowStateChangeResponse, error) {
-	slog.Info("FlowStateChange called", slog.String("flowJobName", req.FlowJobName), slog.Any("req", req))
+	logs := slog.String("flowJobName", req.FlowJobName)
+	slog.Info("FlowStateChange called", logs, slog.Any("req", req))
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
-		slog.Error("[flow-state-change]unable to get workflowID", slog.Any("error", err))
+		slog.Error("[flow-state-change] unable to get workflowID", logs, slog.Any("error", err))
 		return nil, err
 	}
 	currState, err := h.getWorkflowStatus(ctx, workflowID)
 	if err != nil {
-		slog.Error("[flow-state-change]unable to get workflow status", slog.Any("error", err))
+		slog.Error("[flow-state-change] unable to get workflow status", logs, slog.Any("error", err))
 		return nil, err
 	}
 
 	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil {
-		err = model.CDCDynamicPropertiesSignal.SignalClientWorkflow(
+		err := model.CDCDynamicPropertiesSignal.SignalClientWorkflow(
 			ctx,
 			h.temporalClient,
 			workflowID,
@@ -384,7 +376,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			req.FlowConfigUpdate.GetCdcFlowConfigUpdate(),
 		)
 		if err != nil {
-			slog.Error("unable to signal workflow", slog.Any("error", err))
+			slog.Error("unable to signal workflow", logs, slog.Any("error", err))
 			return nil, fmt.Errorf("unable to signal workflow: %w", err)
 		}
 	}
@@ -392,7 +384,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 	if req.RequestedFlowState != protos.FlowStatus_STATUS_UNKNOWN {
 		if req.RequestedFlowState == protos.FlowStatus_STATUS_PAUSED &&
 			currState == protos.FlowStatus_STATUS_RUNNING {
-			slog.Info("[flow-state-change]: received pause request")
+			slog.Info("[flow-state-change] received pause request", logs)
 			err = model.FlowSignal.SignalClientWorkflow(
 				ctx,
 				h.temporalClient,
@@ -402,7 +394,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			)
 		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_RUNNING &&
 			currState == protos.FlowStatus_STATUS_PAUSED {
-			slog.Info("[flow-state-change]: received resume request")
+			slog.Info("[flow-state-change] received resume request", logs)
 			err = model.FlowSignal.SignalClientWorkflow(
 				ctx,
 				h.temporalClient,
@@ -412,16 +404,16 @@ func (h *FlowRequestHandler) FlowStateChange(
 			)
 		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED &&
 			(currState != protos.FlowStatus_STATUS_TERMINATED) {
-			slog.Info("[flow-state-change]: received drop mirror request")
+			slog.Info("[flow-state-change] received drop mirror request", logs)
 			err = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats)
 		} else if req.RequestedFlowState != currState {
-			slog.Error("illegal state change requested", slog.Any("requestedFlowState", req.RequestedFlowState),
+			slog.Error("illegal state change requested", logs, slog.Any("requestedFlowState", req.RequestedFlowState),
 				slog.Any("currState", currState))
 			return nil, fmt.Errorf("illegal state change requested: %v, current state is: %v",
 				req.RequestedFlowState, currState)
 		}
 		if err != nil {
-			slog.Error("unable to signal workflow", slog.Any("error", err))
+			slog.Error("unable to signal workflow", logs, slog.Any("error", err))
 			return nil, fmt.Errorf("unable to signal workflow: %w", err)
 		}
 	}
@@ -432,11 +424,9 @@ func (h *FlowRequestHandler) FlowStateChange(
 func (h *FlowRequestHandler) handleCancelWorkflow(ctx context.Context, workflowID, runID string) error {
 	errChan := make(chan error, 1)
 
-	// Create a new context with timeout for CancelWorkflow
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	// Call CancelWorkflow in a goroutine
 	go func() {
 		err := h.temporalClient.CancelWorkflow(ctxWithTimeout, workflowID, runID)
 		errChan <- err
@@ -452,8 +442,7 @@ func (h *FlowRequestHandler) handleCancelWorkflow(ctx context.Context, workflowI
 			}
 		}
 	case <-time.After(1 * time.Minute):
-		// If 1 minute has passed and we haven't received an error, terminate the workflow
-		slog.Error("Timeout reached while trying to cancel PeerFlow workflow. Attempting to terminate.")
+		slog.Error("Timeout reached while trying to cancel PeerFlow workflow. Attempting to terminate.", slog.String("workflowId", workflowID))
 		terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
 		if err := h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
 			return fmt.Errorf("unable to terminate PeerFlow workflow: %w", err)

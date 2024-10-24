@@ -54,7 +54,7 @@ func recryptDatabase(
 	updateSql string,
 ) {
 	newKeyID := peerdbenv.PeerDBCurrentEncKeyID()
-	keys := peerdbenv.PeerDBEncKeys()
+	keys := peerdbenv.PeerDBEncKeys(ctx)
 	if newKeyID == "" {
 		if len(keys) == 0 {
 			slog.Warn("Encryption disabled. This is not recommended.")
@@ -195,7 +195,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 	if peerdbenv.PeerDBTemporalEnableCertAuth() {
 		slog.Info("Using temporal certificate/key for authentication")
 
-		certs, err := parseTemporalCertAndKey()
+		certs, err := parseTemporalCertAndKey(ctx)
 		if err != nil {
 			return fmt.Errorf("unable to base64 decode certificate and key: %w", err)
 		}
