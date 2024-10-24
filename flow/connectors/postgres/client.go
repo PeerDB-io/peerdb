@@ -668,8 +668,8 @@ func (c *PostgresConnector) checkIfTableExistsWithTx(
 	return result.Bool, nil
 }
 
-func (c *PostgresConnector) ExecuteCommand(ctx context.Context, command string) error {
-	_, err := c.conn.Exec(ctx, command)
+func (c *PostgresConnector) ExecuteCommand(ctx context.Context, command string, args ...any) error {
+	_, err := c.conn.Exec(ctx, command, args...)
 	return err
 }
 

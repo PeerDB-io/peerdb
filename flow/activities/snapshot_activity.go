@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/activity"
 
@@ -19,21 +20,14 @@ import (
 )
 
 type SlotSnapshotState struct {
-	connector    connectors.CDCPullConnector
-	signal       connpostgres.SlotSignal
-	snapshotName string
-}
-
-type TxSnapshotState struct {
-	SnapshotName     string
-	SupportsTIDScans bool
+	connector connectors.CDCPullConnector
+	signal    connpostgres.SlotSignal
 }
 
 type SnapshotActivity struct {
 	Alerter             *alerting.Alerter
 	CatalogPool         *pgxpool.Pool
 	SlotSnapshotStates  map[string]SlotSnapshotState
-	TxSnapshotStates    map[string]TxSnapshotState
 	SnapshotStatesMutex sync.Mutex
 }
 
@@ -55,7 +49,7 @@ func (a *SnapshotActivity) CloseSlotKeepAlive(ctx context.Context, flowJobName s
 func (a *SnapshotActivity) SetupReplication(
 	ctx context.Context,
 	config *protos.SetupReplicationInput,
-) (*protos.SetupReplicationOutput, error) {
+) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := activity.GetLogger(ctx)
 
@@ -65,9 +59,9 @@ func (a *SnapshotActivity) SetupReplication(
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
 			logger.Info("setup replication is no-op for non-postgres source")
-			return nil, nil
+			return nil
 		}
-		return nil, fmt.Errorf("failed to get connector: %w", err)
+		return fmt.Errorf("failed to get connector: %w", err)
 	}
 
 	closeConnectionForError := func(err error) {
@@ -84,45 +78,63 @@ func (a *SnapshotActivity) SetupReplication(
 
 	if slotInfo.Err != nil {
 		closeConnectionForError(slotInfo.Err)
-		return nil, fmt.Errorf("slot error: %w", slotInfo.Err)
+		return fmt.Errorf("slot error: %w", slotInfo.Err)
 	} else {
 		logger.Info("slot created", slog.String("SlotName", slotInfo.SlotName))
 	}
 
-	a.SnapshotStatesMutex.Lock()
-	defer a.SnapshotStatesMutex.Unlock()
-
-	a.SlotSnapshotStates[config.FlowJobName] = SlotSnapshotState{
-		signal:       slotSignal,
-		snapshotName: slotInfo.SnapshotName,
-		connector:    conn,
+	for {
+		var slotName string
+		if err := a.CatalogPool.QueryRow(
+			ctx,
+			"select slot_name from snapshot_names where flow_name = $1",
+			config.FlowJobName,
+		).Scan(&slotName); err == nil && slotName != "" {
+			if err := conn.ExecuteCommand(
+				ctx,
+				"select pg_drop_replication_slot($1)",
+				slotName,
+			); err != nil && !shared.IsSQLStateError(err, pgerrcode.UndefinedObject) {
+				if shared.IsSQLStateError(err, pgerrcode.ObjectInUse) {
+					a.Alerter.LogFlowError(ctx, "[SetupReplication] "+config.FlowJobName, err)
+					time.Sleep(time.Second * 15)
+					continue
+				}
+				return fmt.Errorf("failed to drop slot from previous run: %w", err)
+			}
+		}
+		break
 	}
 
-	return &protos.SetupReplicationOutput{
-		SlotName:         slotInfo.SlotName,
-		SnapshotName:     slotInfo.SnapshotName,
-		SupportsTidScans: slotInfo.SupportsTIDScans,
-	}, nil
+	if _, err := a.CatalogPool.Exec(ctx,
+		`insert into snapshot_names (flow_name, slot_name, snapshot_name, supports_tid_scan) values ($1, $2, $3, $4)
+		on conflict (flow_name) do update set slot_name = $2, snapshot_name = $3, supports_tid_scan = $4`,
+		config.FlowJobName, slotInfo.SlotName, slotInfo.SnapshotName, slotInfo.SupportsTIDScans,
+	); err != nil {
+		return err
+	}
+
+	a.SnapshotStatesMutex.Lock()
+	a.SlotSnapshotStates[config.FlowJobName] = SlotSnapshotState{
+		signal:    slotSignal,
+		connector: conn,
+	}
+	a.SnapshotStatesMutex.Unlock()
+
+	return nil
 }
 
-func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, peer string) error {
+func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, flowJobName string, peer string) error {
 	conn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, peer)
 	if err != nil {
 		return err
 	}
 	defer connectors.CloseConnector(ctx, conn)
 
-	exportSnapshotOutput, tx, err := conn.ExportTxSnapshot(ctx)
+	tx, err := conn.ExportTxSnapshot(ctx, flowJobName)
 	if err != nil {
 		return err
 	}
-
-	a.SnapshotStatesMutex.Lock()
-	a.TxSnapshotStates[sessionID] = TxSnapshotState{
-		SnapshotName:     exportSnapshotOutput.SnapshotName,
-		SupportsTIDScans: exportSnapshotOutput.SupportsTidScans,
-	}
-	a.SnapshotStatesMutex.Unlock()
 
 	logger := activity.GetLogger(ctx)
 	start := time.Now()
@@ -131,38 +143,24 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, pee
 		logger.Info(msg)
 		// this function relies on context cancellation to exit
 		// context is not explicitly cancelled, but workflow exit triggers an implicit cancel
-		// from activity.RecordBeat
+		// from activity.RecordHeartBeat
 		activity.RecordHeartbeat(ctx, msg)
 		if ctx.Err() != nil {
-			a.SnapshotStatesMutex.Lock()
-			delete(a.TxSnapshotStates, sessionID)
-			a.SnapshotStatesMutex.Unlock()
 			return conn.FinishExport(tx)
 		}
 		time.Sleep(time.Minute)
 	}
 }
 
-func (a *SnapshotActivity) WaitForExportSnapshot(ctx context.Context, sessionID string) (*TxSnapshotState, error) {
-	logger := activity.GetLogger(ctx)
-	attempt := 0
-	for {
-		a.SnapshotStatesMutex.Lock()
-		tsc, ok := a.TxSnapshotStates[sessionID]
-		a.SnapshotStatesMutex.Unlock()
-		if ok {
-			return &tsc, nil
-		}
-		activity.RecordHeartbeat(ctx, "wait another second for snapshot export")
-		attempt += 1
-		if attempt > 2 {
-			logger.Info("waiting on snapshot export", slog.Int("attempt", attempt))
-		}
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		time.Sleep(time.Second)
+func (a *SnapshotActivity) LoadSupportsTidScan(
+	ctx context.Context,
+	flowJobName string,
+) (bool, error) {
+	_, _, supportsTidScan, err := shared.LoadSnapshotNameFromCatalog(ctx, a.CatalogPool, flowJobName)
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, "[LoadSupportsTidScan] "+flowJobName, err)
 	}
+	return supportsTidScan, err
 }
 
 func (a *SnapshotActivity) LoadTableSchema(

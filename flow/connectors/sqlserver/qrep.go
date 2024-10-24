@@ -18,7 +18,7 @@ import (
 )
 
 func (c *SQLServerConnector) GetQRepPartitions(
-	ctx context.Context, config *protos.QRepConfig, last *protos.QRepPartition,
+	ctx context.Context, config *protos.QRepConfig, last *protos.QRepPartition, snapshotName string,
 ) ([]*protos.QRepPartition, error) {
 	if config.WatermarkTable == "" {
 		c.logger.Info("watermark table is empty, doing full table refresh")
@@ -162,6 +162,7 @@ func (c *SQLServerConnector) PullQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
+	snapshotName string,
 	stream *model.QRecordStream,
 ) (int, error) {
 	// Build the query to pull records within the range from the source table
