@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -86,7 +87,15 @@ func decryptWithKMS(ctx context.Context, data []byte) ([]byte, error) {
 	return decrypted.Plaintext, nil
 }
 
+var KMSCache sync.Map
+
 func GetEnvBase64EncodedBytes(ctx context.Context, name string, defaultValue []byte) ([]byte, error) {
+	if cacheVal, ok := KMSCache.Load(name); ok {
+		if finalVal, ok := cacheVal.([]byte); ok {
+			return finalVal, nil
+		}
+	}
+
 	val, ok := os.LookupEnv(name)
 	if !ok {
 		return defaultValue, nil
@@ -98,7 +107,12 @@ func GetEnvBase64EncodedBytes(ctx context.Context, name string, defaultValue []b
 		return nil, fmt.Errorf("failed to decode base64 value for %s: %w", name, err)
 	}
 
-	return decryptWithKMS(ctx, decoded)
+	finalVal, err := decryptWithKMS(ctx, decoded)
+	if err != nil {
+		return finalVal, err
+	}
+	KMSCache.Store(name, finalVal)
+	return finalVal, nil
 }
 
 func GetKMSDecryptedEnvString(ctx context.Context, name string, defaultValue string) (string, error) {
