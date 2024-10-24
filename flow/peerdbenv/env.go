@@ -3,7 +3,6 @@ package peerdbenv
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"os"
 	"reflect"
@@ -62,20 +61,6 @@ func GetEnvString(name string, defaultValue string) string {
 	}
 
 	return val
-}
-
-func GetEnvJSON[T any](name string, defaultValue T) T {
-	val, ok := os.LookupEnv(name)
-	if !ok {
-		return defaultValue
-	}
-
-	var result T
-	if err := json.Unmarshal([]byte(val), &result); err != nil {
-		return defaultValue
-	}
-
-	return result
 }
 
 func decryptWithKMS(ctx context.Context, data []byte) ([]byte, error) {
