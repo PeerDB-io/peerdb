@@ -55,6 +55,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 	}
 
 	normalizedTableCreateSQL, err := generateCreateTableSQLForNormalizedTable(
+		ctx,
 		config,
 		tableIdentifier,
 		tableSchema,
@@ -77,6 +78,7 @@ func getColName(overrides map[string]string, name string) string {
 }
 
 func generateCreateTableSQLForNormalizedTable(
+	ctx context.Context,
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
@@ -176,6 +178,12 @@ func generateCreateTableSQLForNormalizedTable(
 		stmtBuilder.WriteString("ORDER BY (")
 		stmtBuilder.WriteString(orderByStr)
 		stmtBuilder.WriteString(") ")
+	}
+
+	if nullable, err := peerdbenv.PeerDBNullable(ctx, config.Env); err != nil {
+		return "", err
+	} else if nullable {
+		stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
 	}
 
 	return stmtBuilder.String(), nil
