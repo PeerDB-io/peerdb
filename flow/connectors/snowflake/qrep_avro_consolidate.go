@@ -9,6 +9,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -136,8 +137,12 @@ func (s *SnowflakeAvroConsolidateHandler) getCopyTransformation(copyDstTable str
 		s.config.SyncedAtColName,
 		s.config.SoftDeleteColName,
 	)
-	return fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) FILE_FORMAT=(TYPE=AVRO), PURGE=TRUE",
-		copyDstTable, columnsSQL, transformationSQL, s.stage)
+	onErrorStr := ""
+	if onError := peerdbenv.GetEnvString("PEERDB_SNOWFLAKE_ON_ERROR", ""); onError != "" {
+		onErrorStr = ", ON_ERROR=" + onError
+	}
+	return fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) FILE_FORMAT=(TYPE=AVRO), PURGE=TRUE%s",
+		copyDstTable, columnsSQL, transformationSQL, s.stage, onErrorStr)
 }
 
 func (s *SnowflakeAvroConsolidateHandler) handleAppendMode(ctx context.Context) error {
