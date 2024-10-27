@@ -215,7 +215,12 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 		numRows, writeOcfError = p.WriteOCF(ctx, w)
 	}()
 
-	_, err = manager.NewUploader(s3svc).Upload(ctx, &s3.PutObjectInput{
+	// Create the uploader using the AWS SDK v2 manager
+	uploader := manager.NewUploader(s3svc, func(u *manager.Uploader) {
+		u.PartSize = 500 * 1024 * 1024 // Set part size to 500 MB
+	})
+
+	_, err = uploader.Upload(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(key),
 		Body:   r,
