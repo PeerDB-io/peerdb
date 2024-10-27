@@ -21,7 +21,6 @@ import (
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/pua"
@@ -68,7 +67,7 @@ func NewKafkaConnector(
 	env map[string]string,
 	config *protos.KafkaConfig,
 ) (*KafkaConnector, error) {
-	logger := logger.LoggerFromCtx(ctx)
+	logger := shared.LoggerFromCtx(ctx)
 	optionalOpts := append(
 		make([]kgo.Opt, 0, 7),
 		kgo.SeedBrokers(config.Servers...),

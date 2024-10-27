@@ -15,7 +15,6 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/alerting"
-	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/otel_metrics"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -87,7 +86,7 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 	clientOptions := client.Options{
 		HostPort:  opts.TemporalHostPort,
 		Namespace: opts.TemporalNamespace,
-		Logger:    slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))),
+		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
 	}
 
 	if peerdbenv.PeerDBTemporalEnableCertAuth() {

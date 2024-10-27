@@ -20,7 +20,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	geo "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -292,7 +291,7 @@ func PullCdcRecords[Items model.Items](
 	processor replProcessor[Items],
 	replLock *sync.Mutex,
 ) error {
-	logger := logger.LoggerFromCtx(ctx)
+	logger := shared.LoggerFromCtx(ctx)
 	// use only with taking replLock
 	conn := p.replConn.PgConn()
 	sendStandbyAfterReplLock := func(updateType string) error {
@@ -629,7 +628,7 @@ func processMessage[Items model.Items](
 	currentClientXlogPos pglogrepl.LSN,
 	processor replProcessor[Items],
 ) (model.Record[Items], error) {
-	logger := logger.LoggerFromCtx(ctx)
+	logger := shared.LoggerFromCtx(ctx)
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing logical message: %w", err)

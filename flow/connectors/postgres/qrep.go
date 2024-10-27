@@ -20,7 +20,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	partition_utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -460,7 +459,7 @@ func syncQRepRecords(
 	defer func() {
 		if err := tx.Rollback(context.Background()); err != nil {
 			if err != pgx.ErrTxClosed {
-				logger.LoggerFromCtx(ctx).Error("failed to rollback transaction tx2", slog.Any("error", err), syncLog)
+				shared.LoggerFromCtx(ctx).Error("failed to rollback transaction tx2", slog.Any("error", err), syncLog)
 			}
 		}
 	}()

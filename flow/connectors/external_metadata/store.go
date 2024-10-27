@@ -14,8 +14,8 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 const (
@@ -36,7 +36,7 @@ func NewPostgresMetadata(ctx context.Context) (*PostgresMetadata, error) {
 
 	return &PostgresMetadata{
 		pool:   pool,
-		logger: logger.LoggerFromCtx(ctx),
+		logger: shared.LoggerFromCtx(ctx),
 	}, nil
 }
 

@@ -14,8 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/PeerDB-io/peer-flow/shared/telemetry"
 )
 
@@ -127,7 +127,7 @@ func NewAlerter(ctx context.Context, catalogPool *pgxpool.Pool) *Alerter {
 		snsMessageSender, err = telemetry.NewSNSMessageSenderWithNewClient(ctx, &telemetry.SNSMessageSenderConfig{
 			Topic: snsTopic,
 		})
-		logger.LoggerFromCtx(ctx).Info("Successfully registered sns telemetry sender")
+		shared.LoggerFromCtx(ctx).Info("Successfully registered sns telemetry sender")
 		if err != nil {
 			panic(fmt.Sprintf("unable to setup telemetry is nil for Alerter %+v", err))
 		}
@@ -142,7 +142,7 @@ func NewAlerter(ctx context.Context, catalogPool *pgxpool.Pool) *Alerter {
 			URL:   incidentIoURL,
 			Token: incidentIoAuth,
 		})
-		logger.LoggerFromCtx(ctx).Info("Successfully registered incident.io telemetry sender")
+		shared.LoggerFromCtx(ctx).Info("Successfully registered incident.io telemetry sender")
 		if err != nil {
 			panic(fmt.Sprintf("unable to setup incident.io telemetry is nil for Alerter %+v", err))
 		}
@@ -158,7 +158,7 @@ func NewAlerter(ctx context.Context, catalogPool *pgxpool.Pool) *Alerter {
 func (a *Alerter) AlertIfSlotLag(ctx context.Context, alertKeys *AlertKeys, slotInfo *protos.SlotInfo) {
 	alertSenderConfigs, err := a.registerSendersFromPool(ctx)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Warn("failed to set alert senders", slog.Any("error", err))
+		shared.LoggerFromCtx(ctx).Warn("failed to set alert senders", slog.Any("error", err))
 		return
 	}
 
@@ -169,7 +169,7 @@ func (a *Alerter) AlertIfSlotLag(ctx context.Context, alertKeys *AlertKeys, slot
 
 	defaultSlotLagMBAlertThreshold, err := peerdbenv.PeerDBSlotLagMBAlertThreshold(ctx, nil)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Warn("failed to get slot lag alert threshold from catalog", slog.Any("error", err))
+		shared.LoggerFromCtx(ctx).Warn("failed to get slot lag alert threshold from catalog", slog.Any("error", err))
 		return
 	}
 
@@ -222,7 +222,7 @@ func (a *Alerter) AlertIfOpenConnections(ctx context.Context, alertKeys *AlertKe
 ) {
 	alertSenderConfigs, err := a.registerSendersFromPool(ctx)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Warn("failed to set alert senders", slog.Any("error", err))
+		shared.LoggerFromCtx(ctx).Warn("failed to set alert senders", slog.Any("error", err))
 		return
 	}
 
@@ -234,7 +234,7 @@ func (a *Alerter) AlertIfOpenConnections(ctx context.Context, alertKeys *AlertKe
 	// same as with slot lag, use lowest threshold for catalog
 	defaultOpenConnectionsThreshold, err := peerdbenv.PeerDBOpenConnectionsAlertThreshold(ctx, nil)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Warn("failed to get open connections alert threshold from catalog", slog.Any("error", err))
+		shared.LoggerFromCtx(ctx).Warn("failed to get open connections alert threshold from catalog", slog.Any("error", err))
 		return
 	}
 	lowestOpenConnectionsThreshold := defaultOpenConnectionsThreshold
@@ -279,17 +279,17 @@ func (a *Alerter) AlertIfTooLongSinceLastNormalize(ctx context.Context, alertKey
 ) {
 	intervalSinceLastNormalizeThreshold, err := peerdbenv.PeerDBIntervalSinceLastNormalizeThresholdMinutes(ctx, nil)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).
+		shared.LoggerFromCtx(ctx).
 			Warn("failed to get interval since last normalize threshold from catalog", slog.Any("error", err))
 	}
 
 	if intervalSinceLastNormalizeThreshold == 0 {
-		logger.LoggerFromCtx(ctx).Info("Alerting disabled via environment variable, returning")
+		shared.LoggerFromCtx(ctx).Info("Alerting disabled via environment variable, returning")
 		return
 	}
 	alertSenderConfigs, err := a.registerSendersFromPool(ctx)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Warn("failed to set alert senders", slog.Any("error", err))
+		shared.LoggerFromCtx(ctx).Warn("failed to set alert senders", slog.Any("error", err))
 		return
 	}
 
@@ -320,7 +320,7 @@ func (a *Alerter) AlertIfTooLongSinceLastNormalize(ctx context.Context, alertKey
 func (a *Alerter) alertToProvider(ctx context.Context, alertSenderConfig AlertSenderConfig, alertKey string, alertMessage string) {
 	err := alertSenderConfig.Sender.sendAlert(ctx, alertKey, alertMessage)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Warn("failed to send alert", slog.Any("error", err))
+		shared.LoggerFromCtx(ctx).Warn("failed to send alert", slog.Any("error", err))
 		return
 	}
 }
@@ -331,11 +331,11 @@ func (a *Alerter) alertToProvider(ctx context.Context, alertSenderConfig AlertSe
 func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId int64, alertKey string, alertMessage string) bool {
 	dur, err := peerdbenv.PeerDBAlertingGapMinutesAsDuration(ctx, nil)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Warn("failed to get alerting gap duration from catalog", slog.Any("error", err))
+		shared.LoggerFromCtx(ctx).Warn("failed to get alerting gap duration from catalog", slog.Any("error", err))
 		return false
 	}
 	if dur == 0 {
-		logger.LoggerFromCtx(ctx).Warn("Alerting disabled via environment variable, returning")
+		shared.LoggerFromCtx(ctx).Warn("Alerting disabled via environment variable, returning")
 		return false
 	}
 
@@ -346,7 +346,7 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId i
 	var createdTimestamp time.Time
 	err = row.Scan(&createdTimestamp)
 	if err != nil && err != pgx.ErrNoRows {
-		logger.LoggerFromCtx(ctx).Warn("failed to send alert", slog.Any("err", err))
+		shared.LoggerFromCtx(ctx).Warn("failed to send alert", slog.Any("err", err))
 		return false
 	}
 
@@ -355,13 +355,13 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId i
 			"INSERT INTO peerdb_stats.alerts_v1(alert_key,alert_message,alert_config_id) VALUES($1,$2,$3)",
 			alertKey, alertMessage, alertConfigId)
 		if err != nil {
-			logger.LoggerFromCtx(ctx).Warn("failed to insert alert", slog.Any("error", err))
+			shared.LoggerFromCtx(ctx).Warn("failed to insert alert", slog.Any("error", err))
 			return false
 		}
 		return true
 	}
 
-	logger.LoggerFromCtx(ctx).Info(
+	shared.LoggerFromCtx(ctx).Info(
 		fmt.Sprintf("Skipped sending alerts: last alert was sent at %s, which was >=%s ago",
 			createdTimestamp.String(), dur.String()))
 	return false
@@ -379,7 +379,7 @@ func (a *Alerter) sendTelemetryMessage(ctx context.Context, flowName string, mor
 	if a.snsTelemetrySender != nil {
 		_, err := a.snsTelemetrySender.SendMessage(ctx, details, details, attributes)
 		if err != nil {
-			logger.LoggerFromCtx(ctx).Warn("failed to send message to snsTelemetrySender", slog.Any("error", err))
+			shared.LoggerFromCtx(ctx).Warn("failed to send message to snsTelemetrySender", slog.Any("error", err))
 			return
 		}
 	}
@@ -387,10 +387,10 @@ func (a *Alerter) sendTelemetryMessage(ctx context.Context, flowName string, mor
 	if a.incidentIoTelemetrySender != nil {
 		status, err := a.incidentIoTelemetrySender.SendMessage(ctx, details, details, attributes)
 		if err != nil {
-			logger.LoggerFromCtx(ctx).Warn("failed to send message to incidentIoTelemetrySender", slog.Any("error", err))
+			shared.LoggerFromCtx(ctx).Warn("failed to send message to incidentIoTelemetrySender", slog.Any("error", err))
 			return
 		}
-		logger.LoggerFromCtx(ctx).Info("received status from incident.io", slog.String("status", *status))
+		shared.LoggerFromCtx(ctx).Info("received status from incident.io", slog.String("status", *status))
 	}
 }
 
@@ -416,7 +416,7 @@ func (a *Alerter) LogNonFlowEvent(ctx context.Context, eventType telemetry.Event
 }
 
 func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) {
-	logger := logger.LoggerFromCtx(ctx)
+	logger := shared.LoggerFromCtx(ctx)
 	errorWithStack := fmt.Sprintf("%+v", err)
 	logger.Error(err.Error(), slog.Any("stack", errorWithStack))
 	_, err = a.CatalogPool.Exec(ctx,
@@ -430,12 +430,12 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 }
 
 func (a *Alerter) LogFlowEvent(ctx context.Context, flowName string, info string) {
-	logger.LoggerFromCtx(ctx).Info(info)
+	shared.LoggerFromCtx(ctx).Info(info)
 	a.sendTelemetryMessage(ctx, flowName, info, telemetry.INFO)
 }
 
 func (a *Alerter) LogFlowInfo(ctx context.Context, flowName string, info string) {
-	logger := logger.LoggerFromCtx(ctx)
+	logger := shared.LoggerFromCtx(ctx)
 	logger.Info(info)
 	_, err := a.CatalogPool.Exec(ctx,
 		"INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",

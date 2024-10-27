@@ -22,7 +22,6 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -128,7 +127,7 @@ func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error
 }
 
 func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter *goavro.OCFWriter) (int64, error) {
-	logger := logger.LoggerFromCtx(ctx)
+	logger := shared.LoggerFromCtx(ctx)
 	schema := p.stream.Schema()
 
 	avroConverter := model.NewQRecordAvroConverter(
@@ -190,7 +189,7 @@ func (p *peerDBOCFWriter) WriteOCF(ctx context.Context, w io.Writer) (int, error
 func (p *peerDBOCFWriter) WriteRecordsToS3(
 	ctx context.Context, bucketName, key string, s3Creds utils.AWSCredentialsProvider,
 ) (*AvroFile, error) {
-	logger := logger.LoggerFromCtx(ctx)
+	logger := shared.LoggerFromCtx(ctx)
 	s3svc, err := utils.CreateS3Client(ctx, s3Creds)
 	if err != nil {
 		logger.Error("failed to create S3 client", slog.Any("error", err))
@@ -246,7 +245,7 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, filePath s
 	}
 	defer file.Close()
 	printFileStats := func(message string) {
-		logger := logger.LoggerFromCtx(ctx)
+		logger := shared.LoggerFromCtx(ctx)
 		stats, err := file.Stat()
 		if err != nil {
 			return

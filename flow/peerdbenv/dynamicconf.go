@@ -13,7 +13,7 @@ import (
 	"golang.org/x/exp/constraints"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 var DynamicSettings = [...]*protos.DynamicSetting{
@@ -197,14 +197,14 @@ func dynLookup(ctx context.Context, env map[string]string, key string) (string, 
 
 	conn, err := GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool", slog.Any("error", err))
+		shared.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool", slog.Any("error", err))
 		return "", fmt.Errorf("failed to get catalog connection pool: %w", err)
 	}
 
 	var value pgtype.Text
 	query := "SELECT config_value FROM dynamic_settings WHERE config_name=$1"
 	if err := conn.QueryRow(ctx, query, key).Scan(&value); err != nil && err != pgx.ErrNoRows {
-		logger.LoggerFromCtx(ctx).Error("Failed to get key", slog.Any("error", err))
+		shared.LoggerFromCtx(ctx).Error("Failed to get key", slog.Any("error", err))
 		return "", fmt.Errorf("failed to get key: %w", err)
 	}
 	if !value.Valid {
@@ -232,7 +232,7 @@ func dynamicConfSigned[T constraints.Signed](ctx context.Context, env map[string
 		return strconv.ParseInt(value, 10, 64)
 	})
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Error("Failed to parse as int64", slog.Any("error", err))
+		shared.LoggerFromCtx(ctx).Error("Failed to parse as int64", slog.Any("error", err))
 		return 0, fmt.Errorf("failed to parse as int64: %w", err)
 	}
 
@@ -244,7 +244,7 @@ func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, env map[st
 		return strconv.ParseUint(value, 10, 64)
 	})
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Error("Failed to parse as uint64", slog.Any("error", err))
+		shared.LoggerFromCtx(ctx).Error("Failed to parse as uint64", slog.Any("error", err))
 		return 0, fmt.Errorf("failed to parse as uint64: %w", err)
 	}
 
@@ -254,7 +254,7 @@ func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, env map[st
 func dynamicConfBool(ctx context.Context, env map[string]string, key string) (bool, error) {
 	value, err := dynLookupConvert(ctx, env, key, strconv.ParseBool)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Error("Failed to parse bool", slog.Any("error", err))
+		shared.LoggerFromCtx(ctx).Error("Failed to parse bool", slog.Any("error", err))
 		return false, fmt.Errorf("failed to parse bool: %w", err)
 	}
 

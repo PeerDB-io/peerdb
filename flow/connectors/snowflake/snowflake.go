@@ -21,7 +21,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	numeric "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
@@ -126,7 +125,7 @@ func (c *SnowflakeConnector) ValidateCheck(ctx context.Context) error {
 	defer func() {
 		deferErr := tx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			logger.LoggerFromCtx(ctx).Error("error while rolling back transaction for table check",
+			shared.LoggerFromCtx(ctx).Error("error while rolling back transaction for table check",
 				"error", deferErr)
 		}
 	}()
@@ -170,7 +169,7 @@ func NewSnowflakeConnector(
 	ctx context.Context,
 	snowflakeProtoConfig *protos.SnowflakeConfig,
 ) (*SnowflakeConnector, error) {
-	logger := logger.LoggerFromCtx(ctx)
+	logger := shared.LoggerFromCtx(ctx)
 	PrivateKeyRSA, err := shared.DecodePKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey),
 		snowflakeProtoConfig.Password)
 	if err != nil {
