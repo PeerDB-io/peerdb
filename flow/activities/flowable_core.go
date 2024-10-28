@@ -296,34 +296,28 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	lastCheckpoint := recordBatchSync.GetLastCheckpoint()
 	srcConn.UpdateReplStateLastOffset(lastCheckpoint)
 
-	err = monitoring.UpdateNumRowsAndEndLSNForCDCBatch(
+	if err := monitoring.UpdateNumRowsAndEndLSNForCDCBatch(
 		ctx,
 		a.CatalogPool,
 		flowName,
 		res.CurrentSyncBatchID,
 		uint32(numRecords),
 		lastCheckpoint,
-	)
-	if err != nil {
+	); err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, err
 	}
 
-	err = monitoring.UpdateLatestLSNAtTargetForCDCFlow(ctx, a.CatalogPool, flowName, lastCheckpoint)
-	if err != nil {
+	if err := monitoring.UpdateLatestLSNAtTargetForCDCFlow(ctx, a.CatalogPool, flowName, lastCheckpoint); err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, err
 	}
 	if res.TableNameRowsMapping != nil {
-		err = monitoring.AddCDCBatchTablesForFlow(ctx, a.CatalogPool, flowName,
-			res.CurrentSyncBatchID, res.TableNameRowsMapping)
-		if err != nil {
+		if err := monitoring.AddCDCBatchTablesForFlow(
+			ctx, a.CatalogPool, flowName, res.CurrentSyncBatchID, res.TableNameRowsMapping,
+		); err != nil {
 			return nil, err
 		}
-	}
-	if err != nil {
-		a.Alerter.LogFlowError(ctx, flowName, err)
-		return nil, err
 	}
 
 	pushedRecordsWithCount := fmt.Sprintf("pushed %d records", numRecords)
