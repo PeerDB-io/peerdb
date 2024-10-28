@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
@@ -40,12 +41,7 @@ type AlertKeys struct {
 
 func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderConfig, error) {
 	rows, err := a.CatalogPool.Query(ctx,
-		`SELECT
-			id,
-			service_type,
-			service_config,
-			enc_key_id,
-			alert_for_mirrors
+		`SELECT id, service_type, service_config, enc_key_id, alert_for_mirrors
 		FROM peerdb_stats.alerting_config`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read alerter config from catalog: %w", err)
@@ -367,7 +363,7 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId i
 	return false
 }
 
-func (a *Alerter) sendTelemetryMessage(ctx context.Context, flowName string, more string, level telemetry.Level) {
+func (a *Alerter) sendTelemetryMessage(ctx context.Context, logger log.Logger, flowName string, more string, level telemetry.Level) {
 	details := fmt.Sprintf("[%s] %s", flowName, more)
 	attributes := telemetry.Attributes{
 		Level:         level,
@@ -377,20 +373,19 @@ func (a *Alerter) sendTelemetryMessage(ctx context.Context, flowName string, mor
 	}
 
 	if a.snsTelemetrySender != nil {
-		_, err := a.snsTelemetrySender.SendMessage(ctx, details, details, attributes)
-		if err != nil {
-			shared.LoggerFromCtx(ctx).Warn("failed to send message to snsTelemetrySender", slog.Any("error", err))
-			return
+		if status, err := a.snsTelemetrySender.SendMessage(ctx, details, details, attributes); err != nil {
+			logger.Warn("failed to send message to snsTelemetrySender", slog.Any("error", err))
+		} else {
+			logger.Info("received status from snsTelemetrySender", slog.String("status", status))
 		}
 	}
 
 	if a.incidentIoTelemetrySender != nil {
-		status, err := a.incidentIoTelemetrySender.SendMessage(ctx, details, details, attributes)
-		if err != nil {
-			shared.LoggerFromCtx(ctx).Warn("failed to send message to incidentIoTelemetrySender", slog.Any("error", err))
-			return
+		if status, err := a.incidentIoTelemetrySender.SendMessage(ctx, details, details, attributes); err != nil {
+			logger.Warn("failed to send message to incidentIoTelemetrySender", slog.Any("error", err))
+		} else {
+			logger.Info("received status from incident.io", slog.String("status", status))
 		}
-		shared.LoggerFromCtx(ctx).Info("received status from incident.io", slog.String("status", *status))
 	}
 }
 
@@ -412,12 +407,13 @@ func (a *Alerter) LogNonFlowCritical(ctx context.Context, eventType telemetry.Ev
 }
 
 func (a *Alerter) LogNonFlowEvent(ctx context.Context, eventType telemetry.EventType, key string, message string, level telemetry.Level) {
-	a.sendTelemetryMessage(ctx, string(eventType)+":"+key, message, level)
+	logger := shared.LoggerFromCtx(ctx)
+	a.sendTelemetryMessage(ctx, logger, string(eventType)+":"+key, message, level)
 }
 
 func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) {
-	logger := shared.LoggerFromCtx(ctx)
 	errorWithStack := fmt.Sprintf("%+v", err)
+	logger := shared.LoggerFromCtx(ctx)
 	logger.Error(err.Error(), slog.Any("stack", errorWithStack))
 	_, err = a.CatalogPool.Exec(ctx,
 		"INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
@@ -426,12 +422,13 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 		logger.Warn("failed to insert flow error", slog.Any("error", err))
 		return
 	}
-	a.sendTelemetryMessage(ctx, flowName, errorWithStack, telemetry.ERROR)
+	a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR)
 }
 
 func (a *Alerter) LogFlowEvent(ctx context.Context, flowName string, info string) {
-	shared.LoggerFromCtx(ctx).Info(info)
-	a.sendTelemetryMessage(ctx, flowName, info, telemetry.INFO)
+	logger := shared.LoggerFromCtx(ctx)
+	logger.Info(info)
+	a.sendTelemetryMessage(ctx, logger, flowName, info, telemetry.INFO)
 }
 
 func (a *Alerter) LogFlowInfo(ctx context.Context, flowName string, info string) {

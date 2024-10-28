@@ -5,7 +5,7 @@ import (
 )
 
 type Sender interface {
-	SendMessage(ctx context.Context, subject string, body string, attributes Attributes) (*string, error)
+	SendMessage(ctx context.Context, subject string, body string, attributes Attributes) (string, error)
 }
 
 type Attributes struct {
