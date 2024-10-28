@@ -429,7 +429,7 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 	if errors.Is(err, context.Canceled) {
 		tags = append(tags, "errCanceled")
 	}
-	if errors.Is(err, io.EOF) {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		tags = append(tags, "errEOF")
 	}
 	if errors.Is(err, net.ErrClosed) {
