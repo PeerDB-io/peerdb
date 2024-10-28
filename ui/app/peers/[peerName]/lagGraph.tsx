@@ -1,10 +1,6 @@
 'use client';
 import SelectTheme from '@/app/styles/select';
-import {
-  formatGraphLabel,
-  TimeAggregateTypes,
-  timeOptions,
-} from '@/app/utils/graph';
+import { TimeAggregateTypes, timeOptions } from '@/app/utils/graph';
 import {
   GetSlotLagHistoryRequest,
   GetSlotLagHistoryResponse,
@@ -12,6 +8,7 @@ import {
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle/ProgressCircle';
 import { LineChart } from '@tremor/react';
+import moment from 'moment';
 import { useCallback, useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
 import { useLocalStorage } from 'usehooks-ts';
@@ -21,7 +18,7 @@ type LagGraphProps = {
   peerName: string;
 };
 
-function LagGraph({ peerName }: LagGraphProps) {
+export default function LagGraph({ peerName }: LagGraphProps) {
   const [slotNames, setSlotNames] = useState<string[]>([]);
   const [mounted, setMounted] = useState(false);
   const [lagPoints, setLagPoints] = useState<
@@ -57,15 +54,17 @@ function LagGraph({ peerName }: LagGraphProps) {
         timeSince,
       } as GetSlotLagHistoryRequest),
     });
-    const points: GetSlotLagHistoryResponse = await pointsRes.json();
-    setLagPoints(
-      points.data
-        .sort((x, y) => x.updatedAt - y.updatedAt)
-        .map((data) => ({
-          time: formatGraphLabel(new Date(data.updatedAt!), timeSince),
-          'Lag in GB': data.slotSize,
-        }))
-    );
+    if (pointsRes.ok) {
+      const points: GetSlotLagHistoryResponse = await pointsRes.json();
+      setLagPoints(
+        points.data
+          .sort((x, y) => x.updatedAt - y.updatedAt)
+          .map((data) => ({
+            time: moment(data.updatedAt).format('MMM Do HH:mm'),
+            'Lag in GB': data.slotSize,
+          }))
+      );
+    }
     setLoading(false);
   }, [selectedSlot, timeSince, peerName]);
 
@@ -149,5 +148,3 @@ function LagGraph({ peerName }: LagGraphProps) {
     </div>
   );
 }
-
-export default LagGraph;
