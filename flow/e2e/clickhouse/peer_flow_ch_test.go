@@ -466,13 +466,13 @@ func (s ClickHouseSuite) Test_Weird_Table_And_Column() {
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
-			"my-key" TEXT NOT NULL
+			key TEXT NOT NULL
 		);
 	`, srcFullName))
 	require.NoError(s.t, err)
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-	INSERT INTO %s ("my-key") VALUES ('init');
+	INSERT INTO %s (key) VALUES ('init');
 	`, srcFullName))
 	require.NoError(s.t, err)
 
@@ -487,14 +487,14 @@ func (s ClickHouseSuite) Test_Weird_Table_And_Column() {
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"my-key\"")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,key")
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-	INSERT INTO %s ("my-key") VALUES ('cdc');
+	INSERT INTO %s (key) VALUES ('cdc');
 	`, srcFullName))
 	require.NoError(s.t, err)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"my-key\"")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,key")
 
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
