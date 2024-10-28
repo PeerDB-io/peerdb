@@ -244,14 +244,12 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 		syncBatchID += 1
 
-		err = monitoring.AddCDCBatchForFlow(errCtx, a.CatalogPool, flowName,
-			monitoring.CDCBatchInfo{
-				BatchID:     syncBatchID,
-				RowsInBatch: 0,
-				BatchEndlSN: 0,
-				StartTime:   startTime,
-			})
-		if err != nil {
+		if err := monitoring.AddCDCBatchForFlow(errCtx, a.CatalogPool, flowName, monitoring.CDCBatchInfo{
+			BatchID:     syncBatchID,
+			RowsInBatch: 0,
+			BatchEndlSN: 0,
+			StartTime:   startTime,
+		}); err != nil {
 			a.Alerter.LogFlowError(ctx, flowName, err)
 			return err
 		}
@@ -297,12 +295,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	srcConn.UpdateReplStateLastOffset(lastCheckpoint)
 
 	if err := monitoring.UpdateNumRowsAndEndLSNForCDCBatch(
-		ctx,
-		a.CatalogPool,
-		flowName,
-		res.CurrentSyncBatchID,
-		uint32(numRecords),
-		lastCheckpoint,
+		ctx, a.CatalogPool, flowName, res.CurrentSyncBatchID, uint32(numRecords), lastCheckpoint,
 	); err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, err
@@ -406,8 +399,7 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		return nil
 	}
 
-	err = monitoring.UpdateStartTimeForPartition(ctx, a.CatalogPool, runUUID, partition, time.Now())
-	if err != nil {
+	if err := monitoring.UpdateStartTimeForPartition(ctx, a.CatalogPool, runUUID, partition, time.Now()); err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return fmt.Errorf("failed to update start time for partition: %w", err)
 	}
@@ -430,9 +422,9 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 			return fmt.Errorf("failed to pull records: %w", err)
 		}
 		numRecords := int64(tmp)
-		err = monitoring.UpdatePullEndTimeAndRowsForPartition(errCtx,
-			a.CatalogPool, runUUID, partition, numRecords)
-		if err != nil {
+		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
+			errCtx, a.CatalogPool, runUUID, partition, numRecords,
+		); err != nil {
 			logger.Error(err.Error())
 		}
 		return nil
@@ -507,7 +499,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		numRecords, currentSnapshotXmin, pullErr = pullRecords(srcConn, ctx, config, partition, stream)
 		if pullErr != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, pullErr)
-			logger.Warn(fmt.Sprintf("[xmin] failed to pull recordS: %v", pullErr))
+			logger.Warn(fmt.Sprintf("[xmin] failed to pull records: %v", pullErr))
 			return pullErr
 		}
 
