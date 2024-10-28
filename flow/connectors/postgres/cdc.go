@@ -41,6 +41,9 @@ type PostgresCDCSource struct {
 
 	// for storing schema delta audit logs to catalog
 	catalogPool *pgxpool.Pool
+	// to store replident info fetched for the sync
+	replicaIdentityMap map[string]ReplicaIdentityType
+
 	flowJobName string
 }
 
@@ -51,6 +54,7 @@ type PostgresCDCConfig struct {
 	TableNameSchemaMapping map[string]*protos.TableSchema
 	ChildToParentRelIDMap  map[uint32]uint32
 	RelationMessageMapping model.RelationMessageMapping
+	ReplicaIdentityMap     map[string]ReplicaIdentityType
 	FlowJobName            string
 	Slot                   string
 	Publication            string
@@ -71,6 +75,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) *
 		commitLock:                nil,
 		catalogPool:               cdcConfig.CatalogPool,
 		flowJobName:               cdcConfig.FlowJobName,
+		replicaIdentityMap:        cdcConfig.ReplicaIdentityMap,
 	}
 }
 
@@ -101,6 +106,30 @@ func GetChildToParentRelIDMap(ctx context.Context, conn *pgx.Conn) (map[uint32]u
 	}
 
 	return childToParentRelIDMap, nil
+}
+
+func GetReplicaIdentityMap(ctx context.Context,
+	conn *pgx.Conn, relIDs []uint32, srcTableIDNameMapping map[uint32]string,
+) (map[string]ReplicaIdentityType, error) {
+	rows, err := conn.Query(ctx,
+		`SELECT oid,relreplident FROM pg_class WHERE oid=ANY($1)`,
+		relIDs)
+	if err != nil {
+		return nil, fmt.Errorf("error getting replica identity for tables: %w", err)
+	}
+
+	replicaIdentityMap := make(map[string]ReplicaIdentityType, len(relIDs))
+	var relID uint32
+	var replicaIdentity rune
+	_, err = pgx.ForEachRow(rows, []any{&relID, &replicaIdentity}, func() error {
+		replicaIdentityMap[srcTableIDNameMapping[relID]] = ReplicaIdentityType(replicaIdentity)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error scanning replica identity for tables: %w", err)
+	}
+
+	return replicaIdentityMap, nil
 }
 
 // replProcessor implements ingesting PostgreSQL logical replication tuples into items.
@@ -499,8 +528,7 @@ func PullCdcRecords[Items model.Items](
 					// tableName here is destination tableName.
 					// should be ideally sourceTableName as we are in PullRecords.
 					// will change in future
-					// TODO: replident is cached here, should not cache since it can change
-					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
+					isFullReplica := p.replicaIdentityMap[tableName] == ReplicaIdentityFull
 					if isFullReplica {
 						if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
 							return err
@@ -528,7 +556,7 @@ func PullCdcRecords[Items model.Items](
 					}
 
 				case *model.InsertRecord[Items]:
-					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
+					isFullReplica := p.replicaIdentityMap[tableName] == ReplicaIdentityFull
 					if isFullReplica {
 						if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
 							return err
@@ -544,7 +572,7 @@ func PullCdcRecords[Items model.Items](
 						}
 					}
 				case *model.DeleteRecord[Items]:
-					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
+					isFullReplica := p.replicaIdentityMap[tableName] == ReplicaIdentityFull
 					if isFullReplica {
 						if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
 							return err
