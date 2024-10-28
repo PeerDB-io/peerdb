@@ -14,14 +14,14 @@ import (
 	_ "go.uber.org/automaxprocs"
 
 	"github.com/PeerDB-io/peer-flow/cmd"
-	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 func main() {
 	appCtx, appClose := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer appClose()
 
-	slog.SetDefault(slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))))
+	slog.SetDefault(slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))))
 
 	temporalHostPortFlag := &cli.StringFlag{
 		Name:    "temporal-host-port",

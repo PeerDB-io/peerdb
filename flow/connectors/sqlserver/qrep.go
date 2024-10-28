@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"text/template"
 
 	"github.com/google/uuid"
@@ -221,13 +222,11 @@ func BuildQuery(logger log.Logger, query string) (string, error) {
 	}
 
 	buf := new(bytes.Buffer)
-
-	err = tmpl.Execute(buf, data)
-	if err != nil {
+	if err := tmpl.Execute(buf, data); err != nil {
 		return "", err
 	}
 	res := buf.String()
 
-	logger.Info("templated query: " + res)
+	logger.Info("[ss] templated query", slog.String("query", res))
 	return res, nil
 }

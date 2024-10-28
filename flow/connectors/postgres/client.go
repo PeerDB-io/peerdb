@@ -346,8 +346,8 @@ func (c *PostgresConnector) CreatePublication(
 	// Create the publication to help filter changes only for the given tables
 	stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s%s", publication, tableNameString, pubViaRootString)
 	if _, err = c.execWithLogging(ctx, stmt); err != nil {
-		c.logger.Warn(fmt.Sprintf("Error creating publication '%s': %v", publication, err))
-		return fmt.Errorf("error creating publication '%s' : %w", publication, err)
+		c.logger.Warn("error creating publication", slog.String("publication", publication), slog.Any("error", err))
+		return fmt.Errorf("error creating publication %s: %w", publication, err)
 	}
 	return nil
 }
