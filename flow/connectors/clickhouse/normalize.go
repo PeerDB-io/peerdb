@@ -418,8 +418,9 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		}
 
 		insertIntoSelectQuery := strings.Builder{}
-		insertIntoSelectQuery.WriteString("INSERT INTO ")
+		insertIntoSelectQuery.WriteString("INSERT INTO `")
 		insertIntoSelectQuery.WriteString(tbl)
+		insertIntoSelectQuery.WriteString("` ")
 		insertIntoSelectQuery.WriteString(colSelector.String())
 		insertIntoSelectQuery.WriteString(selectQuery.String())
 

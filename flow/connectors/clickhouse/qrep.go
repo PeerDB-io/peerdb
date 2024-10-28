@@ -45,7 +45,7 @@ func (c *ClickHouseConnector) SyncQRepRecords(
 }
 
 func (c *ClickHouseConnector) getTableSchema(ctx context.Context, tableName string) ([]driver.ColumnType, error) {
-	queryString := fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName)
+	queryString := fmt.Sprintf("SELECT * FROM `%s` LIMIT 0", tableName)
 	rows, err := c.query(ctx, queryString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
