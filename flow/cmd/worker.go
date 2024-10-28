@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
+	"go.temporal.io/sdk/interceptor"
 	"log"
 	"log/slog"
 	"os"
@@ -82,11 +84,22 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 	if opts.EnableProfiling {
 		setupPyroscope(opts)
 	}
+	var otelMetricsHandler temporalotel.MetricsHandler
+	if opts.EnableOtelMetrics {
+		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider("flow-worker")
+		if metricsErr != nil {
+			return nil, metricsErr
+		}
+		otelMetricsHandler = temporalotel.NewMetricsHandler(temporalotel.MetricsHandlerOptions{
+			Meter: metricsProvider.Meter("temporal-sdk-go"),
+		})
+	}
 
 	clientOptions := client.Options{
-		HostPort:  opts.TemporalHostPort,
-		Namespace: opts.TemporalNamespace,
-		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
+		HostPort:       opts.TemporalHostPort,
+		Namespace:      opts.TemporalNamespace,
+		Logger:         slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
+		MetricsHandler: otelMetricsHandler,
 	}
 
 	if peerdbenv.PeerDBTemporalEnableCertAuth() {
@@ -127,6 +140,9 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 		EnableSessionWorker:                    true,
 		MaxConcurrentActivityExecutionSize:     opts.TemporalMaxConcurrentActivities,
 		MaxConcurrentWorkflowTaskExecutionSize: opts.TemporalMaxConcurrentWorkflowTasks,
+		Interceptors: []interceptor.WorkerInterceptor{
+			NewCommonWorkerInterceptor(),
+		},
 		OnFatalError: func(err error) {
 			slog.Error("Peerflow Worker failed", slog.Any("error", err))
 		},
@@ -136,9 +152,9 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 	cleanupOtelManagerFunc := func() {}
 	var otelManager *otel_metrics.OtelManager
 	if opts.EnableOtelMetrics {
-		metricsProvider, metricErr := otel_metrics.SetupOtelMetricsExporter("flow-worker")
-		if metricErr != nil {
-			return nil, metricErr
+		metricsProvider, metricsErr := otel_metrics.SetupPeerDBMetricsProvider("flow-worker")
+		if metricsErr != nil {
+			return nil, metricsErr
 		}
 		otelManager = &otel_metrics.OtelManager{
 			MetricsProvider:    metricsProvider,
