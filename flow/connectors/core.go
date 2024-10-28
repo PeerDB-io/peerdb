@@ -12,7 +12,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/alerting"
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	connclickhouse "github.com/PeerDB-io/peer-flow/connectors/clickhouse"
-	connelasticsearch "github.com/PeerDB-io/peer-flow/connectors/connelasticsearch"
+	connelasticsearch "github.com/PeerDB-io/peer-flow/connectors/elasticsearch"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
 	connkafka "github.com/PeerDB-io/peer-flow/connectors/kafka"
 	connmysql "github.com/PeerDB-io/peer-flow/connectors/mysql"
@@ -22,10 +22,10 @@ import (
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_gauges"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type Connector interface {
@@ -433,7 +433,7 @@ func GetByNameAs[T Connector](ctx context.Context, env map[string]string, catalo
 
 func CloseConnector(ctx context.Context, conn Connector) {
 	if err := conn.Close(); err != nil {
-		logger.LoggerFromCtx(ctx).Error("error closing connector", slog.Any("error", err))
+		shared.LoggerFromCtx(ctx).Error("error closing connector", slog.Any("error", err))
 	}
 }
 

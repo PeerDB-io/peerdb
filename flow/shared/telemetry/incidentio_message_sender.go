@@ -48,7 +48,7 @@ func (i *IncidentIoMessageSenderImpl) SendMessage(
 	subject string,
 	body string,
 	attributes Attributes,
-) (*string, error) {
+) (string, error) {
 	activityInfo := activity.Info{}
 	if activity.IsActivity(ctx) {
 		activityInfo = activity.GetInfo(ctx)
@@ -83,38 +83,38 @@ func (i *IncidentIoMessageSenderImpl) SendMessage(
 
 	alertJSON, err := json.Marshal(alert)
 	if err != nil {
-		return nil, fmt.Errorf("error serializing alert %w", err)
+		return "", fmt.Errorf("error serializing alert %w", err)
 	}
 
 	req, err := http.NewRequest("POST", i.config.URL, bytes.NewBuffer(alertJSON))
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Authorization", "Bearer "+i.config.Token)
 
 	resp, err := i.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("incident.io request failed: %w", err)
+		return "", fmt.Errorf("incident.io request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("reading incident.io response body failed: %w", err)
+		return "", fmt.Errorf("reading incident.io response body failed: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusAccepted {
-		return nil, fmt.Errorf("unexpected response from incident.io. status: %d. body: %s", resp.StatusCode, respBody)
+		return "", fmt.Errorf("unexpected response from incident.io. status: %d. body: %s", resp.StatusCode, respBody)
 	}
 
 	var incidentResponse IncidentIoResponse
 	err = json.Unmarshal(respBody, &incidentResponse)
 	if err != nil {
-		return nil, fmt.Errorf("deserializing incident.io failed: %w", err)
+		return "", fmt.Errorf("deserializing incident.io failed: %w", err)
 	}
 
-	return &incidentResponse.Status, nil
+	return incidentResponse.Status, nil
 }
 
 func NewIncidentIoMessageSender(_ context.Context, config IncidentIoMessageSenderConfig) (Sender, error) {

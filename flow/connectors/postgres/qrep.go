@@ -20,7 +20,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	partition_utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -166,8 +165,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		rows, err = tx.Query(ctx, partitionsQuery)
 	}
 	if err != nil {
-		c.logger.Error(fmt.Sprintf("failed to query for partitions: %v", err))
-		return nil, fmt.Errorf("failed to query for partitions: %w", err)
+		return nil, shared.LogError(c.logger, fmt.Errorf("failed to query for partitions: %w", err))
 	}
 	defer rows.Close()
 
@@ -240,7 +238,7 @@ func (c *PostgresConnector) getMinMaxValues(
 	} else {
 		minMaxQuery := fmt.Sprintf("SELECT MIN(%[1]s), MAX(%[1]s) FROM %[2]s", quotedWatermarkColumn, parsedWatermarkTable.String())
 		if err := tx.QueryRow(ctx, minMaxQuery).Scan(&minValue, &maxValue); err != nil {
-			c.logger.Error(fmt.Sprintf("failed to query [%s] for min value: %v", minMaxQuery, err))
+			c.logger.Error("failed to query for min value", slog.String("query", minMaxQuery), slog.Any("error", err))
 			return nil, nil, fmt.Errorf("failed to query for min value: %w", err)
 		} else if maxValue != nil {
 			switch v := minValue.(type) {
@@ -460,7 +458,7 @@ func syncQRepRecords(
 	defer func() {
 		if err := tx.Rollback(context.Background()); err != nil {
 			if err != pgx.ErrTxClosed {
-				logger.LoggerFromCtx(ctx).Error("failed to rollback transaction tx2", slog.Any("error", err), syncLog)
+				shared.LoggerFromCtx(ctx).Error("failed to rollback transaction tx2", slog.Any("error", err), syncLog)
 			}
 		}
 	}()
@@ -706,7 +704,7 @@ func BuildQuery(logger log.Logger, query string, flowJobName string) (string, er
 	}
 	res := buf.String()
 
-	logger.Info("templated query: " + res)
+	logger.Info("[pg] templated query", slog.String("query", res))
 	return res, nil
 }
 

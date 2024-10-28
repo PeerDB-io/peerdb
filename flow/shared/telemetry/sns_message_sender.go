@@ -28,7 +28,7 @@ type SNSMessageSenderConfig struct {
 	Topic string `json:"topic"`
 }
 
-func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, body string, attributes Attributes) (*string, error) {
+func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, body string, attributes Attributes) (string, error) {
 	activityInfo := activity.Info{}
 	if activity.IsActivity(ctx) {
 		activityInfo = activity.GetInfo(ctx)
@@ -87,9 +87,9 @@ func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, 
 		TopicArn: aws.String(s.topic),
 	})
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return publish.MessageId, nil
+	return *publish.MessageId, nil
 }
 
 func NewSNSMessageSenderWithNewClient(ctx context.Context, config *SNSMessageSenderConfig) (SNSMessageSender, error) {

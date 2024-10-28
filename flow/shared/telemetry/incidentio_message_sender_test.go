@@ -180,7 +180,7 @@ func TestIncidentIoMessageSenderImpl_SendMessage(t *testing.T) {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
-				require.Equal(t, tt.serverResponse.Status, *status)
+				require.Equal(t, tt.serverResponse.Status, status)
 			}
 		})
 	}

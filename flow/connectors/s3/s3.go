@@ -12,8 +12,8 @@ import (
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type S3Connector struct {
@@ -28,7 +28,7 @@ func NewS3Connector(
 	ctx context.Context,
 	config *protos.S3Config,
 ) (*S3Connector, error) {
-	logger := logger.LoggerFromCtx(ctx)
+	logger := shared.LoggerFromCtx(ctx)
 
 	provider, err := utils.GetAWSCredentialsProvider(ctx, "s3", utils.PeerAWSCredentials{
 		Credentials: aws.Credentials{
