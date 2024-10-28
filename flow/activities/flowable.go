@@ -663,7 +663,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 	logger := activity.GetLogger(ctx)
 	walHeartbeatEnabled, err := peerdbenv.PeerDBEnableWALHeartbeat(ctx, nil)
 	if err != nil {
-		logger.Warn("unable to fetch wal heartbeat config. Skipping walheartbeat send.", slog.Any("error", err))
+		logger.Warn("unable to fetch wal heartbeat config, skipping wal heartbeat send", slog.Any("error", err))
 		return err
 	}
 	if !walHeartbeatEnabled {
@@ -672,13 +672,13 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 	}
 	walHeartbeatStatement, err := peerdbenv.PeerDBWALHeartbeatQuery(ctx, nil)
 	if err != nil {
-		logger.Warn("unable to fetch wal heartbeat config. Skipping walheartbeat send.", slog.Any("error", err))
+		logger.Warn("unable to fetch wal heartbeat config, skipping wal heartbeat send", slog.Any("error", err))
 		return err
 	}
 
 	pgPeers, err := a.getPostgresPeerConfigs(ctx)
 	if err != nil {
-		logger.Warn("unable to fetch peers. Skipping walheartbeat send.", slog.Any("error", err))
+		logger.Warn("unable to fetch peers, skipping wal heartbeat send", slog.Any("error", err))
 		return err
 	}
 
@@ -693,15 +693,15 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 			pgConfig := pgPeer.GetPostgresConfig()
 			pgConn, peerErr := connpostgres.NewPostgresConnector(ctx, nil, pgConfig)
 			if peerErr != nil {
-				logger.Error(fmt.Sprintf("error creating connector for postgres peer %s with host %s: %v",
-					pgPeer.Name, pgConfig.Host, peerErr))
+				logger.Error("error creating connector for postgres peer",
+					slog.String("peer", pgPeer.Name), slog.String("host", pgConfig.Host), slog.Any("error", err))
 				return
 			}
 			defer pgConn.Close()
 			if cmdErr := pgConn.ExecuteCommand(ctx, walHeartbeatStatement); cmdErr != nil {
-				logger.Warn(fmt.Sprintf("could not send walheartbeat to peer %s: %v", pgPeer.Name, cmdErr))
+				logger.Warn(fmt.Sprintf("could not send wal heartbeat to peer %s: %v", pgPeer.Name, cmdErr))
 			}
-			logger.Info("sent walheartbeat", slog.String("peer", pgPeer.Name))
+			logger.Info("sent wal heartbeat", slog.String("peer", pgPeer.Name))
 		}()
 	}
 

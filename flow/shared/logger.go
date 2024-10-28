@@ -24,6 +24,11 @@ func LoggerFromCtx(ctx context.Context) log.Logger {
 	}
 }
 
+func LogError(logger log.Logger, err error) error {
+	logger.Error(err.Error())
+	return err
+}
+
 var _ slog.Handler = SlogHandler{}
 
 var fields = []ContextKey{FlowNameKey, PartitionIDKey}

@@ -171,7 +171,7 @@ func (p *PostgresMetadata) FinishBatch(ctx context.Context, jobName string, sync
 }
 
 func (p *PostgresMetadata) UpdateNormalizeBatchID(ctx context.Context, jobName string, batchID int64) error {
-	p.logger.Info("updating normalize batch id for job")
+	p.logger.Info("updating normalize batch id for job", slog.Int64("batchID", batchID))
 	_, err := p.pool.Exec(ctx,
 		`UPDATE `+lastSyncStateTableName+
 			` SET normalize_batch_id=$2 WHERE job_name=$1`, jobName, batchID)
@@ -180,9 +180,8 @@ func (p *PostgresMetadata) UpdateNormalizeBatchID(ctx context.Context, jobName s
 		return err
 	}
 
-	err = monitoring.UpdateEndTimeForCDCBatch(ctx, p.pool, jobName, batchID)
-	if err != nil {
-		p.logger.Error(fmt.Sprintf("failed to update end time for cdc batch - %d", batchID), slog.Any("error", err))
+	if err := monitoring.UpdateEndTimeForCDCBatch(ctx, p.pool, jobName, batchID); err != nil {
+		p.logger.Error("failed to update end time for cdc batch", slog.Int64("batchID", batchID), slog.Any("error", err))
 		return err
 	}
 

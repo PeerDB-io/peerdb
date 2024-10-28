@@ -450,8 +450,7 @@ func PullCdcRecords[Items model.Items](
 		}
 
 		if errMsg, ok := rawMsg.(*pgproto3.ErrorResponse); ok {
-			logger.Error(fmt.Sprintf("received Postgres WAL error: %+v", errMsg))
-			return fmt.Errorf("received Postgres WAL error: %+v", errMsg)
+			return shared.LogError(logger, fmt.Errorf("received Postgres WAL error: %+v", errMsg))
 		}
 
 		msg, ok := rawMsg.(*pgproto3.CopyData)
