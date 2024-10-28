@@ -263,8 +263,11 @@ message SlotInfo {
 }
 
 message SlotLagPoint {
-  double updated_at = 1;
-  double slot_size = 2;
+  double time = 1;
+  double size = 2;
+  string redo_lSN = 3;
+  string restart_lSN = 4;
+  string confirmed_lSN = 5;
 }
 message GetSlotLagHistoryRequest {
   string peer_name = 1;
