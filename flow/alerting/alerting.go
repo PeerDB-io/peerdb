@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"slices"
 	"strings"
 	"time"
@@ -363,12 +365,19 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId i
 	return false
 }
 
-func (a *Alerter) sendTelemetryMessage(ctx context.Context, logger log.Logger, flowName string, more string, level telemetry.Level) {
+func (a *Alerter) sendTelemetryMessage(
+	ctx context.Context,
+	logger log.Logger,
+	flowName string,
+	more string,
+	level telemetry.Level,
+	tags ...string,
+) {
 	details := fmt.Sprintf("[%s] %s", flowName, more)
 	attributes := telemetry.Attributes{
 		Level:         level,
 		DeploymentUID: peerdbenv.PeerDBDeploymentUID(),
-		Tags:          []string{flowName, peerdbenv.PeerDBDeploymentUID()},
+		Tags:          append([]string{flowName, peerdbenv.PeerDBDeploymentUID()}, tags...),
 		Type:          flowName,
 	}
 
@@ -422,7 +431,17 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 		logger.Warn("failed to insert flow error", slog.Any("error", err))
 		return
 	}
-	a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR)
+	var tags []string
+	if errors.Is(err, context.Canceled) {
+		tags = append(tags, "errCanceled")
+	}
+	if errors.Is(err, io.EOF) {
+		tags = append(tags, "errEOF")
+	}
+	if errors.Is(err, net.ErrClosed) {
+		tags = append(tags, "errClosed")
+	}
+	a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR, tags...)
 }
 
 func (a *Alerter) LogFlowEvent(ctx context.Context, flowName string, info string) {
