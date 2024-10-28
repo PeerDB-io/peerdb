@@ -18,6 +18,14 @@ type LagGraphProps = {
   peerName: string;
 };
 
+function parseLSN(lsn: string): number {
+  if (!lsn) return 0;
+  const [lsn1, lsn2] = lsn.split('/');
+  return Number(
+    (BigInt(parseInt(lsn1)) << BigInt(32)) | BigInt(parseInt(lsn2))
+  );
+}
+
 export default function LagGraph({ peerName }: LagGraphProps) {
   const [slotNames, setSlotNames] = useState<string[]>([]);
   const [mounted, setMounted] = useState(false);
@@ -30,9 +38,10 @@ export default function LagGraph({ peerName }: LagGraphProps) {
   );
   const [selectedSlot, setSelectedSlot] = useState<string>(defaultSlot);
   const [loading, setLoading] = useState(false);
-  let [timeSince, setTimeSince] = useState<TimeAggregateTypes>(
+  const [timeSince, setTimeSince] = useState<TimeAggregateTypes>(
     TimeAggregateTypes.HOUR
   );
+  const [showLsn, setShowLsn] = useState(false);
 
   const fetchSlotNames = useCallback(async () => {
     const slots = await getSlotData(peerName);
@@ -58,10 +67,13 @@ export default function LagGraph({ peerName }: LagGraphProps) {
       const points: GetSlotLagHistoryResponse = await pointsRes.json();
       setLagPoints(
         points.data
-          .sort((x, y) => x.updatedAt - y.updatedAt)
+          .sort((x, y) => x.time - y.time)
           .map((data) => ({
-            time: moment(data.updatedAt).format('MMM Do HH:mm'),
-            'Lag in GB': data.slotSize,
+            time: moment(data.time).format('MMM Do HH:mm'),
+            'Lag in GB': data.size,
+            redoLSN: parseLSN(data.redoLSN),
+            restartLSN: parseLSN(data.restartLSN),
+            confirmedLSN: parseLSN(data.confirmedLSN),
           }))
       );
     }
@@ -121,7 +133,11 @@ export default function LagGraph({ peerName }: LagGraphProps) {
           }
           theme={SelectTheme}
         />
-
+        <input
+          type='button'
+          value={showLsn ? 'Show LSN' : 'Show Lag'}
+          onClick={() => setShowLsn((val) => !val)}
+        />
         <ReactSelect
           id={timeSince}
           placeholder='Select a timeframe'
@@ -140,8 +156,10 @@ export default function LagGraph({ peerName }: LagGraphProps) {
         <LineChart
           index='time'
           data={lagPoints}
-          categories={['Lag in GB']}
-          colors={['rose']}
+          categories={
+            showLsn ? ['redoLSN', 'restartLSN', 'confirmedLSN'] : ['Lag in GB']
+          }
+          colors={showLsn ? ['maroon', 'red', 'lime'] : ['rose']}
           showXAxis={false}
         />
       )}
