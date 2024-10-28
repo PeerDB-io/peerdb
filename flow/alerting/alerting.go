@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/log"
 
@@ -434,6 +435,10 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 	}
 	if errors.Is(err, net.ErrClosed) {
 		tags = append(tags, "err:Closed")
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		tags = append(tags, "pgcode:"+pgErr.Code)
 	}
 	a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR, tags...)
 }
