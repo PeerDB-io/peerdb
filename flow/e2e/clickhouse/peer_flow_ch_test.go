@@ -460,25 +460,25 @@ func (s ClickHouseSuite) Test_Replident_Full_Unchanged_TOAST_Updates() {
 // Replicate a table called "table" and a column with hyphen in it
 func (s ClickHouseSuite) Test_Weird_Table_And_Column() {
 	srcTableName := "table"
-	srcFullName := s.attachSchemaSuffix("table")
+	srcFullName := s.attachSchemaSuffix("\"table\"")
 	dstTableName := "table"
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS "%s" (
-			id INT PRIMARY KEY,
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
 			"my-key" TEXT NOT NULL
 		);
 	`, srcFullName))
 	require.NoError(s.t, err)
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-	INSERT INTO "%s" ("my-key",d) VALUES ('init','1935-01-01');
+	INSERT INTO %s ("my-key") VALUES ('init');
 	`, srcFullName))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_test_weird_table_and_column"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		TableNameMapping: map[string]string{s.attachSchemaSuffix("table"): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -487,14 +487,14 @@ func (s ClickHouseSuite) Test_Weird_Table_And_Column() {
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"my-key\",d")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"my-key\"")
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-	INSERT INTO "%s" ("my-key",d) VALUES ('cdc','1935-01-01');
+	INSERT INTO %s ("my-key") VALUES ('cdc');
 	`, srcFullName))
 	require.NoError(s.t, err)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"my-key\",d")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"my-key\"")
 
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
