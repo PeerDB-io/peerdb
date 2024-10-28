@@ -427,13 +427,13 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 	}
 	var tags []string
 	if errors.Is(err, context.Canceled) {
-		tags = append(tags, "errCanceled")
+		tags = append(tags, "err:Canceled")
 	}
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-		tags = append(tags, "errEOF")
+		tags = append(tags, "err:EOF")
 	}
 	if errors.Is(err, net.ErrClosed) {
-		tags = append(tags, "errClosed")
+		tags = append(tags, "err:Closed")
 	}
 	a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR, tags...)
 }
