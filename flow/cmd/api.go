@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/PeerDB-io/peer-flow/middleware"
 	"log"
 	"log/slog"
 	"net"
@@ -23,7 +24,6 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 
-	"github.com/PeerDB-io/peer-flow/auth"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -213,14 +213,23 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		return fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 
-	options, err := auth.AuthGrpcMiddleware([]string{
+	authGrpcMiddleware, err := middleware.AuthGrpcMiddleware([]string{
 		grpc_health_v1.Health_Check_FullMethodName,
 		grpc_health_v1.Health_Watch_FullMethodName,
 	})
 	if err != nil {
 		return err
 	}
-	grpcServer := grpc.NewServer(options...)
+
+	requestLoggingMiddleware := middleware.RequestLoggingMiddleWare()
+
+	// Interceptors are executed in the order they are passed to, so unauthorized requests are not logged
+	interceptors := grpc.ChainUnaryInterceptor(
+		authGrpcMiddleware,
+		requestLoggingMiddleware,
+	)
+
+	grpcServer := grpc.NewServer(interceptors)
 
 	catalogPool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {

@@ -1,4 +1,4 @@
-package auth
+package middleware
 
 import (
 	"context"
@@ -34,7 +34,7 @@ type identityProvider struct {
 	issuer      string
 }
 
-func AuthGrpcMiddleware(unauthenticatedMethods []string) ([]grpc.ServerOption, error) {
+func AuthGrpcMiddleware(unauthenticatedMethods []string) (grpc.UnaryServerInterceptor, error) {
 	oauthConfig := peerdbenv.GetPeerDBOAuthConfig()
 	oauthJwtClaims := map[string]string{}
 	if oauthConfig.OAuthJwtClaimKey != "" {
@@ -68,36 +68,24 @@ func AuthGrpcMiddleware(unauthenticatedMethods []string) ([]grpc.ServerOption, e
 	for _, method := range unauthenticatedMethods {
 		unauthenticatedMethodsMap[method] = struct{}{}
 	}
-	return []grpc.ServerOption{
-		grpc.ChainUnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-			slog.Info("Received gRPC request", slog.String("method", info.FullMethod))
-
-			if _, unauthorized := unauthenticatedMethodsMap[info.FullMethod]; !unauthorized {
-				var authHeader string
-				authHeaders := metadata.ValueFromIncomingContext(ctx, "Authorization")
-				if len(authHeaders) == 1 {
-					authHeader = authHeaders[0]
-				} else if len(authHeaders) > 1 {
-					slog.Warn("Multiple Authorization headers supplied, request rejected", slog.String("method", info.FullMethod))
-					return nil, status.Errorf(codes.Unauthenticated, "multiple Authorization headers supplied, request rejected")
-				}
-				_, err := validateRequestToken(authHeader, cfg.OauthJwtCustomClaims, ip...)
-				if err != nil {
-					slog.Debug("Failed to validate request token", slog.String("method", info.FullMethod), slog.Any("error", err))
-					return nil, status.Errorf(codes.Unauthenticated, "%s", err.Error())
-				}
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if _, unauthorized := unauthenticatedMethodsMap[info.FullMethod]; !unauthorized {
+			var authHeader string
+			authHeaders := metadata.ValueFromIncomingContext(ctx, "Authorization")
+			if len(authHeaders) == 1 {
+				authHeader = authHeaders[0]
+			} else if len(authHeaders) > 1 {
+				slog.Warn("Multiple Authorization headers supplied, request rejected", slog.String("method", info.FullMethod))
+				return nil, status.Errorf(codes.Unauthenticated, "multiple Authorization headers supplied, request rejected")
 			}
-
-			resp, err := handler(ctx, req)
-
+			_, err := validateRequestToken(authHeader, cfg.OauthJwtCustomClaims, ip...)
 			if err != nil {
-				slog.Error("gRPC request failed", slog.String("method", info.FullMethod), slog.Any("error", err))
-			} else {
-				slog.Info("gRPC request completed successfully", slog.String("method", info.FullMethod))
+				slog.Debug("Failed to validate request token", slog.String("method", info.FullMethod), slog.Any("error", err))
+				return nil, status.Errorf(codes.Unauthenticated, "%s", err.Error())
 			}
+		}
 
-			return resp, err
-		}),
+		return handler(ctx, req)
 	}, nil
 }
 
