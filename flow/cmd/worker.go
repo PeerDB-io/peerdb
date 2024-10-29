@@ -12,7 +12,6 @@ import (
 	"github.com/grafana/pyroscope-go"
 	"go.temporal.io/sdk/client"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
-	"go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/worker"
 
 	"github.com/PeerDB-io/peer-flow/activities"
@@ -138,9 +137,6 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 		EnableSessionWorker:                    true,
 		MaxConcurrentActivityExecutionSize:     opts.TemporalMaxConcurrentActivities,
 		MaxConcurrentWorkflowTaskExecutionSize: opts.TemporalMaxConcurrentWorkflowTasks,
-		Interceptors: []interceptor.WorkerInterceptor{
-			NewLoggedWorkerInterceptor(),
-		},
 		OnFatalError: func(err error) {
 			slog.Error("Peerflow Worker failed", slog.Any("error", err))
 		},
