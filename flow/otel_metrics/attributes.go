@@ -1,4 +1,4 @@
-package peerdb_gauges
+package otel_metrics
 
 const (
 	PeerNameKey      string = "peerName"

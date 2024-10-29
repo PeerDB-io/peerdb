@@ -11,6 +11,7 @@ import (
 
 	"github.com/grafana/pyroscope-go"
 	"go.temporal.io/sdk/client"
+	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
 	"go.temporal.io/sdk/worker"
 
 	"github.com/PeerDB-io/peer-flow/activities"
@@ -88,6 +89,15 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 		Namespace: opts.TemporalNamespace,
 		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
 	}
+	if opts.EnableOtelMetrics {
+		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider("flow-worker")
+		if metricsErr != nil {
+			return nil, metricsErr
+		}
+		clientOptions.MetricsHandler = temporalotel.NewMetricsHandler(temporalotel.MetricsHandlerOptions{
+			Meter: metricsProvider.Meter("temporal-sdk-go"),
+		})
+	}
 
 	if peerdbenv.PeerDBTemporalEnableCertAuth() {
 		slog.Info("Using temporal certificate/key for authentication")
@@ -136,9 +146,9 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 	cleanupOtelManagerFunc := func() {}
 	var otelManager *otel_metrics.OtelManager
 	if opts.EnableOtelMetrics {
-		metricsProvider, metricErr := otel_metrics.SetupOtelMetricsExporter("flow-worker")
-		if metricErr != nil {
-			return nil, metricErr
+		metricsProvider, metricsErr := otel_metrics.SetupPeerDBMetricsProvider("flow-worker")
+		if metricsErr != nil {
+			return nil, metricsErr
 		}
 		otelManager = &otel_metrics.OtelManager{
 			MetricsProvider:    metricsProvider,
