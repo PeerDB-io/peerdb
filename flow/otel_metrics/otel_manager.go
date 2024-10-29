@@ -3,6 +3,7 @@ package otel_metrics
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -49,7 +50,8 @@ func setupGrpcOtelMetricsExporter() (sdkmetric.Exporter, error) {
 }
 
 func temporalMetricsFilteringView() sdkmetric.View {
-	exportListString := peerdbenv.GetEnvString("PEERDB_TEMPORAL_OTEL_METRICS_EXPORT_LIST", "")
+	exportListString := GetPeerDBOtelMetricsExportListEnv()
+	slog.Info("Found export list for temporal metrics", slog.String("exportList", exportListString))
 	// Special case for exporting all metrics
 	if exportListString == "__ALL__" {
 		return func(instrument sdkmetric.Instrument) (sdkmetric.Stream, bool) {
@@ -75,9 +77,10 @@ func temporalMetricsFilteringView() sdkmetric.View {
 	}
 
 	// Export only the metrics in the list
-	enabledMetrics := make(map[string]struct{})
+	enabledMetrics := make(map[string]struct{}, len(exportList))
 	for _, metricName := range exportList {
-		enabledMetrics[metricName] = struct{}{}
+		trimmedMetricName := strings.TrimSpace(metricName)
+		enabledMetrics[trimmedMetricName] = struct{}{}
 	}
 	return func(instrument sdkmetric.Instrument) (sdkmetric.Stream, bool) {
 		stream := sdkmetric.Stream{
@@ -85,10 +88,9 @@ func temporalMetricsFilteringView() sdkmetric.View {
 			Description: instrument.Description,
 			Unit:        instrument.Unit,
 		}
-		if _, ok := enabledMetrics[instrument.Name]; ok {
-			return stream, true
+		if _, ok := enabledMetrics[instrument.Name]; !ok {
+			stream.Aggregation = sdkmetric.AggregationDrop{}
 		}
-		stream.Aggregation = sdkmetric.AggregationDrop{}
 		return stream, true
 	}
 }
