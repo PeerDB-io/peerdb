@@ -84,22 +84,20 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 	if opts.EnableProfiling {
 		setupPyroscope(opts)
 	}
-	var otelMetricsHandler temporalotel.MetricsHandler
+
+	clientOptions := client.Options{
+		HostPort:  opts.TemporalHostPort,
+		Namespace: opts.TemporalNamespace,
+		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
+	}
 	if opts.EnableOtelMetrics {
 		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider("flow-worker")
 		if metricsErr != nil {
 			return nil, metricsErr
 		}
-		otelMetricsHandler = temporalotel.NewMetricsHandler(temporalotel.MetricsHandlerOptions{
+		clientOptions.MetricsHandler = temporalotel.NewMetricsHandler(temporalotel.MetricsHandlerOptions{
 			Meter: metricsProvider.Meter("temporal-sdk-go"),
 		})
-	}
-
-	clientOptions := client.Options{
-		HostPort:       opts.TemporalHostPort,
-		Namespace:      opts.TemporalNamespace,
-		Logger:         slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
-		MetricsHandler: otelMetricsHandler,
 	}
 
 	if peerdbenv.PeerDBTemporalEnableCertAuth() {
