@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"go.opentelemetry.io/otel/attribute"
-	"log"
 	"strings"
 
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -51,8 +50,6 @@ func setupGrpcOtelMetricsExporter() (sdkmetric.Exporter, error) {
 
 func temporalMetricsFilteringView() sdkmetric.View {
 	exportListString := peerdbenv.GetEnvString("PEERDB_TEMPORAL_OTEL_METRICS_EXPORT_LIST", "")
-	// TODO remove below log
-	log.Printf("exportListString: %s", exportListString)
 	// Special case for exporting all metrics
 	if exportListString == "__ALL__" {
 		return func(instrument sdkmetric.Instrument) (sdkmetric.Stream, bool) {
