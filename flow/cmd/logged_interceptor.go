@@ -18,7 +18,10 @@ func NewLoggedWorkflowInboundInterceptor(next interceptor.WorkflowInboundInterce
 	}
 }
 
-func (w *LoggedWorkflowInboundInterceptor) ExecuteWorkflow(ctx workflow.Context, in *interceptor.ExecuteWorkflowInput) (interface{}, error) {
+func (w *LoggedWorkflowInboundInterceptor) ExecuteWorkflow(
+	ctx workflow.Context,
+	in *interceptor.ExecuteWorkflowInput,
+) (interface{}, error) {
 	// Workflow starts here
 	result, err := w.Next.ExecuteWorkflow(ctx, in)
 	// Workflow ends here
@@ -37,7 +40,10 @@ func NewLoggedActivityInboundInterceptor(next interceptor.ActivityInboundInterce
 	}
 }
 
-func (c *LoggedActivityInboundInterceptor) ExecuteActivity(ctx context.Context, in *interceptor.ExecuteActivityInput) (interface{}, error) {
+func (c *LoggedActivityInboundInterceptor) ExecuteActivity(
+	ctx context.Context,
+	in *interceptor.ExecuteActivityInput,
+) (interface{}, error) {
 	// Activity starts here
 	out, err := c.Next.ExecuteActivity(ctx, in)
 	// Activity ends here
@@ -48,11 +54,17 @@ type LoggedWorkerInterceptor struct {
 	interceptor.WorkerInterceptorBase
 }
 
-func (c LoggedWorkerInterceptor) InterceptActivity(ctx context.Context, next interceptor.ActivityInboundInterceptor) interceptor.ActivityInboundInterceptor {
+func (c LoggedWorkerInterceptor) InterceptActivity(
+	ctx context.Context,
+	next interceptor.ActivityInboundInterceptor,
+) interceptor.ActivityInboundInterceptor {
 	return NewLoggedActivityInboundInterceptor(next)
 }
 
-func (c LoggedWorkerInterceptor) InterceptWorkflow(ctx workflow.Context, next interceptor.WorkflowInboundInterceptor) interceptor.WorkflowInboundInterceptor {
+func (c LoggedWorkerInterceptor) InterceptWorkflow(
+	ctx workflow.Context,
+	next interceptor.WorkflowInboundInterceptor,
+) interceptor.WorkflowInboundInterceptor {
 	// Workflow intercepted here
 	intercepted := NewLoggedWorkflowInboundInterceptor(next)
 	// Workflow intercepting ends here
