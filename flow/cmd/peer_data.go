@@ -90,10 +90,12 @@ func (h *FlowRequestHandler) GetPeerInfo(
 
 	var version string
 	versionConnector, err := connectors.GetAs[connectors.GetVersionConnector](ctx, nil, peer)
-	if err != nil && !errors.Is(err, errors.ErrUnsupported) {
-		slog.Error("failed to get version connector", slog.Any("error", err))
-	}
-	if versionConnector != nil {
+	if err != nil {
+		if !errors.Is(err, errors.ErrUnsupported) {
+			slog.Error("failed to get version connector", slog.Any("error", err))
+		}
+	} else {
+		defer connectors.CloseConnector(ctx, versionConnector)
 		version, err = versionConnector.GetVersion(ctx)
 		if err != nil {
 			slog.Error("failed to get version", slog.Any("error", err))
@@ -359,7 +361,8 @@ func (h *FlowRequestHandler) GetSlotLagHistory(
 	ctx context.Context,
 	req *protos.GetSlotLagHistoryRequest,
 ) (*protos.GetSlotLagHistoryResponse, error) {
-	rows, err := h.pool.Query(ctx, `select updated_at, slot_size
+	rows, err := h.pool.Query(ctx, `select updated_at, slot_size,
+			coalesce(redo_lsn,''), coalesce(restart_lsn,''), coalesce(confirmed_flush_lsn,'')
 		from peerdb_stats.peer_slot_size
 		where slot_size is not null
 			and peer_name = $1
@@ -372,12 +375,18 @@ func (h *FlowRequestHandler) GetSlotLagHistory(
 	points, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.SlotLagPoint, error) {
 		var updatedAt time.Time
 		var slotSize int64
-		if err := row.Scan(&updatedAt, &slotSize); err != nil {
+		var redoLSN string
+		var restartLSN string
+		var confirmedFlushLSN string
+		if err := row.Scan(&updatedAt, &slotSize, &redoLSN, &restartLSN, &confirmedFlushLSN); err != nil {
 			return nil, err
 		}
 		return &protos.SlotLagPoint{
-			UpdatedAt: float64(updatedAt.UnixMilli()),
-			SlotSize:  float64(slotSize) / 1000.0,
+			Time:         float64(updatedAt.UnixMilli()),
+			Size:         float64(slotSize) / 1000.0,
+			RedoLSN:      redoLSN,
+			RestartLSN:   restartLSN,
+			ConfirmedLSN: confirmedFlushLSN,
 		}, nil
 	})
 	if err != nil {

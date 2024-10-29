@@ -24,7 +24,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	peerdb_gauges "github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_gauges"
@@ -55,7 +54,7 @@ type ReplState struct {
 }
 
 func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
-	logger := logger.LoggerFromCtx(ctx)
+	logger := shared.LoggerFromCtx(ctx)
 	flowNameInApplicationName, err := peerdbenv.PeerDBApplicationNamePerMirrorName(ctx, nil)
 	if err != nil {
 		logger.Error("Failed to get flow name from application name", slog.Any("error", err))
@@ -132,7 +131,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 
 	conn, err := c.ssh.NewPostgresConnFromConfig(ctx, replConfig)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Error("failed to create replication connection", "error", err)
+		shared.LoggerFromCtx(ctx).Error("failed to create replication connection", "error", err)
 		return nil, fmt.Errorf("failed to create replication connection: %w", err)
 	}
 	return conn, nil
@@ -993,7 +992,7 @@ func (c *PostgresConnector) EnsurePullability(
 		}
 
 		if !req.CheckConstraints {
-			logger.LoggerFromCtx(ctx).Info("[no-constraints] ensured pullability table " + tableName)
+			shared.LoggerFromCtx(ctx).Info("[no-constraints] ensured pullability table " + tableName)
 			continue
 		}
 
@@ -1176,7 +1175,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 	alertKeys *alerting.AlertKeys,
 	slotMetricGauges peerdb_gauges.SlotMetricGauges,
 ) error {
-	logger := logger.LoggerFromCtx(ctx)
+	logger := shared.LoggerFromCtx(ctx)
 
 	slotInfo, err := getSlotInfo(ctx, c.conn, alertKeys.SlotName, c.config.Database)
 	if err != nil {

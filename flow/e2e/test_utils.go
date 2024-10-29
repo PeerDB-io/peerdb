@@ -26,7 +26,6 @@ import (
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
@@ -543,7 +542,7 @@ func (tw *testWriter) Write(p []byte) (int, error) {
 func NewTemporalClient(t *testing.T) client.Client {
 	t.Helper()
 
-	logger := slog.New(logger.NewHandler(
+	logger := slog.New(shared.NewSlogHandler(
 		slog.NewJSONHandler(
 			&testWriter{t},
 			&slog.HandlerOptions{Level: slog.LevelWarn},

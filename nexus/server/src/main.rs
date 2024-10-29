@@ -936,6 +936,10 @@ struct Args {
     #[clap(long, default_value = "false", env = "PEERDB_MIGRATIONS_ONLY")]
     migrations_only: bool,
 
+    /// If set to true, nexus will not run any migrations
+    #[clap(long, default_value = "false", env = "PEERDB_MIGRATIONS_DISABLED")]
+    migrations_disabled: bool,
+
     /// KMS Key ID for decrypting the catalog password
     #[clap(long, env = "PEERDB_KMS_KEY_ID")]
     kms_key_id: Option<String>,
@@ -1100,7 +1104,13 @@ pub async fn main() -> anyhow::Result<()> {
     let _guard = setup_tracing(args.log_dir.as_ref().map(|s| &s[..]));
     let catalog_config = get_catalog_config(&args).await?;
 
-    run_migrations(&catalog_config).await?;
+    if args.migrations_disabled && args.migrations_only {
+        return Err(anyhow::anyhow!("Invalid configuration, migrations cannot be enabled and disabled at the same time"));
+    }
+
+    if !args.migrations_disabled {
+        run_migrations(&catalog_config).await?;
+    }
     if args.migrations_only {
         return Ok(());
     }

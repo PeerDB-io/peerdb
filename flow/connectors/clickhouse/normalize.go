@@ -55,6 +55,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 	}
 
 	normalizedTableCreateSQL, err := generateCreateTableSQLForNormalizedTable(
+		ctx,
 		config,
 		tableIdentifier,
 		tableSchema,
@@ -77,6 +78,7 @@ func getColName(overrides map[string]string, name string) string {
 }
 
 func generateCreateTableSQLForNormalizedTable(
+	ctx context.Context,
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
@@ -176,6 +178,12 @@ func generateCreateTableSQLForNormalizedTable(
 		stmtBuilder.WriteString("ORDER BY (")
 		stmtBuilder.WriteString(orderByStr)
 		stmtBuilder.WriteString(") ")
+	}
+
+	if nullable, err := peerdbenv.PeerDBNullable(ctx, config.Env); err != nil {
+		return "", err
+	} else if nullable {
+		stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
 	}
 
 	return stmtBuilder.String(), nil
@@ -332,26 +340,26 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			switch clickHouseType {
 			case "Date32", "Nullable(Date32)":
 				projection.WriteString(fmt.Sprintf(
-					"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'))) AS `%s`,",
+					"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'),6)) AS `%s`,",
 					colName,
 					dstColName,
 				))
 				if enablePrimaryUpdate {
 					projectionUpdate.WriteString(fmt.Sprintf(
-						"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s'))) AS `%s`,",
+						"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s'),6)) AS `%s`,",
 						colName,
 						dstColName,
 					))
 				}
 			case "DateTime64(6)", "Nullable(DateTime64(6))":
 				projection.WriteString(fmt.Sprintf(
-					"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s')) AS `%s`,",
+					"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'),6) AS `%s`,",
 					colName,
 					dstColName,
 				))
 				if enablePrimaryUpdate {
 					projectionUpdate.WriteString(fmt.Sprintf(
-						"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s')) AS `%s`,",
+						"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s'),6) AS `%s`,",
 						colName,
 						dstColName,
 					))
@@ -410,8 +418,9 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		}
 
 		insertIntoSelectQuery := strings.Builder{}
-		insertIntoSelectQuery.WriteString("INSERT INTO ")
+		insertIntoSelectQuery.WriteString("INSERT INTO `")
 		insertIntoSelectQuery.WriteString(tbl)
+		insertIntoSelectQuery.WriteString("` ")
 		insertIntoSelectQuery.WriteString(colSelector.String())
 		insertIntoSelectQuery.WriteString(selectQuery.String())
 

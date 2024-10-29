@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -16,7 +17,7 @@ import (
 )
 
 const (
-	KMSKeyIDEnvVar = "PEERDB_KMS_KEY_ID"
+	KmsKeyIDEnvVar = "PEERDB_KMS_KEY_ID"
 )
 
 // GetEnvInt returns the value of the environment variable with the given name
@@ -63,8 +64,8 @@ func GetEnvString(name string, defaultValue string) string {
 	return val
 }
 
-func decryptWithKMS(ctx context.Context, data []byte) ([]byte, error) {
-	keyID, exists := os.LookupEnv(KMSKeyIDEnvVar)
+func decryptWithKms(ctx context.Context, data []byte) ([]byte, error) {
+	keyID, exists := os.LookupEnv(KmsKeyIDEnvVar)
 	if !exists {
 		return data, nil
 	}
@@ -86,7 +87,15 @@ func decryptWithKMS(ctx context.Context, data []byte) ([]byte, error) {
 	return decrypted.Plaintext, nil
 }
 
-func GetEnvBase64EncodedBytes(ctx context.Context, name string, defaultValue []byte) ([]byte, error) {
+var kmsCache sync.Map
+
+func GetKmsDecryptedEnvBase64EncodedBytes(ctx context.Context, name string, defaultValue []byte) ([]byte, error) {
+	if cacheVal, ok := kmsCache.Load(name); ok {
+		if finalVal, ok := cacheVal.([]byte); ok {
+			return finalVal, nil
+		}
+	}
+
 	val, ok := os.LookupEnv(name)
 	if !ok {
 		return defaultValue, nil
@@ -98,21 +107,26 @@ func GetEnvBase64EncodedBytes(ctx context.Context, name string, defaultValue []b
 		return nil, fmt.Errorf("failed to decode base64 value for %s: %w", name, err)
 	}
 
-	return decryptWithKMS(ctx, decoded)
+	finalVal, err := decryptWithKms(ctx, decoded)
+	if err != nil {
+		return finalVal, err
+	}
+	kmsCache.Store(name, finalVal)
+	return finalVal, nil
 }
 
-func GetKMSDecryptedEnvString(ctx context.Context, name string, defaultValue string) (string, error) {
+func GetKmsDecryptedEnvString(ctx context.Context, name string, defaultValue string) (string, error) {
 	val, ok := os.LookupEnv(name)
 	if !ok {
 		return defaultValue, nil
 	}
 
-	_, exists := os.LookupEnv(KMSKeyIDEnvVar)
+	_, exists := os.LookupEnv(KmsKeyIDEnvVar)
 	if !exists {
 		return val, nil
 	}
 
-	ret, err := GetEnvBase64EncodedBytes(ctx, name, []byte(defaultValue))
+	ret, err := GetKmsDecryptedEnvBase64EncodedBytes(ctx, name, []byte(defaultValue))
 	if err != nil {
 		return defaultValue, fmt.Errorf("failed to get base64 encoded bytes for %s: %w", name, err)
 	}

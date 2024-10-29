@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	lua "github.com/yuin/gopher-lua"
@@ -627,10 +628,12 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	err = srcConn.PullFlowCleanup(ctx, req.FlowJobName)
-	if err != nil {
+	if err := srcConn.PullFlowCleanup(ctx, req.FlowJobName); err != nil {
 		pullCleanupErr := fmt.Errorf("[DropFlowSource] failed to clean up source: %w", err)
-		a.Alerter.LogFlowError(ctx, req.FlowJobName, pullCleanupErr)
+		if !shared.IsSQLStateError(err, pgerrcode.ObjectInUse) {
+			// don't alert when PID active
+			a.Alerter.LogFlowError(ctx, req.FlowJobName, pullCleanupErr)
+		}
 		return pullCleanupErr
 	}
 
@@ -647,8 +650,7 @@ func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
-	err = dstConn.SyncFlowCleanup(ctx, req.FlowJobName)
-	if err != nil {
+	if err := dstConn.SyncFlowCleanup(ctx, req.FlowJobName); err != nil {
 		syncFlowCleanupErr := fmt.Errorf("[DropFlowDestination] failed to clean up destination: %w", err)
 		a.Alerter.LogFlowError(ctx, req.FlowJobName, syncFlowCleanupErr)
 		return syncFlowCleanupErr
@@ -661,7 +663,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 	logger := activity.GetLogger(ctx)
 	walHeartbeatEnabled, err := peerdbenv.PeerDBEnableWALHeartbeat(ctx, nil)
 	if err != nil {
-		logger.Warn("unable to fetch wal heartbeat config. Skipping walheartbeat send.", slog.Any("error", err))
+		logger.Warn("unable to fetch wal heartbeat config, skipping wal heartbeat send", slog.Any("error", err))
 		return err
 	}
 	if !walHeartbeatEnabled {
@@ -670,13 +672,13 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 	}
 	walHeartbeatStatement, err := peerdbenv.PeerDBWALHeartbeatQuery(ctx, nil)
 	if err != nil {
-		logger.Warn("unable to fetch wal heartbeat config. Skipping walheartbeat send.", slog.Any("error", err))
+		logger.Warn("unable to fetch wal heartbeat config, skipping wal heartbeat send", slog.Any("error", err))
 		return err
 	}
 
 	pgPeers, err := a.getPostgresPeerConfigs(ctx)
 	if err != nil {
-		logger.Warn("unable to fetch peers. Skipping walheartbeat send.", slog.Any("error", err))
+		logger.Warn("unable to fetch peers, skipping wal heartbeat send", slog.Any("error", err))
 		return err
 	}
 
@@ -691,15 +693,15 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 			pgConfig := pgPeer.GetPostgresConfig()
 			pgConn, peerErr := connpostgres.NewPostgresConnector(ctx, nil, pgConfig)
 			if peerErr != nil {
-				logger.Error(fmt.Sprintf("error creating connector for postgres peer %s with host %s: %v",
-					pgPeer.Name, pgConfig.Host, peerErr))
+				logger.Error("error creating connector for postgres peer",
+					slog.String("peer", pgPeer.Name), slog.String("host", pgConfig.Host), slog.Any("error", err))
 				return
 			}
 			defer pgConn.Close()
 			if cmdErr := pgConn.ExecuteCommand(ctx, walHeartbeatStatement); cmdErr != nil {
-				logger.Warn(fmt.Sprintf("could not send walheartbeat to peer %s: %v", pgPeer.Name, cmdErr))
+				logger.Warn(fmt.Sprintf("could not send wal heartbeat to peer %s: %v", pgPeer.Name, cmdErr))
 			}
-			logger.Info("sent walheartbeat", slog.String("peer", pgPeer.Name))
+			logger.Info("sent wal heartbeat", slog.String("peer", pgPeer.Name))
 		}()
 	}
 

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -53,7 +52,7 @@ func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
 		}
 	}
 
-	logger := logger.LoggerFromCtx(ctx)
+	logger := shared.LoggerFromCtx(ctx)
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 

@@ -10,7 +10,7 @@ import (
 
 	peersql "github.com/PeerDB-io/peer-flow/connectors/sql"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type SQLServerConnector struct {
@@ -31,12 +31,11 @@ func NewSQLServerConnector(ctx context.Context, config *protos.SqlServerConfig) 
 		return nil, err
 	}
 
-	err = db.PingContext(ctx)
-	if err != nil {
+	if err := db.PingContext(ctx); err != nil {
 		return nil, err
 	}
 
-	logger := logger.LoggerFromCtx(ctx)
+	logger := shared.LoggerFromCtx(ctx)
 
 	genericExecutor := *peersql.NewGenericSQLQueryExecutor(
 		logger, db, sqlServerTypeToQValueKindMap, qValueKindToSQLServerTypeMap)
