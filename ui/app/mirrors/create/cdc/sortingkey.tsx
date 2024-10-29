@@ -18,7 +18,11 @@ import { Label } from '@/lib/Label';
 import { RowWithCheckbox } from '@/lib/Layout';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import { engineOptionStyles } from './styles';
+import {
+  engineOptionStyles,
+  sortingKeyPillContainerStyle,
+  sortingKeyPillStyle,
+} from './styles';
 
 interface SortingKeysProps {
   columns: string[];
@@ -42,7 +46,7 @@ const SelectSortingKeys = ({
     (col: string, action: 'add' | 'remove') => {
       setSortingKeysSelections((prev) => {
         if (action === 'add' && !prev.some((key) => key === col)) {
-          return [col, ...prev];
+          return [...prev, col];
         } else if (action === 'remove') {
           return prev.filter((prevCol) => prevCol !== col);
         }
@@ -147,30 +151,10 @@ const SelectSortingKeys = ({
             theme={SelectTheme}
             isClearable
           />
-          <div
-            style={{
-              display: 'flex',
-              marginTop: '0.5rem',
-              columnGap: '0.5rem',
-              rowGap: '0.5rem',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-            }}
-          >
+          <div style={sortingKeyPillContainerStyle}>
             {sortingKeysSelections.map((col: string) => {
               return (
-                <div
-                  key={col}
-                  style={{
-                    display: 'flex',
-                    columnGap: '0.3rem',
-                    alignItems: 'center',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '1rem',
-                    paddingLeft: '0.5rem',
-                    paddingRight: '0.5rem',
-                  }}
-                >
+                <div key={col} style={sortingKeyPillStyle}>
                   <p style={{ fontSize: '0.7rem' }}>{col}</p>
                   <Button
                     variant='normalBorderless'
