@@ -3,6 +3,7 @@ package otel_metrics
 import (
 	"context"
 	"fmt"
+	"go.opentelemetry.io/otel/attribute"
 	"log"
 	"strings"
 
@@ -24,12 +25,16 @@ type OtelManager struct {
 }
 
 // newOtelResource returns a resource describing this application.
-func newOtelResource(otelServiceName string) (*resource.Resource, error) {
+func newOtelResource(otelServiceName string, attrs ...attribute.KeyValue) (*resource.Resource, error) {
+	allAttrs := []attribute.KeyValue{
+		semconv.ServiceNameKey.String(otelServiceName),
+	}
+	allAttrs = append(allAttrs, attrs...)
 	r, err := resource.Merge(
 		resource.Default(),
 		resource.NewWithAttributes(
 			semconv.SchemaURL,
-			semconv.ServiceNameKey.String(otelServiceName),
+			allAttrs...,
 		),
 	)
 
@@ -51,20 +56,24 @@ func temporalMetricsFilteringView() sdkmetric.View {
 	// Special case for exporting all metrics
 	if exportListString == "__ALL__" {
 		return func(instrument sdkmetric.Instrument) (sdkmetric.Stream, bool) {
-			return sdkmetric.Stream{
-				Name:            GetPeerDBOtelMetricsNamespace() + "temporal." + instrument.Name,
-				Description:     instrument.Description,
-				Unit:            instrument.Unit,
-				Aggregation:     nil,
-				AttributeFilter: nil,
-			}, true
+			stream := sdkmetric.Stream{
+				Name:        GetPeerDBOtelMetricsNamespace() + "temporal." + instrument.Name,
+				Description: instrument.Description,
+				Unit:        instrument.Unit,
+			}
+			return stream, true
 		}
 	}
 	exportList := strings.Split(exportListString, ",")
 	// Don't export any metrics if the list is empty
 	if len(exportList) == 0 {
 		return func(instrument sdkmetric.Instrument) (sdkmetric.Stream, bool) {
-			return sdkmetric.Stream{}, false
+			return sdkmetric.Stream{
+				Name:        GetPeerDBOtelMetricsNamespace() + "temporal." + instrument.Name,
+				Description: instrument.Description,
+				Unit:        instrument.Unit,
+				Aggregation: sdkmetric.AggregationDrop{},
+			}, true
 		}
 	}
 
@@ -74,16 +83,16 @@ func temporalMetricsFilteringView() sdkmetric.View {
 		enabledMetrics[metricName] = struct{}{}
 	}
 	return func(instrument sdkmetric.Instrument) (sdkmetric.Stream, bool) {
-		if _, ok := enabledMetrics[instrument.Name]; ok {
-			return sdkmetric.Stream{
-				Name:            GetPeerDBOtelMetricsNamespace() + "temporal." + instrument.Name,
-				Description:     instrument.Description,
-				Unit:            instrument.Unit,
-				Aggregation:     nil,
-				AttributeFilter: nil,
-			}, true
+		stream := sdkmetric.Stream{
+			Name:        GetPeerDBOtelMetricsNamespace() + "temporal." + instrument.Name,
+			Description: instrument.Description,
+			Unit:        instrument.Unit,
 		}
-		return sdkmetric.Stream{}, false
+		if _, ok := enabledMetrics[instrument.Name]; ok {
+			return stream, true
+		}
+		stream.Aggregation = sdkmetric.AggregationDrop{}
+		return stream, true
 	}
 }
 
@@ -106,14 +115,10 @@ func setupExporter() (sdkmetric.Exporter, error) {
 	return metricExporter, err
 }
 
-func setupMetricsProvider(otelServiceName string, views ...sdkmetric.View) (*sdkmetric.MeterProvider, error) {
+func setupMetricsProvider(otelResource *resource.Resource, views ...sdkmetric.View) (*sdkmetric.MeterProvider, error) {
 	metricExporter, err := setupExporter()
 	if err != nil {
 		return nil, err
-	}
-	otelResource, err := newOtelResource(otelServiceName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
 
 	meterProvider := sdkmetric.NewMeterProvider(
@@ -125,9 +130,17 @@ func setupMetricsProvider(otelServiceName string, views ...sdkmetric.View) (*sdk
 }
 
 func SetupPeerDBMetricsProvider(otelServiceName string) (*sdkmetric.MeterProvider, error) {
-	return setupMetricsProvider(otelServiceName)
+	otelResource, err := newOtelResource(otelServiceName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
+	}
+	return setupMetricsProvider(otelResource)
 }
 
 func SetupTemporalMetricsProvider(otelServiceName string) (*sdkmetric.MeterProvider, error) {
-	return setupMetricsProvider(otelServiceName, temporalMetricsFilteringView())
+	otelResource, err := newOtelResource(otelServiceName, attribute.String(DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
+	}
+	return setupMetricsProvider(otelResource, temporalMetricsFilteringView())
 }

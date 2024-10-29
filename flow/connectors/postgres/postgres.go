@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/PeerDB-io/peer-flow/otel_metrics"
+	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_gauges"
 	"log/slog"
 	"strings"
 	"sync"
@@ -26,7 +28,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	peerdb_gauges "github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_gauges"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -1192,10 +1193,10 @@ func (c *PostgresConnector) HandleSlotInfo(
 		slog.Float64("LagInMB", float64(slotInfo[0].LagInMb)))
 	alerter.AlertIfSlotLag(ctx, alertKeys, slotInfo[0])
 	slotMetricGauges.SlotLagGauge.Set(float64(slotInfo[0].LagInMb), attribute.NewSet(
-		attribute.String(peerdb_gauges.FlowNameKey, alertKeys.FlowName),
-		attribute.String(peerdb_gauges.PeerNameKey, alertKeys.PeerName),
-		attribute.String(peerdb_gauges.SlotNameKey, alertKeys.SlotName),
-		attribute.String(peerdb_gauges.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
+		attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+		attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+		attribute.String(otel_metrics.SlotNameKey, alertKeys.SlotName),
+		attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
 
 	// Also handles alerts for PeerDB user connections exceeding a given limit here
 	res, err := getOpenConnectionsForUser(ctx, c.conn, c.config.User)
@@ -1205,9 +1206,9 @@ func (c *PostgresConnector) HandleSlotInfo(
 	}
 	alerter.AlertIfOpenConnections(ctx, alertKeys, res)
 	slotMetricGauges.OpenConnectionsGauge.Set(res.CurrentOpenConnections, attribute.NewSet(
-		attribute.String(peerdb_gauges.FlowNameKey, alertKeys.FlowName),
-		attribute.String(peerdb_gauges.PeerNameKey, alertKeys.PeerName),
-		attribute.String(peerdb_gauges.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
+		attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+		attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+		attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
 
 	replicationRes, err := getOpenReplicationConnectionsForUser(ctx, c.conn, c.config.User)
 	if err != nil {
@@ -1216,9 +1217,9 @@ func (c *PostgresConnector) HandleSlotInfo(
 	}
 
 	slotMetricGauges.OpenReplicationConnectionsGauge.Set(replicationRes.CurrentOpenConnections, attribute.NewSet(
-		attribute.String(peerdb_gauges.FlowNameKey, alertKeys.FlowName),
-		attribute.String(peerdb_gauges.PeerNameKey, alertKeys.PeerName),
-		attribute.String(peerdb_gauges.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
+		attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+		attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+		attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
 
 	var intervalSinceLastNormalize *time.Duration
 	err = alerter.CatalogPool.QueryRow(ctx, "SELECT now()-max(end_time) FROM peerdb_stats.cdc_batches WHERE flow_name=$1",
@@ -1233,9 +1234,9 @@ func (c *PostgresConnector) HandleSlotInfo(
 	}
 	if intervalSinceLastNormalize != nil {
 		slotMetricGauges.IntervalSinceLastNormalizeGauge.Set(intervalSinceLastNormalize.Seconds(), attribute.NewSet(
-			attribute.String(peerdb_gauges.FlowNameKey, alertKeys.FlowName),
-			attribute.String(peerdb_gauges.PeerNameKey, alertKeys.PeerName),
-			attribute.String(peerdb_gauges.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
+			attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+			attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+			attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
 		alerter.AlertIfTooLongSinceLastNormalize(ctx, alertKeys, *intervalSinceLastNormalize)
 	}
 

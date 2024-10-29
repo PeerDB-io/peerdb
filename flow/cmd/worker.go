@@ -141,7 +141,7 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 		MaxConcurrentActivityExecutionSize:     opts.TemporalMaxConcurrentActivities,
 		MaxConcurrentWorkflowTaskExecutionSize: opts.TemporalMaxConcurrentWorkflowTasks,
 		Interceptors: []interceptor.WorkerInterceptor{
-			NewCommonWorkerInterceptor(),
+			NewLoggedWorkerInterceptor(),
 		},
 		OnFatalError: func(err error) {
 			slog.Error("Peerflow Worker failed", slog.Any("error", err))
