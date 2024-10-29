@@ -354,16 +354,19 @@ message MirrorLog {
   string error_message = 2;
   string error_type = 3;
   double error_timestamp = 4;
+  int32 id = 5;
 }
 message ListMirrorLogsRequest {
   string flow_job_name = 1;
   string level = 2;
-  int32 page = 3;
-  int32 num_per_page = 4;
+  int32 num_per_page = 3;
+  int32 before_id = 4;
+  int32 after_id = 5;
 }
 message ListMirrorLogsResponse {
   repeated MirrorLog errors = 1;
   int32 total = 2;
+  int32 page = 3;
 }
 
 message ValidateCDCMirrorResponse{
