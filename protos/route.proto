@@ -359,9 +359,10 @@ message MirrorLog {
 message ListMirrorLogsRequest {
   string flow_job_name = 1;
   string level = 2;
-  int32 num_per_page = 3;
-  int32 before_id = 4;
-  int32 after_id = 5;
+  int32 page = 3;
+  int32 num_per_page = 4;
+  int32 before_id = 5;
+  int32 after_id = 6;
 }
 message ListMirrorLogsResponse {
   repeated MirrorLog errors = 1;

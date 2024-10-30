@@ -602,13 +602,15 @@ func (h *FlowRequestHandler) ListMirrorLogs(
 	}
 
 	sortOrderBy := "desc"
-	if req.BeforeId != -1 {
-		whereArgs = append(whereArgs, req.BeforeId)
-		whereExprs = append(whereExprs, fmt.Sprintf("id < $%d", len(whereArgs)))
-	} else if req.AfterId != -1 {
-		whereArgs = append(whereArgs, req.AfterId)
-		whereExprs = append(whereExprs, fmt.Sprintf("id > $%d", len(whereArgs)))
-		sortOrderBy = ""
+	if req.BeforeId != 0 && req.AfterId != 0 {
+		if req.BeforeId != -1 {
+			whereArgs = append(whereArgs, req.BeforeId)
+			whereExprs = append(whereExprs, fmt.Sprintf("id < $%d", len(whereArgs)))
+		} else if req.AfterId != -1 {
+			whereArgs = append(whereArgs, req.AfterId)
+			whereExprs = append(whereExprs, fmt.Sprintf("id > $%d", len(whereArgs)))
+			sortOrderBy = ""
+		}
 	}
 
 	var whereClause string
@@ -616,10 +618,16 @@ func (h *FlowRequestHandler) ListMirrorLogs(
 		whereClause = " WHERE " + strings.Join(whereExprs, " AND ")
 	}
 
+	// page is deprecated
+	var offsetClause string
+	if req.Page != 0 {
+		offsetClause = fmt.Sprintf(" offset %d", (req.Page-1)*req.NumPerPage)
+	}
+
 	rows, err := h.pool.Query(ctx, fmt.Sprintf(`select id, flow_name, error_message, error_type, error_timestamp
 	from peerdb_stats.flow_errors%s
 	order by id %s
-	limit %d`, whereClause, sortOrderBy, req.NumPerPage), whereArgs...)
+	limit %d%s`, whereClause, sortOrderBy, req.NumPerPage, offsetClause), whereArgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -658,9 +666,14 @@ func (h *FlowRequestHandler) ListMirrorLogs(
 		return nil, err
 	}
 
+	page := req.Page
+	if page == 0 {
+		page = rowsBehind/req.NumPerPage + 1
+	}
+
 	return &protos.ListMirrorLogsResponse{
 		Errors: mirrorErrors,
 		Total:  total,
-		Page:   rowsBehind/req.NumPerPage + 1,
+		Page:   page,
 	}, nil
 }

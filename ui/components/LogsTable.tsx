@@ -63,6 +63,7 @@ export default function LogsTable({
         beforeId,
         afterId,
         numPerPage,
+        page: 0, // deprecated
       };
 
       try {
