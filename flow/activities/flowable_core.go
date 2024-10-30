@@ -53,29 +53,9 @@ func waitForCdcCache[TPull connectors.CDCPullConnectorCore](ctx context.Context,
 	var none TPull
 	logger := activity.GetLogger(ctx)
 	attempt := 0
+	waitInterval := time.Second
 	// try for 5 minutes, once per second
-	for range 300 {
-		a.CdcCacheRw.RLock()
-		entry, ok := a.CdcCache[sessionID]
-		a.CdcCacheRw.RUnlock()
-		if ok {
-			if conn, ok := entry.connector.(TPull); ok {
-				return conn, nil
-			}
-			return none, fmt.Errorf("expected %s, cache held %T", reflect.TypeFor[TPull]().Name(), entry.connector)
-		}
-		activity.RecordHeartbeat(ctx, "wait another second for source connector")
-		attempt += 1
-		if attempt > 2 {
-			logger.Info("waiting on source connector setup",
-				slog.Int("attempt", attempt), slog.String("sessionID", sessionID))
-		}
-		if err := ctx.Err(); err != nil {
-			return none, err
-		}
-		time.Sleep(time.Second)
-	}
-	logger.Info("source connector not setup in time, transition to slow wait", slog.String("sessionID", sessionID))
+	// after that, try indefinitely every minute
 	for {
 		a.CdcCacheRw.RLock()
 		entry, ok := a.CdcCache[sessionID]
@@ -86,13 +66,21 @@ func waitForCdcCache[TPull connectors.CDCPullConnectorCore](ctx context.Context,
 			}
 			return none, fmt.Errorf("expected %s, cache held %T", reflect.TypeFor[TPull]().Name(), entry.connector)
 		}
-		activity.RecordHeartbeat(ctx, "wait another minute for source connector")
-		logger.Info("waiting on source connector setup",
-			slog.Int("attempt", attempt), slog.String("sessionID", sessionID))
+		activity.RecordHeartbeat(ctx, fmt.Sprintf("wait %s for source connector", waitInterval))
+		attempt += 1
+		if attempt > 2 {
+			logger.Info("waiting on source connector setup",
+				slog.Int("attempt", attempt), slog.String("sessionID", sessionID))
+		}
 		if err := ctx.Err(); err != nil {
 			return none, err
 		}
-		time.Sleep(time.Minute)
+		time.Sleep(waitInterval)
+		if attempt == 300 {
+			logger.Info("source connector not setup in time, transition to slow wait",
+				slog.String("sessionID", sessionID))
+			waitInterval = time.Minute
+		}
 	}
 }
 
