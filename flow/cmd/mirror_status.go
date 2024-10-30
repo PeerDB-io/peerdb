@@ -177,10 +177,7 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 
 	var cdcBatches []*protos.CDCBatch
 	if !req.ExcludeBatches {
-		cdcBatchesResponse, err := h.GetCDCBatches(ctx, &protos.GetCDCBatchesRequest{
-			FlowJobName: req.FlowJobName,
-			Limit:       0,
-		})
+		cdcBatchesResponse, err := h.GetCDCBatches(ctx, &protos.GetCDCBatchesRequest{FlowJobName: req.FlowJobName})
 		if err != nil {
 			return nil, err
 		}
@@ -459,18 +456,36 @@ func (h *FlowRequestHandler) getMirrorCreatedAt(ctx context.Context, flowJobName
 }
 
 func (h *FlowRequestHandler) GetCDCBatches(ctx context.Context, req *protos.GetCDCBatchesRequest) (*protos.GetCDCBatchesResponse, error) {
-	mirrorName := req.FlowJobName
 	limit := req.Limit
 	limitClause := ""
 	if limit > 0 {
 		limitClause = fmt.Sprintf(" LIMIT %d", limit)
 	}
-	q := `SELECT DISTINCT ON(batch_id) batch_id,start_time,end_time,rows_in_batch,batch_start_lsn,batch_end_lsn FROM peerdb_stats.cdc_batches
-	  WHERE flow_name=$1 AND start_time IS NOT NULL ORDER BY batch_id DESC, start_time DESC` + limitClause
-	rows, err := h.pool.Query(ctx, q, mirrorName)
+
+	whereExprs := make([]string, 0, 1)
+	whereArgs := append(make([]any, 0, 2), req.FlowJobName)
+
+	sortOrderBy := "desc"
+	if req.BeforeId != 0 && req.AfterId != 0 {
+		if req.BeforeId != -1 {
+			whereArgs = append(whereArgs, req.BeforeId)
+			whereExprs = append(whereExprs, fmt.Sprintf(" AND batch_id < $%d", len(whereArgs)))
+		} else if req.AfterId != -1 {
+			whereArgs = append(whereArgs, req.AfterId)
+			whereExprs = append(whereExprs, fmt.Sprintf(" AND batch_id > $%d", len(whereArgs)))
+			sortOrderBy = ""
+		}
+	}
+
+	q := fmt.Sprintf(`SELECT DISTINCT ON(batch_id)
+			batch_id,start_time,end_time,rows_in_batch,batch_start_lsn,batch_end_lsn
+		FROM peerdb_stats.cdc_batches
+		WHERE flow_name=$1 AND start_time IS NOT NULL%s
+		ORDER BY batch_id %s%s`, strings.Join(whereExprs, ""), sortOrderBy, limitClause)
+	rows, err := h.pool.Query(ctx, q, whereArgs...)
 	if err != nil {
-		slog.Error(fmt.Sprintf("unable to query cdc batches - %s: %s", mirrorName, err.Error()))
-		return nil, fmt.Errorf("unable to query cdc batches - %s: %w", mirrorName, err)
+		slog.Error(fmt.Sprintf("unable to query cdc batches - %s: %s", req.FlowJobName, err.Error()))
+		return nil, fmt.Errorf("unable to query cdc batches - %s: %w", req.FlowJobName, err)
 	}
 
 	batches, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.CDCBatch, error) {
@@ -481,8 +496,8 @@ func (h *FlowRequestHandler) GetCDCBatches(ctx context.Context, req *protos.GetC
 		var startLSN pgtype.Numeric
 		var endLSN pgtype.Numeric
 		if err := rows.Scan(&batchID, &startTime, &endTime, &numRows, &startLSN, &endLSN); err != nil {
-			slog.Error(fmt.Sprintf("unable to scan cdc batches - %s: %s", mirrorName, err.Error()))
-			return nil, fmt.Errorf("unable to scan cdc batches - %s: %w", mirrorName, err)
+			slog.Error(fmt.Sprintf("unable to scan cdc batches - %s: %s", req.FlowJobName, err.Error()))
+			return nil, fmt.Errorf("unable to scan cdc batches - %s: %w", req.FlowJobName, err)
 		}
 
 		var batch protos.CDCBatch
@@ -515,9 +530,34 @@ func (h *FlowRequestHandler) GetCDCBatches(ctx context.Context, req *protos.GetC
 	if batches == nil {
 		batches = []*protos.CDCBatch{}
 	}
+	if sortOrderBy == "" {
+		slices.Reverse(batches)
+	}
+
+	var total int32
+	var rowsBehind int32
+	if len(batches) > 0 {
+		firstId := batches[0].BatchId
+		if err := h.pool.QueryRow(
+			ctx,
+			"select count(distinct batch_id), count(distinct batch_id) filter (where id > $2) from peerdb_stats.flow_errors where flow_name=$1",
+			req.FlowJobName,
+			firstId,
+		).Scan(&total, &rowsBehind); err != nil {
+			return nil, err
+		}
+	} else if err := h.pool.QueryRow(
+		ctx,
+		"select count(distinct batch_id) from peerdb_stats.flow_errors where flow_name=$1",
+		req.FlowJobName,
+	).Scan(&total); err != nil {
+		return nil, err
+	}
 
 	return &protos.GetCDCBatchesResponse{
 		CdcBatches: batches,
+		Total:      total,
+		Page:       rowsBehind/int32(req.Limit) + 1,
 	}, nil
 }
 
