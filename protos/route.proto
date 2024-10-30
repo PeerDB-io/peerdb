@@ -145,6 +145,7 @@ message CreatePeerResponse {
 message MirrorStatusRequest {
   string flow_job_name = 1;
   bool include_flow_info = 2;
+  bool exclude_batches = 3;
 }
 
 message PartitionStatus {
@@ -343,10 +344,14 @@ message InitialLoadSummaryResponse {
 message GetCDCBatchesRequest {
   string flow_job_name = 1;
   uint32 limit = 2;
+  int64 before_id = 3;
+  int64 after_id = 4;
 }
 
 message GetCDCBatchesResponse {
   repeated CDCBatch cdc_batches = 1;
+  int32 total = 2;
+  int32 page = 3;
 }
 
 message MirrorLog {

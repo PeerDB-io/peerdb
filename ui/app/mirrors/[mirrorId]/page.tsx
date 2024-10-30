@@ -53,7 +53,6 @@ export default function ViewMirror({ params: { mirrorId } }: EditMirrorProps) {
   if (mirrorState?.cdcStatus) {
     syncStatusChild = (
       <SyncStatus
-        rows={mirrorState.cdcStatus.cdcBatches}
         flowJobName={mirrorId}
       />
     );
@@ -94,7 +93,6 @@ export default function ViewMirror({ params: { mirrorId } }: EditMirrorProps) {
           {actionsDropdown}
         </div>
         <CDCMirror
-          rows={mirrorState.cdcStatus.cdcBatches}
           syncStatusChild={syncStatusChild}
           status={mirrorState}
         />

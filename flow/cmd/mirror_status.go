@@ -175,12 +175,16 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 		return nil, err
 	}
 
-	cdcBatchesResponse, err := h.GetCDCBatches(ctx, &protos.GetCDCBatchesRequest{
-		FlowJobName: req.FlowJobName,
-		Limit:       0,
-	})
-	if err != nil {
-		return nil, err
+	var cdcBatches []*protos.CDCBatch
+	if !req.ExcludeBatches {
+		cdcBatchesResponse, err := h.GetCDCBatches(ctx, &protos.GetCDCBatchesRequest{
+			FlowJobName: req.FlowJobName,
+			Limit:       0,
+		})
+		if err != nil {
+			return nil, err
+		}
+		cdcBatches = cdcBatchesResponse.CdcBatches
 	}
 
 	return &protos.CDCMirrorStatus{
@@ -190,7 +194,7 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 		SnapshotStatus: &protos.SnapshotStatus{
 			Clones: initialLoadResponse.TableSummaries,
 		},
-		CdcBatches: cdcBatchesResponse.CdcBatches,
+		CdcBatches: cdcBatches,
 	}, nil
 }
 

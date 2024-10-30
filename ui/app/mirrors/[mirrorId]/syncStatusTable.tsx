@@ -14,9 +14,7 @@ import { useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
 import { RowDataFormatter } from './rowsDisplay';
 
-type SyncStatusTableProps = {
-  rows: CDCBatch[];
-};
+type SyncStatusTableProps = {};
 
 function TimeWithDurationOrRunning({
   startTime,
@@ -53,16 +51,18 @@ const sortOptions = [
   { value: 'numRows', label: 'Rows Synced' },
 ];
 
-export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
+export const SyncStatusTable = ({}: SyncStatusTableProps) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortField, setSortField] = useState<
     'startTime' | 'endTime' | 'numRows' | 'batchId'
   >('batchId');
 
   const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
-  const totalPages = Math.ceil(rows.length / ROWS_PER_PAGE);
+  const totalPages = 0; // TODO Math.ceil(rows.length / ROWS_PER_PAGE);
   const [searchQuery, setSearchQuery] = useState(NaN);
-  const displayedRows = useMemo(() => {
+  const displayedRows: CDCBatch[] = useMemo(() => {
+    return [];
+    /* TODO
     const searchRows = rows.filter((row) => row.batchId == searchQuery);
     const shownRows = searchRows.length > 0 ? searchRows : rows;
     shownRows.sort((a, b) => {
@@ -89,8 +89,8 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
     const endRow = startRow + ROWS_PER_PAGE;
     return shownRows.length > ROWS_PER_PAGE
       ? shownRows.slice(startRow, endRow)
-      : shownRows;
-  }, [searchQuery, currentPage, rows, sortField, sortDir]);
+      : shownRows; */
+  }, [searchQuery, currentPage, sortField, sortDir]);
 
   const handlePrevPage = () => {
     if (currentPage > 1) {

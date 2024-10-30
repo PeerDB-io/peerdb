@@ -5,7 +5,7 @@ import PeerButton from '@/components/PeerComponent';
 import TimeLabel from '@/components/TimeComponent';
 import { FlowStatus } from '@/grpc_generated/flow';
 import { dBTypeFromJSON } from '@/grpc_generated/peers';
-import { CDCBatch, CDCMirrorStatus } from '@/grpc_generated/route';
+import { CDCMirrorStatus } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import Link from 'next/link';
@@ -16,20 +16,12 @@ import { RowDataFormatter } from './rowsDisplay';
 import TablePairs from './tablePairs';
 
 type props = {
-  syncs: CDCBatch[];
   mirrorConfig: CDCMirrorStatus;
   createdAt?: Date;
   mirrorStatus: FlowStatus;
 };
-function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
+function CdcDetails({ createdAt, mirrorConfig, mirrorStatus }: props) {
   const [syncInterval, getSyncInterval] = useState<number>();
-
-  let rowsSynced = syncs.reduce((acc, sync) => {
-    if (sync.endTime !== null) {
-      return acc + Number(sync.numRows);
-    }
-    return acc;
-  }, 0);
 
   const tablesSynced = mirrorConfig.config?.tableMappings;
   useEffect(() => {
@@ -129,7 +121,9 @@ function CdcDetails({ syncs, createdAt, mirrorConfig, mirrorStatus }: props) {
               </Label>
             </div>
             <div>
-              <Label variant='body'>{RowDataFormatter(rowsSynced)}</Label>
+              <Label variant='body'>
+                {RowDataFormatter(0) /* TODO rows synced */}
+              </Label>
             </div>
           </div>
 

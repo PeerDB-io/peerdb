@@ -1,39 +1,31 @@
 'use client';
 import SelectTheme from '@/app/styles/select';
-import {
-  formatGraphLabel,
-  TimeAggregateTypes,
-  timeOptions,
-} from '@/app/utils/graph';
-import { CDCBatch } from '@/grpc_generated/route';
+import { TimeAggregateTypes, timeOptions } from '@/app/utils/graph';
 import { Label } from '@/lib/Label';
 import { BarChart } from '@tremor/react';
 import { useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
-import aggregateCountsByInterval from './aggregatedCountsByInterval';
 
-type CdcGraphProps = {
-  syncs: CDCBatch[];
-};
+type CdcGraphProps = {};
 
-function CdcGraph({ syncs }: CdcGraphProps) {
+function CdcGraph({}: CdcGraphProps) {
   let [aggregateType, setAggregateType] = useState<TimeAggregateTypes>(
     TimeAggregateTypes.HOUR
   );
 
   const graphValues = useMemo(() => {
+    return []; /* TODO
     const rows = syncs.map((sync) => ({
       timestamp: sync.endTime,
       count: sync.numRows,
     }));
     let timedRowCounts = aggregateCountsByInterval(rows, aggregateType);
-    timedRowCounts = timedRowCounts.slice(0, 29);
-    timedRowCounts = timedRowCounts.reverse();
+    timedRowCounts = timedRowCounts.slice(0, 29).reverse();
     return timedRowCounts.map((count) => ({
       name: formatGraphLabel(new Date(count[0]), aggregateType),
       'Rows synced at a point in time': Number(count[1]),
-    }));
-  }, [syncs, aggregateType]);
+    })); */
+  }, [aggregateType]);
 
   return (
     <div>
