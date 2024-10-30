@@ -40,8 +40,9 @@ type PostgresCDCSource struct {
 	childToParentRelIDMapping map[uint32]uint32
 
 	// for storing schema delta audit logs to catalog
-	catalogPool *pgxpool.Pool
-	flowJobName string
+	catalogPool                  *pgxpool.Pool
+	flowJobName                  string
+	hushWarnUnhandledMessageType map[pglogrepl.MessageType]struct{}
 }
 
 type PostgresCDCConfig struct {
@@ -59,18 +60,19 @@ type PostgresCDCConfig struct {
 // Create a new PostgresCDCSource
 func (c *PostgresConnector) NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) *PostgresCDCSource {
 	return &PostgresCDCSource{
-		PostgresConnector:         c,
-		srcTableIDNameMapping:     cdcConfig.SrcTableIDNameMapping,
-		tableNameMapping:          cdcConfig.TableNameMapping,
-		tableNameSchemaMapping:    cdcConfig.TableNameSchemaMapping,
-		relationMessageMapping:    cdcConfig.RelationMessageMapping,
-		slot:                      cdcConfig.Slot,
-		publication:               cdcConfig.Publication,
-		childToParentRelIDMapping: cdcConfig.ChildToParentRelIDMap,
-		typeMap:                   pgtype.NewMap(),
-		commitLock:                nil,
-		catalogPool:               cdcConfig.CatalogPool,
-		flowJobName:               cdcConfig.FlowJobName,
+		PostgresConnector:            c,
+		srcTableIDNameMapping:        cdcConfig.SrcTableIDNameMapping,
+		tableNameMapping:             cdcConfig.TableNameMapping,
+		tableNameSchemaMapping:       cdcConfig.TableNameSchemaMapping,
+		relationMessageMapping:       cdcConfig.RelationMessageMapping,
+		slot:                         cdcConfig.Slot,
+		publication:                  cdcConfig.Publication,
+		childToParentRelIDMapping:    cdcConfig.ChildToParentRelIDMap,
+		typeMap:                      pgtype.NewMap(),
+		commitLock:                   nil,
+		catalogPool:                  cdcConfig.CatalogPool,
+		flowJobName:                  cdcConfig.FlowJobName,
+		hushWarnUnhandledMessageType: make(map[pglogrepl.MessageType]struct{}),
 	}
 }
 
@@ -678,7 +680,10 @@ func processMessage[Items model.Items](
 		}, nil
 
 	default:
-		logger.Debug(fmt.Sprintf("%T not supported", msg))
+		if _, ok := p.hushWarnUnhandledMessageType[msg.Type()]; !ok {
+			logger.Warn(fmt.Sprintf("Unhandled message type: %T", msg))
+			p.hushWarnUnhandledMessageType[msg.Type()] = struct{}{}
+		}
 	}
 
 	return nil, nil
