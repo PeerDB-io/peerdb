@@ -12,6 +12,7 @@ export const getMirrorState = async (
     body: JSON.stringify({
       flow_job_name,
       include_flow_info: true,
+      exclude_batches: true,
     }),
   });
   if (!res.ok) throw res.json();

@@ -456,6 +456,10 @@ func (h *FlowRequestHandler) getMirrorCreatedAt(ctx context.Context, flowJobName
 }
 
 func (h *FlowRequestHandler) GetCDCBatches(ctx context.Context, req *protos.GetCDCBatchesRequest) (*protos.GetCDCBatchesResponse, error) {
+	return h.CDCBatches(ctx, req)
+}
+
+func (h *FlowRequestHandler) CDCBatches(ctx context.Context, req *protos.GetCDCBatchesRequest) (*protos.GetCDCBatchesResponse, error) {
 	limit := req.Limit
 	limitClause := ""
 	if limit > 0 {
@@ -540,7 +544,7 @@ func (h *FlowRequestHandler) GetCDCBatches(ctx context.Context, req *protos.GetC
 		firstId := batches[0].BatchId
 		if err := h.pool.QueryRow(
 			ctx,
-			"select count(distinct batch_id), count(distinct batch_id) filter (where id > $2) from peerdb_stats.flow_errors where flow_name=$1",
+			"select count(distinct batch_id), count(distinct batch_id) filter (where batch_id > $2) from peerdb_stats.cdc_batches where flow_name=$1 and start_time is not null",
 			req.FlowJobName,
 			firstId,
 		).Scan(&total, &rowsBehind); err != nil {
@@ -548,7 +552,7 @@ func (h *FlowRequestHandler) GetCDCBatches(ctx context.Context, req *protos.GetC
 		}
 	} else if err := h.pool.QueryRow(
 		ctx,
-		"select count(distinct batch_id) from peerdb_stats.flow_errors where flow_name=$1",
+		"select count(distinct batch_id) from peerdb_stats.cdc_batches where flow_name=$1 and start_time is not null",
 		req.FlowJobName,
 	).Scan(&total); err != nil {
 		return nil, err

@@ -550,11 +550,15 @@ service FlowService {
   }
 
   rpc GetCDCBatches(GetCDCBatchesRequest) returns (GetCDCBatchesResponse) {
-    option (google.api.http) = { get: "/v1/mirrors/cdc/batches/{flow_job_name}"};
+    option (google.api.http) = { get: "/v1/mirrors/cdc/batches/{flow_job_name}" };
+  }
+
+  rpc CDCBatches(GetCDCBatchesRequest) returns (GetCDCBatchesResponse) {
+    option (google.api.http) = { post: "/v1/mirrors/cdc/batches", body: "*" };
   }
 
   rpc InitialLoadSummary(InitialLoadSummaryRequest) returns (InitialLoadSummaryResponse) {
-    option (google.api.http) = { get: "/v1/mirrors/cdc/initial_load/{parent_mirror_name}"};
+    option (google.api.http) = { get: "/v1/mirrors/cdc/initial_load/{parent_mirror_name}" };
   }
 
   rpc GetPeerInfo(PeerInfoRequest) returns (PeerInfoResponse) {

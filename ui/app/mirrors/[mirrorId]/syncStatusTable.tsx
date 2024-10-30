@@ -76,17 +76,14 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
         beforeId: beforeId,
         afterId: afterId,
       };
-      const res = await fetch(
-        `/api/v1/mirrors/cdc/batches/${encodeURIComponent(mirrorName)}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          cache: 'no-store',
-          body: JSON.stringify(req),
-        }
-      );
+      const res = await fetch(`/api/v1/mirrors/cdc/batches`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+        body: JSON.stringify(req),
+      });
       const data: GetCDCBatchesResponse = await res.json();
       setBatches(data.cdcBatches);
       setCurrentPage(data.page);
@@ -100,11 +97,13 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
     if (batches.length === 0) {
       setBeforeAfterId([-1, -1]);
     }
+    setBeforeAfterId([batches[batches.length - 1].batchId, -1]);
   }, [batches]);
   const prevPage = useCallback(() => {
     if (batches.length === 0 || currentPage < 3) {
       setBeforeAfterId([-1, -1]);
     }
+    setBeforeAfterId([-1, batches[0].batchId]);
   }, [batches, currentPage]);
 
   return (
