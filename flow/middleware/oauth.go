@@ -57,7 +57,9 @@ func AuthGrpcMiddleware(unauthenticatedMethods []string) (grpc.UnaryServerInterc
 
 		slog.Warn("authentication is disabled")
 
-		return nil, nil
+		return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+			return handler(ctx, req)
+		}, nil
 	}
 
 	if err != nil {
