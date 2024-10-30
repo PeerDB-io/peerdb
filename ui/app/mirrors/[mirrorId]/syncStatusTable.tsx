@@ -2,7 +2,11 @@
 
 import SelectTheme from '@/app/styles/select';
 import TimeLabel from '@/components/TimeComponent';
-import { CDCBatch } from '@/grpc_generated/route';
+import {
+  CDCBatch,
+  GetCDCBatchesRequest,
+  GetCDCBatchesResponse,
+} from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
@@ -10,11 +14,11 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
 import { RowDataFormatter } from './rowsDisplay';
 
-type SyncStatusTableProps = {};
+type SyncStatusTableProps = { mirrorName: string };
 
 function TimeWithDurationOrRunning({
   startTime,
@@ -51,58 +55,60 @@ const sortOptions = [
   { value: 'numRows', label: 'Rows Synced' },
 ];
 
-export const SyncStatusTable = ({}: SyncStatusTableProps) => {
+export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortField, setSortField] = useState<
     'startTime' | 'endTime' | 'numRows' | 'batchId'
   >('batchId');
 
   const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
-  const totalPages = 0; // TODO Math.ceil(rows.length / ROWS_PER_PAGE);
+  const [totalPages, setTotalPages] = useState(1); // TODO Math.ceil(rows.length / ROWS_PER_PAGE);
+  const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState(NaN);
-  const displayedRows: CDCBatch[] = useMemo(() => {
-    return [];
-    /* TODO
-    const searchRows = rows.filter((row) => row.batchId == searchQuery);
-    const shownRows = searchRows.length > 0 ? searchRows : rows;
-    shownRows.sort((a, b) => {
-      let aValue: any = a[sortField];
-      let bValue: any = b[sortField];
-      if (aValue === undefined || bValue === undefined) {
-        return 0;
-      }
-      if (sortField === 'batchId') {
-        aValue = BigInt(aValue);
-        bValue = BigInt(bValue);
-      }
+  const [descending, setDescending] = useState(false);
+  const [sortBy, setSortBy] = useState('id');
+  const [[beforeId, afterId], setBeforeAfterId] = useState([-1, -1]);
+  const [batches, setBatches] = useState<CDCBatch[]>([]);
 
-      if (aValue < bValue) {
-        return sortDir === 'dsc' ? 1 : -1;
-      } else if (aValue > bValue) {
-        return sortDir === 'dsc' ? -1 : 1;
-      } else {
-        return 0;
-      }
-    });
+  useEffect(() => {
+    const fetchData = async () => {
+      const req: GetCDCBatchesRequest = {
+        flowJobName: mirrorName,
+        limit: ROWS_PER_PAGE,
+        beforeId: beforeId,
+        afterId: afterId,
+      };
+      const res = await fetch(
+        `/api/v1/mirrors/cdc/batches/${encodeURIComponent(flowJobName)}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          cache: 'no-store',
+          body: JSON.stringify(req),
+        }
+      );
+      const data: GetCDCBatchesResponse = await res.json();
+      const numPages = Math.ceil(data.total / req.limit);
+      setBatches(data.cdcBatches);
+      setCurrentPage(data.page);
+      setTotalPages(numPages);
+    };
 
-    const startRow = (currentPage - 1) * ROWS_PER_PAGE;
-    const endRow = startRow + ROWS_PER_PAGE;
-    return shownRows.length > ROWS_PER_PAGE
-      ? shownRows.slice(startRow, endRow)
-      : shownRows; */
-  }, [searchQuery, currentPage, sortField, sortDir]);
+    fetchData();
+  });
 
-  const handlePrevPage = () => {
-    if (currentPage > 1) {
-      setCurrentPage(currentPage - 1);
+  const nextPage = useCallback(() => {
+    if (batches.length === 0) {
+      setBeforeAfterId([-1, -1]);
     }
-  };
-
-  const handleNextPage = () => {
-    if (currentPage < totalPages) {
-      setCurrentPage(currentPage + 1);
+  }, [batches]);
+  const prevPage = useCallback(() => {
+    if (batches.length === 0 || currentPage < 3) {
+      setBeforeAfterId([-1, -1]);
     }
-  };
+  }, [batches, currentPage]);
 
   return (
     <Table
@@ -110,10 +116,10 @@ export const SyncStatusTable = ({}: SyncStatusTableProps) => {
       toolbar={{
         left: (
           <div style={{ display: 'flex', alignItems: 'center' }}>
-            <Button variant='normalBorderless' onClick={handlePrevPage}>
+            <Button variant='normalBorderless' onClick={prevPage}>
               <Icon name='chevron_left' />
             </Button>
-            <Button variant='normalBorderless' onClick={handleNextPage}>
+            <Button variant='normalBorderless' onClick={nextPage}>
               <Icon name='chevron_right' />
             </Button>
             <Label>{`${currentPage} of ${totalPages}`}</Label>
@@ -185,7 +191,7 @@ export const SyncStatusTable = ({}: SyncStatusTableProps) => {
         </TableRow>
       }
     >
-      {displayedRows.map((row) => (
+      {batches.map((row) => (
         <TableRow key={row.batchId}>
           <TableCell>
             <Label>{Number(row.batchId)}</Label>
