@@ -41,8 +41,8 @@ type PostgresCDCSource struct {
 
 	// for storing schema delta audit logs to catalog
 	catalogPool                  *pgxpool.Pool
-	flowJobName                  string
 	hushWarnUnhandledMessageType map[pglogrepl.MessageType]struct{}
+	flowJobName                  string
 }
 
 type PostgresCDCConfig struct {
