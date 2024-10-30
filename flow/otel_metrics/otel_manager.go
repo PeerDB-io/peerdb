@@ -50,7 +50,7 @@ func setupGrpcOtelMetricsExporter() (sdkmetric.Exporter, error) {
 }
 
 func temporalMetricsFilteringView() sdkmetric.View {
-	exportListString := GetPeerDBOtelMetricsExportListEnv()
+	exportListString := GetPeerDBOtelTemporalMetricsExportListEnv()
 	slog.Info("Found export list for temporal metrics", slog.String("exportList", exportListString))
 	// Special case for exporting all metrics
 	if exportListString == "__ALL__" {
