@@ -2,9 +2,11 @@ package middleware
 
 import (
 	"context"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"google.golang.org/grpc"
 	"log/slog"
+
+	"google.golang.org/grpc"
+
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 func RequestLoggingMiddleWare() grpc.UnaryServerInterceptor {
