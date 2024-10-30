@@ -1,6 +1,9 @@
 package peerdbenv
 
-import "strconv"
+import (
+	"log/slog"
+	"strconv"
+)
 
 type PeerDBOAuthConfig struct {
 	// there can be more complex use cases where domain != issuer, but we handle them later if required
@@ -18,6 +21,7 @@ func GetPeerDBOAuthConfig() PeerDBOAuthConfig {
 	oauthDiscoveryEnabledString := GetEnvString("PEERDB_OAUTH_DISCOVERY_ENABLED", "false")
 	oauthDiscoveryEnabled, err := strconv.ParseBool(oauthDiscoveryEnabledString)
 	if err != nil {
+		slog.Error("failed to parse PEERDB_OAUTH_DISCOVERY_ENABLED to bool", "error", err)
 		oauthDiscoveryEnabled = false
 	}
 	oauthKeysetJson := GetEnvString("PEERDB_OAUTH_KEYSET_JSON", "")
