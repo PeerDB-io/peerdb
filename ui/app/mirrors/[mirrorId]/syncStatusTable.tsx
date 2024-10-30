@@ -56,17 +56,14 @@ const sortOptions = [
 ];
 
 export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
-  const [currentPage, setCurrentPage] = useState(1);
   const [sortField, setSortField] = useState<
     'startTime' | 'endTime' | 'numRows' | 'batchId'
   >('batchId');
 
-  const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
-  const [totalPages, setTotalPages] = useState(1); // TODO Math.ceil(rows.length / ROWS_PER_PAGE);
+  const [totalPages, setTotalPages] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
-  const [searchQuery, setSearchQuery] = useState(NaN);
+  const [searchQuery, setSearchQuery] = useState(-1);
   const [descending, setDescending] = useState(false);
-  const [sortBy, setSortBy] = useState('id');
   const [[beforeId, afterId], setBeforeAfterId] = useState([-1, -1]);
   const [batches, setBatches] = useState<CDCBatch[]>([]);
 
@@ -75,11 +72,12 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
       const req: GetCDCBatchesRequest = {
         flowJobName: mirrorName,
         limit: ROWS_PER_PAGE,
+        // TODO descending, sortField, searchQuery
         beforeId: beforeId,
         afterId: afterId,
       };
       const res = await fetch(
-        `/api/v1/mirrors/cdc/batches/${encodeURIComponent(flowJobName)}`,
+        `/api/v1/mirrors/cdc/batches/${encodeURIComponent(mirrorName)}`,
         {
           method: 'POST',
           headers: {
@@ -90,14 +88,13 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
         }
       );
       const data: GetCDCBatchesResponse = await res.json();
-      const numPages = Math.ceil(data.total / req.limit);
       setBatches(data.cdcBatches);
       setCurrentPage(data.page);
-      setTotalPages(numPages);
+      setTotalPages(Math.ceil(data.total / req.limit));
     };
 
     fetchData();
-  });
+  }, [mirrorName, descending, sortField, searchQuery, beforeId, afterId]);
 
   const nextPage = useCallback(() => {
     if (batches.length === 0) {
@@ -152,17 +149,17 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
             </div>
             <button
               className='IconButton'
-              onClick={() => setSortDir('asc')}
+              onClick={() => setDescending(false)}
               aria-label='sort up'
-              style={{ color: sortDir == 'asc' ? 'green' : 'gray' }}
+              style={{ color: descending ? 'gray' : 'green' }}
             >
               <Icon name='arrow_upward' />
             </button>
             <button
               className='IconButton'
-              onClick={() => setSortDir('dsc')}
+              onClick={() => setDescending(true)}
               aria-label='sort down'
-              style={{ color: sortDir == 'dsc' ? 'green' : 'gray' }}
+              style={{ color: descending ? 'green' : 'gray' }}
             >
               <Icon name='arrow_downward' />
             </button>
