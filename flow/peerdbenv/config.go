@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -155,4 +156,13 @@ func PeerDBGetIncidentIoUrl() string {
 
 func PeerDBGetIncidentIoToken() string {
 	return GetEnvString("PEERDB_INCIDENTIO_TOKEN", "")
+}
+
+func PeerDBRAPIRequestLoggingEnabled() bool {
+	requestLoggingEnabled, err := strconv.ParseBool(GetEnvString("PEERDB_API_REQUEST_LOGGING_ENABLED", "false"))
+	if err != nil {
+		slog.Error("failed to parse PEERDB_API_REQUEST_LOGGING_ENABLED to bool", "error", err)
+		return false
+	}
+	return requestLoggingEnabled
 }
