@@ -76,7 +76,7 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
         beforeId: beforeId,
         afterId: afterId,
       };
-      const res = await fetch(`/api/v1/mirrors/cdc/batches`, {
+      const res = await fetch('/api/v1/mirrors/cdc/batches', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -1,31 +1,51 @@
 'use client';
 import SelectTheme from '@/app/styles/select';
-import { TimeAggregateTypes, timeOptions } from '@/app/utils/graph';
+import {
+  formatGraphLabel,
+  TimeAggregateTypes,
+  timeOptions,
+} from '@/app/utils/graph';
 import { Label } from '@/lib/Label';
 import { BarChart } from '@tremor/react';
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
 
-type CdcGraphProps = {};
+type CdcGraphProps = { mirrorName: string };
 
-function CdcGraph({}: CdcGraphProps) {
-  let [aggregateType, setAggregateType] = useState<TimeAggregateTypes>(
+export default function CdcGraph({ mirrorName }: CdcGraphProps) {
+  const [aggregateType, setAggregateType] = useState<TimeAggregateTypes>(
     TimeAggregateTypes.HOUR
   );
+  const [graphValues, setGraphValues] = useState<
+    { name: string; 'Rows synced at a point in time': number }[]
+  >([]);
 
-  const graphValues = useMemo(() => {
-    return []; /* TODO
-    const rows = syncs.map((sync) => ({
-      timestamp: sync.endTime,
-      count: sync.numRows,
-    }));
-    let timedRowCounts = aggregateCountsByInterval(rows, aggregateType);
-    timedRowCounts = timedRowCounts.slice(0, 29).reverse();
-    return timedRowCounts.map((count) => ({
-      name: formatGraphLabel(new Date(count[0]), aggregateType),
-      'Rows synced at a point in time': Number(count[1]),
-    })); */
-  }, [aggregateType]);
+  useEffect(() => {
+    const fetchData = async () => {
+      const req: any = {
+        flowJobName: mirrorName,
+        aggregateType,
+      };
+
+      const res = await fetch('/api/v1/mirrors/cdc/graph', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+        body: JSON.stringify(req),
+      });
+      const data: { data: { time: number; rows: number }[] } = await res.json();
+      setGraphValues(
+        data.data.map(({ time, rows }) => ({
+          name: formatGraphLabel(new Date(time), aggregateType),
+          'Rows synced at a point in time': Number(rows),
+        }))
+      );
+    };
+
+    fetchData();
+  }, [mirrorName, aggregateType]);
 
   return (
     <div>
@@ -51,5 +71,3 @@ function CdcGraph({}: CdcGraphProps) {
     </div>
   );
 }
-
-export default CdcGraph;

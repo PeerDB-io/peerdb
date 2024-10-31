@@ -51,11 +51,7 @@ export default function ViewMirror({ params: { mirrorId } }: EditMirrorProps) {
   let actionsDropdown = null;
 
   if (mirrorState?.cdcStatus) {
-    syncStatusChild = (
-      <SyncStatus
-        flowJobName={mirrorId}
-      />
-    );
+    syncStatusChild = <SyncStatus flowJobName={mirrorId} />;
 
     const dbType = dBTypeFromJSON(mirrorState.cdcStatus.destinationType);
 
@@ -92,10 +88,7 @@ export default function ViewMirror({ params: { mirrorId } }: EditMirrorProps) {
           <Header variant='title2'>{mirrorId}</Header>
           {actionsDropdown}
         </div>
-        <CDCMirror
-          syncStatusChild={syncStatusChild}
-          status={mirrorState}
-        />
+        <CDCMirror syncStatusChild={syncStatusChild} status={mirrorState} />
       </LayoutMain>
     );
   } else if (mirrorState?.qrepStatus) {

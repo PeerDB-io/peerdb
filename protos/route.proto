@@ -354,6 +354,20 @@ message GetCDCBatchesResponse {
   int32 page = 3;
 }
 
+message GraphRequest {
+  string flow_job_name = 1;
+  string aggregate_type = 2; // TODO name?
+}
+
+message GraphResponseItem {
+  double time = 1;
+  double rows = 2;
+}
+
+message GraphResponse {
+  repeated GraphResponseItem data = 1;
+}
+
 message MirrorLog {
   string flow_name = 1;
   string error_message = 2;
@@ -555,6 +569,10 @@ service FlowService {
 
   rpc CDCBatches(GetCDCBatchesRequest) returns (GetCDCBatchesResponse) {
     option (google.api.http) = { post: "/v1/mirrors/cdc/batches", body: "*" };
+  }
+
+  rpc CDCGraph(GraphRequest) returns (GraphResponse) {
+    option (google.api.http) = { post: "/v1/mirrors/cdc/graph", body: "*" };
   }
 
   rpc InitialLoadSummary(InitialLoadSummaryRequest) returns (InitialLoadSummaryResponse) {

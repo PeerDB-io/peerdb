@@ -195,6 +195,32 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 	}, nil
 }
 
+func (h *FlowRequestHandler) CDCGraph(ctx context.Context, req *protos.GraphRequest) (*protos.GraphResponse, error) {
+	truncField := "minute"
+	switch req.AggregateType {
+	case "hour", "day", "month":
+		truncField = req.AggregateType
+	}
+	rows, err := h.pool.Query(ctx, `select tm, coalesce(sum(rows_in_batch), 0)
+	from generate_series(date_trunc($2, now() - $1::INTERVAL * 30), now(), $1::INTERVAL) tm
+	left join peerdb_stats.cdc_batches on start_time >= tm and start_time < tm + $1::INTERVAL
+	group by 1 order by 1`, req.AggregateType, truncField)
+	if err != nil {
+		return nil, err
+	}
+	var data []*protos.GraphResponseItem
+	var t time.Time
+	var r int64
+	if _, err := pgx.ForEachRow(rows, []any{&t, &r}, func() error {
+		data = append(data, &protos.GraphResponseItem{Time: float64(t.UnixMilli()), Rows: float64(r)})
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return &protos.GraphResponse{Data: data}, nil
+}
+
 func (h *FlowRequestHandler) InitialLoadSummary(
 	ctx context.Context,
 	req *protos.InitialLoadSummaryRequest,
@@ -542,11 +568,8 @@ func (h *FlowRequestHandler) CDCBatches(ctx context.Context, req *protos.GetCDCB
 	var rowsBehind int32
 	if len(batches) > 0 {
 		firstId := batches[0].BatchId
-		if err := h.pool.QueryRow(
-			ctx,
-			"select count(distinct batch_id), count(distinct batch_id) filter (where batch_id > $2) from peerdb_stats.cdc_batches where flow_name=$1 and start_time is not null",
-			req.FlowJobName,
-			firstId,
+		if err := h.pool.QueryRow(ctx, `select count(distinct batch_id), count(distinct batch_id) filter (where batch_id > $2)
+			from peerdb_stats.cdc_batches where flow_name=$1 and start_time is not null`, req.FlowJobName, firstId,
 		).Scan(&total, &rowsBehind); err != nil {
 			return nil, err
 		}

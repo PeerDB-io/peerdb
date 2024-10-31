@@ -30,7 +30,7 @@ export default function SyncStatus({ flowJobName }: SyncStatusProps) {
       <div>
         <RowsDisplay totalRowsData={tableStats.totalData} />
         <div className='my-10'>
-          <CdcGraph />
+          <CdcGraph mirrorName={flowJobName} />
         </div>
         <SyncStatusTable mirrorName={flowJobName} />
         <TableStats tableSyncs={tableStats.tablesData} />
