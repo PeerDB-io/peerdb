@@ -11,7 +11,6 @@ import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
-import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
 import { useCallback, useEffect, useState } from 'react';
@@ -62,7 +61,6 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
 
   const [totalPages, setTotalPages] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
-  const [searchQuery, setSearchQuery] = useState(-1);
   const [descending, setDescending] = useState(false);
   const [[beforeId, afterId], setBeforeAfterId] = useState([-1, -1]);
   const [batches, setBatches] = useState<CDCBatch[]>([]);
@@ -72,7 +70,7 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
       const req: GetCDCBatchesRequest = {
         flowJobName: mirrorName,
         limit: ROWS_PER_PAGE,
-        // TODO descending, sortField, searchQuery
+        // TODO descending, sortField
         beforeId: beforeId,
         afterId: afterId,
       };
@@ -91,7 +89,7 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
     };
 
     fetchData();
-  }, [mirrorName, descending, sortField, searchQuery, beforeId, afterId]);
+  }, [mirrorName, descending, sortField, beforeId, afterId]);
 
   const nextPage = useCallback(() => {
     if (batches.length === 0) {
@@ -163,14 +161,6 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
               <Icon name='arrow_downward' />
             </button>
           </div>
-        ),
-        right: (
-          <SearchField
-            placeholder='Search by batch ID'
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setSearchQuery(+e.target.value)
-            }
-          />
         ),
       }}
       header={
