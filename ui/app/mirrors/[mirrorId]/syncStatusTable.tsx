@@ -61,7 +61,7 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
 
   const [totalPages, setTotalPages] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
-  const [descending, setDescending] = useState(false);
+  const [ascending, setAscending] = useState(false);
   const [[beforeId, afterId], setBeforeAfterId] = useState([-1, -1]);
   const [batches, setBatches] = useState<CDCBatch[]>([]);
 
@@ -70,9 +70,10 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
       const req: GetCDCBatchesRequest = {
         flowJobName: mirrorName,
         limit: ROWS_PER_PAGE,
-        // TODO descending, sortField
+        // TODO sortField
         beforeId: beforeId,
         afterId: afterId,
+        ascending,
       };
       const res = await fetch('/api/v1/mirrors/cdc/batches', {
         method: 'POST',
@@ -83,25 +84,31 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
         body: JSON.stringify(req),
       });
       const data: GetCDCBatchesResponse = await res.json();
-      setBatches(data.cdcBatches);
+      setBatches(data.cdcBatches ?? []);
       setCurrentPage(data.page);
       setTotalPages(Math.ceil(data.total / req.limit));
     };
 
     fetchData();
-  }, [mirrorName, descending, sortField, beforeId, afterId]);
+  }, [mirrorName, sortField, beforeId, afterId]);
 
   const nextPage = useCallback(() => {
     if (batches.length === 0) {
-      setBeforeAfterId([-1, -1]);
+      setBeforeAfterId([-1, ascending ? 0 : -1]);
+    } else if (ascending) {
+      setBeforeAfterId([-1, batches[batches.length - 1].batchId]);
+    } else {
+      setBeforeAfterId([batches[batches.length - 1].batchId, -1]);
     }
-    setBeforeAfterId([batches[batches.length - 1].batchId, -1]);
   }, [batches]);
   const prevPage = useCallback(() => {
     if (batches.length === 0 || currentPage < 3) {
-      setBeforeAfterId([-1, -1]);
+      setBeforeAfterId([-1, ascending ? 0 : -1]);
+    } else if (ascending) {
+      setBeforeAfterId([batches[0].batchId, -1]);
+    } else {
+      setBeforeAfterId([-1, batches[0].batchId]);
     }
-    setBeforeAfterId([-1, batches[0].batchId]);
   }, [batches, currentPage]);
 
   return (
@@ -146,17 +153,23 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
             </div>
             <button
               className='IconButton'
-              onClick={() => setDescending(false)}
+              onClick={() => {
+                setAscending(true);
+                setBeforeAfterId([-1, 0]);
+              }}
               aria-label='sort up'
-              style={{ color: descending ? 'gray' : 'green' }}
+              style={{ color: ascending ? 'green' : 'gray' }}
             >
               <Icon name='arrow_upward' />
             </button>
             <button
               className='IconButton'
-              onClick={() => setDescending(true)}
+              onClick={() => {
+                setAscending(false);
+                setBeforeAfterId([-1, -1]);
+              }}
               aria-label='sort down'
-              style={{ color: descending ? 'green' : 'gray' }}
+              style={{ color: ascending ? 'gray' : 'green' }}
             >
               <Icon name='arrow_downward' />
             </button>
