@@ -20,15 +20,18 @@ type props = {
   createdAt?: Date;
   mirrorStatus: FlowStatus;
 };
-function CdcDetails({ createdAt, mirrorConfig, mirrorStatus }: props) {
-  const [syncInterval, getSyncInterval] = useState<number>();
+
+export default function CdcDetails({
+  createdAt,
+  mirrorConfig,
+  mirrorStatus,
+}: props) {
+  const [syncInterval, setSyncInterval] = useState<number>();
 
   const tablesSynced = mirrorConfig.config?.tableMappings;
   useEffect(() => {
-    getCurrentIdleTimeout(mirrorConfig.config?.flowJobName ?? '').then(
-      (res) => {
-        getSyncInterval(res);
-      }
+    getCurrentIdleTimeout(mirrorConfig.config?.flowJobName ?? '').then((res) =>
+      setSyncInterval(res)
     );
   }, [mirrorConfig.config?.flowJobName]);
   return (
@@ -74,8 +77,8 @@ function CdcDetails({ createdAt, mirrorConfig, mirrorStatus }: props) {
             </div>
             <div>
               <PeerButton
-                peerName={mirrorConfig?.config?.sourceName ?? ''}
-                peerType={dBTypeFromJSON(mirrorConfig?.sourceType)}
+                peerName={mirrorConfig.config?.sourceName ?? ''}
+                peerType={dBTypeFromJSON(mirrorConfig.sourceType)}
               />
             </div>
           </div>
@@ -87,8 +90,8 @@ function CdcDetails({ createdAt, mirrorConfig, mirrorStatus }: props) {
             </div>
             <div>
               <PeerButton
-                peerName={mirrorConfig?.config?.destinationName ?? ''}
-                peerType={dBTypeFromJSON(mirrorConfig?.destinationType)}
+                peerName={mirrorConfig.config?.destinationName ?? ''}
+                peerType={dBTypeFromJSON(mirrorConfig.destinationType)}
               />
             </div>
           </div>
@@ -122,7 +125,7 @@ function CdcDetails({ createdAt, mirrorConfig, mirrorStatus }: props) {
             </div>
             <div>
               <Label variant='body'>
-                {RowDataFormatter(0) /* TODO rows synced */}
+                {RowDataFormatter(mirrorConfig.rowsSynced)}
               </Label>
             </div>
           </div>
@@ -145,8 +148,7 @@ const SyncIntervalLabel: React.FC<{ syncInterval?: number }> = ({
 
   if (!syncInterval) {
     return <ProgressCircle variant='determinate_progress_circle' />;
-  }
-  if (syncInterval >= 3600) {
+  } else if (syncInterval >= 3600) {
     const hours = Math.floor(syncInterval / 3600);
     formattedInterval = `${hours} hour${hours !== 1 ? 's' : ''}`;
   } else if (syncInterval >= 60) {
@@ -158,5 +160,3 @@ const SyncIntervalLabel: React.FC<{ syncInterval?: number }> = ({
 
   return <Label>{formattedInterval}</Label>;
 };
-
-export default CdcDetails;

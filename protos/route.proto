@@ -321,6 +321,7 @@ message CDCMirrorStatus {
   repeated CDCBatch cdc_batches = 3;
   peerdb_peers.DBType source_type = 4;
   peerdb_peers.DBType destination_type = 5;
+  int64 rows_synced = 6;
 }
 
 message MirrorStatusResponse {

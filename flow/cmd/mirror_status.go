@@ -184,6 +184,11 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 		cdcBatches = cdcBatchesResponse.CdcBatches
 	}
 
+	var rowsSynced int64
+	if err := h.pool.QueryRow(ctx, "select coalesce(sum(rows_in_batch), 0) from peerdb_stats.cdc_batches where flow_name=$1", req.FlowJobName).Scan(&rowsSynced); err != nil {
+		return nil, err
+	}
+
 	return &protos.CDCMirrorStatus{
 		Config:          config,
 		SourceType:      srcType,
@@ -192,6 +197,7 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 			Clones: initialLoadResponse.TableSummaries,
 		},
 		CdcBatches: cdcBatches,
+		RowsSynced: rowsSynced,
 	}, nil
 }
 
