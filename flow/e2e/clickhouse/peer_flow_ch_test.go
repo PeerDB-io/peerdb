@@ -532,13 +532,13 @@ func (s ClickHouseSuite) Test_Large_Numeric() {
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	e2e.EnvWaitForCount(env, s, "waiting for initial load count", dstTableName, 1)
+	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,c1,c2", 1)
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 	INSERT INTO %s(c1,c2) VALUES(%s,%s);`, srcFullName, strings.Repeat("7", 76), strings.Repeat("9", 78)))
 	require.NoError(s.t, err)
 
-	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, 2)
+	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,c1,c2", 2)
 
 	rows, err := s.GetRows(dstTableName, "c1,c2")
 	require.NoError(s.t, err)

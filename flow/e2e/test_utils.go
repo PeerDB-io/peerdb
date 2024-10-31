@@ -173,6 +173,7 @@ func EnvWaitForCount(
 	suite RowSource,
 	reason string,
 	dstTable string,
+	cols string,
 	expectedCount int,
 ) {
 	t := suite.T()
@@ -181,7 +182,7 @@ func EnvWaitForCount(
 	EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
 		t.Helper()
 
-		rows, err := suite.GetRows(dstTable, "*")
+		rows, err := suite.GetRows(dstTable, cols)
 		if err != nil {
 			t.Log(err)
 			return false
