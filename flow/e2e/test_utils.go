@@ -168,6 +168,30 @@ func EnvWaitForEqualTablesWithNames(
 	})
 }
 
+func EnvWaitForCount(
+	env WorkflowRun,
+	suite RowSource,
+	reason string,
+	dstTable string,
+	cols string,
+	expectedCount int,
+) {
+	t := suite.T()
+	t.Helper()
+
+	EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
+		t.Helper()
+
+		rows, err := suite.GetRows(dstTable, cols)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+
+		return len(rows.Records) == expectedCount
+	})
+}
+
 func RequireEnvCanceled(t *testing.T, env WorkflowRun) {
 	t.Helper()
 	EnvWaitForFinished(t, env, time.Minute)

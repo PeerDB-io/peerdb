@@ -103,6 +103,10 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH protos.DBType, preci
 		}
 		return "bytes", nil
 	case QValueKindNumeric:
+		if targetDWH == protos.DBType_CLICKHOUSE &&
+			precision > datatypes.PeerDBClickHouseMaxPrecision {
+			return "string", nil
+		}
 		avroNumericPrecision, avroNumericScale := DetermineNumericSettingForDWH(precision, scale, targetDWH)
 		return AvroSchemaNumeric{
 			Type:        "bytes",
@@ -454,6 +458,12 @@ func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) interface{} {
 		return nil
 	}
 
+	if c.TargetDWH == protos.DBType_CLICKHOUSE &&
+		c.Precision > datatypes.PeerDBClickHouseMaxPrecision {
+		// no error returned
+		numStr, _ := c.processNullableUnion("string", num.String())
+		return numStr
+	}
 	rat := num.Rat()
 	if c.Nullable {
 		return goavro.Union("bytes.decimal", rat)

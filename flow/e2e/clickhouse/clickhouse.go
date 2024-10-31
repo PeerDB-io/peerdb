@@ -2,7 +2,6 @@ package e2e_clickhouse
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -93,13 +92,9 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 		return nil, err
 	}
 
-	firstCol, _, _ := strings.Cut(cols, ",")
-	if firstCol == "" {
-		return nil, errors.New("no columns specified")
-	}
 	rows, err := ch.Query(
 		context.Background(),
-		fmt.Sprintf(`SELECT %s FROM %s FINAL WHERE _peerdb_is_deleted = 0 ORDER BY %s SETTINGS use_query_cache = false`, cols, table, firstCol),
+		fmt.Sprintf(`SELECT %s FROM %s FINAL WHERE _peerdb_is_deleted = 0 ORDER BY 1 SETTINGS use_query_cache = false`, cols, table),
 	)
 	if err != nil {
 		return nil, err

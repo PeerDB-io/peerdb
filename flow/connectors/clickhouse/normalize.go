@@ -77,6 +77,16 @@ func getColName(overrides map[string]string, name string) string {
 	return name
 }
 
+func getClickhouseTypeForNumericColumn(column *protos.FieldDescription) string {
+	rawPrecision, _ := datatypes.ParseNumericTypmod(column.TypeModifier)
+	if rawPrecision > datatypes.PeerDBClickHouseMaxPrecision {
+		return "String"
+	} else {
+		precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
+		return fmt.Sprintf("Decimal(%d, %d)", precision, scale)
+	}
+}
+
 func generateCreateTableSQLForNormalizedTable(
 	ctx context.Context,
 	config *protos.SetupNormalizedTableBatchInput,
@@ -129,8 +139,7 @@ func generateCreateTableSQLForNormalizedTable(
 
 		if clickHouseType == "" {
 			if colType == qvalue.QValueKindNumeric {
-				precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
-				clickHouseType = fmt.Sprintf("Decimal(%d, %d)", precision, scale)
+				clickHouseType = getClickhouseTypeForNumericColumn(column)
 			} else {
 				var err error
 				clickHouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
@@ -323,8 +332,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			colSelector.WriteString(fmt.Sprintf("`%s`,", dstColName))
 			if clickHouseType == "" {
 				if colType == qvalue.QValueKindNumeric {
-					precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
-					clickHouseType = fmt.Sprintf("Decimal(%d, %d)", precision, scale)
+					clickHouseType = getClickhouseTypeForNumericColumn(column)
 				} else {
 					var err error
 					clickHouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
