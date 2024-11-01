@@ -30,6 +30,7 @@ type WorkerSetupOptions struct {
 	TemporalMaxConcurrentWorkflowTasks int
 	EnableProfiling                    bool
 	EnableOtelMetrics                  bool
+	UseMaintenanceTaskQueue            bool
 }
 
 type workerSetupResponse struct {
@@ -124,8 +125,11 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 		return nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 	slog.Info("Created temporal client")
-
-	taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
+	queueId := shared.PeerFlowTaskQueue
+	if opts.UseMaintenanceTaskQueue {
+		queueId = shared.MaintenanceFlowTaskQueue
+	}
+	taskQueue := peerdbenv.PeerFlowTaskQueueName(queueId)
 	slog.Info(
 		fmt.Sprintf("Creating temporal worker for queue %v: %v workflow workers %v activity workers",
 			taskQueue,

@@ -77,6 +77,55 @@ func main() {
 		Sources: cli.EnvVars("RUN_MAINTENANCE_FLOW"),
 	}
 
+	maintenanceSkipOnApiVersionMatchFlag := &cli.BoolFlag{
+		Name:    "skip-on-api-version-match",
+		Value:   false,
+		Usage:   "Skip maintenance flow if the API version matches",
+		Sources: cli.EnvVars("MAINTENANCE_SKIP_ON_API_VERSION_MATCH"),
+	}
+
+	maintenanceSkipOnNoMirrorsFlag := &cli.BoolFlag{
+		Name:    "skip-on-no-mirrors",
+		Value:   false,
+		Usage:   "Skip maintenance flow if there are no mirrors",
+		Sources: cli.EnvVars("MAINTENANCE_SKIP_ON_NO_MIRRORS"),
+	}
+
+	flowGrpcAddressFlag := &cli.StringFlag{
+		Name:    "flow-grpc-address",
+		Value:   "",
+		Usage:   "Address of the flow gRPC server",
+		Sources: cli.EnvVars("FLOW_GRPC_ADDRESS"),
+	}
+
+	flowTlsEnabledFlag := &cli.BoolFlag{
+		Name:    "flow-tls-enabled",
+		Value:   false,
+		Usage:   "Enable TLS for the flow gRPC server",
+		Sources: cli.EnvVars("FLOW_TLS_ENABLED"),
+	}
+
+	maintenanceOutputFileFlag := &cli.StringFlag{
+		Name:    "output-file",
+		Value:   "",
+		Usage:   "Output file for maintenance flow, this is used for `start` maintenance flow",
+		Sources: cli.EnvVars("MAINTENANCE_OUTPUT_FILE"),
+	}
+
+	mainenanceInputFileFlag := &cli.StringFlag{
+		Name:    "input-file",
+		Value:   "",
+		Usage:   "Input file for maintenance flow, this is used for `end` maintenance flow",
+		Sources: cli.EnvVars("MAINTENANCE_INPUT_FILE"),
+	}
+
+	useMaintenanceTaskQueueFlag := &cli.BoolFlag{
+		Name:    "use-maintenance-task-queue",
+		Value:   false,
+		Usage:   "Use the maintenance task queue for the worker",
+		Sources: cli.EnvVars("USE_MAINTENANCE_TASK_QUEUE"),
+	}
+
 	app := &cli.Command{
 		Name: "PeerDB Flows CLI",
 		Commands: []*cli.Command{
@@ -92,6 +141,7 @@ func main() {
 						TemporalNamespace:                  clicmd.String("temporal-namespace"),
 						TemporalMaxConcurrentActivities:    int(clicmd.Int("temporal-max-concurrent-activities")),
 						TemporalMaxConcurrentWorkflowTasks: int(clicmd.Int("temporal-max-concurrent-workflow-tasks")),
+						UseMaintenanceTaskQueue:            clicmd.Bool(useMaintenanceTaskQueueFlag.Name),
 					})
 					if err != nil {
 						return err
@@ -107,6 +157,7 @@ func main() {
 					temporalNamespaceFlag,
 					temporalMaxConcurrentActivitiesFlag,
 					temporalMaxConcurrentWorkflowTasksFlag,
+					useMaintenanceTaskQueueFlag,
 				},
 			},
 			{
@@ -161,14 +212,28 @@ func main() {
 					temporalHostPortFlag,
 					temporalNamespaceFlag,
 					maintenanceModeWorkflowFlag,
+					maintenanceSkipOnApiVersionMatchFlag,
+					maintenanceSkipOnNoMirrorsFlag,
+					flowGrpcAddressFlag,
+					flowTlsEnabledFlag,
+					maintenanceOutputFileFlag,
+					mainenanceInputFileFlag,
+					useMaintenanceTaskQueueFlag,
 				},
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
 
 					return cmd.MaintenanceMain(ctx, &cmd.MaintenanceCLIParams{
-						TemporalHostPort:  temporalHostPort,
-						TemporalNamespace: clicmd.String("temporal-namespace"),
-						FlowType:          clicmd.String("run-maintenance-flow"),
+						TemporalHostPort:         temporalHostPort,
+						TemporalNamespace:        clicmd.String(temporalNamespaceFlag.Name),
+						Mode:                     clicmd.String(maintenanceModeWorkflowFlag.Name),
+						SkipOnApiVersionMatch:    clicmd.Bool(maintenanceSkipOnApiVersionMatchFlag.Name),
+						SkipOnNoMirrors:          clicmd.Bool(maintenanceSkipOnNoMirrorsFlag.Name),
+						FlowGrpcAddress:          clicmd.String(flowGrpcAddressFlag.Name),
+						FlowTlsEnabled:           clicmd.Bool(flowTlsEnabledFlag.Name),
+						OutputFile:               clicmd.String(maintenanceOutputFileFlag.Name),
+						InputFile:                clicmd.String(mainenanceInputFileFlag.Name),
+						UserMaintenanceTaskQueue: clicmd.Bool(useMaintenanceTaskQueueFlag.Name),
 					})
 				},
 			},

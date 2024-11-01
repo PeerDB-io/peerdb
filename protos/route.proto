@@ -464,6 +464,7 @@ enum MaintenanceStatus {
 
 message MaintenanceRequest {
   MaintenanceStatus status = 1;
+  bool use_peerflow_task_queue = 2;
 }
 
 message MaintenanceResponse {
