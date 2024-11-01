@@ -1,6 +1,5 @@
 'use client';
 
-import SelectTheme from '@/app/styles/select';
 import TimeLabel from '@/components/TimeComponent';
 import {
   CDCBatch,
@@ -14,7 +13,6 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
 import { useCallback, useEffect, useState } from 'react';
-import ReactSelect from 'react-select';
 import { RowDataFormatter } from './rowsDisplay';
 
 type SyncStatusTableProps = { mirrorName: string };
@@ -47,18 +45,7 @@ function TimeWithDurationOrRunning({
 }
 
 const ROWS_PER_PAGE = 5;
-const sortOptions = [
-  { value: 'batchId', label: 'Batch ID' },
-  { value: 'startTime', label: 'Start Time' },
-  { value: 'endTime', label: 'End Time' },
-  { value: 'numRows', label: 'Rows Synced' },
-];
-
 export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
-  const [sortField, setSortField] = useState<
-    'startTime' | 'endTime' | 'numRows' | 'batchId'
-  >('batchId');
-
   const [totalPages, setTotalPages] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
   const [ascending, setAscending] = useState(false);
@@ -70,7 +57,6 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
       const req: GetCDCBatchesRequest = {
         flowJobName: mirrorName,
         limit: ROWS_PER_PAGE,
-        // TODO sortField
         beforeId: beforeId,
         afterId: afterId,
         ascending,
@@ -90,7 +76,7 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
     };
 
     fetchData();
-  }, [mirrorName, sortField, beforeId, afterId]);
+  }, [mirrorName, beforeId, afterId]);
 
   const nextPage = useCallback(() => {
     if (batches.length === 0) {
@@ -130,27 +116,6 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
             >
               <Icon name='refresh' />
             </Button>
-            <div style={{ minWidth: '10em' }}>
-              <ReactSelect
-                options={sortOptions}
-                value={{
-                  value: sortField,
-                  label: sortOptions.find((opt) => opt.value === sortField)
-                    ?.label,
-                }}
-                onChange={(val, _) => {
-                  const sortVal =
-                    (val?.value as
-                      | 'startTime'
-                      | 'endTime'
-                      | 'numRows'
-                      | 'batchId') ?? 'batchId';
-                  setSortField(sortVal);
-                }}
-                defaultValue={{ value: 'batchId', label: 'Batch ID' }}
-                theme={SelectTheme}
-              />
-            </div>
             <button
               className='IconButton'
               onClick={() => {
