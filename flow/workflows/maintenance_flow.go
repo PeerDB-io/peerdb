@@ -204,7 +204,7 @@ func endMaintenance(ctx workflow.Context, logger log.Logger) (*protos.EndMainten
 		return nil, err
 	}
 
-	clearBackupsFuture := workflow.ExecuteActivity(ctx, maintenance.CleanupBackupedFlows)
+	clearBackupsFuture := workflow.ExecuteActivity(ctx, maintenance.CleanBackedUpFlows)
 	err = clearBackupsFuture.Get(ctx, nil)
 	if err != nil {
 		return nil, err

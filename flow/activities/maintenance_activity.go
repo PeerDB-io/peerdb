@@ -43,10 +43,10 @@ type MaintenanceMirrorInfoItem struct {
 
 func (a *MaintenanceActivity) GetAllMirrors(ctx context.Context) (MaintenanceMirrorsInfo, error) {
 	rows, err := a.CatalogPool.Query(ctx, `
-	select distinct on(f.name)
-	  f.id, f.name, f.workflow_id,
-	  f.created_at, coalesce(f.query_string, '')='' is_cdc
-	from flows f
+	select distinct on(name)
+	  id, name, workflow_id,
+	  created_at, coalesce(query_string, '')='' is_cdc
+	from flows
 	`)
 	if err != nil {
 		return MaintenanceMirrorsInfo{}, err
@@ -63,18 +63,7 @@ func (a *MaintenanceActivity) GetAllMirrors(ctx context.Context) (MaintenanceMir
 }
 
 func (a *MaintenanceActivity) getMirrorStatus(ctx context.Context, mirrorInfo MaintenanceMirrorInfoItem) (protos.FlowStatus, error) {
-	encodedState, err := a.TemporalClient.QueryWorkflow(ctx, mirrorInfo.WorkflowId, "", shared.FlowStatusQuery)
-	if err != nil {
-		slog.Error("Error querying mirror status for maintenance", "mirror", mirrorInfo.Name, "workflowId", mirrorInfo.WorkflowId, "error", err)
-		return protos.FlowStatus_STATUS_UNKNOWN, err
-	}
-	var state protos.FlowStatus
-	if err = encodedState.Get(&state); err != nil {
-		slog.Error("Error decoding mirror status for maintenance", "mirror", mirrorInfo.Name, "workflowId", mirrorInfo.WorkflowId, "error", err)
-		return protos.FlowStatus_STATUS_UNKNOWN,
-			fmt.Errorf("error decoding mirror status for maintenance: %w", err)
-	}
-	return state, nil
+	return shared.GetWorkflowStatus(ctx, a.TemporalClient, mirrorInfo.WorkflowId)
 }
 
 func (a *MaintenanceActivity) WaitForRunningSnapshots(ctx context.Context) (MaintenanceMirrorsInfo, error) {
@@ -212,7 +201,7 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirrorIn
 	return true, nil
 }
 
-func (a *MaintenanceActivity) CleanupBackupedFlows(ctx context.Context) error {
+func (a *MaintenanceActivity) CleanBackedUpFlows(ctx context.Context) error {
 	_, err := a.CatalogPool.Exec(ctx, `
 		update maintenance.maintenance_flows
 			set state = $1,
