@@ -216,13 +216,15 @@ func (h *FlowRequestHandler) CDCGraph(ctx context.Context, req *protos.GraphRequ
 	if err != nil {
 		return nil, err
 	}
-	var data []*protos.GraphResponseItem
-	var t time.Time
-	var r int64
-	if _, err := pgx.ForEachRow(rows, []any{&t, &r}, func() error {
-		data = append(data, &protos.GraphResponseItem{Time: float64(t.UnixMilli()), Rows: float64(r)})
-		return nil
-	}); err != nil {
+	data, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.GraphResponseItem, error) {
+		var t time.Time
+		var r int64
+		if err := row.Scan(&t, &r); err != nil {
+			return nil, err
+		}
+		return &protos.GraphResponseItem{Time: float64(t.UnixMilli()), Rows: float64(r)}, nil
+	})
+	if err != nil {
 		return nil, err
 	}
 
