@@ -3,15 +3,15 @@ package peerdbenv
 import (
 	"context"
 	"fmt"
-	"github.com/aws/smithy-go/ptr"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"log/slog"
 	"os"
 	"strconv"
 	"time"
 
+	"github.com/aws/smithy-go/ptr"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/exp/constraints"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"

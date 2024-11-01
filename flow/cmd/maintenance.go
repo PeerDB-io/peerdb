@@ -3,12 +3,14 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"os"
+
+	"go.temporal.io/sdk/client"
+
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
-	"go.temporal.io/sdk/client"
-	"log/slog"
-	"os"
 )
 
 type MaintenanceCLIParams struct {
@@ -63,7 +65,6 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 		slog.Info("End maintenance workflow completed", "output", output)
 	default:
 		return fmt.Errorf("unknown flow type %s", args.FlowType)
-
 	}
 	slog.Info("Maintenance workflow completed with type", "type", args.FlowType)
 	return nil

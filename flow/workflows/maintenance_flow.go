@@ -2,28 +2,36 @@ package peerflow
 
 import (
 	"context"
-	"fmt"
-	"github.com/PeerDB-io/peer-flow/activities"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"log/slog"
+	"time"
+
 	tEnums "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
-	"log/slog"
-	"time"
+
+	"github.com/PeerDB-io/peer-flow/activities"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 // RunStartMaintenanceWorkflow is a helper function to start the StartMaintenanceWorkflow with sane defaults
-func RunStartMaintenanceWorkflow(ctx context.Context, temporalClient client.Client, input *protos.StartMaintenanceFlowInput) (client.WorkflowRun, error) {
+func RunStartMaintenanceWorkflow(
+	ctx context.Context,
+	temporalClient client.Client,
+	input *protos.StartMaintenanceFlowInput,
+) (client.WorkflowRun, error) {
 	startWorkflowOptions := client.StartWorkflowOptions{
 		// This is to ensure that maintenance workflows are deduped
 		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
 		WorkflowIDConflictPolicy: tEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 		TaskQueue:                peerdbenv.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue),
 	}
-	startWorkflowOptions.ID = fmt.Sprintf("start-maintenance-%s", peerdbenv.PeerDBDeploymentUID())
+	startWorkflowOptions.ID = "start-maintenance"
+	if deploymentUid := peerdbenv.PeerDBDeploymentUID(); deploymentUid != "" {
+		startWorkflowOptions.ID += "-" + deploymentUid
+	}
 	workflowRun, err := temporalClient.ExecuteWorkflow(ctx, startWorkflowOptions, StartMaintenanceWorkflow, input)
 	if err != nil {
 		return nil, err
@@ -32,14 +40,22 @@ func RunStartMaintenanceWorkflow(ctx context.Context, temporalClient client.Clie
 }
 
 // RunEndMaintenanceWorkflow is a helper function to start the EndMaintenanceWorkflow with sane defaults
-func RunEndMaintenanceWorkflow(ctx context.Context, temporalClient client.Client, input *protos.EndMaintenanceFlowInput) (client.WorkflowRun, error) {
+func RunEndMaintenanceWorkflow(
+	ctx context.Context,
+	temporalClient client.Client,
+	input *protos.EndMaintenanceFlowInput,
+) (client.WorkflowRun, error) {
 	startWorkflowOptions := client.StartWorkflowOptions{
 		// This is to ensure that maintenance workflows are deduped
 		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
 		WorkflowIDConflictPolicy: tEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 		TaskQueue:                peerdbenv.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue),
 	}
-	startWorkflowOptions.ID = fmt.Sprintf("end-maintenance-%s", peerdbenv.PeerDBDeploymentUID())
+	startWorkflowOptions.ID = "end-maintenance"
+	if deploymentUid := peerdbenv.PeerDBDeploymentUID(); deploymentUid != "" {
+		startWorkflowOptions.ID += "-" + deploymentUid
+	}
+
 	workflowRun, err := temporalClient.ExecuteWorkflow(ctx, startWorkflowOptions, EndMaintenanceWorkflow, &protos.EndMaintenanceFlowInput{})
 	if err != nil {
 		return nil, err
@@ -113,9 +129,13 @@ func startMaintenance(ctx workflow.Context, logger log.Logger) (*protos.StartMai
 	}, nil
 }
 
-func pauseAndGetRunningMirrors(ctx workflow.Context, mirrorsList activities.MaintenanceMirrorsInfo, logger log.Logger) (activities.MaintenanceMirrorsInfo, error) {
+func pauseAndGetRunningMirrors(
+	ctx workflow.Context,
+	mirrorsList activities.MaintenanceMirrorsInfo,
+	logger log.Logger,
+) (activities.MaintenanceMirrorsInfo, error) {
 	selector := workflow.NewSelector(ctx)
-	var runningMirrors = make([]bool, len(mirrorsList.Mirrors))
+	runningMirrors := make([]bool, len(mirrorsList.Mirrors))
 	for i, mirror := range mirrorsList.Mirrors {
 		activityInput := mirror
 		f := workflow.ExecuteActivity(
@@ -171,7 +191,6 @@ func EndMaintenanceWorkflow(ctx workflow.Context, input *protos.EndMaintenanceFl
 		return nil, err
 	}
 	return flowOutput, nil
-
 }
 
 func endMaintenance(ctx workflow.Context, logger log.Logger) (*protos.EndMaintenanceFlowOutput, error) {

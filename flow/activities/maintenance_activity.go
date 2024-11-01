@@ -3,18 +3,20 @@ package activities
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/client"
+
 	"github.com/PeerDB-io/peer-flow/alerting"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/PeerDB-io/peer-flow/shared/telemetry"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"go.temporal.io/sdk/activity"
-	"go.temporal.io/sdk/client"
-	"log/slog"
-	"time"
 )
 
 const (
@@ -32,10 +34,10 @@ type MaintenanceMirrorsInfo struct {
 	Mirrors []MaintenanceMirrorInfoItem
 }
 type MaintenanceMirrorInfoItem struct {
-	Id         int64
+	CreatedAt  time.Time
 	Name       string
 	WorkflowId string
-	CreatedAt  time.Time
+	Id         int64
 	IsCDC      bool
 }
 
@@ -92,16 +94,23 @@ func (a *MaintenanceActivity) WaitForRunningSnapshots(ctx context.Context) (Main
 		if err != nil {
 			return MaintenanceMirrorsInfo{}, err
 		}
-		slog.Info("Finished checking and waiting for snapshot", "mirror", mirror.Name, "workflowId", mirror.WorkflowId, "lastStatus", lastStatus.String())
+		slog.Info("Finished checking and waiting for snapshot",
+			"mirror", mirror.Name, "workflowId", mirror.WorkflowId, "lastStatus", lastStatus.String())
 	}
 	slog.Info("Finished checking and waiting for all mirrors to finish snapshot")
 	return mirrors, nil
 }
 
-func (a *MaintenanceActivity) checkAndWaitIfSnapshot(ctx context.Context, mirrorInfo MaintenanceMirrorInfoItem, logEvery time.Duration, alertEvery time.Duration) (protos.FlowStatus, error) {
+func (a *MaintenanceActivity) checkAndWaitIfSnapshot(
+	ctx context.Context,
+	mirrorInfo MaintenanceMirrorInfoItem,
+	logEvery time.Duration,
+	alertEvery time.Duration,
+) (protos.FlowStatus, error) {
 	// In case a mirror was just kicked off, it shows up in the running state, we wait for a bit before checking for snapshot
 	if mirrorInfo.CreatedAt.After(time.Now().Add(-30 * time.Second)) {
-		slog.Info("Mirror was created less than 30 seconds ago, waiting for it to be ready before checking for snapshot", "mirror", mirrorInfo.Name, "workflowId", mirrorInfo.WorkflowId)
+		slog.Info("Mirror was created less than 30 seconds ago, waiting for it to be ready before checking for snapshot",
+			"mirror", mirrorInfo.Name, "workflowId", mirrorInfo.WorkflowId)
 		time.Sleep(30 * time.Second)
 	}
 
@@ -114,17 +123,22 @@ func (a *MaintenanceActivity) checkAndWaitIfSnapshot(ctx context.Context, mirror
 	if mirrorStatus != protos.FlowStatus_STATUS_SNAPSHOT && mirrorStatus != protos.FlowStatus_STATUS_SETUP {
 		return mirrorStatus, nil
 	}
-	slog.Info("Waiting for mirror to finish snapshot", "mirror", mirrorInfo.Name, "workflowId", mirrorInfo.WorkflowId, "status", mirrorStatus.String())
+	slog.Info("Waiting for mirror to finish snapshot",
+		"mirror", mirrorInfo.Name, "workflowId", mirrorInfo.WorkflowId, "status", mirrorStatus.String())
 	defer shared.Interval(
 		ctx, alertEvery, func() {
-			slog.Warn("[Maintenance] Still waiting for mirror to finish snapshot", "mirror", mirrorInfo.Name, "workflowId", mirrorInfo.WorkflowId, "status", mirrorStatus.String())
-			a.Alerter.LogNonFlowWarning(ctx, telemetry.MaintenanceWait, mirrorInfo.Name, fmt.Sprintf("Maintenance mode is still waiting for mirror to finish snapshot, mirror=%s, workflowId=%s, status=%s", mirrorInfo.Name, mirrorInfo.WorkflowId, mirrorStatus))
+			slog.Warn("[Maintenance] Still waiting for mirror to finish snapshot",
+				"mirror", mirrorInfo.Name, "workflowId", mirrorInfo.WorkflowId, "status", mirrorStatus.String())
+			a.Alerter.LogNonFlowWarning(ctx, telemetry.MaintenanceWait, mirrorInfo.Name, fmt.Sprintf(
+				"Maintenance mode is still waiting for mirror to finish snapshot, mirror=%s, workflowId=%s, status=%s",
+				mirrorInfo.Name, mirrorInfo.WorkflowId, mirrorStatus))
 		},
 	)()
 
 	defer shared.Interval(
 		ctx, logEvery, func() {
-			slog.Info("[Maintenance] Waiting for mirror to finish snapshot", "mirror", mirrorInfo.Name, "workflowId", mirrorInfo.WorkflowId, "status", mirrorStatus.String())
+			slog.Info("[Maintenance] Waiting for mirror to finish snapshot",
+				"mirror", mirrorInfo.Name, "workflowId", mirrorInfo.WorkflowId, "status", mirrorStatus.String())
 		},
 	)()
 
@@ -164,7 +178,6 @@ func (a *MaintenanceActivity) BackupAllPreviouslyRunningFlows(ctx context.Contex
 		}
 	}
 	return tx.Commit(ctx)
-
 }
 
 func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirrorInfo MaintenanceMirrorInfoItem) (bool, error) {
@@ -183,12 +196,14 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirrorIn
 
 	err = model.FlowSignal.SignalClientWorkflow(ctx, a.TemporalClient, mirrorInfo.WorkflowId, "", model.PauseSignal)
 	if err != nil {
-		slog.Error("Error signaling mirror running to pause for maintenance", "mirror", mirrorInfo.Name, "workflowId", mirrorInfo.WorkflowId, "error", err)
+		slog.Error("Error signaling mirror running to pause for maintenance",
+			"mirror", mirrorInfo.Name, "workflowId", mirrorInfo.WorkflowId, "error", err)
 		return false, err
 	}
 	defer shared.Interval(
 		ctx, 30*time.Second, func() {
-			slog.Info("Waiting for mirror to pause", "mirror", mirrorInfo.Name, "workflowId", mirrorInfo.WorkflowId, "currentStatus", mirrorStatus.String())
+			slog.Info("Waiting for mirror to pause",
+				"mirror", mirrorInfo.Name, "workflowId", mirrorInfo.WorkflowId, "currentStatus", mirrorStatus.String())
 		},
 	)()
 
@@ -198,15 +213,14 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirrorIn
 		activity.RecordHeartbeat(ctx, fmt.Sprintf("Waiting for mirror %s to pause", mirrorInfo.Name))
 		mirrorStatus, err = a.getMirrorStatus(ctx, mirrorInfo)
 		if err != nil {
-			slog.Error("Error querying mirror status for maintenance of previously running mirror", "mirror", mirrorInfo.Name, "workflowId", mirrorInfo.WorkflowId, "error", err)
+			slog.Error("Error querying mirror status for maintenance of previously running mirror",
+				"mirror", mirrorInfo.Name, "workflowId", mirrorInfo.WorkflowId, "error", err)
 		}
 	}
 	return true, nil
-
 }
 
 func (a *MaintenanceActivity) CleanupBackupedFlows(ctx context.Context) error {
-
 	_, err := a.CatalogPool.Exec(ctx, `
 		update maintenance.maintenance_flows
 			set state = $1,
@@ -232,7 +246,6 @@ func (a *MaintenanceActivity) GetBackedUpFlows(ctx context.Context) (Maintenance
 		err := row.Scan(&info.Id, &info.Name, &info.WorkflowId, &info.CreatedAt, &info.IsCDC)
 		return info, err
 	})
-
 	if err != nil {
 		return MaintenanceMirrorsInfo{}, err
 	}
@@ -249,14 +262,16 @@ func (a *MaintenanceActivity) ResumeMirror(ctx context.Context, mirrorInfo Maint
 	}
 
 	if mirrorStatus != protos.FlowStatus_STATUS_PAUSED {
-		slog.Error("Cannot resume mirror that is not paused", "mirror", mirrorInfo.Name, "workflowId", mirrorInfo.WorkflowId, "status", mirrorStatus.String())
+		slog.Error("Cannot resume mirror that is not paused",
+			"mirror", mirrorInfo.Name, "workflowId", mirrorInfo.WorkflowId, "status", mirrorStatus.String())
 		return nil
 	}
 
 	// There can also be "workflow already completed" errors, what should we do in that case?
 	err = model.FlowSignal.SignalClientWorkflow(ctx, a.TemporalClient, mirrorInfo.WorkflowId, "", model.NoopSignal)
 	if err != nil {
-		slog.Error("Error signaling mirror to resume for maintenance", "mirror", mirrorInfo.Name, "workflowId", mirrorInfo.WorkflowId, "error", err)
+		slog.Error("Error signaling mirror to resume for maintenance",
+			"mirror", mirrorInfo.Name, "workflowId", mirrorInfo.WorkflowId, "error", err)
 		return err
 	}
 	return nil

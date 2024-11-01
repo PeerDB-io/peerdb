@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"log/slog"
 	"strings"
 	"time"
@@ -20,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
@@ -561,7 +561,6 @@ func (h *FlowRequestHandler) GetInstanceInfo(ctx context.Context, in *protos.Ins
 }
 
 func (h *FlowRequestHandler) Maintenance(ctx context.Context, in *protos.MaintenanceRequest) (*protos.MaintenanceResponse, error) {
-
 	if in.Status == protos.MaintenanceStatus_MAINTENANCE_STATUS_START {
 		workflowRun, err := peerflow.RunStartMaintenanceWorkflow(ctx, h.temporalClient, &protos.StartMaintenanceFlowInput{})
 		if err != nil {
@@ -571,7 +570,6 @@ func (h *FlowRequestHandler) Maintenance(ctx context.Context, in *protos.Mainten
 			WorkflowId: workflowRun.GetID(),
 			RunId:      workflowRun.GetRunID(),
 		}, nil
-
 	}
 
 	if in.Status == protos.MaintenanceStatus_MAINTENANCE_STATUS_END {
@@ -584,5 +582,5 @@ func (h *FlowRequestHandler) Maintenance(ctx context.Context, in *protos.Mainten
 			RunId:      workflowRun.GetRunID(),
 		}, nil
 	}
-	return &protos.MaintenanceResponse{}, fmt.Errorf("invalid maintenance status")
+	return &protos.MaintenanceResponse{}, errors.New("invalid maintenance status")
 }
