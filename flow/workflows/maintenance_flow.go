@@ -139,11 +139,10 @@ func pauseAndGetRunningMirrors(
 	selector := workflow.NewSelector(ctx)
 	runningMirrors := make([]bool, len(mirrorsList.Mirrors))
 	for i, mirror := range mirrorsList.Mirrors {
-		activityInput := mirror
 		f := workflow.ExecuteActivity(
 			ctx,
 			maintenance.PauseMirrorIfRunning,
-			activityInput,
+			mirror,
 		)
 
 		selector.AddFuture(f, func(f workflow.Future) {
@@ -155,7 +154,6 @@ func pauseAndGetRunningMirrors(
 				logger.Info("Finished check and pause for mirror", "mirror", mirror, "wasRunning", wasRunning)
 				runningMirrors[i] = wasRunning
 			}
-			ctx.Done()
 		})
 	}
 	onlyRunningMirrors := make([]activities.MaintenanceMirrorInfoItem, 0)
@@ -250,7 +248,6 @@ func resumeBackedUpMirrors(ctx workflow.Context, logger log.Logger) (activities.
 			} else {
 				logger.Info("Finished resuming mirror", "mirror", mirror)
 			}
-			ctx.Done()
 		})
 	}
 
