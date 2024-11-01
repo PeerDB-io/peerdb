@@ -76,7 +76,7 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
     };
 
     fetchData();
-  }, [mirrorName, beforeId, afterId]);
+  }, [mirrorName, beforeId, afterId, ascending]);
 
   const nextPage = useCallback(() => {
     if (batches.length === 0) {
@@ -86,7 +86,7 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
     } else {
       setBeforeAfterId([batches[batches.length - 1].batchId, -1]);
     }
-  }, [batches]);
+  }, [batches, ascending]);
   const prevPage = useCallback(() => {
     if (batches.length === 0 || currentPage < 3) {
       setBeforeAfterId([-1, ascending ? 0 : -1]);
@@ -95,7 +95,7 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
     } else {
       setBeforeAfterId([-1, batches[0].batchId]);
     }
-  }, [batches, currentPage]);
+  }, [batches, ascending, currentPage]);
 
   return (
     <Table
