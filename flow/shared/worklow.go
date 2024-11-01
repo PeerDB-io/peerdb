@@ -3,9 +3,11 @@ package shared
 import (
 	"context"
 	"fmt"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"go.temporal.io/sdk/client"
 	"log/slog"
+
+	"go.temporal.io/sdk/client"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
 func GetWorkflowStatus(ctx context.Context, temporalClient client.Client, workflowID string) (protos.FlowStatus, error) {

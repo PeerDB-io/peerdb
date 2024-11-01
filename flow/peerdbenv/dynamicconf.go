@@ -278,16 +278,15 @@ func dynamicConfBool(ctx context.Context, env map[string]string, key string) (bo
 }
 
 func UpdateDynamicSetting(ctx context.Context, pool *pgxpool.Pool, name string, value *string) error {
-	catalogPool := pool
-	if catalogPool == nil {
+	if pool == nil {
 		var err error
-		catalogPool, err = GetCatalogConnectionPoolFromEnv(ctx)
+		pool, err = GetCatalogConnectionPoolFromEnv(ctx)
 		if err != nil {
 			shared.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool for dynamic setting update", slog.Any("error", err))
 			return fmt.Errorf("failed to get catalog connection pool: %w", err)
 		}
 	}
-	_, err := catalogPool.Exec(ctx, `insert into dynamic_settings (config_name, config_value) values ($1, $2)
+	_, err := pool.Exec(ctx, `insert into dynamic_settings (config_name, config_value) values ($1, $2)
 			on conflict (config_name) do update set config_value = $2`, name, value)
 	return err
 }

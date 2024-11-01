@@ -480,3 +480,14 @@ message EndMaintenanceFlowOutput {
   string version = 1;
 }
 
+message MaintenanceMirror {
+  int64 mirror_id = 1;
+  string mirror_name = 2;
+  string workflow_id = 3;
+  bool is_cdc = 4;
+  google.protobuf.Timestamp mirror_created_at = 5;
+}
+
+message MaintenanceMirrors {
+  repeated MaintenanceMirror mirrors = 1;
+}

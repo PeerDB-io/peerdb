@@ -10,7 +10,6 @@ import (
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -133,9 +132,9 @@ func startMaintenance(ctx workflow.Context, logger log.Logger) (*protos.StartMai
 
 func pauseAndGetRunningMirrors(
 	ctx workflow.Context,
-	mirrorsList activities.MaintenanceMirrorsInfo,
+	mirrorsList *protos.MaintenanceMirrors,
 	logger log.Logger,
-) (activities.MaintenanceMirrorsInfo, error) {
+) (*protos.MaintenanceMirrors, error) {
 	selector := workflow.NewSelector(ctx)
 	runningMirrors := make([]bool, len(mirrorsList.Mirrors))
 	for i, mirror := range mirrorsList.Mirrors {
@@ -156,11 +155,11 @@ func pauseAndGetRunningMirrors(
 			}
 		})
 	}
-	onlyRunningMirrors := make([]activities.MaintenanceMirrorInfoItem, 0)
+	onlyRunningMirrors := make([]*protos.MaintenanceMirror, 0, len(mirrorsList.Mirrors))
 	for range mirrorsList.Mirrors {
 		selector.Select(ctx)
 		if err := ctx.Err(); err != nil {
-			return activities.MaintenanceMirrorsInfo{}, err
+			return nil, err
 		}
 	}
 	for i, mirror := range mirrorsList.Mirrors {
@@ -168,16 +167,16 @@ func pauseAndGetRunningMirrors(
 			onlyRunningMirrors = append(onlyRunningMirrors, mirror)
 		}
 	}
-	return activities.MaintenanceMirrorsInfo{
+	return &protos.MaintenanceMirrors{
 		Mirrors: onlyRunningMirrors,
 	}, nil
 }
 
-func getAllMirrors(ctx workflow.Context) (activities.MaintenanceMirrorsInfo, error) {
+func getAllMirrors(ctx workflow.Context) (*protos.MaintenanceMirrors, error) {
 	getMirrorsFuture := workflow.ExecuteActivity(ctx, maintenance.GetAllMirrors)
-	var mirrorsList activities.MaintenanceMirrorsInfo
+	var mirrorsList protos.MaintenanceMirrors
 	err := getMirrorsFuture.Get(ctx, &mirrorsList)
-	return mirrorsList, err
+	return &mirrorsList, err
 }
 
 func EndMaintenanceWorkflow(ctx workflow.Context, input *protos.EndMaintenanceFlowInput) (*protos.EndMaintenanceFlowOutput, error) {
@@ -224,12 +223,12 @@ func endMaintenance(ctx workflow.Context, logger log.Logger) (*protos.EndMainten
 	}, nil
 }
 
-func resumeBackedUpMirrors(ctx workflow.Context, logger log.Logger) (activities.MaintenanceMirrorsInfo, error) {
+func resumeBackedUpMirrors(ctx workflow.Context, logger log.Logger) (*protos.MaintenanceMirrors, error) {
 	future := workflow.ExecuteActivity(ctx, maintenance.GetBackedUpFlows)
-	var mirrorsList activities.MaintenanceMirrorsInfo
+	var mirrorsList *protos.MaintenanceMirrors
 	err := future.Get(ctx, &mirrorsList)
 	if err != nil {
-		return activities.MaintenanceMirrorsInfo{}, err
+		return nil, err
 	}
 
 	selector := workflow.NewSelector(ctx)
@@ -254,7 +253,7 @@ func resumeBackedUpMirrors(ctx workflow.Context, logger log.Logger) (activities.
 	for range mirrorsList.Mirrors {
 		selector.Select(ctx)
 		if err := ctx.Err(); err != nil {
-			return activities.MaintenanceMirrorsInfo{}, err
+			return nil, err
 		}
 	}
 	return mirrorsList, nil
