@@ -441,6 +441,36 @@ message ResyncMirrorRequest {
 message ResyncMirrorResponse {
 }
 
+message PeerDBStateRequest {
+}
+
+enum InstanceStatus {
+  INSTANCE_STATUS_UNKNOWN = 0;
+  INSTANCE_STATUS_READY = 1;
+  INSTANCE_STATUS_MAINTENANCE = 3;
+}
+
+message InstanceInfoRequest {
+}
+
+message InstanceInfoResponse {
+  InstanceStatus status = 1;
+}
+
+enum MaintenanceStatus {
+  MAINTENANCE_STATUS_START = 0;
+  MAINTENANCE_STATUS_END = 1;
+}
+
+message MaintenanceRequest {
+  MaintenanceStatus status = 1;
+}
+
+message MaintenanceResponse {
+  string workflow_id = 1;
+  string run_id = 2;
+}
+
 service FlowService {
   rpc ValidatePeer(ValidatePeerRequest) returns (ValidatePeerResponse) {
     option (google.api.http) = {
@@ -594,5 +624,13 @@ service FlowService {
 
   rpc ResyncMirror(ResyncMirrorRequest) returns (ResyncMirrorResponse) {
     option (google.api.http) = { post: "/v1/mirrors/resync", body: "*" };
+  }
+
+  rpc GetInstanceInfo(InstanceInfoRequest) returns (InstanceInfoResponse) {
+    option (google.api.http) = { get: "/v1/instance/info" };
+  }
+
+  rpc Maintenance(MaintenanceRequest) returns (MaintenanceResponse) {
+    option (google.api.http) = { post: "/v1/instance/maintenance", body: "*" };
   }
 }

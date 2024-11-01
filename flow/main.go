@@ -70,6 +70,13 @@ func main() {
 		Sources: cli.EnvVars("TEMPORAL_MAX_CONCURRENT_WORKFLOW_TASKS"),
 	}
 
+	maintenanceModeWorkflowFlag := &cli.StringFlag{
+		Name:    "run-maintenance-flow",
+		Value:   "",
+		Usage:   "Run a maintenance flow. Options are 'start' or 'end'",
+		Sources: cli.EnvVars("RUN_MAINTENANCE_FLOW"),
+	}
+
 	app := &cli.Command{
 		Name: "PeerDB Flows CLI",
 		Commands: []*cli.Command{
@@ -145,6 +152,23 @@ func main() {
 						TemporalHostPort:  temporalHostPort,
 						GatewayPort:       uint16(clicmd.Uint("gateway-port")),
 						TemporalNamespace: clicmd.String("temporal-namespace"),
+					})
+				},
+			},
+			{
+				Name: "maintenance",
+				Flags: []cli.Flag{
+					temporalHostPortFlag,
+					temporalNamespaceFlag,
+					maintenanceModeWorkflowFlag,
+				},
+				Action: func(ctx context.Context, clicmd *cli.Command) error {
+					temporalHostPort := clicmd.String("temporal-host-port")
+
+					return cmd.MaintenanceMain(ctx, &cmd.MaintenanceCLIParams{
+						TemporalHostPort:  temporalHostPort,
+						TemporalNamespace: clicmd.String("temporal-namespace"),
+						FlowType:          clicmd.String("run-maintenance-flow"),
 					})
 				},
 			},

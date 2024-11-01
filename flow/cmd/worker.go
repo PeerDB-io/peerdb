@@ -170,6 +170,12 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 		OtelManager: otelManager,
 	})
 
+	w.RegisterActivity(&activities.MaintenanceActivity{
+		CatalogPool:    conn,
+		Alerter:        alerting.NewAlerter(context.Background(), conn),
+		TemporalClient: c,
+	})
+
 	return &workerSetupResponse{
 		Client: c,
 		Worker: w,

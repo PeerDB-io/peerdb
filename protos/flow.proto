@@ -466,3 +466,17 @@ message DropFlowActivityInput {
   string peer_name = 2;
 }
 
+message StartMaintenanceFlowInput {
+}
+
+message StartMaintenanceFlowOutput {
+  string version = 1;
+}
+
+message EndMaintenanceFlowInput {
+}
+
+message EndMaintenanceFlowOutput {
+  string version = 1;
+}
+

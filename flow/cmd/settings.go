@@ -55,8 +55,7 @@ func (h *FlowRequestHandler) PostDynamicSetting(
 	ctx context.Context,
 	req *protos.PostDynamicSettingRequest,
 ) (*protos.PostDynamicSettingResponse, error) {
-	_, err := h.pool.Exec(ctx, `insert into dynamic_settings (config_name, config_value) values ($1, $2)
-		on conflict (config_name) do update set config_value = $2`, req.Name, req.Value)
+	err := peerdbenv.UpdateDynamicSetting(ctx, h.pool, req.Name, req.Value)
 	if err != nil {
 		slog.Error("[PostDynamicConfig] failed to execute update setting", slog.Any("error", err))
 		return nil, err
