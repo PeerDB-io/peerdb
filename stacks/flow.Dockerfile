@@ -56,3 +56,10 @@ ENTRYPOINT [\
   "./peer-flow",\
   "snapshot-worker"\
   ]
+
+
+FROM flow-base AS flow-maintenance
+ENTRYPOINT [\
+  "./peer-flow",\
+  "maintenance"\
+  ]

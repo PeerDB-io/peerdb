@@ -16,6 +16,7 @@ group "default" {
     "flow-worker",
     "flow-api",
     "flow-snapshot-worker",
+    "flow-maintenance",
     "peerdb-ui"
   ]
 }
@@ -62,6 +63,20 @@ target "flow-worker" {
   tags = [
     "${REGISTRY}/flow-worker:${TAG}",
     "${REGISTRY}/flow-worker:${SHA_SHORT}",
+  ]
+}
+
+target "flow-maintenance" {
+  context    = "."
+  dockerfile = "stacks/flow.Dockerfile"
+  target     = "flow-maintenance"
+  platforms = [
+    "linux/amd64",
+    "linux/arm64",
+  ]
+  tags = [
+    "${REGISTRY}/flow-maintenance:${TAG}",
+    "${REGISTRY}/flow-maintenance:${SHA_SHORT}",
   ]
 }
 
