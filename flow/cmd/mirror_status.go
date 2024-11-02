@@ -205,8 +205,7 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 
 func (h *FlowRequestHandler) CDCGraph(ctx context.Context, req *protos.GraphRequest) (*protos.GraphResponse, error) {
 	truncField := "minute"
-	switch req.AggregateType {
-	case "hour", "day", "month":
+	if slices.Contains([]string{"hour", "day", "month"}, req.AggregateType) {
 		truncField = req.AggregateType
 	}
 	rows, err := h.pool.Query(ctx, `select tm, coalesce(sum(rows_in_batch), 0)
@@ -512,7 +511,7 @@ func (h *FlowRequestHandler) CDCBatches(ctx context.Context, req *protos.GetCDCB
 		} else if req.AfterId != -1 {
 			queryArgs = append(queryArgs, req.AfterId)
 			whereExpr = fmt.Sprintf(" AND batch_id > $%d", len(queryArgs))
-			sortOrderBy = ""
+			sortOrderBy = "asc"
 		}
 	}
 
@@ -569,7 +568,7 @@ func (h *FlowRequestHandler) CDCBatches(ctx context.Context, req *protos.GetCDCB
 	if batches == nil {
 		batches = []*protos.CDCBatch{}
 	}
-	if req.Ascending != (sortOrderBy == "") {
+	if req.Ascending != (sortOrderBy == "asc") {
 		slices.Reverse(batches)
 	}
 
