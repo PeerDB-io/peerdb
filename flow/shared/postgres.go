@@ -66,7 +66,7 @@ func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]string,
 		var typeID pgtype.Uint32
 		var typeName pgtype.Text
 		if err := rows.Scan(&typeID, &typeName); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return nil, fmt.Errorf("failed to scan row while fetching custom types: %w", err)
 		}
 		customTypeMap[typeID.Uint32] = typeName.String
 	}

@@ -85,22 +85,17 @@ func GetChildToParentRelIDMap(ctx context.Context, conn *pgx.Conn) (map[uint32]u
 		WHERE parent.relkind='p';
 	`
 
-	rows, err := conn.Query(ctx, query, pgx.QueryExecModeSimpleProtocol)
+	rows, err := conn.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("error querying for child to parent relid map: %w", err)
 	}
-	defer rows.Close()
 
 	childToParentRelIDMap := make(map[uint32]uint32)
-	var parentRelID pgtype.Uint32
-	var childRelID pgtype.Uint32
-	for rows.Next() {
-		err := rows.Scan(&parentRelID, &childRelID)
-		if err != nil {
-			return nil, fmt.Errorf("error scanning child to parent relid map: %w", err)
-		}
+	var parentRelID, childRelID pgtype.Uint32
+	pgx.ForEachRow(rows, []any{&parentRelID, &childRelID}, func() error {
 		childToParentRelIDMap[childRelID.Uint32] = parentRelID.Uint32
-	}
+		return nil
+	})
 
 	return childToParentRelIDMap, nil
 }

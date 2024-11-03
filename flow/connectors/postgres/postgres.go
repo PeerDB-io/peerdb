@@ -87,12 +87,6 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		return nil, fmt.Errorf("failed to create connection: %w", err)
 	}
 
-	customTypeMap, err := shared.GetCustomDataTypes(ctx, conn)
-	if err != nil {
-		logger.Error("failed to get custom type map", slog.Any("error", err))
-		return nil, fmt.Errorf("failed to get custom type map: %w", err)
-	}
-
 	metadataSchema := "_peerdb_internal"
 	if pgConfig.MetadataSchema != nil {
 		metadataSchema = *pgConfig.MetadataSchema
@@ -106,12 +100,23 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		replConn:               nil,
 		replState:              nil,
 		replLock:               sync.Mutex{},
-		customTypesMapping:     customTypeMap,
+		customTypesMapping:     nil,
 		metadataSchema:         metadataSchema,
 		hushWarnOID:            make(map[uint32]struct{}),
 		logger:                 logger,
 		relationMessageMapping: make(model.RelationMessageMapping),
 	}, nil
+}
+
+func (c *PostgresConnector) lazyInitCustomTypesMapping(ctx context.Context) error {
+	if c.customTypesMapping == nil {
+		customTypeMapping, err := shared.GetCustomDataTypes(ctx, c.conn)
+		if err != nil {
+			return err
+		}
+		c.customTypesMapping = customTypeMapping
+	}
+	return nil
 }
 
 func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, error) {
@@ -129,6 +134,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 	replConfig.Config.RuntimeParams["replication"] = "database"
 	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
 	replConfig.Config.RuntimeParams["intervalstyle"] = "postgres"
+	replConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
 	conn, err := c.ssh.NewPostgresConnFromConfig(ctx, replConfig)
 	if err != nil {
@@ -139,6 +145,10 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 }
 
 func (c *PostgresConnector) SetupReplConn(ctx context.Context) error {
+	err := c.lazyInitCustomTypesMapping(ctx)
+	if err != nil {
+		return err
+	}
 	conn, err := c.CreateReplConn(ctx)
 	if err != nil {
 		return err
@@ -168,6 +178,7 @@ func (c *PostgresConnector) MaybeStartReplication(
 	slotName string,
 	publicationName string,
 	lastOffset int64,
+	pgVersion shared.PGVersion,
 ) error {
 	if c.replState != nil && (c.replState.Offset != lastOffset ||
 		c.replState.Slot != slotName ||
@@ -180,7 +191,7 @@ func (c *PostgresConnector) MaybeStartReplication(
 	}
 
 	if c.replState == nil {
-		replicationOpts, err := c.replicationOptions(ctx, publicationName)
+		replicationOpts, err := c.replicationOptions(publicationName, pgVersion)
 		if err != nil {
 			return fmt.Errorf("error getting replication options: %w", err)
 		}
@@ -210,7 +221,8 @@ func (c *PostgresConnector) MaybeStartReplication(
 	return nil
 }
 
-func (c *PostgresConnector) replicationOptions(ctx context.Context, publicationName string) (pglogrepl.StartReplicationOptions, error) {
+func (c *PostgresConnector) replicationOptions(publicationName string, pgVersion shared.PGVersion,
+) (pglogrepl.StartReplicationOptions, error) {
 	pluginArguments := append(make([]string, 0, 3), "proto_version '1'")
 
 	if publicationName != "" {
@@ -220,10 +232,7 @@ func (c *PostgresConnector) replicationOptions(ctx context.Context, publicationN
 		return pglogrepl.StartReplicationOptions{}, errors.New("publication name is not set")
 	}
 
-	pgversion, err := c.MajorVersion(ctx)
-	if err != nil {
-		return pglogrepl.StartReplicationOptions{}, err
-	} else if pgversion >= shared.POSTGRES_14 {
+	if pgVersion >= shared.POSTGRES_14 {
 		pluginArguments = append(pluginArguments, "messages 'true'")
 	}
 
@@ -380,12 +389,20 @@ func pullCore[Items model.Items](
 
 	c.logger.Info("PullRecords: performed checks for slot and publication")
 
-	childToParentRelIDMap, err := GetChildToParentRelIDMap(ctx, c.conn)
+	pgVersion, err := shared.GetMajorVersion(ctx, c.conn)
 	if err != nil {
-		return fmt.Errorf("error getting child to parent relid map: %w", err)
+		return err
+	}
+	var childToParentRelIDMap map[uint32]uint32
+	// only initialize the map if needed, escape hatch because custom publications may not have the right setting
+	if req.OverridePublicationName == "" && pgVersion < shared.POSTGRES_13 {
+		childToParentRelIDMap, err = GetChildToParentRelIDMap(ctx, c.conn)
+		if err != nil {
+			return fmt.Errorf("error getting child to parent relid map: %w", err)
+		}
 	}
 
-	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset); err != nil {
+	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset, pgVersion); err != nil {
 		// in case of Aurora error ERROR: replication slots cannot be used on RO (Read Only) node (SQLSTATE 55000)
 		if shared.IsSQLStateError(err, pgerrcode.ObjectNotInPrerequisiteState) &&
 			strings.Contains(err.Error(), "replication slots cannot be used on RO (Read Only) node") {
@@ -742,6 +759,10 @@ func (c *PostgresConnector) GetTableSchema(
 	system protos.TypeSystem,
 	tableIdentifiers []string,
 ) (map[string]*protos.TableSchema, error) {
+	err := c.lazyInitCustomTypesMapping(ctx)
+	if err != nil {
+		return nil, err
+	}
 	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
 	for _, tableName := range tableIdentifiers {
 		tableSchema, err := c.getTableSchemaForTable(ctx, env, tableName, system)

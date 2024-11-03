@@ -327,6 +327,10 @@ func corePullQRepRecords(
 	partition *protos.QRepPartition,
 	sink QRepPullSink,
 ) (int, error) {
+	err := c.lazyInitCustomTypesMapping(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to initialize custom types mapping: %w", err)
+	}
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
