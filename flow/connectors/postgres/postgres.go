@@ -42,10 +42,10 @@ type PostgresConnector struct {
 	customTypesMapping     map[uint32]string
 	hushWarnOID            map[uint32]struct{}
 	relationMessageMapping model.RelationMessageMapping
-	pgVersion              *shared.PGVersion
 	connStr                string
 	metadataSchema         string
 	replLock               sync.Mutex
+	pgVersion              shared.PGVersion
 }
 
 type ReplState struct {
@@ -94,19 +94,19 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 	}
 
 	return &PostgresConnector{
-		connStr:                connectionString,
+		logger:                 logger,
 		config:                 pgConfig,
 		ssh:                    tunnel,
 		conn:                   conn,
 		replConn:               nil,
 		replState:              nil,
-		replLock:               sync.Mutex{},
 		customTypesMapping:     nil,
-		metadataSchema:         metadataSchema,
 		hushWarnOID:            make(map[uint32]struct{}),
-		logger:                 logger,
 		relationMessageMapping: make(model.RelationMessageMapping),
-		pgVersion:              nil,
+		connStr:                connectionString,
+		metadataSchema:         metadataSchema,
+		replLock:               sync.Mutex{},
+		pgVersion:              0,
 	}, nil
 }
 

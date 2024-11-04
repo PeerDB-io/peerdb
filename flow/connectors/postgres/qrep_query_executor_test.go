@@ -156,7 +156,7 @@ func TestAllDataTypes(t *testing.T) {
 
 	batch, err := qe.ProcessRows(rows, fieldDescriptions)
 	require.NoError(t, err, "error while processing rows")
-	require.Len(t, len(batch.Records), 1, "expected 1 record")
+	require.Len(t, batch.Records, 1, "expected 1 record")
 
 	// Retrieve the results.
 	record := batch.Records[0]
