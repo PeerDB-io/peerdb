@@ -63,10 +63,8 @@ func (a *MaintenanceActivity) WaitForRunningSnapshots(ctx context.Context) (*pro
 
 	slog.Info("Found mirrors for snapshot check", "mirrors", mirrors, "len", len(mirrors.Mirrors))
 
-	waitBeforeAlertingDuration := 30 * time.Minute
-
 	for _, mirror := range mirrors.Mirrors {
-		lastStatus, err := a.checkAndWaitIfSnapshot(ctx, mirror, 2*time.Minute, waitBeforeAlertingDuration)
+		lastStatus, err := a.checkAndWaitIfSnapshot(ctx, mirror, 2*time.Minute)
 		if err != nil {
 			return &protos.MaintenanceMirrors{}, err
 		}
@@ -81,7 +79,6 @@ func (a *MaintenanceActivity) checkAndWaitIfSnapshot(
 	ctx context.Context,
 	mirror *protos.MaintenanceMirror,
 	logEvery time.Duration,
-	alertEvery time.Duration,
 ) (protos.FlowStatus, error) {
 	// In case a mirror was just kicked off, it shows up in the running state, we wait for a bit before checking for snapshot
 	if mirror.MirrorCreatedAt.AsTime().After(time.Now().Add(-30 * time.Second)) {
@@ -89,36 +86,26 @@ func (a *MaintenanceActivity) checkAndWaitIfSnapshot(
 			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId)
 		time.Sleep(30 * time.Second)
 	}
-
 	mirrorStatus, err := a.getMirrorStatus(ctx, mirror)
 	if err != nil {
 		return mirrorStatus, err
 	}
-	defer shared.Interval(ctx, alertEvery, func() {
-		slog.Warn("[Maintenance] Still waiting for mirror to finish snapshot",
-			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "status", mirrorStatus.String())
-		a.Alerter.LogNonFlowWarning(ctx, telemetry.MaintenanceWait, mirror.MirrorName, fmt.Sprintf(
-			"Maintenance mode is still waiting for mirror to finish snapshot, mirror=%s, workflowId=%s, status=%s",
-			mirror.MirrorName, mirror.WorkflowId, mirrorStatus))
-	})()
-
-	defer shared.Interval(ctx, logEvery, func() {
-		slog.Info("[Maintenance] Waiting for mirror to finish snapshot",
-			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "status", mirrorStatus.String())
-	})()
 
 	slog.Info("Checking and waiting if mirror is snapshot", "mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "status",
 		mirrorStatus.String())
-	snapshotWaitSleepInterval := 10 * time.Second
-	for mirrorStatus == protos.FlowStatus_STATUS_SNAPSHOT || mirrorStatus == protos.FlowStatus_STATUS_SETUP {
-		time.Sleep(snapshotWaitSleepInterval)
-		activity.RecordHeartbeat(ctx, fmt.Sprintf("Waiting for mirror %s to finish snapshot", mirror.MirrorName))
+
+	flowStatus, err := RunEveryIntervalUntilFinish(ctx, func() (bool, protos.FlowStatus, error) {
+		activity.RecordHeartbeat(ctx, fmt.Sprintf("Checking if mirror %s is snapshot", mirror.MirrorName))
 		mirrorStatus, err = a.getMirrorStatus(ctx, mirror)
 		if err != nil {
-			return mirrorStatus, err
+			return false, mirrorStatus, err
 		}
-	}
-	return mirrorStatus, nil
+		if mirrorStatus == protos.FlowStatus_STATUS_SNAPSHOT || mirrorStatus == protos.FlowStatus_STATUS_SETUP {
+			return false, mirrorStatus, nil
+		}
+		return true, mirrorStatus, nil
+	}, 10*time.Second, fmt.Sprintf("Waiting for mirror %s to finish snapshot", mirror.MirrorName), logEvery)
+	return flowStatus, err
 }
 
 func (a *MaintenanceActivity) EnableMaintenanceMode(ctx context.Context) error {
@@ -168,22 +155,18 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *
 			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "error", err)
 		return false, err
 	}
-	defer shared.Interval(ctx, 30*time.Second, func() {
-		slog.Info("Waiting for mirror to pause",
-			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "currentStatus", mirrorStatus.String())
-	})()
 
-	for mirrorStatus != protos.FlowStatus_STATUS_PAUSED {
-		time.Sleep(10 * time.Second)
-
-		activity.RecordHeartbeat(ctx, fmt.Sprintf("Waiting for mirror %s to pause", mirror.MirrorName))
+	return RunEveryIntervalUntilFinish(ctx, func() (bool, bool, error) {
+		activity.RecordHeartbeat(ctx, "Waiting for mirror to pause with current status "+mirrorStatus.String())
 		mirrorStatus, err = a.getMirrorStatus(ctx, mirror)
 		if err != nil {
-			slog.Error("Error querying mirror status for maintenance of previously running mirror",
-				"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "error", err)
+			return false, false, err
 		}
-	}
-	return true, nil
+		if mirrorStatus == protos.FlowStatus_STATUS_PAUSED {
+			return true, true, nil
+		}
+		return false, false, nil
+	}, 10*time.Second, "Waiting for mirror to pause", 30*time.Second)
 }
 
 func (a *MaintenanceActivity) CleanBackedUpFlows(ctx context.Context) error {
@@ -249,13 +232,53 @@ func (a *MaintenanceActivity) DisableMaintenanceMode(ctx context.Context) error 
 }
 
 func (a *MaintenanceActivity) BackgroundAlerter(ctx context.Context) error {
-	defer shared.Interval(ctx, 30*time.Second, func() {
-		activity.RecordHeartbeat(ctx, "Maintenance Workflow is still running")
-	})()
-	defer shared.Interval(ctx, time.Duration(peerdbenv.PeerDBMaintenanceModeWaitAlertSeconds())*time.Second, func() {
-		slog.Warn("Maintenance Workflow is still running")
-		a.Alerter.LogNonFlowWarning(ctx, telemetry.MaintenanceWait, "", "Maintenance mode is still running")
-	})()
-	<-ctx.Done()
-	return nil
+	heartbeatTicker := time.NewTicker(30 * time.Second)
+	defer heartbeatTicker.Stop()
+
+	alertTicker := time.NewTicker(time.Duration(peerdbenv.PeerDBMaintenanceModeWaitAlertSeconds()) * time.Second)
+	defer alertTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-heartbeatTicker.C:
+			activity.RecordHeartbeat(ctx, "Maintenance Workflow is still running")
+		case <-alertTicker.C:
+			slog.Warn("Maintenance Workflow is still running")
+			a.Alerter.LogNonFlowWarning(ctx, telemetry.MaintenanceWait, "", "Maintenance mode is still running")
+		}
+	}
+}
+
+func RunEveryIntervalUntilFinish[T any](
+	ctx context.Context,
+	runFunc func() (finished bool, result T, err error),
+	runInterval time.Duration,
+	logMessage string,
+	logInterval time.Duration,
+) (T, error) {
+	runTicker := time.NewTicker(runInterval)
+	defer runTicker.Stop()
+
+	logTicker := time.NewTicker(logInterval)
+	defer logTicker.Stop()
+	var lastResult T
+	for {
+		select {
+		case <-ctx.Done():
+			return lastResult, ctx.Err()
+		case <-runTicker.C:
+			finished, result, err := runFunc()
+			lastResult = result
+			if err != nil {
+				return lastResult, err
+			}
+			if finished {
+				return result, err
+			}
+		case <-logTicker.C:
+			slog.Info(logMessage, "lastResult", lastResult)
+		}
+	}
 }

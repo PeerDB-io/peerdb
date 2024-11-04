@@ -124,9 +124,13 @@ func startMaintenance(ctx workflow.Context, logger log.Logger) (*protos.StartMai
 	if err != nil {
 		return nil, err
 	}
-	logger.Info("StartMaintenance workflow completed")
+	version, err := GetPeerDBVersion(ctx)
+	if err != nil {
+		return nil, err
+	}
+	logger.Info("StartMaintenance workflow completed", "version", version)
 	return &protos.StartMaintenanceFlowOutput{
-		Version: peerdbenv.PeerDBVersionShaShort(),
+		Version: version,
 	}, nil
 }
 
@@ -217,9 +221,14 @@ func endMaintenance(ctx workflow.Context, logger log.Logger) (*protos.EndMainten
 		return nil, err
 	}
 
-	logger.Info("EndMaintenance workflow completed")
+	version, err := GetPeerDBVersion(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	logger.Info("EndMaintenance workflow completed", "version", version)
 	return &protos.EndMaintenanceFlowOutput{
-		Version: peerdbenv.PeerDBVersionShaShort(),
+		Version: version,
 	}, nil
 }
 
@@ -268,4 +277,14 @@ func runBackgroundAlerter(ctx workflow.Context) workflow.CancelFunc {
 	})
 	workflow.ExecuteActivity(alerterCtx, maintenance.BackgroundAlerter)
 	return cancelActivity
+}
+
+func GetPeerDBVersion(wCtx workflow.Context) (string, error) {
+	activityCtx := workflow.WithLocalActivityOptions(wCtx, workflow.LocalActivityOptions{
+		StartToCloseTimeout: time.Minute,
+	})
+	var version string
+	future := workflow.ExecuteLocalActivity(activityCtx, peerdbenv.PeerDBVersionShaShort)
+	err := future.Get(activityCtx, &version)
+	return version, err
 }
