@@ -22,7 +22,7 @@ function parseLSN(lsn: string): number {
   if (!lsn) return 0;
   const [lsn1, lsn2] = lsn.split('/');
   return Number(
-    (BigInt(parseInt(lsn1)) << BigInt(32)) | BigInt(parseInt(lsn2))
+    (BigInt(parseInt(lsn1, 16)) << BigInt(32)) | BigInt(parseInt(lsn2, 16))
   );
 }
 
@@ -135,7 +135,7 @@ export default function LagGraph({ peerName }: LagGraphProps) {
         />
         <input
           type='button'
-          value={showLsn ? 'Show LSN' : 'Show Lag'}
+          value={showLsn ? 'Show Lag' : 'Show LSN'}
           onClick={() => setShowLsn((val) => !val)}
         />
         <ReactSelect
@@ -159,7 +159,7 @@ export default function LagGraph({ peerName }: LagGraphProps) {
           categories={
             showLsn ? ['redoLSN', 'restartLSN', 'confirmedLSN'] : ['Lag in GB']
           }
-          colors={showLsn ? ['maroon', 'red', 'lime'] : ['rose']}
+          colors={showLsn ? ['orange', 'red', 'lime'] : ['rose']}
           showXAxis={false}
         />
       )}
