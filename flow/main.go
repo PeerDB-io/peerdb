@@ -105,20 +105,6 @@ func main() {
 		Sources: cli.EnvVars("FLOW_TLS_ENABLED"),
 	}
 
-	maintenanceOutputFileFlag := &cli.StringFlag{
-		Name:    "output-file",
-		Value:   "",
-		Usage:   "Output file for maintenance flow, this is used for `start` maintenance flow",
-		Sources: cli.EnvVars("MAINTENANCE_OUTPUT_FILE"),
-	}
-
-	mainenanceInputFileFlag := &cli.StringFlag{
-		Name:    "input-file",
-		Value:   "",
-		Usage:   "Input file for maintenance flow, this is used for `end` maintenance flow",
-		Sources: cli.EnvVars("MAINTENANCE_INPUT_FILE"),
-	}
-
 	useMaintenanceTaskQueueFlag := &cli.BoolFlag{
 		Name:    "use-maintenance-task-queue",
 		Value:   false,
@@ -216,8 +202,6 @@ func main() {
 					maintenanceSkipOnNoMirrorsFlag,
 					flowGrpcAddressFlag,
 					flowTlsEnabledFlag,
-					maintenanceOutputFileFlag,
-					mainenanceInputFileFlag,
 					useMaintenanceTaskQueueFlag,
 				},
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
@@ -231,8 +215,6 @@ func main() {
 						SkipOnNoMirrors:          clicmd.Bool(maintenanceSkipOnNoMirrorsFlag.Name),
 						FlowGrpcAddress:          clicmd.String(flowGrpcAddressFlag.Name),
 						FlowTlsEnabled:           clicmd.Bool(flowTlsEnabledFlag.Name),
-						OutputFile:               clicmd.String(maintenanceOutputFileFlag.Name),
-						InputFile:                clicmd.String(mainenanceInputFileFlag.Name),
 						UserMaintenanceTaskQueue: clicmd.Bool(useMaintenanceTaskQueueFlag.Name),
 					})
 				},

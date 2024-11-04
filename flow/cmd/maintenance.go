@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -24,8 +23,6 @@ type MaintenanceCLIParams struct {
 	TemporalHostPort         string
 	TemporalNamespace        string
 	Mode                     string
-	OutputFile               string
-	InputFile                string
 	FlowGrpcAddress          string
 	FlowTlsEnabled           bool
 	SkipOnApiVersionMatch    bool
@@ -80,12 +77,12 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 			return err
 		}
 		slog.Info("Start maintenance workflow completed", "output", output)
-		return WriteMaintenanceOutput(args.OutputFile, StartMaintenanceResult{
+		return WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
 			Skipped:    false,
 			CLIVersion: peerdbenv.PeerDBVersionShaShort(),
 		})
 	} else if args.Mode == "end" {
-		if input, err := ReadMaintenanceInput(args.InputFile); input != nil || err != nil {
+		if input, err := ReadLastMaintenanceOutput(ctx); input != nil || err != nil {
 			if err != nil {
 				return err
 			}
@@ -142,7 +139,7 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 			slog.Info("Got version from flow", "version", version.Version)
 			if version.Version == peerdbenv.PeerDBVersionShaShort() {
 				slog.Info("Skipping maintenance workflow due to matching versions")
-				return true, WriteMaintenanceOutput(args.OutputFile, StartMaintenanceResult{
+				return true, WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
 					Skipped:       true,
 					SkippedReason: fmt.Sprintf("CLI version %s matches API version %s", peerdbenv.PeerDBVersionShaShort(), version.Version),
 					APIVersion:    version.Version,
@@ -159,7 +156,7 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 			slog.Info("Got mirrors from flow", "mirrors", mirrors.Mirrors)
 			if len(mirrors.Mirrors) == 0 {
 				slog.Info("Skipping maintenance workflow due to no mirrors")
-				return true, WriteMaintenanceOutput(args.OutputFile, StartMaintenanceResult{
+				return true, WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
 					Skipped:       true,
 					SkippedReason: "No mirrors found",
 				})
@@ -169,44 +166,35 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 	return false, nil
 }
 
-func WriteMaintenanceOutput(outputFile string, result StartMaintenanceResult) error {
-	if outputFile == "" {
-		return nil
-	}
-	slog.Info("Writing maintenance result to file", "file", outputFile, "result", result)
-	f, err := os.Create(outputFile)
-	if err != nil {
-		return fmt.Errorf("unable to create output file: %w", err)
-	}
-	defer f.Close()
-	// marshall to json
-	marshalledResult, err := json.Marshal(result)
+func WriteMaintenanceOutputToCatalog(ctx context.Context, result StartMaintenanceResult) error {
+	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return err
 	}
-	_, err = f.Write(marshalledResult)
-	if err != nil {
-		return fmt.Errorf("unable to write to output file: %w", err)
-	}
-
-	return nil
+	_, err = pool.Exec(ctx, `
+	insert into maintenance.start_maintenance_outputs
+		(cli_version, api_version, skipped, skipped_reason)
+	values
+		($1, $2, $3, $4)
+	`, result.CLIVersion, result.APIVersion, result.Skipped, result.SkippedReason)
+	return err
 }
 
-func ReadMaintenanceInput(inputFile string) (*StartMaintenanceResult, error) {
-	if inputFile == "" {
-		return nil, nil
-	}
-	slog.Info("Reading maintenance input from file", "file", inputFile)
-	f, err := os.Open(inputFile)
+func ReadLastMaintenanceOutput(ctx context.Context) (*StartMaintenanceResult, error) {
+	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("unable to open input file: %w", err)
+		return nil, err
 	}
-	defer f.Close()
-	var params StartMaintenanceResult
-	decoder := json.NewDecoder(f)
-	err = decoder.Decode(&params)
+	row := pool.QueryRow(ctx, `
+	select cli_version, api_version, skipped, skipped_reason
+	from maintenance.start_maintenance_outputs
+	order by created_at desc
+	limit 1
+	`)
+	var result StartMaintenanceResult
+	err = row.Scan(&result.CLIVersion, &result.APIVersion, &result.Skipped, &result.SkippedReason)
 	if err != nil {
-		return nil, fmt.Errorf("unable to decode input file: %w", err)
+		return nil, err
 	}
-	return &params, nil
+	return &result, nil
 }

@@ -13,3 +13,16 @@ CREATE TABLE IF NOT EXISTS maintenance.maintenance_flows
     from_version   TEXT,
     to_version     TEXT
 );
+
+CREATE TABLE IF NOT EXISTS maintenance.start_maintenance_outputs
+(
+    id              serial PRIMARY KEY,
+    api_version    TEXT,
+    cli_version   TEXT,
+    skipped      BOOLEAN,
+    skipped_reason TEXT,
+    trigger_reason TEXT,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_start_maintenance_outputs_created_at ON maintenance.start_maintenance_outputs (created_at DESC);
