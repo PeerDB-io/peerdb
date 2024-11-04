@@ -92,10 +92,12 @@ func GetChildToParentRelIDMap(ctx context.Context, conn *pgx.Conn) (map[uint32]u
 
 	childToParentRelIDMap := make(map[uint32]uint32)
 	var parentRelID, childRelID pgtype.Uint32
-	pgx.ForEachRow(rows, []any{&parentRelID, &childRelID}, func() error {
+	if _, err := pgx.ForEachRow(rows, []any{&parentRelID, &childRelID}, func() error {
 		childToParentRelIDMap[childRelID.Uint32] = parentRelID.Uint32
 		return nil
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("error iterating over child to parent relid map: %w", err)
+	}
 
 	return childToParentRelIDMap, nil
 }
