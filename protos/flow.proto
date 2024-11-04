@@ -16,6 +16,7 @@ message ColumnSetting {
   string destination_type = 3;
   int32 ordering = 4;
   bool nullable_enabled = 5;
+  optional string sorting_key_expression = 6;
 }
 
 message TableMapping {

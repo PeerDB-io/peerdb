@@ -233,7 +233,11 @@ func getOrderedOrderByColumns(
 
 	orderbyColumns := make([]string, len(orderby))
 	for idx, col := range orderby {
-		orderbyColumns[idx] = getColName(colNameMap, col.SourceName)
+		sortingKeyName := col.SourceName
+		if col.SortingKeyExpression != nil && *col.SortingKeyExpression != "" {
+			sortingKeyName = *col.SortingKeyExpression
+		}
+		orderbyColumns[idx] = getColName(colNameMap, sortingKeyName)
 	}
 
 	return orderbyColumns
