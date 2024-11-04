@@ -297,19 +297,20 @@ func (h *FlowRequestHandler) GetColumns(
 	defer peerConn.Close(ctx)
 
 	rows, err := peerConn.Query(ctx, `SELECT
-		distinct attname AS column_name,
-		format_type(atttypid, atttypmod) AS data_type,
-		(attnum = ANY(conkey)) AS is_primary_key
+    DISTINCT attname AS column_name,
+    format_type(atttypid, atttypmod) AS data_type,
+    (pg_constraint.contype = 'p') AS is_primary_key
 	FROM pg_attribute
 	JOIN pg_class ON pg_attribute.attrelid = pg_class.oid
-	JOIN pg_namespace on pg_class.relnamespace = pg_namespace.oid
+	JOIN pg_namespace ON pg_class.relnamespace = pg_namespace.oid
 	LEFT JOIN pg_constraint ON pg_attribute.attrelid = pg_constraint.conrelid
 		AND pg_attribute.attnum = ANY(pg_constraint.conkey)
+		AND pg_constraint.contype = 'p'
 	WHERE pg_namespace.nspname = $1
 		AND relname = $2
 		AND pg_attribute.attnum > 0
 		AND NOT attisdropped
-	ORDER BY column_name`, req.SchemaName, req.TableName)
+	ORDER BY column_name;`, req.SchemaName, req.TableName)
 	if err != nil {
 		return nil, err
 	}
