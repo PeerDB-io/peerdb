@@ -1,7 +1,6 @@
 package connpostgres
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"testing"
@@ -10,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
+	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
@@ -19,18 +19,14 @@ func setupDB(t *testing.T) (*PostgresConnector, string) {
 
 	connector, err := NewPostgresConnector(context.Background(),
 		nil, peerdbenv.GetCatalogPostgresConfigFromEnv(context.Background()))
-	if err != nil {
-		t.Fatalf("unable to create connector: %v", err)
-	}
+	require.NoError(t, err, "error while creating connector")
 
 	// Create unique schema name using current time
 	schemaName := fmt.Sprintf("schema_%d", time.Now().Unix())
 
 	// Create the schema
 	_, err = connector.conn.Exec(context.Background(), fmt.Sprintf("CREATE SCHEMA %s;", schemaName))
-	if err != nil {
-		t.Fatalf("unable to create schema: %v", err)
-	}
+	require.NoError(t, err, "error while creating schema")
 
 	return connector, schemaName
 }
@@ -39,9 +35,7 @@ func teardownDB(t *testing.T, conn *pgx.Conn, schemaName string) {
 	t.Helper()
 
 	_, err := conn.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA %s CASCADE;", schemaName))
-	if err != nil {
-		t.Fatalf("error while dropping schema: %v", err)
-	}
+	require.NoError(t, err, "error while dropping schema")
 }
 
 func TestExecuteAndProcessQuery(t *testing.T) {
@@ -53,31 +47,20 @@ func TestExecuteAndProcessQuery(t *testing.T) {
 
 	query := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.test(id SERIAL PRIMARY KEY, data TEXT);", schemaName)
 	_, err := conn.Exec(ctx, query)
-	if err != nil {
-		t.Fatalf("error while creating test table: %v", err)
-	}
+	require.NoError(t, err, "error while creating table")
 
 	query = fmt.Sprintf("INSERT INTO %s.test(data) VALUES('testdata');", schemaName)
 	_, err = conn.Exec(ctx, query)
-	if err != nil {
-		t.Fatalf("error while inserting into test table: %v", err)
-	}
+	require.NoError(t, err, "error while inserting data")
 
-	qe := connector.NewQRepQueryExecutor("test flow", "test part")
+	qe, err := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
+	require.NoError(t, err, "error while creating query executor")
 
 	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
 	batch, err := qe.ExecuteAndProcessQuery(context.Background(), query)
-	if err != nil {
-		t.Fatalf("error while executing and processing query: %v", err)
-	}
-
-	if len(batch.Records) != 1 {
-		t.Fatalf("expected 1 record, got %v", len(batch.Records))
-	}
-
-	if batch.Records[0][1].Value() != "testdata" {
-		t.Fatalf("expected 'testdata', got %v", batch.Records[0][0].Value())
-	}
+	require.NoError(t, err, "error while executing query")
+	require.Len(t, batch.Records, 1, "expected 1 record")
+	require.Equal(t, "testdata", batch.Records[0][1].Value(), "expected 'testdata'")
 }
 
 func TestAllDataTypes(t *testing.T) {
@@ -109,9 +92,7 @@ func TestAllDataTypes(t *testing.T) {
 	);`, schemaName)
 
 	_, err := conn.Exec(ctx, query)
-	if err != nil {
-		t.Fatalf("error while creating test table: %v", err)
-	}
+	require.NoError(t, err, "error while creating table")
 
 	// Insert a row into the table
 	query = fmt.Sprintf(`
@@ -160,48 +141,34 @@ func TestAllDataTypes(t *testing.T) {
 		savedTime,          // col_tz4
 		savedTime,          // col_date
 	)
-	if err != nil {
-		t.Fatalf("error while inserting into test table: %v", err)
-	}
+	require.NoError(t, err, "error while inserting into test table")
 
-	qe := connector.NewQRepQueryExecutor("test flow", "test part")
+	qe, err := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
+	require.NoError(t, err, "error while creating query executor")
 	// Select the row back out of the table
 	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
 	rows, err := qe.ExecuteQuery(context.Background(), query)
-	if err != nil {
-		t.Fatalf("error while executing query: %v", err)
-	}
+	require.NoError(t, err, "error while executing query")
 	defer rows.Close()
 
 	// Use rows.FieldDescriptions() to get field descriptions
 	fieldDescriptions := rows.FieldDescriptions()
 
 	batch, err := qe.ProcessRows(rows, fieldDescriptions)
-	if err != nil {
-		t.Fatalf("failed to process rows: %v", err)
-	}
-
-	if len(batch.Records) != 1 {
-		t.Fatalf("expected 1 record, got %v", len(batch.Records))
-	}
+	require.NoError(t, err, "error while processing rows")
+	require.Len(t, len(batch.Records), 1, "expected 1 record")
 
 	// Retrieve the results.
 	record := batch.Records[0]
 
 	expectedBool := true
-	if record[0].Value().(bool) != expectedBool {
-		t.Fatalf("expected %v, got %v", expectedBool, record[0].Value())
-	}
+	require.Equal(t, expectedBool, record[0].Value(), "expected true")
 
 	expectedInt4 := int32(2)
-	if record[1].Value().(int32) != expectedInt4 {
-		t.Fatalf("expected %v, got %v", expectedInt4, record[1].Value())
-	}
+	require.Equal(t, expectedInt4, record[1].Value(), "expected 2")
 
 	expectedInt8 := int64(3)
-	if record[2].Value().(int64) != expectedInt8 {
-		t.Fatalf("expected %v, got %v", expectedInt8, record[2].Value())
-	}
+	require.Equal(t, expectedInt8, record[2].Value(), "expected 3")
 
 	expectedFloat4 := float32(1.1)
 	if record[3].Value().(float32) != expectedFloat4 {
@@ -214,28 +181,19 @@ func TestAllDataTypes(t *testing.T) {
 	}
 
 	expectedText := "text"
-	if record[5].Value().(string) != expectedText {
-		t.Fatalf("expected %v, got %v", expectedText, record[5].Value())
-	}
+	require.Equal(t, expectedText, record[5].Value(), "expected 'text'")
 
 	expectedBytea := []byte("bytea")
-	if !bytes.Equal(record[6].Value().([]byte), expectedBytea) {
-		t.Fatalf("expected %v, got %v", expectedBytea, record[6].Value())
-	}
+	require.Equal(t, expectedBytea, record[6].Value(), "expected 'bytea'")
 
 	expectedJSON := `{"key":"value"}`
-	if record[7].Value().(string) != expectedJSON {
-		t.Fatalf("expected %v, got %v", expectedJSON, record[7].Value())
-	}
+	require.Equal(t, expectedJSON, record[7].Value(), "expected '{\"key\":\"value\"}'")
 
 	actualUUID := record[8].Value().([16]uint8)
-	if !bytes.Equal(actualUUID[:], savedUUID[:]) {
-		t.Fatalf("expected %v, got %v", savedUUID, actualUUID)
-	}
+	require.Equal(t, savedUUID[:], actualUUID[:], "expected savedUUID: %v", savedUUID)
+	require.Equal(t, savedTime, record[9].Value(), "expected savedTime: %v", savedTime)
 
 	expectedNumeric := "123.456"
 	actualNumeric := record[10].Value().(decimal.Decimal).String()
-	if actualNumeric != expectedNumeric {
-		t.Fatalf("expected %v, got %v", expectedNumeric, actualNumeric)
-	}
+	require.Equal(t, expectedNumeric, actualNumeric, "expected 123.456")
 }

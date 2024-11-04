@@ -24,18 +24,25 @@ type QRepQueryExecutor struct {
 	partitionID string
 }
 
-func (c *PostgresConnector) NewQRepQueryExecutor(flowJobName string, partitionID string) *QRepQueryExecutor {
-	return c.NewQRepQueryExecutorSnapshot("", flowJobName, partitionID)
+func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, flowJobName string, partitionID string) (*QRepQueryExecutor, error) {
+	return c.NewQRepQueryExecutorSnapshot(ctx, "", flowJobName, partitionID)
 }
 
-func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(snapshot string, flowJobName string, partitionID string) *QRepQueryExecutor {
+func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context,
+	snapshot string, flowJobName string, partitionID string,
+) (*QRepQueryExecutor, error) {
+	err := c.lazyInitCustomTypesMapping(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to init custom types mapping: %w", err)
+	}
+
 	return &QRepQueryExecutor{
 		PostgresConnector: c,
 		snapshot:          snapshot,
 		flowJobName:       flowJobName,
 		partitionID:       partitionID,
 		logger:            log.With(c.logger, slog.String(string(shared.PartitionIDKey), partitionID)),
-	}
+	}, nil
 }
 
 func (qe *QRepQueryExecutor) ExecuteQuery(ctx context.Context, query string, args ...interface{}) (pgx.Rows, error) {

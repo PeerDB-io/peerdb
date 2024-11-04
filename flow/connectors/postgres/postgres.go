@@ -42,6 +42,7 @@ type PostgresConnector struct {
 	customTypesMapping     map[uint32]string
 	hushWarnOID            map[uint32]struct{}
 	relationMessageMapping model.RelationMessageMapping
+	pgVersion              *shared.PGVersion
 	connStr                string
 	metadataSchema         string
 	replLock               sync.Mutex
@@ -105,6 +106,7 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		hushWarnOID:            make(map[uint32]struct{}),
 		logger:                 logger,
 		relationMessageMapping: make(model.RelationMessageMapping),
+		pgVersion:              nil,
 	}, nil
 }
 
@@ -389,13 +391,14 @@ func pullCore[Items model.Items](
 
 	c.logger.Info("PullRecords: performed checks for slot and publication")
 
-	pgVersion, err := shared.GetMajorVersion(ctx, c.conn)
+	// cached, since this connector is reused
+	pgVersion, err := c.MajorVersion(ctx)
 	if err != nil {
 		return err
 	}
 	var childToParentRelIDMap map[uint32]uint32
 	// only initialize the map if needed, escape hatch because custom publications may not have the right setting
-	if req.OverridePublicationName == "" && pgVersion < shared.POSTGRES_13 {
+	if req.OverridePublicationName != "" || pgVersion < shared.POSTGRES_13 {
 		childToParentRelIDMap, err = GetChildToParentRelIDMap(ctx, c.conn)
 		if err != nil {
 			return fmt.Errorf("error getting child to parent relid map: %w", err)
