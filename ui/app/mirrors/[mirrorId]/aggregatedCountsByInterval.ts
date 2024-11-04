@@ -7,7 +7,7 @@ type timestampType = {
   count: number;
 };
 
-function aggregateCountsByInterval(
+export default function aggregateCountsByInterval(
   timestamps: timestampType[],
   interval: TimeAggregateTypes
 ): [string, number][] {
@@ -83,5 +83,3 @@ function aggregateCountsByInterval(
 
   return resultArray;
 }
-
-export default aggregateCountsByInterval;

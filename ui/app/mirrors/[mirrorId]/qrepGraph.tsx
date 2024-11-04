@@ -17,22 +17,20 @@ type QRepGraphProps = {
 };
 
 function QrepGraph({ syncs }: QRepGraphProps) {
-  let [aggregateType, setAggregateType] = useState<TimeAggregateTypes>(
+  const [aggregateType, setAggregateType] = useState<TimeAggregateTypes>(
     TimeAggregateTypes.HOUR
   );
   const initialCount: [string, number][] = [];
-  let [counts, setCounts] = useState(initialCount);
+  const [counts, setCounts] = useState(initialCount);
 
   useEffect(() => {
-    let rows = syncs.map((sync) => ({
+    const rows = syncs.map((sync) => ({
       timestamp: sync.startTime!,
       count: Number(sync.rowsInPartition) ?? 0,
     }));
 
-    let counts = aggregateCountsByInterval(rows, aggregateType);
-    counts = counts.slice(0, 29);
-    counts = counts.reverse();
-    setCounts(counts);
+    const counts = aggregateCountsByInterval(rows, aggregateType);
+    setCounts(counts.slice(0, 29).reverse());
   }, [aggregateType, syncs]);
 
   return (

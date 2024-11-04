@@ -69,9 +69,6 @@ export default function LogsTable({
       try {
         const response = await fetch('/api/v1/mirrors/logs', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
           cache: 'no-store',
           body: JSON.stringify(req),
         });
