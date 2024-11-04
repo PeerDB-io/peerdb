@@ -49,6 +49,8 @@ const (
 	FlowService_FlowStateChange_FullMethodName     = "/peerdb_route.FlowService/FlowStateChange"
 	FlowService_MirrorStatus_FullMethodName        = "/peerdb_route.FlowService/MirrorStatus"
 	FlowService_GetCDCBatches_FullMethodName       = "/peerdb_route.FlowService/GetCDCBatches"
+	FlowService_CDCBatches_FullMethodName          = "/peerdb_route.FlowService/CDCBatches"
+	FlowService_CDCGraph_FullMethodName            = "/peerdb_route.FlowService/CDCGraph"
 	FlowService_InitialLoadSummary_FullMethodName  = "/peerdb_route.FlowService/InitialLoadSummary"
 	FlowService_GetPeerInfo_FullMethodName         = "/peerdb_route.FlowService/GetPeerInfo"
 	FlowService_ListPeers_FullMethodName           = "/peerdb_route.FlowService/ListPeers"
@@ -90,6 +92,8 @@ type FlowServiceClient interface {
 	FlowStateChange(ctx context.Context, in *FlowStateChangeRequest, opts ...grpc.CallOption) (*FlowStateChangeResponse, error)
 	MirrorStatus(ctx context.Context, in *MirrorStatusRequest, opts ...grpc.CallOption) (*MirrorStatusResponse, error)
 	GetCDCBatches(ctx context.Context, in *GetCDCBatchesRequest, opts ...grpc.CallOption) (*GetCDCBatchesResponse, error)
+	CDCBatches(ctx context.Context, in *GetCDCBatchesRequest, opts ...grpc.CallOption) (*GetCDCBatchesResponse, error)
+	CDCGraph(ctx context.Context, in *GraphRequest, opts ...grpc.CallOption) (*GraphResponse, error)
 	InitialLoadSummary(ctx context.Context, in *InitialLoadSummaryRequest, opts ...grpc.CallOption) (*InitialLoadSummaryResponse, error)
 	GetPeerInfo(ctx context.Context, in *PeerInfoRequest, opts ...grpc.CallOption) (*PeerInfoResponse, error)
 	ListPeers(ctx context.Context, in *ListPeersRequest, opts ...grpc.CallOption) (*ListPeersResponse, error)
@@ -375,6 +379,24 @@ func (c *flowServiceClient) GetCDCBatches(ctx context.Context, in *GetCDCBatches
 	return out, nil
 }
 
+func (c *flowServiceClient) CDCBatches(ctx context.Context, in *GetCDCBatchesRequest, opts ...grpc.CallOption) (*GetCDCBatchesResponse, error) {
+	out := new(GetCDCBatchesResponse)
+	err := c.cc.Invoke(ctx, FlowService_CDCBatches_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) CDCGraph(ctx context.Context, in *GraphRequest, opts ...grpc.CallOption) (*GraphResponse, error) {
+	out := new(GraphResponse)
+	err := c.cc.Invoke(ctx, FlowService_CDCGraph_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *flowServiceClient) InitialLoadSummary(ctx context.Context, in *InitialLoadSummaryRequest, opts ...grpc.CallOption) (*InitialLoadSummaryResponse, error) {
 	out := new(InitialLoadSummaryResponse)
 	err := c.cc.Invoke(ctx, FlowService_InitialLoadSummary_FullMethodName, in, out, opts...)
@@ -454,6 +476,8 @@ type FlowServiceServer interface {
 	FlowStateChange(context.Context, *FlowStateChangeRequest) (*FlowStateChangeResponse, error)
 	MirrorStatus(context.Context, *MirrorStatusRequest) (*MirrorStatusResponse, error)
 	GetCDCBatches(context.Context, *GetCDCBatchesRequest) (*GetCDCBatchesResponse, error)
+	CDCBatches(context.Context, *GetCDCBatchesRequest) (*GetCDCBatchesResponse, error)
+	CDCGraph(context.Context, *GraphRequest) (*GraphResponse, error)
 	InitialLoadSummary(context.Context, *InitialLoadSummaryRequest) (*InitialLoadSummaryResponse, error)
 	GetPeerInfo(context.Context, *PeerInfoRequest) (*PeerInfoResponse, error)
 	ListPeers(context.Context, *ListPeersRequest) (*ListPeersResponse, error)
@@ -555,6 +579,12 @@ func (UnimplementedFlowServiceServer) MirrorStatus(context.Context, *MirrorStatu
 }
 func (UnimplementedFlowServiceServer) GetCDCBatches(context.Context, *GetCDCBatchesRequest) (*GetCDCBatchesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCDCBatches not implemented")
+}
+func (UnimplementedFlowServiceServer) CDCBatches(context.Context, *GetCDCBatchesRequest) (*GetCDCBatchesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CDCBatches not implemented")
+}
+func (UnimplementedFlowServiceServer) CDCGraph(context.Context, *GraphRequest) (*GraphResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CDCGraph not implemented")
 }
 func (UnimplementedFlowServiceServer) InitialLoadSummary(context.Context, *InitialLoadSummaryRequest) (*InitialLoadSummaryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InitialLoadSummary not implemented")
@@ -1124,6 +1154,42 @@ func _FlowService_GetCDCBatches_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_CDCBatches_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCDCBatchesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).CDCBatches(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_CDCBatches_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).CDCBatches(ctx, req.(*GetCDCBatchesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_CDCGraph_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GraphRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).CDCGraph(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_CDCGraph_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).CDCGraph(ctx, req.(*GraphRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _FlowService_InitialLoadSummary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(InitialLoadSummaryRequest)
 	if err := dec(in); err != nil {
@@ -1340,6 +1406,14 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetCDCBatches",
 			Handler:    _FlowService_GetCDCBatches_Handler,
+		},
+		{
+			MethodName: "CDCBatches",
+			Handler:    _FlowService_CDCBatches_Handler,
+		},
+		{
+			MethodName: "CDCGraph",
+			Handler:    _FlowService_CDCGraph_Handler,
 		},
 		{
 			MethodName: "InitialLoadSummary",
