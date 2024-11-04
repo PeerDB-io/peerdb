@@ -205,8 +205,13 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 
 func (h *FlowRequestHandler) CDCGraph(ctx context.Context, req *protos.GraphRequest) (*protos.GraphResponse, error) {
 	truncField := "minute"
-	if slices.Contains([]string{"hour", "day", "month"}, req.AggregateType) {
-		truncField = req.AggregateType
+	switch req.AggregateType {
+	case "1hour":
+		truncField = "hour"
+	case "1day":
+		truncField = "day"
+	case "1month":
+		truncField = "month"
 	}
 	rows, err := h.pool.Query(ctx, `select tm, coalesce(sum(rows_in_batch), 0)
 	from generate_series(date_trunc($2, now() - $1::INTERVAL * 30), now(), $1::INTERVAL) tm
