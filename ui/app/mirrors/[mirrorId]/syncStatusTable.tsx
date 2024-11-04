@@ -63,9 +63,6 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
       };
       const res = await fetch('/api/v1/mirrors/cdc/batches', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         cache: 'no-store',
         body: JSON.stringify(req),
       });

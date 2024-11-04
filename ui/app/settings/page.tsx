@@ -123,9 +123,6 @@ const DynamicSettingItem = ({
     const updatedSetting = { ...setting, value: newValue };
     await fetch('/api/v1/dynamic_settings', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify(updatedSetting),
     });
     setEditMode(false);
