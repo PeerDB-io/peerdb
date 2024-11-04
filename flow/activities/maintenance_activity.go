@@ -94,13 +94,6 @@ func (a *MaintenanceActivity) checkAndWaitIfSnapshot(
 	if err != nil {
 		return mirrorStatus, err
 	}
-
-	slog.Info("Checking if mirror is snapshot", "mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "status", mirrorStatus.String())
-	if mirrorStatus != protos.FlowStatus_STATUS_SNAPSHOT && mirrorStatus != protos.FlowStatus_STATUS_SETUP {
-		return mirrorStatus, nil
-	}
-	slog.Info("Waiting for mirror to finish snapshot",
-		"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "status", mirrorStatus.String())
 	defer shared.Interval(ctx, alertEvery, func() {
 		slog.Warn("[Maintenance] Still waiting for mirror to finish snapshot",
 			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "status", mirrorStatus.String())
@@ -114,6 +107,8 @@ func (a *MaintenanceActivity) checkAndWaitIfSnapshot(
 			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "status", mirrorStatus.String())
 	})()
 
+	slog.Info("Checking and waiting if mirror is snapshot", "mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "status",
+		mirrorStatus.String())
 	snapshotWaitSleepInterval := 10 * time.Second
 	for mirrorStatus == protos.FlowStatus_STATUS_SNAPSHOT || mirrorStatus == protos.FlowStatus_STATUS_SETUP {
 		time.Sleep(snapshotWaitSleepInterval)
