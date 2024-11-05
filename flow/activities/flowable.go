@@ -271,14 +271,18 @@ func (a *FlowableActivity) CreateNormalizedTable(
 		numTablesSetup.Add(1)
 		if !existing {
 			logger.Info("created table " + tableIdentifier)
+			a.Alerter.LogFlowInfo(ctx, config.FlowName, "created table "+tableIdentifier+" in destination")
 		} else {
 			logger.Info("table already exists " + tableIdentifier)
 		}
+
 	}
 
 	if err := conn.FinishSetupNormalizedTables(ctx, tx); err != nil {
 		return nil, fmt.Errorf("failed to commit normalized tables tx: %w", err)
 	}
+
+	a.Alerter.LogFlowInfo(ctx, config.FlowName, "All destination tables have been setup")
 
 	return &protos.SetupNormalizedTableBatchOutput{
 		TableExistsMapping: tableExistsMapping,
@@ -593,6 +597,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		}
 	}
 
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, fmt.Sprintf("replicated all rows for table %s", config.DestinationTableIdentifier))
 	return nil
 }
 
