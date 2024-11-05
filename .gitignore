@@ -1,0 +1,6 @@
+.env
+e2e_cleanup/
+flow/
+nexus/
+private/
+ui/
