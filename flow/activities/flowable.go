@@ -1065,3 +1065,34 @@ func (a *FlowableActivity) RemoveTablesFromCatalog(
 
 	return err
 }
+
+func (a *FlowableActivity) RemoveFlowEntryFromCatalog(ctx context.Context, flowName string) error {
+	logger := log.With(activity.GetLogger(ctx),
+		slog.String(string(shared.FlowNameKey), flowName))
+	tx, err := a.CatalogPool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction to remove flow entries from catalog: %w", err)
+	}
+	defer shared.RollbackTx(tx, slog.Default())
+
+	if _, err := tx.Exec(ctx, "DELETE FROM table_schema_mapping WHERE flow_name=$1", flowName); err != nil {
+		return fmt.Errorf("unable to clear table_schema_mapping in catalog: %w", err)
+	}
+
+	ct, err := tx.Exec(ctx, "DELETE FROM flows WHERE name=$1", flowName)
+	if err != nil {
+		return fmt.Errorf("unable to remove flow entry in catalog: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		logger.Warn("flow entry not found in catalog, 0 records deleted")
+	} else {
+		logger.Info("flow entries removed from catalog",
+			slog.Int("rowsAffected", int(ct.RowsAffected())))
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction to remove flow entries from catalog: %w", err)
+	}
+
+	return nil
+}

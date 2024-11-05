@@ -2,7 +2,6 @@ package peerdb_gauges
 
 import (
 	"github.com/PeerDB-io/peer-flow/otel_metrics"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 const (
@@ -20,5 +19,5 @@ type SlotMetricGauges struct {
 }
 
 func BuildGaugeName(baseGaugeName string) string {
-	return peerdbenv.GetEnvString("PEERDB_OTEL_METRICS_NAMESPACE", "") + baseGaugeName
+	return otel_metrics.GetPeerDBOtelMetricsNamespace() + baseGaugeName
 }

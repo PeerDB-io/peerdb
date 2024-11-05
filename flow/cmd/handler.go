@@ -175,31 +175,6 @@ func (h *FlowRequestHandler) updateFlowConfigInCatalog(
 	return shared.UpdateCDCConfigInCatalog(ctx, h.pool, slog.Default(), cfg)
 }
 
-func (h *FlowRequestHandler) removeFlowEntryInCatalog(
-	ctx context.Context,
-	flowName string,
-) error {
-	tx, err := h.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("unable to begin tx to remove flow entry in catalog: %w", err)
-	}
-	defer shared.RollbackTx(tx, slog.Default())
-
-	if _, err := tx.Exec(ctx, "DELETE FROM table_schema_mapping WHERE flow_name=$1", flowName); err != nil {
-		return fmt.Errorf("unable to clear table_schema_mapping to remove flow entry in catalog: %w", err)
-	}
-
-	if _, err := tx.Exec(ctx, "DELETE FROM flows WHERE name=$1", flowName); err != nil {
-		return fmt.Errorf("unable to remove flow entry in catalog: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("unable to commit remove flow entry in catalog: %w", err)
-	}
-
-	return nil
-}
-
 func (h *FlowRequestHandler) CreateQRepFlow(
 	ctx context.Context, req *protos.CreateQRepFlowRequest,
 ) (*protos.CreateQRepFlowResponse, error) {
@@ -295,56 +270,52 @@ func (h *FlowRequestHandler) shutdownFlow(
 	if err != nil {
 		slog.Error("unable to check if workflow is cdc", logs, slog.Any("error", err))
 		return fmt.Errorf("unable to determine if workflow is cdc: %w", err)
-	} else if isCdc {
-		cdcConfig, err := h.getFlowConfigFromCatalog(ctx, flowJobName)
+	}
+	var cdcConfig *protos.FlowConnectionConfigs
+	if isCdc {
+		cdcConfig, err = h.getFlowConfigFromCatalog(ctx, flowJobName)
 		if err != nil {
 			slog.Error("unable to get cdc config from catalog", logs, slog.Any("error", err))
 			return fmt.Errorf("unable to get cdc config from catalog: %w", err)
 		}
-		workflowID := fmt.Sprintf("%s-dropflow-%s", flowJobName, uuid.New())
-		workflowOptions := client.StartWorkflowOptions{
-			ID:                    workflowID,
-			TaskQueue:             h.peerflowTaskQueueID,
-			TypedSearchAttributes: shared.NewSearchAttributes(flowJobName),
-		}
-
-		dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions,
-			peerflow.DropFlowWorkflow, &protos.DropFlowInput{
-				FlowJobName:         flowJobName,
-				SourcePeerName:      cdcConfig.SourceName,
-				DestinationPeerName: cdcConfig.DestinationName,
-				DropFlowStats:       deleteStats,
-			})
-		if err != nil {
-			slog.Error("unable to start DropFlow workflow", logs, slog.Any("error", err))
-			return fmt.Errorf("unable to start DropFlow workflow: %w", err)
-		}
-
-		cancelCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-		defer cancel()
-
-		errChan := make(chan error, 1)
-		go func() {
-			errChan <- dropFlowHandle.Get(cancelCtx, nil)
-		}()
-
-		select {
-		case err := <-errChan:
-			if err != nil {
-				slog.Error("DropFlow workflow did not execute successfully", logs, slog.Any("error", err))
-				return fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
-			}
-		case <-time.After(5 * time.Minute):
-			if err := h.handleCancelWorkflow(ctx, workflowID, ""); err != nil {
-				slog.Error("unable to wait for DropFlow workflow to close", logs, slog.Any("error", err))
-				return fmt.Errorf("unable to wait for DropFlow workflow to close: %w", err)
-			}
-		}
+	}
+	dropFlowWorkflowID := fmt.Sprintf("%s-dropflow-%s", flowJobName, uuid.New())
+	workflowOptions := client.StartWorkflowOptions{
+		ID:                    dropFlowWorkflowID,
+		TaskQueue:             h.peerflowTaskQueueID,
+		TypedSearchAttributes: shared.NewSearchAttributes(flowJobName),
 	}
 
-	if err := h.removeFlowEntryInCatalog(ctx, flowJobName); err != nil {
-		slog.Error("unable to remove flow job entry", logs, slog.Any("error", err))
-		return err
+	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions,
+		peerflow.DropFlowWorkflow, &protos.DropFlowInput{
+			FlowJobName:           flowJobName,
+			DropFlowStats:         deleteStats,
+			FlowConnectionConfigs: cdcConfig,
+		})
+	if err != nil {
+		slog.Error("unable to start DropFlow workflow", logs, slog.Any("error", err))
+		return fmt.Errorf("unable to start DropFlow workflow: %w", err)
+	}
+
+	cancelCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- dropFlowHandle.Get(cancelCtx, nil)
+	}()
+
+	select {
+	case err := <-errChan:
+		if err != nil {
+			slog.Error("DropFlow workflow did not execute successfully", logs, slog.Any("error", err))
+			return fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
+		}
+	case <-time.After(5 * time.Minute):
+		if err := h.handleCancelWorkflow(ctx, workflowID, ""); err != nil {
+			slog.Error("unable to wait for DropFlow workflow to close", logs, slog.Any("error", err))
+			return fmt.Errorf("unable to wait for DropFlow workflow to close: %w", err)
+		}
 	}
 
 	return nil

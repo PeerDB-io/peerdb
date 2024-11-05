@@ -5,35 +5,44 @@ import {
   TimeAggregateTypes,
   timeOptions,
 } from '@/app/utils/graph';
-import { CDCBatch } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { BarChart } from '@tremor/react';
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
-import aggregateCountsByInterval from './aggregatedCountsByInterval';
 
-type CdcGraphProps = {
-  syncs: CDCBatch[];
-};
+type CdcGraphProps = { mirrorName: string };
 
-function CdcGraph({ syncs }: CdcGraphProps) {
-  let [aggregateType, setAggregateType] = useState<TimeAggregateTypes>(
+export default function CdcGraph({ mirrorName }: CdcGraphProps) {
+  const [aggregateType, setAggregateType] = useState<TimeAggregateTypes>(
     TimeAggregateTypes.HOUR
   );
+  const [graphValues, setGraphValues] = useState<
+    { name: string; 'Rows synced at a point in time': number }[]
+  >([]);
 
-  const graphValues = useMemo(() => {
-    const rows = syncs.map((sync) => ({
-      timestamp: sync.endTime,
-      count: sync.numRows,
-    }));
-    let timedRowCounts = aggregateCountsByInterval(rows, aggregateType);
-    timedRowCounts = timedRowCounts.slice(0, 29);
-    timedRowCounts = timedRowCounts.reverse();
-    return timedRowCounts.map((count) => ({
-      name: formatGraphLabel(new Date(count[0]), aggregateType),
-      'Rows synced at a point in time': Number(count[1]),
-    }));
-  }, [syncs, aggregateType]);
+  useEffect(() => {
+    const fetchData = async () => {
+      const req: any = {
+        flowJobName: mirrorName,
+        aggregateType,
+      };
+
+      const res = await fetch('/api/v1/mirrors/cdc/graph', {
+        method: 'POST',
+        cache: 'no-store',
+        body: JSON.stringify(req),
+      });
+      const data: { data: { time: number; rows: number }[] } = await res.json();
+      setGraphValues(
+        data.data.map(({ time, rows }) => ({
+          name: formatGraphLabel(new Date(time), aggregateType),
+          'Rows synced at a point in time': Number(rows),
+        }))
+      );
+    };
+
+    fetchData();
+  }, [mirrorName, aggregateType]);
 
   return (
     <div>
@@ -59,5 +68,3 @@ function CdcGraph({ syncs }: CdcGraphProps) {
     </div>
   );
 }
-
-export default CdcGraph;

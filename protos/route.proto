@@ -145,6 +145,7 @@ message CreatePeerResponse {
 message MirrorStatusRequest {
   string flow_job_name = 1;
   bool include_flow_info = 2;
+  bool exclude_batches = 3;
 }
 
 message PartitionStatus {
@@ -320,6 +321,7 @@ message CDCMirrorStatus {
   repeated CDCBatch cdc_batches = 3;
   peerdb_peers.DBType source_type = 4;
   peerdb_peers.DBType destination_type = 5;
+  int64 rows_synced = 6;
 }
 
 message MirrorStatusResponse {
@@ -343,10 +345,29 @@ message InitialLoadSummaryResponse {
 message GetCDCBatchesRequest {
   string flow_job_name = 1;
   uint32 limit = 2;
+  bool ascending = 3;
+  int64 before_id = 4;
+  int64 after_id = 5;
 }
 
 message GetCDCBatchesResponse {
   repeated CDCBatch cdc_batches = 1;
+  int32 total = 2;
+  int32 page = 3;
+}
+
+message GraphRequest {
+  string flow_job_name = 1;
+  string aggregate_type = 2; // TODO name?
+}
+
+message GraphResponseItem {
+  double time = 1;
+  double rows = 2;
+}
+
+message GraphResponse {
+  repeated GraphResponseItem data = 1;
 }
 
 message MirrorLog {
@@ -354,16 +375,20 @@ message MirrorLog {
   string error_message = 2;
   string error_type = 3;
   double error_timestamp = 4;
+  int32 id = 5;
 }
 message ListMirrorLogsRequest {
   string flow_job_name = 1;
   string level = 2;
   int32 page = 3;
   int32 num_per_page = 4;
+  int32 before_id = 5;
+  int32 after_id = 6;
 }
 message ListMirrorLogsResponse {
   repeated MirrorLog errors = 1;
   int32 total = 2;
+  int32 page = 3;
 }
 
 message ValidateCDCMirrorResponse{
@@ -541,11 +566,19 @@ service FlowService {
   }
 
   rpc GetCDCBatches(GetCDCBatchesRequest) returns (GetCDCBatchesResponse) {
-    option (google.api.http) = { get: "/v1/mirrors/cdc/batches/{flow_job_name}"};
+    option (google.api.http) = { get: "/v1/mirrors/cdc/batches/{flow_job_name}" };
+  }
+
+  rpc CDCBatches(GetCDCBatchesRequest) returns (GetCDCBatchesResponse) {
+    option (google.api.http) = { post: "/v1/mirrors/cdc/batches", body: "*" };
+  }
+
+  rpc CDCGraph(GraphRequest) returns (GraphResponse) {
+    option (google.api.http) = { post: "/v1/mirrors/cdc/graph", body: "*" };
   }
 
   rpc InitialLoadSummary(InitialLoadSummaryRequest) returns (InitialLoadSummaryResponse) {
-    option (google.api.http) = { get: "/v1/mirrors/cdc/initial_load/{parent_mirror_name}"};
+    option (google.api.http) = { get: "/v1/mirrors/cdc/initial_load/{parent_mirror_name}" };
   }
 
   rpc GetPeerInfo(PeerInfoRequest) returns (PeerInfoResponse) {

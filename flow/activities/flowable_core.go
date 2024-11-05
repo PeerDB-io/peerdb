@@ -53,6 +53,9 @@ func waitForCdcCache[TPull connectors.CDCPullConnectorCore](ctx context.Context,
 	var none TPull
 	logger := activity.GetLogger(ctx)
 	attempt := 0
+	waitInterval := time.Second
+	// try for 5 minutes, once per second
+	// after that, try indefinitely every minute
 	for {
 		a.CdcCacheRw.RLock()
 		entry, ok := a.CdcCache[sessionID]
@@ -63,7 +66,7 @@ func waitForCdcCache[TPull connectors.CDCPullConnectorCore](ctx context.Context,
 			}
 			return none, fmt.Errorf("expected %s, cache held %T", reflect.TypeFor[TPull]().Name(), entry.connector)
 		}
-		activity.RecordHeartbeat(ctx, "wait another second for source connector")
+		activity.RecordHeartbeat(ctx, fmt.Sprintf("wait %s for source connector", waitInterval))
 		attempt += 1
 		if attempt > 2 {
 			logger.Info("waiting on source connector setup",
@@ -72,7 +75,12 @@ func waitForCdcCache[TPull connectors.CDCPullConnectorCore](ctx context.Context,
 		if err := ctx.Err(); err != nil {
 			return none, err
 		}
-		time.Sleep(time.Second)
+		time.Sleep(waitInterval)
+		if attempt == 300 {
+			logger.Info("source connector not setup in time, transition to slow wait",
+				slog.String("sessionID", sessionID))
+			waitInterval = time.Minute
+		}
 	}
 }
 

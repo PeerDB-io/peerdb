@@ -222,8 +222,8 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	})
 	if err != nil {
 		s3Path := "s3://" + bucketName + "/" + key
-		logger.Error("failed to upload file", slog.Any("error", err), slog.Any("s3_path", s3Path))
-		return nil, fmt.Errorf("failed to upload file to path %s: %w", s3Path, err)
+		logger.Error("failed to upload file", slog.Any("error", err), slog.String("s3_path", s3Path))
+		return nil, fmt.Errorf("failed to upload file: %w", err)
 	}
 
 	if writeOcfError != nil {

@@ -5,7 +5,9 @@ const (
 	PeerDBBigQueryScale   = 20
 	PeerDBSnowflakeScale  = 20
 	PeerDBClickHouseScale = 38
-	VARHDRSZ              = 4
+
+	PeerDBClickHouseMaxPrecision = 76
+	VARHDRSZ                     = 4
 )
 
 type WarehouseNumericCompatibility interface {
@@ -17,7 +19,7 @@ type WarehouseNumericCompatibility interface {
 type ClickHouseNumericCompatibility struct{}
 
 func (ClickHouseNumericCompatibility) MaxPrecision() int16 {
-	return 76
+	return PeerDBClickHouseMaxPrecision
 }
 
 func (ClickHouseNumericCompatibility) MaxScale() int16 {

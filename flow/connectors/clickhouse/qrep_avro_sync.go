@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
@@ -103,6 +104,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 ) (int, error) {
 	dstTableName := config.DestinationTableIdentifier
 	stagingPath := s.connector.credsProvider.BucketPath
+	startTime := time.Now()
 
 	avroSchema, err := s.getAvroSchema(dstTableName, stream.Schema())
 	if err != nil {
@@ -151,6 +153,11 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 
 	if err := s.connector.database.Exec(ctx, query); err != nil {
 		s.connector.logger.Error("Failed to insert into select for ClickHouse", slog.Any("error", err))
+		return 0, err
+	}
+
+	if err := s.connector.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
+		s.connector.logger.Error("Failed to finish QRep partition", slog.Any("error", err))
 		return 0, err
 	}
 

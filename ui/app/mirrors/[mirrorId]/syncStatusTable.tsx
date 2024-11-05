@@ -1,22 +1,21 @@
 'use client';
 
-import SelectTheme from '@/app/styles/select';
 import TimeLabel from '@/components/TimeComponent';
-import { CDCBatch } from '@/grpc_generated/route';
+import {
+  CDCBatch,
+  GetCDCBatchesRequest,
+  GetCDCBatchesResponse,
+} from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
-import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
-import { useMemo, useState } from 'react';
-import ReactSelect from 'react-select';
+import { useCallback, useEffect, useState } from 'react';
 import { RowDataFormatter } from './rowsDisplay';
 
-type SyncStatusTableProps = {
-  rows: CDCBatch[];
-};
+type SyncStatusTableProps = { mirrorName: string };
 
 function TimeWithDurationOrRunning({
   startTime,
@@ -46,63 +45,54 @@ function TimeWithDurationOrRunning({
 }
 
 const ROWS_PER_PAGE = 5;
-const sortOptions = [
-  { value: 'batchId', label: 'Batch ID' },
-  { value: 'startTime', label: 'Start Time' },
-  { value: 'endTime', label: 'End Time' },
-  { value: 'numRows', label: 'Rows Synced' },
-];
-
-export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
+export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
+  const [totalPages, setTotalPages] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
-  const [sortField, setSortField] = useState<
-    'startTime' | 'endTime' | 'numRows' | 'batchId'
-  >('batchId');
+  const [ascending, setAscending] = useState(false);
+  const [[beforeId, afterId], setBeforeAfterId] = useState([-1, -1]);
+  const [batches, setBatches] = useState<CDCBatch[]>([]);
 
-  const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
-  const totalPages = Math.ceil(rows.length / ROWS_PER_PAGE);
-  const [searchQuery, setSearchQuery] = useState(NaN);
-  const displayedRows = useMemo(() => {
-    const searchRows = rows.filter((row) => row.batchId == searchQuery);
-    const shownRows = searchRows.length > 0 ? searchRows : rows;
-    shownRows.sort((a, b) => {
-      let aValue: any = a[sortField];
-      let bValue: any = b[sortField];
-      if (aValue === undefined || bValue === undefined) {
-        return 0;
-      }
-      if (sortField === 'batchId') {
-        aValue = BigInt(aValue);
-        bValue = BigInt(bValue);
-      }
+  useEffect(() => {
+    const fetchData = async () => {
+      const req: GetCDCBatchesRequest = {
+        flowJobName: mirrorName,
+        limit: ROWS_PER_PAGE,
+        beforeId: beforeId,
+        afterId: afterId,
+        ascending,
+      };
+      const res = await fetch('/api/v1/mirrors/cdc/batches', {
+        method: 'POST',
+        cache: 'no-store',
+        body: JSON.stringify(req),
+      });
+      const data: GetCDCBatchesResponse = await res.json();
+      setBatches(data.cdcBatches ?? []);
+      setCurrentPage(data.page);
+      setTotalPages(Math.ceil(data.total / req.limit));
+    };
 
-      if (aValue < bValue) {
-        return sortDir === 'dsc' ? 1 : -1;
-      } else if (aValue > bValue) {
-        return sortDir === 'dsc' ? -1 : 1;
-      } else {
-        return 0;
-      }
-    });
+    fetchData();
+  }, [mirrorName, beforeId, afterId, ascending]);
 
-    const startRow = (currentPage - 1) * ROWS_PER_PAGE;
-    const endRow = startRow + ROWS_PER_PAGE;
-    return shownRows.length > ROWS_PER_PAGE
-      ? shownRows.slice(startRow, endRow)
-      : shownRows;
-  }, [searchQuery, currentPage, rows, sortField, sortDir]);
-
-  const handlePrevPage = () => {
-    if (currentPage > 1) {
-      setCurrentPage(currentPage - 1);
+  const nextPage = useCallback(() => {
+    if (batches.length === 0) {
+      setBeforeAfterId([-1, ascending ? 0 : -1]);
+    } else if (ascending) {
+      setBeforeAfterId([-1, batches[batches.length - 1].batchId]);
+    } else {
+      setBeforeAfterId([batches[batches.length - 1].batchId, -1]);
     }
-  };
-
-  const handleNextPage = () => {
-    if (currentPage < totalPages) {
-      setCurrentPage(currentPage + 1);
+  }, [batches, ascending]);
+  const prevPage = useCallback(() => {
+    if (batches.length === 0 || currentPage < 3) {
+      setBeforeAfterId([-1, ascending ? 0 : -1]);
+    } else if (ascending) {
+      setBeforeAfterId([batches[0].batchId, -1]);
+    } else {
+      setBeforeAfterId([-1, batches[0].batchId]);
     }
-  };
+  }, [batches, ascending, currentPage]);
 
   return (
     <Table
@@ -110,10 +100,10 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
       toolbar={{
         left: (
           <div style={{ display: 'flex', alignItems: 'center' }}>
-            <Button variant='normalBorderless' onClick={handlePrevPage}>
+            <Button variant='normalBorderless' onClick={prevPage}>
               <Icon name='chevron_left' />
             </Button>
-            <Button variant='normalBorderless' onClick={handleNextPage}>
+            <Button variant='normalBorderless' onClick={nextPage}>
               <Icon name='chevron_right' />
             </Button>
             <Label>{`${currentPage} of ${totalPages}`}</Label>
@@ -123,52 +113,29 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
             >
               <Icon name='refresh' />
             </Button>
-            <div style={{ minWidth: '10em' }}>
-              <ReactSelect
-                options={sortOptions}
-                value={{
-                  value: sortField,
-                  label: sortOptions.find((opt) => opt.value === sortField)
-                    ?.label,
-                }}
-                onChange={(val, _) => {
-                  const sortVal =
-                    (val?.value as
-                      | 'startTime'
-                      | 'endTime'
-                      | 'numRows'
-                      | 'batchId') ?? 'batchId';
-                  setSortField(sortVal);
-                }}
-                defaultValue={{ value: 'batchId', label: 'Batch ID' }}
-                theme={SelectTheme}
-              />
-            </div>
             <button
               className='IconButton'
-              onClick={() => setSortDir('asc')}
+              onClick={() => {
+                setAscending(true);
+                setBeforeAfterId([-1, 0]);
+              }}
               aria-label='sort up'
-              style={{ color: sortDir == 'asc' ? 'green' : 'gray' }}
+              style={{ color: ascending ? 'green' : 'gray' }}
             >
               <Icon name='arrow_upward' />
             </button>
             <button
               className='IconButton'
-              onClick={() => setSortDir('dsc')}
+              onClick={() => {
+                setAscending(false);
+                setBeforeAfterId([-1, -1]);
+              }}
               aria-label='sort down'
-              style={{ color: sortDir == 'dsc' ? 'green' : 'gray' }}
+              style={{ color: ascending ? 'gray' : 'green' }}
             >
               <Icon name='arrow_downward' />
             </button>
           </div>
-        ),
-        right: (
-          <SearchField
-            placeholder='Search by batch ID'
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setSearchQuery(+e.target.value)
-            }
-          />
         ),
       }}
       header={
@@ -185,7 +152,7 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
         </TableRow>
       }
     >
-      {displayedRows.map((row) => (
+      {batches.map((row) => (
         <TableRow key={row.batchId}>
           <TableCell>
             <Label>{Number(row.batchId)}</Label>
