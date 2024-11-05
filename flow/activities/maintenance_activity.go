@@ -249,7 +249,7 @@ func (a *MaintenanceActivity) BackgroundAlerter(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return ctx.Err()
 		case <-heartbeatTicker.C:
 			activity.RecordHeartbeat(ctx, "Maintenance Workflow is still running")
 		case <-alertTicker.C:
