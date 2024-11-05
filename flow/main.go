@@ -250,6 +250,6 @@ func main() {
 
 	if err := app.Run(appCtx, os.Args); err != nil {
 		log.Printf("error running app: %+v", err)
-		os.Exit(1)
+		panic(err)
 	}
 }

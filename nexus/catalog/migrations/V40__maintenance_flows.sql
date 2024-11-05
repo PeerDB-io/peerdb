@@ -2,8 +2,8 @@ CREATE SCHEMA IF NOT EXISTS maintenance;
 
 CREATE TABLE IF NOT EXISTS maintenance.maintenance_flows
 (
-    id              serial PRIMARY KEY,
-    flow_id         bigint    NOT NULL,
+    id              SERIAL PRIMARY KEY,
+    flow_id         BIGINT    NOT NULL,
     flow_name       TEXT      NOT NULL,
     workflow_id     TEXT      NOT NULL,
     flow_created_at TIMESTAMP NOT NULL,
@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS maintenance.maintenance_flows
 
 CREATE TABLE IF NOT EXISTS maintenance.start_maintenance_outputs
 (
-    id             serial PRIMARY KEY,
+    id             SERIAL PRIMARY KEY,
     api_version    TEXT      NOT NULL,
     cli_version    TEXT      NOT NULL,
     skipped        BOOLEAN   NOT NULL,

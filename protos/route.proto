@@ -458,7 +458,7 @@ message InstanceInfoResponse {
 }
 
 enum MaintenanceStatus {
-  MAINTENANCE_STATUS_UNKOWN = 0;
+  MAINTENANCE_STATUS_UNKNOWN = 0;
   MAINTENANCE_STATUS_START = 1;
   MAINTENANCE_STATUS_END = 2;
 }
