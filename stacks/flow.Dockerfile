@@ -45,6 +45,8 @@ FROM flow-base AS flow-worker
 # Sane defaults for OpenTelemetry
 ENV OTEL_METRIC_EXPORT_INTERVAL=10000
 ENV OTEL_EXPORTER_OTLP_COMPRESSION=gzip
+ARG PEERDB_VERSION_SHA_SHORT
+ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
 
 ENTRYPOINT [\
   "./peer-flow",\
@@ -52,6 +54,9 @@ ENTRYPOINT [\
   ]
 
 FROM flow-base AS flow-snapshot-worker
+
+ARG PEERDB_VERSION_SHA_SHORT
+ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
 ENTRYPOINT [\
   "./peer-flow",\
   "snapshot-worker"\
@@ -59,6 +64,9 @@ ENTRYPOINT [\
 
 
 FROM flow-base AS flow-maintenance
+
+ARG PEERDB_VERSION_SHA_SHORT
+ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
 ENTRYPOINT [\
   "./peer-flow",\
   "maintenance"\
