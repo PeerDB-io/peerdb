@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/aws/smithy-go/ptr"
 	"log/slog"
 	"os"
 
@@ -31,21 +32,21 @@ type MaintenanceCLIParams struct {
 }
 
 type StartMaintenanceResult struct {
-	APIVersion    string `json:"apiVersion,omitempty"`
-	CLIVersion    string `json:"cliVersion,omitempty"`
-	SkippedReason string `json:"skippedReason,omitempty"`
-	Skipped       bool   `json:"skipped,omitempty"`
+	APIVersion    string  `json:"apiVersion,omitempty"`
+	CLIVersion    string  `json:"cliVersion,omitempty"`
+	SkippedReason *string `json:"skippedReason,omitempty"`
+	Skipped       bool    `json:"skipped,omitempty"`
 }
 
 // MaintenanceMain is the entry point for the maintenance command, requires access to Temporal client, will exit after
 // running the requested maintenance workflow
 func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
+	slog.Info("Starting Maintenance Mode CLI")
 	clientOptions := client.Options{
 		HostPort:  args.TemporalHostPort,
 		Namespace: args.TemporalNamespace,
 		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
 	}
-
 	tc, err := setupTemporalClient(ctx, clientOptions)
 	if err != nil {
 		return fmt.Errorf("unable to create Temporal client: %w", err)
@@ -86,12 +87,12 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 			if err != nil {
 				return err
 			}
+			slog.Info("Checking if end maintenance workflow should be skipped", "input", input)
 			if input.Skipped {
 				slog.Info("Skipping end maintenance workflow as start maintenance was skipped", "reason", input.SkippedReason)
 				return nil
 			}
 		}
-		slog.Info("Running end maintenance workflow")
 		workflowRun, err := peerflow.RunEndMaintenanceWorkflow(ctx, tc, &protos.EndMaintenanceFlowInput{}, taskQueueId)
 		if err != nil {
 			slog.Error("Error running end maintenance workflow", "error", err)
@@ -140,10 +141,11 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 			if version.Version == peerdbenv.PeerDBVersionShaShort() {
 				slog.Info("Skipping maintenance workflow due to matching versions")
 				return true, WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
-					Skipped:       true,
-					SkippedReason: fmt.Sprintf("CLI version %s matches API version %s", peerdbenv.PeerDBVersionShaShort(), version.Version),
-					APIVersion:    version.Version,
-					CLIVersion:    peerdbenv.PeerDBVersionShaShort(),
+					Skipped: true,
+					SkippedReason: ptr.String(fmt.Sprintf("CLI version %s matches API version %s", peerdbenv.PeerDBVersionShaShort(),
+						version.Version)),
+					APIVersion: version.Version,
+					CLIVersion: peerdbenv.PeerDBVersionShaShort(),
 				})
 			}
 		}
@@ -158,7 +160,7 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 				slog.Info("Skipping maintenance workflow due to no mirrors")
 				return true, WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
 					Skipped:       true,
-					SkippedReason: "No mirrors found",
+					SkippedReason: ptr.String("No mirrors found"),
 				})
 			}
 		}

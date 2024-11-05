@@ -220,7 +220,7 @@ func endMaintenance(ctx workflow.Context, logger log.Logger) (*protos.EndMainten
 	if err != nil {
 		return nil, err
 	}
-
+	logger.Info("Disabled maintenance mode")
 	version, err := GetPeerDBVersion(ctx)
 	if err != nil {
 		return nil, err
@@ -283,8 +283,11 @@ func GetPeerDBVersion(wCtx workflow.Context) (string, error) {
 	activityCtx := workflow.WithLocalActivityOptions(wCtx, workflow.LocalActivityOptions{
 		StartToCloseTimeout: time.Minute,
 	})
+	getVersionActivity := func(ctx context.Context) (string, error) {
+		return peerdbenv.PeerDBVersionShaShort(), nil
+	}
 	var version string
-	future := workflow.ExecuteLocalActivity(activityCtx, peerdbenv.PeerDBVersionShaShort)
+	future := workflow.ExecuteLocalActivity(activityCtx, getVersionActivity)
 	err := future.Get(activityCtx, &version)
 	return version, err
 }

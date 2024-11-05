@@ -3,6 +3,7 @@ package activities
 import (
 	"context"
 	"fmt"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"log/slog"
 	"time"
 
@@ -43,7 +44,9 @@ func (a *MaintenanceActivity) GetAllMirrors(ctx context.Context) (*protos.Mainte
 
 	maintenanceMirrorItems, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.MaintenanceMirror, error) {
 		var info protos.MaintenanceMirror
-		err := row.Scan(&info.MirrorId, &info.MirrorName, &info.WorkflowId, &info.MirrorCreatedAt, &info.IsCdc)
+		var createdAt time.Time
+		err := row.Scan(&info.MirrorId, &info.MirrorName, &info.WorkflowId, &createdAt, &info.IsCdc)
+		info.MirrorCreatedAt = timestamppb.New(createdAt)
 		return &info, err
 	})
 	return &protos.MaintenanceMirrors{
@@ -93,6 +96,9 @@ func (a *MaintenanceActivity) checkAndWaitIfSnapshot(
 
 	slog.Info("Checking and waiting if mirror is snapshot", "mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "status",
 		mirrorStatus.String())
+	if mirrorStatus != protos.FlowStatus_STATUS_SNAPSHOT && mirrorStatus != protos.FlowStatus_STATUS_SETUP {
+		return mirrorStatus, nil
+	}
 
 	flowStatus, err := RunEveryIntervalUntilFinish(ctx, func() (bool, protos.FlowStatus, error) {
 		activity.RecordHeartbeat(ctx, fmt.Sprintf("Checking if mirror %s is snapshot", mirror.MirrorName))
@@ -126,7 +132,7 @@ func (a *MaintenanceActivity) BackupAllPreviouslyRunningFlows(ctx context.Contex
 			(flow_id, flow_name, workflow_id, flow_created_at, is_cdc, state, from_version)
 		values
 			($1, $2, $3, $4, $5, $6, $7)
-		`, mirror.MirrorId, mirror.MirrorName, mirror.WorkflowId, mirror.MirrorCreatedAt, mirror.IsCdc, mirrorStateBackup,
+		`, mirror.MirrorId, mirror.MirrorName, mirror.WorkflowId, mirror.MirrorCreatedAt.AsTime(), mirror.IsCdc, mirrorStateBackup,
 			peerdbenv.PeerDBVersionShaShort())
 		if err != nil {
 			return err
@@ -192,7 +198,9 @@ func (a *MaintenanceActivity) GetBackedUpFlows(ctx context.Context) (*protos.Mai
 
 	maintenanceMirrorItems, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.MaintenanceMirror, error) {
 		var info protos.MaintenanceMirror
-		err := row.Scan(&info.MirrorId, &info.MirrorName, &info.WorkflowId, &info.MirrorCreatedAt, &info.IsCdc)
+		var createdAt time.Time
+		err := row.Scan(&info.MirrorId, &info.MirrorName, &info.WorkflowId, &createdAt, &info.IsCdc)
+		info.MirrorCreatedAt = timestamppb.New(createdAt)
 		return &info, err
 	})
 	if err != nil {
