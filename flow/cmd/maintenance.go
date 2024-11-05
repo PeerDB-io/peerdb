@@ -21,14 +21,15 @@ import (
 )
 
 type MaintenanceCLIParams struct {
-	TemporalHostPort         string
-	TemporalNamespace        string
-	Mode                     string
-	FlowGrpcAddress          string
-	FlowTlsEnabled           bool
-	SkipOnApiVersionMatch    bool
-	SkipOnNoMirrors          bool
-	UserMaintenanceTaskQueue bool
+	TemporalHostPort                  string
+	TemporalNamespace                 string
+	Mode                              string
+	FlowGrpcAddress                   string
+	FlowTlsEnabled                    bool
+	SkipOnApiVersionMatch             bool
+	SkipOnNoMirrors                   bool
+	UseMaintenanceTaskQueue           bool
+	AssumeSkippedMaintenanceWorkflows bool
 }
 
 type StartMaintenanceResult struct {
@@ -53,11 +54,19 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 	}
 
 	taskQueueId := shared.MaintenanceFlowTaskQueue
-	if !args.UserMaintenanceTaskQueue {
+	if !args.UseMaintenanceTaskQueue {
 		taskQueueId = shared.PeerFlowTaskQueue
 	}
 
 	if args.Mode == "start" {
+		if args.AssumeSkippedMaintenanceWorkflows {
+			slog.Info("Assuming maintenance workflows were skipped")
+			return WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
+				Skipped:       true,
+				SkippedReason: ptr.String("Assumed skipped by CLI Flag"),
+				CLIVersion:    peerdbenv.PeerDBVersionShaShort(),
+			})
+		}
 		skipped, err := skipStartMaintenanceIfNeeded(ctx, args)
 		if err != nil {
 			return err

@@ -112,6 +112,12 @@ func main() {
 		Sources: cli.EnvVars("USE_MAINTENANCE_TASK_QUEUE"),
 	}
 
+	assumedSkippedMaintenanceWorkflowsFlag := &cli.BoolFlag{
+		Name:  "assume-skipped-workflow",
+		Value: false,
+		Usage: "Skip running maintenance workflows and simply output to catalog",
+	}
+
 	app := &cli.Command{
 		Name: "PeerDB Flows CLI",
 		Commands: []*cli.Command{
@@ -203,19 +209,21 @@ func main() {
 					flowGrpcAddressFlag,
 					flowTlsEnabledFlag,
 					useMaintenanceTaskQueueFlag,
+					assumedSkippedMaintenanceWorkflowsFlag,
 				},
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
 
 					return cmd.MaintenanceMain(ctx, &cmd.MaintenanceCLIParams{
-						TemporalHostPort:         temporalHostPort,
-						TemporalNamespace:        clicmd.String(temporalNamespaceFlag.Name),
-						Mode:                     clicmd.String(maintenanceModeWorkflowFlag.Name),
-						SkipOnApiVersionMatch:    clicmd.Bool(maintenanceSkipOnApiVersionMatchFlag.Name),
-						SkipOnNoMirrors:          clicmd.Bool(maintenanceSkipOnNoMirrorsFlag.Name),
-						FlowGrpcAddress:          clicmd.String(flowGrpcAddressFlag.Name),
-						FlowTlsEnabled:           clicmd.Bool(flowTlsEnabledFlag.Name),
-						UserMaintenanceTaskQueue: clicmd.Bool(useMaintenanceTaskQueueFlag.Name),
+						TemporalHostPort:                  temporalHostPort,
+						TemporalNamespace:                 clicmd.String(temporalNamespaceFlag.Name),
+						Mode:                              clicmd.String(maintenanceModeWorkflowFlag.Name),
+						SkipOnApiVersionMatch:             clicmd.Bool(maintenanceSkipOnApiVersionMatchFlag.Name),
+						SkipOnNoMirrors:                   clicmd.Bool(maintenanceSkipOnNoMirrorsFlag.Name),
+						FlowGrpcAddress:                   clicmd.String(flowGrpcAddressFlag.Name),
+						FlowTlsEnabled:                    clicmd.Bool(flowTlsEnabledFlag.Name),
+						UseMaintenanceTaskQueue:           clicmd.Bool(useMaintenanceTaskQueueFlag.Name),
+						AssumeSkippedMaintenanceWorkflows: clicmd.Bool(assumedSkippedMaintenanceWorkflowsFlag.Name),
 					})
 				},
 			},
