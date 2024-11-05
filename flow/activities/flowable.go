@@ -230,6 +230,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 	logger := internal.LoggerFromCtx(ctx)
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
+	a.Alerter.LogFlowInfo(ctx, config.FlowName, "Setting up destination tables")
 	conn, err := connectors.GetByNameAs[connectors.NormalizedTablesConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
@@ -252,6 +253,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	}
 	numTablesToSetup.Store(int32(len(tableNameSchemaMapping)))
 
+	a.Alerter.LogFlowInfo(ctx, config.FlowName, "Setting up destination tables")
 	tableExistsMapping := make(map[string]bool, len(tableNameSchemaMapping))
 	for tableIdentifier, tableSchema := range tableNameSchemaMapping {
 		existing, err := conn.SetupNormalizedTable(
