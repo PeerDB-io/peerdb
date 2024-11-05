@@ -599,7 +599,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		}
 	}
 
-	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, fmt.Sprintf("replicated all rows to destination for table %s", config.DestinationTableIdentifier))
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "replicated all rows to destination for table "+config.DestinationTableIdentifier)
 	return nil
 }
 
