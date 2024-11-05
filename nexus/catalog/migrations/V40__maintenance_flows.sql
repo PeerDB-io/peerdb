@@ -24,4 +24,4 @@ CREATE TABLE IF NOT EXISTS maintenance.start_maintenance_outputs
     created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_start_maintenance_outputs_created_at ON maintenance.start_maintenance_outputs (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_start_maintenance_outputs_created_at ON maintenance.start_maintenance_outputs (created_at DESC);
