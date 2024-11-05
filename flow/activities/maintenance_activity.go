@@ -101,7 +101,7 @@ func (a *MaintenanceActivity) checkAndWaitIfSnapshot(
 	}
 
 	flowStatus, err := RunEveryIntervalUntilFinish(ctx, func() (bool, protos.FlowStatus, error) {
-		activity.RecordHeartbeat(ctx, fmt.Sprintf("Checking if mirror %s is snapshot", mirror.MirrorName))
+		activity.RecordHeartbeat(ctx, fmt.Sprintf("Waiting for mirror %s to finish snapshot", mirror.MirrorName))
 		mirrorStatus, err = a.getMirrorStatus(ctx, mirror)
 		if err != nil {
 			return false, mirrorStatus, err
@@ -254,7 +254,7 @@ func (a *MaintenanceActivity) BackgroundAlerter(ctx context.Context) error {
 			activity.RecordHeartbeat(ctx, "Maintenance Workflow is still running")
 		case <-alertTicker.C:
 			slog.Warn("Maintenance Workflow is still running")
-			a.Alerter.LogNonFlowWarning(ctx, telemetry.MaintenanceWait, "", "Maintenance mode is still running")
+			a.Alerter.LogNonFlowWarning(ctx, telemetry.MaintenanceWait, "Waiting", "Maintenance mode is still running")
 		}
 	}
 }
