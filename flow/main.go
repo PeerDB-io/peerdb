@@ -118,6 +118,12 @@ func main() {
 		Usage: "Skip running maintenance workflows and simply output to catalog",
 	}
 
+	skipIfK8sServiceMissingFlag := &cli.StringFlag{
+		Name:  "skip-if-k8s-service-missing",
+		Value: "",
+		Usage: "Skip maintenance if the k8s service is missing, generally used during pre-upgrade hook",
+	}
+
 	app := &cli.Command{
 		Name: "PeerDB Flows CLI",
 		Commands: []*cli.Command{
@@ -224,6 +230,7 @@ func main() {
 						FlowTlsEnabled:                    clicmd.Bool(flowTlsEnabledFlag.Name),
 						UseMaintenanceTaskQueue:           clicmd.Bool(useMaintenanceTaskQueueFlag.Name),
 						AssumeSkippedMaintenanceWorkflows: clicmd.Bool(assumedSkippedMaintenanceWorkflowsFlag.Name),
+						SkipIfK8sServiceMissing:           clicmd.String(skipIfK8sServiceMissingFlag.Name),
 					})
 				},
 			},

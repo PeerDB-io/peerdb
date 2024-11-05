@@ -13,6 +13,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
@@ -25,6 +29,7 @@ type MaintenanceCLIParams struct {
 	TemporalNamespace                 string
 	Mode                              string
 	FlowGrpcAddress                   string
+	SkipIfK8sServiceMissing           string
 	FlowTlsEnabled                    bool
 	SkipOnApiVersionMatch             bool
 	SkipOnNoMirrors                   bool
@@ -122,6 +127,21 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 }
 
 func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParams) (bool, error) {
+	if args.SkipIfK8sServiceMissing != "" {
+		slog.Info("Checking if k8s service exists", "service", args.SkipIfK8sServiceMissing)
+		exists, err := CheckK8sServiceExistence(ctx, args.SkipIfK8sServiceMissing)
+		if err != nil {
+			return false, err
+		}
+		if !exists {
+			slog.Info("Skipping maintenance workflow due to missing k8s service", "service", args.SkipIfK8sServiceMissing)
+			return true, WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
+				Skipped:       true,
+				SkippedReason: ptr.String(fmt.Sprintf("K8s service %s missing", args.SkipIfK8sServiceMissing)),
+				CLIVersion:    peerdbenv.PeerDBVersionShaShort(),
+			})
+		}
+	}
 	if args.SkipOnApiVersionMatch || args.SkipOnNoMirrors {
 		if args.FlowGrpcAddress == "" {
 			return false, errors.New("flow address is required when skipping based on API")
@@ -208,4 +228,23 @@ func ReadLastMaintenanceOutput(ctx context.Context) (*StartMaintenanceResult, er
 		return nil, err
 	}
 	return &result, nil
+}
+
+func CheckK8sServiceExistence(ctx context.Context, serviceName string) (bool, error) {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return false, err
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return false, err
+	}
+	_, err = clientset.CoreV1().Services(peerdbenv.GetEnvString("POD_NAMESPACE", "")).Get(ctx, serviceName, v1.GetOptions{})
+	if err != nil {
+		if k8sErrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
