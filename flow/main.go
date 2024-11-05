@@ -216,6 +216,7 @@ func main() {
 					flowTlsEnabledFlag,
 					useMaintenanceTaskQueueFlag,
 					assumedSkippedMaintenanceWorkflowsFlag,
+					skipIfK8sServiceMissingFlag,
 				},
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
