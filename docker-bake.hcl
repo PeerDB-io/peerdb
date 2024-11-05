@@ -46,6 +46,9 @@ target "flow-snapshot-worker" {
     "linux/amd64",
     "linux/arm64",
   ]
+  args = {
+    PEERDB_VERSION_SHA_SHORT = "${SHA_SHORT}"
+  }
   tags = [
     "${REGISTRY}/flow-snapshot-worker:${TAG}",
     "${REGISTRY}/flow-snapshot-worker:${SHA_SHORT}",
@@ -60,6 +63,9 @@ target "flow-worker" {
     "linux/amd64",
     "linux/arm64",
   ]
+  args = {
+    PEERDB_VERSION_SHA_SHORT = "${SHA_SHORT}"
+  }
   tags = [
     "${REGISTRY}/flow-worker:${TAG}",
     "${REGISTRY}/flow-worker:${SHA_SHORT}",
@@ -74,6 +80,9 @@ target "flow-maintenance" {
     "linux/amd64",
     "linux/arm64",
   ]
+  args = {
+    PEERDB_VERSION_SHA_SHORT = "${SHA_SHORT}"
+  }
   tags = [
     "${REGISTRY}/flow-maintenance:${TAG}",
     "${REGISTRY}/flow-maintenance:${SHA_SHORT}",
@@ -87,6 +96,9 @@ target "peerdb" {
     "linux/amd64",
     "linux/arm64",
   ]
+  args = {
+    PEERDB_VERSION_SHA_SHORT = "${SHA_SHORT}"
+  }
   tags = [
     "${REGISTRY}/peerdb-server:${TAG}",
     "${REGISTRY}/peerdb-server:${SHA_SHORT}",
@@ -100,6 +112,9 @@ target "peerdb-ui" {
     "linux/amd64",
     "linux/arm64",
   ]
+  args = {
+    PEERDB_VERSION_SHA_SHORT = "${SHA_SHORT}"
+  }
   tags = [
     "${REGISTRY}/peerdb-ui:${TAG}",
     "${REGISTRY}/peerdb-ui:${SHA_SHORT}",

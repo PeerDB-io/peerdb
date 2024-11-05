@@ -29,4 +29,8 @@ RUN apk add --no-cache ca-certificates postgresql-client curl iputils && \
 USER peerdb
 WORKDIR /home/peerdb
 COPY --from=builder --chown=peerdb /root/nexus/target/release/peerdb-server .
+
+ARG PEERDB_VERSION_SHA_SHORT
+ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
+
 ENTRYPOINT ["./peerdb-server"]
