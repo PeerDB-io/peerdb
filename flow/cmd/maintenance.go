@@ -5,10 +5,10 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"github.com/aws/smithy-go/ptr"
 	"log/slog"
 	"os"
 
+	"github.com/aws/smithy-go/ptr"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -32,9 +32,9 @@ type MaintenanceCLIParams struct {
 }
 
 type StartMaintenanceResult struct {
+	SkippedReason *string `json:"skippedReason,omitempty"`
 	APIVersion    string  `json:"apiVersion,omitempty"`
 	CLIVersion    string  `json:"cliVersion,omitempty"`
-	SkippedReason *string `json:"skippedReason,omitempty"`
 	Skipped       bool    `json:"skipped,omitempty"`
 }
 

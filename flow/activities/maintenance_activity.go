@@ -3,7 +3,6 @@ package activities
 import (
 	"context"
 	"fmt"
-	"google.golang.org/protobuf/types/known/timestamppb"
 	"log/slog"
 	"time"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/PeerDB-io/peer-flow/alerting"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
