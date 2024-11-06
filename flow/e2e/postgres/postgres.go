@@ -54,10 +54,7 @@ func (s PeerFlowE2ETestSuitePG) DestinationTable(table string) string {
 
 func (s PeerFlowE2ETestSuitePG) GetRows(table string, cols string) (*model.QRecordBatch, error) {
 	s.t.Helper()
-	pgQueryExecutor, err := s.conn.NewQRepQueryExecutor(context.Background(), "testflow", "testpart")
-	if err != nil {
-		return nil, err
-	}
+	pgQueryExecutor := s.conn.NewQRepQueryExecutor(context.Background(), "testflow", "testpart")
 
 	return pgQueryExecutor.ExecuteAndProcessQuery(
 		context.Background(),

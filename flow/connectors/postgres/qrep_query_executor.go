@@ -24,25 +24,20 @@ type QRepQueryExecutor struct {
 	partitionID string
 }
 
-func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, flowJobName string, partitionID string) (*QRepQueryExecutor, error) {
+func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, flowJobName string, partitionID string) *QRepQueryExecutor {
 	return c.NewQRepQueryExecutorSnapshot(ctx, "", flowJobName, partitionID)
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context,
 	snapshot string, flowJobName string, partitionID string,
-) (*QRepQueryExecutor, error) {
-	err := c.lazyInitCustomTypesMapping(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to init custom types mapping: %w", err)
-	}
-
+) *QRepQueryExecutor {
 	return &QRepQueryExecutor{
 		PostgresConnector: c,
 		snapshot:          snapshot,
 		flowJobName:       flowJobName,
 		partitionID:       partitionID,
 		logger:            log.With(c.logger, slog.String(string(shared.PartitionIDKey), partitionID)),
-	}, nil
+	}
 }
 
 func (qe *QRepQueryExecutor) ExecuteQuery(ctx context.Context, query string, args ...interface{}) (pgx.Rows, error) {
@@ -68,13 +63,21 @@ func (qe *QRepQueryExecutor) executeQueryInTx(ctx context.Context, tx pgx.Tx, cu
 }
 
 // FieldDescriptionsToSchema converts a slice of pgconn.FieldDescription to a QRecordSchema.
-func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) qvalue.QRecordSchema {
+func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(ctx context.Context,
+	fds []pgconn.FieldDescription,
+) (qvalue.QRecordSchema, error) {
+	customTypeMapping, err := qe.fetchCustomTypeMapping(ctx)
+	if err != nil {
+		qe.logger.Error("[pg_query_executor] failed to fetch custom type mapping", slog.Any("error", err))
+		return qvalue.QRecordSchema{}, err
+	}
+
 	qfields := make([]qvalue.QField, len(fds))
 	for i, fd := range fds {
 		cname := fd.Name
 		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID)
 		if ctype == qvalue.QValueKindInvalid {
-			typeName, ok := qe.customTypesMapping[fd.DataTypeOID]
+			typeName, ok := customTypeMapping[fd.DataTypeOID]
 			if ok {
 				ctype = customTypeToQKind(typeName)
 			} else {
@@ -101,10 +104,11 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 			}
 		}
 	}
-	return qvalue.NewQRecordSchema(qfields)
+	return qvalue.NewQRecordSchema(qfields), nil
 }
 
 func (qe *QRepQueryExecutor) ProcessRows(
+	ctx context.Context,
 	rows pgx.Rows,
 	fieldDescriptions []pgconn.FieldDescription,
 ) (*model.QRecordBatch, error) {
@@ -113,7 +117,7 @@ func (qe *QRepQueryExecutor) ProcessRows(
 	qe.logger.Info("Processing rows")
 	// Iterate over the rows
 	for rows.Next() {
-		record, err := qe.mapRowToQRecord(rows, fieldDescriptions)
+		record, err := qe.mapRowToQRecord(ctx, rows, fieldDescriptions)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
 			return nil, fmt.Errorf("failed to map row to QRecord: %w", err)
@@ -126,8 +130,13 @@ func (qe *QRepQueryExecutor) ProcessRows(
 		return nil, fmt.Errorf("row iteration failed: %w", err)
 	}
 
+	schema, err := qe.fieldDescriptionsToSchema(ctx, fieldDescriptions)
+	if err != nil {
+		qe.logger.Error("[pg_query_executor] failed to convert field descriptions to schema", slog.Any("error", err))
+		return nil, fmt.Errorf("failed to convert field descriptions to schema: %w", err)
+	}
 	batch := &model.QRecordBatch{
-		Schema:  qe.fieldDescriptionsToSchema(fieldDescriptions),
+		Schema:  schema,
 		Records: records,
 	}
 
@@ -152,7 +161,7 @@ func (qe *QRepQueryExecutor) processRowsStream(
 			return numRows, err
 		}
 
-		record, err := qe.mapRowToQRecord(rows, fieldDescriptions)
+		record, err := qe.mapRowToQRecord(ctx, rows, fieldDescriptions)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
 			err := fmt.Errorf("failed to map row to QRecord: %w", err)
@@ -193,7 +202,14 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 
 	fieldDescriptions := rows.FieldDescriptions()
 	if !stream.IsSchemaSet() {
-		stream.SetSchema(qe.fieldDescriptionsToSchema(fieldDescriptions))
+		schema, err := qe.fieldDescriptionsToSchema(ctx, fieldDescriptions)
+		if err != nil {
+			stream.Close(err)
+			qe.logger.Error("[pg_query_executor] failed to convert field descriptions to schema",
+				slog.Any("error", err), slog.String("query", query))
+			return 0, fmt.Errorf("[pg_query_executor] failed to convert field descriptions to schema: %w", err)
+		}
+		stream.SetSchema(schema)
 	}
 
 	numRows, err := qe.processRowsStream(ctx, cursorName, stream, rows, fieldDescriptions)
@@ -317,9 +333,14 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 }
 
 func (qe *QRepQueryExecutor) mapRowToQRecord(
+	ctx context.Context,
 	row pgx.Rows,
 	fds []pgconn.FieldDescription,
 ) ([]qvalue.QValue, error) {
+	customTypeMapping, err := qe.fetchCustomTypeMapping(ctx)
+	if err != nil {
+		return nil, err
+	}
 	// make vals an empty array of QValue of size len(fds)
 	record := make([]qvalue.QValue, len(fds))
 
@@ -331,7 +352,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 
 	for i, fd := range fds {
 		// Check if it's a custom type first
-		typeName, ok := qe.customTypesMapping[fd.DataTypeOID]
+		typeName, ok := customTypeMapping[fd.DataTypeOID]
 		if !ok {
 			tmp, err := qe.parseFieldFromPostgresOID(fd.DataTypeOID, values[i])
 			if err != nil {

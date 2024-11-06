@@ -39,7 +39,7 @@ type PostgresConnector struct {
 	conn                   *pgx.Conn
 	replConn               *pgx.Conn
 	replState              *ReplState
-	customTypesMapping     map[uint32]string
+	customTypeMapping      map[uint32]string
 	hushWarnOID            map[uint32]struct{}
 	relationMessageMapping model.RelationMessageMapping
 	connStr                string
@@ -100,7 +100,7 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		conn:                   conn,
 		replConn:               nil,
 		replState:              nil,
-		customTypesMapping:     nil,
+		customTypeMapping:      nil,
 		hushWarnOID:            make(map[uint32]struct{}),
 		relationMessageMapping: make(model.RelationMessageMapping),
 		connStr:                connectionString,
@@ -110,15 +110,15 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 	}, nil
 }
 
-func (c *PostgresConnector) lazyInitCustomTypesMapping(ctx context.Context) error {
-	if c.customTypesMapping == nil {
+func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uint32]string, error) {
+	if c.customTypeMapping == nil {
 		customTypeMapping, err := shared.GetCustomDataTypes(ctx, c.conn)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		c.customTypesMapping = customTypeMapping
+		c.customTypeMapping = customTypeMapping
 	}
-	return nil
+	return c.customTypeMapping, nil
 }
 
 func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, error) {
@@ -147,10 +147,6 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 }
 
 func (c *PostgresConnector) SetupReplConn(ctx context.Context) error {
-	err := c.lazyInitCustomTypesMapping(ctx)
-	if err != nil {
-		return err
-	}
 	conn, err := c.CreateReplConn(ctx)
 	if err != nil {
 		return err
@@ -416,15 +412,15 @@ func pullCore[Items model.Items](
 	}
 
 	cdc := c.NewPostgresCDCSource(&PostgresCDCConfig{
+		CatalogPool:            catalogPool,
 		SrcTableIDNameMapping:  req.SrcTableIDNameMapping,
-		Slot:                   slotName,
-		Publication:            publicationName,
 		TableNameMapping:       req.TableNameMapping,
 		TableNameSchemaMapping: req.TableNameSchemaMapping,
 		ChildToParentRelIDMap:  childToParentRelIDMap,
-		CatalogPool:            catalogPool,
-		FlowJobName:            req.FlowJobName,
 		RelationMessageMapping: c.relationMessageMapping,
+		FlowJobName:            req.FlowJobName,
+		Slot:                   slotName,
+		Publication:            publicationName,
 	})
 
 	if err := PullCdcRecords(ctx, cdc, req, processor, &c.replLock); err != nil {
@@ -762,10 +758,6 @@ func (c *PostgresConnector) GetTableSchema(
 	system protos.TypeSystem,
 	tableIdentifiers []string,
 ) (map[string]*protos.TableSchema, error) {
-	err := c.lazyInitCustomTypesMapping(ctx)
-	if err != nil {
-		return nil, err
-	}
 	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
 	for _, tableName := range tableIdentifiers {
 		tableSchema, err := c.getTableSchemaForTable(ctx, env, tableName, system)
@@ -787,6 +779,10 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	system protos.TypeSystem,
 ) (*protos.TableSchema, error) {
 	schemaTable, err := utils.ParseSchemaTable(tableName)
+	if err != nil {
+		return nil, err
+	}
+	customTypeMapping, err := c.fetchCustomTypeMapping(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -835,7 +831,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		case protos.TypeSystem_PG:
 			colType = c.postgresOIDToName(fieldDescription.DataTypeOID)
 			if colType == "" {
-				typeName, ok := c.customTypesMapping[fieldDescription.DataTypeOID]
+				typeName, ok := customTypeMapping[fieldDescription.DataTypeOID]
 				if !ok {
 					return nil, fmt.Errorf("error getting type name for %d", fieldDescription.DataTypeOID)
 				}
@@ -844,7 +840,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		case protos.TypeSystem_Q:
 			qColType := c.postgresOIDToQValueKind(fieldDescription.DataTypeOID)
 			if qColType == qvalue.QValueKindInvalid {
-				typeName, ok := c.customTypesMapping[fieldDescription.DataTypeOID]
+				typeName, ok := customTypeMapping[fieldDescription.DataTypeOID]
 				if ok {
 					qColType = customTypeToQKind(typeName)
 				} else {

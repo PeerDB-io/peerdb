@@ -53,8 +53,7 @@ func TestExecuteAndProcessQuery(t *testing.T) {
 	_, err = conn.Exec(ctx, query)
 	require.NoError(t, err, "error while inserting data")
 
-	qe, err := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
-	require.NoError(t, err, "error while creating query executor")
+	qe := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
 
 	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
 	batch, err := qe.ExecuteAndProcessQuery(context.Background(), query)
@@ -143,8 +142,7 @@ func TestAllDataTypes(t *testing.T) {
 	)
 	require.NoError(t, err, "error while inserting into test table")
 
-	qe, err := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
-	require.NoError(t, err, "error while creating query executor")
+	qe := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
 	// Select the row back out of the table
 	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
 	rows, err := qe.ExecuteQuery(context.Background(), query)
@@ -154,7 +152,7 @@ func TestAllDataTypes(t *testing.T) {
 	// Use rows.FieldDescriptions() to get field descriptions
 	fieldDescriptions := rows.FieldDescriptions()
 
-	batch, err := qe.ProcessRows(rows, fieldDescriptions)
+	batch, err := qe.ProcessRows(ctx, rows, fieldDescriptions)
 	require.NoError(t, err, "error while processing rows")
 	require.Len(t, batch.Records, 1, "expected 1 record")
 
@@ -191,8 +189,9 @@ func TestAllDataTypes(t *testing.T) {
 
 	actualUUID := record[8].Value().([16]uint8)
 	require.Equal(t, savedUUID[:], actualUUID[:], "expected savedUUID: %v", savedUUID)
-	// not sure why the values are unequal
-	// require.Equal(t, savedTime, record[9].Value(), "expected savedTime: %v", savedTime)
+	actualTime := record[9].Value().(time.Time)
+	require.Equal(t, savedTime.Truncate(time.Second),
+		actualTime.Truncate(time.Second), "expected savedTime: %v", savedTime)
 
 	expectedNumeric := "123.456"
 	actualNumeric := record[10].Value().(decimal.Decimal).String()
