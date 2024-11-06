@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "github>PeerDB-io/.github:renovate-config"
+    "local>PeerDB-io/.github:renovate-config"
   ],
   "packageRules": [
     {
@@ -25,5 +25,8 @@
   "timezone": "Etc/UTC",
   "schedule": [
     "after 5pm on monday"
+  ],
+  "additionalReviewers": [
+    "team:eng"
   ]
 }
