@@ -21,5 +21,9 @@
   ],
   "vulnerabilityAlerts": {
     "enabled": true
-  }
+  },
+  "timezone": "Etc/UTC",
+  "schedule": [
+    "after 5pm on monday"
+  ]
 }
