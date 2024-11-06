@@ -7,16 +7,10 @@
     {
       "groupName": "{{manager}} dependencies",
       "groupSlug": "{{manager}}",
-      "packageRules": [
-        {
-          "groupName": "{{manager}} dependencies",
-          "groupSlug": "{{manager}}",
-          "matchPackagePatterns": [
-            "*"
-          ]
-        }
-      ],
-      "separateMajorMinor": false
+      "separateMajorMinor": false,
+      "matchPackageNames": [
+        "*"
+      ]
     }
   ],
   "vulnerabilityAlerts": {
