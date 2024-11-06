@@ -196,7 +196,7 @@ func (c *ClickHouseConnector) RenameTables(
 
 			// target table exists, so we can attempt to swap.
 			// in most (all) cases, we will have
-			c.logger.Info("attempting atomic exchange %s to %s", renameRequest.CurrentName, renameRequest.NewName)
+			c.logger.Info(fmt.Sprintf("attempting atomic exchange '%s' to '%s'", renameRequest.CurrentName, renameRequest.NewName))
 			// the clickhouse ATOMIC engine supports a special query to exchange two tables
 			// this means, we can have dependent (materialized) views and dictionaries on these tables.
 			if err = c.execWithLogging(ctx, fmt.Sprintf("EXCHANGE TABLES %s and %s", renameRequest.NewName, renameRequest.CurrentName)); err == nil {
