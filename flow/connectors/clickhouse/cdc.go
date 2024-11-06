@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"strings"
 
-	_ "github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -193,24 +193,26 @@ func (c *ClickHouseConnector) RenameTables(
 			if err != nil {
 				return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", renameRequest.NewName, err)
 			}
-		} else {
-			c.logger.Info(fmt.Sprintf("table '%s' does not exist, skipping soft-deletes transfer for it", renameRequest.NewName))
-		}
 
-		if c.dbSupportsExchange && originalTableExists {
+			// target table exists, so we can attempt to swap.
+			// in most (all) cases, we will have
 			c.logger.Info("attempting atomic exchange %s to %s", renameRequest.CurrentName, renameRequest.NewName)
 			// the clickhouse ATOMIC engine supports a special query to exchange two tables
 			// this means, we can have dependent (materialized) views and dictionaries on these tables.
-			err = c.execWithLogging(ctx, fmt.Sprintf("EXCHANGE TABLES %s and %s", renameRequest.NewName, renameRequest.CurrentName))
-			if err != nil {
+			if err = c.execWithLogging(ctx, fmt.Sprintf("EXCHANGE TABLES %s and %s", renameRequest.NewName, renameRequest.CurrentName)); err == nil {
+				if err = c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, renameRequest.CurrentName)); err != nil {
+					return nil, fmt.Errorf("unable to drop exchanged table %s: %w", renameRequest.CurrentName, err)
+				}
+			} else if ex, ok := err.(*clickhouse.Exception); !ok || ex.Code != 48 {
+				// code 48 == not implemented -> move on to the fallback code, in all other error codes / types
+				// return, since we know/assume that the exchange would be the sensible action
 				return nil, fmt.Errorf("unable to exchange tables %s and %s: %w", renameRequest.NewName, renameRequest.CurrentName, err)
 			}
-			err = c.execWithLogging(ctx, fmt.Sprint(dropTableIfExistsSQL, renameRequest.CurrentName))
-			if err != nil {
-				return nil, fmt.Errorf("unable to drop exchanged table %s: %w", renameRequest.CurrentName, err)
-			}
-		} else {
-			// either exchange is not supported or the original table doesn't exist, in which case it is safe to just run a rename
+		}
+
+		// either the original table doesn't exist, in which case it is safe to just run a rename
+		// or err is set (in which case err comes from the c.execWithLogging() in 202)
+		if !originalTableExists || err != nil {
 			// drop the dst table if exists
 			err = c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, renameRequest.NewName))
 			if err != nil {

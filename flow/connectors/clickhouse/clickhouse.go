@@ -29,12 +29,11 @@ import (
 
 type ClickHouseConnector struct {
 	*metadataStore.PostgresMetadata
-	database           clickhouse.Conn
-	dbSupportsExchange bool
-	logger             log.Logger
-	config             *protos.ClickhouseConfig
-	credsProvider      *utils.ClickHouseS3Credentials
-	s3Stage            *ClickHouseS3Stage
+	database      clickhouse.Conn
+	logger        log.Logger
+	config        *protos.ClickhouseConfig
+	credsProvider *utils.ClickHouseS3Credentials
+	s3Stage       *ClickHouseS3Stage
 }
 
 func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error {
@@ -115,8 +114,7 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	if err := c.exec(ctx,
 		fmt.Sprintf("EXCHANGE TABLES %s AND %s", validateDummyTableName, validateDummyTableName2),
 	); err != nil {
-		c.logger.Warn("failed to run exchange tables on the database, will fall back to drop/rename", "err", err)
-		c.dbSupportsExchange = false
+		c.logger.Warn("failed to run exchange tables on the database, will fall back to drop/rename", "error", err)
 	}
 
 	// add a column
@@ -209,13 +207,12 @@ func NewClickHouseConnector(
 	}
 
 	connector := &ClickHouseConnector{
-		database:           database,
-		PostgresMetadata:   pgMetadata,
-		dbSupportsExchange: true,
-		config:             config,
-		logger:             logger,
-		credsProvider:      &clickHouseS3CredentialsNew,
-		s3Stage:            NewClickHouseS3Stage(),
+		database:         database,
+		PostgresMetadata: pgMetadata,
+		config:           config,
+		logger:           logger,
+		credsProvider:    &clickHouseS3CredentialsNew,
+		s3Stage:          NewClickHouseS3Stage(),
 	}
 
 	if credentials.AWS.SessionToken != "" {
