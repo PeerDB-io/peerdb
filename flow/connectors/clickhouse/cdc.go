@@ -197,19 +197,34 @@ func (c *ClickHouseConnector) RenameTables(
 			c.logger.Info(fmt.Sprintf("table '%s' does not exist, skipping soft-deletes transfer for it", renameRequest.NewName))
 		}
 
-		// drop the dst table if exists
-		err = c.execWithLogging(ctx, "DROP TABLE IF EXISTS "+renameRequest.NewName)
-		if err != nil {
-			return nil, fmt.Errorf("unable to drop table %s: %w", renameRequest.NewName, err)
-		}
+		if c.dbSupportsExchange && originalTableExists {
+			c.logger.Info("attempting atomic exchange %s to %s", renameRequest.CurrentName, renameRequest.NewName)
+			// the clickhouse ATOMIC engine supports a special query to exchange two tables
+			// this means, we can have dependent (materialized) views and dictionaries on these tables.
+			err = c.execWithLogging(ctx, fmt.Sprintf("EXCHANGE TABLES %s and %s", renameRequest.NewName, renameRequest.CurrentName))
+			if err != nil {
+				return nil, fmt.Errorf("unable to exchange tables %s and %s: %w", renameRequest.NewName, renameRequest.CurrentName, err)
+			}
+			err = c.execWithLogging(ctx, fmt.Sprint(dropTableIfExistsSQL, renameRequest.CurrentName))
+			if err != nil {
+				return nil, fmt.Errorf("unable to drop exchanged table %s: %w", renameRequest.CurrentName, err)
+			}
+		} else {
+			// either exchange is not supported or the original table doesn't exist, in which case it is safe to just run a rename
+			// drop the dst table if exists
+			err = c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, renameRequest.NewName))
+			if err != nil {
+				return nil, fmt.Errorf("unable to drop table %s: %w", renameRequest.NewName, err)
+			}
 
-		// rename the src table to dst
-		err = c.execWithLogging(ctx, fmt.Sprintf("RENAME TABLE %s TO %s",
-			renameRequest.CurrentName,
-			renameRequest.NewName))
-		if err != nil {
-			return nil, fmt.Errorf("unable to rename table %s to %s: %w",
-				renameRequest.CurrentName, renameRequest.NewName, err)
+			// rename the src table to dst
+			err = c.execWithLogging(ctx, fmt.Sprintf("RENAME TABLE %s TO %s",
+				renameRequest.CurrentName,
+				renameRequest.NewName))
+			if err != nil {
+				return nil, fmt.Errorf("unable to rename table %s to %s: %w",
+					renameRequest.CurrentName, renameRequest.NewName, err)
+			}
 		}
 
 		c.logger.Info(fmt.Sprintf("successfully renamed table '%s' to '%s'",

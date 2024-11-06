@@ -29,11 +29,12 @@ import (
 
 type ClickHouseConnector struct {
 	*metadataStore.PostgresMetadata
-	database      clickhouse.Conn
-	logger        log.Logger
-	config        *protos.ClickhouseConfig
-	credsProvider *utils.ClickHouseS3Credentials
-	s3Stage       *ClickHouseS3Stage
+	database           clickhouse.Conn
+	dbSupportsExchange bool
+	logger             log.Logger
+	config             *protos.ClickhouseConfig
+	credsProvider      *utils.ClickHouseS3Credentials
+	s3Stage            *ClickHouseS3Stage
 }
 
 func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error {
@@ -74,6 +75,8 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 		return err
 	}
 	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
+	validateDummyTableName2 := "peerdb_validation2_" + shared.RandomString(4)
+
 	// create a table
 	err := c.exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 		id UInt64
@@ -82,6 +85,7 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
 	}
+
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
@@ -89,6 +93,31 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 			c.logger.Error("validation failed to drop table", slog.String("table", validateDummyTableName), slog.Any("error", err))
 		}
 	}()
+
+	// create a second table - required for EXCHANGE check
+	err = c.exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+		id UInt64
+	) ENGINE = ReplacingMergeTree ORDER BY id;`,
+		validateDummyTableName2))
+	if err != nil {
+		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
+	}
+
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if err := c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName2); err != nil {
+			c.logger.Error("validation failed to drop table", slog.String("table", validateDummyTableName2), slog.Any("error", err))
+		}
+	}()
+
+	// exchange the two tables
+	if err := c.exec(ctx,
+		fmt.Sprintf("EXCHANGE TABLES %s AND %s", validateDummyTableName, validateDummyTableName2),
+	); err != nil {
+		c.logger.Warn("failed to run exchange tables on the database, will fall back to drop/rename", "err", err)
+		c.dbSupportsExchange = false
+	}
 
 	// add a column
 	if err := c.exec(ctx,
@@ -180,12 +209,13 @@ func NewClickHouseConnector(
 	}
 
 	connector := &ClickHouseConnector{
-		database:         database,
-		PostgresMetadata: pgMetadata,
-		config:           config,
-		logger:           logger,
-		credsProvider:    &clickHouseS3CredentialsNew,
-		s3Stage:          NewClickHouseS3Stage(),
+		database:           database,
+		PostgresMetadata:   pgMetadata,
+		dbSupportsExchange: true,
+		config:             config,
+		logger:             logger,
+		credsProvider:      &clickHouseS3CredentialsNew,
+		s3Stage:            NewClickHouseS3Stage(),
 	}
 
 	if credentials.AWS.SessionToken != "" {
