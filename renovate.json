@@ -1,0 +1,25 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "local>PeerDB-io/.github:renovate-config"
+  ],
+  "packageRules": [
+    {
+      "groupName": "{{manager}} dependencies",
+      "groupSlug": "{{manager}}",
+      "packageRules": [
+        {
+          "groupName": "{{manager}} dependencies",
+          "groupSlug": "{{manager}}",
+          "matchPackagePatterns": [
+            "*"
+          ]
+        }
+      ],
+      "separateMajorMinor": false
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true
+  }
+}
