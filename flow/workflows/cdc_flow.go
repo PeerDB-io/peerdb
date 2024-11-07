@@ -522,7 +522,7 @@ func CDCFlowWorkflow(
 			logger.Error(
 				"panic in flow",
 				slog.String("name", name),
-				slog.Any("error", panicErr.Error()),
+				slog.String("error", panicErr.Error()),
 				slog.String("stack", panicErr.StackTrace()),
 			)
 		} else {

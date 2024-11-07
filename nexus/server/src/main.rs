@@ -658,6 +658,11 @@ impl NexusBackend {
                         .await?;
                         Arc::new(executor)
                     }
+                    Some(Config::ClickhouseConfig(ref c)) => {
+                        let executor =
+                            peer_clickhouse::ClickHouseQueryExecutor::new(peer.name.clone(), c).await?;
+                        Arc::new(executor)
+                    }
                     Some(Config::MysqlConfig(ref c)) => {
                         let executor =
                             peer_mysql::MySqlQueryExecutor::new(peer.name.clone(), c).await?;
