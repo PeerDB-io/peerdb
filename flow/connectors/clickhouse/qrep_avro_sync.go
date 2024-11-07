@@ -133,6 +133,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		if strings.EqualFold(colName, config.SoftDeleteColName) ||
 			strings.EqualFold(colName, signColName) ||
 			strings.EqualFold(colName, config.SyncedAtColName) ||
+			strings.EqualFold(colName, "_peerdb_synced_at") ||
 			strings.EqualFold(colName, versionColName) {
 			continue
 		}
