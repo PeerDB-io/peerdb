@@ -9,8 +9,10 @@ edition = "2021"
 anyhow = "1"
 pt = { path = "../pt" }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
-urlencoding = "2"
+ssh2.workspace = true
 tokio-postgres = "0.7.2"
 tokio-postgres-rustls = "0.13"
 tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
 tracing.workspace = true
+urlencoding = "2"

@@ -9,7 +9,8 @@ WORKDIR /root/nexus
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef as builder
-RUN apk add --no-cache build-base pkgconfig curl unzip
+ENV OPENSSL_STATIC=1
+RUN apk add --no-cache build-base pkgconfig curl unzip openssl-dev openssl-libs-static
 WORKDIR /root/nexus
 COPY scripts /root/scripts
 RUN /root/scripts/install-protobuf.sh
