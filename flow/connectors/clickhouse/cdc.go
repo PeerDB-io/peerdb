@@ -138,7 +138,7 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 				return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w", addedColumn.Type, err)
 			}
 			err = c.execWithLogging(ctx,
-				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
+				fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN IF NOT EXISTS `%s` %s",
 					schemaDelta.DstTableName, addedColumn.Name, clickHouseColType))
 			if err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name, schemaDelta.DstTableName, err)
@@ -215,7 +215,7 @@ func (c *ClickHouseConnector) RenameTables(
 			}
 
 			if err := c.execWithLogging(ctx,
-				fmt.Sprintf("RENAME TABLE %s TO %s", renameRequest.CurrentName, renameRequest.NewName),
+				fmt.Sprintf("RENAME TABLE `%s` TO `%s`", renameRequest.CurrentName, renameRequest.NewName),
 			); err != nil {
 				return nil, fmt.Errorf("unable to rename table %s to %s: %w", renameRequest.CurrentName, renameRequest.NewName, err)
 			}
