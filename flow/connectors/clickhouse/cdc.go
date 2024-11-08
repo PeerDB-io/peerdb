@@ -20,7 +20,7 @@ import (
 
 const (
 	checkIfTableExistsSQL = `SELECT exists(SELECT 1 FROM system.tables WHERE database = ? AND name = ?) AS table_exists;`
-	dropTableIfExistsSQL  = `DROP TABLE IF EXISTS %s;`
+	dropTableIfExistsSQL  = "DROP TABLE IF EXISTS `%s`;"
 )
 
 // getRawTableName returns the raw table name for the given table identifier.
@@ -215,7 +215,7 @@ func (c *ClickHouseConnector) RenameTables(
 			}
 
 			if err := c.execWithLogging(ctx,
-				fmt.Sprintf("RENAME TABLE %s TO %s", renameRequest.CurrentName, renameRequest.NewName),
+				fmt.Sprintf("RENAME TABLE `%s` TO `%s`", renameRequest.CurrentName, renameRequest.NewName),
 			); err != nil {
 				return nil, fmt.Errorf("unable to rename table %s to %s: %w", renameRequest.CurrentName, renameRequest.NewName, err)
 			}
