@@ -93,8 +93,7 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 		return nil, err
 	}
 
-	err = c.ReplayTableSchemaDeltas(ctx, req.FlowJobName, req.Records.SchemaDeltas)
-	if err != nil {
+	if err := c.ReplayTableSchemaDeltas(ctx, req.FlowJobName, req.Records.SchemaDeltas); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
@@ -113,8 +112,7 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 		return nil, err
 	}
 
-	err = c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpointID)
-	if err != nil {
+	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpointID); err != nil {
 		c.logger.Error("failed to increment id", slog.Any("error", err))
 		return nil, err
 	}
@@ -137,15 +135,13 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(ctx context.Context, flowJ
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			clickHouseColType, err := qvalue.QValueKind(addedColumn.Type).ToDWHColumnType(protos.DBType_CLICKHOUSE)
 			if err != nil {
-				return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w",
-					addedColumn.Type, err)
+				return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w", addedColumn.Type, err)
 			}
 			err = c.execWithLogging(ctx,
 				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
 					schemaDelta.DstTableName, addedColumn.Name, clickHouseColType))
 			if err != nil {
-				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
-					schemaDelta.DstTableName, err)
+				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name, schemaDelta.DstTableName, err)
 			}
 			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.Name,
 				addedColumn.Type),
@@ -186,21 +182,19 @@ func (c *ClickHouseConnector) RenameTables(
 			}
 
 			allCols := strings.Join(columnNames, ",")
-			c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", renameRequest.NewName))
-			err = c.execWithLogging(ctx,
-				fmt.Sprintf("INSERT INTO %s(%s,%s) SELECT %s,true FROM %s WHERE %s  = 1",
-					renameRequest.CurrentName, allCols, signColName, allCols, renameRequest.NewName, signColName))
-			if err != nil {
+			c.logger.Info("handling soft-deletes for table before rename", slog.String("NewName", renameRequest.NewName))
+			if err := c.execWithLogging(ctx,
+				fmt.Sprintf("INSERT INTO `%s`(%s,%s) SELECT %s,true FROM `%s` WHERE %s = 1",
+					renameRequest.CurrentName, allCols, signColName, allCols, renameRequest.NewName, signColName),
+			); err != nil {
 				return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", renameRequest.NewName, err)
 			}
 
-			// target table exists, so we can attempt to swap.
-			// in most (all) cases, we will have
-			c.logger.Info(fmt.Sprintf("attempting atomic exchange '%s' to '%s'", renameRequest.CurrentName, renameRequest.NewName))
-			// the clickhouse ATOMIC engine supports a special query to exchange two tables
-			// this means, we can have dependent (materialized) views and dictionaries on these tables.
+			// target table exists, so we can attempt to swap. In most cases, we will have Atomic engine,
+			// which supports a special query to exchange two tables, allowing dependent (materialized) views and dictionaries on these tables
+			c.logger.Info("attempting atomic exchange", slog.String("OldName", renameRequest.CurrentName), slog.String("NewName", renameRequest.NewName))
 			if err = c.execWithLogging(ctx, fmt.Sprintf("EXCHANGE TABLES %s and %s", renameRequest.NewName, renameRequest.CurrentName)); err == nil {
-				if err = c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, renameRequest.CurrentName)); err != nil {
+				if err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, renameRequest.CurrentName)); err != nil {
 					return nil, fmt.Errorf("unable to drop exchanged table %s: %w", renameRequest.CurrentName, err)
 				}
 			} else if ex, ok := err.(*clickhouse.Exception); !ok || ex.Code != 48 {
@@ -210,27 +204,19 @@ func (c *ClickHouseConnector) RenameTables(
 			}
 		}
 
-		// either the original table doesn't exist, in which case it is safe to just run a rename
-		// or err is set (in which case err comes from the c.execWithLogging() in 202)
+		// either original table doesn't exist, in which case it is safe to just run rename,
+		// or err is set (in which case err comes from EXCHANGE TABLES)
 		if !originalTableExists || err != nil {
-			// drop the dst table if exists
-			err = c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, renameRequest.NewName))
-			if err != nil {
+			if err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, renameRequest.NewName)); err != nil {
 				return nil, fmt.Errorf("unable to drop table %s: %w", renameRequest.NewName, err)
 			}
 
-			// rename the src table to dst
-			err = c.execWithLogging(ctx, fmt.Sprintf("RENAME TABLE %s TO %s",
-				renameRequest.CurrentName,
-				renameRequest.NewName))
-			if err != nil {
-				return nil, fmt.Errorf("unable to rename table %s to %s: %w",
-					renameRequest.CurrentName, renameRequest.NewName, err)
+			if err := c.execWithLogging(ctx, fmt.Sprintf("RENAME TABLE %s TO %s", renameRequest.CurrentName, renameRequest.NewName)); err != nil {
+				return nil, fmt.Errorf("unable to rename table %s to %s: %w", renameRequest.CurrentName, renameRequest.NewName, err)
 			}
 		}
 
-		c.logger.Info(fmt.Sprintf("successfully renamed table '%s' to '%s'",
-			renameRequest.CurrentName, renameRequest.NewName))
+		c.logger.Info("successfully renamed table", slog.String("OldName", renameRequest.CurrentName), slog.String("NewName", renameRequest.NewName))
 	}
 
 	return &protos.RenameTablesOutput{
