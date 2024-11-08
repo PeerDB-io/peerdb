@@ -8,7 +8,9 @@ use std::{
 use chrono::DateTime;
 use futures::Stream;
 use gcp_bigquery_client::model::{
-    field_type::FieldType, query_response::{ResultSet, QueryResponse}, table_field_schema::TableFieldSchema,
+    field_type::FieldType,
+    query_response::{QueryResponse, ResultSet},
+    table_field_schema::TableFieldSchema,
 };
 use peer_cursor::{Record, RecordStream, Schema};
 use pgwire::{
