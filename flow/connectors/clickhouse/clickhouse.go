@@ -74,8 +74,6 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 		return err
 	}
 	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
-	validateDummyTableName2 := "peerdb_validation2_" + shared.RandomString(4)
-
 	// create a table
 	err := c.exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 		id UInt64
@@ -84,7 +82,6 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
 	}
-
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
@@ -92,30 +89,6 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 			c.logger.Error("validation failed to drop table", slog.String("table", validateDummyTableName), slog.Any("error", err))
 		}
 	}()
-
-	// create a second table - required for EXCHANGE check
-	err = c.exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-		id UInt64
-	) ENGINE = ReplacingMergeTree ORDER BY id;`,
-		validateDummyTableName2))
-	if err != nil {
-		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
-	}
-
-	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-		defer cancel()
-		if err := c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName2); err != nil {
-			c.logger.Error("validation failed to drop table", slog.String("table", validateDummyTableName2), slog.Any("error", err))
-		}
-	}()
-
-	// exchange the two tables
-	if err := c.exec(ctx,
-		fmt.Sprintf("EXCHANGE TABLES %s AND %s", validateDummyTableName, validateDummyTableName2),
-	); err != nil {
-		c.logger.Warn("failed to run exchange tables on the database, will fall back to drop/rename", "error", err)
-	}
 
 	// add a column
 	if err := c.exec(ctx,
