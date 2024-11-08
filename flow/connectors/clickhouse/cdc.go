@@ -192,8 +192,11 @@ func (c *ClickHouseConnector) RenameTables(
 
 			// target table exists, so we can attempt to swap. In most cases, we will have Atomic engine,
 			// which supports a special query to exchange two tables, allowing dependent (materialized) views and dictionaries on these tables
-			c.logger.Info("attempting atomic exchange", slog.String("OldName", renameRequest.CurrentName), slog.String("NewName", renameRequest.NewName))
-			if err = c.execWithLogging(ctx, fmt.Sprintf("EXCHANGE TABLES %s and %s", renameRequest.NewName, renameRequest.CurrentName)); err == nil {
+			c.logger.Info("attempting atomic exchange",
+				slog.String("OldName", renameRequest.CurrentName), slog.String("NewName", renameRequest.NewName))
+			if err = c.execWithLogging(ctx,
+				fmt.Sprintf("EXCHANGE TABLES %s and %s", renameRequest.NewName, renameRequest.CurrentName),
+			); err == nil {
 				if err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, renameRequest.CurrentName)); err != nil {
 					return nil, fmt.Errorf("unable to drop exchanged table %s: %w", renameRequest.CurrentName, err)
 				}
@@ -211,12 +214,15 @@ func (c *ClickHouseConnector) RenameTables(
 				return nil, fmt.Errorf("unable to drop table %s: %w", renameRequest.NewName, err)
 			}
 
-			if err := c.execWithLogging(ctx, fmt.Sprintf("RENAME TABLE %s TO %s", renameRequest.CurrentName, renameRequest.NewName)); err != nil {
+			if err := c.execWithLogging(ctx,
+				fmt.Sprintf("RENAME TABLE %s TO %s", renameRequest.CurrentName, renameRequest.NewName),
+			); err != nil {
 				return nil, fmt.Errorf("unable to rename table %s to %s: %w", renameRequest.CurrentName, renameRequest.NewName, err)
 			}
 		}
 
-		c.logger.Info("successfully renamed table", slog.String("OldName", renameRequest.CurrentName), slog.String("NewName", renameRequest.NewName))
+		c.logger.Info("successfully renamed table",
+			slog.String("OldName", renameRequest.CurrentName), slog.String("NewName", renameRequest.NewName))
 	}
 
 	return &protos.RenameTablesOutput{
