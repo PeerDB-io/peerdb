@@ -292,6 +292,22 @@ impl SnowflakeQueryExecutor {
 
 #[async_trait::async_trait]
 impl QueryExecutor for SnowflakeQueryExecutor {
+    async fn execute_raw(&self, query: &str) -> PgWireResult<QueryOutput> {
+        let result_set = self
+            .process_query(query)
+            .await
+            .map_err(|err| PgWireError::ApiError(err.into()))?;
+
+        let cursor = stream::SnowflakeRecordStream::new(
+            result_set,
+            self.partition_index,
+            self.partition_number,
+            self.endpoint_url.clone(),
+            self.auth.clone(),
+        );
+        Ok(QueryOutput::Stream(Box::pin(cursor)))
+    }
+
     #[tracing::instrument(skip(self, stmt), fields(stmt = %stmt))]
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
         match stmt {

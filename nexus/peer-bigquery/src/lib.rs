@@ -91,6 +91,17 @@ impl BigQueryQueryExecutor {
 
 #[async_trait::async_trait]
 impl QueryExecutor for BigQueryQueryExecutor {
+    async fn execute_raw(&self, query: &str) -> PgWireResult<QueryOutput> {
+        let query_response = self.run_tracked(query).await?;
+        let cursor = BqRecordStream::from(query_response);
+        tracing::info!(
+            "retrieved {} rows for query {}",
+            cursor.get_num_records(),
+            query
+        );
+        Ok(QueryOutput::Stream(Box::pin(cursor)))
+    }
+
     #[tracing::instrument(skip(self, stmt), fields(stmt = %stmt))]
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
         // only support SELECT statements
@@ -105,15 +116,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 let query = query.to_string();
                 tracing::info!("bq rewritten query: {}", query);
 
-                let query_response = self.run_tracked(&query).await?;
-
-                let cursor = BqRecordStream::from(query_response);
-                tracing::info!(
-                    "retrieved {} rows for query {}",
-                    cursor.get_num_records(),
-                    query
-                );
-                Ok(QueryOutput::Stream(Box::pin(cursor)))
+                self.execute_raw(&query).await
             }
             Statement::Declare { stmts } => {
                 if stmts.len() != 1 {
