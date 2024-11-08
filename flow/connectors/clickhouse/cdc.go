@@ -195,7 +195,7 @@ func (c *ClickHouseConnector) RenameTables(
 			c.logger.Info("attempting atomic exchange",
 				slog.String("OldName", renameRequest.CurrentName), slog.String("NewName", renameRequest.NewName))
 			if err = c.execWithLogging(ctx,
-				fmt.Sprintf("EXCHANGE TABLES %s and %s", renameRequest.NewName, renameRequest.CurrentName),
+				fmt.Sprintf("EXCHANGE TABLES `%s` and `%s`", renameRequest.NewName, renameRequest.CurrentName),
 			); err == nil {
 				if err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, renameRequest.CurrentName)); err != nil {
 					return nil, fmt.Errorf("unable to drop exchanged table %s: %w", renameRequest.CurrentName, err)
