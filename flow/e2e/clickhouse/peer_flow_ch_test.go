@@ -491,9 +491,7 @@ func (s ClickHouseSuite) Test_Weird_Table_And_Column() {
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,key")
 
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-	INSERT INTO %s (key) VALUES ('cdc');
-	`, srcFullName))
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf("INSERT INTO %s (key) VALUES ('cdc')", srcFullName))
 	require.NoError(s.t, err)
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,key")
@@ -501,6 +499,12 @@ func (s ClickHouseSuite) Test_Weird_Table_And_Column() {
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
 
+	env = e2e.ExecuteWorkflow(tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
+		FlowJobName:           flowConnConfig.FlowJobName,
+		DropFlowStats:         false,
+		FlowConnectionConfigs: flowConnConfig,
+	})
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	// now test weird names with rename based resync
 	ch, err := connclickhouse.Connect(context.Background(), s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
@@ -513,6 +517,12 @@ func (s ClickHouseSuite) Test_Weird_Table_And_Column() {
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
 
+	env = e2e.ExecuteWorkflow(tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
+		FlowJobName:           flowConnConfig.FlowJobName,
+		DropFlowStats:         false,
+		FlowConnectionConfigs: flowConnConfig,
+	})
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	// now test weird names with exchange based resync
 	ch, err = connclickhouse.Connect(context.Background(), s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
