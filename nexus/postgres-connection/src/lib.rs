@@ -2,6 +2,7 @@ use pt::peerdb_peers::{PostgresConfig, SshConfig};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme};
 use std::fmt::Write;
+use std::os::unix::net::UnixStream;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -84,11 +85,9 @@ pub fn get_pg_connection_string(config: &PostgresConfig) -> String {
 pub fn create_tunnel(
     tcp: std::net::TcpStream,
     ssh_config: &SshConfig,
-    host_server: String,
-    host_port: u16,
     remote_server: String,
     remote_port: u16,
-) -> std::io::Result<(ssh2::Session, std::net::SocketAddr)> {
+) -> std::io::Result<(ssh2::Session, UnixStream)> {
     let mut session = ssh2::Session::new()?;
     session.set_tcp_stream(tcp);
     session.set_compress(true);
@@ -104,116 +103,102 @@ pub fn create_tunnel(
         let mut known_hosts = session.known_hosts()?;
         known_hosts.read_str(&ssh_config.host_key, ssh2::KnownHostFileKind::OpenSSH)?;
     }
-    let listener = std::net::TcpListener::bind((host_server.as_str(), host_port))?;
-    let local_addr = listener.local_addr()?;
+    let (stream1, stream2) = UnixStream::pair()?;
     let channel = session.channel_direct_tcpip(remote_server.as_str(), remote_port, None)?;
     tracing::info!(
-        "tunnel on {:}:{:} to {:}:{:} opened",
-        host_server.as_str(),
-        host_port,
+        "tunnel to {:}:{:} opened",
         remote_server.as_str(),
         remote_port
     );
 
     tokio::task::spawn_blocking(move || {
-        let mut stream_id = 0;
         let closed = Arc::new(AtomicBool::new(false));
-        loop {
-            match listener.accept() {
+        let mut reader_stream = stream1;
+        let mut writer_stream = reader_stream.try_clone().unwrap();
+
+        let mut writer_channel = channel.stream(0); //open two streams on the same channel, so we can read and write separately
+        let mut reader_channel = channel.stream(0);
+
+        //pipe stream output into channel
+        let write_closed = closed.clone();
+        tokio::task::spawn_blocking(move || loop {
+            match std::io::copy(&mut reader_stream, &mut writer_channel) {
+                Ok(_) => (),
                 Err(err) => {
-                    tracing::info!("failed to accept connection, reason {:?}", err);
-                    closed.store(false, Ordering::SeqCst);
-                    break;
-                }
-                Ok((stream, socket)) => {
-                    tracing::debug!("new TCP stream from socket {:}", socket);
-
-                    let mut reader_stream = stream;
-                    let mut writer_stream = reader_stream.try_clone().unwrap();
-
-                    let mut writer_channel = channel.stream(stream_id); //open two streams on the same channel, so we can read and write separately
-                    let mut reader_channel = channel.stream(stream_id);
-                    stream_id = stream_id.wrapping_add(1);
-
-                    //pipe stream output into channel
-                    let write_closed = closed.clone();
-                    tokio::task::spawn_blocking(move || loop {
-                        match std::io::copy(&mut reader_stream, &mut writer_channel) {
-                            Ok(_) => (),
-                            Err(err) => {
-                                tracing::info!("failed to write to channel, reason: {:?}", err);
-                            }
-                        }
-                        if write_closed.load(Ordering::SeqCst) {
-                            break;
-                        }
-                    });
-
-                    //pipe channel output into stream
-                    let read_closed = closed.clone();
-                    tokio::task::spawn_blocking(move || loop {
-                        match std::io::copy(&mut reader_channel, &mut writer_stream) {
-                            Ok(_) => (),
-                            Err(err) => {
-                                tracing::info!("failed to read from channel, reason: {:?}", err);
-                            }
-                        }
-                        if read_closed.load(Ordering::SeqCst) {
-                            break;
-                        }
-                    });
+                    tracing::info!("failed to write to channel, reason: {:?}", err);
                 }
             }
-        }
+            if write_closed.load(Ordering::SeqCst) {
+                break;
+            }
+        });
+
+        //pipe channel output into stream
+        let read_closed = closed.clone();
+        tokio::task::spawn_blocking(move || loop {
+            match std::io::copy(&mut reader_channel, &mut writer_stream) {
+                Ok(_) => (),
+                Err(err) => {
+                    tracing::info!("failed to read from channel, reason: {:?}", err);
+                }
+            }
+            if read_closed.load(Ordering::SeqCst) {
+                break;
+            }
+        });
         tracing::info!(
-            "tunnel on {:}:{:} to {:}:{:} closed",
-            host_server.as_str(),
-            host_port,
+            "tunnel to {:}:{:} closed",
             remote_server.as_str(),
             remote_port
         );
     });
 
-    Ok((session, local_addr))
+    Ok((session, stream2))
 }
 
 pub async fn connect_postgres(
     config: &PostgresConfig,
 ) -> anyhow::Result<(tokio_postgres::Client, Option<ssh2::Session>)> {
-    let (connection_string, session) = if let Some(ssh_config) = &config.ssh_config {
+    if let Some(ssh_config) = &config.ssh_config {
         let tcp = std::net::TcpStream::connect((ssh_config.host.as_str(), ssh_config.port as u16))?;
-        let (session, local_addr) = create_tunnel(
-            tcp,
-            ssh_config,
-            String::from("localhost"),
-            0,
-            config.host.clone(),
-            config.port as u16,
-        )?;
-        let mut newconfig = config.clone();
-        newconfig.host = local_addr.ip().to_string();
-        newconfig.port = local_addr.port() as u32;
-        (get_pg_connection_string(&newconfig), Some(session))
+        tcp.set_nodelay(true)?;
+        let (session, stream) =
+            create_tunnel(tcp, ssh_config, config.host.clone(), config.port as u16)?;
+        stream.set_nonblocking(true)?;
+        let stream = tokio::net::UnixStream::from_std(stream)?;
+        let (client, connection) = tokio_postgres::Config::default()
+            .user(&config.user)
+            .password(&config.password)
+            .dbname(&config.database)
+            .application_name("peerdb_nexus")
+            .connect_raw(stream, tokio_postgres::NoTls)
+            .await?;
+        tokio::task::spawn(async move {
+            if let Err(e) = connection.await {
+                tracing::info!("connection error: {}", e)
+            }
+        });
+        Ok((client, Some(session)))
     } else {
-        (get_pg_connection_string(config), None)
-    };
+        let connection_string = get_pg_connection_string(config);
 
-    let mut tls_config = ClientConfig::builder()
-        .with_root_certificates(RootCertStore::empty())
-        .with_no_client_auth();
-    tls_config
-        .dangerous()
-        .set_certificate_verifier(Arc::new(NoCertificateVerification));
-    let tls_connector = MakeRustlsConnect::new(tls_config);
-    let (client, connection) = tokio_postgres::connect(&connection_string, tls_connector)
-        .await
-        .map_err(|e| anyhow::anyhow!("error encountered while connecting to postgres {:?}", e))?;
-
-    tokio::task::spawn(async move {
-        if let Err(e) = connection.await {
-            tracing::info!("connection error: {}", e)
-        }
-    });
-
-    Ok((client, session))
+        let mut tls_config = ClientConfig::builder()
+            .with_root_certificates(RootCertStore::empty())
+            .with_no_client_auth();
+        tls_config
+            .dangerous()
+            .set_certificate_verifier(Arc::new(NoCertificateVerification));
+        let tls_connector = MakeRustlsConnect::new(tls_config);
+        let (client, connection) = tokio_postgres::connect(&connection_string, tls_connector)
+            .await
+            .map_err(|e| {
+                anyhow::anyhow!("error encountered while connecting to postgres {:?}", e)
+            })?;
+        tokio::task::spawn(async move {
+            if let Err(e) = connection.await {
+                tracing::info!("connection error: {}", e)
+            }
+        });
+        Ok((client, None))
+    }
 }
