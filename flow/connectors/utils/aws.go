@@ -269,7 +269,7 @@ func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (
 		options.Region = credsProvider.GetRegion()
 		options.Credentials = credsProvider.GetUnderlyingProvider()
 
-		if awsCredentials.EndpointUrl != nil && *awsCredentials.EndpointUrl != "" {
+		if awsCredentials.EndpointUrl != nil && strings.Contains(*awsCredentials.EndpointUrl, "storage.googleapis.com") {
 			options.BaseEndpoint = awsCredentials.EndpointUrl
 			options.EndpointResolverV2 = &resolverV2{
 				userProvidedEndpointUrl: *awsCredentials.EndpointUrl,
@@ -281,7 +281,7 @@ func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (
 					next:        http.DefaultTransport,
 					signer:      v4.NewSigner(),
 					credentials: credsProvider.GetUnderlyingProvider(),
-					region:      credsProvider.GetRegion(),
+					region:      options.Region,
 				},
 			}
 		}

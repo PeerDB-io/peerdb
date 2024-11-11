@@ -24,28 +24,48 @@ type S3TestHelper struct {
 	prefix     string
 }
 
-func NewS3TestHelper(switchToGCS bool) (*S3TestHelper, error) {
-	credsPath := os.Getenv("TEST_S3_CREDS")
-	bucketName := "peerdb-test-bucket"
-	if switchToGCS {
+type S3Environment int
+
+const (
+	Aws S3Environment = iota
+	Gcs
+	Minio
+)
+
+func NewS3TestHelper(s3environment S3Environment) (*S3TestHelper, error) {
+	var config utils.S3PeerCredentials
+	var endpoint string
+	var credsPath string
+	var bucketName string
+	switch s3environment {
+	case Aws:
+		credsPath = os.Getenv("TEST_S3_CREDS")
+		bucketName = "peerdb-test-bucket"
+	case Gcs:
 		credsPath = os.Getenv("TEST_GCS_CREDS")
 		bucketName = "peerdb_staging"
-	}
-
-	content, err := e2eshared.ReadFileToBytes(credsPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
-	}
-
-	var config utils.S3PeerCredentials
-	err = json.Unmarshal(content, &config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal json: %w", err)
-	}
-	endpoint := ""
-	if switchToGCS {
 		endpoint = "https://storage.googleapis.com"
+	case Minio:
+		bucketName = "peerdb"
+		endpoint = "http://localhost:9999" // TODO env variable
+		config.AccessKeyID = "minio"
+		config.SecretAccessKey = "minio-secret"
+		config.Region = "local"
+	default:
+		panic(fmt.Sprintf("invalid s3environment %d", s3environment))
 	}
+
+	if credsPath != "" {
+		content, err := e2eshared.ReadFileToBytes(credsPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read file: %w", err)
+		}
+
+		if err := json.Unmarshal(content, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal json: %w", err)
+		}
+	}
+
 	var endpointUrlPtr *string
 	if endpoint != "" {
 		endpointUrlPtr = &endpoint
