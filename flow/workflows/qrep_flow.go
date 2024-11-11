@@ -32,13 +32,15 @@ type QRepPartitionFlowExecution struct {
 	runUUID         string
 }
 
+var InitialLastPartition = &protos.QRepPartition{
+	PartitionId: "not-applicable-partition",
+	Range:       nil,
+}
+
 // returns a new empty QRepFlowState
 func newQRepFlowState() *protos.QRepFlowState {
 	return &protos.QRepFlowState{
-		LastPartition: &protos.QRepPartition{
-			PartitionId: "not-applicable-partition",
-			Range:       nil,
-		},
+		LastPartition:          InitialLastPartition,
 		NumPartitionsProcessed: 0,
 		NeedsResync:            true,
 		CurrentFlowStatus:      protos.FlowStatus_STATUS_RUNNING,
