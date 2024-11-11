@@ -891,15 +891,17 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	if tableAlreadyExists {
 		c.logger.Info("[postgres] table already exists, skipping",
 			slog.String("table", tableIdentifier))
-		if config.IsResync {
-			err := c.ExecuteCommand(ctx, fmt.Sprintf(dropTableIfExistsSQL,
-				QuoteIdentifier(parsedNormalizedTable.Schema),
-				QuoteIdentifier(parsedNormalizedTable.Table)))
-			if err != nil {
-				return false, fmt.Errorf("error while dropping _resync table: %w", err)
-			}
+		if !config.IsResync {
+			return true, nil
 		}
-		return true, nil
+
+		err := c.ExecuteCommand(ctx, fmt.Sprintf(dropTableIfExistsSQL,
+			QuoteIdentifier(parsedNormalizedTable.Schema),
+			QuoteIdentifier(parsedNormalizedTable.Table)))
+		if err != nil {
+			return false, fmt.Errorf("error while dropping _resync table: %w", err)
+		}
+		c.logger.Info("[postgres] dropped resync table for resync", slog.String("resyncTable", parsedNormalizedTable.String()))
 	}
 
 	// convert the column names and types to Postgres types
@@ -1444,7 +1446,7 @@ func (c *PostgresConnector) RenameTables(
 		}
 
 		// rename the src table to dst
-		_, err = c.execWithLoggingTx(ctx, fmt.Sprintf("ALTER TABLE %s RENAME TO %s", src, dstTable.Table), renameTablesTx)
+		_, err = c.execWithLoggingTx(ctx, fmt.Sprintf("ALTER TABLE %s RENAME TO %s", src, QuoteIdentifier(dstTable.Table)), renameTablesTx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to rename table %s to %s: %w", src, dst, err)
 		}
