@@ -19,10 +19,10 @@ import (
 type QRepQueryExecutor struct {
 	*PostgresConnector
 	logger            log.Logger
+	customTypeMapping map[uint32]string
 	snapshot          string
 	flowJobName       string
 	partitionID       string
-	customTypeMapping map[uint32]string
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context,
@@ -72,7 +72,7 @@ func (qe *QRepQueryExecutor) executeQueryInTx(ctx context.Context, tx pgx.Tx, cu
 }
 
 // FieldDescriptionsToSchema converts a slice of pgconn.FieldDescription to a QRecordSchema.
-func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) (qvalue.QRecordSchema, error) {
+func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) qvalue.QRecordSchema {
 	qfields := make([]qvalue.QField, len(fds))
 	for i, fd := range fds {
 		cname := fd.Name
@@ -105,7 +105,7 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 			}
 		}
 	}
-	return qvalue.NewQRecordSchema(qfields), nil
+	return qvalue.NewQRecordSchema(qfields)
 }
 
 func (qe *QRepQueryExecutor) ProcessRows(
@@ -131,11 +131,7 @@ func (qe *QRepQueryExecutor) ProcessRows(
 		return nil, fmt.Errorf("row iteration failed: %w", err)
 	}
 
-	schema, err := qe.fieldDescriptionsToSchema(fieldDescriptions)
-	if err != nil {
-		qe.logger.Error("[pg_query_executor] failed to convert field descriptions to schema", slog.Any("error", err))
-		return nil, fmt.Errorf("failed to convert field descriptions to schema: %w", err)
-	}
+	schema := qe.fieldDescriptionsToSchema(fieldDescriptions)
 	batch := &model.QRecordBatch{
 		Schema:  schema,
 		Records: records,
@@ -203,13 +199,7 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 
 	fieldDescriptions := rows.FieldDescriptions()
 	if !stream.IsSchemaSet() {
-		schema, err := qe.fieldDescriptionsToSchema(fieldDescriptions)
-		if err != nil {
-			stream.Close(err)
-			qe.logger.Error("[pg_query_executor] failed to convert field descriptions to schema",
-				slog.Any("error", err), slog.String("query", query))
-			return 0, fmt.Errorf("[pg_query_executor] failed to convert field descriptions to schema: %w", err)
-		}
+		schema := qe.fieldDescriptionsToSchema(fieldDescriptions)
 		stream.SetSchema(schema)
 	}
 

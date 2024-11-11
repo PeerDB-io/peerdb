@@ -18,7 +18,8 @@ func BenchmarkQRepQueryExecutor(b *testing.B) {
 	defer connector.Close()
 
 	// Create a new QRepQueryExecutor instance
-	qe := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
+	qe, err := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
+	require.NoError(b, err, "error while creating QRepQueryExecutor")
 
 	// Run the benchmark
 	b.ResetTimer()

@@ -53,7 +53,8 @@ func TestExecuteAndProcessQuery(t *testing.T) {
 	_, err = conn.Exec(ctx, query)
 	require.NoError(t, err, "error while inserting data")
 
-	qe := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
+	qe, err := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
+	require.NoError(t, err, "error while creating QRepQueryExecutor")
 
 	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
 	batch, err := qe.ExecuteAndProcessQuery(context.Background(), query)
@@ -142,7 +143,8 @@ func TestAllDataTypes(t *testing.T) {
 	)
 	require.NoError(t, err, "error while inserting into test table")
 
-	qe := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
+	qe, err := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
+	require.NoError(t, err, "error while creating QRepQueryExecutor")
 	// Select the row back out of the table
 	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
 	rows, err := qe.ExecuteQuery(context.Background(), query)
