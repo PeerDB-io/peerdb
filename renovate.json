@@ -17,6 +17,11 @@
         }
       ],
       "separateMajorMinor": false
+    },
+    { 
+      "matchPackageNames": ["mysql_async"],
+      "matchManagers": ["cargo"],
+      "enabled": false
     }
   ],
   "vulnerabilityAlerts": {
