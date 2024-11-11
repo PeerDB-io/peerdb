@@ -26,10 +26,12 @@ const (
 	QValueKindTime        QValueKind = "time"
 	QValueKindTimeTZ      QValueKind = "timetz"
 	QValueKindInterval    QValueKind = "interval"
+	QValueKindTSTZRange   QValueKind = "tstzrange"
 	QValueKindNumeric     QValueKind = "numeric"
 	QValueKindBytes       QValueKind = "bytes"
 	QValueKindUUID        QValueKind = "uuid"
 	QValueKindJSON        QValueKind = "json"
+	QValueKindJSONB       QValueKind = "jsonb"
 	QValueKindHStore      QValueKind = "hstore"
 	QValueKindGeography   QValueKind = "geography"
 	QValueKindGeometry    QValueKind = "geometry"
@@ -51,6 +53,8 @@ const (
 	QValueKindArrayTimestamp   QValueKind = "array_timestamp"
 	QValueKindArrayTimestampTZ QValueKind = "array_timestamptz"
 	QValueKindArrayBoolean     QValueKind = "array_bool"
+	QValueKindArrayJSON        QValueKind = "array_json"
+	QValueKindArrayJSONB       QValueKind = "array_jsonb"
 )
 
 func (kind QValueKind) IsArray() bool {
@@ -68,6 +72,7 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindQChar:       "CHAR",
 	QValueKindString:      "STRING",
 	QValueKindJSON:        "VARIANT",
+	QValueKindJSONB:       "VARIANT",
 	QValueKindTimestamp:   "TIMESTAMP_NTZ",
 	QValueKindTimestampTZ: "TIMESTAMP_TZ",
 	QValueKindInterval:    "VARIANT",
