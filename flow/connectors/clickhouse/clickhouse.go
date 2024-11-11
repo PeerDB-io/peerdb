@@ -33,7 +33,6 @@ type ClickHouseConnector struct {
 	logger        log.Logger
 	config        *protos.ClickhouseConfig
 	credsProvider *utils.ClickHouseS3Credentials
-	s3Stage       *ClickHouseS3Stage
 }
 
 func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error {
@@ -153,12 +152,10 @@ func NewClickHouseConnector(
 	}
 
 	awsBucketPath := config.S3Path
-
 	if awsBucketPath == "" {
 		deploymentUID := peerdbenv.PeerDBDeploymentUID()
 		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
-		bucketPathSuffix := fmt.Sprintf("%s/%s",
-			url.PathEscape(deploymentUID), url.PathEscape(flowName))
+		bucketPathSuffix := fmt.Sprintf("%s/%s", url.PathEscape(deploymentUID), url.PathEscape(flowName))
 		// Fallback: Get S3 credentials from environment
 		awsBucketName, err := peerdbenv.PeerDBClickHouseAWSS3BucketName(ctx, env)
 		if err != nil {
@@ -170,10 +167,7 @@ func NewClickHouseConnector(
 
 		awsBucketPath = fmt.Sprintf("s3://%s/%s", awsBucketName, bucketPathSuffix)
 	}
-	clickHouseS3CredentialsNew := utils.ClickHouseS3Credentials{
-		Provider:   credentialsProvider,
-		BucketPath: awsBucketPath,
-	}
+
 	credentials, err := credentialsProvider.Retrieve(ctx)
 	if err != nil {
 		return nil, err
@@ -184,8 +178,10 @@ func NewClickHouseConnector(
 		PostgresMetadata: pgMetadata,
 		config:           config,
 		logger:           logger,
-		credsProvider:    &clickHouseS3CredentialsNew,
-		s3Stage:          NewClickHouseS3Stage(),
+		credsProvider: &utils.ClickHouseS3Credentials{
+			Provider:   credentialsProvider,
+			BucketPath: awsBucketPath,
+		},
 	}
 
 	if credentials.AWS.SessionToken != "" {

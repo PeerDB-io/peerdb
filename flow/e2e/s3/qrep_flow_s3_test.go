@@ -63,10 +63,8 @@ func TestPeerFlowE2ETestSuiteMinIO(t *testing.T) {
 }
 
 func (s PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int) {
-	err := e2e.CreateTableForQRep(s.conn.Conn(), s.suffix, tableName)
-	require.NoError(s.t, err)
-	err = e2e.PopulateSourceTable(s.conn.Conn(), s.suffix, tableName, rowCount)
-	require.NoError(s.t, err)
+	require.NoError(s.t, e2e.CreateTableForQRep(s.conn.Conn(), s.suffix, tableName))
+	require.NoError(s.t, e2e.PopulateSourceTable(s.conn.Conn(), s.suffix, tableName, rowCount))
 }
 
 func setupSuite(t *testing.T, s3environment S3Environment) PeerFlowE2ETestSuiteS3 {

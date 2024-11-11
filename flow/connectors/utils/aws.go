@@ -126,12 +126,10 @@ func (s *StaticAWSCredentialsProvider) Retrieve(ctx context.Context) (AWSCredent
 }
 
 func (s *StaticAWSCredentialsProvider) GetEndpointURL() string {
-	endpoint := ""
 	if s.credentials.EndpointUrl != nil {
-		endpoint = *s.credentials.EndpointUrl
+		return *s.credentials.EndpointUrl
 	}
-
-	return endpoint
+	return ""
 }
 
 func NewStaticAWSCredentialsProvider(credentials AWSCredentials, region string) AWSCredentialsProvider {
@@ -269,20 +267,22 @@ func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (
 		options.Region = credsProvider.GetRegion()
 		options.Credentials = credsProvider.GetUnderlyingProvider()
 
-		if awsCredentials.EndpointUrl != nil && strings.Contains(*awsCredentials.EndpointUrl, "storage.googleapis.com") {
+		if awsCredentials.EndpointUrl != nil {
 			options.BaseEndpoint = awsCredentials.EndpointUrl
 			options.EndpointResolverV2 = &resolverV2{
 				userProvidedEndpointUrl: *awsCredentials.EndpointUrl,
 			}
 
-			// Assign custom client with our own transport
-			options.HTTPClient = &http.Client{
-				Transport: &RecalculateV4Signature{
-					next:        http.DefaultTransport,
-					signer:      v4.NewSigner(),
-					credentials: credsProvider.GetUnderlyingProvider(),
-					region:      options.Region,
-				},
+			if strings.Contains(*awsCredentials.EndpointUrl, "storage.googleapis.com") {
+				// Assign custom client with our own transport
+				options.HTTPClient = &http.Client{
+					Transport: &RecalculateV4Signature{
+						next:        http.DefaultTransport,
+						signer:      v4.NewSigner(),
+						credentials: credsProvider.GetUnderlyingProvider(),
+						region:      options.Region,
+					},
+				}
 			}
 		}
 	})
