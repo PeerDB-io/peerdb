@@ -3042,6 +3042,7 @@ name = "postgres-connection"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "futures-util",
  "pt",
  "rustls 0.23.16",
  "ssh2",
@@ -3049,6 +3050,7 @@ dependencies = [
  "tokio-postgres",
  "tokio-postgres-rustls",
  "tokio-stream",
+ "tokio-util",
  "tracing",
  "urlencoding",
 ]
@@ -4467,6 +4469,7 @@ checksum = "61e7c3654c13bcd040d4a03abee2c75b1d14a37b423cf5a813ceae1cc903ec6a"
 dependencies = [
  "bytes",
  "futures-core",
+ "futures-io",
  "futures-sink",
  "pin-project-lite",
  "tokio",

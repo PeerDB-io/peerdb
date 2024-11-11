@@ -2,12 +2,11 @@ use pt::peerdb_peers::{PostgresConfig, SshConfig};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme};
 use std::fmt::Write;
-use std::os::unix::net::UnixStream;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use std::io;
+use std::sync::Arc;
+use tokio::net::UnixStream;
 use tokio_postgres_rustls::MakeRustlsConnect;
+use tokio_util::compat::FuturesAsyncReadCompatExt;
 
 #[derive(Copy, Clone, Debug)]
 struct NoCertificateVerification;
@@ -81,17 +80,15 @@ pub fn get_pg_connection_string(config: &PostgresConfig) -> String {
     connection_string
 }
 
-// from https://github.com/alexcrichton/ssh2-rs/issues/218#issuecomment-1698814611
-pub fn create_tunnel(
+pub async fn create_tunnel(
     tcp: std::net::TcpStream,
     ssh_config: &SshConfig,
     remote_server: String,
     remote_port: u16,
-) -> std::io::Result<(ssh2::Session, UnixStream)> {
+) -> io::Result<(ssh2::Session, UnixStream)> {
     let mut session = ssh2::Session::new()?;
     session.set_tcp_stream(tcp);
     session.set_compress(true);
-    session.set_timeout(15000);
     session.handshake()?;
     if !ssh_config.password.is_empty() {
         session.userauth_password(&ssh_config.user, &ssh_config.password)?;
@@ -103,7 +100,7 @@ pub fn create_tunnel(
         let mut known_hosts = session.known_hosts()?;
         known_hosts.read_str(&ssh_config.host_key, ssh2::KnownHostFileKind::OpenSSH)?;
     }
-    let (stream1, stream2) = UnixStream::pair()?;
+    let (mut stream1, stream2) = tokio::net::UnixStream::pair()?;
     let channel = session.channel_direct_tcpip(remote_server.as_str(), remote_port, None)?;
     tracing::info!(
         "tunnel to {:}:{:} opened",
@@ -111,46 +108,25 @@ pub fn create_tunnel(
         remote_port
     );
 
-    tokio::task::spawn_blocking(move || {
-        let closed = Arc::new(AtomicBool::new(false));
-        let mut reader_stream = stream1;
-        let mut writer_stream = reader_stream.try_clone().unwrap();
-
-        let mut writer_channel = channel.stream(0); //open two streams on the same channel, so we can read and write separately
-        let mut reader_channel = channel.stream(0);
-
-        //pipe stream output into channel
-        let write_closed = closed.clone();
-        tokio::task::spawn_blocking(move || loop {
-            match std::io::copy(&mut reader_stream, &mut writer_channel) {
-                Ok(_) => (),
-                Err(err) => {
-                    tracing::info!("failed to write to channel, reason: {:?}", err);
+    session.set_blocking(false);
+    tokio::spawn(async move {
+        let mut channel_stream = futures_util::io::AllowStdIo::new(channel.stream(0)).compat();
+        loop {
+            if let Err(err) = tokio::io::copy_bidirectional(&mut stream1, &mut channel_stream).await
+            {
+                if err.kind() == io::ErrorKind::WouldBlock {
+                    tokio::time::sleep(std::time::Duration::new(0, 123456789)).await;
+                    continue;
                 }
+                tracing::error!(
+                    "tunnel to {:}:{:} failed: {:}",
+                    remote_server.as_str(),
+                    remote_port,
+                    err
+                );
             }
-            if write_closed.load(Ordering::SeqCst) {
-                break;
-            }
-        });
-
-        //pipe channel output into stream
-        let read_closed = closed.clone();
-        tokio::task::spawn_blocking(move || loop {
-            match std::io::copy(&mut reader_channel, &mut writer_stream) {
-                Ok(_) => (),
-                Err(err) => {
-                    tracing::info!("failed to read from channel, reason: {:?}", err);
-                }
-            }
-            if read_closed.load(Ordering::SeqCst) {
-                break;
-            }
-        });
-        tracing::info!(
-            "tunnel to {:}:{:} closed",
-            remote_server.as_str(),
-            remote_port
-        );
+            break;
+        }
     });
 
     Ok((session, stream2))
@@ -163,9 +139,7 @@ pub async fn connect_postgres(
         let tcp = std::net::TcpStream::connect((ssh_config.host.as_str(), ssh_config.port as u16))?;
         tcp.set_nodelay(true)?;
         let (session, stream) =
-            create_tunnel(tcp, ssh_config, config.host.clone(), config.port as u16)?;
-        stream.set_nonblocking(true)?;
-        let stream = tokio::net::UnixStream::from_std(stream)?;
+            create_tunnel(tcp, ssh_config, config.host.clone(), config.port as u16).await?;
         let (client, connection) = tokio_postgres::Config::default()
             .user(&config.user)
             .password(&config.password)
