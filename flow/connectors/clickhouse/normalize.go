@@ -3,8 +3,6 @@ package connclickhouse
 import (
 	"cmp"
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -268,16 +266,20 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	}
 
 	rawTbl := c.getRawTableName(req.FlowJobName)
+	distinctTableNamesBatchMapping, err := c.getDistinctTableNamesInBatchRange(
+		ctx, req.FlowJobName, req.SyncBatchID, normBatchID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get distinct table names in batch range: %w", err)
+	}
+
 	for batchID := normBatchID + 1; batchID <= req.SyncBatchID; batchID++ {
-		err = c.syncTablesInThisBatch(ctx, req, rawTbl, batchID)
-		if err != nil {
+		if err := c.syncTablesInThisBatch(ctx, req, rawTbl, batchID, distinctTableNamesBatchMapping[batchID]); err != nil {
 			c.logger.Error("[clickhouse] error while syncing tables in this batch", slog.Any("error", err),
 				slog.Int64("batchID", batchID))
 			return nil, err
 		}
 
-		err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchID)
-		if err != nil {
+		if err := c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchID); err != nil {
 			c.logger.Error("[clickhouse] error while updating normalize batch id",
 				slog.Any("error", err),
 				slog.Int64("batchID", batchID))
@@ -292,42 +294,38 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	}, nil
 }
 
-func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
+func (c *ClickHouseConnector) getDistinctTableNamesInBatchRange(
 	ctx context.Context,
 	flowJobName string,
-	batchID int64,
-) ([]string, error) {
+	syncBatchID int64,
+	normalizeBatchID int64,
+) (map[int64][]string, error) {
 	rawTbl := c.getRawTableName(flowJobName)
 
 	q := fmt.Sprintf(
-		`SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id = %d`,
-		rawTbl, batchID)
+		`SELECT DISTINCT _peerdb_batch_id,groupArray(DISTINCT _peerdb_destination_table_name)
+		 FROM %s WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d GROUP BY _peerdb_batch_id`,
+		rawTbl, normalizeBatchID, syncBatchID)
 
 	rows, err := c.query(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("error while querying raw table for distinct table names in batch: %w", err)
 	}
 	defer rows.Close()
-	var tableNames []string
+	distinctTableNamesBatchMapping := make(map[int64][]string)
 	for rows.Next() {
-		var tableName sql.NullString
-		err = rows.Scan(&tableName)
-		if err != nil {
-			return nil, fmt.Errorf("error while scanning table name: %w", err)
+		var batchID int32
+		var tableNames []string
+		if err := rows.Scan(&batchID, &tableNames); err != nil {
+			return nil, fmt.Errorf("error while scanning rows: %w", err)
 		}
-
-		if !tableName.Valid {
-			return nil, errors.New("table name is not valid")
-		}
-
-		tableNames = append(tableNames, tableName.String)
+		distinctTableNamesBatchMapping[int64(batchID)] = tableNames
 	}
-
 	if rows.Err() != nil {
 		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
 
-	return tableNames, nil
+	return distinctTableNamesBatchMapping, nil
 }
 
 func (c *ClickHouseConnector) syncTablesInThisBatch(
@@ -335,19 +333,10 @@ func (c *ClickHouseConnector) syncTablesInThisBatch(
 	req *model.NormalizeRecordsRequest,
 	rawTableName string,
 	batchID int64,
+	destinationTableNames []string,
 ) error {
-	destinationTableNames, err := c.getDistinctTableNamesInBatch(
-		ctx,
-		req.FlowJobName,
-		batchID,
-	)
-	if err != nil {
-		c.logger.Error("[clickhouse] error while getting distinct table names in batch", "error", err)
-		return err
-	}
 	// model the raw table data as inserts.
 	for _, tbl := range destinationTableNames {
-		// SELECT projection FROM raw_table WHERE _peerdb_batch_id > normalize_batch_id AND _peerdb_batch_id <= sync_batch_id
 		selectQuery := strings.Builder{}
 		selectQuery.WriteString("SELECT ")
 
