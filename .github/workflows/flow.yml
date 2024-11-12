@@ -36,6 +36,8 @@ jobs:
         ports:
           - 9999:9999
         env:
+          MINIO_ROOT_USER: minio
+          MINIO_ROOT_PASSWORD: miniosecret
           MINIO_API_PORT_NUMBER: 9999
           MINIO_SKIP_CLIENT: yes
           AWS_EC2_METADATA_DISABLED: true
