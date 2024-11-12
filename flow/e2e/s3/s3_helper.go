@@ -50,7 +50,7 @@ func NewS3TestHelper(s3environment S3Environment) (*S3TestHelper, error) {
 		endpoint = "http://localhost:9999" // TODO env variable
 		config.AccessKeyID = "minio"
 		config.SecretAccessKey = "minio-secret"
-		config.Region = "local"
+		config.Region = "us-east-1"
 	default:
 		panic(fmt.Sprintf("invalid s3environment %d", s3environment))
 	}
