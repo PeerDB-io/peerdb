@@ -84,7 +84,6 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
-	var err error
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
 	quotedWatermarkColumn := QuoteIdentifier(config.WatermarkColumn)
 
@@ -116,7 +115,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	}
 
 	var totalRows pgtype.Int8
-	if err = row.Scan(&totalRows); err != nil {
+	if err := row.Scan(&totalRows); err != nil {
 		return nil, fmt.Errorf("failed to query for total rows: %w", err)
 	}
 
@@ -177,19 +176,16 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
-		err = partitionHelper.AddPartition(start, end)
-		if err != nil {
+		if err := partitionHelper.AddPartition(start, end); err != nil {
 			return nil, fmt.Errorf("failed to add partition: %w", err)
 		}
 	}
 
-	err = rows.Err()
-	if err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
 
-	err = tx.Commit(ctx)
-	if err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 

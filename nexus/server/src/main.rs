@@ -105,14 +105,12 @@ impl NexusBackend {
     }
 
     // execute a statement on a peer
-    async fn execute_statement<'a>(
+    async fn process_execution<'a>(
         &self,
-        executor: &dyn QueryExecutor,
-        stmt: &sqlparser::ast::Statement,
+        result: QueryOutput,
         peer_holder: Option<Box<Peer>>,
     ) -> PgWireResult<Vec<Response<'a>>> {
-        let res = executor.execute(stmt).await?;
-        match res {
+        match result {
             QueryOutput::AffectedRows(rows) => {
                 Ok(vec![Response::Execution(Tag::new("OK").with_rows(rows))])
             }
@@ -413,6 +411,20 @@ impl NexusBackend {
                         ))))
                     }
                 }
+                PeerDDL::ExecutePeer { peer_name, query } => {
+                    let peer = self.catalog.get_peer(peer_name).await.map_err(|err| {
+                        PgWireError::ApiError(
+                            format!("unable to get peer config: {:?}", err).into(),
+                        )
+                    })?;
+                    let executor = self.get_peer_executor(&peer).await.map_err(|err| {
+                        PgWireError::ApiError(
+                            format!("unable to get peer executor: {:?}", err).into(),
+                        )
+                    })?;
+                    let res = executor.execute_raw(query).await?;
+                    self.process_execution(res, Some(Box::new(peer))).await
+                }
                 PeerDDL::DropMirror { .. } => self.handle_drop_mirror(&nexus_stmt).await,
                 PeerDDL::DropPeer {
                     if_exists,
@@ -578,14 +590,8 @@ impl NexusBackend {
                     }
                 };
 
-                let res = self
-                    .execute_statement(executor.as_ref(), &stmt, peer_holder)
-                    .await;
-                // log the error if execution failed
-                if let Err(err) = &res {
-                    tracing::error!("query execution failed: {:?}", err);
-                }
-                res
+                let res = executor.execute(&stmt).await?;
+                self.process_execution(res, peer_holder).await
             }
 
             NexusStatement::PeerCursor { stmt, cursor } => {
@@ -606,12 +612,13 @@ impl NexusBackend {
                     }
                 };
 
-                self.execute_statement(executor.as_ref(), &stmt, None).await
+                let res = executor.execute(&stmt).await?;
+                self.process_execution(res, None).await
             }
 
             NexusStatement::Rollback { stmt } => {
-                self.execute_statement(self.catalog.as_ref(), &stmt, None)
-                    .await
+                let res = self.catalog.execute(&stmt).await?;
+                self.process_execution(res, None).await
             }
 
             NexusStatement::Empty => Ok(vec![Response::EmptyQuery]),
@@ -1105,7 +1112,9 @@ pub async fn main() -> anyhow::Result<()> {
     let catalog_config = get_catalog_config(&args).await?;
 
     if args.migrations_disabled && args.migrations_only {
-        return Err(anyhow::anyhow!("Invalid configuration, migrations cannot be enabled and disabled at the same time"));
+        return Err(anyhow::anyhow!(
+            "Invalid configuration, migrations cannot be enabled and disabled at the same time"
+        ));
     }
 
     if !args.migrations_disabled {

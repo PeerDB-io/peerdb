@@ -598,10 +598,15 @@ func (h *FlowRequestHandler) CDCBatches(ctx context.Context, req *protos.GetCDCB
 		return nil, err
 	}
 
+	var page int32
+	if req.Limit != 0 {
+		page = rowsBehind/int32(req.Limit) + 1
+	}
+
 	return &protos.GetCDCBatchesResponse{
 		CdcBatches: batches,
 		Total:      total,
-		Page:       rowsBehind/int32(req.Limit) + 1,
+		Page:       page,
 	}, nil
 }
 
@@ -755,7 +760,7 @@ func (h *FlowRequestHandler) ListMirrorLogs(
 	}
 
 	page := req.Page
-	if page == 0 {
+	if page == 0 && req.NumPerPage != 0 {
 		page = rowsBehind/req.NumPerPage + 1
 	}
 
