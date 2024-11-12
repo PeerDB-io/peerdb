@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -32,7 +33,7 @@ const (
 	Minio
 )
 
-func NewS3TestHelper(s3environment S3Environment) (*S3TestHelper, error) {
+func NewS3TestHelper(t *testing.T, s3environment S3Environment) (*S3TestHelper, error) {
 	var config utils.S3PeerCredentials
 	var endpoint string
 	var credsPath string
@@ -78,6 +79,7 @@ func NewS3TestHelper(s3environment S3Environment) (*S3TestHelper, error) {
 		},
 		EndpointUrl: endpointUrlPtr,
 	}, config.Region)
+	t.Log("QQQQ", "accessId", config.AccessKeyID, "accessKey", config.SecretAccessKey, "sessionToken", config.SessionToken, "region", config.Region, "endpoint", endpoint)
 	client, err := utils.CreateS3Client(context.Background(), provider)
 	if err != nil {
 		return nil, err
@@ -126,13 +128,10 @@ func (h *S3TestHelper) CleanUp(ctx context.Context) error {
 
 	// Delete each object
 	for _, obj := range files.Contents {
-		deleteInput := &s3.DeleteObjectInput{
+		if _, err := h.client.DeleteObject(ctx, &s3.DeleteObjectInput{
 			Bucket: &h.BucketName,
 			Key:    obj.Key,
-		}
-
-		_, err := h.client.DeleteObject(ctx, deleteInput)
-		if err != nil {
+		}); err != nil {
 			return err
 		}
 	}
