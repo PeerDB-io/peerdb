@@ -265,7 +265,6 @@ func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (
 		if err != nil {
 			return nil, err
 		}
-		url.Host = url.Hostname()
 		options.EndpointResolverV2 = &resolverV2{
 			URL: *url,
 		}
