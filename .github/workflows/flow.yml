@@ -127,7 +127,7 @@ jobs:
           go test -p 32 ./... -timeout 900s
         working-directory: ./flow
         env:
-          AWS_ENDPOINT_URL: http://localhost:9999
+          AWS_ENDPOINT_URL_S3: http://localhost:9999
           AWS_ACCESS_KEY_ID: minio
           AWS_SECRET_ACCESS_KEY: miniosecret
           AWS_REGION: ${{ secrets.AWS_REGION }}

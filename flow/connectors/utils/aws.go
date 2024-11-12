@@ -236,25 +236,17 @@ func NewS3BucketAndPrefix(s3Path string) (*S3BucketAndPrefix, error) {
 }
 
 type resolverV2 struct {
-	userProvidedEndpointUrl string
+	url.URL
 }
 
 func (r *resolverV2) ResolveEndpoint(ctx context.Context, params s3.EndpointParameters) (
 	smithyendpoints.Endpoint, error,
 ) {
-	if r.userProvidedEndpointUrl != "" {
-		u, err := url.Parse(r.userProvidedEndpointUrl)
-		if err != nil {
-			return smithyendpoints.Endpoint{}, err
-		}
-
-		u.Path += "/" + *params.Bucket
-		return smithyendpoints.Endpoint{
-			URI: *u,
-		}, nil
-	}
-
-	return s3.NewDefaultEndpointResolverV2().ResolveEndpoint(ctx, params)
+	uri := r.URL
+	uri.Path += "/" + *params.Bucket
+	return smithyendpoints.Endpoint{
+		URI: uri,
+	}, nil
 }
 
 func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (*s3.Client, error) {
@@ -263,30 +255,35 @@ func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (
 		return nil, err
 	}
 
-	s3Client := s3.NewFromConfig(aws.Config{}, func(options *s3.Options) {
-		options.Region = credsProvider.GetRegion()
-		options.Credentials = credsProvider.GetUnderlyingProvider()
+	options := s3.Options{
+		Region:      credsProvider.GetRegion(),
+		Credentials: credsProvider.GetUnderlyingProvider(),
+	}
+	if awsCredentials.EndpointUrl != nil && *awsCredentials.EndpointUrl != "" {
+		options.BaseEndpoint = awsCredentials.EndpointUrl
+		url, err := url.Parse(*awsCredentials.EndpointUrl)
+		if err != nil {
+			return nil, err
+		}
+		url.Host = url.Hostname()
+		options.EndpointResolverV2 = &resolverV2{
+			URL: *url,
+		}
 
-		if awsCredentials.EndpointUrl != nil {
-			options.BaseEndpoint = awsCredentials.EndpointUrl
-			options.EndpointResolverV2 = &resolverV2{
-				userProvidedEndpointUrl: *awsCredentials.EndpointUrl,
-			}
-
-			if strings.Contains(*awsCredentials.EndpointUrl, "storage.googleapis.com") {
-				// Assign custom client with our own transport
-				options.HTTPClient = &http.Client{
-					Transport: &RecalculateV4Signature{
-						next:        http.DefaultTransport,
-						signer:      v4.NewSigner(),
-						credentials: credsProvider.GetUnderlyingProvider(),
-						region:      options.Region,
-					},
-				}
+		if strings.Contains(*awsCredentials.EndpointUrl, "storage.googleapis.com") {
+			// Assign custom client with our own transport
+			options.HTTPClient = &http.Client{
+				Transport: &RecalculateV4Signature{
+					next:        http.DefaultTransport,
+					signer:      v4.NewSigner(),
+					credentials: credsProvider.GetUnderlyingProvider(),
+					region:      options.Region,
+				},
 			}
 		}
-	})
-	return s3Client, nil
+	}
+
+	return s3.New(options), nil
 }
 
 // RecalculateV4Signature allow GCS over S3, removing Accept-Encoding header from sign
@@ -314,8 +311,7 @@ func (lt *RecalculateV4Signature) RoundTrip(req *http.Request) (*http.Response, 
 	if err != nil {
 		return nil, err
 	}
-	err = lt.signer.SignHTTP(req.Context(), creds, req, v4.GetPayloadHash(req.Context()), "s3", lt.region, timeDate)
-	if err != nil {
+	if err := lt.signer.SignHTTP(req.Context(), creds, req, v4.GetPayloadHash(req.Context()), "s3", lt.region, timeDate); err != nil {
 		return nil, err
 	}
 	// Reset Accept-Encoding if desired
@@ -331,21 +327,20 @@ func PutAndRemoveS3(ctx context.Context, client *s3.Client, bucket string, prefi
 	reader := strings.NewReader(time.Now().Format(time.RFC3339))
 	bucketName := aws.String(bucket)
 	temporaryObjectPath := prefix + "/" + _peerDBCheck + uuid.New().String()
-	temporaryObjectPath = strings.TrimPrefix(temporaryObjectPath, "/")
-	_, putErr := client.PutObject(ctx, &s3.PutObjectInput{
+	key := aws.String(strings.TrimPrefix(temporaryObjectPath, "/"))
+
+	if _, putErr := client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: bucketName,
-		Key:    aws.String(temporaryObjectPath),
+		Key:    key,
 		Body:   reader,
-	})
-	if putErr != nil {
+	}); putErr != nil {
 		return fmt.Errorf("failed to write to bucket: %w", putErr)
 	}
 
-	_, delErr := client.DeleteObject(ctx, &s3.DeleteObjectInput{
+	if _, delErr := client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: bucketName,
-		Key:    aws.String(temporaryObjectPath),
-	})
-	if delErr != nil {
+		Key:    key,
+	}); delErr != nil {
 		return fmt.Errorf("failed to delete from bucket: %w", delErr)
 	}
 
