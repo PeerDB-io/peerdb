@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -33,7 +32,7 @@ const (
 	Minio
 )
 
-func NewS3TestHelper(t *testing.T, s3environment S3Environment) (*S3TestHelper, error) {
+func NewS3TestHelper(s3environment S3Environment) (*S3TestHelper, error) {
 	var config utils.S3PeerCredentials
 	var endpoint string
 	var credsPath string
@@ -79,17 +78,15 @@ func NewS3TestHelper(t *testing.T, s3environment S3Environment) (*S3TestHelper, 
 		},
 		EndpointUrl: endpointUrlPtr,
 	}, config.Region)
-	t.Log("QQQQ", "accessId", config.AccessKeyID, "accessKey", config.SecretAccessKey, "sessionToken", config.SessionToken, "region", config.Region, "endpoint", endpoint)
 	client, err := utils.CreateS3Client(context.Background(), provider)
 	if err != nil {
 		return nil, err
 	}
 
 	// ignore this erroring, don't want to get hung up on bucket already existing
-	_, err = client.CreateBucket(context.Background(), &s3.CreateBucketInput{
+	_, _ = client.CreateBucket(context.Background(), &s3.CreateBucketInput{
 		Bucket: &bucketName,
 	})
-	t.Log("CREATEEEEE", err)
 
 	prefix := fmt.Sprintf("peerdb_test/%d_%s", time.Now().Unix(), shared.RandomString(6))
 	return &S3TestHelper{

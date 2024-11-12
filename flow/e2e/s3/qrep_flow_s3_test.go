@@ -76,7 +76,7 @@ func setupSuite(t *testing.T, s3environment S3Environment) PeerFlowE2ETestSuiteS
 		require.Fail(t, "failed to setup postgres", err)
 	}
 
-	helper, err := NewS3TestHelper(t, s3environment)
+	helper, err := NewS3TestHelper(s3environment)
 	if err != nil {
 		require.Fail(t, "failed to setup S3", err)
 	}

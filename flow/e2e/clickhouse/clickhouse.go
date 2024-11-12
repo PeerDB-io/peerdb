@@ -193,7 +193,7 @@ func SetupSuite(t *testing.T) ClickHouseSuite {
 	conn, err := e2e.SetupPostgres(t, suffix)
 	require.NoError(t, err, "failed to setup postgres")
 
-	s3Helper, err := e2e_s3.NewS3TestHelper(t, e2e_s3.Minio)
+	s3Helper, err := e2e_s3.NewS3TestHelper(e2e_s3.Minio)
 	require.NoError(t, err, "failed to setup S3")
 
 	s := ClickHouseSuite{
