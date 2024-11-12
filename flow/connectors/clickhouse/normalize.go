@@ -273,11 +273,18 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	}
 
 	for batchID := normBatchID + 1; batchID <= req.SyncBatchID; batchID++ {
-		if err := c.syncTablesInThisBatch(ctx, req, rawTbl, batchID, distinctTableNamesBatchMapping[batchID]); err != nil {
-			c.logger.Error("[clickhouse] error while syncing tables in this batch", slog.Any("error", err),
+		startTime := time.Now()
+		c.logger.Info("[clickhouse] normalizing tables in this batch", slog.Int64("batchID", batchID))
+
+		if err := c.normalizeTablesInThisBatch(ctx, req, rawTbl, batchID, distinctTableNamesBatchMapping[batchID]); err != nil {
+			c.logger.Error("[clickhouse] error while normalizing tables in this batch", slog.Any("error", err),
 				slog.Int64("batchID", batchID))
 			return nil, err
 		}
+
+		duration := time.Since(startTime)
+		c.logger.Info("[clickhouse] normalized tables in this batch", slog.Int64("batchID", batchID),
+			slog.Duration("duration", duration))
 
 		if err := c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchID); err != nil {
 			c.logger.Error("[clickhouse] error while updating normalize batch id",
@@ -328,7 +335,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatchRange(
 	return distinctTableNamesBatchMapping, nil
 }
 
-func (c *ClickHouseConnector) syncTablesInThisBatch(
+func (c *ClickHouseConnector) normalizeTablesInThisBatch(
 	ctx context.Context,
 	req *model.NormalizeRecordsRequest,
 	rawTableName string,
