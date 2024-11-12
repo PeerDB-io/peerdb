@@ -261,6 +261,7 @@ func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (
 	}
 	if awsCredentials.EndpointUrl != nil && *awsCredentials.EndpointUrl != "" {
 		options.BaseEndpoint = awsCredentials.EndpointUrl
+		options.UsePathStyle = true
 		url, err := url.Parse(*awsCredentials.EndpointUrl)
 		if err != nil {
 			return nil, err
