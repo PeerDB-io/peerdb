@@ -40,6 +40,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
+	snapshotName string,
 ) ([]*protos.QRepPartition, error) {
 	if config.WatermarkColumn == "" {
 		// if no watermark column is specified, return a single partition
@@ -61,7 +62,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 	}
 	defer shared.RollbackTx(getPartitionsTx, c.logger)
 
-	if err := c.setTransactionSnapshot(ctx, getPartitionsTx, config.SnapshotName); err != nil {
+	if err := c.setTransactionSnapshot(ctx, getPartitionsTx, snapshotName); err != nil {
 		return nil, fmt.Errorf("failed to set transaction snapshot: %w", err)
 	}
 
@@ -304,9 +305,10 @@ func (c *PostgresConnector) PullQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
+	snapshotName string,
 	stream *model.QRecordStream,
 ) (int, error) {
-	return corePullQRepRecords(c, ctx, config, partition, &RecordStreamSink{
+	return corePullQRepRecords(c, ctx, config, partition, snapshotName, &RecordStreamSink{
 		QRecordStream: stream,
 	})
 }
@@ -315,9 +317,10 @@ func (c *PostgresConnector) PullPgQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
+	snapshotName string,
 	stream PgCopyWriter,
 ) (int, error) {
-	return corePullQRepRecords(c, ctx, config, partition, stream)
+	return corePullQRepRecords(c, ctx, config, partition, snapshotName, stream)
 }
 
 func corePullQRepRecords(
@@ -325,12 +328,13 @@ func corePullQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
+	snapshotName string,
 	sink QRepPullSink,
 ) (int, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
-		executor := c.NewQRepQueryExecutorSnapshot(config.SnapshotName, config.FlowJobName, partition.PartitionId)
+		executor := c.NewQRepQueryExecutorSnapshot(snapshotName, config.FlowJobName, partition.PartitionId)
 		_, err := executor.ExecuteQueryIntoSink(ctx, sink, config.Query)
 		return 0, err
 	}
@@ -369,7 +373,7 @@ func corePullQRepRecords(
 		return 0, err
 	}
 
-	executor := c.NewQRepQueryExecutorSnapshot(config.SnapshotName, config.FlowJobName, partition.PartitionId)
+	executor := c.NewQRepQueryExecutorSnapshot(snapshotName, config.FlowJobName, partition.PartitionId)
 
 	numRecords, err := executor.ExecuteQueryIntoSink(ctx, sink, query, rangeStart, rangeEnd)
 	if err != nil {
@@ -639,9 +643,10 @@ func (c *PostgresConnector) PullXminRecordStream(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
+	snapshotName string,
 	stream *model.QRecordStream,
 ) (int, int64, error) {
-	return pullXminRecordStream(c, ctx, config, partition, RecordStreamSink{
+	return pullXminRecordStream(c, ctx, config, partition, snapshotName, RecordStreamSink{
 		QRecordStream: stream,
 	})
 }
@@ -650,9 +655,10 @@ func (c *PostgresConnector) PullXminPgRecordStream(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
+	snapshotName string,
 	pipe PgCopyWriter,
 ) (int, int64, error) {
-	return pullXminRecordStream(c, ctx, config, partition, pipe)
+	return pullXminRecordStream(c, ctx, config, partition, snapshotName, pipe)
 }
 
 func pullXminRecordStream(
@@ -660,6 +666,7 @@ func pullXminRecordStream(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
+	snapshotName string,
 	sink QRepPullSink,
 ) (int, int64, error) {
 	query := config.Query
@@ -669,7 +676,7 @@ func pullXminRecordStream(
 		queryArgs = []interface{}{strconv.FormatInt(partition.Range.Range.(*protos.PartitionRange_IntRange).IntRange.Start&0xffffffff, 10)}
 	}
 
-	executor := c.NewQRepQueryExecutorSnapshot(config.SnapshotName, config.FlowJobName, partition.PartitionId)
+	executor := c.NewQRepQueryExecutorSnapshot(snapshotName, config.FlowJobName, partition.PartitionId)
 
 	numRecords, currentSnapshotXmin, err := executor.ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 		ctx,

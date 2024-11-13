@@ -176,7 +176,7 @@ func TestGetQRepPartitions(t *testing.T) {
 				logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testGetQRepPartitions"))),
 			}
 
-			got, err := c.GetQRepPartitions(context.Background(), tc.config, tc.last)
+			got, err := c.GetQRepPartitions(context.Background(), tc.config, tc.last, "")
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("GetQRepPartitions() error = %v, wantErr %v", err, tc.wantErr)
 			}

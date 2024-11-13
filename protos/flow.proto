@@ -149,12 +149,6 @@ message SetupReplicationInput {
   string destination_name = 9;
 }
 
-message SetupReplicationOutput {
-  string slot_name = 1;
-  string snapshot_name = 2;
-  bool supports_tid_scans = 3;
-}
-
 message CreateRawTableInput {
   string flow_job_name = 2;
   map<string, string> table_name_mapping = 3;
@@ -310,7 +304,6 @@ message QRepConfig {
 
   string source_name = 20;
   string destination_name = 21;
-  string snapshot_name = 23;
 
   map<string, string> env = 24;
 
@@ -426,11 +419,6 @@ message RemoveTablesFromPublicationInput {
 message IsQRepPartitionSyncedInput {
   string flow_job_name = 1;
   string partition_id = 2;
-}
-
-message ExportTxSnapshotOutput {
-  string snapshot_name = 1;
-  bool supports_tid_scans = 2;
 }
 
 enum DynconfValueType {

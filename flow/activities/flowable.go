@@ -490,7 +490,17 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		return "getting partitions for job"
 	})
 	defer shutdown()
-	partitions, err := srcConn.GetQRepPartitions(ctx, config, last)
+
+	snapshotName := ""
+	if config.ParentMirrorName != "" {
+		_, snapshotName, _, err = shared.LoadSnapshotNameFromCatalog(ctx, a.CatalogPool, config.ParentMirrorName)
+		if err != nil {
+			a.Alerter.LogFlowError(ctx, "[GetQRepPartitions] "+config.FlowJobName, err)
+			return nil, fmt.Errorf("[GetQRepPartitions] failed to LoadSnapshotNameFromCatalog: %w", err)
+		}
+	}
+
+	partitions, err := srcConn.GetQRepPartitions(ctx, config, last, snapshotName)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return nil, fmt.Errorf("failed to get partitions from source: %w", err)
