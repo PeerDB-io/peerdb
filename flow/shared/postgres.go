@@ -58,17 +58,17 @@ func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]string,
 		AND n.nspname NOT IN ('pg_catalog', 'information_schema');
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get custom types: %w", err)
+		return nil, fmt.Errorf("failed to get customTypeMapping: %w", err)
 	}
 
 	customTypeMap := map[uint32]string{}
-	for rows.Next() {
-		var typeID pgtype.Uint32
-		var typeName pgtype.Text
-		if err := rows.Scan(&typeID, &typeName); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
+	var typeID pgtype.Uint32
+	var typeName pgtype.Text
+	if _, err := pgx.ForEachRow(rows, []any{&typeID, &typeName}, func() error {
 		customTypeMap[typeID.Uint32] = typeName.String
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("failed to scan into customTypeMapping: %w", err)
 	}
 	return customTypeMap, nil
 }
