@@ -72,8 +72,8 @@ impl<'a> CatalogConfig<'a> {
 
 impl Catalog {
     pub async fn new(pt_config: pt::peerdb_peers::PostgresConfig) -> anyhow::Result<Self> {
-        let client = connect_postgres(&pt_config).await?;
-        Ok(Self { pg: client })
+        let (pg, _) = connect_postgres(&pt_config).await?;
+        Ok(Self { pg })
     }
 
     pub async fn run_migrations(&mut self) -> anyhow::Result<()> {
