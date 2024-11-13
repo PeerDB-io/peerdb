@@ -132,7 +132,7 @@ jobs:
           AWS_ENDPOINT_URL_S3: http://localhost:9999
           AWS_ACCESS_KEY_ID: minio
           AWS_SECRET_ACCESS_KEY: miniosecret
-          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_REGION: us-east-1
           PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID: minio
           PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: miniosecret
           PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION: us-east-1
