@@ -493,7 +493,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 
 func (c *ClickHouseConnector) copyAvroStageToDestination(ctx context.Context, flowJobName string, syncBatchID int64) error {
 	avroSyncMethod := c.avroSyncMethod(flowJobName)
-	avroFile, err := c.s3Stage.GetAvroStage(ctx, flowJobName, syncBatchID)
+	avroFile, err := GetAvroStage(ctx, flowJobName, syncBatchID)
 	if err != nil {
 		return fmt.Errorf("failed to get avro stage: %w", err)
 	}
