@@ -145,13 +145,11 @@ func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context) er
 
 func (c *PostgresConnector) CheckPublicationCreationPermissions(ctx context.Context, srcTableNames []string) error {
 	pubName := "_peerdb_tmp_test_publication_" + shared.RandomString(5)
-	err := c.CreatePublication(ctx, srcTableNames, pubName)
-	if err != nil {
+	if err := c.CreatePublication(ctx, srcTableNames, pubName); err != nil {
 		return err
 	}
 
-	_, err = c.conn.Exec(ctx, "DROP PUBLICATION "+pubName)
-	if err != nil {
+	if _, err := c.conn.Exec(ctx, "DROP PUBLICATION "+pubName); err != nil {
 		return fmt.Errorf("failed to drop publication: %v", err)
 	}
 	return nil

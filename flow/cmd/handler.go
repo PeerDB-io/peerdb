@@ -408,7 +408,7 @@ func (h *FlowRequestHandler) handleCancelWorkflow(ctx context.Context, workflowI
 		if err != nil {
 			slog.Error(fmt.Sprintf("unable to cancel PeerFlow workflow: %s. Attempting to terminate.", err.Error()))
 			terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
-			if err = h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
+			if err := h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
 				return fmt.Errorf("unable to terminate PeerFlow workflow: %w", err)
 			}
 		}
@@ -456,10 +456,9 @@ func (h *FlowRequestHandler) DropPeer(
 	}
 
 	var inMirror pgtype.Int8
-	queryErr := h.pool.QueryRow(ctx,
-		"SELECT COUNT(*) FROM flows WHERE source_peer=$1 or destination_peer=$2",
-		peerID, peerID).Scan(&inMirror)
-	if queryErr != nil {
+	if queryErr := h.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM flows WHERE source_peer=$1 or destination_peer=$1", peerID,
+	).Scan(&inMirror); queryErr != nil {
 		return nil, fmt.Errorf("failed to check for existing mirrors with peer %s: %w", req.PeerName, queryErr)
 	}
 
@@ -467,8 +466,7 @@ func (h *FlowRequestHandler) DropPeer(
 		return nil, fmt.Errorf("peer %s is currently involved in an ongoing mirror", req.PeerName)
 	}
 
-	_, delErr := h.pool.Exec(ctx, "DELETE FROM peers WHERE name = $1", req.PeerName)
-	if delErr != nil {
+	if _, delErr := h.pool.Exec(ctx, "DELETE FROM peers WHERE name = $1", req.PeerName); delErr != nil {
 		return nil, fmt.Errorf("failed to delete peer %s from metadata table: %w", req.PeerName, delErr)
 	}
 
@@ -477,9 +475,8 @@ func (h *FlowRequestHandler) DropPeer(
 
 func (h *FlowRequestHandler) getWorkflowID(ctx context.Context, flowJobName string) (string, error) {
 	q := "SELECT workflow_id FROM flows WHERE name = $1"
-	row := h.pool.QueryRow(ctx, q, flowJobName)
 	var workflowID string
-	if err := row.Scan(&workflowID); err != nil {
+	if err := h.pool.QueryRow(ctx, q, flowJobName).Scan(&workflowID); err != nil {
 		return "", fmt.Errorf("unable to get workflowID for flow job %s: %w", flowJobName, err)
 	}
 
@@ -507,22 +504,19 @@ func (h *FlowRequestHandler) ResyncMirror(
 	config.Resync = true
 	config.DoInitialSnapshot = true
 	// validate mirror first because once the mirror is dropped, there's no going back
-	_, err = h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
+	if _, err := h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
 		ConnectionConfigs: config,
-	})
-	if err != nil {
+	}); err != nil {
 		return nil, err
 	}
 
-	err = h.shutdownFlow(ctx, req.FlowJobName, req.DropStats)
-	if err != nil {
+	if err := h.shutdownFlow(ctx, req.FlowJobName, req.DropStats); err != nil {
 		return nil, err
 	}
 
-	_, err = h.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{
+	if _, err := h.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{
 		ConnectionConfigs: config,
-	})
-	if err != nil {
+	}); err != nil {
 		return nil, err
 	}
 	return &protos.ResyncMirrorResponse{}, nil

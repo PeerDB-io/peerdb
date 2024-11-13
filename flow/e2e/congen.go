@@ -18,18 +18,16 @@ import (
 
 func cleanPostgres(conn *pgx.Conn, suffix string) error {
 	// drop the e2e_test schema with the given suffix if it exists
-	_, err := conn.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS e2e_test_%s CASCADE", suffix))
-	if err != nil {
+	if _, err := conn.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS e2e_test_%s CASCADE", suffix)); err != nil {
 		return fmt.Errorf("failed to drop e2e_test schema: %w", err)
 	}
 
 	// drop all open slots with the given suffix
-	_, err = conn.Exec(
+	if _, err := conn.Exec(
 		context.Background(),
 		"SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name LIKE $1",
 		"%_"+suffix,
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("failed to drop replication slots: %w", err)
 	}
 
@@ -47,8 +45,7 @@ func cleanPostgres(conn *pgx.Conn, suffix string) error {
 	}
 
 	for _, pubName := range publications {
-		_, err = conn.Exec(context.Background(), "DROP PUBLICATION "+pubName)
-		if err != nil {
+		if _, err := conn.Exec(context.Background(), "DROP PUBLICATION "+pubName); err != nil {
 			return fmt.Errorf("failed to drop publication %s: %w", pubName, err)
 		}
 	}
@@ -65,8 +62,7 @@ func setupPostgresSchema(t *testing.T, conn *pgx.Conn, suffix string) error {
 	}
 
 	// create an e2e_test schema
-	_, err = setupTx.Exec(context.Background(), "SELECT pg_advisory_xact_lock(hashtext('Megaton Mile'))")
-	if err != nil {
+	if _, err := setupTx.Exec(context.Background(), "SELECT pg_advisory_xact_lock(hashtext('Megaton Mile'))"); err != nil {
 		return fmt.Errorf("failed to get lock: %w", err)
 	}
 	defer func() {
@@ -77,12 +73,11 @@ func setupPostgresSchema(t *testing.T, conn *pgx.Conn, suffix string) error {
 	}()
 
 	// create an e2e_test schema
-	_, err = setupTx.Exec(context.Background(), "CREATE SCHEMA e2e_test_"+suffix)
-	if err != nil {
+	if _, err := setupTx.Exec(context.Background(), "CREATE SCHEMA e2e_test_"+suffix); err != nil {
 		return fmt.Errorf("failed to create e2e_test schema: %w", err)
 	}
 
-	_, err = setupTx.Exec(context.Background(), `
+	if _, err := setupTx.Exec(context.Background(), `
 		CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
 			SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
 			round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
@@ -95,8 +90,7 @@ func setupPostgresSchema(t *testing.T, conn *pgx.Conn, suffix string) error {
 		LANGUAGE 'sql'
 		VOLATILE
 		SET search_path = 'pg_catalog';
-	`)
-	if err != nil {
+	`); err != nil {
 		return fmt.Errorf("failed to create utility functions: %w", err)
 	}
 
