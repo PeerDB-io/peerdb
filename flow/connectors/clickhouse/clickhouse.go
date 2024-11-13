@@ -381,8 +381,7 @@ func (c *ClickHouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tab
 	for rows.Next() {
 		var tableName, engine string
 		var totalRows uint64
-		err = rows.Scan(&tableName, &engine, &totalRows)
-		if err != nil {
+		if err := rows.Scan(&tableName, &engine, &totalRows); err != nil {
 			return fmt.Errorf("failed to scan information for tables: %w", err)
 		}
 		if totalRows != 0 && optedForInitialLoad {
@@ -393,8 +392,8 @@ func (c *ClickHouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tab
 				slog.String("table", tableName), slog.String("engine", engine))
 		}
 	}
-	if rows.Err() != nil {
-		return fmt.Errorf("failed to read rows: %w", rows.Err())
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to read rows: %w", err)
 	}
 	return nil
 }
@@ -418,14 +417,13 @@ func (c *ClickHouseConnector) getTableColumnsMapping(ctx context.Context,
 	for rows.Next() {
 		var tableName string
 		var fieldDescription protos.FieldDescription
-		err = rows.Scan(&fieldDescription.Name, &fieldDescription.Type, &tableName)
-		if err != nil {
+		if err := rows.Scan(&fieldDescription.Name, &fieldDescription.Type, &tableName); err != nil {
 			return nil, fmt.Errorf("failed to scan columns for tables: %w", err)
 		}
 		tableColumnsMapping[tableName] = append(tableColumnsMapping[tableName], &fieldDescription)
 	}
-	if rows.Err() != nil {
-		return nil, fmt.Errorf("failed to read rows: %w", rows.Err())
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
 	return tableColumnsMapping, nil
 }
