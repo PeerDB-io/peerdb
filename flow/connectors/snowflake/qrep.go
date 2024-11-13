@@ -89,14 +89,12 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(ctx context.Context, config
 	}
 
 	stageName := c.getStageNameForJob(config.FlowJobName)
-	err = c.createStage(ctx, stageName, config)
-	if err != nil {
+	if err := c.createStage(ctx, stageName, config); err != nil {
 		return err
 	}
 
 	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		_, err = c.execWithLogging(ctx, "TRUNCATE TABLE "+config.DestinationTableIdentifier)
-		if err != nil {
+		if _, err := c.execWithLogging(ctx, "TRUNCATE TABLE "+config.DestinationTableIdentifier); err != nil {
 			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
 		}
 	}
@@ -224,8 +222,7 @@ func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName str
 		})
 	}
 
-	err = rows.Err()
-	if err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
 
@@ -280,11 +277,10 @@ func (c *SnowflakeConnector) dropStage(ctx context.Context, stagingPath string, 
 			}
 
 			for _, object := range page.Contents {
-				_, err = s3svc.DeleteObject(ctx, &s3.DeleteObjectInput{
+				if _, err := s3svc.DeleteObject(ctx, &s3.DeleteObjectInput{
 					Bucket: aws.String(s3o.Bucket),
 					Key:    object.Key,
-				})
-				if err != nil {
+				}); err != nil {
 					c.logger.Error("failed to delete objects from bucket", slog.Any("error", err))
 					return fmt.Errorf("failed to delete objects from bucket: %w", err)
 				}

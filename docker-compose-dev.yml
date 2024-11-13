@@ -209,7 +209,7 @@ services:
       - flow-api
 
   minio:
-    image: minio/minio:RELEASE.2024-07-16T23-46-41Z
+    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
     volumes:
       - minio-data:/data
     ports:
