@@ -193,7 +193,7 @@ func TestAllDataTypes(t *testing.T) {
 	require.Equal(t, savedUUID[:], actualUUID[:], "expected savedUUID: %v", savedUUID)
 	actualTime := record[9].Value().(time.Time)
 	require.Equal(t, savedTime.Truncate(time.Second),
-		actualTime.Truncate(time.Second)., "expected savedTime: %v", savedTime)
+		actualTime.Truncate(time.Second), "expected savedTime: %v", savedTime)
 
 	expectedNumeric := "123.456"
 	actualNumeric := record[10].Value().(decimal.Decimal).String()
