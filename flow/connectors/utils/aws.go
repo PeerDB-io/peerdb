@@ -207,15 +207,9 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 }
 
 func FileURLForS3Service(endpoint string, region string, bucket string, filePath string) string {
-	// example: min.io local bucket or GCS
-	matches := s3CompatibleServiceEndpointPattern.MatchString(endpoint)
-	if matches {
-		// TODO TESTING, remove
-		endpoint = strings.ReplaceAll(endpoint, "localhost", "minio")
-
+	if s3CompatibleServiceEndpointPattern.MatchString(endpoint) {
 		return fmt.Sprintf("%s/%s/%s", endpoint, bucket, filePath)
 	}
-
 	return fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", bucket, region, filePath)
 }
 

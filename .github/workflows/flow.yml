@@ -113,8 +113,20 @@ jobs:
         with:
           version: "latest"
 
-      - name: start clickhouse
-        uses: getsentry/action-clickhouse-in-ci@v1
+      - uses: actions/cache@v4
+        id: cache-clickhouse
+        with:
+          path: ./clickhouse
+          key: ${{ runner.os }}-clickhouse
+
+      - name: Install ClickHouse
+        if: steps.cache-clickhouse.outputs.cache-hit != 'true'
+        run: |
+          curl https://clickhouse.com | sh
+
+      - name: Run ClickHouse
+        run: |
+          ./clickhouse server &
 
       - name: Install Temporal CLI
         uses: temporalio/setup-temporal@v0
