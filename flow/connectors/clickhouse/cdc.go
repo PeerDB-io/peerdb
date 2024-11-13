@@ -46,13 +46,13 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
 	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %s (
-		_peerdb_uid UUID NOT NULL,
-		_peerdb_timestamp Int64 NOT NULL,
-		_peerdb_destination_table_name String NOT NULL,
-		_peerdb_data String NOT NULL,
-		_peerdb_record_type Int NOT NULL,
+		_peerdb_uid UUID,
+		_peerdb_timestamp Int64,
+		_peerdb_destination_table_name String,
+		_peerdb_data String,
+		_peerdb_record_type Int,
 		_peerdb_match_data String,
-		_peerdb_batch_id Int,
+		_peerdb_batch_id Int64,
 		_peerdb_unchanged_toast_columns String
 	) ENGINE = MergeTree() ORDER BY (_peerdb_batch_id, _peerdb_destination_table_name);`
 
