@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strconv"
 	"strings"
@@ -441,7 +442,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 	err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, req.SyncBatchID)
 	if err != nil {
-		c.logger.Error("[clickhouse] error while updating normalize batch id", "error", err)
+		c.logger.Error("[clickhouse] error while updating normalize batch id", slog.Int64("BatchID", req.SyncBatchID), slog.Any("error", err))
 		return nil, err
 	}
 
@@ -472,8 +473,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	var tableNames []string
 	for rows.Next() {
 		var tableName sql.NullString
-		err = rows.Scan(&tableName)
-		if err != nil {
+		if err := rows.Scan(&tableName); err != nil {
 			return nil, fmt.Errorf("error while scanning table name: %w", err)
 		}
 
@@ -484,7 +484,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 		tableNames = append(tableNames, tableName.String)
 	}
 
-	if rows.Err() != nil {
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
 

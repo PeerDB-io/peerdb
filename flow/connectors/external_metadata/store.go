@@ -172,11 +172,10 @@ func (p *PostgresMetadata) FinishBatch(ctx context.Context, jobName string, sync
 
 func (p *PostgresMetadata) UpdateNormalizeBatchID(ctx context.Context, jobName string, batchID int64) error {
 	p.logger.Info("updating normalize batch id for job", slog.Int64("batchID", batchID))
-	_, err := p.pool.Exec(ctx,
-		`UPDATE `+lastSyncStateTableName+
-			` SET normalize_batch_id=$2 WHERE job_name=$1`, jobName, batchID)
-	if err != nil {
-		p.logger.Error("failed to update normalize batch id", slog.Any("error", err))
+	if _, err := p.pool.Exec(ctx,
+		`UPDATE `+lastSyncStateTableName+` SET normalize_batch_id=$2 WHERE job_name=$1`, jobName, batchID,
+	); err != nil {
+		p.logger.Error("failed to update normalize batch id", slog.Int64("batchID", batchID), slog.Any("error", err))
 		return err
 	}
 
