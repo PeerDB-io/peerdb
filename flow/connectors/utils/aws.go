@@ -210,6 +210,9 @@ func FileURLForS3Service(endpoint string, region string, bucket string, filePath
 	// example: min.io local bucket or GCS
 	matches := s3CompatibleServiceEndpointPattern.MatchString(endpoint)
 	if matches {
+		// TODO TESTING, remove
+		endpoint = strings.ReplaceAll(endpoint, "localhost", "minio")
+
 		return fmt.Sprintf("%s/%s/%s", endpoint, bucket, filePath)
 	}
 

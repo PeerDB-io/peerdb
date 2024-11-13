@@ -61,7 +61,6 @@ func (s ClickHouseSuite) PeerForDatabase(dbname string) *protos.Peer {
 		region = *s.s3Helper.S3Config.Region
 	}
 
-	s.t.Log("log ch PeerForDatabase", s.s3Helper.BucketName, s.s3Helper.S3Config)
 	ret := &protos.Peer{
 		Name: e2e.AddSuffix(s, dbname),
 		Type: protos.DBType_CLICKHOUSE,

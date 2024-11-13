@@ -83,11 +83,6 @@ func NewS3TestHelper(s3environment S3Environment) (*S3TestHelper, error) {
 		return nil, err
 	}
 
-	// ignore this erroring, don't want to get hung up on bucket already existing
-	// _, _ = client.CreateBucket(context.Background(), &s3.CreateBucketInput{
-	//	Bucket: &bucketName,
-	// })
-
 	prefix := fmt.Sprintf("peerdb_test/%d_%s", time.Now().Unix(), shared.RandomString(6))
 	return &S3TestHelper{
 		client,
