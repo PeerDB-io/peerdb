@@ -113,7 +113,7 @@ jobs:
         with:
           version: "latest"
 
-      - uses: actions/cache@v4
+      - uses: ubicloud/cache@v4
         id: cache-clickhouse
         with:
           path: ./clickhouse

@@ -47,10 +47,10 @@ func NewS3TestHelper(s3environment S3Environment) (*S3TestHelper, error) {
 		endpoint = "https://storage.googleapis.com"
 	case Minio:
 		bucketName = "peerdb"
-		endpoint = "http://localhost:9999" // TODO env variable
-		config.AccessKeyID = "minio"
-		config.SecretAccessKey = "miniosecret"
-		config.Region = "us-east-1"
+		endpoint = os.Getenv("AWS_ENDPOINT_URL_S3")
+		config.AccessKeyID = os.Getenv("AWS_ACCESS_KEY_ID")
+		config.SecretAccessKey = os.Getenv("AWS_SECRET_ACCESS_KEY")
+		config.Region = os.Getenv("AWS_REGION")
 	default:
 		panic(fmt.Sprintf("invalid s3environment %d", s3environment))
 	}
