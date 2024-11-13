@@ -376,8 +376,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 			}
 			srcTableNames = append(srcTableNames, parsedSrcTableName.String())
 		}
-		err := c.CreatePublication(ctx, srcTableNames, publication)
-		if err != nil {
+		if err := c.CreatePublication(ctx, srcTableNames, publication); err != nil {
 			signal.SlotCreated <- SlotCreationResult{Err: err}
 			return
 		}
@@ -395,7 +394,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 		c.logger.Warn(fmt.Sprintf("Creating replication slot '%s'", slot))
 
 		// THIS IS NOT IN A TX!
-		if _, err = conn.Exec(ctx, "SET idle_in_transaction_session_timeout=0"); err != nil {
+		if _, err := conn.Exec(ctx, "SET idle_in_transaction_session_timeout=0"); err != nil {
 			signal.SlotCreated <- SlotCreationResult{Err: fmt.Errorf("[slot] error setting idle_in_transaction_session_timeout: %w", err)}
 			return
 		}

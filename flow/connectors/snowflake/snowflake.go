@@ -259,15 +259,13 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(
 	var result pgtype.Text
 	destinationTableNames := make([]string, 0)
 	for rows.Next() {
-		err = rows.Scan(&result)
-		if err != nil {
+		if err := rows.Scan(&result); err != nil {
 			return nil, fmt.Errorf("failed to read row: %w", err)
 		}
 		destinationTableNames = append(destinationTableNames, result.String)
 	}
 
-	err = rows.Err()
-	if err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
 	return destinationTableNames, nil

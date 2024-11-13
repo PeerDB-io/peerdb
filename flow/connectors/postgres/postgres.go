@@ -1096,7 +1096,7 @@ func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSig
 		return
 	}
 
-	tableNameMapping := make(map[string]model.NameAndExclude)
+	tableNameMapping := make(map[string]model.NameAndExclude, len(req.TableNameMapping))
 	for k, v := range req.TableNameMapping {
 		tableNameMapping[k] = model.NameAndExclude{
 			Name:    v,
@@ -1110,9 +1110,9 @@ func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSig
 func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
 	// Slotname would be the job name prefixed with "peerflow_slot_"
 	slotName := "peerflow_slot_" + jobName
-	_, err := c.conn.Exec(ctx, `SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots
-	 WHERE slot_name=$1`, slotName)
-	if err != nil {
+	if _, err := c.conn.Exec(
+		ctx, `SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name=$1`, slotName,
+	); err != nil {
 		return fmt.Errorf("error dropping replication slot: %w", err)
 	}
 
@@ -1122,14 +1122,14 @@ func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string)
 	// as drop publication if exists requires permissions
 	// for a publication which we did not create via peerdb user
 	var publicationExists bool
-	err = c.conn.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_publication WHERE pubname=$1)", publicationName).Scan(&publicationExists)
-	if err != nil {
+	if err := c.conn.QueryRow(
+		ctx, "SELECT EXISTS(SELECT 1 FROM pg_publication WHERE pubname=$1)", publicationName,
+	).Scan(&publicationExists); err != nil {
 		return fmt.Errorf("error checking if publication exists: %w", err)
 	}
 
 	if publicationExists {
-		_, err = c.conn.Exec(ctx, "DROP PUBLICATION IF EXISTS "+publicationName)
-		if err != nil {
+		if _, err := c.conn.Exec(ctx, "DROP PUBLICATION IF EXISTS "+publicationName); err != nil {
 			return fmt.Errorf("error dropping publication: %w", err)
 		}
 	}
@@ -1144,9 +1144,9 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 	}
 	defer shared.RollbackTx(syncFlowCleanupTx, c.logger)
 
-	_, err = c.execWithLoggingTx(ctx, fmt.Sprintf(dropTableIfExistsSQL, c.metadataSchema,
-		getRawTableIdentifier(jobName)), syncFlowCleanupTx)
-	if err != nil {
+	if _, err := c.execWithLoggingTx(ctx,
+		fmt.Sprintf(dropTableIfExistsSQL, c.metadataSchema, getRawTableIdentifier(jobName)), syncFlowCleanupTx,
+	); err != nil {
 		return fmt.Errorf("unable to drop raw table: %w", err)
 	}
 
@@ -1162,8 +1162,7 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 		}
 	}
 
-	err = syncFlowCleanupTx.Commit(ctx)
-	if err != nil {
+	if err := syncFlowCleanupTx.Commit(ctx); err != nil {
 		return fmt.Errorf("unable to commit transaction for sync flow cleanup: %w", err)
 	}
 	return nil
@@ -1222,9 +1221,9 @@ func (c *PostgresConnector) HandleSlotInfo(
 		attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())))
 
 	var intervalSinceLastNormalize *time.Duration
-	err = alerter.CatalogPool.QueryRow(ctx, "SELECT now()-max(end_time) FROM peerdb_stats.cdc_batches WHERE flow_name=$1",
-		alertKeys.FlowName).Scan(&intervalSinceLastNormalize)
-	if err != nil {
+	if err := alerter.CatalogPool.QueryRow(
+		ctx, "SELECT now()-max(end_time) FROM peerdb_stats.cdc_batches WHERE flow_name=$1", alertKeys.FlowName,
+	).Scan(&intervalSinceLastNormalize); err != nil {
 		logger.Warn("failed to get interval since last normalize", slog.Any("error", err))
 	}
 	// what if the first normalize errors out/hangs?
@@ -1244,12 +1243,9 @@ func (c *PostgresConnector) HandleSlotInfo(
 }
 
 func getOpenConnectionsForUser(ctx context.Context, conn *pgx.Conn, user string) (*protos.GetOpenConnectionsForUserResult, error) {
-	row := conn.QueryRow(ctx, getNumConnectionsForUser, user)
-
 	// COUNT() returns BIGINT
 	var result pgtype.Int8
-	err := row.Scan(&result)
-	if err != nil {
+	if err := conn.QueryRow(ctx, getNumConnectionsForUser, user).Scan(&result); err != nil {
 		return nil, fmt.Errorf("error while reading result row: %w", err)
 	}
 
@@ -1260,12 +1256,9 @@ func getOpenConnectionsForUser(ctx context.Context, conn *pgx.Conn, user string)
 }
 
 func getOpenReplicationConnectionsForUser(ctx context.Context, conn *pgx.Conn, user string) (*protos.GetOpenConnectionsForUserResult, error) {
-	row := conn.QueryRow(ctx, getNumReplicationConnections, user)
-
 	// COUNT() returns BIGINT
 	var result pgtype.Int8
-	err := row.Scan(&result)
-	if err != nil {
+	if err := conn.QueryRow(ctx, getNumReplicationConnections, user).Scan(&result); err != nil {
 		return nil, fmt.Errorf("error while reading result row: %w", err)
 	}
 
@@ -1483,8 +1476,7 @@ func (c *PostgresConnector) RemoveTableEntriesFromRawTable(
 
 func (c *PostgresConnector) GetVersion(ctx context.Context) (string, error) {
 	var version string
-	err := c.conn.QueryRow(ctx, "SELECT version()").Scan(&version)
-	if err != nil {
+	if err := c.conn.QueryRow(ctx, "SELECT version()").Scan(&version); err != nil {
 		return "", err
 	}
 	c.logger.Info("[postgres] version", slog.String("version", version))

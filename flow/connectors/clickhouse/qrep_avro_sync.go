@@ -18,8 +18,8 @@ import (
 )
 
 type ClickHouseAvroSyncMethod struct {
-	config    *protos.QRepConfig
-	connector *ClickHouseConnector
+	*ClickHouseConnector
+	config *protos.QRepConfig
 }
 
 func NewClickHouseAvroSyncMethod(
@@ -27,22 +27,22 @@ func NewClickHouseAvroSyncMethod(
 	connector *ClickHouseConnector,
 ) *ClickHouseAvroSyncMethod {
 	return &ClickHouseAvroSyncMethod{
-		config:    config,
-		connector: connector,
+		ClickHouseConnector: connector,
+		config:              config,
 	}
 }
 
 func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, avroFile *avro.AvroFile) error {
-	stagingPath := s.connector.credsProvider.BucketPath
+	stagingPath := s.credsProvider.BucketPath
 	s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
 	if err != nil {
 		return err
 	}
 
-	endpoint := s.connector.credsProvider.Provider.GetEndpointURL()
-	region := s.connector.credsProvider.Provider.GetRegion()
+	endpoint := s.credsProvider.Provider.GetEndpointURL()
+	region := s.credsProvider.Provider.GetRegion()
 	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFile.FilePath)
-	creds, err := s.connector.credsProvider.Provider.Retrieve(ctx)
+	creds, err := s.credsProvider.Provider.Retrieve(ctx)
 	if err != nil {
 		return err
 	}
@@ -55,7 +55,7 @@ func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 		s.config.DestinationTableIdentifier, avroFileUrl,
 		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
 
-	return s.connector.database.Exec(ctx, query)
+	return s.database.Exec(ctx, query)
 }
 
 func (s *ClickHouseAvroSyncMethod) SyncRecords(
@@ -67,7 +67,7 @@ func (s *ClickHouseAvroSyncMethod) SyncRecords(
 	dstTableName := s.config.DestinationTableIdentifier
 
 	schema := stream.Schema()
-	s.connector.logger.Info("sync function called and schema acquired",
+	s.logger.Info("sync function called and schema acquired",
 		slog.String("dstTable", dstTableName))
 
 	avroSchema, err := s.getAvroSchema(dstTableName, schema)
@@ -81,14 +81,13 @@ func (s *ClickHouseAvroSyncMethod) SyncRecords(
 		return 0, err
 	}
 
-	s.connector.logger.Info("[SyncRecords] written records to Avro file",
+	s.logger.Info("[SyncRecords] written records to Avro file",
 		slog.String("dstTable", dstTableName),
 		slog.String("avroFile", avroFile.FilePath),
 		slog.Int("numRecords", avroFile.NumRecords),
 		slog.Int64("syncBatchID", syncBatchID))
 
-	err = s.connector.s3Stage.SetAvroStage(ctx, flowJobName, syncBatchID, avroFile)
-	if err != nil {
+	if err := SetAvroStage(ctx, flowJobName, syncBatchID, avroFile); err != nil {
 		return 0, fmt.Errorf("failed to set avro stage: %w", err)
 	}
 
@@ -103,7 +102,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	stream *model.QRecordStream,
 ) (int, error) {
 	dstTableName := config.DestinationTableIdentifier
-	stagingPath := s.connector.credsProvider.BucketPath
+	stagingPath := s.credsProvider.BucketPath
 	startTime := time.Now()
 
 	avroSchema, err := s.getAvroSchema(dstTableName, stream.Schema())
@@ -121,13 +120,13 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		return 0, err
 	}
 
-	creds, err := s.connector.credsProvider.Provider.Retrieve(ctx)
+	creds, err := s.credsProvider.Provider.Retrieve(ctx)
 	if err != nil {
 		return 0, err
 	}
 
-	endpoint := s.connector.credsProvider.Provider.GetEndpointURL()
-	region := s.connector.credsProvider.Provider.GetRegion()
+	endpoint := s.credsProvider.Provider.GetEndpointURL()
+	region := s.credsProvider.Provider.GetRegion()
 	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFile.FilePath)
 	selector := make([]string, 0, len(dstTableSchema))
 	for _, col := range dstTableSchema {
@@ -151,13 +150,13 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		config.DestinationTableIdentifier, selectorStr, selectorStr, avroFileUrl,
 		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
 
-	if err := s.connector.database.Exec(ctx, query); err != nil {
-		s.connector.logger.Error("Failed to insert into select for ClickHouse", slog.Any("error", err))
+	if err := s.database.Exec(ctx, query); err != nil {
+		s.logger.Error("Failed to insert into select for ClickHouse", slog.Any("error", err))
 		return 0, err
 	}
 
-	if err := s.connector.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
-		s.connector.logger.Error("Failed to finish QRep partition", slog.Any("error", err))
+	if err := s.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
+		s.logger.Error("Failed to finish QRep partition", slog.Any("error", err))
 		return 0, err
 	}
 
@@ -182,7 +181,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	identifierForFile string,
 	flowJobName string,
 ) (*avro.AvroFile, error) {
-	stagingPath := s.connector.credsProvider.BucketPath
+	stagingPath := s.credsProvider.BucketPath
 	ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressZstd, protos.DBType_CLICKHOUSE)
 	s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
 	if err != nil {
@@ -191,7 +190,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, flowJobName, identifierForFile)
 	s3AvroFileKey = strings.Trim(s3AvroFileKey, "/")
-	avroFile, err := ocfWriter.WriteRecordsToS3(ctx, s3o.Bucket, s3AvroFileKey, s.connector.credsProvider.Provider)
+	avroFile, err := ocfWriter.WriteRecordsToS3(ctx, s3o.Bucket, s3AvroFileKey, s.credsProvider.Provider)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write records to S3: %w", err)
 	}

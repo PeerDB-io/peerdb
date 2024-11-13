@@ -8,7 +8,9 @@ use std::{
 use chrono::DateTime;
 use futures::Stream;
 use gcp_bigquery_client::model::{
-    field_type::FieldType, query_response::ResultSet, table_field_schema::TableFieldSchema,
+    field_type::FieldType,
+    query_response::{QueryResponse, ResultSet},
+    table_field_schema::TableFieldSchema,
 };
 use peer_cursor::{Record, RecordStream, Schema};
 use pgwire::{
@@ -57,10 +59,9 @@ fn convert_field_type(field_type: &FieldType) -> Type {
     }
 }
 
-impl BqSchema {
-    pub fn from_result_set(result_set: &ResultSet) -> Self {
-        let bq_schema = result_set
-            .query_response()
+impl From<&QueryResponse> for BqSchema {
+    fn from(query_response: &QueryResponse) -> Self {
+        let bq_schema = query_response
             .schema
             .as_ref()
             .expect("Schema is not present");
@@ -84,24 +85,29 @@ impl BqSchema {
             fields: fields.clone(),
         }
     }
+}
 
+impl BqSchema {
     pub fn schema(&self) -> Schema {
         self.schema.clone()
     }
 }
 
-impl BqRecordStream {
-    pub fn new(result_set: ResultSet) -> Self {
-        let bq_schema = BqSchema::from_result_set(&result_set);
+impl From<QueryResponse> for BqRecordStream {
+    fn from(query_response: QueryResponse) -> Self {
+        let schema = BqSchema::from(&query_response);
+        let result_set = ResultSet::new_from_query_response(query_response);
         let num_records = result_set.row_count();
 
         Self {
             result_set,
-            schema: bq_schema,
+            schema,
             num_records,
         }
     }
+}
 
+impl BqRecordStream {
     pub fn get_num_records(&self) -> usize {
         self.num_records
     }

@@ -50,6 +50,7 @@ func (s PeerFlowE2ETestSuiteS3) Peer() *protos.Peer {
 }
 
 func TestPeerFlowE2ETestSuiteS3(t *testing.T) {
+	t.Skip("skipping AWS, CI credentials revoked") // TODO fix CI
 	e2eshared.RunSuite(t, SetupSuiteS3)
 }
 
@@ -57,14 +58,16 @@ func TestPeerFlowE2ETestSuiteGCS(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSuiteGCS)
 }
 
-func (s PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int) {
-	err := e2e.CreateTableForQRep(s.conn.Conn(), s.suffix, tableName)
-	require.NoError(s.t, err)
-	err = e2e.PopulateSourceTable(s.conn.Conn(), s.suffix, tableName, rowCount)
-	require.NoError(s.t, err)
+func TestPeerFlowE2ETestSuiteMinIO(t *testing.T) {
+	e2eshared.RunSuite(t, SetupSuiteMinIO)
 }
 
-func setupSuite(t *testing.T, gcs bool) PeerFlowE2ETestSuiteS3 {
+func (s PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int) {
+	require.NoError(s.t, e2e.CreateTableForQRep(s.conn.Conn(), s.suffix, tableName))
+	require.NoError(s.t, e2e.PopulateSourceTable(s.conn.Conn(), s.suffix, tableName, rowCount))
+}
+
+func setupSuite(t *testing.T, s3environment S3Environment) PeerFlowE2ETestSuiteS3 {
 	t.Helper()
 
 	suffix := "s3_" + strings.ToLower(shared.RandomString(8))
@@ -73,7 +76,7 @@ func setupSuite(t *testing.T, gcs bool) PeerFlowE2ETestSuiteS3 {
 		require.Fail(t, "failed to setup postgres", err)
 	}
 
-	helper, err := NewS3TestHelper(gcs)
+	helper, err := NewS3TestHelper(s3environment)
 	if err != nil {
 		require.Fail(t, "failed to setup S3", err)
 	}
@@ -97,12 +100,17 @@ func (s PeerFlowE2ETestSuiteS3) Teardown() {
 
 func SetupSuiteS3(t *testing.T) PeerFlowE2ETestSuiteS3 {
 	t.Helper()
-	return setupSuite(t, false)
+	return setupSuite(t, Aws)
 }
 
 func SetupSuiteGCS(t *testing.T) PeerFlowE2ETestSuiteS3 {
 	t.Helper()
-	return setupSuite(t, true)
+	return setupSuite(t, Gcs)
+}
+
+func SetupSuiteMinIO(t *testing.T) PeerFlowE2ETestSuiteS3 {
+	t.Helper()
+	return setupSuite(t, Minio)
 }
 
 func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {

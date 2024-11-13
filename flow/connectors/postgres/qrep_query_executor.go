@@ -115,8 +115,8 @@ func (qe *QRepQueryExecutor) ProcessRows(
 	}
 
 	// Check for any errors encountered during iteration
-	if rows.Err() != nil {
-		return nil, fmt.Errorf("row iteration failed: %w", rows.Err())
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration failed: %w", err)
 	}
 
 	batch := &model.QRecordBatch{

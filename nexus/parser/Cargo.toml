@@ -14,5 +14,5 @@ pgwire.workspace = true
 pt = { path = "../pt" }
 rand = "0.8"
 sqlparser.workspace = true
-tokio = { version = "1", features = ["full"] }
+tokio.workspace = true
 tracing.workspace = true

@@ -72,8 +72,8 @@ impl<'a> CatalogConfig<'a> {
 
 impl Catalog {
     pub async fn new(pt_config: pt::peerdb_peers::PostgresConfig) -> anyhow::Result<Self> {
-        let client = connect_postgres(&pt_config).await?;
-        Ok(Self { pg: client })
+        let (pg, _) = connect_postgres(&pt_config).await?;
+        Ok(Self { pg })
     }
 
     pub async fn run_migrations(&mut self) -> anyhow::Result<()> {
@@ -201,7 +201,7 @@ impl Catalog {
         let stmt = self
             .pg
             .prepare_typed(
-                "SELECT id, name, type, options, enc_key_id FROM public.peers WHERE name = $1",
+                "SELECT name, type, options, enc_key_id FROM public.peers WHERE name = $1",
                 &[],
             )
             .await?;
@@ -516,6 +516,10 @@ impl Catalog {
 
 #[async_trait::async_trait]
 impl QueryExecutor for Catalog {
+    async fn execute_raw(&self, query: &str) -> PgWireResult<QueryOutput> {
+        peer_postgres::pg_execute_raw(&self.pg, query).await
+    }
+
     #[tracing::instrument(skip(self, stmt), fields(stmt = %stmt))]
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
         peer_postgres::pg_execute(&self.pg, ast::PostgresAst { peername: None }, stmt).await
