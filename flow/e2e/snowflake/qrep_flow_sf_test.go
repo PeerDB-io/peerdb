@@ -123,6 +123,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() 
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
+	s.t.Skip("aws s3 broken in ci") // TODO fix
 	tc := e2e.NewTemporalClient(s.t)
 
 	numRows := 10
@@ -199,6 +200,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration() {
+	s.t.Skip("aws s3 broken in ci") // TODO fix
 	tc := e2e.NewTemporalClient(s.t)
 
 	numRows := 10
