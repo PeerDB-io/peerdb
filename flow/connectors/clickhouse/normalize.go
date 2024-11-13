@@ -462,7 +462,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	rawTbl := c.getRawTableName(flowJobName)
 
 	q := fmt.Sprintf(
-		`SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d`,
+		`SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d`,
 		rawTbl, normalizeBatchID, syncBatchID)
 
 	rows, err := c.query(ctx, q)
