@@ -7,10 +7,14 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
+futures-util = { version = "0.3", default-features = false, features = ["io"] }
 pt = { path = "../pt" }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
-urlencoding = "2"
+ssh2.workspace = true
+tokio.workspace = true
 tokio-postgres = "0.7.2"
 tokio-postgres-rustls = "0.13"
-tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+tokio-stream = "0.1"
 tracing.workspace = true
+urlencoding = "2"

@@ -32,7 +32,7 @@ x-flow-worker-env: &flow-worker-env
 services:
   catalog:
     container_name: catalog
-    image: postgres:16-alpine
+    image: postgres:17-alpine@sha256:d388be15cfb665c723da47cccdc7ea5c003ed71f700c5419bbd075033227ce1f
     command: -c config_file=/etc/postgresql.conf
     restart: unless-stopped
     ports:
@@ -68,7 +68,7 @@ services:
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    image: temporalio/auto-setup:1.25
+    image: temporalio/auto-setup:1.25@sha256:b1edc1e20002d958c8182f2ae08dee877a125083683a627a44917683419ba6a8
     ports:
       - 7233:7233
     volumes:
@@ -85,7 +85,7 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CLI_ADDRESS=temporal:7233
       - TEMPORAL_CLI_SHOW_STACKS=1
-    image: temporalio/admin-tools:1.25.2-tctl-1.18.1-cli-1.1.1
+    image: temporalio/admin-tools:1.25.2-tctl-1.18.1-cli-1.1.1@sha256:da0c7a7982b571857173ab8f058e7f139b3054800abb4dcb100445d29a563ee8
     stdin_open: true
     tty: true
     entrypoint: /etc/temporal/entrypoint.sh
@@ -106,13 +106,13 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
-    image: temporalio/ui:2.29.1
+    image: temporalio/ui:2.31.2@sha256:28bb3ea5a6ea3e09f16b521f32ab727c96470f7f1e420c66a6cbfb02001a8aa2
     ports:
       - 8085:8080
 
   flow-api:
     container_name: flow_api
-    image: ghcr.io/peerdb-io/flow-api:latest-dev
+    image: ghcr.io/peerdb-io/flow-api:latest-dev@sha256:a7c7d1cb12f618a747233556820df114acc4d2e737e487bdfdbb0051720710c9
     restart: unless-stopped
     ports:
       - 8112:8112
@@ -128,7 +128,7 @@ services:
 
   flow-snapshot-worker:
     container_name: flow-snapshot-worker
-    image: ghcr.io/peerdb-io/flow-snapshot-worker:latest-dev
+    image: ghcr.io/peerdb-io/flow-snapshot-worker:latest-dev@sha256:9b6db5039e4f73f7d205a40400683ff9ca242dbb2eee405a2e9b056e947c8666
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
@@ -138,7 +138,7 @@ services:
 
   flow-worker:
     container_name: flow-worker
-    image: ghcr.io/peerdb-io/flow-worker:latest-dev
+    image: ghcr.io/peerdb-io/flow-worker:latest-dev@sha256:3b4da6550deacd638e99592b65d9f61191ed020b8268efa52297c3101ab37c16
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
@@ -151,7 +151,7 @@ services:
   peerdb:
     container_name: peerdb-server
     stop_signal: SIGINT
-    image: ghcr.io/peerdb-io/peerdb-server:latest-dev
+    image: ghcr.io/peerdb-io/peerdb-server:latest-dev@sha256:dfb652eebb410198f28e720d04d17c4de0698581d214ce99337ee1efc0874ba4
     restart: unless-stopped
     environment:
       <<: *catalog-config
@@ -167,7 +167,7 @@ services:
 
   peerdb-ui:
     container_name: peerdb-ui
-    image: ghcr.io/peerdb-io/peerdb-ui:latest-dev
+    image: ghcr.io/peerdb-io/peerdb-ui:latest-dev@sha256:cb4d1dbd167c6bdd44e795a33b69ab5001932c7cbd8ac02126b79331022c17a0
     restart: unless-stopped
     ports:
       - 3000:3000
@@ -184,7 +184,7 @@ services:
       - flow-api
 
   minio:
-    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+    image: minio/minio:RELEASE.2024-11-07T00-52-20Z@sha256:ac591851803a79aee64bc37f66d77c56b0a4b6e12d9e5356380f4105510f2332
     restart: unless-stopped
     volumes:
       - minio-data:/data

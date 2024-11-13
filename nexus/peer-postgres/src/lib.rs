@@ -16,16 +16,26 @@ pub mod stream;
 // backing store.
 pub struct PostgresQueryExecutor {
     peername: String,
-    client: Box<Client>,
+    client: Client,
+    session: Option<ssh2::Session>,
 }
 
 impl PostgresQueryExecutor {
     pub async fn new(peername: String, config: &PostgresConfig) -> anyhow::Result<Self> {
-        let client = postgres_connection::connect_postgres(config).await?;
+        let (client, session) = postgres_connection::connect_postgres(config).await?;
         Ok(Self {
             peername,
-            client: Box::new(client),
+            client,
+            session,
         })
+    }
+}
+
+impl Drop for PostgresQueryExecutor {
+    fn drop(&mut self) {
+        if let Some(session) = &mut self.session {
+            session.disconnect(None, "", None).ok();
+        }
     }
 }
 
