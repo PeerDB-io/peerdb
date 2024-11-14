@@ -13,7 +13,7 @@ import (
 func GetWorkflowStatus(ctx context.Context, temporalClient client.Client, workflowID string) (protos.FlowStatus, error) {
 	res, err := temporalClient.QueryWorkflow(ctx, workflowID, "", FlowStatusQuery)
 	if err != nil {
-		slog.Error(fmt.Sprintf("failed to query status in workflow with ID %s: %s", workflowID, err.Error()))
+		slog.Error("failed to query status in workflow with ID "+workflowID, slog.Any("error", err))
 		return protos.FlowStatus_STATUS_UNKNOWN,
 			fmt.Errorf("failed to query status in workflow with ID %s: %w", workflowID, err)
 	}
