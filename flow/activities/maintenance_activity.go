@@ -152,11 +152,12 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *
 	}
 
 	return RunEveryIntervalUntilFinish(ctx, func() (bool, bool, error) {
-		activity.RecordHeartbeat(ctx, "Waiting for mirror to pause with current status "+mirrorStatus.String())
-		if err := model.FlowSignal.SignalClientWorkflow(ctx, a.TemporalClient, mirror.WorkflowId, "", model.PauseSignal); err != nil {
+		updatedMirrorStatus, statusErr := a.getMirrorStatus(ctx, mirror)
+		activity.RecordHeartbeat(ctx, "Waiting for mirror to pause with current status "+updatedMirrorStatus.String())
+		if err := model.FlowSignal.SignalClientWorkflow(ctx, a.TemporalClient, mirror.WorkflowId, "", model.PauseSignal); statusErr != nil {
 			return false, false, err
 		}
-		if mirrorStatus == protos.FlowStatus_STATUS_PAUSED {
+		if updatedMirrorStatus == protos.FlowStatus_STATUS_PAUSED {
 			return true, true, nil
 		}
 		return false, false, nil
@@ -270,7 +271,7 @@ func RunEveryIntervalUntilFinish[T any](
 				return lastResult, err
 			}
 			if finished {
-				return result, err
+				return lastResult, err
 			}
 		case <-logTicker.C:
 			slog.Info(logMessage, "lastResult", lastResult)
