@@ -88,9 +88,12 @@ func startMaintenance(ctx workflow.Context, logger log.Logger) (*protos.StartMai
 		return nil, err
 	}
 
-	enableMaintenanceFuture := workflow.ExecuteActivity(ctx, maintenance.EnableMaintenanceMode)
+	enableCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+	})
+	enableMaintenanceFuture := workflow.ExecuteActivity(enableCtx, maintenance.EnableMaintenanceMode)
 
-	if err := enableMaintenanceFuture.Get(ctx, nil); err != nil {
+	if err := enableMaintenanceFuture.Get(enableCtx, nil); err != nil {
 		return nil, err
 	}
 
@@ -113,9 +116,12 @@ func startMaintenance(ctx workflow.Context, logger log.Logger) (*protos.StartMai
 		return nil, err
 	}
 
-	future := workflow.ExecuteActivity(ctx, maintenance.BackupAllPreviouslyRunningFlows, runningMirrors)
+	backupCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 2 * time.Minute,
+	})
+	future := workflow.ExecuteActivity(backupCtx, maintenance.BackupAllPreviouslyRunningFlows, runningMirrors)
 
-	if err := future.Get(ctx, nil); err != nil {
+	if err := future.Get(backupCtx, nil); err != nil {
 		return nil, err
 	}
 	version, err := GetPeerDBVersion(ctx)
@@ -175,6 +181,9 @@ func pauseAndGetRunningMirrors(
 }
 
 func getAllMirrors(ctx workflow.Context) (*protos.MaintenanceMirrors, error) {
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 2 * time.Minute,
+	})
 	getMirrorsFuture := workflow.ExecuteActivity(ctx, maintenance.GetAllMirrors)
 	var mirrorsList protos.MaintenanceMirrors
 	err := getMirrorsFuture.Get(ctx, &mirrorsList)
@@ -212,8 +221,12 @@ func endMaintenance(ctx workflow.Context, logger log.Logger) (*protos.EndMainten
 
 	logger.Info("Resumed backed up mirrors", "mirrors", mirrorsList)
 
-	future := workflow.ExecuteActivity(ctx, maintenance.DisableMaintenanceMode)
-	if err := future.Get(ctx, nil); err != nil {
+	disableCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+	})
+
+	future := workflow.ExecuteActivity(disableCtx, maintenance.DisableMaintenanceMode)
+	if err := future.Get(disableCtx, nil); err != nil {
 		return nil, err
 	}
 	logger.Info("Disabled maintenance mode")
@@ -230,6 +243,9 @@ func endMaintenance(ctx workflow.Context, logger log.Logger) (*protos.EndMainten
 
 func resumeBackedUpMirrors(ctx workflow.Context, logger log.Logger) (*protos.MaintenanceMirrors, error) {
 	future := workflow.ExecuteActivity(ctx, maintenance.GetBackedUpFlows)
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+	})
 	var mirrorsList *protos.MaintenanceMirrors
 	err := future.Get(ctx, &mirrorsList)
 	if err != nil {
