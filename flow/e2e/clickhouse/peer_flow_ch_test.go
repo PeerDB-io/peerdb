@@ -505,7 +505,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	})
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	// now test weird names with rename based resync
-	ch, err := connclickhouse.Connect(context.Background(), s.Peer().GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(context.Background(), nil, s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
 	require.NoError(s.t, ch.Exec(context.Background(), fmt.Sprintf("DROP TABLE `%s`", dstTableName)))
 	require.NoError(s.t, ch.Close())
@@ -523,7 +523,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	})
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	// now test weird names with exchange based resync
-	ch, err = connclickhouse.Connect(context.Background(), s.Peer().GetClickhouseConfig())
+	ch, err = connclickhouse.Connect(context.Background(), nil, s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
 	require.NoError(s.t, ch.Exec(context.Background(), fmt.Sprintf("TRUNCATE TABLE `%s`", dstTableName)))
 	require.NoError(s.t, ch.Close())

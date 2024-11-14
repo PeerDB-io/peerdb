@@ -92,7 +92,7 @@ func (s ClickHouseSuite) Teardown() {
 }
 
 func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch, error) {
-	ch, err := connclickhouse.Connect(context.Background(), s.Peer().GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(context.Background(), nil, s.Peer().GetClickhouseConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +203,7 @@ func SetupSuite(t *testing.T) ClickHouseSuite {
 		s3Helper: s3Helper,
 	}
 
-	ch, err := connclickhouse.Connect(context.Background(), s.PeerForDatabase("default").GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(context.Background(), nil, s.PeerForDatabase("default").GetClickhouseConfig())
 	require.NoError(t, err, "failed to connect to clickhouse")
 	err = ch.Exec(context.Background(), "CREATE DATABASE e2e_test_"+suffix)
 	require.NoError(t, err, "failed to create clickhouse database")
