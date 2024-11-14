@@ -274,6 +274,13 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 	if err != nil {
 		return fmt.Errorf("failed to setup replication: %w", err)
 	}
+	defer func() {
+		dCtx, cancel := workflow.NewDisconnectedContext(ctx)
+		defer cancel()
+		if err := s.closeSlotKeepAlive(dCtx); err != nil {
+			s.logger.Error("failed to close slot keep alive", slog.Any("error", err))
+		}
+	}()
 
 	s.logger.Info(fmt.Sprintf("cloning %d tables in parallel", numTablesInParallel))
 	if err := s.cloneTables(ctx,
@@ -283,11 +290,8 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 		slotInfo.SupportsTidScans,
 		numTablesInParallel,
 	); err != nil {
+		s.logger.Error("failed to clone tables", slog.Any("error", err))
 		return fmt.Errorf("failed to clone tables: %w", err)
-	}
-
-	if err := s.closeSlotKeepAlive(sessionCtx); err != nil {
-		return fmt.Errorf("failed to close slot keep alive: %w", err)
 	}
 
 	return nil
