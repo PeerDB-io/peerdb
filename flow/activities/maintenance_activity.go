@@ -153,9 +153,13 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *
 
 	return RunEveryIntervalUntilFinish(ctx, func() (bool, bool, error) {
 		updatedMirrorStatus, statusErr := a.getMirrorStatus(ctx, mirror)
+		if statusErr != nil {
+			return false, false, statusErr
+		}
 		activity.RecordHeartbeat(ctx, "Waiting for mirror to pause with current status "+updatedMirrorStatus.String())
-		if err := model.FlowSignal.SignalClientWorkflow(ctx, a.TemporalClient, mirror.WorkflowId, "", model.PauseSignal); statusErr != nil {
-			return false, false, err
+		if statusErr := model.FlowSignal.SignalClientWorkflow(ctx, a.TemporalClient, mirror.WorkflowId, "",
+			model.PauseSignal); statusErr != nil {
+			return false, false, statusErr
 		}
 		if updatedMirrorStatus == protos.FlowStatus_STATUS_PAUSED {
 			return true, true, nil
