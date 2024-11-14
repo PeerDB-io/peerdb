@@ -289,9 +289,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	if err != nil {
 		return nil, err
 	}
-	if parallelNormalize >= len(destinationTableNames) {
-		parallelNormalize = len(destinationTableNames)
-	}
+	parallelNormalize = min(max(parallelNormalize, 1), len(destinationTableNames))
 	if parallelNormalize > 1 {
 		c.logger.Info("normalizing in parallel", slog.Int("connections", parallelNormalize))
 	}
