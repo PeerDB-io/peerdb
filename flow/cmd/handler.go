@@ -19,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
@@ -327,6 +328,17 @@ func (h *FlowRequestHandler) FlowStateChange(
 ) (*protos.FlowStateChangeResponse, error) {
 	logs := slog.String("flowJobName", req.FlowJobName)
 	slog.Info("FlowStateChange called", logs, slog.Any("req", req))
+	underMaintenance, err := peerdbenv.PeerDBMaintenanceModeEnabled(ctx, nil)
+	if err != nil {
+		slog.Error("unable to check maintenance mode", logs, slog.Any("error", err))
+		return nil, fmt.Errorf("unable to load dynamic config: %w", err)
+	}
+
+	if underMaintenance {
+		slog.Warn("Flow state change request denied due to maintenance", logs)
+		return nil, errors.New("PeerDB is under maintenance")
+	}
+
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
 		slog.Error("[flow-state-change] unable to get workflowID", logs, slog.Any("error", err))
@@ -488,6 +500,14 @@ func (h *FlowRequestHandler) ResyncMirror(
 	ctx context.Context,
 	req *protos.ResyncMirrorRequest,
 ) (*protos.ResyncMirrorResponse, error) {
+	underMaintenance, err := peerdbenv.PeerDBMaintenanceModeEnabled(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get maintenance mode status: %w", err)
+	}
+	if underMaintenance {
+		return nil, errors.New("PeerDB is under maintenance")
+	}
+
 	isCDC, err := h.isCDCFlow(ctx, req.FlowJobName)
 	if err != nil {
 		return nil, err
@@ -520,4 +540,50 @@ func (h *FlowRequestHandler) ResyncMirror(
 		return nil, err
 	}
 	return &protos.ResyncMirrorResponse{}, nil
+}
+
+func (h *FlowRequestHandler) GetInstanceInfo(ctx context.Context, in *protos.InstanceInfoRequest) (*protos.InstanceInfoResponse, error) {
+	enabled, err := peerdbenv.PeerDBMaintenanceModeEnabled(ctx, nil)
+	if err != nil {
+		slog.Error("unable to get maintenance mode status", slog.Any("error", err))
+		return &protos.InstanceInfoResponse{
+			Status: protos.InstanceStatus_INSTANCE_STATUS_UNKNOWN,
+		}, fmt.Errorf("unable to get maintenance mode status: %w", err)
+	}
+	if enabled {
+		return &protos.InstanceInfoResponse{
+			Status: protos.InstanceStatus_INSTANCE_STATUS_MAINTENANCE,
+		}, nil
+	}
+	return &protos.InstanceInfoResponse{
+		Status: protos.InstanceStatus_INSTANCE_STATUS_READY,
+	}, nil
+}
+
+func (h *FlowRequestHandler) Maintenance(ctx context.Context, in *protos.MaintenanceRequest) (*protos.MaintenanceResponse, error) {
+	taskQueueId := shared.MaintenanceFlowTaskQueue
+	if in.UsePeerflowTaskQueue {
+		taskQueueId = shared.PeerFlowTaskQueue
+	}
+	switch {
+	case in.Status == protos.MaintenanceStatus_MAINTENANCE_STATUS_START:
+		workflowRun, err := peerflow.RunStartMaintenanceWorkflow(ctx, h.temporalClient, &protos.StartMaintenanceFlowInput{}, taskQueueId)
+		if err != nil {
+			return nil, err
+		}
+		return &protos.MaintenanceResponse{
+			WorkflowId: workflowRun.GetID(),
+			RunId:      workflowRun.GetRunID(),
+		}, nil
+	case in.Status == protos.MaintenanceStatus_MAINTENANCE_STATUS_END:
+		workflowRun, err := peerflow.RunEndMaintenanceWorkflow(ctx, h.temporalClient, &protos.EndMaintenanceFlowInput{}, taskQueueId)
+		if err != nil {
+			return nil, err
+		}
+		return &protos.MaintenanceResponse{
+			WorkflowId: workflowRun.GetID(),
+			RunId:      workflowRun.GetRunID(),
+		}, nil
+	}
+	return nil, errors.New("invalid maintenance status")
 }

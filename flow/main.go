@@ -70,6 +70,60 @@ func main() {
 		Sources: cli.EnvVars("TEMPORAL_MAX_CONCURRENT_WORKFLOW_TASKS"),
 	}
 
+	maintenanceModeWorkflowFlag := &cli.StringFlag{
+		Name:    "run-maintenance-flow",
+		Value:   "",
+		Usage:   "Run a maintenance flow. Options are 'start' or 'end'",
+		Sources: cli.EnvVars("RUN_MAINTENANCE_FLOW"),
+	}
+
+	maintenanceSkipOnApiVersionMatchFlag := &cli.BoolFlag{
+		Name:    "skip-on-api-version-match",
+		Value:   false,
+		Usage:   "Skip maintenance flow if the API version matches",
+		Sources: cli.EnvVars("MAINTENANCE_SKIP_ON_API_VERSION_MATCH"),
+	}
+
+	maintenanceSkipOnNoMirrorsFlag := &cli.BoolFlag{
+		Name:    "skip-on-no-mirrors",
+		Value:   false,
+		Usage:   "Skip maintenance flow if there are no mirrors",
+		Sources: cli.EnvVars("MAINTENANCE_SKIP_ON_NO_MIRRORS"),
+	}
+
+	flowGrpcAddressFlag := &cli.StringFlag{
+		Name:    "flow-grpc-address",
+		Value:   "",
+		Usage:   "Address of the flow gRPC server",
+		Sources: cli.EnvVars("FLOW_GRPC_ADDRESS"),
+	}
+
+	flowTlsEnabledFlag := &cli.BoolFlag{
+		Name:    "flow-tls-enabled",
+		Value:   false,
+		Usage:   "Enable TLS for the flow gRPC server",
+		Sources: cli.EnvVars("FLOW_TLS_ENABLED"),
+	}
+
+	useMaintenanceTaskQueueFlag := &cli.BoolFlag{
+		Name:    "use-maintenance-task-queue",
+		Value:   false,
+		Usage:   "Use the maintenance task queue for the worker",
+		Sources: cli.EnvVars("USE_MAINTENANCE_TASK_QUEUE"),
+	}
+
+	assumedSkippedMaintenanceWorkflowsFlag := &cli.BoolFlag{
+		Name:  "assume-skipped-workflow",
+		Value: false,
+		Usage: "Skip running maintenance workflows and simply output to catalog",
+	}
+
+	skipIfK8sServiceMissingFlag := &cli.StringFlag{
+		Name:  "skip-if-k8s-service-missing",
+		Value: "",
+		Usage: "Skip maintenance if the k8s service is missing, generally used during pre-upgrade hook",
+	}
+
 	app := &cli.Command{
 		Name: "PeerDB Flows CLI",
 		Commands: []*cli.Command{
@@ -85,6 +139,7 @@ func main() {
 						TemporalNamespace:                  clicmd.String("temporal-namespace"),
 						TemporalMaxConcurrentActivities:    int(clicmd.Int("temporal-max-concurrent-activities")),
 						TemporalMaxConcurrentWorkflowTasks: int(clicmd.Int("temporal-max-concurrent-workflow-tasks")),
+						UseMaintenanceTaskQueue:            clicmd.Bool(useMaintenanceTaskQueueFlag.Name),
 					})
 					if err != nil {
 						return err
@@ -100,6 +155,7 @@ func main() {
 					temporalNamespaceFlag,
 					temporalMaxConcurrentActivitiesFlag,
 					temporalMaxConcurrentWorkflowTasksFlag,
+					useMaintenanceTaskQueueFlag,
 				},
 			},
 			{
@@ -148,6 +204,37 @@ func main() {
 					})
 				},
 			},
+			{
+				Name: "maintenance",
+				Flags: []cli.Flag{
+					temporalHostPortFlag,
+					temporalNamespaceFlag,
+					maintenanceModeWorkflowFlag,
+					maintenanceSkipOnApiVersionMatchFlag,
+					maintenanceSkipOnNoMirrorsFlag,
+					flowGrpcAddressFlag,
+					flowTlsEnabledFlag,
+					useMaintenanceTaskQueueFlag,
+					assumedSkippedMaintenanceWorkflowsFlag,
+					skipIfK8sServiceMissingFlag,
+				},
+				Action: func(ctx context.Context, clicmd *cli.Command) error {
+					temporalHostPort := clicmd.String("temporal-host-port")
+
+					return cmd.MaintenanceMain(ctx, &cmd.MaintenanceCLIParams{
+						TemporalHostPort:                  temporalHostPort,
+						TemporalNamespace:                 clicmd.String(temporalNamespaceFlag.Name),
+						Mode:                              clicmd.String(maintenanceModeWorkflowFlag.Name),
+						SkipOnApiVersionMatch:             clicmd.Bool(maintenanceSkipOnApiVersionMatchFlag.Name),
+						SkipOnNoMirrors:                   clicmd.Bool(maintenanceSkipOnNoMirrorsFlag.Name),
+						FlowGrpcAddress:                   clicmd.String(flowGrpcAddressFlag.Name),
+						FlowTlsEnabled:                    clicmd.Bool(flowTlsEnabledFlag.Name),
+						UseMaintenanceTaskQueue:           clicmd.Bool(useMaintenanceTaskQueueFlag.Name),
+						AssumeSkippedMaintenanceWorkflows: clicmd.Bool(assumedSkippedMaintenanceWorkflowsFlag.Name),
+						SkipIfK8sServiceMissing:           clicmd.String(skipIfK8sServiceMissingFlag.Name),
+					})
+				},
+			},
 		},
 	}
 
@@ -164,5 +251,6 @@ func main() {
 
 	if err := app.Run(appCtx, os.Args); err != nil {
 		log.Printf("error running app: %+v", err)
+		panic(err)
 	}
 }

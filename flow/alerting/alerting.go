@@ -377,10 +377,10 @@ func (a *Alerter) sendTelemetryMessage(
 	}
 
 	if a.snsTelemetrySender != nil {
-		if status, err := a.snsTelemetrySender.SendMessage(ctx, details, details, attributes); err != nil {
+		if response, err := a.snsTelemetrySender.SendMessage(ctx, details, details, attributes); err != nil {
 			logger.Warn("failed to send message to snsTelemetrySender", slog.Any("error", err))
 		} else {
-			logger.Info("received status from snsTelemetrySender", slog.String("status", status))
+			logger.Info("received response from snsTelemetrySender", slog.String("response", response))
 		}
 	}
 
@@ -388,7 +388,7 @@ func (a *Alerter) sendTelemetryMessage(
 		if status, err := a.incidentIoTelemetrySender.SendMessage(ctx, details, details, attributes); err != nil {
 			logger.Warn("failed to send message to incidentIoTelemetrySender", slog.Any("error", err))
 		} else {
-			logger.Info("received status from incident.io", slog.String("status", status))
+			logger.Info("received response from incident.io", slog.String("response", status))
 		}
 	}
 }

@@ -8,8 +8,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/aws/smithy-go/ptr"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/exp/constraints"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -186,6 +188,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
+	{
+		Name:             "PEERDB_MAINTENANCE_MODE_ENABLED",
+		Description:      "Whether PeerDB is in maintenance mode, which disables any modifications to mirrors",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -265,6 +275,20 @@ func dynamicConfBool(ctx context.Context, env map[string]string, key string) (bo
 	}
 
 	return value, nil
+}
+
+func UpdateDynamicSetting(ctx context.Context, pool *pgxpool.Pool, name string, value *string) error {
+	if pool == nil {
+		var err error
+		pool, err = GetCatalogConnectionPoolFromEnv(ctx)
+		if err != nil {
+			shared.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool for dynamic setting update", slog.Any("error", err))
+			return fmt.Errorf("failed to get catalog connection pool: %w", err)
+		}
+	}
+	_, err := pool.Exec(ctx, `insert into dynamic_settings (config_name, config_value) values ($1, $2)
+			on conflict (config_name) do update set config_value = $2`, name, value)
+	return err
 }
 
 // PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD, 0 disables slot lag alerting entirely
@@ -363,4 +387,12 @@ func PeerDBIntervalSinceLastNormalizeThresholdMinutes(ctx context.Context, env m
 
 func PeerDBApplicationNamePerMirrorName(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_APPLICATION_NAME_PER_MIRROR_NAME")
+}
+
+func PeerDBMaintenanceModeEnabled(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_MAINTENANCE_MODE_ENABLED")
+}
+
+func UpdatePeerDBMaintenanceModeEnabled(ctx context.Context, pool *pgxpool.Pool, enabled bool) error {
+	return UpdateDynamicSetting(ctx, pool, "PEERDB_MAINTENANCE_MODE_ENABLED", ptr.String(strconv.FormatBool(enabled)))
 }
