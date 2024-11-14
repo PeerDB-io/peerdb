@@ -56,6 +56,8 @@ const (
 	FlowService_ListPeers_FullMethodName           = "/peerdb_route.FlowService/ListPeers"
 	FlowService_GetVersion_FullMethodName          = "/peerdb_route.FlowService/GetVersion"
 	FlowService_ResyncMirror_FullMethodName        = "/peerdb_route.FlowService/ResyncMirror"
+	FlowService_GetInstanceInfo_FullMethodName     = "/peerdb_route.FlowService/GetInstanceInfo"
+	FlowService_Maintenance_FullMethodName         = "/peerdb_route.FlowService/Maintenance"
 )
 
 // FlowServiceClient is the client API for FlowService service.
@@ -99,6 +101,8 @@ type FlowServiceClient interface {
 	ListPeers(ctx context.Context, in *ListPeersRequest, opts ...grpc.CallOption) (*ListPeersResponse, error)
 	GetVersion(ctx context.Context, in *PeerDBVersionRequest, opts ...grpc.CallOption) (*PeerDBVersionResponse, error)
 	ResyncMirror(ctx context.Context, in *ResyncMirrorRequest, opts ...grpc.CallOption) (*ResyncMirrorResponse, error)
+	GetInstanceInfo(ctx context.Context, in *InstanceInfoRequest, opts ...grpc.CallOption) (*InstanceInfoResponse, error)
+	Maintenance(ctx context.Context, in *MaintenanceRequest, opts ...grpc.CallOption) (*MaintenanceResponse, error)
 }
 
 type flowServiceClient struct {
@@ -442,6 +446,24 @@ func (c *flowServiceClient) ResyncMirror(ctx context.Context, in *ResyncMirrorRe
 	return out, nil
 }
 
+func (c *flowServiceClient) GetInstanceInfo(ctx context.Context, in *InstanceInfoRequest, opts ...grpc.CallOption) (*InstanceInfoResponse, error) {
+	out := new(InstanceInfoResponse)
+	err := c.cc.Invoke(ctx, FlowService_GetInstanceInfo_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) Maintenance(ctx context.Context, in *MaintenanceRequest, opts ...grpc.CallOption) (*MaintenanceResponse, error) {
+	out := new(MaintenanceResponse)
+	err := c.cc.Invoke(ctx, FlowService_Maintenance_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FlowServiceServer is the server API for FlowService service.
 // All implementations must embed UnimplementedFlowServiceServer
 // for forward compatibility
@@ -483,6 +505,8 @@ type FlowServiceServer interface {
 	ListPeers(context.Context, *ListPeersRequest) (*ListPeersResponse, error)
 	GetVersion(context.Context, *PeerDBVersionRequest) (*PeerDBVersionResponse, error)
 	ResyncMirror(context.Context, *ResyncMirrorRequest) (*ResyncMirrorResponse, error)
+	GetInstanceInfo(context.Context, *InstanceInfoRequest) (*InstanceInfoResponse, error)
+	Maintenance(context.Context, *MaintenanceRequest) (*MaintenanceResponse, error)
 	mustEmbedUnimplementedFlowServiceServer()
 }
 
@@ -600,6 +624,12 @@ func (UnimplementedFlowServiceServer) GetVersion(context.Context, *PeerDBVersion
 }
 func (UnimplementedFlowServiceServer) ResyncMirror(context.Context, *ResyncMirrorRequest) (*ResyncMirrorResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResyncMirror not implemented")
+}
+func (UnimplementedFlowServiceServer) GetInstanceInfo(context.Context, *InstanceInfoRequest) (*InstanceInfoResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetInstanceInfo not implemented")
+}
+func (UnimplementedFlowServiceServer) Maintenance(context.Context, *MaintenanceRequest) (*MaintenanceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Maintenance not implemented")
 }
 func (UnimplementedFlowServiceServer) mustEmbedUnimplementedFlowServiceServer() {}
 
@@ -1280,6 +1310,42 @@ func _FlowService_ResyncMirror_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_GetInstanceInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InstanceInfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).GetInstanceInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_GetInstanceInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).GetInstanceInfo(ctx, req.(*InstanceInfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_Maintenance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MaintenanceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).Maintenance(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_Maintenance_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).Maintenance(ctx, req.(*MaintenanceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // FlowService_ServiceDesc is the grpc.ServiceDesc for FlowService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1434,6 +1500,14 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResyncMirror",
 			Handler:    _FlowService_ResyncMirror_Handler,
+		},
+		{
+			MethodName: "GetInstanceInfo",
+			Handler:    _FlowService_GetInstanceInfo_Handler,
+		},
+		{
+			MethodName: "Maintenance",
+			Handler:    _FlowService_Maintenance_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
