@@ -216,15 +216,13 @@ func ReadLastMaintenanceOutput(ctx context.Context) (*StartMaintenanceResult, er
 	if err != nil {
 		return nil, err
 	}
-	row := pool.QueryRow(ctx, `
+	var result StartMaintenanceResult
+	if err := pool.QueryRow(ctx, `
 	select cli_version, api_version, skipped, skipped_reason
 	from maintenance.start_maintenance_outputs
 	order by created_at desc
 	limit 1
-	`)
-	var result StartMaintenanceResult
-	err = row.Scan(&result.CLIVersion, &result.APIVersion, &result.Skipped, &result.SkippedReason)
-	if err != nil {
+	`).Scan(&result.CLIVersion, &result.APIVersion, &result.Skipped, &result.SkippedReason); err != nil {
 		return nil, err
 	}
 	return &result, nil

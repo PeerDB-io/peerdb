@@ -89,20 +89,10 @@ func (a *MaintenanceActivity) checkAndWaitIfSnapshot(
 			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId)
 		time.Sleep(30 * time.Second)
 	}
-	mirrorStatus, err := a.getMirrorStatus(ctx, mirror)
-	if err != nil {
-		return mirrorStatus, err
-	}
-
-	slog.Info("Checking and waiting if mirror is snapshot", "mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "status",
-		mirrorStatus.String())
-	if mirrorStatus != protos.FlowStatus_STATUS_SNAPSHOT && mirrorStatus != protos.FlowStatus_STATUS_SETUP {
-		return mirrorStatus, nil
-	}
 
 	flowStatus, err := RunEveryIntervalUntilFinish(ctx, func() (bool, protos.FlowStatus, error) {
 		activity.RecordHeartbeat(ctx, fmt.Sprintf("Waiting for mirror %s to finish snapshot", mirror.MirrorName))
-		mirrorStatus, err = a.getMirrorStatus(ctx, mirror)
+		mirrorStatus, err := a.getMirrorStatus(ctx, mirror)
 		if err != nil {
 			return false, mirrorStatus, err
 		}
@@ -155,8 +145,7 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *
 
 	slog.Info("Pausing mirror for maintenance", "mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId)
 
-	err = model.FlowSignal.SignalClientWorkflow(ctx, a.TemporalClient, mirror.WorkflowId, "", model.PauseSignal)
-	if err != nil {
+	if err := model.FlowSignal.SignalClientWorkflow(ctx, a.TemporalClient, mirror.WorkflowId, "", model.PauseSignal); err != nil {
 		slog.Error("Error signaling mirror running to pause for maintenance",
 			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "error", err)
 		return false, err
@@ -164,8 +153,7 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *
 
 	return RunEveryIntervalUntilFinish(ctx, func() (bool, bool, error) {
 		activity.RecordHeartbeat(ctx, "Waiting for mirror to pause with current status "+mirrorStatus.String())
-		mirrorStatus, err = a.getMirrorStatus(ctx, mirror)
-		if err != nil {
+		if err := model.FlowSignal.SignalClientWorkflow(ctx, a.TemporalClient, mirror.WorkflowId, "", model.PauseSignal); err != nil {
 			return false, false, err
 		}
 		if mirrorStatus == protos.FlowStatus_STATUS_PAUSED {
