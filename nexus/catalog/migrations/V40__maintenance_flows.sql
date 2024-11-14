@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS maintenance.maintenance_flows
     to_version      TEXT
 );
 
+CREATE INDEX IF NOT EXISTS idx_maintenance_flows_state ON maintenance.maintenance_flows (state);
+
 CREATE TABLE IF NOT EXISTS maintenance.start_maintenance_outputs
 (
     id             SERIAL PRIMARY KEY,

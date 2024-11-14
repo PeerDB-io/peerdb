@@ -15,6 +15,19 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
+func getMaintenanceWorkflowOptions(workflowIDPrefix string, taskQueueId shared.TaskQueueID) client.StartWorkflowOptions {
+	maintenanceWorkflowOptions := client.StartWorkflowOptions{
+		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+		WorkflowIDConflictPolicy: tEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		TaskQueue:                peerdbenv.PeerFlowTaskQueueName(taskQueueId),
+		ID:                       workflowIDPrefix,
+	}
+	if deploymentUid := peerdbenv.PeerDBDeploymentUID(); deploymentUid != "" {
+		maintenanceWorkflowOptions.ID += "-" + deploymentUid
+	}
+	return maintenanceWorkflowOptions
+}
+
 // RunStartMaintenanceWorkflow is a helper function to start the StartMaintenanceWorkflow with sane defaults
 func RunStartMaintenanceWorkflow(
 	ctx context.Context,
@@ -22,17 +35,8 @@ func RunStartMaintenanceWorkflow(
 	input *protos.StartMaintenanceFlowInput,
 	taskQueueId shared.TaskQueueID,
 ) (client.WorkflowRun, error) {
-	startWorkflowOptions := client.StartWorkflowOptions{
-		// This is to ensure that maintenance workflows are deduped
-		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: tEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		TaskQueue:                peerdbenv.PeerFlowTaskQueueName(taskQueueId),
-	}
-	startWorkflowOptions.ID = "start-maintenance"
-	if deploymentUid := peerdbenv.PeerDBDeploymentUID(); deploymentUid != "" {
-		startWorkflowOptions.ID += "-" + deploymentUid
-	}
-	workflowRun, err := temporalClient.ExecuteWorkflow(ctx, startWorkflowOptions, StartMaintenanceWorkflow, input)
+	workflowOptions := getMaintenanceWorkflowOptions("start-maintenance", taskQueueId)
+	workflowRun, err := temporalClient.ExecuteWorkflow(ctx, workflowOptions, StartMaintenanceWorkflow, input)
 	if err != nil {
 		return nil, err
 	}
@@ -46,18 +50,8 @@ func RunEndMaintenanceWorkflow(
 	input *protos.EndMaintenanceFlowInput,
 	taskQueueId shared.TaskQueueID,
 ) (client.WorkflowRun, error) {
-	startWorkflowOptions := client.StartWorkflowOptions{
-		// This is to ensure that maintenance workflows are deduped
-		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: tEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		TaskQueue:                peerdbenv.PeerFlowTaskQueueName(taskQueueId),
-	}
-	startWorkflowOptions.ID = "end-maintenance"
-	if deploymentUid := peerdbenv.PeerDBDeploymentUID(); deploymentUid != "" {
-		startWorkflowOptions.ID += "-" + deploymentUid
-	}
-
-	workflowRun, err := temporalClient.ExecuteWorkflow(ctx, startWorkflowOptions, EndMaintenanceWorkflow, &protos.EndMaintenanceFlowInput{})
+	workflowOptions := getMaintenanceWorkflowOptions("end-maintenance", taskQueueId)
+	workflowRun, err := temporalClient.ExecuteWorkflow(ctx, workflowOptions, EndMaintenanceWorkflow, &protos.EndMaintenanceFlowInput{})
 	if err != nil {
 		return nil, err
 	}
