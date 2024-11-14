@@ -133,6 +133,10 @@ func pauseAndGetRunningMirrors(
 	mirrorsList *protos.MaintenanceMirrors,
 	logger log.Logger,
 ) (*protos.MaintenanceMirrors, error) {
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 24 * time.Hour,
+		HeartbeatTimeout:    1 * time.Minute,
+	})
 	selector := workflow.NewSelector(ctx)
 	runningMirrors := make([]bool, len(mirrorsList.Mirrors))
 	for i, mirror := range mirrorsList.Mirrors {
