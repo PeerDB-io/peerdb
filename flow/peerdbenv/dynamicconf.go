@@ -173,6 +173,22 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name:             "PEERDB_CLICKHOUSE_MAX_INSERT_THREADS",
+		Description:      "Configures max_insert_threads setting on clickhouse for inserting into destination table. Setting left unset when 0",
+		DefaultValue:     "0",
+		ValueType:        protos.DynconfValueType_UINT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		Name:             "PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE",
+		Description:      "Divide tables in batch into N insert selects. Helps distribute load to multiple nodes",
+		DefaultValue:     "0",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_INTERVAL_SINCE_LAST_NORMALIZE_THRESHOLD_MINUTES",
 		Description:      "Duration in minutes since last normalize to start alerting, 0 disables all alerting entirely",
 		DefaultValue:     "240",
@@ -248,8 +264,8 @@ func dynamicConfSigned[T constraints.Signed](ctx context.Context, env map[string
 		return strconv.ParseInt(value, 10, 64)
 	})
 	if err != nil {
-		shared.LoggerFromCtx(ctx).Error("Failed to parse as int64", slog.Any("error", err))
-		return 0, fmt.Errorf("failed to parse as int64: %w", err)
+		shared.LoggerFromCtx(ctx).Error("Failed to parse as int64", slog.String("key", key), slog.Any("error", err))
+		return 0, fmt.Errorf("failed to parse %s as int64: %w", key, err)
 	}
 
 	return T(value), nil
@@ -260,8 +276,8 @@ func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, env map[st
 		return strconv.ParseUint(value, 10, 64)
 	})
 	if err != nil {
-		shared.LoggerFromCtx(ctx).Error("Failed to parse as uint64", slog.Any("error", err))
-		return 0, fmt.Errorf("failed to parse as uint64: %w", err)
+		shared.LoggerFromCtx(ctx).Error("Failed to parse as uint64", slog.String("key", key), slog.Any("error", err))
+		return 0, fmt.Errorf("failed to parse %s as uint64: %w", key, err)
 	}
 
 	return T(value), nil
@@ -270,8 +286,8 @@ func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, env map[st
 func dynamicConfBool(ctx context.Context, env map[string]string, key string) (bool, error) {
 	value, err := dynLookupConvert(ctx, env, key, strconv.ParseBool)
 	if err != nil {
-		shared.LoggerFromCtx(ctx).Error("Failed to parse bool", slog.Any("error", err))
-		return false, fmt.Errorf("failed to parse bool: %w", err)
+		shared.LoggerFromCtx(ctx).Error("Failed to parse bool", slog.String("key", key), slog.Any("error", err))
+		return false, fmt.Errorf("failed to parse %s as bool: %w", key, err)
 	}
 
 	return value, nil
@@ -360,6 +376,14 @@ func PeerDBNullable(ctx context.Context, env map[string]string) (bool, error) {
 
 func PeerDBEnableClickHousePrimaryUpdate(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_ENABLE_PRIMARY_UPDATE")
+}
+
+func PeerDBClickHouseMaxInsertThreads(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_CLICKHOUSE_MAX_INSERT_THREADS")
+}
+
+func PeerDBClickHouseParallelNormalize(ctx context.Context, env map[string]string) (int, error) {
+	return dynamicConfSigned[int](ctx, env, "PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE")
 }
 
 func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string) (int64, error) {
