@@ -275,7 +275,7 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 		return fmt.Errorf("failed to setup replication: %w", err)
 	}
 	defer func() {
-		dCtx, cancel := workflow.NewDisconnectedContext(ctx)
+		dCtx, cancel := workflow.NewDisconnectedContext(sessionCtx)
 		defer cancel()
 		if err := s.closeSlotKeepAlive(dCtx); err != nil {
 			s.logger.Error("failed to close slot keep alive", slog.Any("error", err))
