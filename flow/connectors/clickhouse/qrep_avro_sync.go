@@ -60,6 +60,7 @@ func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 
 func (s *ClickHouseAvroSyncMethod) SyncRecords(
 	ctx context.Context,
+	env map[string]string,
 	stream *model.QRecordStream,
 	flowJobName string,
 	syncBatchID int64,
@@ -76,7 +77,7 @@ func (s *ClickHouseAvroSyncMethod) SyncRecords(
 	}
 
 	batchIdentifierForFile := fmt.Sprintf("%s_%d", shared.RandomString(16), syncBatchID)
-	avroFile, err := s.writeToAvroFile(ctx, stream, avroSchema, batchIdentifierForFile, flowJobName)
+	avroFile, err := s.writeToAvroFile(ctx, env, stream, avroSchema, batchIdentifierForFile, flowJobName)
 	if err != nil {
 		return 0, err
 	}
@@ -110,7 +111,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		return 0, err
 	}
 
-	avroFile, err := s.writeToAvroFile(ctx, stream, avroSchema, partition.PartitionId, config.FlowJobName)
+	avroFile, err := s.writeToAvroFile(ctx, config.Env, stream, avroSchema, partition.PartitionId, config.FlowJobName)
 	if err != nil {
 		return 0, err
 	}
@@ -176,6 +177,7 @@ func (s *ClickHouseAvroSyncMethod) getAvroSchema(
 
 func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	ctx context.Context,
+	env map[string]string,
 	stream *model.QRecordStream,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	identifierForFile string,
@@ -190,7 +192,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, flowJobName, identifierForFile)
 	s3AvroFileKey = strings.Trim(s3AvroFileKey, "/")
-	avroFile, err := ocfWriter.WriteRecordsToS3(ctx, s3o.Bucket, s3AvroFileKey, s.credsProvider.Provider)
+	avroFile, err := ocfWriter.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, s.credsProvider.Provider)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write records to S3: %w", err)
 	}
