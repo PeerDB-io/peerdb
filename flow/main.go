@@ -91,6 +91,13 @@ func main() {
 		Sources: cli.EnvVars("MAINTENANCE_SKIP_ON_NO_MIRRORS"),
 	}
 
+	maintenanceSkipOnNoSnapshotMirrorsFlag := &cli.BoolFlag{
+		Name:    "skip-on-no-snapshot-mirrors",
+		Value:   false,
+		Usage:   "Skip maintenance flow if there are no snapshot mirrors",
+		Sources: cli.EnvVars("MAINTENANCE_SKIP_ON_NO_SNAPSHOT_MIRRORS"),
+	}
+
 	flowGrpcAddressFlag := &cli.StringFlag{
 		Name:    "flow-grpc-address",
 		Value:   "",
@@ -211,6 +218,7 @@ func main() {
 					temporalNamespaceFlag,
 					maintenanceModeWorkflowFlag,
 					maintenanceSkipOnApiVersionMatchFlag,
+					maintenanceSkipOnNoSnapshotMirrorsFlag,
 					maintenanceSkipOnNoMirrorsFlag,
 					flowGrpcAddressFlag,
 					flowTlsEnabledFlag,
@@ -227,6 +235,7 @@ func main() {
 						Mode:                              clicmd.String(maintenanceModeWorkflowFlag.Name),
 						SkipOnApiVersionMatch:             clicmd.Bool(maintenanceSkipOnApiVersionMatchFlag.Name),
 						SkipOnNoMirrors:                   clicmd.Bool(maintenanceSkipOnNoMirrorsFlag.Name),
+						SkipOnNoSnapshotMirrors:           clicmd.Bool(maintenanceSkipOnNoSnapshotMirrorsFlag.Name),
 						FlowGrpcAddress:                   clicmd.String(flowGrpcAddressFlag.Name),
 						FlowTlsEnabled:                    clicmd.Bool(flowTlsEnabledFlag.Name),
 						UseMaintenanceTaskQueue:           clicmd.Bool(useMaintenanceTaskQueueFlag.Name),

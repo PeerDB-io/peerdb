@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/aws/smithy-go/ptr"
 	"go.temporal.io/sdk/client"
@@ -33,6 +34,7 @@ type MaintenanceCLIParams struct {
 	FlowTlsEnabled                    bool
 	SkipOnApiVersionMatch             bool
 	SkipOnNoMirrors                   bool
+	SkipOnNoSnapshotMirrors           bool
 	UseMaintenanceTaskQueue           bool
 	AssumeSkippedMaintenanceWorkflows bool
 }
@@ -140,7 +142,7 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 			})
 		}
 	}
-	if args.SkipOnApiVersionMatch || args.SkipOnNoMirrors {
+	if args.SkipOnApiVersionMatch || args.SkipOnNoMirrors || args.SkipOnNoSnapshotMirrors {
 		if args.FlowGrpcAddress == "" {
 			return false, errors.New("flow address is required when skipping based on API")
 		}
@@ -176,18 +178,45 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 				})
 			}
 		}
-		if args.SkipOnNoMirrors {
+		if args.SkipOnNoMirrors || args.SkipOnNoSnapshotMirrors {
 			slog.Info("Checking if there are any mirrors")
+			startTime := time.Now()
 			mirrors, err := peerFlowClient.ListMirrors(ctx, &protos.ListMirrorsRequest{})
 			if err != nil {
 				return false, err
 			}
 			slog.Info("Got mirrors from flow", "mirrors", mirrors.Mirrors)
-			if len(mirrors.Mirrors) == 0 {
+			if args.SkipOnNoMirrors && len(mirrors.Mirrors) == 0 {
 				slog.Info("Skipping maintenance workflow due to no mirrors")
 				return true, WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
 					Skipped:       true,
 					SkippedReason: ptr.String("No mirrors found"),
+				})
+			}
+			if args.SkipOnNoSnapshotMirrors {
+				for _, mirror := range mirrors.Mirrors {
+					if time.Now().Sub(startTime) > 30*time.Second {
+						slog.Warn("Mirrors list was fetched more than 30 seconds ago, assuming mirrors list is stale and not skipping maintenance workflow")
+						return false, nil
+					}
+					mirrorInfo, err := peerFlowClient.MirrorStatus(ctx, &protos.MirrorStatusRequest{
+						FlowJobName:     mirror.Name,
+						IncludeFlowInfo: false,
+					})
+					if err != nil {
+						return false, err
+					}
+					if mirrorInfo.CurrentFlowState == protos.FlowStatus_STATUS_SNAPSHOT ||
+						mirrorInfo.CurrentFlowState == protos.FlowStatus_STATUS_SETUP {
+						slog.Info("Found an active snapshot mirror, not skipping maintenance workflow", "mirror", mirror.Name,
+							"state", mirrorInfo.CurrentFlowState)
+						return false, nil
+					}
+				}
+				slog.Info("Skipping maintenance workflow due to no snapshot mirrors")
+				return true, WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
+					Skipped:       true,
+					SkippedReason: ptr.String("No snapshot mirrors found"),
 				})
 			}
 		}
