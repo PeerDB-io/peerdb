@@ -173,6 +173,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name:             "PEERDB_CLICKHOUSE_MAX_INSERT_THREADS",
+		Description:      "Configures max_insert_threads setting on clickhouse for inserting into destination table. Setting left unset when 0",
+		DefaultValue:     "0",
+		ValueType:        protos.DynconfValueType_UINT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_INTERVAL_SINCE_LAST_NORMALIZE_THRESHOLD_MINUTES",
 		Description:      "Duration in minutes since last normalize to start alerting, 0 disables all alerting entirely",
 		DefaultValue:     "240",
@@ -360,6 +368,10 @@ func PeerDBNullable(ctx context.Context, env map[string]string) (bool, error) {
 
 func PeerDBEnableClickHousePrimaryUpdate(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_ENABLE_PRIMARY_UPDATE")
+}
+
+func PeerDBClickHouseMaxInsertThreads(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_CLICKHOUSE_MAX_INSERT_THREADS")
 }
 
 func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string) (int64, error) {
