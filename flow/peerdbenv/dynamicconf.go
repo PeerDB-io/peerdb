@@ -117,8 +117,9 @@ DROP AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4); END;`,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
-		Name:             "PEERDB_S3_PART_SIZE",
-		Description:      "S3 upload part size in bytes, may need to increase for large batches. https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html",
+		Name: "PEERDB_S3_PART_SIZE",
+		Description: "S3 upload part size in bytes, may need to increase for large batches. " +
+			"https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html",
 		DefaultValue:     "0",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
