@@ -89,8 +89,8 @@ func startMaintenance(ctx workflow.Context, logger log.Logger) (*protos.StartMai
 	}
 
 	enableMaintenanceFuture := workflow.ExecuteActivity(ctx, maintenance.EnableMaintenanceMode)
-	err = enableMaintenanceFuture.Get(ctx, nil)
-	if err != nil {
+
+	if err := enableMaintenanceFuture.Get(ctx, nil); err != nil {
 		return nil, err
 	}
 
@@ -98,8 +98,8 @@ func startMaintenance(ctx workflow.Context, logger log.Logger) (*protos.StartMai
 	waitSnapshotsPostEnableFuture := workflow.ExecuteActivity(snapshotWaitCtx,
 		maintenance.WaitForRunningSnapshots,
 	)
-	err = waitSnapshotsPostEnableFuture.Get(snapshotWaitCtx, nil)
-	if err != nil {
+
+	if err := waitSnapshotsPostEnableFuture.Get(snapshotWaitCtx, nil); err != nil {
 		return nil, err
 	}
 
@@ -114,8 +114,8 @@ func startMaintenance(ctx workflow.Context, logger log.Logger) (*protos.StartMai
 	}
 
 	future := workflow.ExecuteActivity(ctx, maintenance.BackupAllPreviouslyRunningFlows, runningMirrors)
-	err = future.Get(ctx, nil)
-	if err != nil {
+
+	if err := future.Get(ctx, nil); err != nil {
 		return nil, err
 	}
 	version, err := GetPeerDBVersion(ctx)
@@ -202,16 +202,14 @@ func endMaintenance(ctx workflow.Context, logger log.Logger) (*protos.EndMainten
 	}
 
 	clearBackupsFuture := workflow.ExecuteActivity(ctx, maintenance.CleanBackedUpFlows)
-	err = clearBackupsFuture.Get(ctx, nil)
-	if err != nil {
+	if err := clearBackupsFuture.Get(ctx, nil); err != nil {
 		return nil, err
 	}
 
 	logger.Info("Resumed backed up mirrors", "mirrors", mirrorsList)
 
 	future := workflow.ExecuteActivity(ctx, maintenance.DisableMaintenanceMode)
-	err = future.Get(ctx, nil)
-	if err != nil {
+	if err := future.Get(ctx, nil); err != nil {
 		return nil, err
 	}
 	logger.Info("Disabled maintenance mode")

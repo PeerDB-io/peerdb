@@ -86,8 +86,7 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 			return err
 		}
 		var output *protos.StartMaintenanceFlowOutput
-		err = workflowRun.Get(ctx, &output)
-		if err != nil {
+		if err := workflowRun.Get(ctx, &output); err != nil {
 			slog.Error("Error in start maintenance workflow", "error", err)
 			return err
 		}
@@ -113,8 +112,7 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 			return err
 		}
 		var output *protos.EndMaintenanceFlowOutput
-		err = workflowRun.Get(ctx, &output)
-		if err != nil {
+		if err := workflowRun.Get(ctx, &output); err != nil {
 			slog.Error("Error in end maintenance workflow", "error", err)
 			return err
 		}
