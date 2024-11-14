@@ -117,6 +117,14 @@ DROP AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4); END;`,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name:             "PEERDB_S3_PART_SIZE",
+		Description:      "S3 upload part size, may need to increase for large batches",
+		DefaultValue:     "0",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name:             "PEERDB_QUEUE_FORCE_TOPIC_CREATION",
 		Description:      "Force auto topic creation in mirrors, applies to Kafka and PubSub mirrors",
 		DefaultValue:     "false",
@@ -338,6 +346,10 @@ func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string)
 
 func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
 	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
+}
+
+func PeerDBS3PartSize(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_S3_PART_SIZE")
 }
 
 // Kafka has topic auto create as an option, auto.create.topics.enable

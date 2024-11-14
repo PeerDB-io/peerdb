@@ -88,7 +88,7 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 	}
 
 	avroSyncer := c.avroSyncMethod(req.FlowJobName)
-	numRecords, err := avroSyncer.SyncRecords(ctx, stream, req.FlowJobName, syncBatchID)
+	numRecords, err := avroSyncer.SyncRecords(ctx, req.Env, stream, req.FlowJobName, syncBatchID)
 	if err != nil {
 		return nil, err
 	}

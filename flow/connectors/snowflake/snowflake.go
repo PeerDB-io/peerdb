@@ -423,8 +423,7 @@ func (c *SnowflakeConnector) SyncRecords(ctx context.Context, req *model.SyncRec
 		return nil, err
 	}
 
-	err = c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpointID)
-	if err != nil {
+	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpointID); err != nil {
 		return nil, err
 	}
 
@@ -456,7 +455,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		return nil, err
 	}
 
-	numRecords, err := avroSyncer.SyncRecords(ctx, destinationTableSchema, stream, req.FlowJobName)
+	numRecords, err := avroSyncer.SyncRecords(ctx, req.Env, destinationTableSchema, stream, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
