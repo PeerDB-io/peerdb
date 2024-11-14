@@ -306,7 +306,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			if i == 0 {
 				chConn = c.database
 			} else {
-				chConn, err := Connect(errCtx, c.config)
+				chConn, err := Connect(errCtx, req.Env, c.config)
 				if err != nil {
 					return err
 				}
