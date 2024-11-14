@@ -68,17 +68,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_ENABLE_WAL_HEARTBEAT",
 		Description:      "Enables WAL heartbeat to prevent replication slot lag from increasing during times of no activity",
-		DefaultValue:     "false",
+		DefaultValue:     "true",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name: "PEERDB_WAL_HEARTBEAT_QUERY",
-		DefaultValue: `BEGIN;
-DROP AGGREGATE IF EXISTS PEERDB_EPHEMERAL_HEARTBEAT(float4);
-CREATE AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4) (SFUNC = float4pl, STYPE = float4);
-DROP AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4); END;`,
+		Name:             "PEERDB_WAL_HEARTBEAT_QUERY",
+		DefaultValue:     "SELECT pg_logical_emit_message(false,'peerdb_heartbeat','')",
 		ValueType:        protos.DynconfValueType_STRING,
 		Description:      "SQL to run during each WAL heartbeat",
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
