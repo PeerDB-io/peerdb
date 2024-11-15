@@ -215,8 +215,8 @@ func (h *FlowRequestHandler) CDCGraph(ctx context.Context, req *protos.GraphRequ
 	}
 	rows, err := h.pool.Query(ctx, `select tm, coalesce(sum(rows_in_batch), 0)
 	from generate_series(date_trunc($2, now() - $1::INTERVAL * 30), now(), $1::INTERVAL) tm
-	left join peerdb_stats.cdc_batches on start_time >= tm and start_time < tm + $1::INTERVAL
-	group by 1 order by 1`, req.AggregateType, truncField)
+	left join peerdb_stats.cdc_batches on start_time >= tm and start_time < tm + $1::INTERVAL and flow_name = $3
+	group by 1 order by 1`, req.AggregateType, truncField, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
