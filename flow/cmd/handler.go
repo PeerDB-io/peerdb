@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/client"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peer-flow/alerting"
@@ -439,6 +440,13 @@ func (h *FlowRequestHandler) CreatePeer(
 	ctx context.Context,
 	req *protos.CreatePeerRequest,
 ) (*protos.CreatePeerResponse, error) {
+	reqJSON, err := protojson.Marshal(req)
+	if err != nil {
+		slog.Error("failed to marshal CreatePeer request", slog.Any("error", err))
+	} else {
+		slog.Info("CreatePeer request", slog.String("request", string(reqJSON)))
+	}
+
 	status, validateErr := h.ValidatePeer(ctx, &protos.ValidatePeerRequest{Peer: req.Peer})
 	if validateErr != nil {
 		return nil, validateErr
