@@ -475,6 +475,9 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	last *protos.QRepPartition,
 	runUUID string,
 ) (*protos.QRepParitionResult, error) {
+	// override for blink
+	config.NumRowsPerPartition = min(config.NumRowsPerPartition, 100000)
+
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	err := monitoring.InitializeQRepRun(ctx, a.CatalogPool, config, runUUID, nil, config.ParentMirrorName)
 	if err != nil {
