@@ -139,7 +139,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 	batchSize := options.BatchSize
 	if batchSize == 0 {
-		batchSize = 1_000_000
+		batchSize = 250_000
 	}
 
 	lastOffset, err := func() (int64, error) {

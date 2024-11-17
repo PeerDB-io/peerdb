@@ -166,7 +166,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		numWorkers = s.config.SnapshotMaxParallelWorkers
 	}
 
-	numRowsPerPartition := uint32(500000)
+	numRowsPerPartition := uint32(250000)
 	if s.config.SnapshotNumRowsPerPartition > 0 {
 		numRowsPerPartition = s.config.SnapshotNumRowsPerPartition
 	}
