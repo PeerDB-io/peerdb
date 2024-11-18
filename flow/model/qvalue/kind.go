@@ -26,10 +26,12 @@ const (
 	QValueKindTime        QValueKind = "time"
 	QValueKindTimeTZ      QValueKind = "timetz"
 	QValueKindInterval    QValueKind = "interval"
+	QValueKindTSTZRange   QValueKind = "tstzrange"
 	QValueKindNumeric     QValueKind = "numeric"
 	QValueKindBytes       QValueKind = "bytes"
 	QValueKindUUID        QValueKind = "uuid"
 	QValueKindJSON        QValueKind = "json"
+	QValueKindJSONB       QValueKind = "jsonb"
 	QValueKindHStore      QValueKind = "hstore"
 	QValueKindGeography   QValueKind = "geography"
 	QValueKindGeometry    QValueKind = "geometry"
@@ -51,6 +53,8 @@ const (
 	QValueKindArrayTimestamp   QValueKind = "array_timestamp"
 	QValueKindArrayTimestampTZ QValueKind = "array_timestamptz"
 	QValueKindArrayBoolean     QValueKind = "array_bool"
+	QValueKindArrayJSON        QValueKind = "array_json"
+	QValueKindArrayJSONB       QValueKind = "array_jsonb"
 )
 
 func (kind QValueKind) IsArray() bool {
@@ -68,6 +72,7 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindQChar:       "CHAR",
 	QValueKindString:      "STRING",
 	QValueKindJSON:        "VARIANT",
+	QValueKindJSONB:       "VARIANT",
 	QValueKindTimestamp:   "TIMESTAMP_NTZ",
 	QValueKindTimestampTZ: "TIMESTAMP_TZ",
 	QValueKindInterval:    "VARIANT",
@@ -94,6 +99,8 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindArrayTimestamp:   "VARIANT",
 	QValueKindArrayTimestampTZ: "VARIANT",
 	QValueKindArrayBoolean:     "VARIANT",
+	QValueKindArrayJSON:        "VARIANT",
+	QValueKindArrayJSONB:       "VARIANT",
 }
 
 var QValueKindToClickHouseTypeMap = map[QValueKind]string{
@@ -109,6 +116,7 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindJSON:        "String",
 	QValueKindTimestamp:   "DateTime64(6)",
 	QValueKindTimestampTZ: "DateTime64(6)",
+	QValueKindTSTZRange:   "String",
 	QValueKindTime:        "DateTime64(6)",
 	QValueKindTimeTZ:      "DateTime64(6)",
 	QValueKindDate:        "Date32",
@@ -118,7 +126,6 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindInvalid:     "String",
 	QValueKindHStore:      "String",
 
-	// array types will be mapped to VARIANT
 	QValueKindArrayFloat32:     "Array(Float32)",
 	QValueKindArrayFloat64:     "Array(Float64)",
 	QValueKindArrayInt32:       "Array(Int32)",
@@ -129,6 +136,8 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindArrayDate:        "Array(Date)",
 	QValueKindArrayTimestamp:   "Array(DateTime64(6))",
 	QValueKindArrayTimestampTZ: "Array(DateTime64(6))",
+	QValueKindArrayJSON:        "String",
+	QValueKindArrayJSONB:       "String",
 }
 
 func (kind QValueKind) ToDWHColumnType(dwhType protos.DBType) (string, error) {
