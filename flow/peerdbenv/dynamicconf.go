@@ -92,6 +92,13 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name:         "PEERDB_FULL_REFRESH_OVERWRITE_MODE",
+		Description:  "Enables full refresh mode for query replication mirrors of overwrite type",
+		DefaultValue: "false",
+		ValueType:    protos.DynconfValueType_BOOL,
+		ApplyMode:    protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+	},
+	{
 		Name:             "PEERDB_NULLABLE",
 		Description:      "Propagate nullability in schema",
 		DefaultValue:     "false",
@@ -368,6 +375,10 @@ func PeerDBWALHeartbeatQuery(ctx context.Context, env map[string]string) (string
 
 func PeerDBEnableParallelSyncNormalize(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE")
+}
+
+func PeerDBFullRefreshOverwriteMode(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_FULL_REFRESH_OVERWRITE_MODE")
 }
 
 func PeerDBNullable(ctx context.Context, env map[string]string) (bool, error) {
