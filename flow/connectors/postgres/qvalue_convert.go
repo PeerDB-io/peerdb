@@ -297,12 +297,12 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		upperBoundType := tstzrangeObject.UpperType
 		lowerTime, err := convertTimeRangeBound(tstzrangeObject.Lower)
 		if err != nil {
-			return nil, fmt.Errorf("[tstzrange]error for lower time bound: %v", err)
+			return nil, fmt.Errorf("[tstzrange]error for lower time bound: %w", err)
 		}
 
 		upperTime, err := convertTimeRangeBound(tstzrangeObject.Upper)
 		if err != nil {
-			return nil, fmt.Errorf("[tstzrange]error for upper time bound: %v", err)
+			return nil, fmt.Errorf("[tstzrange]error for upper time bound: %w", err)
 		}
 
 		lowerBracket := "["
