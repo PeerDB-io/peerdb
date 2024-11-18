@@ -24,9 +24,7 @@ function parseLSN(lsn: string): number {
   const parsedLsn1 = parseInt(lsn1, 16);
   const parsedLsn2 = parseInt(lsn2, 16);
   if (isNaN(parsedLsn1) || isNaN(parsedLsn2)) return 0;
-  return Number(
-    (BigInt(parsedLsn1) << BigInt(32)) | BigInt(parsedLsn2)
-  );
+  return Number((BigInt(parsedLsn1) << BigInt(32)) | BigInt(parsedLsn2));
 }
 
 export default function LagGraph({ peerName }: LagGraphProps) {
