@@ -287,11 +287,13 @@ func (a *FlowableActivity) MaintainPull(
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, config.Env, a.CatalogPool, config.SourceName)
 	if err != nil {
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return err
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
 	if err := srcConn.SetupReplConn(ctx); err != nil {
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return err
 	}
 

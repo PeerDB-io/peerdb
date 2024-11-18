@@ -21,8 +21,11 @@ type LagGraphProps = {
 function parseLSN(lsn: string): number {
   if (!lsn) return 0;
   const [lsn1, lsn2] = lsn.split('/');
+  const parsedLsn1 = parseInt(lsn1, 16);
+  const parsedLsn2 = parseInt(lsn2, 16);
+  if (isNaN(parsedLsn1) || isNaN(parsedLsn2)) return 0;
   return Number(
-    (BigInt(parseInt(lsn1, 16)) << BigInt(32)) | BigInt(parseInt(lsn2, 16))
+    (BigInt(parsedLsn1) << BigInt(32)) | BigInt(parsedLsn2)
   );
 }
 
