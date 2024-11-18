@@ -1187,6 +1187,7 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 	if err := syncFlowCleanupTx.Commit(ctx); err != nil {
 		return fmt.Errorf("unable to commit transaction for sync flow cleanup: %w", err)
 	}
+
 	return nil
 }
 
