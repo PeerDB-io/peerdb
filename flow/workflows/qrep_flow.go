@@ -464,10 +464,7 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 	}
 
 	optedForOverwrite := config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE
-	fullRefresh := false
-	if optedForOverwrite {
-		fullRefresh = getQRepOverwriteFullRefreshMode(ctx, logger, config.Env)
-	}
+	fullRefresh := optedForOverwrite && getQRepOverwriteFullRefreshMode(ctx, logger, config.Env)
 	// If no new rows are found, continue as new
 	if !hasNewRows || fullRefresh {
 		waitBetweenBatches := 5 * time.Second
@@ -479,10 +476,10 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 			return sleepErr
 		}
 
-		logger.Info("QRepWaitForNewRowsWorkflow: continuing the loop")
 		if fullRefresh {
 			return nil
 		}
+		logger.Info("QRepWaitForNewRowsWorkflow: continuing the loop")
 		return workflow.NewContinueAsNewError(ctx, QRepWaitForNewRowsWorkflow, config, lastPartition)
 	}
 
@@ -556,9 +553,8 @@ func QRepFlowWorkflow(
 	}
 
 	fullRefresh := false
-	optedForOverwrite := config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE
 	lastPartition := state.LastPartition
-	if optedForOverwrite {
+	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
 		if fullRefresh = getQRepOverwriteFullRefreshMode(ctx, q.logger, config.Env); fullRefresh {
 			lastPartition = InitialLastPartition
 		}
