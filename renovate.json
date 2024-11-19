@@ -23,6 +23,12 @@
       "matchPackageNames": ["mysql_async"],
       "matchManagers": ["cargo"],
       "enabled": false
+    },
+    {
+      "matchPackageNames": ["next"],
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
     }
   ],
   "vulnerabilityAlerts": {
