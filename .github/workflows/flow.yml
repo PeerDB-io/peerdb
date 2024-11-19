@@ -11,11 +11,12 @@ jobs:
     strategy:
       matrix:
         runner: [ubicloud-standard-16-ubuntu-2204-arm]
+        postgres-version: [15, 16, 17]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
       catalog:
-        image: imresamu/postgis:15-3.4-alpine
+        image: imresamu/postgis:${{ matrix.postgres-version }}-3.4-alpine
         ports:
           - 5432:5432
         env:
