@@ -5,18 +5,19 @@ on:
     branches: [main, release/*]
   pull_request:
     branches: [main, release/*]
-    paths: [nexus/**, protos/**]
+    paths: [nexus/**, protos/**, .github/workflows/ci.yml]
 
 jobs:
   build:
     strategy:
       matrix:
         runner: [ubicloud-standard-2-ubuntu-2204-arm]
+        postgres-version: [13, 14, 15, 16, 17]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
       catalog_peer:
-        image: debezium/postgres:14-alpine
+        image: postgres:${{ matrix.postgres-version }}-alpine
         ports:
           - 7132:5432
         env:
