@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 30
     services:
       catalog:
-        image: imresamu/postgis:${{ matrix.postgres-version }}-3.4-alpine
+        image: imresamu/postgis:${{ matrix.postgres-version }}-3.5-alpine
         ports:
           - 5432:5432
         env:
