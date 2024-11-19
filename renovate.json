@@ -16,7 +16,8 @@
           ]
         }
       ],
-      "separateMajorMinor": false
+      "separateMajorMinor": false,
+      "automerge": true
     },
     { 
       "matchPackageNames": ["mysql_async"],
