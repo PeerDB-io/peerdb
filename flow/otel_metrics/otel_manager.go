@@ -17,6 +17,26 @@ import (
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
+const (
+	SlotLagGaugeName                    string = "cdc_slot_lag"
+	OpenConnectionsGaugeName            string = "open_connections"
+	OpenReplicationConnectionsGaugeName string = "open_replication_connections"
+	IntervalSinceLastNormalizeGaugeName string = "interval_since_last_normalize"
+	FetchedBytesCounterName             string = "fetched_bytes"
+)
+
+type SlotMetricGauges struct {
+	SlotLagGauge                    metric.Float64Gauge
+	OpenConnectionsGauge            metric.Int64Gauge
+	OpenReplicationConnectionsGauge metric.Int64Gauge
+	IntervalSinceLastNormalizeGauge metric.Float64Gauge
+	FetchedBytesCounter             metric.Int64Counter
+}
+
+func BuildMetricName(baseName string) string {
+	return peerdbenv.GetPeerDBOtelMetricsNamespace() + baseName
+}
+
 type OtelManager struct {
 	MetricsProvider    *sdkmetric.MeterProvider
 	Meter              metric.Meter
@@ -69,22 +89,22 @@ func newOtelResource(otelServiceName string, attrs ...attribute.KeyValue) (*reso
 	)
 }
 
-func setupHttpOtelMetricsExporter() (sdkmetric.Exporter, error) {
-	return otlpmetrichttp.New(context.Background())
+func setupHttpOtelMetricsExporter(ctx context.Context) (sdkmetric.Exporter, error) {
+	return otlpmetrichttp.New(ctx)
 }
 
-func setupGrpcOtelMetricsExporter() (sdkmetric.Exporter, error) {
-	return otlpmetricgrpc.New(context.Background())
+func setupGrpcOtelMetricsExporter(ctx context.Context) (sdkmetric.Exporter, error) {
+	return otlpmetricgrpc.New(ctx)
 }
 
 func temporalMetricsFilteringView() sdkmetric.View {
-	exportListString := GetPeerDBOtelTemporalMetricsExportListEnv()
+	exportListString := peerdbenv.GetPeerDBOtelTemporalMetricsExportListEnv()
 	slog.Info("Found export list for temporal metrics", slog.String("exportList", exportListString))
 	// Special case for exporting all metrics
 	if exportListString == "__ALL__" {
 		return func(instrument sdkmetric.Instrument) (sdkmetric.Stream, bool) {
 			stream := sdkmetric.Stream{
-				Name:        GetPeerDBOtelMetricsNamespace() + "temporal." + instrument.Name,
+				Name:        BuildMetricName("temporal." + instrument.Name),
 				Description: instrument.Description,
 				Unit:        instrument.Unit,
 			}
@@ -96,7 +116,7 @@ func temporalMetricsFilteringView() sdkmetric.View {
 	if len(exportList) == 0 {
 		return func(instrument sdkmetric.Instrument) (sdkmetric.Stream, bool) {
 			return sdkmetric.Stream{
-				Name:        GetPeerDBOtelMetricsNamespace() + "temporal." + instrument.Name,
+				Name:        BuildMetricName("temporal." + instrument.Name),
 				Description: instrument.Description,
 				Unit:        instrument.Unit,
 				Aggregation: sdkmetric.AggregationDrop{},
@@ -112,7 +132,7 @@ func temporalMetricsFilteringView() sdkmetric.View {
 	}
 	return func(instrument sdkmetric.Instrument) (sdkmetric.Stream, bool) {
 		stream := sdkmetric.Stream{
-			Name:        GetPeerDBOtelMetricsNamespace() + "temporal." + instrument.Name,
+			Name:        BuildMetricName("temporal." + instrument.Name),
 			Description: instrument.Description,
 			Unit:        instrument.Unit,
 		}
@@ -123,16 +143,16 @@ func temporalMetricsFilteringView() sdkmetric.View {
 	}
 }
 
-func setupExporter() (sdkmetric.Exporter, error) {
+func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
 	otlpMetricProtocol := peerdbenv.GetEnvString("OTEL_EXPORTER_OTLP_PROTOCOL",
 		peerdbenv.GetEnvString("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf"))
 	var metricExporter sdkmetric.Exporter
 	var err error
 	switch otlpMetricProtocol {
 	case "http/protobuf":
-		metricExporter, err = setupHttpOtelMetricsExporter()
+		metricExporter, err = setupHttpOtelMetricsExporter(ctx)
 	case "grpc":
-		metricExporter, err = setupGrpcOtelMetricsExporter()
+		metricExporter, err = setupGrpcOtelMetricsExporter(ctx)
 	default:
 		return nil, fmt.Errorf("unsupported otel metric protocol: %s", otlpMetricProtocol)
 	}
@@ -142,8 +162,8 @@ func setupExporter() (sdkmetric.Exporter, error) {
 	return metricExporter, err
 }
 
-func setupMetricsProvider(otelResource *resource.Resource, views ...sdkmetric.View) (*sdkmetric.MeterProvider, error) {
-	metricExporter, err := setupExporter()
+func setupMetricsProvider(ctx context.Context, otelResource *resource.Resource, views ...sdkmetric.View) (*sdkmetric.MeterProvider, error) {
+	metricExporter, err := setupExporter(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +181,7 @@ func SetupPeerDBMetricsProvider(otelServiceName string) (*sdkmetric.MeterProvide
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsProvider(otelResource)
+	return setupMetricsProvider(context.Background(), otelResource)
 }
 
 func SetupTemporalMetricsProvider(otelServiceName string) (*sdkmetric.MeterProvider, error) {
@@ -169,5 +189,5 @@ func SetupTemporalMetricsProvider(otelServiceName string) (*sdkmetric.MeterProvi
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsProvider(otelResource, temporalMetricsFilteringView())
+	return setupMetricsProvider(context.Background(), otelResource, temporalMetricsFilteringView())
 }

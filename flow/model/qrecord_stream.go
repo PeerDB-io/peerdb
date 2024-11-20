@@ -30,8 +30,8 @@ func (s *QRecordStream) Schema() qvalue.QRecordSchema {
 func (s *QRecordStream) SetSchema(schema qvalue.QRecordSchema) {
 	if !s.schemaSet {
 		s.schema = schema
-		close(s.schemaLatch)
 		s.schemaSet = true
+		close(s.schemaLatch)
 	}
 }
 

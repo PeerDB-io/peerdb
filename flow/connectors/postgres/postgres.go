@@ -28,7 +28,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/otel_metrics"
-	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_gauges"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -1197,7 +1196,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 	alerter *alerting.Alerter,
 	catalogPool *pgxpool.Pool,
 	alertKeys *alerting.AlertKeys,
-	slotMetricGauges peerdb_gauges.SlotMetricGauges,
+	slotMetricGauges otel_metrics.SlotMetricGauges,
 ) error {
 	logger := shared.LoggerFromCtx(ctx)
 
