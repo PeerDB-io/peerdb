@@ -11,6 +11,7 @@ const (
 	OpenConnectionsGaugeName            string = "open_connections"
 	OpenReplicationConnectionsGaugeName string = "open_replication_connections"
 	IntervalSinceLastNormalizeGaugeName string = "interval_since_last_normalize"
+	FetchedBytesCounterName             string = "fetched_bytes"
 )
 
 type SlotMetricGauges struct {
@@ -18,6 +19,7 @@ type SlotMetricGauges struct {
 	OpenConnectionsGauge            metric.Int64Gauge
 	OpenReplicationConnectionsGauge metric.Int64Gauge
 	IntervalSinceLastNormalizeGauge metric.Float64Gauge
+	FetchedBytesCounter             metric.Int64Counter
 }
 
 func BuildGaugeName(baseGaugeName string) string {

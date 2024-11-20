@@ -22,23 +22,51 @@ type OtelManager struct {
 	Meter              metric.Meter
 	Float64GaugesCache map[string]metric.Float64Gauge
 	Int64GaugesCache   map[string]metric.Int64Gauge
+	Int64CountersCache map[string]metric.Int64Counter
+}
+
+func getOrInitMetric[M any, O any](
+	cons func(metric.Meter, string, ...O) (M, error),
+	meter metric.Meter,
+	cache map[string]M,
+	name string,
+	opts ...O,
+) (M, error) {
+	gauge, ok := cache[name]
+	if !ok {
+		var err error
+		gauge, err = cons(meter, name, opts...)
+		if err != nil {
+			var none M
+			return none, err
+		}
+		cache[name] = gauge
+	}
+	return gauge, nil
+}
+
+func (om *OtelManager) GetOrInitInt64Gauge(name string, opts ...metric.Int64GaugeOption) (metric.Int64Gauge, error) {
+	return getOrInitMetric(metric.Meter.Int64Gauge, om.Meter, om.Int64GaugesCache, name, opts...)
+}
+
+func (om *OtelManager) GetOrInitFloat64Gauge(name string, opts ...metric.Float64GaugeOption) (metric.Float64Gauge, error) {
+	return getOrInitMetric(metric.Meter.Float64Gauge, om.Meter, om.Float64GaugesCache, name, opts...)
+}
+
+func (om *OtelManager) GetOrInitInt64Counter(name string, opts ...metric.Int64CounterOption) (metric.Int64Counter, error) {
+	return getOrInitMetric(metric.Meter.Int64Counter, om.Meter, om.Int64CountersCache, name, opts...)
 }
 
 // newOtelResource returns a resource describing this application.
 func newOtelResource(otelServiceName string, attrs ...attribute.KeyValue) (*resource.Resource, error) {
-	allAttrs := []attribute.KeyValue{
-		semconv.ServiceNameKey.String(otelServiceName),
-	}
-	allAttrs = append(allAttrs, attrs...)
-	r, err := resource.Merge(
+	allAttrs := append([]attribute.KeyValue{semconv.ServiceNameKey.String(otelServiceName)}, attrs...)
+	return resource.Merge(
 		resource.Default(),
 		resource.NewWithAttributes(
 			semconv.SchemaURL,
 			allAttrs...,
 		),
 	)
-
-	return r, err
 }
 
 func setupHttpOtelMetricsExporter() (sdkmetric.Exporter, error) {

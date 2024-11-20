@@ -761,8 +761,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 
 			slotMetricGauges := peerdb_gauges.SlotMetricGauges{}
 			if a.OtelManager != nil {
-				slotLagGauge, err := otel_metrics.GetOrInitFloat64SyncGauge(a.OtelManager.Meter,
-					a.OtelManager.Float64GaugesCache,
+				slotLagGauge, err := a.OtelManager.GetOrInitFloat64Gauge(
 					peerdb_gauges.BuildGaugeName(peerdb_gauges.SlotLagGaugeName),
 					metric.WithUnit("MiBy"),
 					metric.WithDescription("Postgres replication slot lag in MB"))
@@ -772,8 +771,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				}
 				slotMetricGauges.SlotLagGauge = slotLagGauge
 
-				openConnectionsGauge, err := otel_metrics.GetOrInitInt64SyncGauge(a.OtelManager.Meter,
-					a.OtelManager.Int64GaugesCache,
+				openConnectionsGauge, err := a.OtelManager.GetOrInitInt64Gauge(
 					peerdb_gauges.BuildGaugeName(peerdb_gauges.OpenConnectionsGaugeName),
 					metric.WithDescription("Current open connections for PeerDB user"))
 				if err != nil {
@@ -782,8 +780,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				}
 				slotMetricGauges.OpenConnectionsGauge = openConnectionsGauge
 
-				openReplicationConnectionsGauge, err := otel_metrics.GetOrInitInt64SyncGauge(a.OtelManager.Meter,
-					a.OtelManager.Int64GaugesCache,
+				openReplicationConnectionsGauge, err := a.OtelManager.GetOrInitInt64Gauge(
 					peerdb_gauges.BuildGaugeName(peerdb_gauges.OpenReplicationConnectionsGaugeName),
 					metric.WithDescription("Current open replication connections for PeerDB user"))
 				if err != nil {
@@ -792,8 +789,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				}
 				slotMetricGauges.OpenReplicationConnectionsGauge = openReplicationConnectionsGauge
 
-				intervalSinceLastNormalizeGauge, err := otel_metrics.GetOrInitFloat64SyncGauge(a.OtelManager.Meter,
-					a.OtelManager.Float64GaugesCache,
+				intervalSinceLastNormalizeGauge, err := a.OtelManager.GetOrInitFloat64Gauge(
 					peerdb_gauges.BuildGaugeName(peerdb_gauges.IntervalSinceLastNormalizeGaugeName),
 					metric.WithUnit("s"),
 					metric.WithDescription("Interval since last normalize"))
