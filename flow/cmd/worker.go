@@ -10,6 +10,7 @@ import (
 	"runtime"
 
 	"github.com/grafana/pyroscope-go"
+	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/client"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
 	"go.temporal.io/sdk/worker"
@@ -157,8 +158,8 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 		otelManager = &otel_metrics.OtelManager{
 			MetricsProvider:    metricsProvider,
 			Meter:              metricsProvider.Meter("io.peerdb.flow-worker"),
-			Float64GaugesCache: make(map[string]*otel_metrics.Float64SyncGauge),
-			Int64GaugesCache:   make(map[string]*otel_metrics.Int64SyncGauge),
+			Float64GaugesCache: make(map[string]metric.Float64Gauge),
+			Int64GaugesCache:   make(map[string]metric.Int64Gauge),
 		}
 		cleanupOtelManagerFunc = func() {
 			shutDownErr := otelManager.MetricsProvider.Shutdown(context.Background())
