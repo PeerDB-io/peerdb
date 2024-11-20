@@ -485,6 +485,8 @@ func CDCFlowWorkflow(
 
 		// if initial_copy_only is opted for, we end the flow here.
 		if cfg.InitialSnapshotOnly {
+			logger.Info("initial snapshot only, ending flow")
+			state.CurrentFlowStatus = protos.FlowStatus_STATUS_COMPLETED
 			return state, nil
 		}
 	}

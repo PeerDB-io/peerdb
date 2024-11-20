@@ -385,6 +385,7 @@ enum FlowStatus {
   STATUS_SNAPSHOT = 5;
   STATUS_TERMINATING = 6;
   STATUS_TERMINATED = 7;
+  STATUS_COMPLETED = 8;
 }
 
 message CDCFlowConfigUpdate {
