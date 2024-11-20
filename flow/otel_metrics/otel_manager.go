@@ -20,8 +20,8 @@ import (
 type OtelManager struct {
 	MetricsProvider    *sdkmetric.MeterProvider
 	Meter              metric.Meter
-	Float64GaugesCache map[string]*Float64SyncGauge
-	Int64GaugesCache   map[string]*Int64SyncGauge
+	Float64GaugesCache map[string]metric.Float64Gauge
+	Int64GaugesCache   map[string]metric.Int64Gauge
 }
 
 // newOtelResource returns a resource describing this application.
