@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lib/pq/oid"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/otel_metrics"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -368,7 +370,8 @@ func PullCdcRecords[Items model.Items](
 	var fetchedBytesCounter metric.Int64Counter
 	if p.otelManager != nil {
 		var err error
-		fetchedBytesCounter, err = p.otelManager.GetOrInitInt64Counter(otel_metrics.BuildMetricName(otel_metrics.FetchedBytesCounterName))
+		fetchedBytesCounter, err = p.otelManager.GetOrInitInt64Counter(otel_metrics.BuildMetricName(otel_metrics.FetchedBytesCounterName),
+			metric.WithUnit("By"), metric.WithDescription("Bytes received of CopyData over replication slot"))
 		if err != nil {
 			logger.Error("Could not get FetchedBytesCounter", slog.Any("error", err))
 		}
@@ -476,7 +479,10 @@ func PullCdcRecords[Items model.Items](
 		}
 
 		if fetchedBytesCounter != nil {
-			fetchedBytesCounter.Add(ctx, int64(len(msg.Data)))
+			fetchedBytesCounter.Add(ctx, int64(len(msg.Data)), metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.FlowNameKey, req.FlowJobName),
+				attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()),
+			)))
 		}
 
 		switch msg.Data[0] {
