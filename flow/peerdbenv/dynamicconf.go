@@ -20,14 +20,6 @@ import (
 
 var DynamicSettings = [...]*protos.DynamicSetting{
 	{
-		Name:             "PEERDB_MAX_SYNCS_PER_CDC_FLOW",
-		Description:      "Experimental setting: changes number of syncs per workflow, affects frequency of replication slot disconnects",
-		DefaultValue:     "32",
-		ValueType:        protos.DynconfValueType_UINT,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
-		TargetForSetting: protos.DynconfTarget_ALL,
-	},
-	{
 		Name:             "PEERDB_CDC_CHANNEL_BUFFER_SIZE",
 		Description:      "Advanced setting: changes buffer size of channel PeerDB uses while streaming rows read to destination in CDC",
 		DefaultValue:     "262144",
