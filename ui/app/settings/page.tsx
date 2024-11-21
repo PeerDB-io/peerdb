@@ -9,10 +9,7 @@ import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField';
-import { Table, TableCell, TableRow } from '@/lib/Table';
 import { TextField } from '@/lib/TextField';
-import { Tooltip } from '@/lib/Tooltip';
-import { MaterialSymbol } from 'material-symbols';
 import { useEffect, useMemo, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -22,40 +19,32 @@ const ROWS_PER_PAGE = 7;
 
 const ApplyModeIconWithTooltip = ({ applyMode }: { applyMode: number }) => {
   let tooltipText = '';
-  let iconName: MaterialSymbol = 'help';
+
   switch (applyMode.toString()) {
     case DynconfApplyMode[DynconfApplyMode.APPLY_MODE_IMMEDIATE].toString():
       tooltipText = 'Changes to this configuration will apply immediately';
-      iconName = 'bolt';
       break;
     case DynconfApplyMode[DynconfApplyMode.APPLY_MODE_AFTER_RESUME].toString():
       tooltipText = 'Changes to this configuration will apply after resume';
-      iconName = 'cached';
       break;
     case DynconfApplyMode[DynconfApplyMode.APPLY_MODE_RESTART].toString():
       tooltipText =
         'Changes to this configuration will apply after server restart.';
-      iconName = 'restart_alt';
       break;
     case DynconfApplyMode[DynconfApplyMode.APPLY_MODE_NEW_MIRROR].toString():
       tooltipText =
         'Changes to this configuration will apply only to new mirrors';
-      iconName = 'new_window';
       break;
     default:
       tooltipText = 'Unknown apply mode';
-      iconName = 'help';
   }
 
   return (
     <div style={{ cursor: 'help' }}>
-      <Tooltip style={{ width: '100%' }} content={tooltipText}>
-        <Icon name={iconName} />
-      </Tooltip>
+      <Label style={{ fontSize: 14, padding: 0 }}>{tooltipText}</Label>
     </div>
   );
 };
-
 const DynamicSettingItem = ({
   setting,
   onSettingUpdate,
@@ -65,7 +54,7 @@ const DynamicSettingItem = ({
 }) => {
   const [editMode, setEditMode] = useState(false);
   const [newValue, setNewValue] = useState(setting.value);
-
+  const [showDescription, setShowDescription] = useState(false);
   const handleEdit = () => {
     setEditMode(true);
   };
@@ -130,41 +119,80 @@ const DynamicSettingItem = ({
   };
 
   return (
-    <TableRow key={setting.name}>
-      <TableCell style={{ width: '15%' }}>
-        <Label>{setting.name}</Label>
-      </TableCell>
-      <TableCell style={{ width: '10%' }}>
-        {editMode ? (
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <TextField
-              value={newValue ?? ''}
-              onChange={(e) => setNewValue(e.target.value)}
-              variant='simple'
+    <div
+      style={{
+        borderRadius: '0.5rem',
+        padding: '0.5rem',
+        border: '1px solid rgba(0, 0, 0, 0.07)',
+        display: 'flex',
+        flexDirection: 'column',
+        height: 'fit-content',
+      }}
+    >
+      <div>
+        <Label as='label' style={{ padding: 0, fontSize: 14, fontWeight: 500 }}>
+          {setting.name}
+        </Label>
+      </div>
+      <div>
+        <div>
+          <div>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                marginTop: '0.5rem',
+                marginBottom: '0.5rem',
+              }}
+            >
+              <TextField
+                style={{ fontSize: 14 }}
+                value={editMode ? (newValue ?? '') : setting.value}
+                placeholder='N/A'
+                onChange={(e) => setNewValue(e.target.value)}
+                variant='simple'
+                readOnly={!editMode}
+                disabled={!editMode}
+              />
+              <Button
+                variant='normalBorderless'
+                onClick={editMode ? handleSave : handleEdit}
+              >
+                <Icon name={!editMode ? 'edit' : 'save'} />
+              </Button>
+            </div>
+          </div>
+
+          <div>
+            <Label style={{ padding: 0, fontSize: 14 }}>
+              {' '}
+              Default:<b> {setting.defaultValue || 'N/A'} </b>
+            </Label>
+          </div>
+          <div>
+            <ApplyModeIconWithTooltip applyMode={setting.applyMode || 0} />
+          </div>
+          <Button
+            style={{ marginTop: '0.5rem' }}
+            onClick={() => setShowDescription((prev) => !prev)}
+          >
+            <Label style={{ padding: 0, fontSize: 13 }}> More info </Label>
+            <Icon
+              name={
+                !showDescription ? 'arrow_downward_alt' : 'arrow_upward_alt'
+              }
             />
-            <Button variant='normalBorderless' onClick={handleSave}>
-              <Icon name='save' />
-            </Button>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            {setting.value || 'N/A'}
-            <Button variant='normalBorderless' onClick={handleEdit}>
-              <Icon name='edit' />
-            </Button>
-          </div>
-        )}
-      </TableCell>
-      <TableCell style={{ width: '20%' }}>
-        {setting.defaultValue || 'N/A'}
-      </TableCell>
-      <TableCell style={{ width: '45%' }}>
-        {setting.description || 'N/A'}
-      </TableCell>
-      <TableCell style={{ width: '10%' }}>
-        <ApplyModeIconWithTooltip applyMode={setting.applyMode || 0} />
-      </TableCell>
-    </TableRow>
+          </Button>
+          {showDescription && (
+            <div>
+              <Label style={{ padding: 0, fontSize: 14 }}>
+                {setting.description || 'N/A'}
+              </Label>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 };
 
@@ -172,10 +200,7 @@ const SettingsPage = () => {
   const [settings, setSettings] = useState<GetDynamicSettingsResponse>({
     settings: [],
   });
-  const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('asc');
-  const sortField = 'name';
 
   const fetchSettings = async () => {
     const response = await fetch('/api/v1/dynamic_settings');
@@ -189,101 +214,44 @@ const SettingsPage = () => {
 
   const filteredSettings = useMemo(
     () =>
-      settings.settings
-        .filter((setting) =>
-          setting.name.toLowerCase().includes(searchQuery.toLowerCase())
-        )
-        .sort((a, b) => {
-          const aValue = a[sortField];
-          const bValue = b[sortField];
-          if (aValue < bValue) return sortDir === 'dsc' ? 1 : -1;
-          if (aValue > bValue) return sortDir === 'dsc' ? -1 : 1;
-          return 0;
-        }),
-    [settings, searchQuery, sortDir]
+      settings.settings.filter((setting) =>
+        setting.name.toLowerCase().includes(searchQuery.toLowerCase())
+      ),
+    [settings, searchQuery]
   );
-  const totalPages = Math.ceil(filteredSettings.length / ROWS_PER_PAGE);
-  const displayedSettings = useMemo(() => {
-    const startRow = (currentPage - 1) * ROWS_PER_PAGE;
-    const endRow = startRow + ROWS_PER_PAGE;
-    return filteredSettings.slice(startRow, endRow);
-  }, [filteredSettings, currentPage]);
-
-  const handlePrevPage = () => {
-    if (currentPage > 1) setCurrentPage(currentPage - 1);
-  };
-
-  const handleNextPage = () => {
-    if (currentPage < totalPages) setCurrentPage(currentPage + 1);
-  };
 
   return (
-    <div>
-      <Table
-        title={<Label variant='headline'>Settings List</Label>}
-        toolbar={{
-          left: (
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-              <Button variant='normalBorderless' onClick={handlePrevPage}>
-                <Icon name='chevron_left' />
-              </Button>
-              <Button variant='normalBorderless' onClick={handleNextPage}>
-                <Icon name='chevron_right' />
-              </Button>
-              <Label>{`${currentPage} of ${totalPages}`}</Label>
-              <Button variant='normalBorderless' onClick={fetchSettings}>
-                <Icon name='refresh' />
-              </Button>
-              <button
-                className='IconButton'
-                onClick={() => setSortDir('asc')}
-                aria-label='sort up'
-                style={{ color: sortDir == 'asc' ? 'green' : 'gray' }}
-              >
-                <Icon name='arrow_upward' />
-              </button>
-              <button
-                className='IconButton'
-                onClick={() => setSortDir('dsc')}
-                aria-label='sort down'
-                style={{ color: sortDir == 'dsc' ? 'green' : 'gray' }}
-              >
-                <Icon name='arrow_downward' />
-              </button>
-            </div>
-          ),
-          right: (
-            <SearchField
-              placeholder='Search by config name'
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          ),
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        width: '100%',
+        padding: '1rem',
+        rowGap: '1rem',
+      }}
+    >
+      <Label variant='title3'>Settings</Label>
+      <SearchField
+        placeholder='Search by config name'
+        onChange={(e) => setSearchQuery(e.target.value)}
+        style={{ fontSize: 13 }}
+      />
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, 1fr)',
+          gap: '16px',
         }}
-        header={
-          <TableRow>
-            {[
-              { header: 'Configuration Name', width: '35%' },
-              { header: 'Current Value', width: '10%' },
-              { header: 'Default Value', width: '10%' },
-              { header: 'Description', width: '35%' },
-              { header: 'Apply Mode', width: '10%' },
-            ].map(({ header, width }) => (
-              <TableCell key={header} as='th' style={{ width }}>
-                {header}
-              </TableCell>
-            ))}
-          </TableRow>
-        }
       >
-        {displayedSettings.map((setting) => (
+        {filteredSettings.map((setting) => (
           <DynamicSettingItem
             key={setting.name}
             setting={setting}
             onSettingUpdate={fetchSettings}
           />
         ))}
-      </Table>
-      <ToastContainer />
+        <ToastContainer />
+      </div>
     </div>
   );
 };
