@@ -147,7 +147,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	}
 
 	hashColName := dstTableSchema[0].Name()
-	numParts := 17
+	numParts := 31
 	for i := 0; i < numParts; i++ {
 		whereClause := fmt.Sprintf("cityHash64(%s) %% %d = %d", hashColName, numParts, i)
 		query := fmt.Sprintf("INSERT INTO %s(%s) SELECT %s FROM s3('%s','%s','%s'%s, 'Avro') WHERE %s SETTINGS throw_on_max_partitions_per_insert_block = 0",
