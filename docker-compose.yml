@@ -112,7 +112,7 @@ services:
 
   flow-api:
     container_name: flow_api
-    image: ghcr.io/peerdb-io/flow-api:latest-stable@sha256:53a6de3d7537b4a90b4ff13d822d0a9fa3015857fc739fc2497d33f33b05dfaa
+    image: ghcr.io/peerdb-io/flow-api:stable-v0.19.1
     restart: unless-stopped
     ports:
       - 8112:8112
@@ -128,7 +128,7 @@ services:
 
   flow-snapshot-worker:
     container_name: flow-snapshot-worker
-    image: ghcr.io/peerdb-io/flow-snapshot-worker:latest-stable@sha256:036d6091e32c9d15f2738bc6aab312aa1f412f5c06c57687b497cde233b73d4c
+    image: ghcr.io/peerdb-io/flow-snapshot-worker:stable-v0.19.1
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
@@ -138,7 +138,7 @@ services:
 
   flow-worker:
     container_name: flow-worker
-    image: ghcr.io/peerdb-io/flow-worker:latest-stable@sha256:f5d4d5e4e44336d6917e3c8b3d753c77d813d5d1e55ca7fb4d3a3d3d1d3253cc
+    image: ghcr.io/peerdb-io/flow-worker:stable-v0.19.1
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
@@ -151,7 +151,7 @@ services:
   peerdb:
     container_name: peerdb-server
     stop_signal: SIGINT
-    image: ghcr.io/peerdb-io/peerdb-server:latest-stable@sha256:15249fc45b8b5384fb7a046bc73f75cc679c570a3d2fd3fd8c40c7d7e85f7eef
+    image: ghcr.io/peerdb-io/peerdb-server:stable-v0.19.1
     restart: unless-stopped
     environment:
       <<: *catalog-config
@@ -167,7 +167,7 @@ services:
 
   peerdb-ui:
     container_name: peerdb-ui
-    image: ghcr.io/peerdb-io/peerdb-ui:latest-stable@sha256:f4d1cdf966eb06f4a4a03db4b02593b44c8a37bd32143c937d3c59c2586c4bb1
+    image: ghcr.io/peerdb-io/peerdb-ui:stable-v0.19.1
     restart: unless-stopped
     ports:
       - 3000:3000
