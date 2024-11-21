@@ -356,7 +356,7 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId i
 		return true
 	}
 
-	logger.Info(fmt.Sprintf("Skipped sending alerts: last alert was sent at %s, which was >=%s ago", createdTimestamp.String(), dur.String()))
+	logger.Info(fmt.Sprintf("Skipped sending alerts: last alert was sent at %s, which was <=%s ago", createdTimestamp.String(), dur.String()))
 	return false
 }
 
