@@ -45,6 +45,10 @@ type OtelManager struct {
 	Int64CountersCache map[string]metric.Int64Counter
 }
 
+func (om *OtelManager) Close(ctx context.Context) error {
+	return om.MetricsProvider.Shutdown(ctx)
+}
+
 func getOrInitMetric[M any, O any](
 	cons func(metric.Meter, string, ...O) (M, error),
 	meter metric.Meter,

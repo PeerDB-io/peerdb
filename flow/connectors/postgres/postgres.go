@@ -329,17 +329,19 @@ func (c *PostgresConnector) SetLastOffset(ctx context.Context, jobName string, l
 func (c *PostgresConnector) PullRecords(
 	ctx context.Context,
 	catalogPool *pgxpool.Pool,
+	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[model.RecordItems],
 ) error {
-	return pullCore(ctx, c, catalogPool, req, qProcessor{})
+	return pullCore(ctx, c, catalogPool, otelManager, req, qProcessor{})
 }
 
 func (c *PostgresConnector) PullPg(
 	ctx context.Context,
 	catalogPool *pgxpool.Pool,
+	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[model.PgItems],
 ) error {
-	return pullCore(ctx, c, catalogPool, req, pgProcessor{})
+	return pullCore(ctx, c, catalogPool, otelManager, req, pgProcessor{})
 }
 
 // PullRecords pulls records from the source.
@@ -347,6 +349,7 @@ func pullCore[Items model.Items](
 	ctx context.Context,
 	c *PostgresConnector,
 	catalogPool *pgxpool.Pool,
+	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[Items],
 	processor replProcessor[Items],
 ) error {
@@ -413,6 +416,7 @@ func pullCore[Items model.Items](
 
 	cdc := c.NewPostgresCDCSource(&PostgresCDCConfig{
 		CatalogPool:            catalogPool,
+		OtelManager:            otelManager,
 		SrcTableIDNameMapping:  req.SrcTableIDNameMapping,
 		TableNameMapping:       req.TableNameMapping,
 		TableNameSchemaMapping: req.TableNameSchemaMapping,
@@ -434,8 +438,7 @@ func pullCore[Items model.Items](
 		return fmt.Errorf("failed to get current LSN: %w", err)
 	}
 
-	err = monitoring.UpdateLatestLSNAtSourceForCDCFlow(ctx, catalogPool, req.FlowJobName, int64(latestLSN))
-	if err != nil {
+	if err := monitoring.UpdateLatestLSNAtSourceForCDCFlow(ctx, catalogPool, req.FlowJobName, int64(latestLSN)); err != nil {
 		c.logger.Error("error updating latest LSN at source for CDC flow", slog.Any("error", err))
 		return fmt.Errorf("failed to update latest LSN at source for CDC flow: %w", err)
 	}

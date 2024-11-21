@@ -102,7 +102,12 @@ type CDCPullConnector interface {
 	CDCPullConnectorCore
 
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
-	PullRecords(ctx context.Context, catalogPool *pgxpool.Pool, req *model.PullRecordsRequest[model.RecordItems]) error
+	PullRecords(
+		ctx context.Context,
+		catalogPool *pgxpool.Pool,
+		otelManager *otel_metrics.OtelManager,
+		req *model.PullRecordsRequest[model.RecordItems],
+	) error
 }
 
 type CDCPullPgConnector interface {
@@ -110,7 +115,12 @@ type CDCPullPgConnector interface {
 
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
 	// It's signature, aside from type parameter, should match CDCPullConnector.PullRecords.
-	PullPg(ctx context.Context, catalogPool *pgxpool.Pool, req *model.PullRecordsRequest[model.PgItems]) error
+	PullPg(
+		ctx context.Context,
+		catalogPool *pgxpool.Pool,
+		otelManager *otel_metrics.OtelManager,
+		req *model.PullRecordsRequest[model.PgItems],
+	) error
 }
 
 type NormalizedTablesConnector interface {
