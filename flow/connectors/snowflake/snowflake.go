@@ -179,6 +179,7 @@ func NewSnowflakeConnector(
 
 	additionalParams := make(map[string]*string)
 	additionalParams["CLIENT_SESSION_KEEP_ALIVE"] = ptr.String("true")
+	additionalParams["STATEMENT_TIMEOUT_IN_SECONDS"] = ptr.String(fmt.Sprintf("%d", 15000))
 
 	snowflakeConfig := gosnowflake.Config{
 		Account:          snowflakeProtoConfig.AccountId,
