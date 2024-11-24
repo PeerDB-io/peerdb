@@ -474,7 +474,10 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		case queries <- insertIntoSelectQuery.String():
 		case <-errCtx.Done():
 			close(queries)
-			return nil, errCtx.Err()
+			c.logger.Error("[clickhouse] context canceled while normalizing",
+				slog.Any("error", errCtx.Err()),
+				slog.Any("cause", context.Cause(errCtx)))
+			return nil, context.Cause(errCtx)
 		}
 	}
 	close(queries)
