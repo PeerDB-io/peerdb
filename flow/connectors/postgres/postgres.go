@@ -1234,25 +1234,33 @@ func (c *PostgresConnector) HandleSlotInfo(
 		return err
 	}
 	alerter.AlertIfOpenConnections(ctx, alertKeys, res)
-	slotMetricGauges.OpenConnectionsGauge.Record(ctx, res.CurrentOpenConnections, metric.WithAttributeSet(attribute.NewSet(
-		attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
-		attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
-		attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()),
-	)))
 
+	if slotMetricGauges.OpenConnectionsGauge != nil {
+		slotMetricGauges.OpenConnectionsGauge.Record(ctx, res.CurrentOpenConnections, metric.WithAttributeSet(attribute.NewSet(
+			attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+			attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+			attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()),
+		)))
+	} else {
+		logger.Warn("warning: slotMetricGauges.OpenConnectionsGauge is nil")
+	}
 	replicationRes, err := getOpenReplicationConnectionsForUser(ctx, c.conn, c.config.User)
 	if err != nil {
 		logger.Warn("warning: failed to get current open replication connections", "error", err)
 		return err
 	}
 
-	slotMetricGauges.OpenReplicationConnectionsGauge.Record(ctx, replicationRes.CurrentOpenConnections,
-		metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
-			attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
-			attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()),
-		)),
-	)
+	if slotMetricGauges.OpenReplicationConnectionsGauge == nil {
+		slotMetricGauges.OpenReplicationConnectionsGauge.Record(ctx, replicationRes.CurrentOpenConnections,
+			metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+				attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+				attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()),
+			)),
+		)
+	} else {
+		logger.Warn("warning: slotMetricGauges.OpenReplicationConnectionsGauge is nil")
+	}
 
 	var intervalSinceLastNormalize *time.Duration
 	if err := alerter.CatalogPool.QueryRow(
@@ -1266,13 +1274,17 @@ func (c *PostgresConnector) HandleSlotInfo(
 		return nil
 	}
 	if intervalSinceLastNormalize != nil {
-		slotMetricGauges.IntervalSinceLastNormalizeGauge.Record(ctx, intervalSinceLastNormalize.Seconds(),
-			metric.WithAttributeSet(attribute.NewSet(
-				attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
-				attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
-				attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()),
-			)),
-		)
+		if slotMetricGauges.IntervalSinceLastNormalizeGauge == nil {
+			slotMetricGauges.IntervalSinceLastNormalizeGauge.Record(ctx, intervalSinceLastNormalize.Seconds(),
+				metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+					attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+					attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()),
+				)),
+			)
+		} else {
+			logger.Warn("warning: slotMetricGauges.IntervalSinceLastNormalizeGauge is nil")
+		}
 		alerter.AlertIfTooLongSinceLastNormalize(ctx, alertKeys, *intervalSinceLastNormalize)
 	}
 
