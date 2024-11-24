@@ -474,7 +474,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		case queries <- insertIntoSelectQuery.String():
 		case <-errCtx.Done():
 			close(queries)
-			return nil, ctx.Err()
+			return nil, errCtx.Err()
 		}
 	}
 	close(queries)
