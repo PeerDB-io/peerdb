@@ -409,7 +409,7 @@ func (a *FlowableActivity) StartNormalize(
 	if errors.Is(err, errors.ErrUnsupported) {
 		return nil, monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName, input.SyncBatchID)
 	} else if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get normalize connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
@@ -420,7 +420,7 @@ func (a *FlowableActivity) StartNormalize(
 
 	tableNameSchemaMapping, err := a.getTableNameSchemaMapping(ctx, input.FlowConnectionConfigs.FlowJobName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get table name schema mapping: %w", err)
 	}
 
 	res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
@@ -438,13 +438,13 @@ func (a *FlowableActivity) StartNormalize(
 	}
 	dstType, err := connectors.LoadPeerType(ctx, a.CatalogPool, input.FlowConnectionConfigs.DestinationName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get peer type: %w", err)
 	}
 	if dstType == protos.DBType_POSTGRES {
 		err = monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName,
 			input.SyncBatchID)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to update end time for cdc batch: %w", err)
 		}
 	}
 
