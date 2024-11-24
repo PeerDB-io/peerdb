@@ -1215,6 +1215,10 @@ func (c *PostgresConnector) HandleSlotInfo(
 	logger.Info(fmt.Sprintf("Checking %s lag for %s", alertKeys.SlotName, alertKeys.PeerName),
 		slog.Float64("LagInMB", float64(slotInfo[0].LagInMb)))
 	alerter.AlertIfSlotLag(ctx, alertKeys, slotInfo[0])
+	if slotMetricGauges.SlotLagGauge == nil {
+		logger.Warn("warning: slotMetricGauges.SlotLagGauge is nil")
+		return nil
+	}
 	slotMetricGauges.SlotLagGauge.Record(ctx, float64(slotInfo[0].LagInMb), metric.WithAttributeSet(attribute.NewSet(
 		attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
 		attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
