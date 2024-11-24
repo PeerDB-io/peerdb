@@ -644,14 +644,37 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(
 }
 
 func (c *PostgresConnector) getCurrentLSN(ctx context.Context) (pglogrepl.LSN, error) {
-	row := c.conn.QueryRow(ctx,
-		"SELECT CASE WHEN pg_is_in_recovery() THEN pg_last_wal_receive_lsn() ELSE pg_current_wal_lsn() END")
-	var result pgtype.Text
-	err := row.Scan(&result)
+	tx, err := c.conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
-		return 0, fmt.Errorf("error while running query: %w", err)
+		return 0, fmt.Errorf("begin transaction failed: %w", err)
 	}
-	return pglogrepl.ParseLSN(result.String)
+	defer func() {
+		if rollbackErr := tx.Rollback(ctx); rollbackErr != nil && rollbackErr != pgx.ErrTxClosed {
+			c.logger.Error("rollback failed", slog.Any("error", rollbackErr))
+		}
+	}()
+
+	query := `
+		SELECT CASE
+			WHEN pg_is_in_recovery() THEN pg_last_wal_receive_lsn()
+			ELSE pg_current_wal_lsn()
+		END`
+
+	var lsnString string
+	if err := tx.QueryRow(ctx, query).Scan(&lsnString); err != nil {
+		return 0, fmt.Errorf("query failed: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("commit transaction failed: %w", err)
+	}
+
+	lsn, err := pglogrepl.ParseLSN(lsnString)
+	if err != nil {
+		return 0, fmt.Errorf("invalid LSN format - %s: %w", lsnString, err)
+	}
+
+	return lsn, nil
 }
 
 func (c *PostgresConnector) getDefaultPublicationName(jobName string) string {
