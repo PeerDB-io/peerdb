@@ -1250,7 +1250,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 		return err
 	}
 
-	if slotMetricGauges.OpenReplicationConnectionsGauge == nil {
+	if slotMetricGauges.OpenReplicationConnectionsGauge != nil {
 		slotMetricGauges.OpenReplicationConnectionsGauge.Record(ctx, replicationRes.CurrentOpenConnections,
 			metric.WithAttributeSet(attribute.NewSet(
 				attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
@@ -1274,7 +1274,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 		return nil
 	}
 	if intervalSinceLastNormalize != nil {
-		if slotMetricGauges.IntervalSinceLastNormalizeGauge == nil {
+		if slotMetricGauges.IntervalSinceLastNormalizeGauge != nil {
 			slotMetricGauges.IntervalSinceLastNormalizeGauge.Record(ctx, intervalSinceLastNormalize.Seconds(),
 				metric.WithAttributeSet(attribute.NewSet(
 					attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
