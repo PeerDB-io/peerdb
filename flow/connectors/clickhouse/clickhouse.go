@@ -33,7 +33,6 @@ type ClickHouseConnector struct {
 	logger        log.Logger
 	config        *protos.ClickhouseConfig
 	credsProvider *utils.ClickHouseS3Credentials
-	s3Stage       *ClickHouseS3Stage
 }
 
 func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error {
@@ -92,21 +91,21 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 
 	// add a column
 	if err := c.exec(ctx,
-		fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now64()", validateDummyTableName),
+		fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN updated_at DateTime64(9) DEFAULT now64()", validateDummyTableName),
 	); err != nil {
 		return fmt.Errorf("failed to add column to validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// rename the table
 	if err := c.exec(ctx,
-		fmt.Sprintf("RENAME TABLE %s TO %s", validateDummyTableName, validateDummyTableName+"_renamed"),
+		fmt.Sprintf("RENAME TABLE `%s` TO `%s`", validateDummyTableName, validateDummyTableName+"_renamed"),
 	); err != nil {
 		return fmt.Errorf("failed to rename validation table %s: %w", validateDummyTableName, err)
 	}
 	validateDummyTableName += "_renamed"
 
 	// insert a row
-	if err := c.exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableName)); err != nil {
+	if err := c.exec(ctx, fmt.Sprintf("INSERT INTO `%s` VALUES (1, now64())", validateDummyTableName)); err != nil {
 		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableName, err)
 	}
 
@@ -129,7 +128,7 @@ func NewClickHouseConnector(
 	config *protos.ClickhouseConfig,
 ) (*ClickHouseConnector, error) {
 	logger := shared.LoggerFromCtx(ctx)
-	database, err := Connect(ctx, config)
+	database, err := Connect(ctx, env, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open connection to ClickHouse peer: %w", err)
 	}
@@ -153,12 +152,10 @@ func NewClickHouseConnector(
 	}
 
 	awsBucketPath := config.S3Path
-
 	if awsBucketPath == "" {
 		deploymentUID := peerdbenv.PeerDBDeploymentUID()
 		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
-		bucketPathSuffix := fmt.Sprintf("%s/%s",
-			url.PathEscape(deploymentUID), url.PathEscape(flowName))
+		bucketPathSuffix := fmt.Sprintf("%s/%s", url.PathEscape(deploymentUID), url.PathEscape(flowName))
 		// Fallback: Get S3 credentials from environment
 		awsBucketName, err := peerdbenv.PeerDBClickHouseAWSS3BucketName(ctx, env)
 		if err != nil {
@@ -170,10 +167,7 @@ func NewClickHouseConnector(
 
 		awsBucketPath = fmt.Sprintf("s3://%s/%s", awsBucketName, bucketPathSuffix)
 	}
-	clickHouseS3CredentialsNew := utils.ClickHouseS3Credentials{
-		Provider:   credentialsProvider,
-		BucketPath: awsBucketPath,
-	}
+
 	credentials, err := credentialsProvider.Retrieve(ctx)
 	if err != nil {
 		return nil, err
@@ -184,8 +178,10 @@ func NewClickHouseConnector(
 		PostgresMetadata: pgMetadata,
 		config:           config,
 		logger:           logger,
-		credsProvider:    &clickHouseS3CredentialsNew,
-		s3Stage:          NewClickHouseS3Stage(),
+		credsProvider: &utils.ClickHouseS3Credentials{
+			Provider:   credentialsProvider,
+			BucketPath: awsBucketPath,
+		},
 	}
 
 	if credentials.AWS.SessionToken != "" {
@@ -209,7 +205,7 @@ func NewClickHouseConnector(
 	return connector, nil
 }
 
-func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.Conn, error) {
+func Connect(ctx context.Context, env map[string]string, config *protos.ClickhouseConfig) (clickhouse.Conn, error) {
 	var tlsSetting *tls.Config
 	if !config.DisableTls {
 		tlsSetting = &tls.Config{MinVersion: tls.VersionTLS13}
@@ -232,6 +228,13 @@ func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.C
 		tlsSetting.RootCAs = caPool
 	}
 
+	var settings clickhouse.Settings
+	if maxInsertThreads, err := peerdbenv.PeerDBClickHouseMaxInsertThreads(ctx, env); err != nil {
+		return nil, fmt.Errorf("failed to load max_insert_threads config: %w", err)
+	} else if maxInsertThreads != 0 {
+		settings = clickhouse.Settings{"max_insert_threads": maxInsertThreads}
+	}
+
 	conn, err := clickhouse.Open(&clickhouse.Options{
 		Addr: []string{fmt.Sprintf("%s:%d", config.Host, config.Port)},
 		Auth: clickhouse.Auth{
@@ -249,6 +252,7 @@ func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.C
 				{Name: "peerdb"},
 			},
 		},
+		Settings:    settings,
 		DialTimeout: 3600 * time.Second,
 		ReadTimeout: 3600 * time.Second,
 	})
@@ -381,8 +385,7 @@ func (c *ClickHouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tab
 	for rows.Next() {
 		var tableName, engine string
 		var totalRows uint64
-		err = rows.Scan(&tableName, &engine, &totalRows)
-		if err != nil {
+		if err := rows.Scan(&tableName, &engine, &totalRows); err != nil {
 			return fmt.Errorf("failed to scan information for tables: %w", err)
 		}
 		if totalRows != 0 && optedForInitialLoad {
@@ -393,8 +396,8 @@ func (c *ClickHouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tab
 				slog.String("table", tableName), slog.String("engine", engine))
 		}
 	}
-	if rows.Err() != nil {
-		return fmt.Errorf("failed to read rows: %w", rows.Err())
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to read rows: %w", err)
 	}
 	return nil
 }
@@ -418,14 +421,13 @@ func (c *ClickHouseConnector) getTableColumnsMapping(ctx context.Context,
 	for rows.Next() {
 		var tableName string
 		var fieldDescription protos.FieldDescription
-		err = rows.Scan(&fieldDescription.Name, &fieldDescription.Type, &tableName)
-		if err != nil {
+		if err := rows.Scan(&fieldDescription.Name, &fieldDescription.Type, &tableName); err != nil {
 			return nil, fmt.Errorf("failed to scan columns for tables: %w", err)
 		}
 		tableColumnsMapping[tableName] = append(tableColumnsMapping[tableName], &fieldDescription)
 	}
-	if rows.Err() != nil {
-		return nil, fmt.Errorf("failed to read rows: %w", rows.Err())
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
 	return tableColumnsMapping, nil
 }

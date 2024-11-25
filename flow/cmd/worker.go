@@ -10,6 +10,7 @@ import (
 	"runtime"
 
 	"github.com/grafana/pyroscope-go"
+	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/client"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
 	"go.temporal.io/sdk/worker"
@@ -30,6 +31,7 @@ type WorkerSetupOptions struct {
 	TemporalMaxConcurrentWorkflowTasks int
 	EnableProfiling                    bool
 	EnableOtelMetrics                  bool
+	UseMaintenanceTaskQueue            bool
 }
 
 type workerSetupResponse struct {
@@ -124,8 +126,11 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 		return nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 	slog.Info("Created temporal client")
-
-	taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
+	queueId := shared.PeerFlowTaskQueue
+	if opts.UseMaintenanceTaskQueue {
+		queueId = shared.MaintenanceFlowTaskQueue
+	}
+	taskQueue := peerdbenv.PeerFlowTaskQueueName(queueId)
 	slog.Info(
 		fmt.Sprintf("Creating temporal worker for queue %v: %v workflow workers %v activity workers",
 			taskQueue,
@@ -153,8 +158,8 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 		otelManager = &otel_metrics.OtelManager{
 			MetricsProvider:    metricsProvider,
 			Meter:              metricsProvider.Meter("io.peerdb.flow-worker"),
-			Float64GaugesCache: make(map[string]*otel_metrics.Float64SyncGauge),
-			Int64GaugesCache:   make(map[string]*otel_metrics.Int64SyncGauge),
+			Float64GaugesCache: make(map[string]metric.Float64Gauge),
+			Int64GaugesCache:   make(map[string]metric.Int64Gauge),
 		}
 		cleanupOtelManagerFunc = func() {
 			shutDownErr := otelManager.MetricsProvider.Shutdown(context.Background())
@@ -168,6 +173,12 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 		Alerter:     alerting.NewAlerter(context.Background(), conn),
 		CdcCache:    make(map[string]activities.CdcCacheEntry),
 		OtelManager: otelManager,
+	})
+
+	w.RegisterActivity(&activities.MaintenanceActivity{
+		CatalogPool:    conn,
+		Alerter:        alerting.NewAlerter(context.Background(), conn),
+		TemporalClient: c,
 	})
 
 	return &workerSetupResponse{

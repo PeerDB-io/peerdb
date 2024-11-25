@@ -376,8 +376,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 			}
 			srcTableNames = append(srcTableNames, parsedSrcTableName.String())
 		}
-		err := c.CreatePublication(ctx, srcTableNames, publication)
-		if err != nil {
+		if err := c.CreatePublication(ctx, srcTableNames, publication); err != nil {
 			signal.SlotCreated <- SlotCreationResult{Err: err}
 			return
 		}
@@ -395,7 +394,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 		c.logger.Warn(fmt.Sprintf("Creating replication slot '%s'", slot))
 
 		// THIS IS NOT IN A TX!
-		if _, err = conn.Exec(ctx, "SET idle_in_transaction_session_timeout=0"); err != nil {
+		if _, err := conn.Exec(ctx, "SET idle_in_transaction_session_timeout=0"); err != nil {
 			signal.SlotCreated <- SlotCreationResult{Err: fmt.Errorf("[slot] error setting idle_in_transaction_session_timeout: %w", err)}
 			return
 		}
@@ -551,7 +550,14 @@ func (c *PostgresConnector) jobMetadataExists(ctx context.Context, jobName strin
 }
 
 func (c *PostgresConnector) MajorVersion(ctx context.Context) (shared.PGVersion, error) {
-	return shared.GetMajorVersion(ctx, c.conn)
+	if c.pgVersion == 0 {
+		pgVersion, err := shared.GetMajorVersion(ctx, c.conn)
+		if err != nil {
+			return 0, err
+		}
+		c.pgVersion = pgVersion
+	}
+	return c.pgVersion, nil
 }
 
 func (c *PostgresConnector) updateSyncMetadata(ctx context.Context, flowJobName string, lastCP int64, syncBatchID int64,

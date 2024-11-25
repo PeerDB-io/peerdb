@@ -84,7 +84,6 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
-	var err error
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
 	quotedWatermarkColumn := QuoteIdentifier(config.WatermarkColumn)
 
@@ -116,7 +115,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	}
 
 	var totalRows pgtype.Int8
-	if err = row.Scan(&totalRows); err != nil {
+	if err := row.Scan(&totalRows); err != nil {
 		return nil, fmt.Errorf("failed to query for total rows: %w", err)
 	}
 
@@ -177,19 +176,16 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
-		err = partitionHelper.AddPartition(start, end)
-		if err != nil {
+		if err := partitionHelper.AddPartition(start, end); err != nil {
 			return nil, fmt.Errorf("failed to add partition: %w", err)
 		}
 	}
 
-	err = rows.Err()
-	if err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
 
-	err = tx.Commit(ctx)
-	if err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
@@ -332,10 +328,15 @@ func corePullQRepRecords(
 	sink QRepPullSink,
 ) (int, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
+
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
-		executor := c.NewQRepQueryExecutorSnapshot(config.SnapshotName, config.FlowJobName, partition.PartitionId)
-		_, err := executor.ExecuteQueryIntoSink(ctx, sink, config.Query)
+		executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.SnapshotName,
+			config.FlowJobName, partition.PartitionId)
+		if err != nil {
+			return 0, fmt.Errorf("failed to create query executor: %w", err)
+		}
+		_, err = executor.ExecuteQueryIntoSink(ctx, sink, config.Query)
 		return 0, err
 	}
 	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
@@ -373,7 +374,11 @@ func corePullQRepRecords(
 		return 0, err
 	}
 
-	executor := c.NewQRepQueryExecutorSnapshot(config.SnapshotName, config.FlowJobName, partition.PartitionId)
+	executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.SnapshotName, config.FlowJobName,
+		partition.PartitionId)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create query executor: %w", err)
+	}
 
 	numRecords, err := executor.ExecuteQueryIntoSink(ctx, sink, query, rangeStart, rangeEnd)
 	if err != nil {
@@ -673,7 +678,11 @@ func pullXminRecordStream(
 		queryArgs = []interface{}{strconv.FormatInt(partition.Range.Range.(*protos.PartitionRange_IntRange).IntRange.Start&0xffffffff, 10)}
 	}
 
-	executor := c.NewQRepQueryExecutorSnapshot(config.SnapshotName, config.FlowJobName, partition.PartitionId)
+	executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.SnapshotName,
+		config.FlowJobName, partition.PartitionId)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
+	}
 
 	numRecords, currentSnapshotXmin, err := executor.ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 		ctx,

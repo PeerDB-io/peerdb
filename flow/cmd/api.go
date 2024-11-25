@@ -191,24 +191,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
 	}
 
-	if peerdbenv.PeerDBTemporalEnableCertAuth() {
-		slog.Info("Using temporal certificate/key for authentication")
-
-		certs, err := parseTemporalCertAndKey(ctx)
-		if err != nil {
-			return fmt.Errorf("unable to base64 decode certificate and key: %w", err)
-		}
-
-		connOptions := client.ConnectionOptions{
-			TLS: &tls.Config{
-				Certificates: certs,
-				MinVersion:   tls.VersionTLS13,
-			},
-		}
-		clientOptions.ConnectionOptions = connOptions
-	}
-
-	tc, err := client.Dial(clientOptions)
+	tc, err := setupTemporalClient(ctx, clientOptions)
 	if err != nil {
 		return fmt.Errorf("unable to create Temporal client: %w", err)
 	}
@@ -308,4 +291,26 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 	slog.Info("Server has been shut down gracefully. Exiting...")
 
 	return nil
+}
+
+func setupTemporalClient(ctx context.Context, clientOptions client.Options) (client.Client, error) {
+	if peerdbenv.PeerDBTemporalEnableCertAuth() {
+		slog.Info("Using temporal certificate/key for authentication")
+
+		certs, err := parseTemporalCertAndKey(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("unable to base64 decode certificate and key: %w", err)
+		}
+
+		connOptions := client.ConnectionOptions{
+			TLS: &tls.Config{
+				Certificates: certs,
+				MinVersion:   tls.VersionTLS13,
+			},
+		}
+		clientOptions.ConnectionOptions = connOptions
+	}
+
+	tc, err := client.Dial(clientOptions)
+	return tc, err
 }

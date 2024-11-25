@@ -89,7 +89,10 @@ func EnvTrue(t *testing.T, env WorkflowRun, val bool) {
 }
 
 func GetPgRows(conn *connpostgres.PostgresConnector, suffix string, table string, cols string) (*model.QRecordBatch, error) {
-	pgQueryExecutor := conn.NewQRepQueryExecutor("testflow", "testpart")
+	pgQueryExecutor, err := conn.NewQRepQueryExecutor(context.Background(), "testflow", "testpart")
+	if err != nil {
+		return nil, err
+	}
 
 	return pgQueryExecutor.ExecuteAndProcessQuery(
 		context.Background(),
@@ -195,10 +198,9 @@ func EnvWaitForCount(
 func RequireEnvCanceled(t *testing.T, env WorkflowRun) {
 	t.Helper()
 	EnvWaitForFinished(t, env, time.Minute)
-	err := env.Error()
 	var panicErr *temporal.PanicError
 	var canceledErr *temporal.CanceledError
-	if err == nil {
+	if err := env.Error(); err == nil {
 		t.Fatal("Expected workflow to be canceled, not completed")
 	} else if errors.As(err, &panicErr) {
 		t.Fatalf("Workflow panic: %s %s", panicErr.Error(), panicErr.StackTrace())
@@ -217,10 +219,9 @@ func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, config *protos.FlowC
 		response, err := env.Query(shared.FlowStatusQuery, config.FlowJobName)
 		if err == nil {
 			var status protos.FlowStatus
-			err = response.Get(&status)
-			if err != nil {
+			if err := response.Get(&status); err != nil {
 				t.Fatal(err)
-			} else if status == protos.FlowStatus_STATUS_RUNNING {
+			} else if status == protos.FlowStatus_STATUS_RUNNING || status == protos.FlowStatus_STATUS_COMPLETED {
 				return
 			} else if counter > 30 {
 				env.Cancel()

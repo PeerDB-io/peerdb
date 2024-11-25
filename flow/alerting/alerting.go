@@ -356,7 +356,7 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId i
 		return true
 	}
 
-	logger.Info(fmt.Sprintf("Skipped sending alerts: last alert was sent at %s, which was >=%s ago", createdTimestamp.String(), dur.String()))
+	logger.Info(fmt.Sprintf("Skipped sending alerts: last alert was sent at %s, which was <=%s ago", createdTimestamp.String(), dur.String()))
 	return false
 }
 
@@ -377,10 +377,10 @@ func (a *Alerter) sendTelemetryMessage(
 	}
 
 	if a.snsTelemetrySender != nil {
-		if status, err := a.snsTelemetrySender.SendMessage(ctx, details, details, attributes); err != nil {
+		if response, err := a.snsTelemetrySender.SendMessage(ctx, details, details, attributes); err != nil {
 			logger.Warn("failed to send message to snsTelemetrySender", slog.Any("error", err))
 		} else {
-			logger.Info("received status from snsTelemetrySender", slog.String("status", status))
+			logger.Info("received response from snsTelemetrySender", slog.String("response", response))
 		}
 	}
 
@@ -388,7 +388,7 @@ func (a *Alerter) sendTelemetryMessage(
 		if status, err := a.incidentIoTelemetrySender.SendMessage(ctx, details, details, attributes); err != nil {
 			logger.Warn("failed to send message to incidentIoTelemetrySender", slog.Any("error", err))
 		} else {
-			logger.Info("received status from incident.io", slog.String("status", status))
+			logger.Info("received response from incident.io", slog.String("response", status))
 		}
 	}
 }
@@ -439,6 +439,10 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		tags = append(tags, "pgcode:"+pgErr.Code)
+	}
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		tags = append(tags, "err:Net")
 	}
 	a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR, tags...)
 }

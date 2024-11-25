@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use gcp_bigquery_client::{
-    model::{query_request::QueryRequest, query_response::ResultSet},
+    model::{query_request::QueryRequest, query_response::QueryResponse},
     yup_oauth2, Client,
 };
 use peer_connections::PeerConnectionTracker;
@@ -62,7 +62,7 @@ impl BigQueryQueryExecutor {
         })
     }
 
-    async fn run_tracked(&self, query: &str) -> PgWireResult<ResultSet> {
+    async fn run_tracked(&self, query: &str) -> PgWireResult<QueryResponse> {
         let mut query_req = QueryRequest::new(query);
         query_req.timeout_ms = Some(Duration::from_secs(120).as_millis() as i32);
 
@@ -91,6 +91,17 @@ impl BigQueryQueryExecutor {
 
 #[async_trait::async_trait]
 impl QueryExecutor for BigQueryQueryExecutor {
+    async fn execute_raw(&self, query: &str) -> PgWireResult<QueryOutput> {
+        let query_response = self.run_tracked(query).await?;
+        let cursor = BqRecordStream::from(query_response);
+        tracing::info!(
+            "retrieved {} rows for query {}",
+            cursor.get_num_records(),
+            query
+        );
+        Ok(QueryOutput::Stream(Box::pin(cursor)))
+    }
+
     #[tracing::instrument(skip(self, stmt), fields(stmt = %stmt))]
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
         // only support SELECT statements
@@ -105,15 +116,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 let query = query.to_string();
                 tracing::info!("bq rewritten query: {}", query);
 
-                let result_set = self.run_tracked(&query).await?;
-
-                let cursor = BqRecordStream::new(result_set);
-                tracing::info!(
-                    "retrieved {} rows for query {}",
-                    cursor.get_num_records(),
-                    query
-                );
-                Ok(QueryOutput::Stream(Box::pin(cursor)))
+                self.execute_raw(&query).await
             }
             Statement::Declare { stmts } => {
                 if stmts.len() != 1 {
@@ -220,8 +223,8 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 query.limit = Some(Expr::Value(Value::Number("1".to_owned(), false)));
 
                 let query = query.to_string();
-                let result_set = self.run_tracked(&query).await?;
-                let schema = BqSchema::from_result_set(&result_set);
+                let query_response = self.run_tracked(&query).await?;
+                let schema = BqSchema::from(&query_response);
 
                 // log the schema
                 tracing::info!("[bigquery] schema: {:?}", schema);

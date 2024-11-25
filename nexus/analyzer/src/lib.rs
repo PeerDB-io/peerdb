@@ -18,7 +18,7 @@ use qrep::process_options;
 use sqlparser::ast::{
     self, visit_relations, visit_statements,
     CreateMirror::{Select, CDC},
-    Expr, FetchDirection, SqlOption, Statement,
+    DollarQuotedString, Expr, FetchDirection, SqlOption, Statement, Value,
 };
 
 mod qrep;
@@ -115,6 +115,10 @@ pub enum PeerDDL {
     DropPeer {
         peer_name: String,
         if_exists: bool,
+    },
+    ExecutePeer {
+        peer_name: String,
+        query: String,
     },
     CreateMirrorForCDC {
         if_not_exists: bool,
@@ -386,6 +390,30 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             qrep_flow_job: Box::new(qrep_flow_job),
                         }))
                     }
+                }
+            }
+            Statement::Execute {
+                name, parameters, ..
+            } => {
+                if let Some(Expr::Value(query)) = parameters.first() {
+                    if let Some(query) = match query {
+                        Value::DoubleQuotedString(query)
+                        | Value::SingleQuotedString(query)
+                        | Value::EscapedStringLiteral(query) => Some(query.clone()),
+                        Value::DollarQuotedString(DollarQuotedString { value, .. }) => {
+                            Some(value.clone())
+                        }
+                        _ => None,
+                    } {
+                        Ok(Some(PeerDDL::ExecutePeer {
+                            peer_name: name.to_string().to_lowercase(),
+                            query: query.to_string(),
+                        }))
+                    } else {
+                        Ok(None)
+                    }
+                } else {
+                    Ok(None)
                 }
             }
             Statement::ExecuteMirror { mirror_name } => Ok(Some(PeerDDL::ExecuteMirrorForSelect {

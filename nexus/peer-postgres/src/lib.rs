@@ -16,16 +16,26 @@ pub mod stream;
 // backing store.
 pub struct PostgresQueryExecutor {
     peername: String,
-    client: Box<Client>,
+    client: Client,
+    session: Option<ssh2::Session>,
 }
 
 impl PostgresQueryExecutor {
     pub async fn new(peername: String, config: &PostgresConfig) -> anyhow::Result<Self> {
-        let client = postgres_connection::connect_postgres(config).await?;
+        let (client, session) = postgres_connection::connect_postgres(config).await?;
         Ok(Self {
             peername,
-            client: Box::new(client),
+            client,
+            session,
         })
+    }
+}
+
+impl Drop for PostgresQueryExecutor {
+    fn drop(&mut self) {
+        if let Some(session) = &mut self.session {
+            session.disconnect(None, "", None).ok();
+        }
     }
 }
 
@@ -44,6 +54,34 @@ async fn schema_from_query(client: &Client, query: &str) -> anyhow::Result<Schem
     Ok(Arc::new(fields))
 }
 
+pub async fn pg_execute_raw(client: &Client, query: &str) -> PgWireResult<QueryOutput> {
+    // first fetch the schema as this connection will be
+    // short lived, only then run the query as the query
+    // could hold the pin on the connection for a long time.
+    let schema = schema_from_query(client, query).await.map_err(|e| {
+        tracing::error!("error getting schema: {}", e);
+        PgWireError::ApiError(format!("error getting schema: {}", e).into())
+    })?;
+
+    tracing::info!("[peer-postgres] rewritten query: {}", query);
+    // given that there could be a lot of rows returned, we
+    // need to use a cursor to stream the rows back to the
+    // client.
+    let stream = client
+        .query_raw(query, std::iter::empty::<&str>())
+        .await
+        .map_err(|e| {
+            tracing::error!("error executing query: {}", e);
+            PgWireError::ApiError(format!("error executing query: {}", e).into())
+        })?;
+
+    // log that raw query execution has completed
+    tracing::info!("[peer-postgres] raw query execution completed");
+
+    let cursor = stream::PgRecordStream::new(stream, schema);
+    Ok(QueryOutput::Stream(Box::pin(cursor)))
+}
+
 pub async fn pg_execute(
     client: &Client,
     ast: ast::PostgresAst,
@@ -58,33 +96,7 @@ pub async fn pg_execute(
             ast.rewrite_query(&mut query);
             let rewritten_query = query.to_string();
 
-            // first fetch the schema as this connection will be
-            // short lived, only then run the query as the query
-            // could hold the pin on the connection for a long time.
-            let schema = schema_from_query(client, &rewritten_query)
-                .await
-                .map_err(|e| {
-                    tracing::error!("error getting schema: {}", e);
-                    PgWireError::ApiError(format!("error getting schema: {}", e).into())
-                })?;
-
-            tracing::info!("[peer-postgres] rewritten query: {}", rewritten_query);
-            // given that there could be a lot of rows returned, we
-            // need to use a cursor to stream the rows back to the
-            // client.
-            let stream = client
-                .query_raw(&rewritten_query, std::iter::empty::<&str>())
-                .await
-                .map_err(|e| {
-                    tracing::error!("error executing query: {}", e);
-                    PgWireError::ApiError(format!("error executing query: {}", e).into())
-                })?;
-
-            // log that raw query execution has completed
-            tracing::info!("[peer-postgres] raw query execution completed");
-
-            let cursor = stream::PgRecordStream::new(stream, schema);
-            Ok(QueryOutput::Stream(Box::pin(cursor)))
+            pg_execute_raw(client, &rewritten_query).await
         }
         _ => {
             let mut rewritten_stmt = stmt.clone();
@@ -120,6 +132,10 @@ pub async fn pg_describe(client: &Client, stmt: &Statement) -> PgWireResult<Opti
 
 #[async_trait::async_trait]
 impl QueryExecutor for PostgresQueryExecutor {
+    async fn execute_raw(&self, query: &str) -> PgWireResult<QueryOutput> {
+        pg_execute_raw(&self.client, query).await
+    }
+
     #[tracing::instrument(skip(self, stmt), fields(stmt = %stmt))]
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
         pg_execute(

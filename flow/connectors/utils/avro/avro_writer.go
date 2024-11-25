@@ -23,6 +23,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -187,7 +188,11 @@ func (p *peerDBOCFWriter) WriteOCF(ctx context.Context, w io.Writer) (int, error
 }
 
 func (p *peerDBOCFWriter) WriteRecordsToS3(
-	ctx context.Context, bucketName, key string, s3Creds utils.AWSCredentialsProvider,
+	ctx context.Context,
+	env map[string]string,
+	bucketName string,
+	key string,
+	s3Creds utils.AWSCredentialsProvider,
 ) (*AvroFile, error) {
 	logger := shared.LoggerFromCtx(ctx)
 	s3svc, err := utils.CreateS3Client(ctx, s3Creds)
@@ -215,12 +220,23 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 		numRows, writeOcfError = p.WriteOCF(ctx, w)
 	}()
 
-	_, err = manager.NewUploader(s3svc).Upload(ctx, &s3.PutObjectInput{
+	partSize, err := peerdbenv.PeerDBS3PartSize(ctx, env)
+	if err != nil {
+		return nil, fmt.Errorf("could not get s3 part size config: %w", err)
+	}
+
+	// Create the uploader using the AWS SDK v2 manager
+	uploader := manager.NewUploader(s3svc, func(u *manager.Uploader) {
+		if partSize > 0 {
+			u.PartSize = partSize
+		}
+	})
+
+	if _, err := uploader.Upload(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(key),
 		Body:   r,
-	})
-	if err != nil {
+	}); err != nil {
 		s3Path := "s3://" + bucketName + "/" + key
 		logger.Error("failed to upload file", slog.Any("error", err), slog.String("s3_path", s3Path))
 		return nil, fmt.Errorf("failed to upload file: %w", err)

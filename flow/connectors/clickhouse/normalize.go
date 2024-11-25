@@ -6,10 +6,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -261,8 +265,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		}, nil
 	}
 
-	err = c.copyAvroStagesToDestination(ctx, req.FlowJobName, normBatchID, req.SyncBatchID)
-	if err != nil {
+	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, normBatchID, req.SyncBatchID); err != nil {
 		return nil, fmt.Errorf("failed to copy avro stages to destination: %w", err)
 	}
 
@@ -277,9 +280,48 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		return nil, err
 	}
 
+	enablePrimaryUpdate, err := peerdbenv.PeerDBEnableClickHousePrimaryUpdate(ctx, req.Env)
+	if err != nil {
+		return nil, err
+	}
+
+	parallelNormalize, err := peerdbenv.PeerDBClickHouseParallelNormalize(ctx, req.Env)
+	if err != nil {
+		return nil, err
+	}
+	parallelNormalize = min(max(parallelNormalize, 1), len(destinationTableNames))
+	if parallelNormalize > 1 {
+		c.logger.Info("normalizing in parallel", slog.Int("connections", parallelNormalize))
+	}
+
+	queries := make(chan string)
 	rawTbl := c.getRawTableName(req.FlowJobName)
 
-	// model the raw table data as inserts.
+	group, errCtx := errgroup.WithContext(ctx)
+	for i := range parallelNormalize {
+		group.Go(func() error {
+			var chConn clickhouse.Conn
+			if i == 0 {
+				chConn = c.database
+			} else {
+				var err error
+				chConn, err = Connect(errCtx, req.Env, c.config)
+				if err != nil {
+					return err
+				}
+				defer chConn.Close()
+			}
+
+			for query := range queries {
+				c.logger.Info("normalizing batch", slog.String("query", query))
+				if err := chConn.Exec(errCtx, query); err != nil {
+					return fmt.Errorf("error while inserting into normalized table: %w", err)
+				}
+			}
+			return nil
+		})
+	}
+
 	for _, tbl := range destinationTableNames {
 		// SELECT projection FROM raw_table WHERE _peerdb_batch_id > normalize_batch_id AND _peerdb_batch_id <= sync_batch_id
 		selectQuery := strings.Builder{}
@@ -296,11 +338,6 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				tableMapping = tm
 				break
 			}
-		}
-
-		enablePrimaryUpdate, err := peerdbenv.PeerDBEnableClickHousePrimaryUpdate(ctx, req.Env)
-		if err != nil {
-			return nil, err
 		}
 
 		projection := strings.Builder{}
@@ -337,6 +374,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					var err error
 					clickHouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
 					if err != nil {
+						close(queries)
 						return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 					}
 				}
@@ -432,16 +470,23 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		insertIntoSelectQuery.WriteString(colSelector.String())
 		insertIntoSelectQuery.WriteString(selectQuery.String())
 
-		q := insertIntoSelectQuery.String()
-
-		if err := c.execWithLogging(ctx, q); err != nil {
-			return nil, fmt.Errorf("error while inserting into normalized table: %w", err)
+		select {
+		case queries <- insertIntoSelectQuery.String():
+		case <-errCtx.Done():
+			close(queries)
+			c.logger.Error("[clickhouse] context canceled while normalizing",
+				slog.Any("error", errCtx.Err()),
+				slog.Any("cause", context.Cause(errCtx)))
+			return nil, context.Cause(errCtx)
 		}
 	}
+	close(queries)
+	if err := group.Wait(); err != nil {
+		return nil, err
+	}
 
-	err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, req.SyncBatchID)
-	if err != nil {
-		c.logger.Error("[clickhouse] error while updating normalize batch id", "error", err)
+	if err := c.UpdateNormalizeBatchID(ctx, req.FlowJobName, req.SyncBatchID); err != nil {
+		c.logger.Error("[clickhouse] error while updating normalize batch id", slog.Int64("BatchID", req.SyncBatchID), slog.Any("error", err))
 		return nil, err
 	}
 
@@ -461,7 +506,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	rawTbl := c.getRawTableName(flowJobName)
 
 	q := fmt.Sprintf(
-		`SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d`,
+		`SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d`,
 		rawTbl, normalizeBatchID, syncBatchID)
 
 	rows, err := c.query(ctx, q)
@@ -472,8 +517,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	var tableNames []string
 	for rows.Next() {
 		var tableName sql.NullString
-		err = rows.Scan(&tableName)
-		if err != nil {
+		if err := rows.Scan(&tableName); err != nil {
 			return nil, fmt.Errorf("error while scanning table name: %w", err)
 		}
 
@@ -484,7 +528,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 		tableNames = append(tableNames, tableName.String)
 	}
 
-	if rows.Err() != nil {
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
 
@@ -493,7 +537,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 
 func (c *ClickHouseConnector) copyAvroStageToDestination(ctx context.Context, flowJobName string, syncBatchID int64) error {
 	avroSyncMethod := c.avroSyncMethod(flowJobName)
-	avroFile, err := c.s3Stage.GetAvroStage(ctx, flowJobName, syncBatchID)
+	avroFile, err := GetAvroStage(ctx, flowJobName, syncBatchID)
 	if err != nil {
 		return fmt.Errorf("failed to get avro stage: %w", err)
 	}
@@ -510,8 +554,7 @@ func (c *ClickHouseConnector) copyAvroStagesToDestination(
 	ctx context.Context, flowJobName string, normBatchID, syncBatchID int64,
 ) error {
 	for s := normBatchID + 1; s <= syncBatchID; s++ {
-		err := c.copyAvroStageToDestination(ctx, flowJobName, s)
-		if err != nil {
+		if err := c.copyAvroStageToDestination(ctx, flowJobName, s); err != nil {
 			return fmt.Errorf("failed to copy avro stage to destination: %w", err)
 		}
 	}

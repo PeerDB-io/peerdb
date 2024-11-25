@@ -12,6 +12,6 @@ dashmap.workspace = true
 futures = "0.3"
 pgwire.workspace = true
 sqlparser.workspace = true
-tokio = { version = "1.0", features = ["full"] }
+tokio.workspace = true
 tracing.workspace = true
 value = { path = "../value" }

@@ -11,6 +11,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peer-flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -460,11 +461,10 @@ func (s ClickHouseSuite) Test_Replident_Full_Unchanged_TOAST_Updates() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-// Replicate a table called "table" and a column with hyphen in it
-func (s ClickHouseSuite) Test_Weird_Table_And_Column() {
-	srcTableName := "table"
-	srcFullName := s.attachSchemaSuffix("\"table\"")
-	dstTableName := "table"
+func (s ClickHouseSuite) WeirdTable(tableName string) {
+	srcTableName := tableName
+	srcFullName := s.attachSchemaSuffix(fmt.Sprintf("\"%s\"", tableName))
+	dstTableName := tableName
 
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -474,14 +474,12 @@ func (s ClickHouseSuite) Test_Weird_Table_And_Column() {
 	`, srcFullName))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-	INSERT INTO %s (key) VALUES ('init');
-	`, srcFullName))
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf("INSERT INTO %s (key) VALUES ('init')", srcFullName))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("clickhouse_test_weird_table_and_column"),
-		TableNameMapping: map[string]string{s.attachSchemaSuffix("table"): dstTableName},
+		FlowJobName:      s.attachSuffix("clickhouse_test_weird_table_" + strings.ReplaceAll(tableName, "-", "_")),
+		TableNameMapping: map[string]string{s.attachSchemaSuffix(tableName): dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
@@ -492,15 +490,57 @@ func (s ClickHouseSuite) Test_Weird_Table_And_Column() {
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,key")
 
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-	INSERT INTO %s (key) VALUES ('cdc');
-	`, srcFullName))
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf("INSERT INTO %s (key) VALUES ('cdc')", srcFullName))
 	require.NoError(s.t, err)
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,key")
 
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
+
+	env = e2e.ExecuteWorkflow(tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
+		FlowJobName:           flowConnConfig.FlowJobName,
+		DropFlowStats:         false,
+		FlowConnectionConfigs: flowConnConfig,
+	})
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	// now test weird names with rename based resync
+	ch, err := connclickhouse.Connect(context.Background(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	require.NoError(s.t, ch.Exec(context.Background(), fmt.Sprintf("DROP TABLE `%s`", dstTableName)))
+	require.NoError(s.t, ch.Close())
+	flowConnConfig.Resync = true
+	env = e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,key")
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
+
+	env = e2e.ExecuteWorkflow(tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
+		FlowJobName:           flowConnConfig.FlowJobName,
+		DropFlowStats:         false,
+		FlowConnectionConfigs: flowConnConfig,
+	})
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	// now test weird names with exchange based resync
+	ch, err = connclickhouse.Connect(context.Background(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	require.NoError(s.t, ch.Exec(context.Background(), fmt.Sprintf("TRUNCATE TABLE `%s`", dstTableName)))
+	require.NoError(s.t, ch.Close())
+	env = e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,key")
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_WeirdTable_Keyword() {
+	s.WeirdTable("table")
+}
+
+func (s ClickHouseSuite) Test_WeirdTable_Dash() {
+	s.t.SkipNow() // TODO fix avro errors by sanitizing names
+	s.WeirdTable("table-group")
 }
 
 // large NUMERICs (precision >76) are mapped to String on CH, test

@@ -39,7 +39,7 @@ x-flow-worker-env: &flow-worker-env
 services:
   catalog:
     container_name: catalog
-    image: postgres:16-alpine
+    image: postgres:17-alpine@sha256:0d9624535618a135c5453258fd629f4963390338b11aaffb92292c12df3a6c17
     command: -c config_file=/etc/postgresql.conf
     ports:
       - 9901:5432
@@ -73,7 +73,7 @@ services:
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    image: temporalio/auto-setup:1.25
+    image: temporalio/auto-setup:1.25@sha256:b1edc1e20002d958c8182f2ae08dee877a125083683a627a44917683419ba6a8
     ports:
       - 7233:7233
     volumes:
@@ -83,7 +83,7 @@ services:
 
   pyroscope:
     container_name: pyroscope
-    image: grafana/pyroscope:latest
+    image: grafana/pyroscope:latest@sha256:319bf32ae06b67c1b9795c06ae6c3ba67e9b43382896df7a9df54cdb47a5c535
     ports:
       - 4040:4040
 
@@ -95,7 +95,7 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CLI_ADDRESS=temporal:7233
       - TEMPORAL_CLI_SHOW_STACKS=1
-    image: temporalio/admin-tools:1.25
+    image: temporalio/admin-tools:1.25.2-tctl-1.18.1-cli-1.1.1@sha256:da0c7a7982b571857173ab8f058e7f139b3054800abb4dcb100445d29a563ee8
     stdin_open: true
     tty: true
     entrypoint: /etc/temporal/entrypoint.sh
@@ -116,7 +116,7 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
-    image: temporalio/ui:2.29.1
+    image: temporalio/ui:2.32.0@sha256:82bf98dbe005a831b6bc5dc12ccd7bffd606af2032dae4821ae133caaa943d3d
     ports:
       - 8085:8080
 
@@ -209,7 +209,7 @@ services:
       - flow-api
 
   minio:
-    image: minio/minio:RELEASE.2024-07-16T23-46-41Z
+    image: minio/minio:RELEASE.2024-11-07T00-52-20Z@sha256:ac591851803a79aee64bc37f66d77c56b0a4b6e12d9e5356380f4105510f2332
     volumes:
       - minio-data:/data
     ports:

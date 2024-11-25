@@ -56,6 +56,11 @@ func (s ClickHouseSuite) Peer() *protos.Peer {
 }
 
 func (s ClickHouseSuite) PeerForDatabase(dbname string) *protos.Peer {
+	region := ""
+	if s.s3Helper.S3Config.Region != nil {
+		region = *s.s3Helper.S3Config.Region
+	}
+
 	ret := &protos.Peer{
 		Name: e2e.AddSuffix(s, dbname),
 		Type: protos.DBType_CLICKHOUSE,
@@ -67,7 +72,7 @@ func (s ClickHouseSuite) PeerForDatabase(dbname string) *protos.Peer {
 				S3Path:          s.s3Helper.BucketName,
 				AccessKeyId:     *s.s3Helper.S3Config.AccessKeyId,
 				SecretAccessKey: *s.s3Helper.S3Config.SecretAccessKey,
-				Region:          *s.s3Helper.S3Config.Region,
+				Region:          region,
 				DisableTls:      true,
 				Endpoint:        s.s3Helper.S3Config.Endpoint,
 			},
@@ -87,7 +92,7 @@ func (s ClickHouseSuite) Teardown() {
 }
 
 func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch, error) {
-	ch, err := connclickhouse.Connect(context.Background(), s.Peer().GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(context.Background(), nil, s.Peer().GetClickhouseConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +193,7 @@ func SetupSuite(t *testing.T) ClickHouseSuite {
 	conn, err := e2e.SetupPostgres(t, suffix)
 	require.NoError(t, err, "failed to setup postgres")
 
-	s3Helper, err := e2e_s3.NewS3TestHelper(false)
+	s3Helper, err := e2e_s3.NewS3TestHelper(e2e_s3.Minio)
 	require.NoError(t, err, "failed to setup S3")
 
 	s := ClickHouseSuite{
@@ -198,7 +203,7 @@ func SetupSuite(t *testing.T) ClickHouseSuite {
 		s3Helper: s3Helper,
 	}
 
-	ch, err := connclickhouse.Connect(context.Background(), s.PeerForDatabase("default").GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(context.Background(), nil, s.PeerForDatabase("default").GetClickhouseConfig())
 	require.NoError(t, err, "failed to connect to clickhouse")
 	err = ch.Exec(context.Background(), "CREATE DATABASE e2e_test_"+suffix)
 	require.NoError(t, err, "failed to create clickhouse database")

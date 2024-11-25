@@ -18,24 +18,35 @@ import (
 
 type QRepQueryExecutor struct {
 	*PostgresConnector
-	logger      log.Logger
-	snapshot    string
-	flowJobName string
-	partitionID string
+	logger            log.Logger
+	customTypeMapping map[uint32]string
+	snapshot          string
+	flowJobName       string
+	partitionID       string
 }
 
-func (c *PostgresConnector) NewQRepQueryExecutor(flowJobName string, partitionID string) *QRepQueryExecutor {
-	return c.NewQRepQueryExecutorSnapshot("", flowJobName, partitionID)
+func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context,
+	flowJobName string, partitionID string,
+) (*QRepQueryExecutor, error) {
+	return c.NewQRepQueryExecutorSnapshot(ctx, "", flowJobName, partitionID)
 }
 
-func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(snapshot string, flowJobName string, partitionID string) *QRepQueryExecutor {
+func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context,
+	snapshot string, flowJobName string, partitionID string,
+) (*QRepQueryExecutor, error) {
+	customTypeMapping, err := c.fetchCustomTypeMapping(ctx)
+	if err != nil {
+		c.logger.Error("[pg_query_executor] failed to fetch custom type mapping", slog.Any("error", err))
+		return nil, fmt.Errorf("failed to fetch custom type mapping: %w", err)
+	}
 	return &QRepQueryExecutor{
 		PostgresConnector: c,
 		snapshot:          snapshot,
 		flowJobName:       flowJobName,
 		partitionID:       partitionID,
 		logger:            log.With(c.logger, slog.String(string(shared.PartitionIDKey), partitionID)),
-	}
+		customTypeMapping: customTypeMapping,
+	}, nil
 }
 
 func (qe *QRepQueryExecutor) ExecuteQuery(ctx context.Context, query string, args ...interface{}) (pgx.Rows, error) {
@@ -67,7 +78,7 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 		cname := fd.Name
 		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID)
 		if ctype == qvalue.QValueKindInvalid {
-			typeName, ok := qe.customTypesMapping[fd.DataTypeOID]
+			typeName, ok := qe.customTypeMapping[fd.DataTypeOID]
 			if ok {
 				ctype = customTypeToQKind(typeName)
 			} else {
@@ -98,6 +109,7 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 }
 
 func (qe *QRepQueryExecutor) ProcessRows(
+	ctx context.Context,
 	rows pgx.Rows,
 	fieldDescriptions []pgconn.FieldDescription,
 ) (*model.QRecordBatch, error) {
@@ -115,12 +127,13 @@ func (qe *QRepQueryExecutor) ProcessRows(
 	}
 
 	// Check for any errors encountered during iteration
-	if rows.Err() != nil {
-		return nil, fmt.Errorf("row iteration failed: %w", rows.Err())
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration failed: %w", err)
 	}
 
+	schema := qe.fieldDescriptionsToSchema(fieldDescriptions)
 	batch := &model.QRecordBatch{
-		Schema:  qe.fieldDescriptionsToSchema(fieldDescriptions),
+		Schema:  schema,
 		Records: records,
 	}
 
@@ -186,7 +199,8 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 
 	fieldDescriptions := rows.FieldDescriptions()
 	if !stream.IsSchemaSet() {
-		stream.SetSchema(qe.fieldDescriptionsToSchema(fieldDescriptions))
+		schema := qe.fieldDescriptionsToSchema(fieldDescriptions)
+		stream.SetSchema(schema)
 	}
 
 	numRows, err := qe.processRowsStream(ctx, cursorName, stream, rows, fieldDescriptions)
@@ -324,7 +338,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 
 	for i, fd := range fds {
 		// Check if it's a custom type first
-		typeName, ok := qe.customTypesMapping[fd.DataTypeOID]
+		typeName, ok := qe.customTypeMapping[fd.DataTypeOID]
 		if !ok {
 			tmp, err := qe.parseFieldFromPostgresOID(fd.DataTypeOID, values[i])
 			if err != nil {

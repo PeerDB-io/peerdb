@@ -11,11 +11,12 @@ jobs:
     strategy:
       matrix:
         runner: [ubicloud-standard-16-ubuntu-2204-arm]
+        postgres-version: [15, 16, 17]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
       catalog:
-        image: imresamu/postgis:15-3.4-alpine
+        image: imresamu/postgis:${{ matrix.postgres-version }}-3.5-alpine
         ports:
           - 5432:5432
         env:
@@ -24,21 +25,31 @@ jobs:
           POSTGRES_DB: postgres
           POSTGRES_INITDB_ARGS: --locale=C.UTF-8
       elasticsearch:
-        image: elasticsearch:8.13.0
+        image: elasticsearch:8.16.0@sha256:a411f7c17549209c5839b69f929de00bd91f1e2dcf08b65d5f41b122eae17f5e
         ports:
           - 9200:9200
         env:
           discovery.type: single-node
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
+      minio:
+        image: bitnami/minio:2024.11.7@sha256:9f2d9c45006a2ada1bc485e1393291ce7d54ae1a46260dd491381a4eb8b2fd47
+        ports:
+          - 9999:9999
+        env:
+          MINIO_ROOT_USER: minio
+          MINIO_ROOT_PASSWORD: miniosecret
+          MINIO_API_PORT_NUMBER: 9999
+          AWS_EC2_METADATA_DISABLED: true
+          MINIO_DEFAULT_BUCKETS: peerdb
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
 
-      - uses: ubicloud/setup-go@v5
+      - uses: ubicloud/setup-go@35680fe0723d4a9309d4b1ac1c67e0d46eac5f24 # v5
         with:
           go-version: '1.23.0'
           cache-dependency-path: flow/go.sum
@@ -53,35 +64,35 @@ jobs:
 
       - name: setup gcp service account
         id: gcp-service-account
-        uses: jsdaniell/create-json@v1.2.3
+        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
         with:
           name: "bq_service_account.json"
           json: ${{ secrets.GCP_GH_CI_PKEY }}
 
       - name: setup snowflake credentials
         id: sf-credentials
-        uses: jsdaniell/create-json@v1.2.3
+        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
         with:
           name: "snowflake_creds.json"
           json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
 
       - name: setup S3 credentials
         id: s3-credentials
-        uses: jsdaniell/create-json@v1.2.3
+        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
         with:
           name: "s3_creds.json"
           json: ${{ secrets.S3_CREDS }}
 
       - name: setup GCS credentials
         id: gcs-credentials
-        uses: jsdaniell/create-json@v1.2.3
+        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
         with:
           name: "gcs_creds.json"
           json: ${{ secrets.GCS_CREDS }}
 
       - name: setup Eventhubs credentials
         id: eventhubs-credentials
-        uses: jsdaniell/create-json@v1.2.3
+        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
         with:
           name: "eh_creds.json"
           json: ${{ secrets.EH_CREDS }}
@@ -99,15 +110,27 @@ jobs:
           PGPASSWORD: postgres
 
       - name: start redpanda
-        uses: redpanda-data/github-action@v0.1.4
+        uses: redpanda-data/github-action@c68af8edc420b987e871615ca40b3a5dd70eb5b1 # v0.1.4
         with:
           version: "latest"
 
-      - name: start clickhouse
-        uses: getsentry/action-clickhouse-in-ci@v1
+      - uses: ubicloud/cache@0a97811d53629b143a56b3c2b1f729fd11719ef7 # v4
+        id: cache-clickhouse
+        with:
+          path: ./clickhouse
+          key: ${{ runner.os }}-clickhouse
+
+      - name: Install ClickHouse
+        if: steps.cache-clickhouse.outputs.cache-hit != 'true'
+        run: |
+          curl https://clickhouse.com | sh
+
+      - name: Run ClickHouse
+        run: |
+          ./clickhouse server &
 
       - name: Install Temporal CLI
-        uses: temporalio/setup-temporal@v0
+        uses: temporalio/setup-temporal@1059a504f87e7fa2f385e3fa40d1aa7e62f1c6ca # v0
 
       - name: run tests
         run: |
@@ -119,9 +142,20 @@ jobs:
           go test -p 32 ./... -timeout 900s
         working-directory: ./flow
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_ENDPOINT_URL_S3: http://localhost:9999
+          AWS_ACCESS_KEY_ID: minio
+          AWS_SECRET_ACCESS_KEY: miniosecret
+          AWS_REGION: us-east-1
+          PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID: minio
+          PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: miniosecret
+          PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION: us-east-1
+          PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://localhost:9999
+          PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME: peerdb
+          PEERDB_SNOWFLAKE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID: minio
+          PEERDB_SNOWFLAKE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: miniosecret
+          PEERDB_SNOWFLAKE_AWS_CREDENTIALS_AWS_REGION: us-east-1
+          PEERDB_SNOWFLAKE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://localhost:9999
+          PEERDB_SNOWFLAKE_AWS_S3_BUCKET_NAME: peerdb
           TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json
           TEST_SF_CREDS: ${{ github.workspace }}/snowflake_creds.json
           TEST_S3_CREDS: ${{ github.workspace }}/s3_creds.json

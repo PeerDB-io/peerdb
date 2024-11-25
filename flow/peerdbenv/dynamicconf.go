@@ -8,8 +8,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/aws/smithy-go/ptr"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/exp/constraints"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -17,14 +19,6 @@ import (
 )
 
 var DynamicSettings = [...]*protos.DynamicSetting{
-	{
-		Name:             "PEERDB_MAX_SYNCS_PER_CDC_FLOW",
-		Description:      "Experimental setting: changes number of syncs per workflow, affects frequency of replication slot disconnects",
-		DefaultValue:     "32",
-		ValueType:        protos.DynconfValueType_UINT,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
-		TargetForSetting: protos.DynconfTarget_ALL,
-	},
 	{
 		Name:             "PEERDB_CDC_CHANNEL_BUFFER_SIZE",
 		Description:      "Advanced setting: changes buffer size of channel PeerDB uses while streaming rows read to destination in CDC",
@@ -68,17 +62,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_ENABLE_WAL_HEARTBEAT",
 		Description:      "Enables WAL heartbeat to prevent replication slot lag from increasing during times of no activity",
-		DefaultValue:     "false",
+		DefaultValue:     "true",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name: "PEERDB_WAL_HEARTBEAT_QUERY",
-		DefaultValue: `BEGIN;
-DROP AGGREGATE IF EXISTS PEERDB_EPHEMERAL_HEARTBEAT(float4);
-CREATE AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4) (SFUNC = float4pl, STYPE = float4);
-DROP AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4); END;`,
+		Name:             "PEERDB_WAL_HEARTBEAT_QUERY",
+		DefaultValue:     "SELECT pg_logical_emit_message(false,'peerdb_heartbeat','')",
 		ValueType:        protos.DynconfValueType_STRING,
 		Description:      "SQL to run during each WAL heartbeat",
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
@@ -91,6 +82,13 @@ DROP AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4); END;`,
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:         "PEERDB_FULL_REFRESH_OVERWRITE_MODE",
+		Description:  "Enables full refresh mode for query replication mirrors of overwrite type",
+		DefaultValue: "false",
+		ValueType:    protos.DynconfValueType_BOOL,
+		ApplyMode:    protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
 	},
 	{
 		Name:             "PEERDB_NULLABLE",
@@ -115,6 +113,15 @@ DROP AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4); END;`,
 		ValueType:        protos.DynconfValueType_STRING,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		Name: "PEERDB_S3_PART_SIZE",
+		Description: "S3 upload part size in bytes, may need to increase for large batches. " +
+			"https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html",
+		DefaultValue:     "0",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
 		Name:             "PEERDB_QUEUE_FORCE_TOPIC_CREATION",
@@ -165,6 +172,22 @@ DROP AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4); END;`,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name:             "PEERDB_CLICKHOUSE_MAX_INSERT_THREADS",
+		Description:      "Configures max_insert_threads setting on clickhouse for inserting into destination table. Setting left unset when 0",
+		DefaultValue:     "0",
+		ValueType:        protos.DynconfValueType_UINT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		Name:             "PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE",
+		Description:      "Divide tables in batch into N insert selects. Helps distribute load to multiple nodes",
+		DefaultValue:     "0",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_INTERVAL_SINCE_LAST_NORMALIZE_THRESHOLD_MINUTES",
 		Description:      "Duration in minutes since last normalize to start alerting, 0 disables all alerting entirely",
 		DefaultValue:     "240",
@@ -175,6 +198,14 @@ DROP AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4); END;`,
 	{
 		Name:             "PEERDB_APPLICATION_NAME_PER_MIRROR_NAME",
 		Description:      "Set Postgres application_name to have mirror name as suffix for each mirror",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_MAINTENANCE_MODE_ENABLED",
+		Description:      "Whether PeerDB is in maintenance mode, which disables any modifications to mirrors",
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
@@ -232,8 +263,8 @@ func dynamicConfSigned[T constraints.Signed](ctx context.Context, env map[string
 		return strconv.ParseInt(value, 10, 64)
 	})
 	if err != nil {
-		shared.LoggerFromCtx(ctx).Error("Failed to parse as int64", slog.Any("error", err))
-		return 0, fmt.Errorf("failed to parse as int64: %w", err)
+		shared.LoggerFromCtx(ctx).Error("Failed to parse as int64", slog.String("key", key), slog.Any("error", err))
+		return 0, fmt.Errorf("failed to parse %s as int64: %w", key, err)
 	}
 
 	return T(value), nil
@@ -244,8 +275,8 @@ func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, env map[st
 		return strconv.ParseUint(value, 10, 64)
 	})
 	if err != nil {
-		shared.LoggerFromCtx(ctx).Error("Failed to parse as uint64", slog.Any("error", err))
-		return 0, fmt.Errorf("failed to parse as uint64: %w", err)
+		shared.LoggerFromCtx(ctx).Error("Failed to parse as uint64", slog.String("key", key), slog.Any("error", err))
+		return 0, fmt.Errorf("failed to parse %s as uint64: %w", key, err)
 	}
 
 	return T(value), nil
@@ -254,11 +285,25 @@ func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, env map[st
 func dynamicConfBool(ctx context.Context, env map[string]string, key string) (bool, error) {
 	value, err := dynLookupConvert(ctx, env, key, strconv.ParseBool)
 	if err != nil {
-		shared.LoggerFromCtx(ctx).Error("Failed to parse bool", slog.Any("error", err))
-		return false, fmt.Errorf("failed to parse bool: %w", err)
+		shared.LoggerFromCtx(ctx).Error("Failed to parse bool", slog.String("key", key), slog.Any("error", err))
+		return false, fmt.Errorf("failed to parse %s as bool: %w", key, err)
 	}
 
 	return value, nil
+}
+
+func UpdateDynamicSetting(ctx context.Context, pool *pgxpool.Pool, name string, value *string) error {
+	if pool == nil {
+		var err error
+		pool, err = GetCatalogConnectionPoolFromEnv(ctx)
+		if err != nil {
+			shared.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool for dynamic setting update", slog.Any("error", err))
+			return fmt.Errorf("failed to get catalog connection pool: %w", err)
+		}
+	}
+	_, err := pool.Exec(ctx, `insert into dynamic_settings (config_name, config_value) values ($1, $2)
+			on conflict (config_name) do update set config_value = $2`, name, value)
+	return err
 }
 
 // PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD, 0 disables slot lag alerting entirely
@@ -324,6 +369,10 @@ func PeerDBEnableParallelSyncNormalize(ctx context.Context, env map[string]strin
 	return dynamicConfBool(ctx, env, "PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE")
 }
 
+func PeerDBFullRefreshOverwriteMode(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_FULL_REFRESH_OVERWRITE_MODE")
+}
+
 func PeerDBNullable(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_NULLABLE")
 }
@@ -332,12 +381,24 @@ func PeerDBEnableClickHousePrimaryUpdate(ctx context.Context, env map[string]str
 	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_ENABLE_PRIMARY_UPDATE")
 }
 
+func PeerDBClickHouseMaxInsertThreads(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_CLICKHOUSE_MAX_INSERT_THREADS")
+}
+
+func PeerDBClickHouseParallelNormalize(ctx context.Context, env map[string]string) (int, error) {
+	return dynamicConfSigned[int](ctx, env, "PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE")
+}
+
 func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_SNOWFLAKE_MERGE_PARALLELISM")
 }
 
 func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
 	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
+}
+
+func PeerDBS3PartSize(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_S3_PART_SIZE")
 }
 
 // Kafka has topic auto create as an option, auto.create.topics.enable
@@ -353,4 +414,12 @@ func PeerDBIntervalSinceLastNormalizeThresholdMinutes(ctx context.Context, env m
 
 func PeerDBApplicationNamePerMirrorName(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_APPLICATION_NAME_PER_MIRROR_NAME")
+}
+
+func PeerDBMaintenanceModeEnabled(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_MAINTENANCE_MODE_ENABLED")
+}
+
+func UpdatePeerDBMaintenanceModeEnabled(ctx context.Context, pool *pgxpool.Pool, enabled bool) error {
+	return UpdateDynamicSetting(ctx, pool, "PEERDB_MAINTENANCE_MODE_ENABLED", ptr.String(strconv.FormatBool(enabled)))
 }

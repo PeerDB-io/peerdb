@@ -11,8 +11,9 @@ type (
 
 const (
 	// Task Queues
-	PeerFlowTaskQueue     TaskQueueID = "peer-flow-task-queue"
-	SnapshotFlowTaskQueue TaskQueueID = "snapshot-flow-task-queue"
+	PeerFlowTaskQueue        TaskQueueID = "peer-flow-task-queue"
+	SnapshotFlowTaskQueue    TaskQueueID = "snapshot-flow-task-queue"
+	MaintenanceFlowTaskQueue TaskQueueID = "maintenance-flow-task-queue"
 
 	// Queries
 	CDCFlowStateQuery  = "q-cdc-flow-state"

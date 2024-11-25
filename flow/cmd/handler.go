@@ -19,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
@@ -327,6 +328,17 @@ func (h *FlowRequestHandler) FlowStateChange(
 ) (*protos.FlowStateChangeResponse, error) {
 	logs := slog.String("flowJobName", req.FlowJobName)
 	slog.Info("FlowStateChange called", logs, slog.Any("req", req))
+	underMaintenance, err := peerdbenv.PeerDBMaintenanceModeEnabled(ctx, nil)
+	if err != nil {
+		slog.Error("unable to check maintenance mode", logs, slog.Any("error", err))
+		return nil, fmt.Errorf("unable to load dynamic config: %w", err)
+	}
+
+	if underMaintenance {
+		slog.Warn("Flow state change request denied due to maintenance", logs)
+		return nil, errors.New("PeerDB is under maintenance")
+	}
+
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
 		slog.Error("[flow-state-change] unable to get workflowID", logs, slog.Any("error", err))
@@ -408,7 +420,7 @@ func (h *FlowRequestHandler) handleCancelWorkflow(ctx context.Context, workflowI
 		if err != nil {
 			slog.Error(fmt.Sprintf("unable to cancel PeerFlow workflow: %s. Attempting to terminate.", err.Error()))
 			terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
-			if err = h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
+			if err := h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
 				return fmt.Errorf("unable to terminate PeerFlow workflow: %w", err)
 			}
 		}
@@ -456,10 +468,9 @@ func (h *FlowRequestHandler) DropPeer(
 	}
 
 	var inMirror pgtype.Int8
-	queryErr := h.pool.QueryRow(ctx,
-		"SELECT COUNT(*) FROM flows WHERE source_peer=$1 or destination_peer=$2",
-		peerID, peerID).Scan(&inMirror)
-	if queryErr != nil {
+	if queryErr := h.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM flows WHERE source_peer=$1 or destination_peer=$1", peerID,
+	).Scan(&inMirror); queryErr != nil {
 		return nil, fmt.Errorf("failed to check for existing mirrors with peer %s: %w", req.PeerName, queryErr)
 	}
 
@@ -467,8 +478,7 @@ func (h *FlowRequestHandler) DropPeer(
 		return nil, fmt.Errorf("peer %s is currently involved in an ongoing mirror", req.PeerName)
 	}
 
-	_, delErr := h.pool.Exec(ctx, "DELETE FROM peers WHERE name = $1", req.PeerName)
-	if delErr != nil {
+	if _, delErr := h.pool.Exec(ctx, "DELETE FROM peers WHERE name = $1", req.PeerName); delErr != nil {
 		return nil, fmt.Errorf("failed to delete peer %s from metadata table: %w", req.PeerName, delErr)
 	}
 
@@ -477,9 +487,8 @@ func (h *FlowRequestHandler) DropPeer(
 
 func (h *FlowRequestHandler) getWorkflowID(ctx context.Context, flowJobName string) (string, error) {
 	q := "SELECT workflow_id FROM flows WHERE name = $1"
-	row := h.pool.QueryRow(ctx, q, flowJobName)
 	var workflowID string
-	if err := row.Scan(&workflowID); err != nil {
+	if err := h.pool.QueryRow(ctx, q, flowJobName).Scan(&workflowID); err != nil {
 		return "", fmt.Errorf("unable to get workflowID for flow job %s: %w", flowJobName, err)
 	}
 
@@ -491,6 +500,14 @@ func (h *FlowRequestHandler) ResyncMirror(
 	ctx context.Context,
 	req *protos.ResyncMirrorRequest,
 ) (*protos.ResyncMirrorResponse, error) {
+	underMaintenance, err := peerdbenv.PeerDBMaintenanceModeEnabled(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get maintenance mode status: %w", err)
+	}
+	if underMaintenance {
+		return nil, errors.New("PeerDB is under maintenance")
+	}
+
 	isCDC, err := h.isCDCFlow(ctx, req.FlowJobName)
 	if err != nil {
 		return nil, err
@@ -507,23 +524,66 @@ func (h *FlowRequestHandler) ResyncMirror(
 	config.Resync = true
 	config.DoInitialSnapshot = true
 	// validate mirror first because once the mirror is dropped, there's no going back
-	_, err = h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
+	if _, err := h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
 		ConnectionConfigs: config,
-	})
-	if err != nil {
+	}); err != nil {
 		return nil, err
 	}
 
-	err = h.shutdownFlow(ctx, req.FlowJobName, req.DropStats)
-	if err != nil {
+	if err := h.shutdownFlow(ctx, req.FlowJobName, req.DropStats); err != nil {
 		return nil, err
 	}
 
-	_, err = h.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{
+	if _, err := h.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{
 		ConnectionConfigs: config,
-	})
-	if err != nil {
+	}); err != nil {
 		return nil, err
 	}
 	return &protos.ResyncMirrorResponse{}, nil
+}
+
+func (h *FlowRequestHandler) GetInstanceInfo(ctx context.Context, in *protos.InstanceInfoRequest) (*protos.InstanceInfoResponse, error) {
+	enabled, err := peerdbenv.PeerDBMaintenanceModeEnabled(ctx, nil)
+	if err != nil {
+		slog.Error("unable to get maintenance mode status", slog.Any("error", err))
+		return &protos.InstanceInfoResponse{
+			Status: protos.InstanceStatus_INSTANCE_STATUS_UNKNOWN,
+		}, fmt.Errorf("unable to get maintenance mode status: %w", err)
+	}
+	if enabled {
+		return &protos.InstanceInfoResponse{
+			Status: protos.InstanceStatus_INSTANCE_STATUS_MAINTENANCE,
+		}, nil
+	}
+	return &protos.InstanceInfoResponse{
+		Status: protos.InstanceStatus_INSTANCE_STATUS_READY,
+	}, nil
+}
+
+func (h *FlowRequestHandler) Maintenance(ctx context.Context, in *protos.MaintenanceRequest) (*protos.MaintenanceResponse, error) {
+	taskQueueId := shared.MaintenanceFlowTaskQueue
+	if in.UsePeerflowTaskQueue {
+		taskQueueId = shared.PeerFlowTaskQueue
+	}
+	switch {
+	case in.Status == protos.MaintenanceStatus_MAINTENANCE_STATUS_START:
+		workflowRun, err := peerflow.RunStartMaintenanceWorkflow(ctx, h.temporalClient, &protos.StartMaintenanceFlowInput{}, taskQueueId)
+		if err != nil {
+			return nil, err
+		}
+		return &protos.MaintenanceResponse{
+			WorkflowId: workflowRun.GetID(),
+			RunId:      workflowRun.GetRunID(),
+		}, nil
+	case in.Status == protos.MaintenanceStatus_MAINTENANCE_STATUS_END:
+		workflowRun, err := peerflow.RunEndMaintenanceWorkflow(ctx, h.temporalClient, &protos.EndMaintenanceFlowInput{}, taskQueueId)
+		if err != nil {
+			return nil, err
+		}
+		return &protos.MaintenanceResponse{
+			WorkflowId: workflowRun.GetID(),
+			RunId:      workflowRun.GetRunID(),
+		}, nil
+	}
+	return nil, errors.New("invalid maintenance status")
 }
