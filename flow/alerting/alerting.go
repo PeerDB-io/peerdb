@@ -440,6 +440,10 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 	if errors.As(err, &pgErr) {
 		tags = append(tags, "pgcode:"+pgErr.Code)
 	}
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		tags = append(tags, "err:Net")
+	}
 	a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR, tags...)
 }
 
