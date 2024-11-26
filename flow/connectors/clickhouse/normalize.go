@@ -477,7 +477,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			c.logger.Error("[clickhouse] context canceled while normalizing",
 				slog.Any("error", errCtx.Err()),
 				slog.Any("cause", context.Cause(errCtx)))
-			return nil, errCtx.Err()
+			return nil, context.Cause(errCtx)
 		}
 	}
 	close(queries)

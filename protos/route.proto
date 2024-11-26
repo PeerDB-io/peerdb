@@ -12,18 +12,14 @@ message CreateCDCFlowRequest {
   peerdb_flow.FlowConnectionConfigs connection_configs = 1;
 }
 
-message CreateCDCFlowResponse {
-  string workflow_id = 1;
-}
+message CreateCDCFlowResponse { string workflow_id = 1; }
 
 message CreateQRepFlowRequest {
   peerdb_flow.QRepConfig qrep_config = 1;
   bool create_catalog_entry = 2;
 }
 
-message CreateQRepFlowResponse {
-  string workflow_id = 1;
-}
+message CreateQRepFlowResponse { string workflow_id = 1; }
 
 message CreateCustomSyncRequest {
   string flow_job_name = 1;
@@ -41,23 +37,13 @@ message AlertConfig {
   string service_config = 3;
   repeated string alert_for_mirrors = 4;
 }
-message GetAlertConfigsRequest {
-}
+message GetAlertConfigsRequest {}
 
-message PostAlertConfigRequest {
-  AlertConfig config = 1;
-}
-message DeleteAlertConfigRequest {
-  int32 id = 1;
-}
-message GetAlertConfigsResponse {
-  repeated AlertConfig configs = 1;
-}
-message PostAlertConfigResponse {
-  int32 id = 3;
-}
-message DeleteAlertConfigResponse {
-}
+message PostAlertConfigRequest { AlertConfig config = 1; }
+message DeleteAlertConfigRequest { int32 id = 1; }
+message GetAlertConfigsResponse { repeated AlertConfig configs = 1; }
+message PostAlertConfigResponse { int32 id = 3; }
+message DeleteAlertConfigResponse {}
 
 message DynamicSetting {
   string name = 1;
@@ -68,17 +54,13 @@ message DynamicSetting {
   peerdb_flow.DynconfApplyMode apply_mode = 6;
   peerdb_flow.DynconfTarget target_for_setting = 7;
 }
-message GetDynamicSettingsRequest {
-}
-message GetDynamicSettingsResponse {
-  repeated DynamicSetting settings = 1;
-}
+message GetDynamicSettingsRequest {}
+message GetDynamicSettingsResponse { repeated DynamicSetting settings = 1; }
 message PostDynamicSettingRequest {
   string name = 1;
   optional string value = 2;
 }
-message PostDynamicSettingResponse {
-}
+message PostDynamicSettingResponse {}
 
 message Script {
   int32 id = 1;
@@ -86,39 +68,23 @@ message Script {
   string name = 3;
   string source = 4;
 }
-message GetScriptsRequest {
-  int32 id = 1;
-}
-message GetScriptsResponse {
-  repeated Script scripts = 1;
-}
-message PostScriptRequest {
-  Script script = 1;
-}
-message PostScriptResponse {
-  int32 id = 1;
-}
-message DeleteScriptRequest {
-  int32 id = 1;
-}
-message DeleteScriptResponse {
-}
+message GetScriptsRequest { int32 id = 1; }
+message GetScriptsResponse { repeated Script scripts = 1; }
+message PostScriptRequest { Script script = 1; }
+message PostScriptResponse { int32 id = 1; }
+message DeleteScriptRequest { int32 id = 1; }
+message DeleteScriptResponse {}
 
-message ValidatePeerRequest {
- peerdb_peers.Peer peer = 1;
-}
+message ValidatePeerRequest { peerdb_peers.Peer peer = 1; }
 
 message CreatePeerRequest {
   peerdb_peers.Peer peer = 1;
   bool allow_update = 2;
 }
 
-message DropPeerRequest {
-  string peer_name = 1;
-}
+message DropPeerRequest { string peer_name = 1; }
 
-message DropPeerResponse {
-}
+message DropPeerResponse {}
 
 enum ValidatePeerStatus {
   CREATION_UNKNOWN = 0;
@@ -171,7 +137,6 @@ message CDCBatch {
   int64 batch_id = 6;
 }
 
-
 message CDCRowCounts {
   int64 total_count = 1;
   int64 inserts_count = 2;
@@ -182,21 +147,17 @@ message CDCTableRowCounts {
   string table_name = 1;
   CDCRowCounts counts = 2;
 }
-message CDCTableTotalCountsRequest {
-  string flow_job_name = 1;
-}
+
+message CDCTableTotalCountsRequest { string flow_job_name = 1; }
+
 message CDCTableTotalCountsResponse {
   CDCRowCounts total_data = 1;
   repeated CDCTableRowCounts tables_data = 2;
 }
 
-message PeerSchemasResponse {
-  repeated string schemas = 1;
-}
+message PeerSchemasResponse { repeated string schemas = 1; }
 
-message PeerPublicationsResponse {
-  repeated string publication_names = 1;
-}
+message PeerPublicationsResponse { repeated string publication_names = 1; }
 
 message SchemaTablesRequest {
   string peer_name = 1;
@@ -204,9 +165,7 @@ message SchemaTablesRequest {
   bool cdc_enabled = 3;
 }
 
-message SchemaTablesResponse {
-  repeated TableResponse tables = 1;
-}
+message SchemaTablesResponse { repeated TableResponse tables = 1; }
 
 message TableResponse {
   string table_name = 1;
@@ -214,9 +173,7 @@ message TableResponse {
   string table_size = 3;
 }
 
-message AllTablesResponse {
-  repeated string tables = 1;
-}
+message AllTablesResponse { repeated string tables = 1; }
 
 message TableColumnsRequest {
   string peer_name = 1;
@@ -224,17 +181,11 @@ message TableColumnsRequest {
   string table_name = 3;
 }
 
-message TableColumnsResponse {
-  repeated string columns = 1;
-}
+message TableColumnsResponse { repeated string columns = 1; }
 
-message PostgresPeerActivityInfoRequest {
-  string peer_name = 1;
-}
+message PostgresPeerActivityInfoRequest { string peer_name = 1; }
 
-message PeerInfoRequest {
-  string peer_name = 1;
-}
+message PeerInfoRequest { string peer_name = 1; }
 
 message PeerInfoResponse {
   peerdb_peers.Peer peer = 1;
@@ -245,8 +196,7 @@ message PeerListItem {
   string name = 1;
   peerdb_peers.DBType type = 2;
 }
-message ListPeersRequest {
-}
+message ListPeersRequest {}
 message ListPeersResponse {
   repeated PeerListItem items = 1;
   repeated PeerListItem source_items = 2;
@@ -275,9 +225,7 @@ message GetSlotLagHistoryRequest {
   string slot_name = 2;
   string time_since = 3;
 }
-message GetSlotLagHistoryResponse {
-  repeated SlotLagPoint data = 1;
-}
+message GetSlotLagHistoryResponse { repeated SlotLagPoint data = 1; }
 
 message StatInfo {
   int64 pid = 1;
@@ -289,13 +237,9 @@ message StatInfo {
   string state = 7;
 }
 
-message PeerSlotResponse {
-  repeated SlotInfo slot_data = 1;
-}
+message PeerSlotResponse { repeated SlotInfo slot_data = 1; }
 
-message PeerStatResponse {
-  repeated StatInfo stat_data = 1;
-}
+message PeerStatResponse { repeated StatInfo stat_data = 1; }
 
 message CloneTableSummary {
   string table_name = 1;
@@ -311,9 +255,7 @@ message CloneTableSummary {
   string mirror_name = 11;
 }
 
-message SnapshotStatus {
-  repeated CloneTableSummary clones = 1;
-}
+message SnapshotStatus { repeated CloneTableSummary clones = 1; }
 
 message CDCMirrorStatus {
   peerdb_flow.FlowConnectionConfigs config = 1;
@@ -334,9 +276,7 @@ message MirrorStatusResponse {
   google.protobuf.Timestamp created_at = 7;
 }
 
-message InitialLoadSummaryRequest {
-  string parent_mirror_name = 1;
-}
+message InitialLoadSummaryRequest { string parent_mirror_name = 1; }
 
 message InitialLoadSummaryResponse {
   repeated CloneTableSummary tableSummaries = 1;
@@ -366,9 +306,7 @@ message GraphResponseItem {
   double rows = 2;
 }
 
-message GraphResponse {
-  repeated GraphResponseItem data = 1;
-}
+message GraphResponse { repeated GraphResponseItem data = 1; }
 
 message MirrorLog {
   string flow_name = 1;
@@ -391,8 +329,7 @@ message ListMirrorLogsResponse {
   int32 page = 3;
 }
 
-message ValidateCDCMirrorResponse{
-}
+message ValidateCDCMirrorResponse {}
 
 message ListMirrorsItem {
   int64 id = 1;
@@ -405,17 +342,11 @@ message ListMirrorsItem {
   double created_at = 8;
   bool is_cdc = 9;
 }
-message ListMirrorsRequest {
-}
-message ListMirrorsResponse {
-  repeated ListMirrorsItem mirrors = 1;
-}
+message ListMirrorsRequest {}
+message ListMirrorsResponse { repeated ListMirrorsItem mirrors = 1; }
 
-message ListMirrorNamesRequest {
-}
-message ListMirrorNamesResponse {
-  repeated string names = 1;
-}
+message ListMirrorNamesRequest {}
+message ListMirrorNamesResponse { repeated string names = 1; }
 
 message FlowStateChangeRequest {
   string flow_job_name = 1;
@@ -424,25 +355,19 @@ message FlowStateChangeRequest {
   optional peerdb_flow.FlowConfigUpdate flow_config_update = 5;
   bool drop_mirror_stats = 6;
 }
-message FlowStateChangeResponse {
-}
+message FlowStateChangeResponse {}
 
-message PeerDBVersionRequest {
-}
-message PeerDBVersionResponse {
-  string version = 1;
-}
+message PeerDBVersionRequest {}
+message PeerDBVersionResponse { string version = 1; }
 
 message ResyncMirrorRequest {
   string flow_job_name = 1;
   bool drop_stats = 2;
 }
 
-message ResyncMirrorResponse {
-}
+message ResyncMirrorResponse {}
 
-message PeerDBStateRequest {
-}
+message PeerDBStateRequest {}
 
 enum InstanceStatus {
   INSTANCE_STATUS_UNKNOWN = 0;
@@ -450,12 +375,9 @@ enum InstanceStatus {
   INSTANCE_STATUS_MAINTENANCE = 3;
 }
 
-message InstanceInfoRequest {
-}
+message InstanceInfoRequest {}
 
-message InstanceInfoResponse {
-  InstanceStatus status = 1;
-}
+message InstanceInfoResponse { InstanceStatus status = 1; }
 
 enum MaintenanceStatus {
   MAINTENANCE_STATUS_UNKNOWN = 0;
@@ -473,166 +395,289 @@ message MaintenanceResponse {
   string run_id = 2;
 }
 
+message FlowTag {
+  string key = 1;
+  string value = 2;
+}
+
+message CreateOrReplaceFlowTagsRequest {
+  string flow_name = 1;
+  repeated FlowTag tags = 2;
+}
+
+message CreateOrReplaceFlowTagsResponse { string flow_name = 1; }
+
+message GetFlowTagsRequest { string flow_name = 1; }
+
+message GetFlowTagsResponse {
+  string flow_name = 1;
+  repeated FlowTag tags = 2;
+}
+
 service FlowService {
   rpc ValidatePeer(ValidatePeerRequest) returns (ValidatePeerResponse) {
     option (google.api.http) = {
-      post: "/v1/peers/validate",
-      body: "*"
-     };
+      post : "/v1/peers/validate",
+      body : "*"
+    };
   }
-  rpc ValidateCDCMirror(CreateCDCFlowRequest) returns (ValidateCDCMirrorResponse) {
+  rpc ValidateCDCMirror(CreateCDCFlowRequest)
+      returns (ValidateCDCMirrorResponse) {
     option (google.api.http) = {
-      post: "/v1/mirrors/cdc/validate",
-      body: "*"
-     };
+      post : "/v1/mirrors/cdc/validate",
+      body : "*"
+    };
   }
   rpc CreatePeer(CreatePeerRequest) returns (CreatePeerResponse) {
     option (google.api.http) = {
-      post: "/v1/peers/create",
-      body: "*"
-     };
+      post : "/v1/peers/create",
+      body : "*"
+    };
   }
   rpc DropPeer(DropPeerRequest) returns (DropPeerResponse) {
     option (google.api.http) = {
-      post: "/v1/peers/drop",
-      body: "*"
+      post : "/v1/peers/drop",
+      body : "*"
     };
   }
 
   rpc CreateCDCFlow(CreateCDCFlowRequest) returns (CreateCDCFlowResponse) {
     option (google.api.http) = {
-      post: "/v1/flows/cdc/create",
-      body: "*"
-     };
+      post : "/v1/flows/cdc/create",
+      body : "*"
+    };
   }
   rpc CreateQRepFlow(CreateQRepFlowRequest) returns (CreateQRepFlowResponse) {
     option (google.api.http) = {
-      post: "/v1/flows/qrep/create",
-      body: "*"
-     };
+      post : "/v1/flows/qrep/create",
+      body : "*"
+    };
   }
-  rpc CustomSyncFlow(CreateCustomSyncRequest) returns (CreateCustomSyncResponse) {
+  rpc CustomSyncFlow(CreateCustomSyncRequest)
+      returns (CreateCustomSyncResponse) {
     option (google.api.http) = {
-      post: "/v1/flows/cdc/sync",
-      body: "*"
-     };
+      post : "/v1/flows/cdc/sync",
+      body : "*"
+    };
   }
 
-  rpc GetAlertConfigs(GetAlertConfigsRequest) returns (GetAlertConfigsResponse) {
-    option (google.api.http) = { get: "/v1/alerts/config" };
+  rpc GetAlertConfigs(GetAlertConfigsRequest)
+      returns (GetAlertConfigsResponse) {
+    option (google.api.http) = {
+      get : "/v1/alerts/config"
+    };
   }
-  rpc PostAlertConfig(PostAlertConfigRequest) returns (PostAlertConfigResponse) {
-    option (google.api.http) = { post: "/v1/alerts/config", body: "*" };
+  rpc PostAlertConfig(PostAlertConfigRequest)
+      returns (PostAlertConfigResponse) {
+    option (google.api.http) = {
+      post : "/v1/alerts/config",
+      body : "*"
+    };
   }
-  rpc DeleteAlertConfig(DeleteAlertConfigRequest) returns (DeleteAlertConfigResponse) {
-    option (google.api.http) = { delete: "/v1/alerts/config/{id}" };
+  rpc DeleteAlertConfig(DeleteAlertConfigRequest)
+      returns (DeleteAlertConfigResponse) {
+    option (google.api.http) = {
+      delete : "/v1/alerts/config/{id}"
+    };
   }
 
-  rpc GetDynamicSettings(GetDynamicSettingsRequest) returns (GetDynamicSettingsResponse) {
-    option (google.api.http) = { get: "/v1/dynamic_settings" };
+  rpc GetDynamicSettings(GetDynamicSettingsRequest)
+      returns (GetDynamicSettingsResponse) {
+    option (google.api.http) = {
+      get : "/v1/dynamic_settings"
+    };
   }
-  rpc PostDynamicSetting(PostDynamicSettingRequest) returns (PostDynamicSettingResponse) {
-    option (google.api.http) = { post: "/v1/dynamic_settings", body: "*" };
+  rpc PostDynamicSetting(PostDynamicSettingRequest)
+      returns (PostDynamicSettingResponse) {
+    option (google.api.http) = {
+      post : "/v1/dynamic_settings",
+      body : "*"
+    };
   }
 
   rpc GetScripts(GetScriptsRequest) returns (GetScriptsResponse) {
-    option (google.api.http) = { get: "/v1/scripts/{id}" };
+    option (google.api.http) = {
+      get : "/v1/scripts/{id}"
+    };
   }
   rpc PostScript(PostScriptRequest) returns (PostScriptResponse) {
-    option (google.api.http) = { post: "/v1/scripts", body: "*" };
+    option (google.api.http) = {
+      post : "/v1/scripts",
+      body : "*"
+    };
   }
   rpc DeleteScript(DeleteScriptRequest) returns (DeleteScriptResponse) {
-    option (google.api.http) = { delete: "/v1/scripts/{id}" };
+    option (google.api.http) = {
+      delete : "/v1/scripts/{id}"
+    };
   }
 
-  rpc CDCTableTotalCounts(CDCTableTotalCountsRequest) returns (CDCTableTotalCountsResponse) {
-    option (google.api.http) = { get: "/v1/mirrors/cdc/table_total_counts/{flow_job_name}" };
+  rpc CDCTableTotalCounts(CDCTableTotalCountsRequest)
+      returns (CDCTableTotalCountsResponse) {
+    option (google.api.http) = {
+      get : "/v1/mirrors/cdc/table_total_counts/{flow_job_name}"
+    };
   }
 
-  rpc GetSchemas(PostgresPeerActivityInfoRequest) returns (PeerSchemasResponse) {
-    option (google.api.http) = { get: "/v1/peers/schemas" };
+  rpc GetSchemas(PostgresPeerActivityInfoRequest)
+      returns (PeerSchemasResponse) {
+    option (google.api.http) = {
+      get : "/v1/peers/schemas"
+    };
   }
 
-  rpc GetPublications(PostgresPeerActivityInfoRequest) returns (PeerPublicationsResponse) {
-    option (google.api.http) = { get: "/v1/peers/publications" };
+  rpc GetPublications(PostgresPeerActivityInfoRequest)
+      returns (PeerPublicationsResponse) {
+    option (google.api.http) = {
+      get : "/v1/peers/publications"
+    };
   }
 
   rpc GetTablesInSchema(SchemaTablesRequest) returns (SchemaTablesResponse) {
-    option (google.api.http) = { get: "/v1/peers/tables" };
+    option (google.api.http) = {
+      get : "/v1/peers/tables"
+    };
   }
 
-  rpc GetAllTables(PostgresPeerActivityInfoRequest) returns (AllTablesResponse) {
-    option (google.api.http) = { get: "/v1/peers/tables/all" };
+  rpc GetAllTables(PostgresPeerActivityInfoRequest)
+      returns (AllTablesResponse) {
+    option (google.api.http) = {
+      get : "/v1/peers/tables/all"
+    };
   }
 
   rpc GetColumns(TableColumnsRequest) returns (TableColumnsResponse) {
-    option (google.api.http) = { get: "/v1/peers/columns" };
+    option (google.api.http) = {
+      get : "/v1/peers/columns"
+    };
   }
 
   rpc GetSlotInfo(PostgresPeerActivityInfoRequest) returns (PeerSlotResponse) {
-    option (google.api.http) = { get: "/v1/peers/slots/{peer_name}" };
+    option (google.api.http) = {
+      get : "/v1/peers/slots/{peer_name}"
+    };
   }
-  rpc GetSlotLagHistory(GetSlotLagHistoryRequest) returns (GetSlotLagHistoryResponse) {
-    option (google.api.http) = { post: "/v1/peers/slots/lag_history", body: "*" };
+  rpc GetSlotLagHistory(GetSlotLagHistoryRequest)
+      returns (GetSlotLagHistoryResponse) {
+    option (google.api.http) = {
+      post : "/v1/peers/slots/lag_history",
+      body : "*"
+    };
   }
   rpc GetStatInfo(PostgresPeerActivityInfoRequest) returns (PeerStatResponse) {
-    option (google.api.http) = { get: "/v1/peers/stats/{peer_name}" };
+    option (google.api.http) = {
+      get : "/v1/peers/stats/{peer_name}"
+    };
   }
 
   rpc ListMirrorLogs(ListMirrorLogsRequest) returns (ListMirrorLogsResponse) {
-    option (google.api.http) = { post: "/v1/mirrors/logs", body: "*" };
+    option (google.api.http) = {
+      post : "/v1/mirrors/logs",
+      body : "*"
+    };
   }
 
   rpc ListMirrors(ListMirrorsRequest) returns (ListMirrorsResponse) {
-    option (google.api.http) = { get: "/v1/mirrors/list" };
+    option (google.api.http) = {
+      get : "/v1/mirrors/list"
+    };
   }
-  rpc ListMirrorNames(ListMirrorNamesRequest) returns (ListMirrorNamesResponse) {
-    option (google.api.http) = { get: "/v1/mirrors/names" };
+  rpc ListMirrorNames(ListMirrorNamesRequest)
+      returns (ListMirrorNamesResponse) {
+    option (google.api.http) = {
+      get : "/v1/mirrors/names"
+    };
   }
 
-  rpc FlowStateChange(FlowStateChangeRequest) returns (FlowStateChangeResponse) {
-    option (google.api.http) = { post: "/v1/mirrors/state_change", body: "*" };
+  rpc FlowStateChange(FlowStateChangeRequest)
+      returns (FlowStateChangeResponse) {
+    option (google.api.http) = {
+      post : "/v1/mirrors/state_change",
+      body : "*"
+    };
   }
   rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {
-    option (google.api.http) = { post: "/v1/mirrors/status", body: "*" };
+    option (google.api.http) = {
+      post : "/v1/mirrors/status",
+      body : "*"
+    };
   }
 
   rpc GetCDCBatches(GetCDCBatchesRequest) returns (GetCDCBatchesResponse) {
-    option (google.api.http) = { get: "/v1/mirrors/cdc/batches/{flow_job_name}" };
+    option (google.api.http) = {
+      get : "/v1/mirrors/cdc/batches/{flow_job_name}"
+    };
   }
 
   rpc CDCBatches(GetCDCBatchesRequest) returns (GetCDCBatchesResponse) {
-    option (google.api.http) = { post: "/v1/mirrors/cdc/batches", body: "*" };
+    option (google.api.http) = {
+      post : "/v1/mirrors/cdc/batches",
+      body : "*"
+    };
   }
 
   rpc CDCGraph(GraphRequest) returns (GraphResponse) {
-    option (google.api.http) = { post: "/v1/mirrors/cdc/graph", body: "*" };
+    option (google.api.http) = {
+      post : "/v1/mirrors/cdc/graph",
+      body : "*"
+    };
   }
 
-  rpc InitialLoadSummary(InitialLoadSummaryRequest) returns (InitialLoadSummaryResponse) {
-    option (google.api.http) = { get: "/v1/mirrors/cdc/initial_load/{parent_mirror_name}" };
+  rpc InitialLoadSummary(InitialLoadSummaryRequest)
+      returns (InitialLoadSummaryResponse) {
+    option (google.api.http) = {
+      get : "/v1/mirrors/cdc/initial_load/{parent_mirror_name}"
+    };
   }
 
   rpc GetPeerInfo(PeerInfoRequest) returns (PeerInfoResponse) {
-    option (google.api.http) = { get: "/v1/peers/info/{peer_name}" };
+    option (google.api.http) = {
+      get : "/v1/peers/info/{peer_name}"
+    };
   }
   rpc ListPeers(ListPeersRequest) returns (ListPeersResponse) {
-    option (google.api.http) = { get: "/v1/peers/list" };
+    option (google.api.http) = {
+      get : "/v1/peers/list"
+    };
   }
 
   rpc GetVersion(PeerDBVersionRequest) returns (PeerDBVersionResponse) {
-    option (google.api.http) = { get: "/v1/version" };
+    option (google.api.http) = {
+      get : "/v1/version"
+    };
   }
 
   rpc ResyncMirror(ResyncMirrorRequest) returns (ResyncMirrorResponse) {
-    option (google.api.http) = { post: "/v1/mirrors/resync", body: "*" };
+    option (google.api.http) = {
+      post : "/v1/mirrors/resync",
+      body : "*"
+    };
   }
 
   rpc GetInstanceInfo(InstanceInfoRequest) returns (InstanceInfoResponse) {
-    option (google.api.http) = { get: "/v1/instance/info" };
+    option (google.api.http) = {
+      get : "/v1/instance/info"
+    };
   }
 
   rpc Maintenance(MaintenanceRequest) returns (MaintenanceResponse) {
-    option (google.api.http) = { post: "/v1/instance/maintenance", body: "*" };
+    option (google.api.http) = {
+      post : "/v1/instance/maintenance",
+      body : "*"
+    };
+  }
+
+  rpc CreateOrReplaceFlowTags(CreateOrReplaceFlowTagsRequest)
+      returns (CreateOrReplaceFlowTagsResponse) {
+    option (google.api.http) = {
+      post : "/v1/flows/tags",
+      body : "*"
+    };
+  }
+
+  rpc GetFlowTags(GetFlowTagsRequest) returns (GetFlowTagsResponse) {
+    option (google.api.http) = {
+      get : "/v1/flows/tags/{flow_name}"
+    };
   }
 }

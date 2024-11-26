@@ -35,9 +35,18 @@ type WorkerSetupOptions struct {
 }
 
 type workerSetupResponse struct {
-	Client  client.Client
-	Worker  worker.Worker
-	Cleanup func()
+	Client      client.Client
+	Worker      worker.Worker
+	OtelManager *otel_metrics.OtelManager
+}
+
+func (w *workerSetupResponse) Close() {
+	w.Client.Close()
+	if w.OtelManager != nil {
+		if err := w.OtelManager.Close(context.Background()); err != nil {
+			slog.Error("Failed to shutdown metrics provider", slog.Any("error", err))
+		}
+	}
 }
 
 func setupPyroscope(opts *WorkerSetupOptions) {
@@ -148,7 +157,6 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 	})
 	peerflow.RegisterFlowWorkerWorkflows(w)
 
-	cleanupOtelManagerFunc := func() {}
 	var otelManager *otel_metrics.OtelManager
 	if opts.EnableOtelMetrics {
 		metricsProvider, metricsErr := otel_metrics.SetupPeerDBMetricsProvider("flow-worker")
@@ -160,12 +168,7 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 			Meter:              metricsProvider.Meter("io.peerdb.flow-worker"),
 			Float64GaugesCache: make(map[string]metric.Float64Gauge),
 			Int64GaugesCache:   make(map[string]metric.Int64Gauge),
-		}
-		cleanupOtelManagerFunc = func() {
-			shutDownErr := otelManager.MetricsProvider.Shutdown(context.Background())
-			if shutDownErr != nil {
-				slog.Error("Failed to shutdown metrics provider", slog.Any("error", shutDownErr))
-			}
+			Int64CountersCache: make(map[string]metric.Int64Counter),
 		}
 	}
 	w.RegisterActivity(&activities.FlowableActivity{
@@ -182,11 +185,8 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 	})
 
 	return &workerSetupResponse{
-		Client: c,
-		Worker: w,
-		Cleanup: func() {
-			cleanupOtelManagerFunc()
-			c.Close()
-		},
+		Client:      c,
+		Worker:      w,
+		OtelManager: otelManager,
 	}, nil
 }

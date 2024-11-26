@@ -23,7 +23,7 @@ import (
 	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_gauges"
+	"github.com/PeerDB-io/peer-flow/otel_metrics"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -85,7 +85,7 @@ type CDCPullConnectorCore interface {
 		alerter *alerting.Alerter,
 		catalogPool *pgxpool.Pool,
 		alertKeys *alerting.AlertKeys,
-		slotMetricGauges peerdb_gauges.SlotMetricGauges,
+		slotMetricGauges otel_metrics.SlotMetricGauges,
 	) error
 
 	// GetSlotInfo returns the WAL (or equivalent) info of a slot for the connector.
@@ -102,7 +102,12 @@ type CDCPullConnector interface {
 	CDCPullConnectorCore
 
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
-	PullRecords(ctx context.Context, catalogPool *pgxpool.Pool, req *model.PullRecordsRequest[model.RecordItems]) error
+	PullRecords(
+		ctx context.Context,
+		catalogPool *pgxpool.Pool,
+		otelManager *otel_metrics.OtelManager,
+		req *model.PullRecordsRequest[model.RecordItems],
+	) error
 }
 
 type CDCPullPgConnector interface {
@@ -110,7 +115,12 @@ type CDCPullPgConnector interface {
 
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
 	// It's signature, aside from type parameter, should match CDCPullConnector.PullRecords.
-	PullPg(ctx context.Context, catalogPool *pgxpool.Pool, req *model.PullRecordsRequest[model.PgItems]) error
+	PullPg(
+		ctx context.Context,
+		catalogPool *pgxpool.Pool,
+		otelManager *otel_metrics.OtelManager,
+		req *model.PullRecordsRequest[model.PgItems],
+	) error
 }
 
 type NormalizedTablesConnector interface {
