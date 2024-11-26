@@ -45,6 +45,21 @@ type OtelManager struct {
 	Int64CountersCache map[string]metric.Int64Counter
 }
 
+func NewOtelManager() (*OtelManager, error) {
+	metricsProvider, err := SetupPeerDBMetricsProvider("flow-worker")
+	if err != nil {
+		return nil, err
+	}
+
+	return &OtelManager{
+		MetricsProvider:    metricsProvider,
+		Meter:              metricsProvider.Meter("io.peerdb.flow-worker"),
+		Float64GaugesCache: make(map[string]metric.Float64Gauge),
+		Int64GaugesCache:   make(map[string]metric.Int64Gauge),
+		Int64CountersCache: make(map[string]metric.Int64Counter),
+	}, nil
+}
+
 func (om *OtelManager) Close(ctx context.Context) error {
 	return om.MetricsProvider.Shutdown(ctx)
 }
