@@ -376,7 +376,7 @@ func (a *Alerter) sendTelemetryMessage(
 		logger.Warn("failed to get flow tags", slog.Any("error", err))
 	} else {
 		for key, value := range flowTags {
-			allTags = append(allTags, key, value)
+			allTags = append(allTags, fmt.Sprintf("%s:%s", key, value))
 		}
 	}
 
