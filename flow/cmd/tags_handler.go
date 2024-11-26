@@ -37,7 +37,7 @@ func (h *FlowRequestHandler) CreateOrReplaceFlowTags(
 		return nil, fmt.Errorf("flow %s does not exist", flowName)
 	}
 
-	tags := make(map[string]string)
+	tags := make(map[string]string, len(in.Tags))
 	for _, tag := range in.Tags {
 		tags[tag.Key] = tag.Value
 	}
