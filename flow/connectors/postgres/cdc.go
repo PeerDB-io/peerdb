@@ -14,6 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lib/pq/oid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 
 	connmetadata "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
@@ -22,6 +24,8 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/otel_metrics"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -41,12 +45,14 @@ type PostgresCDCSource struct {
 
 	// for storing schema delta audit logs to catalog
 	catalogPool                  *pgxpool.Pool
+	otelManager                  *otel_metrics.OtelManager
 	hushWarnUnhandledMessageType map[pglogrepl.MessageType]struct{}
 	flowJobName                  string
 }
 
 type PostgresCDCConfig struct {
 	CatalogPool            *pgxpool.Pool
+	OtelManager            *otel_metrics.OtelManager
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]model.NameAndExclude
 	TableNameSchemaMapping map[string]*protos.TableSchema
@@ -71,6 +77,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) *
 		commitLock:                   nil,
 		childToParentRelIDMapping:    cdcConfig.ChildToParentRelIDMap,
 		catalogPool:                  cdcConfig.CatalogPool,
+		otelManager:                  cdcConfig.OtelManager,
 		flowJobName:                  cdcConfig.FlowJobName,
 		hushWarnUnhandledMessageType: make(map[pglogrepl.MessageType]struct{}),
 	}
@@ -331,8 +338,7 @@ func PullCdcRecords[Items model.Items](
 			records.SignalAsEmpty()
 		}
 		logger.Info(fmt.Sprintf("[finished] PullRecords streamed %d records", cdcRecordsStorage.Len()))
-		err := cdcRecordsStorage.Close()
-		if err != nil {
+		if err := cdcRecordsStorage.Close(); err != nil {
 			logger.Warn("failed to clean up records storage", slog.Any("error", err))
 		}
 	}()
@@ -359,6 +365,16 @@ func PullCdcRecords[Items model.Items](
 			logger.Info(fmt.Sprintf("pushing the standby deadline to %s", nextStandbyMessageDeadline))
 		}
 		return nil
+	}
+
+	var fetchedBytesCounter metric.Int64Counter
+	if p.otelManager != nil {
+		var err error
+		fetchedBytesCounter, err = p.otelManager.GetOrInitInt64Counter(otel_metrics.BuildMetricName(otel_metrics.FetchedBytesCounterName),
+			metric.WithUnit("By"), metric.WithDescription("Bytes received of CopyData over replication slot"))
+		if err != nil {
+			return fmt.Errorf("could not get FetchedBytesCounter: %w", err)
+		}
 	}
 
 	pkmRequiresResponse := false
@@ -439,8 +455,7 @@ func PullCdcRecords[Items model.Items](
 		}()
 		cancel()
 
-		ctxErr := ctx.Err()
-		if ctxErr != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("consumeStream preempted: %w", ctxErr)
 		}
 
@@ -461,6 +476,13 @@ func PullCdcRecords[Items model.Items](
 		msg, ok := rawMsg.(*pgproto3.CopyData)
 		if !ok {
 			continue
+		}
+
+		if fetchedBytesCounter != nil {
+			fetchedBytesCounter.Add(ctx, int64(len(msg.Data)), metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.FlowNameKey, req.FlowJobName),
+				attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()),
+			)))
 		}
 
 		switch msg.Data[0] {
