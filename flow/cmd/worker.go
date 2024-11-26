@@ -168,6 +168,7 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 			Meter:              metricsProvider.Meter("io.peerdb.flow-worker"),
 			Float64GaugesCache: make(map[string]metric.Float64Gauge),
 			Int64GaugesCache:   make(map[string]metric.Int64Gauge),
+			Int64CountersCache: make(map[string]metric.Int64Counter),
 		}
 	}
 	w.RegisterActivity(&activities.FlowableActivity{
