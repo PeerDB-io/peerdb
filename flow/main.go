@@ -144,7 +144,7 @@ func main() {
 					if err != nil {
 						return err
 					}
-					defer res.Cleanup()
+					defer res.Close()
 					return res.Worker.Run(worker.InterruptCh())
 				},
 				Flags: []cli.Flag{

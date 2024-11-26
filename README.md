@@ -54,6 +54,14 @@ PeerDB is an ETL/ELT tool built for PostgreSQL. We implement multiple Postgres n
 
 **From a feature richness standpoint**, we support efficient syncing of tables with large (TOAST) columns. We support multiple streaming modes - Log based (CDC) based, Query based streaming etc. We provide rich data-type mapping and plan to support every possible (incl. Custom types) that Postgres supports to the best extent possible on the target data-store.
 
+### Now available natively in ClickHouse Cloud (Private Preview)
+
+PeerDB is now available natively in ClickHouse Cloud (Private Preview). Learn more about it [here](https://clickhouse.com/cloud/clickpipes/postgres-cdc-connector).
+
+<a href="https://clickhouse.com/cloud/clickpipes/postgres-cdc-connector">
+<img src="images/in-clickpipes.png" width="512" />
+</a>
+
 #### **Postgres-compatible SQL interface to do ETL**
 
 The Postgres-compatible SQL interface for ETL is unique to PeerDB and enables you to operate in a language you are familiar with. You can do ETL the same way you work with your databases.
