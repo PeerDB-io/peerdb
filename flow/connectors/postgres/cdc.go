@@ -373,7 +373,7 @@ func PullCdcRecords[Items model.Items](
 		fetchedBytesCounter, err = p.otelManager.GetOrInitInt64Counter(otel_metrics.BuildMetricName(otel_metrics.FetchedBytesCounterName),
 			metric.WithUnit("By"), metric.WithDescription("Bytes received of CopyData over replication slot"))
 		if err != nil {
-			logger.Error("Could not get FetchedBytesCounter", slog.Any("error", err))
+			return fmt.Errorf("could not get FetchedBytesCounter: %w", err)
 		}
 	}
 

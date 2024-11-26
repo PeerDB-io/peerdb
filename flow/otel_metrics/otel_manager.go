@@ -93,14 +93,6 @@ func newOtelResource(otelServiceName string, attrs ...attribute.KeyValue) (*reso
 	)
 }
 
-func setupHttpOtelMetricsExporter(ctx context.Context) (sdkmetric.Exporter, error) {
-	return otlpmetrichttp.New(ctx)
-}
-
-func setupGrpcOtelMetricsExporter(ctx context.Context) (sdkmetric.Exporter, error) {
-	return otlpmetricgrpc.New(ctx)
-}
-
 func temporalMetricsFilteringView() sdkmetric.View {
 	exportListString := peerdbenv.GetPeerDBOtelTemporalMetricsExportListEnv()
 	slog.Info("Found export list for temporal metrics", slog.String("exportList", exportListString))
@@ -154,9 +146,9 @@ func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
 	var err error
 	switch otlpMetricProtocol {
 	case "http/protobuf":
-		metricExporter, err = setupHttpOtelMetricsExporter(ctx)
+		metricExporter, err = otlpmetrichttp.New(ctx)
 	case "grpc":
-		metricExporter, err = setupGrpcOtelMetricsExporter(ctx)
+		metricExporter, err = otlpmetricgrpc.New(ctx)
 	default:
 		return nil, fmt.Errorf("unsupported otel metric protocol: %s", otlpMetricProtocol)
 	}
