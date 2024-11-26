@@ -25,7 +25,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/otel_metrics"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -481,7 +480,6 @@ func PullCdcRecords[Items model.Items](
 		if fetchedBytesCounter != nil {
 			fetchedBytesCounter.Add(ctx, int64(len(msg.Data)), metric.WithAttributeSet(attribute.NewSet(
 				attribute.String(otel_metrics.FlowNameKey, req.FlowJobName),
-				attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()),
 			)))
 		}
 
