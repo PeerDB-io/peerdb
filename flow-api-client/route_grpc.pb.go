@@ -19,45 +19,47 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	FlowService_ValidatePeer_FullMethodName        = "/peerdb_route.FlowService/ValidatePeer"
-	FlowService_ValidateCDCMirror_FullMethodName   = "/peerdb_route.FlowService/ValidateCDCMirror"
-	FlowService_CreatePeer_FullMethodName          = "/peerdb_route.FlowService/CreatePeer"
-	FlowService_DropPeer_FullMethodName            = "/peerdb_route.FlowService/DropPeer"
-	FlowService_CreateCDCFlow_FullMethodName       = "/peerdb_route.FlowService/CreateCDCFlow"
-	FlowService_CreateQRepFlow_FullMethodName      = "/peerdb_route.FlowService/CreateQRepFlow"
-	FlowService_CustomSyncFlow_FullMethodName      = "/peerdb_route.FlowService/CustomSyncFlow"
-	FlowService_GetAlertConfigs_FullMethodName     = "/peerdb_route.FlowService/GetAlertConfigs"
-	FlowService_PostAlertConfig_FullMethodName     = "/peerdb_route.FlowService/PostAlertConfig"
-	FlowService_DeleteAlertConfig_FullMethodName   = "/peerdb_route.FlowService/DeleteAlertConfig"
-	FlowService_GetDynamicSettings_FullMethodName  = "/peerdb_route.FlowService/GetDynamicSettings"
-	FlowService_PostDynamicSetting_FullMethodName  = "/peerdb_route.FlowService/PostDynamicSetting"
-	FlowService_GetScripts_FullMethodName          = "/peerdb_route.FlowService/GetScripts"
-	FlowService_PostScript_FullMethodName          = "/peerdb_route.FlowService/PostScript"
-	FlowService_DeleteScript_FullMethodName        = "/peerdb_route.FlowService/DeleteScript"
-	FlowService_CDCTableTotalCounts_FullMethodName = "/peerdb_route.FlowService/CDCTableTotalCounts"
-	FlowService_GetSchemas_FullMethodName          = "/peerdb_route.FlowService/GetSchemas"
-	FlowService_GetPublications_FullMethodName     = "/peerdb_route.FlowService/GetPublications"
-	FlowService_GetTablesInSchema_FullMethodName   = "/peerdb_route.FlowService/GetTablesInSchema"
-	FlowService_GetAllTables_FullMethodName        = "/peerdb_route.FlowService/GetAllTables"
-	FlowService_GetColumns_FullMethodName          = "/peerdb_route.FlowService/GetColumns"
-	FlowService_GetSlotInfo_FullMethodName         = "/peerdb_route.FlowService/GetSlotInfo"
-	FlowService_GetSlotLagHistory_FullMethodName   = "/peerdb_route.FlowService/GetSlotLagHistory"
-	FlowService_GetStatInfo_FullMethodName         = "/peerdb_route.FlowService/GetStatInfo"
-	FlowService_ListMirrorLogs_FullMethodName      = "/peerdb_route.FlowService/ListMirrorLogs"
-	FlowService_ListMirrors_FullMethodName         = "/peerdb_route.FlowService/ListMirrors"
-	FlowService_ListMirrorNames_FullMethodName     = "/peerdb_route.FlowService/ListMirrorNames"
-	FlowService_FlowStateChange_FullMethodName     = "/peerdb_route.FlowService/FlowStateChange"
-	FlowService_MirrorStatus_FullMethodName        = "/peerdb_route.FlowService/MirrorStatus"
-	FlowService_GetCDCBatches_FullMethodName       = "/peerdb_route.FlowService/GetCDCBatches"
-	FlowService_CDCBatches_FullMethodName          = "/peerdb_route.FlowService/CDCBatches"
-	FlowService_CDCGraph_FullMethodName            = "/peerdb_route.FlowService/CDCGraph"
-	FlowService_InitialLoadSummary_FullMethodName  = "/peerdb_route.FlowService/InitialLoadSummary"
-	FlowService_GetPeerInfo_FullMethodName         = "/peerdb_route.FlowService/GetPeerInfo"
-	FlowService_ListPeers_FullMethodName           = "/peerdb_route.FlowService/ListPeers"
-	FlowService_GetVersion_FullMethodName          = "/peerdb_route.FlowService/GetVersion"
-	FlowService_ResyncMirror_FullMethodName        = "/peerdb_route.FlowService/ResyncMirror"
-	FlowService_GetInstanceInfo_FullMethodName     = "/peerdb_route.FlowService/GetInstanceInfo"
-	FlowService_Maintenance_FullMethodName         = "/peerdb_route.FlowService/Maintenance"
+	FlowService_ValidatePeer_FullMethodName            = "/peerdb_route.FlowService/ValidatePeer"
+	FlowService_ValidateCDCMirror_FullMethodName       = "/peerdb_route.FlowService/ValidateCDCMirror"
+	FlowService_CreatePeer_FullMethodName              = "/peerdb_route.FlowService/CreatePeer"
+	FlowService_DropPeer_FullMethodName                = "/peerdb_route.FlowService/DropPeer"
+	FlowService_CreateCDCFlow_FullMethodName           = "/peerdb_route.FlowService/CreateCDCFlow"
+	FlowService_CreateQRepFlow_FullMethodName          = "/peerdb_route.FlowService/CreateQRepFlow"
+	FlowService_CustomSyncFlow_FullMethodName          = "/peerdb_route.FlowService/CustomSyncFlow"
+	FlowService_GetAlertConfigs_FullMethodName         = "/peerdb_route.FlowService/GetAlertConfigs"
+	FlowService_PostAlertConfig_FullMethodName         = "/peerdb_route.FlowService/PostAlertConfig"
+	FlowService_DeleteAlertConfig_FullMethodName       = "/peerdb_route.FlowService/DeleteAlertConfig"
+	FlowService_GetDynamicSettings_FullMethodName      = "/peerdb_route.FlowService/GetDynamicSettings"
+	FlowService_PostDynamicSetting_FullMethodName      = "/peerdb_route.FlowService/PostDynamicSetting"
+	FlowService_GetScripts_FullMethodName              = "/peerdb_route.FlowService/GetScripts"
+	FlowService_PostScript_FullMethodName              = "/peerdb_route.FlowService/PostScript"
+	FlowService_DeleteScript_FullMethodName            = "/peerdb_route.FlowService/DeleteScript"
+	FlowService_CDCTableTotalCounts_FullMethodName     = "/peerdb_route.FlowService/CDCTableTotalCounts"
+	FlowService_GetSchemas_FullMethodName              = "/peerdb_route.FlowService/GetSchemas"
+	FlowService_GetPublications_FullMethodName         = "/peerdb_route.FlowService/GetPublications"
+	FlowService_GetTablesInSchema_FullMethodName       = "/peerdb_route.FlowService/GetTablesInSchema"
+	FlowService_GetAllTables_FullMethodName            = "/peerdb_route.FlowService/GetAllTables"
+	FlowService_GetColumns_FullMethodName              = "/peerdb_route.FlowService/GetColumns"
+	FlowService_GetSlotInfo_FullMethodName             = "/peerdb_route.FlowService/GetSlotInfo"
+	FlowService_GetSlotLagHistory_FullMethodName       = "/peerdb_route.FlowService/GetSlotLagHistory"
+	FlowService_GetStatInfo_FullMethodName             = "/peerdb_route.FlowService/GetStatInfo"
+	FlowService_ListMirrorLogs_FullMethodName          = "/peerdb_route.FlowService/ListMirrorLogs"
+	FlowService_ListMirrors_FullMethodName             = "/peerdb_route.FlowService/ListMirrors"
+	FlowService_ListMirrorNames_FullMethodName         = "/peerdb_route.FlowService/ListMirrorNames"
+	FlowService_FlowStateChange_FullMethodName         = "/peerdb_route.FlowService/FlowStateChange"
+	FlowService_MirrorStatus_FullMethodName            = "/peerdb_route.FlowService/MirrorStatus"
+	FlowService_GetCDCBatches_FullMethodName           = "/peerdb_route.FlowService/GetCDCBatches"
+	FlowService_CDCBatches_FullMethodName              = "/peerdb_route.FlowService/CDCBatches"
+	FlowService_CDCGraph_FullMethodName                = "/peerdb_route.FlowService/CDCGraph"
+	FlowService_InitialLoadSummary_FullMethodName      = "/peerdb_route.FlowService/InitialLoadSummary"
+	FlowService_GetPeerInfo_FullMethodName             = "/peerdb_route.FlowService/GetPeerInfo"
+	FlowService_ListPeers_FullMethodName               = "/peerdb_route.FlowService/ListPeers"
+	FlowService_GetVersion_FullMethodName              = "/peerdb_route.FlowService/GetVersion"
+	FlowService_ResyncMirror_FullMethodName            = "/peerdb_route.FlowService/ResyncMirror"
+	FlowService_GetInstanceInfo_FullMethodName         = "/peerdb_route.FlowService/GetInstanceInfo"
+	FlowService_Maintenance_FullMethodName             = "/peerdb_route.FlowService/Maintenance"
+	FlowService_CreateOrReplaceFlowTags_FullMethodName = "/peerdb_route.FlowService/CreateOrReplaceFlowTags"
+	FlowService_GetFlowTags_FullMethodName             = "/peerdb_route.FlowService/GetFlowTags"
 )
 
 // FlowServiceClient is the client API for FlowService service.
@@ -103,6 +105,8 @@ type FlowServiceClient interface {
 	ResyncMirror(ctx context.Context, in *ResyncMirrorRequest, opts ...grpc.CallOption) (*ResyncMirrorResponse, error)
 	GetInstanceInfo(ctx context.Context, in *InstanceInfoRequest, opts ...grpc.CallOption) (*InstanceInfoResponse, error)
 	Maintenance(ctx context.Context, in *MaintenanceRequest, opts ...grpc.CallOption) (*MaintenanceResponse, error)
+	CreateOrReplaceFlowTags(ctx context.Context, in *CreateOrReplaceFlowTagsRequest, opts ...grpc.CallOption) (*CreateOrReplaceFlowTagsResponse, error)
+	GetFlowTags(ctx context.Context, in *GetFlowTagsRequest, opts ...grpc.CallOption) (*GetFlowTagsResponse, error)
 }
 
 type flowServiceClient struct {
@@ -464,6 +468,24 @@ func (c *flowServiceClient) Maintenance(ctx context.Context, in *MaintenanceRequ
 	return out, nil
 }
 
+func (c *flowServiceClient) CreateOrReplaceFlowTags(ctx context.Context, in *CreateOrReplaceFlowTagsRequest, opts ...grpc.CallOption) (*CreateOrReplaceFlowTagsResponse, error) {
+	out := new(CreateOrReplaceFlowTagsResponse)
+	err := c.cc.Invoke(ctx, FlowService_CreateOrReplaceFlowTags_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) GetFlowTags(ctx context.Context, in *GetFlowTagsRequest, opts ...grpc.CallOption) (*GetFlowTagsResponse, error) {
+	out := new(GetFlowTagsResponse)
+	err := c.cc.Invoke(ctx, FlowService_GetFlowTags_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FlowServiceServer is the server API for FlowService service.
 // All implementations must embed UnimplementedFlowServiceServer
 // for forward compatibility
@@ -507,6 +529,8 @@ type FlowServiceServer interface {
 	ResyncMirror(context.Context, *ResyncMirrorRequest) (*ResyncMirrorResponse, error)
 	GetInstanceInfo(context.Context, *InstanceInfoRequest) (*InstanceInfoResponse, error)
 	Maintenance(context.Context, *MaintenanceRequest) (*MaintenanceResponse, error)
+	CreateOrReplaceFlowTags(context.Context, *CreateOrReplaceFlowTagsRequest) (*CreateOrReplaceFlowTagsResponse, error)
+	GetFlowTags(context.Context, *GetFlowTagsRequest) (*GetFlowTagsResponse, error)
 	mustEmbedUnimplementedFlowServiceServer()
 }
 
@@ -630,6 +654,12 @@ func (UnimplementedFlowServiceServer) GetInstanceInfo(context.Context, *Instance
 }
 func (UnimplementedFlowServiceServer) Maintenance(context.Context, *MaintenanceRequest) (*MaintenanceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Maintenance not implemented")
+}
+func (UnimplementedFlowServiceServer) CreateOrReplaceFlowTags(context.Context, *CreateOrReplaceFlowTagsRequest) (*CreateOrReplaceFlowTagsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateOrReplaceFlowTags not implemented")
+}
+func (UnimplementedFlowServiceServer) GetFlowTags(context.Context, *GetFlowTagsRequest) (*GetFlowTagsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetFlowTags not implemented")
 }
 func (UnimplementedFlowServiceServer) mustEmbedUnimplementedFlowServiceServer() {}
 
@@ -1346,6 +1376,42 @@ func _FlowService_Maintenance_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_CreateOrReplaceFlowTags_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateOrReplaceFlowTagsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).CreateOrReplaceFlowTags(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_CreateOrReplaceFlowTags_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).CreateOrReplaceFlowTags(ctx, req.(*CreateOrReplaceFlowTagsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_GetFlowTags_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetFlowTagsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).GetFlowTags(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_GetFlowTags_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).GetFlowTags(ctx, req.(*GetFlowTagsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // FlowService_ServiceDesc is the grpc.ServiceDesc for FlowService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1508,6 +1574,14 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Maintenance",
 			Handler:    _FlowService_Maintenance_Handler,
+		},
+		{
+			MethodName: "CreateOrReplaceFlowTags",
+			Handler:    _FlowService_CreateOrReplaceFlowTags_Handler,
+		},
+		{
+			MethodName: "GetFlowTags",
+			Handler:    _FlowService_GetFlowTags_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
