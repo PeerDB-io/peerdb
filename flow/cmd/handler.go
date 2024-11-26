@@ -298,12 +298,9 @@ func (h *FlowRequestHandler) shutdownFlow(
 		return fmt.Errorf("unable to start DropFlow workflow: %w", err)
 	}
 
-	cancelCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-
 	errChan := make(chan error, 1)
 	go func() {
-		errChan <- dropFlowHandle.Get(cancelCtx, nil)
+		errChan <- dropFlowHandle.Get(ctx, nil)
 	}()
 
 	select {
