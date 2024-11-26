@@ -83,7 +83,10 @@ func (om *OtelManager) GetOrInitInt64Counter(name string, opts ...metric.Int64Co
 
 // newOtelResource returns a resource describing this application.
 func newOtelResource(otelServiceName string, attrs ...attribute.KeyValue) (*resource.Resource, error) {
-	allAttrs := append([]attribute.KeyValue{semconv.ServiceNameKey.String(otelServiceName)}, attrs...)
+	allAttrs := append([]attribute.KeyValue{
+		semconv.ServiceNameKey.String(otelServiceName),
+		attribute.String(DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()),
+	}, attrs...)
 	return resource.Merge(
 		resource.Default(),
 		resource.NewWithAttributes(
@@ -181,7 +184,7 @@ func SetupPeerDBMetricsProvider(otelServiceName string) (*sdkmetric.MeterProvide
 }
 
 func SetupTemporalMetricsProvider(otelServiceName string) (*sdkmetric.MeterProvider, error) {
-	otelResource, err := newOtelResource(otelServiceName, attribute.String(DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()))
+	otelResource, err := newOtelResource(otelServiceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}

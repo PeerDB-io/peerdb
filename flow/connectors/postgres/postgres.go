@@ -1223,8 +1223,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 			attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
 			attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
 			attribute.String(otel_metrics.SlotNameKey, alertKeys.SlotName),
-			attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())),
-		))
+		)))
 	} else {
 		logger.Warn("warning: slotMetricGauges.SlotLagGauge is nil")
 	}
@@ -1241,7 +1240,6 @@ func (c *PostgresConnector) HandleSlotInfo(
 		slotMetricGauges.OpenConnectionsGauge.Record(ctx, res.CurrentOpenConnections, metric.WithAttributeSet(attribute.NewSet(
 			attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
 			attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
-			attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()),
 		)))
 	} else {
 		logger.Warn("warning: slotMetricGauges.OpenConnectionsGauge is nil")
@@ -1257,7 +1255,6 @@ func (c *PostgresConnector) HandleSlotInfo(
 			metric.WithAttributeSet(attribute.NewSet(
 				attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
 				attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
-				attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()),
 			)),
 		)
 	} else {
@@ -1281,7 +1278,6 @@ func (c *PostgresConnector) HandleSlotInfo(
 				metric.WithAttributeSet(attribute.NewSet(
 					attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
 					attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
-					attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()),
 				)),
 			)
 		} else {
