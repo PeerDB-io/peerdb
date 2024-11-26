@@ -56,6 +56,9 @@ func getOrInitMetric[M any, O any](
 	name string,
 	opts ...O,
 ) (M, error) {
+	if cache == nil {
+		cache = make(map[string]M)
+	}
 	gauge, ok := cache[name]
 	if !ok {
 		var err error
