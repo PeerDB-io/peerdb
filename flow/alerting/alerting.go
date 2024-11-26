@@ -21,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/PeerDB-io/peer-flow/shared/telemetry"
+	"github.com/PeerDB-io/peer-flow/tags"
 )
 
 // alerting service, no cool name :(
@@ -366,13 +367,24 @@ func (a *Alerter) sendTelemetryMessage(
 	flowName string,
 	more string,
 	level telemetry.Level,
-	tags ...string,
+	additionalTags ...string,
 ) {
+	allTags := []string{flowName, peerdbenv.PeerDBDeploymentUID()}
+	allTags = append(allTags, additionalTags...)
+
+	if flowTags, err := tags.GetTags(ctx, a.CatalogPool, flowName); err != nil {
+		logger.Warn("failed to get flow tags", slog.Any("error", err))
+	} else {
+		for key, value := range flowTags {
+			allTags = append(allTags, key, value)
+		}
+	}
+
 	details := fmt.Sprintf("[%s] %s", flowName, more)
 	attributes := telemetry.Attributes{
 		Level:         level,
 		DeploymentUID: peerdbenv.PeerDBDeploymentUID(),
-		Tags:          append([]string{flowName, peerdbenv.PeerDBDeploymentUID()}, tags...),
+		Tags:          allTags,
 		Type:          flowName,
 	}
 
