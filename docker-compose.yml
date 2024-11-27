@@ -32,7 +32,7 @@ x-flow-worker-env: &flow-worker-env
 services:
   catalog:
     container_name: catalog
-    image: postgres:17-alpine@sha256:0d9624535618a135c5453258fd629f4963390338b11aaffb92292c12df3a6c17
+    image: postgres:17-alpine@sha256:e7897baa70dae1968d23d785adb4aeb699175e0bcaae44f98a7083ecb9668b93
     command: -c config_file=/etc/postgresql.conf
     restart: unless-stopped
     ports:
@@ -112,7 +112,7 @@ services:
 
   flow-api:
     container_name: flow_api
-    image: ghcr.io/peerdb-io/flow-api:stable-v0.19.1
+    image: ghcr.io/peerdb-io/flow-api:stable-v0.19.1@sha256:a759b2d1b14f11d09ade672c268abcb456fd8884468547ea0f467cdfb60a0994
     restart: unless-stopped
     ports:
       - 8112:8112
@@ -128,7 +128,7 @@ services:
 
   flow-snapshot-worker:
     container_name: flow-snapshot-worker
-    image: ghcr.io/peerdb-io/flow-snapshot-worker:stable-v0.19.1
+    image: ghcr.io/peerdb-io/flow-snapshot-worker:stable-v0.19.1@sha256:894c1fea1cf9a4f5622420d8630509243b60cf177e107ec4d14d7294a9490451
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
@@ -138,7 +138,7 @@ services:
 
   flow-worker:
     container_name: flow-worker
-    image: ghcr.io/peerdb-io/flow-worker:stable-v0.19.1
+    image: ghcr.io/peerdb-io/flow-worker:stable-v0.19.1@sha256:4482314bd3bd4a96930fbee10c00a9f2d5764e86cfd8802642589d339cf04054
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
@@ -151,7 +151,7 @@ services:
   peerdb:
     container_name: peerdb-server
     stop_signal: SIGINT
-    image: ghcr.io/peerdb-io/peerdb-server:stable-v0.19.1
+    image: ghcr.io/peerdb-io/peerdb-server:stable-v0.19.1@sha256:c736500e0b42f100df29af43ecf4c96d0c8f4805dd294fecd0bb4ce7b7897a18
     restart: unless-stopped
     environment:
       <<: *catalog-config
@@ -167,7 +167,7 @@ services:
 
   peerdb-ui:
     container_name: peerdb-ui
-    image: ghcr.io/peerdb-io/peerdb-ui:stable-v0.19.1
+    image: ghcr.io/peerdb-io/peerdb-ui:stable-v0.19.1@sha256:ffc4b5960dc1653a59e680c61fca0ba2c5891cb4965e4662927d9886f4d7f6bc
     restart: unless-stopped
     ports:
       - 3000:3000
