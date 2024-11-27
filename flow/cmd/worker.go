@@ -10,7 +10,6 @@ import (
 	"runtime"
 
 	"github.com/grafana/pyroscope-go"
-	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/client"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
 	"go.temporal.io/sdk/worker"
@@ -159,18 +158,12 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 
 	var otelManager *otel_metrics.OtelManager
 	if opts.EnableOtelMetrics {
-		metricsProvider, metricsErr := otel_metrics.SetupPeerDBMetricsProvider("flow-worker")
-		if metricsErr != nil {
-			return nil, metricsErr
-		}
-		otelManager = &otel_metrics.OtelManager{
-			MetricsProvider:    metricsProvider,
-			Meter:              metricsProvider.Meter("io.peerdb.flow-worker"),
-			Float64GaugesCache: make(map[string]metric.Float64Gauge),
-			Int64GaugesCache:   make(map[string]metric.Int64Gauge),
-			Int64CountersCache: make(map[string]metric.Int64Counter),
+		otelManager, err = otel_metrics.NewOtelManager()
+		if err != nil {
+			return nil, fmt.Errorf("unable to create otel manager: %w", err)
 		}
 	}
+
 	w.RegisterActivity(&activities.FlowableActivity{
 		CatalogPool: conn,
 		Alerter:     alerting.NewAlerter(context.Background(), conn),
