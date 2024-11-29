@@ -27,7 +27,7 @@ func cleanPostgres(conn *pgx.Conn, suffix string) error {
 	// drop all open slots with the given suffix
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-	deadline := time.Now().Add(2 * time.Minute)
+	deadline := time.Now().Add(1 * time.Minute)
 	for {
 		_, err := conn.Exec(
 			context.Background(),
