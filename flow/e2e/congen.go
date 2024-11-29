@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
@@ -23,12 +25,26 @@ func cleanPostgres(conn *pgx.Conn, suffix string) error {
 	}
 
 	// drop all open slots with the given suffix
-	if _, err := conn.Exec(
-		context.Background(),
-		"SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name LIKE $1",
-		"%_"+suffix,
-	); err != nil {
-		return fmt.Errorf("failed to drop replication slots: %w", err)
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	deadline := time.Now().Add(2 * time.Minute)
+	for {
+		_, err := conn.Exec(
+			context.Background(),
+			"SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name LIKE $1",
+			"%_"+suffix,
+		)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("failed to drop replication slots: %w", err)
+		}
+		var pgxErr *pgconn.PgError
+		if !errors.As(err, &pgxErr) || pgxErr.Code != pgerrcode.ObjectInUse {
+			return fmt.Errorf("failed to drop replication slots: %w", err)
+		}
+		<-ticker.C
 	}
 
 	// list all publications from pg_publication table
