@@ -93,6 +93,12 @@ const QREP_OPTIONS: &[QRepOptionType] = &[
         default_value: false,
         required: false,
     },
+    QRepOptionType::String {
+        name: "watermark_query",
+        default_val: Some(""),
+        required: true,
+        accepted_values: None,
+    },
 ];
 
 pub fn process_options(

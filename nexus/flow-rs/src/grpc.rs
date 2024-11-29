@@ -173,6 +173,7 @@ impl FlowGrpcClient {
                 Value::String(s) => match key.as_str() {
                     "destination_table_name" => cfg.destination_table_identifier.clone_from(s),
                     "watermark_column" => cfg.watermark_column.clone_from(s),
+                    "watermark_query" => cfg.watermark_query.clone_from(s),
                     "watermark_table_name" => cfg.watermark_table.clone_from(s),
                     "mode" => {
                         let mut wm = QRepWriteMode {
