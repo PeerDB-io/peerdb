@@ -81,13 +81,17 @@ func getColName(overrides map[string]string, name string) string {
 	return name
 }
 
-func getClickhouseTypeForNumericColumn(column *protos.FieldDescription) string {
+func getClickhouseTypeForNumericColumn(ctx context.Context, column *protos.FieldDescription) (string, error) {
 	rawPrecision, _ := datatypes.ParseNumericTypmod(column.TypeModifier)
-	if rawPrecision > datatypes.PeerDBClickHouseMaxPrecision {
-		return "String"
+	numericAsStringEnabled, err := peerdbenv.PeerDBEnableClickHouseNumericAsString(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	if numericAsStringEnabled && rawPrecision > datatypes.PeerDBClickHouseMaxPrecision {
+		return "String", nil
 	} else {
 		precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
-		return fmt.Sprintf("Decimal(%d, %d)", precision, scale)
+		return fmt.Sprintf("Decimal(%d, %d)", precision, scale), nil
 	}
 }
 
@@ -143,7 +147,11 @@ func generateCreateTableSQLForNormalizedTable(
 
 		if clickHouseType == "" {
 			if colType == qvalue.QValueKindNumeric {
-				clickHouseType = getClickhouseTypeForNumericColumn(column)
+				var numericErr error
+				clickHouseType, numericErr = getClickhouseTypeForNumericColumn(ctx, column)
+				if numericErr != nil {
+					return "", fmt.Errorf("error while mapping numeric column type to ClickHouse type: %w", numericErr)
+				}
 			} else {
 				var err error
 				clickHouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
@@ -369,7 +377,12 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			colSelector.WriteString(fmt.Sprintf("`%s`,", dstColName))
 			if clickHouseType == "" {
 				if colType == qvalue.QValueKindNumeric {
-					clickHouseType = getClickhouseTypeForNumericColumn(column)
+					var numericErr error
+					clickHouseType, numericErr = getClickhouseTypeForNumericColumn(ctx, column)
+					if numericErr != nil {
+						close(queries)
+						return nil, fmt.Errorf("error while mapping numeric column type to clickhouse type: %w", numericErr)
+					}
 				} else {
 					var err error
 					clickHouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
