@@ -165,13 +165,9 @@ func generateCreateTableSQLForNormalizedTable(
 		stmtBuilder.WriteString(fmt.Sprintf("`%s` DateTime64(9) DEFAULT now64(), ", colName))
 	}
 
-	var engine string
-	if tableMapping == nil {
-		engine = fmt.Sprintf("ReplacingMergeTree(`%s`)", versionColName)
-	} else if tableMapping.Engine == protos.TableEngine_CH_ENGINE_MERGE_TREE {
+	engine := fmt.Sprintf("ReplacingMergeTree(`%s`)", versionColName)
+	if tableMapping != nil && tableMapping.Engine == protos.TableEngine_CH_ENGINE_MERGE_TREE {
 		engine = "MergeTree()"
-	} else {
-		engine = fmt.Sprintf("ReplacingMergeTree(`%s`)", versionColName)
 	}
 
 	// add sign and version columns
@@ -280,6 +276,17 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		return nil, err
 	}
 
+	useJSON, err := c.peerdbDataTypeIsJSON(ctx, req.FlowJobName)
+	if err != nil {
+		c.logger.Error("[clickhouse] error while checking data type of _peerdb_data", "error", err)
+		return nil, err
+	}
+	if useJSON {
+		if err := c.enableExperimentalJSONType(ctx); err != nil {
+			return nil, err
+		}
+	}
+
 	enablePrimaryUpdate, err := peerdbenv.PeerDBEnableClickHousePrimaryUpdate(ctx, req.Env)
 	if err != nil {
 		return nil, err
@@ -323,7 +330,6 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	}
 
 	for _, tbl := range destinationTableNames {
-		// SELECT projection FROM raw_table WHERE _peerdb_batch_id > normalize_batch_id AND _peerdb_batch_id <= sync_batch_id
 		selectQuery := strings.Builder{}
 		selectQuery.WriteString("SELECT ")
 
@@ -383,38 +389,49 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				}
 			}
 
+			jsonExtractStringData := "JSONExtractString(_peerdb_data, '%s')"
+			jsonExtractStringMatchData := "JSONExtractString(_peerdb_match_data, '%s')"
+			jsonExtractData := "JSONExtract(_peerdb_data, '%s', '%s')"
+			jsonExtractMatchData := "JSONExtract(_peerdb_match_data, '%s', '%s')"
+			if useJSON {
+				jsonExtractStringData = "_peerdb_data.'%s'"
+				jsonExtractStringMatchData = "_peerdb_match_data.'%s'"
+				jsonExtractData = "_peerdb_data.'%s'.:'%s'"
+				jsonExtractMatchData = "_peerdb_match_data.'%s'.:'%s'"
+			}
+
 			switch clickHouseType {
 			case "Date32", "Nullable(Date32)":
 				projection.WriteString(fmt.Sprintf(
-					"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'),6)) AS `%s`,",
+					"toDate32(parseDateTime64BestEffortOrNull("+jsonExtractStringData+",6)) AS `%s`,",
 					colName,
 					dstColName,
 				))
 				if enablePrimaryUpdate {
 					projectionUpdate.WriteString(fmt.Sprintf(
-						"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s'),6)) AS `%s`,",
+						"toDate32(parseDateTime64BestEffortOrNull("+jsonExtractStringMatchData+",6)) AS `%s`,",
 						colName,
 						dstColName,
 					))
 				}
 			case "DateTime64(6)", "Nullable(DateTime64(6))":
 				projection.WriteString(fmt.Sprintf(
-					"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'),6) AS `%s`,",
+					"parseDateTime64BestEffortOrNull("+jsonExtractStringData+",6) AS `%s`,",
 					colName,
 					dstColName,
 				))
 				if enablePrimaryUpdate {
 					projectionUpdate.WriteString(fmt.Sprintf(
-						"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s'),6) AS `%s`,",
+						"parseDateTime64BestEffortOrNull("+jsonExtractStringMatchData+",6) AS `%s`,",
 						colName,
 						dstColName,
 					))
 				}
 			default:
-				projection.WriteString(fmt.Sprintf("JSONExtract(_peerdb_data, '%s', '%s') AS `%s`,", colName, clickHouseType, dstColName))
+				projection.WriteString(fmt.Sprintf(jsonExtractData+" AS `%s`,", colName, clickHouseType, dstColName))
 				if enablePrimaryUpdate {
 					projectionUpdate.WriteString(fmt.Sprintf(
-						"JSONExtract(_peerdb_match_data, '%s', '%s') AS `%s`,",
+						jsonExtractMatchData+" AS `%s`,",
 						colName,
 						clickHouseType,
 						dstColName,
@@ -469,6 +486,9 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		insertIntoSelectQuery.WriteString("` ")
 		insertIntoSelectQuery.WriteString(colSelector.String())
 		insertIntoSelectQuery.WriteString(selectQuery.String())
+		if useJSON {
+			insertIntoSelectQuery.WriteString(" SETTINGS allow_experimental_json_type=1")
+		}
 
 		select {
 		case queries <- insertIntoSelectQuery.String():
@@ -533,6 +553,25 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	}
 
 	return tableNames, nil
+}
+
+func (c *ClickHouseConnector) peerdbDataTypeIsJSON(
+	ctx context.Context,
+	flowJobName string,
+) (bool, error) {
+	rawTable := c.getRawTableName(flowJobName)
+	query := fmt.Sprintf("SELECT _peerdb_data FROM %s LIMIT 0", rawTable)
+
+	rows, err := c.query(ctx, query)
+	if err != nil {
+		return false, fmt.Errorf("error while querying raw table for data type: %w", err)
+	}
+	defer rows.Close()
+	if len(rows.ColumnTypes()) == 1 && rows.ColumnTypes()[0].DatabaseTypeName() == "JSON" {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (c *ClickHouseConnector) copyAvroStageToDestination(ctx context.Context, flowJobName string, syncBatchID int64) error {
