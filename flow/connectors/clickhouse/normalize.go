@@ -81,9 +81,9 @@ func getColName(overrides map[string]string, name string) string {
 	return name
 }
 
-func getClickhouseTypeForNumericColumn(ctx context.Context, column *protos.FieldDescription) (string, error) {
+func getClickhouseTypeForNumericColumn(ctx context.Context, column *protos.FieldDescription, env map[string]string) (string, error) {
 	rawPrecision, _ := datatypes.ParseNumericTypmod(column.TypeModifier)
-	numericAsStringEnabled, err := peerdbenv.PeerDBEnableClickHouseNumericAsString(ctx, nil)
+	numericAsStringEnabled, err := peerdbenv.PeerDBEnableClickHouseNumericAsString(ctx, env)
 	if err != nil {
 		return "", err
 	}
@@ -148,7 +148,7 @@ func generateCreateTableSQLForNormalizedTable(
 		if clickHouseType == "" {
 			if colType == qvalue.QValueKindNumeric {
 				var numericErr error
-				clickHouseType, numericErr = getClickhouseTypeForNumericColumn(ctx, column)
+				clickHouseType, numericErr = getClickhouseTypeForNumericColumn(ctx, column, config.Env)
 				if numericErr != nil {
 					return "", fmt.Errorf("error while mapping numeric column type to ClickHouse type: %w", numericErr)
 				}
@@ -378,7 +378,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			if clickHouseType == "" {
 				if colType == qvalue.QValueKindNumeric {
 					var numericErr error
-					clickHouseType, numericErr = getClickhouseTypeForNumericColumn(ctx, column)
+					clickHouseType, numericErr = getClickhouseTypeForNumericColumn(ctx, column, req.Env)
 					if numericErr != nil {
 						close(queries)
 						return nil, fmt.Errorf("error while mapping numeric column type to clickhouse type: %w", numericErr)

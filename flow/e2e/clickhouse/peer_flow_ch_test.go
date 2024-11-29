@@ -11,7 +11,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peer-flow/connectors/clickhouse"
+	connclickhouse "github.com/PeerDB-io/peer-flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -568,6 +568,7 @@ func (s ClickHouseSuite) Test_Large_Numeric() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_NUMERIC_AS_STRING": "true"}
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
