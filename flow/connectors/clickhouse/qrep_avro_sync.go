@@ -51,7 +51,12 @@ func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 	if creds.AWS.SessionToken != "" {
 		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
 	}
-	query := fmt.Sprintf("INSERT INTO `%s` SELECT * FROM s3('%s','%s','%s'%s, 'Avro')",
+
+	// needed because Avro parser in CH won't allow Avro string into JSON
+	query := fmt.Sprintf(
+		`INSERT INTO "%s" SELECT * FROM s3('%s','%s','%s'%s, 'Avro', '_peerdb_uid UUID,
+		_peerdb_timestamp Int64, _peerdb_destination_table_name String, _peerdb_data String,
+		_peerdb_record_type Int, _peerdb_match_data String, _peerdb_batch_id Int64, _peerdb_unchanged_toast_columns String')`,
 		s.config.DestinationTableIdentifier, avroFileUrl,
 		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
 
