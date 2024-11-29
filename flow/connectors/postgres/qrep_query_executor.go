@@ -212,8 +212,8 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 	if err := rows.Err(); err != nil {
 		stream.Close(err)
 		qe.logger.Error("[pg_query_executor] row iteration failed",
-			slog.String("query", query), slog.Any("error", rows.Err()))
-		return 0, fmt.Errorf("[pg_query_executor] row iteration failed '%s': %w", query, rows.Err())
+			slog.String("query", query), slog.Any("error", err))
+		return 0, fmt.Errorf("[pg_query_executor] row iteration failed '%s': %w", query, err)
 	}
 
 	return numRows, nil

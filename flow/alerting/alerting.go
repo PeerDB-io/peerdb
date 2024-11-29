@@ -21,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/PeerDB-io/peer-flow/shared/telemetry"
+	"github.com/PeerDB-io/peer-flow/tags"
 )
 
 // alerting service, no cool name :(
@@ -356,7 +357,7 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId i
 		return true
 	}
 
-	logger.Info(fmt.Sprintf("Skipped sending alerts: last alert was sent at %s, which was >=%s ago", createdTimestamp.String(), dur.String()))
+	logger.Info(fmt.Sprintf("Skipped sending alerts: last alert was sent at %s, which was <=%s ago", createdTimestamp.String(), dur.String()))
 	return false
 }
 
@@ -366,13 +367,24 @@ func (a *Alerter) sendTelemetryMessage(
 	flowName string,
 	more string,
 	level telemetry.Level,
-	tags ...string,
+	additionalTags ...string,
 ) {
+	allTags := []string{flowName, peerdbenv.PeerDBDeploymentUID()}
+	allTags = append(allTags, additionalTags...)
+
+	if flowTags, err := tags.GetTags(ctx, a.CatalogPool, flowName); err != nil {
+		logger.Warn("failed to get flow tags", slog.Any("error", err))
+	} else {
+		for key, value := range flowTags {
+			allTags = append(allTags, fmt.Sprintf("%s:%s", key, value))
+		}
+	}
+
 	details := fmt.Sprintf("[%s] %s", flowName, more)
 	attributes := telemetry.Attributes{
 		Level:         level,
 		DeploymentUID: peerdbenv.PeerDBDeploymentUID(),
-		Tags:          append([]string{flowName, peerdbenv.PeerDBDeploymentUID()}, tags...),
+		Tags:          allTags,
 		Type:          flowName,
 	}
 
@@ -439,6 +451,10 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		tags = append(tags, "pgcode:"+pgErr.Code)
+	}
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		tags = append(tags, "err:Net")
 	}
 	a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR, tags...)
 }

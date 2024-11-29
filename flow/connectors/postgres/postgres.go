@@ -28,7 +28,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/otel_metrics"
-	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_gauges"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -330,17 +329,19 @@ func (c *PostgresConnector) SetLastOffset(ctx context.Context, jobName string, l
 func (c *PostgresConnector) PullRecords(
 	ctx context.Context,
 	catalogPool *pgxpool.Pool,
+	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[model.RecordItems],
 ) error {
-	return pullCore(ctx, c, catalogPool, req, qProcessor{})
+	return pullCore(ctx, c, catalogPool, otelManager, req, qProcessor{})
 }
 
 func (c *PostgresConnector) PullPg(
 	ctx context.Context,
 	catalogPool *pgxpool.Pool,
+	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[model.PgItems],
 ) error {
-	return pullCore(ctx, c, catalogPool, req, pgProcessor{})
+	return pullCore(ctx, c, catalogPool, otelManager, req, pgProcessor{})
 }
 
 // PullRecords pulls records from the source.
@@ -348,6 +349,7 @@ func pullCore[Items model.Items](
 	ctx context.Context,
 	c *PostgresConnector,
 	catalogPool *pgxpool.Pool,
+	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[Items],
 	processor replProcessor[Items],
 ) error {
@@ -414,6 +416,7 @@ func pullCore[Items model.Items](
 
 	cdc := c.NewPostgresCDCSource(&PostgresCDCConfig{
 		CatalogPool:            catalogPool,
+		OtelManager:            otelManager,
 		SrcTableIDNameMapping:  req.SrcTableIDNameMapping,
 		TableNameMapping:       req.TableNameMapping,
 		TableNameSchemaMapping: req.TableNameSchemaMapping,
@@ -435,8 +438,7 @@ func pullCore[Items model.Items](
 		return fmt.Errorf("failed to get current LSN: %w", err)
 	}
 
-	err = monitoring.UpdateLatestLSNAtSourceForCDCFlow(ctx, catalogPool, req.FlowJobName, int64(latestLSN))
-	if err != nil {
+	if err := monitoring.UpdateLatestLSNAtSourceForCDCFlow(ctx, catalogPool, req.FlowJobName, int64(latestLSN)); err != nil {
 		c.logger.Error("error updating latest LSN at source for CDC flow", slog.Any("error", err))
 		return fmt.Errorf("failed to update latest LSN at source for CDC flow: %w", err)
 	}
@@ -1197,7 +1199,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 	alerter *alerting.Alerter,
 	catalogPool *pgxpool.Pool,
 	alertKeys *alerting.AlertKeys,
-	slotMetricGauges peerdb_gauges.SlotMetricGauges,
+	slotMetricGauges otel_metrics.SlotMetricGauges,
 ) error {
 	logger := shared.LoggerFromCtx(ctx)
 
@@ -1215,12 +1217,16 @@ func (c *PostgresConnector) HandleSlotInfo(
 	logger.Info(fmt.Sprintf("Checking %s lag for %s", alertKeys.SlotName, alertKeys.PeerName),
 		slog.Float64("LagInMB", float64(slotInfo[0].LagInMb)))
 	alerter.AlertIfSlotLag(ctx, alertKeys, slotInfo[0])
-	slotMetricGauges.SlotLagGauge.Record(ctx, float64(slotInfo[0].LagInMb), metric.WithAttributeSet(attribute.NewSet(
-		attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
-		attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
-		attribute.String(otel_metrics.SlotNameKey, alertKeys.SlotName),
-		attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID())),
-	))
+
+	if slotMetricGauges.SlotLagGauge != nil {
+		slotMetricGauges.SlotLagGauge.Record(ctx, float64(slotInfo[0].LagInMb), metric.WithAttributeSet(attribute.NewSet(
+			attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+			attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+			attribute.String(otel_metrics.SlotNameKey, alertKeys.SlotName),
+		)))
+	} else {
+		logger.Warn("warning: slotMetricGauges.SlotLagGauge is nil")
+	}
 
 	// Also handles alerts for PeerDB user connections exceeding a given limit here
 	res, err := getOpenConnectionsForUser(ctx, c.conn, c.config.User)
@@ -1229,25 +1235,31 @@ func (c *PostgresConnector) HandleSlotInfo(
 		return err
 	}
 	alerter.AlertIfOpenConnections(ctx, alertKeys, res)
-	slotMetricGauges.OpenConnectionsGauge.Record(ctx, res.CurrentOpenConnections, metric.WithAttributeSet(attribute.NewSet(
-		attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
-		attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
-		attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()),
-	)))
 
+	if slotMetricGauges.OpenConnectionsGauge != nil {
+		slotMetricGauges.OpenConnectionsGauge.Record(ctx, res.CurrentOpenConnections, metric.WithAttributeSet(attribute.NewSet(
+			attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+			attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+		)))
+	} else {
+		logger.Warn("warning: slotMetricGauges.OpenConnectionsGauge is nil")
+	}
 	replicationRes, err := getOpenReplicationConnectionsForUser(ctx, c.conn, c.config.User)
 	if err != nil {
 		logger.Warn("warning: failed to get current open replication connections", "error", err)
 		return err
 	}
 
-	slotMetricGauges.OpenReplicationConnectionsGauge.Record(ctx, replicationRes.CurrentOpenConnections,
-		metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
-			attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
-			attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()),
-		)),
-	)
+	if slotMetricGauges.OpenReplicationConnectionsGauge != nil {
+		slotMetricGauges.OpenReplicationConnectionsGauge.Record(ctx, replicationRes.CurrentOpenConnections,
+			metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+				attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+			)),
+		)
+	} else {
+		logger.Warn("warning: slotMetricGauges.OpenReplicationConnectionsGauge is nil")
+	}
 
 	var intervalSinceLastNormalize *time.Duration
 	if err := alerter.CatalogPool.QueryRow(
@@ -1261,13 +1273,16 @@ func (c *PostgresConnector) HandleSlotInfo(
 		return nil
 	}
 	if intervalSinceLastNormalize != nil {
-		slotMetricGauges.IntervalSinceLastNormalizeGauge.Record(ctx, intervalSinceLastNormalize.Seconds(),
-			metric.WithAttributeSet(attribute.NewSet(
-				attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
-				attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
-				attribute.String(otel_metrics.DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()),
-			)),
-		)
+		if slotMetricGauges.IntervalSinceLastNormalizeGauge != nil {
+			slotMetricGauges.IntervalSinceLastNormalizeGauge.Record(ctx, intervalSinceLastNormalize.Seconds(),
+				metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+					attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+				)),
+			)
+		} else {
+			logger.Warn("warning: slotMetricGauges.IntervalSinceLastNormalizeGauge is nil")
+		}
 		alerter.AlertIfTooLongSinceLastNormalize(ctx, alertKeys, *intervalSinceLastNormalize)
 	}
 
