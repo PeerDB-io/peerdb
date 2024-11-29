@@ -376,10 +376,10 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			jsonExtractData := "JSONExtract(_peerdb_data, '%s', '%s')"
 			jsonExtractMatchData := "JSONExtract(_peerdb_match_data, '%s', '%s')"
 			if useJSON {
-				jsonExtractStringData = "_peerdb_data.'%s'"
-				jsonExtractStringMatchData = "_peerdb_match_data.'%s'"
-				jsonExtractData = "_peerdb_data.'%s'.:'%s'"
-				jsonExtractMatchData = "_peerdb_match_data.'%s'.:'%s'"
+				jsonExtractStringData = "_peerdb_data.`%s`"
+				jsonExtractStringMatchData = "_peerdb_match_data.`%s`"
+				jsonExtractData = "_peerdb_data.`%s`::%s"
+				jsonExtractMatchData = "_peerdb_match_data.`%s`::%s"
 			}
 
 			switch clickHouseType {
@@ -468,9 +468,6 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		insertIntoSelectQuery.WriteString("` ")
 		insertIntoSelectQuery.WriteString(colSelector.String())
 		insertIntoSelectQuery.WriteString(selectQuery.String())
-		if useJSON {
-			insertIntoSelectQuery.WriteString(" SETTINGS allow_experimental_json_type=1")
-		}
 
 		select {
 		case queries <- insertIntoSelectQuery.String():
@@ -542,18 +539,14 @@ func (c *ClickHouseConnector) peerdbDataTypeIsJSON(
 	flowJobName string,
 ) (bool, error) {
 	rawTable := c.getRawTableName(flowJobName)
-	query := fmt.Sprintf("SELECT _peerdb_data FROM %s LIMIT 0", rawTable)
 
-	rows, err := c.query(ctx, query)
-	if err != nil {
+	var isJSON bool
+	if err := c.queryRow(ctx,
+		`SELECT type='JSON' FROM system.columns
+		WHERE database=currentDatabase() AND table=? AND name='_peerdb_data'`, rawTable).Scan(&isJSON); err != nil {
 		return false, fmt.Errorf("error while querying raw table for data type: %w", err)
 	}
-	defer rows.Close()
-	if len(rows.ColumnTypes()) == 1 && rows.ColumnTypes()[0].DatabaseTypeName() == "JSON" {
-		return true, nil
-	}
-
-	return false, nil
+	return isJSON, nil
 }
 
 func (c *ClickHouseConnector) copyAvroStageToDestination(ctx context.Context, flowJobName string, syncBatchID int64) error {
