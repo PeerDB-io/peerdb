@@ -82,6 +82,12 @@ func getColName(overrides map[string]string, name string) string {
 }
 
 func getClickhouseTypeForNumericColumn(column *protos.FieldDescription) string {
+	if column.TypeModifier == -1 {
+		// use default precision and scale when unset.
+		precision, scale := datatypes.ClickHouseNumericCompatibility{}.DefaultPrecisionAndScale()
+		return fmt.Sprintf("Decimal(%d, %d)", precision, scale)
+	}
+
 	rawPrecision, _ := datatypes.ParseNumericTypmod(column.TypeModifier)
 	if rawPrecision > datatypes.PeerDBClickHouseMaxPrecision {
 		return "String"
