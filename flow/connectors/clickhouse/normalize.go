@@ -87,12 +87,20 @@ func getClickhouseTypeForNumericColumn(ctx context.Context, column *protos.Field
 	if err != nil {
 		return "", err
 	}
-	if numericAsStringEnabled && rawPrecision > datatypes.PeerDBClickHouseMaxPrecision {
-		return "String", nil
-	} else {
+
+	if column.TypeModifier == -1 {
+		if numericAsStringEnabled {
+			return "String", nil
+		}
 		precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
 		return fmt.Sprintf("Decimal(%d, %d)", precision, scale), nil
 	}
+
+	if rawPrecision > datatypes.PeerDBClickHouseMaxPrecision {
+		return "String", nil
+	}
+	precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
+	return fmt.Sprintf("Decimal(%d, %d)", precision, scale), nil
 }
 
 func generateCreateTableSQLForNormalizedTable(
