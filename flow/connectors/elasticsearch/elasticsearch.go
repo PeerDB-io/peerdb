@@ -95,7 +95,7 @@ func (esc *ElasticsearchConnector) CreateRawTable(ctx context.Context,
 }
 
 // we handle schema changes by not handling them since no mapping is being enforced right now
-func (esc *ElasticsearchConnector) ReplayTableSchemaDeltas(ctx context.Context,
+func (esc *ElasticsearchConnector) ReplayTableSchemaDeltas(ctx context.Context, env map[string]string,
 	flowJobName string, schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	return nil

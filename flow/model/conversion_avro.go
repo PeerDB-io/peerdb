@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -8,38 +9,52 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 type QRecordAvroConverter struct {
-	logger    log.Logger
-	Schema    *QRecordAvroSchemaDefinition
-	ColNames  []string
-	TargetDWH protos.DBType
+	logger                   log.Logger
+	Schema                   *QRecordAvroSchemaDefinition
+	ColNames                 []string
+	TargetDWH                protos.DBType
+	UnboundedNumericAsString bool
 }
 
 func NewQRecordAvroConverter(
+	ctx context.Context,
+	env map[string]string,
 	schema *QRecordAvroSchemaDefinition,
 	targetDWH protos.DBType,
 	colNames []string,
 	logger log.Logger,
-) *QRecordAvroConverter {
-	return &QRecordAvroConverter{
-		Schema:    schema,
-		TargetDWH: targetDWH,
-		ColNames:  colNames,
-		logger:    logger,
+) (*QRecordAvroConverter, error) {
+	var unboundedNumericAsString bool
+	if targetDWH == protos.DBType_CLICKHOUSE {
+		var err error
+		unboundedNumericAsString, err = peerdbenv.PeerDBEnableClickHouseNumericAsString(ctx, env)
+		if err != nil {
+			return nil, err
+		}
 	}
+
+	return &QRecordAvroConverter{
+		Schema:                   schema,
+		TargetDWH:                targetDWH,
+		ColNames:                 colNames,
+		logger:                   logger,
+		UnboundedNumericAsString: unboundedNumericAsString,
+	}, nil
 }
 
-func (qac *QRecordAvroConverter) Convert(qrecord []qvalue.QValue) (map[string]interface{}, error) {
-	m := make(map[string]interface{}, len(qrecord))
-
+func (qac *QRecordAvroConverter) Convert(qrecord []qvalue.QValue) (map[string]any, error) {
+	m := make(map[string]any, len(qrecord))
 	for idx, val := range qrecord {
 		avroVal, err := qvalue.QValueToAvro(
 			val,
 			&qac.Schema.Fields[idx],
 			qac.TargetDWH,
 			qac.logger,
+			qac.UnboundedNumericAsString,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert QValue to Avro-compatible value: %w", err)
@@ -52,8 +67,8 @@ func (qac *QRecordAvroConverter) Convert(qrecord []qvalue.QValue) (map[string]in
 }
 
 type QRecordAvroField struct {
-	Type interface{} `json:"type"`
-	Name string      `json:"name"`
+	Type any    `json:"type"`
+	Name string `json:"name"`
 }
 
 type QRecordAvroSchema struct {
@@ -68,6 +83,8 @@ type QRecordAvroSchemaDefinition struct {
 }
 
 func GetAvroSchemaDefinition(
+	ctx context.Context,
+	env map[string]string,
 	dstTableName string,
 	qRecordSchema qvalue.QRecordSchema,
 	targetDWH protos.DBType,
@@ -75,7 +92,7 @@ func GetAvroSchemaDefinition(
 	avroFields := make([]QRecordAvroField, 0, len(qRecordSchema.Fields))
 
 	for _, qField := range qRecordSchema.Fields {
-		avroType, err := qvalue.GetAvroSchemaFromQValueKind(qField.Type, targetDWH, qField.Precision, qField.Scale)
+		avroType, err := qvalue.GetAvroSchemaFromQValueKind(ctx, env, qField.Type, targetDWH, qField.Precision, qField.Scale)
 		if err != nil {
 			return nil, err
 		}

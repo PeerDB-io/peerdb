@@ -208,6 +208,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		WriteMode:                  snapshotWriteMode,
 		System:                     s.config.System,
 		Script:                     s.config.Script,
+		Env:                        s.config.Env,
 		ParentMirrorName:           flowName,
 	}
 
