@@ -82,7 +82,6 @@ func getColName(overrides map[string]string, name string) string {
 }
 
 func getClickhouseTypeForNumericColumn(ctx context.Context, column *protos.FieldDescription, env map[string]string) (string, error) {
-	rawPrecision, _ := datatypes.ParseNumericTypmod(column.TypeModifier)
 	if column.TypeModifier == -1 {
 		numericAsStringEnabled, err := peerdbenv.PeerDBEnableClickHouseNumericAsString(ctx, env)
 		if err != nil {
@@ -91,11 +90,7 @@ func getClickhouseTypeForNumericColumn(ctx context.Context, column *protos.Field
 		if numericAsStringEnabled {
 			return "String", nil
 		}
-		precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
-		return fmt.Sprintf("Decimal(%d, %d)", precision, scale), nil
-	}
-
-	if rawPrecision > datatypes.PeerDBClickHouseMaxPrecision {
+	} else if rawPrecision, _ := datatypes.ParseNumericTypmod(column.TypeModifier); rawPrecision > datatypes.PeerDBClickHouseMaxPrecision {
 		return "String", nil
 	}
 	precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
