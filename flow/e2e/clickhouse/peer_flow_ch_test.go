@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -624,7 +625,7 @@ func (s ClickHouseSuite) testNumericFF(ffValue bool) {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.DoInitialSnapshot = true
-	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_NUMERIC_AS_STRING": fmt.Sprint(ffValue)}
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_NUMERIC_AS_STRING": strconv.FormatBool(ffValue)}
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)

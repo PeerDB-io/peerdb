@@ -15,7 +15,6 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -81,22 +80,6 @@ func getColName(overrides map[string]string, name string) string {
 	return name
 }
 
-func getClickhouseTypeForNumericColumn(ctx context.Context, column *protos.FieldDescription, env map[string]string) (string, error) {
-	if column.TypeModifier == -1 {
-		numericAsStringEnabled, err := peerdbenv.PeerDBEnableClickHouseNumericAsString(ctx, env)
-		if err != nil {
-			return "", err
-		}
-		if numericAsStringEnabled {
-			return "String", nil
-		}
-	} else if rawPrecision, _ := datatypes.ParseNumericTypmod(column.TypeModifier); rawPrecision > datatypes.PeerDBClickHouseMaxPrecision {
-		return "String", nil
-	}
-	precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
-	return fmt.Sprintf("Decimal(%d, %d)", precision, scale), nil
-}
-
 func generateCreateTableSQLForNormalizedTable(
 	ctx context.Context,
 	config *protos.SetupNormalizedTableBatchInput,
@@ -148,18 +131,10 @@ func generateCreateTableSQLForNormalizedTable(
 		}
 
 		if clickHouseType == "" {
-			if colType == qvalue.QValueKindNumeric {
-				var numericErr error
-				clickHouseType, numericErr = getClickhouseTypeForNumericColumn(ctx, column, config.Env)
-				if numericErr != nil {
-					return "", fmt.Errorf("error while mapping numeric column type to ClickHouse type: %w", numericErr)
-				}
-			} else {
-				var err error
-				clickHouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
-				if err != nil {
-					return "", fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
-				}
+			var err error
+			clickHouseType, err = colType.ToDWHColumnType(ctx, config.Env, protos.DBType_CLICKHOUSE, column)
+			if err != nil {
+				return "", fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
 			}
 		}
 		if (tableSchema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() {
@@ -378,21 +353,13 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 			colSelector.WriteString(fmt.Sprintf("`%s`,", dstColName))
 			if clickHouseType == "" {
-				if colType == qvalue.QValueKindNumeric {
-					var numericErr error
-					clickHouseType, numericErr = getClickhouseTypeForNumericColumn(ctx, column, req.Env)
-					if numericErr != nil {
-						close(queries)
-						return nil, fmt.Errorf("error while mapping numeric column type to clickhouse type: %w", numericErr)
-					}
-				} else {
-					var err error
-					clickHouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
-					if err != nil {
-						close(queries)
-						return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
-					}
+				var err error
+				clickHouseType, err = colType.ToDWHColumnType(ctx, req.Env, protos.DBType_CLICKHOUSE, column)
+				if err != nil {
+					close(queries)
+					return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 				}
+
 				if (schema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() {
 					clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
 				}
