@@ -151,7 +151,7 @@ func TestWriteRecordsToAvroFileHappyPath(t *testing.T) {
 
 	// Call function
 	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressNone, protos.DBType_SNOWFLAKE)
-	_, err = writer.WriteRecordsToAvroFile(context.Background(), tmpfile.Name())
+	_, err = writer.WriteRecordsToAvroFile(context.Background(), nil, tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -178,7 +178,7 @@ func TestWriteRecordsToZstdAvroFileHappyPath(t *testing.T) {
 
 	// Call function
 	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressZstd, protos.DBType_SNOWFLAKE)
-	_, err = writer.WriteRecordsToAvroFile(context.Background(), tmpfile.Name())
+	_, err = writer.WriteRecordsToAvroFile(context.Background(), nil, tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -205,7 +205,7 @@ func TestWriteRecordsToDeflateAvroFileHappyPath(t *testing.T) {
 
 	// Call function
 	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressDeflate, protos.DBType_SNOWFLAKE)
-	_, err = writer.WriteRecordsToAvroFile(context.Background(), tmpfile.Name())
+	_, err = writer.WriteRecordsToAvroFile(context.Background(), nil, tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -231,7 +231,7 @@ func TestWriteRecordsToAvroFileNonNull(t *testing.T) {
 
 	// Call function
 	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressNone, protos.DBType_SNOWFLAKE)
-	_, err = writer.WriteRecordsToAvroFile(context.Background(), tmpfile.Name())
+	_, err = writer.WriteRecordsToAvroFile(context.Background(), nil, tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -258,7 +258,7 @@ func TestWriteRecordsToAvroFileAllNulls(t *testing.T) {
 
 	// Call function
 	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressNone, protos.DBType_SNOWFLAKE)
-	_, err = writer.WriteRecordsToAvroFile(context.Background(), tmpfile.Name())
+	_, err = writer.WriteRecordsToAvroFile(context.Background(), nil, tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty

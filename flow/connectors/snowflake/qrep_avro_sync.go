@@ -225,7 +225,7 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 
 		localFilePath := fmt.Sprintf("%s/%s.avro.zst", tmpDir, partitionID)
 		s.logger.Info("writing records to local file " + localFilePath)
-		avroFile, err := ocfWriter.WriteRecordsToAvroFile(ctx, localFilePath)
+		avroFile, err := ocfWriter.WriteRecordsToAvroFile(ctx, env, localFilePath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to write records to Avro file: %w", err)
 		}

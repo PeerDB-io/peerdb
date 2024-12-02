@@ -112,12 +112,17 @@ func GetAvroSchemaFromQValueKind(
 		}
 		return "bytes", nil
 	case QValueKindNumeric:
-		if targetDWH == protos.DBType_CLICKHOUSE && precision == 0 && scale == 0 {
-			asString, err := peerdbenv.PeerDBEnableClickHouseNumericAsString(ctx, env)
-			if err != nil {
-				return nil, err
+		if targetDWH == protos.DBType_CLICKHOUSE {
+			if precision == 0 && scale == 0 {
+				asString, err := peerdbenv.PeerDBEnableClickHouseNumericAsString(ctx, env)
+				if err != nil {
+					return nil, err
+				}
+				if asString {
+					return "string", nil
+				}
 			}
-			if asString {
+			if precision > datatypes.PeerDBClickHouseMaxPrecision {
 				return "string", nil
 			}
 		}
@@ -226,19 +231,24 @@ func GetAvroSchemaFromQValueKind(
 
 type QValueAvroConverter struct {
 	*QField
-	logger    log.Logger
-	TargetDWH protos.DBType
+	logger                   log.Logger
+	TargetDWH                protos.DBType
+	UnboundedNumericAsString bool
 }
 
-func QValueToAvro(value QValue, field *QField, targetDWH protos.DBType, logger log.Logger) (interface{}, error) {
+func QValueToAvro(
+	value QValue, field *QField, targetDWH protos.DBType, logger log.Logger,
+	unboundedNumericAsString bool,
+) (any, error) {
 	if value.Value() == nil {
 		return nil, nil
 	}
 
-	c := &QValueAvroConverter{
-		QField:    field,
-		TargetDWH: targetDWH,
-		logger:    logger,
+	c := QValueAvroConverter{
+		QField:                   field,
+		TargetDWH:                targetDWH,
+		logger:                   logger,
+		UnboundedNumericAsString: unboundedNumericAsString,
 	}
 
 	switch v := value.(type) {
@@ -470,18 +480,18 @@ func (c *QValueAvroConverter) processNullableUnion(
 	return value, nil
 }
 
-func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) interface{} {
+func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) any {
 	num, err := TruncateOrLogNumeric(num, c.Precision, c.Scale, c.TargetDWH)
 	if err != nil {
 		return nil
 	}
 
-	if c.TargetDWH == protos.DBType_CLICKHOUSE &&
-		c.Precision > datatypes.PeerDBClickHouseMaxPrecision {
-		// no error returned
+	if (c.UnboundedNumericAsString && c.Precision == 0 && c.Scale == 0) ||
+		(c.TargetDWH == protos.DBType_CLICKHOUSE && c.Precision > datatypes.PeerDBClickHouseMaxPrecision) {
 		numStr, _ := c.processNullableUnion("string", num.String())
 		return numStr
 	}
+
 	rat := num.Rat()
 	if c.Nullable {
 		return goavro.Union("bytes.decimal", rat)
