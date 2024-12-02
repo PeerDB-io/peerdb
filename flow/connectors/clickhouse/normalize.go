@@ -83,12 +83,11 @@ func getColName(overrides map[string]string, name string) string {
 
 func getClickhouseTypeForNumericColumn(ctx context.Context, column *protos.FieldDescription, env map[string]string) (string, error) {
 	rawPrecision, _ := datatypes.ParseNumericTypmod(column.TypeModifier)
-	numericAsStringEnabled, err := peerdbenv.PeerDBEnableClickHouseNumericAsString(ctx, env)
-	if err != nil {
-		return "", err
-	}
-
 	if column.TypeModifier == -1 {
+		numericAsStringEnabled, err := peerdbenv.PeerDBEnableClickHouseNumericAsString(ctx, env)
+		if err != nil {
+			return "", err
+		}
 		if numericAsStringEnabled {
 			return "String", nil
 		}
