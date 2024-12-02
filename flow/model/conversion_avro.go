@@ -46,7 +46,7 @@ func NewQRecordAvroConverter(
 	}, nil
 }
 
-func (qac *QRecordAvroConverter) Convert(ctx context.Context, env map[string]string, qrecord []qvalue.QValue) (map[string]any, error) {
+func (qac *QRecordAvroConverter) Convert(qrecord []qvalue.QValue) (map[string]any, error) {
 	m := make(map[string]any, len(qrecord))
 	for idx, val := range qrecord {
 		avroVal, err := qvalue.QValueToAvro(

@@ -481,7 +481,6 @@ func (c *QValueAvroConverter) processNullableUnion(
 }
 
 func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) any {
-	slog.Warn("chchch", slog.String("name", c.Name), slog.Any("c", c), slog.Any("p", c.Precision), slog.Any("s", c.Scale))
 	if (c.UnboundedNumericAsString && c.Precision == 0 && c.Scale == 0) ||
 		(c.TargetDWH == protos.DBType_CLICKHOUSE && c.Precision > datatypes.PeerDBClickHouseMaxPrecision) {
 		numStr, _ := c.processNullableUnion("string", num.String())
