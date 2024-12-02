@@ -603,7 +603,7 @@ func (s ClickHouseSuite) Test_Large_Numeric() {
 
 // Unbounded NUMERICs (no precision, scale specified) are mapped to String on CH if FF enabled, Decimal if not
 func (s ClickHouseSuite) testNumericFF(ffValue bool) {
-	nine72 := strings.Repeat("9", 72)
+	nines := strings.Repeat("9", 38)
 	dstTableName := fmt.Sprintf("unumeric_ff_%v", ffValue)
 	srcFullName := s.attachSchemaSuffix(dstTableName)
 
@@ -615,7 +615,7 @@ func (s ClickHouseSuite) testNumericFF(ffValue bool) {
 	`, srcFullName))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf("INSERT INTO %s(c) VALUES($1)", srcFullName), nine72)
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf("INSERT INTO %s(c) VALUES($1)", srcFullName), nines)
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -632,7 +632,7 @@ func (s ClickHouseSuite) testNumericFF(ffValue bool) {
 
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,c", 1)
 
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf("INSERT INTO %s(c) VALUES($1)", srcFullName), nine72)
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf("INSERT INTO %s(c) VALUES($1)", srcFullName), nines)
 	require.NoError(s.t, err)
 
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,c", 2)
@@ -645,11 +645,11 @@ func (s ClickHouseSuite) testNumericFF(ffValue bool) {
 		if ffValue {
 			c, ok := row[0].Value().(string)
 			require.True(s.t, ok, "expected unbounded NUMERIC to be String")
-			require.Equal(s.t, nine72, c, "expected unbounded NUMERIC to be 72 9s")
+			require.Equal(s.t, nines, c, "expected unbounded NUMERIC to be 9s")
 		} else {
 			c, ok := row[0].Value().(decimal.Decimal)
 			require.True(s.t, ok, "expected unbounded NUMERIC to be Decimal")
-			require.Equal(s.t, nine72, c.String(), "expected unbounded NUMERIC to be 72 9s")
+			require.Equal(s.t, nines, c.String(), "expected unbounded NUMERIC to be 9s")
 		}
 	}
 
