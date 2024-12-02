@@ -48,7 +48,7 @@ pub enum QueryAssociation {
     Catalog,
 }
 
-impl<'a> StatementAnalyzer for PeerExistanceAnalyzer<'a> {
+impl StatementAnalyzer for PeerExistanceAnalyzer<'_> {
     type Output = QueryAssociation;
 
     fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output> {
