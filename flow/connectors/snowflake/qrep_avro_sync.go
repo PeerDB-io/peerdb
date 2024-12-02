@@ -48,7 +48,7 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 
 	s.logger.Info("sync function called and schema acquired", tableLog)
 
-	avroSchema, err := s.getAvroSchema(dstTableName, schema)
+	avroSchema, err := s.getAvroSchema(ctx, env, dstTableName, schema)
 	if err != nil {
 		return 0, err
 	}
@@ -103,7 +103,7 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 		return 0, err
 	}
 
-	avroSchema, err := s.getAvroSchema(dstTableName, schema)
+	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTableName, schema)
 	if err != nil {
 		return 0, err
 	}
@@ -193,10 +193,12 @@ func (s *SnowflakeAvroSyncHandler) addMissingColumns(
 }
 
 func (s *SnowflakeAvroSyncHandler) getAvroSchema(
+	ctx context.Context,
+	env map[string]string,
 	dstTableName string,
 	schema qvalue.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
-	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema, protos.DBType_SNOWFLAKE)
+	avroSchema, err := model.GetAvroSchemaDefinition(ctx, env, dstTableName, schema, protos.DBType_SNOWFLAKE)
 	if err != nil {
 		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}

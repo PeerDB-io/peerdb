@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -68,6 +69,8 @@ type QRecordAvroSchemaDefinition struct {
 }
 
 func GetAvroSchemaDefinition(
+	ctx context.Context,
+	env map[string]string,
 	dstTableName string,
 	qRecordSchema qvalue.QRecordSchema,
 	targetDWH protos.DBType,
@@ -75,7 +78,7 @@ func GetAvroSchemaDefinition(
 	avroFields := make([]QRecordAvroField, 0, len(qRecordSchema.Fields))
 
 	for _, qField := range qRecordSchema.Fields {
-		avroType, err := qvalue.GetAvroSchemaFromQValueKind(qField.Type, targetDWH, qField.Precision, qField.Scale)
+		avroType, err := qvalue.GetAvroSchemaFromQValueKind(ctx, env, qField.Type, targetDWH, qField.Precision, qField.Scale)
 		if err != nil {
 			return nil, err
 		}

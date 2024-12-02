@@ -625,7 +625,7 @@ func (s ClickHouseSuite) testNumericFF(ffValue bool) {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.DoInitialSnapshot = true
-	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_NUMERIC_AS_STRING": strconv.FormatBool(ffValue)}
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_UNBOUNDED_NUMERIC_AS_STRING": strconv.FormatBool(ffValue)}
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
@@ -645,11 +645,11 @@ func (s ClickHouseSuite) testNumericFF(ffValue bool) {
 		if ffValue {
 			c, ok := row[0].Value().(string)
 			require.True(s.t, ok, "expected unbounded NUMERIC to be String")
-			require.Equal(s.t, nine72, c, "expected unbounded NUMERIC to be 78 9s")
+			require.Equal(s.t, nine72, c, "expected unbounded NUMERIC to be 72 9s")
 		} else {
 			c, ok := row[0].Value().(decimal.Decimal)
 			require.True(s.t, ok, "expected unbounded NUMERIC to be Decimal")
-			require.Equal(s.t, nine72, c.String(), "expected unbounded NUMERIC to be 78 9s")
+			require.Equal(s.t, nine72, c.String(), "expected unbounded NUMERIC to be 72 9s")
 		}
 	}
 

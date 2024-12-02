@@ -1,6 +1,7 @@
 package qvalue
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 type AvroSchemaField struct {
@@ -74,7 +76,14 @@ func TruncateOrLogNumeric(num decimal.Decimal, precision int16, scale int16, tar
 //
 // For example, QValueKindInt64 would return an AvroLogicalSchema of "long". Unsupported QValueKinds
 // will return an error.
-func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH protos.DBType, precision int16, scale int16) (interface{}, error) {
+func GetAvroSchemaFromQValueKind(
+	ctx context.Context,
+	env map[string]string,
+	kind QValueKind,
+	targetDWH protos.DBType,
+	precision int16,
+	scale int16,
+) (interface{}, error) {
 	switch kind {
 	case QValueKindString:
 		return "string", nil
@@ -103,13 +112,16 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH protos.DBType, preci
 		}
 		return "bytes", nil
 	case QValueKindNumeric:
-		if targetDWH == protos.DBType_CLICKHOUSE &&
-			precision > datatypes.PeerDBClickHouseMaxPrecision {
-			slog.Warn("chchch1", slog.Any("p", precision), slog.Any("s", scale))
-			return "string", nil
+		if targetDWH == protos.DBType_CLICKHOUSE && precision == 0 && scale == 0 {
+			asString, err := peerdbenv.PeerDBEnableClickHouseNumericAsString(ctx, env)
+			if err != nil {
+				return nil, err
+			}
+			if asString {
+				return "string", nil
+			}
 		}
 		avroNumericPrecision, avroNumericScale := DetermineNumericSettingForDWH(precision, scale, targetDWH)
-		slog.Warn("chchch2", slog.Any("p", precision), slog.Any("s", scale), slog.Any("p2", avroNumericPrecision), slog.Any("s2", avroNumericScale))
 		return AvroSchemaNumeric{
 			Type:        "bytes",
 			LogicalType: "decimal",

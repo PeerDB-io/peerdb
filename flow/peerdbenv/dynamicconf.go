@@ -188,7 +188,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
-		Name:             "PEERDB_CLICKHOUSE_NUMERIC_AS_STRING",
+		Name:             "PEERDB_CLICKHOUSE_UNBOUNDED_NUMERIC_AS_STRING",
 		Description:      "Map unbounded numerics in Postgres to String in ClickHouse to preserve precision and scale",
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
@@ -398,7 +398,7 @@ func PeerDBClickHouseParallelNormalize(ctx context.Context, env map[string]strin
 }
 
 func PeerDBEnableClickHouseNumericAsString(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_NUMERIC_AS_STRING")
+	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_UNBOUNDED_NUMERIC_AS_STRING")
 }
 
 func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string) (int64, error) {
