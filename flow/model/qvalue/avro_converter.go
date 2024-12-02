@@ -105,9 +105,11 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH protos.DBType, preci
 	case QValueKindNumeric:
 		if targetDWH == protos.DBType_CLICKHOUSE &&
 			precision > datatypes.PeerDBClickHouseMaxPrecision {
+			slog.Warn("chchch1", slog.Any("p", precision), slog.Any("s", scale))
 			return "string", nil
 		}
 		avroNumericPrecision, avroNumericScale := DetermineNumericSettingForDWH(precision, scale, targetDWH)
+		slog.Warn("chchch2", slog.Any("p", precision), slog.Any("s", scale), slog.Any("p2", avroNumericPrecision), slog.Any("s2", avroNumericScale))
 		return AvroSchemaNumeric{
 			Type:        "bytes",
 			LogicalType: "decimal",

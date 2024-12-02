@@ -147,7 +147,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 
 	for qrecord := range p.stream.Records {
 		if err := ctx.Err(); err != nil {
-			return numRows.Load(), ctx.Err()
+			return numRows.Load(), err
 		} else {
 			avroMap, err := avroConverter.Convert(qrecord)
 			if err != nil {
