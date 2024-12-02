@@ -102,6 +102,14 @@ func GetNumericTypeForWarehouse(typmod int32, warehouseNumeric WarehouseNumericC
 	}
 
 	precision, scale := ParseNumericTypmod(typmod)
+	return GetNumericTypeForWarehousePrecisionScale(precision, scale, warehouseNumeric)
+}
+
+func GetNumericTypeForWarehousePrecisionScale(precision int16, scale int16, warehouseNumeric WarehouseNumericCompatibility) (int16, int16) {
+	if precision == 0 && scale == 0 {
+		return warehouseNumeric.DefaultPrecisionAndScale()
+	}
+
 	if !IsValidPrecision(precision, warehouseNumeric) {
 		precision = warehouseNumeric.MaxPrecision()
 	}

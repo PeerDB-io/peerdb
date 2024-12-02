@@ -440,6 +440,7 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	})
 
 	errGroup.Go(func() error {
+		var err error
 		rowsSynced, err = syncRecords(dstConn, errCtx, config, partition, outstream)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
