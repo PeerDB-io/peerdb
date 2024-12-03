@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -131,6 +132,10 @@ func PeerDBCurrentEncKey(ctx context.Context) (shared.PeerDBEncKey, error) {
 
 func PeerDBAllowedTargets() string {
 	return GetEnvString("PEERDB_ALLOWED_TARGETS", "")
+}
+
+func PeerDBOnlyClickHouseAllowed() bool {
+	return PeerDBAllowedTargets() == strings.ToLower(protos.DBType_CLICKHOUSE.String())
 }
 
 func PeerDBClickHouseAllowedDomains() string {
