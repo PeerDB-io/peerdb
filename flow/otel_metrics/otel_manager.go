@@ -73,6 +73,8 @@ func getOrInitMetric[M any, O any](
 ) (M, error) {
 	gauge, ok := cache[name]
 	if !ok {
+		// TODO remove this post testing
+		slog.Info("Creating new metric", slog.String("name", name))
 		var err error
 		gauge, err = cons(meter, name, opts...)
 		if err != nil {
@@ -80,6 +82,9 @@ func getOrInitMetric[M any, O any](
 			return none, err
 		}
 		cache[name] = gauge
+	} else {
+		// TODO remove this post testing
+		slog.Info("Found existing metric", slog.String("name", name))
 	}
 	return gauge, nil
 }
