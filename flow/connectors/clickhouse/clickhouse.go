@@ -269,13 +269,15 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 	if peerdbenv.PeerDBAllowedTargets() == strings.ToLower(protos.DBType_CLICKHOUSE.String()) {
 		// this is to indicate ClickHouse Cloud service is now creating tables with Shared* by default
 		var cloudModeEngine bool
-		if err := conn.QueryRow(ctx, "SELECT value='2' AND changed='1' AND readonly='1' FROM system.settings WHERE name = 'cloud_mode_engine'").Scan(&cloudModeEngine); err != nil {
+		if err := conn.QueryRow(ctx,
+			"SELECT value='2' AND changed='1' AND readonly='1' FROM system.settings WHERE name = 'cloud_mode_engine'").
+			Scan(&cloudModeEngine); err != nil {
 			conn.Close()
 			return nil, fmt.Errorf("failed to validate cloud_mode_engine setting: %w", err)
 		}
 		if !cloudModeEngine {
 			conn.Close()
-			return nil, errors.New("ClickHouse service is not migrated to use SharedMergeTree tables, please contact support.")
+			return nil, errors.New("ClickHouse service is not migrated to use SharedMergeTree tables, please contact support")
 		}
 	}
 
